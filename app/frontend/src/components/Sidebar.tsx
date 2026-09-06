@@ -22,6 +22,7 @@ import {
   Layers,
   ListChecks,
   Compass,
+  Flame,
 } from "lucide-react";
 import type { ComponentType } from "react";
 import { inbox } from "@/lib/inbox";
@@ -36,6 +37,7 @@ interface NavItem {
 const NAV: NavItem[] = [
   { href: "/", label: "Improve", icon: Sparkles },
   { href: "/tour", label: "Tour", icon: Compass },
+  { href: "/appetite", label: "Appetite", icon: Flame },
   { href: "/objectives", label: "Objectives", icon: Target },
   { href: "/progress", label: "Progress", icon: LineChart },
   { href: "/inbox", label: "Inbox", icon: InboxIcon },

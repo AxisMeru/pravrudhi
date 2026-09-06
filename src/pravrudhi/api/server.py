@@ -329,10 +329,9 @@ def create_app(root: Path) -> FastAPI:
         reason, never a number nobody computed."""
         from pravrudhi.application import kshudha
 
-        drives = kshudha.measure(root)
-        state = kshudha.select(drives, state=kshudha.load_state(root))
+        state = kshudha.current(root)
         return AppetiteResponse.model_validate(
-            {"drives": [d.to_dict() for d in drives], "appetite": state.to_dict(),
+            {"drives": [d.to_dict() for d in state.drives], "appetite": state.to_dict(),
              "sentence": kshudha.sentence(state)}
         )
 

@@ -138,6 +138,17 @@ class Drive:
         return self.weight * self.deficit if self.deficit is not None else 0.0
 
 
+    @staticmethod
+    def from_dict(d: dict[str, Any]) -> Drive:
+        return Drive(
+            id=str(d.get("id", "")), wire_name=str(d.get("wire_name", "")), value=d.get("value"),
+            target=float(d.get("target") or 0.0), deficit=d.get("deficit"),
+            weight=float(d.get("weight") or 1.0), eligible=bool(d.get("eligible", False)),
+            blocked_reason=str(d.get("blocked_reason", "")), sources=tuple(d.get("sources") or []),
+            unknown=bool(d.get("unknown", False)),
+        )
+
+
 @dataclass(frozen=True)
 class Appetite:
     as_of: str
@@ -156,6 +167,20 @@ class Appetite:
             "selected": self.selected, "action": self.action, "next_wake": self.next_wake,
             "resting_reason": self.resting_reason,
         }
+
+    @staticmethod
+    def from_dict(d: dict[str, Any]) -> Appetite:
+        """Rehydrate a stored decision. A reader must see what the engine decided, not a fresh calculation."""
+        return Appetite(
+            as_of=str(d.get("as_of", "")),
+            policy_version=str(d.get("policy_version", "")),
+            drives=tuple(Drive.from_dict(x) for x in (d.get("drives") or [])),
+            largest_unmet=d.get("largest_unmet"),
+            selected=d.get("selected"),
+            action=d.get("action"),
+            next_wake=str(d.get("next_wake", "")),
+            resting_reason=d.get("resting_reason"),
+        )
 
 
 def _unknown(drive_id: str, cfg: AppetiteConfig, reason: str, sources: tuple[str, ...] = ()) -> Drive:
@@ -618,3 +643,56 @@ __all__ = [
     "save_state", "select", "sentence", "seva_drive", "seva_overdue", "samarthya_drive", "sthiti_drive",
     "store_path", "unnati_avakasha_drive",
 ]
+
+
+# --------------------------------------------------------------------------------------------------------------
+# Serving the last decision rather than recomputing one.
+#
+# `measure` runs the doctor, walks the tool and recipe catalogues and reads every external result row, which took
+# nearly seven seconds. A page that recomputes the drives on every visit is both slow and wrong: it shows a fresh
+# calculation rather than the decision the engine actually acted on. The heartbeat writes its snapshot here when
+# it beats; a reader serves that, and recomputes only when it has gone stale.
+
+SNAPSHOT_MAX_AGE_S = 300.0
+
+
+def snapshot_path(root: Path) -> Path:
+    return Path(root) / ".pravrudhi" / "appetite_snapshot.json"
+
+
+def save_snapshot(root: Path, appetite: Appetite) -> Path:
+    path = snapshot_path(root)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(appetite.to_dict(), indent=2, sort_keys=True))
+    tmp.replace(path)
+    return path
+
+
+def _snapshot_age_s(payload: dict[str, Any], now: datetime | None = None) -> float:
+    try:
+        as_of = datetime.fromisoformat(str(payload.get("as_of", "")).replace("Z", "+00:00"))
+    except ValueError:
+        return float("inf")
+    if as_of.tzinfo is None:
+        as_of = as_of.replace(tzinfo=UTC)
+    return ((now or datetime.now(UTC)) - as_of).total_seconds()
+
+
+def current(root: Path, *, max_age_s: float = SNAPSHOT_MAX_AGE_S, now: datetime | None = None) -> Appetite:
+    """The engine's last appetite decision, recomputed only once it has gone stale.
+
+    The `as_of` a reader sees is the moment the decision was taken, never the moment they asked, so a page cannot
+    imply the engine reconsidered when it did not.
+    """
+    path = snapshot_path(root)
+    if path.exists():
+        try:
+            payload = json.loads(path.read_text())
+        except (OSError, json.JSONDecodeError):
+            payload = None
+        if payload is not None and _snapshot_age_s(payload, now) <= max_age_s:
+            return Appetite.from_dict(payload)
+    appetite = select(measure(root), state=load_state(root))
+    save_snapshot(root, appetite)
+    return appetite

@@ -1,0 +1,79 @@
+# Grahaṇa policy: relevance weights, per-source bounds, and declared sources for application/grahana.py.
+#
+# An operator override may live at .pravrudhi/intake_policy.yaml inside a workspace (grahana.py's `load_config`
+# takes any path); this packaged file is what a fresh workspace uses until one is written. Every bound here is a
+# proposed conservative default (design doc §6.1-§6.4: docs/superpowers/specs/2026-09-06-appetite-and-intake-
+# design.md), not a measured constant — a grazing pass that ignores these numbers is not "cheap" no matter how
+# fast it runs.
+policy_version: "1"
+
+# G = w_need*N + w_fit*F + w_new*U + w_prov*P (design §6.1). Must be nonnegative and sum to 1.0.
+relevance_weights:
+  need: 0.4
+  fit: 0.2
+  novelty: 0.2
+  provenance: 0.2
+
+# The value substituted for a relevance component when its underlying metadata is missing (no licence, no
+# platform-fit measurement). This is a stated penalty, never a guess at the real value (design §6.1: "missing
+# metadata stays unknown with an explicit penalty, never a fabricated fact").
+unknown_penalty: 0.1
+
+# Bounds on a single grazing pass (design §6.1): items and bytes are capped per source so one popular feed cannot
+# fill the entire pass, and the whole pass stops once collector_wall_s has elapsed regardless of what is left.
+collector_items_per_source: 20
+collector_bytes_per_source: 262144
+collector_wall_s: 30.0
+
+# An excerpt is bounded text (a title, an abstract, a manifest fragment) — never a full document body.
+excerpt_max_chars: 600
+
+# Forgetting bounds (design §6.4): the holding store never grows without limit. forget_relevance_floor is the
+# decayed-EV proxy used before a real trial exists — an unlinked item below it, past its revisit_at, is the first
+# thing evicted. forget_max_tombstones bounds the compact forgotten-item records kept to avoid rediscovery loops.
+forget_max_items: 500
+forget_max_tombstones: 200
+forget_relevance_floor: 0.2
+forget_default_revisit_days: 30.0
+
+# Sources actually readable from this codebase today (design §6.2). Each local source names a path; a path of ""
+# means "the reading module's own packaged default". Network sources are declared with their host so the shape
+# of a future adapter exists, but `status: unconfigured` records honestly that grazing never contacts them —
+# this design's grazing pass performs local scanning only.
+sources:
+  repo_tools:
+    kind: local
+    status: local
+    path: ""
+  repo_recipes:
+    kind: local
+    status: local
+    path: ""
+  claude_skills:
+    kind: local
+    status: local
+    path: "~/.claude/skills"
+  codex_skills:
+    kind: local
+    status: local
+    path: "~/.codex/skills"
+  hf_hub:
+    kind: local
+    status: local
+    path: "~/.cache/huggingface/hub"
+  github_releases:
+    kind: network
+    status: unconfigured
+    host: "api.github.com"
+  huggingface_api:
+    kind: network
+    status: unconfigured
+    host: "huggingface.co"
+  arxiv:
+    kind: network
+    status: unconfigured
+    host: "export.arxiv.org"
+  pypi:
+    kind: network
+    status: unconfigured
+    host: "pypi.org"

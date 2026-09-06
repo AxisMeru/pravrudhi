@@ -31,7 +31,12 @@ RunnerFn = Callable[[list[str], Path], "subprocess.CompletedProcess[str]"]
 
 # Pages that must render real content, not an error, before anything is pushed. Each is checked for the strings
 # a broken page shows rather than for HTTP 200, which every one of these returned while broken.
-CHECK_PAGES = ("/", "/requests", "/progress", "/candidates", "/inbox", "/catalogue", "/swarm", "/heartbeat")
+CHECK_PAGES = (
+    "/", "/tour", "/appetite", "/objectives", "/progress", "/inbox", "/requests", "/candidates",
+    "/swarm", "/diffs", "/memory", "/heartbeat", "/catalogue", "/runs", "/models", "/machines", "/settings",
+)
+"""Every page the interface serves. The list was a subset once, and the appetite page shipped hanging on
+"Loading..." because nothing checked it. A page added without being added here is a page nobody verifies."""
 
 BROKEN_MARKERS = (
     "could not reach",

@@ -1,4 +1,5 @@
-"""The heartbeat: one wake-up finds the most-neglected undone step across every objective and dispatches it."""
+"""The heartbeat: one wake-up measures the appetite's drives, lets them select a winner, and dispatches the
+action wired to that drive."""
 
 from __future__ import annotations
 
@@ -6,12 +7,15 @@ import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pytest
 import yaml
 
 from pravrudhi.agents.base import AgentRun, Diff
+from pravrudhi.application import heartbeat, kshudha, requests
 from pravrudhi.application.heartbeat import beat, history, load_config, log_path
 from pravrudhi.application.objectives import Benchmark, Objective
 from pravrudhi.application.objectives import write as write_objective
+from pravrudhi.application.requests import Criterion
 from pravrudhi.application.subagents import SubagentRun, record_run, runs
 from pravrudhi_kernel.schema import LedgerEvent
 
@@ -73,6 +77,57 @@ def ok_dispatch(name: str, model: str | None) -> OkAgent:
     return OkAgent(["proposals/obj-a/baseline-evaluation/README.md"])
 
 
+def dispatch_into(*files: str) -> heartbeat.DispatchFn:
+    """A fake agent whose "work" lands exactly at `files`, so it is judged in scope for whichever task declared
+    those as its allowed paths (obligations' `proposals/requests/...`, unlike `ok_dispatch`'s objective scratch)."""
+
+    def _dispatch(name: str, model: str | None) -> OkAgent:
+        return OkAgent(list(files))
+
+    return _dispatch
+
+
+def make_drives(**deficits: float) -> list[kshudha.Drive]:
+    """A full six-drive reading with a controlled deficit per drive, so `kshudha.select` picks a deterministic
+    winner without ever touching this host's real doctor checks, tool catalogue or agent fleet. `pramana_navyata`
+    (freshness) stays `unknown`, exactly as it always is in production (kshudha.py has no evidence-freshness
+    source), unless the caller overrides it with a deficit of its own."""
+    drives: list[kshudha.Drive] = []
+    for drive_id in kshudha.DRIVE_IDS:
+        if drive_id == "pramana_navyata" and drive_id not in deficits:
+            drives.append(kshudha.Drive(
+                id=drive_id, wire_name=kshudha.WIRE_NAMES[drive_id], value=None, target=1.0, deficit=None,
+                weight=1.0, eligible=False,
+                blocked_reason="no evidence-freshness source is wired into the engine yet",
+                sources=(), unknown=True,
+            ))
+            continue
+        deficit = deficits.get(drive_id, 0.0)
+        drives.append(kshudha.Drive(
+            id=drive_id, wire_name=kshudha.WIRE_NAMES[drive_id], value=1.0 - deficit, target=1.0, deficit=deficit,
+            weight=1.0, eligible=True, blocked_reason="", sources=(f"{drive_id}={deficit}",), unknown=False,
+        ))
+    return drives
+
+
+def sthiti_drive_with_failing_checks(*, deficit: float, failing: tuple[str, ...]) -> kshudha.Drive:
+    """A `sthiti` reading with specific failing doctor checks, shaped exactly like `kshudha.sthiti_drive`'s own
+    `doctor:<name>=ok|fail` sources — what `_beat_continuity` parses to find the cheapest remedy."""
+    all_checks = ("initialised", "ledger", "docker", "pools", "prereg")
+    sources = tuple(f"doctor:{name}={'fail' if name in failing else 'ok'}" for name in all_checks)
+    return kshudha.Drive(
+        id="sthiti", wire_name="continuity", value=1.0 - deficit, target=1.0, deficit=deficit, weight=1.0,
+        eligible=True, blocked_reason="", sources=sources, unknown=False,
+    )
+
+
+def patch_measure(monkeypatch: pytest.MonkeyPatch, **deficits: float) -> None:
+    """Force `beat`'s measurement step to return a controlled drive reading instead of `kshudha.measure`'s real,
+    host-dependent one (doctor checks run real subprocesses; capability reads this host's real tool/agent
+    catalogue) — the same dependency-injection trick `dispatch` already plays for the swarm."""
+    monkeypatch.setattr(heartbeat.kshudha, "measure", lambda root, config=None: make_drives(**deficits))
+
+
 def test_load_config_falls_back_to_packaged_defaults(tmp_path):
     config = load_config(tmp_path)
     assert config == load_config(tmp_path)
@@ -82,22 +137,10 @@ def test_load_config_falls_back_to_packaged_defaults(tmp_path):
     assert config.allow_gpu is False
 
 
-def test_no_objectives_is_a_recorded_no_op(tmp_path):
-    record = beat(tmp_path, dispatch=ok_dispatch)
-    assert record.chose is None
-    assert record.result is None
-    assert "no objectives" in record.reason
-    assert record.looked_at == ()
-
-    logged = history(tmp_path, 10)
-    assert len(logged) == 1
-    assert logged[0].reason == record.reason
-    assert log_path(tmp_path).exists()
-
-
-def test_quiet_hours_yield_a_no_op_with_the_reason(tmp_path):
+def test_quiet_hours_yield_a_no_op_with_the_reason(tmp_path, monkeypatch):
     write_objective(tmp_path, make_objective("obj-a"))
     set_config(tmp_path, quiet_hours=[3])
+    patch_measure(monkeypatch, samarthya=0.9)
 
     record = beat(tmp_path, dispatch=ok_dispatch, now=datetime(2026, 1, 1, 3, 30, tzinfo=UTC))
 
@@ -105,18 +148,24 @@ def test_quiet_hours_yield_a_no_op_with_the_reason(tmp_path):
     assert record.result is None
     assert "quiet hours" in record.reason
     assert record.looked_at == ()
+    assert record.drive is None
+    assert record.drive_deficit is None
     assert runs(tmp_path) == []
 
 
-def test_dispatches_the_next_undone_step_and_records_an_accepted_run(tmp_path):
+def test_capability_drive_dispatches_the_next_undone_step_and_records_an_accepted_run(tmp_path, monkeypatch):
     write_objective(tmp_path, make_objective("obj-a"))
+    patch_measure(monkeypatch, samarthya=0.9)
 
     record = beat(tmp_path, dispatch=ok_dispatch, now=datetime(2026, 1, 1, 12, 0, tzinfo=UTC))
 
+    assert record.drive == "capability"
+    assert record.drive_deficit == pytest.approx(0.9)
     assert record.chose == {"objective": "obj-a", "step": "baseline-evaluation"}
     assert record.result is not None
     assert record.result["accepted"] is True
     assert "dispatched obj-a:baseline-evaluation" in record.reason
+    assert "capability" in record.sentence
 
     on_disk = runs(tmp_path, objective="obj-a")
     assert len(on_disk) == 1
@@ -124,9 +173,27 @@ def test_dispatches_the_next_undone_step_and_records_an_accepted_run(tmp_path):
     assert on_disk[0].accepted is True
 
 
-def test_picks_the_stalest_objective(tmp_path):
+def test_capability_drive_with_no_objectives_is_a_recorded_no_op(tmp_path, monkeypatch):
+    patch_measure(monkeypatch, samarthya=0.9)
+
+    record = beat(tmp_path, dispatch=ok_dispatch, now=datetime(2026, 1, 1, 12, 0, tzinfo=UTC))
+
+    assert record.chose is None
+    assert record.result is None
+    assert "no objectives" in record.reason
+    assert record.looked_at == ()
+    assert record.drive == "capability"
+
+    logged = history(tmp_path, 10)
+    assert len(logged) == 1
+    assert logged[0].reason == record.reason
+    assert log_path(tmp_path).exists()
+
+
+def test_picks_the_stalest_objective(tmp_path, monkeypatch):
     write_objective(tmp_path, make_objective("obj-old"))
     write_objective(tmp_path, make_objective("obj-new"))
+    patch_measure(monkeypatch, samarthya=0.9)
 
     # Both objectives already have their baseline step accepted, so each one's next undone step is
     # candidate-evaluation; obj-old was dispatched long ago and obj-new only just now, so the stale one wins.
@@ -144,9 +211,10 @@ def test_picks_the_stalest_objective(tmp_path):
     assert record.chose == {"objective": "obj-old", "step": "candidate-evaluation"}
 
 
-def test_honours_max_dispatch_per_beat(tmp_path):
+def test_honours_max_dispatch_per_beat(tmp_path, monkeypatch):
     write_objective(tmp_path, make_objective("obj-a"))
     set_config(tmp_path, max_dispatch_per_beat=0)
+    patch_measure(monkeypatch, samarthya=0.9)
 
     record = beat(tmp_path, dispatch=ok_dispatch, now=datetime(2026, 1, 1, 12, 0, tzinfo=UTC))
 
@@ -156,10 +224,11 @@ def test_honours_max_dispatch_per_beat(tmp_path):
     assert runs(tmp_path) == []
 
 
-def test_skips_gpu_steps_while_a_run_is_in_progress(tmp_path):
+def test_skips_gpu_steps_while_a_run_is_in_progress(tmp_path, monkeypatch):
     objective = make_objective("legal-domain", domain="legal-domain")
     write_objective(tmp_path, objective)
     set_config(tmp_path, allow_gpu=True)
+    patch_measure(monkeypatch, samarthya=0.9)
 
     # Fast-forward past the evaluate/corpus steps so the next undone step is the finetune step, which needs the GPU.
     for step_id in ("baseline-evaluation", "corpus"):
@@ -175,3 +244,136 @@ def test_skips_gpu_steps_while_a_run_is_in_progress(tmp_path):
     assert record.result is None
     assert "GPU" in record.reason and "in progress" in record.reason
     assert len(runs(tmp_path, objective=objective.id)) == 2
+
+
+def test_obligations_drive_dispatches_the_oldest_unmet_request_criterion(tmp_path, monkeypatch):
+    patch_measure(monkeypatch, seva=0.8)
+    req = requests.capture(
+        tmp_path, "Please add a widget.", request_id="req-1",
+        criteria=[Criterion(text="a widget exists", source="operator")],
+    )
+
+    record = beat(
+        tmp_path, dispatch=dispatch_into("proposals/requests/req-1/0/README.md"),
+        now=datetime(2026, 1, 1, 12, 0, tzinfo=UTC),
+    )
+
+    assert record.drive == "obligations"
+    assert record.drive_deficit == pytest.approx(0.8)
+    assert record.chose == {"request": req.id, "criterion": "0"}
+    assert record.result is not None
+    assert record.result["accepted"] is True
+    assert f"dispatched request {req.id} criterion 0" in record.reason
+    assert (tmp_path / "proposals" / "requests" / "req-1" / "0").exists()
+
+
+def test_obligations_drive_with_no_unmet_request_is_a_recorded_no_op(tmp_path, monkeypatch):
+    patch_measure(monkeypatch, seva=0.8)
+
+    record = beat(tmp_path, dispatch=ok_dispatch, now=datetime(2026, 1, 1, 12, 0, tzinfo=UTC))
+
+    assert record.drive == "obligations"
+    assert record.chose is None
+    assert record.result is None
+    assert "no request has an unmet acceptance criterion" in record.reason
+
+
+def test_continuity_drive_runs_the_cheapest_failing_checks_remedy(tmp_path, monkeypatch):
+    sthiti = sthiti_drive_with_failing_checks(deficit=0.5, failing=("docker", "initialised"))
+    drives = [d if d.id != "sthiti" else sthiti for d in make_drives()]
+    monkeypatch.setattr(heartbeat.kshudha, "measure", lambda root, config=None: drives)
+
+    record = beat(tmp_path, dispatch=ok_dispatch, now=datetime(2026, 1, 1, 12, 0, tzinfo=UTC))
+
+    assert record.drive == "continuity"
+    assert record.drive_deficit == pytest.approx(0.5)
+    assert record.chose == {"check": "initialised"}
+    assert record.result == {
+        "check": "initialised", "remedy": "run `pravrudhi init` to create the missing config or ledger",
+    }
+    assert "initialised" in record.reason
+
+
+def test_unknown_drive_yields_a_diagnostic_rather_than_an_action(tmp_path, monkeypatch):
+    patch_measure(monkeypatch)  # every known drive at deficit 0.0; only freshness is unknown, weight > 0
+
+    record = beat(tmp_path, dispatch=ok_dispatch, now=datetime(2026, 1, 1, 12, 0, tzinfo=UTC))
+
+    assert record.drive == "freshness"
+    assert record.drive_deficit is None
+    assert record.chose == {"drive": "freshness"}
+    assert record.result is not None
+    assert record.result["kind"] == "diagnostic"
+    assert "no evidence-freshness source is wired into the engine yet" in record.reason
+    assert runs(tmp_path) == []
+
+
+def test_resources_drive_records_its_desire_and_steps_aside(tmp_path, monkeypatch):
+    write_objective(tmp_path, make_objective("obj-a"))
+    patch_measure(monkeypatch, sadhana=0.9, samarthya=0.4)
+
+    record = beat(tmp_path, dispatch=ok_dispatch, now=datetime(2026, 1, 1, 12, 0, tzinfo=UTC))
+
+    # kshudha.select's own decision stays "resources" — that is the honest, measured winner...
+    assert record.drive == "resources"
+    assert record.drive_deficit == pytest.approx(0.9)
+    # ...but nothing is actually dispatched for it; the beat yields to capability, the next eligible drive.
+    assert record.chose == {"objective": "obj-a", "step": "baseline-evaluation"}
+    assert record.result is not None
+    assert record.result["accepted"] is True
+    assert "resources" in record.reason and "yielding to capability" in record.reason
+
+
+def test_resources_drive_with_no_other_eligible_drive_records_only_the_desire(tmp_path, monkeypatch):
+    # pramana_navyata=0.0 makes freshness a known, satisfied drive instead of the default unknown one, so there
+    # is truly nothing else for `_next_eligible` to fall back to.
+    patch_measure(monkeypatch, sadhana=0.9, pramana_navyata=0.0)
+
+    record = beat(tmp_path, dispatch=ok_dispatch, now=datetime(2026, 1, 1, 12, 0, tzinfo=UTC))
+
+    assert record.drive == "resources"
+    assert record.chose == {"drive": "resources"}
+    assert record.result == {"kind": "desire", "sources": ["sadhana=0.9"]}
+    assert runs(tmp_path) == []
+
+
+def test_a_beat_records_the_drive_and_the_sentence(tmp_path, monkeypatch):
+    write_objective(tmp_path, make_objective("obj-a"))
+    patch_measure(monkeypatch, samarthya=0.9)
+
+    record = beat(tmp_path, dispatch=ok_dispatch, now=datetime(2026, 1, 1, 12, 0, tzinfo=UTC))
+
+    assert record.drive == "capability"
+    assert record.drive_deficit == pytest.approx(0.9)
+    assert record.sentence
+    assert "capability" in record.sentence
+    assert "I am working on" in record.sentence
+
+    logged = history(tmp_path, 10)
+    assert logged[0].drive == "capability"
+    assert logged[0].sentence == record.sentence
+
+
+def test_hysteresis_persists_across_two_beats(tmp_path, monkeypatch):
+    write_objective(tmp_path, make_objective("obj-a"))
+
+    patch_measure(monkeypatch, samarthya=0.8)
+    first = beat(tmp_path, dispatch=ok_dispatch, now=datetime(2026, 1, 1, 12, 0, tzinfo=UTC))
+    assert first.drive == "capability"
+
+    state_after_first = kshudha.load_state(tmp_path)
+    assert state_after_first.drives["samarthya"].phase == "hungry"
+    assert state_after_first.committed == "samarthya"
+
+    # On the second beat capability's own deficit has dropped into the 0.3-0.6 hysteresis band, below the 0.6
+    # hungry threshold; without a persisted "hungry" phase this would go straight back to sated and rest, since
+    # nothing else has any deficit at all. The persisted state is what keeps it committed instead.
+    patch_measure(monkeypatch, samarthya=0.5)
+    second = beat(tmp_path, dispatch=ok_dispatch, now=datetime(2026, 1, 1, 13, 0, tzinfo=UTC))
+
+    assert second.drive == "capability"
+    assert second.chose == {"objective": "obj-a", "step": "candidate-evaluation"}
+
+    state_after_second = kshudha.load_state(tmp_path)
+    assert state_after_second.beat == 2
+    assert state_after_second.drives["samarthya"].phase == "hungry"

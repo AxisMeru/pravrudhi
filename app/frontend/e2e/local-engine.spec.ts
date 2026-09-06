@@ -84,3 +84,15 @@ test("progress dashboard plots every benchmark the snapshot holds", async ({ pag
   expect(await charts.count()).toBeGreaterThan(0);
   await expect(page.getByText("Benchmarks")).toBeVisible();
 });
+
+test("appetite page renders what the engine wants", async ({ page }) => {
+  const errs: string[] = [];
+  page.on("pageerror", (e) => errs.push("PAGEERROR " + String(e).slice(0, 300)));
+  page.on("console", (m) => { if (m.type() === "error") errs.push("CONSOLE " + m.text().slice(0, 300)); });
+  await page.goto("/appetite");
+  await page.waitForTimeout(12000);
+  console.log("APPETITE ERRORS:", errs.join(" || ") || "none");
+  console.log("APPETITE BODY:", (await page.innerText("body")).slice(0, 260).replace(/\n+/g, " | "));
+  expect(errs, "the appetite page must not throw").toEqual([]);
+  await expect(page.getByText("Loading...")).toHaveCount(0);
+});
