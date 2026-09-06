@@ -6713,37 +6713,80 @@
   },
   "heartbeat": [
     {
-      "at": "2026-09-06T22:36:42Z",
+      "at": "2026-09-06T23:49:42Z",
+      "chose": {
+        "criterion": "3",
+        "request": "r-3990c626"
+      },
+      "drive": "obligations",
+      "drive_deficit": 0.6825396825396826,
+      "looked_at": [],
+      "reason": "dispatched request r-3990c626 criterion 3 (rejected)",
+      "result": {
+        "accepted": false,
+        "files": [],
+        "reasons": [
+          "no agent available for tier standard (claude-code)"
+        ],
+        "route": "claude-code"
+      },
+      "sentence": "I am working on the oldest unmet request criterion because obligations has the largest eligible deficit."
+    },
+    {
+      "at": "2026-09-06T23:41:34Z",
       "chose": null,
+      "drive": null,
+      "drive_deficit": null,
       "looked_at": [
         "code-harness",
         "math-reasoning",
         "prabhasa-nyaya"
       ],
       "reason": "every objective's plan is fully dispatched and accepted",
-      "result": null
+      "result": null,
+      "sentence": ""
+    },
+    {
+      "at": "2026-09-06T22:36:42Z",
+      "chose": null,
+      "drive": null,
+      "drive_deficit": null,
+      "looked_at": [
+        "code-harness",
+        "math-reasoning",
+        "prabhasa-nyaya"
+      ],
+      "reason": "every objective's plan is fully dispatched and accepted",
+      "result": null,
+      "sentence": ""
     },
     {
       "at": "2026-09-06T21:32:00Z",
       "chose": null,
+      "drive": null,
+      "drive_deficit": null,
       "looked_at": [
         "code-harness",
         "math-reasoning",
         "prabhasa-nyaya"
       ],
       "reason": "every objective's plan is fully dispatched and accepted",
-      "result": null
+      "result": null,
+      "sentence": ""
     },
     {
       "at": "2026-09-06T20:31:13Z",
       "chose": null,
+      "drive": null,
+      "drive_deficit": null,
       "looked_at": [
         "code-harness",
         "math-reasoning",
         "prabhasa-nyaya"
       ],
       "reason": "every objective's plan is fully dispatched and accepted",
-      "result": null
+      "result": null,
+      "sentence": ""
     },
     {
       "at": "2026-09-06T19:28:15Z",
@@ -6751,6 +6794,8 @@
         "objective": "code-harness",
         "step": "candidate-evaluation"
       },
+      "drive": null,
+      "drive_deficit": null,
       "looked_at": [
         "code-harness",
         "math-reasoning",
@@ -6772,7 +6817,8 @@
         ],
         "reasons": [],
         "route": "claude-code"
-      }
+      },
+      "sentence": ""
     },
     {
       "at": "2026-09-06T18:26:44Z",
@@ -6780,6 +6826,8 @@
         "objective": "code-harness",
         "step": "candidate-evaluation"
       },
+      "drive": null,
+      "drive_deficit": null,
       "looked_at": [
         "code-harness",
         "math-reasoning",
@@ -6794,7 +6842,8 @@
           "no change produced"
         ],
         "route": "claude-code"
-      }
+      },
+      "sentence": ""
     },
     {
       "at": "2026-09-06T17:25:32Z",
@@ -6802,6 +6851,8 @@
         "objective": "code-harness",
         "step": "candidate-evaluation"
       },
+      "drive": null,
+      "drive_deficit": null,
       "looked_at": [
         "code-harness",
         "math-reasoning",
@@ -6816,7 +6867,8 @@
           "no change produced"
         ],
         "route": "claude-code"
-      }
+      },
+      "sentence": ""
     },
     {
       "at": "2026-09-06T16:23:50Z",
@@ -6824,6 +6876,8 @@
         "objective": "code-harness",
         "step": "candidate-evaluation"
       },
+      "drive": null,
+      "drive_deficit": null,
       "looked_at": [
         "code-harness",
         "math-reasoning",
@@ -6838,7 +6892,8 @@
           "no change produced"
         ],
         "route": "claude-code"
-      }
+      },
+      "sentence": ""
     },
     {
       "at": "2026-09-06T15:19:38Z",
@@ -6846,6 +6901,8 @@
         "objective": "code-harness",
         "step": "agents"
       },
+      "drive": null,
+      "drive_deficit": null,
       "looked_at": [
         "code-harness",
         "math-reasoning",
@@ -6863,7 +6920,8 @@
         ],
         "reasons": [],
         "route": "claude-code"
-      }
+      },
+      "sentence": ""
     },
     {
       "at": "2026-09-06T15:15:54Z",
@@ -6871,6 +6929,8 @@
         "objective": "code-harness",
         "step": "baseline-evaluation"
       },
+      "drive": null,
+      "drive_deficit": null,
       "looked_at": [
         "code-harness",
         "math-reasoning",
@@ -6891,7 +6951,8 @@
         ],
         "reasons": [],
         "route": "claude-code"
-      }
+      },
+      "sentence": ""
     }
   ],
   "inbox": [
@@ -12394,7 +12455,7 @@
       "planned": 0,
       "verified": 2
     },
-    "oldest_open_days": 0.46,
+    "oldest_open_days": 0.5,
     "open": 5,
     "requests": [
       {
@@ -12534,7 +12595,7 @@
           9
         ],
         "session": "9e647463",
-        "staleness_days": 0.46,
+        "staleness_days": 0.5,
         "state": "captured",
         "text": "no alibaba gpu for now...enable auto-update of pravrudhi app with safegaurds..you need to download a copy on rtx and on mac mini ..install and make it the end user testing...the active update the pravrudhi system is only for this developer version..the release version is only to test e2e the updates....you have to branistorm and come up scheduling/architecture decisions....also use all other agents to help you build and test (including alibaba cloud models) as a swarm....show me the app that is way more valuable and rich (both functionality and ux) than orca ...( I am yet to see adaptation of openclaw/nemoclaw etc too)....create a github pages for live demo that continuously updates (as the app and the paper) so that i can keep track of the progress through it....i don't want this adr/gate and other reporting stuff (that is only for you...not for me)...i should see the real working stuff"
       },
@@ -12571,14 +12632,46 @@
             "text": "Work done during a limit is handed back when the paid model returns"
           },
           {
-            "evidence": [],
-            "met": false,
+            "evidence": [
+              {
+                "kind": "file",
+                "note": "open models drive a real tool-calling loop",
+                "ref": "src/pravrudhi/agents/loop_agent.py"
+              },
+              {
+                "kind": "file",
+                "note": "sentinels permitted at every tier",
+                "ref": "src/pravrudhi/assets/configs/routing.yaml"
+              },
+              {
+                "kind": "command",
+                "note": "4 passed",
+                "ref": "uv run pytest -q tests/test_sentinel_fallback.py"
+              }
+            ],
+            "met": true,
             "source": "operator",
             "text": "The system runs continuously without a paid model available"
           },
           {
-            "evidence": [],
-            "met": false,
+            "evidence": [
+              {
+                "kind": "file",
+                "note": "a hook refusing forbidden commits and kernel edits",
+                "ref": "deploy/hooks/pravrudhi_guard.py"
+              },
+              {
+                "kind": "file",
+                "note": "an operator skill for a fresh session",
+                "ref": "deploy/skills/pravrudhi-operator/SKILL.md"
+              },
+              {
+                "kind": "file",
+                "note": "the memory store made visible",
+                "ref": "app/frontend/src/app/memory/page.tsx"
+              }
+            ],
+            "met": true,
             "source": "operator",
             "text": "Memory, skills and hooks are in place and good"
           }
@@ -12586,11 +12679,11 @@
         "id": "r-e9b07bfc",
         "notes": [],
         "progress": [
-          2,
+          4,
           4
         ],
         "session": "9e647463",
-        "staleness_days": 0.29,
+        "staleness_days": 0.33,
         "state": "captured",
         "text": "even if you hit session limit delegate to alibaba cloud or local model to carry your work forward and then hand it back for you on arrival....let pravraudhi system be robust enough to completely work irrespective of paid models hitting session limits (run 24x7) ...coordination is key...keep at the goals...very good memory, skills and hooks are needed too"
       },
@@ -12697,7 +12790,7 @@
           7
         ],
         "session": "9e647463",
-        "staleness_days": 0.23,
+        "staleness_days": 0.27,
         "state": "captured",
         "text": "and in no way you are near the orca with all its ade features or openclaw or polished features like claude desktop or codex....you have to beat them in features, utility and ux....dedicate an agent to persist on it...dedicate an agent to adversarial review against set goals so that the project does not drift...i am not seeing the desktop screen/features too in the dashboard..the demo should show real clicks etc and how the desktop app updates and produces the real results...where is the intent, goal, objective menu that drives everything...where are the tools, skills, plugins, multi-agent orchestration etc....don't be superficial..i want real things ..deep, sophisticated..complete...no synthetic, no hand-waving, no fabrication"
       },
@@ -12834,7 +12927,7 @@
           13
         ],
         "session": "9e647463",
-        "staleness_days": 0.13,
+        "staleness_days": 0.18,
         "state": "in_progress",
         "text": "ensure that all user asks go into a log in pravrudhi itself and gets addressed with some protocol...and pravrudhi should have some element of ego with a desire to survive, grow and flourish...that makes it seek out capabilities, build, test and continuously improve...also look at acorn, oak and openclaw_build or swarm projects on this machine that had these self building elements in them and adapt...pravrudhi should be something like a cow..consume everything possible but bring it back and slowly digest it --so equivalent is breadth first and depth later....be always value focused...you have to innovate on methods too....develop skills, agents and plugins....brainstorm with astra with higher thinking levels and let it propose solution..you review and coordinate its implementation across the swarm...you should also create dynamic workflows etc...also see how much you can incorporate the claude code engine itself to run open and other cloud models ...askuserquestion to get my intent properly"
       },
@@ -12924,7 +13017,7 @@
           6
         ],
         "session": "9e647463",
-        "staleness_days": 0.08,
+        "staleness_days": 0.12,
         "state": "captured",
         "text": "let astra handle the tough jobs...let it bring up the desktop app, test...integrate fully with the api etc...route it to requests and let pravrudhi handle this request autonomously...also adversarial review and thorough e2e tests before marking any completion...give it also the ralph-loop closure (skill) to make it robust and not escape with half-baked features"
       },
@@ -13508,18 +13601,18 @@
       {
         "agent": "claude-code",
         "model": "sonnet",
-        "reason": "sonnet has the best measured success rate at this tier (25/28) and nothing cheaper matches it; dropped cooling route(s) qwen-coder",
+        "reason": "sonnet has the best measured success rate at this tier (26/29) and nothing cheaper matches it; dropped cooling route(s) qwen-coder",
         "records": [
           {
-            "hi": 0.9628823079452005,
-            "lo": 0.7280377463234293,
-            "mean_wall_s": 327.1418997870309,
-            "rate": 0.8928571428571429,
+            "hi": 0.9641857596186989,
+            "lo": 0.7361455275293085,
+            "mean_wall_s": 323.062970085479,
+            "rate": 0.896551724137931,
             "relative_cost": 2.9,
             "route_id": "sonnet",
-            "successes": 25,
+            "successes": 26,
             "tier": "design",
-            "trials": 28
+            "trials": 29
           },
           {
             "hi": 1.0,
@@ -13562,7 +13655,7 @@
       {
         "agent": "claude-code",
         "model": "sonnet",
-        "reason": "sonnet costs 2.9 against astra's 10 and their intervals overlap (18/23 against 5/5), so the extra spend is not yet justified; dropped cooling route(s) qwen-coder",
+        "reason": "sonnet costs 2.9 against astra's 10 and their intervals overlap (20/25 against 5/5), so the extra spend is not yet justified; dropped cooling route(s) qwen-coder",
         "records": [
           {
             "hi": 1.0,
@@ -13576,15 +13669,15 @@
             "trials": 0
           },
           {
-            "hi": 0.9033616439828094,
-            "lo": 0.5809611981726508,
-            "mean_wall_s": 456.9061209799054,
-            "rate": 0.782608695652174,
+            "hi": 0.9113954589934753,
+            "lo": 0.6086866446346176,
+            "mean_wall_s": 486.4406315360684,
+            "rate": 0.8,
             "relative_cost": 2.9,
             "route_id": "sonnet",
-            "successes": 18,
+            "successes": 20,
             "tier": "critical",
-            "trials": 23
+            "trials": 25
           },
           {
             "hi": 1.0,
@@ -14036,9 +14129,9 @@
     ]
   },
   "version": {
-    "commit": "3becadb",
+    "commit": "36370fd",
     "engine": "0.2.4",
-    "exported_at": "2026-09-06T22:56:19.557Z",
+    "exported_at": "2026-09-06T23:58:22.807Z",
     "kernel": "0.1.0"
   }
 }
