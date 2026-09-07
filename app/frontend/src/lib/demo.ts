@@ -55,9 +55,17 @@ let cache: Promise<DemoBundle> | null = null;
 // recorded data failed there while the same build worked on a root-served host. The base path is compiled in.
 const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
 
+// "force-cache" was wrong here and hid every publish from anyone who had already visited. The snapshot is
+// rewritten on each publish while its URL stays the same, so a cached copy is not merely stale, it is the whole
+// point of the site going out of date: a returning visitor kept the bundle they first loaded and saw none of the
+// pages added since. Caught live on the deployed site, where the browser served an eleven-section bundle while
+// the network had twenty-three, so a page reading a newer section rendered its empty state.
+//
+// "no-cache" still uses the cached bytes when they are current — it revalidates rather than re-downloads, so an
+// unchanged snapshot costs a 304 — but it can never serve a copy the server has replaced.
 export function demo(): Promise<DemoBundle> {
   if (!cache) {
-    cache = fetch(`${basePath}/demo.json`, { cache: "force-cache" }).then((r) => {
+    cache = fetch(`${basePath}/demo.json`, { cache: "no-cache" }).then((r) => {
       if (!r.ok) throw new Error("demo snapshot missing");
       return r.json() as Promise<DemoBundle>;
     });
