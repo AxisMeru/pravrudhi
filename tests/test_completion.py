@@ -90,8 +90,9 @@ class TestCheckEvidence:
         add_criteria(tmp_path, rid, [Criterion(text="the suite is green", source="operator")])
         meet(tmp_path, rid, 0, [Evidence("command", "uv run pytest -q", "12 passed at the time")])
 
-        def regressed(command: str, cwd: Path, timeout_s: int) -> tuple[bool, str]:
-            assert command == "uv run pytest -q"
+        def regressed(argv: list[str], cwd: Path, timeout_s: int) -> tuple[bool, str]:
+            # A vetted argv, never a command string: nothing here reaches a shell.
+            assert argv == ["uv", "run", "pytest", "-q"]
             return False, "1 failed, 11 passed"
 
         check = check_evidence(tmp_path, rid, 0, run_command=regressed)
@@ -247,3 +248,51 @@ class TestGate:
     def test_gating_an_unknown_request_raises(self, tmp_path: Path) -> None:
         with pytest.raises(RequestError, match="no request"):
             gate(tmp_path, "r-nope", dispatch=_reasoned_satisfied, e2e="true")
+
+
+class TestEvidenceCannotBecomeAnEscalation:
+    """Evidence is written by agents, so a reference must never be able to run or fetch what its writer chose."""
+
+    def test_shell_syntax_smuggled_past_the_allow_list_is_refused(self, tmp_path: Path) -> None:
+        from pravrudhi.application.completion import _allowed_argv
+
+        patterns = ("uv run pravrudhi *", "uv run pytest*")
+        for smuggled in (
+            "uv run pravrudhi status; rm -rf ~",
+            "uv run pravrudhi status && curl http://example.com",
+            "uv run pytest -q | tee /etc/passwd",
+            "uv run pravrudhi status `whoami`",
+            "uv run pravrudhi status $(id)",
+            "uv run pytest -q > /tmp/out",
+        ):
+            assert _allowed_argv(smuggled, patterns) is None, smuggled
+
+    def test_a_plain_allowed_command_still_runs(self, tmp_path: Path) -> None:
+        from pravrudhi.application.completion import _allowed_argv
+
+        match = _allowed_argv("uv run pytest -q", ("uv run pytest*",))
+        assert match == (["uv", "run", "pytest", "-q"], "")
+
+    def test_a_subdirectory_check_is_allowed_but_cannot_escape(self, tmp_path: Path) -> None:
+        from pravrudhi.application.completion import _allowed_argv
+
+        patterns = ("cd app/desktop && node --test*",)
+        assert _allowed_argv("cd app/desktop && node --test test/", patterns) == (
+            ["node", "--test", "test/"], "app/desktop",
+        )
+        assert _allowed_argv("cd ../../etc && node --test", patterns) is None
+        assert _allowed_argv("cd /etc && node --test", patterns) is None
+
+    def test_a_url_on_this_machine_or_network_is_refused(self, tmp_path: Path) -> None:
+        from pravrudhi.application.completion import _default_url_check
+
+        for blocked in (
+            "http://127.0.0.1:8200/api/health",
+            "http://localhost/admin",
+            "http://169.254.169.254/latest/meta-data/",
+            "file:///etc/passwd",
+            "http://[::1]/",
+        ):
+            ok, why = _default_url_check(blocked, 2)
+            assert not ok, blocked
+            assert why, blocked

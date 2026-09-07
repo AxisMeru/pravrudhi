@@ -19,9 +19,14 @@ both plus an end-to-end command, and it is what `requests-advance <id> verified`
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import re
+import shlex
+import socket
 import subprocess
+import urllib.error
+import urllib.parse
 import urllib.request
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -37,7 +42,8 @@ from pravrudhi.application.sandbox_policy import apply_policy, policy_for
 
 PACKAGED_CONFIG = Path(__file__).resolve().parents[1] / "assets" / "configs" / "completion.yaml"
 
-RunCommandFn = Callable[[str, Path, int], "tuple[bool, str]"]
+RunCommandFn = Callable[[list[str], Path, int], "tuple[bool, str]"]
+"""Takes a vetted argv, never a command string: nothing here reaches a shell."""
 UrlCheckFn = Callable[[str, int], "tuple[bool, str]"]
 DispatchFn = Callable[[TaskSpec], str]
 
@@ -151,17 +157,65 @@ def _verify_file(root: Path, ref: str) -> tuple[bool, str]:
     return True, f"{ref} exists ({size} bytes)"
 
 
-def _command_allowed(command: str, patterns: tuple[str, ...]) -> bool:
-    import fnmatch
-
-    return any(fnmatch.fnmatch(command, p) for p in patterns)
+SHELL_METACHARACTERS = (";", "|", "&", "`", "$(", ">", "<", "\n", "\r")
 
 
-def _default_run_command(command: str, cwd: Path, timeout_s: int) -> tuple[bool, str]:
+def _split_cwd(command: str) -> tuple[str, str]:
+    """Separate a leading `cd <dir> &&` from the command itself.
+
+    Several genuine checks run in a subdirectory, and `cd app/desktop && node --test` is how a person records
+    one. The directory is taken as data and joined to the workspace root; it never reaches a shell.
+    """
+    text = command.strip()
+    if not text.startswith("cd "):
+        return "", text
+    head, sep, tail = text.partition("&&")
+    if not sep:
+        return "", text
+    return head[3:].strip(), tail.strip()
+
+
+def _allowed_argv(command: str, patterns: tuple[str, ...]) -> tuple[list[str], str] | None:
+    """The argv to run and the directory to run it in, or None when nothing on the allow-list matches.
+
+    This matched the whole command against shell globs and then ran it with `shell=True`. A pattern like
+    `uv run pravrudhi *` also matches `uv run pravrudhi status; rm -rf ~`, so anything able to attach a piece of
+    evidence could have the gate execute arbitrary shell for it later, outside the sandbox its writer ran in.
+    Evidence is written by agents, which makes that an escalation path rather than a theoretical one.
+
+    So the command is tokenised, any shell metacharacter disqualifies it outright, and it must match an
+    allow-list entry token for token as a prefix. What comes back is an argv run without a shell.
+    """
+    cwd, rest = _split_cwd(command)
+    if any(meta in rest for meta in SHELL_METACHARACTERS):
+        return None
+    if cwd and (Path(cwd).is_absolute() or ".." in Path(cwd).parts):
+        return None
     try:
-        result = subprocess.run(command, shell=True, cwd=cwd, capture_output=True, text=True, timeout=timeout_s)
-    except subprocess.TimeoutExpired:
-        return False, f"the command did not finish within {timeout_s}s"
+        argv = shlex.split(rest)
+    except ValueError:
+        return None
+    if not argv:
+        return None
+    for pattern in patterns:
+        pattern_cwd, pattern_rest = _split_cwd(pattern)
+        if pattern_cwd != cwd:
+            continue
+        try:
+            wanted = shlex.split(pattern_rest.rstrip("*").strip())
+        except ValueError:
+            continue
+        if wanted and argv[: len(wanted)] == wanted:
+            return argv, cwd
+    return None
+
+
+def _default_run_command(argv: list[str], cwd: Path, timeout_s: int) -> tuple[bool, str]:
+    """Run a vetted argv with no shell, so nothing in the evidence string can be read as syntax."""
+    try:
+        result = subprocess.run(argv, cwd=cwd, capture_output=True, text=True, timeout=timeout_s)
+    except (subprocess.TimeoutExpired, OSError) as e:
+        return False, f"the command did not run: {e}"
     tail = "\n".join((result.stdout + result.stderr).strip().splitlines()[-8:])[:800]
     return result.returncode == 0, tail
 
@@ -169,18 +223,62 @@ def _default_run_command(command: str, cwd: Path, timeout_s: int) -> tuple[bool,
 def _verify_command(
     root: Path, ref: str, config: dict[str, Any], run_command: RunCommandFn | None
 ) -> tuple[bool, str]:
-    if not _command_allowed(ref, config["allowed_commands"]):
-        return False, f"{ref!r} is not on the completion command allow-list"
+    match = _allowed_argv(ref, config["allowed_commands"])
+    if match is None:
+        return False, f"{ref!r} is not on the completion command allow-list, or carries shell syntax"
+    argv, cwd = match
+    where = Path(root) / cwd if cwd else Path(root)
+    if not where.is_dir():
+        return False, f"{ref!r} names a directory that does not exist: {cwd}"
     runner = run_command or _default_run_command
-    ok, detail = runner(ref, root, config["timeout_s"])
+    ok, detail = runner(argv, where, config["timeout_s"])
     return ok, (detail or f"`{ref}` re-ran and " + ("passed" if ok else "failed"))
 
 
-def _default_url_check(url: str, timeout_s: int) -> tuple[bool, str]:
-    req = urllib.request.Request(url, method="GET")  # noqa: S310 (evidence check, not user input rendering)
+class _NoRedirects(urllib.request.HTTPRedirectHandler):
+    """A redirect is a second request to an address nobody vetted, so it is refused rather than followed."""
+
+    def redirect_request(self, req: Any, fp: Any, code: int, msg: str, headers: Any, newurl: str) -> None:
+        raise urllib.error.HTTPError(newurl, code, f"redirect to {newurl} refused", headers, fp)
+
+
+def _public_address(host: str) -> tuple[bool, str]:
+    """Whether a hostname resolves only to addresses outside this machine and this network.
+
+    Evidence is written by agents. A URL naming the loopback interface, a private range, or the cloud metadata
+    address would have the gate fetch, on the operator's behalf, something its writer could not reach itself.
+    """
     try:
-        with urllib.request.urlopen(req, timeout=timeout_s) as resp:  # noqa: S310
-            status = getattr(resp, "status", 200)
+        infos = socket.getaddrinfo(host, None)
+    except OSError as e:
+        return False, f"{host} does not resolve: {e}"
+    for info in infos:
+        try:
+            address = ipaddress.ip_address(info[4][0])
+        except ValueError:
+            return False, f"{host} resolved to something that is not an address"
+        if (address.is_loopback or address.is_private or address.is_link_local
+                or address.is_reserved or address.is_multicast or address.is_unspecified):
+            return False, f"{host} resolves to the non-public address {address}"
+    return True, ""
+
+
+def _default_url_check(url: str, timeout_s: int) -> tuple[bool, str]:
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        return False, f"{url} is not an http or https address"
+    if not parsed.hostname:
+        return False, f"{url} names no host"
+    public, why = _public_address(parsed.hostname)
+    if not public:
+        return False, why
+    opener = urllib.request.build_opener(_NoRedirects)
+    req = urllib.request.Request(url, method="GET")
+    try:
+        with opener.open(req, timeout=timeout_s) as resp:
+            status = int(getattr(resp, "status", 200))
+    except urllib.error.HTTPError as e:
+        return e.code < 400, f"{url} responded {e.code}"
     except Exception as e:  # noqa: BLE001 (an unreachable URL is a failed check, not a crash)
         return False, f"{url} unreachable: {e}"
     return status < 400, f"{url} responded {status}"
