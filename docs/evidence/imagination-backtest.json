@@ -1,0 +1,38 @@
+{
+  "beats_mean_rmse": true,
+  "calibrate_through": 10,
+  "calibration_nights": 4,
+  "difficulty_epoch": "f32174cb137612ee60bd8374a607ba3870b8a2bc9fb09b11c7280591d2013619",
+  "exclusions": {
+    "kernel_observations": 526,
+    "not_recipe_candidate": 302
+  },
+  "interval_coverage": 1,
+  "interval_mean_width": 2.0,
+  "ledger_sha256": "4e9e4b20125dfe40015115951b474031c89a5ab9368008171ed39f542b35f351",
+  "mae": 0.04427154658846005,
+  "mean_baseline_mae": 0.04393173430723565,
+  "mean_baseline_rmse": 0.05682002602788322,
+  "prediction_provenance": "anumana",
+  "rmse": 0.05590294320684346,
+  "sizes": {
+    "calibration": 46,
+    "test": 66,
+    "train": 112
+  },
+  "status": "measured_backtest",
+  "target_epochs": [
+    "14d6f11e067eb37cc9c8c121dc8387081c5e9225373563f30c3b812774f72671",
+    "3095d4b6e01ae9216a39215f1a2a3bfea529eb5f0be1e1efe0a0beaf58fa0555",
+    "3a551a46571a059fd24310d22b608a3430b93b0fde87db804d6a92391cd7fa19",
+    "3e024c30748d0a3399a0bf1592a93a09f0eee045fb7f940ccfd1f305e0829bc3",
+    "49d01a30bca4a45b84ea927841a87df4089d543f29356cab796e3409bf3d4d32",
+    "7fca3c7115b75da845dc5905744799137309e86f5ac4d1a346e4dd2e12999d54",
+    "8a8b2a6b1ff62cd61a41e611be4fd3a41f689f6f1c493bcc830f4ecf49bbb1f0",
+    "c89ce45564fe5ec8e37e3bdf74863b171f541c46f361ac6454f6ca3b6ef5c272",
+    "df24f4f5c2c40976e4707b93e615d9b0bda8e09305933cd5acd88d1b139187c5",
+    "f32174cb137612ee60bd8374a607ba3870b8a2bc9fb09b11c7280591d2013619",
+    "f6612582b44099d9168f291eb75582c77c0dc6bec57f497af0e2470d22965def"
+  ],
+  "train_through": 6
+}

@@ -1,8 +1,7 @@
 """A hosted free-tier model, wired in as a single-shot file writer rather than a tool-calling agent.
 
-Qwen, GLM and DeepSeek have no CLI and cannot drive the read-edit-run loop that `ClaudeCodeAgent` and `CodexAgent`
-do, so before this module existed they sat idle while every mechanical task queued for the agents that can hold a
-sandbox open. `run()` does not hand them a sandbox: it asks for the whole answer - every file's full content - in
+This legacy adapter does not provide a tool loop. Qwen now has a separate OpenCode-backed adapter
+in `alibaba_agent`; this class remains available for explicitly requested single-shot work. `run()` does not hand them a sandbox: it asks for the whole answer - every file's full content - in
 one JSON reply, then writes only the files the dispatch brief actually allowed. A path outside that list, or one
 that tries to leave the worktree, is refused and named rather than written.
 """

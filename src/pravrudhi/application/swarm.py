@@ -119,6 +119,11 @@ def _hit_a_usage_limit(agent_id: str, verdict: Verdict) -> bool:
     return availability.classify(agent_id, _verdict_text(verdict), 1) == "limited"
 
 
+MAX_FALLBACKS = 4
+"""How many rate-limited routes to walk past before giving up. Bounded so a table where every route reports a
+limit ends the task with a reason rather than dispatching forever."""
+
+
 def _retry_elsewhere(
     build_agent: Any, t: SwarmTask, root: Path, table: Any, rows: list[Any],
     chosen: dict[str, str], chosen_agent: dict[str, str], results: list[Verdict], *, log: Any,
@@ -129,28 +134,42 @@ def _retry_elsewhere(
     routes carry the work rather than the loop stopping until someone notices.
     """
     spent = chosen_agent.get(t.spec.task_id, "")
-    availability.mark_limited(root, spent)
-    continuity.note(root, kind="limited", summary=f"{spent} hit a usage limit on {t.spec.task_id}",
-                    agent=spent, detail=_verdict_text(results[-1] if results else Verdict(t.spec.task_id, spent, False)))
-    if table is None:
-        return Verdict(t.spec.task_id, spent, False, [f"{spent} is rate limited and no routing table is loaded"])
-    try:
-        choice = routing.choose(table, rows, t.tier, root=root)
-    except routing.RoutingError as e:
-        return Verdict(t.spec.task_id, spent, False, [f"{spent} is rate limited and no fallback route exists: {e}"])
-    agent_name, model = choice.route.pair()
-    if agent_name == spent:
-        return Verdict(t.spec.task_id, spent, False, [f"{spent} is rate limited and it is the only route at this tier"])
-    agent = build_agent(agent_name, model)
-    if agent is None:
-        return Verdict(t.spec.task_id, spent, False,
-                       [f"{spent} is rate limited and the fallback {agent_name} is not available here"])
-    log(f"fallback {t.spec.task_id}: {spent} is rate limited -> {choice.route.id} ({choice.reason})")
-    continuity.note(root, kind="fallback", summary=f"{t.spec.task_id} moved from {spent} to {choice.route.id}",
-                    agent=agent_name)
-    chosen[t.spec.task_id] = choice.route.id
-    chosen_agent[t.spec.task_id] = agent_name
-    return dispatch(agent, replace(t.spec, prompt=SCOPE_PREAMBLE + t.spec.prompt), log=log)
+    last = results[-1] if results else Verdict(t.spec.task_id, spent, False)
+
+    # Walk the chain rather than stepping once. This dispatched a single fallback and returned whatever came
+    # back, so a fallback that was itself rate limited ended the task — the loop stopping quietly, which is the
+    # one thing the sentinel exists to prevent. It never showed while there was exactly one free route below the
+    # paid ones. With a tool loop and a single-shot writer both sitting there, one step is not enough.
+    for _ in range(MAX_FALLBACKS):
+        availability.mark_limited(root, spent)
+        continuity.note(root, kind="limited", summary=f"{spent} hit a usage limit on {t.spec.task_id}",
+                        agent=spent, detail=_verdict_text(last))
+        if table is None:
+            return Verdict(t.spec.task_id, spent, False, [f"{spent} is rate limited and no routing table is loaded"])
+        try:
+            choice = routing.choose(table, rows, t.tier, root=root)
+        except routing.RoutingError as e:
+            return Verdict(t.spec.task_id, spent, False, [f"{spent} is rate limited and no fallback route exists: {e}"])
+        agent_name, model = choice.route.pair()
+        if agent_name == spent:
+            return Verdict(t.spec.task_id, spent, False,
+                           [f"{spent} is rate limited and it is the only route at this tier"])
+        agent = build_agent(agent_name, model)
+        if agent is None:
+            return Verdict(t.spec.task_id, spent, False,
+                           [f"{spent} is rate limited and the fallback {agent_name} is not available here"])
+        log(f"fallback {t.spec.task_id}: {spent} is rate limited -> {choice.route.id} ({choice.reason})")
+        continuity.note(root, kind="fallback", summary=f"{t.spec.task_id} moved from {spent} to {choice.route.id}",
+                        agent=agent_name)
+        chosen[t.spec.task_id] = choice.route.id
+        chosen_agent[t.spec.task_id] = agent_name
+        verdict = dispatch(agent, replace(t.spec, prompt=SCOPE_PREAMBLE + t.spec.prompt), log=log)
+        if not _hit_a_usage_limit(agent_name, verdict):
+            return verdict
+        spent, last = agent_name, verdict
+
+    return Verdict(t.spec.task_id, spent, False,
+                   [f"every route at the {t.tier} tier is rate limited after {MAX_FALLBACKS} attempts"])
 
 
 def run_wave(

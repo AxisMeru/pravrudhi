@@ -140,13 +140,15 @@ def test_the_shipped_table_reserves_the_dearest_model_for_the_hardest_work() -> 
 
 
 def test_the_hosted_sentinel_is_permitted_everywhere_but_always_last() -> None:
-    """The free-tier route is the sentinel: it takes over, it does not compete.
+    """The free-tier single-shot route is the sentinel: it takes over, it does not compete.
 
-    It was permitted only at the mechanical tier, which meant that when the paid accounts hit their usage limits
-    at the tiers where the real work happens there was nothing to fall back to and the loop simply stopped. The
-    operator's requirement of 2026-09-06 is that the system runs unattended when the paid models are spent, so
-    the route is now permitted at every tier — and declared last above mechanical, so the router reaches it only
-    when everything above it is cooling down.
+    It was permitted only at the mechanical tier once, which meant that when the paid accounts hit their usage
+    limits at the tiers where the real work happens there was nothing to fall back to and the loop simply
+    stopped. The operator's requirement of 2026-09-06 is that the system runs unattended when the paid models
+    are spent, so it is permitted at every tier and declared last above mechanical.
+
+    Adding a real Qwen tool loop beside it does not replace it. The loop is a separate route that can itself be
+    spent or broken, and collapsing the two would remove the fallback while appearing to improve it.
     """
     t = routing.load_table()
     assert t.routes["qwen-coder"].agent == "hosted"
@@ -155,6 +157,18 @@ def test_the_hosted_sentinel_is_permitted_everywhere_but_always_last() -> None:
         assert "qwen-coder" in ids, tier
     for tier in ("standard", "design", "critical"):
         assert [r.id for r in t.permitted(tier)][-1] == "qwen-coder", tier
+
+
+def test_the_verified_alibaba_loop_carries_load_where_it_was_measured() -> None:
+    """One verified tool call admits the loop to the tiers it was checked at, and no further."""
+    t = routing.load_table()
+    loop = t.routes["qwen-loop"]
+    assert loop.agent == "opencode:alibaba"
+    for tier in ("mechanical", "standard"):
+        assert loop.id in [r.id for r in t.permitted(tier)], tier
+    for tier in ("design", "critical"):
+        assert loop.id not in [r.id for r in t.permitted(tier)], tier
+
 
 def test_choose_drops_a_cooling_route_and_says_so(tmp_path: Path) -> None:
     doc = {

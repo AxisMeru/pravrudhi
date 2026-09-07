@@ -99,13 +99,18 @@ rows:
   evidence:
   - app/desktop/package.json
   - app/desktop/smoke.js
+  - app/desktop/build-macos.sh
+  - app/desktop/install-macos.sh
+  - docs/DESKTOP.md
   - app/frontend/src/app/desktop/page.tsx
   notes: >-
-    Run rather than read. The smoke launch starts the shell, which picks a free port, starts an engine on it,
-    loads the interface and reports the window title, then exits cleanly leaving no engine behind. Twenty-nine
-    unit tests cover port selection, process ownership and teardown. Two caveats stay in view. The launch passes
-    --no-sandbox because this machine's Electron sandbox helper needs root, which is not how a user would start
-    it, and this exercises the source application rather than the packaged binary.
+    Run rather than read, and now on both platforms. On Linux the smoke launch starts the shell, which picks a
+    free port, starts an engine, loads the interface and reports the window title, then exits leaving no engine
+    behind. On macOS the packaged arm64 build was installed to the Mac mini's ~/Applications and its smoke run
+    reported launched, engine found and health ok with no errors, against an engine it started itself. Unit
+    tests cover port selection, process ownership and teardown. Two caveats stay in view. The Linux launch
+    passes --no-sandbox because that machine's Electron sandbox helper needs root, and the macOS build is
+    unsigned and not notarized, which is fine for the operator's own machines and not for distribution.
 - id: system-page
   capability: System health and agent overview
   why_it_matters: Understand the engine and available builders.

@@ -7,7 +7,8 @@ async function discoverEngine({env = process.env, home = os.homedir(), saved, ex
   try { await fs.promises.access(p, fs.constants.X_OK); return (await fs.promises.stat(p)).isFile(); } catch { return false; }
 }} = {}) {
   const candidates = [env.PRAVRUDHI_BIN, ...(env.PATH || '').split(path.delimiter).filter(Boolean).map(p => path.join(p, 'pravrudhi')),
-    path.join(home, 'pravrudhi-release/.pravrudhi/releases/current/.venv/bin/pravrudhi'), path.join(home, '.local/bin/pravrudhi'), saved];
+    path.join(home, 'pravrudhi-release/.pravrudhi/releases/current/.venv/bin/pravrudhi'), path.join(home, '.local/bin/pravrudhi'), saved,
+    path.join(home, 'pravrudhi/.pravrudhi/releases/current/.venv/bin/pravrudhi')];
   for (const p of [...new Set(candidates.filter(Boolean))]) if (await executable(p)) return path.resolve(p);
   return null;
 }

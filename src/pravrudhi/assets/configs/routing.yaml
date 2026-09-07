@@ -14,11 +14,25 @@
 #
 # The consequence is that cost cannot be managed by choosing a cheaper model on codex. It is managed by sending
 # work that does not need the strongest model to Claude Code instead, where a cheaper model does exist.
-updated: 2026-09-05
+updated: 2026-09-07
 minimum_trials: 3
 confidence: 0.95
 
 routes:
+  - id: qwen-loop
+    agent: opencode:alibaba
+    model: qwen3-coder-plus
+    relative_cost: 0.2
+    tiers: [mechanical, standard]
+    note: >-
+      Qwen driving a real tool loop through OpenCode against DashScope Singapore. Verified live on 2026-09-07:
+      given a file and a read tool it called the tool and returned the right answer, exit 0 in 8.1s at zero
+      cost. An earlier attempt from inside a sandboxed agent failed at OpenCode's own log file before reaching
+      DashScope, which is a property of nesting one agent inside another's sandbox and not of this route;
+      agents/ALIBABA_LOOP.md keeps that transcript. Admitted at mechanical and standard because one verified
+      tool call is evidence the loop runs, not evidence it does design or critical work well. It rises through
+      the same measured outcomes as every other route, or it does not rise.
+
   - id: qwen-coder
     agent: hosted
     model: qwen3-coder-plus
@@ -31,7 +45,7 @@ routes:
       above mechanical, so the router reaches it only when every paid route at that tier is cooling down from a
       usage limit. A single-shot writer is a poor substitute for an agent loop and a far better one than a
       stopped loop, which is what the operator asked for on 2026-09-06: the system must run unattended when the
-      paid accounts are spent.
+      paid accounts are spent. It stays because the loop above it is a different route and can also be spent.
 
   - id: haiku
     agent: claude-code
@@ -75,8 +89,8 @@ routes:
     note: >-
       Costs nothing and, on the evidence so far, does little: it produced no change at all on two tasks a hosted
       agent completed in minutes. Serving text and driving an agentic tool-calling loop are different
-      capabilities. Restored to the mechanical tier only, and declared behind the hosted sentinel, so it is
-      reached solely when both the paid routes and the hosted quota are spent. Last resort, not a peer.
+      capabilities. Restored to the mechanical tier only, and declared behind sonnet, so it is
+      reached solely when the paid route is cooling. Last resort, not a peer.
 
 # Declared order decides before there is measured evidence, and it is also the tie-break the fallback path walks.
 # The sentinels sit last at every tier on purpose: they take over, they do not compete.
@@ -93,7 +107,10 @@ declared:
   # only once the cheaper routes were measured worse or cooling — permitted, but never preferred, which is the
   # inverse of what was asked. Cost still governs the tiers below; this one is a stated preference, and a
   # preference outranks the cost heuristic.
-  mechanical: [qwen-coder, sonnet, local-glm]
-  standard: [sonnet, qwen-coder]
-  design: [sonnet, opus, astra, qwen-coder]
-  critical: [astra, opus, sonnet, qwen-coder]
+  # The verified Qwen loop is declared ahead of the single-shot sentinel at the two tiers it was measured at, so
+  # a spent paid account falls to a real tool loop first and to a one-shot writer only after that. Both are named
+  # here rather than left to the cost sort, which ranked them by id and put the sentinel above the loop.
+  mechanical: [sonnet, local-glm, qwen-loop]
+  standard: [sonnet, qwen-loop]
+  design: [sonnet, opus, astra]
+  critical: [astra, opus, sonnet]

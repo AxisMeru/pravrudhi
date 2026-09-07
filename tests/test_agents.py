@@ -90,7 +90,7 @@ def test_survey_reports_a_reason_for_every_agent(tmp_path):
     rows = survey(r)
     assert {r.name for r in rows} >= {"claude-code", "codex", "orca:claude", "orca:codex", "orca:local"}
     assert all(r.reason for r in rows), "an unavailable agent must say why"
-    assert set(build_registry(r, include_orca=False)) == {"claude-code", "codex"}
+    assert set(build_registry(r, include_orca=False)) == {"claude-code", "codex", "opencode:alibaba"}
 
 
 class TestCodexIsToldWhereToWorkUnambiguously:

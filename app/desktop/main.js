@@ -22,8 +22,26 @@ async function finishSmoke(error) {
   if (!smoke || smokeFinished) return;
   smokeFinished = true;
   try {
+    if (!error && process.env.PRAVRUDHI_DESKTOP_SHOT) {
+      const contents = [...windows][0].webContents;
+      const observed = await contents.executeJavaScript(`new Promise((resolve, reject) => {
+        const deadline = Date.now() + 30000;
+        function check() {
+          const text = document.body?.innerText.trim() || '';
+          if (text.length > 40) return resolve({url: location.href, title: document.title, body: text.slice(0, 2000)});
+          if (Date.now() >= deadline) return reject(new Error('Engine interface remained blank.'));
+          setTimeout(check, 200);
+        }
+        check();
+      })`);
+      // Await capture before quitting; the initial diagnostics page is not evidence
+      // that the engine frontend rendered successfully.
+      const fs = require('node:fs');
+      fs.writeFileSync(process.env.PRAVRUDHI_DESKTOP_SHOT, (await contents.capturePage()).toPNG());
+      fs.writeFileSync(`${process.env.PRAVRUDHI_DESKTOP_SHOT}.json`, JSON.stringify(observed, null, 2));
+    }
     smokeExitCode = error ? await smoke.fail(error) : await smoke.finish({getTitle:()=>[...windows][0].webContents.getTitle(),health:api.health});
-  } catch (failure) { console.error('Smoke report:', failure); smokeExitCode = 1; }
+  } catch (failure) { console.error('Smoke report:', failure); smokeExitCode = await smoke.fail(failure); }
   app.quit();
 }
 const docs = 'https://github.com/SharathSPhD/pravrudhi#readme';
@@ -165,7 +183,7 @@ function createWindow() {
     // Photograph the window when asked. The smoke run proves the app launched and reached an engine; this shows
     // what it actually looks like, which is the only way to check a desktop shell without sitting in front of it.
     const shot = process.env.PRAVRUDHI_DESKTOP_SHOT;
-    if (shot) {
+    if (shot && !smokeMode) {
       setTimeout(() => {
         w.webContents.capturePage().then(img => {
           require('node:fs').writeFileSync(shot, img.toPNG());

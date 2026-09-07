@@ -261,7 +261,7 @@ class LoomProgram:
 # ---------------------------------------------------------------------------
 
 _TYPE_KEYWORDS = frozenset(
-    {"target", "corpus", "tokenizer", "model", "evalset", "unit", "feature", "circuit", "monitor", "control"}
+    {"target", "corpus", "tokenizer", "model", "evalset", "unit", "feature", "circuit", "monitor", "control", "evaluation", "promotion"}
 )
 _CMP_OPS = frozenset({"<", ">", "<=", ">=", "=="})
 

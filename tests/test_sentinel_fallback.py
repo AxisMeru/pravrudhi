@@ -49,10 +49,37 @@ def test_a_usage_limit_moves_the_task_to_the_sentinel(tmp_path: Path, monkeypatc
 
     out = run_wave(_factory(calls), [task], log=lambda *_: None, root=tmp_path)
 
+    # The requirement is that work continues when the paid account is spent, not that one particular free route
+    # serves it. This asserted `hosted` because the single-shot writer was the only free route that existed. A
+    # verified Qwen tool loop now sits ahead of it, which is a better fallback for agentic work and leaves the
+    # sentinel behind it for when the loop is itself spent or broken.
     assert len(out) == 1
     assert out[0].accepted, out[0].reasons
-    assert out[0].agent == "hosted", f"the sentinel should have taken over, got {out[0].agent}"
-    assert dispatched == ["claude-code", "hosted"], dispatched
+    assert out[0].agent == "opencode:alibaba", f"a free route should have taken over, got {out[0].agent}"
+    assert dispatched == ["claude-code", "opencode:alibaba"], dispatched
+
+
+def test_the_single_shot_sentinel_still_stands_behind_the_loop(tmp_path: Path, monkeypatch: Any) -> None:
+    """If the tool loop is spent too, the one-shot writer is what keeps the night moving."""
+    dispatched: list[str] = []
+
+    def fake_dispatch(agent: Any, spec: TaskSpec, *, log: Any = print) -> Verdict:
+        dispatched.append(agent.name)
+        if agent.name == "claude-code":
+            return Verdict(spec.task_id, agent.name, False, ["Claude usage limit reached. Your limit will reset"])
+        if agent.name == "opencode:alibaba":
+            # What DashScope actually says when the free tier is spent, not a Claude message wearing its name.
+            return Verdict(spec.task_id, agent.name, False, ["Error: Requests rate limit exceeded"])
+        return Verdict(spec.task_id, agent.name, True, [], wall_s=1.0)
+
+    monkeypatch.setattr("pravrudhi.application.swarm.dispatch", fake_dispatch)
+    task = SwarmTask(TaskSpec("t1", "do a thing", ("x.py",), "true", 60), "standard", "why")
+
+    out = run_wave(_factory([]), [task], log=lambda *_: None, root=tmp_path)
+
+    assert out[0].accepted, out[0].reasons
+    assert out[0].agent == "hosted", f"the sentinel should be the last resort, got {out[0].agent}"
+    assert dispatched == ["claude-code", "opencode:alibaba", "hosted"], dispatched
 
 
 def test_the_limited_route_is_cooled_and_not_blamed(tmp_path: Path, monkeypatch: Any) -> None:
