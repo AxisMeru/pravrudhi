@@ -186,3 +186,43 @@ def test_report_covers_every_tier(tmp_path: Path) -> None:
     rows = report(tmp_path, _table(tmp_path))
     assert {r["tier"] for r in rows} == {"mechanical", "standard", "critical"}
     assert all(r.get("reason") for r in rows)
+
+
+def test_the_toughest_tier_leads_with_astra() -> None:
+    """The operator asked that astra handle the tough jobs; it had been listed last at that tier.
+
+    Being permitted at a tier is not the same as being preferred there. With no track record the declared order
+    decides, so astra behind opus and sonnet meant it was reached only once both were measured worse or cooling
+    from a rate limit — a last resort, which is the inverse of the instruction.
+    """
+    table = routing.load_table()
+    assert [r.id for r in table.permitted("critical")][0] == "astra"
+    assert "astra" in [r.id for r in table.permitted("design")]
+
+
+class TestAStatedPreferenceOutranksCost:
+    """The operator said astra should handle the tough jobs; the chooser kept picking sonnet anyway.
+
+    Declared order only breaks ties before there is evidence. Once a route has a track record the chooser prefers
+    the cheapest whose interval overlaps the best, which is right in general and wrong when the operator has
+    named the model for that work. Listing astra first was not enough — being permitted is not being preferred.
+    """
+
+    def test_the_named_route_wins_its_tier_regardless_of_cost(self, tmp_path: Path) -> None:
+        table = routing.load_table()
+        assert table.preferred("critical") == "astra"
+        choice = routing.choose(table, routing.outcomes(tmp_path), "critical")
+        assert choice.route.id == "astra"
+        assert "declared for this tier by the operator" in choice.reason
+
+    def test_a_tier_with_no_preference_still_chooses_on_evidence(self, tmp_path: Path) -> None:
+        table = routing.load_table()
+        assert table.preferred("standard") is None
+        choice = routing.choose(table, routing.outcomes(tmp_path), "standard")
+        assert choice.route.id != "astra"
+
+    def test_a_preferred_route_that_is_cooling_yields_to_the_ordinary_rules(self, tmp_path: Path) -> None:
+        table = routing.load_table()
+        availability.mark_limited(tmp_path, "codex")
+        choice = routing.choose(table, routing.outcomes(tmp_path), "critical", root=tmp_path)
+        assert choice.route.id != "astra", "a preference must not send work to an account that is rate limited"

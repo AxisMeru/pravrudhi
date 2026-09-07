@@ -93,6 +93,13 @@ routes:
 
 # Declared order decides before there is measured evidence, and it is also the tie-break the fallback path walks.
 # The sentinels sit last at every tier on purpose: they take over, they do not compete.
+# A tier named here takes its route from the operator rather than from the cost heuristic. Declared order only
+# breaks ties before there is evidence; once a route has a track record the chooser prefers the cheapest whose
+# interval overlaps the best, which is right in general and wrong when the operator has said which model should
+# do this work. A preferred route still yields to the ordinary rules when it is cooling or unavailable.
+prefer:
+  critical: astra   # operator, 2026-09-06: "let astra handle the tough jobs"
+
 declared:
   mechanical: [qwen-coder, qwen-loop, sonnet, local-glm]
   standard: [sonnet, qwen-coder, qwen-loop]

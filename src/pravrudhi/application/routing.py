@@ -28,7 +28,7 @@ Promoting a route to a harder tier is a human edit to `configs/routing.yaml`.
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -118,6 +118,13 @@ class Table:
     declared: dict[str, tuple[str, ...]]
     minimum_trials: int
     confidence: float
+    prefer: dict[str, str] = field(default_factory=dict)
+    """Tiers whose route the operator has named, which the cost heuristic does not get to overrule."""
+
+    def preferred(self, tier: str) -> str | None:
+        """The route the operator named for this tier, if any. A stated preference, not a measured one."""
+        value = self.prefer.get(tier) if isinstance(self.prefer, dict) else None
+        return str(value) if value else None
 
     def permitted(self, tier: str) -> list[Route]:
         """Routes allowed at this tier, in declared order, with any permitted route the declaration forgot
@@ -149,6 +156,7 @@ def load_table(path: Path | None = None) -> Table:
     return Table(
         routes=routes,
         declared=declared,
+        prefer={str(k): str(v) for k, v in (raw.get("prefer") or {}).items()},
         minimum_trials=int(raw.get("minimum_trials", 3)),
         confidence=float(raw.get("confidence", 0.95)),
     )
@@ -257,6 +265,18 @@ def choose(table: Table, rows: list[Outcome], tier: str, root: Path | None = Non
         reason = (f"every route permitted at this tier is cooling down from a recent usage-limit hit; forcing "
                   f"{cheapest.id} anyway rather than stall")
         return Choice(tier, cheapest, reason, tuple(r.id for r in permitted), tuple(records(table, rows, tier)))
+
+    # A tier the operator has spoken for takes its route from that, not from the cost heuristic — unless the
+    # named route is cooling or unavailable here, in which case the ordinary rules resume.
+    wanted = table.preferred(tier)
+    if wanted:
+        named = next((r for r in usable if r.id == wanted), None)
+        if named is not None:
+            return Choice(
+                tier, named,
+                f"{wanted} is the route declared for this tier by the operator, so cost does not decide it",
+                tuple(r.id for r in usable), tuple(records(table, rows, tier)),
+            )
 
     considered = tuple(r.id for r in usable)
     usable_ids = set(considered)
