@@ -486,3 +486,78 @@ def render_h1(ledger: Path, nights: tuple[int, ...], track: str = "lora") -> str
         "",
     ]
     return "\n".join(lines)
+
+
+def render_search(ledger: Path) -> str:
+    """The shape of the search and how often selection actually had a choice, from the ledger alone."""
+    from pravrudhi.application.archive import ancestry_report, parent_map, selection_pressure
+
+    parents = parent_map(ledger)
+    report = ancestry_report(parents)
+    pressure = selection_pressure(ledger)
+    binding = [p for p in pressure if p.binding]
+    recent = [p for p in pressure if p.night >= 7]
+    recent_binding = [p for p in recent if p.binding]
+
+    lines = [
+        "# The shape of the search: branching, and whether selection had a choice",
+        "",
+        "Rendered from the ledger alone. Two measurements, both structural rather than statistical: how the",
+        "candidate graph branches, and how often the budget actually forced the controller to leave something out.",
+        "",
+        "## Ancestry",
+        "",
+        "| quantity | value |",
+        "|---|---|",
+        f"| candidates proposed | {report.nodes} |",
+        f"| roots | {report.roots} |",
+        f"| distinct parents in the whole history | {report.distinct_parents} |",
+        f"| deepest lineage | {report.max_depth} generation(s) |",
+    ]
+    if report.widest:
+        cid, n = report.widest
+        lines.append(f"| widest parent | `{cid}`, {n} children |")
+    lines += [
+        "",
+        "Every candidate is proposed with its parent recorded, and until now nothing read the field back. The",
+        "graph it describes is a star: the whole recorded history descends from a very small number of ancestors,",
+        "because a candidate's parent is always whichever incumbent was standing when it was built.",
+        "",
+        "## Selection pressure",
+        "",
+        "A selection rule earns its keep only when the live pool exceeds what the budget can run. The live pool is",
+        "every candidate proposed so far that has not been pruned or promoted, restricted to the evaluation benches",
+        "the night worked on; a candidate measured on another pool is not an alternative to one measured on this",
+        "pool, and counting it would inflate the apparent choice.",
+        "",
+        "| night | live pool | ran | declined |",
+        "|---|---|---|---|",
+    ]
+    lines += [f"| {p.night} | {p.live} | {p.selected} | {p.declined} |" for p in pressure]
+    lines += [
+        "",
+        f"The budget forced a choice on {len(binding)} of {len(pressure)} nights, declining "
+        f"{sum(p.declined for p in pressure)} candidate-nights in total.",
+        "",
+    ]
+    if recent:
+        lines += [
+            f"From night 7 onward that falls to {len(recent_binding)} of {len(recent)} nights, declining "
+            f"{sum(p.declined for p in recent)}. On those nights the loop proposed about as many candidates as it",
+            "could afford to run, so the pool equalled the budget and the controller ranked a set it was going to",
+            "run in full regardless.",
+            "",
+        ]
+    lines += [
+        "## Tensions",
+        "",
+        "The live pool is reconstructed here from propose, prune and promote rows rather than read from the",
+        "controller, so it is this renderer's reading of what was available rather than the pool the controller",
+        "itself held. A candidate pruned during a night is counted as live for that night, because pruning follows",
+        "evaluation and the candidate was available when the night chose.",
+        "",
+        "Selection pressure says nothing about whether the ranking was good. It says only how often ranking",
+        "mattered. A night whose budget covered its whole pool cannot distinguish any two selection rules, and most",
+        "recent nights are of that kind, which bounds what any retrospective comparison of arms can show.",
+    ]
+    return "\n".join(lines) + "\n"

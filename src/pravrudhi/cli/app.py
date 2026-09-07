@@ -265,6 +265,11 @@ def evidence_cmd(
         nights = tuple(int(x) for x in name.removeprefix("summary").split("-") if x)
         text = render_nights_summary(root / "research" / "ledger.jsonl", nights)
         dest = root / "docs" / "evidence" / f"P1_summary_{'_'.join(str(n) for n in nights)}.json"
+    elif name == "search":
+        from pravrudhi.application.evidence import render_search
+
+        text = render_search(root / "research" / "ledger.jsonl")
+        dest = root / "docs" / "evidence" / "P1_search_shape.md"
     elif name == "sensors":
         from pravrudhi.application.sensors import render_sensors
 
@@ -303,6 +308,39 @@ def evidence_cmd(
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_text(text)
     typer.echo(f"wrote {dest}")
+
+
+@app.command("search")
+def search_cmd(root: Path = ROOT_OPT) -> None:
+    """Show the shape of the search: how it branches, and how often selection actually had a choice."""
+    from pravrudhi.application.archive import ancestry_report, parent_map, selection_pressure
+
+    ledger = root / "research" / "ledger.jsonl"
+    if not ledger.exists():
+        typer.echo("no ledger at research/ledger.jsonl")
+        raise typer.Exit(1)
+
+    parents = parent_map(ledger)
+    report = ancestry_report(parents)
+    typer.echo("ancestry")
+    typer.echo(f"  candidates proposed   {report.nodes}")
+    typer.echo(f"  roots                 {report.roots}")
+    typer.echo(f"  distinct parents      {report.distinct_parents}")
+    typer.echo(f"  deepest lineage       {report.max_depth} generation(s)")
+    if report.widest:
+        cid, n = report.widest
+        typer.echo(f"  widest parent         {cid} with {n} children")
+
+    pressure = selection_pressure(ledger)
+    binding = [p for p in pressure if p.binding]
+    typer.echo("")
+    typer.echo("selection pressure (live pool on the night's own bench, against what the budget ran)")
+    typer.echo(f"  {'night':>5} {'live':>6} {'ran':>5} {'declined':>9}")
+    for p in pressure:
+        typer.echo(f"  {p.night:>5} {p.live:>6} {p.selected:>5} {p.declined:>9}")
+    typer.echo("")
+    typer.echo(f"  nights where the budget forced a choice: {len(binding)} of {len(pressure)}")
+    typer.echo(f"  candidate-nights declined in total:      {sum(p.declined for p in pressure)}")
 
 
 @app.command("paper-data")
