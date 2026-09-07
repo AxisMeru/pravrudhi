@@ -105,16 +105,24 @@ rows:
   - app/desktop/smoke.js
   - app/desktop/build-macos.sh
   - app/desktop/install-macos.sh
+  - app/desktop/install-linux.sh
+  - app/desktop/electron-builder.product.json
+  - app/desktop/electron-builder.studio.json
   - docs/DESKTOP.md
   - app/frontend/src/app/desktop/page.tsx
+  - 'command: npm --prefix app/desktop test'
+  - 'command: grep -q windows-latest .github/workflows/release.yml'
   notes: >-
-    Run rather than read, and now on both platforms. On Linux the smoke launch starts the shell, which picks a
-    free port, starts an engine, loads the interface and reports the window title, then exits leaving no engine
-    behind. On macOS the packaged arm64 build was installed to the Mac mini's ~/Applications and its smoke run
-    reported launched, engine found and health ok with no errors, against an engine it started itself. Unit
-    tests cover port selection, process ownership and teardown. Two caveats stay in view. The Linux launch
-    passes --no-sandbox because that machine's Electron sandbox helper needs root, and the macOS build is
-    unsigned and not notarized, which is fine for the operator's own machines and not for distribution.
+    Run rather than read, and now as two installs. Studio and the product are separate builds with their own
+    appId, product name, output directory and per-user data directory, so both sit on one machine without
+    overwriting each other, and each carries an edition file the app reads and passes to every engine it
+    starts. Both were installed on Linux and on the Mac mini, and each reported launched, engine found, health
+    ok, no errors, and the edition it was built as, against an engine it started itself. Unit tests cover port
+    selection, process ownership, teardown, the edition rule and the two build configurations.
+    Three caveats stay in view. Windows is built by release CI and has never been launched, so nothing here
+    claims it runs; the Linux launch passes --no-sandbox because that machine's Electron sandbox helper needs
+    root; and the macOS build is unsigned and not notarized, which is fine for the operator's own machines and
+    not for distribution.
 - id: system-page
   capability: System health and agent overview
   why_it_matters: Understand the engine and available builders.
