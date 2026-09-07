@@ -1140,3 +1140,36 @@ class ParityResponse(BaseModel):
     coverage: Coverage
     gaps: list[Capability]
     next_gap: Capability | None
+
+
+class Ancestry(BaseModel):
+    """The shape of the candidate graph: how many starting points the search has actually had."""
+
+    nodes: int
+    roots: int
+    max_depth: int
+    distinct_parents: int
+    widest: tuple[str, int] | None
+
+
+class NightPressure(BaseModel):
+    """One night's choice: what was available on the bench it worked, against what the budget ran."""
+
+    night: int
+    live: int
+    selected: int
+    declined: int
+    binding: bool
+
+
+class SearchResponse(BaseModel):
+    """Branching and selection pressure, folded from the ledger.
+
+    Selection pressure is the load-bearing one. A night whose budget covered its whole live pool put no question
+    to the controller, so no selection rule can be told apart from another on it.
+    """
+
+    ancestry: Ancestry
+    pressure: list[NightPressure]
+    binding_nights: int
+    declined: int

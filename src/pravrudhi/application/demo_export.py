@@ -49,7 +49,7 @@ _ABS_PATH = re.compile(r"/(?:[\w.\-]+/)+[\w.\-]+")
 
 # The public site's page list, mirrored from app/frontend/src/components/Sidebar.tsx NAV (a TypeScript constant this
 # Python module cannot import). Keep the two in sync by hand when a route is added or renamed there.
-PAGES = ("/", "/objectives", "/chat", "/runs", "/models", "/machines", "/settings", "/install")
+PAGES = ("/", "/objectives", "/chat", "/runs", "/search", "/models", "/machines", "/settings", "/install")
 
 
 def _commit() -> str | None:
@@ -245,6 +245,20 @@ def _swarm(root: Path) -> dict[str, Any]:
     }
 
 
+def _search(ledger: Path) -> dict[str, Any]:
+    """Branching and selection pressure, so the recorded demo carries them without a live engine."""
+    from pravrudhi.application.archive import ancestry_report, parent_map, selection_pressure
+
+    parents = parent_map(ledger)
+    pressure = selection_pressure(ledger)
+    return {
+        "ancestry": ancestry_report(parents).to_dict(),
+        "pressure": [p.to_dict() for p in pressure],
+        "binding_nights": sum(1 for p in pressure if p.binding),
+        "declined": sum(p.declined for p in pressure),
+    }
+
+
 def build_demo(root: Path) -> dict[str, Any]:
     root = Path(root)
     ledger = root / "research" / "ledger.jsonl"
@@ -276,6 +290,7 @@ def build_demo(root: Path) -> dict[str, Any]:
             "pages": list(PAGES),
         },
         "engine": {"version": ENGINE_VERSION, "candidates": len(st.candidates)},
+        "search": _search(ledger),
         "status": status(root),
         "models": models_listing(root),
         "external": external_rows(ledger),

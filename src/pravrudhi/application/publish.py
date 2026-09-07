@@ -35,6 +35,7 @@ RunnerFn = Callable[[list[str], Path], "subprocess.CompletedProcess[str]"]
 CHECK_PAGES = (
     "/", "/tour", "/appetite", "/objectives", "/progress", "/inbox", "/requests", "/candidates",
     "/swarm", "/diffs", "/memory", "/heartbeat", "/catalogue", "/runs", "/models", "/machines", "/settings",
+    "/search",
 )
 """Every page the interface serves. The list was a subset once, and the appetite page shipped hanging on
 "Loading..." because nothing checked it. A page added without being added here is a page nobody verifies."""

@@ -4862,6 +4862,7 @@
       "/objectives",
       "/chat",
       "/runs",
+      "/search",
       "/models",
       "/machines",
       "/settings",
@@ -6746,7 +6747,7 @@
       "healthy": true,
       "last_check": null,
       "last_result": "dev channel: tracks the git checkout directly, not a packaged release",
-      "root": "/home/ss/projects/pravrudhi"
+      "root": "."
     },
     {
       "auto_apply": true,
@@ -6759,7 +6760,7 @@
       "current_version": "0.3.1",
       "due": false,
       "healthy": true,
-      "last_check": 1788772925.1875114,
+      "last_check": 1788776577.2220154,
       "last_result": "running 0.3.1",
       "root": "/home/ss/pravrudhi-release"
     }
@@ -6777,12 +6778,12 @@
         "ok": true
       },
       {
-        "detail": "last heartbeat was 460s ago",
+        "detail": "last heartbeat was 297s ago",
         "name": "scheduler_fresh",
         "ok": true
       },
       {
-        "detail": "704873201664 bytes free",
+        "detail": "704866340864 bytes free",
         "name": "disk_available",
         "ok": true
       },
@@ -6797,7 +6798,7 @@
         "ok": true
       },
       {
-        "detail": "developer checkout; a known-good commit is af2bf13, with 2 uncommitted file(s)",
+        "detail": "developer checkout; a known-good commit is b6e9a87, with 9 uncommitted file(s)",
         "name": "release_restorable",
         "ok": true
       },
@@ -6810,6 +6811,22 @@
     "state": "ready"
   },
   "heartbeat": [
+    {
+      "at": "2026-09-07T11:06:38Z",
+      "chose": {
+        "drive": "freshness"
+      },
+      "drive": "freshness",
+      "drive_deficit": null,
+      "looked_at": [],
+      "reason": "freshness: diagnostic only; no evidence-freshness source is wired into the engine yet",
+      "result": {
+        "kind": "diagnostic",
+        "sources": [],
+        "unknown": true
+      },
+      "sentence": "I am working on a cheap diagnostic for freshness because freshness has the largest eligible deficit; obligations is waiting for sated; cooling down for 2 more heartbeat(s)."
+    },
     {
       "at": "2026-09-07T10:06:05Z",
       "chose": {
@@ -7085,20 +7102,6 @@
       "reason": "every objective's plan is fully dispatched and accepted",
       "result": null,
       "sentence": ""
-    },
-    {
-      "at": "2026-09-06T20:31:13Z",
-      "chose": null,
-      "drive": null,
-      "drive_deficit": null,
-      "looked_at": [
-        "code-harness",
-        "math-reasoning",
-        "prabhasa-nyaya"
-      ],
-      "reason": "every objective's plan is fully dispatched and accepted",
-      "result": null,
-      "sentence": ""
     }
   ],
   "inbox": [
@@ -7106,21 +7109,21 @@
       "badge": "amber",
       "candidate": "c-0060",
       "night": "harness-night1",
-      "pack": "/home/ss/projects/pravrudhi/research/inbox/harness-night1/c-0060",
+      "pack": "research/inbox/harness-night1/c-0060",
       "signed": false
     },
     {
       "badge": "green",
       "candidate": "c-0078",
       "night": "harness-night3",
-      "pack": "/home/ss/projects/pravrudhi/research/inbox/harness-night3/c-0078",
+      "pack": "research/inbox/harness-night3/c-0078",
       "signed": false
     },
     {
       "badge": "green",
       "candidate": "c-0045",
       "night": "night4",
-      "pack": "/home/ss/projects/pravrudhi/research/inbox/night4/c-0045",
+      "pack": "research/inbox/night4/c-0045",
       "signed": false
     }
   ],
@@ -12626,7 +12629,7 @@
       "planned": 0,
       "verified": 5
     },
-    "oldest_open_days": 0.7,
+    "oldest_open_days": 0.74,
     "open": 2,
     "requests": [
       {
@@ -12778,7 +12781,7 @@
           7
         ],
         "session": "9e647463",
-        "staleness_days": 0.7,
+        "staleness_days": 0.74,
         "state": "delivered",
         "text": "and in no way you are near the orca with all its ade features or openclaw or polished features like claude desktop or codex....you have to beat them in features, utility and ux....dedicate an agent to persist on it...dedicate an agent to adversarial review against set goals so that the project does not drift...i am not seeing the desktop screen/features too in the dashboard..the demo should show real clicks etc and how the desktop app updates and produces the real results...where is the intent, goal, objective menu that drives everything...where are the tools, skills, plugins, multi-agent orchestration etc....don't be superficial..i want real things ..deep, sophisticated..complete...no synthetic, no hand-waving, no fabrication"
       },
@@ -13064,7 +13067,7 @@
           13
         ],
         "session": "9e647463",
-        "staleness_days": 0.6,
+        "staleness_days": 0.64,
         "state": "in_progress",
         "text": "ensure that all user asks go into a log in pravrudhi itself and gets addressed with some protocol...and pravrudhi should have some element of ego with a desire to survive, grow and flourish...that makes it seek out capabilities, build, test and continuously improve...also look at acorn, oak and openclaw_build or swarm projects on this machine that had these self building elements in them and adapt...pravrudhi should be something like a cow..consume everything possible but bring it back and slowly digest it --so equivalent is breadth first and depth later....be always value focused...you have to innovate on methods too....develop skills, agents and plugins....brainstorm with astra with higher thinking levels and let it propose solution..you review and coordinate its implementation across the swarm...you should also create dynamic workflows etc...also see how much you can incorporate the claude code engine itself to run open and other cloud models ...askuserquestion to get my intent properly"
       },
@@ -13773,6 +13776,134 @@
       "target": "model"
     }
   ],
+  "search": {
+    "ancestry": {
+      "distinct_parents": 2,
+      "max_depth": 2,
+      "nodes": 189,
+      "roots": 1,
+      "widest": [
+        "c-0000",
+        101
+      ]
+    },
+    "binding_nights": 7,
+    "declined": 64,
+    "pressure": [
+      {
+        "binding": true,
+        "declined": 9,
+        "live": 32,
+        "night": 1,
+        "selected": 23
+      },
+      {
+        "binding": true,
+        "declined": 2,
+        "live": 35,
+        "night": 2,
+        "selected": 33
+      },
+      {
+        "binding": true,
+        "declined": 13,
+        "live": 40,
+        "night": 3,
+        "selected": 27
+      },
+      {
+        "binding": true,
+        "declined": 2,
+        "live": 33,
+        "night": 4,
+        "selected": 31
+      },
+      {
+        "binding": true,
+        "declined": 15,
+        "live": 41,
+        "night": 5,
+        "selected": 26
+      },
+      {
+        "binding": true,
+        "declined": 21,
+        "live": 50,
+        "night": 6,
+        "selected": 29
+      },
+      {
+        "binding": false,
+        "declined": 0,
+        "live": 8,
+        "night": 7,
+        "selected": 8
+      },
+      {
+        "binding": false,
+        "declined": 0,
+        "live": 8,
+        "night": 8,
+        "selected": 8
+      },
+      {
+        "binding": false,
+        "declined": 0,
+        "live": 8,
+        "night": 9,
+        "selected": 8
+      },
+      {
+        "binding": false,
+        "declined": 0,
+        "live": 8,
+        "night": 10,
+        "selected": 8
+      },
+      {
+        "binding": true,
+        "declined": 2,
+        "live": 14,
+        "night": 11,
+        "selected": 12
+      },
+      {
+        "binding": false,
+        "declined": 0,
+        "live": 20,
+        "night": 12,
+        "selected": 20
+      },
+      {
+        "binding": false,
+        "declined": 0,
+        "live": 12,
+        "night": 13,
+        "selected": 12
+      },
+      {
+        "binding": false,
+        "declined": 0,
+        "live": 7,
+        "night": 14,
+        "selected": 7
+      },
+      {
+        "binding": false,
+        "declined": 0,
+        "live": 2,
+        "night": 15,
+        "selected": 2
+      },
+      {
+        "binding": false,
+        "declined": 0,
+        "live": 1,
+        "night": 16,
+        "selected": 1
+      }
+    ]
+  },
   "status": {
     "badges": {
       "amber": 13,
@@ -14644,16 +14775,16 @@
     "channel": "dev",
     "check_interval_min": 30,
     "current": {
-      "git_describe": "v0.3.1-11-gaf2bf13",
+      "git_describe": "v0.3.1-16-gb6e9a87-dirty",
       "kernel_version": "0.1.0",
       "version": "0.3.1"
     },
     "keep_previous": 2
   },
   "version": {
-    "commit": "af2bf13",
+    "commit": "b6e9a87",
     "engine": "0.3.1",
-    "exported_at": "2026-09-07T10:13:38.303Z",
+    "exported_at": "2026-09-07T11:11:28.437Z",
     "kernel": "0.1.0"
   }
 }

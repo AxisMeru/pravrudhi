@@ -70,6 +70,7 @@ from pravrudhi.api.schemas import (
     RequestEvidenceRequest,
     RequestResponse,
     SandboxesResponse,
+    SearchResponse,
     SignResponse,
     StatusResponse,
     SubagentsResponse,
@@ -396,6 +397,25 @@ def create_app(root: Path) -> FastAPI:
         from pravrudhi.application.parity import report
 
         return ParityResponse.model_validate(report(root).model_dump())
+
+    @api.get("/search", response_model=SearchResponse)
+    def search_ep() -> SearchResponse:
+        """The shape of the search: how the candidate graph branches, and how often the budget forced a choice.
+
+        A selection rule only earns something when the live pool exceeds what the budget can run, so the pressure
+        table is the honest reading of whether the controller has been deciding anything at all.
+        """
+        from pravrudhi.application.archive import ancestry_report, parent_map, selection_pressure
+
+        ledger = root / "research" / "ledger.jsonl"
+        parents = parent_map(ledger)
+        pressure = selection_pressure(ledger)
+        return SearchResponse.model_validate({
+            "ancestry": ancestry_report(parents).to_dict(),
+            "pressure": [p.to_dict() for p in pressure],
+            "binding_nights": sum(1 for p in pressure if p.binding),
+            "declined": sum(p.declined for p in pressure),
+        })
 
     @api.get("/appetite")
     def appetite_ep() -> AppetiteResponse:
