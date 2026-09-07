@@ -8,28 +8,49 @@ permissions:
   contents: write
 
 jobs:
-  desktop-linux:
-    runs-on: ubuntu-latest
+  desktop:
+    # Both editions on all three desktop operating systems. Studio is the operator's edition and the product is
+    # what a user installs; they carry different appIds and product names so one machine can hold both. Each
+    # runner builds its own platform: a macOS dmg cannot be produced off macOS, and a Windows installer needs
+    # wine to be cross-built, which is a dependency this would rather not have in a release path.
+    strategy:
+      fail-fast: false
+      matrix:
+        edition: [product, studio]
+        platform: [linux, mac, win]
+        # Each entry names an existing `platform`, so it adds the runner and artifact glob to that platform's
+        # combinations rather than to every one of them. Six jobs: two editions on three operating systems.
+        include:
+          - { platform: linux, os: ubuntu-latest, artifacts: "*.AppImage" }
+          - { platform: mac, os: macos-latest, artifacts: "*.dmg" }
+          - { platform: win, os: windows-latest, artifacts: "*.exe" }
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with: { node-version: "24" }
 
-      - name: build the linux AppImage
+      - name: build ${{ matrix.edition }} for ${{ matrix.platform }}
         working-directory: app/desktop
+        shell: bash
         run: |
           npm install --no-audit --no-fund
-          npm run dist:linux
+          npx electron-builder --${{ matrix.platform }} --config electron-builder.${{ matrix.edition }}.json
+
+      - name: the build must not have rewritten its own package.json
+        working-directory: app/desktop
+        shell: bash
+        run: node -e "const p=require('./package.json'); if(!p.scripts||!p.main) { throw new Error('the build clobbered package.json'); }"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: desktop-linux
-          path: app/desktop/dist/*.AppImage
+          name: desktop-${{ matrix.edition }}-${{ matrix.platform }}
+          path: app/desktop/dist/${{ matrix.edition }}/${{ matrix.artifacts }}
           if-no-files-found: error
 
   release:
-    needs: [desktop-linux]
+    needs: [desktop]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -51,9 +72,11 @@ jobs:
           uv build --wheel
           uv build --wheel --package pravrudhi-kernel
 
+      # Every desktop artifact the matrix produced, flattened into one directory for the checksum file.
       - uses: actions/download-artifact@v4
         with:
-          name: desktop-linux
+          pattern: desktop-*
+          merge-multiple: true
           path: dist
 
       - name: checksums
@@ -65,6 +88,8 @@ jobs:
           files: |
             dist/*.whl
             dist/*.AppImage
+            dist/*.dmg
+            dist/*.exe
             dist/SHA256SUMS
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

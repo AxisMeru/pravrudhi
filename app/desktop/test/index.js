@@ -5,6 +5,8 @@
 // ran: the suite reported the same count as before and the tasks that wrote them passed their own validation
 // on the strength of tests nobody executed. A file added without a line here is a file that does nothing.
 require('./core.test.js');
+require('./edition.test.js');
+require('./builds.test.js');
 require('./integration.test.js');
 require('./product.test.js');
 require('./auth.test.js');

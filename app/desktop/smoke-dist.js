@@ -4,7 +4,10 @@ const fs = require('node:fs');
 const path = require('node:path');
 const {createSmokeReporter} = require('./lib/smoke');
 const {terminateGroup} = require('./lib/lifecycle');
-const distDir = path.join(__dirname, 'dist');
+// Which edition to smoke: `npm run smoke:dist -- studio`, defaulting to the product. The builds write to
+// dist/<edition>/ so both can exist at once, which is the point of having two of them.
+const wanted = (process.argv[2] || 'product').trim().toLowerCase();
+const distDir = path.join(__dirname, 'dist', wanted);
 const appImageName = fs.existsSync(distDir) ? fs.readdirSync(distDir).find(f => f.endsWith('.AppImage')) : null;
 // A distinct, writable directory: the packaged main process cannot write its
 // report next to itself, since that would be inside the read-only app.asar.
@@ -16,7 +19,7 @@ const failure = async error => {
   process.exitCode = 1;
 };
 async function main() {
-  if (!appImageName) throw new Error('No .AppImage found in dist/. Run `npm run dist:linux` first.');
+  if (!appImageName) throw new Error(`No .AppImage found in dist/${wanted}/. Run \`npm run dist:linux\` (or dist:studio:linux) first.`);
   const appImagePath = path.join(distDir, appImageName);
   fs.chmodSync(appImagePath, 0o755);
   fs.rmSync(smokeDir, {recursive: true, force: true});
@@ -45,7 +48,13 @@ async function main() {
         if (timedOut || code !== 0 || report.launched !== true || report.engine_found !== true || report.health_ok !== true || !report.engine_url || !report.page_title || !Array.isArray(report.errors) || report.errors.length) {
           throw new Error(timedOut ? 'Launch timed out.' : report.errors?.join('; ') || `Packaged app exited ${signal || code} without a successful report.`);
         }
-        console.log(`Packaged app loaded ${report.engine_url}: ${report.page_title}`);
+        // The edition is what makes these two builds different installs rather than two copies of one. It has
+        // been got wrong twice by build configuration that looked correct, so the packaged app is made to say
+        // which it is and this refuses a build that came back as the other one.
+        if (report.edition !== wanted) {
+          throw new Error(`Built the ${wanted} edition but the packaged app ran as ${report.edition ?? 'nothing'}.`);
+        }
+        console.log(`Packaged ${wanted} app loaded ${report.engine_url}: ${report.page_title}`);
         process.exitCode = 0;
       } catch (error) {
         // Preserve main-process observations on failure; only fabricate a report if

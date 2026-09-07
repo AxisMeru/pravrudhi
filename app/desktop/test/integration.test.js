@@ -107,7 +107,13 @@ test('smoke records observed values and rejects failures rather than manufacturi
   let saved;const make=()=>createSmokeReporter('report.json',{write:(_file,value)=>{saved=value;}});
   const reporter=make(); reporter.launched();reporter.engine('http://127.0.0.1:8008');
   assert.equal(await reporter.finish({getTitle:()=> 'Real engine title',health:async()=>({ok:true})}),0);
-  assert.deepEqual(saved,{launched:true,engine_found:true,engine_url:'http://127.0.0.1:8008',page_title:'Real engine title',health_ok:true,errors:[]});
+  assert.deepEqual(saved,{launched:true,engine_found:true,engine_url:'http://127.0.0.1:8008',page_title:'Real engine title',health_ok:true,edition:null,errors:[]});
+  // The edition the app actually ran as, carried through so the packaged smoke can refuse a Studio build that
+  // came back as the product. Recorded, never inferred: an absent edition stays null rather than becoming one.
+  const stamped=createSmokeReporter('report.json',{write:(_f,v)=>{saved=v;},edition:'studio'});
+  stamped.launched();stamped.engine('http://127.0.0.1:8008');
+  assert.equal(await stamped.finish({getTitle:()=>'Studio',health:async()=>({ok:true})}),0);
+  assert.equal(saved.edition,'studio');
   for(const health of [async()=>({ok:false}),async()=>{throw Error('refused');}]) {
     const r=make();r.launched();r.engine('http://127.0.0.1:8008');assert.equal(await r.finish({getTitle:()=> 'Page',health}),1);assert.ok(saved.errors.length);assert.equal(saved.health_ok,false);
   }

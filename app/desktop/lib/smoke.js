@@ -1,7 +1,10 @@
 'use strict';
 const {writeState} = require('./core');
-function createSmokeReporter(file, {write = writeState} = {}) {
-  const report = {launched:false,engine_found:false,engine_url:null,page_title:null,health_ok:false,errors:[]};
+// `edition` is recorded rather than asserted here, so the packaged smoke can check that a Studio build
+// actually ran as Studio — the one thing that distinguishes the two installs and the one thing a build
+// can silently get wrong. Two earlier attempts did exactly that.
+function createSmokeReporter(file, {write = writeState, edition = null} = {}) {
+  const report = {launched:false,engine_found:false,engine_url:null,page_title:null,health_ok:false,edition,errors:[]};
   const save = () => { write(file,report); return report.errors.length ? 1 : 0; };
   return {
     launched: () => { report.launched = true; },
