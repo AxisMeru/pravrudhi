@@ -5,8 +5,14 @@ import { CommandPalette } from "@/components/palette/CommandPalette";
 import { KeyboardShortcuts } from "@/components/keyboard/KeyboardShortcuts";
 import "./globals.css";
 
+// GitHub Pages serves this app under /pravrudhi/app, and Next does not prefix an absolute icon URL with the
+// base path the way it does for imported assets. Written as "/icon.svg" the browser asked the origin root for
+// it and got a 404 — invisible in Chromium, which never requested it in these runs, and caught by Firefox.
+// Same pattern the rest of the app already uses for base-path-relative assets (see lib/demo.ts, lib/tour.ts).
+const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
+
 export const metadata: Metadata = {
-  icons: { icon: "/icon.svg" },
+  icons: { icon: `${basePath}/icon.svg` },
   title: "Pravrudhi",
   description: "Improve your model or your agent harness, on your hardware, while you watch.",
 };
