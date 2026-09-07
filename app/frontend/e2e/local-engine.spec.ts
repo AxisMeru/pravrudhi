@@ -108,3 +108,13 @@ test("home page bands render", async ({ page }) => {
   console.log("HOME ERRORS:", errs.join(" || ") || "none");
   console.log("HOME TEXT:", (await page.innerText("body")).slice(0, 420).replace(/\n+/g, " | "));
 });
+
+
+test("system page renders", async ({ page }) => {
+  const errs: string[] = [];
+  page.on("pageerror", (e) => errs.push("PAGEERROR " + String(e).slice(0, 260)));
+  page.on("console", (m) => { if (m.type() === "error") errs.push("CONSOLE " + m.text().slice(0, 260)); });
+  await page.goto("/system");
+  await page.waitForTimeout(9000);
+  console.log("SYS ERRORS:", errs.join(" || ") || "none");
+});

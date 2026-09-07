@@ -38,8 +38,10 @@ from pravrudhi.api.schemas import (
     DoctorResponse,
     EvidenceResponse,
     ExternalResultsResponse,
+    FleetInstallsResponse,
     FleetResponse,
     HealthResponse,
+    HealthStateResponse,
     HeartbeatResponse,
     InboxListingResponse,
     JobRequest,
@@ -400,6 +402,25 @@ def create_app(root: Path) -> FastAPI:
             {"drives": [d.to_dict() for d in state.drives], "appetite": state.to_dict(),
              "sentence": kshudha.sentence(state)}
         )
+
+    @api.get("/fleet")
+    def fleet_ep() -> FleetInstallsResponse:
+        """Every Pravrudhi install the configured fleet roots name, read from its own workspace directory: no
+        SSH, no network — an install this engine cannot see on its own filesystem is simply absent here."""
+        from pravrudhi.application.fleet import known_installs
+
+        return FleetInstallsResponse.model_validate({"installs": [i.to_dict() for i in known_installs(root)]})
+
+    @api.get("/health-state")
+    def health_state_ep() -> HealthStateResponse:
+        """Whether this engine can still do the next piece of work, and every check behind that answer."""
+        from pravrudhi.application.svasthya import assess
+
+        health = assess(root)
+        return HealthStateResponse.model_validate({
+            "state": str(health.state),
+            "checks": [{"name": c.name, "ok": bool(c.ok), "detail": str(c.detail)} for c in health.checks],
+        })
 
     @api.get("/external", response_model_exclude_unset=True)
     def external() -> ExternalResultsResponse:

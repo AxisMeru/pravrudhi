@@ -24,6 +24,7 @@ import {
   Compass,
   Flame,
   Rocket,
+  Cpu,
 } from "lucide-react";
 import type { ComponentType } from "react";
 import { NotificationBell } from "@/components/notifications/NotificationBell";
@@ -55,6 +56,7 @@ const NAV: NavItem[] = [
   { href: "/runs", label: "Runs", icon: History },
   { href: "/models", label: "Models", icon: Package },
   { href: "/machines", label: "Machines", icon: Server },
+  { href: "/system", label: "System", icon: Cpu },
   { href: "/settings", label: "Settings", icon: Settings },
   { href: "/install", label: "Install", icon: Download },
 ];

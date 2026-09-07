@@ -197,6 +197,45 @@ class AppetiteResponse(BaseModel):
     sentence: str
 
 
+class InstallResponse(BaseModel):
+    """One install's update policy and what it is actually running, read from its own workspace directory.
+    The two end-user installs used to prove the update path works had no way to be asked this without SSHing
+    in and reading logs by hand."""
+
+    root: str
+    channel: Literal["dev", "release"]
+    auto_apply: bool
+    current_version: str | None
+    available_versions: list[str]
+    last_check: float | None
+    last_result: str | None
+    healthy: bool
+    due: bool
+
+
+
+
+class FleetInstallsResponse(BaseModel):
+    """Every install a configured fleet root names and that actually exists on this machine."""
+
+    installs: list[InstallResponse]
+
+
+
+
+class HealthCheckResponse(BaseModel):
+    name: str
+    ok: bool
+    detail: str
+
+
+class HealthStateResponse(BaseModel):
+    """The engine's own survival state. A failing check is named with its detail, never summarised away."""
+
+    state: str
+    checks: list[HealthCheckResponse]
+
+
 class StatusResponse(RootModel[UninitialisedStatus | InitialisedStatus]):
     """Missing and replayed ledgers were conflated by an untyped status object."""
 
