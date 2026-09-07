@@ -153,7 +153,7 @@ def _fleet(root: Path) -> list[dict[str, Any]]:
     from pravrudhi.application.fleet import known_installs
 
     try:
-        return [i.to_dict() if hasattr(i, "to_dict") else dict(i) for i in known_installs(root)]
+        return [i.to_dict() for i in known_installs(root)]
     except Exception:  # noqa: BLE001 (a fleet that cannot be read is an empty fleet, not a failed export)
         return []
 
