@@ -1,14 +1,30 @@
 'use strict';
 const slug = value => typeof value === 'string' && /^[a-z0-9][a-z0-9-]{1,62}$/.test(value);
+// The band's own terms, from docs/BAND.md's table over src/pravrudhi/assets/configs/band.yaml: what
+// the engine may do without asking, what it must ask about first, the lifetime spend ceiling, and how
+// often it may run. Rendered in the user's terms, not the policy's field names.
+const BAND_LEVELS = Object.freeze([
+  {id:'one_time', name:'One-time build', mayActWithoutAsking:'Produce the initial artifact.',
+    mustAskFirst:'None; further work requires changing the choice.', spendCeilingUsd:10, runFrequency:'One run, then stop.'},
+  {id:'critical', name:'Critical updates only', mayActWithoutAsking:'Build; repair reported breakage; patch reported unsafe dependencies.',
+    mustAskFirst:'None; other work is outside this level.', spendCeilingUsd:50, runFrequency:'At most once per day.'},
+  {id:'self_healing', name:'Self-healing', mayActWithoutAsking:'Critical actions; check against a recorded baseline and repair a reported regression.',
+    mustAskFirst:'None; other work is outside this level.', spendCeilingUsd:150, runFrequency:'At most once per hour.'},
+  {id:'continuous', name:'Continuous improvement', mayActWithoutAsking:'Self-healing actions; propose and test unsolicited improvements.',
+    mustAskFirst:'Deploy an improvement.', spendCeilingUsd:500, runFrequency:'At most once per 15 minutes.'},
+]);
 function createProduct({api, auth, selectWorkspace}) {
   let selected = null, generation = 0;
+  // Per-artifact band choice. Nothing in the desktop's closed route table can carry this to the engine yet, so
+  // it lives only for this signed-in session: real for the user driving it now, honest about not surviving restart.
+  const bands = new Map();
   async function identity() {
     if (!auth.status().user) throw new Error('Sign in to open your workspaces.');
     const me = await api.me();
     if (!me.authenticated || me.id !== auth.status().user?.id) throw new Error('This engine must enable Supabase identity before you can open personal workspaces.');
   }
   return {
-    reset() { selected = null; generation++; },
+    reset() { selected = null; generation++; bands.clear(); },
     async workspaces() {
       await identity();
       const result = await api.workspaces();
@@ -55,7 +71,17 @@ function createProduct({api, auth, selectWorkspace}) {
       await api.createObjective({id:input.id, intent:input.intent.trim(), track:input.id,
         notes:input.location.trim(), benchmarks:[{id:input.id,tool:'lm-eval',metric:input.metric.trim(),direction:input.direction}]});
       return {id:input.id};
-    }
+    },
+    bandLevels() { return BAND_LEVELS.map(level => ({...level})); },
+    async chooseBand(artifactId, levelId) {
+      await identity();
+      if (!selected) throw new Error('Choose a workspace first.');
+      if (!slug(artifactId)) throw new Error('Choose an artifact.');
+      if (!BAND_LEVELS.some(level => level.id === levelId)) throw new Error('Choose one of the offered levels.');
+      bands.set(`${selected}/${artifactId}`, levelId);
+      return {id:artifactId, level:levelId};
+    },
+    bandFor(artifactId) { return selected ? bands.get(`${selected}/${artifactId}`) || null : null; }
   };
 }
 module.exports = {createProduct};

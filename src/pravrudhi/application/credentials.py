@@ -304,12 +304,41 @@ def validate(
     return False, redact(f"probe returned status {response.status_code}")
 
 
+class CredentialBoundaryError(RuntimeError):
+    """Refusing to hand a signed-in user a store rooted at the engine's own project."""
+
+
 def store_for(root: Path, user: User | None) -> CredentialStore:
-    """The credential store for this request. See the module docstring for why a Supabase-backed store,
-    the counterpart a logged-in user on a hosted engine will eventually need, is not built here yet."""
+    """The credential store for this request, for callers that hold only the engine's root.
+
+    Prefer `store_for_project`, which knows whose project the request is about. This remains for the local,
+    single-operator path where there is no signed-in user and the engine's root is the only project there is.
+    """
     if user is not None:
         raise NotImplementedError(
-            "Supabase-backed credential storage is not implemented yet (later milestone); "
-            "only the local file store exists"
+            "a signed-in caller needs `store_for_project`, which resolves their own workspace"
         )
     return FileCredentialStore(root)
+
+
+def store_for_project(
+    project_root: Path, *, engine_root: Path, user: User | None
+) -> CredentialStore:
+    """The credential store for one project, refusing to give a user the operator's.
+
+    The operator's keys live in the engine's project; a user's live in their workspace, which is a complete
+    project root of its own, so this is the same file store either way — the same 0600 files and the same
+    refusal to write inside a git work tree.
+
+    What this adds is the boundary. The engine holds working keys for several providers, and a signed-in user
+    who reached them could run the operator's account to its limit from a machine the operator does not control.
+    That mistake is one wrong argument at a call site, so it is refused here, where both roots are visible, and
+    the paths are resolved first because `engine/../engine` is the engine and a string comparison would let it
+    through.
+    """
+    here, engine = Path(project_root).resolve(), Path(engine_root).resolve()
+    if user is not None and here == engine:
+        raise CredentialBoundaryError(
+            "A signed-in user's provider keys live in their own workspace, not in the engine's project."
+        )
+    return FileCredentialStore(here)

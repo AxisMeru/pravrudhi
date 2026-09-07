@@ -875,14 +875,30 @@ def create_app(root: Path) -> FastAPI:
         except ValueError as e:
             raise HTTPException(422, str(e)) from e
 
+    def _keys(user: User | None, workspace: str | None) -> Any:
+        """This caller's provider keys, from their own project.
+
+        The operator's keys live in the engine's project and a user's live in their workspace, and
+        `store_for_project` refuses to give a signed-in user the former. That refusal is the point: the engine
+        holds working keys, and a user who reached them could spend the operator's account from a machine the
+        operator does not control.
+        """
+        from pravrudhi.application.credentials import CredentialBoundaryError, store_for_project
+
+        try:
+            return store_for_project(_project(user, workspace), engine_root=root, user=user)
+        except CredentialBoundaryError as e:
+            raise HTTPException(status_code=403, detail=str(e)) from e
+
     @api.get("/providers", response_model=ProvidersResponse)
-    async def providers_ep(user: User | None = CurrentUserDep) -> list[dict[str, Any]]:
+    async def providers_ep(
+        workspace: str | None = None, user: User | None = CurrentUserDep
+    ) -> list[dict[str, Any]]:
         """The bring-your-own-key registry, marked configured or not for this caller. Never the key or a
         prefix of it — only the shape a valid key for that provider is expected to have."""
         from pravrudhi.application.credentials import PROVIDERS
-        from pravrudhi.application.credentials import store_for as credential_store_for
 
-        configured = set(credential_store_for(root, user).configured())
+        configured = set(_keys(user, workspace).configured())
         return [
             {"id": p.id, "title": p.title, "configured": p.id in configured, "key_prefix": p.key_prefix}
             for p in PROVIDERS.values()
@@ -890,28 +906,30 @@ def create_app(root: Path) -> FastAPI:
 
     @api.post("/providers/{provider_id}/key", response_model=ProviderKeyResponse)
     async def set_provider_key(
-        provider_id: str, req: ProviderKeyRequest, user: User | None = CurrentUserDep
+        provider_id: str, req: ProviderKeyRequest,
+        workspace: str | None = None, user: User | None = CurrentUserDep,
     ) -> dict[str, Any]:
         """Validate a bring-your-own key against the provider and store it. The validation reason is redacted
         before it leaves the process, since a probe failure can otherwise echo the key back in its message."""
         from pravrudhi.application.credentials import PROVIDERS, redact, validate
-        from pravrudhi.application.credentials import store_for as credential_store_for
 
         if provider_id not in PROVIDERS:
             raise HTTPException(404, "unknown provider")
+        store = _keys(user, workspace)
         validated, reason = validate(provider_id, req.key, base_url=req.base_url)
-        credential_store_for(root, user).put(provider_id, req.key)
+        store.put(provider_id, req.key)
         return {"provider": provider_id, "configured": True, "validated": validated, "reason": redact(reason)}
 
     @api.delete("/providers/{provider_id}/key", response_model=ProviderKeyRemovedResponse)
-    async def delete_provider_key(provider_id: str, user: User | None = CurrentUserDep) -> dict[str, Any]:
+    async def delete_provider_key(
+        provider_id: str, workspace: str | None = None, user: User | None = CurrentUserDep
+    ) -> dict[str, Any]:
         """Remove a stored bring-your-own key."""
         from pravrudhi.application.credentials import PROVIDERS
-        from pravrudhi.application.credentials import store_for as credential_store_for
 
         if provider_id not in PROVIDERS:
             raise HTTPException(404, "unknown provider")
-        credential_store_for(root, user).delete(provider_id)
+        _keys(user, workspace).delete(provider_id)
         return {"provider": provider_id, "configured": False}
 
     @api.get("/recipes")

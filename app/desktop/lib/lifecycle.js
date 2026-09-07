@@ -45,4 +45,13 @@ function createProcessOwner({spawn = require('node:child_process').spawn, termin
     }
   };
 }
-module.exports = {terminateGroup, singleInstance, focusWindow, createProcessOwner};
+async function restartForUpdate(app, processOwner, {relaunch = a => a.relaunch(), exit = a => a.exit(0), beforeRestart} = {}) {
+  if (typeof beforeRestart === 'function') {
+    try { await beforeRestart(); }
+    catch { /* losing the exact window position must not block a restart the user asked for */ }
+  }
+  await processOwner.shutdown(); // rejects (and skips relaunch) if the engine could not be confirmed stopped
+  relaunch(app);
+  exit(app);
+}
+module.exports = {terminateGroup, singleInstance, focusWindow, createProcessOwner, restartForUpdate};

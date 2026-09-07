@@ -228,3 +228,16 @@ test('the product never reaches an operator surface', async () => {
   const found = operatorOnly.filter(path => source.includes(`'${path}'`));
   assert.deepEqual(found, [], `the desktop client reaches operator-only routes: ${found.join(', ')}`);
 });
+
+test('every test file in this directory is actually run', () => {
+  // `npm test` runs `node --test test/`, which on this Node version loads test/index.js rather than discovering
+  // files. Two suites were added without a line in that file and sat there unexecuted: the count did not move,
+  // and the tasks that wrote them passed their own validation on tests nobody had run. A file that is never
+  // required is worse than no file, because it looks like coverage.
+  const fs = require('node:fs'), path = require('node:path');
+  const dir = __dirname;
+  const files = fs.readdirSync(dir).filter(f => f.endsWith('.test.js')).sort();
+  const index = fs.readFileSync(path.join(dir, 'index.js'), 'utf8');
+  const missing = files.filter(f => !index.includes(`./${f}`));
+  assert.deepEqual(missing, [], `these test files are never required by test/index.js: ${missing.join(', ')}`);
+});
