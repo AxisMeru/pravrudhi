@@ -95,12 +95,14 @@ jobs:
         working-directory: app/frontend
         run: npm ci
 
-      - name: install playwright chromium
+      # All three engines behind the major desktop browsers: Chromium is Chrome and Edge, Gecko is Firefox,
+      # WebKit is Safari. A Chromium-only run cannot see the differences Safari actually has.
+      - name: install playwright browsers
         working-directory: app/frontend
-        run: npx playwright install --with-deps chromium
+        run: npx playwright install --with-deps chromium firefox webkit
 
-      - name: run deployed e2e suite against the live site
+      - name: run deployed e2e suite against the live site in every major browser
         working-directory: app/frontend
         env:
           DEPLOYED_URL: ${{ needs.deploy.outputs.page_url }}app/
-        run: npx playwright test --project=deployed
+        run: npx playwright test --project=deployed-chromium --project=deployed-firefox --project=deployed-webkit

@@ -27,5 +27,12 @@
     "tailwindcss": "^4.3.3",
     "typescript": "^5.9.3",
     "tsx": "^4.19.2"
-  }
+  },
+  "browserslist": [
+    ">0.5%",
+    "last 2 versions",
+    "Firefox ESR",
+    "not dead",
+    "not op_mini all"
+  ]
 }
