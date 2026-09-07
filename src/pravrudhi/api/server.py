@@ -625,27 +625,47 @@ def create_app(root: Path) -> FastAPI:
         rows = [ev.model_dump() for ev in iter_events(ledger) if ev.kind == "observe"]
         return ObservationsResponse.model_validate(rows[-limit:])
 
+    def _project(user: User | None, workspace: str | None) -> Path:
+        """Whose project this request is about.
+
+        Without this every caller read the directory the engine was started in, so a signed-in user asking for
+        their objectives was shown the operator's. A workspace is already a complete project root — the same
+        `init_project` runs inside it — so resolving here is the whole of the change.
+        """
+        from pravrudhi.api.workspace_root import RootError, root_for
+
+        try:
+            return root_for(user, workspace, engine_root=root)
+        except RootError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+
     @api.get("/objectives")
-    def objectives_ep() -> ObjectivesResponse:
+    def objectives_ep(
+        workspace: str | None = None, user: User | None = CurrentUserDep
+    ) -> ObjectivesResponse:
         """Every objective in this workspace with its standing. A file that will not load is reported, not hidden."""
         from pravrudhi.application.objectives import load_all, problems, summary
 
+        here = _project(user, workspace)
         return ObjectivesResponse.model_validate(
             {
-                "objectives": [summary(root, o) for o in load_all(root)],
-                "problems": [{"file": f, "reason": r} for f, r in problems(root)],
+                "objectives": [summary(here, o) for o in load_all(here)],
+                "problems": [{"file": f, "reason": r} for f, r in problems(here)],
             }
         )
 
     @api.get("/objectives/{oid}")
-    def objective_ep(oid: str) -> ObjectiveDetailResponse:
+    def objective_ep(
+        oid: str, workspace: str | None = None, user: User | None = CurrentUserDep
+    ) -> ObjectiveDetailResponse:
         from pravrudhi.application.objectives import load_all, summary
         from pravrudhi.application.recipes import resolve
 
-        for o in load_all(root):
+        root_here = _project(user, workspace)
+        for o in load_all(root_here):
             if o.id == oid:
                 return ObjectiveDetailResponse.model_validate(
-                    {**summary(root, o), "recipe_detail": resolve(o.recipes)}
+                    {**summary(root_here, o), "recipe_detail": resolve(o.recipes)}
                 )
         raise HTTPException(404, "no such objective")
 
