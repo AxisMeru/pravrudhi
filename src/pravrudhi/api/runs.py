@@ -31,6 +31,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
+from pravrudhi.api.identity import CurrentUserDep, User
 from pravrudhi.api.schemas import (
     PromotedModelsResponse,
     RunEventsResponse,
@@ -381,16 +382,57 @@ def historical_events(root: Path, night: int, track: str) -> list[dict[str, Any]
     return out[-200:]
 
 
+
+# One manager per project root, kept because a manager holds the record of what is running in that project and
+# two objects for one project would be two partial records.
+#
+# `RunManager` was always per-project — it passes `--root` to the CLI, resolves the next night from that
+# project's ledger, and runs with it as the working directory. It was simply constructed once with the engine's
+# own root and closed over by every route, so starting work meant starting it on the operator's project with the
+# operator's hardware and keys, whoever asked. That is why these routes were held back from the product.
+_MANAGERS: dict[Path, RunManager] = {}
+
+
+def managers_for_testing() -> dict[Path, RunManager]:
+    """The cache, so a test can start from an empty one. Not for use outside tests."""
+    return _MANAGERS
+
+
+def manager_for(user: User | None, workspace: str | None, *, engine_root: Path) -> RunManager:
+    """The run manager for whoever is asking, in whichever project the request is about.
+
+    The refusal that governs every other user-facing surface governs this one: an operator with no workspace
+    named gets the engine's project, a user must name theirs, and nobody falls back to somebody else's.
+    """
+    from pravrudhi.api.workspace_root import root_for
+
+    here = root_for(user, workspace, engine_root=engine_root).resolve()
+    if here not in _MANAGERS:
+        _MANAGERS[here] = RunManager(here)
+    return _MANAGERS[here]
+
+
 def build_router(root: Path) -> APIRouter:
-    mgr = RunManager(root)
     r = APIRouter(prefix="/api")
 
+    def _mgr(user: User | None, workspace: str | None) -> RunManager:
+        from pravrudhi.api.workspace_root import RootError
+
+        try:
+            return manager_for(user, workspace, engine_root=root)
+        except RootError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+
     @r.post("/runs", response_model=RunView)
-    def start(req: RunRequest) -> dict[str, Any]:
-        return mgr.start(req).view()
+    def start(
+        req: RunRequest, workspace: str | None = None, user: User | None = CurrentUserDep
+    ) -> dict[str, Any]:
+        return _mgr(user, workspace).start(req).view()
 
     @r.get("/runs", response_model=RunsResponse)
-    def list_runs() -> list[dict[str, Any]]:
+    def list_runs(
+        workspace: str | None = None, user: User | None = CurrentUserDep
+    ) -> list[dict[str, Any]]:
         """Every run this engine has performed, live ones and the nights already in the ledger.
 
         The manager only knows runs started through the app in this process, so a workspace with twenty-three
@@ -398,37 +440,50 @@ def build_router(root: Path) -> APIRouter:
         A closed night is a run that finished; it belongs in the same list, marked as such, and its detail page
         renders from the ledger rather than from a live event stream.
         """
+        mgr = _mgr(user, workspace)
+        here = mgr.root
         live = [run.view() for run in sorted(mgr.runs.values(), key=lambda x: -x.started_at)]
         seen = {row["id"] for row in live}
-        flight = [row for row in _in_flight(root) if row["id"] not in seen]
+        flight = [row for row in _in_flight(here) if row["id"] not in seen]
         seen |= {row["id"] for row in flight}
-        return live + flight + [row for row in historical_runs(root) if row["id"] not in seen]
+        return live + flight + [row for row in historical_runs(here) if row["id"] not in seen]
 
     @r.get("/runs/{run_id}", response_model=RunView)
-    def get_run(run_id: str) -> dict[str, Any]:
+    def get_run(
+        run_id: str, workspace: str | None = None, user: User | None = CurrentUserDep
+    ) -> dict[str, Any]:
         """A live run's detail, or a closed night's, at the same address.
 
         The manager knows only runs started through the app in this process, so every historical night in the
         listing answered 404 when opened. A link to a run must always work, whether the run is happening now or
         finished a week ago.
         """
+        mgr = _mgr(user, workspace)
+        here = mgr.root
         if run_id.startswith("night-"):
-            row = next((x for x in [*_in_flight(root), *historical_runs(root)] if x["id"] == run_id), None)
+            row = next((x for x in [*_in_flight(here), *historical_runs(here)] if x["id"] == run_id), None)
             if row is not None:
-                return {**row, "recent": historical_events(root, row["night"], str(row["target"]))}
+                return {**row, "recent": historical_events(here, row["night"], str(row["target"]))}
         run = mgr.get(run_id)
         return {**run.view(), "recent": list(run.events)[-50:]}
 
     @r.post("/runs/{run_id}/stop", response_model=RunView)
-    def stop_run(run_id: str) -> dict[str, Any]:
-        return mgr.stop(run_id).view()
+    def stop_run(
+        run_id: str, workspace: str | None = None, user: User | None = CurrentUserDep
+    ) -> dict[str, Any]:
+        return _mgr(user, workspace).stop(run_id).view()
 
     @r.get("/runs/{run_id}/events", response_model=RunEventsResponse)
-    def events(run_id: str) -> StreamingResponse:
-        return StreamingResponse(mgr.stream(run_id), media_type="text/event-stream")
+    def events(
+        run_id: str, workspace: str | None = None, user: User | None = CurrentUserDep
+    ) -> StreamingResponse:
+        return StreamingResponse(_mgr(user, workspace).stream(run_id), media_type="text/event-stream")
 
     @r.get("/models", response_model=PromotedModelsResponse)
-    def models() -> list[dict[str, Any]]:
-        return models_listing(root)
+    def models(
+        workspace: str | None = None, user: User | None = CurrentUserDep
+    ) -> list[dict[str, Any]]:
+        """What this project's loop produced. A user sees their own promotions, not the operator's."""
+        return models_listing(_mgr(user, workspace).root)
 
     return r

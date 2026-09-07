@@ -102,13 +102,6 @@ ADMIN_ONLY: frozenset[str] = frozenset({
     "/api/observations",
     "/api/parity",
     "/api/routes",
-    # Starting a run spends hardware. `RunManager` is scoped to the engine's own project, so a run begun here
-    # runs on the operator's machine with the operator's credentials. These become the product's the moment the
-    # manager is workspace-scoped, and not before.
-    "/api/runs", "/api/runs/{run_id}", "/api/runs/{run_id}/stop", "/api/runs/{run_id}/events",
-    # Promoted adapters, read from the same engine-scoped project as the runs that produced them. It moves to
-    # the product with them.
-    "/api/models",
     "/api/requests", "/api/requests/{rid}", "/api/requests/{rid}/advance",
     "/api/requests/{rid}/criteria/{index}/evidence",
     "/api/sandboxes",
@@ -134,6 +127,13 @@ USER_FACING: frozenset[str] = frozenset({
     "/api/tools",
     "/api/update", "/api/update/config", "/api/update/last-check",
     "/api/workspaces",
+    # Starting work is the product. These were the operator's while `RunManager` was constructed once with the
+    # engine's own root, because a run begun through it spent the operator's hardware under the operator's keys
+    # whoever asked. There is a manager per project now, and the same refusal that governs every other
+    # user-facing surface governs these: a user must name their workspace and nobody falls back to another's.
+    "/api/runs", "/api/runs/{run_id}", "/api/runs/{run_id}/stop", "/api/runs/{run_id}/events",
+    # What this project's loop produced, read from the project the caller is asking about.
+    "/api/models",
 })
 
 
