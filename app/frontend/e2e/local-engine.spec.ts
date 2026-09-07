@@ -96,3 +96,15 @@ test("appetite page renders what the engine wants", async ({ page }) => {
   expect(errs, "the appetite page must not throw").toEqual([]);
   await expect(page.getByText("Loading...")).toHaveCount(0);
 });
+
+
+test("home page bands render", async ({ page }) => {
+  const errs: string[] = [];
+  page.on("pageerror", (e) => errs.push("PAGEERROR " + String(e).slice(0, 300)));
+  page.on("console", (m) => { if (m.type() === "error") errs.push("CONSOLE " + m.text().slice(0, 300)); });
+  page.on("response", (r) => { if (r.url().includes("/api/") && r.status() >= 400) errs.push(`HTTP ${r.status()} ${r.url()}`); });
+  await page.goto("/");
+  await page.waitForTimeout(9000);
+  console.log("HOME ERRORS:", errs.join(" || ") || "none");
+  console.log("HOME TEXT:", (await page.innerText("body")).slice(0, 420).replace(/\n+/g, " | "));
+});

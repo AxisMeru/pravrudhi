@@ -87,6 +87,13 @@ class UpdateConfigResponse(BaseModel):
     keep_previous: int
 
 
+class UpdateLastCheckResponse(BaseModel):
+    """When this install last actually looked for a release, or null if it never has — invisible entirely
+    before this: the machines page had no way to say whether its update check is even running."""
+
+    last_checked: str | None
+
+
 class ApplyResultResponse(BaseModel):
     """What an apply or rollback attempt actually did. `reason` is shown verbatim to the operator: it is the
     only place a refused apply explains itself."""
@@ -309,6 +316,34 @@ class AgentResponse(BaseModel):
     reason: str
 
 
+class AgentCooldownResponse(BaseModel):
+    """An agent currently cooling down after a vendor usage limit, and when it returns."""
+
+    agent: str
+    until: str
+
+
+class SvasthyaCheckResponse(BaseModel):
+    """One named survival check (design §5.1: health endpoints, request capture, scheduler freshness, disk,
+    reaped processes, ledger integrity, release restorability, route fallback), with its own detail — the
+    machines page had no way to show why the engine's health is what it is, only that it was."""
+
+    name: str
+    ok: bool
+    detail: str
+    integrity: bool
+
+
+class SvasthyaResponse(BaseModel):
+    """The engine's own survival state (`application.svasthya.assess`) had no HTTP contract at all: an operator
+    could not see a degraded or integrity-halted engine from the interface, only from the CLI."""
+
+    state: Literal["ready", "degraded", "recovering", "integrity_halt", "paused"]
+    as_of: str
+    checks: list[SvasthyaCheckResponse]
+    reason: str
+
+
 class ExternalResponse(BaseModel):
     """External scorer records lost their contract and scorer-specific audit extensions."""
 
@@ -526,6 +561,11 @@ class TokenResponse(BaseModel):
 
 class AgentsResponse(RootModel[list[AgentResponse]]):
     """The agent collection previously left its entries untyped."""
+
+
+class AgentCooldownsResponse(RootModel[list[AgentCooldownResponse]]):
+    """Which agents are cooling down after a vendor usage limit had no endpoint; the router already tracks it
+    in `application.availability`."""
 
 
 class ExternalResultsResponse(RootModel[list[ExternalResponse]]):

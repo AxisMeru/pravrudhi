@@ -24,6 +24,7 @@ from pravrudhi.api.chat import build_chat_router
 from pravrudhi.api.identity import CurrentUserDep, User, auth_mode
 from pravrudhi.api.localguard import install as install_local_guard
 from pravrudhi.api.schemas import (
+    AgentCooldownsResponse,
     AgentsResponse,
     AppetiteResponse,
     ApplyResultResponse,
@@ -69,10 +70,12 @@ from pravrudhi.api.schemas import (
     SignResponse,
     StatusResponse,
     SubagentsResponse,
+    SvasthyaResponse,
     SwarmResponse,
     TokenResponse,
     ToolsResponse,
     UpdateConfigResponse,
+    UpdateLastCheckResponse,
     UpdateStatusResponse,
     WorkspaceResponse,
     WorkspacesResponse,
@@ -233,6 +236,17 @@ def create_app(root: Path) -> FastAPI:
     def agents() -> AgentsResponse:
         return AgentsResponse.model_validate(
             [{"name": agent.name, "available": agent.available, "reason": agent.reason} for agent in survey(root)]
+        )
+
+    @api.get("/agents/cooldowns")
+    def agent_cooldowns() -> AgentCooldownsResponse:
+        """Which agents are sitting out a vendor usage limit right now, and when each returns (see
+        `application.availability`) — the swarm view showed availability but never why a route disappeared."""
+        from pravrudhi.application import availability
+
+        cooling = availability.cooling(root)
+        return AgentCooldownsResponse.model_validate(
+            [{"agent": agent_id, "until": until} for agent_id, until in sorted(cooling.items())]
         )
 
     @api.get("/swarm", response_model=SwarmResponse)
@@ -445,6 +459,29 @@ def create_app(root: Path) -> FastAPI:
         beats.reverse()
         return HeartbeatResponse.model_validate({"beats": beats})
 
+    @api.get("/svasthya")
+    def svasthya_ep() -> SvasthyaResponse:
+        """The engine's own survival state (design §5.1), with every failing check named and its detail — the
+        single most useful thing the machines page can say when something is wrong, so it gets its own route
+        rather than being buried in `/doctor`, which judges a workspace's setup, not its health right now."""
+        from pravrudhi.application import svasthya
+
+        return SvasthyaResponse.model_validate(svasthya.assess(root).to_dict())
+
+    def _update_last_checked() -> str | None:
+        """Mirrors update_apply.py's own (private) last-check file: the machines page needs to say when this
+        install last looked for a release, not just whether one is available."""
+        from datetime import UTC, datetime
+
+        path = root / ".pravrudhi" / "update-last-check"
+        if not path.is_file():
+            return None
+        try:
+            when = float(path.read_text(encoding="utf-8").strip())
+        except (OSError, ValueError):
+            return None
+        return datetime.fromtimestamp(when, tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
     @api.get("/update")
     def update_ep() -> UpdateStatusResponse:
         from pravrudhi.application.updates import status as update_status
@@ -458,6 +495,10 @@ def create_app(root: Path) -> FastAPI:
         from pravrudhi.application.update_apply import load_config
 
         return UpdateConfigResponse.model_validate(asdict(load_config(root)))
+
+    @api.get("/update/last-check")
+    def update_last_check_ep() -> UpdateLastCheckResponse:
+        return UpdateLastCheckResponse.model_validate({"last_checked": _update_last_checked()})
 
     @api.put("/update/config")
     def update_config_put(req: UpdateConfigRequest) -> UpdateConfigResponse:
