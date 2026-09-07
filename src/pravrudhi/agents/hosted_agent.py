@@ -1,7 +1,8 @@
 """A hosted free-tier model, wired in as a single-shot file writer rather than a tool-calling agent.
 
 This legacy adapter does not provide a tool loop. Qwen now has a separate OpenCode-backed adapter
-in `alibaba_agent`; this class remains available for explicitly requested single-shot work. `run()` does not hand them a sandbox: it asks for the whole answer - every file's full content - in
+in `alibaba_agent`; this class remains available for explicitly requested single-shot work. `run()` does not hand them a
+sandbox: it asks for the whole answer - every file's full content - in
 one JSON reply, then writes only the files the dispatch brief actually allowed. A path outside that list, or one
 that tries to leave the worktree, is refused and named rather than written.
 """

@@ -11,8 +11,8 @@ from typing import Any
 
 from pravrudhi.application.loom import Assign, Call, Decl, Ident, LoomProgram, NumberLit, StringLit
 from pravrudhi.application.loom import lift as parse
-from pravrudhi.targets.lora_grammar import LoraRecipe
 from pravrudhi.targets.harness_grammar import HarnessRecipe
+from pravrudhi.targets.lora_grammar import LoraRecipe
 
 
 class PipelineError(ValueError):

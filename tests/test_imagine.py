@@ -3,7 +3,7 @@ from dataclasses import asdict
 
 import pytest
 
-from pravrudhi.application.imagine import Example, Imaginer, features, history, backtest
+from pravrudhi.application.imagine import Example, Imaginer, backtest, features, history
 
 
 def example(night, target, strategy='sft'):

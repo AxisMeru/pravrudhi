@@ -6,23 +6,25 @@ No RSSM training, synthetic observations, evaluator, gate, or ledger writer live
 from __future__ import annotations
 
 import argparse
-from collections import Counter
-from dataclasses import dataclass, field, asdict
 import hashlib
 import json
 import math
+from collections import Counter
+from collections.abc import Mapping
+from dataclasses import dataclass, field
 from pathlib import Path
 from statistics import mean
-from typing import Mapping
+from typing import Any
 
 from .anchor import anchored, difficulty, load_per_item
 
 
-def features(recipe: Mapping) -> frozenset[str]:
+def features(recipe: Mapping[str, Any]) -> frozenset[str]:
     """Execution fields only: prose, identifiers and claimed outcomes are not inputs."""
     allowed = {'strategy', 'execution_family', 'lora', 'sft', 'grpo', 'eval_template'}
-    out = set()
-    def visit(value, path):
+    out: set[str] = set()
+
+    def visit(value: Any, path: str) -> None:
         if isinstance(value, Mapping):
             for key, child in sorted(value.items()):
                 visit(child, path + '.' + key)
@@ -37,7 +39,7 @@ def features(recipe: Mapping) -> frozenset[str]:
 class Example:
     night: int
     candidate: str
-    recipe: Mapping
+    recipe: Mapping[str, Any]
     target: float
     epoch: str
 
@@ -60,7 +62,7 @@ class Imaginer:
     uses maximum absolute error per night to avoid treating paired runs as IID.
     Coverage is empirical under temporal drift, not a distribution-free promise.
     """
-    def __init__(self, training: list[Example], calibration: list[Example], alpha=0.1):
+    def __init__(self, training: list[Example], calibration: list[Example], alpha: float = 0.1) -> None:
         if not training or not 0 < alpha < 1:
             raise ValueError('Need training evidence and 0 < alpha < 1')
         if calibration and max(x.night for x in training) >= min(x.night for x in calibration):
@@ -71,31 +73,31 @@ class Imaginer:
         self.epoch = training[0].epoch
         self.memory = tuple((features(x.recipe), x.target) for x in training)
         self.baseline = mean(x.target for x in training)
-        errors = {}
+        errors: dict[int, float] = {}
         for x in calibration:
             errors[x.night] = max(errors.get(x.night, 0), abs(x.target - self._prior(x.recipe)))
         self.n_calibration = len(errors)
         rank = math.ceil((len(errors) + 1) * (1 - alpha))
         self.radius = sorted(errors.values())[rank - 1] if rank <= len(errors) else 2.0
 
-    def _prior(self, recipe):
+    def _prior(self, recipe: Mapping[str, Any]) -> float:
         query = features(recipe)
         weights = [math.exp(4 * len(query & key) / math.sqrt(len(query) * len(key)))
                    if query and key else 1.0 for key, _ in self.memory]
-        return sum(w * value for w, (_, value) in zip(weights, self.memory)) / sum(weights)
+        return sum(w * value for w, (_, value) in zip(weights, self.memory, strict=False)) / sum(weights)
 
-    def imagine(self, recipe: Mapping) -> Imagination:
+    def imagine(self, recipe: Mapping[str, Any]) -> Imagination:
         prediction = self._prior(recipe)
         return Imagination(prediction, max(-1., prediction - self.radius),
                            min(1., prediction + self.radius), self.n_calibration, self.epoch)
 
-    def order_queue(self, recipes: list[Mapping]) -> list[tuple[Mapping, Imagination]]:
+    def order_queue(self, recipes: list[Mapping[str, Any]]) -> list[tuple[Mapping[str, Any], Imagination]]:
         """Stable pragmatic ordering only; does not evaluate or emit evidence rows."""
         return sorted(((r, self.imagine(r)) for r in recipes),
                       key=lambda pair: pair[1].predicted_anchor, reverse=True)
 
 
-def history(ledger: Path, root: Path, train_through: int):
+def history(ledger: Path, root: Path, train_through: int) -> tuple[list[Example], dict[str, int], str, str]:
     """Read only kernel measurements and their explicitly referenced score files.
 
     Training difficulty is frozen before later nights are inspected. Training
@@ -105,8 +107,9 @@ def history(ledger: Path, root: Path, train_through: int):
     """
     data = ledger.read_bytes()
     rows = [json.loads(line) for line in data.splitlines() if line.strip()]
-    proposals, observations = {}, []
-    counts = Counter()
+    proposals: dict[str, Any] = {}
+    observations: list[Any] = []
+    counts: Counter[str] = Counter()
     for row in rows:
         payload = row.get('payload', {})
         if row.get('kind') == 'propose':
@@ -152,7 +155,9 @@ def history(ledger: Path, root: Path, train_through: int):
     return examples, dict(counts), hashlib.sha256(data).hexdigest(), table.epoch
 
 
-def backtest(ledger: Path, root: Path, train_through=6, calibrate_through=10):
+def backtest(
+    ledger: Path, root: Path, train_through: int = 6, calibrate_through: int = 10
+) -> dict[str, Any]:
     if train_through >= calibrate_through:
         raise ValueError('Training cutoff must precede calibration cutoff')
     examples, counts, digest, epoch = history(ledger, root, train_through)
@@ -168,13 +173,13 @@ def backtest(ledger: Path, root: Path, train_through=6, calibrate_through=10):
         return report
     model = Imaginer(train, calibration)
     predictions = [model.imagine(x.recipe) for x in test]
-    errors = [p.predicted_anchor - x.target for p, x in zip(predictions, test)]
+    errors = [p.predicted_anchor - x.target for p, x in zip(predictions, test, strict=False)]
     baseline = [model.baseline - x.target for x in test]
     report.update(status='measured_backtest', mae=mean(abs(e) for e in errors),
                   rmse=math.sqrt(mean(e * e for e in errors)),
                   mean_baseline_mae=mean(abs(e) for e in baseline),
                   mean_baseline_rmse=math.sqrt(mean(e * e for e in baseline)),
-                  interval_coverage=mean(p.lower <= x.target <= p.upper for p, x in zip(predictions, test)),
+                  interval_coverage=mean(p.lower <= x.target <= p.upper for p, x in zip(predictions, test, strict=False)),
                   interval_mean_width=mean(p.upper - p.lower for p in predictions),
                   calibration_nights=model.n_calibration,
                   beats_mean_rmse=sum(e*e for e in errors) < sum(e*e for e in baseline))

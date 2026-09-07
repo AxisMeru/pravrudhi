@@ -11,6 +11,7 @@ import shlex
 import shutil
 import stat
 from pathlib import Path
+from typing import Any
 
 from pravrudhi.agents.base import AgentRun, GitWorktreeMixin
 from pravrudhi.agents.cli_agents import _run
@@ -38,7 +39,7 @@ def credential() -> Secret:
     raise ValueError("DashScope credential file has no DASHSCOPE_API_KEY")
 
 
-def configuration(model: str) -> dict:
+def configuration(model: str) -> dict[str, Any]:
     return {
         "$schema": "https://opencode.ai/config.json",
         "enabled_providers": [PROVIDER],

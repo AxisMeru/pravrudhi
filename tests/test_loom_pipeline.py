@@ -4,7 +4,15 @@ import pytest
 
 from pravrudhi.application.loom import lift as parse
 from pravrudhi.application.loom_pipeline import (
-    Binding, Job, PipelineError, execute, harness_recipe, lift, lora_recipe, lower, sft_binding,
+    Binding,
+    Job,
+    PipelineError,
+    execute,
+    harness_recipe,
+    lift,
+    lora_recipe,
+    lower,
+    sft_binding,
 )
 
 SOURCE = '''// arbitrary resources and model roles
