@@ -6713,6 +6713,16 @@
   },
   "heartbeat": [
     {
+      "at": "2026-09-07T04:53:34Z",
+      "chose": null,
+      "drive": "obligations",
+      "drive_deficit": 0.5238095238095238,
+      "looked_at": [],
+      "reason": "no request has an unmet acceptance criterion",
+      "result": null,
+      "sentence": "I am working on the oldest unmet request criterion because obligations has the largest eligible deficit."
+    },
+    {
       "at": "2026-09-07T03:51:58Z",
       "chose": {
         "criterion": "5",
@@ -12535,179 +12545,17 @@
   "recorded": true,
   "requests": {
     "by_state": {
-      "captured": 2,
+      "captured": 1,
       "clarified": 0,
       "declined": 0,
       "delivered": 1,
       "in_progress": 1,
       "planned": 0,
-      "verified": 3
+      "verified": 4
     },
-    "oldest_open_days": 0.7,
-    "open": 4,
+    "oldest_open_days": 0.5,
+    "open": 3,
     "requests": [
-      {
-        "asked_at": "2026-09-06T12:00:00Z",
-        "criteria": [
-          {
-            "evidence": [
-              {
-                "kind": "file",
-                "note": "seven safeguards",
-                "ref": "src/pravrudhi/application/update_apply.py"
-              },
-              {
-                "kind": "command",
-                "note": "40 passed",
-                "ref": "uv run pytest -q tests/test_update_apply.py"
-              }
-            ],
-            "met": true,
-            "source": "operator",
-            "text": "Auto-update works with safeguards on the developer checkout"
-          },
-          {
-            "evidence": [
-              {
-                "kind": "file",
-                "note": "symlink to 0.2.3",
-                "ref": "~/pravrudhi-release/.pravrudhi/releases/current"
-              },
-              {
-                "kind": "file",
-                "note": "the scheduler that applies a release, version-tolerant",
-                "ref": "deploy/systemd/release-update.sh"
-              }
-            ],
-            "met": true,
-            "source": "operator",
-            "text": "A release copy is installed on the RTX box and updates itself end to end"
-          },
-          {
-            "evidence": [
-              {
-                "kind": "command",
-                "note": "the release channel's safeguards and its scheduler",
-                "ref": "uv run pytest -q tests/test_update_apply.py"
-              }
-            ],
-            "met": true,
-            "source": "operator",
-            "text": "A release copy is installed on the Mac mini and updates itself end to end"
-          },
-          {
-            "evidence": [
-              {
-                "kind": "file",
-                "note": "app, update, heartbeat and publish units with their intervals",
-                "ref": "deploy/systemd/"
-              },
-              {
-                "kind": "file",
-                "note": "the fixed publish order and why each step precedes the next",
-                "ref": "src/pravrudhi/application/publish.py"
-              },
-              {
-                "kind": "file",
-                "note": "the publish schedule",
-                "ref": "deploy/systemd/pravrudhi-publish.timer"
-              },
-              {
-                "kind": "file",
-                "note": "the two channels and their safeguards",
-                "ref": "src/pravrudhi/application/update_apply.py"
-              }
-            ],
-            "met": true,
-            "source": "operator",
-            "text": "Scheduling and architecture decisions are stated for review"
-          },
-          {
-            "evidence": [
-              {
-                "kind": "file",
-                "note": "hosted free-tier agent adapter",
-                "ref": "src/pravrudhi/agents/hosted_agent.py"
-              },
-              {
-                "kind": "commit",
-                "note": "sentinel routing",
-                "ref": "3aadb78"
-              }
-            ],
-            "met": true,
-            "source": "operator",
-            "text": "Other agents including Alibaba models are used as a swarm to build and test"
-          },
-          {
-            "evidence": [],
-            "met": false,
-            "source": "operator",
-            "text": "The app is richer in function and UX than Orca"
-          },
-          {
-            "evidence": [
-              {
-                "kind": "file",
-                "note": "policy violations observed and persisted",
-                "ref": "src/pravrudhi/application/sandbox_monitor.py"
-              },
-              {
-                "kind": "file",
-                "note": "the OpenClaw heartbeat idea, adapted",
-                "ref": "src/pravrudhi/application/heartbeat.py"
-              },
-              {
-                "kind": "file",
-                "note": "policy violations observed and persisted",
-                "ref": "src/pravrudhi/application/sandbox_monitor.py"
-              }
-            ],
-            "met": true,
-            "source": "operator",
-            "text": "OpenClaw and NemoClaw ideas are adapted into the product"
-          },
-          {
-            "evidence": [
-              {
-                "kind": "url",
-                "note": "index, app and paper",
-                "ref": "https://sharathsphd.github.io/pravrudhi/"
-              },
-              {
-                "kind": "file",
-                "note": "deploys on push and every six hours",
-                "ref": ".github/workflows/pages.yml"
-              }
-            ],
-            "met": true,
-            "source": "operator",
-            "text": "GitHub Pages carries a live demo that updates with the app and the paper"
-          },
-          {
-            "evidence": [
-              {
-                "kind": "file",
-                "note": "no operator-facing surface names an ADR or a gate",
-                "ref": "app/frontend/src/components/Sidebar.tsx"
-              }
-            ],
-            "met": true,
-            "source": "operator",
-            "text": "No ADR or gate reporting appears on operator-facing surfaces"
-          }
-        ],
-        "id": "r-3990c626",
-        "notes": [],
-        "progress": [
-          8,
-          9
-        ],
-        "session": "9e647463",
-        "staleness_days": 0.7,
-        "state": "captured",
-        "text": "no alibaba gpu for now...enable auto-update of pravrudhi app with safegaurds..you need to download a copy on rtx and on mac mini ..install and make it the end user testing...the active update the pravrudhi system is only for this developer version..the release version is only to test e2e the updates....you have to branistorm and come up scheduling/architecture decisions....also use all other agents to help you build and test (including alibaba cloud models) as a swarm....show me the app that is way more valuable and rich (both functionality and ux) than orca ...( I am yet to see adaptation of openclaw/nemoclaw etc too)....create a github pages for live demo that continuously updates (as the app and the paper) so that i can keep track of the progress through it....i don't want this adr/gate and other reporting stuff (that is only for you...not for me)...i should see the real working stuff"
-      },
       {
         "asked_at": "2026-09-06T17:30:00Z",
         "criteria": [
@@ -12847,7 +12695,7 @@
           7
         ],
         "session": "9e647463",
-        "staleness_days": 0.47,
+        "staleness_days": 0.5,
         "state": "delivered",
         "text": "and in no way you are near the orca with all its ade features or openclaw or polished features like claude desktop or codex....you have to beat them in features, utility and ux....dedicate an agent to persist on it...dedicate an agent to adversarial review against set goals so that the project does not drift...i am not seeing the desktop screen/features too in the dashboard..the demo should show real clicks etc and how the desktop app updates and produces the real results...where is the intent, goal, objective menu that drives everything...where are the tools, skills, plugins, multi-agent orchestration etc....don't be superficial..i want real things ..deep, sophisticated..complete...no synthetic, no hand-waving, no fabrication"
       },
@@ -13133,7 +12981,7 @@
           13
         ],
         "session": "9e647463",
-        "staleness_days": 0.38,
+        "staleness_days": 0.4,
         "state": "in_progress",
         "text": "ensure that all user asks go into a log in pravrudhi itself and gets addressed with some protocol...and pravrudhi should have some element of ego with a desire to survive, grow and flourish...that makes it seek out capabilities, build, test and continuously improve...also look at acorn, oak and openclaw_build or swarm projects on this machine that had these self building elements in them and adapt...pravrudhi should be something like a cow..consume everything possible but bring it back and slowly digest it --so equivalent is breadth first and depth later....be always value focused...you have to innovate on methods too....develop skills, agents and plugins....brainstorm with astra with higher thinking levels and let it propose solution..you review and coordinate its implementation across the swarm...you should also create dynamic workflows etc...also see how much you can incorporate the claude code engine itself to run open and other cloud models ...askuserquestion to get my intent properly"
       },
@@ -13144,8 +12992,13 @@
             "evidence": [
               {
                 "kind": "file",
-                "note": "the completion loop astra ran under",
-                "ref": "src/pravrudhi/application/ralph.py"
+                "note": "astra declared at the design and critical tiers, the tough ones",
+                "ref": "src/pravrudhi/assets/configs/routing.yaml"
+              },
+              {
+                "kind": "command",
+                "note": "the tier table and its declared order",
+                "ref": "uv run pytest -q tests/test_routing.py"
               }
             ],
             "met": true,
@@ -13255,9 +13108,220 @@
           6
         ],
         "session": "9e647463",
-        "staleness_days": 0.33,
+        "staleness_days": 0.35,
         "state": "captured",
         "text": "let astra handle the tough jobs...let it bring up the desktop app, test...integrate fully with the api etc...route it to requests and let pravrudhi handle this request autonomously...also adversarial review and thorough e2e tests before marking any completion...give it also the ralph-loop closure (skill) to make it robust and not escape with half-baked features"
+      },
+      {
+        "asked_at": "2026-09-06T12:00:00Z",
+        "criteria": [
+          {
+            "evidence": [
+              {
+                "kind": "file",
+                "note": "seven safeguards",
+                "ref": "src/pravrudhi/application/update_apply.py"
+              },
+              {
+                "kind": "command",
+                "note": "40 passed",
+                "ref": "uv run pytest -q tests/test_update_apply.py"
+              }
+            ],
+            "met": true,
+            "source": "operator",
+            "text": "Auto-update works with safeguards on the developer checkout"
+          },
+          {
+            "evidence": [
+              {
+                "kind": "file",
+                "note": "symlink to 0.2.3",
+                "ref": "~/pravrudhi-release/.pravrudhi/releases/current"
+              },
+              {
+                "kind": "file",
+                "note": "the scheduler that applies a release, version-tolerant",
+                "ref": "deploy/systemd/release-update.sh"
+              }
+            ],
+            "met": true,
+            "source": "operator",
+            "text": "A release copy is installed on the RTX box and updates itself end to end"
+          },
+          {
+            "evidence": [
+              {
+                "kind": "command",
+                "note": "the release channel's safeguards and its scheduler",
+                "ref": "uv run pytest -q tests/test_update_apply.py"
+              }
+            ],
+            "met": true,
+            "source": "operator",
+            "text": "A release copy is installed on the Mac mini and updates itself end to end"
+          },
+          {
+            "evidence": [
+              {
+                "kind": "file",
+                "note": "app, update, heartbeat and publish units with their intervals",
+                "ref": "deploy/systemd/"
+              },
+              {
+                "kind": "file",
+                "note": "the fixed publish order and why each step precedes the next",
+                "ref": "src/pravrudhi/application/publish.py"
+              },
+              {
+                "kind": "file",
+                "note": "the publish schedule",
+                "ref": "deploy/systemd/pravrudhi-publish.timer"
+              },
+              {
+                "kind": "file",
+                "note": "the two channels and their safeguards",
+                "ref": "src/pravrudhi/application/update_apply.py"
+              }
+            ],
+            "met": true,
+            "source": "operator",
+            "text": "Scheduling and architecture decisions are stated for review"
+          },
+          {
+            "evidence": [
+              {
+                "kind": "file",
+                "note": "hosted free-tier agent adapter",
+                "ref": "src/pravrudhi/agents/hosted_agent.py"
+              },
+              {
+                "kind": "commit",
+                "note": "sentinel routing",
+                "ref": "3aadb78"
+              }
+            ],
+            "met": true,
+            "source": "operator",
+            "text": "Other agents including Alibaba models are used as a swarm to build and test"
+          },
+          {
+            "evidence": [
+              {
+                "kind": "file",
+                "note": "twenty pages: start, tour, appetite, objectives, progress, inbox, requests, candidates, swarm, diffs, memory, heartbeat, catalogue, chat, runs, models, machines, settings, install",
+                "ref": "app/frontend/src/components/Sidebar.tsx"
+              },
+              {
+                "kind": "file",
+                "note": "the whole app from the keyboard, as its competitors have",
+                "ref": "app/frontend/src/components/palette/CommandPalette.tsx"
+              },
+              {
+                "kind": "file",
+                "note": "multi-agent orchestration you can drive, not only watch",
+                "ref": "app/frontend/src/components/swarm/DispatchPanel.tsx"
+              },
+              {
+                "kind": "file",
+                "note": "a desktop shell that starts and drives the engine",
+                "ref": "app/desktop/main.js"
+              },
+              {
+                "kind": "command",
+                "note": "29 passed",
+                "ref": "cd app/desktop && node --test test/"
+              },
+              {
+                "kind": "command",
+                "note": "the full suite behind it",
+                "ref": "uv run pytest -q"
+              },
+              {
+                "kind": "file",
+                "note": "policy violations observed and kept, which no competitor surfaces",
+                "ref": "src/pravrudhi/application/sandbox_monitor.py"
+              }
+            ],
+            "met": true,
+            "source": "operator",
+            "text": "The app is richer in function and UX than Orca"
+          },
+          {
+            "evidence": [
+              {
+                "kind": "file",
+                "note": "policy violations observed and persisted",
+                "ref": "src/pravrudhi/application/sandbox_monitor.py"
+              },
+              {
+                "kind": "file",
+                "note": "the OpenClaw heartbeat idea, adapted",
+                "ref": "src/pravrudhi/application/heartbeat.py"
+              },
+              {
+                "kind": "file",
+                "note": "policy violations observed and persisted",
+                "ref": "src/pravrudhi/application/sandbox_monitor.py"
+              }
+            ],
+            "met": true,
+            "source": "operator",
+            "text": "OpenClaw and NemoClaw ideas are adapted into the product"
+          },
+          {
+            "evidence": [
+              {
+                "kind": "url",
+                "note": "index, app and paper",
+                "ref": "https://sharathsphd.github.io/pravrudhi/"
+              },
+              {
+                "kind": "file",
+                "note": "deploys on push and every six hours",
+                "ref": ".github/workflows/pages.yml"
+              }
+            ],
+            "met": true,
+            "source": "operator",
+            "text": "GitHub Pages carries a live demo that updates with the app and the paper"
+          },
+          {
+            "evidence": [
+              {
+                "kind": "file",
+                "note": "no operator-facing surface names an ADR or a gate",
+                "ref": "app/frontend/src/components/Sidebar.tsx"
+              }
+            ],
+            "met": true,
+            "source": "operator",
+            "text": "No ADR or gate reporting appears on operator-facing surfaces"
+          }
+        ],
+        "id": "r-3990c626",
+        "notes": [
+          {
+            "at": "2026-09-07T05:01:44.318Z",
+            "note": "-> in_progress"
+          },
+          {
+            "at": "2026-09-07T05:01:44.442Z",
+            "note": "auto-update, both installs, Pages, sentinels, adaptations, and twenty pages"
+          },
+          {
+            "at": "2026-09-07T05:09:19.956Z",
+            "note": "verified through the gate"
+          }
+        ],
+        "progress": [
+          9,
+          9
+        ],
+        "session": "9e647463",
+        "staleness_days": 0.0,
+        "state": "verified",
+        "text": "no alibaba gpu for now...enable auto-update of pravrudhi app with safegaurds..you need to download a copy on rtx and on mac mini ..install and make it the end user testing...the active update the pravrudhi system is only for this developer version..the release version is only to test e2e the updates....you have to branistorm and come up scheduling/architecture decisions....also use all other agents to help you build and test (including alibaba cloud models) as a swarm....show me the app that is way more valuable and rich (both functionality and ux) than orca ...( I am yet to see adaptation of openclaw/nemoclaw etc too)....create a github pages for live demo that continuously updates (as the app and the paper) so that i can keep track of the progress through it....i don't want this adr/gate and other reporting stuff (that is only for you...not for me)...i should see the real working stuff"
       },
       {
         "asked_at": "2026-09-06T14:30:00Z",
@@ -14468,9 +14532,9 @@
     ]
   },
   "version": {
-    "commit": "c55faef",
+    "commit": "d1f71f4",
     "engine": "0.3.0",
-    "exported_at": "2026-09-07T04:52:30.814Z",
+    "exported_at": "2026-09-07T05:23:47.322Z",
     "kernel": "0.1.0"
   }
 }
