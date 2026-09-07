@@ -140,7 +140,15 @@ class CodexAgent(GitWorktreeMixin):
         return code == 0 and "not logged in" not in (out + err).lower()
 
     def run(self, prompt: str, workspace: Path, timeout_s: int = 1800) -> AgentRun:
-        cmd = ["codex", "exec", "--cd", str(workspace), "--sandbox", self.sandbox, "--skip-git-repo-check"]
+        # `--cd` must be absolute. The process already runs with the workspace as its working directory, so a
+        # relative path is resolved a second time against the directory it has just moved into: a workspace of
+        # `.worktrees/agent-x` becomes `.worktrees/agent-x/.worktrees/agent-x`, which does not exist, and codex
+        # exits immediately with "No such file or directory (os error 2)". Every dispatch to this agent failed
+        # that way, in under a second, and read as the agent refusing the work rather than never starting it.
+        cmd = [
+            "codex", "exec", "--cd", str(Path(workspace).resolve()),
+            "--sandbox", self.sandbox, "--skip-git-repo-check",
+        ]
         if self.model:
             cmd += ["--model", self.model]
         if self.effort:

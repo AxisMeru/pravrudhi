@@ -91,3 +91,41 @@ def test_survey_reports_a_reason_for_every_agent(tmp_path):
     assert {r.name for r in rows} >= {"claude-code", "codex", "orca:claude", "orca:codex", "orca:local"}
     assert all(r.reason for r in rows), "an unavailable agent must say why"
     assert set(build_registry(r, include_orca=False)) == {"claude-code", "codex"}
+
+
+class TestCodexIsToldWhereToWorkUnambiguously:
+    """Every dispatch to this agent failed in under a second, and it read as the agent refusing the work.
+
+    The workspace is handed to `codex exec` twice: as the child's working directory, and again as `--cd`. A
+    relative path is resolved a second time against the directory the process has already moved into, so
+    `.worktrees/agent-x` becomes `.worktrees/agent-x/.worktrees/agent-x`. That path does not exist and codex
+    exits immediately with an ENOENT that names nothing, which is indistinguishable in a swarm log from an agent
+    that started and gave up.
+    """
+
+    def test_the_working_directory_is_passed_as_an_absolute_path(self, tmp_path: Path) -> None:
+        from pravrudhi.agents.cli_agents import CodexAgent
+
+        seen: dict[str, object] = {}
+
+        def fake_run(cmd, cwd, timeout_s, env=None):  # type: ignore[no-untyped-def]
+            seen["cmd"] = list(cmd)
+            return 0, "done", "", 0.1
+
+        agent = CodexAgent(tmp_path, model="m")
+        import pravrudhi.agents.cli_agents as mod
+
+        original = mod._run
+        mod._run = fake_run  # type: ignore[assignment]
+        try:
+            agent.run("do the thing", Path(".worktrees/agent-x"), 60)
+        finally:
+            mod._run = original  # type: ignore[assignment]
+
+        cmd = seen["cmd"]
+        assert isinstance(cmd, list)
+        target = cmd[cmd.index("--cd") + 1]
+        assert Path(target).is_absolute(), (
+            f"--cd was given {target!r}; a relative path is resolved again against the workspace and cannot exist"
+        )
+        assert not target.count("agent-x") > 1, "the workspace segment must not appear twice"
