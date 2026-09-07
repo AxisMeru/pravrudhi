@@ -88,6 +88,10 @@ TOOL_SCHEMA: tuple[dict[str, Any], ...] = (
      "parameters": _NO_ARGS},
     {"name": "evidence", "description": "A rendered evidence document by name.",
      "parameters": _one_arg("name", "the document name, without the .md suffix")},
+    {"name": "appetite", "description": "What the engine wants right now: every drive's operands, the largest "
+                                        "eligible deficit, and the first-person voice generated from them - the "
+                                        "same figures the /appetite API endpoint serves.",
+     "parameters": _NO_ARGS},
 )
 
 TOOL_NAMES = frozenset(str(t["name"]) for t in TOOL_SCHEMA)
@@ -101,6 +105,7 @@ _GROUNDING_KEYWORDS: dict[str, tuple[str, ...]] = {
     "recipes": ("recipe",),
     "tools": ("tool",),
     "routing_report": ("routing",),
+    "appetite": ("want", "appetite", "hungry", "hunger"),
 }
 
 # What the reply becomes when the message plainly asked a ledger question but the turn's tools - the ones the
@@ -262,6 +267,8 @@ def _summarise(tool: str, args: dict[str, Any], result: dict[str, Any]) -> str:
         return ", ".join(f"{r.get('tier')} -> {r.get('route') or r.get('error')}" for r in rows) or "no tiers"
     if tool == "evidence":
         return f"evidence document {result.get('name')}, {len(str(result.get('markdown') or ''))} characters"
+    if tool == "appetite":
+        return str(result.get("sentence") or "no appetite data")
     return tool
 
 
@@ -327,6 +334,16 @@ def dispatch(root: Path, store: MemoryStore, tool: str, args: dict[str, Any]) ->
         from pravrudhi.application.routing import report
 
         result = {"tiers": report(root)}
+    elif tool == "appetite":
+        from pravrudhi.application import kshudha
+
+        state = kshudha.current(root)
+        result = {
+            "drives": [d.to_dict() for d in state.drives],
+            "appetite": state.to_dict(),
+            "sentence": kshudha.sentence(state),
+            "voice": kshudha.voice(state),
+        }
     else:
         result = _evidence_document(root, str(args.get("name") or ""))
 
@@ -462,7 +479,7 @@ def _grounding_calls(root: Path, store: MemoryStore, message: str) -> list[ToolI
         wanted.append(("objectives", {}))
     if named and _mentions(message, _GROUNDING_KEYWORDS["objective_plan"]):
         wanted += [("objective_plan", {"id": oid}) for oid in named]
-    for tool in ("recipes", "tools", "routing_report"):
+    for tool in ("recipes", "tools", "routing_report", "appetite"):
         if _mentions(message, _GROUNDING_KEYWORDS[tool]):
             wanted.append((tool, {}))
     return [replace(dispatch(root, store, tool, args), grounding=True) for tool, args in wanted]

@@ -15,6 +15,7 @@ weights:
   unnati_avakasha: 1.0
   sadhana: 1.0
   seva: 1.0
+  spardha: 1.0
 
 # What each drive treats as "satisfied" (design §5.2). sthiti's target is descriptive only — its deficit is the
 # plain weighted fraction of failing checks, not a division by this number. unnati_avakasha's target is likewise
@@ -26,6 +27,7 @@ targets:
   unnati_avakasha: 1.0
   sadhana: 1.0
   seva: 0.9
+  spardha: 1.0
 
 # Hysteresis (design §5.3): a drive becomes hungry at this deficit and stays selected until its post-action
 # deficit falls to at most the sated threshold. Between the two, a drive keeps its prior phase rather than
@@ -53,3 +55,16 @@ resource_min_routes: 1
 # deadline-debt term of D_seva so a request well inside the deadline contributes little to it.
 seva_overdue_days: 7.0
 seva_age_scale_days: 14.0
+
+# spardha (rivalry): declared competitor figures, checked against this workspace's own measured external-eval
+# rows (application/external.py). Each entry is {system, benchmark, score, source_url, as_of, note}; `benchmark`
+# must be the exact metric-name string an objective's `Benchmark.metric` would use (e.g. "gsm8k
+# exact_match,strict-match", "humaneval+ pass@1"), because that string is how application/kshudha.py's
+# spardha_drive matches a rival figure to a benchmark this workspace actually measured. Every entry here is
+# `agama` — reported by the named source, never measured by this engine — and is never merged into a measured
+# value; it only sizes a gap against one.
+#
+# Left empty on purpose: writing a rival's score here means citing a source this operator actually read
+# (source_url + as_of), and no such source has been read yet for this workspace. Do not invent a competitor's
+# score to fill this in.
+rivals: []

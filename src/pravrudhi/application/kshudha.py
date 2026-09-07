@@ -1,22 +1,25 @@
 """Kṣudhā: a measurable appetite, so the engine seeks capability rather than waiting to be told.
 
-Six drives (design doc §5.2) each answer one question honestly: how far is this from where it should be, using
-only numbers this codebase actually keeps. A measurement that cannot be taken is `unknown`, never a guessed
-number — an engine that invents a deficit to keep moving is worse than one that says plainly it does not know.
+Seven drives (design doc §5.2, plus `spardha`/rivalry) each answer one question honestly: how far is this from
+where it should be, using only numbers this codebase actually keeps. A measurement that cannot be taken is
+`unknown`, never a guessed number — an engine that invents a deficit to keep moving is worse than one that says
+plainly it does not know.
 
-This module is a pure calculator (`measure`, the per-drive builder functions, `sentence`) plus a small
+This module is a pure calculator (`measure`, the per-drive builder functions, `sentence`, `voice`) plus a small
 deterministic selector (`select`) that carries hysteresis across calls through an explicit, caller-supplied
 `AppetiteState`. The design (§5.1) calls for a sqlite state store at `.pravrudhi/appetite/state.sqlite3`; this
 module uses a JSON file at `.pravrudhi/appetite.json` instead, because every other store in this codebase
 (`application/requests.py`, `application/availability.py`) is a single JSON file with an atomic tmp-write-replace,
 not sqlite, and there is no reason for this one store to be the exception.
 
-`measure(root)` reads the five sources this codebase actually has: `doctor.run_doctor` for `sthiti`
-(continuity), `tools`/`recipes`/`agents.registry` for `samarthya` (capability), `objectives`/`external` for
-`unnati_avakasha` (benchmark headroom), `availability`'s cooling routes for `sadhana` (resources), and
-`requests` for `seva` (obligations). The sixth drive in the design, `pramana_navyata` (evidence freshness), has
-no source module in this codebase yet, so it is always reported `unknown` — exactly the "unknown, never
-fabricated" rule applied to a whole drive rather than one reading.
+`measure(root)` reads the sources this codebase actually has: `doctor.run_doctor` for `sthiti` (continuity),
+`tools`/`recipes`/`agents.registry` for `samarthya` (capability), `objectives`/`external` for `unnati_avakasha`
+(benchmark headroom), `availability`'s cooling routes for `sadhana` (resources), `requests` for `seva`
+(obligations), and `external`'s own admitted rows compared against the `rivals` declared in the appetite config
+for `spardha` (rivalry). The design's sixth drive, `pramana_navyata` (evidence freshness), has no source module
+in this codebase yet, so it is always reported `unknown` — exactly the "unknown, never fabricated" rule applied
+to a whole drive rather than one reading. `spardha` falls back to the same `unknown` rule whenever no rival
+figure names a benchmark this workspace has actually measured.
 
 `select` does not dispatch anything; `heartbeat.py` remains the only periodic dispatcher (design §5.1), and
 wiring this module into it is a separate task. `select` only turns a list of `Drive` readings, a persisted
@@ -35,12 +38,12 @@ from typing import Any, Literal
 import yaml
 
 from pravrudhi.agents import registry as agents_registry
-from pravrudhi.application import availability, doctor, objectives, recipes, requests, tools
+from pravrudhi.application import availability, doctor, external, objectives, recipes, requests, tools
 
 PACKAGED_CONFIG = Path(__file__).resolve().parents[1] / "assets" / "configs" / "appetite.yaml"
 
 DRIVE_IDS: tuple[str, ...] = (
-    "sthiti", "samarthya", "pramana_navyata", "unnati_avakasha", "sadhana", "seva",
+    "sthiti", "samarthya", "pramana_navyata", "unnati_avakasha", "sadhana", "seva", "spardha",
 )
 WIRE_NAMES: dict[str, str] = {
     "sthiti": "continuity",
@@ -49,6 +52,7 @@ WIRE_NAMES: dict[str, str] = {
     "unnati_avakasha": "benchmark_headroom",
     "sadhana": "resources",
     "seva": "obligations",
+    "spardha": "rivalry",
 }
 
 Phase = Literal["hungry", "sated"]
@@ -69,6 +73,28 @@ def _now_iso(moment: datetime | None = None) -> str:
 
 
 @dataclass(frozen=True)
+class RivalFigure:
+    """One reported (never measured here) competitor result, declared in the appetite config's `rivals` list.
+
+    This is `agama` — testimony, not `pratyakṣa` (direct measurement) — so every surface that shows it must say
+    so, and `spardha_drive` never lets one stand in for a number this workspace actually measured.
+    """
+
+    system: str
+    benchmark: str
+    score: float
+    source_url: str
+    as_of: str
+    note: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "system": self.system, "benchmark": self.benchmark, "score": self.score,
+            "source_url": self.source_url, "as_of": self.as_of, "note": self.note,
+        }
+
+
+@dataclass(frozen=True)
 class AppetiteConfig:
     """Weights, targets and satiation thresholds. Every value here is a policy choice, not a measured result."""
 
@@ -83,12 +109,34 @@ class AppetiteConfig:
     resource_min_routes: int = 1
     seva_overdue_days: float = 7.0
     seva_age_scale_days: float = 14.0
+    rivals: tuple[RivalFigure, ...] = field(default_factory=tuple)
 
     def weight(self, drive_id: str) -> float:
         return float(self.weights.get(drive_id, 1.0))
 
     def target(self, drive_id: str) -> float:
         return float(self.targets.get(drive_id, 1.0))
+
+
+def _parse_rivals(rows: list[Any]) -> tuple[RivalFigure, ...]:
+    """Reported rival figures, skipping any entry missing what would make it traceable (design: never invent a
+    competitor's score, and never let an untraceable one stand in for one that is)."""
+    out: list[RivalFigure] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        system = str(row.get("system") or "").strip()
+        benchmark = str(row.get("benchmark") or "").strip()
+        source_url = str(row.get("source_url") or "").strip()
+        as_of = str(row.get("as_of") or "").strip()
+        score = row.get("score")
+        if not (system and benchmark and source_url and as_of) or score is None:
+            continue
+        out.append(RivalFigure(
+            system=system, benchmark=benchmark, score=float(score), source_url=source_url, as_of=as_of,
+            note=str(row.get("note") or ""),
+        ))
+    return tuple(out)
 
 
 def load_config(path: Path | None = None) -> AppetiteConfig:
@@ -105,6 +153,7 @@ def load_config(path: Path | None = None) -> AppetiteConfig:
         resource_min_routes=int(raw.get("resource_min_routes", 1)),
         seva_overdue_days=float(raw.get("seva_overdue_days", 7.0)),
         seva_age_scale_days=float(raw.get("seva_age_scale_days", 14.0)),
+        rivals=_parse_rivals(list(raw.get("rivals") or [])),
     )
 
 
@@ -342,8 +391,72 @@ def seva_overdue(backlog: dict[str, Any], cfg: AppetiteConfig) -> bool:
     return float(backlog.get("oldest_open_days", 0.0)) > cfg.seva_overdue_days
 
 
+def spardha_drive(measured: dict[str, float], rivals: tuple[RivalFigure, ...], cfg: AppetiteConfig) -> Drive:
+    """rivalry: the requirement-weighted shortfall against the nearest declared rival that beats us, on a
+    benchmark this workspace actually measured (a new drive, not in design §5.2).
+
+    `measured` is `{benchmark_metric: our_best_score}`, drawn from this workspace's own admitted external-eval
+    rows (`external.headlines`) — the same benchmark-name strings an objective's `Benchmark.metric` uses, so a
+    rival entry and a measured row can only match when they name the same instrument. A rival figure is `agama`
+    (declared, not measured here): it is used only to size a gap against our own measured number, never merged
+    into it, and every source string says which rival, when it was reported, and where from.
+
+    Unknown, with the reason, when there is nothing we measure yet, no rival is declared at all, or no declared
+    rival names a benchmark we measure and also beats our score on it — the same "unknown, never fabricated"
+    rule the other six drives already follow.
+    """
+    if not measured:
+        return _unknown("spardha", cfg, "no external result has been admitted to this workspace's ledger yet")
+    if not rivals:
+        return _unknown("spardha", cfg, "no rival figure is declared in the appetite config")
+    by_benchmark: dict[str, list[RivalFigure]] = {}
+    for r in rivals:
+        by_benchmark.setdefault(r.benchmark, []).append(r)
+    gaps: list[float] = []
+    sources: list[str] = []
+    for benchmark, our_score in sorted(measured.items()):
+        candidates = by_benchmark.get(benchmark)
+        if not candidates:
+            sources.append(f"{benchmark}: unknown (no rival figure declared for this benchmark)")
+            continue
+        beating = [r for r in candidates if r.score > our_score]
+        if not beating:
+            sources.append(f"{benchmark}: no declared rival beats our measured {our_score:g}")
+            continue
+        nearest = min(beating, key=lambda r: r.score)
+        gap = clip((nearest.score - our_score) / nearest.score) if nearest.score != 0 else 0.0
+        gaps.append(gap)
+        sources.append(
+            f"{benchmark}: we={our_score:g}; nearest rival {nearest.system}={nearest.score:g} "
+            f"(agama, reported {nearest.as_of}, {nearest.source_url}); gap={gap:.4f}"
+        )
+    if not gaps:
+        return _unknown(
+            "spardha", cfg, "no declared rival names a benchmark we measure and also beats our measured score",
+            tuple(sources),
+        )
+    deficit = clip(sum(gaps) / len(gaps))
+    return Drive(
+        id="spardha", wire_name="rivalry", value=1.0 - deficit, target=cfg.target("spardha"), deficit=deficit,
+        weight=cfg.weight("spardha"), eligible=True, blocked_reason="", sources=tuple(sources), unknown=False,
+    )
+
+
 # --------------------------------------------------------------------------------------------------------------
 # measure(): ties the pure builders to this codebase's actual modules.
+
+
+def _measured_benchmarks(ledger: Path) -> dict[str, float]:
+    """The best (highest-seq) measured score per benchmark name, from every external-eval row this workspace
+    has admitted — the same metric-name strings `objectives.Benchmark.metric` uses, so `spardha_drive` can match
+    a rival figure to a benchmark this workspace actually measured without either side inventing a label."""
+    best: dict[str, tuple[int, float]] = {}
+    for row in external.external_rows(ledger):
+        seq = int(row.get("seq") or 0)
+        for name, value, _stderr, _n in external.headlines(row):
+            if name not in best or seq > best[name][0]:
+                best[name] = (seq, value)
+    return {name: value for name, (_seq, value) in best.items()}
 
 
 def _benchmark_tuples(root: Path) -> list[tuple[str, str, float | None, float | None]]:
@@ -401,6 +514,13 @@ def measure(root: Path, config: AppetiteConfig | None = None) -> list[Drive]:
         drives.append(seva_drive(requests.backlog(root), cfg))
     except OSError:
         drives.append(_unknown("seva", cfg, "the request backlog could not be read"))
+
+    try:
+        ledger = root / "research" / "ledger.jsonl"
+        measured = _measured_benchmarks(ledger) if ledger.exists() else {}
+        drives.append(spardha_drive(measured, cfg.rivals, cfg))
+    except (OSError, KeyError, ValueError):
+        drives.append(_unknown("spardha", cfg, "external results or the rival config could not be read"))
 
     return drives
 
@@ -489,6 +609,7 @@ ACTION_DESCRIPTIONS: dict[str, str] = {
     "unnati_avakasha": "running a budgeted benchmark trial toward its target",
     "sadhana": "waiting for a usable resource route",
     "seva": "the oldest unmet request criterion",
+    "spardha": "closing the gap against the nearest declared rival that beats us",
 }
 
 
@@ -637,11 +758,50 @@ def sentence(appetite: Appetite) -> str:
     return "I am resting because every drive is satisfied."
 
 
+def voice(appetite: Appetite, *, style: str = "plain") -> str:
+    """Two or three first-person sentences: what I want, what I cannot measure, what I do next.
+
+    Built entirely from `appetite`'s own drive fields, the same discipline `sentence` already keeps: no feeling
+    is ever claimed, and no numeral appears that a drive does not itself carry, because none of the sentences
+    below quote one. Every drive this engine currently reports `unknown` is named with its own reason — the
+    first one, deterministically, in the order `measure` produced the drives — so a reader always sees at least
+    one thing the engine admits it cannot measure, rather than a voice that quietly skips the gap.
+    """
+    by_id = {d.id: d for d in appetite.drives}
+    sentences: list[str] = []
+
+    if appetite.selected is not None:
+        d = by_id[appetite.selected]
+        what = appetite.action["description"] if appetite.action else d.wire_name
+        sentences.append(f"I want {what}, because {d.wire_name} has the largest eligible deficit.")
+    else:
+        largest = by_id.get(appetite.largest_unmet) if appetite.largest_unmet else None
+        if largest is not None:
+            sentences.append(
+                f"I want nothing urgently right now; every eligible drive is satisfied and {largest.wire_name} "
+                "is the largest unmet deficit I still carry."
+            )
+        else:
+            sentences.append("I want nothing right now; every drive is satisfied.")
+
+    unknown_drives = [d for d in appetite.drives if d.unknown]
+    if unknown_drives:
+        u = unknown_drives[0]
+        sentences.append(f"I cannot measure {u.wire_name} because {u.blocked_reason}.")
+
+    if appetite.selected is not None and appetite.action is not None:
+        sentences.append(f"Next I will act on {appetite.action['description']}.")
+    else:
+        sentences.append(f"Next I will wait: {appetite.resting_reason or appetite.next_wake}.")
+
+    return " ".join(sentences)
+
+
 __all__ = [
     "ACTION_DESCRIPTIONS", "Appetite", "AppetiteConfig", "AppetiteState", "DRIVE_IDS", "Drive", "DriveState",
-    "WIRE_NAMES", "clip", "load_config", "load_state", "measure", "pramana_navyata_drive", "sadhana_drive",
-    "save_state", "select", "sentence", "seva_drive", "seva_overdue", "samarthya_drive", "sthiti_drive",
-    "store_path", "unnati_avakasha_drive",
+    "RivalFigure", "WIRE_NAMES", "clip", "load_config", "load_state", "measure", "pramana_navyata_drive",
+    "sadhana_drive", "save_state", "select", "sentence", "seva_drive", "seva_overdue", "samarthya_drive",
+    "spardha_drive", "sthiti_drive", "store_path", "unnati_avakasha_drive", "voice",
 ]
 
 

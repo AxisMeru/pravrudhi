@@ -1,0 +1,64 @@
+# Example workflow: `application.workflows.load` reads every file shaped like this under this directory (and
+# under <root>/workflows/, where an operator's own workflow of the same id replaces this one).
+#
+# Adding a page to the engine's own app is always the same four steps in the same order: a module, the API
+# route that exposes it, the frontend page that renders it, and the tests that hold all three to account. Each
+# step declares only the paths it needs, so `plan` can prove none of them collide.
+id: add-a-page
+title: Add a page
+description: >
+  Build an engine module, its API route, its frontend page and its tests, as four ordered steps. Give --input
+  page=<short-name> naming the module/route/page; add --input skip_frontend=true to stop after the API route.
+inputs:
+  - name: page
+    required: true
+  - name: skip_frontend
+    required: false
+    default: false
+steps:
+  - id: module
+    title: Build the engine module
+    brief: >
+      Add src/pravrudhi/application/{page}.py implementing the module's behaviour, following the docstring and
+      dataclass conventions already used by sibling modules under application/.
+    allowed_paths:
+      - src/pravrudhi/application/{page}.py
+    validate: "uv run pytest -q tests/test_{page}.py"
+    tier: standard
+
+  - id: api-route
+    title: Expose it over the API
+    brief: >
+      Add the API route for {page} and a typed response model in src/pravrudhi/api/schemas.py -- a bare dict
+      fails tests/test_api_schema.py. Wire the route to the module built in the previous step.
+    needs: [module]
+    allowed_paths:
+      - src/pravrudhi/api/routes/{page}.py
+      - src/pravrudhi/api/schemas.py
+    validate: "uv run pytest -q tests/test_api_schema.py tests/test_{page}.py"
+    tier: standard
+
+  - id: frontend-page
+    title: Build the frontend page
+    brief: >
+      Add the frontend page for {page} under app/frontend/src/app/{page}/, calling the API route built in the
+      previous step. Follow the layout and data-fetching conventions of sibling pages under app/frontend/src/app/.
+    needs: [api-route]
+    when: not skip_frontend
+    allowed_paths:
+      - app/frontend/src/app/{page}/**
+    validate: "cd app/frontend && npm run build"
+    tier: design
+
+  - id: tests
+    title: Hold the module, route and page to account
+    brief: >
+      Read tests/test_{page}.py and tests/test_api_schema.py; add whatever coverage is missing for the module,
+      the route and its response model. Do not weaken an existing assertion to make it pass.
+    needs: [module, api-route, frontend-page]
+    continue_on_failure: true
+    allowed_paths:
+      - tests/test_{page}.py
+      - tests/test_api_schema.py
+    validate: "uv run pytest -q"
+    tier: mechanical

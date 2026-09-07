@@ -1,0 +1,19 @@
+# Vardhana policy (design doc §7): required capabilities checked for a qualified artifact, and the default
+# build budget a freshly proposed extension is frozen with.
+#
+# An operator override may live at .pravrudhi/extensions_policy.yaml inside a workspace (application/vardhana.py's
+# `load_config` takes any path); this packaged file is what a fresh workspace uses until one is written.
+policy_version: "1"
+
+# Capability ids in the same "tool:<id>" / "recipe:<id>" / "agent:<name>" namespace application/kshudha.py's
+# samarthya drive already uses (samarthya_drive builds exactly these prefixed ids from tools.py/recipes.py/
+# agents.registry). An id listed here that resolves to no qualified artifact on this host is a capability gap
+# (design §7.1: "a required capability with no qualified artifact"); an id merely absent from tools.py's or
+# recipes.py's catalogue is not automatically required just because it exists, so this list is empty until an
+# operator ask or a survival requirement actually names one — "create more skills" with no linked use is never
+# a gap (design §7.1), and neither is populating this list with catalogue entries nobody asked for.
+required_capabilities: []
+
+# Default budget a freshly proposed extension is frozen with (design §7.1's "budget" field). A conservative
+# proposed default, not a measured optimal setting (the same caveat design §3.3 states for its own defaults).
+default_max_iterations: 5

@@ -1,0 +1,59 @@
+# Example workflow: `application.workflows.load` reads every file shaped like this under this directory (and
+# under <root>/workflows/, where an operator's own workflow of the same id replaces this one).
+#
+# Closing an operator request is always the same shape: read what is unmet, do the work, run the full suite, and
+# attach evidence -- never mark a criterion met by declaration alone. `target_path` names the one place the work
+# is allowed to land; `application/requests.py` still owns whether the criterion is actually marked met.
+id: close-a-request
+title: Close a request
+description: >
+  Read one unmet acceptance criterion on an operator request, do the work it asks for, run the full suite, and
+  attach the evidence. Give --input request_id, --input criterion_index (0-based) and --input target_path (the
+  one path glob this run may write to).
+inputs:
+  - name: request_id
+    required: true
+  - name: criterion_index
+    required: false
+    default: 0
+  - name: target_path
+    required: true
+steps:
+  - id: read-criterion
+    title: Read the unmet criterion
+    brief: >
+      Use `pravrudhi requests-show {request_id}` to read criterion {criterion_index} of request {request_id}
+      verbatim. Do not start the work until you can restate the criterion in your own words.
+    validate: "uv run pytest -q tests/test_requests.py"
+    tier: mechanical
+
+  - id: do-the-work
+    title: Do the work the criterion asks for
+    brief: >
+      Do the work criterion {criterion_index} of request {request_id} asks for, writing only under
+      {target_path}. If the criterion cannot be satisfied within that path, stop and say why rather than
+      writing elsewhere.
+    needs: [read-criterion]
+    allowed_paths:
+      - "{target_path}"
+    validate: "uv run pytest -q"
+    tier: standard
+
+  - id: run-suite
+    title: Run the full suite
+    brief: "Run `uv run pytest -q` and confirm every test passes, not only the ones the new work touches."
+    needs: [do-the-work]
+    validate: "uv run pytest -q"
+    tier: mechanical
+
+  - id: attach-evidence
+    title: Attach the evidence
+    brief: >
+      Write docs/evidence/request-{request_id}.md naming the commit and the test run that satisfy criterion
+      {criterion_index}, then run `pravrudhi requests-met {request_id} {criterion_index} --kind commit --ref
+      <sha>` to mark it met. Never mark a criterion met without a passing suite behind it.
+    needs: [run-suite]
+    allowed_paths:
+      - docs/evidence/request-{request_id}.md
+    validate: "uv run pytest -q"
+    tier: mechanical

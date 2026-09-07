@@ -808,6 +808,108 @@ def harness_night_cmd(
     )
 
 
+workflow_app = typer.Typer(help="Declared, repeatable multi-step work: build it once, run it by name.")
+app.add_typer(workflow_app, name="workflow")
+
+WORKFLOW_ID_ARG = typer.Argument(..., help="workflow id, e.g. add-a-page")
+WORKFLOW_INPUT_OPT = typer.Option([], "--input", help="k=v, repeatable")
+
+
+def _workflow_or_exit(root: Path, workflow_id: str) -> Any:
+    from pravrudhi.application.workflows import get
+
+    wf = get(root, workflow_id)
+    if wf is None:
+        typer.echo(f"no workflow {workflow_id!r} in {root}", err=True)
+        raise typer.Exit(1)
+    return wf
+
+
+def _parse_input_opts(pairs: list[str]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    for pair in pairs:
+        key, sep, value = pair.partition("=")
+        if not sep:
+            typer.echo(f"--input must be k=v, got {pair!r}", err=True)
+            raise typer.Exit(2)
+        low = value.lower()
+        if low in ("true", "false"):
+            out[key] = low == "true"
+            continue
+        try:
+            out[key] = int(value)
+            continue
+        except ValueError:
+            pass
+        try:
+            out[key] = float(value)
+            continue
+        except ValueError:
+            pass
+        out[key] = value
+    return out
+
+
+@workflow_app.command("list")
+def workflow_list_cmd(root: Path = ROOT_OPT) -> None:
+    """Every workflow this workspace knows: packaged examples plus anything under workflows/."""
+    from pravrudhi.application.workflows import load
+
+    wfs = load(root)
+    if not wfs:
+        typer.echo("no workflows found")
+    for wf in wfs:
+        typer.echo(f"{wf.id:24} {wf.title}")
+
+
+@workflow_app.command("show")
+def workflow_show_cmd(workflow_id: str = WORKFLOW_ID_ARG, root: Path = ROOT_OPT) -> None:
+    """A workflow's inputs and steps."""
+    wf = _workflow_or_exit(root, workflow_id)
+    typer.echo(f"{wf.id}: {wf.title}")
+    if wf.description:
+        typer.echo(wf.description.strip())
+    typer.echo("")
+    typer.echo("inputs:")
+    for i in wf.inputs:
+        detail = "required" if i.required else f"default={i.default!r}"
+        typer.echo(f"  {i.name:20} {detail}")
+    typer.echo("steps:")
+    for s in wf.steps:
+        needs = f" needs=[{', '.join(s.needs)}]" if s.needs else ""
+        when = f" when={s.when!r}" if s.when else ""
+        typer.echo(f"  {s.id:20} [{s.tier}]{needs}{when}")
+
+
+@workflow_app.command("run")
+def workflow_run_cmd(
+    workflow_id: str = WORKFLOW_ID_ARG,
+    input_opts: list[str] = WORKFLOW_INPUT_OPT,
+    root: Path = ROOT_OPT,
+) -> None:
+    """Run a workflow wave by wave, dispatching each step through the swarm."""
+    from pravrudhi.agents.registry import build_agent as make_agent
+    from pravrudhi.application import swarm
+    from pravrudhi.application.delegate import Verdict
+    from pravrudhi.application.workflows import WorkflowError
+    from pravrudhi.application.workflows import run as run_workflow
+
+    wf = _workflow_or_exit(root, workflow_id)
+    inputs = _parse_input_opts(input_opts)
+
+    def dispatch(tasks: list[swarm.SwarmTask]) -> list[Verdict]:
+        return swarm.run_wave(lambda n, m: make_agent(root, n, m), tasks, log=typer.echo, root=root)
+
+    try:
+        record = run_workflow(root, wf, inputs, dispatch)
+    except WorkflowError as e:
+        typer.echo(str(e), err=True)
+        raise typer.Exit(1) from e
+    for s in record.steps:
+        typer.echo(f"{s.state.upper():8} {s.id:20} {s.reason}")
+    typer.echo(f"run {record.id} recorded")
+
+
 def main() -> None:
     app()
 
