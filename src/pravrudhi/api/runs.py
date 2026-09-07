@@ -231,6 +231,93 @@ def models_listing(root: Path) -> list[dict[str, Any]]:
     return out
 
 
+def historical_runs(root: Path) -> list[dict[str, Any]]:
+    """Closed nights, newest first, in the same shape a live run reports.
+
+    `started_at` and `finished_at` are seconds since the epoch for a live run, and a closed night carries only
+    its ledger timestamps, so they are parsed to the same unit rather than left in two formats for the page to
+    reconcile.
+    """
+    from pravrudhi.application.demo_export import _nights
+
+    ledger = Path(root) / "research" / "ledger.jsonl"
+    if not ledger.exists():
+        return []
+    out: list[dict[str, Any]] = []
+    for night in sorted(_nights(ledger), key=lambda n: -int(n.get("night") or 0)):
+        promoted = list(night.get("promoted") or [])
+        out.append({
+            "id": f"night-{night['night']}-{night.get('track') or 'lora'}",
+            "target": night.get("track") or "lora",
+            "night": night.get("night"),
+            "status": "finished",
+            "request": {"policy": night.get("selection_policy"), "candidates": night.get("candidates")},
+            "started_at": None, "finished_at": None,
+            "best_delta": None,
+            "promoted": promoted,
+            "events": night.get("candidates") or 0,
+            "historical": True,
+            "budget_gpu_h": night.get("spent_gpu_h"),
+            "spent_gpu_h": night.get("spent_gpu_h"),
+            "pruned": night.get("pruned"),
+        })
+    return out
+
+
+def historical_events(root: Path, night: int, track: str) -> list[dict[str, Any]]:
+    """A closed night's ledger rows in the shape a live run emits, so one timeline renders both.
+
+    The first attempt returned the ledger's own field names, and the page — written against the live stream —
+    showed a column of "Invalid Date" with no content. A historical run and a live one must speak the same
+    event language or the page has to know which it is looking at.
+    """
+    from pravrudhi_kernel.ledger.verify import iter_events
+
+    ledger = Path(root) / "research" / "ledger.jsonl"
+    if not ledger.exists():
+        return []
+    out: list[dict[str, Any]] = []
+    for ev in iter_events(ledger):
+        if ev.night != night:
+            continue
+        payload = ev.payload or {}
+        kind = str(payload.get("kind") or ev.kind)
+        cid = ev.candidate_id
+        if ev.kind == "observe" and cid:
+            # The measurement lives under `observed`, not at the payload's top level; reading the top level gave
+            # a timeline of "evaluated over null problems".
+            observed = payload.get("observed") or {}
+            score = observed.get("value")
+            delta = observed.get("delta_in")
+            incumbent = None
+            if isinstance(score, int | float) and isinstance(delta, int | float):
+                incumbent = round(float(score) - float(delta), 6)
+            out.append({
+                "type": "paired", "candidate": cid, "seq": ev.seq,
+                "candidate_score": score, "delta": delta, "incumbent": incumbent,
+                "n": observed.get("n_items"), "decision": payload.get("stage"),
+                "seed": (observed.get("seeds") or [None])[0],
+            })
+        elif kind == "promoted" and cid:
+            out.append({"type": "promoted", "candidate": cid, "seq": ev.seq})
+        elif kind in ("pruned", "prune") and cid:
+            out.append({"type": "pruned", "candidate": cid, "seq": ev.seq})
+        elif kind == "propose" or ev.kind == "propose":
+            out.append({"type": "proposed_one", "candidate": cid, "seq": ev.seq})
+        elif kind == "night_end":
+            outcomes = payload.get("outcomes") or {}
+            out.append({
+                "type": "closed", "seq": ev.seq,
+                "text": (f"night {night} closed: {sum(1 for v in outcomes.values() if v == 'promoted')} promoted, "
+                         f"{sum(1 for v in outcomes.values() if v == 'pruned')} pruned, "
+                         f"{payload.get('spent_gpu_h', 0):.3f} GPU-hours spent"),
+            })
+        else:
+            summary = ", ".join(f"{k} {v}" for k, v in list(payload.items())[:3] if not isinstance(v, dict | list))
+            out.append({"type": "log", "seq": ev.seq, "text": f"{kind}: {summary}" if summary else kind})
+    return out[-200:]
+
+
 def build_router(root: Path) -> APIRouter:
     mgr = RunManager(root)
     r = APIRouter(prefix="/api")
@@ -241,10 +328,29 @@ def build_router(root: Path) -> APIRouter:
 
     @r.get("/runs")
     def list_runs() -> list[dict[str, Any]]:
-        return [run.view() for run in sorted(mgr.runs.values(), key=lambda x: -x.started_at)]
+        """Every run this engine has performed, live ones and the nights already in the ledger.
+
+        The manager only knows runs started through the app in this process, so a workspace with twenty-three
+        closed nights behind it answered "no runs yet" — the page told a visitor nothing had ever happened here.
+        A closed night is a run that finished; it belongs in the same list, marked as such, and its detail page
+        renders from the ledger rather than from a live event stream.
+        """
+        live = [run.view() for run in sorted(mgr.runs.values(), key=lambda x: -x.started_at)]
+        seen = {row["id"] for row in live}
+        return live + [row for row in historical_runs(root) if row["id"] not in seen]
 
     @r.get("/runs/{run_id}")
     def get_run(run_id: str) -> dict[str, Any]:
+        """A live run's detail, or a closed night's, at the same address.
+
+        The manager knows only runs started through the app in this process, so every historical night in the
+        listing answered 404 when opened. A link to a run must always work, whether the run is happening now or
+        finished a week ago.
+        """
+        if run_id.startswith("night-"):
+            row = next((x for x in historical_runs(root) if x["id"] == run_id), None)
+            if row is not None:
+                return {**row, "recent": historical_events(root, row["night"], str(row["target"]))}
         run = mgr.get(run_id)
         return {**run.view(), "recent": list(run.events)[-50:]}
 
