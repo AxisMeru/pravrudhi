@@ -74,3 +74,64 @@ never evidence for promotion. No default callback writes promotion rows.
 
 CPU verification: `uv run pytest tests/test_loom_pipeline.py -q`. Tests use a fake
 context and never launch training.
+
+## Durable job execution
+
+`pravrudhi.application.loom_run` adds `dry_run(pipeline)` and
+`run(pipeline, context, record_path)`. The default planner runs prepared SFT using
+`train_sft` and the existing `LoraRecipe` grammar. For example:
+
+```python
+from pathlib import Path
+from pravrudhi.application.loom_run import dry_run, run
+
+manifest = dry_run(pipeline)  # no directories, input writes, or kernel launches
+print(manifest)
+outputs = run(pipeline, context, Path("loom-run.json"))
+# Calling run again with the same record reuses completed stages.
+```
+
+The manifest contains every command, argument, read-only mount, input file,
+output name, timeout, dependency, and supplied spend reservation. It is JSON
+serializable. Resource references determine execution order even when the lowered
+stage tuple is reordered. The original AST and source remain unchanged.
+
+Actual expenditure cannot be known exactly before execution: kernel jobs measure
+runtime. The default spend field explicitly says `unknown until kernel execution`.
+Loom neither calls the grammar's heuristic cost estimator nor invents a dollar,
+token, GPU-hour, or score measurement. A host planner may supply an opaque quote
+or reservation via `PlannedJob.spend`; this is configuration, not evidence. Thus
+this is an exact job manifest, **not a guarantee of exact monetary spend**.
+
+Custom pure planners can be supplied as `planners={operation: planner}` to both
+functions. A planner receives the stage and role-to-location mapping and returns
+`PlannedJob(Job(...), files=((relative_name, content), ...), spend=...)`.
+Upstream outputs are symbolic `@stage` mount sources; the runner substitutes the
+recorded output path at launch. Planners must use supported engine commands and
+must include all preparation in the manifest. They must not launch work or score
+results. The default planner rejects adapter continuation during preflight.
+
+The record binds the complete manifest, including recipes and reservations, to
+completed output paths and opaque kernel job metadata. It is atomically replaced
+and locked against concurrent runners. Failed jobs stop execution; retrying skips
+completed dependencies. Changed manifests, missing completed artifacts, and
+inconsistent checkpoints fail before launch. Locations identify resources; this
+record does not hash their contents or replace kernel provenance checks.
+
+An interruption after launch but before checkpointing leaves `status: running`
+and the job directory in the record. Resume refuses to duplicate that job. The
+host must reconcile its kernel outcome before changing the checkpoint to failed
+(retry permitted) or complete (with its artifact and kernel metadata). This
+explicit recovery boundary avoids treating an uncertain job as unexecuted.
+
+Pretraining, continued pretraining, named evaluation, and teacher distillation
+still require supported host planners; this module does not add missing engine
+capabilities. Promotion is refused by the durable raw-job runner because it needs
+the engine's evidence-admission/policy integration, not a command exit status.
+The older `loom_pipeline.execute` callback API remains available and unchanged.
+Consequently the full lifecycle example above is not yet an executable default
+pipeline; prepared SFT is the concrete supported path.
+
+CPU verification:
+`uv run pytest tests/test_loom_run.py tests/test_loom_pipeline.py -q`.
+The tests fake the context boundary and do not train models.

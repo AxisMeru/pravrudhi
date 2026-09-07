@@ -1,7 +1,8 @@
 """Prior-only recipe imagination; outputs are queue advice, never kernel evidence.
 
 Adapts PWM's observation/prior separation and softmax associative retrieval.
-No RSSM training, synthetic observations, evaluator, gate, or ledger writer lives here.
+Includes an experimental linear Gaussian parent-state transition and EFE queue score.
+No neural RSSM, synthetic observations, evaluator, gate, or ledger writer lives here.
 """
 from __future__ import annotations
 
@@ -17,6 +18,7 @@ from statistics import mean
 from typing import Any
 
 from .anchor import anchored, difficulty, load_per_item
+from .archive import parent_map
 
 
 def features(recipe: Mapping[str, Any]) -> frozenset[str]:
@@ -42,6 +44,8 @@ class Example:
     recipe: Mapping[str, Any]
     target: float
     epoch: str
+    parent: str | None = None
+    parent_state: tuple[float, float, float] | None = None
 
 
 @dataclass(frozen=True)
@@ -97,6 +101,71 @@ class Imaginer:
                       key=lambda pair: pair[1].predicted_anchor, reverse=True)
 
 
+class DynamicsImaginer:
+    """Experimental three-timescale linear Gaussian state transition.
+
+    A small-data adaptation, not PWM's neural categorical RSSM. Parent posterior
+    summaries evolve at rates 1, 1/4, 1/16 per measured night. A Bayesian linear
+    transition predicts the child residual over recipe recall. Fixed ridge .01;
+    no calibration/test fitting. Missing state falls back to recipe recall.
+    """
+    def __init__(self, training: list[Example], calibration: list[Example]) -> None:
+        self.recall = Imaginer(training, calibration)
+        self.epoch = self.recall.epoch
+        pairs = [(x.parent_state, x.target - self.recall._prior(x.recipe))
+                 for x in training if x.parent_state is not None]
+        # Include an intercept only for the state-conditioned branch.
+        design = [((1., *state), y) for state, y in pairs]
+        a = [[sum(v[i] * v[j] for v, _ in design) + (.01 if i == j else 0.)
+              for j in range(4)] for i in range(4)]
+        augmented = [row + [float(i == j) for j in range(4)] for i, row in enumerate(a)]
+        for i in range(4):
+            pivot = augmented[i][i]
+            augmented[i] = [v / pivot for v in augmented[i]]
+            for j in range(4):
+                if j != i:
+                    factor = augmented[j][i]
+                    augmented[j] = [v - factor * w for v, w in zip(augmented[j], augmented[i], strict=False)]
+        self.inverse = [row[4:] for row in augmented]
+        b = [sum(v[i] * y for v, y in design) for i in range(4)]
+        self.coef = [sum(row[j] * b[j] for j in range(4)) for row in self.inverse]
+        self.noise = max(1e-8, mean((y - sum(c*t for c, t in zip(self.coef, v, strict=False)))**2
+                                   for v, y in design)) if design else 1.
+        errors: dict[int, float] = {}
+        for x in calibration:
+            errors[x.night] = max(errors.get(x.night, 0.), abs(x.target - self.prior(x)))
+        self.n_calibration = len(errors)
+        rank = math.ceil((len(errors) + 1) * .9)
+        self.radius = sorted(errors.values())[rank-1] if rank <= len(errors) else 2.
+
+    def prior(self, x: Example) -> float:
+        p = self.recall._prior(x.recipe)
+        if x.parent_state is not None:
+            if any(not math.isfinite(v) or abs(v) > 1 for v in x.parent_state):
+                raise ValueError('Parent state must contain measured anchored summaries')
+            p += sum(c*v for c, v in zip(self.coef, (1., *x.parent_state), strict=False))
+        return max(-1., min(1., p))
+
+    def imagine(self, x: Example) -> Imagination:
+        p = self.prior(x)
+        return Imagination(p, max(-1., p-self.radius), min(1., p+self.radius),
+                           self.n_calibration, self.epoch)
+
+    def expected_free_energy(self, x: Example) -> float:
+        """Gaussian preference risk minus linear-model information gain.
+
+        Preference N(1,1); observation noise is training residual variance.
+        This is model-based queue advice, not measured policy improvement.
+        """
+        v = (1., *x.parent_state) if x.parent_state is not None else (0.,)*4
+        epistemic = max(0., self.noise * sum(v[i]*self.inverse[i][j]*v[j]
+                                            for i in range(4) for j in range(4)))
+        return .5*((1-self.prior(x))**2 + self.noise + epistemic) - .5*math.log1p(epistemic/self.noise)
+
+    def order_queue(self, candidates: list[Example]) -> list[tuple[Example, Imagination]]:
+        return [(x, self.imagine(x)) for x in sorted(candidates, key=self.expected_free_energy)]
+
+
 def history(ledger: Path, root: Path, train_through: int) -> tuple[list[Example], dict[str, int], str, str]:
     """Read only kernel measurements and their explicitly referenced score files.
 
@@ -136,6 +205,29 @@ def history(ledger: Path, root: Path, train_through: int) -> tuple[list[Example]
     later_tables = {night: difficulty(scores for row, scores, _ in observations
                                       if row['night'] <= train_through or row['night'] == night)
                     for night in {row['night'] for row, _, _ in observations if row['night'] > train_through}}
+    # Only training measurements may initialise held-out parent states. Aggregate
+    # within a night before recurrence so seed replication does not set the clock.
+    parents = parent_map(ledger)
+    parent_values: dict[tuple[str, int], list[float]] = {}
+    for row, scores, _ in observations:
+        if row['night'] <= train_through:
+            result = anchored(scores, row['payload']['observed']['value'], table)
+            if result.complete and result.anchored is not None:
+                parent_values.setdefault((row['candidate_id'], row['night']), []).append(result.anchored)
+
+    def state_before(parent: str | None, night: int) -> tuple[float, float, float] | None:
+        state = None
+        for (cid, measured_night), values in sorted(parent_values.items(), key=lambda p: p[0][1]):
+            if cid != parent or measured_night >= night:
+                continue
+            value = mean(values)
+            if state is None:
+                state = (value, value, value)
+            else:
+                fast, mid, slow = state
+                state = (fast + 1.0 * (value - fast), mid + 0.25 * (value - mid), slow + 0.0625 * (value - slow))
+        return state
+
     examples = []
     for row, scores, recipe in observations:
         if not recipe or row['payload'].get('arm') != 'candidate':
@@ -151,7 +243,9 @@ def history(ledger: Path, root: Path, train_through: int) -> tuple[list[Example]
         if target is None:
             counts['unanchorable'] += 1
             continue
-        examples.append(Example(row['night'], row['candidate_id'], recipe, target, result.epoch))
+        examples.append(Example(row['night'], row['candidate_id'], recipe, target, result.epoch,
+                                parents.get(row['candidate_id']),
+                                state_before(parents.get(row['candidate_id']), row['night'])))
     return examples, dict(counts), hashlib.sha256(data).hexdigest(), table.epoch
 
 
@@ -183,6 +277,32 @@ def backtest(
                   interval_mean_width=mean(p.upper - p.lower for p in predictions),
                   calibration_nights=model.n_calibration,
                   beats_mean_rmse=sum(e*e for e in errors) < sum(e*e for e in baseline))
+    richer = DynamicsImaginer(train, calibration)
+
+    def metrics(values: list[float], subset: list[Example]) -> dict[str, float]:
+        residuals = [p-x.target for p, x in zip(values, subset, strict=False)]
+        return dict(rmse=math.sqrt(mean(e*e for e in residuals)),
+                    mae=mean(abs(e) for e in residuals))
+
+    report['dynamics'] = dict(
+        **metrics([richer.prior(x) for x in test], test),
+        coefficients=richer.coef, ridge=.01, rates=[1., .25, .0625],
+        calibration_nights=richer.n_calibration,
+        interval_coverage=mean(richer.imagine(x).lower <= x.target <= richer.imagine(x).upper for x in test),
+        interval_mean_width=mean(richer.imagine(x).upper-richer.imagine(x).lower for x in test))
+    report['parent_carry'] = metrics([x.parent_state[0] if x.parent_state else model.baseline for x in test], test)
+    report['parent_state_available'] = {name: sum(x.parent_state is not None for x in split)
+                                        for name, split in [('train', train), ('calibration', calibration), ('test', test)]}
+    report['distinct_parents'] = {name: sorted({x.parent for x in split if x.parent})
+                                 for name, split in [('train', train), ('test', test)]}
+    report['per_test_night'] = {str(n): dict(
+        recall=metrics([model._prior(x.recipe) for x in test if x.night == n], [x for x in test if x.night == n]),
+        dynamics=metrics([richer.prior(x) for x in test if x.night == n], [x for x in test if x.night == n]))
+        for n in sorted({x.night for x in test})}
+    report['distinct_test_parent_states'] = len({x.parent_state for x in test})
+    report['available_models'] = ['hopfield', 'parent_dynamics']
+    report['default_recipe_only_model'] = 'hopfield'
+    report['selection_note'] = 'Experimental comparison only; no automatic test-set model selection.'
     return report
 
 

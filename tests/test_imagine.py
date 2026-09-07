@@ -74,3 +74,45 @@ def test_missing_scores_are_counted(tmp_path):
     (tmp_path / '0-candidate.jsonl').unlink()
     _, counts, _, _ = history(path, tmp_path, 0)
     assert counts['missing_or_incomplete_scores'] == 1
+
+
+def test_dynamics_uses_parent_state_but_never_child_target():
+    from dataclasses import replace
+
+    from pravrudhi.application.imagine import DynamicsImaginer
+    train = [replace(example(n, v), parent='p', parent_state=(v, v, v))
+             for n, v in enumerate([-.4, -.2, .2, .4])]
+    model = DynamicsImaginer(train, [])
+    query = replace(example(10, 0), parent='p', parent_state=(.3, .3, .3))
+    prediction = model.imagine(query)
+    assert prediction == model.imagine(replace(query, target=-1, candidate='different'))
+    assert prediction.predicted_anchor > model.imagine(replace(query, parent_state=(-.3,)*3)).predicted_anchor
+    assert prediction.provenance == 'anumana' and prediction.usage == 'queue_only'
+    assert model.imagine(replace(query, parent_state=None)).predicted_anchor == pytest.approx(model.recall._prior(query.recipe))
+    assert model.expected_free_energy(query) == model.expected_free_energy(replace(query, target=1))
+    assert model.order_queue([query])[0][1] == prediction
+    with pytest.raises(ValueError):
+        model.imagine(replace(query, parent_state=(float('nan'), 0, 0)))
+
+
+def test_parent_state_is_frozen_and_excludes_same_night(tmp_path):
+    from pravrudhi.application.imagine import DynamicsImaginer
+    path = ledger(tmp_path)
+    rows = [json.loads(line) for line in path.read_text().splitlines()]
+    for row in rows:
+        if row['kind'] == 'propose':
+            row['payload']['lineage'] = ['ignored-root', '0']
+    path.write_text('\n'.join(json.dumps(r) for r in rows))
+    before, _, _, _ = history(path, tmp_path, 0)
+    assert before[0].parent_state is None
+    assert before[1].parent == '0'
+    assert before[1].parent_state is not None
+    assert before[1].parent_state == before[2].parent_state
+    model = DynamicsImaginer(before[:1], before[1:2])
+    prediction = model.imagine(before[2])
+    # Change a held-out parent measurement: neither frozen state nor prediction moves.
+    (tmp_path / '2-incumbent.jsonl').write_text(json.dumps({'id': 'item', 'score': 1})+'\n')
+    after, _, _, _ = history(path, tmp_path, 0)
+    assert [x.parent_state for x in before] == [x.parent_state for x in after]
+    assert model.imagine(after[2]) == prediction
+    assert DynamicsImaginer(after[:1], after[1:2]).coef == model.coef
