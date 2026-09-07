@@ -26,6 +26,7 @@ import {
   Rocket,
   Cpu,
   Monitor,
+  GitCompare,
 } from "lucide-react";
 import type { ComponentType } from "react";
 import { NotificationBell } from "@/components/notifications/NotificationBell";
@@ -58,6 +59,7 @@ const NAV: NavItem[] = [
   { href: "/models", label: "Models", icon: Package },
   { href: "/machines", label: "Machines", icon: Server },
   { href: "/desktop", label: "Desktop", icon: Monitor },
+  { href: "/parity", label: "Parity", icon: GitCompare },
   { href: "/system", label: "System", icon: Cpu },
   { href: "/settings", label: "Settings", icon: Settings },
   { href: "/install", label: "Install", icon: Download },

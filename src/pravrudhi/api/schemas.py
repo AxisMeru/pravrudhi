@@ -4,6 +4,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, RootModel
 
+from pravrudhi.application.parity import Capability, Coverage, Verification
 from pravrudhi_kernel.ledger.replay import Badge, CandidateView, Locks
 from pravrudhi_kernel.schema import LedgerEvent
 
@@ -1129,3 +1130,13 @@ class MarkReadRequest(BaseModel):
     """Which notifications to mark read. An empty list marks every unread notification read."""
 
     ids: list[str] = []
+
+
+class ParityResponse(BaseModel):
+    """Checked-in capabilities with evidence outcomes and explicit coverage counts."""
+
+    rows: list[Capability]
+    verification: list[Verification]
+    coverage: Coverage
+    gaps: list[Capability]
+    next_gap: Capability | None

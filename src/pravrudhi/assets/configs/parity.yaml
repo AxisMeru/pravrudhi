@@ -1,0 +1,108 @@
+# Rival claims await verified product sources. Matrix order breaks next_gap ties.
+rows:
+- id: command-palette
+  capability: Keyboard command palette
+  why_it_matters: Reach actions without navigating the sidebar.
+  rivals:
+    orca: unknown
+    claude_desktop: unknown
+    codex: unknown
+    openclaw: unknown
+  ours: have
+  evidence:
+    - 'command: grep -qF CommandPalette app/frontend/src/app/layout.tsx'
+    - 'command: grep -qF metaKey app/frontend/src/components/palette/CommandPalette.tsx'
+  notes: Mounted globally in the root layout; opens on Ctrl+K or Cmd+K and searches pages, actions and records.
+    Recorded as absent when this matrix was seeded because the layout was not inspected; the evidence is
+    re-run on every check, which is what caught it.
+- id: dispatch
+  capability: Dispatch and monitor agent work
+  why_it_matters: Start work and see whether it is running.
+  rivals:
+    orca: unknown
+    claude_desktop: unknown
+    codex: unknown
+    openclaw: unknown
+  ours: have
+  evidence:
+  - 'command: grep -qF "<DispatchPanel />" app/frontend/src/app/swarm/page.tsx'
+  - app/frontend/src/components/swarm/DispatchPanel.tsx
+  notes: Source-level panel presence; does not prove successful dispatch on a configured host.
+- id: sandbox-monitor
+  capability: Sandbox monitoring
+  why_it_matters: Inspect confinement and violations alongside work.
+  rivals:
+    orca: unknown
+    claude_desktop: unknown
+    codex: unknown
+    openclaw: unknown
+  ours: have
+  evidence:
+  - 'command: grep -qF "<SandboxesSection />" app/frontend/src/app/swarm/page.tsx'
+  - app/frontend/src/components/sandboxes/SandboxesSection.tsx
+  notes: Source-level monitor presence. NemoClaw monitor vocabulary includes health, logs and policy denials;
+    this is not evidence that standalone OpenClaw provides the same sandbox monitor.
+- id: diff-viewer
+  capability: Review task diffs
+  why_it_matters: Inspect changes before accepting agent work.
+  rivals:
+    orca: unknown
+    claude_desktop: unknown
+    codex: unknown
+    openclaw: unknown
+  ours: have
+  evidence:
+  - 'command: grep -qF "<DiffViewer" app/frontend/src/app/diffs/page.tsx'
+  - app/frontend/src/components/diffs/DiffViewer.tsx
+  notes: Source-level task selection and diff renderer; no live task result asserted.
+- id: streaming-chat
+  capability: Streaming conversational interface
+  why_it_matters: Receive progress while an answer is produced.
+  rivals:
+    orca: unknown
+    claude_desktop: unknown
+    codex: unknown
+    openclaw: unknown
+  ours: partial
+  evidence:
+  - 'command: grep -qF "text/event-stream" src/pravrudhi/api/chat.py'
+  notes: Streaming API confirmed; frontend streaming behavior has not been exercised.
+- id: notifications
+  capability: Operator notifications
+  why_it_matters: Notice completed work without polling a work panel.
+  rivals:
+    orca: unknown
+    claude_desktop: unknown
+    codex: unknown
+    openclaw: unknown
+  ours: have
+  evidence:
+  - 'command: grep -qF "<NotificationBell />" app/frontend/src/components/Sidebar.tsx'
+  - app/frontend/src/components/notifications/NotificationBell.tsx
+  notes: In-app bell is mounted; external messaging and OS notifications are not claimed.
+- id: desktop-shell
+  capability: Native desktop shell
+  why_it_matters: Keep the local engine in a dedicated application window.
+  rivals:
+    orca: unknown
+    claude_desktop: unknown
+    codex: unknown
+    openclaw: unknown
+  ours: partial
+  evidence:
+  - app/desktop/package.json
+  - app/frontend/src/app/desktop/page.tsx
+  notes: Electron package and desktop page exist. Installed binary and lifecycle behavior have not been tested.
+- id: system-page
+  capability: System health and agent overview
+  why_it_matters: Understand the engine and available builders.
+  rivals:
+    orca: unknown
+    claude_desktop: unknown
+    codex: unknown
+    openclaw: unknown
+  ours: have
+  evidence:
+  - 'command: grep -qF "<SwarmPanel />" app/frontend/src/app/system/page.tsx'
+  - 'command: grep -qF "<HealthPanel" app/frontend/src/app/system/page.tsx'
+  notes: Source-level System page; actual health depends on live data.

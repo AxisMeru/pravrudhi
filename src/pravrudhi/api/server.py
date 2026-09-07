@@ -60,6 +60,7 @@ from pravrudhi.api.schemas import (
     ObjectiveResponse,
     ObjectivesResponse,
     ObservationsResponse,
+    ParityResponse,
     PlanResponse,
     ProviderKeyRemovedResponse,
     ProviderKeyResponse,
@@ -389,6 +390,12 @@ def create_app(root: Path) -> FastAPI:
         from pravrudhi.application.diffs import worktree_diff
 
         return asdict(worktree_diff(root, task_id))
+
+    @api.get("/parity", response_model=ParityResponse)
+    def parity_ep() -> ParityResponse:
+        from pravrudhi.application.parity import report
+
+        return ParityResponse.model_validate(report(root).model_dump())
 
     @api.get("/appetite")
     def appetite_ep() -> AppetiteResponse:

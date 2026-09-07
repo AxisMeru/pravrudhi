@@ -1217,3 +1217,35 @@ def requests_advance_cmd(
         typer.echo(str(e), err=True)
         raise typer.Exit(code=1) from e
     typer.echo(f"{req.id} -> {req.state}")
+
+
+@app.command("parity")
+def parity_cmd(
+    action: str | None = typer.Argument(None, help="gaps: show rival advantages only"),
+    root: Path = ROOT_OPT,
+    as_json: bool = REQUESTS_JSON_OPT,
+) -> None:
+    """Inspect the checked-in capability matrix and re-run its evidence."""
+    from pravrudhi.application.parity import report
+
+    if action not in (None, "gaps"):
+        raise typer.BadParameter("expected gaps or no argument")
+    data = report(root)
+    if as_json:
+        typer.echo(json.dumps(
+            [row.model_dump() for row in data.gaps] if action == "gaps" else data.model_dump(), indent=2,
+        ))
+        return
+    typer.echo(f"Verified full coverage: {data.coverage.numerator}/{data.coverage.denominator}")
+    rows = data.gaps if action == "gaps" else data.rows
+    proofs = {proof.id: proof for proof in data.verification}
+    if not rows:
+        typer.echo("No verified rival advantages recorded." if action == "gaps" else "No capabilities recorded.")
+    for row in rows:
+        proof = proofs[row.id]
+        state = "verified" if proof.verified else "unverified"
+        typer.echo(f"{row.id}: {row.capability} — {row.ours}, {state}")
+        for failure in proof.failures:
+            typer.echo(f"  failed: {failure}")
+    if data.next_gap is not None:
+        typer.echo(f"Next: {data.next_gap.id} — {data.next_gap.why_it_matters}")

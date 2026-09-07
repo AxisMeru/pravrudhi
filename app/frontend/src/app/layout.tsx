@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Sidebar } from "@/components/Sidebar";
 import { ConnectionBanner } from "@/components/ConnectionBanner";
+import { CommandPalette } from "@/components/palette/CommandPalette";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -20,6 +21,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <main className="flex-1 overflow-y-auto">{children}</main>
           </div>
         </div>
+        {/* The palette was built and never mounted, so Ctrl+K did nothing. The parity matrix caught it by
+            re-running the evidence for the claim rather than trusting the claim. */}
+        <CommandPalette />
       </body>
     </html>
   );

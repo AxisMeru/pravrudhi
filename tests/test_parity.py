@@ -1,0 +1,105 @@
+from pathlib import Path
+
+import pytest
+import yaml
+from fastapi.routing import APIRoute
+from pydantic import ValidationError
+from typer.testing import CliRunner
+
+from pravrudhi.application import parity
+
+
+def seed(root: Path, *rows: dict[str, object]) -> None:
+    path = root / parity.MATRIX
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(yaml.safe_dump({'rows': list(rows)}))
+
+
+def row(id: str = 'feature', ours: str = 'have', rival: str = 'unknown') -> dict[str, object]:
+    return {
+        'id': id, 'capability': id, 'why_it_matters': 'Operator can complete work.',
+        'ours': ours, 'rivals': dict(orca=rival, claude_desktop='unknown', codex='unknown', openclaw='unknown'),
+        'evidence': ['proof.txt'], 'notes': 'Test fixture',
+    }
+
+
+def test_failed_have_is_unverified(tmp_path: Path) -> None:
+    seed(tmp_path, row())
+    assert not parity.verify(tmp_path)[0].verified
+    assert parity.coverage(tmp_path).numerator == 0
+    assert parity.next_gap(tmp_path) is not None
+
+
+def test_unknown_is_not_a_rival_advantage(tmp_path: Path) -> None:
+    seed(tmp_path, row(ours='none'))
+    assert parity.gaps(tmp_path) == []
+
+
+def test_coverage_counts_verified_full_rows(tmp_path: Path) -> None:
+    (tmp_path / 'proof.txt').write_text('proof')
+    seed(tmp_path, row(), row('partial', 'partial'))
+    coverage = parity.coverage(tmp_path)
+    assert (coverage.numerator, coverage.denominator, coverage.fraction) == (1, 2, 0.5)
+
+
+def test_next_prefers_rival_advantage(tmp_path: Path) -> None:
+    seed(tmp_path, row('novel', 'none', 'none'), row('parity', 'none', 'have'))
+    selected = parity.next_gap(tmp_path)
+    assert selected is not None and selected.id == 'parity'
+    assert [r.id for r in parity.gaps(tmp_path)] == ['parity']
+
+
+def test_have_beats_partial_but_partial_does_not(tmp_path: Path) -> None:
+    (tmp_path / 'proof.txt').write_text('proof')
+    seed(tmp_path, row('equal', 'partial', 'partial'), row('behind', 'partial', 'have'))
+    assert [r.id for r in parity.gaps(tmp_path)] == ['behind']
+
+
+def test_evidence_commands_are_rerun(tmp_path: Path) -> None:
+    entry = row()
+    entry['evidence'] = ['command: test -f proof.txt']
+    seed(tmp_path, entry)
+    assert not parity.verify(tmp_path)[0].verified
+    (tmp_path / 'proof.txt').write_text('proof')
+    assert parity.verify(tmp_path)[0].verified
+    (tmp_path / 'proof.txt').unlink()
+    assert not parity.verify(tmp_path)[0].verified
+
+
+@pytest.mark.parametrize('evidence', [[], ['../outside'], ['command:'], ['command: missing-executable-parity']])
+def test_invalid_evidence(tmp_path: Path, evidence: list[str]) -> None:
+    entry = row()
+    entry['evidence'] = evidence
+    seed(tmp_path, entry)
+    assert not parity.verify(tmp_path)[0].verified
+
+
+def test_empty_and_invalid_matrix(tmp_path: Path) -> None:
+    assert parity.report(tmp_path).coverage.fraction is None
+    assert parity.next_gap(tmp_path) is None
+    seed(tmp_path, row(), row())
+    with pytest.raises(ValidationError):
+        parity.load(tmp_path)
+
+
+def test_cli_and_typed_api(tmp_path: Path) -> None:
+    from pravrudhi.api.server import create_app
+    from pravrudhi.cli.app import app
+
+    seed(tmp_path, row('gap', 'none', 'have'))
+    result = CliRunner().invoke(app, ['parity', '--root', str(tmp_path), '--json'])
+    assert result.exit_code == 0, result.output
+    assert '"denominator": 1' in result.output
+    result = CliRunner().invoke(app, ['parity', 'gaps', '--root', str(tmp_path)])
+    assert result.exit_code == 0 and 'gap:' in result.output
+    api = create_app(tmp_path)
+    routes = list(api.routes)
+    for included in api.routes:
+        router = getattr(included, 'original_router', None)
+        if router is not None:
+            routes.extend(router.routes)
+    route = next(route for route in routes if isinstance(route, APIRoute) and route.path == '/api/parity')
+    response = route.endpoint()
+    assert response.next_gap.id == 'gap'
+    schema = api.openapi()['paths']['/api/parity']['get']['responses']['200']
+    assert schema['content']['application/json']['schema']['$ref'].endswith('/ParityResponse')
