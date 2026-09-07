@@ -7,6 +7,7 @@
 require('./core.test.js');
 require('./edition.test.js');
 require('./builds.test.js');
+require('./shell-staleness.test.js');
 require('./integration.test.js');
 require('./product.test.js');
 require('./auth.test.js');

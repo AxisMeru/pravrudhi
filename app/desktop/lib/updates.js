@@ -11,6 +11,28 @@ const DEFAULT_INTERVAL_MS = 6 * 60 * 60 * 1000;
 // How long "downloading" is allowed to sit before the autonomous engine-side apply is presumed stuck.
 const DEFAULT_DOWNLOAD_TIMEOUT_MS = 30 * 60 * 1000;
 
+// The engine updates itself; this bundle does not. A shell replaced only by downloading a new AppImage or .app
+// could therefore sit months behind a current engine with nothing saying so — its version was rendered in a
+// status line and never compared to anything. This notices; it installs nothing, because installing a new shell
+// means replacing the running application, which is the user's decision and their download.
+//
+// Anything unparseable is deliberately "not stale". A tag this cannot read is far more likely to be a release
+// naming convention nobody told this function about than a real reason to nag someone to reinstall.
+function shellIsStale(shellVersion, latestTag) {
+  const parts = value => {
+    const cleaned = String(value ?? '').trim().replace(/^v/i, '');
+    if (!/^\d+(\.\d+)*$/.test(cleaned)) return null;
+    return cleaned.split('.').map(Number);
+  };
+  const shell = parts(shellVersion), latest = parts(latestTag);
+  if (!shell || !latest) return false;
+  for (let i = 0; i < Math.max(shell.length, latest.length); i++) {
+    const a = shell[i] ?? 0, b = latest[i] ?? 0;
+    if (a !== b) return a < b;  // numeric, because "0.3.9" sorts after "0.3.10" as text
+  }
+  return false;
+}
+
 function createUpdateOffer({
   apiClient,
   intervalMs = DEFAULT_INTERVAL_MS,
@@ -105,4 +127,4 @@ function createUpdateOffer({
   return Object.freeze({check, dismiss, accept, start, stop, subscribe, getState});
 }
 
-module.exports = {createUpdateOffer, DEFAULT_INTERVAL_MS, DEFAULT_DOWNLOAD_TIMEOUT_MS};
+module.exports = {createUpdateOffer, shellIsStale, DEFAULT_INTERVAL_MS, DEFAULT_DOWNLOAD_TIMEOUT_MS};

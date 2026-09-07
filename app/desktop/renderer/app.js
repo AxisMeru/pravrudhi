@@ -27,7 +27,9 @@ async function refresh() {
     $('title').textContent = ({starting:'Preparing your workspace',missing:'Bring your engine to the desktop',error:'Your engine needs attention',stopped:'Your workspace is paused',running:'Your workspace is ready'})[s.phase];
     $('badge').textContent = s.phase === 'starting' ? 'Connecting' : s.phase;
     $('detail').textContent = s.detail; $('workspace').textContent = s.workspace;
-    $('shell-version').textContent = `Shell ${s.shellVersion} · Engine ${s.version}`;
+    // The engine keeps itself current on its own; this application does not, so a shell behind the
+    // newest release says so here rather than looking identical to one that is up to date.
+    $('shell-version').textContent = `Shell ${s.shellVersion}${s.shellStale ? ' (update available)' : ''} · Engine ${s.version}`;
     $('doctor').disabled = !s.binary || s.doctorBusy;
     document.body.dataset.doctorReady = String(!s.doctorBusy && (s.checks.length > 0 || Boolean(s.doctorError)));
     $('open-engine').disabled = s.phase !== 'running';

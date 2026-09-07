@@ -11,6 +11,11 @@ const {engineEnv, readEdition, userDataName} = require('./lib/edition');
 const edition = readEdition(process.resourcesPath);
 const {engineMenu, trayState} = require('./lib/menu');
 const {createSmokeReporter} = require('./lib/smoke');
+const {shellIsStale} = require('./lib/updates');
+// The newest release this shell has heard of, refreshed whenever the engine is asked. The engine
+// updates itself; this bundle is replaced by downloading a new one, so a shell can sit behind a
+// current engine and nothing said so until now.
+let latestTag = null;
 const smokeMode = process.env.PRAVRUDHI_DESKTOP_SMOKE === '1';
 // A packaged app's __dirname resolves inside the read-only app.asar, so a packaged
 // smoke run redirects its report and userData to a writable directory outside it.
@@ -130,6 +135,12 @@ async function start() {
     if (!response.ok || !(response.headers.get('content-type') || '').includes('text/html')) throw new Error('The engine is healthy, but its frontend is not installed. See the installation instructions to prepare the interface.');
     currentController.signal.throwIfAborted();
     publish({phase:'running', origin, detail:attached ? 'Connected to an existing engine. Stop disconnects this desktop; the external engine stays running.' : 'Engine running'});
+    // Learn the newest release once the engine can answer, so the status line knows whether this shell is
+    // behind without anyone opening the update dialog. Without this `latestTag` stayed null until someone
+    // chose "Check for updates" by hand, and a stale shell looked identical to a current one — which is how
+    // both of the operator's machines ran a superseded build while their engines stayed up to date.
+    // Quiet by construction: the engine caches its own check, and a failure here must never disturb a start.
+    if (!smokeMode) api.update().then(r => { latestTag = r?.latest?.tag ?? latestTag; }).catch(() => {});
     settings.engineURL = origin; persist();
     const health = await api.health(); publish({version:health.version || 'Unknown'});
     await doctor();
@@ -168,6 +179,8 @@ async function updates() {
   updating = true;
   try {
     const result = await api.update();
+    latestTag = result?.latest?.tag ?? latestTag;
+    const staleShell = shellIsStale(app.getVersion(), latestTag);
     if (result.update_available === true) {
       const choice = await dialog.showMessageBox({type:'question', message:`Engine update available: ${result.latest?.tag || 'new release'}`, detail:'Apply the release using the engine’s update safeguards?', buttons:['Cancel','Apply update'], defaultId:0, cancelId:0});
       if (choice.response === 1) {
@@ -175,6 +188,8 @@ async function updates() {
         if (typeof applied.reason !== 'string') throw new Error('The engine returned an update result without a reason.');
         await dialog.showMessageBox({message:'Engine update', detail: applied.reason, buttons:['OK']});
       }
+    } else if (staleShell) {
+      await dialog.showMessageBox({message:`A newer desktop app is available: ${latestTag}`, detail:`Your engine is up to date, but this application is version ${app.getVersion()}. The engine updates itself; the application does not — download the new build and run its installer to replace it.`, buttons:['OK']});
     } else await dialog.showMessageBox({message:result.latest ? 'Your engine is up to date.' : 'Could not check for updates.', detail:JSON.stringify(result, null, 2)});
     return result;
   } finally { updating = false; }
@@ -227,7 +242,7 @@ if (instanceReady) {
   app.whenReady().then(async () => {
     stateFile = path.join(app.getPath('userData'), 'desktop-state.json'); settings = readState(stateFile);
     workspace = defaultWorkspace({env:process.env.PRAVRUDHI_WORKSPACE,saved:settings.workspace,binary:await discoverEngine({saved:settings.enginePath}),home:app.getPath('home')}); settings.workspace = workspace;
-    const handlers = {'engine:status':() => ({...status,workspace,shellVersion:app.getVersion()}), 'engine:locate':locate,'engine:restart':() => serialize(start),'engine:stop':() => serialize(stop),'engine:doctor':doctor,'engine:updates':updates,'engine:workspace':engineController.openWorkspace, 'engine:health':api.health, 'engine:update-state':api.update, 'engine:open':async()=>{ if (!status.origin) throw new Error('Engine is not connected.'); for (const w of windows) await w.loadURL(status.origin); }};
+    const handlers = {'engine:status':() => ({...status,workspace,shellVersion:app.getVersion(),shellStale:shellIsStale(app.getVersion(),latestTag)}), 'engine:locate':locate,'engine:restart':() => serialize(start),'engine:stop':() => serialize(stop),'engine:doctor':doctor,'engine:updates':updates,'engine:workspace':engineController.openWorkspace, 'engine:health':api.health, 'engine:update-state':api.update, 'engine:open':async()=>{ if (!status.origin) throw new Error('Engine is not connected.'); for (const w of windows) await w.loadURL(status.origin); }};
     for (const [channel, handler] of Object.entries(handlers)) ipcMain.handle(channel, (event) => {
       const url = event.senderFrame?.url;
       if (!windows.has(BrowserWindow.fromWebContents(event.sender)) || event.senderFrame !== event.sender.mainFrame || !(url === statusURL || linkPolicy(url,status.origin) === 'internal')) throw new Error('Untrusted desktop request');
