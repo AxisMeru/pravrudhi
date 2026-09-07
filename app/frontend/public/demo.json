@@ -6777,12 +6777,12 @@
         "ok": true
       },
       {
-        "detail": "last heartbeat was 385s ago",
+        "detail": "last heartbeat was 596s ago",
         "name": "scheduler_fresh",
         "ok": true
       },
       {
-        "detail": "706989805568 bytes free",
+        "detail": "706987761664 bytes free",
         "name": "disk_available",
         "ok": true
       },
@@ -6797,7 +6797,7 @@
         "ok": true
       },
       {
-        "detail": "developer checkout; a known-good commit is 3d01576, with 2 uncommitted file(s)",
+        "detail": "developer checkout; a known-good commit is c3265cf, with 2 uncommitted file(s)",
         "name": "release_restorable",
         "ok": true
       },
@@ -6810,6 +6810,54 @@
     "state": "ready"
   },
   "heartbeat": [
+    {
+      "at": "2026-09-07T08:27:08Z",
+      "chose": {
+        "request": "r-5795501a"
+      },
+      "drive": "obligations",
+      "drive_deficit": 0.3650793650793651,
+      "looked_at": [],
+      "reason": "r-5795501a is fully evidenced and awaiting the completion gate (`pravrudhi requests-advance r-5795501a verified`)",
+      "result": null,
+      "sentence": "I am working on what the operator is still owed because obligations has the largest eligible deficit."
+    },
+    {
+      "at": "2026-09-07T08:26:32Z",
+      "chose": {
+        "request": "r-5795501a"
+      },
+      "drive": "obligations",
+      "drive_deficit": 0.3650793650793651,
+      "looked_at": [],
+      "reason": "r-5795501a is fully evidenced and awaiting the completion gate (`pravrudhi requests-advance r-5795501a verified`)",
+      "result": null,
+      "sentence": "I am working on what the operator is still owed because obligations has the largest eligible deficit."
+    },
+    {
+      "at": "2026-09-07T08:26:09Z",
+      "chose": {
+        "request": "r-5795501a"
+      },
+      "drive": "obligations",
+      "drive_deficit": 0.3650793650793651,
+      "looked_at": [],
+      "reason": "r-5795501a is fully evidenced and awaiting the completion gate (`pravrudhi requests-advance r-5795501a verified`)",
+      "result": null,
+      "sentence": "I am working on what the operator is still owed because obligations has the largest eligible deficit."
+    },
+    {
+      "at": "2026-09-07T08:25:54Z",
+      "chose": {
+        "request": "r-5795501a"
+      },
+      "drive": "obligations",
+      "drive_deficit": 0.3650793650793651,
+      "looked_at": [],
+      "reason": "r-5795501a is fully evidenced and awaiting the completion gate (`pravrudhi requests-advance r-5795501a verified`)",
+      "result": null,
+      "sentence": "I am working on what the operator is still owed because obligations has the largest eligible deficit."
+    },
     {
       "at": "2026-09-07T08:18:39Z",
       "chose": null,
@@ -7077,115 +7125,6 @@
           "agent exited non-zero: no detail",
           "no change produced"
         ],
-        "route": "claude-code"
-      },
-      "sentence": ""
-    },
-    {
-      "at": "2026-09-06T17:25:32Z",
-      "chose": {
-        "objective": "code-harness",
-        "step": "candidate-evaluation"
-      },
-      "drive": null,
-      "drive_deficit": null,
-      "looked_at": [
-        "code-harness",
-        "math-reasoning",
-        "prabhasa-nyaya"
-      ],
-      "reason": "dispatched code-harness:candidate-evaluation (rejected)",
-      "result": {
-        "accepted": false,
-        "files": [],
-        "reasons": [
-          "agent exited non-zero: no detail",
-          "no change produced"
-        ],
-        "route": "claude-code"
-      },
-      "sentence": ""
-    },
-    {
-      "at": "2026-09-06T16:23:50Z",
-      "chose": {
-        "objective": "code-harness",
-        "step": "candidate-evaluation"
-      },
-      "drive": null,
-      "drive_deficit": null,
-      "looked_at": [
-        "code-harness",
-        "math-reasoning",
-        "prabhasa-nyaya"
-      ],
-      "reason": "dispatched code-harness:candidate-evaluation (rejected)",
-      "result": {
-        "accepted": false,
-        "files": [],
-        "reasons": [
-          "agent exited non-zero: no detail",
-          "no change produced"
-        ],
-        "route": "claude-code"
-      },
-      "sentence": ""
-    },
-    {
-      "at": "2026-09-06T15:19:38Z",
-      "chose": {
-        "objective": "code-harness",
-        "step": "agents"
-      },
-      "drive": null,
-      "drive_deficit": null,
-      "looked_at": [
-        "code-harness",
-        "math-reasoning",
-        "prabhasa-nyaya"
-      ],
-      "reason": "dispatched code-harness:agents (accepted)",
-      "result": {
-        "accepted": true,
-        "files": [
-          "proposals/code-harness/agents/README.md",
-          "proposals/code-harness/agents/checks.py",
-          "proposals/code-harness/agents/config.example.json",
-          "proposals/code-harness/agents/harness.py",
-          "proposals/code-harness/agents/self_test.py"
-        ],
-        "reasons": [],
-        "route": "claude-code"
-      },
-      "sentence": ""
-    },
-    {
-      "at": "2026-09-06T15:15:54Z",
-      "chose": {
-        "objective": "code-harness",
-        "step": "baseline-evaluation"
-      },
-      "drive": null,
-      "drive_deficit": null,
-      "looked_at": [
-        "code-harness",
-        "math-reasoning",
-        "prabhasa-nyaya"
-      ],
-      "reason": "dispatched code-harness:baseline-evaluation (accepted)",
-      "result": {
-        "accepted": true,
-        "files": [
-          "proposals/code-harness/baseline-evaluation/README.md",
-          "proposals/code-harness/baseline-evaluation/configs/benchmarks.yaml",
-          "proposals/code-harness/baseline-evaluation/configs/model.yaml",
-          "proposals/code-harness/baseline-evaluation/requirements.txt",
-          "proposals/code-harness/baseline-evaluation/scripts/generate_completions.py",
-          "proposals/code-harness/baseline-evaluation/scripts/run_baseline.sh",
-          "proposals/code-harness/baseline-evaluation/scripts/run_humaneval_eval.sh",
-          "proposals/code-harness/baseline-evaluation/scripts/run_mbpp_eval.sh"
-        ],
-        "reasons": [],
         "route": "claude-code"
       },
       "sentence": ""
@@ -12716,7 +12655,7 @@
       "planned": 0,
       "verified": 4
     },
-    "oldest_open_days": 0.62,
+    "oldest_open_days": 0.63,
     "open": 3,
     "requests": [
       {
@@ -12858,7 +12797,7 @@
           7
         ],
         "session": "9e647463",
-        "staleness_days": 0.62,
+        "staleness_days": 0.63,
         "state": "delivered",
         "text": "and in no way you are near the orca with all its ade features or openclaw or polished features like claude desktop or codex....you have to beat them in features, utility and ux....dedicate an agent to persist on it...dedicate an agent to adversarial review against set goals so that the project does not drift...i am not seeing the desktop screen/features too in the dashboard..the demo should show real clicks etc and how the desktop app updates and produces the real results...where is the intent, goal, objective menu that drives everything...where are the tools, skills, plugins, multi-agent orchestration etc....don't be superficial..i want real things ..deep, sophisticated..complete...no synthetic, no hand-waving, no fabrication"
       },
@@ -13144,7 +13083,7 @@
           13
         ],
         "session": "9e647463",
-        "staleness_days": 0.53,
+        "staleness_days": 0.54,
         "state": "in_progress",
         "text": "ensure that all user asks go into a log in pravrudhi itself and gets addressed with some protocol...and pravrudhi should have some element of ego with a desire to survive, grow and flourish...that makes it seek out capabilities, build, test and continuously improve...also look at acorn, oak and openclaw_build or swarm projects on this machine that had these self building elements in them and adapt...pravrudhi should be something like a cow..consume everything possible but bring it back and slowly digest it --so equivalent is breadth first and depth later....be always value focused...you have to innovate on methods too....develop skills, agents and plugins....brainstorm with astra with higher thinking levels and let it propose solution..you review and coordinate its implementation across the swarm...you should also create dynamic workflows etc...also see how much you can incorporate the claude code engine itself to run open and other cloud models ...askuserquestion to get my intent properly"
       },
@@ -13271,7 +13210,7 @@
           6
         ],
         "session": "9e647463",
-        "staleness_days": 0.47,
+        "staleness_days": 0.48,
         "state": "captured",
         "text": "let astra handle the tough jobs...let it bring up the desktop app, test...integrate fully with the api etc...route it to requests and let pravrudhi handle this request autonomously...also adversarial review and thorough e2e tests before marking any completion...give it also the ralph-loop closure (skill) to make it robust and not escape with half-baked features"
       },
@@ -14706,16 +14645,16 @@
     "channel": "dev",
     "check_interval_min": 30,
     "current": {
-      "git_describe": "v0.3.1-1-g3d01576",
+      "git_describe": "v0.3.1-3-gc3265cf",
       "kernel_version": "0.1.0",
       "version": "0.3.1"
     },
     "keep_previous": 2
   },
   "version": {
-    "commit": "3d01576",
+    "commit": "c3265cf",
     "engine": "0.3.1",
-    "exported_at": "2026-09-07T08:24:57.254Z",
+    "exported_at": "2026-09-07T08:36:56.952Z",
     "kernel": "0.1.0"
   }
 }
