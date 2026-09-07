@@ -40,23 +40,30 @@ test('smoke launcher disables only the process sandbox with Xvfb and headless fa
     assert.equal(processStub.exitCode,0);
   }
 });
-test('API exposes fixed GET endpoints and real backlog/pending counts', async()=>{
+// Was a test about backlog and pending sign-off counts. Both are the operator's surfaces and the product no
+// longer reaches them, so this asks the same questions of the routes a user actually has: the method is fixed,
+// the endpoint is the one named, and the response is returned as it stands.
+test('API calls the endpoint it names, with the method it declared', async()=>{
   const seen=[];
   const api=createApiClient(()=> 'http://127.0.0.1:8008', {fetchFn:async(url,options)=>{
     seen.push(new URL(url).pathname); assert.equal(options.method,'GET');
-    return response({'/api/health':{ok:true,version:'installed'},'/api/update':{current:{version:'installed'},latest:null,update_available:false},'/api/requests':{open:2,total:3},'/api/inbox':[{signed:false},{signed:true},{signed:false}]}[new URL(url).pathname]);
+    return response({'/api/health':{ok:true,version:'installed'},
+      '/api/update':{current:{version:'installed'},latest:null,update_available:false},
+      '/api/workspaces':{workspaces:[{slug:'mine'}]},
+      '/api/objectives':{objectives:[]}}[new URL(url).pathname]);
   }});
-  assert.equal((await api.health()).version,'installed'); assert.equal((await api.update()).current.version,'installed');
-  assert.equal(await api.backlog(),2); assert.equal(await api.inbox(),2);
-  assert.deepEqual(seen,['/api/health','/api/update','/api/requests','/api/inbox']);
+  assert.equal((await api.health()).version,'installed');
+  assert.equal((await api.update()).current.version,'installed');
+  assert.deepEqual((await api.workspaces()).workspaces,[{slug:'mine'}]);
+  assert.deepEqual(seen,['/api/health','/api/update','/api/workspaces']);
 });
-test('API errors retain endpoint context for HTTP 500, unreachable, malformed JSON and invalid counts',async()=>{
+test('API errors name the endpoint they happened on',async()=>{
   for(const fetchFn of [async()=>({ok:false,status:500}), async()=>{throw Error('ECONNREFUSED');},async()=>({ok:true,json:async()=>{throw Error('invalid JSON');}})]) {
     await assert.rejects(createApiClient(()=> 'http://127.0.0.1:8008',{fetchFn}).health(),/\/api\/health/);
   }
   await assert.rejects(createApiClient(()=>null).health(),/not connected/);
-  await assert.rejects(createApiClient(()=> 'http://127.0.0.1:8008',{fetchFn:async()=>response({})}).backlog(),/Invalid/);
-  await assert.rejects(createApiClient(()=> 'http://127.0.0.1:8008',{fetchFn:async()=>response([{}])}).inbox(),/Invalid/);
+  // Was backlog() and inbox(), both now the operator's. What is left worth asserting here is that a transport
+  // failure still names the endpoint it happened on, which is the part that makes a report actionable.
 });
 test('attach selects a healthy existing engine without allocating a port or requiring a binary',async()=>{
   const result=await selectConnection({candidates:['http://127.0.0.1:8008'],health:async()=>({ok:true}),discover:async()=>null,allocate:()=>assert.fail('must not spawn')});
@@ -206,4 +213,18 @@ test('main bootstrap attaches, runs doctor, loads the engine and reports before 
   assert.equal(await exit,0);assert.equal(shutdown,true);assert.equal(spawnedApp,false);
   assert.equal(windowOptions.webPreferences.contextIsolation,true);assert.equal(windowOptions.webPreferences.nodeIntegration,false);assert.equal(windowOptions.webPreferences.sandbox,true);
   assert.equal(report.page_title,'Engine fixture');assert.equal(report.launched,true);assert.equal(report.health_ok,true);assert.deepEqual(report.errors,[]);
+});
+
+test('the product never reaches an operator surface', async () => {
+  // The engine splits its routes into the operator's and the product's in src/pravrudhi/api/roles.py, and the
+  // desktop application is the product. Naming the forbidden paths here rather than trusting review means a
+  // route added to the client in a hurry fails a test instead of quietly exposing the engine's own internals
+  // in something a user installed.
+  const source = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'lib', 'api.js'), 'utf8');
+  const operatorOnly = ['/api/nights', '/api/candidates', '/api/observations', '/api/search', '/api/swarm',
+    '/api/inbox', '/api/jobs', '/api/diffs', '/api/agents', '/api/fleet', '/api/hosts', '/api/parity',
+    '/api/appetite', '/api/heartbeat', '/api/svasthya', '/api/requests', '/api/sandboxes', '/api/external',
+    '/api/benchmarks', '/api/health-state', '/api/update/apply', '/api/update/rollback'];
+  const found = operatorOnly.filter(path => source.includes(`'${path}'`));
+  assert.deepEqual(found, [], `the desktop client reaches operator-only routes: ${found.join(', ')}`);
 });

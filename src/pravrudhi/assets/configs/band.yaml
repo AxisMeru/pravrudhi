@@ -1,0 +1,41 @@
+version: '1'
+currency: USD
+# Integer cents; lifetime per artifact, including in-flight reservations. No automatic reset.
+actions:
+  build: []
+  repair_breakage: [broken_report]
+  patch_unsafe_dependency: [unsafe_dependency_report]
+  check_regression: [baseline_record]
+  repair_regression: [baseline_record, regression_report]
+  propose_improvement: []
+  test_improvement: []
+  deploy_improvement: []
+levels:
+  - id: one_time
+    name: One-time build
+    automatic: [build]
+    ask_first: []
+    spend_ceiling_cents: 1000
+    min_interval_seconds: 86400
+    max_runs: 1
+  - id: critical
+    name: Critical updates only
+    automatic: [build, repair_breakage, patch_unsafe_dependency]
+    ask_first: []
+    spend_ceiling_cents: 5000
+    min_interval_seconds: 86400
+    max_runs: null
+  - id: self_healing
+    name: Self-healing
+    automatic: [build, repair_breakage, patch_unsafe_dependency, check_regression, repair_regression]
+    ask_first: []
+    spend_ceiling_cents: 15000
+    min_interval_seconds: 3600
+    max_runs: null
+  - id: continuous
+    name: Continuous improvement
+    automatic: [build, repair_breakage, patch_unsafe_dependency, check_regression, repair_regression, propose_improvement, test_improvement]
+    ask_first: [deploy_improvement]
+    spend_ceiling_cents: 50000
+    min_interval_seconds: 900
+    max_runs: null

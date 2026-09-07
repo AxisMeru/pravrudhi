@@ -1,27 +1,32 @@
 'use strict';
-function createApiClient(getOrigin, {fetchFn = fetch, timeout = 30000} = {}) {
-  async function get(endpoint) {
+// The complete desktop route budget. No arbitrary renderer URL or method is accepted.
+const ROUTES = Object.freeze({health:['GET','/api/health'], me:['GET','/api/me'],
+  workspaces:['GET','/api/workspaces'], createWorkspace:['POST','/api/workspaces'],
+  objectives:['GET','/api/objectives'], createObjective:['POST','/api/objectives'],
+  update:['GET','/api/update'], updateConfig:['GET','/api/update/config'],
+  saveUpdateConfig:['PUT','/api/update/config'], appToken:['GET','/api/app-token']});
+function createApiClient(getOrigin, {fetchFn = fetch, timeout = 30000, getToken = async()=>null} = {}) {
+  async function request(name, body) {
+    const [method, endpoint] = ROUTES[name];
     const origin = getOrigin();
     if (!origin) throw new Error('Engine is not connected.');
+    const headers = {};
+    const bearer = await getToken();
+    if (bearer) headers.Authorization = `Bearer ${bearer}`;
+    if (method !== 'GET') {
+      const local = await request('appToken');
+      if (typeof local.token !== 'string' || !local.token) throw new Error('Engine credential unavailable.');
+      headers['x-pravrudhi-token'] = local.token;
+      headers.Origin = origin;
+      headers['Content-Type'] = 'application/json';
+    }
     try {
-      const response = await fetchFn(`${origin}/api/${endpoint}`, {method:'GET', redirect:'error', signal:AbortSignal.timeout(timeout)});
+      const response = await fetchFn(`${origin}${endpoint}`, {method, headers, redirect:'error', signal:AbortSignal.timeout(timeout),
+        ...(body === undefined ? {} : {body:JSON.stringify(body)})});
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       return await response.json();
-    } catch (error) { throw new Error(`/api/${endpoint}: ${error.message}`, {cause:error}); }
+    } catch { throw new Error(`${endpoint}: request failed. Check the connection and sign-in.`); }
   }
-  return Object.freeze({
-    health: () => get('health'),
-    update: () => get('update'),
-    backlog: async () => {
-      const value = await get('requests');
-      if (!Number.isSafeInteger(value?.open) || value.open < 0) throw new Error('Invalid /api/requests open count.');
-      return value.open;
-    },
-    inbox: async () => {
-      const value = await get('inbox');
-      if (!Array.isArray(value) || value.some(item => typeof item?.signed !== 'boolean')) throw new Error('Invalid /api/inbox signature state.');
-      return value.filter(item => !item.signed).length;
-    }
-  });
+  return Object.freeze(Object.fromEntries(Object.keys(ROUTES).filter(n=>n !== 'appToken').map(n=>[n,body=>request(n,body)])));
 }
-module.exports = {createApiClient};
+module.exports = {createApiClient, ROUTES};
