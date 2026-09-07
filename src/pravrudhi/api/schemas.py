@@ -1173,3 +1173,29 @@ class SearchResponse(BaseModel):
     pressure: list[NightPressure]
     binding_nights: int
     declined: int
+
+
+class Seat(BaseModel):
+    """One model route as it stands right now."""
+
+    id: str
+    agent: str
+    model: str
+    relative_cost: float
+    tiers: list[str]
+    sentinel: bool
+    trials: int
+    successes: int
+    success_rate: float | None
+    usable: bool
+    returns_at: str | None
+    note: str
+
+
+class RosterResponse(BaseModel):
+    """Every route, usable ones first. The one place that answers which model can be used right now, how well it
+    has done, and when a spent one comes back."""
+
+    seats: list[Seat]
+    ready: int
+    total: int

@@ -130,18 +130,21 @@ test('sandbox preload provides an enumerated invoke-only API with no renderer-co
   }});
   assert.ok(Object.isFrozen(exposed));
   for(const fn of Object.values(exposed)) await fn('untrusted arbitrary command');
-  assert.deepEqual(channels,['engine:health','engine:update-state','engine:backlog','engine:inbox','engine:open','engine:status','engine:locate','engine:restart','engine:stop','engine:doctor','engine:updates','engine:workspace']);
+  // engine:backlog and engine:inbox are gone with the operator surfaces they fed. They were still wired in
+  // main.js and preload.js after the client dropped them, so every launch died on "handler is not a function".
+  assert.deepEqual(channels,['engine:health','engine:update-state','engine:open','engine:status','engine:locate','engine:restart','engine:stop','engine:doctor','engine:updates','engine:workspace']);
 });
 test('first-run renderer displays API data and named failed doctor reasons with copyable commands',async()=>{
   const fs=require('node:fs');const vm=require('node:vm');const elements=new Map();
   const element=()=>({textContent:'',dataset:{},children:[],addEventListener(){},replaceChildren(){this.children=[];},append(...children){this.children.push(...children);}});
   const body=element();let reads=0;
   const document={body,getElementById:id=>{if(!elements.has(id))elements.set(id,element());return elements.get(id);},createElement:element};
-  const desktop={engineStatus:async()=>({phase:'running',origin:'http://127.0.0.1:8008',binary:'engine',workspace:'workspace',checks:[{name:'docker',ok:false,detail:'Docker daemon is not running',recovery:{command:'systemctl start docker',label:'Copy command'}}]}),health:async()=>{reads++;return {ok:true,version:'test-installed'};},updateState:async()=>{reads++;return {current:{version:'test-installed'},latest:{tag:'next'},update_available:true};},backlogCount:async()=>{reads++;return 7;},pendingInboxCount:async()=>{reads++;return 3;}};
+  const desktop={engineStatus:async()=>({phase:'running',origin:'http://127.0.0.1:8008',binary:'engine',workspace:'workspace',checks:[{name:'docker',ok:false,detail:'Docker daemon is not running',recovery:{command:'systemctl start docker',label:'Copy command'}}]}),health:async()=>{reads++;return {ok:true,version:'test-installed'};},updateState:async()=>{reads++;return {current:{version:'test-installed'},latest:{tag:'next'},update_available:true};}};
   vm.runInNewContext(fs.readFileSync(require.resolve('../renderer/app'),'utf8'),{document,window:{desktop},setTimeout:()=>{}});
   await new Promise(resolve=>setImmediate(resolve));
-  assert.equal(reads,4);assert.match(elements.get('health-value').textContent,/Healthy.*test-installed/);assert.match(elements.get('update-value').textContent,/Update available: next/);
-  assert.equal(elements.get('backlog-value').textContent,'7');assert.equal(elements.get('inbox-value').textContent,'3');
+  // Two reads, not four: the backlog and pending sign-off tiles were operator surfaces and are gone.
+  assert.equal(reads,2);assert.match(elements.get('health-value').textContent,/Healthy.*test-installed/);assert.match(elements.get('update-value').textContent,/Update available: next/);
+
   const check=elements.get('checks').children[0];assert.match(check.children[0].textContent,/docker/);assert.match(check.children[1].textContent,/daemon is not running/);
   assert.equal(check.children[2].children[0].textContent,'systemctl start docker');assert.equal(body.dataset.apiReady,'true');
 });

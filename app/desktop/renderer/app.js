@@ -34,7 +34,7 @@ async function refresh() {
     $('updates').disabled = s.phase !== 'running';
     if (!s.origin) {
       apiOrigin = null; document.body.dataset.apiReady = 'false';
-      for (const id of ['health','update','backlog','inbox']) $(id+'-value').textContent = 'Waiting for engine connection';
+      for (const id of ['health','update']) $(id+'-value').textContent = 'Waiting for engine connection';
     } else if (!apiBusy && (apiOrigin !== s.origin || Date.now() - lastActivity >= activityInterval)) {
       refreshActivity(s.origin);
     }
@@ -62,8 +62,7 @@ async function refreshActivity(origin) {
   const fields = [
     ['health',()=>window.desktop.health(),value=>value.ok === true ? `Healthy · ${value.version || 'version not reported'}` : 'Engine reports unhealthy'],
     ['update',()=>window.desktop.updateState(),value=>`${value.current?.version || value.current?.tag || 'Version not reported'} · ${value.update_available ? `Update available: ${value.latest?.tag || 'new release'}` : value.latest ? 'Up to date' : 'Latest release unavailable'}`],
-    ['backlog',()=>window.desktop.backlogCount(),String],
-    ['inbox',()=>window.desktop.pendingInboxCount(),String]
+
   ];
   await Promise.allSettled(fields.map(async ([id,read,format])=> {
     try { $(id+'-value').textContent = format(await read()); }

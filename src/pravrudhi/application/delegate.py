@@ -65,6 +65,9 @@ class Verdict:
     validation_output: str = ""
     wall_s: float = 0.0
     limited: bool = False
+    resets_at: str = ""
+    """When the vendor said the account comes back, ISO-8601 in UTC, empty when it did not say. Parsed here for
+    the same reason `limited` is: this is where the agent's whole output is still in hand."""
     """Set when the agent failed because its account is spent rather than because the work was wrong.
 
     It is decided here, where the agent's whole output is still in hand. The swarm used to infer it from the
@@ -145,13 +148,16 @@ def dispatch(agent: Any, task: TaskSpec, *, log: Any = print) -> Verdict:
         # produced nothing, and the files were swept into the next commit unreviewed. The worktree diff cannot see
         # this; only the main tree can.
         reasons.append(f"wrote outside its worktree, into the main checkout: {', '.join(escaped[:8])}")
-    limited = False
+    limited, resets_at = False, ""
     if not run.ok:
         # The end of the tail, not the beginning: a run that fails ends with its reason and starts with an echo
         # of the prompt it was given.
         tail = (run.stderr_tail or "").strip()
         reasons.append(f"agent exited non-zero: {tail[-200:] or 'no detail'}")
-        limited = availability.classify(agent.name, f"{tail}\n{run.text or ''}", 1) == "limited"
+        whole = f"{tail}\n{run.text or ''}"
+        limited = availability.classify(agent.name, whole, 1) == "limited"
+        when = availability.reset_at(whole) if limited else None
+        resets_at = when.strftime("%Y-%m-%dT%H:%M:%SZ") if when else ""
     if diff.empty:
         reasons.append("no change produced")
     if diff.violations:
@@ -166,7 +172,7 @@ def dispatch(agent: Any, task: TaskSpec, *, log: Any = print) -> Verdict:
             reasons.append("validation failed")
     verdict = Verdict(
         task_id=task.task_id, agent=agent.name, accepted=not reasons, reasons=reasons,
-        files=diff.files, validation_output=output[-2000:], wall_s=run.wall_s, limited=limited,
+        files=diff.files, validation_output=output[-2000:], wall_s=run.wall_s, limited=limited, resets_at=resets_at,
     )
     log(f"{task.task_id}: {'ACCEPTED' if verdict.accepted else 'REJECTED'} ({'; '.join(reasons) or 'all checks passed'})")
     return verdict

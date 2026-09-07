@@ -19,6 +19,7 @@ import json
 import subprocess
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, replace
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -134,6 +135,17 @@ MAX_FALLBACKS = 4
 limit ends the task with a reason rather than dispatching forever."""
 
 
+def _parse_reset(verdict: Verdict) -> datetime | None:
+    """When the vendor said this account returns, from the verdict `dispatch` already parsed it into."""
+    raw = getattr(verdict, "resets_at", "")
+    if not raw:
+        return None
+    try:
+        return datetime.strptime(raw, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
+    except ValueError:
+        return None
+
+
 def _retry_elsewhere(
     build_agent: Any, t: SwarmTask, root: Path, table: Any, rows: list[Any],
     chosen: dict[str, str], chosen_agent: dict[str, str], results: list[Verdict], *, log: Any,
@@ -151,7 +163,10 @@ def _retry_elsewhere(
     # one thing the sentinel exists to prevent. It never showed while there was exactly one free route below the
     # paid ones. With a tool loop and a single-shot writer both sitting there, one step is not enough.
     for _ in range(MAX_FALLBACKS):
-        availability.mark_limited(root, spent)
+        # Prefer the vendor's own stated return time over a fixed window. A guess made in the presence of the
+        # answer held the strongest model out of rotation for half an hour after it had already come back.
+        stated = _parse_reset(last)
+        availability.mark_limited(root, spent, until=stated)
         continuity.note(root, kind="limited", summary=f"{spent} hit a usage limit on {t.spec.task_id}",
                         agent=spent, detail=_verdict_text(last))
         if table is None:

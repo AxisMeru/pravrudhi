@@ -343,6 +343,29 @@ def search_cmd(root: Path = ROOT_OPT) -> None:
     typer.echo(f"  candidate-nights declined in total:      {sum(p.declined for p in pressure)}")
 
 
+@app.command("routes")
+def routes_cmd(root: Path = ROOT_OPT) -> None:
+    """Which model can be used right now, how well it has done, and when a spent one comes back."""
+    from pravrudhi.application.roster import roster
+
+    seats = roster(root)
+    typer.echo(f"  {'route':<14} {'agent':<18} {'cost':>5} {'record':>9}  {'tiers':<34} status")
+    for s in seats:
+        rate = f"{s.successes}/{s.trials}" if s.trials else "-"
+        status = "ready" if s.usable else f"back at {s.returns_at}"
+        mark = "*" if s.sentinel else " "
+        typer.echo(
+            f" {mark}{s.id:<14} {s.agent:<18} {s.relative_cost:>5.2f} {rate:>9}  "
+            f"{','.join(s.tiers) or '-':<34} {status}"
+        )
+    waiting = [s for s in seats if not s.usable]
+    typer.echo("")
+    typer.echo(f"  {len(seats) - len(waiting)} of {len(seats)} routes ready; * marks a sentinel")
+    if waiting:
+        soonest = min(s.returns_at or "" for s in waiting)
+        typer.echo(f"  next to return: {soonest}")
+
+
 @app.command("paper-data")
 def paper_data_cmd(root: Path = ROOT_OPT) -> None:
     """Regenerate paper/generated/*.tex from the ledger alone, so the paper's tables never drift from it."""

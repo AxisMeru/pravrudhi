@@ -70,6 +70,7 @@ from pravrudhi.api.schemas import (
     RequestAdvanceRequest,
     RequestEvidenceRequest,
     RequestResponse,
+    RosterResponse,
     SandboxesResponse,
     SearchResponse,
     SignResponse,
@@ -241,6 +242,21 @@ def create_app(root: Path) -> FastAPI:
     def agents() -> AgentsResponse:
         return AgentsResponse.model_validate(
             [{"name": agent.name, "available": agent.available, "reason": agent.reason} for agent in survey(root)]
+        )
+
+    @api.get("/routes", response_model=RosterResponse)
+    def routes_ep() -> RosterResponse:
+        """Which model can be dispatched to right now, how well it has done, and when a spent one returns.
+
+        Two half-views existed before this and neither answered the question: one said which tools are
+        installed, the other which are sitting out a limit, and neither carried cost, record or tier. The
+        strongest model once came back and went unused for half an hour because nothing joined them.
+        """
+        from pravrudhi.application.roster import roster
+
+        seats = roster(root)
+        return RosterResponse.model_validate(
+            {"seats": [s.to_dict() for s in seats], "ready": sum(s.usable for s in seats), "total": len(seats)}
         )
 
     @api.get("/agents/cooldowns")

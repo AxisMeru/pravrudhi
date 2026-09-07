@@ -13,7 +13,8 @@ eating the loss or stopping the loop for a human to notice.
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime, timedelta
+import re
+from datetime import UTC, datetime, timedelta, tzinfo
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -95,13 +96,64 @@ def _aware(dt: datetime) -> datetime:
     return dt if dt.tzinfo is not None else dt.replace(tzinfo=UTC)
 
 
-def mark_limited(root: Path, agent_id: str, *, minutes: float | None = None, now: datetime | None = None) -> None:
-    """Remember that `agent_id` just reported a usage limit, so the router leaves it alone for a while."""
+_TIME = re.compile(
+    r"try again at\s+(\d{1,2}):(\d{2})\s*([AaPp][Mm])?",
+)
+"""What a vendor prints alongside a usage limit. Anchored on "try again at" rather than matching any clock-like
+string, because an error message is full of numbers and a wrong parse here holds a working route out of rotation
+or, worse, returns it before the account has."""
+
+
+def reset_at(text: str, *, now: datetime | None = None, tz: tzinfo | None = None) -> datetime | None:
+    """When the vendor says the account comes back, or None if it did not say.
+
+    The engine used to start a fixed sixty-minute timer from the moment of failure, which is a guess made in the
+    presence of the answer. On 2026-09-07 that cost half an hour of the strongest model: the limit hit at 15:02,
+    the vendor said 15:51, and the route was held until 16:02. The operator noticed the model was back before the
+    engine did, which is the wrong way round for something meant to run unattended.
+
+    The stated time is the vendor's local time, so it is read in the machine's zone and returned as UTC. A time
+    earlier in the day than the failure means tomorrow: a vendor saying "try again at 9 AM" at 5 PM is not
+    offering this morning.
+    """
+    match = _TIME.search(text or "")
+    if not match:
+        return None
+    hour, minute, meridiem = int(match.group(1)), int(match.group(2)), (match.group(3) or "").lower()
+    if meridiem:
+        if not 1 <= hour <= 12 or minute > 59:
+            return None
+        hour = (hour % 12) + (12 if meridiem.startswith("p") else 0)
+    elif hour > 23 or minute > 59:
+        return None
+
     when = _aware(now or datetime.now(UTC))
-    mins = minutes if minutes is not None else _default_cooldown_minutes(agent_id)
-    until = when + timedelta(minutes=mins)
+    zone = tz or when.astimezone().tzinfo or UTC
+    local = when.astimezone(zone)
+    stated = local.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    if stated <= local:
+        stated += timedelta(days=1)
+    return stated.astimezone(UTC)
+
+
+def mark_limited(
+    root: Path, agent_id: str, *, minutes: float | None = None, now: datetime | None = None,
+    until: datetime | None = None,
+) -> None:
+    """Remember that `agent_id` reported a usage limit, so the router leaves it alone until it is back.
+
+    `until` is the vendor's own stated return time and is preferred when there is one, because a fixed window is
+    a guess and the vendor knows. The window remains for the vendors that say nothing.
+    """
+    when = _aware(now or datetime.now(UTC))
+    if until is not None:
+        stop = _aware(until)
+    else:
+        mins = minutes if minutes is not None else _default_cooldown_minutes(agent_id)
+        stop = when + timedelta(minutes=mins)
+    until_value = stop
     data = _read(root)
-    data[agent_id] = until.strftime("%Y-%m-%dT%H:%M:%SZ")
+    data[agent_id] = until_value.strftime("%Y-%m-%dT%H:%M:%SZ")
     _write(root, data)
 
 
