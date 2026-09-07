@@ -159,7 +159,16 @@ test('default workspace respects the user and detects a source installation with
   assert.equal(defaultWorkspace({env:'selected',saved:'saved',home:'home'}),path.resolve('selected'));
   assert.equal(defaultWorkspace({saved:'saved',home:'home'}),path.resolve('saved'));
   assert.equal(defaultWorkspace({binary:'project/.venv/bin/pravrudhi',home:'home',exists:()=>true}),path.resolve('project'));
-  assert.equal(defaultWorkspace({binary:'project/.venv/bin/pravrudhi',home:'home',exists:()=>false}),path.resolve('home'));
+  // Falling back to the bare home directory made the engine write .pravrudhi/ and research/ straight into it.
+  // A dedicated directory is used instead, and a release install beside it is preferred when one exists.
+  assert.equal(
+    defaultWorkspace({binary:'project/.venv/bin/pravrudhi',home:'home',exists:()=>false}),
+    path.resolve('home/pravrudhi'),
+  );
+  assert.equal(
+    defaultWorkspace({home:'home',exists:p=>String(p).includes('pravrudhi-release')}),
+    path.resolve('home/pravrudhi-release'),
+  );
 });
 test('main bootstrap attaches, runs doctor, loads the engine and reports before tearing down',async()=>{
   const fs=require('node:fs');const vm=require('node:vm');const path=require('node:path');

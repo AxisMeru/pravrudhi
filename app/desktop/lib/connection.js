@@ -24,6 +24,11 @@ function defaultWorkspace({env, saved, binary, home = require('node:os').homedir
     const project = path.resolve(path.dirname(binary),'../..');
     if (exists(path.join(project,'app/frontend/out/index.html'))) return project;
   }
-  return path.resolve(home);
+  // A release install keeps its workspace beside its releases directory, so drive that rather than guessing.
+  const release = path.resolve(home,'pravrudhi-release');
+  if (exists(path.join(release,'.pravrudhi'))) return release;
+  // Falling back to the bare home directory made the engine write .pravrudhi/ and research/ straight into it.
+  // A dedicated directory is created on first use instead; the user can still choose another from the menu.
+  return path.resolve(home,'pravrudhi');
 }
 module.exports = {selectConnection, loopbackOrigin, defaultWorkspace};

@@ -160,7 +160,20 @@ function createWindow() {
   const visible = validBounds(b) && screen.getAllDisplays().some(d => b.x < d.workArea.x + d.workArea.width && b.x + b.width > d.workArea.x && b.y < d.workArea.y + d.workArea.height && b.y + b.height > d.workArea.y);
   const w = new BrowserWindow({width:1200, height:800, ...(visible ? b : {}), minWidth:720, minHeight:520, title:'Pravrudhi', backgroundColor:'#11151b', show:false, icon:path.join(__dirname,'renderer/icon.png'), webPreferences:{preload:path.join(__dirname,'preload.js'), contextIsolation:true, nodeIntegration:false, sandbox:true, offscreen}});
   windows.add(w);
-  w.webContents.once('did-finish-load', () => smoke?.launched());
+  w.webContents.once('did-finish-load', () => {
+    smoke?.launched();
+    // Photograph the window when asked. The smoke run proves the app launched and reached an engine; this shows
+    // what it actually looks like, which is the only way to check a desktop shell without sitting in front of it.
+    const shot = process.env.PRAVRUDHI_DESKTOP_SHOT;
+    if (shot) {
+      setTimeout(() => {
+        w.webContents.capturePage().then(img => {
+          require('node:fs').writeFileSync(shot, img.toPNG());
+          console.log(`window captured to ${shot}`);
+        }).catch(e => console.error(`capture failed: ${e}`));
+      }, 6000);
+    }
+  });
   w.once('ready-to-show', () => { if (!offscreen) w.show(); if (settings.maximized) w.maximize(); });
   const remember = () => { if (!w.isDestroyed()) { settings.bounds = w.getNormalBounds(); settings.maximized = w.isMaximized(); persist(); } };
   w.on('close', remember); w.on('resize', remember); w.on('move', remember); w.on('closed', () => windows.delete(w));
