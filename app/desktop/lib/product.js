@@ -33,7 +33,7 @@ function createProduct({api, auth, selectWorkspace}) {
     async createWorkspace(value) {
       await identity();
       if (!slug(value)) throw new Error('Use 2–63 lowercase letters, digits or hyphens.');
-      const result = await api.createWorkspace({slug:value});
+      const result = await api.createWorkspace({body:{slug:value}});
       return {slug:result.slug};
     },
     async choose(value) {
@@ -68,9 +68,37 @@ function createProduct({api, auth, selectWorkspace}) {
       if (!['up','down'].includes(input.direction)) throw new Error('Choose a metric direction.');
       const existing = await api.objectives();
       if (existing.objectives.some(o=>o.id === input.id)) throw new Error('That name is already in use.');
-      await api.createObjective({id:input.id, intent:input.intent.trim(), track:input.id,
-        notes:input.location.trim(), benchmarks:[{id:input.id,tool:'lm-eval',metric:input.metric.trim(),direction:input.direction}]});
+      await api.createObjective({body:{id:input.id, intent:input.intent.trim(), track:input.id,
+        notes:input.location.trim(), benchmarks:[{id:input.id,tool:'lm-eval',metric:input.metric.trim(),direction:input.direction}]}});
       return {id:input.id};
+    },
+    // Opening one objective, starting work on it, watching it and stopping it. The engine reads `workspace` to
+    // decide whose project a request is about, so it travels with every one of these: an operator with none
+    // named gets the engine's own project, which is where prabhasa-nyaya lives.
+    async objective(id) {
+      await identity();
+      return api.objective({id, workspace:selected ?? undefined});
+    },
+    async runs() {
+      await identity();
+      const rows = await api.runs({workspace:selected ?? undefined});
+      return Array.isArray(rows) ? rows : [];
+    },
+    async startWork({target = 'model', ...rest} = {}) {
+      // Taken before the first await, not after. Capturing it later left a window: the call yields at
+      // `identity()`, a workspace switch runs in that gap, and the ticket is then read as the *new* value, so
+      // the guard compares a number against itself and never fires.
+      const ticket = generation;
+      await identity();
+      const run = await api.startRun({workspace:selected ?? undefined, body:{target, ...rest}});
+      // The workspace can be switched while a request is in flight, and a run started against the previous one
+      // must not be reported as belonging to the current.
+      if (ticket !== generation) throw new Error('Workspace changed while the run was starting.');
+      return run;
+    },
+    async stopWork(runId) {
+      await identity();
+      return api.stopRun({id:runId, workspace:selected ?? undefined});
     },
     bandLevels() { return BAND_LEVELS.map(level => ({...level})); },
     async chooseBand(artifactId, levelId) {

@@ -224,6 +224,9 @@ test('the product never reaches an operator surface', async () => {
   // route added to the client in a hurry fails a test instead of quietly exposing the engine's own internals
   // in something a user installed.
   const source = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'lib', 'api.js'), 'utf8');
+  // /api/runs and /api/models are absent from this list on purpose: they became the product's once each
+  // project got its own run manager. Before that they spent the operator's hardware under the operator's keys
+  // whoever asked, which is why they were listed here.
   const operatorOnly = ['/api/nights', '/api/candidates', '/api/observations', '/api/search', '/api/swarm',
     '/api/inbox', '/api/jobs', '/api/diffs', '/api/agents', '/api/fleet', '/api/hosts', '/api/parity',
     '/api/appetite', '/api/heartbeat', '/api/svasthya', '/api/requests', '/api/sandboxes', '/api/external',

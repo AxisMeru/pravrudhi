@@ -46,7 +46,8 @@ test('workspaces project only the slug, dropping the filesystem path', async () 
 test('createWorkspace validates the slug before ever calling the engine', async () => {
   let called = false;
   const product = createProduct({
-    api: makeApi({createWorkspace: async ({slug}) => { called = true; return {slug}; }}),
+    // The client takes {body} now, since a route may also carry an id or a workspace.
+    api: makeApi({createWorkspace: async ({body}) => { called = true; return {slug: body.slug}; }}),
     auth: makeAuth(), selectWorkspace: async () => {},
   });
   await assert.rejects(product.createWorkspace('Not A Slug'), /lowercase/);
@@ -268,4 +269,42 @@ test('the renderer carries a user from sign-in through workspace, artifacts, a r
   assert.equal(document.getElementById('signin-status').textContent, 'Not signed in.');
   assert.equal(document.getElementById('workspace-section').hidden, true);
   assert.equal(document.getElementById('artifact-section').hidden, true);
+});
+
+test('an objective, its runs and stopping one all name the selected workspace', async () => {
+  // The engine reads `workspace` to decide whose project a request is about. Omitting it means the operator's
+  // own project, which is right for an operator and would be another user's work for anyone else.
+  const seen = [];
+  const api = makeApi({
+    objective: async (o) => { seen.push(['objective', o]); return {id: o.id, intent: 'x', benchmarks: []}; },
+    runs: async (o) => { seen.push(['runs', o]); return []; },
+    startRun: async (o) => { seen.push(['startRun', o]); return {id: 'r1', status: 'running'}; },
+    stopRun: async (o) => { seen.push(['stopRun', o]); return {id: 'r1', status: 'stopping'}; },
+  });
+  const product = createProduct({api, auth: makeAuth(), selectWorkspace: async () => {}});
+  await product.choose('mine');
+
+  await product.objective('prabhasa-nyaya');
+  await product.runs();
+  await product.startWork({target: 'model'});
+  await product.stopWork('r1');
+
+  assert.deepEqual(seen.map(([name]) => name), ['objective', 'runs', 'startRun', 'stopRun']);
+  for (const [, options] of seen) assert.equal(options.workspace, 'mine');
+  assert.equal(seen[0][1].id, 'prabhasa-nyaya');
+  assert.deepEqual(seen[2][1].body, {target: 'model'});
+});
+
+test('a run started against a workspace the user has since left is not reported as theirs', async () => {
+  let release;
+  const gate = new Promise(resolve => { release = resolve; });
+  const api = makeApi({startRun: async () => { await gate; return {id: 'r1', status: 'running'}; }});
+  const product = createProduct({api, auth: makeAuth(), selectWorkspace: async () => {}});
+  await product.choose('mine');
+
+  const pending = product.startWork({target: 'model'});
+  product.reset();
+  release();
+
+  await assert.rejects(pending, /Workspace changed/);
 });
