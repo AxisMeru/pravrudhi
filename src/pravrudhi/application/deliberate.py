@@ -10,6 +10,7 @@ import numpy as np
 import yaml
 
 from pravrudhi.application.citta_view import build_citta, keys_for
+from pravrudhi.application.archive import parent_map
 from pravrudhi.application.policies import POLICIES, fill_budget, rank_scores, selection_weights
 from pravrudhi_kernel.efe import (
     BeliefKeys,
@@ -199,7 +200,12 @@ def deliberate(
         # A baseline arm of H1: rank by the arm's own rule and fill the budget in that order. The decorative check
         # tests whether the EFE scores condition on the action; a baseline does not compute those scores, and the
         # random arm is decorative by construction, which is the point of having it.
-        scores = rank_scores(selection_policy, citta, pool, rng)
+        #
+        # The two lineage arms are handed the parent map folded from the ledger. Without it `gear` calls every
+        # unmeasured candidate equally novel and `hgm` shrinks toward a leave-one-out archive mean, which are the
+        # degenerate fallbacks their docstrings name rather than the rules they were written for. The other arms
+        # ignore the argument.
+        scores = rank_scores(selection_policy, citta, pool, rng, parent_map(ledger))
         baseline_order = fill_budget(scores, {c: cands[c].cost_est_gpu_h for c in pool}, budget_gpu_h)
         Q = selection_weights(scores, baseline_order)
         decorative = {"cv_G": None, "mi_bits": None, "verdict": "not_applicable", "reason": f"baseline arm {selection_policy}"}
