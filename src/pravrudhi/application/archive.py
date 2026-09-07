@@ -27,9 +27,10 @@ self-edge is not ancestry and storing one would quietly corrupt every depth this
 from __future__ import annotations
 
 import json
-from collections import Counter
+from collections import Counter, defaultdict
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -124,4 +125,84 @@ def ancestry_report(parents: dict[str, str | None]) -> AncestryReport:
     )
 
 
-__all__ = ["AncestryReport", "ancestry_report", "depth", "parent_map"]
+@dataclass(frozen=True)
+class Pressure:
+    """One night's choice: how many live candidates it could have run, and how many it could afford."""
+
+    night: int
+    live: int
+    selected: int
+
+    @property
+    def declined(self) -> int:
+        return max(0, self.live - self.selected)
+
+    @property
+    def binding(self) -> bool:
+        """Whether the budget forced a choice at all."""
+        return self.declined > 0
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "night": self.night, "live": self.live, "selected": self.selected,
+            "declined": self.declined, "binding": self.binding,
+        }
+
+
+def selection_pressure(path: Path) -> list[Pressure]:
+    """Per night, how much the selection rule actually had to decide.
+
+    A selection rule earns its keep only when the live pool exceeds what the budget can run. This measures that
+    directly, and on this ledger the answer is uncomfortable: since night 7 the loop has proposed about as many
+    candidates as it can afford, so the pool has equalled the budget on most nights and the controller has ranked
+    a set it was going to run in full regardless.
+
+    The live pool is every candidate proposed on or before the night that has not been pruned or promoted,
+    restricted to the evaluation benches that night worked on. The restriction matters: a candidate measured on
+    another pool is not an alternative to one measured on this pool, and counting it inflates the apparent choice.
+    """
+    proposed: dict[str, int] = {}
+    pruned: dict[str, int] = {}
+    promoted: dict[str, int] = {}
+    selected: dict[int, set[str]] = defaultdict(set)
+    bench: dict[str, str | None] = {}
+
+    if not Path(path).exists():
+        return []
+
+    for line in Path(path).read_text().splitlines():
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        cid, night, kind = row.get("candidate_id"), row.get("night"), row.get("kind")
+        if not isinstance(cid, str) or night is None:
+            continue
+        night = int(night)
+        if kind == "propose":
+            proposed.setdefault(cid, night)
+            bench.setdefault(cid, (row.get("bucket") or {}).get("task_family"))
+        elif kind == "prune":
+            pruned.setdefault(cid, night)
+        elif kind == "promote":
+            promoted.setdefault(cid, night)
+        elif kind == "select":
+            selected[night].add(cid)
+
+    out: list[Pressure] = []
+    for night in sorted(selected):
+        worked = {bench.get(c) for c in selected[night]}
+        live = [
+            cid for cid, born in proposed.items()
+            if born <= night
+            and pruned.get(cid, night + 1) >= night
+            and promoted.get(cid, night + 1) >= night
+            and bench.get(cid) in worked
+        ]
+        out.append(Pressure(night, len(live), len(selected[night])))
+    return out
+
+
+__all__ = [
+    "AncestryReport", "Pressure", "ancestry_report", "depth", "parent_map", "selection_pressure",
+]

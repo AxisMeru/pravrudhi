@@ -19,6 +19,7 @@ from pathlib import Path
 from pravrudhi.application.archive import (
     ancestry_report,
     parent_map,
+    selection_pressure,
 )
 from pravrudhi.application.policies import gear_scores, hgm_scores
 
@@ -194,3 +195,57 @@ class TestTheLoopSuppliesIt:
         assert isinstance(lineage, dict) and lineage, "the arm was handed no parent map at all"
         assert lineage["c-0000"] is None, "the baseline is a root"
         assert lineage["c-0001"] == "c-0000", "a proposed candidate must carry its real parent"
+
+
+class TestSelectionPressure:
+    """A selection rule earns its keep only when the pool exceeds the budget. Often here, it has not."""
+
+    def _ledger(self, tmp_path: Path, rows: list[dict[str, object]]) -> Path:
+        p = tmp_path / "ledger.jsonl"
+        p.write_text("".join(json.dumps(r) + "\n" for r in rows))
+        return p
+
+    def _row(self, kind: str, cid: str, night: int, bench: str = "b") -> dict[str, object]:
+        return {"kind": kind, "candidate_id": cid, "night": night, "bucket": {"task_family": bench}}
+
+    def test_a_night_that_ran_everything_it_had_decided_nothing(self, tmp_path: Path) -> None:
+        rows = [self._row("propose", "c-1", 1), self._row("select", "c-1", 1)]
+        p = selection_pressure(self._ledger(tmp_path, rows))[0]
+        assert p.live == 1 and p.selected == 1 and p.declined == 0 and not p.binding
+
+    def test_a_night_that_left_candidates_on_the_table_made_a_choice(self, tmp_path: Path) -> None:
+        rows = [
+            self._row("propose", "c-1", 1), self._row("propose", "c-2", 1),
+            self._row("select", "c-1", 1),
+        ]
+        p = selection_pressure(self._ledger(tmp_path, rows))[0]
+        assert p.live == 2 and p.selected == 1 and p.declined == 1 and p.binding
+
+    def test_a_candidate_pruned_during_a_night_was_still_a_choice_that_night(self, tmp_path: Path) -> None:
+        """Pruning follows evaluation, so the candidate was live when the night chose. It dies from the next one."""
+        rows = [
+            self._row("propose", "c-1", 1), self._row("propose", "c-2", 1),
+            self._row("select", "c-1", 1), self._row("prune", "c-2", 1),
+            self._row("propose", "c-3", 2), self._row("select", "c-3", 2),
+        ]
+        first, second = selection_pressure(self._ledger(tmp_path, rows))
+        assert first.live == 2 and first.binding, "c-2 was available when night 1 chose"
+        assert second.live == 2 and second.declined == 1, "night 2 sees c-1 and c-3, not the pruned c-2"
+
+    def test_a_candidate_on_another_bench_is_not_a_forgone_choice(self, tmp_path: Path) -> None:
+        rows = [
+            self._row("propose", "elsewhere", 1, "other"), self._row("propose", "c-1", 1),
+            self._row("select", "c-1", 1),
+        ]
+        assert not selection_pressure(self._ledger(tmp_path, rows))[0].binding
+
+    def test_the_real_ledger_shows_the_budget_rarely_bound(self) -> None:
+        path = Path("research/ledger.jsonl")
+        if not path.exists():
+            return
+        rows = selection_pressure(path)
+        recent = [p for p in rows if p.night >= 7]
+        assert recent, "the ledger should carry nights from 7 onward"
+        assert sum(p.binding for p in recent) <= 2, (
+            "if selection started binding regularly, this measurement and the plan built on it need revisiting"
+        )
