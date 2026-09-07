@@ -18,6 +18,7 @@ text must never be trusted to be free of a key someone pasted into a prompt or a
 from __future__ import annotations
 
 import json
+import os
 import threading
 import uuid
 from dataclasses import dataclass
@@ -124,8 +125,20 @@ def _reach(root: Path, note: Notification) -> None:
     """
     try:
         from pravrudhi.application import reach
+        from pravrudhi.application.credentials import Secret
 
-        reach.send(root, kind=note.kind, title=note.title, detail=note.detail)
+        # The credential comes from the environment, and that is what keeps this to the operator. `reach.send`
+        # was written to take a token and a chat id and this function never passed either, so every delivery
+        # returned "no_credential" and nothing ever left the machine — the transport was tested, the wiring was
+        # not. A user's own bot is a different path: they bring it through settings and it is stored per
+        # workspace, never read from the engine's own environment.
+        token_value = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
+        chat_id = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
+        reach.send(
+            root, kind=note.kind, title=note.title, detail=note.detail,
+            token=Secret(provider="telegram", value=token_value) if token_value else None,
+            chat_id=chat_id or None,
+        )
     except Exception:  # noqa: BLE001 (a message that cannot be delivered must never take the night with it)
         return
 

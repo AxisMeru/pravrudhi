@@ -324,7 +324,10 @@ class TestTheHookIntoNotifications:
         monkeypatch.setattr(
             reach_mod,
             "send",
-            lambda root, *, kind, title, detail="": seen.append({"kind": kind, "title": title}) or None,
+            # Takes the credential now: the transport was always written for it and the hook never passed it.
+            lambda root, *, kind, title, detail="", token=None, chat_id=None: seen.append(
+                {"kind": kind, "title": title}
+            ) or None,
         )
         notifications.emit(tmp_path, kind="promotion_needed", title="c-0045 awaits sign-off")
 
@@ -352,3 +355,77 @@ class TestTheHookIntoNotifications:
 
         notifications.emit(tmp_path, kind="run_finished", title="night 17 finished")
         assert [n.title for n in notifications.recent(tmp_path)] == ["night 17 finished"]
+
+
+class TestTheCredentialActuallyReachesTheTransport:
+    """The transport was tested in isolation and the wiring was not, so nothing ever left the machine.
+
+    `reach.send` was written to take a token and a chat id, and `notifications._reach` called it with neither.
+    Every delivery therefore took the `token is None` branch and returned "no_credential" — a no-op by design,
+    reached by accident. The unit tests all passed, the operator set up a bot, and the first real message was
+    sent months of code later by hand.
+
+    So this asserts the join rather than either side: what the environment holds is what the transport is given.
+    """
+
+    def test_the_environments_credential_is_forwarded(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from pravrudhi.application import notifications
+        from pravrudhi.application import reach as reach_mod
+
+        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "123:abc")
+        monkeypatch.setenv("TELEGRAM_CHAT_ID", "8679892510")
+        seen: dict[str, Any] = {}
+
+        def spy(root, *, kind, title, detail="", token=None, chat_id=None, **kw):  # type: ignore[no-untyped-def]
+            seen.update({"kind": kind, "token": token, "chat_id": chat_id})
+            return None
+
+        monkeypatch.setattr(reach_mod, "send", spy)
+        notifications.emit(tmp_path, kind="promotion_needed", title="something to sign off")
+
+        assert seen["chat_id"] == "8679892510"
+        assert seen["token"] is not None, "the token never reached the transport, which is the whole bug"
+        assert seen["token"].reveal() == "123:abc"
+
+    def test_a_machine_with_no_bot_configured_forwards_nothing(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The ordinary case, and it must stay a silent no-op rather than an error in the feed."""
+        from pravrudhi.application import notifications
+        from pravrudhi.application import reach as reach_mod
+
+        monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+        monkeypatch.delenv("TELEGRAM_CHAT_ID", raising=False)
+        seen: dict[str, Any] = {}
+        monkeypatch.setattr(
+            reach_mod, "send",
+            lambda root, *, kind, title, detail="", token=None, chat_id=None, **kw: seen.update(
+                {"token": token, "chat_id": chat_id}
+            ),
+        )
+        note = notifications.emit(tmp_path, kind="promotion_needed", title="still recorded")
+
+        assert seen == {"token": None, "chat_id": None}
+        assert note.title == "still recorded"
+
+    def test_an_empty_variable_is_treated_as_absent(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An EnvironmentFile that exists but is blank sets these to the empty string, not to nothing."""
+        from pravrudhi.application import notifications
+        from pravrudhi.application import reach as reach_mod
+
+        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "   ")
+        monkeypatch.setenv("TELEGRAM_CHAT_ID", "")
+        seen: dict[str, Any] = {}
+        monkeypatch.setattr(
+            reach_mod, "send",
+            lambda root, *, kind, title, detail="", token=None, chat_id=None, **kw: seen.update(
+                {"token": token, "chat_id": chat_id}
+            ),
+        )
+        notifications.emit(tmp_path, kind="promotion_needed", title="x")
+
+        assert seen == {"token": None, "chat_id": None}

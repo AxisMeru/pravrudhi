@@ -70,3 +70,82 @@ class TestTheNamesThemselves:
             lowered = tagline_for(name).lower()
             for term in ("pramana", "sakshi", "citta", "agama", "anumana", "pratyaksha"):
                 assert term not in lowered
+
+
+class TestStudioIsNeverReleased:
+    """The operator's instruction on 2026-09-07: Studio is for the operator, not for any other user and not for
+    a public release.
+
+    The role rule alone does not achieve that. A local caller with authentication off is the operator by
+    construction — right on the machine that builds this engine, wrong on a machine that merely runs a release
+    of it, where the same rule would have every user greeted by Studio. So a released build says which edition
+    it is, and the role decides only inside the operator's own checkout.
+    """
+
+    def test_a_released_build_is_the_product_even_with_no_authentication(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("PRAVRUDHI_EDITION", "product")
+        monkeypatch.setenv("PRAVRUDHI_AUTH", "disabled")
+        assert edition_for(None) == PRODUCT
+
+    def test_a_released_build_is_the_product_even_for_a_listed_operator(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An operator running the release is using the product, and it should say so."""
+        monkeypatch.setenv("PRAVRUDHI_EDITION", "product")
+        monkeypatch.setenv("PRAVRUDHI_ADMINS", "u-1")
+        assert edition_for(_user("u-1")) == PRODUCT
+
+    def test_the_development_checkout_still_shows_studio(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("PRAVRUDHI_EDITION", raising=False)
+        monkeypatch.setenv("PRAVRUDHI_AUTH", "disabled")
+        assert edition_for(None) == STUDIO
+
+    def test_an_unrecognised_value_does_not_silently_force_the_product(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Only the exact marker a release sets counts; a typo must not quietly change what this is."""
+        monkeypatch.setenv("PRAVRUDHI_EDITION", "studio")
+        monkeypatch.setenv("PRAVRUDHI_AUTH", "disabled")
+        assert edition_for(None) == STUDIO
+
+
+class TestARunningReleaseKnowsItIsOne:
+    """A release recognises itself from where it is unpacked, so the installs already on the operator's two
+    machines behave correctly rather than only the next one, and nobody has to remember to set a flag."""
+
+    def test_a_release_path_is_recognised(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from pravrudhi.api import edition as mod
+
+        monkeypatch.setattr(
+            mod, "is_release_install",
+            lambda: True,
+        )
+        monkeypatch.delenv("PRAVRUDHI_EDITION", raising=False)
+        monkeypatch.setenv("PRAVRUDHI_AUTH", "disabled")
+        assert mod.edition_for(None) == PRODUCT
+
+    def test_the_marker_matches_the_real_install_layout(self) -> None:
+        """The path an update actually unpacks into, on both of the operator's machines."""
+        from pravrudhi.api.edition import RELEASE_MARKER
+
+        installed = (
+            "/Users/sharath/pravrudhi-release/.pravrudhi/releases/current/.venv/"
+            "lib/python3.13/site-packages/pravrudhi/api/edition.py"
+        )
+        assert RELEASE_MARKER in installed
+
+    def test_this_checkout_is_not_a_release(self) -> None:
+        from pravrudhi.api.edition import is_release_install
+
+        assert not is_release_install(), "the development checkout must not be mistaken for an install"
+
+    def test_an_explicit_studio_marker_still_wins(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """So the operator can run a release as Studio deliberately, rather than being locked out of their own."""
+        from pravrudhi.api import edition as mod
+
+        monkeypatch.setattr(mod, "is_release_install", lambda: True)
+        monkeypatch.setenv("PRAVRUDHI_EDITION", "studio")
+        monkeypatch.setenv("PRAVRUDHI_AUTH", "disabled")
+        assert mod.edition_for(None) == STUDIO

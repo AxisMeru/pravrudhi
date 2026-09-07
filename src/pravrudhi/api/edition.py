@@ -17,6 +17,9 @@ would insist they were in Studio while showing them something else.
 
 from __future__ import annotations
 
+import os
+from pathlib import Path
+
 from pravrudhi.api.identity import User
 from pravrudhi.api.roles import ADMIN, role_of
 
@@ -32,8 +35,35 @@ _TAGLINES = {
 }
 
 
+EDITION_ENV = "PRAVRUDHI_EDITION"
+"""Set to `product` by a released build, which forces the product edition whatever the role says.
+
+Without it a released install running with authentication off would call itself Studio, because a local caller
+with nobody to identify is the operator by construction — correct on the machine that builds this engine and
+wrong on a machine that merely runs it. Studio is the operator's edition and is not released to anyone, so the
+build says which it is and the role decides only within the operator's own checkout."""
+
+
+RELEASE_MARKER = ".pravrudhi/releases/"
+"""How an installed release recognises itself, without the installer having to be changed.
+
+A release is unpacked into `<root>/.pravrudhi/releases/<version>/.venv/...`, so the package's own location says
+whether it is an installed release or the checkout this engine is developed in. That works for the installs
+already on the operator's two machines rather than only for the next one, and it cannot be forgotten the way a
+flag written by an installer can.
+"""
+
+
+def is_release_install() -> bool:
+    """Whether this package is running from an installed release rather than a development checkout."""
+    return RELEASE_MARKER in Path(__file__).resolve().as_posix()
+
+
 def edition_for(user: User | None) -> str:
     """The product name to show this caller."""
+    declared = os.environ.get(EDITION_ENV, "").strip().lower()
+    if declared == "product" or (declared != "studio" and is_release_install()):
+        return PRODUCT
     return STUDIO if role_of(user) is ADMIN else PRODUCT
 
 
@@ -43,4 +73,7 @@ def tagline_for(edition: str) -> str:
     return _TAGLINES.get(edition, _TAGLINES[PRODUCT])
 
 
-__all__ = ["PRODUCT", "STUDIO", "edition_for", "tagline_for"]
+__all__ = [
+    "EDITION_ENV", "PRODUCT", "RELEASE_MARKER", "STUDIO",
+    "edition_for", "is_release_install", "tagline_for",
+]
