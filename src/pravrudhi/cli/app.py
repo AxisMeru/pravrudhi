@@ -609,8 +609,25 @@ def heartbeat_cmd(
         if as_json:
             typer.echo(json.dumps(rec.to_dict(), sort_keys=True))
         else:
-            chosen = f"{rec.chose['objective']}/{rec.chose['step']}" if rec.chose else "nothing"
-            typer.echo(f"{rec.at} looked at {len(rec.looked_at)} objectives, chose {chosen}: {rec.reason}")
+            # A beat chooses an objective step, a request criterion, or a request awaiting the gate, and each
+            # carries different keys. Assuming the first shape crashed the command on the other two.
+            chose = rec.chose or {}
+            if "objective" in chose:
+                chosen = f"{chose['objective']}/{chose.get('step', '?')}"
+            elif "criterion" in chose:
+                chosen = f"{chose.get('request', '?')} criterion {chose['criterion']}"
+            elif "request" in chose:
+                chosen = str(chose["request"])
+            else:
+                chosen = "nothing"
+            # `looked_at` holds objective ids, and a beat that went to the request backlog looked at none of
+            # them; saying "looked at 0 objectives" made a beat that did real work read as a beat that did none.
+            drive = getattr(rec, "drive", None)
+            surveyed = (
+                f"looked at {len(rec.looked_at)} objectives"
+                if rec.looked_at else f"followed the {drive} drive" if drive else "surveyed the backlog"
+            )
+            typer.echo(f"{rec.at} {surveyed}, chose {chosen}: {rec.reason}")
         if not loop:
             return
         _time.sleep(load_config(root).interval_min * 60)

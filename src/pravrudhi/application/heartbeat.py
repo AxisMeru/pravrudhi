@@ -264,9 +264,28 @@ _OBLIGATION_TIER = "standard"
 def _beat_obligations(root: Path, dispatch: DispatchFn | None) -> ActionResult:
     """`seva` (obligations): the oldest unmet request criterion (`requests.next_unmet`), dispatched through the
     swarm exactly like a capability step, scoped to its own proposal scratch directory under `proposals/requests/`."""
+    owed = requests.next_obligation(root)
+    if owed is None:
+        return None, "every captured request is verified; nothing is owed", None
+    if owed["kind"] == "verify_request":
+        # Everything on this request is evidenced and it has not been through the gate, so the work is the gate,
+        # not more building. Reporting "no request has an unmet criterion" and stopping was how the loop came to
+        # say it had nothing to do while three requests were still owed.
+        return (
+            {"request": str(owed["request"])},
+            f"{owed['request']} is fully evidenced and awaiting the completion gate "
+            f"(`pravrudhi requests-advance {owed['request']} verified`)",
+            None,
+        )
+    if owed["kind"] == "advance_request":
+        return (
+            {"request": str(owed["request"])},
+            f"{owed['description']} — every criterion carries evidence, so it is ready to move",
+            None,
+        )
     found = requests.next_unmet(root)
-    if found is None:
-        return None, "no request has an unmet acceptance criterion", None
+    if found is None:  # pragma: no cover - next_obligation already answered meet_criterion
+        return None, "every captured request is verified; nothing is owed", None
     request, criterion, index = found
     scratch = _obligation_scratch(request.id, index)
     (root / scratch).mkdir(parents=True, exist_ok=True)

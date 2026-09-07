@@ -275,7 +275,10 @@ def test_obligations_drive_with_no_unmet_request_is_a_recorded_no_op(tmp_path, m
     assert record.drive == "obligations"
     assert record.chose is None
     assert record.result is None
-    assert "no request has an unmet acceptance criterion" in record.reason
+    # An obligation is not only a criterion still to be built: a request whose criteria all carry evidence is
+    # still owed until it has been through the gate. Reporting "no unmet criterion" and stopping was how the
+    # loop came to say it had nothing to do while three requests were outstanding.
+    assert "nothing is owed" in record.reason
 
 
 def test_continuity_drive_runs_the_cheapest_failing_checks_remedy(tmp_path, monkeypatch):
