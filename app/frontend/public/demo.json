@@ -6746,7 +6746,7 @@
       "healthy": true,
       "last_check": null,
       "last_result": "dev channel: tracks the git checkout directly, not a packaged release",
-      "root": "."
+      "root": "/home/ss/projects/pravrudhi"
     },
     {
       "auto_apply": true,
@@ -6777,12 +6777,12 @@
         "ok": true
       },
       {
-        "detail": "last heartbeat was 1499s ago",
+        "detail": "last heartbeat was 3529s ago",
         "name": "scheduler_fresh",
         "ok": true
       },
       {
-        "detail": "706232496128 bytes free",
+        "detail": "704885227520 bytes free",
         "name": "disk_available",
         "ok": true
       },
@@ -6797,7 +6797,7 @@
         "ok": true
       },
       {
-        "detail": "developer checkout; a known-good commit is ea582b5, with 2 uncommitted file(s)",
+        "detail": "developer checkout; a known-good commit is d1deaea, with 2 uncommitted file(s)",
         "name": "release_restorable",
         "ok": true
       },
@@ -7122,21 +7122,21 @@
       "badge": "amber",
       "candidate": "c-0060",
       "night": "harness-night1",
-      "pack": "research/inbox/harness-night1/c-0060",
+      "pack": "/home/ss/projects/pravrudhi/research/inbox/harness-night1/c-0060",
       "signed": false
     },
     {
       "badge": "green",
       "candidate": "c-0078",
       "night": "harness-night3",
-      "pack": "research/inbox/harness-night3/c-0078",
+      "pack": "/home/ss/projects/pravrudhi/research/inbox/harness-night3/c-0078",
       "signed": false
     },
     {
       "badge": "green",
       "candidate": "c-0045",
       "night": "night4",
-      "pack": "research/inbox/night4/c-0045",
+      "pack": "/home/ss/projects/pravrudhi/research/inbox/night4/c-0045",
       "signed": false
     }
   ],
@@ -12634,16 +12634,16 @@
   "recorded": true,
   "requests": {
     "by_state": {
-      "captured": 1,
+      "captured": 0,
       "clarified": 0,
       "declined": 0,
       "delivered": 1,
       "in_progress": 1,
       "planned": 0,
-      "verified": 4
+      "verified": 5
     },
-    "oldest_open_days": 0.67,
-    "open": 3,
+    "oldest_open_days": 0.69,
+    "open": 2,
     "requests": [
       {
         "asked_at": "2026-09-06T17:30:00Z",
@@ -12794,7 +12794,7 @@
           7
         ],
         "session": "9e647463",
-        "staleness_days": 0.67,
+        "staleness_days": 0.69,
         "state": "delivered",
         "text": "and in no way you are near the orca with all its ade features or openclaw or polished features like claude desktop or codex....you have to beat them in features, utility and ux....dedicate an agent to persist on it...dedicate an agent to adversarial review against set goals so that the project does not drift...i am not seeing the desktop screen/features too in the dashboard..the demo should show real clicks etc and how the desktop app updates and produces the real results...where is the intent, goal, objective menu that drives everything...where are the tools, skills, plugins, multi-agent orchestration etc....don't be superficial..i want real things ..deep, sophisticated..complete...no synthetic, no hand-waving, no fabrication"
       },
@@ -13080,141 +13080,9 @@
           13
         ],
         "session": "9e647463",
-        "staleness_days": 0.57,
+        "staleness_days": 0.6,
         "state": "in_progress",
         "text": "ensure that all user asks go into a log in pravrudhi itself and gets addressed with some protocol...and pravrudhi should have some element of ego with a desire to survive, grow and flourish...that makes it seek out capabilities, build, test and continuously improve...also look at acorn, oak and openclaw_build or swarm projects on this machine that had these self building elements in them and adapt...pravrudhi should be something like a cow..consume everything possible but bring it back and slowly digest it --so equivalent is breadth first and depth later....be always value focused...you have to innovate on methods too....develop skills, agents and plugins....brainstorm with astra with higher thinking levels and let it propose solution..you review and coordinate its implementation across the swarm...you should also create dynamic workflows etc...also see how much you can incorporate the claude code engine itself to run open and other cloud models ...askuserquestion to get my intent properly"
-      },
-      {
-        "asked_at": "2026-09-06T21:02:24.013Z",
-        "criteria": [
-          {
-            "evidence": [
-              {
-                "kind": "file",
-                "note": "the critical tier names astra; a named route outranks cost",
-                "ref": "src/pravrudhi/assets/configs/routing.yaml"
-              },
-              {
-                "kind": "command",
-                "note": "20 passed, including that the named route wins its tier",
-                "ref": "uv run pytest -q tests/test_routing.py"
-              }
-            ],
-            "met": true,
-            "source": "operator",
-            "text": "Astra is routed the tough jobs rather than the cheapest route winning them"
-          },
-          {
-            "evidence": [
-              {
-                "kind": "command",
-                "note": "28 passed",
-                "ref": "cd app/desktop && node --test test/"
-              },
-              {
-                "kind": "file",
-                "note": "the headless launch that writes the report",
-                "ref": "app/desktop/smoke.js"
-              },
-              {
-                "kind": "command",
-                "note": "28 passed",
-                "ref": "cd app/desktop && node --test test/"
-              }
-            ],
-            "met": true,
-            "source": "operator",
-            "text": "The desktop app launches, is tested, and is integrated with the engine API"
-          },
-          {
-            "evidence": [
-              {
-                "kind": "file",
-                "note": "this ask stored verbatim as r-d3589b52 in the committed snapshot",
-                "ref": "app/frontend/public/demo.json"
-              },
-              {
-                "kind": "url",
-                "note": "the backlog, published",
-                "ref": "https://sharathsphd.github.io/pravrudhi/app/requests"
-              }
-            ],
-            "met": true,
-            "source": "operator",
-            "text": "This ask is captured as a request and worked autonomously by Pravrudhi"
-          },
-          {
-            "evidence": [
-              {
-                "kind": "file",
-                "note": "a read-only reviewer argues the evidence does not satisfy the ask",
-                "ref": "src/pravrudhi/application/completion.py"
-              },
-              {
-                "kind": "command",
-                "note": "23 passed, including the smuggling refusals",
-                "ref": "uv run pytest -q tests/test_completion.py"
-              }
-            ],
-            "met": true,
-            "source": "operator",
-            "text": "Adversarial review runs before any completion is claimed"
-          },
-          {
-            "evidence": [
-              {
-                "kind": "file",
-                "note": "the gate refuses when the end-to-end command fails",
-                "ref": "src/pravrudhi/application/completion.py"
-              },
-              {
-                "kind": "command",
-                "note": "the publish path refuses a page that renders an error",
-                "ref": "uv run pytest -q tests/test_publish.py"
-              },
-              {
-                "kind": "file",
-                "note": "every page checked where it is deployed",
-                "ref": "app/frontend/e2e/deployed.spec.ts"
-              }
-            ],
-            "met": true,
-            "source": "operator",
-            "text": "Thorough end-to-end tests run before any completion is claimed"
-          },
-          {
-            "evidence": [
-              {
-                "kind": "file",
-                "note": "completion promise checked by running, not by assertion",
-                "ref": "src/pravrudhi/application/ralph.py"
-              },
-              {
-                "kind": "command",
-                "note": "14 passed",
-                "ref": "uv run pytest -q tests/test_ralph.py"
-              },
-              {
-                "kind": "commit",
-                "note": "the loop tells the agent what the check said",
-                "ref": "2e195dd"
-              }
-            ],
-            "met": true,
-            "source": "operator",
-            "text": "A ralph-loop closure discipline stops an agent escaping with half-built features"
-          }
-        ],
-        "id": "r-d3589b52",
-        "notes": [],
-        "progress": [
-          6,
-          6
-        ],
-        "session": "9e647463",
-        "staleness_days": 0.52,
-        "state": "captured",
-        "text": "let astra handle the tough jobs...let it bring up the desktop app, test...integrate fully with the api etc...route it to requests and let pravrudhi handle this request autonomously...also adversarial review and thorough e2e tests before marking any completion...give it also the ralph-loop closure (skill) to make it robust and not escape with half-baked features"
       },
       {
         "asked_at": "2026-09-06T12:00:00Z",
@@ -13682,6 +13550,151 @@
         "staleness_days": 0.0,
         "state": "verified",
         "text": "are you using alibaba cloud models ?...and the local qwen etc...you have to keep them as sentinels and take over when claude and openai models hit rate limits"
+      },
+      {
+        "asked_at": "2026-09-06T21:02:24.013Z",
+        "criteria": [
+          {
+            "evidence": [
+              {
+                "kind": "file",
+                "note": "the critical tier names astra; a named route outranks cost",
+                "ref": "src/pravrudhi/assets/configs/routing.yaml"
+              },
+              {
+                "kind": "command",
+                "note": "20 passed, including that the named route wins its tier",
+                "ref": "uv run pytest -q tests/test_routing.py"
+              }
+            ],
+            "met": true,
+            "source": "operator",
+            "text": "Astra is routed the tough jobs rather than the cheapest route winning them"
+          },
+          {
+            "evidence": [
+              {
+                "kind": "command",
+                "note": "28 passed",
+                "ref": "cd app/desktop && node --test test/"
+              },
+              {
+                "kind": "file",
+                "note": "the headless launch that writes the report",
+                "ref": "app/desktop/smoke.js"
+              },
+              {
+                "kind": "command",
+                "note": "28 passed",
+                "ref": "cd app/desktop && node --test test/"
+              }
+            ],
+            "met": true,
+            "source": "operator",
+            "text": "The desktop app launches, is tested, and is integrated with the engine API"
+          },
+          {
+            "evidence": [
+              {
+                "kind": "file",
+                "note": "this ask stored verbatim as r-d3589b52 in the committed snapshot",
+                "ref": "app/frontend/public/demo.json"
+              },
+              {
+                "kind": "url",
+                "note": "the backlog, published",
+                "ref": "https://sharathsphd.github.io/pravrudhi/app/requests"
+              }
+            ],
+            "met": true,
+            "source": "operator",
+            "text": "This ask is captured as a request and worked autonomously by Pravrudhi"
+          },
+          {
+            "evidence": [
+              {
+                "kind": "file",
+                "note": "a read-only reviewer argues the evidence does not satisfy the ask",
+                "ref": "src/pravrudhi/application/completion.py"
+              },
+              {
+                "kind": "command",
+                "note": "23 passed, including the smuggling refusals",
+                "ref": "uv run pytest -q tests/test_completion.py"
+              }
+            ],
+            "met": true,
+            "source": "operator",
+            "text": "Adversarial review runs before any completion is claimed"
+          },
+          {
+            "evidence": [
+              {
+                "kind": "file",
+                "note": "the gate refuses when the end-to-end command fails",
+                "ref": "src/pravrudhi/application/completion.py"
+              },
+              {
+                "kind": "command",
+                "note": "the publish path refuses a page that renders an error",
+                "ref": "uv run pytest -q tests/test_publish.py"
+              },
+              {
+                "kind": "file",
+                "note": "every page checked where it is deployed",
+                "ref": "app/frontend/e2e/deployed.spec.ts"
+              }
+            ],
+            "met": true,
+            "source": "operator",
+            "text": "Thorough end-to-end tests run before any completion is claimed"
+          },
+          {
+            "evidence": [
+              {
+                "kind": "file",
+                "note": "completion promise checked by running, not by assertion",
+                "ref": "src/pravrudhi/application/ralph.py"
+              },
+              {
+                "kind": "command",
+                "note": "14 passed",
+                "ref": "uv run pytest -q tests/test_ralph.py"
+              },
+              {
+                "kind": "commit",
+                "note": "the loop tells the agent what the check said",
+                "ref": "2e195dd"
+              }
+            ],
+            "met": true,
+            "source": "operator",
+            "text": "A ralph-loop closure discipline stops an agent escaping with half-built features"
+          }
+        ],
+        "id": "r-d3589b52",
+        "notes": [
+          {
+            "at": "2026-09-07T09:30:49.610Z",
+            "note": "-> in_progress"
+          },
+          {
+            "at": "2026-09-07T09:30:49.811Z",
+            "note": "astra preferred at the tough tier; the desktop app built, released and shown"
+          },
+          {
+            "at": "2026-09-07T09:35:38.808Z",
+            "note": "reviewer findings addressed: astra preferred, desktop shown, ask cited from the committed record"
+          }
+        ],
+        "progress": [
+          6,
+          6
+        ],
+        "session": "9e647463",
+        "staleness_days": 0.0,
+        "state": "verified",
+        "text": "let astra handle the tough jobs...let it bring up the desktop app, test...integrate fully with the api etc...route it to requests and let pravrudhi handle this request autonomously...also adversarial review and thorough e2e tests before marking any completion...give it also the ralph-loop closure (skill) to make it robust and not escape with half-baked features"
       }
     ],
     "total": 7
@@ -14115,18 +14128,18 @@
       {
         "agent": "claude-code",
         "model": "sonnet",
-        "reason": "sonnet has the best measured success rate at this tier (33/36) and nothing cheaper matches it; dropped cooling route(s) qwen-coder",
+        "reason": "sonnet has the best measured success rate at this tier (35/38) and nothing cheaper matches it; dropped cooling route(s) qwen-coder",
         "records": [
           {
-            "hi": 0.9712519107287082,
-            "lo": 0.7817298972308114,
-            "mean_wall_s": 391.3784426011132,
-            "rate": 0.9166666666666666,
+            "hi": 0.972785898605735,
+            "lo": 0.792003210797347,
+            "mean_wall_s": 387.5450741381348,
+            "rate": 0.9210526315789473,
             "relative_cost": 2.9,
             "route_id": "sonnet",
-            "successes": 33,
+            "successes": 35,
             "tier": "design",
-            "trials": 36
+            "trials": 38
           },
           {
             "hi": 1.0,
@@ -14173,14 +14186,14 @@
         "records": [
           {
             "hi": 1.0,
-            "lo": 0.5655085052479191,
-            "mean_wall_s": 128.6,
+            "lo": 0.6096569663469354,
+            "mean_wall_s": 181.85222570450665,
             "rate": 1.0,
             "relative_cost": 10.0,
             "route_id": "astra",
-            "successes": 5,
+            "successes": 6,
             "tier": "critical",
-            "trials": 5
+            "trials": 6
           },
           {
             "hi": 1.0,
@@ -14647,16 +14660,16 @@
     "channel": "dev",
     "check_interval_min": 30,
     "current": {
-      "git_describe": "v0.3.1-6-gea582b5",
+      "git_describe": "v0.3.1-9-gd1deaea",
       "kernel_version": "0.1.0",
       "version": "0.3.1"
     },
     "keep_previous": 2
   },
   "version": {
-    "commit": "ea582b5",
+    "commit": "d1deaea",
     "engine": "0.3.1",
-    "exported_at": "2026-09-07T09:30:37.003Z",
+    "exported_at": "2026-09-07T10:04:27.067Z",
     "kernel": "0.1.0"
   }
 }
