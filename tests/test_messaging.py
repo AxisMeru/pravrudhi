@@ -205,3 +205,79 @@ class TestWhatEmitDelivers:
 
         note = notifications.emit(tmp_path, kind="run_finished", title="done")
         assert [n.id for n in notifications.recent(tmp_path)] == [note.id]
+
+
+class TestTheLeakThroughTheApi:
+    """The boundary in `resolve_telegram` is only as good as the roots the routes hand it.
+
+    `/api/messaging/telegram` is user-facing and passes the engine's own root as `engine_root`, so if a signed-in
+    user could ever resolve to that root the status route would answer `from_environment: True` and hand them the
+    operator's chat id. It cannot — `workspace_root.root_for` returns the engine root only for an operator who
+    named no workspace — but that safety is currently a property of two files read together, which is exactly how
+    the original leak hid. So it is asserted here.
+    """
+
+    @staticmethod
+    def _user(uid: str = "u-1") -> object:
+        from pravrudhi.api.identity import User
+
+        return User(id=uid, email="someone@example.com", role="user")
+
+    def test_a_signed_in_user_cannot_resolve_to_the_engines_own_root(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from pravrudhi.api.workspace_root import RootError, root_for
+
+        monkeypatch.setenv("PRAVRUDHI_ADMINS", "operator@example.com")
+        with pytest.raises(RootError):
+            root_for(self._user(), None, engine_root=tmp_path)  # type: ignore[arg-type]
+
+    def test_the_status_route_never_shows_a_user_the_operators_chat(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The whole leak, end to end: the operator's bot in the environment, a signed-in user asking about
+        messaging. The user is injected through the app's own dependency, so this exercises the real route
+        rather than a hand-built one — with authentication off, a caller with nobody to identify is the operator
+        by construction, and that is the case this must not be confused with."""
+        from fastapi.testclient import TestClient
+
+        from pravrudhi.api import identity
+        from pravrudhi.api.server import create_app
+        from pravrudhi.application.init import init_project
+
+        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "123:operator-secret")
+        monkeypatch.setenv("TELEGRAM_CHAT_ID", "8679892510")
+        monkeypatch.setenv("PRAVRUDHI_ADMINS", "operator@example.com")
+        init_project(tmp_path)
+        app = create_app(tmp_path)
+        app.dependency_overrides[identity.current_user] = lambda: self._user()
+        client = TestClient(app, base_url="http://127.0.0.1:8008")
+
+        # No workspace named, which is the only way any caller reaches the engine's own root.
+        answer = client.get("/api/messaging/telegram")
+
+        assert "operator-secret" not in answer.text
+        assert "8679892510" not in answer.text, "a user was shown the operator's chat id"
+        assert answer.status_code == 400, "a user with no workspace must be refused, not resolved somewhere"
+
+    def test_the_operator_does_see_their_own_engines_bot(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The other half: the refusal above must not be achieved by showing nobody anything."""
+        from fastapi.testclient import TestClient
+
+        from pravrudhi.api.server import create_app
+        from pravrudhi.application.init import init_project
+
+        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "123:operator-secret")
+        monkeypatch.setenv("TELEGRAM_CHAT_ID", "8679892510")
+        init_project(tmp_path)
+        client = TestClient(create_app(tmp_path), base_url="http://127.0.0.1:8008")
+
+        answer = client.get("/api/messaging/telegram")
+
+        assert answer.status_code == 200
+        assert answer.json() == {
+            "configured": True, "enabled": True, "chat_id": "8679892510", "from_environment": True,
+        }
+        assert "operator-secret" not in answer.text, "the token is never readable, even by the operator"

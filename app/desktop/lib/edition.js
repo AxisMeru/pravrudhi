@@ -39,6 +39,14 @@ function readEdition(resourcesPath, readFile = p => fs.readFileSync(p, 'utf8')) 
   }
 }
 
+// Both builds package the same `name` — electron-builder carries productName in the platform metadata, not in
+// the packaged package.json — so Electron's app.getName() answers "pravrudhi-desktop" for either one, and the
+// per-user data directory it derives from that would be shared. Two installs that overwrite each other's saved
+// workspace and window state are not two installs. Studio therefore gets its own directory by name.
+function userDataName(edition) {
+  return editionOf(edition) === STUDIO ? 'pravrudhi-studio' : 'pravrudhi-desktop';
+}
+
 // The engine decides what to call itself from this variable (src/pravrudhi/api/edition.py::EDITION_ENV), so the
 // shell it is spawned into carries this build's answer. It is set last and unconditionally: a variable inherited
 // from the user's environment must not let a product install present itself as Studio.
@@ -46,4 +54,4 @@ function engineEnv(env, edition) {
   return {...env, PRAVRUDHI_EDITION: editionOf(edition)};
 }
 
-module.exports = {PRODUCT, STUDIO, editionOf, readEdition, engineEnv};
+module.exports = {PRODUCT, STUDIO, editionOf, readEdition, engineEnv, userDataName};

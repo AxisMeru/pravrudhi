@@ -21,9 +21,9 @@ jobs:
         # Each entry names an existing `platform`, so it adds the runner and artifact glob to that platform's
         # combinations rather than to every one of them. Six jobs: two editions on three operating systems.
         include:
-          - { platform: linux, os: ubuntu-latest, artifacts: "*.AppImage" }
-          - { platform: mac, os: macos-latest, artifacts: "*.dmg" }
-          - { platform: win, os: windows-latest, artifacts: "*.exe" }
+          - { platform: linux, os: ubuntu-latest }
+          - { platform: mac, os: macos-latest }
+          - { platform: win, os: windows-latest }
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -43,10 +43,18 @@ jobs:
         shell: bash
         run: node -e "const p=require('./package.json'); if(!p.scripts||!p.main) { throw new Error('the build clobbered package.json'); }"
 
+      # Every shape a desktop build can produce, each fully qualified by the edition's own output directory.
+      # A job uploads whatever its platform actually built and the other patterns match nothing; `error` still
+      # catches a job that produced no artifact at all. Carrying the glob in the matrix instead looked tidier
+      # and was wrong: a second pattern would have arrived without this prefix and quietly matched nothing.
       - uses: actions/upload-artifact@v4
         with:
           name: desktop-${{ matrix.edition }}-${{ matrix.platform }}
-          path: app/desktop/dist/${{ matrix.edition }}/${{ matrix.artifacts }}
+          path: |
+            app/desktop/dist/${{ matrix.edition }}/*.AppImage
+            app/desktop/dist/${{ matrix.edition }}/*.dmg
+            app/desktop/dist/${{ matrix.edition }}/*.exe
+            app/desktop/dist/${{ matrix.edition }}/*.zip
           if-no-files-found: error
 
   release:
@@ -90,6 +98,7 @@ jobs:
             dist/*.AppImage
             dist/*.dmg
             dist/*.exe
+            dist/*.zip
             dist/SHA256SUMS
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

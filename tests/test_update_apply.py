@@ -613,3 +613,158 @@ def test_the_scheduler_falls_back_to_the_bootstrap_before_the_first_release(tmp_
     out = sp.run(["bash", str(wrapper), str(root)], capture_output=True, text=True, env={**os.environ})
     assert out.returncode == 0
     assert '"ran": "bootstrap"' in out.stdout, out.stdout
+
+
+# --- Safeguard 5: the new engine must be able to read the work the user already has ------------------------
+
+
+def test_a_workspace_with_no_ledger_is_nothing_to_break(tmp_path: Path) -> None:
+    """A fresh install has no work yet, so there is nothing for an update to be incompatible with. The check
+    must not refuse every first update on a machine that has never run a night."""
+    from pravrudhi.application.update_apply import workspace_still_readable
+
+    release_dir = tmp_path / "rel"
+    release_dir.mkdir()
+
+    def never_called(cmd: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
+        raise AssertionError("the new engine was asked to read a workspace that holds nothing")
+
+    ok, detail = workspace_still_readable(release_dir, tmp_path / "empty", never_called)
+    assert ok is True
+    assert "no ledger" in detail
+
+
+def test_a_ledger_the_new_engine_can_read_clears_the_safeguard(tmp_path: Path) -> None:
+    from pravrudhi.application.update_apply import workspace_still_readable
+
+    release_dir = tmp_path / "rel"
+    release_dir.mkdir()
+    root = tmp_path / "workspace"
+    (root / "research").mkdir(parents=True)
+    (root / "research" / "ledger.jsonl").write_text("{}\n")
+
+    def reads_it(cmd: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(cmd, 0, stdout='{"chain_ok": true, "events": 12}', stderr="")
+
+    ok, detail = workspace_still_readable(release_dir, root, reads_it)
+    assert ok is True
+
+
+def test_a_ledger_the_new_engine_cannot_read_refuses_the_update(tmp_path: Path) -> None:
+    """The gap this closes: `doctor_passes` only proves the new install runs — it is handed a release directory
+    with no workspace in it, by design. An engine that installs cleanly and cannot read the user's existing
+    ledger passed every safeguard and broke their work on the next launch."""
+    from pravrudhi.application.update_apply import workspace_still_readable
+
+    release_dir = tmp_path / "rel"
+    release_dir.mkdir()
+    root = tmp_path / "workspace"
+    (root / "research").mkdir(parents=True)
+    (root / "research" / "ledger.jsonl").write_text("{}\n")
+
+    def cannot_read_it(cmd: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="unknown schema version 4")
+
+    ok, detail = workspace_still_readable(release_dir, root, cannot_read_it)
+    assert ok is False
+    assert "unknown schema version 4" in detail
+
+
+def test_a_broken_chain_refuses_rather_than_switching_onto_it(tmp_path: Path) -> None:
+    """The new engine ran and answered, but says this workspace's chain does not verify. Switching to it would
+    make the new version the one that appears to have broken the ledger."""
+    from pravrudhi.application.update_apply import workspace_still_readable
+
+    release_dir = tmp_path / "rel"
+    release_dir.mkdir()
+    root = tmp_path / "workspace"
+    (root / "research").mkdir(parents=True)
+    (root / "research" / "ledger.jsonl").write_text("{}\n")
+
+    def chain_broken(cmd: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(cmd, 0, stdout='{"chain_ok": false, "events": 12}', stderr="")
+
+    ok, detail = workspace_still_readable(release_dir, root, chain_broken)
+    assert ok is False
+    assert "chain" in detail.lower()
+
+
+def test_output_that_is_not_json_is_refused_rather_than_assumed_fine(tmp_path: Path) -> None:
+    from pravrudhi.application.update_apply import workspace_still_readable
+
+    release_dir = tmp_path / "rel"
+    release_dir.mkdir()
+    root = tmp_path / "workspace"
+    (root / "research").mkdir(parents=True)
+    (root / "research" / "ledger.jsonl").write_text("{}\n")
+
+    def gibberish(cmd: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(cmd, 0, stdout="Traceback (most recent call last):", stderr="")
+
+    ok, _ = workspace_still_readable(release_dir, root, gibberish)
+    assert ok is False
+
+
+def test_the_check_reads_and_never_writes(tmp_path: Path) -> None:
+    """It runs before the switch, against the user's live workspace, so it must be a read. `status` is; an
+    argument that made it write would put the new engine into the user's data before it was trusted."""
+    from pravrudhi.application.update_apply import workspace_still_readable
+
+    release_dir = tmp_path / "rel"
+    release_dir.mkdir()
+    root = tmp_path / "workspace"
+    (root / "research").mkdir(parents=True)
+    (root / "research" / "ledger.jsonl").write_text("{}\n")
+    seen: list[list[str]] = []
+
+    def record(cmd: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
+        seen.append(cmd)
+        return subprocess.CompletedProcess(cmd, 0, stdout='{"chain_ok": true}', stderr="")
+
+    workspace_still_readable(release_dir, root, record)
+    assert seen and seen[0][1] == "status", f"expected a read-only status call, got {seen[0][1:]}"
+    assert "--root" in seen[0] and str(root) in seen[0]
+
+
+def test_apply_refuses_to_switch_when_the_new_version_cannot_read_the_workspace(tmp_path: Path) -> None:
+    """End to end through `apply`, because a safeguard that is written and not wired protects nothing.
+
+    The install succeeds, the new engine runs and imports — every earlier safeguard clears — and then it cannot
+    read the ledger this machine has been filling. Before this the switch happened anyway and the user's work
+    broke at the next launch.
+    """
+    url_map, version = release_fixture("0.5.0")
+    (tmp_path / "research").mkdir(parents=True, exist_ok=True)
+    # An existing but empty ledger: enough for the safeguard to fire, and nothing for `run_in_progress` to
+    # misread as a night still running.
+    (tmp_path / "research" / "ledger.jsonl").write_text("")
+
+    def cannot_read_the_workspace(cmd: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
+        if "status" in cmd:
+            return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="unknown ledger schema version 4")
+        return subprocess.CompletedProcess(cmd, 0, stdout="ok", stderr="")
+
+    result = apply(tmp_path, channel="release", fetch=fake_fetch(url_map), runner=cannot_read_the_workspace)
+
+    assert result.applied is False
+    assert result.rolled_back is True
+    assert "unknown ledger schema version 4" in result.reason
+    assert not (tmp_path / ".pravrudhi" / "releases" / version).exists()
+    assert not (tmp_path / ".pravrudhi" / "releases" / "current").exists(), "the switch happened anyway"
+
+
+def test_apply_switches_when_the_new_version_can_read_the_workspace(tmp_path: Path) -> None:
+    """The other half: the safeguard must not be blocking every update on a machine that has a ledger."""
+    url_map, version = release_fixture("0.6.0")
+    (tmp_path / "research").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "research" / "ledger.jsonl").write_text("")
+
+    def reads_the_workspace(cmd: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
+        if "status" in cmd:
+            return subprocess.CompletedProcess(cmd, 0, stdout='{"chain_ok": true, "events": 7}', stderr="")
+        return subprocess.CompletedProcess(cmd, 0, stdout="ok", stderr="")
+
+    result = apply(tmp_path, channel="release", fetch=fake_fetch(url_map), runner=reads_the_workspace)
+
+    assert result.applied is True, result.reason
+    assert result.version == version

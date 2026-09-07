@@ -51,3 +51,13 @@ test('a build overrides an inherited variable, so one install cannot impersonate
   // Otherwise PRAVRUDHI_EDITION=studio in a user's shell would turn their product install into Studio.
   assert.equal(engineEnv({PRAVRUDHI_EDITION: 'studio'}, PRODUCT).PRAVRUDHI_EDITION, 'product');
 });
+
+test('the two editions keep their settings apart', () => {
+  // Both builds package the same `name`, so Electron would hand them one userData directory: the same saved
+  // workspace, the same window state, each overwriting the other. That is not two installs.
+  const {userDataName} = require('../lib/edition');
+  assert.notEqual(userDataName(STUDIO), userDataName(PRODUCT));
+  assert.equal(userDataName(PRODUCT), 'pravrudhi-desktop', 'the product keeps the directory it already had');
+  assert.equal(userDataName(STUDIO), 'pravrudhi-studio');
+  assert.equal(userDataName(undefined), 'pravrudhi-desktop', 'an unknown build is the product, here too');
+});

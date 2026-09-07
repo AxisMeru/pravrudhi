@@ -7,3 +7,8 @@ npm-debug.log*
 .env*.local
 next-env.d.ts
 *.tsbuildinfo
+
+# Playwright run artifacts. `.last-run.json` was committed once, recording 48 failures from a run nobody
+# saw; it is a scratch file, not a result.
+test-results/
+playwright-report/

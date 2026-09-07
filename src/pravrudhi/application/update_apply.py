@@ -239,6 +239,39 @@ def doctor_passes(release_dir: Path, runner: RunnerFn) -> tuple[bool, str]:
     return True, version_line
 
 
+def workspace_still_readable(release_dir: Path, root: Path, runner: RunnerFn) -> tuple[bool, str]:
+    """Safeguard 5: the new engine must be able to read the work this machine already has.
+
+    `doctor_passes` proves the new install *runs* — its console script starts and its modules import — and it is
+    handed a release directory with no workspace in it, by design. Nothing checked that the new version could
+    still read the ledger the user has been filling. An engine that installed cleanly and could not open that
+    ledger would clear every safeguard, switch, and break the user's work at the next launch. That is precisely
+    what an unattended update must not do: the point of updating a product is that what it is building keeps
+    building.
+
+    So the new engine is pointed at the real workspace before the switch, and must both run and report a
+    verifying chain. `status` is a read: it opens the ledger, folds it and prints. Nothing here writes, because
+    this happens while the old version is still the installed one and the new version is not yet trusted.
+
+    A workspace with no ledger is not a refusal. A machine that has never run a night has nothing an update
+    could be incompatible with, and refusing there would block every first update.
+    """
+    ledger = Path(root) / "research" / "ledger.jsonl"
+    if not ledger.exists():
+        return True, "no ledger yet: nothing this update could be incompatible with"
+
+    result = runner([str(release_dir / ".venv" / "bin" / "pravrudhi"), "status", "--root", str(root)], release_dir)
+    if result.returncode != 0:
+        return False, f"the new version could not read this workspace: {(result.stderr or result.stdout).strip()}"
+    try:
+        reported = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return False, f"the new version answered unreadably: {result.stdout.strip()[:200]}"
+    if reported.get("chain_ok") is not True:
+        return False, "the new version reports this workspace's ledger chain does not verify"
+    return True, f"the new version reads this workspace: {reported.get('events', 0)} events"
+
+
 def _current_version(root: Path) -> str | None:
     """The version `current` points at, or None.
 
@@ -344,6 +377,11 @@ def _apply_release(root: Path, config: UpdateConfig, fetch: FetchFn, runner: Run
     if not doctor_ok:
         shutil.rmtree(release_dir, ignore_errors=True)
         return ApplyResult(False, None, f"doctor failed on the new install, refusing to switch: {doctor_detail}", True)
+
+    readable, readable_detail = workspace_still_readable(release_dir, root, runner)
+    if not readable:
+        shutil.rmtree(release_dir, ignore_errors=True)
+        return ApplyResult(False, None, f"refusing to switch: {readable_detail}", True)
 
     switch_current(root, version)
     prune_old_releases(root, config.keep_previous)

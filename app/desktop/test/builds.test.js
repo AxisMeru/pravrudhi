@@ -1,7 +1,9 @@
 'use strict';
 // The two installs must be able to sit side by side on one machine, and only one of them may be Studio.
-// Electron derives the per-user data directory from productName and the OS treats appId as identity, so if
-// these two ever converged the second install would overwrite the first's settings and window state.
+// appId is the identity the operating system uses, and productName is the name a person sees; both differ so
+// the installers do not overwrite each other. The per-user data directory is a separate problem and is not
+// solved here — electron-builder does not put productName in the packaged package.json, so Electron would give
+// both editions one directory. lib/edition.js::userDataName is what keeps those apart.
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');

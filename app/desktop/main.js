@@ -7,7 +7,7 @@ const {recovery} = require('./lib/recovery');
 const {createApiClient} = require('./lib/api');
 const {selectConnection, defaultWorkspace} = require('./lib/connection');
 const {createProcessOwner, singleInstance, focusWindow} = require('./lib/lifecycle');
-const {engineEnv, readEdition} = require('./lib/edition');
+const {engineEnv, readEdition, userDataName} = require('./lib/edition');
 const edition = readEdition(process.resourcesPath);
 const {engineMenu, trayState} = require('./lib/menu');
 const {createSmokeReporter} = require('./lib/smoke');
@@ -17,6 +17,9 @@ const smokeMode = process.env.PRAVRUDHI_DESKTOP_SMOKE === '1';
 const smokeDir = process.env.PRAVRUDHI_DESKTOP_SMOKE_DIR || __dirname;
 const offscreen = process.env.ELECTRON_DISABLE_GPU === '1';
 if (offscreen) app.disableHardwareAcceleration();
+// Keep the two editions' settings apart; see lib/edition.js::userDataName. A smoke run overrides this
+// again below, because a packaged smoke must write outside the read-only app.asar.
+app.setPath('userData', path.join(app.getPath('appData'), userDataName(edition)));
 if (smokeMode) app.setPath('userData', path.join(smokeDir, '.smoke/user-data'));
 const smoke = smokeMode ? createSmokeReporter(path.join(smokeDir, '.smoke/report.json'), {edition}) : null;
 let smokeExitCode = 1, smokeFinished = false;
