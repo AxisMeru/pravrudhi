@@ -22,12 +22,25 @@ const test = base.extend<{ originFailures: void }>({
   }, { auto: true }],
 });
 
+// Every page the interface serves, with the heading that proves it rendered rather than fell back to the shell.
+// A page added without being added here is a page nobody checks on the deployed site, which is how the home
+// page's heading changed under a stale assertion and how ten newer pages went unchecked entirely.
 const PAGES = [
-  ["/", "Improve"],
+  ["/", "Pravrudhi"],
+  ["/start", "Start"],
+  ["/tour", "Guided tour"],
+  ["/appetite", "Appetite"],
   ["/objectives", "Objectives"],
   ["/progress", "Progress"],
+  ["/inbox", "Inbox"],
+  ["/requests", "Requests"],
+  ["/candidates", "Candidates"],
   ["/swarm", "Swarm"],
+  ["/diffs", "Diffs"],
+  ["/memory", "Memory"],
   ["/heartbeat", "Heartbeat"],
+  ["/catalogue", "Catalogue"],
+  ["/system", "System"],
   ["/chat", "Chat"],
   ["/runs", "Runs"],
   ["/models", "Models"],
