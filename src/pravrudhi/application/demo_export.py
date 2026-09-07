@@ -144,6 +144,53 @@ def _strip_paths(value: Any, root: Path) -> Any:
     return value
 
 
+def _fleet(root: Path) -> list[dict[str, Any]]:
+    """Every install this engine can see, with the version it runs and when it last checked.
+
+    The public site could show what the engine had produced and nothing about how it keeps itself current, so a
+    visitor had no way to see that two machines update themselves from the releases unattended.
+    """
+    from pravrudhi.application.fleet import known_installs
+
+    try:
+        return [i.to_dict() if hasattr(i, "to_dict") else dict(i) for i in known_installs(root)]
+    except Exception:  # noqa: BLE001 (a fleet that cannot be read is an empty fleet, not a failed export)
+        return []
+
+
+def _health(root: Path) -> dict[str, Any]:
+    """The engine's own survival state and every check behind it."""
+    from pravrudhi.application.svasthya import assess
+
+    try:
+        h = assess(root)
+        return {
+            "state": str(getattr(h, "state", "")),
+            "checks": [
+                {"name": c.name, "ok": bool(c.ok), "detail": str(c.detail)[:300]}
+                for c in getattr(h, "checks", [])
+            ],
+        }
+    except Exception:  # noqa: BLE001
+        return {"state": "", "checks": []}
+
+
+def _update(root: Path) -> dict[str, Any]:
+    """Which channel this engine follows and how it is configured to keep itself current."""
+    from pravrudhi.application.update_apply import load_config
+    from pravrudhi.application.updates import current as current_version
+
+    try:
+        cfg = load_config(root)
+        return {
+            "channel": cfg.channel, "auto_apply": cfg.auto_apply,
+            "check_interval_min": cfg.check_interval_min, "keep_previous": cfg.keep_previous,
+            "current": current_version(),
+        }
+    except Exception:  # noqa: BLE001
+        return {}
+
+
 def _requests(root: Path) -> dict[str, Any]:
     """The operator's own asks and how far each has got.
 
@@ -242,6 +289,9 @@ def build_demo(root: Path) -> dict[str, Any]:
         "swarm": _swarm(root),
         "heartbeat": _heartbeat(root),
         "requests": _requests(root),
+        "fleet": _fleet(root),
+        "health": _health(root),
+        "update": _update(root),
         "inbox": _inbox(root),
         "candidates": _candidates(root, st),
         "observations": _observations(ledger),

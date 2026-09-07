@@ -1,0 +1,8 @@
+# Install roots the engine's own fleet view inspects for `.pravrudhi/` state, on top of anything an operator
+# adds. An override may live at `.pravrudhi/fleet.yaml` inside a workspace; this packaged file is what a fresh
+# workspace uses until one is written. Each entry may use `~` for the operator's home directory; anything else
+# relative resolves against the workspace root, never against the process's own working directory. A root that
+# does not exist on this machine is skipped silently, since not every machine has a second install to look at.
+roots:
+  - "."
+  - "~/pravrudhi-release"
