@@ -4916,7 +4916,7 @@
   },
   "engine": {
     "candidates": 188,
-    "version": "0.2.4"
+    "version": "0.3.0"
   },
   "external": [
     {
@@ -12543,7 +12543,7 @@
       "planned": 0,
       "verified": 3
     },
-    "oldest_open_days": 0.67,
+    "oldest_open_days": 0.7,
     "open": 4,
     "requests": [
       {
@@ -12704,7 +12704,7 @@
           9
         ],
         "session": "9e647463",
-        "staleness_days": 0.67,
+        "staleness_days": 0.7,
         "state": "captured",
         "text": "no alibaba gpu for now...enable auto-update of pravrudhi app with safegaurds..you need to download a copy on rtx and on mac mini ..install and make it the end user testing...the active update the pravrudhi system is only for this developer version..the release version is only to test e2e the updates....you have to branistorm and come up scheduling/architecture decisions....also use all other agents to help you build and test (including alibaba cloud models) as a swarm....show me the app that is way more valuable and rich (both functionality and ux) than orca ...( I am yet to see adaptation of openclaw/nemoclaw etc too)....create a github pages for live demo that continuously updates (as the app and the paper) so that i can keep track of the progress through it....i don't want this adr/gate and other reporting stuff (that is only for you...not for me)...i should see the real working stuff"
       },
@@ -12847,7 +12847,7 @@
           7
         ],
         "session": "9e647463",
-        "staleness_days": 0.44,
+        "staleness_days": 0.47,
         "state": "delivered",
         "text": "and in no way you are near the orca with all its ade features or openclaw or polished features like claude desktop or codex....you have to beat them in features, utility and ux....dedicate an agent to persist on it...dedicate an agent to adversarial review against set goals so that the project does not drift...i am not seeing the desktop screen/features too in the dashboard..the demo should show real clicks etc and how the desktop app updates and produces the real results...where is the intent, goal, objective menu that drives everything...where are the tools, skills, plugins, multi-agent orchestration etc....don't be superficial..i want real things ..deep, sophisticated..complete...no synthetic, no hand-waving, no fabrication"
       },
@@ -13133,7 +13133,7 @@
           13
         ],
         "session": "9e647463",
-        "staleness_days": 0.35,
+        "staleness_days": 0.38,
         "state": "in_progress",
         "text": "ensure that all user asks go into a log in pravrudhi itself and gets addressed with some protocol...and pravrudhi should have some element of ego with a desire to survive, grow and flourish...that makes it seek out capabilities, build, test and continuously improve...also look at acorn, oak and openclaw_build or swarm projects on this machine that had these self building elements in them and adapt...pravrudhi should be something like a cow..consume everything possible but bring it back and slowly digest it --so equivalent is breadth first and depth later....be always value focused...you have to innovate on methods too....develop skills, agents and plugins....brainstorm with astra with higher thinking levels and let it propose solution..you review and coordinate its implementation across the swarm...you should also create dynamic workflows etc...also see how much you can incorporate the claude code engine itself to run open and other cloud models ...askuserquestion to get my intent properly"
       },
@@ -13255,7 +13255,7 @@
           6
         ],
         "session": "9e647463",
-        "staleness_days": 0.29,
+        "staleness_days": 0.33,
         "state": "captured",
         "text": "let astra handle the tough jobs...let it bring up the desktop app, test...integrate fully with the api etc...route it to requests and let pravrudhi handle this request autonomously...also adversarial review and thorough e2e tests before marking any completion...give it also the ralph-loop closure (skill) to make it robust and not escape with half-baked features"
       },
@@ -14468,9 +14468,9 @@
     ]
   },
   "version": {
-    "commit": "f28270f",
-    "engine": "0.2.4",
-    "exported_at": "2026-09-07T04:01:57.682Z",
+    "commit": "c55faef",
+    "engine": "0.3.0",
+    "exported_at": "2026-09-07T04:52:30.814Z",
     "kernel": "0.1.0"
   }
 }
