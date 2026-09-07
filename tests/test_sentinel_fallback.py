@@ -124,3 +124,42 @@ def test_the_sentinel_takes_over_when_every_ordinary_route_is_cooling(tmp_path: 
     choice = routing.choose(table, routing.outcomes(tmp_path), "critical", root=tmp_path)
     assert choice.route.sentinel, choice.reason
     assert "takes over" in choice.reason
+
+
+class TestARealUsageLimitIsRecognised:
+    """Astra hit its limit for real and four tasks were recorded as having failed on their merits.
+
+    The rejection reason carries the first 200 characters of a 2000-character tail. A coding agent echoes the
+    prompt it was given and then, much later, prints why it stopped — so "you've hit your usage limit" was
+    always beyond the slice the classifier saw. The fallback existed, was tested, and could not fire on the one
+    failure it was built for, because the evidence never reached it.
+    """
+
+    def test_a_limit_announced_at_the_end_of_a_long_run_is_still_seen(self) -> None:
+        from pravrudhi.application.availability import classify
+
+        # What codex actually prints: the brief first, the reason last.
+        output = ("Give the desktop application the six things it is for. " * 60) + (
+            "\nERROR: You've hit your usage limit. Upgrade to Pro or try again at 3:51 PM."
+        )
+        assert len(output) > 2000, "the point of this test is that the message is far past any short slice"
+        assert classify("codex", output, 1) == "limited"
+        assert classify("codex", output[:200], 1) != "limited", (
+            "this is the slice the old code classified, and it is why the fallback never fired"
+        )
+
+    def test_the_verdict_carries_the_decision_rather_than_the_swarm_reinferring_it(self) -> None:
+        from pravrudhi.application.delegate import Verdict
+        from pravrudhi.application.swarm import _hit_a_usage_limit
+
+        spent = Verdict("t", "codex", False, ["agent exited non-zero: ...prompt echo..."], limited=True)
+        assert _hit_a_usage_limit("codex", spent)
+
+        broken = Verdict("t", "codex", False, ["validation failed"], limited=False)
+        assert not _hit_a_usage_limit("codex", broken), "a real failure must not be mistaken for a spent account"
+
+    def test_an_accepted_run_is_never_treated_as_limited(self) -> None:
+        from pravrudhi.application.delegate import Verdict
+        from pravrudhi.application.swarm import _hit_a_usage_limit
+
+        assert not _hit_a_usage_limit("codex", Verdict("t", "codex", True, [], limited=True))

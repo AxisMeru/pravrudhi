@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any
 
 from pravrudhi.agents.base import Diff
+from pravrudhi.application import availability
 
 
 @dataclass(frozen=True)
@@ -63,6 +64,14 @@ class Verdict:
     files: list[str] = field(default_factory=list)
     validation_output: str = ""
     wall_s: float = 0.0
+    limited: bool = False
+    """Set when the agent failed because its account is spent rather than because the work was wrong.
+
+    It is decided here, where the agent's whole output is still in hand. The swarm used to infer it from the
+    rejection reason, which carries the first 200 characters of a 2000-character tail — and a vendor prints
+    "you've hit your usage limit" at the *end* of a run, after echoing the prompt. So the one message that
+    should have moved the task to another route was the one guaranteed to be truncated away, and the fallback
+    never fired on the failure it exists for."""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -136,8 +145,13 @@ def dispatch(agent: Any, task: TaskSpec, *, log: Any = print) -> Verdict:
         # produced nothing, and the files were swept into the next commit unreviewed. The worktree diff cannot see
         # this; only the main tree can.
         reasons.append(f"wrote outside its worktree, into the main checkout: {', '.join(escaped[:8])}")
+    limited = False
     if not run.ok:
-        reasons.append(f"agent exited non-zero: {run.stderr_tail[:200] or 'no detail'}")
+        # The end of the tail, not the beginning: a run that fails ends with its reason and starts with an echo
+        # of the prompt it was given.
+        tail = (run.stderr_tail or "").strip()
+        reasons.append(f"agent exited non-zero: {tail[-200:] or 'no detail'}")
+        limited = availability.classify(agent.name, f"{tail}\n{run.text or ''}", 1) == "limited"
     if diff.empty:
         reasons.append("no change produced")
     if diff.violations:
@@ -152,7 +166,7 @@ def dispatch(agent: Any, task: TaskSpec, *, log: Any = print) -> Verdict:
             reasons.append("validation failed")
     verdict = Verdict(
         task_id=task.task_id, agent=agent.name, accepted=not reasons, reasons=reasons,
-        files=diff.files, validation_output=output[-2000:], wall_s=run.wall_s,
+        files=diff.files, validation_output=output[-2000:], wall_s=run.wall_s, limited=limited,
     )
     log(f"{task.task_id}: {'ACCEPTED' if verdict.accepted else 'REJECTED'} ({'; '.join(reasons) or 'all checks passed'})")
     return verdict

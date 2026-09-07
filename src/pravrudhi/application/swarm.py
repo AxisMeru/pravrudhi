@@ -113,9 +113,19 @@ def _verdict_text(verdict: Verdict) -> str:
 
 
 def _hit_a_usage_limit(agent_id: str, verdict: Verdict) -> bool:
-    """Did this run fail because the account is rate limited rather than because the work was wrong?"""
+    """Did this run fail because the account is spent rather than because the work was wrong?
+
+    `dispatch` decides this while it still holds the agent's whole output and records it on the verdict. Reading
+    the rejection reason instead, as this used to, meant classifying a 200-character slice taken from the front
+    of the output — and a vendor announces a usage limit at the end, after echoing the prompt. Astra hit its
+    limit for real and four tasks were recorded as having failed on their merits.
+
+    The reason text is still consulted, for a verdict built somewhere other than `dispatch`.
+    """
     if verdict.accepted:
         return False
+    if verdict.limited:
+        return True
     return availability.classify(agent_id, _verdict_text(verdict), 1) == "limited"
 
 
