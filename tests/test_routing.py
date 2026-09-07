@@ -159,15 +159,29 @@ def test_the_hosted_sentinel_is_permitted_everywhere_but_always_last() -> None:
         assert [r.id for r in t.permitted(tier)][-1] == "qwen-coder", tier
 
 
-def test_the_verified_alibaba_loop_carries_load_where_it_was_measured() -> None:
-    """One verified tool call admits the loop to the tiers it was checked at, and no further."""
+def test_the_verified_alibaba_routes_carry_load_where_they_were_measured() -> None:
+    """One verified tool call admits a route to the tiers it was checked at, and no further.
+
+    Both Alibaba routes were admitted on the same evidence and the same reasoning. They are separate routes
+    because they are separate endpoints with separate key files and separate quotas: the Lite Plan can be spent
+    while the free tier is not, and collapsing them would hide that.
+    """
     t = routing.load_table()
-    loop = t.routes["qwen-loop"]
-    assert loop.agent == "opencode:alibaba"
+    assert t.routes["qwen-loop"].agent == "opencode:alibaba"
+    assert t.routes["qwen-lite-max"].agent == "opencode:alibaba-plan"
+    for route_id in ("qwen-loop", "qwen-lite-max"):
+        for tier in ("mechanical", "standard"):
+            assert route_id in [r.id for r in t.permitted(tier)], (route_id, tier)
+        for tier in ("design", "critical"):
+            assert route_id not in [r.id for r in t.permitted(tier)], (route_id, tier)
+
+
+def test_the_cheaper_verified_route_is_reached_before_the_dearer_one() -> None:
+    """The Lite Plan flagship costs less than the free-tier loop and is the vendor's stronger model."""
+    t = routing.load_table()
     for tier in ("mechanical", "standard"):
-        assert loop.id in [r.id for r in t.permitted(tier)], tier
-    for tier in ("design", "critical"):
-        assert loop.id not in [r.id for r in t.permitted(tier)], tier
+        order = [r.id for r in t.permitted(tier)]
+        assert order.index("qwen-lite-max") < order.index("qwen-loop"), tier
 
 
 def test_choose_drops_a_cooling_route_and_says_so(tmp_path: Path) -> None:

@@ -23,13 +23,14 @@ routes:
     agent: opencode:alibaba-plan
     model: qwen3.8-max
     relative_cost: 0.15
-    tiers: []
+    tiers: [mechanical, standard]
     note: >-
-      Alibaba's Lite Plan flagship, on a plan-exclusive endpoint with its own key and a credit budget rather than
-      a free-tier token cap. Cheaper than every paid route here by a wide margin and, on the vendor's own
-      description, stronger than the free-tier models. Declared with no tier on purpose: this project has not
-      measured it, and admitting a route on a vendor's claim is how the sentinel once won four tasks it could not
-      do. Dispatch to it deliberately, and promote it when its record here says so.
+      Alibaba's Lite Plan flagship, on a plan-exclusive endpoint with its own key file and a credit budget rather
+      than a free-tier token cap. Verified live on 2026-09-07: given a file and a read tool it called the tool
+      and returned the right answer, exit 0 in 8.6s. Admitted at the two tiers the free-tier loop was admitted
+      at, on the same evidence and the same reasoning -- one verified tool call says the loop runs, not that it
+      does design or critical work well. It is declared ahead of the free-tier loop because it is cheaper and the
+      vendor's stronger model, and it rises further only on its measured record here.
 
   - id: qwen-loop
     agent: opencode:alibaba
@@ -122,7 +123,7 @@ declared:
   # The verified Qwen loop is declared ahead of the single-shot sentinel at the two tiers it was measured at, so
   # a spent paid account falls to a real tool loop first and to a one-shot writer only after that. Both are named
   # here rather than left to the cost sort, which ranked them by id and put the sentinel above the loop.
-  mechanical: [sonnet, local-glm, qwen-loop]
-  standard: [sonnet, qwen-loop]
+  mechanical: [sonnet, local-glm, qwen-lite-max, qwen-loop]
+  standard: [sonnet, qwen-lite-max, qwen-loop]
   design: [sonnet, opus, astra]
   critical: [astra, opus, sonnet]

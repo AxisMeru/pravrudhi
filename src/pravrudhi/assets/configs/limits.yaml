@@ -30,6 +30,18 @@ patterns:
     - "requests rate limit exceeded"
     - "allocated quota exceeded"
     - "arrearage"
+  # The Lite Plan is a separate endpoint with its own key file and its own credit budget, so it is spent
+  # independently of the free tier and needs its own entry. Sharing one would have meant exhausting the plan
+  # cooled the free tier with it, and the fallback would skip a route that was still perfectly usable.
+  opencode:alibaba-plan:
+    - "throttling"
+    - "quota"
+    - "429"
+    - "rate limit"
+    - "requests rate limit exceeded"
+    - "allocated quota exceeded"
+    - "arrearage"
+    - "insufficient credits"
 
 # Minutes to wait before trying an agent again after it reports a limit. "default" applies to any agent id not
 # listed by name (codex, orca:* and anything added later).
@@ -40,3 +52,5 @@ cooldown_minutes:
   # DashScope's free tier resets on a short window rather than a daily one, so a shorter cooldown gets the loop
   # back into rotation without waiting out an hour it does not need.
   opencode:alibaba: 20
+  # Plan credits reset on a weekly cycle rather than a short window, so a longer wait before retrying.
+  opencode:alibaba-plan: 120

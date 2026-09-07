@@ -23,7 +23,11 @@ PROVIDER = "pravrudhi-alibaba"
 # different models, so they are two providers here rather than one with a flag: a plan key sent to the free-tier
 # endpoint fails in a way that reads like a bad key, which is a confusing hour to spend.
 CREDENTIAL_NAMES = {"alibaba": "dashscope.env", "alibaba-plan": "dashscope-plan.env"}
-KEY_NAMES = {"alibaba": "DASHSCOPE_API_KEY", "alibaba-plan": "DASHSCOPE_PLAN_API_KEY"}
+
+# Both files name the variable `DASHSCOPE_API_KEY`. The endpoints are told apart by which file the key came
+# from, not by what the variable is called, which is how the free-tier-llm skill has always done it. Inventing a
+# second name here made a configured plan key look like an empty placeholder.
+KEY_NAME = "DASHSCOPE_API_KEY"
 
 
 def credential_path(provider_id: str) -> Path:
@@ -47,12 +51,12 @@ def credential(provider_id: str = "alibaba") -> Secret:
             parts = shlex.split(line, comments=True)
             if parts and parts[0] == "export":
                 parts = parts[1:]
-            wanted = KEY_NAMES[provider_id] + "="
+            wanted = KEY_NAME + "="
             if len(parts) == 1 and parts[0].startswith(wanted):
                 value = parts[0].partition("=")[2]
                 if value:
                     return Secret(provider=provider_id, value=value)
-    raise ValueError(f"credential file has no {KEY_NAMES[provider_id]}")
+    raise ValueError(f"{path} has no {KEY_NAME} line")
 
 
 def configuration(model: str, provider_id: str = "alibaba") -> dict[str, Any]:
@@ -67,7 +71,7 @@ def configuration(model: str, provider_id: str = "alibaba") -> dict[str, Any]:
             "npm": "@ai-sdk/openai-compatible",
             "name": "Alibaba (Singapore)",
             "options": {"baseURL": PROVIDERS[provider_id].base_url,
-                        "apiKey": "{env:" + KEY_NAMES[provider_id] + "}"},
+                        "apiKey": "{env:" + KEY_NAME + "}"},
             "models": {model: {"name": model, "tool_call": True}},
         }},
     }
@@ -101,7 +105,7 @@ class AlibabaAgent(GitWorktreeMixin):
             code, out, err, wall = _run(
                 ["opencode", "run", "--format", "json", "--agent", "build", "-m", f"{PROVIDER}/{self.model}", prompt],
                 workspace, timeout_s,
-                env={KEY_NAMES[self.provider_id]: key.reveal(),
+                env={KEY_NAME: key.reveal(),
                      "OPENCODE_CONFIG_CONTENT": json.dumps(configuration(self.model, self.provider_id))},
             )
         except (OSError, ValueError):

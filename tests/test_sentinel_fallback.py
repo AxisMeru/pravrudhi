@@ -55,8 +55,8 @@ def test_a_usage_limit_moves_the_task_to_the_sentinel(tmp_path: Path, monkeypatc
     # sentinel behind it for when the loop is itself spent or broken.
     assert len(out) == 1
     assert out[0].accepted, out[0].reasons
-    assert out[0].agent == "opencode:alibaba", f"a free route should have taken over, got {out[0].agent}"
-    assert dispatched == ["claude-code", "opencode:alibaba"], dispatched
+    assert out[0].agent == "opencode:alibaba-plan", f"a free route should have taken over, got {out[0].agent}"
+    assert dispatched == ["claude-code", "opencode:alibaba-plan"], dispatched
 
 
 def test_the_single_shot_sentinel_still_stands_behind_the_loop(tmp_path: Path, monkeypatch: Any) -> None:
@@ -67,8 +67,10 @@ def test_the_single_shot_sentinel_still_stands_behind_the_loop(tmp_path: Path, m
         dispatched.append(agent.name)
         if agent.name == "claude-code":
             return Verdict(spec.task_id, agent.name, False, ["Claude usage limit reached. Your limit will reset"])
-        if agent.name == "opencode:alibaba":
-            # What DashScope actually says when the free tier is spent, not a Claude message wearing its name.
+        if agent.name.startswith("opencode:alibaba"):
+            # What DashScope actually says when a quota is spent, not a Claude message wearing its name. Both
+            # Alibaba routes are spent here: the Lite Plan and the free tier have separate quotas, so exhausting
+            # one says nothing about the other and the chain has to walk past both.
             return Verdict(spec.task_id, agent.name, False, ["Error: Requests rate limit exceeded"])
         return Verdict(spec.task_id, agent.name, True, [], wall_s=1.0)
 
@@ -79,7 +81,7 @@ def test_the_single_shot_sentinel_still_stands_behind_the_loop(tmp_path: Path, m
 
     assert out[0].accepted, out[0].reasons
     assert out[0].agent == "hosted", f"the sentinel should be the last resort, got {out[0].agent}"
-    assert dispatched == ["claude-code", "opencode:alibaba", "hosted"], dispatched
+    assert dispatched == ["claude-code", "opencode:alibaba-plan", "opencode:alibaba", "hosted"], dispatched
 
 
 def test_the_limited_route_is_cooled_and_not_blamed(tmp_path: Path, monkeypatch: Any) -> None:
