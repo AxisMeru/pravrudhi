@@ -38,7 +38,10 @@ const test = base.extend<{ browserDiagnostics: void }>({
 });
 
 for (const [path, heading] of [
-  ["/", "Improve"],
+  // The front door's heading is "Pravrudhi"; the sidebar entry that points here is labelled "Improve". This
+  // asserted the sidebar's label and went red when the front door was reworked (178e723), and stayed red,
+  // because no CI job runs this project — pages.yml runs only --project=deployed and ci.yml has no Playwright.
+  ["/", "Pravrudhi"],
   ["/objectives", "Objectives"],
   ["/runs", "Runs"],
   ["/models", "Models"],

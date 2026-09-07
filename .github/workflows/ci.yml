@@ -27,6 +27,34 @@ jobs:
       - run: uv run pytest tests -q
       - run: uv run python scripts/import_guard.py
 
+  # The local-engine e2e project starts a real engine and drives the real interface. Nothing ran it: pages.yml
+  # runs only --project=deployed and this file had no Playwright at all, so when the front door was reworked and
+  # its heading renamed, the test asserting the old name stayed red and unnoticed.
+  #
+  # Scoped to the page-rendering tests, which need no model. The chat-streaming test in the same file requires a
+  # reachable completion endpoint, and a CI runner has none; including it would make this job fail for a reason
+  # that says nothing about the change under test.
+  live-interface:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with: { python-version: "3.13" }
+      - uses: actions/setup-node@v4
+        with: { node-version: "24" }
+      - run: uv sync --all-groups --frozen
+      - name: build the interface the engine serves
+        working-directory: app/frontend
+        run: |
+          npm ci
+          npm run build
+      - name: install playwright browsers
+        working-directory: app/frontend
+        run: npx playwright install --with-deps chromium firefox
+      - name: every page renders on a real engine, in both engines
+        working-directory: app/frontend
+        run: npx playwright test --project=local-engine-chromium --project=local-engine-firefox --grep "renders its own live page"
+
   governance:
     runs-on: ubuntu-latest
     steps:
