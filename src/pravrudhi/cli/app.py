@@ -642,6 +642,42 @@ def appetite_cmd(root: Path = ROOT_OPT, as_json: bool = typer.Option(False, "--j
     typer.echo(kshudha.sentence(app_state))
 
 
+@app.command("integrate")
+def integrate_cmd(
+    root: Path = ROOT_OPT,
+    dry_run: bool = typer.Option(False, "--dry-run", help="report what would happen and change nothing"),
+    as_json: bool = typer.Option(False, "--json"),
+) -> None:
+    """Merge every agent worktree's accepted work back, three-way per file rather than copy per worktree.
+
+    Copying whole trees in sequence is last-writer wins: when two agents touched one shared file the second copy
+    reverted the first, and the loss only showed up when a test failed.
+    """
+    from pravrudhi.application.integrate import integrate as run_integrate
+
+    worktrees = {
+        d.name.removeprefix("agent-"): d
+        for d in sorted((root / ".worktrees").glob("agent-*")) if d.is_dir()
+    }
+    if not worktrees:
+        typer.echo("no agent worktrees to integrate")
+        return
+    result = run_integrate(root, worktrees, dry_run=dry_run)
+    if as_json:
+        typer.echo(json.dumps(result.to_dict(), sort_keys=True))
+    else:
+        for c in result.contested:
+            typer.echo(f"contested  {c.path}  ({', '.join(c.tasks)})")
+        for t in result.applied:
+            typer.echo(f"applied    {t}")
+        for s_ in result.skipped:
+            typer.echo(f"skipped    {s_}")
+        for c_ in result.conflicts:
+            typer.echo(f"CONFLICT   {c_}", err=True)
+    if not result.ok:
+        raise typer.Exit(1)
+
+
 @app.command("publish")
 def publish_cmd(
     root: Path = ROOT_OPT,
