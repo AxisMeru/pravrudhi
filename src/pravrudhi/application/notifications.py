@@ -18,7 +18,6 @@ text must never be trusted to be free of a key someone pasted into a prompt or a
 from __future__ import annotations
 
 import json
-import os
 import threading
 import uuid
 from dataclasses import dataclass
@@ -93,12 +92,20 @@ def _write_all(root: Path, rows: list[Notification]) -> None:
     tmp.replace(path)
 
 
-def emit(root: Path, *, kind: str, title: str, detail: str = "", ref: str = "") -> Notification:
+def emit(
+    root: Path, *, kind: str, title: str, detail: str = "", ref: str = "",
+    engine_root: Path | None = None,
+) -> Notification:
     """Record that something finished. `kind` is a short machine tag (`run_finished`, `job_accepted`,
     `job_rejected`, `job_cancelled`, `beat_dispatched`, `workflow_completed`, `criterion_met`, ...); `title` and
     `detail` are what a person reads; `ref` is a path into the app pointing at where it happened, or empty when
     there is nowhere to link. `title`, `detail` and `ref` are redacted before they are written, so a value that
-    happens to be shaped like a provider key never lands in the feed."""
+    happens to be shaped like a provider key never lands in the feed.
+
+    `engine_root` says whose engine this is, and only a caller that names it may fall back to the operator's own
+    bot credential in the process environment (`messaging.resolve_telegram`). It defaults to nothing, so a caller
+    that does not know — which is every caller acting for a signed-in user — delivers through that workspace's own
+    bot or not at all."""
     note = Notification(
         id=uuid.uuid4().hex[:12], at=_now(), kind=kind,
         title=redact(title), detail=redact(detail), ref=redact(ref), read=False,
@@ -111,33 +118,33 @@ def emit(root: Path, *, kind: str, title: str, detail: str = "", ref: str = "") 
         rows = _read_all(root)
         if len(rows) > MAX_NOTIFICATIONS:
             _write_all(root, rows[-MAX_NOTIFICATIONS:])
-    _reach(root, note)
+    _reach(root, note, engine_root)
     return note
 
 
-def _reach(root: Path, note: Notification) -> None:
+def _reach(root: Path, note: Notification, engine_root: Path | None) -> None:
     """Offer the notification to external messaging, which decides whether it is worth a person's attention.
 
     Recording a notification and delivering one are different jobs and this keeps them separate: the feed is
     written first and unconditionally, and reaching out happens afterwards on a copy that is already redacted.
     A delivery that fails, or a machine with no credential configured, must not lose the record or interrupt
     whatever was running, so every failure here is swallowed deliberately rather than raised.
+
+    Which bot to use is `messaging.resolve_telegram`'s question, not this function's: a workspace delivers
+    through the bot its owner configured in settings, and the operator's environment credential is reachable
+    only from the engine's own root.
     """
     try:
         from pravrudhi.application import reach
-        from pravrudhi.application.credentials import Secret
+        from pravrudhi.application.messaging import resolve_telegram
 
-        # The credential comes from the environment, and that is what keeps this to the operator. `reach.send`
-        # was written to take a token and a chat id and this function never passed either, so every delivery
-        # returned "no_credential" and nothing ever left the machine — the transport was tested, the wiring was
-        # not. A user's own bot is a different path: they bring it through settings and it is stored per
-        # workspace, never read from the engine's own environment.
-        token_value = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
-        chat_id = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
+        resolved = resolve_telegram(root, engine_root=engine_root)
+        if resolved is None:
+            return
+        token, chat_id = resolved
         reach.send(
             root, kind=note.kind, title=note.title, detail=note.detail,
-            token=Secret(provider="telegram", value=token_value) if token_value else None,
-            chat_id=chat_id or None,
+            token=token, chat_id=chat_id,
         )
     except Exception:  # noqa: BLE001 (a message that cannot be delivered must never take the night with it)
         return

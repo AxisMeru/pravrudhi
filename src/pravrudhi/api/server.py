@@ -57,6 +57,8 @@ from pravrudhi.api.schemas import (
     MemoryNoteResponse,
     MemoryResponse,
     MeResponse,
+    MessagingRequest,
+    MessagingStatusResponse,
     NightsResponse,
     NotificationsResponse,
     ObjectiveDetailResponse,
@@ -345,7 +347,7 @@ def create_app(root: Path) -> FastAPI:
             kind = "job_accepted" if job.state == "accepted" else "job_rejected"
             emit_notification(
                 root, kind=kind, title=f'"{job.title}" was {job.state}',
-                detail=" ".join(job.reasons), ref="/swarm",
+                detail=" ".join(job.reasons), ref="/swarm", engine_root=root,
             )
 
         threading.Thread(target=_poll, daemon=True).start()
@@ -360,7 +362,10 @@ def create_app(root: Path) -> FastAPI:
         except dispatchboard.DispatchError as e:
             raise HTTPException(404, str(e)) from e
         if job.state == "cancelled":
-            emit_notification(root, kind="job_cancelled", title=f'"{job.title}" was cancelled', ref="/swarm")
+            emit_notification(
+                root, kind="job_cancelled", title=f'"{job.title}" was cancelled', ref="/swarm",
+                engine_root=root,
+            )
         return job.to_dict()
 
     @api.get("/notifications", response_model=NotificationsResponse)
@@ -988,6 +993,51 @@ def create_app(root: Path) -> FastAPI:
         _keys(user, workspace).delete(provider_id)
         return {"provider": provider_id, "configured": False}
 
+    @api.get("/messaging/telegram", response_model=MessagingStatusResponse)
+    async def messaging_status_ep(
+        workspace: str | None = None, user: User | None = CurrentUserDep
+    ) -> dict[str, Any]:
+        """Whether this caller's workspace delivers notifications to Telegram, and where."""
+        from dataclasses import asdict
+
+        from pravrudhi.application.messaging import telegram_status
+
+        return asdict(telegram_status(_project(user, workspace), engine_root=root))
+
+    @api.put("/messaging/telegram", response_model=MessagingStatusResponse)
+    async def set_messaging_ep(
+        req: MessagingRequest, workspace: str | None = None, user: User | None = CurrentUserDep
+    ) -> dict[str, Any]:
+        """Store or amend this workspace's own bot.
+
+        A user brings their own: the engine's credential is the operator's and is reachable only from the
+        engine's own root (`messaging.resolve_telegram`), so configuring this is the only way a user's
+        notifications reach a phone. The stored token is never read back by any route."""
+        from dataclasses import asdict
+
+        from pravrudhi.application.messaging import MessagingError, set_telegram
+
+        try:
+            status = set_telegram(
+                _project(user, workspace), token=req.token, chat_id=req.chat_id, enabled=req.enabled
+            )
+        except MessagingError as e:
+            raise HTTPException(422, str(e)) from e
+        return asdict(status)
+
+    @api.delete("/messaging/telegram", response_model=MessagingStatusResponse)
+    async def clear_messaging_ep(
+        workspace: str | None = None, user: User | None = CurrentUserDep
+    ) -> dict[str, Any]:
+        """Forget this workspace's bot entirely."""
+        from dataclasses import asdict
+
+        from pravrudhi.application.messaging import clear_telegram, telegram_status
+
+        project = _project(user, workspace)
+        clear_telegram(project)
+        return asdict(telegram_status(project, engine_root=root))
+
     @api.get("/recipes")
     def recipes_ep() -> RecipesResponse:
         """The recipe catalogue, each entry marked available or not on this machine. Not evidence: naming a recipe
@@ -1043,7 +1093,7 @@ def create_app(root: Path) -> FastAPI:
         criterion_text = updated.criteria[index].text if 0 <= index < len(updated.criteria) else ""
         emit_notification(
             root, kind="criterion_met", title=f"Criterion met on request {rid}",
-            detail=criterion_text, ref="/requests",
+            detail=criterion_text, ref="/requests", engine_root=root,
         )
         return _request_response(updated)
 

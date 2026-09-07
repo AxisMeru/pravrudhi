@@ -320,6 +320,8 @@ class TestTheHookIntoNotifications:
         from pravrudhi.application import notifications
         from pravrudhi.application import reach as reach_mod
 
+        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "123:abc")
+        monkeypatch.setenv("TELEGRAM_CHAT_ID", "8679892510")
         seen: list[dict[str, str]] = []
         monkeypatch.setattr(
             reach_mod,
@@ -329,9 +331,31 @@ class TestTheHookIntoNotifications:
                 {"kind": kind, "title": title}
             ) or None,
         )
-        notifications.emit(tmp_path, kind="promotion_needed", title="c-0045 awaits sign-off")
+        # `engine_root` names whose engine this is. Only a caller that names it may use the operator's own
+        # credential from the environment; see `application/messaging.py`.
+        notifications.emit(
+            tmp_path, kind="promotion_needed", title="c-0045 awaits sign-off", engine_root=tmp_path
+        )
 
         assert seen == [{"kind": "promotion_needed", "title": "c-0045 awaits sign-off"}]
+
+    def test_a_caller_that_names_no_engine_never_uses_the_operators_bot(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The boundary at this seam: a workspace's notification must not be delivered to the operator's phone,
+        and the safe answer is the default rather than something a call site has to remember."""
+        from pravrudhi.application import notifications
+        from pravrudhi.application import reach as reach_mod
+
+        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "123:abc")
+        monkeypatch.setenv("TELEGRAM_CHAT_ID", "8679892510")
+        seen: list[object] = []
+        monkeypatch.setattr(reach_mod, "send", lambda *a, **k: seen.append(k) or None)
+
+        note = notifications.emit(tmp_path, kind="promotion_needed", title="somebody else's run")
+
+        assert seen == []
+        assert note.title == "somebody else's run", "the record is kept whether or not anything is delivered"
 
     def test_a_failing_sink_does_not_lose_the_record_or_raise(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -383,7 +407,9 @@ class TestTheCredentialActuallyReachesTheTransport:
             return None
 
         monkeypatch.setattr(reach_mod, "send", spy)
-        notifications.emit(tmp_path, kind="promotion_needed", title="something to sign off")
+        notifications.emit(
+            tmp_path, kind="promotion_needed", title="something to sign off", engine_root=tmp_path
+        )
 
         assert seen["chat_id"] == "8679892510"
         assert seen["token"] is not None, "the token never reached the transport, which is the whole bug"
@@ -405,9 +431,13 @@ class TestTheCredentialActuallyReachesTheTransport:
                 {"token": token, "chat_id": chat_id}
             ),
         )
-        note = notifications.emit(tmp_path, kind="promotion_needed", title="still recorded")
+        note = notifications.emit(
+            tmp_path, kind="promotion_needed", title="still recorded", engine_root=tmp_path
+        )
 
-        assert seen == {"token": None, "chat_id": None}
+        # Nothing to deliver through, so the transport is not called at all rather than called with nothing —
+        # the guarantee is the same and there is one fewer way for a credential to be half-passed.
+        assert seen == {}
         assert note.title == "still recorded"
 
     def test_an_empty_variable_is_treated_as_absent(
@@ -426,6 +456,6 @@ class TestTheCredentialActuallyReachesTheTransport:
                 {"token": token, "chat_id": chat_id}
             ),
         )
-        notifications.emit(tmp_path, kind="promotion_needed", title="x")
+        notifications.emit(tmp_path, kind="promotion_needed", title="x", engine_root=tmp_path)
 
-        assert seen == {"token": None, "chat_id": None}
+        assert seen == {}, "a blank EnvironmentFile was treated as a configured bot"

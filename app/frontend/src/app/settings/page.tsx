@@ -5,8 +5,11 @@ import { CheckCircle2, XCircle } from "lucide-react";
 import {
   agents,
   applyUpdate,
+  clearMessaging,
   deleteProviderKey,
   IS_DEMO,
+  messagingStatus,
+  putMessaging,
   providers,
   putProviderKey,
   putUpdateConfig,
@@ -15,6 +18,7 @@ import {
   updateStatus,
   type AgentStatus,
   type ApplyResult,
+  type MessagingStatus,
   type ProviderInfo,
   type UpdateConfig,
   type UpdateStatus,
@@ -320,6 +324,137 @@ function UpdatesSection() {
   );
 }
 
+
+// Notifications reach a phone through a bot the workspace owner brings. The engine's own credential is the
+// operator's and `messaging.resolve_telegram` will not hand it to a workspace, so there is nothing to inherit
+// and nothing here is preconfigured. The token is write-only: the server answers `configured`, never the value,
+// so this form can show what is set up without ever holding the secret again.
+function TelegramSection() {
+  const [status, setStatus] = useState<MessagingStatus | null>(null);
+  const [unsupported, setUnsupported] = useState(false);
+  const [token, setToken] = useState("");
+  const [chatId, setChatId] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    messagingStatus()
+      .then((next) => {
+        if (cancelled) return;
+        setStatus(next);
+        setChatId(next.chat_id);
+      })
+      .catch(() => {
+        if (!cancelled) setUnsupported(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const act = async (run: () => Promise<MessagingStatus>) => {
+    setBusy(true);
+    setError("");
+    try {
+      const next = await run();
+      setStatus(next);
+      setChatId(next.chat_id);
+      setToken("");  // never kept after it has been sent
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (unsupported) {
+    return <p className="text-sm text-[var(--color-text-dim)]">This engine does not report messaging yet.</p>;
+  }
+  if (status === null) return <p className="text-sm text-[var(--color-text-dim)]">Loading…</p>;
+
+  // The engine's own bot is set in its service environment, not here, and there is nothing on this page that
+  // could change it. Saying so is the point: a form offering to configure something already working, with no
+  // way to see what it is set to, is how a settings page starts disagreeing with the system it describes.
+  if (status.from_environment) {
+    return (
+      <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
+        <p className="text-sm text-[var(--color-text-dim)]">
+          Delivering to chat {status.chat_id} using this engine&apos;s own bot, configured in its launch
+          environment rather than here. A workspace of your own would bring its own bot instead.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
+      <p className="text-sm text-[var(--color-text-dim)]">
+        {status.configured
+          ? `Sending to chat ${status.chat_id}${status.enabled ? "" : " — currently paused"}.`
+          : "Not configured. Create a bot with @BotFather, then paste its token and your chat id."}
+      </p>
+
+      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+        <label className="block text-sm">
+          Bot token
+          <input
+            type="password"
+            value={token}
+            disabled={IS_DEMO || busy}
+            onChange={(e) => setToken(e.target.value)}
+            placeholder={status.configured ? "stored — paste a new one to replace it" : "123456:ABC-DEF…"}
+            className="mt-1 w-full rounded border border-[var(--color-border)] bg-[var(--color-bg)] p-2 font-mono text-xs"
+          />
+        </label>
+        <label className="block text-sm">
+          Chat id
+          <input
+            value={chatId}
+            disabled={IS_DEMO || busy}
+            onChange={(e) => setChatId(e.target.value)}
+            placeholder="8679892510"
+            className="mt-1 w-full rounded border border-[var(--color-border)] bg-[var(--color-bg)] p-2 font-mono text-xs"
+          />
+        </label>
+      </div>
+
+      {error && <p role="alert" className="mt-3 text-xs text-[var(--color-danger)]">{error}</p>}
+
+      <div className="mt-3 flex flex-wrap gap-4">
+        <button
+          type="button"
+          disabled={IS_DEMO || busy || !token.trim() || !chatId.trim()}
+          onClick={() => act(() => putMessaging({ token: token.trim(), chat_id: chatId.trim() }))}
+          className="rounded bg-[var(--color-accent)] px-3 py-2 text-sm text-[var(--color-bg)] disabled:opacity-50"
+        >
+          {status.configured ? "Replace bot" : "Save bot"}
+        </button>
+        {status.configured && (
+          <>
+            <button
+              type="button"
+              disabled={IS_DEMO || busy}
+              onClick={() => act(() => putMessaging({ enabled: !status.enabled }))}
+              className="text-sm text-[var(--color-text-dim)] hover:text-[var(--color-text)] disabled:opacity-50"
+            >
+              {status.enabled ? "Pause delivery" : "Resume delivery"}
+            </button>
+            <button
+              type="button"
+              disabled={IS_DEMO || busy}
+              onClick={() => act(clearMessaging)}
+              className="text-sm text-[var(--color-danger)] disabled:opacity-50"
+            >
+              Remove bot
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function SettingsPage() {
   const [rows, setRows] = useState<AgentStatus[] | null>(null);
   const [unsupported, setUnsupported] = useState(false);
@@ -386,6 +521,11 @@ export default function SettingsPage() {
         <div>
           <h2 className="mb-3 text-sm font-medium text-[var(--color-text)]">Model providers</h2>
           <ProvidersSection />
+        </div>
+
+        <div>
+          <h2 className="mb-3 text-sm font-medium text-[var(--color-text)]">Telegram notifications</h2>
+          <TelegramSection />
         </div>
 
         <UpdatesSection />

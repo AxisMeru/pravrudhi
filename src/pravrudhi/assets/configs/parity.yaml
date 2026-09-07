@@ -86,7 +86,11 @@ rows:
   evidence:
   - 'command: grep -qF "<NotificationBell />" app/frontend/src/components/Sidebar.tsx'
   - app/frontend/src/components/notifications/NotificationBell.tsx
-  notes: In-app bell is mounted; external messaging and OS notifications are not claimed.
+  - 'command: .venv/bin/python -m pytest tests/test_messaging.py -q'
+  - app/frontend/src/app/settings/page.tsx
+  notes: The in-app bell is mounted, and a notification is also delivered to Telegram - the operator's engine
+    through its own environment, a user's workspace through a bot they add in settings, and never one through
+    the other. OS notifications are still not claimed.
 - id: desktop-shell
   capability: Native desktop shell
   why_it_matters: Keep the local engine in a dedicated application window.

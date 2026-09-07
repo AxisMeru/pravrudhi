@@ -298,6 +298,36 @@ export async function deleteProviderKey(id: string): Promise<ProviderKeyResult> 
   return deleteJSON<ProviderKeyResult>(`/api/providers/${encodeURIComponent(id)}/key`);
 }
 
+// A workspace's own Telegram bot. The engine's credential belongs to the operator and a workspace cannot reach
+// it (application/messaging.py::resolve_telegram), so bringing your own is the only way notifications reach a
+// phone. `configured` is all the server will say about the token — it is never readable back.
+export interface MessagingStatus {
+  configured: boolean;
+  enabled: boolean;
+  chat_id: string;
+  /** True on the operator's own engine, whose bot comes from its service environment rather than settings. */
+  from_environment?: boolean;
+}
+
+export async function messagingStatus(): Promise<MessagingStatus> {
+  return getJSON<MessagingStatus>("/api/messaging/telegram");
+}
+
+// Fields left out are left alone, so the on/off switch does not require re-posting the token.
+export async function putMessaging(body: {
+  token?: string;
+  chat_id?: string;
+  enabled?: boolean;
+}): Promise<MessagingStatus> {
+  if (IS_DEMO) throw new ApiError(501, "/api/messaging/telegram");
+  return putJSON<MessagingStatus>("/api/messaging/telegram", body);
+}
+
+export async function clearMessaging(): Promise<MessagingStatus> {
+  if (IS_DEMO) throw new ApiError(501, "/api/messaging/telegram");
+  return deleteJSON<MessagingStatus>("/api/messaging/telegram");
+}
+
 // Whether this checkout is behind the newest tagged release (see `application.updates`), and the exact
 // command that would catch it up. Its own endpoint: the check reaches GitHub, and /api/status is polled.
 export interface UpdateStatus {

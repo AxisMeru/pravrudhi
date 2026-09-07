@@ -119,6 +119,7 @@ USER_FACING: frozenset[str] = frozenset({
     "/api/health", "/api/status",
     "/api/me",
     "/api/memory", "/api/memory/notes", "/api/memory/notes/{note_id}",
+    "/api/messaging/telegram",
     "/api/notifications", "/api/notifications/read",
     "/api/objectives", "/api/objectives/plan-preview", "/api/objectives/{oid}",
     "/api/objectives/{oid}/loom", "/api/objectives/{oid}/plan", "/api/objectives/{oid}/subagents",

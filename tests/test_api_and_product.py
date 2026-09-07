@@ -195,3 +195,51 @@ def test_correcting_or_deleting_a_note_that_is_not_there_is_a_404(tmp_path: Path
 
     assert c.patch("/api/memory/notes/no-such-note", json={"text": "anything"}, headers=tok).status_code == 404
     assert c.delete("/api/memory/notes/no-such-note", headers=tok).status_code == 404
+
+
+def test_a_workspace_configures_its_own_telegram_bot_and_the_token_never_comes_back(tmp_path: Path) -> None:
+    """A user's notifications reach their own bot or nobody's: the engine's credential is the operator's, and
+    `messaging.resolve_telegram` will not hand it to a workspace. So configuring this is the only way a user's
+    notifications reach a phone — and the token, once stored, is never readable through any route."""
+    root = tmp_path / "workspace"
+    root.mkdir()
+    init_project(root)
+    c = TestClient(create_app(root), base_url="http://127.0.0.1:8008")
+    tok = {TOKEN_HEADER: app_token(root)}
+
+    assert c.get("/api/messaging/telegram", headers=tok).json() == {
+        "configured": False, "enabled": False, "chat_id": "", "from_environment": False,
+    }
+
+    stored = c.put(
+        "/api/messaging/telegram",
+        json={"token": "123456:ABC-DEF-secret", "chat_id": "8679892510"}, headers=tok,
+    )
+    assert stored.status_code == 200, stored.text
+    assert stored.json() == {
+        "configured": True, "enabled": True, "chat_id": "8679892510", "from_environment": False,
+    }
+
+    # Every route that could plausibly echo it, checked against the response text rather than a field name.
+    for path in ("/api/messaging/telegram", "/api/providers", "/api/status"):
+        body = c.get(path, headers=tok)
+        assert "ABC-DEF-secret" not in body.text, f"the bot token was readable through {path}"
+
+    silenced = c.put("/api/messaging/telegram", json={"enabled": False}, headers=tok)
+    assert silenced.json() == {
+        "configured": True, "enabled": False, "chat_id": "8679892510", "from_environment": False,
+    }, "silencing delivery must not forget the credential"
+
+    assert c.delete("/api/messaging/telegram", headers=tok).json()["configured"] is False
+
+
+def test_a_bot_token_with_nowhere_to_deliver_is_refused(tmp_path: Path) -> None:
+    root = tmp_path / "workspace"
+    root.mkdir()
+    init_project(root)
+    c = TestClient(create_app(root), base_url="http://127.0.0.1:8008")
+    tok = {TOKEN_HEADER: app_token(root)}
+
+    refused = c.put("/api/messaging/telegram", json={"token": "123456:ABC"}, headers=tok)
+    assert refused.status_code == 422
+    assert c.get("/api/messaging/telegram", headers=tok).json()["configured"] is False

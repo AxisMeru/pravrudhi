@@ -708,6 +708,27 @@ class MemoryNoteResponse(BaseModel):
     """When the note was last edited, empty for one nobody has edited."""
 
 
+class MessagingStatusResponse(BaseModel):
+    """Whether this workspace has a Telegram bot and where it delivers. Carries no token: `configured` answers
+    "is there a credential" without being one, which is the only thing a route may say about a secret."""
+
+    configured: bool
+    enabled: bool
+    chat_id: str
+    from_environment: bool = False
+    """True on the operator's own engine, whose bot is set in its service environment rather than stored here."""
+
+
+class MessagingRequest(BaseModel):
+    """A change to this workspace's bot. Every field is optional so the on/off switch can be flipped without the
+    token being posted again — a form that must re-send a secret to change an unrelated field teaches people to
+    keep the secret somewhere convenient."""
+
+    token: str | None = None
+    chat_id: str | None = None
+    enabled: bool | None = None
+
+
 class ForgottenResponse(BaseModel):
     """The note that was deleted. Naming it back is what lets a caller confirm the deletion it asked for went
     through rather than inferring it from a status code."""
