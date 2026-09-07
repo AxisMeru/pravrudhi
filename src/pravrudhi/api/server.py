@@ -20,6 +20,7 @@ from pydantic import BaseModel
 
 from pravrudhi import KERNEL_VERSION, __version__
 from pravrudhi.agents.registry import survey
+from pravrudhi.api import roles
 from pravrudhi.api.chat import build_chat_router
 from pravrudhi.api.identity import CurrentUserDep, User, auth_mode
 from pravrudhi.api.localguard import install as install_local_guard
@@ -984,6 +985,10 @@ def create_app(root: Path) -> FastAPI:
 
     app.include_router(api)
     app.include_router(build_chat_router(root))
+    # Attach the operator check to the surfaces about Pravrudhi improving itself. Done here, over the finished
+    # route table, so the classification lives in one readable list in `roles.py` rather than in sixty
+    # decorators, and a route nobody classified fails a test instead of shipping open.
+    roles.gate(app)
     return app
 
 
