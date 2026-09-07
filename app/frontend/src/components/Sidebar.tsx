@@ -31,6 +31,7 @@ import {
 } from "lucide-react";
 import type { ComponentType } from "react";
 import { NotificationBell } from "@/components/notifications/NotificationBell";
+import { edition, PRODUCT, type Edition } from "@/lib/edition";
 import { inbox } from "@/lib/inbox";
 import { requests } from "@/lib/requests";
 
@@ -69,6 +70,13 @@ const NAV: NavItem[] = [
 
 export function Sidebar() {
   const pathname = usePathname();
+  // The interface names itself from who is asking, so an operator sees Studio and a user sees the product.
+  const [whoami, setWhoami] = useState<Edition>(PRODUCT);
+  useEffect(() => {
+    let off = false;
+    edition().then((e) => !off && setWhoami(e)).catch(() => {});
+    return () => { off = true; };
+  }, []);
   const [pendingInbox, setPendingInbox] = useState(0);
   const [openRequests, setOpenRequests] = useState(0);
 
@@ -97,11 +105,11 @@ export function Sidebar() {
     <aside className="flex h-full w-60 shrink-0 flex-col border-r border-[var(--color-border)] bg-[var(--color-surface)]">
       <div className="border-b border-[var(--color-border)] px-5 py-5">
         <div className="flex items-center justify-between gap-2">
-          <div className="text-lg font-semibold tracking-tight text-[var(--color-text)]">Pravrudhi</div>
+          <div className="text-lg font-semibold tracking-tight text-[var(--color-text)]">{whoami.edition}</div>
           <NotificationBell />
         </div>
         <p className="mt-1 text-xs leading-snug text-[var(--color-text-dim)]">
-          Improve your model or your agent harness, on your hardware, while you watch.
+          {whoami.tagline}
         </p>
       </div>
       <nav className="flex flex-1 flex-col gap-1 p-3">

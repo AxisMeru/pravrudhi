@@ -895,6 +895,11 @@ class MeResponse(BaseModel):
     id: str | None = None
     email: str | None = None
     role: str | None = None
+    edition: str = "Pravrudhi"
+    """Which of the two products this caller is looking at: Pravrudhi Studio builds Pravrudhi, Pravrudhi builds
+    the user's own work. Derived from the role rather than compiled in, so one binary introduces itself
+    correctly to whoever opened it."""
+    tagline: str = ""
 
 
 class WorkspaceResponse(BaseModel):

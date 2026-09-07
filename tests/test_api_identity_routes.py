@@ -23,7 +23,13 @@ def test_disabled_identity_says_so_and_offers_only_the_local_workspace(tmp_path:
     monkeypatch.setenv("PRAVRUDHI_AUTH", "disabled")
     c = _client(tmp_path)
     me = c.get("/api/me").json()
-    assert me == {"mode": "disabled", "authenticated": False, "id": None, "email": None, "role": None}
+    # Identity fields are all empty, which is the point of this test. The two edition fields are not identity:
+    # they say which of the two products the caller is looking at, and a local machine with authentication off
+    # is the operator's, so it is Studio.
+    assert {k: me[k] for k in ("mode", "authenticated", "id", "email", "role")} == {
+        "mode": "disabled", "authenticated": False, "id": None, "email": None, "role": None
+    }
+    assert me["edition"] == "Pravrudhi Studio" and me["tagline"]
     ws = c.get("/api/workspaces").json()
     assert ws["owner"] == "local" and [w["slug"] for w in ws["workspaces"]] == ["local"]
     r = c.post("/api/workspaces", json={"slug": "legal"}, headers={TOKEN_HEADER: app_token(tmp_path)})

@@ -1,3 +1,7 @@
+"use client";
+
+import { useLayoutEffect } from "react";
+import { selectAnnotationTask } from "./AnnotationSelection";
 import { fixed } from "@/lib/num";
 import type { TaskSummary } from "@/lib/diffs";
 
@@ -10,6 +14,11 @@ export function TaskList({
   selected: string | null;
   onSelect: (taskId: string) => void;
 }) {
+  useLayoutEffect(() => {
+    selectAnnotationTask(selected);
+    return () => selectAnnotationTask(null);
+  }, [selected]);
+
   if (tasks.length === 0) {
     return <p className="text-sm text-[var(--color-text-dim)]">No dispatched task has a worktree here yet.</p>;
   }

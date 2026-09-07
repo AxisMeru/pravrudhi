@@ -1,5 +1,7 @@
 "use client";
 
+import { lineAddresses } from "@/lib/annotations";
+import { LineNotes } from "./Annotations";
 import { useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { fixed } from "@/lib/num";
@@ -7,7 +9,8 @@ import type { DiffHunk, FileDiff } from "@/lib/diffs";
 
 // Syntax-neutral: a line's colour comes only from its unified-diff role (add/del/context), never from the
 // language it happens to be written in. The diff viewer has to render every file type the swarm might touch.
-function HunkBlock({ hunk }: { hunk: DiffHunk }) {
+function HunkBlock({ hunk, file }: { hunk: DiffHunk; file: string }) {
+  const addresses = lineAddresses(hunk);
   return (
     <div>
       <div className="bg-[var(--color-surface-raised)] px-3 py-1 font-mono text-[11px] text-[var(--color-text-dim)]">
@@ -27,7 +30,9 @@ function HunkBlock({ hunk }: { hunk: DiffHunk }) {
           <span className="mr-2 inline-block w-3 shrink-0 select-none text-[var(--color-text-dim)]">
             {line.kind === "add" ? "+" : line.kind === "del" ? "-" : ""}
           </span>
+          <span className="mr-2 w-16 shrink-0 text-[var(--color-text-dim)]">{addresses[i] ? `${addresses[i]!.side}:${addresses[i]!.line}` : ""}</span>
           <span className="min-w-0 flex-1">{line.text}</span>
+          {addresses[i] && <LineNotes file={file} {...addresses[i]!} />}
         </div>
       ))}
     </div>
@@ -78,7 +83,7 @@ export function DiffFilePanel({ file }: { file: FileDiff }) {
             file.hunks.map((hunk, i) => (
               <div key={i}>
                 {i > 0 && <div className="px-3 py-1 text-center text-[10px] text-[var(--color-text-dim)]">⋯</div>}
-                <HunkBlock hunk={hunk} />
+                <HunkBlock hunk={hunk} file={file.path} />
               </div>
             ))}
           {file.too_large && file.hunks.length > 0 && (

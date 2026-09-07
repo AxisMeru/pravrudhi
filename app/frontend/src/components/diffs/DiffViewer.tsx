@@ -1,8 +1,17 @@
+"use client";
+
+import { AnnotationProvider } from "./Annotations";
+import { useAnnotationTask } from "./AnnotationSelection";
 import { fixed } from "@/lib/num";
 import type { WorktreeDiff } from "@/lib/diffs";
 import { DiffFilePanel } from "./DiffFilePanel";
 
 export function DiffViewer({ diff }: { diff: WorktreeDiff }) {
+  const task = useAnnotationTask();
+  return task ? <AnnotationProvider key={task + ":" + diff.base + ":" + diff.head} task={task} revision={`${diff.base} → ${diff.head}`}><DiffContent diff={diff} /></AnnotationProvider> : <DiffContent diff={diff} />;
+}
+
+function DiffContent({ diff }: { diff: WorktreeDiff }) {
   if (diff.reason) {
     return <p className="text-sm text-[var(--color-text-dim)]">{diff.reason}</p>;
   }

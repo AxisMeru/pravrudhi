@@ -866,7 +866,13 @@ def create_app(root: Path) -> FastAPI:
     @api.get("/me", response_model=MeResponse)
     async def me(user: User | None = CurrentUserDep) -> dict[str, Any]:
         """Who is asking. Says so plainly when identity is disabled rather than inventing an anonymous user."""
-        base = {"mode": str(auth_mode()), "authenticated": user is not None}
+        from pravrudhi.api.edition import edition_for, tagline_for
+
+        which = edition_for(user)
+        base = {
+            "mode": str(auth_mode()), "authenticated": user is not None,
+            "edition": which, "tagline": tagline_for(which),
+        }
         return base if user is None else {**base, "id": user.id, "email": user.email, "role": user.role}
 
     @api.get("/workspaces", response_model=WorkspacesResponse)

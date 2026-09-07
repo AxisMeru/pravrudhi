@@ -143,10 +143,16 @@ rows:
   capability: Embedded terminal emulator
   why_it_matters: Run and watch a command without leaving the application.
   rivals: {orca: have, claude_desktop: unknown, codex: unknown, openclaw: unknown}
-  ours: none
-  evidence: []
-  notes: No terminal emulator in the interface. Commands run through the engine and their output is shown as
-    records, not as an interactive shell.
+  ours: partial
+  evidence:
+  - app/frontend/src/components/terminal/RunTerminal.tsx
+  - app/frontend/src/lib/terminal.ts
+  - 'command: grep -qF api/runs/ app/frontend/src/lib/terminal.ts'
+  notes: >-
+    A run's output streams into the interface as it happens, over the same server-sent events the engine already
+    publishes, with scrollback and follow-the-tail. Partial rather than have, and deliberately so: it accepts no
+    typed input. A shell in a web page is a remote execution surface and this engine's threat model does not
+    have one, so the gap against Orca here is a decision rather than unfinished work.
 - id: github-integration
   capability: GitHub repository and pull request integration
   why_it_matters: Review and land work without switching to a browser.
@@ -195,10 +201,16 @@ rows:
   capability: Annotate a generated diff
   why_it_matters: Say what is wrong with a change at the line it is wrong on.
   rivals: {orca: have, claude_desktop: unknown, codex: unknown, openclaw: unknown}
-  ours: partial
+  ours: have
   evidence:
   - app/frontend/src/components/diffs/DiffViewer.tsx
-  notes: A diff can be read per file and per task. Nothing can be written back onto a line.
+  - app/frontend/src/components/diffs/Annotations.tsx
+  - app/frontend/src/components/diffs/annotations.spec.ts
+  notes: >-
+    A note attaches to a file and line of a task's diff, several to a line, and the set for a task reads as a
+    whole because the reason to write them is to hand them to someone. They live in the browser: an annotation
+    is one reviewer's working note, the engine has no route to store one, and a blocked storage API degrades to
+    notes that last the session rather than breaking the page.
 - id: command-line
   capability: A command line for the whole product
   why_it_matters: Script the tool and use it over a plain SSH session.
