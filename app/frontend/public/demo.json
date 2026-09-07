@@ -6746,21 +6746,21 @@
       "healthy": true,
       "last_check": null,
       "last_result": "dev channel: tracks the git checkout directly, not a packaged release",
-      "root": "/home/ss/projects/pravrudhi"
+      "root": "."
     },
     {
       "auto_apply": true,
       "available_versions": [
-        "0.2.3",
         "0.2.4",
-        "0.3.0"
+        "0.3.0",
+        "0.3.1"
       ],
       "channel": "release",
-      "current_version": "0.3.0",
+      "current_version": "0.3.1",
       "due": false,
       "healthy": true,
-      "last_check": 1788768996.16838,
-      "last_result": "running 0.3.0",
+      "last_check": 1788772925.1875114,
+      "last_result": "running 0.3.1",
       "root": "/home/ss/pravrudhi-release"
     }
   ],
@@ -6777,12 +6777,12 @@
         "ok": true
       },
       {
-        "detail": "last heartbeat was 1679s ago",
+        "detail": "last heartbeat was 1499s ago",
         "name": "scheduler_fresh",
         "ok": true
       },
       {
-        "detail": "706237960192 bytes free",
+        "detail": "706232496128 bytes free",
         "name": "disk_available",
         "ok": true
       },
@@ -6797,7 +6797,7 @@
         "ok": true
       },
       {
-        "detail": "developer checkout; a known-good commit is 0cfafc4, with 2 uncommitted file(s)",
+        "detail": "developer checkout; a known-good commit is ea582b5, with 2 uncommitted file(s)",
         "name": "release_restorable",
         "ok": true
       },
@@ -6810,6 +6810,18 @@
     "state": "ready"
   },
   "heartbeat": [
+    {
+      "at": "2026-09-07T09:05:45Z",
+      "chose": {
+        "request": "r-5795501a"
+      },
+      "drive": "obligations",
+      "drive_deficit": 0.3650793650793651,
+      "looked_at": [],
+      "reason": "r-5795501a is fully evidenced and awaiting the completion gate (`pravrudhi requests-advance r-5795501a verified`)",
+      "result": null,
+      "sentence": "I am working on what the operator is still owed because obligations has the largest eligible deficit."
+    },
     {
       "at": "2026-09-07T08:27:08Z",
       "chose": {
@@ -7103,31 +7115,6 @@
         "route": "claude-code"
       },
       "sentence": ""
-    },
-    {
-      "at": "2026-09-06T18:26:44Z",
-      "chose": {
-        "objective": "code-harness",
-        "step": "candidate-evaluation"
-      },
-      "drive": null,
-      "drive_deficit": null,
-      "looked_at": [
-        "code-harness",
-        "math-reasoning",
-        "prabhasa-nyaya"
-      ],
-      "reason": "dispatched code-harness:candidate-evaluation (rejected)",
-      "result": {
-        "accepted": false,
-        "files": [],
-        "reasons": [
-          "agent exited non-zero: no detail",
-          "no change produced"
-        ],
-        "route": "claude-code"
-      },
-      "sentence": ""
     }
   ],
   "inbox": [
@@ -7135,21 +7122,21 @@
       "badge": "amber",
       "candidate": "c-0060",
       "night": "harness-night1",
-      "pack": "/home/ss/projects/pravrudhi/research/inbox/harness-night1/c-0060",
+      "pack": "research/inbox/harness-night1/c-0060",
       "signed": false
     },
     {
       "badge": "green",
       "candidate": "c-0078",
       "night": "harness-night3",
-      "pack": "/home/ss/projects/pravrudhi/research/inbox/harness-night3/c-0078",
+      "pack": "research/inbox/harness-night3/c-0078",
       "signed": false
     },
     {
       "badge": "green",
       "candidate": "c-0045",
       "night": "night4",
-      "pack": "/home/ss/projects/pravrudhi/research/inbox/night4/c-0045",
+      "pack": "research/inbox/night4/c-0045",
       "signed": false
     }
   ],
@@ -12655,7 +12642,7 @@
       "planned": 0,
       "verified": 4
     },
-    "oldest_open_days": 0.64,
+    "oldest_open_days": 0.67,
     "open": 3,
     "requests": [
       {
@@ -12701,6 +12688,16 @@
                 "kind": "command",
                 "note": "28 passed",
                 "ref": "cd app/desktop && node --test test/"
+              },
+              {
+                "kind": "file",
+                "note": "the desktop app in the dashboard",
+                "ref": "app/frontend/src/app/desktop/page.tsx"
+              },
+              {
+                "kind": "file",
+                "note": "a real capture from the running shell",
+                "ref": "app/frontend/public/desktop/shell-connected.png"
               }
             ],
             "met": true,
@@ -12797,7 +12794,7 @@
           7
         ],
         "session": "9e647463",
-        "staleness_days": 0.64,
+        "staleness_days": 0.67,
         "state": "delivered",
         "text": "and in no way you are near the orca with all its ade features or openclaw or polished features like claude desktop or codex....you have to beat them in features, utility and ux....dedicate an agent to persist on it...dedicate an agent to adversarial review against set goals so that the project does not drift...i am not seeing the desktop screen/features too in the dashboard..the demo should show real clicks etc and how the desktop app updates and produces the real results...where is the intent, goal, objective menu that drives everything...where are the tools, skills, plugins, multi-agent orchestration etc....don't be superficial..i want real things ..deep, sophisticated..complete...no synthetic, no hand-waving, no fabrication"
       },
@@ -13083,7 +13080,7 @@
           13
         ],
         "session": "9e647463",
-        "staleness_days": 0.55,
+        "staleness_days": 0.57,
         "state": "in_progress",
         "text": "ensure that all user asks go into a log in pravrudhi itself and gets addressed with some protocol...and pravrudhi should have some element of ego with a desire to survive, grow and flourish...that makes it seek out capabilities, build, test and continuously improve...also look at acorn, oak and openclaw_build or swarm projects on this machine that had these self building elements in them and adapt...pravrudhi should be something like a cow..consume everything possible but bring it back and slowly digest it --so equivalent is breadth first and depth later....be always value focused...you have to innovate on methods too....develop skills, agents and plugins....brainstorm with astra with higher thinking levels and let it propose solution..you review and coordinate its implementation across the swarm...you should also create dynamic workflows etc...also see how much you can incorporate the claude code engine itself to run open and other cloud models ...askuserquestion to get my intent properly"
       },
@@ -13094,12 +13091,12 @@
             "evidence": [
               {
                 "kind": "file",
-                "note": "astra declared at the design and critical tiers, the tough ones",
+                "note": "the critical tier names astra; a named route outranks cost",
                 "ref": "src/pravrudhi/assets/configs/routing.yaml"
               },
               {
                 "kind": "command",
-                "note": "the tier table and its declared order",
+                "note": "20 passed, including that the named route wins its tier",
                 "ref": "uv run pytest -q tests/test_routing.py"
               }
             ],
@@ -13133,8 +13130,13 @@
             "evidence": [
               {
                 "kind": "file",
-                "note": "the ask captured verbatim with its criteria",
-                "ref": "src/pravrudhi/application/requests.py"
+                "note": "this ask stored verbatim as r-d3589b52 in the committed snapshot",
+                "ref": "app/frontend/public/demo.json"
+              },
+              {
+                "kind": "url",
+                "note": "the backlog, published",
+                "ref": "https://sharathsphd.github.io/pravrudhi/app/requests"
               }
             ],
             "met": true,
@@ -13210,7 +13212,7 @@
           6
         ],
         "session": "9e647463",
-        "staleness_days": 0.49,
+        "staleness_days": 0.52,
         "state": "captured",
         "text": "let astra handle the tough jobs...let it bring up the desktop app, test...integrate fully with the api etc...route it to requests and let pravrudhi handle this request autonomously...also adversarial review and thorough e2e tests before marking any completion...give it also the ralph-loop closure (skill) to make it robust and not escape with half-baked features"
       },
@@ -14645,16 +14647,16 @@
     "channel": "dev",
     "check_interval_min": 30,
     "current": {
-      "git_describe": "v0.3.1-5-g0cfafc4",
+      "git_describe": "v0.3.1-6-gea582b5",
       "kernel_version": "0.1.0",
       "version": "0.3.1"
     },
     "keep_previous": 2
   },
   "version": {
-    "commit": "0cfafc4",
+    "commit": "ea582b5",
     "engine": "0.3.1",
-    "exported_at": "2026-09-07T08:55:00.816Z",
+    "exported_at": "2026-09-07T09:30:37.003Z",
     "kernel": "0.1.0"
   }
 }
