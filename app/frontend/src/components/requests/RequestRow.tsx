@@ -26,7 +26,7 @@ export function RequestRow({ item }: { item: RequestItem }) {
           <ChevronRight size={14} className="shrink-0 text-[var(--color-text-dim)]" />
         )}
         <span className="min-w-0 flex-1 truncate text-sm text-[var(--color-text)]">{firstLine}</span>
-        <ProgressBar met={met} total={total} />
+        <ProgressBar met={met} total={total} state={item.state} />
         <StateChip state={item.state} />
         <Staleness days={item.staleness_days} />
       </button>
