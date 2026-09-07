@@ -6777,12 +6777,12 @@
         "ok": true
       },
       {
-        "detail": "last heartbeat was 596s ago",
+        "detail": "last heartbeat was 1679s ago",
         "name": "scheduler_fresh",
         "ok": true
       },
       {
-        "detail": "706987761664 bytes free",
+        "detail": "706237960192 bytes free",
         "name": "disk_available",
         "ok": true
       },
@@ -6797,7 +6797,7 @@
         "ok": true
       },
       {
-        "detail": "developer checkout; a known-good commit is c3265cf, with 2 uncommitted file(s)",
+        "detail": "developer checkout; a known-good commit is 0cfafc4, with 2 uncommitted file(s)",
         "name": "release_restorable",
         "ok": true
       },
@@ -12655,7 +12655,7 @@
       "planned": 0,
       "verified": 4
     },
-    "oldest_open_days": 0.63,
+    "oldest_open_days": 0.64,
     "open": 3,
     "requests": [
       {
@@ -12797,7 +12797,7 @@
           7
         ],
         "session": "9e647463",
-        "staleness_days": 0.63,
+        "staleness_days": 0.64,
         "state": "delivered",
         "text": "and in no way you are near the orca with all its ade features or openclaw or polished features like claude desktop or codex....you have to beat them in features, utility and ux....dedicate an agent to persist on it...dedicate an agent to adversarial review against set goals so that the project does not drift...i am not seeing the desktop screen/features too in the dashboard..the demo should show real clicks etc and how the desktop app updates and produces the real results...where is the intent, goal, objective menu that drives everything...where are the tools, skills, plugins, multi-agent orchestration etc....don't be superficial..i want real things ..deep, sophisticated..complete...no synthetic, no hand-waving, no fabrication"
       },
@@ -13083,7 +13083,7 @@
           13
         ],
         "session": "9e647463",
-        "staleness_days": 0.54,
+        "staleness_days": 0.55,
         "state": "in_progress",
         "text": "ensure that all user asks go into a log in pravrudhi itself and gets addressed with some protocol...and pravrudhi should have some element of ego with a desire to survive, grow and flourish...that makes it seek out capabilities, build, test and continuously improve...also look at acorn, oak and openclaw_build or swarm projects on this machine that had these self building elements in them and adapt...pravrudhi should be something like a cow..consume everything possible but bring it back and slowly digest it --so equivalent is breadth first and depth later....be always value focused...you have to innovate on methods too....develop skills, agents and plugins....brainstorm with astra with higher thinking levels and let it propose solution..you review and coordinate its implementation across the swarm...you should also create dynamic workflows etc...also see how much you can incorporate the claude code engine itself to run open and other cloud models ...askuserquestion to get my intent properly"
       },
@@ -13210,7 +13210,7 @@
           6
         ],
         "session": "9e647463",
-        "staleness_days": 0.48,
+        "staleness_days": 0.49,
         "state": "captured",
         "text": "let astra handle the tough jobs...let it bring up the desktop app, test...integrate fully with the api etc...route it to requests and let pravrudhi handle this request autonomously...also adversarial review and thorough e2e tests before marking any completion...give it also the ralph-loop closure (skill) to make it robust and not escape with half-baked features"
       },
@@ -14113,18 +14113,18 @@
       {
         "agent": "claude-code",
         "model": "sonnet",
-        "reason": "sonnet has the best measured success rate at this tier (32/35) and nothing cheaper matches it; dropped cooling route(s) qwen-coder",
+        "reason": "sonnet has the best measured success rate at this tier (33/36) and nothing cheaper matches it; dropped cooling route(s) qwen-coder",
         "records": [
           {
-            "hi": 0.970418168994703,
-            "lo": 0.7762040092883747,
-            "mean_wall_s": 393.2169007167154,
-            "rate": 0.9142857142857143,
+            "hi": 0.9712519107287082,
+            "lo": 0.7817298972308114,
+            "mean_wall_s": 391.3784426011132,
+            "rate": 0.9166666666666666,
             "relative_cost": 2.9,
             "route_id": "sonnet",
-            "successes": 32,
+            "successes": 33,
             "tier": "design",
-            "trials": 35
+            "trials": 36
           },
           {
             "hi": 1.0,
@@ -14165,10 +14165,21 @@
         "tier": "design"
       },
       {
-        "agent": "claude-code",
-        "model": "sonnet",
-        "reason": "sonnet costs 2.9 against astra's 10 and their intervals overlap (31/36 against 5/5), so the extra spend is not yet justified; dropped cooling route(s) qwen-coder",
+        "agent": "codex",
+        "model": "gpt-6-astra",
+        "reason": "astra is the route declared for this tier by the operator, so cost does not decide it",
         "records": [
+          {
+            "hi": 1.0,
+            "lo": 0.5655085052479191,
+            "mean_wall_s": 128.6,
+            "rate": 1.0,
+            "relative_cost": 10.0,
+            "route_id": "astra",
+            "successes": 5,
+            "tier": "critical",
+            "trials": 5
+          },
           {
             "hi": 1.0,
             "lo": 0.0,
@@ -14193,17 +14204,6 @@
           },
           {
             "hi": 1.0,
-            "lo": 0.5655085052479191,
-            "mean_wall_s": 128.6,
-            "rate": 1.0,
-            "relative_cost": 10.0,
-            "route_id": "astra",
-            "successes": 5,
-            "tier": "critical",
-            "trials": 5
-          },
-          {
-            "hi": 1.0,
             "lo": 0.0,
             "mean_wall_s": 0.0,
             "rate": 0.0,
@@ -14214,8 +14214,8 @@
             "trials": 0
           }
         ],
-        "relative_cost": 2.9,
-        "route": "sonnet",
+        "relative_cost": 10.0,
+        "route": "astra",
         "tier": "critical"
       }
     ],
@@ -14645,16 +14645,16 @@
     "channel": "dev",
     "check_interval_min": 30,
     "current": {
-      "git_describe": "v0.3.1-3-gc3265cf",
+      "git_describe": "v0.3.1-5-g0cfafc4",
       "kernel_version": "0.1.0",
       "version": "0.3.1"
     },
     "keep_previous": 2
   },
   "version": {
-    "commit": "c3265cf",
+    "commit": "0cfafc4",
     "engine": "0.3.1",
-    "exported_at": "2026-09-07T08:36:56.952Z",
+    "exported_at": "2026-09-07T08:55:00.816Z",
     "kernel": "0.1.0"
   }
 }
