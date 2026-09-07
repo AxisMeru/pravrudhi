@@ -29,6 +29,7 @@ import importlib
 import json
 import os
 import shutil
+import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -381,8 +382,31 @@ def _check_ledger_integrity(root: Path) -> CheckResult:
 
 
 def _check_release_restorable(root: Path) -> CheckResult:
+    """Can this installation get back to a version that worked?
+
+    The answer depends on how it updates. A release install rolls back to the previous directory the `current`
+    symlink used to point at. A developer checkout has no releases directory at all and never will: it moves by
+    fast-forwarding a git branch, so its known-good version is the commit it is sitting on, and restorability
+    means a clean tree with a resolvable HEAD. Asking a checkout for a release symlink reported a healthy
+    installation as degraded for a file it is not supposed to have.
+    """
     name = "release_restorable"
     current = root / ".pravrudhi" / "releases" / "current"
+    if not current.is_symlink() and (root / ".git").exists():
+        try:
+            head = subprocess.run(
+                ["git", "rev-parse", "--short", "HEAD"], cwd=root, capture_output=True, text=True, timeout=30
+            )
+            dirty = subprocess.run(
+                ["git", "status", "--porcelain"], cwd=root, capture_output=True, text=True, timeout=30
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            return CheckResult(name, False, f"git could not be asked for a known-good commit: {exc}")
+        if head.returncode != 0 or not head.stdout.strip():
+            return CheckResult(name, False, "this checkout has no resolvable HEAD to return to")
+        pending = len([ln for ln in dirty.stdout.splitlines() if ln.strip()])
+        detail = f"developer checkout; a known-good commit is {head.stdout.strip()}"
+        return CheckResult(name, True, detail + (f", with {pending} uncommitted file(s)" if pending else ""))
     if not current.is_symlink():
         return CheckResult(name, False, "no known-good release symlink at .pravrudhi/releases/current")
     try:

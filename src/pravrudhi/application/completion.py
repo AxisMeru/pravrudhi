@@ -154,6 +154,20 @@ def _verify_file(root: Path, ref: str) -> tuple[bool, str]:
     size = path.stat().st_size
     if size == 0:
         return False, f"{ref} exists but is empty"
+    # A file present only on this machine is weak evidence: nobody else can check it. An adversarial reviewer
+    # caught two citations naming reports that exist here and have never been committed, which this checker had
+    # passed because it only asked whether the path existed. A path outside the workspace is exempt: an
+    # end-user install's release symlink is legitimately not in this repository.
+    if path.resolve().is_relative_to(Path(root).resolve()):
+        try:
+            tracked = subprocess.run(
+                ["git", "ls-files", "--error-unmatch", "--", str(path)],
+                cwd=root, capture_output=True, text=True, timeout=30,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            return False, f"{ref} could not be checked against git: {exc}"
+        if tracked.returncode != 0:
+            return False, f"{ref} exists here but is not committed, so nobody else can verify it"
     return True, f"{ref} exists ({size} bytes)"
 
 

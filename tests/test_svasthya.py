@@ -454,3 +454,31 @@ def test_track_and_release_process_registry(tmp_path: Path) -> None:
     assert "999999" in svasthya._load_owned_pids(tmp_path)
     svasthya.release_process(tmp_path, 999999)
     assert svasthya._load_owned_pids(tmp_path) == {}
+
+
+class TestRestorabilityDependsOnHowThisInstallUpdates:
+    """A developer checkout has no releases directory and never will; asking it for one called it degraded."""
+
+    def test_a_checkout_is_restorable_through_its_own_history(self, tmp_path: Path) -> None:
+        import subprocess
+
+        from pravrudhi.application.svasthya import _check_release_restorable
+
+        subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+        (tmp_path / "a.txt").write_text("x")
+        subprocess.run(["git", "add", "-A"], cwd=tmp_path, check=True)
+        subprocess.run(
+            ["git", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "first"],
+            cwd=tmp_path, check=True,
+        )
+        result = _check_release_restorable(tmp_path)
+        assert result.ok, result.detail
+        assert "known-good commit" in result.detail
+
+    def test_a_release_install_still_needs_its_symlink(self, tmp_path: Path) -> None:
+        from pravrudhi.application.svasthya import _check_release_restorable
+
+        (tmp_path / ".pravrudhi" / "releases").mkdir(parents=True)
+        result = _check_release_restorable(tmp_path)
+        assert not result.ok
+        assert "release symlink" in result.detail
