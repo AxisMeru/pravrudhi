@@ -6,23 +6,36 @@ import { StatusPill } from "./StatusPill";
 import { Empty } from "@/components/system/Section";
 
 function OursCell({ row }: { row: ParityRow }) {
-  const href = row.evidence ? evidenceHref(row.evidence) : null;
+  // Evidence is a list. It was treated as one string, so a row's whole evidence array was handed to the link
+  // text and to `evidenceHref`, and a row claiming nothing had `evidence: []` — falsy checks on an array are
+  // always true, so an empty list rendered an empty link. Each piece gets its own line, and the first
+  // repository path among them is what the row links to.
+  const evidence = Array.isArray(row.evidence) ? row.evidence : [];
+  const href = evidenceHref(evidence);
   return (
     <div className="flex flex-col items-start gap-1">
       <StatusPill status={row.ours} />
-      {row.evidence &&
-        (href ? (
-          <a
-            href={href}
-            target="_blank"
-            rel="noreferrer"
-            className="font-mono text-[10px] text-[var(--color-accent)] underline decoration-dotted"
-          >
-            {row.evidence}
-          </a>
-        ) : (
-          <span className="text-[10px] text-[var(--color-text-dim)]">{row.evidence}</span>
-        ))}
+      {evidence.length > 0 && (
+        <div className="flex flex-col items-start gap-0.5">
+          {evidence.map((item, i) =>
+            i === 0 && href ? (
+              <a
+                key={item}
+                href={href}
+                target="_blank"
+                rel="noreferrer"
+                className="font-mono text-[10px] text-[var(--color-accent)] underline decoration-dotted"
+              >
+                {item}
+              </a>
+            ) : (
+              <span key={item} className="font-mono text-[10px] text-[var(--color-text-dim)]">
+                {item}
+              </span>
+            ),
+          )}
+        </div>
+      )}
     </div>
   );
 }

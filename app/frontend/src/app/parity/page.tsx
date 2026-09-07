@@ -69,7 +69,7 @@ export default function ParityPage() {
             <CoverageSummary coverage={snapshot.coverage} />
 
             <Section icon={GitCompare} title="Open gaps" subtitle="What is not yet met — the work, in order.">
-              <GapsList gaps={snapshot.gaps} rows={snapshot.rows} />
+              <GapsList gaps={snapshot.gaps} />
             </Section>
 
             <Section icon={GitCompare} title="The matrix" subtitle="Every tracked capability, product by product.">

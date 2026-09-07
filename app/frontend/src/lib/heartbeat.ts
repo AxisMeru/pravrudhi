@@ -9,12 +9,18 @@ export interface HeartbeatChoice {
   step: string;
 }
 
+// A beat's result is not one shape. A dispatch records an agent, a wall time and the files it touched; a survey
+// beat records what it looked at and found nothing to do, and carries none of those fields. Declaring them all
+// as present let the timeline read `files.length` on a survey beat and crash the page, so every field a caller
+// must check for itself is optional here rather than promised.
 export interface HeartbeatResult {
-  accepted: boolean;
-  agent: string;
-  wall_s: number | null | undefined;
-  files: string[];
-  reasons: string[];
+  accepted?: boolean;
+  agent?: string;
+  wall_s?: number | null;
+  files?: string[];
+  reasons?: string[];
+  kind?: string;
+  sources?: string[];
 }
 
 export interface HeartbeatBeat {

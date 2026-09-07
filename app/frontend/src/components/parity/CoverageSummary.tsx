@@ -9,7 +9,7 @@ export function CoverageSummary({ coverage }: { coverage: ParityCoverage }) {
     <div className="rounded-md border border-[var(--color-border)] p-4">
       <dt className="text-xs text-[var(--color-text-dim)]">Capabilities met</dt>
       <dd className="mt-1 text-lg text-[var(--color-text)]">
-        {fixed(coverage.met, 0)} of {fixed(coverage.total, 0)}
+        {fixed(coverage.numerator, 0)} of {fixed(coverage.denominator, 0)}
       </dd>
     </div>
   );

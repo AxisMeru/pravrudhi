@@ -45,19 +45,50 @@ test("the site does not call an address it cannot reach", async ({ page }) => {
   expect(loopback, `the public build must not call a local engine:\n${loopback.join("\n")}`).toHaveLength(0);
 });
 
-test("every page in the navigation opens and renders content", async ({ page }) => {
-  for (const [name, path] of [
-    ["Improve", "/"],
-    ["Runs", "/runs"],
-    ["Models", "/models"],
-    ["Machines", "/machines"],
-    ["Settings", "/settings"],
-  ] as const) {
+// Every page the site serves, which is the same list the publish check knows. It used to be five, and the
+// thirteen that were not here shipped unexercised: the parity page rendered whole objects as React children and
+// died with "This page couldn't load", and nothing noticed, because the crash happens in the browser after the
+// HTML has already been served and the publish check reads the HTML.
+const EVERY_PAGE = [
+  "/", "/tour", "/appetite", "/objectives", "/progress", "/inbox", "/requests", "/candidates",
+  "/swarm", "/diffs", "/memory", "/heartbeat", "/catalogue", "/runs", "/search", "/models",
+  "/machines", "/parity", "/settings",
+] as const;
+
+// What a page says when it has failed. A page can answer 200, render its heading and still be broken, so the
+// check has to be for these rather than for a status code.
+const FAILED = [
+  "this page couldn't load",
+  "could not reach",
+  "couldn't load",
+  "failed to load",
+  "no engine reachable",
+  "application error",
+];
+
+test("every page opens, renders content and does not crash", async ({ page }) => {
+  const broken: string[] = [];
+
+  for (const path of EVERY_PAGE) {
+    const crashes: string[] = [];
+    const onError = (e: Error) => crashes.push(e.message);
+    page.on("pageerror", onError);
+
     await page.goto(path);
-    await expect(page.getByRole("link", { name })).toBeVisible();
-    // Retrying assertion, for the same reason: the page's own data arrives after navigation resolves.
-    await expect(page.locator("main"), `${path} rendered an empty main region`).not.toBeEmpty();
+    // The data arrives from a client-side fetch after navigation resolves, so this has to be a retrying
+    // assertion rather than a single read.
+    await expect(page.locator("body"), `${path} rendered nothing at all`).not.toBeEmpty();
+    await page.waitForTimeout(1500);
+
+    const text = ((await page.locator("body").innerText()) || "").toLowerCase();
+    const hit = FAILED.find((m) => text.includes(m));
+    if (hit) broken.push(`${path} shows "${hit}"`);
+    if (crashes.length) broken.push(`${path} threw: ${crashes[0]}`);
+
+    page.off("pageerror", onError);
   }
+
+  expect(broken, `pages broken on the public build:\n${broken.join("\n")}`).toHaveLength(0);
 });
 
 // Both of these read the page once, immediately after navigation, and both failed against a site that renders

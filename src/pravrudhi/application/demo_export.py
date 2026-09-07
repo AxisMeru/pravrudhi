@@ -270,14 +270,32 @@ def _appetite(root: Path) -> dict[str, Any] | None:
         return None
 
 
+# How many worktrees the recording carries a full diff for. The viewer opens onto file contents, not a count,
+# so a summary is not enough; a full diff per task is large, and a handful is what a demo needs.
+DEMO_DIFF_TASKS = 6
+
+
 def _diffs(root: Path) -> list[dict[str, Any]]:
-    """Recent dispatched tasks whose worktree is still readable, for the diff viewer."""
+    """Full diffs for the most recent dispatched tasks, which is what the viewer opens onto.
+
+    The obvious thing to export is the summary list the task picker shows, and that was the first mistake here:
+    its `files` field is a count, the viewer's is a list of file diffs, so every task opened to a page reporting
+    it could not reach the engine. The recording has to carry what the reader will actually ask for.
+    """
     try:
         from dataclasses import asdict
 
         from pravrudhi.application.diffs import recent as recent_diffs
+        from pravrudhi.application.diffs import worktree_diff
 
-        return [asdict(d) for d in recent_diffs(root, 20)]
+        out: list[dict[str, Any]] = []
+        for summary in recent_diffs(root, DEMO_DIFF_TASKS):
+            try:
+                diff = asdict(worktree_diff(root, summary.task_id))
+            except Exception:  # noqa: BLE001 (a worktree that has since gone is skipped, not fatal)
+                continue
+            out.append({"task_id": summary.task_id, **diff})
+        return out
     except Exception:  # noqa: BLE001
         return []
 

@@ -26,19 +26,24 @@ export interface ParityRow {
   why_it_matters: string;
   rivals: ParityRivals;
   ours: ParityStatus;
-  evidence: string;
+  evidence: string[];
   notes: string;
 }
 
+// The engine counts met over tracked and also hands back the ratio. This was declared as {met, total}, which
+// are not fields it has ever sent, so the headline read "NaN of NaN" against a live engine and against the
+// recording alike.
 export interface ParityCoverage {
-  met: number;
-  total: number;
+  numerator: number;
+  denominator: number;
+  fraction: number;
 }
 
 export interface ParitySnapshot {
   rows: ParityRow[];
   coverage: ParityCoverage;
-  gaps: string[];
+  // Whole rows, not ids. Typing these as ids handed each object straight to React and crashed the page.
+  gaps: ParityRow[];
 }
 
 export const RIVAL_COLUMNS: { key: keyof ParityRivals; label: string }[] = [
@@ -78,7 +83,9 @@ export async function parity(): Promise<ParitySnapshot | null> {
 const REPO_BLOB_BASE = "https://github.com/SharathSPhD/pravrudhi/blob/main/";
 const PATH_LIKE = /^[\w.-]+(\/[\w.-]+)+\.\w+$/;
 
-export function evidenceHref(evidence: string): string | null {
-  const trimmed = evidence.trim();
-  return PATH_LIKE.test(trimmed) ? `${REPO_BLOB_BASE}${trimmed}` : null;
+// A row carries several pieces of evidence, some repository paths and some commands. The first path-like one is
+// what a reader wants to click; a row of commands alone links nowhere, which is correct rather than a failure.
+export function evidenceHref(evidence: readonly string[]): string | null {
+  const path = evidence.map((e) => e.trim()).find((e) => PATH_LIKE.test(e));
+  return path ? `${REPO_BLOB_BASE}${path}` : null;
 }
