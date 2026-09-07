@@ -1,0 +1,44 @@
+{
+  "frames": [
+    {
+      "image": "01-home.png",
+      "caption": "The front door: the largest measured improvement, what the engine wants, and what it has done.",
+      "path": "/"
+    },
+    {
+      "image": "02-objective.png",
+      "caption": "One objective, with each benchmark stated at its honest significance rather than a bare delta.",
+      "path": "/objectives/detail?id=code-harness"
+    },
+    {
+      "image": "03-candidates.png",
+      "caption": "Every candidate the engine has scored, plotted against the incumbent it had to beat.",
+      "path": "/candidates"
+    },
+    {
+      "image": "04-run.png",
+      "caption": "A night, replayed from the ledger: what was proposed, what was measured, what the boundary decided.",
+      "path": "/runs/view?run=night-15-lora"
+    },
+    {
+      "image": "05-swarm.png",
+      "caption": "The swarm: which agent each tier routes to and why, and a panel that dispatches real work.",
+      "path": "/swarm"
+    },
+    {
+      "image": "06-appetite.png",
+      "caption": "What the engine wants right now, as numbers — including the two drives it cannot measure yet.",
+      "path": "/appetite"
+    },
+    {
+      "image": "07-desktop.png",
+      "caption": "The desktop shell, captured from the running window.",
+      "path": "/desktop"
+    },
+    {
+      "image": "08-system.png",
+      "caption": "How it keeps itself current: two channels, seven safeguards, and both machines it updates.",
+      "path": "/system"
+    }
+  ]
+}

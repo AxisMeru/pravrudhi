@@ -11,6 +11,8 @@ import { StepBoundary } from "@/components/tour/StepBoundary";
 import { StepSignoff } from "@/components/tour/StepSignoff";
 import { StepBenchmark } from "@/components/tour/StepBenchmark";
 import { StepVersion } from "@/components/tour/StepVersion";
+import { StepWalkthrough } from "@/components/tour/StepWalkthrough";
+import { StepDesktop } from "@/components/tour/StepDesktop";
 import { loadTour, TOUR_STEPS, type TourData } from "@/lib/tour";
 
 const STEP_COMPONENTS = [
@@ -22,6 +24,8 @@ const STEP_COMPONENTS = [
   StepSignoff,
   StepBenchmark,
   StepVersion,
+  StepWalkthrough,
+  StepDesktop,
 ];
 
 const AUTOPLAY_MS = 7000;

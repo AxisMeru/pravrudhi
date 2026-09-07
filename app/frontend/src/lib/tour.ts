@@ -22,6 +22,11 @@ import { inbox as fetchInbox, type InboxItem } from "@/lib/inbox";
 import { swarm as fetchSwarm, type SwarmSnapshot } from "@/lib/swarm";
 import { demo } from "@/lib/demo";
 
+// This site is served beside the app rather than at the origin root on the deployed host (see lib/demo.ts), so
+// any asset fetched or linked by a root-absolute path — the walkthrough frames, the desktop capture — needs this
+// prefix compiled in too.
+export const TOUR_BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
+
 export interface EngineVersion {
   commit: string;
   engine: string;
@@ -56,6 +61,12 @@ export interface BenchmarkMove {
   met: boolean | null;
 }
 
+export interface WalkthroughFrame {
+  image: string;
+  caption: string;
+  path: string;
+}
+
 export interface TourData {
   objective: Objective | null;
   recipeTitles: Map<string, Recipe>;
@@ -71,6 +82,7 @@ export interface TourData {
   benchmarkMoves: BenchmarkMove[];
   version: EngineVersion | null;
   capabilities: Capabilities | null;
+  walkthroughFrames: WalkthroughFrame[];
 }
 
 async function loadCandidates(): Promise<Candidate[]> {
@@ -91,6 +103,20 @@ async function loadCapabilities(): Promise<Capabilities | null> {
   return bundle.capabilities ?? null;
 }
 
+// The walkthrough frames are static PNGs captured by driving a real browser through the running app, served
+// beside this build rather than baked into demo.json. A build without them (or a host that hasn't deployed the
+// public/walkthrough/ folder yet) shows an empty list rather than failing the whole tour.
+async function loadWalkthrough(): Promise<WalkthroughFrame[]> {
+  try {
+    const res = await fetch(`${TOUR_BASE_PATH}/walkthrough/frames.json`, { cache: "force-cache" });
+    if (!res.ok) return [];
+    const body = (await res.json()) as { frames?: WalkthroughFrame[] };
+    return body.frames ?? [];
+  } catch {
+    return [];
+  }
+}
+
 let cache: Promise<TourData> | null = null;
 
 export function loadTour(): Promise<TourData> {
@@ -99,19 +125,31 @@ export function loadTour(): Promise<TourData> {
 }
 
 async function build(): Promise<TourData> {
-  const [objectivesRes, swarmRes, statusRes, modelsRes, inboxItems, candidates, version, capabilities, recipes, bundle] =
-    await Promise.all([
-      fetchObjectives(),
-      fetchSwarm(),
-      fetchStatus(),
-      fetchModels(),
-      fetchInbox(),
-      loadCandidates(),
-      loadVersion(),
-      loadCapabilities(),
-      recipeLibrary(),
-      demo(),
-    ]);
+  const [
+    objectivesRes,
+    swarmRes,
+    statusRes,
+    modelsRes,
+    inboxItems,
+    candidates,
+    version,
+    capabilities,
+    recipes,
+    bundle,
+    walkthroughFrames,
+  ] = await Promise.all([
+    fetchObjectives(),
+    fetchSwarm(),
+    fetchStatus(),
+    fetchModels(),
+    fetchInbox(),
+    loadCandidates(),
+    loadVersion(),
+    loadCapabilities(),
+    recipeLibrary(),
+    demo(),
+    loadWalkthrough(),
+  ]);
 
   const objective = objectivesRes.objectives[0] ?? null;
   let plan: Plan | null = null;
@@ -175,6 +213,7 @@ async function build(): Promise<TourData> {
     benchmarkMoves,
     version,
     capabilities,
+    walkthroughFrames,
   };
 }
 
@@ -200,4 +239,16 @@ export const TOUR_STEPS: TourStepMeta[] = [
   { n: 6, slug: "signoff", title: "A human signs off", lede: "A promotion waits on a person before it counts as done." },
   { n: 7, slug: "benchmark", title: "The benchmark moves", lede: "An independent tool scores the model before and after." },
   { n: 8, slug: "version", title: "The engine updates itself", lede: "What shipped, and what this build can do." },
+  {
+    n: 9,
+    slug: "walkthrough",
+    title: "See it click through",
+    lede: "The eight screens above, replayed as a real browser saw them — not a mock-up.",
+  },
+  {
+    n: 10,
+    slug: "desktop",
+    title: "The desktop app",
+    lede: "The native shell that runs the engine on your machine, caught mid-update-check.",
+  },
 ];
