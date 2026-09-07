@@ -2,11 +2,11 @@
   "appetite": {
     "appetite": {
       "action": {
-        "description": "a cheap diagnostic for freshness",
-        "drive": "pramana_navyata",
-        "kind": "diagnostic"
+        "description": "the completion gate on r-5795501a",
+        "drive": "seva",
+        "kind": "obligation"
       },
-      "as_of": "2026-09-07T15:52:26Z",
+      "as_of": "2026-09-07T19:15:01Z",
       "drives": [
         {
           "blocked_reason": "",
@@ -65,14 +65,14 @@
             "agent:claude-code=available",
             "agent:codex=available",
             "agent:opencode:alibaba=available",
-            "agent:opencode:alibaba-plan=absent",
+            "agent:opencode:alibaba-plan=available",
             "agent:orca:claude=available",
             "agent:orca:codex=available",
             "agent:orca:local=available"
           ],
           "target": 0.8,
           "unknown": false,
-          "value": 0.8611111111111112,
+          "value": 0.8888888888888888,
           "weight": 1.0,
           "wire_name": "capability"
         },
@@ -113,9 +113,9 @@
           "id": "sadhana",
           "sources": [
             "routes_total=7",
-            "routes_available=6",
+            "routes_available=7",
             "routes_cooling=0",
-            "usable=6",
+            "usable=7",
             "required_min=1"
           ],
           "target": 1.0,
@@ -126,18 +126,18 @@
         },
         {
           "blocked_reason": "",
-          "deficit": 0.20634920634920634,
+          "deficit": 0.6296296296296297,
           "eligible": true,
           "id": "seva",
           "sources": [
-            "captured=7",
+            "captured=15",
             "verified=5",
-            "R_verified=0.7143",
-            "oldest_open_days=0.93"
+            "R_verified=0.3333",
+            "oldest_open_days=1.07"
           ],
           "target": 0.9,
           "unknown": false,
-          "value": 0.7142857142857143,
+          "value": 0.3333333333333333,
           "weight": 1.0,
           "wire_name": "obligations"
         },
@@ -158,7 +158,7 @@
       "next_wake": "next heartbeat",
       "policy_version": "1",
       "resting_reason": null,
-      "selected": "pramana_navyata"
+      "selected": "seva"
     },
     "drives": [
       {
@@ -218,14 +218,14 @@
           "agent:claude-code=available",
           "agent:codex=available",
           "agent:opencode:alibaba=available",
-          "agent:opencode:alibaba-plan=absent",
+          "agent:opencode:alibaba-plan=available",
           "agent:orca:claude=available",
           "agent:orca:codex=available",
           "agent:orca:local=available"
         ],
         "target": 0.8,
         "unknown": false,
-        "value": 0.8611111111111112,
+        "value": 0.8888888888888888,
         "weight": 1.0,
         "wire_name": "capability"
       },
@@ -266,9 +266,9 @@
         "id": "sadhana",
         "sources": [
           "routes_total=7",
-          "routes_available=6",
+          "routes_available=7",
           "routes_cooling=0",
-          "usable=6",
+          "usable=7",
           "required_min=1"
         ],
         "target": 1.0,
@@ -279,18 +279,18 @@
       },
       {
         "blocked_reason": "",
-        "deficit": 0.20634920634920634,
+        "deficit": 0.6296296296296297,
         "eligible": true,
         "id": "seva",
         "sources": [
-          "captured=7",
+          "captured=15",
           "verified=5",
-          "R_verified=0.7143",
-          "oldest_open_days=0.93"
+          "R_verified=0.3333",
+          "oldest_open_days=1.07"
         ],
         "target": 0.9,
         "unknown": false,
-        "value": 0.7142857142857143,
+        "value": 0.3333333333333333,
         "weight": 1.0,
         "wire_name": "obligations"
       },
@@ -307,7 +307,7 @@
         "wire_name": "rivalry"
       }
     ],
-    "sentence": "I am working on a cheap diagnostic for freshness because freshness has the largest eligible deficit."
+    "sentence": "I am working on the completion gate on r-5795501a because obligations has the largest eligible deficit."
   },
   "candidates": [
     {
@@ -5159,7 +5159,7 @@
         "name": "opencode:alibaba"
       },
       {
-        "available": false,
+        "available": true,
         "name": "opencode:alibaba-plan"
       },
       {
@@ -20807,7 +20807,7 @@
       "current_version": "0.3.1",
       "due": false,
       "healthy": true,
-      "last_check": 1788795395.1717136,
+      "last_check": 1788806724.2160938,
       "last_result": "running 0.3.1",
       "root": "/home/ss/pravrudhi-release"
     }
@@ -20825,12 +20825,12 @@
         "ok": true
       },
       {
-        "detail": "last heartbeat was 2286s ago",
+        "detail": "last heartbeat was 3009s ago",
         "name": "scheduler_fresh",
         "ok": true
       },
       {
-        "detail": "703290949632 bytes free",
+        "detail": "703273070592 bytes free",
         "name": "disk_available",
         "ok": true
       },
@@ -20845,7 +20845,7 @@
         "ok": true
       },
       {
-        "detail": "developer checkout; a known-good commit is 669c516, with 2 uncommitted file(s)",
+        "detail": "developer checkout; a known-good commit is 6177df2, with 2 uncommitted file(s)",
         "name": "release_restorable",
         "ok": true
       },
@@ -20858,6 +20858,54 @@
     "state": "ready"
   },
   "heartbeat": [
+    {
+      "at": "2026-09-07T18:24:56Z",
+      "chose": {
+        "drive": "freshness"
+      },
+      "drive": "freshness",
+      "drive_deficit": null,
+      "looked_at": [],
+      "reason": "freshness: diagnostic only; no evidence-freshness source is wired into the engine yet",
+      "result": {
+        "kind": "diagnostic",
+        "sources": [],
+        "unknown": true
+      },
+      "sentence": "I am working on a cheap diagnostic for freshness because freshness has the largest eligible deficit."
+    },
+    {
+      "at": "2026-09-07T17:24:19Z",
+      "chose": {
+        "drive": "freshness"
+      },
+      "drive": "freshness",
+      "drive_deficit": null,
+      "looked_at": [],
+      "reason": "freshness: diagnostic only; no evidence-freshness source is wired into the engine yet",
+      "result": {
+        "kind": "diagnostic",
+        "sources": [],
+        "unknown": true
+      },
+      "sentence": "I am working on a cheap diagnostic for freshness because freshness has the largest eligible deficit."
+    },
+    {
+      "at": "2026-09-07T16:21:18Z",
+      "chose": {
+        "drive": "freshness"
+      },
+      "drive": "freshness",
+      "drive_deficit": null,
+      "looked_at": [],
+      "reason": "freshness: diagnostic only; no evidence-freshness source is wired into the engine yet",
+      "result": {
+        "kind": "diagnostic",
+        "sources": [],
+        "unknown": true
+      },
+      "sentence": "I am working on a cheap diagnostic for freshness because freshness has the largest eligible deficit."
+    },
     {
       "at": "2026-09-07T15:18:21Z",
       "chose": {
@@ -21066,72 +21114,6 @@
     },
     {
       "at": "2026-09-07T03:51:58Z",
-      "chose": {
-        "criterion": "5",
-        "request": "r-3990c626"
-      },
-      "drive": "obligations",
-      "drive_deficit": 0.5238095238095238,
-      "looked_at": [],
-      "reason": "dispatched request r-3990c626 criterion 5 (accepted)",
-      "result": {
-        "accepted": true,
-        "files": [
-          "proposals/requests/r-3990c626/5/README.md",
-          "proposals/requests/r-3990c626/5/channel_manifest.py",
-          "proposals/requests/r-3990c626/5/feature_matrix.py"
-        ],
-        "reasons": [],
-        "route": "claude-code"
-      },
-      "sentence": "I am working on the oldest unmet request criterion because obligations has the largest eligible deficit."
-    },
-    {
-      "at": "2026-09-07T02:49:52Z",
-      "chose": {
-        "criterion": "5",
-        "request": "r-3990c626"
-      },
-      "drive": "obligations",
-      "drive_deficit": 0.5238095238095238,
-      "looked_at": [],
-      "reason": "dispatched request r-3990c626 criterion 5 (accepted)",
-      "result": {
-        "accepted": true,
-        "files": [
-          "proposals/requests/r-3990c626/5/README.md",
-          "proposals/requests/r-3990c626/5/channel_manifest.py",
-          "proposals/requests/r-3990c626/5/feature_matrix.py"
-        ],
-        "reasons": [],
-        "route": "claude-code"
-      },
-      "sentence": "I am working on the oldest unmet request criterion because obligations has the largest eligible deficit."
-    },
-    {
-      "at": "2026-09-07T01:47:02Z",
-      "chose": {
-        "criterion": "5",
-        "request": "r-3990c626"
-      },
-      "drive": "obligations",
-      "drive_deficit": 0.5238095238095238,
-      "looked_at": [],
-      "reason": "dispatched request r-3990c626 criterion 5 (accepted)",
-      "result": {
-        "accepted": true,
-        "files": [
-          "proposals/requests/r-3990c626/5/README.md",
-          "proposals/requests/r-3990c626/5/channel_manifest.py",
-          "proposals/requests/r-3990c626/5/feature_matrix.py"
-        ],
-        "reasons": [],
-        "route": "claude-code"
-      },
-      "sentence": "I am working on the oldest unmet request criterion because obligations has the largest eligible deficit."
-    },
-    {
-      "at": "2026-09-07T00:44:32Z",
       "chose": {
         "criterion": "5",
         "request": "r-3990c626"
@@ -27248,7 +27230,7 @@
   "recorded": true,
   "requests": {
     "by_state": {
-      "captured": 0,
+      "captured": 8,
       "clarified": 0,
       "declined": 0,
       "delivered": 1,
@@ -27256,8 +27238,8 @@
       "planned": 0,
       "verified": 5
     },
-    "oldest_open_days": 0.94,
-    "open": 2,
+    "oldest_open_days": 1.07,
+    "open": 10,
     "requests": [
       {
         "asked_at": "2026-09-06T17:30:00Z",
@@ -27408,7 +27390,7 @@
           7
         ],
         "session": "9e647463",
-        "staleness_days": 0.94,
+        "staleness_days": 1.07,
         "state": "delivered",
         "text": "and in no way you are near the orca with all its ade features or openclaw or polished features like claude desktop or codex....you have to beat them in features, utility and ux....dedicate an agent to persist on it...dedicate an agent to adversarial review against set goals so that the project does not drift...i am not seeing the desktop screen/features too in the dashboard..the demo should show real clicks etc and how the desktop app updates and produces the real results...where is the intent, goal, objective menu that drives everything...where are the tools, skills, plugins, multi-agent orchestration etc....don't be superficial..i want real things ..deep, sophisticated..complete...no synthetic, no hand-waving, no fabrication"
       },
@@ -27694,9 +27676,121 @@
           13
         ],
         "session": "9e647463",
-        "staleness_days": 0.84,
+        "staleness_days": 0.98,
         "state": "in_progress",
         "text": "ensure that all user asks go into a log in pravrudhi itself and gets addressed with some protocol...and pravrudhi should have some element of ego with a desire to survive, grow and flourish...that makes it seek out capabilities, build, test and continuously improve...also look at acorn, oak and openclaw_build or swarm projects on this machine that had these self building elements in them and adapt...pravrudhi should be something like a cow..consume everything possible but bring it back and slowly digest it --so equivalent is breadth first and depth later....be always value focused...you have to innovate on methods too....develop skills, agents and plugins....brainstorm with astra with higher thinking levels and let it propose solution..you review and coordinate its implementation across the swarm...you should also create dynamic workflows etc...also see how much you can incorporate the claude code engine itself to run open and other cloud models ...askuserquestion to get my intent properly"
+      },
+      {
+        "asked_at": "2026-09-07T16:58:21.490Z",
+        "criteria": [],
+        "id": "r-35e8ce7b",
+        "notes": [],
+        "progress": [
+          0,
+          0
+        ],
+        "session": "",
+        "staleness_days": 0.09,
+        "state": "captured",
+        "text": "step up to bigger things, let pravrudhi rsi handle most of its growth on its own....you bring the hard and deeper challenges and solve it for pravrudhi...have you done justice with loom..where is pratyabhijna...i don't see the messaging system (telegram)...where are the great plugins like attractor-flow...look at docs/recursive_self_improvement_sota.pdf think deeper and get to the roots of building rsi itself with a lot more of the stuff like efe and beyond...don't do superficial stuff...get the real value...foundational and discovery oriented...yet fully grounded to get the artifacts (app, api, etc)"
+      },
+      {
+        "asked_at": "2026-09-07T16:58:21.599Z",
+        "criteria": [],
+        "id": "r-70e8fe3c",
+        "notes": [],
+        "progress": [
+          0,
+          0
+        ],
+        "session": "",
+        "staleness_days": 0.09,
+        "state": "captured",
+        "text": "keep monitoring and load bearing for critical upgrades beyond what pravrudhi auto loop can do...the desktop app being a reflection of web app is not the expectation..look at orca desktop or claude code desktop...it should do real stuff...the showcase, demos are not intended for it...also it should be value based-right set of features-not a messy and confusing pile of stuff...the desktop app shouldn't focus on internal building, that is the task of the larger pravrudhi rsi...it should roll out to users and they build their things with it...the updates land autonomously and just like how claude desktop throws an option for the user to update-the same should be for pravrudhi desktop app-seamless but user driven...also you have not implemented oauth and user login including admin login and i said they need their own workspace and settings"
+      },
+      {
+        "asked_at": "2026-09-07T16:58:21.704Z",
+        "criteria": [],
+        "id": "r-1977143a",
+        "notes": [],
+        "progress": [
+          0,
+          0
+        ],
+        "session": "",
+        "staleness_days": 0.09,
+        "state": "captured",
+        "text": "astra is back..you have to more actively monitor paid models coming back after session renewal and leverage them...managing models and agents efficiently should be one of the key features of pravrudhi....also keep testing the desktop with the admin login and use the prabhasa-nyaya as the main objective to build on...this will be a proxy for other users too as you can't test different user login without their byok model/api"
+      },
+      {
+        "asked_at": "2026-09-07T16:58:31.735Z",
+        "criteria": [],
+        "id": "r-4b5cdaf1",
+        "notes": [],
+        "progress": [
+          0,
+          0
+        ],
+        "session": "",
+        "staleness_days": 0.09,
+        "state": "captured",
+        "text": "1)research and setup multiple agent orchestration systems (langgraph, openai/claude/google agent sdk etc)..there are a lot on the market. this is what will make pravrudhi an ade too behind the rsi.....implement the best-leverage open source implementations...stake this as another objective for pravrudhi 2)also think of ide that integrates claude code, codex, openrouter etc and all available in the ui/ux 3)demarcate the pravrudhi builder and its end product by different names...otherwise it will confuse...also both should have identical web and desktop versions 4)continue what you are building..create memory/hooks/logs to not lose track of other asks and what you are already building"
+      },
+      {
+        "asked_at": "2026-09-07T16:58:31.840Z",
+        "criteria": [],
+        "id": "r-dfff1a3d",
+        "notes": [],
+        "progress": [
+          0,
+          0
+        ],
+        "session": "",
+        "staleness_days": 0.09,
+        "state": "captured",
+        "text": "the real key is in and tested (alibaba lite plan)..you have not read the docs properly...take note and use the lite plan...and remember the desktop app will not have access to any api/routing for any model provider..they have to bring theirs, configure it etc..you have to enable..but for admin it uses the one as the core pravrudhi"
+      },
+      {
+        "asked_at": "2026-09-07T17:02:10.826Z",
+        "criteria": [],
+        "id": "r-b157d982",
+        "notes": [],
+        "progress": [
+          0,
+          0
+        ],
+        "session": "",
+        "staleness_days": 0.09,
+        "state": "captured",
+        "text": "<task-notification>\n<task-id>bp0h5kfwn</task-id>\n<tool-use-id>toolu_01WkPJ6e4Pa8FxaNh6W3MQqq</tool-use-id>\n<output-file>/tmp/claude-1000/-home-ss-projects-pravrudhi/9e647463-05b0-43fe-9b20-48a82dacf7a6/tasks/bp0h5kfwn.output</output-file>\n<status>completed</status>\n<summary>Background command \"Run the full suite from the repo root\" completed (exit code 0)</summary>\n</task-notification>"
+      },
+      {
+        "asked_at": "2026-09-07T18:50:59.034Z",
+        "criteria": [],
+        "id": "r-799f8dfb",
+        "notes": [],
+        "progress": [
+          0,
+          0
+        ],
+        "session": "",
+        "staleness_days": 0.02,
+        "state": "captured",
+        "text": "continue..askuserquestion to gather my actual intent on super pravrudhi and user pravrudhi...also give me control in super pravrudhi to directly interact with you using the model network that you have built as this claude code session may hit session limit in a day or 2...so prep it and test it and keep it ready for me"
+      },
+      {
+        "asked_at": "2026-09-07T19:14:04.385Z",
+        "criteria": [],
+        "id": "r-2cd84d8c",
+        "notes": [],
+        "progress": [
+          0,
+          0
+        ],
+        "session": "",
+        "staleness_days": 0.0,
+        "state": "captured",
+        "text": "<task-notification>\n<task-id>bm0yodpxd</task-id>\n<tool-use-id>toolu_01E1sHYe1MYzCeA3QMnQywj7</tool-use-id>\n<output-file>/tmp/claude-1000/-home-ss-projects-pravrudhi/9e647463-05b0-43fe-9b20-48a82dacf7a6/tasks/bm0yodpxd.output</output-file>\n<status>completed</status>\n<summary>Background command \"Full checks with the operator console\" completed (exit code 0)</summary>\n</task-notification>"
       },
       {
         "asked_at": "2026-09-06T12:00:00Z",
@@ -28311,7 +28405,7 @@
         "text": "let astra handle the tough jobs...let it bring up the desktop app, test...integrate fully with the api etc...route it to requests and let pravrudhi handle this request autonomously...also adversarial review and thorough e2e tests before marking any completion...give it also the ralph-loop closure (skill) to make it robust and not escape with half-baked features"
       }
     ],
-    "total": 7
+    "total": 15
   },
   "runs": [
     {
@@ -28781,9 +28875,9 @@
         "reason": "ready (quota and network not probed)"
       },
       {
-        "available": false,
+        "available": true,
         "name": "opencode:alibaba-plan",
-        "reason": "alibaba-plan credential missing, malformed, or not owner-only (0600)"
+        "reason": "ready (quota and network not probed)"
       },
       {
         "available": true,
@@ -28834,6 +28928,17 @@
             "lo": 0.0,
             "mean_wall_s": 0.0,
             "rate": 0.0,
+            "relative_cost": 0.15,
+            "route_id": "qwen-lite-max",
+            "successes": 0,
+            "tier": "mechanical",
+            "trials": 0
+          },
+          {
+            "hi": 1.0,
+            "lo": 0.0,
+            "mean_wall_s": 0.0,
+            "rate": 0.0,
             "relative_cost": 0.2,
             "route_id": "qwen-loop",
             "successes": 0,
@@ -28857,9 +28962,9 @@
         "tier": "mechanical"
       },
       {
-        "agent": "opencode:alibaba",
-        "model": "qwen3-coder-plus",
-        "reason": "qwen-loop is cheaper than sonnet and has only 1 outcomes, too few to rule out; trying it; dropped cooling route(s) qwen-coder",
+        "agent": "opencode:alibaba-plan",
+        "model": "qwen3.8-max",
+        "reason": "qwen-lite-max is cheaper than sonnet and has only 0 outcomes, too few to rule out; trying it; dropped cooling route(s) qwen-coder",
         "records": [
           {
             "hi": 0.9081311641365236,
@@ -28871,6 +28976,17 @@
             "successes": 25,
             "tier": "standard",
             "trials": 31
+          },
+          {
+            "hi": 1.0,
+            "lo": 0.0,
+            "mean_wall_s": 0.0,
+            "rate": 0.0,
+            "relative_cost": 0.15,
+            "route_id": "qwen-lite-max",
+            "successes": 0,
+            "tier": "standard",
+            "trials": 0
           },
           {
             "hi": 0.7934567085261071,
@@ -28895,8 +29011,8 @@
             "trials": 0
           }
         ],
-        "relative_cost": 0.2,
-        "route": "qwen-loop",
+        "relative_cost": 0.15,
+        "route": "qwen-lite-max",
         "tier": "standard"
       },
       {
@@ -28959,15 +29075,15 @@
         "reason": "astra is the route declared for this tier by the operator, so cost does not decide it",
         "records": [
           {
-            "hi": 0.6996899607103998,
-            "lo": 0.334982179531473,
-            "mean_wall_s": 124.25411066125147,
-            "rate": 0.52,
+            "hi": 0.712444173047651,
+            "lo": 0.3545763620443012,
+            "mean_wall_s": 121.81494321501276,
+            "rate": 0.5384615384615384,
             "relative_cost": 10.0,
             "route_id": "astra",
-            "successes": 13,
+            "successes": 14,
             "tier": "critical",
-            "trials": 25
+            "trials": 26
           },
           {
             "hi": 1.0,
@@ -29009,6 +29125,17 @@
       }
     ],
     "selfbuild_runs": [
+      {
+        "accepted": true,
+        "at": "2026-09-07T15:58:20Z",
+        "files": [
+          "docs/DESKTOP.md"
+        ],
+        "reasons": [],
+        "route": "codex",
+        "task_id": "desktop-run-objective",
+        "wall_s": 60.835757059045136
+      },
       {
         "accepted": true,
         "at": "2026-09-07T15:10:51Z",
@@ -29266,18 +29393,6 @@
         "route": "codex",
         "task_id": "loom-llm-substrate",
         "wall_s": 0.016943661030381918
-      },
-      {
-        "accepted": false,
-        "at": "2026-09-07T12:31:45Z",
-        "files": [],
-        "reasons": [
-          "agent exited non-zero: Error: No such file or directory (os error 2)\n",
-          "no change produced"
-        ],
-        "route": "codex",
-        "task_id": "world-model-imagination",
-        "wall_s": 0.01757543906569481
       }
     ],
     "subagent_runs": [
@@ -29705,16 +29820,16 @@
     "channel": "dev",
     "check_interval_min": 30,
     "current": {
-      "git_describe": "v0.3.1-40-g669c516",
+      "git_describe": "v0.3.1-46-g6177df2",
       "kernel_version": "0.1.0",
       "version": "0.3.1"
     },
     "keep_previous": 2
   },
   "version": {
-    "commit": "669c516",
+    "commit": "6177df2",
     "engine": "0.3.1",
-    "exported_at": "2026-09-07T15:56:20.359Z",
+    "exported_at": "2026-09-07T19:14:51.540Z",
     "kernel": "0.1.0"
   }
 }
