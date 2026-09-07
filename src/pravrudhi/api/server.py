@@ -42,6 +42,7 @@ from pravrudhi.api.schemas import (
     ExternalResultsResponse,
     FleetInstallsResponse,
     FleetResponse,
+    ForgottenResponse,
     HealthResponse,
     HealthStateResponse,
     HeartbeatResponse,
@@ -808,6 +809,38 @@ def create_app(root: Path) -> FastAPI:
             return asdict(store_for(root, user).remember(req.text, source=req.source or "api"))
         except MemErr as e:
             raise HTTPException(422, str(e)) from e
+
+    @api.patch("/memory/notes/{note_id}", response_model=MemoryNoteResponse)
+    async def revise_note_ep(
+        note_id: str, req: RememberRequest, user: User | None = CurrentUserDep
+    ) -> dict[str, Any]:
+        """Correct a note in place, keeping its id. Refused on the same terms `remember` refuses, since a note
+        that could be edited into a ledger number would be a way around the guard rather than an exception to it.
+
+        404 covers both a note that does not exist and one belonging to somebody else: the store filters on the
+        caller, and an answer that distinguished the two would confirm another user's note by its absence."""
+        from dataclasses import asdict
+
+        from pravrudhi.application.memory import MemoryError as MemErr
+        from pravrudhi.application.memory_store import store_for
+
+        try:
+            note = store_for(root, user).revise(note_id, req.text, source=req.source or "api")
+        except MemErr as e:
+            raise HTTPException(422, str(e)) from e
+        if note is None:
+            raise HTTPException(404, "no such note")
+        return asdict(note)
+
+    @api.delete("/memory/notes/{note_id}", response_model=ForgottenResponse)
+    async def forget_note_ep(note_id: str, user: User | None = CurrentUserDep) -> dict[str, Any]:
+        """Delete a note. 404 rather than a silent success when there is nothing to delete, so a caller whose id
+        was wrong learns it here instead of believing something was removed."""
+        from pravrudhi.application.memory_store import store_for
+
+        if not store_for(root, user).forget(note_id):
+            raise HTTPException(404, "no such note")
+        return {"forgotten": note_id}
 
     @api.get("/tools", response_model=ToolsResponse)
     def tools_ep() -> dict[str, Any]:

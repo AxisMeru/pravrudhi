@@ -234,11 +234,14 @@ rows:
   capability: Keyboard-driven navigation throughout
   why_it_matters: Work without reaching for the pointer.
   rivals: {orca: have, claude_desktop: unknown, codex: unknown, openclaw: unknown}
-  ours: partial
+  ours: have
   evidence:
   - 'command: grep -qF metaKey app/frontend/src/components/palette/CommandPalette.tsx'
-  notes: The palette opens on Ctrl+K and reaches pages, actions and records. Beyond it the interface expects a
-    pointer, and no other shortcut has been exercised.
+  - 'command: grep -qF KeyboardShortcuts app/frontend/src/app/layout.tsx'
+  - 'command: npm --prefix app/frontend test'
+  notes: Ctrl+K opens the palette over pages, actions and records; digits 1-9 reach the sidebar directly; "/"
+    focuses the page's own input; "?" lists every shortcut; Escape closes the topmost layer only, which is the
+    part with a test rather than a screenshot. A key pressed while typing is left to the field it was typed into.
 - id: account-switching
   capability: Switch between provider accounts
   why_it_matters: Separate work from personal quota, and survive one account being rate limited.
@@ -252,6 +255,11 @@ rows:
   capability: Edit a document in the application
   why_it_matters: Keep notes and plans where the work is.
   rivals: {orca: have, claude_desktop: unknown, codex: unknown, openclaw: unknown}
-  ours: none
-  evidence: []
-  notes: Memory notes are recorded and displayed but not editable in place.
+  ours: have
+  evidence:
+  - 'command: .venv/bin/python -m pytest tests/test_api_and_product.py -k note -q'
+  - 'command: grep -qF onSave={saveNote} app/frontend/src/app/memory/page.tsx'
+  notes: A note is written, corrected in place and deleted, with a Markdown source/preview editor over a
+    renderer whose escaping and scheme allowlist are tested as attacks. The claim is the round trip rather than
+    the widget - the editor existed for a while with its Save button wired to nothing, which is why the evidence
+    is the API test and the page's handler rather than the component's presence.

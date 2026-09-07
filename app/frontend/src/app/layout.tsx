@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Sidebar } from "@/components/Sidebar";
 import { ConnectionBanner } from "@/components/ConnectionBanner";
 import { CommandPalette } from "@/components/palette/CommandPalette";
+import { KeyboardShortcuts } from "@/components/keyboard/KeyboardShortcuts";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -24,6 +25,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         {/* The palette was built and never mounted, so Ctrl+K did nothing. The parity matrix caught it by
             re-running the evidence for the claim rather than trusting the claim. */}
         <CommandPalette />
+        <KeyboardShortcuts />
       </body>
     </html>
   );

@@ -9,6 +9,8 @@ export interface MemoryNote {
   text: string;
   source: string;
   created: string;
+  /** When the note was last edited; empty for one nobody has edited. */
+  revised?: string;
 }
 
 export interface Preference {
@@ -86,6 +88,37 @@ export async function remember(text: string, source = ""): Promise<MemoryNote> {
     const body = await res.json().catch(() => null);
     const detail = body && typeof body === "object" && typeof (body as { detail?: unknown }).detail === "string";
     throw new RememberError(res.status, detail ? (body as { detail: string }).detail : `HTTP ${res.status}`);
+  }
+  return (await res.json()) as MemoryNote;
+}
+
+// Correcting a note keeps its id, so the list can replace it in place rather than reloading the page. Refused on
+// the same terms `remember` is refused — a note editable into a ledger number would be a way around that guard.
+export async function revise(id: string, text: string, source = ""): Promise<MemoryNote> {
+  if (IS_DEMO) throw new RememberError(501, "this is a recorded run: editing a note needs a local engine");
+  return writeNote(`/api/memory/notes/${encodeURIComponent(id)}`, "PATCH", { text, source });
+}
+
+// Deleting is permanent: the store rewrites its file without the row, and nothing else holds a copy.
+export async function forget(id: string): Promise<void> {
+  if (IS_DEMO) throw new RememberError(501, "this is a recorded run: deleting a note needs a local engine");
+  await writeNote(`/api/memory/notes/${encodeURIComponent(id)}`, "DELETE");
+}
+
+async function writeNote(path: string, method: string, body?: unknown): Promise<MemoryNote> {
+  const token = await localToken();
+  const res = await fetch(`${apiBase()}${path}`, {
+    method,
+    headers: {
+      ...(body === undefined ? {} : { "content-type": "application/json" }),
+      ...(token ? { "x-pravrudhi-token": token } : {}),
+    },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  });
+  if (!res.ok) {
+    const payload = await res.json().catch(() => null);
+    const detail = payload && typeof payload === "object" && typeof (payload as { detail?: unknown }).detail === "string";
+    throw new RememberError(res.status, detail ? (payload as { detail: string }).detail : `HTTP ${res.status}`);
   }
   return (await res.json()) as MemoryNote;
 }

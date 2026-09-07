@@ -15,6 +15,10 @@ def seed(root: Path, *rows: dict[str, object]) -> None:
     path.write_text(yaml.safe_dump({'rows': list(rows)}))
 
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
+"""This test file lives in `tests/`, so the repository root is its parent — the root `parity.load` expects."""
+
+
 def row(id: str = 'feature', ours: str = 'have', rival: str = 'unknown') -> dict[str, object]:
     return {
         'id': id, 'capability': id, 'why_it_matters': 'Operator can complete work.',
@@ -134,3 +138,43 @@ class TestAnAbsentCapabilityNeedsNoEvidence:
         )
         result = _verify(tmp_path, [row])[0]
         assert not result.verified and "no evidence supplied" in result.failures
+
+
+class TestTheBoardThisRepositoryShips:
+    """Every test above builds its own rows in a temporary directory, so nothing checked the board that is
+    actually published. That is the gap the board exists to close: `CommandPalette` shipped claiming Ctrl+K and
+    was never mounted in the layout, and the claim stood until somebody re-ran its evidence by hand.
+
+    These checks are structural and cost nothing, so they can sit in the ordinary suite. They do not run the
+    evidence commands — `pravrudhi parity` does that, and some of them are the test suite itself.
+    """
+
+    @staticmethod
+    def _rows() -> list[object]:
+        from pravrudhi.application.parity import load
+
+        rows = load(REPO_ROOT)
+        assert rows, "the shipped parity board did not load"
+        return rows  # type: ignore[return-value]
+
+    def test_every_claim_carries_evidence(self) -> None:
+        unevidenced = [r.id for r in self._rows() if r.ours != "none" and not r.evidence]  # type: ignore[attr-defined]
+        assert not unevidenced, f"claimed without evidence: {unevidenced}"
+
+    def test_a_capability_claimed_as_absent_carries_none(self) -> None:
+        """Evidence under a `none` is left over from a claim that was withdrawn, and reads as if it supports it."""
+        stale = [r.id for r in self._rows() if r.ours == "none" and r.evidence]  # type: ignore[attr-defined]
+        assert not stale, f"withdrawn claims still carrying evidence: {stale}"
+
+    def test_every_file_named_as_evidence_exists(self) -> None:
+        """A path that no longer exists is the cheapest way for a claim to rot: the file was renamed, the row was
+        not, and the evidence quietly stopped meaning anything."""
+        missing = [
+            (r.id, e) for r in self._rows() for e in r.evidence  # type: ignore[attr-defined]
+            if not e.startswith("command:") and not (REPO_ROOT / e).exists()
+        ]
+        assert not missing, f"evidence naming files that are gone: {missing}"
+
+    def test_ids_are_unique(self) -> None:
+        ids = [r.id for r in self._rows()]  # type: ignore[attr-defined]
+        assert len(ids) == len(set(ids))

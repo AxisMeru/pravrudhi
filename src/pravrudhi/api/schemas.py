@@ -704,6 +704,15 @@ class MemoryNoteResponse(BaseModel):
     text: str
     source: str
     created: str
+    revised: str = ""
+    """When the note was last edited, empty for one nobody has edited."""
+
+
+class ForgottenResponse(BaseModel):
+    """The note that was deleted. Naming it back is what lets a caller confirm the deletion it asked for went
+    through rather than inferring it from a status code."""
+
+    forgotten: str
 
 
 class ChatThreadResponse(BaseModel):

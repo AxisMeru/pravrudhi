@@ -337,3 +337,12 @@ grant execute on function public.admin_set_role_by_email(text, public.app_role) 
 -- written before this column existed reads back as '{}'::jsonb, not null.
 -- ---------------------------------------------------------------------------
 alter table public.chat_turns add column if not exists meta jsonb not null default '{}'::jsonb;
+
+-- ---------------------------------------------------------------------------
+-- memory_notes.revised_at — when a note was last edited, null until it is.
+-- A note the user can write but never correct goes stale and stays stale, so
+-- the store gained an in-place revision (application/memory.py::revise) after
+-- the table shipped. Additive: a row written before this column existed reads
+-- back as null, which is exactly "never edited".
+-- ---------------------------------------------------------------------------
+alter table public.memory_notes add column if not exists revised_at timestamptz;

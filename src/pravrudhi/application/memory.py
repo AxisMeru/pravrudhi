@@ -63,12 +63,18 @@ class MemoryNote:
 
     `text` is never a bare numeric claim about a result — see `remember` — because that is the ledger's job, and a
     memory that duplicates it would go stale the moment the ledger is repaired.
+
+    `revised` is empty until the note is edited and then carries when it last was. A reader who acts on a note is
+    entitled to know that its text is not the text that was originally stored; keeping the original `created`
+    alongside it says that this is the same note rather than a replacement, which is what a caller holding the id
+    needs to be true. Rows written before this field existed simply have none, and load as unedited.
     """
 
     id: str
     text: str
     source: str
     created: str
+    revised: str = ""
 
 
 @dataclass(frozen=True)
@@ -154,10 +160,9 @@ def _load_notes(root: Path) -> list[MemoryNote]:
     return notes
 
 
-def remember(root: Path, text: str, *, source: str) -> MemoryNote:
-    """Store a durable fact. Refuses a bare numeric claim about a result (e.g. "GSM8K is now 49%") because that
-    number belongs to the ledger; if it is true the ledger already contains it, and if the ledger is later
-    repaired, a copy kept here would quietly go on lying."""
+def _admissible(text: str) -> str:
+    """The text a note is allowed to hold, or a refusal. Shared by `remember` and `revise` deliberately: a guard
+    that only covers the way a note is created is not a guard, because editing reaches the same store."""
     text = text.strip()
     if not text:
         raise MemoryError("a memory note with no text remembers nothing")
@@ -167,9 +172,43 @@ def remember(root: Path, text: str, *, source: str) -> MemoryNote:
             "from the ledger. If this is true, the ledger already has it; ask for the objective's progress "
             "instead of recording the number here."
         )
-    note = MemoryNote(id=uuid.uuid4().hex[:12], text=text, source=source, created=_now())
+    return text
+
+
+def remember(root: Path, text: str, *, source: str) -> MemoryNote:
+    """Store a durable fact. Refuses a bare numeric claim about a result (e.g. "GSM8K is now 49%") because that
+    number belongs to the ledger; if it is true the ledger already contains it, and if the ledger is later
+    repaired, a copy kept here would quietly go on lying."""
+    note = MemoryNote(id=uuid.uuid4().hex[:12], text=_admissible(text), source=source, created=_now())
     _append_jsonl(_notes_path(root), asdict(note))
     return note
+
+
+def revise(root: Path, note_id: str, text: str, *, source: str) -> MemoryNote | None:
+    """Replace a note's text in place, returning the revised note, or `None` if no note carries that id.
+
+    A note the user can write but never correct is a note that goes stale and stays stale, which is worse than no
+    note at all — the user's own record of their work is the one thing here they are entitled to change. The
+    revision keeps the id and the original `created` so that this is an edit rather than a delete and a rewrite,
+    and it passes the same admissibility guard `remember` does, since the store cannot tell how a numeric claim
+    arrived in it and should not have to.
+
+    `source` records who made the edit, which may differ from who wrote the note: the assistant may revise a note
+    it recorded on the user's behalf, and the user may correct one the assistant wrote.
+    """
+    text = _admissible(text)
+    path = _notes_path(root)
+    rows = _read_jsonl(path)
+    revised: MemoryNote | None = None
+    for index, row in enumerate(rows):
+        if row.get("id") != note_id:
+            continue
+        revised = MemoryNote(id=note_id, text=text, source=source, created=str(row.get("created", "")), revised=_now())
+        rows[index] = asdict(revised)
+        break
+    if revised is not None:
+        _write_jsonl(path, rows)
+    return revised
 
 
 def recall(root: Path, query: str = "", *, limit: int = 5) -> list[MemoryNote]:

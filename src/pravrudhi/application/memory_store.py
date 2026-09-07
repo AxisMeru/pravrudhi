@@ -49,6 +49,8 @@ class MemoryStore(Protocol):
 
     def recall(self, query: str = "", *, limit: int = 5) -> list[MemoryNote]: ...
 
+    def revise(self, note_id: str, text: str, *, source: str) -> MemoryNote | None: ...
+
     def forget(self, note_id: str) -> bool: ...
 
     def set_preference(self, key: str, value: Any, *, source: str) -> Preference: ...
@@ -74,6 +76,9 @@ class FileMemoryStore:
     def recall(self, query: str = "", *, limit: int = 5) -> list[MemoryNote]:
         return memory.recall(self._root, query, limit=limit)
 
+    def revise(self, note_id: str, text: str, *, source: str) -> MemoryNote | None:
+        return memory.revise(self._root, note_id, text, source=source)
+
     def forget(self, note_id: str) -> bool:
         return memory.forget(self._root, note_id)
 
@@ -91,6 +96,15 @@ class FileMemoryStore:
 
     def threads(self) -> list[ChatThread]:
         return memory.threads(self._root)
+
+
+def _note_from_row(row: dict[str, Any]) -> MemoryNote:
+    """One reading of a `memory_notes` row. `revised_at` is null for a note nobody has edited, and for a row
+    written before the column existed; both mean unedited, which is the empty string this dataclass uses."""
+    return MemoryNote(
+        id=str(row["id"]), text=str(row["text"]), source=str(row["source"]),
+        created=str(row["created_at"]), revised=str(row.get("revised_at") or ""),
+    )
 
 
 def _as_list(result: list[dict[str, Any]] | dict[str, Any]) -> list[dict[str, Any]]:
@@ -142,19 +156,20 @@ class SupabaseMemoryStore:
         self._fetch = fetch if fetch is not None else _httpx_fetch(url, service_key)
 
     def remember(self, text: str, *, source: str) -> MemoryNote:
-        text = text.strip()
-        if not text:
-            raise memory.MemoryError("a memory note with no text remembers nothing")
-        if memory._NUMERIC_CLAIM_RE.search(text):
-            raise memory.MemoryError(
-                f"refusing to remember {text!r}: it reads as a numeric claim about a result, and evidence comes "
-                "only from the ledger. If this is true, the ledger already has it; ask for the objective's "
-                "progress instead of recording the number here."
-            )
+        text = memory._admissible(text)
         row = _one(self._fetch("POST", "memory_notes", json={"user_id": self._user_id, "text": text, "source": source}))
-        return MemoryNote(
-            id=str(row["id"]), text=str(row["text"]), source=str(row["source"]), created=str(row["created_at"])
-        )
+        return _note_from_row(row)
+
+    def revise(self, note_id: str, text: str, *, source: str) -> MemoryNote | None:
+        """Edit a note in place. `None` when no note of the caller's carries that id — which is also what a note
+        belonging to somebody else looks like from here, since the filter is on both columns."""
+        text = memory._admissible(text)
+        rows = _as_list(self._fetch(
+            "PATCH", "memory_notes",
+            params={"id": f"eq.{note_id}", "user_id": f"eq.{self._user_id}"},
+            json={"text": text, "source": source, "revised_at": memory._now()},
+        ))
+        return _note_from_row(rows[0]) if rows else None
 
     def recall(self, query: str = "", *, limit: int = 5) -> list[MemoryNote]:
         rows = _as_list(
@@ -162,10 +177,7 @@ class SupabaseMemoryStore:
                 "GET", "memory_notes", params={"user_id": f"eq.{self._user_id}", "order": "created_at.desc"}
             )
         )
-        notes = [
-            MemoryNote(id=str(r["id"]), text=str(r["text"]), source=str(r["source"]), created=str(r["created_at"]))
-            for r in rows
-        ]
+        notes = [_note_from_row(r) for r in rows]
         if query.strip():
             q = query.strip().lower()
             notes.sort(key=lambda n: 0 if q in n.text.lower() else 1)

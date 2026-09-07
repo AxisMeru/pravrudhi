@@ -14,6 +14,7 @@ from pravrudhi.application.memory import (
     preferences,
     recall,
     remember,
+    revise,
     set_preference,
     thread,
     threads,
@@ -134,3 +135,48 @@ def test_chat_turn_rejects_unknown_role(tmp_path: Path) -> None:
 def test_unknown_thread_raises(tmp_path: Path) -> None:
     with pytest.raises(MemoryError):
         thread(tmp_path, "no-such-thread")
+
+
+def test_revise_replaces_the_text_and_keeps_the_notes_identity(tmp_path: Path) -> None:
+    """Editing a note is not writing a new one: the id and the original creation time are what make it the same
+    note, so a caller holding the old id still finds it and the store does not grow a duplicate."""
+    note = remember(tmp_path, "the base model is Qwen3-8B", source="user")
+
+    revised = revise(tmp_path, note.id, "the base model is Qwen3-14B", source="user")
+
+    assert revised is not None
+    assert revised.id == note.id
+    assert revised.created == note.created
+    assert revised.text == "the base model is Qwen3-14B"
+    assert revised.revised and revised.revised >= note.created
+    assert [n.text for n in recall(tmp_path, "")] == ["the base model is Qwen3-14B"]
+
+
+def test_revising_a_note_that_is_gone_is_reported_not_fatal(tmp_path: Path) -> None:
+    assert revise(tmp_path, "no-such-note", "anything", source="user") is None
+
+
+def test_revise_refuses_a_numeric_claim_the_same_way_remember_does(tmp_path: Path) -> None:
+    """Otherwise editing is a way around the guard: store an innocuous note, then edit a ledger number into it."""
+    note = remember(tmp_path, "the legal objective is running", source="user")
+
+    with pytest.raises(MemoryError):
+        revise(tmp_path, note.id, "the legal objective reached 49%", source="user")
+
+    assert [n.text for n in recall(tmp_path, "")] == ["the legal objective is running"]
+
+
+def test_revise_refuses_empty_text(tmp_path: Path) -> None:
+    note = remember(tmp_path, "something worth keeping", source="user")
+    with pytest.raises(MemoryError):
+        revise(tmp_path, note.id, "   ", source="user")
+
+
+def test_a_note_stored_before_revision_existed_still_loads(tmp_path: Path) -> None:
+    """The store is append-only JSON lines written by earlier versions; a row with no `revised` key is ordinary."""
+    path = memory_dir(tmp_path) / "notes.jsonl"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text('{"created": "2026-01-01T00:00:00Z", "id": "old", "source": "user", "text": "from before"}\n')
+
+    assert [n.text for n in recall(tmp_path, "")] == ["from before"]
+    assert recall(tmp_path, "")[0].revised == ""

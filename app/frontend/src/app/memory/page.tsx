@@ -5,7 +5,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { ComposeNote } from "@/components/memory/ComposeNote";
 import { NotesList } from "@/components/memory/NotesList";
 import { SearchBox } from "@/components/memory/SearchBox";
-import { memory, recall, type MemoryNote, type MemorySnapshot } from "@/lib/memory";
+import { forget, memory, recall, revise, type MemoryNote, type MemorySnapshot } from "@/lib/memory";
 
 export default function MemoryPage() {
   const [data, setData] = useState<MemorySnapshot | undefined>(undefined);
@@ -28,6 +28,19 @@ export default function MemoryPage() {
 
   const addNote = (note: MemoryNote) => {
     setData((prev) => (prev ? { ...prev, notes: [note, ...prev.notes] } : prev));
+  };
+
+  // A revision keeps the note's id, so the list is patched in place: the note stays where the reader left it
+  // rather than jumping to the top as a new one would. Errors are raised for `NotesList` to show against the
+  // note they belong to, so the local state is only touched once the engine has accepted the change.
+  const saveNote = async (note: MemoryNote, text: string) => {
+    const revised = await revise(note.id, text, "user");
+    setData((prev) => (prev ? { ...prev, notes: prev.notes.map((n) => (n.id === note.id ? revised : n)) } : prev));
+  };
+
+  const deleteNote = async (note: MemoryNote) => {
+    await forget(note.id);
+    setData((prev) => (prev ? { ...prev, notes: prev.notes.filter((n) => n.id !== note.id) } : prev));
   };
 
   const notes = data ? recall(data.notes, query) : [];
@@ -54,7 +67,7 @@ export default function MemoryPage() {
               <div className="mb-3">
                 <SearchBox value={query} onChange={setQuery} />
               </div>
-              <NotesList notes={notes} query={query} />
+              <NotesList notes={notes} query={query} onSave={saveNote} onDelete={deleteNote} />
             </section>
 
             {data.preferences.length > 0 && (

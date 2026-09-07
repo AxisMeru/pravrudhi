@@ -6,11 +6,9 @@
 // is repaired. When that happens this shows the engine's own refusal text verbatim, not a generic error.
 
 import { useState } from "react";
+import { MarkdownEditor } from "./MarkdownEditor";
 import { IS_DEMO } from "@/lib/api";
 import { RememberError, remember, type MemoryNote } from "@/lib/memory";
-
-const field =
-  "w-full rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm text-[var(--color-text)] outline-none focus:border-[var(--color-accent)] disabled:cursor-not-allowed disabled:opacity-50";
 
 export function ComposeNote({ onRemembered }: { onRemembered: (note: MemoryNote) => void }) {
   const [text, setText] = useState("");
@@ -41,16 +39,7 @@ export function ComposeNote({ onRemembered }: { onRemembered: (note: MemoryNote)
 
   return (
     <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
-      <label className="grid gap-1.5">
-        <span className="text-xs text-[var(--color-text-dim)]">Remember something</span>
-        <textarea
-          className={`${field} min-h-20 resize-y leading-6`}
-          disabled={IS_DEMO}
-          placeholder="A durable fact — a preference, a constraint, something worth not re-explaining next time."
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-        />
-      </label>
+      <MarkdownEditor text={text} onChange={setText} disabled={IS_DEMO || busy} />
 
       {IS_DEMO && (
         <p className="mt-2 text-sm text-[var(--color-text-dim)]">This is a recording. Remembering needs a local engine.</p>

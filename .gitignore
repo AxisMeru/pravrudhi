@@ -43,6 +43,9 @@ paper/*.out
 paper/*.synctex.gz
 paper/*.toc
 
+# npm's cache, created at the repository root when a tool runs npm with a local cache dir.
+.npm-cache/
+
 # --- os ---
 .DS_Store
 paper/*.pdf

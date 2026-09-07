@@ -127,6 +127,49 @@ def test_forget_deletes_memory_notes_filtered_by_user(monkeypatch: pytest.Monkey
     assert _store(fetch2).forget("missing") is False
 
 
+def test_revise_patches_the_note_filtered_by_user_and_stamps_when(monkeypatch: pytest.MonkeyPatch) -> None:
+    fetch = FakeFetch()
+    fetch.queue("PATCH", "memory_notes", [{
+        "id": "n1", "text": "corrected", "source": "user",
+        "created_at": "2026-01-01T00:00:00Z", "revised_at": "2026-02-02T00:00:00Z",
+    }])
+    note = _store(fetch).revise("n1", "corrected", source="user")
+
+    assert note is not None
+    assert (note.text, note.created, note.revised) == ("corrected", "2026-01-01T00:00:00Z", "2026-02-02T00:00:00Z")
+    method, path, json, params = fetch.calls[0]
+    assert (method, path) == ("PATCH", "memory_notes")
+    assert params == {"id": "eq.n1", "user_id": f"eq.{USER_ID}"}
+    assert json is not None and json["text"] == "corrected" and json["revised_at"]
+
+
+def test_revising_a_note_of_someone_elses_finds_nothing(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The filter names both the id and the owner, so another user's note is indistinguishable from a missing one
+    — which is the answer that does not confirm the note exists."""
+    fetch = FakeFetch()
+    fetch.queue("PATCH", "memory_notes", [])
+    assert _store(fetch).revise("someone-elses", "mine now", source="user") is None
+
+
+def test_revise_refuses_a_numeric_claim_before_fetch() -> None:
+    """Editing must not be the way around the guard that creation enforces."""
+    fetch = FakeFetch()
+    with pytest.raises(PravrudhiMemoryError):
+        _store(fetch).revise("n1", "GSM8K is now 49%", source="user")
+    assert fetch.calls == []
+
+
+def test_a_note_never_edited_reads_back_unedited(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`revised_at` is null for an unedited note and absent for a row written before the column existed."""
+    fetch = FakeFetch()
+    fetch.queue("GET", "memory_notes", [
+        {"id": "n1", "text": "never edited", "source": "user", "created_at": "2026-01-01T00:00:00Z",
+         "revised_at": None},
+        {"id": "n2", "text": "older row", "source": "user", "created_at": "2025-12-01T00:00:00Z"},
+    ])
+    assert [n.revised for n in _store(fetch).recall("")] == ["", ""]
+
+
 def test_set_preference_posts_preferences_filtered_by_user(monkeypatch: pytest.MonkeyPatch) -> None:
     fetch = FakeFetch()
     fetch.queue(

@@ -140,3 +140,58 @@ def test_evidence_endpoint_refuses_traversal_and_serves_only_evidence_files(tmp_
     assert c.get("/api/evidence/L3_noise_floor").json()["markdown"] == "# ok\n"
     for bad in ("..%2Fsecret", "../secret", "%2e%2e/secret", "L3_noise_floor/../../secret", "a" * 65, "x.y"):
         assert c.get(f"/evidence/{bad}").status_code == 404, bad
+
+
+def test_a_note_can_be_written_corrected_and_deleted_over_the_api(tmp_path: Path) -> None:
+    """The editor in the memory page had a Save button and no endpoint behind it. These four calls are the round
+    trip that page makes, so the button cannot go dead again without a red test.
+
+    Every one of them is state-changing, so each carries the local token the engine's guard requires.
+    """
+    root = tmp_path
+    init_project(root)
+    c = TestClient(create_app(root), base_url="http://127.0.0.1:8008")
+    tok = {TOKEN_HEADER: app_token(root)}
+
+    created = c.post("/api/memory/notes", json={"text": "the base model is Qwen3-8B", "source": "user"}, headers=tok)
+    assert created.status_code == 200, created.text
+    note = created.json()
+    assert note["revised"] == ""
+
+    edited = c.patch(
+        f"/api/memory/notes/{note['id']}", json={"text": "the base model is Qwen3-14B", "source": "user"}, headers=tok
+    )
+    assert edited.status_code == 200, edited.text
+    assert edited.json()["id"] == note["id"]
+    assert edited.json()["text"] == "the base model is Qwen3-14B"
+    assert edited.json()["created"] == note["created"] and edited.json()["revised"]
+
+    listed = c.get("/api/memory", headers=tok).json()["notes"]
+    assert [n["text"] for n in listed] == ["the base model is Qwen3-14B"], "the edit did not reach the store"
+
+    assert c.delete(f"/api/memory/notes/{note['id']}", headers=tok).status_code == 200
+    assert c.get("/api/memory", headers=tok).json()["notes"] == []
+
+
+def test_editing_a_note_into_a_ledger_number_is_refused_over_the_api(tmp_path: Path) -> None:
+    """Evidence comes only from the kernel, and an edit reaches the same store a creation does."""
+    root = tmp_path
+    init_project(root)
+    c = TestClient(create_app(root), base_url="http://127.0.0.1:8008")
+    tok = {TOKEN_HEADER: app_token(root)}
+
+    note = c.post("/api/memory/notes", json={"text": "the legal objective is running"}, headers=tok).json()
+    refused = c.patch(f"/api/memory/notes/{note['id']}", json={"text": "it reached 49%"}, headers=tok)
+
+    assert refused.status_code == 422
+    assert c.get("/api/memory", headers=tok).json()["notes"][0]["text"] == "the legal objective is running"
+
+
+def test_correcting_or_deleting_a_note_that_is_not_there_is_a_404(tmp_path: Path) -> None:
+    root = tmp_path
+    init_project(root)
+    c = TestClient(create_app(root), base_url="http://127.0.0.1:8008")
+    tok = {TOKEN_HEADER: app_token(root)}
+
+    assert c.patch("/api/memory/notes/no-such-note", json={"text": "anything"}, headers=tok).status_code == 404
+    assert c.delete("/api/memory/notes/no-such-note", headers=tok).status_code == 404
