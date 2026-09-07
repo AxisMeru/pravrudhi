@@ -26,4 +26,4 @@ def test_cli_emit_check_contract(tmp_path: Path) -> None:
 
 def test_cli_version() -> None:
     r = runner.invoke(app, ["--version"])
-    assert r.exit_code == 0 and "pravrudhi 0.3.0" in r.output
+    assert r.exit_code == 0 and "pravrudhi 0.3.1" in r.output
