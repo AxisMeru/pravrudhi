@@ -10,6 +10,7 @@ import os
 import re
 import subprocess
 import threading
+import time
 from pathlib import Path
 from typing import Any, Literal
 
@@ -46,10 +47,12 @@ from pravrudhi.api.schemas import (
     LiveAgentsResponse,
     LoomResponse,
     MarkdownResponse,
+    MarkReadRequest,
     MemoryNoteResponse,
     MemoryResponse,
     MeResponse,
     NightsResponse,
+    NotificationsResponse,
     ObjectiveDetailResponse,
     ObjectiveResponse,
     ObjectivesResponse,
@@ -78,6 +81,10 @@ from pravrudhi.application.doctor import run_doctor
 from pravrudhi.application.evidence import render_h1
 from pravrudhi.application.external import external_rows
 from pravrudhi.application.night import inbox_listing
+from pravrudhi.application.notifications import emit as emit_notification
+from pravrudhi.application.notifications import mark_read as mark_notifications_read
+from pravrudhi.application.notifications import recent as recent_notifications
+from pravrudhi.application.notifications import unread as unread_notifications
 from pravrudhi.application.requests import Evidence, Request, RequestError
 from pravrudhi.application.requests import advance as advance_request
 from pravrudhi.application.requests import backlog as requests_backlog
@@ -278,7 +285,33 @@ def create_app(root: Path) -> FastAPI:
         except dispatchboard.DispatchError as e:
             raise HTTPException(422, str(e)) from e
         dispatchboard.run_next(root, lambda name, model: build_agent(root, name, model), log=print)
+        _watch_job_outcome(job.id)
         return (dispatchboard.get(root, job.id) or job).to_dict()
+
+    def _watch_job_outcome(job_id: str) -> None:
+        """A dispatched job's verdict lands in `.pravrudhi/jobs/<id>.json` from a background thread inside
+        `dispatchboard.run_next` itself, with nothing to hook at the moment it happens. This polls the same file
+        the interface already reads until the job leaves `running`, then turns that verdict into a notification.
+        Bounded to ~30 minutes of polling so a job that never finishes does not leave a thread running forever."""
+        from pravrudhi.application import dispatchboard
+
+        def _poll() -> None:
+            for _ in range(900):
+                time.sleep(2)
+                job = dispatchboard.get(root, job_id)
+                if job is None or job.state not in ("queued", "running"):
+                    break
+            else:
+                return
+            if job is None or job.state not in ("accepted", "rejected"):
+                return
+            kind = "job_accepted" if job.state == "accepted" else "job_rejected"
+            emit_notification(
+                root, kind=kind, title=f'"{job.title}" was {job.state}',
+                detail=" ".join(job.reasons), ref="/swarm",
+            )
+
+        threading.Thread(target=_poll, daemon=True).start()
 
     @api.post("/jobs/{job_id}/cancel", response_model=JobResponse)
     def cancel_job(job_id: str) -> dict[str, Any]:
@@ -286,9 +319,27 @@ def create_app(root: Path) -> FastAPI:
         from pravrudhi.application import dispatchboard
 
         try:
-            return dispatchboard.cancel(root, job_id).to_dict()
+            job = dispatchboard.cancel(root, job_id)
         except dispatchboard.DispatchError as e:
             raise HTTPException(404, str(e)) from e
+        if job.state == "cancelled":
+            emit_notification(root, kind="job_cancelled", title=f'"{job.title}" was cancelled', ref="/swarm")
+        return job.to_dict()
+
+    @api.get("/notifications", response_model=NotificationsResponse)
+    def notifications_ep(n: int = 50) -> dict[str, Any]:
+        """The notification feed a bell in the interface polls: recent entries newest first, and how many are
+        still unread. Answers on a workspace that has never emitted one with an empty feed, not an error."""
+        rows = recent_notifications(root, max(1, min(n, 500)))
+        return {"notifications": [r.to_dict() for r in rows], "unread": len(unread_notifications(root))}
+
+    @api.post("/notifications/read", response_model=NotificationsResponse)
+    def notifications_read_ep(req: MarkReadRequest) -> dict[str, Any]:
+        """Mark notifications read. An empty `ids` list is "mark all read"."""
+        ids = req.ids or [n.id for n in unread_notifications(root)]
+        mark_notifications_read(root, ids)
+        rows = recent_notifications(root, 50)
+        return {"notifications": [r.to_dict() for r in rows], "unread": len(unread_notifications(root))}
 
     @api.get("/sandboxes", response_model=SandboxesResponse)
     def sandboxes_ep() -> dict[str, Any]:
@@ -802,9 +853,15 @@ def create_app(root: Path) -> FastAPI:
     def request_evidence_ep(rid: str, index: int, req: RequestEvidenceRequest) -> RequestResponse:
         evidence = [Evidence(kind=req.kind, ref=req.ref, note=req.note)]
         try:
-            return _request_response(meet_criterion(root, rid, index, evidence))
+            updated = meet_criterion(root, rid, index, evidence)
         except RequestError as e:
             raise HTTPException(409, str(e)) from e
+        criterion_text = updated.criteria[index].text if 0 <= index < len(updated.criteria) else ""
+        emit_notification(
+            root, kind="criterion_met", title=f"Criterion met on request {rid}",
+            detail=criterion_text, ref="/requests",
+        )
+        return _request_response(updated)
 
     @api.post("/inbox/sign")
     def sign(req: SignRequest, x_pravrudhi_operator: str | None = Header(default=None)) -> SignResponse:

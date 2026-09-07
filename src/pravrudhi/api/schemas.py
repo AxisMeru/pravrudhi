@@ -1024,3 +1024,29 @@ class JobResponse(BaseModel):
 
 class JobsResponse(RootModel[list[JobResponse]]):
     """The dispatch board's jobs, newest first."""
+
+
+class NotificationResponse(BaseModel):
+    """One thing that happened while nobody was watching: a run ending, a job's verdict, a criterion being met.
+    `ref` is a path into the app pointing at where it happened, or empty when there is nowhere to link."""
+
+    id: str
+    at: str
+    kind: str
+    title: str
+    detail: str
+    ref: str
+    read: bool
+
+
+class NotificationsResponse(BaseModel):
+    """The notification feed: recent entries newest first, and how many of them are still unread."""
+
+    notifications: list[NotificationResponse]
+    unread: int
+
+
+class MarkReadRequest(BaseModel):
+    """Which notifications to mark read. An empty list marks every unread notification read."""
+
+    ids: list[str] = []

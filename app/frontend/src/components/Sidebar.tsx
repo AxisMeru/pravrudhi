@@ -26,6 +26,7 @@ import {
   Rocket,
 } from "lucide-react";
 import type { ComponentType } from "react";
+import { NotificationBell } from "@/components/notifications/NotificationBell";
 import { inbox } from "@/lib/inbox";
 import { requests } from "@/lib/requests";
 
@@ -87,7 +88,10 @@ export function Sidebar() {
   return (
     <aside className="flex h-full w-60 shrink-0 flex-col border-r border-[var(--color-border)] bg-[var(--color-surface)]">
       <div className="border-b border-[var(--color-border)] px-5 py-5">
-        <div className="text-lg font-semibold tracking-tight text-[var(--color-text)]">Pravrudhi</div>
+        <div className="flex items-center justify-between gap-2">
+          <div className="text-lg font-semibold tracking-tight text-[var(--color-text)]">Pravrudhi</div>
+          <NotificationBell />
+        </div>
         <p className="mt-1 text-xs leading-snug text-[var(--color-text-dim)]">
           Improve your model or your agent harness, on your hardware, while you watch.
         </p>

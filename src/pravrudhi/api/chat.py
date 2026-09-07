@@ -12,15 +12,18 @@ persistence and the response contract, can be exercised against a fake model wit
 
 from __future__ import annotations
 
+import json
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from pravrudhi.api.identity import CurrentUserDep, User
 from pravrudhi.api.schemas import ChatResponse, ChatThreadDetailResponse, ChatThreadsResponse
-from pravrudhi.application.chat import ChatEndpointUnreachable, Complete, converse
+from pravrudhi.application.chat import ChatEndpointUnreachable, Complete, converse, converse_stream
 from pravrudhi.application.memory import MemoryError as MemoryStoreError
 from pravrudhi.application.memory_store import store_for
 
@@ -48,6 +51,31 @@ def build_chat_router(root: Path, complete: Complete | None = None) -> APIRouter
         except ChatEndpointUnreachable as exc:
             raise HTTPException(503, str(exc)) from exc
         return outcome.to_dict()
+
+    @router.post("/chat/stream", response_model=ChatResponse)
+    async def chat_stream_ep(req: ChatRequest, user: User | None = CurrentUserDep) -> StreamingResponse:
+        """The same turn as `/chat`, delivered as server-sent events while it happens: `tool` when the
+        assistant calls a tool and again when it returns, `token` for each piece of the finished, honesty-
+        checked reply, `citation` per ledger row it stands on, and `done` with the same payload `/chat` returns
+        in one piece - which is also what `response_model` documents here, since the raw `StreamingResponse`
+        this returns bypasses it at runtime and a `done` event is the one SSE frame shaped exactly like it.
+        A turn whose model endpoint never answers is reported as an `error` event rather than a dropped
+        connection - `converse_stream` leaves the user's message unpersisted until it has a reply, so a client
+        that falls back to `/chat` for the same message will not find it already sitting in the thread with
+        nothing answering it.
+        """
+        if not req.message.strip():
+            raise HTTPException(422, "a chat turn with no message asks nothing")
+
+        def events() -> Iterator[str]:
+            try:
+                for ev in converse_stream(workspace, req.message, thread_id=req.thread_id, user=user,
+                                          complete=complete):
+                    yield f"data: {json.dumps(ev)}\n\n"
+            except ChatEndpointUnreachable as exc:
+                yield f"data: {json.dumps({'type': 'error', 'error': str(exc)})}\n\n"
+
+        return StreamingResponse(events(), media_type="text/event-stream")
 
     @router.get("/chat/threads", response_model=ChatThreadsResponse)
     async def threads_ep(user: User | None = CurrentUserDep) -> dict[str, Any]:

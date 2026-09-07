@@ -32,7 +32,7 @@ import json
 import os
 import re
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Any
@@ -126,6 +126,11 @@ _SENTENCE_RE = re.compile(r"(?<=[.!?])\s+|\n+")
 _LABEL_KEYS = ("benchmark", "metric", "name", "id", "pack", "condition")
 
 _EVIDENCE_NAME_RE = re.compile(r"[A-Za-z0-9_-]{1,64}")
+
+# How a finished reply is cut into `token` events for the streaming route: each chunk keeps its own trailing
+# whitespace, so joining every chunk back together reproduces the reply exactly - a client that just concatenates
+# `token.text` in order needs no separator logic of its own.
+_TOKEN_CHUNK_RE = re.compile(r"\S+\s*")
 
 
 @dataclass(frozen=True)
@@ -485,6 +490,99 @@ def _grounding_calls(root: Path, store: MemoryStore, message: str) -> list[ToolI
     return [replace(dispatch(root, store, tool, args), grounding=True) for tool, args in wanted]
 
 
+def _run_turn(
+    root: Path,
+    message: str,
+    *,
+    thread_id: str | None,
+    complete: Complete,
+    store: MemoryStore,
+) -> Iterator[dict[str, Any]]:
+    """The turn engine shared by `converse` and `converse_stream`: grounding, then the tool-calling rounds.
+
+    A live caller wants to know about each tool as it is called and as it returns; a caller that only wants
+    the finished turn can drain this generator and read the last item. Either way the logic that decides which
+    tools run and what the model is shown is written exactly once, because a chat surface with two turn engines
+    that drift is a chat surface where one of them silently stops enforcing the honesty rule.
+
+    Nothing here is persisted. The user's own message is not written until `_finish_turn` knows the model
+    actually answered - a request whose endpoint never responds must leave no half-written turn behind for the
+    thread to carry forward, or a client retrying the same message would find it already there without a reply.
+    """
+    tid = (thread_id or "").strip() or f"t-{uuid.uuid4().hex[:12]}"
+    messages: list[dict[str, str]] = [{"role": "system", "content": system_prompt()}]
+    messages += _history(store, tid)
+    messages.append({"role": "user", "content": message})
+
+    grounded = _grounding_calls(root, store, message)
+    for call in grounded:
+        yield {"type": "tool", "phase": "called", "tool": call.tool, "args": dict(call.args)}
+        yield {"type": "tool", "phase": "returned", "tool": call.tool, "args": dict(call.args),
+               "result_summary": call.result_summary}
+    calls: list[ToolInvocation] = list(grounded)
+    if grounded:
+        messages.append(_tool_results_message(grounded))
+
+    draft = ""
+    for _round in range(MAX_TOOL_ROUNDS):
+        answer = complete(list(messages), list(TOOL_SCHEMA))
+        draft = str(answer.get("content") or "")
+        requested = [r for r in (answer.get("tool_calls") or []) if isinstance(r, dict)]
+        if not requested:
+            break
+        this_round: list[ToolInvocation] = []
+        for r in requested:
+            tool = str(r.get("tool") or r.get("name") or "")
+            args = dict(r.get("args") or r.get("arguments") or {})
+            yield {"type": "tool", "phase": "called", "tool": tool, "args": args}
+            call = dispatch(root, store, tool, args)
+            yield {"type": "tool", "phase": "returned", "tool": tool, "args": args,
+                   "result_summary": call.result_summary}
+            this_round.append(call)
+        calls += this_round
+        asked = json.dumps({"tool_calls": [c.to_dict() for c in this_round]})
+        messages.append({"role": "assistant", "content": asked})
+        messages.append(_tool_results_message(this_round))
+
+    yield {"type": "_final", "thread_id": tid, "draft": draft, "calls": tuple(calls), "grounded": bool(grounded)}
+
+
+def _drain_final(events: Iterator[dict[str, Any]]) -> dict[str, Any]:
+    final: dict[str, Any] | None = None
+    for ev in events:
+        if ev["type"] == "_final":
+            final = ev
+    assert final is not None, "_run_turn always ends with a _final event"
+    return final
+
+
+def _finish_turn(
+    memory_store: MemoryStore, message: str, final: dict[str, Any],
+) -> tuple[str, str, tuple[ToolInvocation, ...], tuple[dict[str, Any], ...], list[str]]:
+    """Run the honesty pass over a finished turn and persist both halves of it.
+
+    The user's turn is written here, beside the assistant's, rather than up front in `_run_turn` - so a turn
+    that reaches this point has an answer, and a turn that does not reach this point (the model's endpoint
+    never responded) leaves the thread exactly as a caller who retries the same message expects to find it.
+    """
+    tid, draft, made, grounded = final["thread_id"], final["draft"], final["calls"], final["grounded"]
+    memory_store.append_turn(tid, "user", message)
+    reply, refusals = enforce_honesty(draft, allowed_numbers(made))
+    refusals = [c.refusal for c in made if c.refusal] + refusals
+    citations = citations_from(made)
+    if grounded and not citations:
+        # The message's own wording justified a ledger lookup and one ran, but nothing in it was citable -
+        # whatever the model wrote instead cannot be verified this turn, so it is replaced outright rather
+        # than trusted just because it happens to contain no numeral for the honesty pass to catch.
+        reply = _GROUNDING_FALLBACK_REPLY
+    memory_store.append_turn(tid, "assistant", reply, meta={
+        "citations": [dict(c) for c in citations],
+        "refusals": list(refusals),
+        "tool_calls": [c.to_dict() for c in made],
+    })
+    return tid, reply, made, citations, refusals
+
+
 def converse(
     root: Path,
     message: str,
@@ -501,51 +599,10 @@ def converse(
     """
     root = Path(root)
     memory_store = store if store is not None else store_for(root, user)
-    tid = (thread_id or "").strip() or f"t-{uuid.uuid4().hex[:12]}"
     model = complete if complete is not None else default_complete()
 
-    messages: list[dict[str, str]] = [{"role": "system", "content": system_prompt()}]
-    messages += _history(memory_store, tid)
-    messages.append({"role": "user", "content": message})
-    memory_store.append_turn(tid, "user", message)
-
-    grounded = _grounding_calls(root, memory_store, message)
-    calls: list[ToolInvocation] = list(grounded)
-    if grounded:
-        messages.append(_tool_results_message(grounded))
-
-    draft = ""
-    for _round in range(MAX_TOOL_ROUNDS):
-        answer = model(list(messages), list(TOOL_SCHEMA))
-        draft = str(answer.get("content") or "")
-        requested = [r for r in (answer.get("tool_calls") or []) if isinstance(r, dict)]
-        if not requested:
-            break
-        this_round = [
-            dispatch(root, memory_store, str(r.get("tool") or r.get("name") or ""),
-                     dict(r.get("args") or r.get("arguments") or {}))
-            for r in requested
-        ]
-        calls += this_round
-        asked = json.dumps({"tool_calls": [c.to_dict() for c in this_round]})
-        messages.append({"role": "assistant", "content": asked})
-        messages.append(_tool_results_message(this_round))
-
-    made = tuple(calls)
-    reply, refusals = enforce_honesty(draft, allowed_numbers(made))
-    refusals = [c.refusal for c in made if c.refusal] + refusals
-    citations = citations_from(made)
-    if grounded and not citations:
-        # The message's own wording justified a ledger lookup and one ran, but nothing in it was citable -
-        # whatever the model wrote instead cannot be verified this turn, so it is replaced outright rather
-        # than trusted just because it happens to contain no numeral for the honesty pass to catch.
-        reply = _GROUNDING_FALLBACK_REPLY
-    turn_meta = {
-        "citations": [dict(c) for c in citations],
-        "refusals": list(refusals),
-        "tool_calls": [c.to_dict() for c in made],
-    }
-    memory_store.append_turn(tid, "assistant", reply, meta=turn_meta)
+    final = _drain_final(_run_turn(root, message, thread_id=thread_id, complete=model, store=memory_store))
+    tid, reply, made, citations, refusals = _finish_turn(memory_store, message, final)
     return ChatOutcome(
         thread_id=tid,
         reply=reply,
@@ -553,6 +610,57 @@ def converse(
         tool_calls=made,
         refusals=tuple(refusals),
     )
+
+
+def converse_stream(
+    root: Path,
+    message: str,
+    *,
+    thread_id: str | None = None,
+    user: User | None = None,
+    complete: Complete | None = None,
+    store: MemoryStore | None = None,
+) -> Iterator[dict[str, Any]]:
+    """The same turn as `converse`, delivered as it happens.
+
+    A `tool` event is yielded when the assistant calls a tool and again when it returns, in that order, for
+    every tool this turn runs - the grounding pre-pass first, then whatever the model itself asks for. Only
+    once every one of those calls has resolved does this function know what the model's draft is allowed to
+    say, so the reply is put through the same `enforce_honesty` pass `converse` uses before any of it is cut
+    into `token` events. That ordering is the whole of the grounding guarantee for this route: a number the
+    model wrote before its own tool call resolved is judged, like every other number, only after the call it
+    depended on has already returned - it cannot reach a `token` event any sooner than `converse`'s caller
+    could have read it in the finished reply.
+
+    Raises whatever `complete` raises (typically `ChatEndpointUnreachable`) mid-generator if the model never
+    answers. `_run_turn` defers persisting the user's message until `_finish_turn` runs, so a turn that fails
+    here leaves nothing behind for a caller to duplicate by retrying the same message through `converse`.
+    """
+    root = Path(root)
+    memory_store = store if store is not None else store_for(root, user)
+    model = complete if complete is not None else default_complete()
+
+    final: dict[str, Any] | None = None
+    for ev in _run_turn(root, message, thread_id=thread_id, complete=model, store=memory_store):
+        if ev["type"] == "_final":
+            final = ev
+            break
+        yield ev
+    assert final is not None, "_run_turn always ends with a _final event"
+
+    tid, reply, made, citations, refusals = _finish_turn(memory_store, message, final)
+    for chunk in _TOKEN_CHUNK_RE.findall(reply):
+        yield {"type": "token", "text": chunk}
+    for c in citations:
+        yield {"type": "citation", **dict(c)}
+    yield {
+        "type": "done",
+        "thread_id": tid,
+        "reply": reply,
+        "citations": [dict(c) for c in citations],
+        "tool_calls": [c.to_dict() for c in made],
+        "refusals": list(refusals),
+    }
 
 
 _DRAFT_SCHEMA: dict[str, Any] = {
