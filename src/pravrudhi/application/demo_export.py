@@ -245,6 +245,43 @@ def _swarm(root: Path) -> dict[str, Any]:
     }
 
 
+def _parity(root: Path) -> dict[str, Any] | None:
+    """The capability scoreboard, so the published site can show it without an engine behind it."""
+    try:
+        from pravrudhi.application.parity import report
+
+        return report(root).model_dump()
+    except Exception:  # noqa: BLE001 (a snapshot section that cannot be built is omitted, not fatal)
+        return None
+
+
+def _appetite(root: Path) -> dict[str, Any] | None:
+    """What the engine wanted at export time, with every drive's operands rather than just its verdict."""
+    try:
+        from pravrudhi.application import kshudha
+
+        state = kshudha.current(root)
+        return {
+            "drives": [d.to_dict() for d in state.drives],
+            "appetite": state.to_dict(),
+            "sentence": kshudha.sentence(state),
+        }
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _diffs(root: Path) -> list[dict[str, Any]]:
+    """Recent dispatched tasks whose worktree is still readable, for the diff viewer."""
+    try:
+        from dataclasses import asdict
+
+        from pravrudhi.application.diffs import recent as recent_diffs
+
+        return [asdict(d) for d in recent_diffs(root, 20)]
+    except Exception:  # noqa: BLE001
+        return []
+
+
 def _search(ledger: Path) -> dict[str, Any]:
     """Branching and selection pressure, so the recorded demo carries them without a live engine."""
     from pravrudhi.application.archive import ancestry_report, parent_map, selection_pressure
@@ -291,6 +328,9 @@ def build_demo(root: Path) -> dict[str, Any]:
         },
         "engine": {"version": ENGINE_VERSION, "candidates": len(st.candidates)},
         "search": _search(ledger),
+        "parity": _parity(root),
+        "appetite": _appetite(root),
+        "diffs": _diffs(root),
         "status": status(root),
         "models": models_listing(root),
         "external": external_rows(ledger),

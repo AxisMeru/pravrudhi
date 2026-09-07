@@ -1,4 +1,310 @@
 {
+  "appetite": {
+    "appetite": {
+      "action": {
+        "description": "a cheap diagnostic for freshness",
+        "drive": "pramana_navyata",
+        "kind": "diagnostic"
+      },
+      "as_of": "2026-09-07T11:55:36Z",
+      "drives": [
+        {
+          "blocked_reason": "",
+          "deficit": 0.0,
+          "eligible": true,
+          "id": "sthiti",
+          "sources": [
+            "doctor:initialised=ok",
+            "doctor:ledger=ok",
+            "doctor:docker=ok",
+            "doctor:gpu=ok",
+            "doctor:pools=ok",
+            "doctor:prereg=ok"
+          ],
+          "target": 1.0,
+          "unknown": false,
+          "value": 1.0,
+          "weight": 1.0,
+          "wire_name": "continuity"
+        },
+        {
+          "blocked_reason": "",
+          "deficit": 0.0,
+          "eligible": true,
+          "id": "samarthya",
+          "sources": [
+            "tool:agent-claude-code=available",
+            "tool:agent-codex=available",
+            "tool:agent-orca=available",
+            "tool:model-llamacpp=absent",
+            "tool:runtime-docker=available",
+            "tool:runtime-uv=available",
+            "tool:runtime-gpu=available",
+            "tool:mcp-playwright=available",
+            "tool:mcp-supabase=absent",
+            "tool:mcp-vercel=absent",
+            "tool:mcp-huggingface=absent",
+            "tool:mcp-git=available",
+            "recipe:corpus-synthesis=available",
+            "recipe:corpus-curation=available",
+            "recipe:sft-lora=available",
+            "recipe:distributed-training=available",
+            "recipe:model-onboarding=available",
+            "recipe:megatron-pretrain=available",
+            "recipe:parallelism-strategy=available",
+            "recipe:recipe-recommender=available",
+            "recipe:memory-tuning=available",
+            "recipe:sequence-packing=available",
+            "recipe:rl-post-training=available",
+            "recipe:evaluation=available",
+            "recipe:retrieval=available",
+            "recipe:retrieval-recipes=available",
+            "recipe:policy-generation=available",
+            "recipe:sandboxed-agents=available",
+            "recipe:sandbox-policy=available",
+            "agent:claude-code=available",
+            "agent:codex=available",
+            "agent:orca:claude=available",
+            "agent:orca:codex=available",
+            "agent:orca:local=available"
+          ],
+          "target": 0.8,
+          "unknown": false,
+          "value": 0.8823529411764706,
+          "weight": 1.0,
+          "wire_name": "capability"
+        },
+        {
+          "blocked_reason": "no evidence-freshness source is wired into the engine yet",
+          "deficit": null,
+          "eligible": false,
+          "id": "pramana_navyata",
+          "sources": [],
+          "target": 1.0,
+          "unknown": true,
+          "value": null,
+          "weight": 1.0,
+          "wire_name": "freshness"
+        },
+        {
+          "blocked_reason": "no declared benchmark has both a target_delta and a measured delta",
+          "deficit": null,
+          "eligible": false,
+          "id": "unnati_avakasha",
+          "sources": [
+            "code-harness:humaneval-plus: unknown (no target, no measured delta, or scale<=0)",
+            "code-harness:mbpp-plus: unknown (no target, no measured delta, or scale<=0)",
+            "math-reasoning:gsm8k: unknown (no target, no measured delta, or scale<=0)",
+            "prabhasa-nyaya:professional-law: unknown (no target, no measured delta, or scale<=0)",
+            "prabhasa-nyaya:jurisprudence: unknown (no target, no measured delta, or scale<=0)"
+          ],
+          "target": 1.0,
+          "unknown": true,
+          "value": null,
+          "weight": 1.0,
+          "wire_name": "benchmark_headroom"
+        },
+        {
+          "blocked_reason": "",
+          "deficit": 0.0,
+          "eligible": true,
+          "id": "sadhana",
+          "sources": [
+            "routes_total=5",
+            "routes_available=5",
+            "routes_cooling=0",
+            "usable=5",
+            "required_min=1"
+          ],
+          "target": 1.0,
+          "unknown": false,
+          "value": 1.0,
+          "weight": 1.0,
+          "wire_name": "resources"
+        },
+        {
+          "blocked_reason": "sated; cooling down for 1 more heartbeat(s)",
+          "deficit": 0.20634920634920634,
+          "eligible": false,
+          "id": "seva",
+          "sources": [
+            "captured=7",
+            "verified=5",
+            "R_verified=0.7143",
+            "oldest_open_days=0.77"
+          ],
+          "target": 0.9,
+          "unknown": false,
+          "value": 0.7142857142857143,
+          "weight": 1.0,
+          "wire_name": "obligations"
+        },
+        {
+          "blocked_reason": "no rival figure is declared in the appetite config",
+          "deficit": null,
+          "eligible": false,
+          "id": "spardha",
+          "sources": [],
+          "target": 1.0,
+          "unknown": true,
+          "value": null,
+          "weight": 1.0,
+          "wire_name": "rivalry"
+        }
+      ],
+      "largest_unmet": "seva",
+      "next_wake": "next heartbeat",
+      "policy_version": "1",
+      "resting_reason": null,
+      "selected": "pramana_navyata"
+    },
+    "drives": [
+      {
+        "blocked_reason": "",
+        "deficit": 0.0,
+        "eligible": true,
+        "id": "sthiti",
+        "sources": [
+          "doctor:initialised=ok",
+          "doctor:ledger=ok",
+          "doctor:docker=ok",
+          "doctor:gpu=ok",
+          "doctor:pools=ok",
+          "doctor:prereg=ok"
+        ],
+        "target": 1.0,
+        "unknown": false,
+        "value": 1.0,
+        "weight": 1.0,
+        "wire_name": "continuity"
+      },
+      {
+        "blocked_reason": "",
+        "deficit": 0.0,
+        "eligible": true,
+        "id": "samarthya",
+        "sources": [
+          "tool:agent-claude-code=available",
+          "tool:agent-codex=available",
+          "tool:agent-orca=available",
+          "tool:model-llamacpp=absent",
+          "tool:runtime-docker=available",
+          "tool:runtime-uv=available",
+          "tool:runtime-gpu=available",
+          "tool:mcp-playwright=available",
+          "tool:mcp-supabase=absent",
+          "tool:mcp-vercel=absent",
+          "tool:mcp-huggingface=absent",
+          "tool:mcp-git=available",
+          "recipe:corpus-synthesis=available",
+          "recipe:corpus-curation=available",
+          "recipe:sft-lora=available",
+          "recipe:distributed-training=available",
+          "recipe:model-onboarding=available",
+          "recipe:megatron-pretrain=available",
+          "recipe:parallelism-strategy=available",
+          "recipe:recipe-recommender=available",
+          "recipe:memory-tuning=available",
+          "recipe:sequence-packing=available",
+          "recipe:rl-post-training=available",
+          "recipe:evaluation=available",
+          "recipe:retrieval=available",
+          "recipe:retrieval-recipes=available",
+          "recipe:policy-generation=available",
+          "recipe:sandboxed-agents=available",
+          "recipe:sandbox-policy=available",
+          "agent:claude-code=available",
+          "agent:codex=available",
+          "agent:orca:claude=available",
+          "agent:orca:codex=available",
+          "agent:orca:local=available"
+        ],
+        "target": 0.8,
+        "unknown": false,
+        "value": 0.8823529411764706,
+        "weight": 1.0,
+        "wire_name": "capability"
+      },
+      {
+        "blocked_reason": "no evidence-freshness source is wired into the engine yet",
+        "deficit": null,
+        "eligible": false,
+        "id": "pramana_navyata",
+        "sources": [],
+        "target": 1.0,
+        "unknown": true,
+        "value": null,
+        "weight": 1.0,
+        "wire_name": "freshness"
+      },
+      {
+        "blocked_reason": "no declared benchmark has both a target_delta and a measured delta",
+        "deficit": null,
+        "eligible": false,
+        "id": "unnati_avakasha",
+        "sources": [
+          "code-harness:humaneval-plus: unknown (no target, no measured delta, or scale<=0)",
+          "code-harness:mbpp-plus: unknown (no target, no measured delta, or scale<=0)",
+          "math-reasoning:gsm8k: unknown (no target, no measured delta, or scale<=0)",
+          "prabhasa-nyaya:professional-law: unknown (no target, no measured delta, or scale<=0)",
+          "prabhasa-nyaya:jurisprudence: unknown (no target, no measured delta, or scale<=0)"
+        ],
+        "target": 1.0,
+        "unknown": true,
+        "value": null,
+        "weight": 1.0,
+        "wire_name": "benchmark_headroom"
+      },
+      {
+        "blocked_reason": "",
+        "deficit": 0.0,
+        "eligible": true,
+        "id": "sadhana",
+        "sources": [
+          "routes_total=5",
+          "routes_available=5",
+          "routes_cooling=0",
+          "usable=5",
+          "required_min=1"
+        ],
+        "target": 1.0,
+        "unknown": false,
+        "value": 1.0,
+        "weight": 1.0,
+        "wire_name": "resources"
+      },
+      {
+        "blocked_reason": "sated; cooling down for 1 more heartbeat(s)",
+        "deficit": 0.20634920634920634,
+        "eligible": false,
+        "id": "seva",
+        "sources": [
+          "captured=7",
+          "verified=5",
+          "R_verified=0.7143",
+          "oldest_open_days=0.77"
+        ],
+        "target": 0.9,
+        "unknown": false,
+        "value": 0.7142857142857143,
+        "weight": 1.0,
+        "wire_name": "obligations"
+      },
+      {
+        "blocked_reason": "no rival figure is declared in the appetite config",
+        "deficit": null,
+        "eligible": false,
+        "id": "spardha",
+        "sources": [],
+        "target": 1.0,
+        "unknown": true,
+        "value": null,
+        "weight": 1.0,
+        "wire_name": "rivalry"
+      }
+    ],
+    "sentence": "I am working on a cheap diagnostic for freshness because freshness has the largest eligible deficit; obligations is waiting for sated; cooling down for 1 more heartbeat(s)."
+  },
   "candidates": [
     {
       "audit_high": false,
@@ -4940,6 +5246,148 @@
       }
     ]
   },
+  "diffs": [
+    {
+      "added": 429,
+      "files": 6,
+      "removed": 0,
+      "task_id": "parity-tracker",
+      "truncated": false
+    },
+    {
+      "added": 221,
+      "files": 4,
+      "removed": 13,
+      "task_id": "tour-walkthrough",
+      "truncated": false
+    },
+    {
+      "added": 308,
+      "files": 7,
+      "removed": 0,
+      "task_id": "parity-page",
+      "truncated": false
+    },
+    {
+      "added": 458,
+      "files": 8,
+      "removed": 0,
+      "task_id": "desktop-page",
+      "truncated": false
+    },
+    {
+      "added": 919,
+      "files": 13,
+      "removed": 0,
+      "task_id": "system-page",
+      "truncated": false
+    },
+    {
+      "added": 647,
+      "files": 7,
+      "removed": 54,
+      "task_id": "machines-page",
+      "truncated": false
+    },
+    {
+      "added": 676,
+      "files": 6,
+      "removed": 247,
+      "task_id": "home-page",
+      "truncated": false
+    },
+    {
+      "added": 548,
+      "files": 4,
+      "removed": 79,
+      "task_id": "models-page",
+      "truncated": false
+    },
+    {
+      "added": 487,
+      "files": 8,
+      "removed": 3,
+      "task_id": "paper-live",
+      "truncated": false
+    },
+    {
+      "added": 906,
+      "files": 8,
+      "removed": 1,
+      "task_id": "objectives-rich",
+      "truncated": false
+    },
+    {
+      "added": 141,
+      "files": 7,
+      "removed": 4,
+      "task_id": "desktop-package",
+      "truncated": false
+    },
+    {
+      "added": 617,
+      "files": 5,
+      "removed": 34,
+      "task_id": "streaming-chat",
+      "truncated": false
+    },
+    {
+      "added": 574,
+      "files": 7,
+      "removed": 3,
+      "task_id": "notifications",
+      "truncated": false
+    },
+    {
+      "added": 747,
+      "files": 4,
+      "removed": 0,
+      "task_id": "command-palette",
+      "truncated": false
+    },
+    {
+      "added": 642,
+      "files": 8,
+      "removed": 1,
+      "task_id": "live-run-view",
+      "truncated": false
+    },
+    {
+      "added": 657,
+      "files": 4,
+      "removed": 1,
+      "task_id": "completion-gate",
+      "truncated": false
+    },
+    {
+      "added": 1110,
+      "files": 3,
+      "removed": 0,
+      "task_id": "svasthya",
+      "truncated": false
+    },
+    {
+      "added": 951,
+      "files": 10,
+      "removed": 29,
+      "task_id": "intent-flow",
+      "truncated": false
+    },
+    {
+      "added": 421,
+      "files": 3,
+      "removed": 2,
+      "task_id": "emergence",
+      "truncated": false
+    },
+    {
+      "added": 1080,
+      "files": 3,
+      "removed": 0,
+      "task_id": "vardhana",
+      "truncated": false
+    }
+  ],
   "engine": {
     "candidates": 189,
     "version": "0.3.1"
@@ -6747,7 +7195,7 @@
       "healthy": true,
       "last_check": null,
       "last_result": "dev channel: tracks the git checkout directly, not a packaged release",
-      "root": "/home/ss/projects/pravrudhi"
+      "root": "."
     },
     {
       "auto_apply": true,
@@ -6778,12 +7226,12 @@
         "ok": true
       },
       {
-        "detail": "last heartbeat was 2848s ago",
+        "detail": "last heartbeat was 2942s ago",
         "name": "scheduler_fresh",
         "ok": true
       },
       {
-        "detail": "704409120768 bytes free",
+        "detail": "704405323776 bytes free",
         "name": "disk_available",
         "ok": true
       },
@@ -6798,7 +7246,7 @@
         "ok": true
       },
       {
-        "detail": "developer checkout; a known-good commit is be86d2a, with 4 uncommitted file(s)",
+        "detail": "developer checkout; a known-good commit is 418d00c, with 5 uncommitted file(s)",
         "name": "release_restorable",
         "ok": true
       },
@@ -7109,21 +7557,21 @@
       "badge": "amber",
       "candidate": "c-0060",
       "night": "harness-night1",
-      "pack": "/home/ss/projects/pravrudhi/research/inbox/harness-night1/c-0060",
+      "pack": "research/inbox/harness-night1/c-0060",
       "signed": false
     },
     {
       "badge": "green",
       "candidate": "c-0078",
       "night": "harness-night3",
-      "pack": "/home/ss/projects/pravrudhi/research/inbox/harness-night3/c-0078",
+      "pack": "research/inbox/harness-night3/c-0078",
       "signed": false
     },
     {
       "badge": "green",
       "candidate": "c-0045",
       "night": "night4",
-      "pack": "/home/ss/projects/pravrudhi/research/inbox/night4/c-0045",
+      "pack": "research/inbox/night4/c-0045",
       "signed": false
     }
   ],
@@ -11885,6 +12333,581 @@
       "seq": 2459
     }
   ],
+  "parity": {
+    "coverage": {
+      "denominator": 20,
+      "fraction": 0.55,
+      "numerator": 11
+    },
+    "gaps": [
+      {
+        "capability": "Embedded terminal emulator",
+        "evidence": [],
+        "id": "embedded-terminal",
+        "notes": "No terminal emulator in the interface. Commands run through the engine and their output is shown as records, not as an interactive shell.",
+        "ours": "none",
+        "rivals": {
+          "claude_desktop": "unknown",
+          "codex": "unknown",
+          "openclaw": "unknown",
+          "orca": "have"
+        },
+        "why_it_matters": "Run and watch a command without leaving the application."
+      },
+      {
+        "capability": "GitHub repository and pull request integration",
+        "evidence": [
+          "src/pravrudhi/application/updates.py"
+        ],
+        "id": "github-integration",
+        "notes": "GitHub is reached only to check for releases. There is no repository browsing, issue or pull request surface.",
+        "ours": "partial",
+        "rivals": {
+          "claude_desktop": "unknown",
+          "codex": "unknown",
+          "openclaw": "unknown",
+          "orca": "have"
+        },
+        "why_it_matters": "Review and land work without switching to a browser."
+      },
+      {
+        "capability": "Direct visual editing of an interface",
+        "evidence": [],
+        "id": "design-mode",
+        "notes": "Not built and not currently planned. Listed so the gap is visible rather than absent.",
+        "ours": "none",
+        "rivals": {
+          "claude_desktop": "unknown",
+          "codex": "unknown",
+          "openclaw": "unknown",
+          "orca": "have"
+        },
+        "why_it_matters": "Change a layout by pointing at it instead of describing it."
+      },
+      {
+        "capability": "Drag a file into the conversation",
+        "evidence": [],
+        "id": "file-drag",
+        "notes": "No drop target anywhere in the interface.",
+        "ours": "none",
+        "rivals": {
+          "claude_desktop": "unknown",
+          "codex": "unknown",
+          "openclaw": "unknown",
+          "orca": "have"
+        },
+        "why_it_matters": "Attach context without typing a path."
+      },
+      {
+        "capability": "Annotate a generated diff",
+        "evidence": [
+          "app/frontend/src/components/diffs/DiffViewer.tsx"
+        ],
+        "id": "diff-annotation",
+        "notes": "A diff can be read per file and per task. Nothing can be written back onto a line.",
+        "ours": "partial",
+        "rivals": {
+          "claude_desktop": "unknown",
+          "codex": "unknown",
+          "openclaw": "unknown",
+          "orca": "have"
+        },
+        "why_it_matters": "Say what is wrong with a change at the line it is wrong on."
+      },
+      {
+        "capability": "Keyboard-driven navigation throughout",
+        "evidence": [
+          "command: grep -qF metaKey app/frontend/src/components/palette/CommandPalette.tsx"
+        ],
+        "id": "keyboard-native",
+        "notes": "The palette opens on Ctrl+K and reaches pages, actions and records. Beyond it the interface expects a pointer, and no other shortcut has been exercised.",
+        "ours": "partial",
+        "rivals": {
+          "claude_desktop": "unknown",
+          "codex": "unknown",
+          "openclaw": "unknown",
+          "orca": "have"
+        },
+        "why_it_matters": "Work without reaching for the pointer."
+      },
+      {
+        "capability": "Switch between provider accounts",
+        "evidence": [
+          "src/pravrudhi/application/credentials.py"
+        ],
+        "id": "account-switching",
+        "notes": "Keys can be supplied per provider and are stored outside the work tree at 0600. There is no notion of two accounts for one provider, and no switch in the interface.",
+        "ours": "partial",
+        "rivals": {
+          "claude_desktop": "unknown",
+          "codex": "unknown",
+          "openclaw": "unknown",
+          "orca": "have"
+        },
+        "why_it_matters": "Separate work from personal quota, and survive one account being rate limited."
+      },
+      {
+        "capability": "Edit a document in the application",
+        "evidence": [],
+        "id": "markdown-editor",
+        "notes": "Memory notes are recorded and displayed but not editable in place.",
+        "ours": "none",
+        "rivals": {
+          "claude_desktop": "unknown",
+          "codex": "unknown",
+          "openclaw": "unknown",
+          "orca": "have"
+        },
+        "why_it_matters": "Keep notes and plans where the work is."
+      }
+    ],
+    "next_gap": {
+      "capability": "Embedded terminal emulator",
+      "evidence": [],
+      "id": "embedded-terminal",
+      "notes": "No terminal emulator in the interface. Commands run through the engine and their output is shown as records, not as an interactive shell.",
+      "ours": "none",
+      "rivals": {
+        "claude_desktop": "unknown",
+        "codex": "unknown",
+        "openclaw": "unknown",
+        "orca": "have"
+      },
+      "why_it_matters": "Run and watch a command without leaving the application."
+    },
+    "rows": [
+      {
+        "capability": "Keyboard command palette",
+        "evidence": [
+          "command: grep -qF CommandPalette app/frontend/src/app/layout.tsx",
+          "command: grep -qF metaKey app/frontend/src/components/palette/CommandPalette.tsx"
+        ],
+        "id": "command-palette",
+        "notes": "Mounted globally in the root layout; opens on Ctrl+K or Cmd+K and searches pages, actions and records. Recorded as absent when this matrix was seeded because the layout was not inspected; the evidence is re-run on every check, which is what caught it.",
+        "ours": "have",
+        "rivals": {
+          "claude_desktop": "unknown",
+          "codex": "unknown",
+          "openclaw": "unknown",
+          "orca": "unknown"
+        },
+        "why_it_matters": "Reach actions without navigating the sidebar."
+      },
+      {
+        "capability": "Dispatch and monitor agent work",
+        "evidence": [
+          "command: grep -qF \"<DispatchPanel />\" app/frontend/src/app/swarm/page.tsx",
+          "app/frontend/src/components/swarm/DispatchPanel.tsx"
+        ],
+        "id": "dispatch",
+        "notes": "Source-level panel presence; does not prove successful dispatch on a configured host.",
+        "ours": "have",
+        "rivals": {
+          "claude_desktop": "unknown",
+          "codex": "unknown",
+          "openclaw": "unknown",
+          "orca": "unknown"
+        },
+        "why_it_matters": "Start work and see whether it is running."
+      },
+      {
+        "capability": "Sandbox monitoring",
+        "evidence": [
+          "command: grep -qF \"<SandboxesSection />\" app/frontend/src/app/swarm/page.tsx",
+          "app/frontend/src/components/sandboxes/SandboxesSection.tsx"
+        ],
+        "id": "sandbox-monitor",
+        "notes": "Source-level monitor presence. NemoClaw monitor vocabulary includes health, logs and policy denials; this is not evidence that standalone OpenClaw provides the same sandbox monitor.",
+        "ours": "have",
+        "rivals": {
+          "claude_desktop": "unknown",
+          "codex": "unknown",
+          "openclaw": "unknown",
+          "orca": "unknown"
+        },
+        "why_it_matters": "Inspect confinement and violations alongside work."
+      },
+      {
+        "capability": "Review task diffs",
+        "evidence": [
+          "command: grep -qF \"<DiffViewer\" app/frontend/src/app/diffs/page.tsx",
+          "app/frontend/src/components/diffs/DiffViewer.tsx"
+        ],
+        "id": "diff-viewer",
+        "notes": "Source-level task selection and diff renderer; no live task result asserted.",
+        "ours": "have",
+        "rivals": {
+          "claude_desktop": "unknown",
+          "codex": "unknown",
+          "openclaw": "unknown",
+          "orca": "unknown"
+        },
+        "why_it_matters": "Inspect changes before accepting agent work."
+      },
+      {
+        "capability": "Streaming conversational interface",
+        "evidence": [
+          "command: grep -qF \"text/event-stream\" src/pravrudhi/api/chat.py",
+          "command: grep -qF \"function* chatStream\" app/frontend/src/lib/api.ts",
+          "app/frontend/e2e/local-engine.spec.ts"
+        ],
+        "id": "streaming-chat",
+        "notes": "The server streams and the client now reads the body incrementally rather than awaiting the whole response. Still partial because the end-to-end test has not passed. This machine has no chat model configured, so /api/chat answers 503 and the test cannot observe any tokens at all. The test asserts the answer was seen growing at least twice, since a blocking response yields exactly one observation and would satisfy a weaker bar. It stays partial until it runs green against a configured model.",
+        "ours": "partial",
+        "rivals": {
+          "claude_desktop": "unknown",
+          "codex": "unknown",
+          "openclaw": "unknown",
+          "orca": "unknown"
+        },
+        "why_it_matters": "Receive progress while an answer is produced."
+      },
+      {
+        "capability": "Operator notifications",
+        "evidence": [
+          "command: grep -qF \"<NotificationBell />\" app/frontend/src/components/Sidebar.tsx",
+          "app/frontend/src/components/notifications/NotificationBell.tsx"
+        ],
+        "id": "notifications",
+        "notes": "In-app bell is mounted; external messaging and OS notifications are not claimed.",
+        "ours": "have",
+        "rivals": {
+          "claude_desktop": "unknown",
+          "codex": "unknown",
+          "openclaw": "unknown",
+          "orca": "unknown"
+        },
+        "why_it_matters": "Notice completed work without polling a work panel."
+      },
+      {
+        "capability": "Native desktop shell",
+        "evidence": [
+          "app/desktop/package.json",
+          "app/desktop/smoke.js",
+          "app/frontend/src/app/desktop/page.tsx"
+        ],
+        "id": "desktop-shell",
+        "notes": "Run rather than read. The smoke launch starts the shell, which picks a free port, starts an engine on it, loads the interface and reports the window title, then exits cleanly leaving no engine behind. Twenty-nine unit tests cover port selection, process ownership and teardown. Two caveats stay in view. The launch passes --no-sandbox because this machine's Electron sandbox helper needs root, which is not how a user would start it, and this exercises the source application rather than the packaged binary.",
+        "ours": "have",
+        "rivals": {
+          "claude_desktop": "unknown",
+          "codex": "unknown",
+          "openclaw": "unknown",
+          "orca": "unknown"
+        },
+        "why_it_matters": "Keep the local engine in a dedicated application window."
+      },
+      {
+        "capability": "System health and agent overview",
+        "evidence": [
+          "command: grep -qF \"<SwarmPanel />\" app/frontend/src/app/system/page.tsx",
+          "command: grep -qF \"<HealthPanel\" app/frontend/src/app/system/page.tsx"
+        ],
+        "id": "system-page",
+        "notes": "Source-level System page; actual health depends on live data.",
+        "ours": "have",
+        "rivals": {
+          "claude_desktop": "unknown",
+          "codex": "unknown",
+          "openclaw": "unknown",
+          "orca": "unknown"
+        },
+        "why_it_matters": "Understand the engine and available builders."
+      },
+      {
+        "capability": "Parallel agents in isolated worktrees",
+        "evidence": [
+          "src/pravrudhi/application/delegate.py",
+          "src/pravrudhi/application/integrate.py",
+          "command: grep -qF -e --3way src/pravrudhi/application/integrate.py"
+        ],
+        "id": "parallel-worktrees",
+        "notes": "Both isolate agents per worktree. Ours also merges them three-way per file and names a contested file rather than letting the last writer win, which was added after five silent overwrites in one day.",
+        "ours": "have",
+        "rivals": {
+          "claude_desktop": "unknown",
+          "codex": "unknown",
+          "openclaw": "unknown",
+          "orca": "have"
+        },
+        "why_it_matters": "Run several agents at once without them overwriting each other."
+      },
+      {
+        "capability": "Embedded terminal emulator",
+        "evidence": [],
+        "id": "embedded-terminal",
+        "notes": "No terminal emulator in the interface. Commands run through the engine and their output is shown as records, not as an interactive shell.",
+        "ours": "none",
+        "rivals": {
+          "claude_desktop": "unknown",
+          "codex": "unknown",
+          "openclaw": "unknown",
+          "orca": "have"
+        },
+        "why_it_matters": "Run and watch a command without leaving the application."
+      },
+      {
+        "capability": "GitHub repository and pull request integration",
+        "evidence": [
+          "src/pravrudhi/application/updates.py"
+        ],
+        "id": "github-integration",
+        "notes": "GitHub is reached only to check for releases. There is no repository browsing, issue or pull request surface.",
+        "ours": "partial",
+        "rivals": {
+          "claude_desktop": "unknown",
+          "codex": "unknown",
+          "openclaw": "unknown",
+          "orca": "have"
+        },
+        "why_it_matters": "Review and land work without switching to a browser."
+      },
+      {
+        "capability": "Drive any command line agent",
+        "evidence": [
+          "src/pravrudhi/agents/registry.py",
+          "src/pravrudhi/agents/cli_agents.py",
+          "src/pravrudhi/agents/orca_agent.py"
+        ],
+        "id": "any-cli-agent",
+        "notes": "Five backends resolve on this machine, and one of them drives Orca itself. Routing picks between them from measured outcomes rather than a fixed preference.",
+        "ours": "have",
+        "rivals": {
+          "claude_desktop": "unknown",
+          "codex": "unknown",
+          "openclaw": "unknown",
+          "orca": "have"
+        },
+        "why_it_matters": "Use the agent that suits the task rather than the one the app ships with."
+      },
+      {
+        "capability": "Direct visual editing of an interface",
+        "evidence": [],
+        "id": "design-mode",
+        "notes": "Not built and not currently planned. Listed so the gap is visible rather than absent.",
+        "ours": "none",
+        "rivals": {
+          "claude_desktop": "unknown",
+          "codex": "unknown",
+          "openclaw": "unknown",
+          "orca": "have"
+        },
+        "why_it_matters": "Change a layout by pointing at it instead of describing it."
+      },
+      {
+        "capability": "Work on a remote machine over SSH",
+        "evidence": [
+          "src/pravrudhi/hosts/transports.py",
+          "src/pravrudhi/hosts/fleet.py"
+        ],
+        "id": "ssh-remote",
+        "notes": "Hosts are surveyed for accelerator, memory and installed agents, so a task can be placed on a machine that can actually run it.",
+        "ours": "have",
+        "rivals": {
+          "claude_desktop": "unknown",
+          "codex": "unknown",
+          "openclaw": "unknown",
+          "orca": "have"
+        },
+        "why_it_matters": "Use the machine that has the hardware."
+      },
+      {
+        "capability": "Drag a file into the conversation",
+        "evidence": [],
+        "id": "file-drag",
+        "notes": "No drop target anywhere in the interface.",
+        "ours": "none",
+        "rivals": {
+          "claude_desktop": "unknown",
+          "codex": "unknown",
+          "openclaw": "unknown",
+          "orca": "have"
+        },
+        "why_it_matters": "Attach context without typing a path."
+      },
+      {
+        "capability": "Annotate a generated diff",
+        "evidence": [
+          "app/frontend/src/components/diffs/DiffViewer.tsx"
+        ],
+        "id": "diff-annotation",
+        "notes": "A diff can be read per file and per task. Nothing can be written back onto a line.",
+        "ours": "partial",
+        "rivals": {
+          "claude_desktop": "unknown",
+          "codex": "unknown",
+          "openclaw": "unknown",
+          "orca": "have"
+        },
+        "why_it_matters": "Say what is wrong with a change at the line it is wrong on."
+      },
+      {
+        "capability": "A command line for the whole product",
+        "evidence": [
+          "src/pravrudhi/cli/app.py",
+          "command: grep -qF @app.command src/pravrudhi/cli/app.py"
+        ],
+        "id": "command-line",
+        "notes": "Thirty-two commands, covering the whole loop rather than a chat wrapper.",
+        "ours": "have",
+        "rivals": {
+          "claude_desktop": "unknown",
+          "codex": "unknown",
+          "openclaw": "unknown",
+          "orca": "have"
+        },
+        "why_it_matters": "Script the tool and use it over a plain SSH session."
+      },
+      {
+        "capability": "Keyboard-driven navigation throughout",
+        "evidence": [
+          "command: grep -qF metaKey app/frontend/src/components/palette/CommandPalette.tsx"
+        ],
+        "id": "keyboard-native",
+        "notes": "The palette opens on Ctrl+K and reaches pages, actions and records. Beyond it the interface expects a pointer, and no other shortcut has been exercised.",
+        "ours": "partial",
+        "rivals": {
+          "claude_desktop": "unknown",
+          "codex": "unknown",
+          "openclaw": "unknown",
+          "orca": "have"
+        },
+        "why_it_matters": "Work without reaching for the pointer."
+      },
+      {
+        "capability": "Switch between provider accounts",
+        "evidence": [
+          "src/pravrudhi/application/credentials.py"
+        ],
+        "id": "account-switching",
+        "notes": "Keys can be supplied per provider and are stored outside the work tree at 0600. There is no notion of two accounts for one provider, and no switch in the interface.",
+        "ours": "partial",
+        "rivals": {
+          "claude_desktop": "unknown",
+          "codex": "unknown",
+          "openclaw": "unknown",
+          "orca": "have"
+        },
+        "why_it_matters": "Separate work from personal quota, and survive one account being rate limited."
+      },
+      {
+        "capability": "Edit a document in the application",
+        "evidence": [],
+        "id": "markdown-editor",
+        "notes": "Memory notes are recorded and displayed but not editable in place.",
+        "ours": "none",
+        "rivals": {
+          "claude_desktop": "unknown",
+          "codex": "unknown",
+          "openclaw": "unknown",
+          "orca": "have"
+        },
+        "why_it_matters": "Keep notes and plans where the work is."
+      }
+    ],
+    "verification": [
+      {
+        "failures": [],
+        "id": "command-palette",
+        "verified": true
+      },
+      {
+        "failures": [],
+        "id": "dispatch",
+        "verified": true
+      },
+      {
+        "failures": [],
+        "id": "sandbox-monitor",
+        "verified": true
+      },
+      {
+        "failures": [],
+        "id": "diff-viewer",
+        "verified": true
+      },
+      {
+        "failures": [],
+        "id": "streaming-chat",
+        "verified": true
+      },
+      {
+        "failures": [],
+        "id": "notifications",
+        "verified": true
+      },
+      {
+        "failures": [],
+        "id": "desktop-shell",
+        "verified": true
+      },
+      {
+        "failures": [],
+        "id": "system-page",
+        "verified": true
+      },
+      {
+        "failures": [],
+        "id": "parallel-worktrees",
+        "verified": true
+      },
+      {
+        "failures": [],
+        "id": "embedded-terminal",
+        "verified": true
+      },
+      {
+        "failures": [],
+        "id": "github-integration",
+        "verified": true
+      },
+      {
+        "failures": [],
+        "id": "any-cli-agent",
+        "verified": true
+      },
+      {
+        "failures": [],
+        "id": "design-mode",
+        "verified": true
+      },
+      {
+        "failures": [],
+        "id": "ssh-remote",
+        "verified": true
+      },
+      {
+        "failures": [],
+        "id": "file-drag",
+        "verified": true
+      },
+      {
+        "failures": [],
+        "id": "diff-annotation",
+        "verified": true
+      },
+      {
+        "failures": [],
+        "id": "command-line",
+        "verified": true
+      },
+      {
+        "failures": [],
+        "id": "keyboard-native",
+        "verified": true
+      },
+      {
+        "failures": [],
+        "id": "account-switching",
+        "verified": true
+      },
+      {
+        "failures": [],
+        "id": "markdown-editor",
+        "verified": true
+      }
+    ]
+  },
   "plans": {
     "code-harness": {
       "assumptions": [],
@@ -14775,16 +15798,16 @@
     "channel": "dev",
     "check_interval_min": 30,
     "current": {
-      "git_describe": "v0.3.1-22-gbe86d2a",
+      "git_describe": "v0.3.1-23-g418d00c-dirty",
       "kernel_version": "0.1.0",
       "version": "0.3.1"
     },
     "keep_previous": 2
   },
   "version": {
-    "commit": "be86d2a",
+    "commit": "418d00c",
     "engine": "0.3.1",
-    "exported_at": "2026-09-07T11:53:59.246Z",
+    "exported_at": "2026-09-07T11:55:26.997Z",
     "kernel": "0.1.0"
   }
 }
