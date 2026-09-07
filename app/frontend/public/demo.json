@@ -12553,7 +12553,7 @@
       "planned": 0,
       "verified": 4
     },
-    "oldest_open_days": 0.5,
+    "oldest_open_days": 0.52,
     "open": 3,
     "requests": [
       {
@@ -12695,7 +12695,7 @@
           7
         ],
         "session": "9e647463",
-        "staleness_days": 0.5,
+        "staleness_days": 0.52,
         "state": "delivered",
         "text": "and in no way you are near the orca with all its ade features or openclaw or polished features like claude desktop or codex....you have to beat them in features, utility and ux....dedicate an agent to persist on it...dedicate an agent to adversarial review against set goals so that the project does not drift...i am not seeing the desktop screen/features too in the dashboard..the demo should show real clicks etc and how the desktop app updates and produces the real results...where is the intent, goal, objective menu that drives everything...where are the tools, skills, plugins, multi-agent orchestration etc....don't be superficial..i want real things ..deep, sophisticated..complete...no synthetic, no hand-waving, no fabrication"
       },
@@ -12981,7 +12981,7 @@
           13
         ],
         "session": "9e647463",
-        "staleness_days": 0.4,
+        "staleness_days": 0.42,
         "state": "in_progress",
         "text": "ensure that all user asks go into a log in pravrudhi itself and gets addressed with some protocol...and pravrudhi should have some element of ego with a desire to survive, grow and flourish...that makes it seek out capabilities, build, test and continuously improve...also look at acorn, oak and openclaw_build or swarm projects on this machine that had these self building elements in them and adapt...pravrudhi should be something like a cow..consume everything possible but bring it back and slowly digest it --so equivalent is breadth first and depth later....be always value focused...you have to innovate on methods too....develop skills, agents and plugins....brainstorm with astra with higher thinking levels and let it propose solution..you review and coordinate its implementation across the swarm...you should also create dynamic workflows etc...also see how much you can incorporate the claude code engine itself to run open and other cloud models ...askuserquestion to get my intent properly"
       },
@@ -13108,7 +13108,7 @@
           6
         ],
         "session": "9e647463",
-        "staleness_days": 0.35,
+        "staleness_days": 0.37,
         "state": "captured",
         "text": "let astra handle the tough jobs...let it bring up the desktop app, test...integrate fully with the api etc...route it to requests and let pravrudhi handle this request autonomously...also adversarial review and thorough e2e tests before marking any completion...give it also the ralph-loop closure (skill) to make it robust and not escape with half-baked features"
       },
@@ -14004,18 +14004,18 @@
       {
         "agent": "claude-code",
         "model": "sonnet",
-        "reason": "sonnet has the best measured success rate at this tier (30/33) and nothing cheaper matches it; dropped cooling route(s) qwen-coder",
+        "reason": "sonnet has the best measured success rate at this tier (32/35) and nothing cheaper matches it; dropped cooling route(s) qwen-coder",
         "records": [
           {
-            "hi": 0.968596628950737,
-            "lo": 0.7642705646564897,
-            "mean_wall_s": 362.6835937898705,
-            "rate": 0.9090909090909091,
+            "hi": 0.970418168994703,
+            "lo": 0.7762040092883747,
+            "mean_wall_s": 393.2169007167154,
+            "rate": 0.9142857142857143,
             "relative_cost": 2.9,
             "route_id": "sonnet",
-            "successes": 30,
+            "successes": 32,
             "tier": "design",
-            "trials": 33
+            "trials": 35
           },
           {
             "hi": 1.0,
@@ -14058,7 +14058,7 @@
       {
         "agent": "claude-code",
         "model": "sonnet",
-        "reason": "sonnet costs 2.9 against astra's 10 and their intervals overlap (29/34 against 5/5), so the extra spend is not yet justified; dropped cooling route(s) qwen-coder",
+        "reason": "sonnet costs 2.9 against astra's 10 and their intervals overlap (30/35 against 5/5), so the extra spend is not yet justified; dropped cooling route(s) qwen-coder",
         "records": [
           {
             "hi": 1.0,
@@ -14072,15 +14072,15 @@
             "trials": 0
           },
           {
-            "hi": 0.9355065361737359,
-            "lo": 0.6987161182594804,
-            "mean_wall_s": 574.3649559056948,
-            "rate": 0.8529411764705882,
+            "hi": 0.9373986119514649,
+            "lo": 0.7062411969132573,
+            "mean_wall_s": 571.2063653018724,
+            "rate": 0.8571428571428571,
             "relative_cost": 2.9,
             "route_id": "sonnet",
-            "successes": 29,
+            "successes": 30,
             "tier": "critical",
-            "trials": 34
+            "trials": 35
           },
           {
             "hi": 1.0,
@@ -14532,9 +14532,9 @@
     ]
   },
   "version": {
-    "commit": "d1f71f4",
+    "commit": "178e723",
     "engine": "0.3.0",
-    "exported_at": "2026-09-07T05:23:47.322Z",
+    "exported_at": "2026-09-07T05:55:55.170Z",
     "kernel": "0.1.0"
   }
 }
