@@ -31,6 +31,12 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
+from pravrudhi.api.schemas import (
+    PromotedModelsResponse,
+    RunEventsResponse,
+    RunsResponse,
+    RunView,
+)
 from pravrudhi.application.external import external_rows
 from pravrudhi_kernel.ledger.verify import iter_events
 
@@ -379,11 +385,11 @@ def build_router(root: Path) -> APIRouter:
     mgr = RunManager(root)
     r = APIRouter(prefix="/api")
 
-    @r.post("/runs")
+    @r.post("/runs", response_model=RunView)
     def start(req: RunRequest) -> dict[str, Any]:
         return mgr.start(req).view()
 
-    @r.get("/runs")
+    @r.get("/runs", response_model=RunsResponse)
     def list_runs() -> list[dict[str, Any]]:
         """Every run this engine has performed, live ones and the nights already in the ledger.
 
@@ -398,7 +404,7 @@ def build_router(root: Path) -> APIRouter:
         seen |= {row["id"] for row in flight}
         return live + flight + [row for row in historical_runs(root) if row["id"] not in seen]
 
-    @r.get("/runs/{run_id}")
+    @r.get("/runs/{run_id}", response_model=RunView)
     def get_run(run_id: str) -> dict[str, Any]:
         """A live run's detail, or a closed night's, at the same address.
 
@@ -413,15 +419,15 @@ def build_router(root: Path) -> APIRouter:
         run = mgr.get(run_id)
         return {**run.view(), "recent": list(run.events)[-50:]}
 
-    @r.post("/runs/{run_id}/stop")
+    @r.post("/runs/{run_id}/stop", response_model=RunView)
     def stop_run(run_id: str) -> dict[str, Any]:
         return mgr.stop(run_id).view()
 
-    @r.get("/runs/{run_id}/events")
+    @r.get("/runs/{run_id}/events", response_model=RunEventsResponse)
     def events(run_id: str) -> StreamingResponse:
         return StreamingResponse(mgr.stream(run_id), media_type="text/event-stream")
 
-    @r.get("/models")
+    @r.get("/models", response_model=PromotedModelsResponse)
     def models() -> list[dict[str, Any]]:
         return models_listing(root)
 

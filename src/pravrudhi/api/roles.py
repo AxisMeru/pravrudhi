@@ -102,6 +102,13 @@ ADMIN_ONLY: frozenset[str] = frozenset({
     "/api/observations",
     "/api/parity",
     "/api/routes",
+    # Starting a run spends hardware. `RunManager` is scoped to the engine's own project, so a run begun here
+    # runs on the operator's machine with the operator's credentials. These become the product's the moment the
+    # manager is workspace-scoped, and not before.
+    "/api/runs", "/api/runs/{run_id}", "/api/runs/{run_id}/stop", "/api/runs/{run_id}/events",
+    # Promoted adapters, read from the same engine-scoped project as the runs that produced them. It moves to
+    # the product with them.
+    "/api/models",
     "/api/requests", "/api/requests/{rid}", "/api/requests/{rid}/advance",
     "/api/requests/{rid}/criteria/{index}/evidence",
     "/api/sandboxes",

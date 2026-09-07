@@ -1199,3 +1199,62 @@ class RosterResponse(BaseModel):
     seats: list[Seat]
     ready: int
     total: int
+
+
+class RunView(BaseModel):
+    """One run, live or already closed in the ledger.
+
+    `extra="allow"` because a closed night carries fields a live run does not, and the two are deliberately
+    returned in one list: a workspace with twenty-three finished nights once answered "no runs yet".
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    id: str
+    target: str
+    status: str
+    night: int | None = None
+    request: dict[str, JsonValue] = {}
+    started_at: float | None = None
+    finished_at: float | None = None
+    best_delta: float | None = None
+    promoted: JsonValue = None
+    events: int | None = None
+
+
+class RunEvent(BaseModel):
+    """One thing a run said, parsed from its output. The contract the event stream delivers, declared the same
+    way `/chat/stream` declares its own: the response is a stream, and this is the shape of what comes down it.
+
+    `extra="allow"` because the kinds carry different fields — a paired evaluation names candidate, seed and
+    delta; a log line carries text — and flattening them into one rigid model would lose what makes each useful.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    type: str
+
+
+class PromotedModel(BaseModel):
+    """One promotion, with whatever external before-and-after exists for it. Both may be absent: a promotion is
+    a decision the ledger recorded, and an external benchmark is a separate measurement that may not have run."""
+
+    id: str
+    track: str
+    night: int | None = None
+    recipe: dict[str, JsonValue] = {}
+    artefact: str | None = None
+    external_before: dict[str, JsonValue] | None = None
+    external_after: dict[str, JsonValue] | None = None
+
+
+class RunsResponse(RootModel[list[RunView]]):
+    """Every run this engine has performed: live ones and the nights already closed in the ledger, in one list."""
+
+
+class RunEventsResponse(RootModel[list[RunEvent]]):
+    """What a run has said so far, as events rather than raw log lines."""
+
+
+class PromotedModelsResponse(RootModel[list[PromotedModel]]):
+    """What the loop produced, with the external before and after that exists for each."""

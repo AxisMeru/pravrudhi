@@ -24,6 +24,7 @@ from pravrudhi.api import roles
 from pravrudhi.api.chat import build_chat_router
 from pravrudhi.api.identity import CurrentUserDep, User, auth_mode
 from pravrudhi.api.localguard import install as install_local_guard
+from pravrudhi.api.runs import build_router as build_runs_router
 from pravrudhi.api.schemas import (
     AgentCooldownsResponse,
     AgentsResponse,
@@ -1039,6 +1040,13 @@ def create_app(root: Path) -> FastAPI:
 
     app.include_router(api)
     app.include_router(build_chat_router(root))
+    # The run subsystem — starting work, watching it, stopping it — was written, tested and never mounted, so
+    # `/api/runs` answered 404 and nothing in the product could begin anything. The desktop application could
+    # sign in, list workspaces and set a band, and then had no way to act, because the route that acts was not
+    # there. It is the operator's for now: `RunManager` is scoped to the engine's own project, so a run started
+    # through it spends the operator's hardware under the operator's keys, which is exactly what the
+    # bring-your-own-key boundary exists to prevent. Making it workspace-scoped is what moves it to the product.
+    app.include_router(build_runs_router(root))
     # Attach the operator check to the surfaces about Pravrudhi improving itself. Done here, over the finished
     # route table, so the classification lives in one readable list in `roles.py` rather than in sixty
     # decorators, and a route nobody classified fails a test instead of shipping open.
