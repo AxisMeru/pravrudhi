@@ -6732,9 +6732,9 @@
       ],
       "channel": "release",
       "current_version": "0.3.0",
-      "due": true,
+      "due": false,
       "healthy": true,
-      "last_check": 1788757634.2402637,
+      "last_check": 1788761568.217426,
       "last_result": "running 0.3.0",
       "root": "/home/ss/pravrudhi-release"
     }
@@ -6752,12 +6752,12 @@
         "ok": true
       },
       {
-        "detail": "last heartbeat was 724s ago",
+        "detail": "last heartbeat was 1805s ago",
         "name": "scheduler_fresh",
         "ok": true
       },
       {
-        "detail": "707736686592 bytes free",
+        "detail": "707094003712 bytes free",
         "name": "disk_available",
         "ok": true
       },
@@ -6772,7 +6772,7 @@
         "ok": true
       },
       {
-        "detail": "developer checkout; a known-good commit is f02c922, with 2 uncommitted file(s)",
+        "detail": "developer checkout; a known-good commit is 9fa4529, with 2 uncommitted file(s)",
         "name": "release_restorable",
         "ok": true
       },
@@ -12636,7 +12636,7 @@
       "planned": 0,
       "verified": 4
     },
-    "oldest_open_days": 0.53,
+    "oldest_open_days": 0.54,
     "open": 3,
     "requests": [
       {
@@ -12778,7 +12778,7 @@
           7
         ],
         "session": "9e647463",
-        "staleness_days": 0.53,
+        "staleness_days": 0.54,
         "state": "delivered",
         "text": "and in no way you are near the orca with all its ade features or openclaw or polished features like claude desktop or codex....you have to beat them in features, utility and ux....dedicate an agent to persist on it...dedicate an agent to adversarial review against set goals so that the project does not drift...i am not seeing the desktop screen/features too in the dashboard..the demo should show real clicks etc and how the desktop app updates and produces the real results...where is the intent, goal, objective menu that drives everything...where are the tools, skills, plugins, multi-agent orchestration etc....don't be superficial..i want real things ..deep, sophisticated..complete...no synthetic, no hand-waving, no fabrication"
       },
@@ -13064,7 +13064,7 @@
           13
         ],
         "session": "9e647463",
-        "staleness_days": 0.43,
+        "staleness_days": 0.45,
         "state": "in_progress",
         "text": "ensure that all user asks go into a log in pravrudhi itself and gets addressed with some protocol...and pravrudhi should have some element of ego with a desire to survive, grow and flourish...that makes it seek out capabilities, build, test and continuously improve...also look at acorn, oak and openclaw_build or swarm projects on this machine that had these self building elements in them and adapt...pravrudhi should be something like a cow..consume everything possible but bring it back and slowly digest it --so equivalent is breadth first and depth later....be always value focused...you have to innovate on methods too....develop skills, agents and plugins....brainstorm with astra with higher thinking levels and let it propose solution..you review and coordinate its implementation across the swarm...you should also create dynamic workflows etc...also see how much you can incorporate the claude code engine itself to run open and other cloud models ...askuserquestion to get my intent properly"
       },
@@ -13191,7 +13191,7 @@
           6
         ],
         "session": "9e647463",
-        "staleness_days": 0.38,
+        "staleness_days": 0.39,
         "state": "captured",
         "text": "let astra handle the tough jobs...let it bring up the desktop app, test...integrate fully with the api etc...route it to requests and let pravrudhi handle this request autonomously...also adversarial review and thorough e2e tests before marking any completion...give it also the ralph-loop closure (skill) to make it robust and not escape with half-baked features"
       },
@@ -14141,7 +14141,7 @@
       {
         "agent": "claude-code",
         "model": "sonnet",
-        "reason": "sonnet costs 2.9 against astra's 10 and their intervals overlap (30/35 against 5/5), so the extra spend is not yet justified; dropped cooling route(s) qwen-coder",
+        "reason": "sonnet costs 2.9 against astra's 10 and their intervals overlap (31/36 against 5/5), so the extra spend is not yet justified; dropped cooling route(s) qwen-coder",
         "records": [
           {
             "hi": 1.0,
@@ -14155,15 +14155,15 @@
             "trials": 0
           },
           {
-            "hi": 0.9373986119514649,
-            "lo": 0.7062411969132573,
-            "mean_wall_s": 571.2063653018724,
-            "rate": 0.8571428571428571,
+            "hi": 0.9391827463688489,
+            "lo": 0.7134014871960681,
+            "mean_wall_s": 566.7776796204076,
+            "rate": 0.8611111111111112,
             "relative_cost": 2.9,
             "route_id": "sonnet",
-            "successes": 30,
+            "successes": 31,
             "tier": "critical",
-            "trials": 35
+            "trials": 36
           },
           {
             "hi": 1.0,
@@ -14619,16 +14619,16 @@
     "channel": "dev",
     "check_interval_min": 30,
     "current": {
-      "git_describe": "v0.3.0-11-gf02c922",
+      "git_describe": "v0.3.0-13-g9fa4529",
       "kernel_version": "0.1.0",
       "version": "0.3.0"
     },
     "keep_previous": 2
   },
   "version": {
-    "commit": "f02c922",
+    "commit": "9fa4529",
     "engine": "0.3.0",
-    "exported_at": "2026-09-07T06:09:24.685Z",
+    "exported_at": "2026-09-07T06:27:25.373Z",
     "kernel": "0.1.0"
   }
 }
