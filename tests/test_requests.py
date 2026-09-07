@@ -191,3 +191,49 @@ class TestCorrectingABadReference:
         meet(tmp_path, rid, 0, [Evidence("file", "x.py")])
         with pytest.raises(RequestError, match="carries no evidence"):
             retract_evidence(tmp_path, rid, 0, "nothere")
+
+
+class TestWhatIsStillOwed:
+    """The appetite said it was working on the oldest unmet criterion while the loop reported there was none.
+
+    Both were reading half of the obligation. Once every criterion carries evidence there is nothing left to
+    build, and the request is still owed until it has been through the gate. One answer serves both now.
+    """
+
+    def test_an_unmet_criterion_is_what_is_owed(self, tmp_path: Path) -> None:
+        from pravrudhi.application.requests import next_obligation
+
+        rid = _req(tmp_path, "build the thing", n=2)
+        meet(tmp_path, rid, 0, [Evidence("commit", "abc1234")])
+        owed = next_obligation(tmp_path)
+        assert owed is not None
+        assert owed["kind"] == "meet_criterion" and owed["criterion"] == 1
+
+    def test_a_fully_evidenced_delivered_request_is_owed_the_gate(self, tmp_path: Path) -> None:
+        from pravrudhi.application.requests import next_obligation
+
+        rid = _req(tmp_path, "build the thing", n=1)
+        meet(tmp_path, rid, 0, [Evidence("commit", "abc1234")])
+        advance(tmp_path, rid, "in_progress")
+        advance(tmp_path, rid, "delivered")
+        owed = next_obligation(tmp_path)
+        assert owed is not None
+        assert owed["kind"] == "verify_request" and owed["request"] == rid
+        assert "completion gate" in owed["description"]
+
+    def test_a_fully_evidenced_request_not_yet_delivered_is_owed_its_next_step(self, tmp_path: Path) -> None:
+        from pravrudhi.application.requests import next_obligation
+
+        rid = _req(tmp_path, "build the thing", n=1)
+        meet(tmp_path, rid, 0, [Evidence("commit", "abc1234")])
+        owed = next_obligation(tmp_path)
+        assert owed is not None and owed["kind"] == "advance_request" and owed["request"] == rid
+
+    def test_nothing_is_owed_once_every_request_is_verified(self, tmp_path: Path) -> None:
+        from pravrudhi.application.requests import next_obligation
+
+        rid = _req(tmp_path, "build the thing", n=1)
+        meet(tmp_path, rid, 0, [Evidence("commit", "abc1234")])
+        for state in ("in_progress", "delivered", "verified"):
+            advance(tmp_path, rid, state)
+        assert next_obligation(tmp_path) is None

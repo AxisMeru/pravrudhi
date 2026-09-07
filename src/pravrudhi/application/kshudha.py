@@ -608,9 +608,21 @@ ACTION_DESCRIPTIONS: dict[str, str] = {
     "pramana_navyata": "refreshing the most stale evidence",
     "unnati_avakasha": "running a budgeted benchmark trial toward its target",
     "sadhana": "waiting for a usable resource route",
-    "seva": "the oldest unmet request criterion",
+    # Deliberately vague, because what the obligation drive owes depends on the state of the backlog: a
+    # criterion still to be built, or a request whose criteria are all evidenced and which has not yet been
+    # through the gate. `_seva_action` names the real one, and saying "the oldest unmet criterion" while the loop
+    # reported there was none is exactly the incoherence this replaces.
+    "seva": "what the operator is still owed",
     "spardha": "closing the gap against the nearest declared rival that beats us",
 }
+
+
+def _seva_action(root: Path) -> str | None:
+    """What the obligation drive would actually do next, in the words of the thing it would do."""
+    from pravrudhi.application.requests import next_obligation
+
+    owed = next_obligation(root)
+    return None if owed is None else str(owed["description"])
 
 
 def _update_phase(drive: Drive, prior: DriveState, cfg: AppetiteConfig, as_of: str) -> DriveState:
@@ -639,7 +651,7 @@ def _force_hungry(prior: DriveState, as_of: str) -> DriveState:
 
 def select(
     drives: list[Drive], *, state: AppetiteState, overdue: bool = False, config: AppetiteConfig | None = None,
-    now: datetime | None = None,
+    now: datetime | None = None, root: Path | None = None,
 ) -> Appetite:
     """One heartbeat's worth of §5.3: freeze the drives, apply cooldown, honour an overdue ask or a failing
     continuity check outright, otherwise continue whatever is already committed, otherwise pick the largest
@@ -704,7 +716,10 @@ def select(
         action = {
             "drive": selected,
             "kind": "obligation" if selected == "seva" else ("continuity_repair" if selected == "sthiti" else "action"),
-            "description": ACTION_DESCRIPTIONS[selected],
+            "description": (
+                (_seva_action(root) or ACTION_DESCRIPTIONS[selected]) if selected == "seva" and root is not None
+                else ACTION_DESCRIPTIONS[selected]
+            ),
         }
     state.committed = selected
 
@@ -853,6 +868,6 @@ def current(root: Path, *, max_age_s: float = SNAPSHOT_MAX_AGE_S, now: datetime 
             payload = None
         if payload is not None and _snapshot_age_s(payload, now) <= max_age_s:
             return Appetite.from_dict(payload)
-    appetite = select(measure(root), state=load_state(root))
+    appetite = select(measure(root), state=load_state(root), root=root)
     save_snapshot(root, appetite)
     return appetite

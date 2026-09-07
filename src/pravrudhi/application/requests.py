@@ -308,6 +308,36 @@ def next_unmet(root: Path, *, now: datetime | None = None) -> tuple[Request, Cri
     return None if best is None else (best[1], best[2], best[3])
 
 
+def next_obligation(root: Path, *, now: datetime | None = None) -> dict[str, Any] | None:
+    """The next thing owed to the operator, and what kind of work it is.
+
+    Counting unmet criteria is not the whole obligation. Once every criterion on a request carries evidence there
+    is nothing left to build, and the request is still owed until it has been through the gate. The appetite said
+    it was working on "the oldest unmet request criterion" while the loop reported there was none, because each
+    was reading a different half of this. One answer now serves both.
+    """
+    unmet = next_unmet(root, now=now)
+    if unmet is not None:
+        req, criterion, index = unmet
+        return {
+            "kind": "meet_criterion", "request": req.id, "criterion": index, "text": criterion.text,
+            "description": f"the oldest unmet criterion on {req.id}",
+        }
+    open_rows = [r for r in load(root) if r.open and r.criteria]
+    if not open_rows:
+        return None
+    ready = sorted(open_rows, key=lambda r: -staleness(r, now=now))[0]
+    if ready.state == "delivered":
+        return {
+            "kind": "verify_request", "request": ready.id, "criterion": None, "text": "",
+            "description": f"the completion gate on {ready.id}",
+        }
+    return {
+        "kind": "advance_request", "request": ready.id, "criterion": None, "text": "",
+        "description": f"the next step on {ready.id}, still {ready.state}",
+    }
+
+
 def backlog(root: Path, *, now: datetime | None = None) -> dict[str, Any]:
     """What is outstanding, in the shape the interface and the CLI both render."""
     rows = load(root)
@@ -326,7 +356,8 @@ def backlog(root: Path, *, now: datetime | None = None) -> dict[str, Any]:
 
 __all__ = [
     "Criterion", "Evidence", "Request", "RequestError", "STATES", "TRANSITIONS",
-    "add_criteria", "advance", "backlog", "capture", "get", "load", "meet", "next_unmet",
+    "add_criteria", "advance", "backlog", "capture", "get", "load", "meet", "next_obligation",
+    "next_unmet",
     "retract_evidence", "save",
     "staleness", "store_path",
 ]
