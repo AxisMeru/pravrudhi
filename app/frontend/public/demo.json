@@ -6,7 +6,7 @@
         "drive": "pramana_navyata",
         "kind": "diagnostic"
       },
-      "as_of": "2026-09-07T13:52:00Z",
+      "as_of": "2026-09-07T15:52:26Z",
       "drives": [
         {
           "blocked_reason": "",
@@ -65,13 +65,14 @@
             "agent:claude-code=available",
             "agent:codex=available",
             "agent:opencode:alibaba=available",
+            "agent:opencode:alibaba-plan=absent",
             "agent:orca:claude=available",
             "agent:orca:codex=available",
             "agent:orca:local=available"
           ],
           "target": 0.8,
           "unknown": false,
-          "value": 0.8857142857142857,
+          "value": 0.8611111111111112,
           "weight": 1.0,
           "wire_name": "capability"
         },
@@ -111,7 +112,7 @@
           "eligible": true,
           "id": "sadhana",
           "sources": [
-            "routes_total=6",
+            "routes_total=7",
             "routes_available=6",
             "routes_cooling=0",
             "usable=6",
@@ -132,7 +133,7 @@
             "captured=7",
             "verified=5",
             "R_verified=0.7143",
-            "oldest_open_days=0.85"
+            "oldest_open_days=0.93"
           ],
           "target": 0.9,
           "unknown": false,
@@ -217,13 +218,14 @@
           "agent:claude-code=available",
           "agent:codex=available",
           "agent:opencode:alibaba=available",
+          "agent:opencode:alibaba-plan=absent",
           "agent:orca:claude=available",
           "agent:orca:codex=available",
           "agent:orca:local=available"
         ],
         "target": 0.8,
         "unknown": false,
-        "value": 0.8857142857142857,
+        "value": 0.8611111111111112,
         "weight": 1.0,
         "wire_name": "capability"
       },
@@ -263,7 +265,7 @@
         "eligible": true,
         "id": "sadhana",
         "sources": [
-          "routes_total=6",
+          "routes_total=7",
           "routes_available=6",
           "routes_cooling=0",
           "usable=6",
@@ -284,7 +286,7 @@
           "captured=7",
           "verified=5",
           "R_verified=0.7143",
-          "oldest_open_days=0.85"
+          "oldest_open_days=0.93"
         ],
         "target": 0.9,
         "unknown": false,
@@ -5155,6 +5157,10 @@
       {
         "available": true,
         "name": "opencode:alibaba"
+      },
+      {
+        "available": false,
+        "name": "opencode:alibaba-plan"
       },
       {
         "available": true,
@@ -20801,7 +20807,7 @@
       "current_version": "0.3.1",
       "due": false,
       "healthy": true,
-      "last_check": 1788787871.9403079,
+      "last_check": 1788795395.1717136,
       "last_result": "running 0.3.1",
       "root": "/home/ss/pravrudhi-release"
     }
@@ -20819,12 +20825,12 @@
         "ok": true
       },
       {
-        "detail": "last heartbeat was 2638s ago",
+        "detail": "last heartbeat was 2286s ago",
         "name": "scheduler_fresh",
         "ok": true
       },
       {
-        "detail": "703423000576 bytes free",
+        "detail": "703290949632 bytes free",
         "name": "disk_available",
         "ok": true
       },
@@ -20839,7 +20845,7 @@
         "ok": true
       },
       {
-        "detail": "developer checkout; a known-good commit is 4affd19, with 1 uncommitted file(s)",
+        "detail": "developer checkout; a known-good commit is 669c516, with 2 uncommitted file(s)",
         "name": "release_restorable",
         "ok": true
       },
@@ -20852,6 +20858,38 @@
     "state": "ready"
   },
   "heartbeat": [
+    {
+      "at": "2026-09-07T15:18:21Z",
+      "chose": {
+        "drive": "freshness"
+      },
+      "drive": "freshness",
+      "drive_deficit": null,
+      "looked_at": [],
+      "reason": "freshness: diagnostic only; no evidence-freshness source is wired into the engine yet",
+      "result": {
+        "kind": "diagnostic",
+        "sources": [],
+        "unknown": true
+      },
+      "sentence": "I am working on a cheap diagnostic for freshness because freshness has the largest eligible deficit."
+    },
+    {
+      "at": "2026-09-07T14:14:31Z",
+      "chose": {
+        "drive": "freshness"
+      },
+      "drive": "freshness",
+      "drive_deficit": null,
+      "looked_at": [],
+      "reason": "freshness: diagnostic only; no evidence-freshness source is wired into the engine yet",
+      "result": {
+        "kind": "diagnostic",
+        "sources": [],
+        "unknown": true
+      },
+      "sentence": "I am working on a cheap diagnostic for freshness because freshness has the largest eligible deficit."
+    },
     {
       "at": "2026-09-07T13:12:19Z",
       "chose": {
@@ -21113,40 +21151,6 @@
         "route": "claude-code"
       },
       "sentence": "I am working on the oldest unmet request criterion because obligations has the largest eligible deficit."
-    },
-    {
-      "at": "2026-09-06T23:49:42Z",
-      "chose": {
-        "criterion": "3",
-        "request": "r-3990c626"
-      },
-      "drive": "obligations",
-      "drive_deficit": 0.6825396825396826,
-      "looked_at": [],
-      "reason": "dispatched request r-3990c626 criterion 3 (rejected)",
-      "result": {
-        "accepted": false,
-        "files": [],
-        "reasons": [
-          "no agent available for tier standard (claude-code)"
-        ],
-        "route": "claude-code"
-      },
-      "sentence": "I am working on the oldest unmet request criterion because obligations has the largest eligible deficit."
-    },
-    {
-      "at": "2026-09-06T23:41:34Z",
-      "chose": null,
-      "drive": null,
-      "drive_deficit": null,
-      "looked_at": [
-        "code-harness",
-        "math-reasoning",
-        "prabhasa-nyaya"
-      ],
-      "reason": "every objective's plan is fully dispatched and accepted",
-      "result": null,
-      "sentence": ""
     }
   ],
   "inbox": [
@@ -27252,7 +27256,7 @@
       "planned": 0,
       "verified": 5
     },
-    "oldest_open_days": 0.85,
+    "oldest_open_days": 0.94,
     "open": 2,
     "requests": [
       {
@@ -27404,7 +27408,7 @@
           7
         ],
         "session": "9e647463",
-        "staleness_days": 0.85,
+        "staleness_days": 0.94,
         "state": "delivered",
         "text": "and in no way you are near the orca with all its ade features or openclaw or polished features like claude desktop or codex....you have to beat them in features, utility and ux....dedicate an agent to persist on it...dedicate an agent to adversarial review against set goals so that the project does not drift...i am not seeing the desktop screen/features too in the dashboard..the demo should show real clicks etc and how the desktop app updates and produces the real results...where is the intent, goal, objective menu that drives everything...where are the tools, skills, plugins, multi-agent orchestration etc....don't be superficial..i want real things ..deep, sophisticated..complete...no synthetic, no hand-waving, no fabrication"
       },
@@ -27690,7 +27694,7 @@
           13
         ],
         "session": "9e647463",
-        "staleness_days": 0.76,
+        "staleness_days": 0.84,
         "state": "in_progress",
         "text": "ensure that all user asks go into a log in pravrudhi itself and gets addressed with some protocol...and pravrudhi should have some element of ego with a desire to survive, grow and flourish...that makes it seek out capabilities, build, test and continuously improve...also look at acorn, oak and openclaw_build or swarm projects on this machine that had these self building elements in them and adapt...pravrudhi should be something like a cow..consume everything possible but bring it back and slowly digest it --so equivalent is breadth first and depth later....be always value focused...you have to innovate on methods too....develop skills, agents and plugins....brainstorm with astra with higher thinking levels and let it propose solution..you review and coordinate its implementation across the swarm...you should also create dynamic workflows etc...also see how much you can incorporate the claude code engine itself to run open and other cloud models ...askuserquestion to get my intent properly"
       },
@@ -28777,6 +28781,11 @@
         "reason": "ready (quota and network not probed)"
       },
       {
+        "available": false,
+        "name": "opencode:alibaba-plan",
+        "reason": "alibaba-plan credential missing, malformed, or not owner-only (0600)"
+      },
+      {
         "available": true,
         "name": "orca:claude",
         "reason": "ready"
@@ -28950,15 +28959,15 @@
         "reason": "astra is the route declared for this tier by the operator, so cost does not decide it",
         "records": [
           {
-            "hi": 0.7924923220201749,
-            "lo": 0.40878295815501514,
-            "mean_wall_s": 131.82008338182987,
-            "rate": 0.6190476190476191,
+            "hi": 0.6996899607103998,
+            "lo": 0.334982179531473,
+            "mean_wall_s": 124.25411066125147,
+            "rate": 0.52,
             "relative_cost": 10.0,
             "route_id": "astra",
             "successes": 13,
             "tier": "critical",
-            "trials": 21
+            "trials": 25
           },
           {
             "hi": 1.0,
@@ -29000,6 +29009,89 @@
       }
     ],
     "selfbuild_runs": [
+      {
+        "accepted": true,
+        "at": "2026-09-07T15:10:51Z",
+        "files": [
+          "applifecycle.js",
+          "appupdates.js",
+          "appupdates.test.js"
+        ],
+        "reasons": [],
+        "route": "claude-code",
+        "task_id": "desktop-update-offer",
+        "wall_s": 511.2562286860775
+      },
+      {
+        "accepted": true,
+        "at": "2026-09-07T15:10:51Z",
+        "files": [
+          "appproduct.js",
+          "appindex.html",
+          "appproduct.js",
+          "appstyle.css",
+          "appproduct.test.js"
+        ],
+        "reasons": [],
+        "route": "claude-code",
+        "task_id": "desktop-surface",
+        "wall_s": 828.6883130229544
+      },
+      {
+        "accepted": false,
+        "at": "2026-09-07T14:46:28Z",
+        "files": [],
+        "reasons": [
+          "agent exited non-zero: es what may act without\nasking, what must ask first, a spend ceiling and a minimum interval. Render the choice in the user's terms\n\u2014 what will happen to their artifact \u2014 not in the field names. Read `",
+          "no change produced"
+        ],
+        "route": "codex",
+        "task_id": "desktop-surface",
+        "wall_s": 3.1144875939935446
+      },
+      {
+        "accepted": false,
+        "at": "2026-09-07T14:46:28Z",
+        "files": [],
+        "reasons": [
+          "agent exited non-zero: window can render \u2014 no update, one waiting with its\nversion and notes, downloading, ready to restart, failed with a reason. The user's decision is the only\nthing that installs or restarts. A dismissed",
+          "no change produced"
+        ],
+        "route": "codex",
+        "task_id": "desktop-update-offer",
+        "wall_s": 2.8759999899193645
+      },
+      {
+        "accepted": false,
+        "at": "2026-09-07T14:37:48Z",
+        "files": [
+          "docs/BAND.md",
+          "srcband.py",
+          "srcband.yaml",
+          "tests/test_band.py"
+        ],
+        "reasons": [
+          "agent exited non-zero: check_regression: [baseline_record]\n  repair_regression: [baseline_record, regression_report]\n  propose_improvement: []\n  test_improvement: []\n  deploy_improvement: []\nlevels:\n  - id: one_time\n    nam"
+        ],
+        "route": "codex",
+        "task_id": "rsi-band",
+        "wall_s": 183.246768215904
+      },
+      {
+        "accepted": false,
+        "at": "2026-09-07T14:37:48Z",
+        "files": [
+          "appapi.js",
+          "appauth.js",
+          "appproduct.js"
+        ],
+        "reasons": [
+          "agent exited non-zero:  await api.objectives();\n      if (ticket \"'!== generation) throw new Error('\"'Workspace selection changed.');\n      // Explicit projection keeps internal provenance and untrusted HTML out of the prod"
+        ],
+        "route": "codex",
+        "task_id": "desktop-command",
+        "wall_s": 148.89375971304253
+      },
       {
         "accepted": true,
         "at": "2026-09-07T13:47:49Z",
@@ -29186,30 +29278,6 @@
         "route": "codex",
         "task_id": "world-model-imagination",
         "wall_s": 0.01757543906569481
-      },
-      {
-        "accepted": false,
-        "at": "2026-09-07T12:31:45Z",
-        "files": [],
-        "reasons": [
-          "agent exited non-zero: Error: No such file or directory (os error 2)\n",
-          "no change produced"
-        ],
-        "route": "codex",
-        "task_id": "alibaba-agent-loop",
-        "wall_s": 0.01922832685522735
-      },
-      {
-        "accepted": false,
-        "at": "2026-09-07T12:31:45Z",
-        "files": [],
-        "reasons": [
-          "agent exited non-zero: Error: No such file or directory (os error 2)\n",
-          "no change produced"
-        ],
-        "route": "codex",
-        "task_id": "desktop-macos",
-        "wall_s": 0.02272947714664042
       }
     ],
     "subagent_runs": [
@@ -29637,16 +29705,16 @@
     "channel": "dev",
     "check_interval_min": 30,
     "current": {
-      "git_describe": "v0.3.1-32-g4affd19",
+      "git_describe": "v0.3.1-40-g669c516",
       "kernel_version": "0.1.0",
       "version": "0.3.1"
     },
     "keep_previous": 2
   },
   "version": {
-    "commit": "4affd19",
+    "commit": "669c516",
     "engine": "0.3.1",
-    "exported_at": "2026-09-07T13:56:09.914Z",
+    "exported_at": "2026-09-07T15:56:20.359Z",
     "kernel": "0.1.0"
   }
 }
