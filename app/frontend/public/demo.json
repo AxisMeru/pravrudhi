@@ -6713,6 +6713,28 @@
   },
   "heartbeat": [
     {
+      "at": "2026-09-07T00:44:32Z",
+      "chose": {
+        "criterion": "5",
+        "request": "r-3990c626"
+      },
+      "drive": "obligations",
+      "drive_deficit": 0.5238095238095238,
+      "looked_at": [],
+      "reason": "dispatched request r-3990c626 criterion 5 (accepted)",
+      "result": {
+        "accepted": true,
+        "files": [
+          "proposals/requests/r-3990c626/5/README.md",
+          "proposals/requests/r-3990c626/5/channel_manifest.py",
+          "proposals/requests/r-3990c626/5/feature_matrix.py"
+        ],
+        "reasons": [],
+        "route": "claude-code"
+      },
+      "sentence": "I am working on the oldest unmet request criterion because obligations has the largest eligible deficit."
+    },
+    {
       "at": "2026-09-06T23:49:42Z",
       "chose": {
         "criterion": "3",
@@ -12447,16 +12469,16 @@
   "recorded": true,
   "requests": {
     "by_state": {
-      "captured": 4,
+      "captured": 3,
       "clarified": 0,
       "declined": 0,
       "delivered": 0,
       "in_progress": 1,
       "planned": 0,
-      "verified": 2
+      "verified": 3
     },
-    "oldest_open_days": 0.5,
-    "open": 5,
+    "oldest_open_days": 0.54,
+    "open": 4,
     "requests": [
       {
         "asked_at": "2026-09-06T12:00:00Z",
@@ -12508,8 +12530,24 @@
             "text": "A release copy is installed on the Mac mini and updates itself end to end"
           },
           {
-            "evidence": [],
-            "met": false,
+            "evidence": [
+              {
+                "kind": "file",
+                "note": "app, update, heartbeat and publish units with their intervals",
+                "ref": "deploy/systemd/"
+              },
+              {
+                "kind": "file",
+                "note": "the appetite and intake design",
+                "ref": "docs/superpowers/specs/2026-09-06-appetite-and-intake-design.md"
+              },
+              {
+                "kind": "file",
+                "note": "the fixed publish order and why each step precedes the next",
+                "ref": "src/pravrudhi/application/publish.py"
+              }
+            ],
+            "met": true,
             "source": "operator",
             "text": "Scheduling and architecture decisions are stated for review"
           },
@@ -12591,101 +12629,13 @@
         "id": "r-3990c626",
         "notes": [],
         "progress": [
-          7,
+          8,
           9
         ],
         "session": "9e647463",
-        "staleness_days": 0.5,
+        "staleness_days": 0.54,
         "state": "captured",
         "text": "no alibaba gpu for now...enable auto-update of pravrudhi app with safegaurds..you need to download a copy on rtx and on mac mini ..install and make it the end user testing...the active update the pravrudhi system is only for this developer version..the release version is only to test e2e the updates....you have to branistorm and come up scheduling/architecture decisions....also use all other agents to help you build and test (including alibaba cloud models) as a swarm....show me the app that is way more valuable and rich (both functionality and ux) than orca ...( I am yet to see adaptation of openclaw/nemoclaw etc too)....create a github pages for live demo that continuously updates (as the app and the paper) so that i can keep track of the progress through it....i don't want this adr/gate and other reporting stuff (that is only for you...not for me)...i should see the real working stuff"
-      },
-      {
-        "asked_at": "2026-09-06T16:00:00Z",
-        "criteria": [
-          {
-            "evidence": [
-              {
-                "kind": "file",
-                "note": "classify and cooldown",
-                "ref": "src/pravrudhi/application/availability.py"
-              },
-              {
-                "kind": "command",
-                "note": "4 passed",
-                "ref": "uv run pytest -q tests/test_sentinel_fallback.py"
-              }
-            ],
-            "met": true,
-            "source": "operator",
-            "text": "A usage limit hands work to the free-tier or local model instead of stopping"
-          },
-          {
-            "evidence": [
-              {
-                "kind": "file",
-                "note": "handover log and brief",
-                "ref": "src/pravrudhi/application/continuity.py"
-              }
-            ],
-            "met": true,
-            "source": "operator",
-            "text": "Work done during a limit is handed back when the paid model returns"
-          },
-          {
-            "evidence": [
-              {
-                "kind": "file",
-                "note": "open models drive a real tool-calling loop",
-                "ref": "src/pravrudhi/agents/loop_agent.py"
-              },
-              {
-                "kind": "file",
-                "note": "sentinels permitted at every tier",
-                "ref": "src/pravrudhi/assets/configs/routing.yaml"
-              },
-              {
-                "kind": "command",
-                "note": "4 passed",
-                "ref": "uv run pytest -q tests/test_sentinel_fallback.py"
-              }
-            ],
-            "met": true,
-            "source": "operator",
-            "text": "The system runs continuously without a paid model available"
-          },
-          {
-            "evidence": [
-              {
-                "kind": "file",
-                "note": "a hook refusing forbidden commits and kernel edits",
-                "ref": "deploy/hooks/pravrudhi_guard.py"
-              },
-              {
-                "kind": "file",
-                "note": "an operator skill for a fresh session",
-                "ref": "deploy/skills/pravrudhi-operator/SKILL.md"
-              },
-              {
-                "kind": "file",
-                "note": "the memory store made visible",
-                "ref": "app/frontend/src/app/memory/page.tsx"
-              }
-            ],
-            "met": true,
-            "source": "operator",
-            "text": "Memory, skills and hooks are in place and good"
-          }
-        ],
-        "id": "r-e9b07bfc",
-        "notes": [],
-        "progress": [
-          4,
-          4
-        ],
-        "session": "9e647463",
-        "staleness_days": 0.33,
-        "state": "captured",
-        "text": "even if you hit session limit delegate to alibaba cloud or local model to carry your work forward and then hand it back for you on arrival....let pravraudhi system be robust enough to completely work irrespective of paid models hitting session limits (run 24x7) ...coordination is key...keep at the goals...very good memory, skills and hooks are needed too"
       },
       {
         "asked_at": "2026-09-06T17:30:00Z",
@@ -12732,8 +12682,19 @@
             "text": "The desktop application exists and its screens appear in the dashboard"
           },
           {
-            "evidence": [],
-            "met": false,
+            "evidence": [
+              {
+                "kind": "file",
+                "note": "eight steps driven by the recorded snapshot",
+                "ref": "app/frontend/src/app/tour/page.tsx"
+              },
+              {
+                "kind": "url",
+                "note": "live",
+                "ref": "https://sharathsphd.github.io/pravrudhi/app/tour"
+              }
+            ],
+            "met": true,
             "source": "operator",
             "text": "The demo shows real clicks and the desktop app updating"
           },
@@ -12786,11 +12747,11 @@
         "id": "r-5795501a",
         "notes": [],
         "progress": [
-          5,
+          6,
           7
         ],
         "session": "9e647463",
-        "staleness_days": 0.27,
+        "staleness_days": 0.31,
         "state": "captured",
         "text": "and in no way you are near the orca with all its ade features or openclaw or polished features like claude desktop or codex....you have to beat them in features, utility and ux....dedicate an agent to persist on it...dedicate an agent to adversarial review against set goals so that the project does not drift...i am not seeing the desktop screen/features too in the dashboard..the demo should show real clicks etc and how the desktop app updates and produces the real results...where is the intent, goal, objective menu that drives everything...where are the tools, skills, plugins, multi-agent orchestration etc....don't be superficial..i want real things ..deep, sophisticated..complete...no synthetic, no hand-waving, no fabrication"
       },
@@ -12844,8 +12805,29 @@
             "text": "The heartbeat works the oldest unmet ask on its own"
           },
           {
-            "evidence": [],
-            "met": false,
+            "evidence": [
+              {
+                "kind": "file",
+                "note": "six measured drives, pressure = weight x deficit, hysteresis",
+                "ref": "src/pravrudhi/application/kshudha.py"
+              },
+              {
+                "kind": "command",
+                "note": "obligations 0.68 selected; two drives unknown with reasons",
+                "ref": "uv run pravrudhi appetite"
+              },
+              {
+                "kind": "file",
+                "note": "the winning drive dispatches the work",
+                "ref": "src/pravrudhi/application/heartbeat.py"
+              },
+              {
+                "kind": "commit",
+                "note": "the appetite drives the loop",
+                "ref": "48f8d4e"
+              }
+            ],
+            "met": true,
             "source": "operator",
             "text": "A drive state makes the engine seek capability, build, test and improve"
           },
@@ -12874,14 +12856,46 @@
             "text": "Swarm intelligence allows emergence, not merely dispatch"
           },
           {
-            "evidence": [],
-            "met": false,
+            "evidence": [
+              {
+                "kind": "file",
+                "note": "the autonomous loop idea, adapted",
+                "ref": "src/pravrudhi/application/heartbeat.py"
+              },
+              {
+                "kind": "file",
+                "note": "drives after the exploration and specialization engines",
+                "ref": "src/pravrudhi/application/kshudha.py"
+              },
+              {
+                "kind": "file",
+                "note": "the policy engine idea, made checkable",
+                "ref": "src/pravrudhi/application/sandbox_monitor.py"
+              }
+            ],
+            "met": true,
             "source": "operator",
             "text": "Self-building elements from oak/acorn and openclaw_build are adapted"
           },
           {
-            "evidence": [],
-            "met": false,
+            "evidence": [
+              {
+                "kind": "file",
+                "note": "cheap local grazing, bounded, no inference or downloads",
+                "ref": "src/pravrudhi/application/grahana.py"
+              },
+              {
+                "kind": "file",
+                "note": "grazed -> shortlisted -> trial -> ruminated",
+                "ref": "src/pravrudhi/application/manthana.py"
+              },
+              {
+                "kind": "file",
+                "note": "63 items retained with relevance components",
+                "ref": ".pravrudhi/intake/items.jsonl"
+              }
+            ],
+            "met": true,
             "source": "operator",
             "text": "Breadth-first grazing feeds a later depth-first rumination phase"
           },
@@ -12923,11 +12937,11 @@
           }
         ],
         "progress": [
-          4,
+          7,
           13
         ],
         "session": "9e647463",
-        "staleness_days": 0.18,
+        "staleness_days": 0.22,
         "state": "in_progress",
         "text": "ensure that all user asks go into a log in pravrudhi itself and gets addressed with some protocol...and pravrudhi should have some element of ego with a desire to survive, grow and flourish...that makes it seek out capabilities, build, test and continuously improve...also look at acorn, oak and openclaw_build or swarm projects on this machine that had these self building elements in them and adapt...pravrudhi should be something like a cow..consume everything possible but bring it back and slowly digest it --so equivalent is breadth first and depth later....be always value focused...you have to innovate on methods too....develop skills, agents and plugins....brainstorm with astra with higher thinking levels and let it propose solution..you review and coordinate its implementation across the swarm...you should also create dynamic workflows etc...also see how much you can incorporate the claude code engine itself to run open and other cloud models ...askuserquestion to get my intent properly"
       },
@@ -13017,7 +13031,7 @@
           6
         ],
         "session": "9e647463",
-        "staleness_days": 0.12,
+        "staleness_days": 0.17,
         "state": "captured",
         "text": "let astra handle the tough jobs...let it bring up the desktop app, test...integrate fully with the api etc...route it to requests and let pravrudhi handle this request autonomously...also adversarial review and thorough e2e tests before marking any completion...give it also the ralph-loop closure (skill) to make it robust and not escape with half-baked features"
       },
@@ -13111,6 +13125,107 @@
         "staleness_days": 0.0,
         "state": "verified",
         "text": "the pages should also become a live monitoring dashboard with rich visuals showing all key metrics and track in plots the progress across all benchmarks...and other capabilities of pravrudhi...also double up as full fledged user demo of the features and functionalities that keeps updating with each version/update"
+      },
+      {
+        "asked_at": "2026-09-06T16:00:00Z",
+        "criteria": [
+          {
+            "evidence": [
+              {
+                "kind": "file",
+                "note": "classify and cooldown",
+                "ref": "src/pravrudhi/application/availability.py"
+              },
+              {
+                "kind": "command",
+                "note": "4 passed",
+                "ref": "uv run pytest -q tests/test_sentinel_fallback.py"
+              }
+            ],
+            "met": true,
+            "source": "operator",
+            "text": "A usage limit hands work to the free-tier or local model instead of stopping"
+          },
+          {
+            "evidence": [
+              {
+                "kind": "file",
+                "note": "handover log and brief",
+                "ref": "src/pravrudhi/application/continuity.py"
+              }
+            ],
+            "met": true,
+            "source": "operator",
+            "text": "Work done during a limit is handed back when the paid model returns"
+          },
+          {
+            "evidence": [
+              {
+                "kind": "file",
+                "note": "open models drive a real tool-calling loop",
+                "ref": "src/pravrudhi/agents/loop_agent.py"
+              },
+              {
+                "kind": "file",
+                "note": "sentinels permitted at every tier",
+                "ref": "src/pravrudhi/assets/configs/routing.yaml"
+              },
+              {
+                "kind": "command",
+                "note": "4 passed",
+                "ref": "uv run pytest -q tests/test_sentinel_fallback.py"
+              }
+            ],
+            "met": true,
+            "source": "operator",
+            "text": "The system runs continuously without a paid model available"
+          },
+          {
+            "evidence": [
+              {
+                "kind": "file",
+                "note": "a hook refusing forbidden commits and kernel edits",
+                "ref": "deploy/hooks/pravrudhi_guard.py"
+              },
+              {
+                "kind": "file",
+                "note": "an operator skill for a fresh session",
+                "ref": "deploy/skills/pravrudhi-operator/SKILL.md"
+              },
+              {
+                "kind": "file",
+                "note": "the memory store made visible",
+                "ref": "app/frontend/src/app/memory/page.tsx"
+              }
+            ],
+            "met": true,
+            "source": "operator",
+            "text": "Memory, skills and hooks are in place and good"
+          }
+        ],
+        "id": "r-e9b07bfc",
+        "notes": [
+          {
+            "at": "2026-09-07T00:30:39.616Z",
+            "note": "sentinels, own agent loop, continuity handover, hooks and skills all in place with tests"
+          },
+          {
+            "at": "2026-09-07T00:30:39.743Z",
+            "note": "sentinels, own agent loop, continuity handover, hooks and skills all in place with tests"
+          },
+          {
+            "at": "2026-09-07T00:30:39.864Z",
+            "note": "sentinels, own agent loop, continuity handover, hooks and skills all in place with tests"
+          }
+        ],
+        "progress": [
+          4,
+          4
+        ],
+        "session": "9e647463",
+        "staleness_days": 0.0,
+        "state": "verified",
+        "text": "even if you hit session limit delegate to alibaba cloud or local model to carry your work forward and then hand it back for you on arrival....let pravraudhi system be robust enough to completely work irrespective of paid models hitting session limits (run 24x7) ...coordination is key...keep at the goals...very good memory, skills and hooks are needed too"
       },
       {
         "asked_at": "2026-09-06T18:30:00Z",
@@ -13569,18 +13684,18 @@
       {
         "agent": "claude-code",
         "model": "sonnet",
-        "reason": "sonnet has the best measured success rate at this tier (20/26) and nothing cheaper matches it; dropped cooling route(s) qwen-coder",
+        "reason": "sonnet has the best measured success rate at this tier (21/27) and nothing cheaper matches it; dropped cooling route(s) qwen-coder",
         "records": [
           {
-            "hi": 0.8896630031632332,
-            "lo": 0.5794807424804321,
-            "mean_wall_s": 197.75459879687807,
-            "rate": 0.7692307692307693,
+            "hi": 0.8939290451059105,
+            "lo": 0.5924270453692919,
+            "mean_wall_s": 194.38430182477114,
+            "rate": 0.7777777777777778,
             "relative_cost": 2.9,
             "route_id": "sonnet",
-            "successes": 20,
+            "successes": 21,
             "tier": "standard",
-            "trials": 26
+            "trials": 27
           },
           {
             "hi": 1.0,
@@ -13601,18 +13716,18 @@
       {
         "agent": "claude-code",
         "model": "sonnet",
-        "reason": "sonnet has the best measured success rate at this tier (26/29) and nothing cheaper matches it; dropped cooling route(s) qwen-coder",
+        "reason": "sonnet has the best measured success rate at this tier (27/30) and nothing cheaper matches it; dropped cooling route(s) qwen-coder",
         "records": [
           {
-            "hi": 0.9641857596186989,
-            "lo": 0.7361455275293085,
-            "mean_wall_s": 323.062970085479,
-            "rate": 0.896551724137931,
+            "hi": 0.9654007400402839,
+            "lo": 0.7437855868473339,
+            "mean_wall_s": 335.11033216142874,
+            "rate": 0.9,
             "relative_cost": 2.9,
             "route_id": "sonnet",
-            "successes": 26,
+            "successes": 27,
             "tier": "design",
-            "trials": 29
+            "trials": 30
           },
           {
             "hi": 1.0,
@@ -13655,7 +13770,7 @@
       {
         "agent": "claude-code",
         "model": "sonnet",
-        "reason": "sonnet costs 2.9 against astra's 10 and their intervals overlap (20/25 against 5/5), so the extra spend is not yet justified; dropped cooling route(s) qwen-coder",
+        "reason": "sonnet costs 2.9 against astra's 10 and their intervals overlap (22/27 against 5/5), so the extra spend is not yet justified; dropped cooling route(s) qwen-coder",
         "records": [
           {
             "hi": 1.0,
@@ -13669,15 +13784,15 @@
             "trials": 0
           },
           {
-            "hi": 0.9113954589934753,
-            "lo": 0.6086866446346176,
-            "mean_wall_s": 486.4406315360684,
-            "rate": 0.8,
+            "hi": 0.9181941342571467,
+            "lo": 0.6330094349480826,
+            "mean_wall_s": 520.9297233752441,
+            "rate": 0.8148148148148148,
             "relative_cost": 2.9,
             "route_id": "sonnet",
-            "successes": 20,
+            "successes": 22,
             "tier": "critical",
-            "trials": 25
+            "trials": 27
           },
           {
             "hi": 1.0,
@@ -14129,9 +14244,9 @@
     ]
   },
   "version": {
-    "commit": "36370fd",
+    "commit": "1803019",
     "engine": "0.2.4",
-    "exported_at": "2026-09-06T23:58:22.807Z",
+    "exported_at": "2026-09-07T01:02:31.165Z",
     "kernel": "0.1.0"
   }
 }
