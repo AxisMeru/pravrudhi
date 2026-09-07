@@ -118,3 +118,66 @@ test("system page renders", async ({ page }) => {
   await page.waitForTimeout(9000);
   console.log("SYS ERRORS:", errs.join(" || ") || "none");
 });
+
+test("chat streaming endpoint is used and renders progressively", async ({ page, request }) => {
+  await page.goto("/chat");
+  await expect(page.getByRole("heading", { name: "Chat" })).toBeVisible();
+
+  // Find the message input and send button
+  const input = page.getByPlaceholder("Ask about an objective, a plan, or the evidence behind a number…");
+  const sendButton = page.getByRole("button", { name: "Send" });
+
+  // Start intercepting network requests to verify streaming endpoint is used
+  let streamEndpointCalled = false;
+  page.on("request", (request) => {
+    if (request.url().includes("/api/chat/stream")) {
+      streamEndpointCalled = true;
+    }
+  });
+
+  await input.fill("What is happening?");
+
+  // Collect text content over time to verify progressive rendering
+  const textSnapshots: string[] = [];
+  let lastText = "";
+
+  const captureInterval = setInterval(async () => {
+    try {
+      // Find the last assistant message bubble
+      const bubbles = page.locator('[class*="flex-1"] [class*="rounded-lg"] >> nth=-1');
+      const text = await bubbles.innerText().catch(() => "");
+      if (text && text !== lastText) {
+        textSnapshots.push(text);
+        lastText = text;
+      }
+    } catch {
+      // Ignore errors
+    }
+  }, 100);
+
+  await sendButton.click();
+
+  // Wait for the response to complete
+  await expect(sendButton).not.toBeDisabled({ timeout: 30_000 });
+
+  clearInterval(captureInterval);
+
+  // Verify streaming endpoint was called
+  expect(streamEndpointCalled, "Frontend should use /api/chat/stream endpoint").toBe(true);
+
+  // A blocking response produces exactly one snapshot: the finished answer, captured once. So "at least one"
+  // is satisfied by the very behaviour this test exists to rule out, and the bar has to be two — the text was
+  // observed partway through and again later, which only happens if it grew while the stream was open.
+  expect(
+    textSnapshots.length,
+    "chat rendered its answer in one go; at least two observations of growing text are needed to call it streaming",
+  ).toBeGreaterThanOrEqual(2);
+
+  // And the growth has to be forward: the last observation must extend the first, not merely differ from it.
+  expect(
+    textSnapshots[textSnapshots.length - 1].length,
+    "the last observation should be longer than the first, showing the answer accumulating",
+  ).toBeGreaterThan(textSnapshots[0].length);
+
+  expect(lastText.length, "Chat response should contain text").toBeGreaterThan(0);
+});

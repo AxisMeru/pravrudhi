@@ -8,6 +8,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Send, Plus } from "lucide-react";
 import {
   chat,
+  chatStream,
   chatThreads,
   chatThread,
   ApiError,
@@ -221,20 +222,105 @@ function LiveChat() {
     setSending(true);
     setSendError(null);
     setTurns((t) => [...t, { role: "user", content: text }]);
+
+    // Initialize and add the assistant turn immediately so we can update it as events stream in
+    const initialAssistantTurn: DisplayTurn = {
+      role: "assistant",
+      content: "",
+      citations: [],
+      toolCalls: [],
+      refusals: [],
+    };
+    setTurns((t) => [...t, initialAssistantTurn]);
+
+    let assistantTurn: DisplayTurn = { ...initialAssistantTurn };
+    let threadId: string | null = null;
+    let hasError = false;
+
     try {
-      const res = await chat(text, activeId);
-      setActiveId(res.thread_id);
-      setTurns((t) => [
-        ...t,
-        {
-          role: "assistant",
-          content: res.reply,
-          citations: res.citations,
-          toolCalls: res.tool_calls,
-          refusals: res.refusals,
-        },
-      ]);
-      loadThreads();
+      for await (const event of chatStream(text, activeId)) {
+        const type = event.type as string;
+
+        if (type === "token") {
+          const tokenText = event.text as string | undefined;
+          if (tokenText) {
+            assistantTurn.content += tokenText;
+            // Update the UI with the new token progressively
+            setTurns((t) => {
+              const copy = [...t];
+              if (copy[copy.length - 1]?.role === "assistant") {
+                copy[copy.length - 1] = { ...assistantTurn };
+              }
+              return copy;
+            });
+          }
+        } else if (type === "citation") {
+          const citation: ChatCitation = {
+            seq: event.seq as number,
+            what: event.what as string,
+          };
+          assistantTurn.citations = [...(assistantTurn.citations || []), citation];
+          setTurns((t) => {
+            const copy = [...t];
+            if (copy[copy.length - 1]?.role === "assistant") {
+              copy[copy.length - 1] = { ...assistantTurn };
+            }
+            return copy;
+          });
+        } else if (type === "tool") {
+          const phase = event.phase as string;
+          if (phase === "called") {
+            const toolCall: ChatToolCall = {
+              tool: event.tool as string,
+              args: event.args as Record<string, unknown>,
+              result_summary: "",
+            };
+            assistantTurn.toolCalls = [...(assistantTurn.toolCalls || []), toolCall];
+            setTurns((t) => {
+              const copy = [...t];
+              if (copy[copy.length - 1]?.role === "assistant") {
+                copy[copy.length - 1] = { ...assistantTurn };
+              }
+              return copy;
+            });
+          } else if (phase === "returned") {
+            // Update the result_summary of the last tool call
+            if (assistantTurn.toolCalls && assistantTurn.toolCalls.length > 0) {
+              const lastIdx = assistantTurn.toolCalls.length - 1;
+              assistantTurn.toolCalls[lastIdx].result_summary = event.result_summary as string || "";
+            }
+            setTurns((t) => {
+              const copy = [...t];
+              if (copy[copy.length - 1]?.role === "assistant") {
+                copy[copy.length - 1] = { ...assistantTurn };
+              }
+              return copy;
+            });
+          }
+        } else if (type === "done") {
+          threadId = event.thread_id as string;
+          assistantTurn.content = event.reply as string;
+          assistantTurn.citations = event.citations as ChatCitation[];
+          assistantTurn.toolCalls = event.tool_calls as ChatToolCall[];
+          assistantTurn.refusals = event.refusals as string[];
+          setTurns((t) => {
+            const copy = [...t];
+            if (copy[copy.length - 1]?.role === "assistant") {
+              copy[copy.length - 1] = { ...assistantTurn };
+            }
+            return copy;
+          });
+        } else if (type === "error") {
+          setSendError(event.error as string);
+          hasError = true;
+          break;
+        }
+      }
+
+      if (!hasError && threadId) {
+        setActiveId(threadId);
+        loadThreads();
+      }
     } catch (e) {
       setSendError(
         e instanceof ApiError ? `chat is not available on this engine build (HTTP ${e.status})` : e instanceof Error ? e.message : String(e),

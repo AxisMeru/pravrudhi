@@ -66,7 +66,14 @@ rows:
   ours: partial
   evidence:
   - 'command: grep -qF "text/event-stream" src/pravrudhi/api/chat.py'
-  notes: Streaming API confirmed; frontend streaming behavior has not been exercised.
+  - 'command: grep -qF "function* chatStream" app/frontend/src/lib/api.ts'
+  - app/frontend/e2e/local-engine.spec.ts
+  notes: >-
+    The server streams and the client now reads the body incrementally rather than awaiting the whole response.
+    Still partial because the end-to-end test has not passed. This machine has no chat model configured, so
+    /api/chat answers 503 and the test cannot observe any tokens at all. The test asserts the answer was seen
+    growing at least twice, since a blocking response yields exactly one observation and would satisfy a weaker
+    bar. It stays partial until it runs green against a configured model.
 - id: notifications
   capability: Operator notifications
   why_it_matters: Notice completed work without polling a work panel.
@@ -88,11 +95,17 @@ rows:
     claude_desktop: unknown
     codex: unknown
     openclaw: unknown
-  ours: partial
+  ours: have
   evidence:
   - app/desktop/package.json
+  - app/desktop/smoke.js
   - app/frontend/src/app/desktop/page.tsx
-  notes: Electron package and desktop page exist. Installed binary and lifecycle behavior have not been tested.
+  notes: >-
+    Run rather than read. The smoke launch starts the shell, which picks a free port, starts an engine on it,
+    loads the interface and reports the window title, then exits cleanly leaving no engine behind. Twenty-nine
+    unit tests cover port selection, process ownership and teardown. Two caveats stay in view. The launch passes
+    --no-sandbox because this machine's Electron sandbox helper needs root, which is not how a user would start
+    it, and this exercises the source application rather than the packaged binary.
 - id: system-page
   capability: System health and agent overview
   why_it_matters: Understand the engine and available builders.
@@ -106,3 +119,112 @@ rows:
   - 'command: grep -qF "<SwarmPanel />" app/frontend/src/app/system/page.tsx'
   - 'command: grep -qF "<HealthPanel" app/frontend/src/app/system/page.tsx'
   notes: Source-level System page; actual health depends on live data.
+# Orca's own twelve advertised capabilities, taken from the feature wall its installed AppImage ships in
+# resources/onboarding/feature-wall (each tile names its source recording and the date it was made). Every
+# orca: have below is that list, not an impression of it. The other three rivals stay unknown because nothing
+# comparable has been inspected for them, and guessing would make the whole table worthless.
+- id: parallel-worktrees
+  capability: Parallel agents in isolated worktrees
+  why_it_matters: Run several agents at once without them overwriting each other.
+  rivals: {orca: have, claude_desktop: unknown, codex: unknown, openclaw: unknown}
+  ours: have
+  evidence:
+  - src/pravrudhi/application/delegate.py
+  - src/pravrudhi/application/integrate.py
+  - 'command: grep -qF -e --3way src/pravrudhi/application/integrate.py'
+  notes: Both isolate agents per worktree. Ours also merges them three-way per file and names a contested file
+    rather than letting the last writer win, which was added after five silent overwrites in one day.
+- id: embedded-terminal
+  capability: Embedded terminal emulator
+  why_it_matters: Run and watch a command without leaving the application.
+  rivals: {orca: have, claude_desktop: unknown, codex: unknown, openclaw: unknown}
+  ours: none
+  evidence: []
+  notes: No terminal emulator in the interface. Commands run through the engine and their output is shown as
+    records, not as an interactive shell.
+- id: github-integration
+  capability: GitHub repository and pull request integration
+  why_it_matters: Review and land work without switching to a browser.
+  rivals: {orca: have, claude_desktop: unknown, codex: unknown, openclaw: unknown}
+  ours: partial
+  evidence:
+  - src/pravrudhi/application/updates.py
+  notes: GitHub is reached only to check for releases. There is no repository browsing, issue or pull request
+    surface.
+- id: any-cli-agent
+  capability: Drive any command line agent
+  why_it_matters: Use the agent that suits the task rather than the one the app ships with.
+  rivals: {orca: have, claude_desktop: unknown, codex: unknown, openclaw: unknown}
+  ours: have
+  evidence:
+  - src/pravrudhi/agents/registry.py
+  - src/pravrudhi/agents/cli_agents.py
+  - src/pravrudhi/agents/orca_agent.py
+  notes: Five backends resolve on this machine, and one of them drives Orca itself. Routing picks between them
+    from measured outcomes rather than a fixed preference.
+- id: design-mode
+  capability: Direct visual editing of an interface
+  why_it_matters: Change a layout by pointing at it instead of describing it.
+  rivals: {orca: have, claude_desktop: unknown, codex: unknown, openclaw: unknown}
+  ours: none
+  evidence: []
+  notes: Not built and not currently planned. Listed so the gap is visible rather than absent.
+- id: ssh-remote
+  capability: Work on a remote machine over SSH
+  why_it_matters: Use the machine that has the hardware.
+  rivals: {orca: have, claude_desktop: unknown, codex: unknown, openclaw: unknown}
+  ours: have
+  evidence:
+  - src/pravrudhi/hosts/transports.py
+  - src/pravrudhi/hosts/fleet.py
+  notes: Hosts are surveyed for accelerator, memory and installed agents, so a task can be placed on a machine
+    that can actually run it.
+- id: file-drag
+  capability: Drag a file into the conversation
+  why_it_matters: Attach context without typing a path.
+  rivals: {orca: have, claude_desktop: unknown, codex: unknown, openclaw: unknown}
+  ours: none
+  evidence: []
+  notes: No drop target anywhere in the interface.
+- id: diff-annotation
+  capability: Annotate a generated diff
+  why_it_matters: Say what is wrong with a change at the line it is wrong on.
+  rivals: {orca: have, claude_desktop: unknown, codex: unknown, openclaw: unknown}
+  ours: partial
+  evidence:
+  - app/frontend/src/components/diffs/DiffViewer.tsx
+  notes: A diff can be read per file and per task. Nothing can be written back onto a line.
+- id: command-line
+  capability: A command line for the whole product
+  why_it_matters: Script the tool and use it over a plain SSH session.
+  rivals: {orca: have, claude_desktop: unknown, codex: unknown, openclaw: unknown}
+  ours: have
+  evidence:
+  - src/pravrudhi/cli/app.py
+  - 'command: grep -qF @app.command src/pravrudhi/cli/app.py'
+  notes: Thirty-two commands, covering the whole loop rather than a chat wrapper.
+- id: keyboard-native
+  capability: Keyboard-driven navigation throughout
+  why_it_matters: Work without reaching for the pointer.
+  rivals: {orca: have, claude_desktop: unknown, codex: unknown, openclaw: unknown}
+  ours: partial
+  evidence:
+  - 'command: grep -qF metaKey app/frontend/src/components/palette/CommandPalette.tsx'
+  notes: The palette opens on Ctrl+K and reaches pages, actions and records. Beyond it the interface expects a
+    pointer, and no other shortcut has been exercised.
+- id: account-switching
+  capability: Switch between provider accounts
+  why_it_matters: Separate work from personal quota, and survive one account being rate limited.
+  rivals: {orca: have, claude_desktop: unknown, codex: unknown, openclaw: unknown}
+  ours: partial
+  evidence:
+  - src/pravrudhi/application/credentials.py
+  notes: Keys can be supplied per provider and are stored outside the work tree at 0600. There is no notion of
+    two accounts for one provider, and no switch in the interface.
+- id: markdown-editor
+  capability: Edit a document in the application
+  why_it_matters: Keep notes and plans where the work is.
+  rivals: {orca: have, claude_desktop: unknown, codex: unknown, openclaw: unknown}
+  ours: none
+  evidence: []
+  notes: Memory notes are recorded and displayed but not editable in place.

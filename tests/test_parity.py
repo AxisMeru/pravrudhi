@@ -103,3 +103,34 @@ def test_cli_and_typed_api(tmp_path: Path) -> None:
     assert response.next_gap.id == 'gap'
     schema = api.openapi()['paths']['/api/parity']['get']['responses']['200']
     assert schema['content']['application/json']['schema']['$ref'].endswith('/ParityResponse')
+
+
+class TestAnAbsentCapabilityNeedsNoEvidence:
+    """The most useful row in the table is the one admitting a gap, and it must not be penalised for it.
+
+    Every row used to require evidence, including a row whose whole claim was that the capability is missing.
+    There is nothing to cite for something that does not exist, so the rule pushed toward either inventing a
+    citation or dropping the row and letting the table quietly overstate the product. An absent capability is
+    the backlog; it has to be expressible.
+    """
+
+    def test_a_row_claiming_nothing_verifies_without_evidence(self, tmp_path: Path) -> None:
+        from pravrudhi.application.parity import Capability, Rivals, _verify
+
+        row = Capability(
+            id="terminal", capability="Embedded terminal", why_it_matters="Run a command in place.",
+            rivals=Rivals(orca="have", claude_desktop="unknown", codex="unknown", openclaw="unknown"),
+            ours="none", evidence=[], notes="Not built.",
+        )
+        assert _verify(tmp_path, [row])[0].verified
+
+    def test_a_row_claiming_the_capability_still_must_evidence_it(self, tmp_path: Path) -> None:
+        from pravrudhi.application.parity import Capability, Rivals, _verify
+
+        row = Capability(
+            id="terminal", capability="Embedded terminal", why_it_matters="Run a command in place.",
+            rivals=Rivals(orca="have", claude_desktop="unknown", codex="unknown", openclaw="unknown"),
+            ours="have", evidence=[], notes="",
+        )
+        result = _verify(tmp_path, [row])[0]
+        assert not result.verified and "no evidence supplied" in result.failures
