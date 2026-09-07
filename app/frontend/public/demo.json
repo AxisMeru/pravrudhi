@@ -6777,12 +6777,12 @@
         "ok": true
       },
       {
-        "detail": "last heartbeat was 3529s ago",
+        "detail": "last heartbeat was 460s ago",
         "name": "scheduler_fresh",
         "ok": true
       },
       {
-        "detail": "704885227520 bytes free",
+        "detail": "704873201664 bytes free",
         "name": "disk_available",
         "ok": true
       },
@@ -6797,7 +6797,7 @@
         "ok": true
       },
       {
-        "detail": "developer checkout; a known-good commit is d1deaea, with 2 uncommitted file(s)",
+        "detail": "developer checkout; a known-good commit is af2bf13, with 2 uncommitted file(s)",
         "name": "release_restorable",
         "ok": true
       },
@@ -6810,6 +6810,22 @@
     "state": "ready"
   },
   "heartbeat": [
+    {
+      "at": "2026-09-07T10:06:05Z",
+      "chose": {
+        "drive": "freshness"
+      },
+      "drive": "freshness",
+      "drive_deficit": null,
+      "looked_at": [],
+      "reason": "freshness: diagnostic only; no evidence-freshness source is wired into the engine yet",
+      "result": {
+        "kind": "diagnostic",
+        "sources": [],
+        "unknown": true
+      },
+      "sentence": "I am working on a cheap diagnostic for freshness because freshness has the largest eligible deficit."
+    },
     {
       "at": "2026-09-07T09:05:45Z",
       "chose": {
@@ -7082,38 +7098,6 @@
       ],
       "reason": "every objective's plan is fully dispatched and accepted",
       "result": null,
-      "sentence": ""
-    },
-    {
-      "at": "2026-09-06T19:28:15Z",
-      "chose": {
-        "objective": "code-harness",
-        "step": "candidate-evaluation"
-      },
-      "drive": null,
-      "drive_deficit": null,
-      "looked_at": [
-        "code-harness",
-        "math-reasoning",
-        "prabhasa-nyaya"
-      ],
-      "reason": "dispatched code-harness:candidate-evaluation (accepted)",
-      "result": {
-        "accepted": true,
-        "files": [
-          "proposals/code-harness/candidate-evaluation/README.md",
-          "proposals/code-harness/candidate-evaluation/configs/benchmarks.example.json",
-          "proposals/code-harness/candidate-evaluation/configs/benchmarks_itemized.example.json",
-          "proposals/code-harness/candidate-evaluation/configs/objective.example.json",
-          "proposals/code-harness/candidate-evaluation/example_data/baseline_results.example.json",
-          "proposals/code-harness/candidate-evaluation/example_data/baseline_results_itemized.example.json",
-          "proposals/code-harness/candidate-evaluation/example_data/candidate_results.example.json",
-          "proposals/code-harness/candidate-evaluation/example_data/candidate_results_itemized.example.json",
-          "proposals/code-harness/candidate-evaluation/scripts/compare_candidates.py"
-        ],
-        "reasons": [],
-        "route": "claude-code"
-      },
       "sentence": ""
     }
   ],
@@ -12642,7 +12626,7 @@
       "planned": 0,
       "verified": 5
     },
-    "oldest_open_days": 0.69,
+    "oldest_open_days": 0.7,
     "open": 2,
     "requests": [
       {
@@ -12794,7 +12778,7 @@
           7
         ],
         "session": "9e647463",
-        "staleness_days": 0.69,
+        "staleness_days": 0.7,
         "state": "delivered",
         "text": "and in no way you are near the orca with all its ade features or openclaw or polished features like claude desktop or codex....you have to beat them in features, utility and ux....dedicate an agent to persist on it...dedicate an agent to adversarial review against set goals so that the project does not drift...i am not seeing the desktop screen/features too in the dashboard..the demo should show real clicks etc and how the desktop app updates and produces the real results...where is the intent, goal, objective menu that drives everything...where are the tools, skills, plugins, multi-agent orchestration etc....don't be superficial..i want real things ..deep, sophisticated..complete...no synthetic, no hand-waving, no fabrication"
       },
@@ -14660,16 +14644,16 @@
     "channel": "dev",
     "check_interval_min": 30,
     "current": {
-      "git_describe": "v0.3.1-9-gd1deaea",
+      "git_describe": "v0.3.1-11-gaf2bf13",
       "kernel_version": "0.1.0",
       "version": "0.3.1"
     },
     "keep_previous": 2
   },
   "version": {
-    "commit": "d1deaea",
+    "commit": "af2bf13",
     "engine": "0.3.1",
-    "exported_at": "2026-09-07T10:04:27.067Z",
+    "exported_at": "2026-09-07T10:13:38.303Z",
     "kernel": "0.1.0"
   }
 }
