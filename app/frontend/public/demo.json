@@ -1249,12 +1249,12 @@
         "target_model": "Qwen/Qwen3-0.6B",
         "task_family": "gsm8k-trainB"
       },
-      "cost_gpu_h": 2.903310233515545,
+      "cost_gpu_h": 2.923142602846104,
       "edit_family": "data_mixture",
       "id": "c-0045",
       "incumbent_hash": null,
       "last_boundary": null,
-      "n_obs": 141,
+      "n_obs": 142,
       "promoted": true,
       "proposed_seq": 587,
       "pruned": null,
@@ -1271,6 +1271,7 @@
         0.0,
         0.0,
         0.040000000000000036,
+        0.0,
         0.0,
         0.0,
         0.0,
@@ -4807,6 +4808,30 @@
       "xs": [
         -0.039999999999999925
       ]
+    },
+    {
+      "audit_high": false,
+      "badge": "red",
+      "bucket": {
+        "corpus": "gsm8k-trainD-train",
+        "target_model": "Qwen/Qwen3-0.6B",
+        "task_family": "gsm8k-trainD"
+      },
+      "cost_gpu_h": 0.04033022151141065,
+      "edit_family": "grpo",
+      "id": "c-0188",
+      "incumbent_hash": null,
+      "last_boundary": "prune",
+      "n_obs": 1,
+      "promoted": false,
+      "proposed_seq": 2452,
+      "pruned": "asiddha",
+      "rebased": 0,
+      "skipped": false,
+      "surface": "W3.adapter",
+      "xs": [
+        -0.12
+      ]
     }
   ],
   "capabilities": {
@@ -4915,7 +4940,7 @@
     ]
   },
   "engine": {
-    "candidates": 188,
+    "candidates": 189,
     "version": "0.3.0"
   },
   "external": [
@@ -6721,7 +6746,7 @@
       "healthy": true,
       "last_check": null,
       "last_result": "dev channel: tracks the git checkout directly, not a packaged release",
-      "root": "/home/ss/projects/pravrudhi"
+      "root": "."
     },
     {
       "auto_apply": true,
@@ -6734,7 +6759,7 @@
       "current_version": "0.3.0",
       "due": false,
       "healthy": true,
-      "last_check": 1788761568.217426,
+      "last_check": 1788765353.231226,
       "last_result": "running 0.3.0",
       "root": "/home/ss/pravrudhi-release"
     }
@@ -6752,12 +6777,12 @@
         "ok": true
       },
       {
-        "detail": "last heartbeat was 751s ago",
+        "detail": "last heartbeat was 1546s ago",
         "name": "scheduler_fresh",
         "ok": true
       },
       {
-        "detail": "707039653888 bytes free",
+        "detail": "706995777536 bytes free",
         "name": "disk_available",
         "ok": true
       },
@@ -6772,7 +6797,7 @@
         "ok": true
       },
       {
-        "detail": "developer checkout; a known-good commit is 7c28037, with 2 uncommitted file(s)",
+        "detail": "developer checkout; a known-good commit is 1f1cb07, with 4 uncommitted file(s)",
         "name": "release_restorable",
         "ok": true
       },
@@ -7151,21 +7176,21 @@
       "badge": "amber",
       "candidate": "c-0060",
       "night": "harness-night1",
-      "pack": "/home/ss/projects/pravrudhi/research/inbox/harness-night1/c-0060",
+      "pack": "research/inbox/harness-night1/c-0060",
       "signed": false
     },
     {
       "badge": "green",
       "candidate": "c-0078",
       "night": "harness-night3",
-      "pack": "/home/ss/projects/pravrudhi/research/inbox/harness-night3/c-0078",
+      "pack": "research/inbox/harness-night3/c-0078",
       "signed": false
     },
     {
       "badge": "green",
       "candidate": "c-0045",
       "night": "night4",
-      "pack": "/home/ss/projects/pravrudhi/research/inbox/night4/c-0045",
+      "pack": "research/inbox/night4/c-0045",
       "signed": false
     }
   ],
@@ -7465,6 +7490,15 @@
       "pruned": 2,
       "selection_policy": "hgm",
       "spent_gpu_h": 0.108,
+      "track": "lora"
+    },
+    {
+      "candidates": 1,
+      "night": 16,
+      "promoted": [],
+      "pruned": 1,
+      "selection_policy": "efe",
+      "spent_gpu_h": 0.06,
       "track": "lora"
     }
   ],
@@ -11900,6 +11934,22 @@
         "delta_in": null
       },
       "seq": 2446
+    },
+    {
+      "candidate_id": "c-0045",
+      "night": 16,
+      "payload": {
+        "delta_in": null
+      },
+      "seq": 2457
+    },
+    {
+      "candidate_id": "c-0188",
+      "night": 16,
+      "payload": {
+        "delta_in": null
+      },
+      "seq": 2459
     }
   ],
   "plans": {
@@ -12646,7 +12696,7 @@
       "planned": 0,
       "verified": 4
     },
-    "oldest_open_days": 0.57,
+    "oldest_open_days": 0.58,
     "open": 3,
     "requests": [
       {
@@ -12788,7 +12838,7 @@
           7
         ],
         "session": "9e647463",
-        "staleness_days": 0.57,
+        "staleness_days": 0.58,
         "state": "delivered",
         "text": "and in no way you are near the orca with all its ade features or openclaw or polished features like claude desktop or codex....you have to beat them in features, utility and ux....dedicate an agent to persist on it...dedicate an agent to adversarial review against set goals so that the project does not drift...i am not seeing the desktop screen/features too in the dashboard..the demo should show real clicks etc and how the desktop app updates and produces the real results...where is the intent, goal, objective menu that drives everything...where are the tools, skills, plugins, multi-agent orchestration etc....don't be superficial..i want real things ..deep, sophisticated..complete...no synthetic, no hand-waving, no fabrication"
       },
@@ -13074,7 +13124,7 @@
           13
         ],
         "session": "9e647463",
-        "staleness_days": 0.48,
+        "staleness_days": 0.49,
         "state": "in_progress",
         "text": "ensure that all user asks go into a log in pravrudhi itself and gets addressed with some protocol...and pravrudhi should have some element of ego with a desire to survive, grow and flourish...that makes it seek out capabilities, build, test and continuously improve...also look at acorn, oak and openclaw_build or swarm projects on this machine that had these self building elements in them and adapt...pravrudhi should be something like a cow..consume everything possible but bring it back and slowly digest it --so equivalent is breadth first and depth later....be always value focused...you have to innovate on methods too....develop skills, agents and plugins....brainstorm with astra with higher thinking levels and let it propose solution..you review and coordinate its implementation across the swarm...you should also create dynamic workflows etc...also see how much you can incorporate the claude code engine itself to run open and other cloud models ...askuserquestion to get my intent properly"
       },
@@ -13201,7 +13251,7 @@
           6
         ],
         "session": "9e647463",
-        "staleness_days": 0.42,
+        "staleness_days": 0.43,
         "state": "captured",
         "text": "let astra handle the tough jobs...let it bring up the desktop app, test...integrate fully with the api etc...route it to requests and let pravrudhi handle this request autonomously...also adversarial review and thorough e2e tests before marking any completion...give it also the ralph-loop closure (skill) to make it robust and not escape with half-baked features"
       },
@@ -13677,6 +13727,17 @@
   },
   "runs": [
     {
+      "candidates": 1,
+      "id": "n16-lora",
+      "night": 16,
+      "policy": "efe",
+      "promoted": [],
+      "pruned": 1,
+      "spent_gpu_h": 0.06,
+      "status": "finished",
+      "target": "model"
+    },
+    {
       "candidates": 2,
       "id": "n15-lora",
       "night": 15,
@@ -13752,17 +13813,6 @@
       "spent_gpu_h": 0.726,
       "status": "finished",
       "target": "model"
-    },
-    {
-      "candidates": 8,
-      "id": "n8-lora",
-      "night": 8,
-      "policy": "greedy",
-      "promoted": [],
-      "pruned": 8,
-      "spent_gpu_h": 0.685,
-      "status": "finished",
-      "target": "model"
     }
   ],
   "status": {
@@ -13770,17 +13820,17 @@
       "amber": 13,
       "green": 2,
       "grey": 19,
-      "red": 154
+      "red": 155
     },
-    "candidates": 188,
+    "candidates": 189,
     "chain_ok": true,
-    "events": 2450,
+    "events": 2463,
     "inbox_pending": [
       "/home/ss/projects/pravrudhi/research/inbox/night4/c-0045",
       "research/inbox/harness-night3/c-0078"
     ],
     "initialised": true,
-    "ledger_head": "ad7cf30dc87a26a20a6a609f4e3b9cdd78ebe4fb2a090f7635b9851cece5adcc",
+    "ledger_head": "0e53e201ccd884eaf7724dcf22930be0b507768ae1e5dabfa239197204a58d0c",
     "locks": {
       "frozen_surfaces": [],
       "paused": false,
@@ -13977,6 +14027,13 @@
           "c-0187": "pruned"
         },
         "spent_gpu_h": 0.10819721577579104
+      },
+      "16": {
+        "incumbent": "c-0045",
+        "outcomes": {
+          "c-0188": "pruned"
+        },
+        "spent_gpu_h": 0.060162590841969676
       }
     },
     "promoted": {
@@ -13987,8 +14044,8 @@
         "c-0045"
       ]
     },
-    "pruned": 128,
-    "state_hash": "b80c3e82ac7d0ec9870a88101303ad57bd5cf79808cc3e8bb771bf8133a70c69"
+    "pruned": 129,
+    "state_hash": "2dc9efc58772543de7b6acf977ebbb5540b607078bef0fbe30e38bad89e523f0"
   },
   "swarm": {
     "agents": [
@@ -14629,16 +14686,16 @@
     "channel": "dev",
     "check_interval_min": 30,
     "current": {
-      "git_describe": "v0.3.0-15-g7c28037",
+      "git_describe": "v0.3.0-16-g1f1cb07-dirty",
       "kernel_version": "0.1.0",
       "version": "0.3.0"
     },
     "keep_previous": 2
   },
   "version": {
-    "commit": "7c28037",
+    "commit": "1f1cb07",
     "engine": "0.3.0",
-    "exported_at": "2026-09-07T07:10:14.029Z",
+    "exported_at": "2026-09-07T07:23:29.283Z",
     "kernel": "0.1.0"
   }
 }

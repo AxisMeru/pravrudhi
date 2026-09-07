@@ -231,6 +231,63 @@ def models_listing(root: Path) -> list[dict[str, Any]]:
     return out
 
 
+STALE_RUN_HOURS = 6.0
+
+
+def _in_flight(root: Path) -> list[dict[str, Any]]:
+    """Nights the ledger has opened and not closed: a run happening right now, however it was started.
+
+    The run manager knows only what the app itself launched, so a night started from the command line — which is
+    how every night here has been started — was invisible while it ran. Someone watching the app saw nothing
+    while the GPU was busy. A `night_start` with no matching `night_end` or `night_abandoned` is a run in flight.
+    """
+    from pravrudhi_kernel.ledger.verify import iter_events
+
+    ledger = Path(root) / "research" / "ledger.jsonl"
+    if not ledger.exists():
+        return []
+    started: dict[tuple[int, str], dict[str, Any]] = {}
+    closed: set[tuple[int, str]] = set()
+    last_seen: dict[tuple[int, str], str] = {}
+    for ev in iter_events(ledger):
+        payload = ev.payload or {}
+        kind = payload.get("kind")
+        key = (ev.night, str(payload.get("track") or "lora"))
+        last_seen[key] = ev.t
+        if kind == "night_start":
+            started[key] = {"policy": payload.get("selection_policy"), "budget": payload.get("budget_gpu_h"),
+                            "at": ev.t, "seq": ev.seq}
+        elif kind in ("night_end", "night_abandoned"):
+            closed.add(key)
+    # A night that died without writing a closing row would otherwise read as running for ever. One whose last
+    # event is older than this is not in flight, it was interrupted; the listing shows it as such.
+    from datetime import UTC, datetime, timedelta
+
+    stale_after = timedelta(hours=STALE_RUN_HOURS)
+    now = datetime.now(UTC)
+
+    out: list[dict[str, Any]] = []
+    for (night, track), info in sorted(started.items(), key=lambda kv: -kv[0][0]):
+        if (night, track) in closed:
+            continue
+        seen = last_seen.get((night, track), "")
+        try:
+            when = datetime.fromisoformat(seen.replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        if when.tzinfo is None:
+            when = when.replace(tzinfo=UTC)
+        if now - when > stale_after:
+            continue
+        out.append({
+            "id": f"night-{night}-{track}", "target": track, "night": night, "status": "running",
+            "request": {"policy": info["policy"]}, "started_at": None, "finished_at": None,
+            "best_delta": None, "promoted": [], "events": 0, "historical": False, "in_flight": True,
+            "budget_gpu_h": info["budget"],
+        })
+    return out
+
+
 def historical_runs(root: Path) -> list[dict[str, Any]]:
     """Closed nights, newest first, in the same shape a live run reports.
 
@@ -337,7 +394,9 @@ def build_router(root: Path) -> APIRouter:
         """
         live = [run.view() for run in sorted(mgr.runs.values(), key=lambda x: -x.started_at)]
         seen = {row["id"] for row in live}
-        return live + [row for row in historical_runs(root) if row["id"] not in seen]
+        flight = [row for row in _in_flight(root) if row["id"] not in seen]
+        seen |= {row["id"] for row in flight}
+        return live + flight + [row for row in historical_runs(root) if row["id"] not in seen]
 
     @r.get("/runs/{run_id}")
     def get_run(run_id: str) -> dict[str, Any]:
@@ -348,7 +407,7 @@ def build_router(root: Path) -> APIRouter:
         finished a week ago.
         """
         if run_id.startswith("night-"):
-            row = next((x for x in historical_runs(root) if x["id"] == run_id), None)
+            row = next((x for x in [*_in_flight(root), *historical_runs(root)] if x["id"] == run_id), None)
             if row is not None:
                 return {**row, "recent": historical_events(root, row["night"], str(row["target"]))}
         run = mgr.get(run_id)
