@@ -110,7 +110,24 @@ def emit(root: Path, *, kind: str, title: str, detail: str = "", ref: str = "") 
         rows = _read_all(root)
         if len(rows) > MAX_NOTIFICATIONS:
             _write_all(root, rows[-MAX_NOTIFICATIONS:])
+    _reach(root, note)
     return note
+
+
+def _reach(root: Path, note: Notification) -> None:
+    """Offer the notification to external messaging, which decides whether it is worth a person's attention.
+
+    Recording a notification and delivering one are different jobs and this keeps them separate: the feed is
+    written first and unconditionally, and reaching out happens afterwards on a copy that is already redacted.
+    A delivery that fails, or a machine with no credential configured, must not lose the record or interrupt
+    whatever was running, so every failure here is swallowed deliberately rather than raised.
+    """
+    try:
+        from pravrudhi.application import reach
+
+        reach.send(root, kind=note.kind, title=note.title, detail=note.detail)
+    except Exception:  # noqa: BLE001 (a message that cannot be delivered must never take the night with it)
+        return
 
 
 def recent(root: Path, n: int = 50) -> list[Notification]:

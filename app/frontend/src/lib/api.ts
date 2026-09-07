@@ -674,6 +674,76 @@ export async function chat(message: string, threadId: string | null): Promise<Ch
   return postJSON<ChatResponse>("/api/chat", { message, thread_id: threadId });
 }
 
+/**
+ * Stream a chat response as server-sent events.
+ * Yields events as they arrive from the server: tool calls, tokens, citations, and finally a done event.
+ */
+export async function* chatStream(
+  message: string,
+  threadId: string | null,
+): AsyncGenerator<Record<string, unknown>, void, unknown> {
+  if (IS_DEMO) throw new ApiError(501, "/api/chat/stream");
+
+  const token = await localToken();
+  const res = await fetch(`${detectBase()}/api/chat/stream`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      ...(token ? { "x-pravrudhi-token": token } : {}),
+    },
+    body: JSON.stringify({ message, thread_id: threadId }),
+  });
+
+  if (!res.ok) throw new ApiError(res.status, "/api/chat/stream");
+
+  const reader = res.body?.getReader();
+  if (!reader) throw new Error("Response has no readable body");
+
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n\n");
+
+      // Keep the last incomplete line in the buffer
+      buffer = lines.pop() || "";
+
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        if (!line.startsWith("data: ")) continue;
+
+        try {
+          const jsonStr = line.slice("data: ".length).trim();
+          const event = JSON.parse(jsonStr) as Record<string, unknown>;
+          yield event;
+        } catch {
+          // Malformed JSON in SSE frame; skip it
+        }
+      }
+    }
+
+    // Process any remaining data
+    if (buffer.trim()) {
+      if (buffer.startsWith("data: ")) {
+        try {
+          const jsonStr = buffer.slice("data: ".length).trim();
+          const event = JSON.parse(jsonStr) as Record<string, unknown>;
+          yield event;
+        } catch {
+          // Ignore
+        }
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
+
 export interface ChatThreadSummary {
   id: string;
   updated: string;

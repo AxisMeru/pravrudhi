@@ -105,7 +105,10 @@ def _verify(root: Path, rows: list[Capability]) -> list[Verification]:
     results = []
     for row in rows:
         failures = [e for e in row.evidence if not _check(root, e)]
-        if not row.evidence:
+        # A row claiming the capability is absent has nothing to evidence, and demanding some pushed toward
+        # either inventing a citation or quietly dropping the row. An honest "we do not have this" is the most
+        # useful entry in the table, because it is the backlog.
+        if not row.evidence and row.ours != "none":
             failures.append("no evidence supplied")
         results.append(Verification(id=row.id, verified=not failures, failures=failures))
     return results
