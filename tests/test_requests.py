@@ -162,3 +162,32 @@ class TestBacklog:
         (tmp_path / ".pravrudhi" / "requests.json").write_text("{not json")
         assert load(tmp_path) == []
         assert backlog(tmp_path)["total"] == 0
+
+
+class TestCorrectingABadReference:
+    def test_a_wrong_reference_can_be_retracted(self, tmp_path: Path) -> None:
+        from pravrudhi.application.requests import retract_evidence
+
+        rid = _req(tmp_path, n=1)
+        meet(tmp_path, rid, 0, [Evidence("commit", "wronghash"), Evidence("file", "real.py")])
+        req = retract_evidence(tmp_path, rid, 0, "wronghash")
+        assert [e.ref for e in req.criteria[0].evidence] == ["real.py"]
+        assert req.criteria[0].met, "the criterion still stands on its remaining evidence"
+
+    def test_retracting_the_last_reference_un_meets_the_criterion(self, tmp_path: Path) -> None:
+        """Deleting the evidence that failed must not be a way to make a criterion pass."""
+        from pravrudhi.application.requests import retract_evidence
+
+        rid = _req(tmp_path, n=1)
+        meet(tmp_path, rid, 0, [Evidence("commit", "onlyone")])
+        req = retract_evidence(tmp_path, rid, 0, "onlyone")
+        assert not req.criteria[0].met
+        assert req.criteria[0].evidence == []
+
+    def test_retracting_a_reference_that_is_not_there_is_refused(self, tmp_path: Path) -> None:
+        from pravrudhi.application.requests import retract_evidence
+
+        rid = _req(tmp_path, n=1)
+        meet(tmp_path, rid, 0, [Evidence("file", "x.py")])
+        with pytest.raises(RequestError, match="carries no evidence"):
+            retract_evidence(tmp_path, rid, 0, "nothere")

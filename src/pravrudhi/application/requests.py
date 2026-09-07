@@ -251,6 +251,29 @@ def meet(root: Path, request_id: str, index: int, evidence: list[Evidence]) -> R
     return _replace(root, req)
 
 
+def retract_evidence(root: Path, request_id: str, index: int, ref: str) -> Request:
+    """Remove a reference that does not verify, and un-meet the criterion if it was the last one.
+
+    A reference can be wrong without the work being undone — a commit hash naming the publish rather than the
+    code, a command written as illustrative shorthand, a path to a file since deleted. Correcting it must be
+    possible. Making a criterion pass by deleting the evidence that failed must not be, so a criterion left with
+    no evidence returns to unmet.
+    """
+    req = get(root, request_id)
+    if req is None:
+        raise RequestError(f"no request {request_id}")
+    if not 0 <= index < len(req.criteria):
+        raise RequestError(f"{request_id} has no criterion {index}")
+    criterion = req.criteria[index]
+    kept = [e for e in criterion.evidence if e.ref != ref]
+    if len(kept) == len(criterion.evidence):
+        raise RequestError(f"{request_id}[{index}] carries no evidence with ref {ref!r}")
+    criterion.evidence = kept
+    if not kept:
+        criterion.met = False
+    return _replace(root, req)
+
+
 def staleness(req: Request, *, now: datetime | None = None) -> float:
     """Days an open request has waited. Closed work is never stale; this is what makes drift visible."""
     if not req.open:
@@ -303,6 +326,7 @@ def backlog(root: Path, *, now: datetime | None = None) -> dict[str, Any]:
 
 __all__ = [
     "Criterion", "Evidence", "Request", "RequestError", "STATES", "TRANSITIONS",
-    "add_criteria", "advance", "backlog", "capture", "get", "load", "meet", "next_unmet", "save",
+    "add_criteria", "advance", "backlog", "capture", "get", "load", "meet", "next_unmet",
+    "retract_evidence", "save",
     "staleness", "store_path",
 ]

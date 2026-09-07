@@ -1,0 +1,41 @@
+# Svāsthya policy: survival thresholds for application/svasthya.py (design doc §5.1:
+# docs/superpowers/specs/2026-09-06-appetite-and-intake-design.md).
+#
+# An operator override may live at .pravrudhi/survival.yaml inside a workspace (load_config takes any path);
+# this packaged file is what a fresh workspace uses until one is written. Every threshold below is a policy
+# choice, not a measured constant.
+policy_version: "1"
+
+# disk_available: the minimum free bytes on the filesystem holding `root` before survival treats the workspace
+# as short of storage. 512 MiB is a conservative floor for continuing to append to the ledger and request store.
+min_free_disk_bytes: 536870912
+
+# scheduler_fresh: the maximum age, in seconds, of the most recent recorded heartbeat.jsonl beat before the
+# scheduler is treated as stalled rather than merely between beats. Two hours comfortably covers the packaged
+# heartbeat.yaml's default interval_min plus a few missed ticks.
+scheduler_max_stale_s: 7200
+
+# processes_reaped: how long, in seconds, an owned process tracked via track_process() may keep running before
+# still being alive counts as a reaping failure rather than expected in-flight work.
+process_max_lifetime_s: 3600
+
+# repair(): a failed repair backs off exponentially (base * 2**(attempts-1)), capped at the max, before the same
+# named check may be retried.
+repair_backoff_base_s: 60
+repair_backoff_max_s: 3600
+
+# route_fallback: how many of the routes named below must currently be available (agents.registry.survey) and
+# not cooling (availability.cooling) for a tested independent fallback to exist, not merely one qualified route.
+min_independent_routes: 2
+
+# Route names counted as actually tested, not merely installed — agents.registry.survey reports "claude-code" as
+# available whenever the CLI is present on PATH, with no authentication check (design doc §2.1); an installed
+# binary is not a tested route, so "claude-code" is deliberately absent here. Each of the rest performs a real
+# check before reporting ready: codex requires `codex login`; hosted requires an opted-in, authenticated quota
+# check; each orca route requires a reachable runtime plus its underlying CLI on PATH.
+independent_route_names:
+  - codex
+  - hosted
+  - "orca:claude"
+  - "orca:codex"
+  - "orca:local"

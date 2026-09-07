@@ -480,6 +480,25 @@ class RecipesResponse(BaseModel):
     recipes: list[RecipeResponse]
 
 
+class BenchmarkCatalogEntry(BaseModel):
+    """Stating an objective's success in benchmark terms required already knowing an external scorer's own task
+    syntax; this instead names only what the external tier has actually measured, with its last value."""
+
+    id: str
+    tool: str
+    metric: str
+    track: str
+    value: float | None
+    n: int | None
+
+
+class BenchmarksResponse(BaseModel):
+    """Every task the external tier has ever scored in this workspace, so a person choosing what success means
+    picks from what the engine can measure rather than typing a metric name from memory."""
+
+    benchmarks: list[BenchmarkCatalogEntry]
+
+
 class InboxResponse(BaseModel):
     """Review packs lacked a declared signature state and nullable candidate badge."""
 

@@ -27,6 +27,7 @@ from pravrudhi.api.schemas import (
     AppetiteResponse,
     ApplyResultResponse,
     BacklogResponse,
+    BenchmarksResponse,
     CandidateDetailResponse,
     CandidatesResponse,
     DiffResponse,
@@ -507,53 +508,99 @@ def create_app(root: Path) -> FastAPI:
                 )
         raise HTTPException(404, "no such objective")
 
+    def _draft_objective(req: ObjectiveRequest) -> Any:
+        """An `ObjectiveRequest` as an in-memory `Objective`, refusing the same shapes `parse` always has. Shared
+        by creation and by the plan-preview route, which compiles a draft that is never written to disk."""
+        from pravrudhi.application.objectives import parse
+
+        return parse(
+            {
+                "id": req.id,
+                "intent": req.intent,
+                "track": req.track,
+                "domain": req.domain,
+                "recipes": req.recipes,
+                "target_delta": req.target_delta,
+                "notes": req.notes,
+                "benchmarks": [
+                    {"id": b.id or b.metric.split()[0], "tool": b.tool, "metric": b.metric, "direction": b.direction}
+                    for b in req.benchmarks
+                ],
+            }
+        )
+
     @api.post("/objectives")
     def create_objective(req: ObjectiveRequest) -> ObjectiveResponse:
         """Record an objective. Refused if it could not be measured, because an unmeasurable goal is a wish."""
-        from pravrudhi.application.objectives import ObjectiveError, parse, summary, write
+        from pravrudhi.application.objectives import ObjectiveError, summary, write
 
         try:
-            obj = parse(
-                {
-                    "id": req.id,
-                    "intent": req.intent,
-                    "track": req.track,
-                    "domain": req.domain,
-                    "recipes": req.recipes,
-                    "target_delta": req.target_delta,
-                    "notes": req.notes,
-                    "benchmarks": [
-                        {
-                            "id": b.id or b.metric.split()[0],
-                            "tool": b.tool,
-                            "metric": b.metric,
-                            "direction": b.direction,
-                        }
-                        for b in req.benchmarks
-                    ],
-                }
-            )
+            obj = _draft_objective(req)
         except ObjectiveError as e:
             raise HTTPException(422, str(e)) from e
         write(root, obj)
         return ObjectiveResponse.model_validate(summary(root, obj))
 
-    @api.get("/objectives/{oid}/plan", response_model=PlanResponse)
-    def objective_plan(oid: str) -> dict[str, Any]:
-        """A proposed decomposition of the intent into work. A proposal, never evidence: nothing here has run."""
+    def _plan_dict(obj: Any) -> dict[str, Any]:
         from dataclasses import asdict
 
         from pravrudhi.application.intent import compile_intent
-        from pravrudhi.application.objectives import load_all
         from pravrudhi.application.recipes import installed, library
+
+        plan = compile_intent(obj, tuple(library()), installed_skills=frozenset(installed()))
+        out = asdict(plan)
+        out["objective"] = obj.id  # the full objective is already available at /api/objectives/{oid}
+        return out
+
+    @api.get("/objectives/{oid}/plan", response_model=PlanResponse)
+    def objective_plan(oid: str) -> dict[str, Any]:
+        """A proposed decomposition of the intent into work. A proposal, never evidence: nothing here has run."""
+        from pravrudhi.application.objectives import load_all
 
         for o in load_all(root):
             if o.id == oid:
-                plan = compile_intent(o, tuple(library()), installed_skills=frozenset(installed()))
-                out = asdict(plan)
-                out["objective"] = o.id  # the full objective is already available at /api/objectives/{oid}
-                return out
+                return _plan_dict(o)
         raise HTTPException(404, "no such objective")
+
+    @api.post("/objectives/plan-preview", response_model=PlanResponse)
+    def objective_plan_preview(req: ObjectiveRequest) -> dict[str, Any]:
+        """The same compiler `/objectives/{oid}/plan` calls, run against a draft that has not been recorded yet --
+        so the guided flow can show what a plan would look like before the objective it belongs to exists."""
+        from pravrudhi.application.objectives import ObjectiveError
+
+        try:
+            obj = _draft_objective(req)
+        except ObjectiveError as e:
+            raise HTTPException(422, str(e)) from e
+        return _plan_dict(obj)
+
+    @api.get("/benchmarks", response_model=BenchmarksResponse)
+    def benchmarks_ep() -> dict[str, Any]:
+        """Every task the external tier has ever scored in this workspace, each with its last measured value.
+        Choosing what success means is picking from this list, never typing an external scorer's task syntax."""
+        from pravrudhi.application.external import headlines
+
+        latest: dict[str, dict[str, Any]] = {}
+        for r in external_rows(ledger) if ledger.exists() else []:
+            try:
+                pairs = headlines(r)
+            except (KeyError, StopIteration, ZeroDivisionError):
+                continue
+            seq = int(r.get("seq") or 0)
+            for name, value, _stderr, n in pairs:
+                prev = latest.get(name)
+                if prev is not None and prev["seq"] >= seq:
+                    continue
+                latest[name] = {
+                    "id": name.split()[0] if name.split() else name,
+                    "tool": str(r.get("tool") or ""),
+                    "metric": name,
+                    "track": str(r.get("track") or ""),
+                    "value": value,
+                    "n": n,
+                    "seq": seq,
+                }
+        return {"benchmarks": sorted(latest.values(), key=lambda x: x["metric"])}
 
     @api.get("/memory", response_model=MemoryResponse)
     async def memory_ep(user: User | None = CurrentUserDep) -> dict[str, Any]:

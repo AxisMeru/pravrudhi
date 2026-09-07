@@ -1120,12 +1120,35 @@ def requests_advance_cmd(
     note: str = NOTE_OPT,
     root: Path = ROOT_OPT,
 ) -> None:
-    """Move a request along the state machine, refusing an illegal move or a close without evidence."""
+    """Move a request along the state machine, refusing an illegal move, a close without evidence, or — for
+    `verified` — a completion gate that has not actually passed: re-verified evidence, an adversarial review with
+    no unanswered finding, and a passing end-to-end check."""
     from pravrudhi.application.requests import STATES, RequestError, advance
 
     if state not in STATES:
         typer.echo(f"unknown state {state!r}; expected one of {', '.join(STATES)}", err=True)
         raise typer.Exit(code=2)
+    if state == "verified":
+        from pravrudhi.agents.registry import build_agent as make_agent
+        from pravrudhi.application.completion import gate
+
+        def dispatch(task: Any) -> str:
+            agent = make_agent(root, "claude-code", "sonnet")
+            if agent is None:
+                return ""
+            ws = agent.create_workspace(task.task_id)
+            run = agent.run(task.prompt, ws, timeout_s=task.timeout_s)
+            agent.stop(ws)
+            return str(run.text)
+
+        try:
+            result = gate(root, request_id, dispatch=dispatch, e2e="uv run pytest -q")
+        except RequestError as e:
+            typer.echo(str(e), err=True)
+            raise typer.Exit(code=1) from e
+        if not result.passed:
+            typer.echo(f"gate refused: {result.reason}", err=True)
+            raise typer.Exit(code=1)
     try:
         req = advance(root, request_id, state, note=note)
     except RequestError as e:

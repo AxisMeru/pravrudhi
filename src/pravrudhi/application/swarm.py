@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any
 
 from pravrudhi.application import availability, continuity, routing
+from pravrudhi.application import blackboard as blackboard_mod
 from pravrudhi.application.delegate import TaskSpec, Verdict, dispatch, overlapping
 
 # tier -> (agent name, model). Cost rises with tier; so should difficulty.
@@ -153,13 +154,21 @@ def _retry_elsewhere(
 
 
 def run_wave(
-    build_agent: Any, wave: list[SwarmTask], *, log: Any = print, root: Path | None = None
+    build_agent: Any, wave: list[SwarmTask], *, log: Any = print, root: Path | None = None,
+    blackboard: bool = False, wave_id: str = "default",
 ) -> list[Verdict]:
     """Dispatch one wave in parallel. Each task gets its own agent instance and its own worktree.
 
     When a workspace root is given, the route for each task is chosen by `application/routing.py` from the outcomes
     already recorded there, and this wave's outcomes are appended to that log. Without a root the static ROUTES
     table decides and nothing is recorded, which is what keeps the function usable in a test.
+
+    When `blackboard` is true and a root is given, each task's brief also gains a peer briefing -- what earlier
+    tasks in this run already found, warned about, or established as a convention, from
+    `application/blackboard.py::digest` -- and once a task completes, its verdict's reasons and touched files are
+    posted back as a finding so later waves inherit them. `wave_id` scopes the blackboard file so several waves of
+    the same run share one board; callers that pass `blackboard=False` (the default) see exactly the previous
+    behaviour, since nothing here is read or written.
     """
     results: list[Verdict] = []
     chosen: dict[str, str] = {}
@@ -173,6 +182,9 @@ def run_wave(
         except (OSError, routing.RoutingError) as e:  # a bad table must not stop the work
             log(f"routing table unavailable ({e}); falling back to the static table")
             table = None
+    briefing = ""
+    if blackboard and root is not None:
+        briefing = blackboard_mod.peer_briefing(blackboard_mod.digest(root, wave_id, 2000))
     with ThreadPoolExecutor(max_workers=max(1, len(wave))) as pool:
         futures = {}
         for t in wave:
@@ -195,7 +207,7 @@ def run_wave(
                 continue
             log(f"dispatch {t.spec.task_id} -> {agent.name} [{t.tier}] {model or 'default'}"
                 f"{' ' + t.why if t.why else ''}")
-            scoped = replace(t.spec, prompt=SCOPE_PREAMBLE + t.spec.prompt)
+            scoped = replace(t.spec, prompt=SCOPE_PREAMBLE + briefing + t.spec.prompt)
             futures[pool.submit(dispatch, agent, scoped, log=log)] = t
         for fut in as_completed(futures):
             t = futures[fut]
@@ -217,6 +229,19 @@ def run_wave(
                         tier=t.tier, route_id=rid, task_id=t.spec.task_id,
                         accepted=verdict.accepted, wall_s=verdict.wall_s,
                     ))
+                if blackboard and root is not None:
+                    if verdict.accepted:
+                        body = f"touched {len(verdict.files)} file(s): {', '.join(verdict.files) or 'none'}"
+                    else:
+                        body = "; ".join(verdict.reasons) or "rejected with no reason recorded"
+                    try:
+                        blackboard_mod.post(
+                            root, wave_id, author=verdict.agent, kind="finding",
+                            subject=f"{verdict.task_id}: {'accepted' if verdict.accepted else 'rejected'}",
+                            body=body, refs=tuple(verdict.files),
+                        )
+                    except blackboard_mod.BlackboardError as e:  # a note that reads as a ledger number must not stop the wave
+                        log(f"blackboard: not posting {verdict.task_id}'s finding ({e})")
             except Exception as e:  # an agent crashing must not take the wave with it
                 results.append(
                     # Name the agent that was actually routed, not the static fallback: a crash record that blames the

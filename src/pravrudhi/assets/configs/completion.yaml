@@ -1,0 +1,22 @@
+# What `application/completion.py` may re-run to verify a `command` Evidence attached to a criterion.
+#
+# A `command` Evidence names something the operator or an agent once ran and saw pass. Verifying it means running
+# it again, so the command that gets executed here must be sanctioned in advance rather than accepted as written:
+# a ref outside this allow-list is reported unverified, never executed. Patterns are shell globs matched against
+# the whole command string.
+
+allowed_commands:
+  - "uv run pytest*"
+  - "uv run pravrudhi *"
+  - "uv run python -m pytest*"
+  - "npm run build*"
+  - "npm test*"
+  - "npm run test*"
+  # The desktop shell is tested by node's own runner and built by electron-builder; both are read-only checks.
+  - "cd app/desktop && node --test*"
+  - "node --test*"
+  - "make smoke*"
+  - "cd app/frontend && npx tsc --noEmit*"
+  - "npx playwright test*"
+
+timeout_s: 300
