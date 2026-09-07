@@ -19,6 +19,18 @@ minimum_trials: 3
 confidence: 0.95
 
 routes:
+  - id: qwen-lite-max
+    agent: opencode:alibaba-plan
+    model: qwen3.8-max
+    relative_cost: 0.15
+    tiers: []
+    note: >-
+      Alibaba's Lite Plan flagship, on a plan-exclusive endpoint with its own key and a credit budget rather than
+      a free-tier token cap. Cheaper than every paid route here by a wide margin and, on the vendor's own
+      description, stronger than the free-tier models. Declared with no tier on purpose: this project has not
+      measured it, and admitting a route on a vendor's claim is how the sentinel once won four tasks it could not
+      do. Dispatch to it deliberately, and promote it when its record here says so.
+
   - id: qwen-loop
     agent: opencode:alibaba
     model: qwen3-coder-plus

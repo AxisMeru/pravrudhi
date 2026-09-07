@@ -28,6 +28,7 @@ class AgentStatus:
 def build_registry(root: Path, *, include_orca: bool = True) -> dict[str, Any]:
     agents: dict[str, Any] = {"claude-code": ClaudeCodeAgent(root), "codex": CodexAgent(root)}
     agents["opencode:alibaba"] = AlibabaAgent(root)
+    agents["opencode:alibaba-plan"] = AlibabaAgent(root, model="qwen3.8-max", provider_id="alibaba-plan")
     if include_orca:
         for agent_id in ("claude", "codex", "local"):
             a = OrcaAgent(root, agent_id=agent_id)
@@ -83,8 +84,9 @@ def build_agent(root: Path, name: str, model: str | None = None) -> Any | None:
     if name.startswith("orca:"):
         a = OrcaAgent(root, agent_id=name.split(":", 1)[1], model=model)
         return a if a.available() else None
-    if name == "opencode:alibaba":
-        a = AlibabaAgent(root, model=model) if model else AlibabaAgent(root)
+    if name.startswith("opencode:alibaba"):
+        provider_id = name.split(":", 1)[1]
+        a = AlibabaAgent(root, provider_id=provider_id, **({"model": model} if model else {}))
         return a if a.available() else None
     if name == "hosted":
         a = HostedAgent(root, model=model) if model else HostedAgent(root)

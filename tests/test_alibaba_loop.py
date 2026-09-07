@@ -12,7 +12,9 @@ from pravrudhi.application.credentials import Secret
 @pytest.fixture
 def key(monkeypatch):
     secret = Secret(provider="alibaba", value="test-secret-not-a-standard-key")
-    monkeypatch.setattr(alibaba, "credential", lambda: secret)
+    # Takes the provider id now: the same agent serves the free tier and the Lite Plan, which have
+    # different endpoints, different keys and different models.
+    monkeypatch.setattr(alibaba, "credential", lambda provider_id="alibaba": secret)
     monkeypatch.setattr(alibaba.shutil, "which", lambda _: "/fake/opencode")
     return secret
 

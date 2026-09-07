@@ -103,6 +103,15 @@ PROVIDERS: dict[str, Provider] = {
         openai_compatible=True,
         probe_model="qwen-turbo",
     ),
+    "alibaba-plan": Provider(
+        id="alibaba-plan",
+        title="Alibaba Lite Plan (Qwen, plan-exclusive)",
+        base_url="https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1",
+        key_env="DASHSCOPE_PLAN_API_KEY",
+        key_prefix="sk-",
+        openai_compatible=True,
+        probe_model="qwen3.8-flash",
+    ),
     "openai-compatible": Provider(
         id="openai-compatible",
         title="OpenAI-compatible endpoint",
