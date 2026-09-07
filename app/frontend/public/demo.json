@@ -6732,7 +6732,7 @@
       ],
       "channel": "release",
       "current_version": "0.3.0",
-      "due": false,
+      "due": true,
       "healthy": true,
       "last_check": 1788757634.2402637,
       "last_result": "running 0.3.0",
@@ -6752,12 +6752,12 @@
         "ok": true
       },
       {
-        "detail": "last heartbeat was 497s ago",
+        "detail": "last heartbeat was 724s ago",
         "name": "scheduler_fresh",
         "ok": true
       },
       {
-        "detail": "707738120192 bytes free",
+        "detail": "707736686592 bytes free",
         "name": "disk_available",
         "ok": true
       },
@@ -6772,7 +6772,7 @@
         "ok": true
       },
       {
-        "detail": "developer checkout; a known-good commit is 9b4cd76, with 2 uncommitted file(s)",
+        "detail": "developer checkout; a known-good commit is f02c922, with 2 uncommitted file(s)",
         "name": "release_restorable",
         "ok": true
       },
@@ -12636,7 +12636,7 @@
       "planned": 0,
       "verified": 4
     },
-    "oldest_open_days": 0.52,
+    "oldest_open_days": 0.53,
     "open": 3,
     "requests": [
       {
@@ -12778,7 +12778,7 @@
           7
         ],
         "session": "9e647463",
-        "staleness_days": 0.52,
+        "staleness_days": 0.53,
         "state": "delivered",
         "text": "and in no way you are near the orca with all its ade features or openclaw or polished features like claude desktop or codex....you have to beat them in features, utility and ux....dedicate an agent to persist on it...dedicate an agent to adversarial review against set goals so that the project does not drift...i am not seeing the desktop screen/features too in the dashboard..the demo should show real clicks etc and how the desktop app updates and produces the real results...where is the intent, goal, objective menu that drives everything...where are the tools, skills, plugins, multi-agent orchestration etc....don't be superficial..i want real things ..deep, sophisticated..complete...no synthetic, no hand-waving, no fabrication"
       },
@@ -14619,16 +14619,16 @@
     "channel": "dev",
     "check_interval_min": 30,
     "current": {
-      "git_describe": "v0.3.0-9-g9b4cd76",
+      "git_describe": "v0.3.0-11-gf02c922",
       "kernel_version": "0.1.0",
       "version": "0.3.0"
     },
     "keep_previous": 2
   },
   "version": {
-    "commit": "9b4cd76",
+    "commit": "f02c922",
     "engine": "0.3.0",
-    "exported_at": "2026-09-07T06:05:37.226Z",
+    "exported_at": "2026-09-07T06:09:24.685Z",
     "kernel": "0.1.0"
   }
 }
