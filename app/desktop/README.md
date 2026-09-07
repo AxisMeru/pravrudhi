@@ -27,6 +27,16 @@ chmod +x Pravrudhi-*.AppImage
 ./Pravrudhi-*.AppImage
 ```
 
+An AppImage mounts itself through FUSE, and many current distributions no longer ship the version 2 library it
+needs. Without it the app exits immediately on `dlopen(): error loading libfuse.so.2`, which reads like a broken
+download and is not one. Either install that library, or tell the AppImage to unpack itself instead:
+
+```bash
+sudo apt install libfuse2          # Debian and Ubuntu; the package is libfuse2t64 on newer releases
+# or, with no installation at all:
+APPIMAGE_EXTRACT_AND_RUN=1 ./Pravrudhi-*.AppImage
+```
+
 No installation step is required beyond that; the AppImage is self-contained. It still finds the engine using the same discovery order as the source app — `PRAVRUDHI_BIN`, then `pravrudhi` on `PATH`, then `~/pravrudhi-release/.pravrudhi/releases/current/.venv/bin/pravrudhi`, then `~/.local/bin/pravrudhi`, then the path remembered by **Locate the engine…** — independent of where the AppImage itself is mounted or run from.
 
 **macOS (DMG):** this build is **unsigned and not notarized** — there is no Apple Developer identity behind it. Gatekeeper will refuse to open it with a plain double-click, reporting the app as damaged or from an unidentified developer. To open it anyway: right-click (or Control-click) `Pravrudhi.app` in Finder and choose **Open**, then confirm **Open** in the dialog; this is required once. Alternatively, clear the quarantine attribute from a terminal: `xattr -dr com.apple.quarantine /Applications/Pravrudhi.app`. Only do this for a DMG you built yourself or otherwise trust.
