@@ -194,9 +194,19 @@ rows:
   capability: Drag a file into the conversation
   why_it_matters: Attach context without typing a path.
   rivals: {orca: have, claude_desktop: unknown, codex: unknown, openclaw: unknown}
-  ours: none
-  evidence: []
-  notes: No drop target anywhere in the interface.
+  ours: have
+  evidence:
+  - app/frontend/src/components/chat/ChatDropTarget.tsx
+  - app/frontend/src/lib/attachments.ts
+  - 'command: grep -qF ChatDropTarget app/frontend/src/app/chat/page.tsx'
+  notes: >-
+    A file dropped on the composer is read in the browser and its text folded into the message, since this engine
+    has no upload route and none was added. The limits are therefore the whole of the protection and are stated
+    as named constants with their reasons: 256 KB a file, 512 KB in total, four at once, text and source formats
+    only. Every refusal carries its own sentence rather than failing silently.
+
+    The evidence names the page as well as the components, deliberately. They existed for a while mounted on
+    nothing, exactly as the command palette once did, and this row stayed at none for as long as that was true.
 - id: diff-annotation
   capability: Annotate a generated diff
   why_it_matters: Say what is wrong with a change at the line it is wrong on.

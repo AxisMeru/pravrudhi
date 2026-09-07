@@ -18,6 +18,10 @@ import {
   type ChatThreadSummary,
 } from "@/lib/api";
 import { PageHeader } from "@/components/PageHeader";
+// Dropping a file into the conversation. The components existed and were mounted on nothing, which is the same
+// defect the command palette had: real code, reachable by nobody, and correctly recorded as absent on the
+// parity board until wired here.
+import { AttachmentTray, ChatDropTarget, useAttachments } from "@/components/chat";
 
 interface DisplayTurn {
   role: "user" | "assistant";
@@ -173,6 +177,7 @@ function LiveChat() {
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const tray = useAttachments();
 
   const loadThreads = useCallback(() => {
     chatThreads()
@@ -216,9 +221,13 @@ function LiveChat() {
   };
 
   const send = async () => {
-    const text = input.trim();
-    if (!text || sending) return;
+    if (sending || !tray.canSend(input)) return;
+    // What is sent is the typed text with each attached file's contents folded in after it. A message may be
+    // attachments alone, which is why the guard asks the tray rather than testing the text: dropping a file and
+    // pressing send with nothing typed is a reasonable thing to do.
+    const text = tray.compose(input);
     setInput("");
+    tray.clear();
     setSending(true);
     setSendError(null);
     setTurns((t) => [...t, { role: "user", content: text }]);
@@ -358,8 +367,18 @@ function LiveChat() {
             <div ref={bottomRef} />
           </div>
 
-          <div className="border-t border-[var(--color-border)] p-4">
+          <ChatDropTarget
+            onFiles={(files) => void tray.addFiles(files)}
+            className="border-t border-[var(--color-border)] p-4"
+          >
             {sendError && <p className="mb-2 text-xs text-[var(--color-danger)]">{sendError}</p>}
+            <AttachmentTray
+              attachments={tray.attachments}
+              refusals={tray.refusals}
+              reading={tray.reading}
+              onRemove={tray.remove}
+              onDismissRefusal={tray.dismissRefusal}
+            />
             <div className="flex items-end gap-2">
               <textarea
                 className="min-h-11 flex-1 resize-y rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm text-[var(--color-text)] outline-none focus:border-[var(--color-accent)]"
@@ -375,14 +394,14 @@ function LiveChat() {
               />
               <button
                 onClick={send}
-                disabled={sending || !input.trim()}
+                disabled={sending || !tray.canSend(input)}
                 className="flex items-center gap-2 rounded-md bg-[var(--color-accent)] px-4 py-2.5 text-sm font-medium text-[#06110c] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 <Send size={15} />
                 {sending ? "Sending…" : "Send"}
               </button>
             </div>
-          </div>
+          </ChatDropTarget>
         </div>
       </div>
     </div>
