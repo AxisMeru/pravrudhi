@@ -151,3 +151,17 @@ difference & & $-0.506$ & $-0.549$ \\
 \end{table}
 
 Two consequences were drawn before the second harness night. The grammar now rejects any template placeholder other than the substituted ones, so the class of candidate that produced the artefact cannot be proposed, and the proposer's prompt states how replies are scored and shows the incumbent harness. The boundary now requires two seeds before an efficacy crossing may confirm on either track, a threshold move recorded as such: a single draw four seed deviations from zero is exactly the event a candidate with a larger seed variance than the frozen floor produces, and one more paired evaluation lets the adaptive variance see it. The night-4 promotion on the model track was also made at a single seed; its 400-item confirmation and its external gain held, so the rule is a guard on future promotions rather than a repair of that one.
+
+\subsection{Ledger-generated summary tables}
+\label{sec:results-generated}
+
+% Source: research/ledger.jsonl, read by application/paper_data.py alone. The tables below are not typed: they
+% are written to paper/generated/*.tex by `pravrudhi paper-data`, which the publish path calls before every
+% build, so they hold whatever the ledger contains at generation time rather than a number copied by hand. A
+% benchmark, comparison or night the ledger does not yet report renders as a footnoted dash, never a blank cell.
+
+\input{generated/external_benchmarks}
+
+\input{generated/paired_comparisons}
+
+\input{generated/nights}

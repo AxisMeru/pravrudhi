@@ -21,6 +21,7 @@ carrying files it was not asked to commit all stop it with a reason. Nothing her
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -86,6 +87,32 @@ def export_snapshot(root: Path, runner: RunnerFn) -> Step:
     except (OSError, json.JSONDecodeError) as e:
         return Step("export", False, f"snapshot unreadable: {e}")
     return Step("export", True, f"{len(keys)} sections: {', '.join(keys[:8])}")
+
+
+def generate_paper(root: Path, runner: RunnerFn) -> Step:
+    """Regenerate the paper's ledger-sourced tables, and rebuild its PDF if LaTeX is installed.
+
+    Table generation reads the same ledger the snapshot does, so a failure there is a real defect and stops the
+    publish before anything is built. Rebuilding the PDF is a nicety on top: most hosts running this engine have
+    never installed a LaTeX toolchain, and that absence must not block publishing the demo.
+    """
+    from pravrudhi.application.paper_data import write_tables
+
+    try:
+        write_tables(root)
+    except Exception as e:  # noqa: BLE001 (a generation failure must be reported, not swallowed)
+        return Step("paper", False, f"table generation failed: {e}")
+
+    paper_dir = root / "paper"
+    if not (paper_dir / "Makefile").exists():
+        return Step("paper", True, "tables regenerated; no paper/Makefile to build")
+    if shutil.which("latexmk") is None:
+        return Step("paper", True, "tables regenerated; no LaTeX toolchain installed, PDF not rebuilt")
+    result = runner(["make", "-C", str(paper_dir)], root)
+    if result.returncode != 0:
+        tail = (result.stderr or result.stdout).strip().splitlines()[-6:]
+        return Step("paper", True, f"tables regenerated; PDF build failed: {' / '.join(tail)[:300]}")
+    return Step("paper", True, "tables regenerated and PDF rebuilt")
 
 
 def build_interface(root: Path, runner: RunnerFn, *, base_path: str = "") -> Step:
@@ -181,12 +208,17 @@ def publish(
     runner = runner or _default_runner
     steps: list[Step] = []
 
-    for step in (export_snapshot(root, runner), build_interface(root, runner), verify_pages(root, fetch=fetch)):
+    for step in (
+        export_snapshot(root, runner),
+        generate_paper(root, runner),
+        build_interface(root, runner),
+        verify_pages(root, fetch=fetch),
+    ):
         steps.append(step)
         if not step.ok:
             return PublishResult(False, f"{step.name} failed: {step.detail}", steps)
 
-    paths = ["app/frontend/public/demo.json"]
+    paths = ["app/frontend/public/demo.json", "paper/generated"]
     step, sha = commit(root, runner, message, paths)
     steps.append(step)
     if not step.ok:
@@ -204,5 +236,5 @@ def publish(
 
 __all__ = [
     "BROKEN_MARKERS", "CHECK_PAGES", "PublishResult", "Step",
-    "build_interface", "commit", "export_snapshot", "publish", "push", "verify_pages",
+    "build_interface", "commit", "export_snapshot", "generate_paper", "publish", "push", "verify_pages",
 ]

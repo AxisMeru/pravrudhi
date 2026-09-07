@@ -8,7 +8,28 @@ permissions:
   contents: write
 
 jobs:
+  desktop-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with: { node-version: "24" }
+
+      - name: build the linux AppImage
+        working-directory: app/desktop
+        run: |
+          npm install --no-audit --no-fund
+          npm run dist:linux
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-linux
+          path: app/desktop/dist/*.AppImage
+          if-no-files-found: error
+
   release:
+    needs: [desktop-linux]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -30,6 +51,11 @@ jobs:
           uv build --wheel
           uv build --wheel --package pravrudhi-kernel
 
+      - uses: actions/download-artifact@v4
+        with:
+          name: desktop-linux
+          path: dist
+
       - name: checksums
         working-directory: dist
         run: sha256sum * > SHA256SUMS
@@ -38,6 +64,7 @@ jobs:
         with:
           files: |
             dist/*.whl
+            dist/*.AppImage
             dist/SHA256SUMS
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

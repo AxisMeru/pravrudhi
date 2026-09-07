@@ -305,6 +305,15 @@ def evidence_cmd(
     typer.echo(f"wrote {dest}")
 
 
+@app.command("paper-data")
+def paper_data_cmd(root: Path = ROOT_OPT) -> None:
+    """Regenerate paper/generated/*.tex from the ledger alone, so the paper's tables never drift from it."""
+    from pravrudhi.application.paper_data import write_tables
+
+    for path in write_tables(root):
+        typer.echo(f"wrote {path}")
+
+
 @app.command("night")
 def night_cmd(
     night: int = NIGHT_OPT,

@@ -24,6 +24,29 @@ test('discovery skips directories and non-executable files on disk', async t => 
   assert.equal(await discoverEngine({env:{PRAVRUDHI_BIN:bad,PATH:home},home,saved:good}),good);
   assert.equal(await discoverEngine({env:{PRAVRUDHI_BIN:home},home,saved:good}),good);
 });
+test('discovery resolves to an absolute path independent of the packaged AppImage mount and its cwd', async t => {
+  // A double-clicked AppImage can run with its cwd set to its own extracted mount
+  // point (e.g. /tmp/.mount_XXXXXX) rather than the user's shell directory. Discovery
+  // must still walk PRAVRUDHI_BIN, PATH, the release venv, ~/.local/bin, then a saved
+  // path and land on an absolute result, none of it resolved relative to that mount.
+  const originalCwd = process.cwd();
+  const mountDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mount-pravrudhi-'));
+  t.after(async () => { process.chdir(originalCwd); await fs.rm(mountDir, {recursive: true, force: true}); });
+  process.chdir(mountDir);
+  const home = path.resolve('appimage-home');
+  const winner = path.join(home, '.local/bin/pravrudhi');
+  const seen = [];
+  const found = await discoverEngine({
+    env: {PATH: '/usr/bin'},
+    home, saved: path.join(home, 'chosen/pravrudhi'),
+    executable: async p => { seen.push(p); return p === winner; }
+  });
+  assert.equal(found, winner);
+  assert.ok(path.isAbsolute(found));
+  assert.equal(found, path.resolve(winner));
+  assert.ok(seen.includes(path.join(home, 'pravrudhi-release/.pravrudhi/releases/current/.venv/bin/pravrudhi')));
+  assert.ok(seen.includes(winner));
+});
 test('free-port selection binds port zero on loopback and closes before returning', async () => {
   const server = new EventEmitter(); let closed = false;
   server.listen = (port, host, callback) => { assert.equal(port,0); assert.equal(host,'127.0.0.1'); callback(); };

@@ -10,10 +10,13 @@ const {createProcessOwner, singleInstance, focusWindow} = require('./lib/lifecyc
 const {engineMenu, trayState} = require('./lib/menu');
 const {createSmokeReporter} = require('./lib/smoke');
 const smokeMode = process.env.PRAVRUDHI_DESKTOP_SMOKE === '1';
+// A packaged app's __dirname resolves inside the read-only app.asar, so a packaged
+// smoke run redirects its report and userData to a writable directory outside it.
+const smokeDir = process.env.PRAVRUDHI_DESKTOP_SMOKE_DIR || __dirname;
 const offscreen = process.env.ELECTRON_DISABLE_GPU === '1';
 if (offscreen) app.disableHardwareAcceleration();
-if (smokeMode) app.setPath('userData', path.join(__dirname, '.smoke/user-data'));
-const smoke = smokeMode ? createSmokeReporter(path.join(__dirname, '.smoke/report.json')) : null;
+if (smokeMode) app.setPath('userData', path.join(smokeDir, '.smoke/user-data'));
+const smoke = smokeMode ? createSmokeReporter(path.join(smokeDir, '.smoke/report.json')) : null;
 let smokeExitCode = 1, smokeFinished = false;
 async function finishSmoke(error) {
   if (!smoke || smokeFinished) return;

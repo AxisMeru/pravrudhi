@@ -1,0 +1,30 @@
+% GENERATED, DO NOT EDIT --- produced by `pravrudhi paper-data` from research/ledger.jsonl.
+% Edits here are overwritten the next time the paper's tables are regenerated.
+\begin{table}[t]
+\centering
+\caption{Every external-scorer result in the ledger's \texttt{audit\{kind: external\_eval\}} rows.}
+\label{tab:gen-external}
+\begin{tabular}{lllllccc}
+\toprule
+\textbf{Track} & \textbf{Condition} & \textbf{Model} & \textbf{Tool} & \textbf{Metric} & \textbf{Value} & \textbf{$\pm$} & \textbf{$n$} \\
+\midrule
+M & base & Qwen/Qwen3-0.6B & lm-eval & gsm8k exact\_match,strict-match & 0.4086 & 0.0135 & 1319 \\
+M & adapter:c-0045 & Qwen/Qwen3-0.6B & lm-eval & gsm8k exact\_match,strict-match & 0.4898 & 0.0138 & 1319 \\
+H & base & Qwen/Qwen3-1.7B & evalplus & humaneval+ pass@1 & 0.5915 & 0.0744 & 164 \\
+H & harness:c-0060 & Qwen/Qwen3-1.7B & evalplus & humaneval+ pass@1 & 0.0854 & 0.0433 & 164 \\
+H & base-replicate & Qwen/Qwen3-1.7B & evalplus & humaneval+ pass@1 & 0.5854 & 0.0746 & 164 \\
+H & base & Qwen/Qwen3-1.7B & evalplus & humaneval+ pass@1 & 0.5976 & 0.0742 & 164 \\
+H & harness:bestof4 & Qwen/Qwen3-1.7B & evalplus & humaneval+ pass@1 & 0.6402 & 0.0727 & 164 \\
+H & harness:retry3 & Qwen/Qwen3-1.7B & evalplus & humaneval+ pass@1 & 0.6402 & 0.0727 & 164 \\
+H & harness:combo & Qwen/Qwen3-1.7B & evalplus & humaneval+ pass@1 & 0.6463 & 0.0724 & 164 \\
+H & base & Qwen/Qwen3-1.7B & evalplus & mbpp+ pass@1 & 0.4921 & 0.0501 & 378 \\
+H & harness:combo & Qwen/Qwen3-1.7B & evalplus & mbpp+ pass@1 & 0.6296 & 0.0485 & 378 \\
+H & base & Qwen/Qwen3-1.7B & evalplus & humaneval+ pass@1 & 0.5976 & 0.0742 & 164 \\
+H & harness:combo & Qwen/Qwen3-1.7B & evalplus & humaneval+ pass@1 & 0.6463 & 0.0724 & 164 \\
+H & base & Qwen/Qwen3-1.7B & evalplus & mbpp+ pass@1 & 0.4921 & 0.0501 & 378 \\
+H & harness:combo & Qwen/Qwen3-1.7B & evalplus & mbpp+ pass@1 & 0.6296 & 0.0485 & 378 \\
+nyaya & base & Qwen/Qwen3-1.7B & lm-eval & mmlu\_jurisprudence acc,none & 0.6852 & 0.0449 & 108 \\
+nyaya & base & Qwen/Qwen3-1.7B & lm-eval & mmlu\_professional\_law acc,none & 0.3918 & 0.0125 & 1534 \\
+\bottomrule
+\end{tabular}
+\end{table}

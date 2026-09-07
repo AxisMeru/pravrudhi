@@ -16,7 +16,28 @@ Build the current platform's distributable with:
 npm run dist
 ```
 
-Linux produces an AppImage. On macOS this produces an **unsigned DMG**; it is not signed or notarized. Build the macOS target on macOS (`npm run dist -- --mac`), and Linux on Linux (`npm run dist -- --linux`). Packaging downloads Electron and builder tools. No engine or Python runtime is included.
+Linux produces an AppImage (`npm run dist:linux`, or `npm run dist -- --linux`). On macOS this produces an **unsigned DMG**; it is not signed or notarized. Build the macOS target on macOS (`npm run dist -- --mac`). Packaging downloads Electron and builder tools. No engine or Python runtime is included — the desktop app ships no Python at all, only the Electron shell; an engine must already be installed on the machine (see the [engine installation instructions](https://github.com/SharathSPhD/pravrudhi#readme)).
+
+## Installing the packaged app
+
+**Linux (AppImage):** download `Pravrudhi-<version>.AppImage`, make it executable, and run it:
+
+```sh
+chmod +x Pravrudhi-*.AppImage
+./Pravrudhi-*.AppImage
+```
+
+No installation step is required beyond that; the AppImage is self-contained. It still finds the engine using the same discovery order as the source app — `PRAVRUDHI_BIN`, then `pravrudhi` on `PATH`, then `~/pravrudhi-release/.pravrudhi/releases/current/.venv/bin/pravrudhi`, then `~/.local/bin/pravrudhi`, then the path remembered by **Locate the engine…** — independent of where the AppImage itself is mounted or run from.
+
+**macOS (DMG):** this build is **unsigned and not notarized** — there is no Apple Developer identity behind it. Gatekeeper will refuse to open it with a plain double-click, reporting the app as damaged or from an unidentified developer. To open it anyway: right-click (or Control-click) `Pravrudhi.app` in Finder and choose **Open**, then confirm **Open** in the dialog; this is required once. Alternatively, clear the quarantine attribute from a terminal: `xattr -dr com.apple.quarantine /Applications/Pravrudhi.app`. Only do this for a DMG you built yourself or otherwise trust.
+
+Run the packaged Linux build's headless smoke check (after `npm run dist:linux`) with:
+
+```sh
+npm run smoke:dist
+```
+
+It launches the built AppImage the same way `npm run smoke` launches the source app — passing `--no-sandbox` because the SUID sandbox helper cannot be used in this environment, without changing the renderer's own `sandbox: true` setting — and additionally passes `--appimage-extract-and-run` since the AppImage's own FUSE mount is unavailable in a sandbox. It writes the same `launched`/`engine_found`/`engine_url`/`page_title`/`health_ok`/`errors` report shape as `npm run smoke`, to `.smoke-dist/.smoke/report.json` rather than next to the app itself, since the packaged app's own directory is the read-only `app.asar`.
 
 The discovery order is `PRAVRUDHI_BIN`, `pravrudhi` on PATH, `~/pravrudhi-release/.pravrudhi/releases/current/.venv/bin/pravrudhi`, `~/.local/bin/pravrudhi`, then the executable remembered by **Locate the engine…**. Invalid/non-executable candidates are skipped. A picked binary does not override an earlier valid candidate; change `PRAVRUDHI_BIN` to explicitly override discovery.
 
