@@ -296,3 +296,47 @@ class TestEvidenceCannotBecomeAnEscalation:
             ok, why = _default_url_check(blocked, 2)
             assert not ok, blocked
             assert why, blocked
+
+
+class TestAReviewJudgesTheCodeAsItStands:
+    """A reviewer reused its first worktree and judged that stale tree ever after.
+
+    An agent workspace is reused when one already exists for its task id, which suits a builder resuming work.
+    For a reviewer it is fatal: one reported, correctly for what it could see, that a page was missing — thirty
+    five commits after it had been added. The task id now carries the commit under review.
+    """
+
+    def test_the_task_id_changes_with_the_commit(self, tmp_path: Path) -> None:
+        import subprocess
+
+        from pravrudhi.application import completion
+        from pravrudhi.application.requests import Criterion, add_criteria, capture
+
+        subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+        (tmp_path / "a.txt").write_text("one")
+        subprocess.run(["git", "add", "-A"], cwd=tmp_path, check=True)
+        subprocess.run(
+            ["git", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "first"],
+            cwd=tmp_path, check=True,
+        )
+        req = capture(tmp_path, "do the thing")
+        add_criteria(tmp_path, req.id, [Criterion(text="a criterion", source="operator")])
+
+        seen: list[str] = []
+
+        def dispatch(task: object) -> str:
+            seen.append(str(getattr(task, "task_id", "")))
+            return "satisfied, and here is the reasoning at sufficient length to count as reasoned rather than a "
+            "bare assertion of completion"
+
+        completion.adversarial_review(tmp_path, req.id, dispatch)
+        (tmp_path / "a.txt").write_text("two")
+        subprocess.run(["git", "add", "-A"], cwd=tmp_path, check=True)
+        subprocess.run(
+            ["git", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "second"],
+            cwd=tmp_path, check=True,
+        )
+        completion.adversarial_review(tmp_path, req.id, dispatch)
+
+        assert len(seen) == 2
+        assert seen[0] != seen[1], "a new commit must get a new review workspace, not the first one again"

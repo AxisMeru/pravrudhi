@@ -25,6 +25,7 @@ import re
 import shlex
 import socket
 import subprocess
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -404,6 +405,15 @@ def _judge_review(text: str) -> tuple[bool, str]:
     return True, "the review did not affirmatively find the request satisfied"
 
 
+def _head(root: Path) -> str:
+    """The commit being reviewed, short. Unknown resolves to a timestamp so a review is never silently reused."""
+    result = subprocess.run(
+        ["git", "rev-parse", "--short", "HEAD"], cwd=root, capture_output=True, text=True, timeout=30
+    )
+    head = result.stdout.strip()
+    return head or str(int(time.time()))
+
+
 def adversarial_review(root: Path, request_id: str, dispatch: DispatchFn) -> ReviewResult:
     """Dispatch one read-only agent, under the `review` sandbox policy, to look for the reason this request's
     evidence does not hold. `dispatch` runs the prepared task and returns the agent's raw findings text."""
@@ -411,7 +421,14 @@ def adversarial_review(root: Path, request_id: str, dispatch: DispatchFn) -> Rev
     req = get(root, request_id)
     if req is None:
         raise RequestError(f"no request {request_id}")
-    spec = TaskSpec(task_id=f"review-{request_id}", prompt=_review_brief(req), allowed_paths=())
+    # The task id carries the commit under review. An agent worktree is reused when one already exists for its
+    # id, which suits a builder resuming work and ruins a reviewer: the first review of a request pinned a
+    # worktree to that commit, and every later review of the same request judged that same stale tree. One
+    # reported, correctly for what it could see, that a page was missing — thirty-five commits after it was
+    # added. A reviewer must judge the code as it stands, so a new commit means a new workspace.
+    spec = TaskSpec(
+        task_id=f"review-{request_id}-{_head(root)}", prompt=_review_brief(req), allowed_paths=()
+    )
     task = apply_policy(spec, policy_for("review"))
     findings = dispatch(task)
     blocking, reason = _judge_review(findings)
