@@ -13,6 +13,7 @@ persistence and the response contract, can be exercised against a fake model wit
 from __future__ import annotations
 
 import json
+import os
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -39,6 +40,16 @@ class ChatRequest(BaseModel):
 def build_chat_router(root: Path, complete: Complete | None = None) -> APIRouter:
     workspace = Path(root)
     router = APIRouter(prefix="/api")
+
+    if complete is None and not os.environ.get("PRAVRUDHI_CHAT_ENDPOINT", "").strip():
+        # Without this the conversation points at a local OpenAI-compatible server read from the environment,
+        # and on a machine where that is not running every turn answers 503 — which is what it did here, on the
+        # one surface the operator would need if the session driving this work went away. The engine already
+        # knows several working hosted models, which are measured, cooled and returned to by the same routing
+        # table the swarm uses. An explicitly configured endpoint still wins: this is the fallback, not a policy.
+        from pravrudhi.application.network_chat import network_complete
+
+        complete = network_complete(workspace)
 
     @router.post("/chat", response_model=ChatResponse)
     async def chat_ep(req: ChatRequest, user: User | None = CurrentUserDep) -> dict[str, Any]:
