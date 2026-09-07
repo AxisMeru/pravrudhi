@@ -6721,7 +6721,7 @@
       "healthy": true,
       "last_check": null,
       "last_result": "dev channel: tracks the git checkout directly, not a packaged release",
-      "root": "."
+      "root": "/home/ss/projects/pravrudhi"
     },
     {
       "auto_apply": true,
@@ -6752,12 +6752,12 @@
         "ok": true
       },
       {
-        "detail": "last heartbeat was 426s ago",
+        "detail": "last heartbeat was 497s ago",
         "name": "scheduler_fresh",
         "ok": true
       },
       {
-        "detail": "707749154816 bytes free",
+        "detail": "707738120192 bytes free",
         "name": "disk_available",
         "ok": true
       },
@@ -6772,7 +6772,7 @@
         "ok": true
       },
       {
-        "detail": "developer checkout; a known-good commit is d88ae1a, with 6 uncommitted file(s)",
+        "detail": "developer checkout; a known-good commit is 9b4cd76, with 2 uncommitted file(s)",
         "name": "release_restorable",
         "ok": true
       },
@@ -7141,21 +7141,21 @@
       "badge": "amber",
       "candidate": "c-0060",
       "night": "harness-night1",
-      "pack": "research/inbox/harness-night1/c-0060",
+      "pack": "/home/ss/projects/pravrudhi/research/inbox/harness-night1/c-0060",
       "signed": false
     },
     {
       "badge": "green",
       "candidate": "c-0078",
       "night": "harness-night3",
-      "pack": "research/inbox/harness-night3/c-0078",
+      "pack": "/home/ss/projects/pravrudhi/research/inbox/harness-night3/c-0078",
       "signed": false
     },
     {
       "badge": "green",
       "candidate": "c-0045",
       "night": "night4",
-      "pack": "research/inbox/night4/c-0045",
+      "pack": "/home/ss/projects/pravrudhi/research/inbox/night4/c-0045",
       "signed": false
     }
   ],
@@ -14619,16 +14619,16 @@
     "channel": "dev",
     "check_interval_min": 30,
     "current": {
-      "git_describe": "v0.3.0-8-gd88ae1a-dirty",
+      "git_describe": "v0.3.0-9-g9b4cd76",
       "kernel_version": "0.1.0",
       "version": "0.3.0"
     },
     "keep_previous": 2
   },
   "version": {
-    "commit": "d88ae1a",
+    "commit": "9b4cd76",
     "engine": "0.3.0",
-    "exported_at": "2026-09-07T06:04:26.903Z",
+    "exported_at": "2026-09-07T06:05:37.226Z",
     "kernel": "0.1.0"
   }
 }
