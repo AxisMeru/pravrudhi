@@ -16,6 +16,8 @@ a single-operator machine runs, there is nobody to deny and the local caller is 
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from pravrudhi.api.identity import User
@@ -185,3 +187,50 @@ class TestTheGateActuallyRefuses:
             # Not 200: this scratch directory holds no ledger, so the route itself has nothing to answer with.
             # What matters here is that the caller was not turned away at the door.
             assert client.get("/api/nights").status_code != 403
+
+
+class TestAProductInstallServesNoStudioSurface:
+    """Role decided access, and with authentication off a local caller is the operator — so the operator's own
+    product install served the ledger, the nights, the promotion inbox, the swarm and the fleet. Those are the
+    surfaces of Pravrudhi improving itself. A product whose claim is "improve your own work" carrying all of
+    them is Studio with a different name on the window."""
+
+    @staticmethod
+    def _client(tmp_path: Path):
+        from fastapi.testclient import TestClient
+
+        from pravrudhi.api.server import create_app
+        from pravrudhi.application.init import init_project
+
+        init_project(tmp_path)
+        return TestClient(create_app(tmp_path), base_url="http://127.0.0.1:8008")
+
+    def test_a_studio_surface_is_refused_on_a_product_engine(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("PRAVRUDHI_EDITION", "product")
+        client = self._client(tmp_path)
+
+        for path in ("/api/candidates", "/api/nights", "/api/inbox", "/api/swarm"):
+            answer = client.get(path)
+            assert answer.status_code == 404, f"{path} was served by a product install ({answer.status_code})"
+
+    def test_the_same_surface_is_served_on_a_studio_engine(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The refusal must come from the edition, not from the surface being broken."""
+        monkeypatch.setenv("PRAVRUDHI_EDITION", "studio")
+        client = self._client(tmp_path)
+
+        for path in ("/api/candidates", "/api/nights"):
+            assert client.get(path).status_code != 404, f"{path} is missing on Studio too"
+
+    def test_a_users_own_surfaces_are_untouched_on_a_product_engine(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The point is to remove what belongs to the engine's self-improvement, not to cripple the product."""
+        monkeypatch.setenv("PRAVRUDHI_EDITION", "product")
+        client = self._client(tmp_path)
+
+        for path in ("/api/health", "/api/objectives", "/api/memory", "/api/recipes"):
+            assert client.get(path).status_code != 404, f"{path} vanished from the product"

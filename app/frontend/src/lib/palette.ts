@@ -37,6 +37,26 @@ export interface PalettePage {
 
 // Mirrors Sidebar.tsx's NAV verbatim. Sidebar does not export it, and this file is not allowed to touch
 // Sidebar.tsx, so the label/href/icon list is kept here in step with it by hand.
+// Which pages belong to Pravrudhi improving *itself* rather than to a user improving their own work. A product
+// install does not serve these surfaces at all — the engine refuses them by edition, not by role
+// (src/pravrudhi/api/roles.py::gate) — so listing them would offer a reader doors that answer 404.
+//
+// The line is the same one the engine draws: the ledger's candidates and nights, the promotion inbox, the swarm
+// that builds the engine, the diffs its agents produced, and the appetite driving it.
+export const STUDIO_ONLY_PAGES: ReadonlySet<string> = new Set([
+  "appetite", "inbox", "candidates", "swarm", "diffs", "heartbeat",
+]);
+
+// The sidebar keeps its own copy of this list, so the rule lives here and both ask it rather than each
+// carrying its own idea of which pages are Studio's.
+export function isStudioOnlyHref(href: string): boolean {
+  return PALETTE_PAGES.some((p) => p.href === href && STUDIO_ONLY_PAGES.has(p.id));
+}
+
+export function pagesFor(isStudio: boolean): PalettePage[] {
+  return isStudio ? PALETTE_PAGES : PALETTE_PAGES.filter((p) => !STUDIO_ONLY_PAGES.has(p.id));
+}
+
 export const PALETTE_PAGES: PalettePage[] = [
   { id: "start", label: "Start", href: "/start", icon: "Rocket", digit: 1 },
   { id: "improve", label: "Improve", href: "/", icon: "Sparkles", digit: 2 },
@@ -152,8 +172,8 @@ export async function loadPaletteIndex(): Promise<PaletteIndex> {
 
 const DEMO_REASON = "Demo mode — actions are disabled on this recording";
 
-function pageResults(): PaletteResult[] {
-  return PALETTE_PAGES.map((p) => ({
+function pageResults(isStudio: boolean): PaletteResult[] {
+  return pagesFor(isStudio).map((p) => ({
     id: `page:${p.id}`,
     group: "Pages",
     title: p.label,
@@ -309,9 +329,11 @@ function agentResults(items: SwarmAgent[]): PaletteResult[] {
 
 // The full, unfiltered catalogue for one render pass. Cheap to rebuild on every index change — the arrays
 // involved are all small (an operator's own objectives/candidates/runs, not a public dataset).
-export function buildCatalogue(index: PaletteIndex, isDemo: boolean = IS_DEMO): PaletteResult[] {
+export function buildCatalogue(
+  index: PaletteIndex, isDemo: boolean = IS_DEMO, isStudio: boolean = true,
+): PaletteResult[] {
   return [
-    ...pageResults(),
+    ...pageResults(isStudio),
     ...globalActions(isDemo),
     ...objectiveResults(index.objectives, isDemo),
     ...candidateResults(index.candidates),

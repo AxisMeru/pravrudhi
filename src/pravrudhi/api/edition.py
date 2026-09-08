@@ -59,6 +59,28 @@ def is_release_install() -> bool:
     return RELEASE_MARKER in Path(__file__).resolve().as_posix()
 
 
+def engine_edition() -> str:
+    """Which product *this install* is, independent of who is asking.
+
+    `edition_for` answers a different question — what to call this engine for a given caller, so an operator
+    signing in as an ordinary user sees the product's name. That is right for a label and wrong for a surface:
+    access decided by role alone meant the operator's own product install served every Studio surface, because
+    with authentication off a local caller is the operator by construction. A product that shows the ledger,
+    the nights and the promotion inbox is Studio with a different name on it.
+    """
+    declared = os.environ.get(EDITION_ENV, "").strip().lower()
+    if declared == "studio":
+        return STUDIO
+    if declared == "product" or is_release_install():
+        return PRODUCT
+    return STUDIO  # an unlabelled development checkout is where this engine improves itself
+
+
+def is_studio_engine() -> bool:
+    """Whether this install may serve the surfaces of Pravrudhi improving itself."""
+    return engine_edition() == STUDIO
+
+
 def edition_for(user: User | None) -> str:
     """The product name to show this caller."""
     declared = os.environ.get(EDITION_ENV, "").strip().lower()
@@ -75,5 +97,5 @@ def tagline_for(edition: str) -> str:
 
 __all__ = [
     "EDITION_ENV", "PRODUCT", "RELEASE_MARKER", "STUDIO",
-    "edition_for", "is_release_install", "tagline_for",
+    "edition_for", "engine_edition", "is_release_install", "is_studio_engine", "tagline_for",
 ]

@@ -12,6 +12,10 @@ export interface Edition {
   tagline: string;
 }
 
+// The name the engine reports when this install is the one that builds Pravrudhi itself. Compared against
+// rather than assumed, so a surface is shown because the engine said Studio, not because nobody said product.
+export const STUDIO = "Pravrudhi Studio";
+
 export const PRODUCT: Edition = {
   edition: "Pravrudhi",
   tagline: "Improve your own model, agent or app, on your own hardware, while you watch.",

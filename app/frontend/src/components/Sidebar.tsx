@@ -31,7 +31,8 @@ import {
 } from "lucide-react";
 import type { ComponentType } from "react";
 import { NotificationBell } from "@/components/notifications/NotificationBell";
-import { edition, PRODUCT, type Edition } from "@/lib/edition";
+import { edition, PRODUCT, STUDIO, type Edition } from "@/lib/edition";
+import { isStudioOnlyHref } from "@/lib/palette";
 import { inbox } from "@/lib/inbox";
 import { requests } from "@/lib/requests";
 
@@ -113,7 +114,11 @@ export function Sidebar() {
         </p>
       </div>
       <nav className="flex flex-1 flex-col gap-1 p-3">
-        {NAV.map(({ href, label, icon: Icon }) => {
+        {/* A product install does not serve the engine's self-improvement surfaces at all, so offering them
+            here would be links that answer 404. The rule lives in lib/palette.ts, which the command palette
+            asks too. */}
+        {NAV.filter(({ href }) => whoami.edition === STUDIO || !isStudioOnlyHref(href))
+          .map(({ href, label, icon: Icon }) => {
           const active = href === "/" ? pathname === "/" : pathname.startsWith(href);
           return (
             <Link

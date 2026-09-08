@@ -159,13 +159,27 @@ def gate(app: object) -> list[str]:
                     out.extend(walk(sub.routes))
         return out
 
+    from pravrudhi.api.edition import is_studio_engine
+
+    # A product install does not merely hide these surfaces from the wrong caller — it does not have them.
+    # Role alone could not express that: with authentication off a local caller is the operator by
+    # construction, so the operator's own product install served every surface belonging to Pravrudhi
+    # improving itself. The edition is a property of the install, not of who is asking, which is why it can
+    # answer a question role cannot.
+    studio = is_studio_engine()
     gated: list[str] = []
     for route in walk(app.routes):  # type: ignore[attr-defined]
         if route.path in ADMIN_ONLY:
-            route.dependencies.append(Depends(_admin_dependency))
+            route.dependencies.append(Depends(_admin_dependency if studio else _not_in_this_edition))
             route.dependant = None  # type: ignore[assignment]
             gated.append(route.path)
     return sorted(set(gated))
+
+
+async def _not_in_this_edition() -> None:
+    """404 rather than 403: on a product install this surface does not exist, and saying "forbidden" would
+    advertise an engine-improvement surface to someone whose product simply does not have one."""
+    raise HTTPException(status_code=404, detail="Not Found")
 
 
 async def _admin_dependency(request: Request) -> None:

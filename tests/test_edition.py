@@ -149,3 +149,53 @@ class TestARunningReleaseKnowsItIsOne:
         monkeypatch.setenv("PRAVRUDHI_EDITION", "studio")
         monkeypatch.setenv("PRAVRUDHI_AUTH", "disabled")
         assert mod.edition_for(None) == STUDIO
+
+
+class TestTheProductIsNotStudioWithADifferentName:
+    """The two editions differed by name and nothing a user would notice.
+
+    Surface access was gated on role alone, and with authentication off a local caller is the operator by
+    construction — so the operator's own product install served every Studio surface: the ledger, the nights,
+    the promotion inbox, the swarm, the fleet. Those are the surfaces of Pravrudhi improving *itself*, and a
+    product whose whole claim is "improve your own work" should not carry them whoever is signed in.
+    """
+
+    def test_a_product_engine_serves_no_studio_surface_even_to_the_operator(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from pravrudhi.api.edition import engine_edition, is_studio_engine
+
+        monkeypatch.setenv("PRAVRUDHI_EDITION", "product")
+        assert engine_edition() == "Pravrudhi"
+        assert is_studio_engine() is False
+
+    def test_a_studio_engine_says_so(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from pravrudhi.api.edition import engine_edition, is_studio_engine
+
+        monkeypatch.setenv("PRAVRUDHI_EDITION", "studio")
+        assert engine_edition() == "Pravrudhi Studio"
+        assert is_studio_engine() is True
+
+    def test_the_engines_edition_does_not_depend_on_who_is_asking(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`edition_for` answers "what should this caller be shown"; this answers "what is this install". A
+        surface has to be decided by the second, or an admin turns a product install into Studio by signing in.
+        """
+        from pravrudhi.api.edition import engine_edition
+
+        monkeypatch.setenv("PRAVRUDHI_EDITION", "product")
+        before = engine_edition()
+        monkeypatch.setenv("PRAVRUDHI_ADMINS", "operator@example.com")
+        assert engine_edition() == before
+
+    def test_an_unlabelled_development_checkout_is_studio(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The engine's own tree is where Pravrudhi improves itself, so its surfaces belong there."""
+        from pravrudhi.api.edition import engine_edition, is_studio_engine
+
+        monkeypatch.delenv("PRAVRUDHI_EDITION", raising=False)
+        from pravrudhi.api.edition import is_release_install
+
+        if is_release_install():
+            pytest.skip("this checkout is an installed release")
+        assert engine_edition() == "Pravrudhi Studio" and is_studio_engine() is True

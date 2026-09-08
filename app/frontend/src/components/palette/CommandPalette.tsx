@@ -28,6 +28,7 @@ import {
   Command,
 } from "lucide-react";
 import { IS_DEMO } from "@/lib/api";
+import { edition, STUDIO } from "@/lib/edition";
 import {
   PALETTE_PAGES,
   GROUP_ORDER,
@@ -127,7 +128,17 @@ export function CommandPalette() {
     setOpen(true);
   }, []);
 
-  const catalogue = useMemo(() => buildCatalogue(index, IS_DEMO), [index]);
+  // Which edition this engine is, so the palette does not offer pages a product install answers 404 for.
+  // Studio until the engine says otherwise: this checkout is Studio, and a momentary wrong answer that hides
+  // a page is worse than one that shows it.
+  const [isStudio, setIsStudio] = useState(true);
+  useEffect(() => {
+    let off = false;
+    edition().then((e) => !off && setIsStudio(e.edition === STUDIO)).catch(() => {});
+    return () => { off = true; };
+  }, []);
+
+  const catalogue = useMemo(() => buildCatalogue(index, IS_DEMO, isStudio), [index, isStudio]);
   const filtered = useMemo(() => filterResults(catalogue, query), [catalogue, query]);
 
   const sections = useMemo<Section[]>(() => {
