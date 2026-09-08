@@ -313,6 +313,30 @@ def choose(table: Table, rows: list[Outcome], tier: str, root: Path | None = Non
     return Choice(tier, route, reason, considered, tuple(rs_all))
 
 
+def permitted_after(
+    table: Table, rows: list[Outcome], tier: str, *, exclude: set[str], root: Path | None = None
+) -> list[Route]:
+    """The routes still worth trying at this tier once some agents are known not to run here, cheapest first.
+
+    `choose` answers "which one route", which is the wrong question when the answer turns out to be unrunnable:
+    the caller then needs the rest of the tier in the order it would have taken them. Excluding by AGENT rather
+    than by route id matters — two routes can share one agent (the same CLI at two models), and if that CLI is
+    missing then neither of them can run, so offering the sibling would only fail again one line later.
+
+    Cooling routes are dropped when `root` is given, on the same reasoning `choose` uses: a route sitting out a
+    vendor limit cannot do the work now, and handing it a task that a usage limit will refuse is not a fallback.
+    """
+    cooling: set[str] = set()
+    if root is not None:
+        usable = {r.id for r in availability.usable_routes(root, table.permitted(tier))}
+        cooling = {r.id for r in table.permitted(tier)} - usable
+    ordered = sorted(
+        (r for r in table.permitted(tier) if r.agent not in exclude and r.id not in cooling),
+        key=lambda r: (r.relative_cost, r.id),
+    )
+    return ordered
+
+
 def report(root: Path, table: Table | None = None) -> list[dict[str, Any]]:
     """Every tier, what it would choose now, and why. This is what `pravrudhi routing` prints."""
     t = table or load_table()

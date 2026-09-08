@@ -254,10 +254,34 @@ def run_wave(
                 agent_name, model = t.route()
             chosen_agent[t.spec.task_id] = agent_name
             agent = build_agent(agent_name, model)
+            if agent is None and table is not None:
+                # An unrunnable route hands its work on, exactly as a rate-limited one does. Those two conditions
+                # were treated differently for no reason anyone stated: a vendor limit fell back through the
+                # routing table, while "this CLI is not on my PATH" returned a rejection and stopped. That gap
+                # cost five hours on 2026-09-08 — `systemd --user` has no nvm bin directory, so `opencode` was
+                # invisible to the heartbeat, which rejected every dispatch hourly while `claude-code` sat ready.
+                # Cost order is preserved because the table is re-asked with the dead route excluded, so the
+                # replacement is the next cheapest usable seat rather than whatever happens to be first.
+                for candidate in routing.permitted_after(table, rows, t.tier, exclude={agent_name}, root=root):
+                    replacement, replacement_model = candidate.pair()
+                    agent = build_agent(replacement, replacement_model)
+                    if agent is not None:
+                        log(f"route {t.spec.task_id}: {agent_name} cannot run here -> {candidate.id}")
+                        if root is not None:
+                            continuity.note(
+                                root, kind="fallback",
+                                summary=f"{t.spec.task_id} moved from {agent_name} to {candidate.id}",
+                                detail=f"{agent_name} is not runnable on this host", agent=replacement,
+                            )
+                        agent_name, model = replacement, replacement_model
+                        chosen[t.spec.task_id] = candidate.id
+                        chosen_agent[t.spec.task_id] = replacement
+                        break
             if agent is None:
                 results.append(
                     Verdict(task_id=t.spec.task_id, agent=agent_name, accepted=False,
-                            reasons=[f"no agent available for tier {t.tier} ({agent_name})"])
+                            reasons=[f"no agent available for tier {t.tier} ({agent_name}), and no other route "
+                                     f"at this tier can run here either"])
                 )
                 continue
             log(f"dispatch {t.spec.task_id} -> {agent.name} [{t.tier}] {model or 'default'}"
