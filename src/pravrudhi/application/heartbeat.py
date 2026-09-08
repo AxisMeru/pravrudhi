@@ -244,6 +244,64 @@ def _obligation_scratch(request_id: str, index: int) -> str:
     return f"proposals/requests/{request_id}/{index}"
 
 
+_ATTEMPTS_FILE = ".pravrudhi/criterion-attempts.json"
+
+# Three paid attempts at one criterion is enough to learn that this loop cannot finish it unaided. The number is
+# small on purpose: each attempt is a real dispatch to a real model, and the failure being guarded against is
+# spending, not correctness.
+MAX_CRITERION_ATTEMPTS = 3
+
+
+def _attempts_path(root: Path) -> Path:
+    return Path(root) / _ATTEMPTS_FILE
+
+
+def _attempts_all(root: Path) -> dict[str, int]:
+    try:
+        data = json.loads(_attempts_path(root).read_text())
+        return {str(k): int(v) for k, v in data.items()} if isinstance(data, dict) else {}
+    except (OSError, ValueError, TypeError):
+        return {}
+
+
+def _attempt_key(request_id: str, index: int) -> str:
+    return f"{request_id}:{index}"
+
+
+def attempts(root: Path, request_id: str, index: int) -> int:
+    """How many times this exact criterion has been dispatched without moving."""
+    return _attempts_all(root).get(_attempt_key(request_id, index), 0)
+
+
+def record_attempt(root: Path, request_id: str, index: int) -> int:
+    """Count one dispatch. On disk, because an hourly loop that forgot on restart would never reach any budget."""
+    data = _attempts_all(root)
+    key = _attempt_key(request_id, index)
+    data[key] = data.get(key, 0) + 1
+    path = _attempts_path(root)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, indent=1, sort_keys=True))
+    return data[key]
+
+
+def clear_attempts(root: Path, request_id: str, index: int) -> None:
+    """A criterion that moved has not stalled, whatever it cost to get there."""
+    data = _attempts_all(root)
+    if data.pop(_attempt_key(request_id, index), None) is None:
+        return
+    _attempts_path(root).write_text(json.dumps(data, indent=1, sort_keys=True))
+
+
+def stalled(root: Path, request_id: str, index: int) -> bool:
+    """Whether this criterion has spent its budget and should be left to the operator.
+
+    Requests r-5795501a criterion 7 was dispatched nine times in one day, five of them accepted by the swarm and
+    every one refused by the completion gate, while the criterion stayed unmet and the Lite Plan seat ran into
+    its usage limit. Retrying is right; retrying the identical task hourly for ever is a standing order to spend.
+    """
+    return attempts(root, request_id, index) >= MAX_CRITERION_ATTEMPTS
+
+
 def _obligation_prompt(request_text: str, criterion_text: str, scratch: str, validate: str) -> str:
     return (
         f"Operator request (verbatim): {request_text}\n\n"
@@ -389,6 +447,17 @@ def _beat_obligations(root: Path, dispatch: DispatchFn | None) -> ActionResult:
     if found is None:  # pragma: no cover - next_obligation already answered meet_criterion
         return None, "every captured request is verified; nothing is owed", None
     request, criterion, index = found
+    if stalled(root, request.id, index):
+        # Spent its budget: this loop has dispatched this exact criterion MAX_CRITERION_ATTEMPTS times without
+        # moving it, so a further identical dispatch buys nothing and costs a real model call. Say so where the
+        # operator will see it and let the beat spend itself elsewhere.
+        return (
+            {"request": request.id, "criterion": str(index)},
+            f"{request.id} criterion {index} has stalled after {attempts(root, request.id, index)} attempts; "
+            f"leaving it for the operator rather than paying to retry it again",
+            {"kind": "stalled", "request": request.id, "criterion": index,
+             "attempts": attempts(root, request.id, index), "criterion_text": criterion.text[:300]},
+        )
     scratch = _obligation_scratch(request.id, index)
     (root / scratch).mkdir(parents=True, exist_ok=True)
     validate = f'test -n "$(ls -A {scratch})" && uv run python -m compileall -q {scratch}'
@@ -401,6 +470,7 @@ def _beat_obligations(root: Path, dispatch: DispatchFn | None) -> ActionResult:
     task = swarm.SwarmTask(spec, _OBLIGATION_TIER, why=f"oldest unmet criterion of request {request.id}")
     scoped = replace(task, spec=apply_policy(task.spec, policy_for("proposal")))
     build_agent = dispatch or _default_build_agent(root)
+    record_attempt(root, request.id, index)
     verdict = swarm.run_wave(build_agent, [scoped], log=lambda _msg: None, root=root)[0]
     chose = {"request": request.id, "criterion": str(index)}
     result = {

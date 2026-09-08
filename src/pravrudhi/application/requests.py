@@ -21,6 +21,7 @@ wrote it, so a criterion invented by the engine can never be mistaken for someth
 
 from __future__ import annotations
 
+import contextlib
 import json
 import uuid
 from dataclasses import dataclass, field
@@ -248,6 +249,12 @@ def meet(root: Path, request_id: str, index: int, evidence: list[Evidence]) -> R
         raise RequestError(f"unknown evidence kind(s): {', '.join(sorted({e.kind for e in bad}))}")
     req.criteria[index].met = True
     req.criteria[index].evidence.extend(evidence)
+    # A criterion that moved has not stalled, so its attempt budget is spent honestly and returned. Clearing here
+    # rather than in the heartbeat means any route to "met" resets it, not only the one the loop happens to take.
+    with contextlib.suppress(Exception):
+        from pravrudhi.application.heartbeat import clear_attempts
+
+        clear_attempts(root, request_id, index)
     return _replace(root, req)
 
 

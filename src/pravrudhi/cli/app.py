@@ -343,6 +343,41 @@ def search_cmd(root: Path = ROOT_OPT) -> None:
     typer.echo(f"  candidate-nights declined in total:      {sum(p.declined for p in pressure)}")
 
 
+@app.command("watch")
+def watch_cmd(
+    root: Path = ROOT_OPT,
+    notify: bool = typer.Option(False, "--notify", help="send the findings to the configured chat, if any"),
+    json_out: bool = typer.Option(False, "--json", help="machine-readable findings"),
+) -> None:
+    """Look for the shape of a stall: a loop repeating itself, a night that cost nothing, a cheap seat down.
+
+    Everything in this engine reports success, so a check for errors finds nothing. These look for a decision
+    that never changes and a night that spent nothing — the two shapes every stall this project has had shared.
+    """
+    from pravrudhi.application import watchdog
+
+    findings = watchdog.check(root)
+    if json_out:
+        typer.echo(json.dumps({"findings": [f.to_dict() for f in findings]}, indent=1))
+    else:
+        typer.echo(watchdog.render(findings))
+    if notify and findings:
+        # Only when something is wrong: a watchdog that messages on every run is one the operator mutes, and a
+        # muted watchdog is worse than none because it looks like coverage.
+        import os
+
+        from pravrudhi.application import reach
+        from pravrudhi.application.credentials import Secret
+        from pravrudhi.application.telegram_inbox import paired_chat
+
+        token = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
+        chat = os.environ.get("TELEGRAM_CHAT_ID", "").strip() or paired_chat(root) or ""
+        if token and chat:
+            reach.send(root, kind="operator_reply", title=watchdog.render(findings), detail="",
+                       token=Secret(provider="telegram", value=token), chat_id=chat,
+                       filter_config=reach.NotificationFilter(kinds={"operator_reply"}))
+
+
 @app.command("routes")
 def routes_cmd(root: Path = ROOT_OPT) -> None:
     """Which model can be used right now, how well it has done, and when a spent one comes back."""

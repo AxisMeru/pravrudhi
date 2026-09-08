@@ -1,0 +1,174 @@
+"""Look for the shape of a stall, in a system where everything reports success.
+
+On 2026-09-08 seven separate things reported success while doing nothing: an hourly heartbeat over five hours of
+rejected dispatches, six green doctor checks, five green parity rows whose evidence checked nothing, a wave
+verdict of "no change produced" while the work sat in the wrong tree, eight hours of "running the remedy" that
+ran nothing, a sentence asserting a deficit that did not exist, and a night reporting `closed` after spending
+0.00 of 3.0 GPU-hours.
+
+Not one was an error. Each was an accurate green over a mechanism that was correct and idle, which is why none
+of them tripped anything: there was no exception to catch and no check to fail. Every one was found by a person
+reading a log and thinking "that number should not be the same as last time".
+
+So these checks do not look for errors. They look for the shape those failures share — the same choice made
+again, a night that cost nothing, work moving from a cheap seat to a dear one — and they are deliberately few.
+A watchdog with thirty checks is one nobody reads, and this exists to be read on a phone.
+"""
+
+from __future__ import annotations
+
+import json
+from collections.abc import Iterable
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+# Six identical choices is roughly six hours of an hourly loop. Long enough that a legitimate multi-beat effort
+# (a criterion genuinely worth three attempts) does not trip it, short enough to catch a pin inside a working day.
+REPEAT_LIMIT = 6
+
+
+@dataclass(frozen=True)
+class Finding:
+    """One thing worth a person's attention, in the terms they would act on."""
+
+    kind: str
+    severity: str
+    detail: str
+
+    def to_dict(self) -> dict[str, str]:
+        return {"kind": self.kind, "severity": self.severity, "detail": self.detail}
+
+
+def _beats(root: Path, n: int = 12) -> list[dict[str, Any]]:
+    path = Path(root) / ".pravrudhi" / "heartbeat.jsonl"
+    if not path.is_file():
+        return []
+    out: list[dict[str, Any]] = []
+    for line in path.read_text().splitlines():
+        if not line.strip():
+            continue
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(row, dict):
+            out.append(row)
+    return out[-n:]
+
+
+def _repeating(root: Path) -> list[Finding]:
+    """The same decision, beat after beat, is the signature every pin this project has had shared.
+
+    The `pools` remedy was proposed hourly for eight hours and never run; `freshness` replaced it and was chosen
+    hourly after that; one request criterion was dispatched nine times in a day and refused every time. In each
+    case the loop was working exactly as written and producing nothing, and the only visible tell was that the
+    choice never changed.
+    """
+    beats = _beats(root, REPEAT_LIMIT)
+    if len(beats) < REPEAT_LIMIT:
+        return []
+    keys = {json.dumps(b.get("chose"), sort_keys=True) for b in beats}
+    if len(keys) > 1:
+        return []
+    chose = beats[-1].get("chose")
+    if not chose:
+        return []
+    return [Finding(
+        kind="loop_repeating",
+        severity="high",
+        detail=(
+            f"the loop has chosen {json.dumps(chose, sort_keys=True)} on each of the last {REPEAT_LIMIT} beats "
+            f"without the choice changing — last reason: {str(beats[-1].get('reason') or '')[:180]}"
+        ),
+    )]
+
+
+def _empty_night(root: Path) -> list[Finding]:
+    """A night that closed having spent nothing.
+
+    Night 17 reported `status: closed` with 0.00 of 3.0 GPU-hours and no outcomes, which is indistinguishable
+    from a good night in every summary that only reads the status. The proposer had been truncated for days.
+    """
+    ledger = Path(root) / "research" / "ledger.jsonl"
+    if not ledger.is_file():
+        return []
+    last: dict[str, Any] | None = None
+    for line in ledger.read_text().splitlines():
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        payload = row.get("payload") or {}
+        if isinstance(payload, dict) and payload.get("kind") == "night_end":
+            last = {"night": row.get("night"), **payload}
+    if last is None:
+        return []
+    spent = float(last.get("spent_gpu_h") or 0.0)
+    outcomes = last.get("outcomes") or {}
+    if spent > 0.0 or outcomes:
+        return []
+    return [Finding(
+        kind="night_spent_nothing",
+        severity="high",
+        detail=(
+            f"night {last.get('night')} closed having spent {spent} of {last.get('budget_gpu_h')} GPU-h with no "
+            f"outcomes — it reports as closed, but nothing was measured"
+        ),
+    )]
+
+
+def _cheap_seat_down(root: Path) -> list[Finding]:
+    """A cheap route sitting out a limit while a dearer one absorbs its work.
+
+    Not a fault — the fallback doing its job — but it is the most expensive thing the engine can fail to mention,
+    and it is invisible unless something says it out loud.
+    """
+    try:
+        from pravrudhi.application.roster import roster
+
+        seats = list(roster(Path(root)))
+    except Exception:  # noqa: BLE001 - a watchdog that raises is worse than one that misses
+        return []
+    down = [s for s in seats if not s.usable and not s.sentinel]
+    up = [s for s in seats if s.usable and not s.sentinel]
+    if not down or not up:
+        return []
+    cheapest_down = min(down, key=lambda s: s.relative_cost)
+    cheapest_up = min(up, key=lambda s: s.relative_cost)
+    if cheapest_up.relative_cost <= cheapest_down.relative_cost:
+        return []
+    return [Finding(
+        kind="cheap_seat_down",
+        severity="medium",
+        detail=(
+            f"{cheapest_down.id} ({cheapest_down.relative_cost:.2f}) is sitting out a usage limit, so work is "
+            f"going to {cheapest_up.id} ({cheapest_up.relative_cost:.2f})"
+            + (f" — back at {cheapest_down.returns_at}" if cheapest_down.returns_at else "")
+        ),
+    )]
+
+
+def check(root: Path) -> list[Finding]:
+    """Every check, most serious first. A check that raises is dropped rather than allowed to silence the rest."""
+    findings: list[Finding] = []
+    for probe in (_repeating, _empty_night, _cheap_seat_down):
+        try:
+            findings.extend(probe(Path(root)))
+        except Exception:  # noqa: BLE001
+            continue
+    order = {"high": 0, "medium": 1, "low": 2}
+    return sorted(findings, key=lambda f: (order.get(f.severity, 3), f.kind))
+
+
+def render(findings: Iterable[Finding]) -> str:
+    """One message, short enough to read on a phone and specific enough to act on."""
+    items = list(findings)
+    if not items:
+        return "Nothing stalled: the loop is changing its mind, the last night cost something, and no cheap seat is down."
+    lines = [f"{len(items)} thing(s) worth a look:"]
+    lines.extend(f"\n• [{f.severity}] {f.detail}" for f in items)
+    return "".join(lines)[:3400]
+
+
+__all__ = ["Finding", "REPEAT_LIMIT", "check", "render"]
