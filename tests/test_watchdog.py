@@ -89,3 +89,21 @@ def test_findings_render_for_a_phone(tmp_path: Path) -> None:
 def test_a_healthy_workspace_says_so_briefly(tmp_path: Path) -> None:
     assert watchdog.check(tmp_path) == []
     assert "nothing" in watchdog.render([]).lower()
+
+
+def test_a_workspace_with_no_records_says_so_rather_than_healthy(tmp_path: Path) -> None:
+    """A clone has no ledger and no beat log, because both are gitignored.
+
+    The cloud routine that runs this check works from exactly such a clone. Reporting "nothing stalled" there
+    would be the precise failure this module exists to catch: a green answer from a check that could not see
+    anything. It has to say it cannot see rather than that all is well.
+    """
+    assert watchdog.blind(tmp_path), "an empty workspace cannot be judged"
+    text = watchdog.render(watchdog.check(tmp_path), root=tmp_path)
+    assert "cannot see" in text.lower(), text
+    assert "nothing stalled" not in text.lower()
+
+
+def test_a_workspace_with_records_is_not_blind(tmp_path: Path) -> None:
+    _beats(tmp_path, [{"at": "2026-09-08T01:00:00Z", "chose": {"a": "1"}, "reason": "x"}])
+    assert not watchdog.blind(tmp_path)

@@ -360,7 +360,7 @@ def watch_cmd(
     if json_out:
         typer.echo(json.dumps({"findings": [f.to_dict() for f in findings]}, indent=1))
     else:
-        typer.echo(watchdog.render(findings))
+        typer.echo(watchdog.render(findings, root=root))
     if notify and findings:
         # Only when something is wrong: a watchdog that messages on every run is one the operator mutes, and a
         # muted watchdog is worse than none because it looks like coverage.

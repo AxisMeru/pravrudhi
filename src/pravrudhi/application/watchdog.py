@@ -161,9 +161,26 @@ def check(root: Path) -> list[Finding]:
     return sorted(findings, key=lambda f: (order.get(f.severity, 3), f.kind))
 
 
-def render(findings: Iterable[Finding]) -> str:
+def blind(root: Path) -> bool:
+    """Whether this workspace has any record to judge at all.
+
+    The heartbeat log and the ledger are both gitignored, so a fresh clone — which is exactly what a cloud
+    routine runs in — has neither. Answering "nothing stalled" there would be this module's own failure mode:
+    a green result from a check that could not see anything. The distinction between "well" and "unobserved" is
+    the entire point of the file.
+    """
+    root = Path(root)
+    return not (root / ".pravrudhi" / "heartbeat.jsonl").is_file() and not (root / "research" / "ledger.jsonl").is_file()
+
+
+def render(findings: Iterable[Finding], *, root: Path | None = None) -> str:
     """One message, short enough to read on a phone and specific enough to act on."""
     items = list(findings)
+    if not items and root is not None and blind(root):
+        return (
+            "I cannot see this workspace: it has no heartbeat log and no ledger, so there is nothing to judge. "
+            "Both are gitignored, so a fresh clone always looks like this — check the published snapshot instead."
+        )
     if not items:
         return "Nothing stalled: the loop is changing its mind, the last night cost something, and no cheap seat is down."
     lines = [f"{len(items)} thing(s) worth a look:"]
@@ -171,4 +188,4 @@ def render(findings: Iterable[Finding]) -> str:
     return "".join(lines)[:3400]
 
 
-__all__ = ["Finding", "REPEAT_LIMIT", "check", "render"]
+__all__ = ["Finding", "REPEAT_LIMIT", "blind", "check", "render"]
