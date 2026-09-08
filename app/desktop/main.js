@@ -12,6 +12,9 @@ const edition = readEdition(process.resourcesPath);
 const {engineMenu, trayState} = require('./lib/menu');
 const {createSmokeReporter} = require('./lib/smoke');
 const {shellIsStale} = require('./lib/updates');
+const {updateShell} = require('./lib/shell-updater');
+const {applyBinary, applyBundle} = require('./lib/shell-apply');
+const {latestRelease, download, io: updateIo, installedPath} = require('./lib/shell-update-io');
 // The newest release this shell has heard of, refreshed whenever the engine is asked. The engine
 // updates itself; this bundle is replaced by downloading a new one, so a shell can sit behind a
 // current engine and nothing said so until now.
@@ -141,6 +144,11 @@ async function start() {
     // both of the operator's machines ran a superseded build while their engines stayed up to date.
     // Quiet by construction: the engine caches its own check, and a failure here must never disturb a start.
     if (!smokeMode) api.update().then(r => { latestTag = r?.latest?.tag ?? latestTag; }).catch(() => {});
+    // And then, if this install is set to keep itself current, replace the application too. The engine has
+    // always updated itself; the shell could not, so a bundle sat behind a current engine until someone
+    // downloaded a new one by hand. Off unless asked for: replacing the application someone is using is not a
+    // default, and `updateShell` refuses anything it cannot match to the release's own checksums.
+    if (!smokeMode && settings.autoUpdateShell === true) refreshShell().catch(() => {});
     settings.engineURL = origin; persist();
     const health = await api.health(); publish({version:health.version || 'Unknown'});
     await doctor();
@@ -174,6 +182,39 @@ async function locate() {
   return status;
 }
 let updating = false;
+// Replace this application with the newest published build of its own edition. Verified against the release's
+// SHA256SUMS before anything is installed, staged beside the target and swapped so a failure leaves the old
+// application in place, and the previous build is kept rather than deleted.
+//
+// The restart is offered, never taken: the new bundle is on disk and will be what starts next time, so there
+// is no reason to close a window somebody is working in.
+async function refreshShell() {
+  const target = installedPath({appPath: app.getPath('exe')});
+  if (!target) return {applied: false, reason: 'not an installed application; nothing to replace'};
+  const bundleName = process.platform === 'darwin' ? `${app.getName()}.app` : null;
+  const result = await updateShell(
+    {
+      edition, platform: process.platform, arch: process.arch,
+      currentVersion: app.getVersion(), target, bundleName,
+    },
+    {
+      latestRelease, download,
+      apply: payload => (process.platform === 'darwin' ? applyBundle : applyBinary)(payload, updateIo),
+    },
+  );
+  if (result.applied) {
+    latestTag = result.version ?? latestTag;
+    const choice = await dialog.showMessageBox({
+      type: 'info',
+      message: `Pravrudhi ${result.version} is installed`,
+      detail: 'The new application starts the next time you open it. Restart now?',
+      buttons: ['Later', 'Restart'], defaultId: 0, cancelId: 0,
+    });
+    if (choice.response === 1) { app.relaunch(); app.exit(0); }
+  }
+  return result;
+}
+
 async function updates() {
   if (updating) return;
   updating = true;
@@ -189,7 +230,13 @@ async function updates() {
         await dialog.showMessageBox({message:'Engine update', detail: applied.reason, buttons:['OK']});
       }
     } else if (staleShell) {
-      await dialog.showMessageBox({message:`A newer desktop app is available: ${latestTag}`, detail:`Your engine is up to date, but this application is version ${app.getVersion()}. The engine updates itself; the application does not — download the new build and run its installer to replace it.`, buttons:['OK']});
+      // Offered rather than applied: this path is somebody choosing "Check for updates", and the answer to
+      // "is there a new application" should not be to replace theirs without asking.
+      const choice = await dialog.showMessageBox({type:'question', message:`A newer application is available: ${latestTag}`, detail:`Your engine is up to date; this application is version ${app.getVersion()}. Installing replaces it with the published build, after checking it against the release's own checksums. The one you have now is kept.`, buttons:['Cancel','Install'], defaultId:0, cancelId:0});
+      if (choice.response === 1) {
+        const outcome = await refreshShell();
+        if (!outcome.applied) await dialog.showMessageBox({message:'The application was not replaced', detail:outcome.reason, buttons:['OK']});
+      }
     } else await dialog.showMessageBox({message:result.latest ? 'Your engine is up to date.' : 'Could not check for updates.', detail:JSON.stringify(result, null, 2)});
     return result;
   } finally { updating = false; }

@@ -14,7 +14,10 @@
     "icon": "renderer/icon.png"
   },
   "mac": {
-    "target": "dmg",
+    "target": [
+      "dmg",
+      "zip"
+    ],
     "identity": null,
     "icon": "renderer/icon.png",
     "category": "public.app-category.developer-tools"
@@ -39,5 +42,6 @@
       "from": "editions/studio.json",
       "to": "edition.json"
     }
-  ]
+  ],
+  "artifactName": "pravrudhi-studio-${version}-${os}-${arch}.${ext}"
 }
