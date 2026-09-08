@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+from pravrudhi.application import requests
 from pravrudhi.application.requests import (
     Criterion,
     Evidence,
@@ -237,3 +238,35 @@ class TestWhatIsStillOwed:
         for state in ("in_progress", "delivered", "verified"):
             advance(tmp_path, rid, state)
         assert next_obligation(tmp_path) is None
+
+
+def test_a_malformed_criterion_can_be_dropped(tmp_path: Path) -> None:
+    """A criterion that demands nothing can never be met, and blocks everything behind it.
+
+    The completion gate turns a review's finding into a criterion. An early version of that extraction took the
+    first non-heading line, which on a review that opens "Summary of the strongest reason:" produced a criterion
+    with the demand missing. The extraction was fixed; the criterion it had already written stayed, unanswerable,
+    and the loop dispatched an agent at it nine times in one day before an attempt budget stopped it.
+
+    Dropping is deliberately not deleting evidence: it removes one criterion by index and leaves the rest, so the
+    gate can re-run and write a well-formed one in its place.
+    """
+    req = requests.capture(tmp_path, "do the thing")
+    requests.add_criteria(tmp_path, req.id, [
+        requests.Criterion(text="a real, answerable demand about the interface", source="operator"),
+        requests.Criterion(text="Answer the review's finding: Summary of the strongest reason:", source="engine"),
+    ])
+    before = requests.get(tmp_path, req.id)
+    assert before is not None and len(before.criteria) == 2
+
+    after = requests.drop_criterion(tmp_path, req.id, 1)
+
+    assert len(after.criteria) == 1
+    assert after.criteria[0].text.startswith("a real, answerable demand")
+
+
+def test_dropping_an_index_that_does_not_exist_is_refused(tmp_path: Path) -> None:
+    req = requests.capture(tmp_path, "x")
+    requests.add_criteria(tmp_path, req.id, [requests.Criterion(text="only one", source="operator")])
+    with pytest.raises(requests.RequestError):
+        requests.drop_criterion(tmp_path, req.id, 5)

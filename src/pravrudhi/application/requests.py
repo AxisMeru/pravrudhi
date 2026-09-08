@@ -258,6 +258,31 @@ def meet(root: Path, request_id: str, index: int, evidence: list[Evidence]) -> R
     return _replace(root, req)
 
 
+def drop_criterion(root: Path, request_id: str, index: int) -> Request:
+    """Remove one criterion. For a demand that cannot be answered because it does not state anything.
+
+    The completion gate turns a review's finding into a criterion. An early version of that extraction took the
+    first non-heading line, and on a review opening "Summary of the strongest reason:" it wrote a criterion with
+    the demand missing. The extraction was fixed; the criterion it had already written stayed, unanswerable, and
+    the loop dispatched an agent at it nine times in one day before an attempt budget stopped it.
+
+    This removes the criterion and nothing else, so the gate can re-run and write a well-formed one in its place.
+    It is not a way to dismiss a demand that is merely hard: a criterion that states something and has not been
+    met should stay unmet.
+    """
+    req = get(root, request_id)
+    if req is None:
+        raise RequestError(f"no request {request_id}")
+    if not 0 <= index < len(req.criteria):
+        raise RequestError(f"{request_id} has no criterion {index}")
+    with contextlib.suppress(Exception):
+        from pravrudhi.application.heartbeat import clear_attempts
+
+        clear_attempts(root, request_id, index)
+    del req.criteria[index]
+    return _replace(root, req)
+
+
 def retract_evidence(root: Path, request_id: str, index: int, ref: str) -> Request:
     """Remove a reference that does not verify, and un-meet the criterion if it was the last one.
 
