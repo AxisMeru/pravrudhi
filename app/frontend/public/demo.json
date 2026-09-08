@@ -5155,15 +5155,15 @@
         "name": "claude-code"
       },
       {
-        "available": true,
+        "available": false,
         "name": "codex"
       },
       {
-        "available": true,
+        "available": false,
         "name": "opencode:alibaba"
       },
       {
-        "available": true,
+        "available": false,
         "name": "opencode:alibaba-plan"
       },
       {
@@ -5171,11 +5171,11 @@
         "name": "orca:claude"
       },
       {
-        "available": true,
+        "available": false,
         "name": "orca:codex"
       },
       {
-        "available": true,
+        "available": false,
         "name": "orca:local"
       }
     ],
@@ -5206,7 +5206,7 @@
         "kind": "agent"
       },
       {
-        "available": true,
+        "available": false,
         "id": "agent-codex",
         "kind": "agent"
       },
@@ -20058,7 +20058,7 @@
       "healthy": true,
       "last_check": null,
       "last_result": "dev channel: tracks the git checkout directly, not a packaged release",
-      "root": "."
+      "root": "/home/ss/projects/pravrudhi"
     },
     {
       "auto_apply": true,
@@ -20089,12 +20089,12 @@
         "ok": true
       },
       {
-        "detail": "last heartbeat was 2947s ago",
+        "detail": "last heartbeat was 3144s ago",
         "name": "scheduler_fresh",
         "ok": true
       },
       {
-        "detail": "697855094784 bytes free",
+        "detail": "697853947904 bytes free",
         "name": "disk_available",
         "ok": true
       },
@@ -20109,17 +20109,17 @@
         "ok": true
       },
       {
-        "detail": "developer checkout; a known-good commit is ec9c38e",
+        "detail": "developer checkout; a known-good commit is 0795de4, with 1 uncommitted file(s)",
         "name": "release_restorable",
         "ok": true
       },
       {
-        "detail": "tested independent routes available: ['codex', 'orca:claude', 'orca:codex', 'orca:local']",
+        "detail": "only 1 tested independent route(s) available (need 2): ['orca:claude']",
         "name": "route_fallback",
-        "ok": true
+        "ok": false
       }
     ],
-    "state": "ready"
+    "state": "degraded"
   },
   "heartbeat": [
     {
@@ -20414,21 +20414,21 @@
       "badge": "amber",
       "candidate": "c-0060",
       "night": "harness-night1",
-      "pack": "research/inbox/harness-night1/c-0060",
+      "pack": "/home/ss/projects/pravrudhi/research/inbox/harness-night1/c-0060",
       "signed": false
     },
     {
       "badge": "green",
       "candidate": "c-0078",
       "night": "harness-night3",
-      "pack": "research/inbox/harness-night3/c-0078",
+      "pack": "/home/ss/projects/pravrudhi/research/inbox/harness-night3/c-0078",
       "signed": false
     },
     {
       "badge": "green",
       "candidate": "c-0045",
       "night": "night4",
-      "pack": "research/inbox/night4/c-0045",
+      "pack": "/home/ss/projects/pravrudhi/research/inbox/night4/c-0045",
       "signed": false
     }
   ],
@@ -25287,9 +25287,9 @@
   ],
   "parity": {
     "coverage": {
-      "denominator": 20,
-      "fraction": 0.75,
-      "numerator": 15
+      "denominator": 25,
+      "fraction": 0.8,
+      "numerator": 20
     },
     "gaps": [
       {
@@ -25730,6 +25730,91 @@
           "orca": "have"
         },
         "why_it_matters": "Keep notes and plans where the work is."
+      },
+      {
+        "capability": "Choose the agent and model from measured outcomes",
+        "evidence": [
+          "command: grep -qF def choose( src/pravrudhi/application/routing.py",
+          "command: grep -qF wilson src/pravrudhi/application/routing.py"
+        ],
+        "id": "measured-routing",
+        "notes": "A route is picked as the cheapest whose Wilson interval upper bound still reaches the best route's lower bound, so a cheap route is kept until the log can actually tell them apart. The claim is the rule and its recorded outcomes, not that the ranking is correct - on 2026-09-08 the Lite Plan seat stood at two successes in six trials, an interval of 0.10 to 0.70, which distinguishes it from nothing yet.",
+        "ours": "have",
+        "rivals": {
+          "claude_desktop": "unknown",
+          "codex": "unknown",
+          "openclaw": "unknown",
+          "orca": "unknown"
+        },
+        "why_it_matters": "Spend on the expensive route only once the evidence distinguishes it from a cheaper one."
+      },
+      {
+        "capability": "Every stated number traces to an append-only ledger row",
+        "evidence": [
+          "pravrudhi_kernel/src/pravrudhi_kernel/ledger/writer.py",
+          "command: grep -qF def verify( pravrudhi_kernel/src/pravrudhi_kernel/ledger/verify.py",
+          "command: grep -qF def replay( pravrudhi_kernel/src/pravrudhi_kernel/ledger/replay.py"
+        ],
+        "id": "evidence-ledger",
+        "notes": "The ledger is written once and verified as a chain, and replay folds it back into the state a night saw. The scope is the mechanism; it does not assert that every surface in the product reads from it.",
+        "ours": "have",
+        "rivals": {
+          "claude_desktop": "unknown",
+          "codex": "unknown",
+          "openclaw": "unknown",
+          "orca": "unknown"
+        },
+        "why_it_matters": "A result that cannot be replayed from its own record is a claim, not a measurement."
+      },
+      {
+        "capability": "Read back the parent structure of the search",
+        "evidence": [
+          "command: grep -qF def parent_map( src/pravrudhi/application/archive.py",
+          "command: grep -qF def ancestry_report( src/pravrudhi/application/archive.py"
+        ],
+        "id": "search-ancestry",
+        "notes": "The lineage field was written on every proposal from the start and read by nothing. Folded, the committed ledger gives 189 candidates, two distinct parents and a maximum depth of two - a two-node star, which is recorded here as the shape the search currently has rather than as an achievement.",
+        "ours": "have",
+        "rivals": {
+          "claude_desktop": "unknown",
+          "codex": "unknown",
+          "openclaw": "unknown",
+          "orca": "unknown"
+        },
+        "why_it_matters": "Without ancestry an evolutionary arm has nothing to shrink toward and no novelty to reward."
+      },
+      {
+        "capability": "Report whether the budget forced a choice at all",
+        "evidence": [
+          "command: grep -qF def selection_pressure( src/pravrudhi/application/archive.py"
+        ],
+        "id": "selection-pressure",
+        "notes": "Per night, the live pool against what was run. On the committed ledger the budget bound on seven of sixteen nights, so on the other nine the controller ranked a set it was going to run in full. This row exists to keep that measurable; it is the least flattering number the engine reports about itself.",
+        "ours": "have",
+        "rivals": {
+          "claude_desktop": "unknown",
+          "codex": "unknown",
+          "openclaw": "unknown",
+          "orca": "unknown"
+        },
+        "why_it_matters": "A selection rule earns nothing on a night when everything proposed could be afforded."
+      },
+      {
+        "capability": "Run unattended within a declared appetite",
+        "evidence": [
+          "command: grep -qF def run_night( src/pravrudhi/application/night.py",
+          "src/pravrudhi/assets/configs/appetite.yaml"
+        ],
+        "id": "unattended-nights",
+        "notes": "A night proposes, measures and prunes without intervention, and the drives that choose what to do next are weighted by a checked-in appetite policy an operator can override per workspace. The claim is that it runs unattended and bounded, not that any given night improved anything.",
+        "ours": "have",
+        "rivals": {
+          "claude_desktop": "unknown",
+          "codex": "unknown",
+          "openclaw": "partial",
+          "orca": "unknown"
+        },
+        "why_it_matters": "Improvement that needs an operator present is not improvement the operator can leave running."
       }
     ],
     "verification": [
@@ -25831,6 +25916,31 @@
       {
         "failures": [],
         "id": "markdown-editor",
+        "verified": true
+      },
+      {
+        "failures": [],
+        "id": "measured-routing",
+        "verified": true
+      },
+      {
+        "failures": [],
+        "id": "evidence-ledger",
+        "verified": true
+      },
+      {
+        "failures": [],
+        "id": "search-ancestry",
+        "verified": true
+      },
+      {
+        "failures": [],
+        "id": "selection-pressure",
+        "verified": true
+      },
+      {
+        "failures": [],
+        "id": "unattended-nights",
         "verified": true
       }
     ]
@@ -27186,7 +27296,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.74,
+        "staleness_days": 0.75,
         "state": "captured",
         "text": "step up to bigger things, let pravrudhi rsi handle most of its growth on its own....you bring the hard and deeper challenges and solve it for pravrudhi...have you done justice with loom..where is pratyabhijna...i don't see the messaging system (telegram)...where are the great plugins like attractor-flow...look at docs/recursive_self_improvement_sota.pdf think deeper and get to the roots of building rsi itself with a lot more of the stuff like efe and beyond...don't do superficial stuff...get the real value...foundational and discovery oriented...yet fully grounded to get the artifacts (app, api, etc)"
       },
@@ -27200,7 +27310,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.74,
+        "staleness_days": 0.75,
         "state": "captured",
         "text": "keep monitoring and load bearing for critical upgrades beyond what pravrudhi auto loop can do...the desktop app being a reflection of web app is not the expectation..look at orca desktop or claude code desktop...it should do real stuff...the showcase, demos are not intended for it...also it should be value based-right set of features-not a messy and confusing pile of stuff...the desktop app shouldn't focus on internal building, that is the task of the larger pravrudhi rsi...it should roll out to users and they build their things with it...the updates land autonomously and just like how claude desktop throws an option for the user to update-the same should be for pravrudhi desktop app-seamless but user driven...also you have not implemented oauth and user login including admin login and i said they need their own workspace and settings"
       },
@@ -27214,7 +27324,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.74,
+        "staleness_days": 0.75,
         "state": "captured",
         "text": "astra is back..you have to more actively monitor paid models coming back after session renewal and leverage them...managing models and agents efficiently should be one of the key features of pravrudhi....also keep testing the desktop with the admin login and use the prabhasa-nyaya as the main objective to build on...this will be a proxy for other users too as you can't test different user login without their byok model/api"
       },
@@ -27228,7 +27338,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.74,
+        "staleness_days": 0.75,
         "state": "captured",
         "text": "1)research and setup multiple agent orchestration systems (langgraph, openai/claude/google agent sdk etc)..there are a lot on the market. this is what will make pravrudhi an ade too behind the rsi.....implement the best-leverage open source implementations...stake this as another objective for pravrudhi 2)also think of ide that integrates claude code, codex, openrouter etc and all available in the ui/ux 3)demarcate the pravrudhi builder and its end product by different names...otherwise it will confuse...also both should have identical web and desktop versions 4)continue what you are building..create memory/hooks/logs to not lose track of other asks and what you are already building"
       },
@@ -27242,7 +27352,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.74,
+        "staleness_days": 0.75,
         "state": "captured",
         "text": "the real key is in and tested (alibaba lite plan)..you have not read the docs properly...take note and use the lite plan...and remember the desktop app will not have access to any api/routing for any model provider..they have to bring theirs, configure it etc..you have to enable..but for admin it uses the one as the core pravrudhi"
       },
@@ -27284,7 +27394,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.57,
+        "staleness_days": 0.58,
         "state": "captured",
         "text": "install both studio and non-studio desktops (both mac mini and 5090 machine) and give the web app link for both...the non-studio should update the builds autonomously when studio pushes the change...but the catch is that whatever the non-studio is building should not break..also the desktop should support major os (including windows) and the web app major browsers...and continue to build and work and use the ledger that has all my previous requests...let ralph rigourously check before closing..do e2e tests ...adversarial reviews before closure too"
       },
@@ -28431,19 +28541,19 @@
         "reason": "ready"
       },
       {
-        "available": true,
+        "available": false,
         "name": "codex",
-        "reason": "ready"
+        "reason": "codex CLI not installed"
       },
       {
-        "available": true,
+        "available": false,
         "name": "opencode:alibaba",
-        "reason": "ready (quota and network not probed)"
+        "reason": "opencode CLI not installed"
       },
       {
-        "available": true,
+        "available": false,
         "name": "opencode:alibaba-plan",
-        "reason": "ready (quota and network not probed)"
+        "reason": "opencode CLI not installed"
       },
       {
         "available": true,
@@ -28451,14 +28561,14 @@
         "reason": "ready"
       },
       {
-        "available": true,
+        "available": false,
         "name": "orca:codex",
-        "reason": "ready"
+        "reason": "orca is up but codex is not on PATH"
       },
       {
-        "available": true,
+        "available": false,
         "name": "orca:local",
-        "reason": "ready"
+        "reason": "orca is up but opencode is not on PATH"
       }
     ],
     "routing": [
@@ -29372,16 +29482,16 @@
     "channel": "dev",
     "check_interval_min": 30,
     "current": {
-      "git_describe": "v0.4.0-11-gec9c38e",
+      "git_describe": "v0.4.0-12-g0795de4-dirty",
       "kernel_version": "0.1.0",
       "version": "0.4.0"
     },
     "keep_previous": 2
   },
   "version": {
-    "commit": "ec9c38e",
+    "commit": "0795de4",
     "engine": "0.4.0",
-    "exported_at": "2026-09-08T10:49:53.829Z",
+    "exported_at": "2026-09-08T10:53:17.253Z",
     "kernel": "0.1.0"
   }
 }
