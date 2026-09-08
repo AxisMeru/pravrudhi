@@ -1271,6 +1271,13 @@ def requests_advance_cmd(
             raise typer.Exit(code=1) from e
         if not result.passed:
             typer.echo(f"gate refused: {result.reason}", err=True)
+            # The reviewer's own words, not just the label saying it objected. Without these a blocking review
+            # is an opaque refusal: the heartbeat re-chooses the same request every beat, the gate says only
+            # "the review found a reason", and there is nothing to act on. The engine's loop sat idle for a day
+            # on exactly this — a refusal nobody could read.
+            if result.review is not None and result.review.blocking and result.review.findings.strip():
+                typer.echo("\nwhat the reviewer found:\n", err=True)
+                typer.echo(result.review.findings.strip(), err=True)
             raise typer.Exit(code=1)
     try:
         req = advance(root, request_id, state, note=note)
