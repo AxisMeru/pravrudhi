@@ -207,6 +207,14 @@
       "kind": "accepted",
       "objective": null,
       "summary": "bot-can-act accepted by codex"
+    },
+    {
+      "agent": "opencode:alibaba-plan",
+      "at": "2026-09-08T17:46:49Z",
+      "detail": "touched 2 file(s): proposals/bot-tools/README.md, proposals/bot-tools/bot_tools.py",
+      "kind": "accepted",
+      "objective": null,
+      "summary": "bot-tool-coverage accepted by opencode:alibaba-plan"
     }
   ],
   "appetite": {
@@ -216,7 +224,7 @@
         "drive": "seva",
         "kind": "obligation"
       },
-      "as_of": "2026-09-08T17:37:32Z",
+      "as_of": "2026-09-08T18:12:11Z",
       "drives": [
         {
           "blocked_reason": "",
@@ -346,7 +354,7 @@
             "captured=30",
             "verified=5",
             "R_verified=0.1667",
-            "oldest_open_days=2.01"
+            "oldest_open_days=2.03"
           ],
           "target": 0.9,
           "unknown": false,
@@ -502,7 +510,7 @@
           "captured=30",
           "verified=5",
           "R_verified=0.1667",
-          "oldest_open_days=2.01"
+          "oldest_open_days=2.03"
         ],
         "target": 0.9,
         "unknown": false,
@@ -5785,7 +5793,1648 @@
   "diffs": [
     {
       "base": "da6706c15b0031c406498aac4707b7ddd6171f36",
-      "files": [],
+      "files": [
+        {
+          "added": 187,
+          "binary": false,
+          "hunks": [
+            {
+              "header": "@@ -0,0 +1,187 @@",
+              "lines": [
+                {
+                  "kind": "add",
+                  "text": "# Bot tool coverage: candidates, agent_trace, routing_seats"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "`src/pravrudhi/application/chat.py` gives the assistant a closed tool set (`TOOL_SCHEMA`), and `dispatch`"
+                },
+                {
+                  "kind": "add",
+                  "text": "refuses every name outside it. Three questions have answers in this workspace that the assistant cannot"
+                },
+                {
+                  "kind": "add",
+                  "text": "currently reach, so they get the same honest \"no record\" that every night question got before the `nights`"
+                },
+                {
+                  "kind": "add",
+                  "text": "tool was added:"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "- *what candidates does the engine hold, and how are they rated?* \u2014 the rows `demo_export._candidates`"
+                },
+                {
+                  "kind": "add",
+                  "text": "  builds for the candidates page and the published snapshot."
+                },
+                {
+                  "kind": "add",
+                  "text": "- *what were the agents actually doing?* \u2014 the continuity log `demo_export._agent_trace` exports"
+                },
+                {
+                  "kind": "add",
+                  "text": "  (`continuity.entries(root, 100)`, oldest first, so the slice shown newest-last)."
+                },
+                {
+                  "kind": "add",
+                  "text": "- *which routes are grounded, and until when?* \u2014 the seats table `demo_export._swarm` exports as"
+                },
+                {
+                  "kind": "add",
+                  "text": "  `roster`: `[s.to_dict() for s in roster(root)]`, usable seats first, then by cost."
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "Each of the three is a direct read of a function `demo_export.py` already calls. No new data path is"
+                },
+                {
+                  "kind": "add",
+                  "text": "created anywhere in this proposal, and, exactly like `nights`, each is a `_NO_ARGS` tool: the `nights`"
+                },
+                {
+                  "kind": "add",
+                  "text": "description already sends candidate questions to the ledger, and a per-tool argument would only invite the"
+                },
+                {
+                  "kind": "add",
+                  "text": "model to guess a night number."
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "## Schema entries"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "Insert into the `TOOL_SCHEMA` tuple: `candidates` after the `nights` entry (they share one replayed"
+                },
+                {
+                  "kind": "add",
+                  "text": "state), `agent_trace` and `routing_seats` after the `routing_report` entry (the `routing_*` family stays"
+                },
+                {
+                  "kind": "add",
+                  "text": "together). Exact text \u2014 also carried verbatim, as constants, in `bot_tools.py`:"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "```python"
+                },
+                {
+                  "kind": "add",
+                  "text": "    {\"name\": \"candidates\", \"description\": \"Every candidate this engine holds, newest last, each with its \""
+                },
+                {
+                  "kind": "add",
+                  "text": "                                          \"badge \u2014 the same rows the candidates page renders. Ask this for \""
+                },
+                {
+                  "kind": "add",
+                  "text": "                                          \"anything about a candidate.\","
+                },
+                {
+                  "kind": "add",
+                  "text": "     \"parameters\": _NO_ARGS},"
+                },
+                {
+                  "kind": "add",
+                  "text": "```"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "```python"
+                },
+                {
+                  "kind": "add",
+                  "text": "    {\"name\": \"agent_trace\", \"description\": \"What the agents actually did, newest last: dispatches accepted \""
+                },
+                {
+                  "kind": "add",
+                  "text": "                                           \"or refused, usage limits hit, fallbacks, handbacks, milestones.\","
+                },
+                {
+                  "kind": "add",
+                  "text": "     \"parameters\": _NO_ARGS},"
+                },
+                {
+                  "kind": "add",
+                  "text": "```"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "```python"
+                },
+                {
+                  "kind": "add",
+                  "text": "    {\"name\": \"routing_seats\", \"description\": \"The routing seats table: every route with its relative cost, \""
+                },
+                {
+                  "kind": "add",
+                  "text": "                                             \"its measured record, and whether it can be dispatched to now or \""
+                },
+                {
+                  "kind": "add",
+                  "text": "                                             \"is sitting out a usage limit and until when. Usable first.\","
+                },
+                {
+                  "kind": "add",
+                  "text": "     \"parameters\": _NO_ARGS},"
+                },
+                {
+                  "kind": "add",
+                  "text": "```"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "`routing_seats` is deliberately not named `roster`: a bare `roster()` is ambiguous next to the agent survey"
+                },
+                {
+                  "kind": "add",
+                  "text": "the swarm already shows, while `routing_seats` extends the existing `routing_report` family."
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "## Dispatch branches"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "Same placement as the schema entries \u2014 `candidates` beside the `nights` branch, the other two beside"
+                },
+                {
+                  "kind": "add",
+                  "text": "`routing_report` \u2014 each a new `elif` ahead of the final `else:` that catches `evidence`. Exact text:"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "```python"
+                },
+                {
+                  "kind": "add",
+                  "text": "    elif tool == \"candidates\":"
+                },
+                {
+                  "kind": "add",
+                  "text": "        # The nights tool counts candidates per night; the candidate rows behind those counts were still"
+                },
+                {
+                  "kind": "add",
+                  "text": "        # unreachable. The ledger may be absent on a fresh workspace, and unlike the iterator _nights uses,"
+                },
+                {
+                  "kind": "add",
+                  "text": "        # replay opens the file directly (build_demo in demo_export.py touches an empty ledger for exactly"
+                },
+                {
+                  "kind": "add",
+                  "text": "        # this reason), so the absent case is an empty result here \u2014 a read-only tool must not create it."
+                },
+                {
+                  "kind": "add",
+                  "text": "        from pravrudhi_kernel.ledger import replay"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "        from pravrudhi.application.demo_export import _candidates"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "        try:"
+                },
+                {
+                  "kind": "add",
+                  "text": "            st = replay(root / \"research\" / \"ledger.jsonl\")"
+                },
+                {
+                  "kind": "add",
+                  "text": "        except (OSError, ValueError):"
+                },
+                {
+                  "kind": "add",
+                  "text": "            result = {\"candidates\": []}"
+                },
+                {
+                  "kind": "add",
+                  "text": "        else:"
+                },
+                {
+                  "kind": "add",
+                  "text": "            result = {\"candidates\": _candidates(root, st)[-40:]}"
+                },
+                {
+                  "kind": "add",
+                  "text": "    elif tool == \"agent_trace\":"
+                },
+                {
+                  "kind": "add",
+                  "text": "        from pravrudhi.application.demo_export import _agent_trace"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "        result = {\"agent_trace\": _agent_trace(root)[-40:]}"
+                },
+                {
+                  "kind": "add",
+                  "text": "    elif tool == \"routing_seats\":"
+                },
+                {
+                  "kind": "add",
+                  "text": "        from pravrudhi.application.roster import roster"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "        result = {\"routing_seats\": [s.to_dict() for s in roster(root)]}"
+                },
+                {
+                  "kind": "add",
+                  "text": "```"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "Two deliberate deviations from the `nights` precedent, flagged for review:"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "1. **The `try` around `replay`.** `_nights` tolerates a missing ledger via its event iterator; `replay`"
+                },
+                {
+                  "kind": "add",
+                  "text": "   (kernel, not read here) is documented by `build_demo` as the FileNotFoundError source on fresh clones"
+                },
+                {
+                  "kind": "add",
+                  "text": "   and CI, so the candidates branch turns that into `{\"candidates\": []}` \u2014 an honest empty ledger, not a"
+                },
+                {
+                  "kind": "add",
+                  "text": "   500. `_candidates` itself is called unchanged."
+                },
+                {
+                  "kind": "add",
+                  "text": "2. **The `[-40:]` cap.** Same truncation `nights` applies, for the same reason: `_tool_results_message`"
+                },
+                {
+                  "kind": "add",
+                  "text": "   cuts the JSON feed to the model at 8000 characters regardless, so a cap keeps the whole newest window"
+                },
+                {
+                  "kind": "add",
+                  "text": "   visible rather than an arbitrary prefix of everything."
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "## `_summarise` branches"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "Counts computed here from the rows are as replayed as the rows themselves \u2014 that is what makes them safe"
+                },
+                {
+                  "kind": "add",
+                  "text": "for `allowed_numbers`. Add ahead of the `return tool` fallback:"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "```python"
+                },
+                {
+                  "kind": "add",
+                  "text": "    if tool == \"candidates\":"
+                },
+                {
+                  "kind": "add",
+                  "text": "        rows = result.get(\"candidates\") or []"
+                },
+                {
+                  "kind": "add",
+                  "text": "        if not rows:"
+                },
+                {
+                  "kind": "add",
+                  "text": "            return \"no candidates on record yet\""
+                },
+                {
+                  "kind": "add",
+                  "text": "        badges: dict[str, int] = {}"
+                },
+                {
+                  "kind": "add",
+                  "text": "        for row in rows:"
+                },
+                {
+                  "kind": "add",
+                  "text": "            badge = str(row.get(\"badge\"))"
+                },
+                {
+                  "kind": "add",
+                  "text": "            badges[badge] = badges.get(badge, 0) + 1"
+                },
+                {
+                  "kind": "add",
+                  "text": "        last = rows[-1]"
+                },
+                {
+                  "kind": "add",
+                  "text": "        return ("
+                },
+                {
+                  "kind": "add",
+                  "text": "            f\"{len(rows)} candidate(s), the newest {last.get('id')} with badge {last.get('badge')}; \""
+                },
+                {
+                  "kind": "add",
+                  "text": "            + \", \".join(f\"{n} {badge}\" for badge, n in sorted(badges.items()))"
+                },
+                {
+                  "kind": "add",
+                  "text": "        )"
+                },
+                {
+                  "kind": "add",
+                  "text": "    if tool == \"agent_trace\":"
+                },
+                {
+                  "kind": "add",
+                  "text": "        rows = result.get(\"agent_trace\") or []"
+                },
+                {
+                  "kind": "add",
+                  "text": "        if not rows:"
+                },
+                {
+                  "kind": "add",
+                  "text": "            return \"no agent activity recorded yet\""
+                },
+                {
+                  "kind": "add",
+                  "text": "        kinds: dict[str, int] = {}"
+                },
+                {
+                  "kind": "add",
+                  "text": "        for entry in rows:"
+                },
+                {
+                  "kind": "add",
+                  "text": "            kind = str(entry.get(\"kind\"))"
+                },
+                {
+                  "kind": "add",
+                  "text": "            kinds[kind] = kinds.get(kind, 0) + 1"
+                },
+                {
+                  "kind": "add",
+                  "text": "        return ("
+                },
+                {
+                  "kind": "add",
+                  "text": "            f\"{len(rows)} entries, the newest at {rows[-1].get('at')}: \""
+                },
+                {
+                  "kind": "add",
+                  "text": "            + \", \".join(f\"{n} {kind}\" for kind, n in sorted(kinds.items()))"
+                },
+                {
+                  "kind": "add",
+                  "text": "        )"
+                },
+                {
+                  "kind": "add",
+                  "text": "    if tool == \"routing_seats\":"
+                },
+                {
+                  "kind": "add",
+                  "text": "        rows = result.get(\"routing_seats\") or []"
+                },
+                {
+                  "kind": "add",
+                  "text": "        if not rows:"
+                },
+                {
+                  "kind": "add",
+                  "text": "            return \"no routes in the table\""
+                },
+                {
+                  "kind": "add",
+                  "text": "        usable = [r for r in rows if r.get(\"usable\")]"
+                },
+                {
+                  "kind": "add",
+                  "text": "        cheapest = min(usable or rows, key=lambda r: float(r.get(\"relative_cost\") or 0.0))"
+                },
+                {
+                  "kind": "add",
+                  "text": "        return ("
+                },
+                {
+                  "kind": "add",
+                  "text": "            f\"{len(rows)} seat(s), {len(usable)} usable; the cheapest is {cheapest.get('model')} \""
+                },
+                {
+                  "kind": "add",
+                  "text": "            f\"at {cheapest.get('relative_cost')}\""
+                },
+                {
+                  "kind": "add",
+                  "text": "        )"
+                },
+                {
+                  "kind": "add",
+                  "text": "    ```"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "`bot_tools.py` carries these three branches as real functions and a self-check that exercises them on"
+                },
+                {
+                  "kind": "add",
+                  "text": "synthetic and empty results, and \u2014 when `pravrudhi` is importable \u2014 dispatches all three against a fresh"
+                },
+                {
+                  "kind": "add",
+                  "text": "temp root and this workspace's own root, printing the actual candidate row fields so the summaries above"
+                },
+                {
+                  "kind": "add",
+                  "text": "can be corrected against fact before merge."
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "## Grounding keywords"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "`_GROUNDING_KEYWORDS` plus the tuple in `_grounding_calls` let a message's own wording justify a lookup"
+                },
+                {
+                  "kind": "add",
+                  "text": "before the model says anything. Add two keyword entries and extend the loop:"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "```python"
+                },
+                {
+                  "kind": "add",
+                  "text": "    \"candidates\": (\"candidate\", \"nominee\", \"badg\"),"
+                },
+                {
+                  "kind": "add",
+                  "text": "    \"routing_seats\": (\"seat\", \"cooldown\", \"grounded\", \"cost\"),"
+                },
+                {
+                  "kind": "add",
+                  "text": "```"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "```python"
+                },
+                {
+                  "kind": "add",
+                  "text": "    for tool in (\"recipes\", \"tools\", \"routing_report\", \"appetite\", \"candidates\", \"routing_seats\"):"
+                },
+                {
+                  "kind": "add",
+                  "text": "```"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "`agent_trace` is left out: its natural triggers (\"did\", \"worked\", \"ran\") collide with the objectives"
+                },
+                {
+                  "kind": "add",
+                  "text": "keywords already in the table, so keyword-grounding it would misfire on every progress question; the"
+                },
+                {
+                  "kind": "add",
+                  "text": "model reaches it by calling the tool itself. One consequence of the table above is worth knowing: a"
+                },
+                {
+                  "kind": "add",
+                  "text": "message merely containing \"cost\" now triggers a seats lookup. Drop `\"cost\"` if that is judged too loose."
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "## Honesty and citation behaviour the three inherit"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "- **Numeral licensing.** Every number the reply may state comes from the rows or from the summaries"
+                },
+                {
+                  "kind": "add",
+                  "text": "  above: candidate count and ids' digits, `relative_cost`, `trials`/`successes`/`success_rate`, `spent`"
+                },
+                {
+                  "kind": "add",
+                  "text": "  limits' timestamps in `returns_at`/`at`. Refused calls license nothing (`allowed_numbers` skips them),"
+                },
+                {
+                  "kind": "add",
+                  "text": "  and the model still cannot write \"64.6%\" from a returned `0.646`."
+                },
+                {
+                  "kind": "add",
+                  "text": "- **Citations.** No candidate row, continuity entry or `Seat` carries a ledger `seq`, so none of the three"
+                },
+                {
+                  "kind": "add",
+                  "text": "  yields `citations_from` hits on its own \u2014 the same situation `nights` and `appetite` are already in."
+                },
+                {
+                  "kind": "add",
+                  "text": "- **The grounding-fallback interaction.** Once `candidates`/`routing_seats` join the keyword loop, a"
+                },
+                {
+                  "kind": "add",
+                  "text": "  message containing one of their keywords on an *empty* workspace sets `grounded`, runs a lookup that"
+                },
+                {
+                  "kind": "add",
+                  "text": "  returns rows-by-construction-nothing (`{\"candidates\": []}` is still no citation), and `_finish_turn`"
+                },
+                {
+                  "kind": "add",
+                  "text": "  replaces the model's reply with `_GROUNDING_FALLBACK_REPLY` (\"could not consult the ledger\"). That is"
+                },
+                {
+                  "kind": "add",
+                  "text": "  already `appetite`'s behaviour on a fresh workspace and arguably correct there \u2014 there is no ledger \u2014"
+                },
+                {
+                  "kind": "add",
+                  "text": "  but it is a behaviour change for candidate questions, so it is flagged rather than slipped in."
+                },
+                {
+                  "kind": "add",
+                  "text": "- **The 8000-char tool-results feed.** `agent_trace` rows embed free-text `summary`/`detail`, so 40"
+                },
+                {
+                  "kind": "add",
+                  "text": "  entries can overflow the feed prefix more easily than `nights` rows can. If real traces prove too"
+                },
+                {
+                  "kind": "add",
+                  "text": "  verbose, the fix is the cap in the dispatch branch, not the honesty pass."
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "## Verification"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "```"
+                },
+                {
+                  "kind": "add",
+                  "text": "uv run python -m compileall -q proposals/bot-tools   # the deliverable compiles"
+                },
+                {
+                  "kind": "add",
+                  "text": "uv run python proposals/bot-tools/bot_tools.py       # self-check: summaries on synthetic + empty results,"
+                },
+                {
+                  "kind": "add",
+                  "text": "                                                     # and (if pravrudhi imports) live dispatch of all"
+                },
+                {
+                  "kind": "add",
+                  "text": "                                                     # three tools against a fresh temp root and this repo"
+                },
+                {
+                  "kind": "add",
+                  "text": "```"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "Sandbox: policy 'proposal'. Nothing outside `proposals/bot-tools/` was modified; `pravrudhi_kernel/`,"
+                },
+                {
+                  "kind": "add",
+                  "text": "`research/`, `gates/` and `.pravrudhi/` were not read or written. The `replay`, `_candidates`,"
+                },
+                {
+                  "kind": "add",
+                  "text": "`_agent_trace` and `roster` usages above come from `chat.py` and `demo_export.py`, the two files the task"
+                },
+                {
+                  "kind": "add",
+                  "text": "names; `continuity.py` and `roster.py` were read only because `demo_export.py` imports them."
+                }
+              ]
+            }
+          ],
+          "path": "proposals/bot-tools/README.md",
+          "removed": 0,
+          "too_large": false
+        },
+        {
+          "added": 216,
+          "binary": false,
+          "hunks": [
+            {
+              "header": "@@ -0,0 +1,216 @@",
+              "lines": [
+                {
+                  "kind": "add",
+                  "text": "\"\"\"Reference implementation for the three chat tools proposed in README.md."
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "`src/pravrudhi/application/chat.py` holds a closed tool set; this module carries, as runnable code, the"
+                },
+                {
+                  "kind": "add",
+                  "text": "`candidates`, `agent_trace` and `routing_seats` entries and branches exactly as README.md says to paste"
+                },
+                {
+                  "kind": "add",
+                  "text": "them into `TOOL_SCHEMA`, `dispatch` and `_summarise`. Nothing in the application imports this file \u2014 it is"
+                },
+                {
+                  "kind": "add",
+                  "text": "the proposal's checkable copy, so `uv run python -m compileall -q .` proves the pasted text is syntactically"
+                },
+                {
+                  "kind": "add",
+                  "text": "real, and `python bot_tools.py` exercises the pure parts everywhere and the live dispatch when `pravrudhi`"
+                },
+                {
+                  "kind": "add",
+                  "text": "is importable."
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "The branch bodies below are the chat.py branches verbatim (comments aside): imports stay function-local the"
+                },
+                {
+                  "kind": "add",
+                  "text": "way `dispatch` keeps them, and each summarise branch is written against the plain result dicts, not against"
+                },
+                {
+                  "kind": "add",
+                  "text": "a `ToolInvocation`, so it can run without the application."
+                },
+                {
+                  "kind": "add",
+                  "text": "\"\"\""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "from __future__ import annotations"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "import tempfile"
+                },
+                {
+                  "kind": "add",
+                  "text": "from pathlib import Path"
+                },
+                {
+                  "kind": "add",
+                  "text": "from typing import Any"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "# chat.py's own constant, duplicated so this file is runnable standalone."
+                },
+                {
+                  "kind": "add",
+                  "text": "_NO_ARGS: dict[str, Any] = {\"type\": \"object\", \"properties\": {}, \"required\": []}"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "CANDIDATES_TOOL: dict[str, Any] = {"
+                },
+                {
+                  "kind": "add",
+                  "text": "    \"name\": \"candidates\","
+                },
+                {
+                  "kind": "add",
+                  "text": "    \"description\": \"Every candidate this engine holds, newest last, each with its badge \u2014 the same rows the \""
+                },
+                {
+                  "kind": "add",
+                  "text": "                   \"candidates page renders. Ask this for anything about a candidate.\","
+                },
+                {
+                  "kind": "add",
+                  "text": "    \"parameters\": _NO_ARGS,"
+                },
+                {
+                  "kind": "add",
+                  "text": "}"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "AGENT_TRACE_TOOL: dict[str, Any] = {"
+                },
+                {
+                  "kind": "add",
+                  "text": "    \"name\": \"agent_trace\","
+                },
+                {
+                  "kind": "add",
+                  "text": "    \"description\": \"What the agents actually did, newest last: dispatches accepted or refused, usage limits \""
+                },
+                {
+                  "kind": "add",
+                  "text": "                   \"hit, fallbacks, handbacks, milestones.\","
+                },
+                {
+                  "kind": "add",
+                  "text": "    \"parameters\": _NO_ARGS,"
+                },
+                {
+                  "kind": "add",
+                  "text": "}"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "ROUTING_SEATS_TOOL: dict[str, Any] = {"
+                },
+                {
+                  "kind": "add",
+                  "text": "    \"name\": \"routing_seats\","
+                },
+                {
+                  "kind": "add",
+                  "text": "    \"description\": \"The routing seats table: every route with its relative cost, its measured record, and \""
+                },
+                {
+                  "kind": "add",
+                  "text": "                   \"whether it can be dispatched to now or is sitting out a usage limit and until when. \""
+                },
+                {
+                  "kind": "add",
+                  "text": "                   \"Usable first.\","
+                },
+                {
+                  "kind": "add",
+                  "text": "    \"parameters\": _NO_ARGS,"
+                },
+                {
+                  "kind": "add",
+                  "text": "}"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "# (CANDIDATES_TOOL after chat.py's \"nights\" entry; the other two after \"routing_report\".)"
+                },
+                {
+                  "kind": "add",
+                  "text": "TOOL_SCHEMA_ADDITIONS: tuple[dict[str, Any], ...] = (CANDIDATES_TOOL, AGENT_TRACE_TOOL, ROUTING_SEATS_TOOL)"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "GROUNDING_KEYWORDS_ADDITIONS: dict[str, tuple[str, ...]] = {"
+                },
+                {
+                  "kind": "add",
+                  "text": "    \"candidates\": (\"candidate\", \"nominee\", \"badg\"),"
+                },
+                {
+                  "kind": "add",
+                  "text": "    \"routing_seats\": (\"seat\", \"cooldown\", \"grounded\", \"cost\"),"
+                },
+                {
+                  "kind": "add",
+                  "text": "}"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "# The `_grounding_calls` loop with the two new names appended."
+                },
+                {
+                  "kind": "add",
+                  "text": "GROUNDING_LOOP_TOOLS: tuple[str, ...] = ("
+                },
+                {
+                  "kind": "add",
+                  "text": "    \"recipes\", \"tools\", \"routing_report\", \"appetite\", \"candidates\", \"routing_seats\","
+                },
+                {
+                  "kind": "add",
+                  "text": ")"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "def _branch_candidates(root: Path, args: dict[str, Any]) -> dict[str, Any]:"
+                },
+                {
+                  "kind": "add",
+                  "text": "    from pravrudhi_kernel.ledger import replay"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "    from pravrudhi.application.demo_export import _candidates"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "    try:"
+                },
+                {
+                  "kind": "add",
+                  "text": "        st = replay(root / \"research\" / \"ledger.jsonl\")"
+                },
+                {
+                  "kind": "add",
+                  "text": "    except (OSError, ValueError):"
+                },
+                {
+                  "kind": "add",
+                  "text": "        result = {\"candidates\": []}"
+                },
+                {
+                  "kind": "add",
+                  "text": "    else:"
+                },
+                {
+                  "kind": "add",
+                  "text": "        result = {\"candidates\": _candidates(root, st)[-40:]}"
+                },
+                {
+                  "kind": "add",
+                  "text": "    return result"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "def _branch_agent_trace(root: Path, args: dict[str, Any]) -> dict[str, Any]:"
+                },
+                {
+                  "kind": "add",
+                  "text": "    from pravrudhi.application.demo_export import _agent_trace"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "    result = {\"agent_trace\": _agent_trace(root)[-40:]}"
+                },
+                {
+                  "kind": "add",
+                  "text": "    return result"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "def _branch_routing_seats(root: Path, args: dict[str, Any]) -> dict[str, Any]:"
+                },
+                {
+                  "kind": "add",
+                  "text": "    from pravrudhi.application.roster import roster"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "    result = {\"routing_seats\": [s.to_dict() for s in roster(root)]}"
+                },
+                {
+                  "kind": "add",
+                  "text": "    return result"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "DISPATCH_BRANCHES = {"
+                },
+                {
+                  "kind": "add",
+                  "text": "    \"candidates\": _branch_candidates,"
+                },
+                {
+                  "kind": "add",
+                  "text": "    \"agent_trace\": _branch_agent_trace,"
+                },
+                {
+                  "kind": "add",
+                  "text": "    \"routing_seats\": _branch_routing_seats,"
+                },
+                {
+                  "kind": "add",
+                  "text": "}"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "def dispatch(root: Path, tool: str, args: dict[str, Any]) -> dict[str, Any]:"
+                },
+                {
+                  "kind": "add",
+                  "text": "    \"\"\"The three new `dispatch` branches, callable by name; anything else is refused like chat.py does.\"\"\""
+                },
+                {
+                  "kind": "add",
+                  "text": "    if tool not in DISPATCH_BRANCHES:"
+                },
+                {
+                  "kind": "add",
+                  "text": "        raise KeyError(f\"not a proposed tool: {tool!r}\")"
+                },
+                {
+                  "kind": "add",
+                  "text": "    return DISPATCH_BRANCHES[tool](Path(root), args)"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "def _summarise_candidates(args: dict[str, Any], result: dict[str, Any]) -> str:"
+                },
+                {
+                  "kind": "add",
+                  "text": "    rows = result.get(\"candidates\") or []"
+                },
+                {
+                  "kind": "add",
+                  "text": "    if not rows:"
+                },
+                {
+                  "kind": "add",
+                  "text": "        return \"no candidates on record yet\""
+                },
+                {
+                  "kind": "add",
+                  "text": "    badges: dict[str, int] = {}"
+                },
+                {
+                  "kind": "add",
+                  "text": "    for row in rows:"
+                },
+                {
+                  "kind": "add",
+                  "text": "        badge = str(row.get(\"badge\"))"
+                },
+                {
+                  "kind": "add",
+                  "text": "        badges[badge] = badges.get(badge, 0) + 1"
+                },
+                {
+                  "kind": "add",
+                  "text": "    last = rows[-1]"
+                },
+                {
+                  "kind": "add",
+                  "text": "    return ("
+                },
+                {
+                  "kind": "add",
+                  "text": "        f\"{len(rows)} candidate(s), the newest {last.get('id')} with badge {last.get('badge')}; \""
+                },
+                {
+                  "kind": "add",
+                  "text": "        + \", \".join(f\"{n} {badge}\" for badge, n in sorted(badges.items()))"
+                },
+                {
+                  "kind": "add",
+                  "text": "    )"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "def _summarise_agent_trace(args: dict[str, Any], result: dict[str, Any]) -> str:"
+                },
+                {
+                  "kind": "add",
+                  "text": "    rows = result.get(\"agent_trace\") or []"
+                },
+                {
+                  "kind": "add",
+                  "text": "    if not rows:"
+                },
+                {
+                  "kind": "add",
+                  "text": "        return \"no agent activity recorded yet\""
+                },
+                {
+                  "kind": "add",
+                  "text": "    kinds: dict[str, int] = {}"
+                },
+                {
+                  "kind": "add",
+                  "text": "    for entry in rows:"
+                },
+                {
+                  "kind": "add",
+                  "text": "        kind = str(entry.get(\"kind\"))"
+                },
+                {
+                  "kind": "add",
+                  "text": "        kinds[kind] = kinds.get(kind, 0) + 1"
+                },
+                {
+                  "kind": "add",
+                  "text": "    return ("
+                },
+                {
+                  "kind": "add",
+                  "text": "        f\"{len(rows)} entries, the newest at {rows[-1].get('at')}: \""
+                },
+                {
+                  "kind": "add",
+                  "text": "        + \", \".join(f\"{n} {kind}\" for kind, n in sorted(kinds.items()))"
+                },
+                {
+                  "kind": "add",
+                  "text": "    )"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "def _summarise_routing_seats(args: dict[str, Any], result: dict[str, Any]) -> str:"
+                },
+                {
+                  "kind": "add",
+                  "text": "    rows = result.get(\"routing_seats\") or []"
+                },
+                {
+                  "kind": "add",
+                  "text": "    if not rows:"
+                },
+                {
+                  "kind": "add",
+                  "text": "        return \"no routes in the table\""
+                },
+                {
+                  "kind": "add",
+                  "text": "    usable = [r for r in rows if r.get(\"usable\")]"
+                },
+                {
+                  "kind": "add",
+                  "text": "    cheapest = min(usable or rows, key=lambda r: float(r.get(\"relative_cost\") or 0.0))"
+                },
+                {
+                  "kind": "add",
+                  "text": "    return ("
+                },
+                {
+                  "kind": "add",
+                  "text": "        f\"{len(rows)} seat(s), {len(usable)} usable; the cheapest is {cheapest.get('model')} \""
+                },
+                {
+                  "kind": "add",
+                  "text": "        f\"at {cheapest.get('relative_cost')}\""
+                },
+                {
+                  "kind": "add",
+                  "text": "    )"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "def summarise(tool: str, args: dict[str, Any], result: dict[str, Any]) -> str:"
+                },
+                {
+                  "kind": "add",
+                  "text": "    \"\"\"The three new `_summarise` branches, callable by name.\"\"\""
+                },
+                {
+                  "kind": "add",
+                  "text": "    if tool == \"candidates\":"
+                },
+                {
+                  "kind": "add",
+                  "text": "        return _summarise_candidates(args, result)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    if tool == \"agent_trace\":"
+                },
+                {
+                  "kind": "add",
+                  "text": "        return _summarise_agent_trace(args, result)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    if tool == \"routing_seats\":"
+                },
+                {
+                  "kind": "add",
+                  "text": "        return _summarise_routing_seats(args, result)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    return tool"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "def _self_check() -> None:"
+                },
+                {
+                  "kind": "add",
+                  "text": "    for entry in TOOL_SCHEMA_ADDITIONS:"
+                },
+                {
+                  "kind": "add",
+                  "text": "        assert set(entry) == {\"name\", \"description\", \"parameters\"}, entry"
+                },
+                {
+                  "kind": "add",
+                  "text": "        assert entry[\"parameters\"] == _NO_ARGS, entry[\"name\"]"
+                },
+                {
+                  "kind": "add",
+                  "text": "    assert {e[\"name\"] for e in TOOL_SCHEMA_ADDITIONS} == set(DISPATCH_BRANCHES) == {\"candidates\", \"agent_trace\", \"routing_seats\"}"
+                },
+                {
+                  "kind": "add",
+                  "text": "    assert all(t in GROUNDING_LOOP_TOOLS for t in GROUNDING_KEYWORDS_ADDITIONS)"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "    assert summarise(\"candidates\", {}, {\"candidates\": []}) == \"no candidates on record yet\""
+                },
+                {
+                  "kind": "add",
+                  "text": "    assert summarise(\"agent_trace\", {}, {\"agent_trace\": []}) == \"no agent activity recorded yet\""
+                },
+                {
+                  "kind": "add",
+                  "text": "    assert summarise(\"routing_seats\", {}, {\"routing_seats\": []}) == \"no routes in the table\""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "    cand = summarise(\"candidates\", {}, {\"candidates\": ["
+                },
+                {
+                  "kind": "add",
+                  "text": "        {\"id\": \"c-7\", \"badge\": \"promoted\", \"parent\": \"c-3\"},"
+                },
+                {
+                  "kind": "add",
+                  "text": "        {\"id\": \"c-8\", \"badge\": \"holding\", \"parent\": \"c-7\"},"
+                },
+                {
+                  "kind": "add",
+                  "text": "        {\"id\": \"c-9\", \"badge\": \"holding\", \"parent\": \"c-7\"},"
+                },
+                {
+                  "kind": "add",
+                  "text": "    ]})"
+                },
+                {
+                  "kind": "add",
+                  "text": "    assert cand == \"3 candidate(s), the newest c-9 with badge holding; 2 holding, 1 promoted\", cand"
+                },
+                {
+                  "kind": "add",
+                  "text": "    trace = summarise(\"agent_trace\", {}, {\"agent_trace\": ["
+                },
+                {
+                  "kind": "add",
+                  "text": "        {\"at\": \"2026-09-07T10:00:00Z\", \"kind\": \"dispatch\", \"summary\": \"wave 1\"},"
+                },
+                {
+                  "kind": "add",
+                  "text": "        {\"at\": \"2026-09-07T11:00:00Z\", \"kind\": \"limited\", \"summary\": \"route gave out\"},"
+                },
+                {
+                  "kind": "add",
+                  "text": "        {\"at\": \"2026-09-07T12:00:00Z\", \"kind\": \"dispatch\", \"summary\": \"wave 2\"},"
+                },
+                {
+                  "kind": "add",
+                  "text": "    ]})"
+                },
+                {
+                  "kind": "add",
+                  "text": "    assert trace == \"3 entries, the newest at 2026-09-07T12:00:00Z: 2 dispatch, 1 limited\", trace"
+                },
+                {
+                  "kind": "add",
+                  "text": "    seats = summarise(\"routing_seats\", {}, {\"routing_seats\": ["
+                },
+                {
+                  "kind": "add",
+                  "text": "        {\"id\": \"a\", \"model\": \"m1\", \"relative_cost\": 2.90, \"usable\": False},"
+                },
+                {
+                  "kind": "add",
+                  "text": "        {\"id\": \"b\", \"model\": \"m2\", \"relative_cost\": 0.35, \"usable\": True},"
+                },
+                {
+                  "kind": "add",
+                  "text": "        {\"id\": \"c\", \"model\": \"m3\", \"relative_cost\": 0.15, \"usable\": True},"
+                },
+                {
+                  "kind": "add",
+                  "text": "    ]})"
+                },
+                {
+                  "kind": "add",
+                  "text": "    assert seats == \"3 seat(s), 2 usable; the cheapest is m3 at 0.15\", seats"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "    try:"
+                },
+                {
+                  "kind": "add",
+                  "text": "        import pravrudhi.application.demo_export  # noqa: F401"
+                },
+                {
+                  "kind": "add",
+                  "text": "    except Exception as exc:  # noqa: BLE001 - the live half of the check needs the package installed"
+                },
+                {
+                  "kind": "add",
+                  "text": "        print(f\"live dispatch skipped: pravrudhi not importable ({exc})\")"
+                },
+                {
+                  "kind": "add",
+                  "text": "        return"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "    with tempfile.TemporaryDirectory() as tmp:"
+                },
+                {
+                  "kind": "add",
+                  "text": "        for tool in DISPATCH_BRANCHES:"
+                },
+                {
+                  "kind": "add",
+                  "text": "            try:"
+                },
+                {
+                  "kind": "add",
+                  "text": "                empty = dispatch(Path(tmp), tool, {})"
+                },
+                {
+                  "kind": "add",
+                  "text": "                print(f\"[fresh root] {tool}: {summarise(tool, {}, empty)}\")"
+                },
+                {
+                  "kind": "add",
+                  "text": "            except Exception as exc:  # noqa: BLE001"
+                },
+                {
+                  "kind": "add",
+                  "text": "                print(f\"[fresh root] {tool}: raised {type(exc).__name__}: {exc}\")"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "    repo = Path(__file__).resolve().parents[2]"
+                },
+                {
+                  "kind": "add",
+                  "text": "    for tool in DISPATCH_BRANCHES:"
+                },
+                {
+                  "kind": "add",
+                  "text": "        try:"
+                },
+                {
+                  "kind": "add",
+                  "text": "            live = dispatch(repo, tool, {})"
+                },
+                {
+                  "kind": "add",
+                  "text": "            rows = live[tool]"
+                },
+                {
+                  "kind": "add",
+                  "text": "            print(f\"[workspace] {tool}: {summarise(tool, {}, live)}\")"
+                },
+                {
+                  "kind": "add",
+                  "text": "            if tool == \"candidates\" and rows:"
+                },
+                {
+                  "kind": "add",
+                  "text": "                print(f\"[workspace] candidate row fields: {sorted(rows[0])}\")"
+                },
+                {
+                  "kind": "add",
+                  "text": "            if tool == \"agent_trace\" and rows:"
+                },
+                {
+                  "kind": "add",
+                  "text": "                print(f\"[workspace] trace row fields: {sorted(rows[0])}\")"
+                },
+                {
+                  "kind": "add",
+                  "text": "            if tool == \"routing_seats\" and rows:"
+                },
+                {
+                  "kind": "add",
+                  "text": "                print(f\"[workspace] seat row fields: {sorted(rows[0])}\")"
+                },
+                {
+                  "kind": "add",
+                  "text": "        except Exception as exc:  # noqa: BLE001"
+                },
+                {
+                  "kind": "add",
+                  "text": "            print(f\"[workspace] {tool}: raised {type(exc).__name__}: {exc}\")"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "if __name__ == \"__main__\":"
+                },
+                {
+                  "kind": "add",
+                  "text": "    _self_check()"
+                },
+                {
+                  "kind": "add",
+                  "text": "    print(\"self-check ok\")"
+                }
+              ]
+            }
+          ],
+          "path": "proposals/bot-tools/bot_tools.py",
+          "removed": 0,
+          "too_large": false
+        }
+      ],
       "head": "da6706c15b0031c406498aac4707b7ddd6171f36",
       "reason": "",
       "task_id": "bot-tool-coverage",
@@ -52368,9 +54017,9 @@
       ],
       "channel": "release",
       "current_version": "0.4.0",
-      "due": true,
+      "due": false,
       "healthy": true,
-      "last_check": 1788885632.6863708,
+      "last_check": 1788889345.1881392,
       "last_result": "running 0.4.0",
       "root": "/home/ss/pravrudhi-release"
     }
@@ -52388,12 +54037,12 @@
         "ok": true
       },
       {
-        "detail": "last heartbeat was 1764s ago",
+        "detail": "last heartbeat was 3603s ago",
         "name": "scheduler_fresh",
         "ok": true
       },
       {
-        "detail": "696762122240 bytes free",
+        "detail": "696699969536 bytes free",
         "name": "disk_available",
         "ok": true
       },
@@ -52408,7 +54057,7 @@
         "ok": true
       },
       {
-        "detail": "developer checkout; a known-good commit is da6706c",
+        "detail": "developer checkout; a known-good commit is f6e7069",
         "name": "release_restorable",
         "ok": true
       },
@@ -59524,7 +61173,7 @@
       "planned": 0,
       "verified": 5
     },
-    "oldest_open_days": 2.01,
+    "oldest_open_days": 2.03,
     "open": 25,
     "requests": [
       {
@@ -59692,7 +61341,7 @@
           7
         ],
         "session": "9e647463",
-        "staleness_days": 2.01,
+        "staleness_days": 2.03,
         "state": "delivered",
         "text": "and in no way you are near the orca with all its ade features or openclaw or polished features like claude desktop or codex....you have to beat them in features, utility and ux....dedicate an agent to persist on it...dedicate an agent to adversarial review against set goals so that the project does not drift...i am not seeing the desktop screen/features too in the dashboard..the demo should show real clicks etc and how the desktop app updates and produces the real results...where is the intent, goal, objective menu that drives everything...where are the tools, skills, plugins, multi-agent orchestration etc....don't be superficial..i want real things ..deep, sophisticated..complete...no synthetic, no hand-waving, no fabrication"
       },
@@ -59978,7 +61627,7 @@
           13
         ],
         "session": "9e647463",
-        "staleness_days": 1.91,
+        "staleness_days": 1.94,
         "state": "in_progress",
         "text": "ensure that all user asks go into a log in pravrudhi itself and gets addressed with some protocol...and pravrudhi should have some element of ego with a desire to survive, grow and flourish...that makes it seek out capabilities, build, test and continuously improve...also look at acorn, oak and openclaw_build or swarm projects on this machine that had these self building elements in them and adapt...pravrudhi should be something like a cow..consume everything possible but bring it back and slowly digest it --so equivalent is breadth first and depth later....be always value focused...you have to innovate on methods too....develop skills, agents and plugins....brainstorm with astra with higher thinking levels and let it propose solution..you review and coordinate its implementation across the swarm...you should also create dynamic workflows etc...also see how much you can incorporate the claude code engine itself to run open and other cloud models ...askuserquestion to get my intent properly"
       },
@@ -59992,7 +61641,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 1.03,
+        "staleness_days": 1.05,
         "state": "captured",
         "text": "step up to bigger things, let pravrudhi rsi handle most of its growth on its own....you bring the hard and deeper challenges and solve it for pravrudhi...have you done justice with loom..where is pratyabhijna...i don't see the messaging system (telegram)...where are the great plugins like attractor-flow...look at docs/recursive_self_improvement_sota.pdf think deeper and get to the roots of building rsi itself with a lot more of the stuff like efe and beyond...don't do superficial stuff...get the real value...foundational and discovery oriented...yet fully grounded to get the artifacts (app, api, etc)"
       },
@@ -60006,7 +61655,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 1.03,
+        "staleness_days": 1.05,
         "state": "captured",
         "text": "keep monitoring and load bearing for critical upgrades beyond what pravrudhi auto loop can do...the desktop app being a reflection of web app is not the expectation..look at orca desktop or claude code desktop...it should do real stuff...the showcase, demos are not intended for it...also it should be value based-right set of features-not a messy and confusing pile of stuff...the desktop app shouldn't focus on internal building, that is the task of the larger pravrudhi rsi...it should roll out to users and they build their things with it...the updates land autonomously and just like how claude desktop throws an option for the user to update-the same should be for pravrudhi desktop app-seamless but user driven...also you have not implemented oauth and user login including admin login and i said they need their own workspace and settings"
       },
@@ -60020,7 +61669,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 1.03,
+        "staleness_days": 1.05,
         "state": "captured",
         "text": "astra is back..you have to more actively monitor paid models coming back after session renewal and leverage them...managing models and agents efficiently should be one of the key features of pravrudhi....also keep testing the desktop with the admin login and use the prabhasa-nyaya as the main objective to build on...this will be a proxy for other users too as you can't test different user login without their byok model/api"
       },
@@ -60034,7 +61683,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 1.03,
+        "staleness_days": 1.05,
         "state": "captured",
         "text": "1)research and setup multiple agent orchestration systems (langgraph, openai/claude/google agent sdk etc)..there are a lot on the market. this is what will make pravrudhi an ade too behind the rsi.....implement the best-leverage open source implementations...stake this as another objective for pravrudhi 2)also think of ide that integrates claude code, codex, openrouter etc and all available in the ui/ux 3)demarcate the pravrudhi builder and its end product by different names...otherwise it will confuse...also both should have identical web and desktop versions 4)continue what you are building..create memory/hooks/logs to not lose track of other asks and what you are already building"
       },
@@ -60048,7 +61697,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 1.03,
+        "staleness_days": 1.05,
         "state": "captured",
         "text": "the real key is in and tested (alibaba lite plan)..you have not read the docs properly...take note and use the lite plan...and remember the desktop app will not have access to any api/routing for any model provider..they have to bring theirs, configure it etc..you have to enable..but for admin it uses the one as the core pravrudhi"
       },
@@ -60062,7 +61711,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.95,
+        "staleness_days": 0.97,
         "state": "captured",
         "text": "continue..askuserquestion to gather my actual intent on super pravrudhi and user pravrudhi...also give me control in super pravrudhi to directly interact with you using the model network that you have built as this claude code session may hit session limit in a day or 2...so prep it and test it and keep it ready for me"
       },
@@ -60076,7 +61725,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.9,
+        "staleness_days": 0.92,
         "state": "captured",
         "text": "Everything is set up and verified:\n\n* Bot confirmed: `@pravrudhi_bot`, token valid\n* Chat ID confirmed: `8679892510`\n* Message delivery tested end-to-end \u2014 you should have received \"Pravrudhi: Telegram bot wired up successfully.\" in Telegram\n* Credentials persisted at `~/.config/pravrudhi/telegram.env` (mode 600)\n* systemd units updated and reinstalled (pravrudhi-app.service, pravrudhi-heartbeat.service) with the `EnvironmentFile` line, though the running app service wasn't restarted per your choice\n* Handoff doc finalized at research/telegram-bot-setup.md, including the exact code gap (`notifications.py:_reach()` never passes `token`/`chat_id` to `reach.send()`) and a precise diff for the other agent session to apply\n\nPoint the other Claude Code session at research/telegram-bot-setup.md and it has everything it needs to wire the actual notification code...integrate, test and use...this will be only for admin..users will have to bring their byok..enable in settings...also note and implement  - Pravrudhi Studio is only for admin (it is not for any other user or public release)...and for the admin pravrudhi (use case end..not studio) will auto update the builds without the operator intervention"
       },
@@ -60090,7 +61739,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.86,
+        "staleness_days": 0.88,
         "state": "captured",
         "text": "install both studio and non-studio desktops (both mac mini and 5090 machine) and give the web app link for both...the non-studio should update the builds autonomously when studio pushes the change...but the catch is that whatever the non-studio is building should not break..also the desktop should support major os (including windows) and the web app major browsers...and continue to build and work and use the ledger that has all my previous requests...let ralph rigourously check before closing..do e2e tests ...adversarial reviews before closure too"
       },
@@ -60104,7 +61753,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.5,
+        "staleness_days": 0.52,
         "state": "captured",
         "text": "all done and authorizing shell auto-update...carry on....for both 5090 and mac mini"
       },
@@ -60118,7 +61767,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.49,
+        "staleness_days": 0.52,
         "state": "captured",
         "text": "the admin user end application can auto update too...i authorize it..as that is your test bed...and henceforth don't stop for operator ..you should continue other jobs..and why isn't the pravruhi's own rsi building autonomously (or is it?)...and have you differentiated the name (and obviously the features insided it) for studio and user end app...i only see one form of desktop on mac mini"
       },
@@ -60132,7 +61781,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.48,
+        "staleness_days": 0.5,
         "state": "captured",
         "text": "you cannot stop for the operator to command you....full autonomous and continous running both you and the 2 rsi systems (studio and the user app)"
       },
@@ -60146,7 +61795,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.45,
+        "staleness_days": 0.47,
         "state": "captured",
         "text": "forget the free tier as the coding model is exhausted...lite which is subscribed is the core...also let studio send me messages via telegram..don't overload me...let the rsi and openclaw equivalent within it interact with me on telegram...i should also be able to send messages to it and interact"
       },
@@ -60160,7 +61809,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.39,
+        "staleness_days": 0.41,
         "state": "captured",
         "text": "the github token should be available in env here or in some othe4 projects..use that...if you don\u2019t get, i will provide it here ...i am not at the machine..but on mobile now...and remember the rule ..no stopping at all"
       },
@@ -60174,7 +61823,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.13,
+        "staleness_days": 0.15,
         "state": "captured",
         "text": "how many times should i tell you to not wait on operator...make the call and keep moving... where you absolutely need operator to intervene like installing something on the machine or some token etc send a message with  clear instructions to unblock ...also telegram bot is for that purpose.   ..what you have got now is stale..it just asks to message with some slash commands...i want full interactivity with the bot.. like i can ask or tell anything in the bot chat and it responds in sufficient detail and acts on it or brings you in the loop...i want that to be a primary interface to work on the program just as i message here...and this functionality should also be available to user side of pravrudhi..not just studio...for now wire the same bot for admin use case pravrudhi...find a way to keep the studio and non-studio messaging channel different...or you can instantiate another bot by being an admin and controlling telegram"
       },
@@ -60188,7 +61837,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.08,
+        "staleness_days": 0.11,
         "state": "captured",
         "text": "Done! Congratulations on your new bot. You will find it at t.me/prabhasa_bot. You can now add a description, about section and profile picture for your bot, see /help for a list of commands. By the way, when you've finished creating your cool bot, ping our Bot Support if you want a better username for it. Just make sure the bot is fully operational before you do this.\n\nUse this token to access the HTTP API:\n8643311100:AAFFe88Ej8rte0Kqp0NsuEG4SNwCsoJRI3s\nKeep your token secure and store it safely, it can be used by anyone to control your bot.\n\nFor a description of the Bot API, see this page: https://core.telegram.org/bots/api"
       },
@@ -60202,7 +61851,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.08,
+        "staleness_days": 0.1,
         "state": "captured",
         "text": "why did you stop...is the swarm and rsi working ..atleast you need to monitor and intervene where needed..if required use routines in claude code for regular monitoring"
       },
@@ -60216,7 +61865,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.07,
+        "staleness_days": 0.09,
         "state": "captured",
         "text": "1) https://code.claude.com/docs/en/routines refer to this ..2) i pinged PrabhasaBot, but it did not respond...3)a new team account of claude is available, i want you to create every details needed to handover pravrudhi developement work to it (both studio and user)...it will have claude tag too..so leverage it....4)keep running until full handoff is done"
       },
@@ -60230,7 +61879,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.07,
+        "staleness_days": 0.09,
         "state": "captured",
         "text": "[08/09/2026 16:59] PrabhasaBot: [Pravrudhi Studio] Commands: /status, /requests, /routes, /beat, /ask, /help\n[08/09/2026 16:59] PrabhasaBot: [Pravrudhi Studio] I could not answer that: https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1/chat/completions answered 429: {\"error\":{\"message\":\"Your token-plan 1-week quota has been exhausted. The quota will reset at 09-14 16:14:00 UTC.\",\"id\":\"0b36a90c-a18b-48ec-ba1b-36991b4f3aec\",\"type\":\"insufficient_quota\",\"code\":\"insufficient_quota\"}} why is PrabhasaBot responding as Studio...it is the other bot which should be studio and this one is working on user objective of prabhasa..the end client"
       },
@@ -60244,7 +61893,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.06,
+        "staleness_days": 0.08,
         "state": "captured",
         "text": "you have not read the routines link i sent...you won't need a different cron job..stop that...don't run any routine as background tasks...and you are"
       },
@@ -60258,7 +61907,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.03,
+        "staleness_days": 0.05,
         "state": "captured",
         "text": "Here's how to create a routine in Claude Code, using the **CLI** path:\n\n1. **Start it**: Run `/schedule` (alias `/routines`) in any session. You can pass a description directly, e.g. `/schedule daily PR review at 9am` or a one-off like `/schedule in 2 weeks, open a cleanup PR that removes the feature flag`.\n2. **Answer follow-ups**: Claude asks about the schedule, repositories, and prompt, then saves the routine to your claude.ai account. If it says you need to authenticate, no routine was created \u2014 check [troubleshooting](/en/routines#troubleshooting).\n3. **Triggers**: `/schedule` only creates *schedule* triggers (recurring or one-off). For a custom cron interval, run `/schedule update`. To add an **API** trigger, you must use the web at [claude.ai/code/routines](https://claude.ai/code/routines). To add a **GitHub** trigger from the CLI (v2.1.225+), install the [GitHub App](https://github.com/apps/claude) first, then ask e.g. `/schedule add a GitHub trigger to my nightly review for pull requests opened in acme/webapp`.\n4. **Manage it**: `/schedule list` shows all routines, `/schedule update` edits one, `/schedule run` triggers it immediately. You can also ask `/schedule why did my nightly review do nothing this morning?` for run history.\n\nAlternatively, create/edit routines fully (prompt, repos, environment, connectors, all trigger types) at [claude.ai/code/routines](https://claude.ai/code/routines) or in the Desktop app's Code tab \u2192 Routines \u2192 New routine \u2192 **Cloud**.\n\nNote: routines run autonomously with no permission prompts, so scope repositories, connectors, and environment network access carefully. Full details: [Routines](/en/routines)...you set it up..manage the cli too....and on orphaned processes, salvage what is needed and discard the processes...2)you are again not leveraging gpt astra..3)is the studio or the user pravrudhi actively and autonomously working"
       },
@@ -60272,7 +61921,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.02,
+        "staleness_days": 0.04,
         "state": "captured",
         "text": "1)do local schedule task 2)you have to unblock studio on my behalf..crate a hook..or respond when you get the message...you only come to operator for what you cannot handle yourself 3)for product, i have given the objective...you have to stand-up prabhasa-nyaya...so plan, hand-hold, monitor and let the product build using its rsi"
       },
@@ -60286,7 +61935,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.01,
+        "staleness_days": 0.03,
         "state": "captured",
         "text": "1)create and use scheduled tasks to unblock the studio, product and guide it..better every 30 minutes than wasting 2 hrs if they get stuck.... 2) investigate why you exhausted alibaba lite plan so quickly (becuase of max model?)..check the other session which did some investigation and improve the routing for better model selection (to not exhaust the quota)"
       },
@@ -60300,7 +61949,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.01,
+        "staleness_days": 0.03,
         "state": "captured",
         "text": "alibaba switched to standard plan..so you will have quota now (25% used for the 7 days)...but manage very carefully..don't overload high cost models...improve the routing first and then use them effectively"
       },
@@ -61462,12 +63111,12 @@
         "relative_cost": 0.05,
         "returns_at": null,
         "sentinel": false,
-        "success_rate": null,
-        "successes": 0,
+        "success_rate": 1.0,
+        "successes": 1,
         "tiers": [
           "mechanical"
         ],
-        "trials": 0,
+        "trials": 1,
         "usable": true
       },
       {
@@ -61595,14 +63244,14 @@
         "records": [
           {
             "hi": 1.0,
-            "lo": 0.0,
-            "mean_wall_s": 0.0,
-            "rate": 0.0,
+            "lo": 0.2065432914738929,
+            "mean_wall_s": 356.1665395470336,
+            "rate": 1.0,
             "relative_cost": 0.05,
             "route_id": "qwen-lite-flash",
-            "successes": 0,
+            "successes": 1,
             "tier": "mechanical",
-            "trials": 0
+            "trials": 1
           },
           {
             "hi": 1.0,
@@ -62498,16 +64147,16 @@
     "channel": "dev",
     "check_interval_min": 30,
     "current": {
-      "git_describe": "v0.4.0-41-gda6706c",
+      "git_describe": "v0.4.0-43-gf6e7069",
       "kernel_version": "0.1.0",
       "version": "0.4.0"
     },
     "keep_previous": 2
   },
   "version": {
-    "commit": "da6706c",
+    "commit": "f6e7069",
     "engine": "0.4.0",
-    "exported_at": "2026-09-08T17:41:31.263Z",
+    "exported_at": "2026-09-08T18:12:06.259Z",
     "kernel": "0.1.0"
   }
 }
