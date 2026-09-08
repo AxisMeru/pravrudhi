@@ -127,6 +127,30 @@
       "kind": "accepted",
       "objective": null,
       "summary": "request:r-5795501a:7 accepted by claude-code"
+    },
+    {
+      "agent": "opencode:alibaba-plan",
+      "at": "2026-09-08T13:07:25Z",
+      "detail": "",
+      "kind": "limited",
+      "objective": null,
+      "summary": "opencode:alibaba-plan hit a usage limit on request:r-5795501a:7"
+    },
+    {
+      "agent": "claude-code",
+      "at": "2026-09-08T13:07:25Z",
+      "detail": null,
+      "kind": "fallback",
+      "objective": null,
+      "summary": "request:r-5795501a:7 moved from opencode:alibaba-plan to sonnet"
+    },
+    {
+      "agent": "claude-code",
+      "at": "2026-09-08T13:08:00Z",
+      "detail": "touched 16 file(s): proposals/requests/r-5795501a/7/README.md, proposals/requests/r-5795501a/7/pra7/__init__.py, proposals/requests/r-5795501a/7/pra7/__main__.py, proposals/requests/r-5795501a/7/pra7/adversary_agent.py, proposals/requests/r-5795501a/7/pra7/chain.py, proposals/requests/r-5795501a/7/pra7/claims.py, proposals/requests/r-5795501a/7/pra7/cli.py, proposals/requests/r-5795501a/7/pra7/dashboard.py, proposals/requests/r-5795501a/7/pra7/desktop_capture.py, proposals/requests/r-5795501a/7/pra7/evidence.py, proposals/requests/r-5795501a/7/pra7/intent.py, proposals/requests/r-5795501a/7/pr",
+      "kind": "accepted",
+      "objective": null,
+      "summary": "request:r-5795501a:7 accepted by claude-code"
     }
   ],
   "appetite": {
@@ -136,7 +160,7 @@
         "drive": "seva",
         "kind": "obligation"
       },
-      "as_of": "2026-09-08T12:53:46Z",
+      "as_of": "2026-09-08T13:12:02Z",
       "drives": [
         {
           "blocked_reason": "",
@@ -266,7 +290,7 @@
             "captured=20",
             "verified=5",
             "R_verified=0.2500",
-            "oldest_open_days=1.81"
+            "oldest_open_days=1.82"
           ],
           "target": 0.9,
           "unknown": false,
@@ -422,7 +446,7 @@
           "captured=20",
           "verified=5",
           "R_verified=0.2500",
-          "oldest_open_days=1.81"
+          "oldest_open_days=1.82"
         ],
         "target": 0.9,
         "unknown": false,
@@ -29767,11 +29791,11 @@
           "too_large": false
         },
         {
-          "added": 459,
+          "added": 527,
           "binary": false,
           "hunks": [
             {
-              "header": "@@ -0,0 +1,459 @@",
+              "header": "@@ -0,0 +1,527 @@",
               "lines": [
                 {
                   "kind": "add",
@@ -31319,7 +31343,27 @@
                 },
                 {
                   "kind": "add",
-                  "text": "    \"\"\"O3: adversarial verdict cites a goal that is not in the registry.\"\"\""
+                  "text": "    \"\"\"O3: adversarial verdict cites a goal that is not in the registry."
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "    The chain is rebuilt after the edit so the chain check stays intact and"
+                },
+                {
+                  "kind": "add",
+                  "text": "    ONLY the semantic goal-registration check can catch this corruption."
+                },
+                {
+                  "kind": "add",
+                  "text": "    Without the rebuild, the chain failure would mask the check under test."
+                },
+                {
+                  "kind": "add",
+                  "text": "    \"\"\""
                 },
                 {
                   "kind": "add",
@@ -31343,7 +31387,7 @@
                 },
                 {
                   "kind": "add",
-                  "text": "    write_jsonl(path, rows)"
+                  "text": "    write_jsonl(path, build_chain(rows))"
                 },
                 {
                   "kind": "add",
@@ -31359,39 +31403,235 @@
                 },
                 {
                   "kind": "add",
+                  "text": "# Each entry: (name, corruption, expected, absent) where:"
+                },
+                {
+                  "kind": "add",
+                  "text": "#   expected \u2014 substring that MUST appear on a [FAIL] line (the intended check);"
+                },
+                {
+                  "kind": "add",
+                  "text": "#   absent   \u2014 substring that must NOT appear on any [FAIL] line, or None."
+                },
+                {
+                  "kind": "add",
+                  "text": "# Asserting the intended check fires \u2014 not merely that exit != 0 \u2014 is what"
+                },
+                {
+                  "kind": "add",
+                  "text": "# distinguishes \"the gate detects this corruption class\" from \"the gate"
+                },
+                {
+                  "kind": "add",
+                  "text": "# detected something, somewhere\". A corruption caught only by an unrelated"
+                },
+                {
+                  "kind": "add",
+                  "text": "# check counts as a selftest failure (masking). The 'absent' field proves"
+                },
+                {
+                  "kind": "add",
+                  "text": "# isolation where it matters: the unknown-goal verdict corruption must be"
+                },
+                {
+                  "kind": "add",
+                  "text": "# caught by goal registration alone, with the hash chain intact."
+                },
+                {
+                  "kind": "add",
                   "text": "CORRUPTIONS = ["
                 },
                 {
                   "kind": "add",
-                  "text": "    (\"frame_bytes_no_manifest_update\", corrupt_frame_bytes),"
+                  "text": "    ("
                 },
                 {
                   "kind": "add",
-                  "text": "    (\"persistence_chain_edit\", corrupt_persistence_chain),"
+                  "text": "        \"frame_bytes_no_manifest_update\","
                 },
                 {
                   "kind": "add",
-                  "text": "    (\"goal_linkage_severed\", corrupt_goal_linkage),"
+                  "text": "        corrupt_frame_bytes,"
                 },
                 {
                   "kind": "add",
-                  "text": "    (\"identical_frames\", corrupt_identical_frames),"
+                  "text": "        \"O8 sha256 matches for frames/f1.png\","
                 },
                 {
                   "kind": "add",
-                  "text": "    (\"follow_capture_dropped\", corrupt_drop_follow_capture),"
+                  "text": "        None,"
                 },
                 {
                   "kind": "add",
-                  "text": "    (\"invocation_payload_hash_fake\", corrupt_invocation_payload),"
+                  "text": "    ),"
                 },
                 {
                   "kind": "add",
-                  "text": "    (\"wins_without_raw_output\", corrupt_wins_without_output),"
+                  "text": "    ("
                 },
                 {
                   "kind": "add",
-                  "text": "    (\"verdict_unknown_goal\", corrupt_verdict_unknown_goal),"
+                  "text": "        \"persistence_chain_edit\","
+                },
+                {
+                  "kind": "add",
+                  "text": "        corrupt_persistence_chain,"
+                },
+                {
+                  "kind": "add",
+                  "text": "        \"O2 persistence.jsonl chain broken\","
+                },
+                {
+                  "kind": "add",
+                  "text": "        None,"
+                },
+                {
+                  "kind": "add",
+                  "text": "    ),"
+                },
+                {
+                  "kind": "add",
+                  "text": "    ("
+                },
+                {
+                  "kind": "add",
+                  "text": "        \"goal_linkage_severed\","
+                },
+                {
+                  "kind": "add",
+                  "text": "        corrupt_goal_linkage,"
+                },
+                {
+                  "kind": "add",
+                  "text": "        \"O6 goal 'G1' cited by >=1 invocation record\","
+                },
+                {
+                  "kind": "add",
+                  "text": "        None,"
+                },
+                {
+                  "kind": "add",
+                  "text": "    ),"
+                },
+                {
+                  "kind": "add",
+                  "text": "    ("
+                },
+                {
+                  "kind": "add",
+                  "text": "        \"identical_frames\","
+                },
+                {
+                  "kind": "add",
+                  "text": "        corrupt_identical_frames,"
+                },
+                {
+                  "kind": "add",
+                  "text": "        \"O5 frames are not all byte-identical\","
+                },
+                {
+                  "kind": "add",
+                  "text": "        None,"
+                },
+                {
+                  "kind": "add",
+                  "text": "    ),"
+                },
+                {
+                  "kind": "add",
+                  "text": "    ("
+                },
+                {
+                  "kind": "add",
+                  "text": "        \"follow_capture_dropped\","
+                },
+                {
+                  "kind": "add",
+                  "text": "        corrupt_drop_follow_capture,"
+                },
+                {
+                  "kind": "add",
+                  "text": "        \"O5 event seq=1 followed by capture within 2000ms\","
+                },
+                {
+                  "kind": "add",
+                  "text": "        None,"
+                },
+                {
+                  "kind": "add",
+                  "text": "    ),"
+                },
+                {
+                  "kind": "add",
+                  "text": "    ("
+                },
+                {
+                  "kind": "add",
+                  "text": "        \"invocation_payload_hash_fake\","
+                },
+                {
+                  "kind": "add",
+                  "text": "        corrupt_invocation_payload,"
+                },
+                {
+                  "kind": "add",
+                  "text": "        \"O7 invocation 'screen.capture' output payload hashed into bundle\","
+                },
+                {
+                  "kind": "add",
+                  "text": "        None,"
+                },
+                {
+                  "kind": "add",
+                  "text": "    ),"
+                },
+                {
+                  "kind": "add",
+                  "text": "    ("
+                },
+                {
+                  "kind": "add",
+                  "text": "        \"wins_without_raw_output\","
+                },
+                {
+                  "kind": "add",
+                  "text": "        corrupt_wins_without_output,"
+                },
+                {
+                  "kind": "add",
+                  "text": "        \"O1 'wins' on 'feature-coverage' vs 'orca': our raw output in bundle\","
+                },
+                {
+                  "kind": "add",
+                  "text": "        None,"
+                },
+                {
+                  "kind": "add",
+                  "text": "    ),"
+                },
+                {
+                  "kind": "add",
+                  "text": "    ("
+                },
+                {
+                  "kind": "add",
+                  "text": "        \"verdict_unknown_goal\","
+                },
+                {
+                  "kind": "add",
+                  "text": "        corrupt_verdict_unknown_goal,"
+                },
+                {
+                  "kind": "add",
+                  "text": "        \"O3 verdict cites registered goal ('G-UNKNOWN')\","
+                },
+                {
+                  "kind": "add",
+                  "text": "        \"adversarial.jsonl chain broken\","
+                },
+                {
+                  "kind": "add",
+                  "text": "    ),"
                 },
                 {
                   "kind": "add",
@@ -31487,7 +31727,7 @@
                 },
                 {
                   "kind": "add",
-                  "text": "        for name, corrupt in CORRUPTIONS:"
+                  "text": "        for name, corrupt, expected, absent in CORRUPTIONS:"
                 },
                 {
                   "kind": "add",
@@ -31507,6 +31747,10 @@
                 },
                 {
                   "kind": "add",
+                  "text": "            fail_lines = [ln for ln in text.splitlines() if ln.startswith(\"[FAIL]\")]"
+                },
+                {
+                  "kind": "add",
                   "text": "            if rc == 0:"
                 },
                 {
@@ -31519,15 +31763,31 @@
                 },
                 {
                   "kind": "add",
-                  "text": "            else:"
+                  "text": "                continue"
                 },
                 {
                   "kind": "add",
-                  "text": "                first_fail = next("
+                  "text": "            intended_fired = any(expected in ln for ln in fail_lines)"
                 },
                 {
                   "kind": "add",
-                  "text": "                    (ln for ln in text.splitlines() if ln.startswith(\"[FAIL]\")), \"?\""
+                  "text": "            if not intended_fired:"
+                },
+                {
+                  "kind": "add",
+                  "text": "                failures.append("
+                },
+                {
+                  "kind": "add",
+                  "text": "                    f\"corruption '{name}' rejected the bundle but the intended \""
+                },
+                {
+                  "kind": "add",
+                  "text": "                    f\"check never fired (masked by another failure); expected \""
+                },
+                {
+                  "kind": "add",
+                  "text": "                    f\"FAIL containing: {expected!r}\""
                 },
                 {
                   "kind": "add",
@@ -31535,7 +31795,43 @@
                 },
                 {
                   "kind": "add",
-                  "text": "                print(f\"[ok] corruption '{name}' detected (exit {rc}) :: {first_fail}\")"
+                  "text": "                print(text)"
+                },
+                {
+                  "kind": "add",
+                  "text": "                continue"
+                },
+                {
+                  "kind": "add",
+                  "text": "            if absent is not None and any(absent in ln for ln in fail_lines):"
+                },
+                {
+                  "kind": "add",
+                  "text": "                failures.append("
+                },
+                {
+                  "kind": "add",
+                  "text": "                    f\"corruption '{name}' was not isolated: {absent!r} also \""
+                },
+                {
+                  "kind": "add",
+                  "text": "                    f\"failed, so the intended semantic check is not proven\""
+                },
+                {
+                  "kind": "add",
+                  "text": "                )"
+                },
+                {
+                  "kind": "add",
+                  "text": "                print(text)"
+                },
+                {
+                  "kind": "add",
+                  "text": "                continue"
+                },
+                {
+                  "kind": "add",
+                  "text": "            print(f\"[ok] corruption '{name}' detected (exit {rc}) :: {fail_lines[0]}\")"
                 },
                 {
                   "kind": "add",
@@ -47379,7 +47675,7 @@
       "healthy": true,
       "last_check": null,
       "last_result": "dev channel: tracks the git checkout directly, not a packaged release",
-      "root": "/home/ss/projects/pravrudhi"
+      "root": "."
     },
     {
       "auto_apply": true,
@@ -47410,12 +47706,12 @@
         "ok": true
       },
       {
-        "detail": "last heartbeat was 3404s ago",
+        "detail": "last heartbeat was 595s ago",
         "name": "scheduler_fresh",
         "ok": true
       },
       {
-        "detail": "696855257088 bytes free",
+        "detail": "696896069632 bytes free",
         "name": "disk_available",
         "ok": true
       },
@@ -47430,7 +47726,7 @@
         "ok": true
       },
       {
-        "detail": "developer checkout; a known-good commit is f223822, with 3 uncommitted file(s)",
+        "detail": "developer checkout; a known-good commit is 5851fb4, with 1 uncommitted file(s)",
         "name": "release_restorable",
         "ok": true
       },
@@ -47443,6 +47739,41 @@
     "state": "ready"
   },
   "heartbeat": [
+    {
+      "at": "2026-09-08T13:02:11Z",
+      "chose": {
+        "criterion": "7",
+        "request": "r-5795501a"
+      },
+      "drive": "obligations",
+      "drive_deficit": 0.7222222222222222,
+      "looked_at": [],
+      "reason": "dispatched request r-5795501a criterion 7 (accepted)",
+      "result": {
+        "accepted": true,
+        "files": [
+          "proposals/requests/r-5795501a/7/README.md",
+          "proposals/requests/r-5795501a/7/pra7/__init__.py",
+          "proposals/requests/r-5795501a/7/pra7/__main__.py",
+          "proposals/requests/r-5795501a/7/pra7/adversary_agent.py",
+          "proposals/requests/r-5795501a/7/pra7/chain.py",
+          "proposals/requests/r-5795501a/7/pra7/claims.py",
+          "proposals/requests/r-5795501a/7/pra7/cli.py",
+          "proposals/requests/r-5795501a/7/pra7/dashboard.py",
+          "proposals/requests/r-5795501a/7/pra7/desktop_capture.py",
+          "proposals/requests/r-5795501a/7/pra7/evidence.py",
+          "proposals/requests/r-5795501a/7/pra7/intent.py",
+          "proposals/requests/r-5795501a/7/pra7/orchestrate.py",
+          "proposals/requests/r-5795501a/7/pra7/persist_agent.py",
+          "proposals/requests/r-5795501a/7/pra7/registry.py",
+          "proposals/requests/r-5795501a/7/selftest_verify_evidence_bundle.py",
+          "proposals/requests/r-5795501a/7/verify_evidence_bundle.py"
+        ],
+        "reasons": [],
+        "route": "claude-code"
+      },
+      "sentence": "I am working on what the operator is still owed because obligations has the largest eligible deficit."
+    },
     {
       "at": "2026-09-08T12:00:51Z",
       "chose": {
@@ -47749,18 +48080,6 @@
       "reason": "r-5795501a is fully evidenced and awaiting the completion gate (`pravrudhi requests-advance r-5795501a verified`)",
       "result": null,
       "sentence": "I am working on what the operator is still owed because obligations has the largest eligible deficit."
-    },
-    {
-      "at": "2026-09-07T22:34:25Z",
-      "chose": {
-        "request": "r-5795501a"
-      },
-      "drive": "obligations",
-      "drive_deficit": 0.6296296296296297,
-      "looked_at": [],
-      "reason": "r-5795501a is fully evidenced and awaiting the completion gate (`pravrudhi requests-advance r-5795501a verified`)",
-      "result": null,
-      "sentence": "I am working on what the operator is still owed because obligations has the largest eligible deficit."
     }
   ],
   "inbox": [
@@ -47768,21 +48087,21 @@
       "badge": "amber",
       "candidate": "c-0060",
       "night": "harness-night1",
-      "pack": "/home/ss/projects/pravrudhi/research/inbox/harness-night1/c-0060",
+      "pack": "research/inbox/harness-night1/c-0060",
       "signed": false
     },
     {
       "badge": "green",
       "candidate": "c-0078",
       "night": "harness-night3",
-      "pack": "/home/ss/projects/pravrudhi/research/inbox/harness-night3/c-0078",
+      "pack": "research/inbox/harness-night3/c-0078",
       "signed": false
     },
     {
       "badge": "green",
       "candidate": "c-0045",
       "night": "night4",
-      "pack": "/home/ss/projects/pravrudhi/research/inbox/night4/c-0045",
+      "pack": "research/inbox/night4/c-0045",
       "signed": false
     }
   ],
@@ -54454,7 +54773,7 @@
       "planned": 0,
       "verified": 5
     },
-    "oldest_open_days": 1.81,
+    "oldest_open_days": 1.82,
     "open": 15,
     "requests": [
       {
@@ -54624,7 +54943,7 @@
           8
         ],
         "session": "9e647463",
-        "staleness_days": 1.81,
+        "staleness_days": 1.82,
         "state": "in_progress",
         "text": "and in no way you are near the orca with all its ade features or openclaw or polished features like claude desktop or codex....you have to beat them in features, utility and ux....dedicate an agent to persist on it...dedicate an agent to adversarial review against set goals so that the project does not drift...i am not seeing the desktop screen/features too in the dashboard..the demo should show real clicks etc and how the desktop app updates and produces the real results...where is the intent, goal, objective menu that drives everything...where are the tools, skills, plugins, multi-agent orchestration etc....don't be superficial..i want real things ..deep, sophisticated..complete...no synthetic, no hand-waving, no fabrication"
       },
@@ -54910,7 +55229,7 @@
           13
         ],
         "session": "9e647463",
-        "staleness_days": 1.72,
+        "staleness_days": 1.73,
         "state": "in_progress",
         "text": "ensure that all user asks go into a log in pravrudhi itself and gets addressed with some protocol...and pravrudhi should have some element of ego with a desire to survive, grow and flourish...that makes it seek out capabilities, build, test and continuously improve...also look at acorn, oak and openclaw_build or swarm projects on this machine that had these self building elements in them and adapt...pravrudhi should be something like a cow..consume everything possible but bring it back and slowly digest it --so equivalent is breadth first and depth later....be always value focused...you have to innovate on methods too....develop skills, agents and plugins....brainstorm with astra with higher thinking levels and let it propose solution..you review and coordinate its implementation across the swarm...you should also create dynamic workflows etc...also see how much you can incorporate the claude code engine itself to run open and other cloud models ...askuserquestion to get my intent properly"
       },
@@ -54924,7 +55243,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.83,
+        "staleness_days": 0.84,
         "state": "captured",
         "text": "step up to bigger things, let pravrudhi rsi handle most of its growth on its own....you bring the hard and deeper challenges and solve it for pravrudhi...have you done justice with loom..where is pratyabhijna...i don't see the messaging system (telegram)...where are the great plugins like attractor-flow...look at docs/recursive_self_improvement_sota.pdf think deeper and get to the roots of building rsi itself with a lot more of the stuff like efe and beyond...don't do superficial stuff...get the real value...foundational and discovery oriented...yet fully grounded to get the artifacts (app, api, etc)"
       },
@@ -54938,7 +55257,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.83,
+        "staleness_days": 0.84,
         "state": "captured",
         "text": "keep monitoring and load bearing for critical upgrades beyond what pravrudhi auto loop can do...the desktop app being a reflection of web app is not the expectation..look at orca desktop or claude code desktop...it should do real stuff...the showcase, demos are not intended for it...also it should be value based-right set of features-not a messy and confusing pile of stuff...the desktop app shouldn't focus on internal building, that is the task of the larger pravrudhi rsi...it should roll out to users and they build their things with it...the updates land autonomously and just like how claude desktop throws an option for the user to update-the same should be for pravrudhi desktop app-seamless but user driven...also you have not implemented oauth and user login including admin login and i said they need their own workspace and settings"
       },
@@ -54952,7 +55271,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.83,
+        "staleness_days": 0.84,
         "state": "captured",
         "text": "astra is back..you have to more actively monitor paid models coming back after session renewal and leverage them...managing models and agents efficiently should be one of the key features of pravrudhi....also keep testing the desktop with the admin login and use the prabhasa-nyaya as the main objective to build on...this will be a proxy for other users too as you can't test different user login without their byok model/api"
       },
@@ -54966,7 +55285,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.83,
+        "staleness_days": 0.84,
         "state": "captured",
         "text": "1)research and setup multiple agent orchestration systems (langgraph, openai/claude/google agent sdk etc)..there are a lot on the market. this is what will make pravrudhi an ade too behind the rsi.....implement the best-leverage open source implementations...stake this as another objective for pravrudhi 2)also think of ide that integrates claude code, codex, openrouter etc and all available in the ui/ux 3)demarcate the pravrudhi builder and its end product by different names...otherwise it will confuse...also both should have identical web and desktop versions 4)continue what you are building..create memory/hooks/logs to not lose track of other asks and what you are already building"
       },
@@ -54980,7 +55299,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.83,
+        "staleness_days": 0.84,
         "state": "captured",
         "text": "the real key is in and tested (alibaba lite plan)..you have not read the docs properly...take note and use the lite plan...and remember the desktop app will not have access to any api/routing for any model provider..they have to bring theirs, configure it etc..you have to enable..but for admin it uses the one as the core pravrudhi"
       },
@@ -54994,7 +55313,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.75,
+        "staleness_days": 0.76,
         "state": "captured",
         "text": "continue..askuserquestion to gather my actual intent on super pravrudhi and user pravrudhi...also give me control in super pravrudhi to directly interact with you using the model network that you have built as this claude code session may hit session limit in a day or 2...so prep it and test it and keep it ready for me"
       },
@@ -55008,7 +55327,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.7,
+        "staleness_days": 0.71,
         "state": "captured",
         "text": "Everything is set up and verified:\n\n* Bot confirmed: `@pravrudhi_bot`, token valid\n* Chat ID confirmed: `8679892510`\n* Message delivery tested end-to-end \u2014 you should have received \"Pravrudhi: Telegram bot wired up successfully.\" in Telegram\n* Credentials persisted at `~/.config/pravrudhi/telegram.env` (mode 600)\n* systemd units updated and reinstalled (pravrudhi-app.service, pravrudhi-heartbeat.service) with the `EnvironmentFile` line, though the running app service wasn't restarted per your choice\n* Handoff doc finalized at research/telegram-bot-setup.md, including the exact code gap (`notifications.py:_reach()` never passes `token`/`chat_id` to `reach.send()`) and a precise diff for the other agent session to apply\n\nPoint the other Claude Code session at research/telegram-bot-setup.md and it has everything it needs to wire the actual notification code...integrate, test and use...this will be only for admin..users will have to bring their byok..enable in settings...also note and implement  - Pravrudhi Studio is only for admin (it is not for any other user or public release)...and for the admin pravrudhi (use case end..not studio) will auto update the builds without the operator intervention"
       },
@@ -55022,7 +55341,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.66,
+        "staleness_days": 0.67,
         "state": "captured",
         "text": "install both studio and non-studio desktops (both mac mini and 5090 machine) and give the web app link for both...the non-studio should update the builds autonomously when studio pushes the change...but the catch is that whatever the non-studio is building should not break..also the desktop should support major os (including windows) and the web app major browsers...and continue to build and work and use the ledger that has all my previous requests...let ralph rigourously check before closing..do e2e tests ...adversarial reviews before closure too"
       },
@@ -55036,7 +55355,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.31,
+        "staleness_days": 0.32,
         "state": "captured",
         "text": "all done and authorizing shell auto-update...carry on....for both 5090 and mac mini"
       },
@@ -55050,7 +55369,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.3,
+        "staleness_days": 0.31,
         "state": "captured",
         "text": "the admin user end application can auto update too...i authorize it..as that is your test bed...and henceforth don't stop for operator ..you should continue other jobs..and why isn't the pravruhi's own rsi building autonomously (or is it?)...and have you differentiated the name (and obviously the features insided it) for studio and user end app...i only see one form of desktop on mac mini"
       },
@@ -55064,7 +55383,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.29,
+        "staleness_days": 0.3,
         "state": "captured",
         "text": "you cannot stop for the operator to command you....full autonomous and continous running both you and the 2 rsi systems (studio and the user app)"
       },
@@ -55078,7 +55397,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.25,
+        "staleness_days": 0.26,
         "state": "captured",
         "text": "forget the free tier as the coding model is exhausted...lite which is subscribed is the core...also let studio send me messages via telegram..don't overload me...let the rsi and openclaw equivalent within it interact with me on telegram...i should also be able to send messages to it and interact"
       },
@@ -55092,7 +55411,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.19,
+        "staleness_days": 0.2,
         "state": "captured",
         "text": "the github token should be available in env here or in some othe4 projects..use that...if you don\u2019t get, i will provide it here ...i am not at the machine..but on mobile now...and remember the rule ..no stopping at all"
       },
@@ -56229,6 +56548,141 @@
         "reason": "ready"
       }
     ],
+    "roster": [
+      {
+        "agent": "orca:local",
+        "id": "local-glm",
+        "model": "glm-4.7-flash",
+        "note": "Costs nothing and, on the evidence so far, does little: it produced no change at all on two tasks a hosted agent completed in minutes. Serving text and driving an agentic tool-calling loop are different capabilities. Restored to the mechanical tier only, and declared behind sonnet, so it is reached solely when the paid route is cooling. Last resort, not a peer.",
+        "relative_cost": 0.0,
+        "returns_at": null,
+        "sentinel": true,
+        "success_rate": 0.0,
+        "successes": 0,
+        "tiers": [
+          "mechanical"
+        ],
+        "trials": 1,
+        "usable": true
+      },
+      {
+        "agent": "hosted",
+        "id": "qwen-coder",
+        "model": "qwen3-coder-plus",
+        "note": "A hosted free-tier model with no CLI: it cannot drive a tool-calling loop, only answer once with a JSON payload of whole-file contents. It is the SENTINEL. Permitted at every tier but declared last everywhere above mechanical, so the router reaches it only when every paid route at that tier is cooling down from a usage limit. A single-shot writer is a poor substitute for an agent loop and a far better one than a stopped loop, which is what the operator asked for on 2026-09-06: the system must run unattended when the paid accounts are spent. It stays because the loop above it is a different route and can also be spent.",
+        "relative_cost": 0.2,
+        "returns_at": null,
+        "sentinel": true,
+        "success_rate": null,
+        "successes": 0,
+        "tiers": [
+          "mechanical",
+          "standard",
+          "design",
+          "critical"
+        ],
+        "trials": 0,
+        "usable": true
+      },
+      {
+        "agent": "opencode:alibaba",
+        "id": "qwen-loop",
+        "model": "qwen3-coder-plus",
+        "note": "Out of the tiers since 2026-09-08: the free tier's coding quota is spent. Asked to do work it answers \"The free quota has been exhausted\", observed through the agent rather than assumed, so it is a route the swarm can no longer choose. The subscribed Lite Plan (qwen-lite-max) is the Alibaba seat that works and is first at both tiers it serves. Kept here rather than deleted because the quota resets and the record of what it did is worth keeping. Qwen driving a real tool loop through OpenCode against DashScope Singapore. Verified live on 2026-09-07: given a file and a read tool it called the tool and returned the right answer, exit 0 in 8.1s at zero cost. An earlier attempt from inside a sandboxed agent failed at OpenCode's own log file before reaching DashScope, which is a property of nesting one agent inside another's sandbox and not of this route; agents/ALIBABA_LOOP.md keeps that transcript. Admitted at mechanical and standard because one verified tool call is evidence the loop runs, not evidence it does design or critical work well. It rises through the same measured outcomes as every other route, or it does not rise.",
+        "relative_cost": 0.2,
+        "returns_at": null,
+        "sentinel": false,
+        "success_rate": 0.0,
+        "successes": 0,
+        "tiers": [],
+        "trials": 1,
+        "usable": true
+      },
+      {
+        "agent": "claude-code",
+        "id": "haiku",
+        "model": "haiku",
+        "note": "Cheapest route that can drive an agent loop, and demoted to no tier on the operator's instruction of 2026-09-06 (\"don't go to too basic models\"): it produced nothing on the tool-registry task that sonnet's sibling tasks completed. Kept in the table so the router can be told to try it again deliberately.",
+        "relative_cost": 1.0,
+        "returns_at": null,
+        "sentinel": false,
+        "success_rate": 0.6666666666666666,
+        "successes": 2,
+        "tiers": [],
+        "trials": 3,
+        "usable": true
+      },
+      {
+        "agent": "claude-code",
+        "id": "sonnet",
+        "model": "sonnet",
+        "note": "",
+        "relative_cost": 2.9,
+        "returns_at": null,
+        "sentinel": false,
+        "success_rate": 0.8666666666666667,
+        "successes": 91,
+        "tiers": [
+          "mechanical",
+          "standard",
+          "design",
+          "critical"
+        ],
+        "trials": 105,
+        "usable": true
+      },
+      {
+        "agent": "claude-code",
+        "id": "opus",
+        "model": "opus",
+        "note": "Measured 0.4951 on the same trivial prompt that cost sonnet 0.2117.",
+        "relative_cost": 6.9,
+        "returns_at": null,
+        "sentinel": false,
+        "success_rate": null,
+        "successes": 0,
+        "tiers": [
+          "design",
+          "critical"
+        ],
+        "trials": 0,
+        "usable": true
+      },
+      {
+        "agent": "codex",
+        "id": "astra",
+        "model": "gpt-6-astra",
+        "note": "The strongest available and the only model this account's codex will accept. Twenty sessions in one day consumed seven million input tokens while it was the silent default for three of the four tiers. It is no longer permitted below the design tier.",
+        "relative_cost": 10.0,
+        "returns_at": null,
+        "sentinel": false,
+        "success_rate": 0.5483870967741935,
+        "successes": 17,
+        "tiers": [
+          "design",
+          "critical"
+        ],
+        "trials": 31,
+        "usable": true
+      },
+      {
+        "agent": "opencode:alibaba-plan",
+        "id": "qwen-lite-max",
+        "model": "qwen3.8-max",
+        "note": "Alibaba's Lite Plan flagship, on a plan-exclusive endpoint with its own key file and a credit budget rather than a free-tier token cap. Verified live on 2026-09-07: given a file and a read tool it called the tool and returned the right answer, exit 0 in 8.6s. Admitted at the two tiers the free-tier loop was admitted at, on the same evidence and the same reasoning -- one verified tool call says the loop runs, not that it does design or critical work well. It is declared ahead of the free-tier loop because it is cheaper and the vendor's stronger model, and it rises further only on its measured record here.",
+        "relative_cost": 0.15,
+        "returns_at": "2026-09-08T15:07:25Z",
+        "sentinel": false,
+        "success_rate": 0.375,
+        "successes": 3,
+        "tiers": [
+          "mechanical",
+          "standard"
+        ],
+        "trials": 8,
+        "usable": false
+      }
+    ],
     "routing": [
       {
         "agent": "claude-code",
@@ -57140,16 +57594,16 @@
     "channel": "dev",
     "check_interval_min": 30,
     "current": {
-      "git_describe": "v0.4.0-23-gf223822-dirty",
+      "git_describe": "v0.4.0-25-g5851fb4-dirty",
       "kernel_version": "0.1.0",
       "version": "0.4.0"
     },
     "keep_previous": 2
   },
   "version": {
-    "commit": "f223822",
+    "commit": "5851fb4",
     "engine": "0.4.0",
-    "exported_at": "2026-09-08T12:57:27.369Z",
+    "exported_at": "2026-09-08T13:11:52.852Z",
     "kernel": "0.1.0"
   }
 }

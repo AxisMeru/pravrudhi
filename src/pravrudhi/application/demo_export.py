@@ -245,8 +245,16 @@ def _agent_trace(root: Path) -> list[dict[str, Any]]:
 def _swarm(root: Path) -> dict[str, Any]:
     """The same shapes the live `/api/swarm` route serves: agent availability, the routing table's live
     per-tier choice, and the last 20 runs of both the objective swarm and the self-build swarm, newest first."""
+    from pravrudhi.application.roster import roster
+
     return {
         "agents": [{"name": a.name, "available": a.available, "reason": a.reason} for a in agent_survey(root)],
+        # One row per seat: cost, measured record, and — the part only the CLI could answer — whether a route is
+        # sitting out a vendor limit and when it returns. `pravrudhi routes` has shown this since it was written;
+        # `/api/routes` serves it; nothing in the interface ever read it, and the published snapshot never carried
+        # it. So an operator watching the site could not see that the 0.15 seat was down and the 2.90 one was
+        # taking its work. That is the most expensive thing this engine can fail to mention.
+        "roster": [s.to_dict() for s in roster(root)],
         "routing": routing.report(root),
         "subagent_runs": [
             _strip_paths(asdict(r), root) for r in reversed(subagents.runs(root)[-MAX_SWARM_RUNS:])

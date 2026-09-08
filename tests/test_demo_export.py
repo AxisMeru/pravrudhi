@@ -65,10 +65,19 @@ def test_existing_keys_are_unchanged(tmp_path: Path) -> None:
         assert key in demo
 
 
-def test_swarm_block_has_the_four_fields(tmp_path: Path) -> None:
+def test_swarm_block_has_the_five_fields(tmp_path: Path) -> None:
     demo = _demo(tmp_path)
     swarm = demo["swarm"]
-    assert set(swarm) == {"agents", "routing", "subagent_runs", "selfbuild_runs"}
+    assert set(swarm) == {"agents", "roster", "routing", "subagent_runs", "selfbuild_runs"}
+
+    # `roster` carries what only the CLI could answer: relative cost, the measured record, and whether a route is
+    # sitting out a vendor usage limit with the time it returns. Without it the published site could show where
+    # work is routed but not that the cheapest seat was unavailable and a dearer one was absorbing its work.
+    assert isinstance(swarm["roster"], list)
+    for seat in swarm["roster"]:
+        assert {"id", "agent", "relative_cost", "usable", "returns_at"} <= set(seat)
+        assert isinstance(seat["usable"], bool)
+        assert seat["returns_at"] is None or isinstance(seat["returns_at"], str)
 
     assert swarm["agents"] and all(set(a) == {"name", "available", "reason"} for a in swarm["agents"])
     assert all(isinstance(a["available"], bool) for a in swarm["agents"])

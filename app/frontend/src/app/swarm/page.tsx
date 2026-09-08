@@ -7,6 +7,7 @@ import { DispatchPanel } from "@/components/swarm/DispatchPanel";
 import { FleetTable } from "@/components/swarm/FleetTable";
 import { LivePanel } from "@/components/swarm/LivePanel";
 import { RoutingTable } from "@/components/swarm/RoutingTable";
+import { SeatsTable } from "@/components/swarm/SeatsTable";
 import { SandboxesSection } from "@/components/sandboxes/SandboxesSection";
 import { swarm, type SwarmSnapshot } from "@/lib/swarm";
 
@@ -60,6 +61,7 @@ export default function SwarmPage() {
 
             <section>
               <h2 className="mb-3 text-sm font-medium text-[var(--color-text)]">Routing</h2>
+              <SeatsTable seats={data.roster ?? []} />
               <RoutingTable rows={data.routing} />
             </section>
 

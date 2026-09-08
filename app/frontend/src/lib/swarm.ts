@@ -55,8 +55,24 @@ export interface SelfBuildRun {
   at: string;
 }
 
+/** One route as it stands right now: what it costs, how it has done, and whether it can be used at all. */
+export interface Seat {
+  id: string;
+  agent: string;
+  model: string;
+  relative_cost: number;
+  tiers: string[];
+  sentinel: boolean;
+  trials: number;
+  successes: number;
+  usable: boolean;
+  returns_at: string | null;
+  note: string;
+}
+
 export interface SwarmSnapshot {
   agents: SwarmAgent[];
+  roster?: Seat[];
   routing: RoutingRow[];
   subagent_runs: SubagentRun[];
   selfbuild_runs: SelfBuildRun[];
