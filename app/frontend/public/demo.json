@@ -2,11 +2,11 @@
   "appetite": {
     "appetite": {
       "action": {
-        "description": "the completion gate on r-5795501a",
+        "description": "the oldest unmet criterion on r-5795501a",
         "drive": "seva",
         "kind": "obligation"
       },
-      "as_of": "2026-09-08T06:05:12Z",
+      "as_of": "2026-09-08T06:38:00Z",
       "drives": [
         {
           "blocked_reason": "",
@@ -128,18 +128,18 @@
         },
         {
           "blocked_reason": "",
-          "deficit": 0.673202614379085,
+          "deficit": 0.691358024691358,
           "eligible": true,
           "id": "seva",
           "sources": [
-            "captured=17",
+            "captured=18",
             "verified=5",
-            "R_verified=0.2941",
-            "oldest_open_days=1.52"
+            "R_verified=0.2778",
+            "oldest_open_days=1.55"
           ],
           "target": 0.9,
           "unknown": false,
-          "value": 0.29411764705882354,
+          "value": 0.2777777777777778,
           "weight": 1.0,
           "wire_name": "obligations"
         },
@@ -283,18 +283,18 @@
       },
       {
         "blocked_reason": "",
-        "deficit": 0.673202614379085,
+        "deficit": 0.691358024691358,
         "eligible": true,
         "id": "seva",
         "sources": [
-          "captured=17",
+          "captured=18",
           "verified=5",
-          "R_verified=0.2941",
-          "oldest_open_days=1.52"
+          "R_verified=0.2778",
+          "oldest_open_days=1.55"
         ],
         "target": 0.9,
         "unknown": false,
-        "value": 0.29411764705882354,
+        "value": 0.2777777777777778,
         "weight": 1.0,
         "wire_name": "obligations"
       },
@@ -311,7 +311,7 @@
         "wire_name": "rivalry"
       }
     ],
-    "sentence": "I am working on the completion gate on r-5795501a because obligations has the largest eligible deficit."
+    "sentence": "I am working on the oldest unmet criterion on r-5795501a because obligations has the largest eligible deficit."
   },
   "candidates": [
     {
@@ -14507,7 +14507,7 @@
       "current_version": "0.3.1",
       "due": false,
       "healthy": true,
-      "last_check": 1788844651.687122,
+      "last_check": 1788848367.9660213,
       "last_result": "running 0.3.1",
       "root": "/home/ss/pravrudhi-release"
     }
@@ -14525,12 +14525,12 @@
         "ok": true
       },
       {
-        "detail": "last heartbeat was 649s ago",
+        "detail": "last heartbeat was 1519s ago",
         "name": "scheduler_fresh",
         "ok": true
       },
       {
-        "detail": "699643211776 bytes free",
+        "detail": "699639119872 bytes free",
         "name": "disk_available",
         "ok": true
       },
@@ -14545,7 +14545,7 @@
         "ok": true
       },
       {
-        "detail": "developer checkout; a known-good commit is 435576e",
+        "detail": "developer checkout; a known-good commit is 3877c16",
         "name": "release_restorable",
         "ok": true
       },
@@ -14558,6 +14558,68 @@
     "state": "degraded"
   },
   "heartbeat": [
+    {
+      "at": "2026-09-08T06:12:45Z",
+      "chose": {
+        "request": "r-5795501a"
+      },
+      "drive": "obligations",
+      "drive_deficit": 0.691358024691358,
+      "looked_at": [],
+      "reason": "r-5795501a did not pass the completion gate and is building again: adversarial review: the review found a reason this does not satisfy the request",
+      "result": {
+        "criterion_added": true,
+        "kind": "gate",
+        "passed": false,
+        "ran": true,
+        "reason": "adversarial review: the review found a reason this does not satisfy the request"
+      },
+      "sentence": "I am working on what the operator is still owed because obligations has the largest eligible deficit."
+    },
+    {
+      "at": "2026-09-08T06:12:38Z",
+      "chose": {
+        "request": "r-5795501a"
+      },
+      "drive": "obligations",
+      "drive_deficit": 0.691358024691358,
+      "looked_at": [],
+      "reason": "r-5795501a has evidence on every criterion and is now delivered, awaiting the gate",
+      "result": {
+        "kind": "advance",
+        "to": "delivered"
+      },
+      "sentence": "I am working on what the operator is still owed because obligations has the largest eligible deficit."
+    },
+    {
+      "at": "2026-09-08T06:11:14Z",
+      "chose": {
+        "request": "r-5795501a"
+      },
+      "drive": "obligations",
+      "drive_deficit": 0.691358024691358,
+      "looked_at": [],
+      "reason": "the next step on r-5795501a, still in_progress \u2014 every criterion carries evidence, so it is ready to move",
+      "result": null,
+      "sentence": "I am working on what the operator is still owed because obligations has the largest eligible deficit."
+    },
+    {
+      "at": "2026-09-08T06:08:49Z",
+      "chose": {
+        "request": "r-5795501a"
+      },
+      "drive": "obligations",
+      "drive_deficit": 0.691358024691358,
+      "looked_at": [],
+      "reason": "r-5795501a did not pass the completion gate and is building again: adversarial review: the review found a reason this does not satisfy the request",
+      "result": {
+        "kind": "gate",
+        "passed": false,
+        "ran": true,
+        "reason": "adversarial review: the review found a reason this does not satisfy the request"
+      },
+      "sentence": "I am working on what the operator is still owed because obligations has the largest eligible deficit."
+    },
     {
       "at": "2026-09-08T05:54:27Z",
       "chose": {
@@ -14765,70 +14827,6 @@
         "unknown": true
       },
       "sentence": "I am working on a cheap diagnostic for freshness because freshness has the largest eligible deficit."
-    },
-    {
-      "at": "2026-09-07T14:14:31Z",
-      "chose": {
-        "drive": "freshness"
-      },
-      "drive": "freshness",
-      "drive_deficit": null,
-      "looked_at": [],
-      "reason": "freshness: diagnostic only; no evidence-freshness source is wired into the engine yet",
-      "result": {
-        "kind": "diagnostic",
-        "sources": [],
-        "unknown": true
-      },
-      "sentence": "I am working on a cheap diagnostic for freshness because freshness has the largest eligible deficit."
-    },
-    {
-      "at": "2026-09-07T13:12:19Z",
-      "chose": {
-        "drive": "freshness"
-      },
-      "drive": "freshness",
-      "drive_deficit": null,
-      "looked_at": [],
-      "reason": "freshness: diagnostic only; no evidence-freshness source is wired into the engine yet",
-      "result": {
-        "kind": "diagnostic",
-        "sources": [],
-        "unknown": true
-      },
-      "sentence": "I am working on a cheap diagnostic for freshness because freshness has the largest eligible deficit."
-    },
-    {
-      "at": "2026-09-07T12:07:30Z",
-      "chose": {
-        "drive": "freshness"
-      },
-      "drive": "freshness",
-      "drive_deficit": null,
-      "looked_at": [],
-      "reason": "freshness: diagnostic only; no evidence-freshness source is wired into the engine yet",
-      "result": {
-        "kind": "diagnostic",
-        "sources": [],
-        "unknown": true
-      },
-      "sentence": "I am working on a cheap diagnostic for freshness because freshness has the largest eligible deficit; obligations is waiting for sated; cooling down for 1 more heartbeat(s)."
-    },
-    {
-      "at": "2026-09-07T11:06:38Z",
-      "chose": {
-        "drive": "freshness"
-      },
-      "drive": "freshness",
-      "drive_deficit": null,
-      "looked_at": [],
-      "reason": "freshness: diagnostic only; no evidence-freshness source is wired into the engine yet",
-      "result": {
-        "kind": "diagnostic",
-        "sources": [],
-        "unknown": true
-      },
-      "sentence": "I am working on a cheap diagnostic for freshness because freshness has the largest eligible deficit; obligations is waiting for sated; cooling down for 2 more heartbeat(s)."
     }
   ],
   "inbox": [
@@ -21128,16 +21126,16 @@
   "recorded": true,
   "requests": {
     "by_state": {
-      "captured": 10,
+      "captured": 11,
       "clarified": 0,
       "declined": 0,
-      "delivered": 1,
-      "in_progress": 1,
+      "delivered": 0,
+      "in_progress": 2,
       "planned": 0,
       "verified": 5
     },
-    "oldest_open_days": 1.52,
-    "open": 12,
+    "oldest_open_days": 1.55,
+    "open": 13,
     "requests": [
       {
         "asked_at": "2026-09-06T17:30:00Z",
@@ -21270,6 +21268,12 @@
             "met": true,
             "source": "operator",
             "text": "Multi-agent orchestration can be driven from the interface, not only observed"
+          },
+          {
+            "evidence": [],
+            "met": false,
+            "source": "engine",
+            "text": "Answer the completion review's finding: The completion claim does not satisfy what the operator asked. Summary of the strongest reason:"
           }
         ],
         "id": "r-5795501a",
@@ -21281,15 +21285,27 @@
           {
             "at": "2026-09-07T02:09:13.463Z",
             "note": "the flow, dispatch panel, sandboxes, diffs and desktop app all shipped"
+          },
+          {
+            "at": "2026-09-08T06:11:03.057Z",
+            "note": "completion gate refused: ## Finding: criterion [0] fails \u2014 no agent actually persists on parity; the only autonomous loop explicitly excludes it\n\nI read the cited evidence file (`completion.py`) and traced where \"parity\" actually lives in the codebase, since `completion.py` itself contains nothing about Orca, parity, or rivalry \u2014 it's a generic evidence-verification/adversarial-review gate applicable to any request.\n\nThe real parity machinery is `src/pravrudhi/application/parity.py` + `src/pravrudhi/assets/configs/parity.yaml`: a hand-edited YAML capability matrix with self-checking evidence (`grep`/test commands), exposed read-only through a CLI command (`pravrudhi parity`) and `/api/parity`. Nothing in that path is an agent that *persists* \u2014 it's a static table a human (or an ad hoc agent session) edits when prompted.\n\nThe one candidate for an actual persistent/autonomous agent is the heartbeat (`src/pravrudhi/application/heartbeat.py`, driven by `pravrudhi-heartbeat.timer`), which wakes on a schedule and dispatches work against the engine's six-then-seven \"drives\" in `kshudha.py`. Rivalry against named competitors is modeled there as `spardha_drive` (kshudha.py:394) \u2014 but it computes gaps only against *declared benchmark scores* (e.g. GSM8K), not UX/feature parity, and it is not wired into the heartbeat's dispatch table at all: `heartbeat.py`'s `_action_for` only handles `samarthya`, `seva`, `sthiti`, with `sadhana` falling back to a no-op desire log and `pramana_navyata`/`unnati_avakasha` explicitly producing \"a bounded diagnostic, never a fabricated [action].\" `spardha` doesn't appear in `_action_for` at all \u2014 grepping `heartbeat.py` for `spardha` returns nothing.\n\nThe codebase's own commentary in `parity.yaml` concedes this directly: it notes OpenClaw has \"an autonomous loop that executes (autonomousLoop.js) where this engine's heartbeat only chooses\" \u2014 i.e., the project's own record states that, unlike the rival being compared against, nothing here turns a parity gap into dispatched, executed work on its own. The OpenClaw row itself was filled in only after \"the completion gate's adversarial reviewer correctly called out\" that it had sat at `unknown` despite being named twice \u2014 meaning the parity table's accuracy depends on someone manually noticing the gap and then manually researching and hand-editing the YAML, not on a dedicated agent that persists on the work.\n\nSo criterion [0]'s evidence file does not establish what it claims. There is a parity *report* and a generic evidence-verification *gate*, but no agent \u2014 scheduled or otherwise \u2014 whose job is to keep working toward closing feature/UX gaps against Orca (or Claude Desktop, Codex, OpenClaw). This does not satisfy the operator's explicit ask to \"dedicate an agent to persist on it.\"\n\n## Secondary finding: criterion [3]'s \"real clicks\" demo is a static slideshow, not an interactive demonstration\n\n`app/frontend/src/app/tour/page.tsx` renders a fixed sequence of 10 steps from one static JSON snapshot (`loadTour()`), advancing on a button or a 7-second autoplay timer \u2014 there is no simulated clicking, no live interaction, and no video. The desktop-specific step (`StepDesktop.tsx`) is a single static screenshot with a caption that explicitly says it was \"caught mid-update-check before anyone clicked anything\" \u2014 the opposite of showing \"real clicks\" and \"how the desktop app updates.\" This is a scripted walkthrough of a recording, not a demo of the desktop app updating in real time as the operator asked for.\n\n## Overall\n\nGiven the operator's explicit demand for a dedicated persisting parity agent and a demo with real interaction, criterion [0] does not hold, and criterion [3]'s evidence overstates what it shows. This does not satisfy what was asked."
+          },
+          {
+            "at": "2026-09-08T06:12:45.265Z",
+            "note": "every criterion carries evidence"
+          },
+          {
+            "at": "2026-09-08T06:15:08.893Z",
+            "note": "completion gate refused: The completion claim does not satisfy what the operator asked. Summary of the strongest reason:\n\nThe operator's central, explicit demand was: *\"the demo should show real clicks etc and how the desktop app updates and produces the real results... no synthetic, no hand-waving, no fabrication.\"* Inspecting the actual tour implementation (not just the criterion's wording) shows this demand is unmet:\n\n- **`StepDesktop.tsx`** (the tour's dedicated answer to \"desktop app updating\") shows exactly one static screenshot, and its own caption admits it was captured *\"before anyone clicked anything.\"* There is no click, no sequence, no before/after \u2014 just a still image annotated with prose asserting what an update would look like.\n- **`StepWalkthrough.tsx`**, billed as \"the tour's answer to 'show real clicks'\", is a manual/autoplay carousel of 8 static full-page screenshots with captions \u2014 indistinguishable from marketing screenshots. No cursor, no click target, no captured action-to-result transition. One frame (`07-desktop.png`) is a capture of the *web dashboard's* `/desktop` info page, not the actual Electron shell, despite its caption claiming otherwise.\n\nThis is exactly the \"polished but superficial\" pattern the operator was pre-emptively rejecting when comparing against Orca/Claude Desktop/Codex \u2014 a slideshow standing in for a real interactive demonstration.\n\nSecondary, smaller issue: criterion [0] (\"a dedicated agent persists on feature/UX parity beyond Orca\") cites `completion.py` as evidence, but that file is a generic, request-agnostic evidence-verification gate with no notion of Orca, parity tracking, or UX comparison \u2014 it's the same machinery used to review *this very request*. It doesn't substantiate a dedicated, ongoing parity-tracking function.\n\nBy contrast, several other criteria held up on inspection: the intent\u2192success\u2192plan\u2192create flow (`start/page.tsx`), the dispatch board (`dispatchboard.py` + `DispatchPanel.tsx`, backed by a real POST endpoint, not a demo stub), and the walkthrough images themselves are genuine non-trivial PNG captures (not placeholders) \u2014 so this isn't a wholesale fabrication, but the specific, repeatedly-emphasized \"real clicks / real update\" demo requirement is not met by what's actually shipped."
           }
         ],
         "progress": [
           7,
-          7
+          8
         ],
         "session": "9e647463",
-        "staleness_days": 1.52,
-        "state": "delivered",
+        "staleness_days": 1.55,
+        "state": "in_progress",
         "text": "and in no way you are near the orca with all its ade features or openclaw or polished features like claude desktop or codex....you have to beat them in features, utility and ux....dedicate an agent to persist on it...dedicate an agent to adversarial review against set goals so that the project does not drift...i am not seeing the desktop screen/features too in the dashboard..the demo should show real clicks etc and how the desktop app updates and produces the real results...where is the intent, goal, objective menu that drives everything...where are the tools, skills, plugins, multi-agent orchestration etc....don't be superficial..i want real things ..deep, sophisticated..complete...no synthetic, no hand-waving, no fabrication"
       },
       {
@@ -21574,7 +21590,7 @@
           13
         ],
         "session": "9e647463",
-        "staleness_days": 1.43,
+        "staleness_days": 1.45,
         "state": "in_progress",
         "text": "ensure that all user asks go into a log in pravrudhi itself and gets addressed with some protocol...and pravrudhi should have some element of ego with a desire to survive, grow and flourish...that makes it seek out capabilities, build, test and continuously improve...also look at acorn, oak and openclaw_build or swarm projects on this machine that had these self building elements in them and adapt...pravrudhi should be something like a cow..consume everything possible but bring it back and slowly digest it --so equivalent is breadth first and depth later....be always value focused...you have to innovate on methods too....develop skills, agents and plugins....brainstorm with astra with higher thinking levels and let it propose solution..you review and coordinate its implementation across the swarm...you should also create dynamic workflows etc...also see how much you can incorporate the claude code engine itself to run open and other cloud models ...askuserquestion to get my intent properly"
       },
@@ -21588,7 +21604,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.55,
+        "staleness_days": 0.57,
         "state": "captured",
         "text": "step up to bigger things, let pravrudhi rsi handle most of its growth on its own....you bring the hard and deeper challenges and solve it for pravrudhi...have you done justice with loom..where is pratyabhijna...i don't see the messaging system (telegram)...where are the great plugins like attractor-flow...look at docs/recursive_self_improvement_sota.pdf think deeper and get to the roots of building rsi itself with a lot more of the stuff like efe and beyond...don't do superficial stuff...get the real value...foundational and discovery oriented...yet fully grounded to get the artifacts (app, api, etc)"
       },
@@ -21602,7 +21618,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.55,
+        "staleness_days": 0.57,
         "state": "captured",
         "text": "keep monitoring and load bearing for critical upgrades beyond what pravrudhi auto loop can do...the desktop app being a reflection of web app is not the expectation..look at orca desktop or claude code desktop...it should do real stuff...the showcase, demos are not intended for it...also it should be value based-right set of features-not a messy and confusing pile of stuff...the desktop app shouldn't focus on internal building, that is the task of the larger pravrudhi rsi...it should roll out to users and they build their things with it...the updates land autonomously and just like how claude desktop throws an option for the user to update-the same should be for pravrudhi desktop app-seamless but user driven...also you have not implemented oauth and user login including admin login and i said they need their own workspace and settings"
       },
@@ -21616,7 +21632,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.55,
+        "staleness_days": 0.57,
         "state": "captured",
         "text": "astra is back..you have to more actively monitor paid models coming back after session renewal and leverage them...managing models and agents efficiently should be one of the key features of pravrudhi....also keep testing the desktop with the admin login and use the prabhasa-nyaya as the main objective to build on...this will be a proxy for other users too as you can't test different user login without their byok model/api"
       },
@@ -21630,7 +21646,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.55,
+        "staleness_days": 0.57,
         "state": "captured",
         "text": "1)research and setup multiple agent orchestration systems (langgraph, openai/claude/google agent sdk etc)..there are a lot on the market. this is what will make pravrudhi an ade too behind the rsi.....implement the best-leverage open source implementations...stake this as another objective for pravrudhi 2)also think of ide that integrates claude code, codex, openrouter etc and all available in the ui/ux 3)demarcate the pravrudhi builder and its end product by different names...otherwise it will confuse...also both should have identical web and desktop versions 4)continue what you are building..create memory/hooks/logs to not lose track of other asks and what you are already building"
       },
@@ -21644,7 +21660,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.55,
+        "staleness_days": 0.57,
         "state": "captured",
         "text": "the real key is in and tested (alibaba lite plan)..you have not read the docs properly...take note and use the lite plan...and remember the desktop app will not have access to any api/routing for any model provider..they have to bring theirs, configure it etc..you have to enable..but for admin it uses the one as the core pravrudhi"
       },
@@ -21658,7 +21674,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.47,
+        "staleness_days": 0.49,
         "state": "captured",
         "text": "continue..askuserquestion to gather my actual intent on super pravrudhi and user pravrudhi...also give me control in super pravrudhi to directly interact with you using the model network that you have built as this claude code session may hit session limit in a day or 2...so prep it and test it and keep it ready for me"
       },
@@ -21672,7 +21688,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.41,
+        "staleness_days": 0.44,
         "state": "captured",
         "text": "Everything is set up and verified:\n\n* Bot confirmed: `@pravrudhi_bot`, token valid\n* Chat ID confirmed: `8679892510`\n* Message delivery tested end-to-end \u2014 you should have received \"Pravrudhi: Telegram bot wired up successfully.\" in Telegram\n* Credentials persisted at `~/.config/pravrudhi/telegram.env` (mode 600)\n* systemd units updated and reinstalled (pravrudhi-app.service, pravrudhi-heartbeat.service) with the `EnvironmentFile` line, though the running app service wasn't restarted per your choice\n* Handoff doc finalized at research/telegram-bot-setup.md, including the exact code gap (`notifications.py:_reach()` never passes `token`/`chat_id` to `reach.send()`) and a precise diff for the other agent session to apply\n\nPoint the other Claude Code session at research/telegram-bot-setup.md and it has everything it needs to wire the actual notification code...integrate, test and use...this will be only for admin..users will have to bring their byok..enable in settings...also note and implement  - Pravrudhi Studio is only for admin (it is not for any other user or public release)...and for the admin pravrudhi (use case end..not studio) will auto update the builds without the operator intervention"
       },
@@ -21686,7 +21702,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.38,
+        "staleness_days": 0.4,
         "state": "captured",
         "text": "install both studio and non-studio desktops (both mac mini and 5090 machine) and give the web app link for both...the non-studio should update the builds autonomously when studio pushes the change...but the catch is that whatever the non-studio is building should not break..also the desktop should support major os (including windows) and the web app major browsers...and continue to build and work and use the ledger that has all my previous requests...let ralph rigourously check before closing..do e2e tests ...adversarial reviews before closure too"
       },
@@ -21700,7 +21716,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.02,
+        "staleness_days": 0.04,
         "state": "captured",
         "text": "all done and authorizing shell auto-update...carry on....for both 5090 and mac mini"
       },
@@ -21714,9 +21730,23 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.01,
+        "staleness_days": 0.03,
         "state": "captured",
         "text": "the admin user end application can auto update too...i authorize it..as that is your test bed...and henceforth don't stop for operator ..you should continue other jobs..and why isn't the pravruhi's own rsi building autonomously (or is it?)...and have you differentiated the name (and obviously the features insided it) for studio and user end app...i only see one form of desktop on mac mini"
+      },
+      {
+        "asked_at": "2026-09-08T06:06:07.286Z",
+        "criteria": [],
+        "id": "r-f89e41e9",
+        "notes": [],
+        "progress": [
+          0,
+          0
+        ],
+        "session": "",
+        "staleness_days": 0.02,
+        "state": "captured",
+        "text": "you cannot stop for the operator to command you....full autonomous and continous running both you and the 2 rsi systems (studio and the user app)"
       },
       {
         "asked_at": "2026-09-06T12:00:00Z",
@@ -22331,7 +22361,7 @@
         "text": "let astra handle the tough jobs...let it bring up the desktop app, test...integrate fully with the api etc...route it to requests and let pravrudhi handle this request autonomously...also adversarial review and thorough e2e tests before marking any completion...give it also the ralph-loop closure (skill) to make it robust and not escape with half-baked features"
       }
     ],
-    "total": 17
+    "total": 18
   },
   "runs": [
     {
@@ -23754,16 +23784,16 @@
     "channel": "dev",
     "check_interval_min": 30,
     "current": {
-      "git_describe": "v0.3.1-81-g435576e",
+      "git_describe": "v0.3.1-84-g3877c16",
       "kernel_version": "0.1.0",
       "version": "0.3.1"
     },
     "keep_previous": 2
   },
   "version": {
-    "commit": "435576e",
+    "commit": "3877c16",
     "engine": "0.3.1",
-    "exported_at": "2026-09-08T06:05:00.501Z",
+    "exported_at": "2026-09-08T06:37:49.000Z",
     "kernel": "0.1.0"
   }
 }
