@@ -23431,7 +23431,7 @@
       "healthy": true,
       "last_check": null,
       "last_result": "dev channel: tracks the git checkout directly, not a packaged release",
-      "root": "/home/ss/projects/pravrudhi"
+      "root": "."
     },
     {
       "auto_apply": true,
@@ -23442,9 +23442,9 @@
       ],
       "channel": "release",
       "current_version": "0.4.0",
-      "due": true,
+      "due": false,
       "healthy": true,
-      "last_check": 1788862861.4378936,
+      "last_check": 1788866726.0213532,
       "last_result": "running 0.4.0",
       "root": "/home/ss/pravrudhi-release"
     }
@@ -23462,12 +23462,12 @@
         "ok": true
       },
       {
-        "detail": "last heartbeat was 1518s ago",
+        "detail": "last heartbeat was 1672s ago",
         "name": "scheduler_fresh",
         "ok": true
       },
       {
-        "detail": "697770786816 bytes free",
+        "detail": "697769345024 bytes free",
         "name": "disk_available",
         "ok": true
       },
@@ -23482,7 +23482,7 @@
         "ok": true
       },
       {
-        "detail": "developer checkout; a known-good commit is bb569cc, with 5 uncommitted file(s)",
+        "detail": "developer checkout; a known-good commit is c722d33, with 5 uncommitted file(s)",
         "name": "release_restorable",
         "ok": true
       },
@@ -23797,21 +23797,21 @@
       "badge": "amber",
       "candidate": "c-0060",
       "night": "harness-night1",
-      "pack": "/home/ss/projects/pravrudhi/research/inbox/harness-night1/c-0060",
+      "pack": "research/inbox/harness-night1/c-0060",
       "signed": false
     },
     {
       "badge": "green",
       "candidate": "c-0078",
       "night": "harness-night3",
-      "pack": "/home/ss/projects/pravrudhi/research/inbox/harness-night3/c-0078",
+      "pack": "research/inbox/harness-night3/c-0078",
       "signed": false
     },
     {
       "badge": "green",
       "candidate": "c-0045",
       "night": "night4",
-      "pack": "/home/ss/projects/pravrudhi/research/inbox/night4/c-0045",
+      "pack": "research/inbox/night4/c-0045",
       "signed": false
     }
   ],
@@ -30833,7 +30833,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.18,
+        "staleness_days": 0.19,
         "state": "captured",
         "text": "forget the free tier as the coding model is exhausted...lite which is subscribed is the core...also let studio send me messages via telegram..don't overload me...let the rsi and openclaw equivalent within it interact with me on telegram...i should also be able to send messages to it and interact"
       },
@@ -32865,16 +32865,16 @@
     "channel": "dev",
     "check_interval_min": 30,
     "current": {
-      "git_describe": "v0.4.0-15-gbb569cc-dirty",
+      "git_describe": "v0.4.0-16-gc722d33-dirty",
       "kernel_version": "0.1.0",
       "version": "0.4.0"
     },
     "keep_previous": 2
   },
   "version": {
-    "commit": "bb569cc",
+    "commit": "c722d33",
     "engine": "0.4.0",
-    "exported_at": "2026-09-08T11:24:38.461Z",
+    "exported_at": "2026-09-08T11:27:13.597Z",
     "kernel": "0.1.0"
   }
 }

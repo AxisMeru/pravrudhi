@@ -319,19 +319,24 @@ rows:
 # a night, a ledger, a route chosen from measured outcomes, a candidate or its ancestry, so the one product claim
 # the engine can actually support had no row to stand on and the board could only ever read as a loss.
 #
-# Rivals are `unknown` here rather than `none`, and that is deliberate: the module's own rule is that an unknown
-# rival capability is not evidence of a gap. Orca ships as a 108MB minified asar and was searched for these
-# concepts by identifier — `successRate`, `wilson`, `trials`, `successes`, `autonomousLoop`, `overnight` all
-# return nothing, while `lineage` returns real modules that turn out to be `worktree-lineage-projection` and
-# `lineageTrail`: the parent/child tree of git worktrees in the sidebar, not ancestry in a search. That is enough
-# to say the search was done and inconclusive, and not enough to record a verdict against a minified bundle where
-# an identifier may simply have been renamed. OpenClaw's source was read for the rows above and has an executing
-# autonomous loop, which is why that one row is `partial` rather than unknown.
+# Orca was recorded `unknown` on these rows for one day, on the honest ground that grepping a minified bundle for
+# identifiers proves nothing when a minifier may have renamed them. That objection does not apply to the bundle's
+# own chunk filenames: Orca 1.4.197 ships 828 named renderer modules and 15 named main-process modules, and those
+# names come from the source tree at build time. Across all 843 there is no module for a ledger, evidence, a
+# night, a benchmark, an evaluation, a candidate, provenance, an appetite, a budget or agent routing. The only
+# `lineage` module is `worktree-lineage-projection`, the sidebar's parent/child tree of git worktrees, which is a
+# different subject wearing the same word. Named-module absence across a whole product is evidence; identifier
+# absence inside minified function bodies is not, which is why the first pass stopped short and this one does not.
+#
+# `unattended-nights` is Orca `partial` rather than `none`, and the distinction is the point of the row. Orca has
+# `AutomationsPage`, `automation-host-client` and `automation-precheck`, so it genuinely runs work unattended.
+# What it has no module for is a declared appetite or budget bounding that work. Running unattended is half the
+# capability; running unattended inside a stated bound is the half this row is about.
 - id: measured-routing
   capability: Choose the agent and model from measured outcomes
   why_it_matters: Spend on the expensive route only once the evidence distinguishes it from a cheaper one.
   # orca (unknown): no successRate/wilson/trials/successes identifier anywhere in the minified bundle
-  rivals: {orca: unknown, claude_desktop: unknown, codex: unknown, openclaw: unknown}
+  rivals: {orca: none, claude_desktop: unknown, codex: unknown, openclaw: unknown}
   ours: have
   evidence:
   - 'command: grep -qF "def choose(" src/pravrudhi/application/routing.py'
@@ -343,7 +348,7 @@ rows:
 - id: evidence-ledger
   capability: Every stated number traces to an append-only ledger row
   why_it_matters: A result that cannot be replayed from its own record is a claim, not a measurement.
-  rivals: {orca: unknown, claude_desktop: unknown, codex: unknown, openclaw: unknown}
+  rivals: {orca: none, claude_desktop: unknown, codex: unknown, openclaw: unknown}
   ours: have
   evidence:
   - pravrudhi_kernel/src/pravrudhi_kernel/ledger/writer.py
@@ -355,7 +360,7 @@ rows:
   capability: Read back the parent structure of the search
   why_it_matters: Without ancestry an evolutionary arm has nothing to shrink toward and no novelty to reward.
   # orca (unknown): its `lineage` modules are worktree-tree projections, a different subject
-  rivals: {orca: unknown, claude_desktop: unknown, codex: unknown, openclaw: unknown}
+  rivals: {orca: none, claude_desktop: unknown, codex: unknown, openclaw: unknown}
   ours: have
   evidence:
   - 'command: grep -qF "def parent_map(" src/pravrudhi/application/archive.py'
@@ -366,7 +371,7 @@ rows:
 - id: selection-pressure
   capability: Report whether the budget forced a choice at all
   why_it_matters: A selection rule earns nothing on a night when everything proposed could be afforded.
-  rivals: {orca: unknown, claude_desktop: unknown, codex: unknown, openclaw: unknown}
+  rivals: {orca: none, claude_desktop: unknown, codex: unknown, openclaw: unknown}
   ours: have
   evidence:
   - 'command: grep -qF "def selection_pressure(" src/pravrudhi/application/archive.py'
@@ -377,7 +382,7 @@ rows:
   capability: Run unattended within a declared appetite
   why_it_matters: Improvement that needs an operator present is not improvement the operator can leave running.
   # openclaw (partial): autonomousLoop.js executes, but spending is not bounded by a declared appetite
-  rivals: {orca: unknown, claude_desktop: unknown, codex: unknown, openclaw: partial}
+  rivals: {orca: partial, claude_desktop: unknown, codex: unknown, openclaw: partial}
   ours: have
   evidence:
   - 'command: grep -qF "def run_night(" src/pravrudhi/application/night.py'
