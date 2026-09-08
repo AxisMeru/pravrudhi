@@ -7,10 +7,64 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from pravrudhi.agents.registry import build_agent as _build_agent
+from pravrudhi.application import routing
 from pravrudhi_kernel.ledger.verify import verify
 from pravrudhi_kernel.sandbox.runner import docker_available
 
 PREREG_FILES = ("lora_night.yaml", "harness_night.yaml", "controller.yaml", "canaries.md")
+
+ROUTED_TIERS = ("mechanical", "standard", "design", "critical")
+
+
+def _routing_check(root: Path) -> dict[str, Any]:
+    """Whether the route the router would actually pick at each tier has an agent that can run.
+
+    A route's configuration says which tiers it serves; it says nothing about whether its CLI is on PATH. On
+    2026-09-08 `systemd --user` handed the heartbeat a PATH without nvm's bin directory, so `opencode` and `codex`
+    were invisible while `claude` was not. The router went on choosing the Lite Plan seat, every dispatch was
+    rejected with "no agent available", and the unit reported success each hour because an instant rejection is
+    still a completed run. Six checks were green throughout. This is the seventh, and it asks the only question
+    that distinguishes a loop that is working from one that is merely running.
+
+    Failing to build an agent is the signal, not an error: `build_agent` returns None precisely when the agent
+    cannot run here, which is the condition being reported.
+
+    A machine where NO routed agent runs is not the fault being looked for. That is an install nobody has
+    provisioned yet, and failing every fresh workspace would make this check the thing people learn to ignore.
+    What is reported as broken is the asymmetry that actually happened: some routes run, and the one the router
+    picked does not.
+    """
+    table = routing.load_table()
+    rows = routing.outcomes(root)
+
+    def runnable(route: routing.Route) -> bool:
+        try:
+            return _build_agent(root, route.agent, route.model) is not None
+        except Exception:  # noqa: BLE001 - a broken adapter must read as unavailable, not crash doctor
+            return False
+
+    broken: list[str] = []
+    for tier in ROUTED_TIERS:
+        try:
+            choice = routing.choose(table, rows, tier, root)
+        except routing.RoutingError as error:
+            broken.append(f"{tier}: {error}")
+            continue
+        if not runnable(choice.route):
+            broken.append(f"{tier}: would route to {choice.route.id} ({choice.route.agent}), which cannot run here")
+
+    if broken and not any(runnable(route) for route in table.routes.values()):
+        return {
+            "name": "routing",
+            "ok": True,
+            "detail": "No routed agent is installed on this machine yet, so no route can be judged.",
+        }
+    return {
+        "name": "routing",
+        "ok": not broken,
+        "detail": "; ".join(broken) if broken else f"Every routed tier can run what it chose ({len(ROUTED_TIERS)} tiers).",
+    }
 
 
 def run_doctor(root: Path) -> dict[str, Any]:
@@ -89,4 +143,5 @@ def run_doctor(root: Path) -> dict[str, Any]:
         "ok": not missing,
         "detail": "Missing pre-registration files: " + ", ".join(missing) if missing else "All pre-registration files exist.",
     })
+    checks.append(_routing_check(root))
     return {"ok": all(check["ok"] for check in checks), "checks": checks}

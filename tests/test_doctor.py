@@ -36,12 +36,15 @@ def test_uninitialised(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: 
     monkeypatch.setenv("PATH", "")
     report = run_doctor(tmp_path)
     assert report["ok"] is False
-    assert {check["name"] for check in report["checks"]} == {"initialised", "ledger", "docker", "gpu", "pools", "prereg"}
+    assert {check["name"] for check in report["checks"]} == {
+        "initialised", "ledger", "docker", "gpu", "pools", "prereg", "routing",
+    }
     for check in report["checks"]:
         assert set(check) == {"name", "ok", "detail"}
         assert isinstance(check["detail"], str) and check["detail"]
-        # A machine with no GPU on PATH is not itself an error: the gpu check stays ok, it just can't start a night.
-        assert check["ok"] is (check["name"] == "gpu")
+        # Two checks stay ok on a bare machine and say why. No GPU on PATH cannot start a night but is not an
+        # error, and with no agent installed at all there is no route to judge — see `_routing_check`.
+        assert check["ok"] is (check["name"] in {"gpu", "routing"})
     assert list(tmp_path.iterdir()) == []
     assert capsys.readouterr() == ("", "")
 
@@ -50,7 +53,7 @@ def test_initialised(ready_root: Path, capsys: pytest.CaptureFixture[str]) -> No
     before = {p.relative_to(ready_root): p.read_bytes() for p in ready_root.rglob("*") if p.is_file()}
     report = run_doctor(ready_root)
     assert report["ok"] is True
-    assert len(report["checks"]) == 6
+    assert len(report["checks"]) == 7
     assert all(check["ok"] is True and check["detail"] for check in report["checks"])
     assert before == {p.relative_to(ready_root): p.read_bytes() for p in ready_root.rglob("*") if p.is_file()}
     assert capsys.readouterr() == ("", "")
@@ -126,3 +129,38 @@ def test_invalid_ledger(ready_root: Path, damage: str) -> None:
     assert len(failures) == 1 and failures[0]["name"] == "ledger"
     if damage == "tamper":
         assert "this_hash mismatch" in failures[0]["detail"]
+
+
+def test_routing_reports_a_tier_whose_chosen_route_has_no_runnable_agent(
+    ready_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The check that would have caught the outage of 2026-09-08.
+
+    `systemd --user` gives a unit a PATH without nvm's bin directory, so `opencode` and `codex` were invisible to
+    the heartbeat while `claude` was not. The router still chose the Lite Plan seat, because a route's tiers say
+    nothing about whether its CLI is on PATH, and every dispatch was rejected with "no agent available" hourly for
+    five hours. The unit reported success each time and `doctor` was green throughout, because nothing looked at
+    whether the route the router would pick could actually run.
+    """
+    from pravrudhi.application import doctor as doctor_module
+
+    # Exactly the shape of the outage: opencode is invisible, claude is not.
+    monkeypatch.setattr(
+        doctor_module, "_build_agent",
+        lambda root, name, model: None if "opencode" in name else object(),
+    )
+    result = run_doctor(ready_root)
+    routing = next(c for c in result["checks"] if c["name"] == "routing")
+    assert not routing["ok"], routing
+    assert "mechanical" in routing["detail"], routing["detail"]
+
+
+def test_routing_is_satisfied_when_every_tier_can_run_what_it_chose(
+    ready_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from pravrudhi.application import doctor as doctor_module
+
+    monkeypatch.setattr(doctor_module, "_build_agent", lambda root, name, model: object())
+    result = run_doctor(ready_root)
+    routing = next(c for c in result["checks"] if c["name"] == "routing")
+    assert routing["ok"], routing
