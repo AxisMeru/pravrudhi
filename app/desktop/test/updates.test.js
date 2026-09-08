@@ -216,3 +216,29 @@ test('restartForUpdate works with its real default relaunch/exit hooks against a
   await restartForUpdate(app, processOwner);
   assert.deepEqual(calls, ['shutdown', 'relaunch', ['exit', 0]]);
 });
+
+// --- a check that could not run is not proof the install finished --------------------------------------------
+
+test('a failed check during a download does not report the update as installed', async () => {
+  // `update_available: false` answered two questions: "nothing newer" and "could not reach GitHub". While an
+  // install was in flight the second read as the first, and the offer flipped to "ready" — telling the operator
+  // a version had been installed because the engine had briefly lost the network.
+  const {createUpdateOffer} = require('../lib/updates');
+  const answers = [
+    {update_available: true, checked: true, latest: {tag: 'v9.9.9'}},
+    {update_available: false, checked: false, latest: null},
+  ];
+  let i = 0;
+  const offer = createUpdateOffer({
+    apiClient: {update: async () => answers[Math.min(i++, answers.length - 1)]},
+    setTimer: () => 0, clearTimer: () => {},
+  });
+  const seen = [];
+  offer.subscribe((s) => seen.push(s.status));
+
+  await offer.check();
+  offer.accept();
+  await offer.check();
+
+  assert.ok(!seen.includes('ready'), `an unreachable check was treated as a finished install: ${seen.join(' -> ')}`);
+});

@@ -160,7 +160,10 @@ def test_update_endpoint_serves_the_settings_page(tmp_path):
     assert r.status_code == 200
     body = r.json()
     assert body["current"]["version"] and body["current"]["kernel_version"]
-    assert set(body) == {"current", "latest", "update_available", "how"}
+    # `checked` says whether the check reached GitHub. Without it `update_available: false` answered both
+    # "nothing newer" and "could not look", so a rate-limited machine reported itself up to date and an
+    # install in flight was declared finished.
+    assert set(body) == {"current", "latest", "update_available", "checked", "how"}
 
 
 def test_heartbeat_endpoint_is_empty_before_the_first_beat(tmp_path):

@@ -114,11 +114,24 @@ def _how() -> str:
 
 
 def status(fetch: FetchFn | None = None) -> dict[str, Any]:
-    """current, latest, whether an update is available, and the command to run for this install's shape."""
+    """current, latest, whether an update is available, whether the check ran, and the command to run.
+
+    `checked` exists because `update_available: false` answered two different questions: "GitHub says nothing is
+    newer" and "GitHub could not be reached". A rate-limited or offline machine therefore reported itself
+    current, which for an unattended updater is the worst shape of failure — it stops updating and says
+    everything is fine. Observed while cutting a release from a rate-limited address: the engine answered "no
+    update available" for a release that existed.
+
+    `update_available` stays false when the check did not run. Not knowing is never a reason to offer an
+    update; it is a reason to say so.
+    """
     cur = current()
     lat = latest(fetch)
     update_available = lat is not None and _is_newer(lat["tag"], cur["version"])
-    return {"current": cur, "latest": lat, "update_available": update_available, "how": _how()}
+    return {
+        "current": cur, "latest": lat, "update_available": update_available,
+        "checked": lat is not None, "how": _how(),
+    }
 
 
 def doctor_check() -> dict[str, Any]:

@@ -75,6 +75,10 @@ class UpdateStatusResponse(BaseModel):
     current: UpdateCurrent
     latest: UpdateLatest | None
     update_available: bool
+    checked: bool = True
+    """Whether the check actually reached GitHub. `update_available: false` alone cannot be trusted as "up to
+    date": it is also what an unreachable or rate-limited API produces, and an unattended updater that reads
+    the second as the first stops updating and reports itself current."""
     how: str
 
 

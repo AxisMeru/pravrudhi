@@ -84,3 +84,37 @@ def test_doctor_check_always_reports_ok() -> None:
 )
 def test_is_newer_compares_semver_when_possible(tag: str, current_version: str, expected: bool) -> None:
     assert updates._is_newer(tag, current_version) is expected
+
+
+class TestNotKnowingIsNotBeingUpToDate:
+    """A check that could not run must not read as a check that found nothing.
+
+    `status` returned `update_available: false` whether GitHub said "nothing newer" or could not be reached at
+    all, so a rate-limited or offline machine reported itself current. For an unattended updater that is the
+    worst shape of failure: it stops updating and says everything is fine. Found by rate-limiting this very
+    machine while cutting a release — the engine answered "no update available" for a release that existed.
+    """
+
+    def test_a_reachable_api_with_nothing_newer_is_a_completed_check(self) -> None:
+        from pravrudhi.application.updates import status
+
+        st = status(fetch=lambda _url, _t: {"tag_name": "v0.0.1", "html_url": "https://x"})
+        assert st["checked"] is True
+        assert st["update_available"] is False
+
+    def test_an_unreachable_api_is_not_a_completed_check(self) -> None:
+        from pravrudhi.application.updates import status
+
+        def unreachable(_url: str, _timeout: float) -> dict[str, object]:
+            raise OSError("rate limited")
+
+        st = status(fetch=unreachable)
+        assert st["checked"] is False, "a failed check reported itself as a completed one"
+        assert st["latest"] is None
+        assert st["update_available"] is False, "not knowing is never a reason to offer an update"
+
+    def test_a_newer_release_is_still_offered(self) -> None:
+        from pravrudhi.application.updates import status
+
+        st = status(fetch=lambda _url, _t: {"tag_name": "v999.0.0", "html_url": "https://x"})
+        assert st["checked"] is True and st["update_available"] is True

@@ -60,7 +60,13 @@ function createUpdateOffer({
     const version = result?.latest?.tag ?? null;
 
     if (state.status === 'downloading') {
-      if (!result?.update_available) { setState({status: 'ready', version: state.version, notes: state.notes}); return; }
+      // The engine having stopped offering the update is how a finished install is recognised — but only when
+      // the engine actually managed to look. `update_available: false` also means "could not reach GitHub",
+      // and treating that as a finished install told the operator a version was installed because the network
+      // had briefly gone. `checked` separates the two (application/updates.py::status).
+      if (result?.checked !== false && !result?.update_available) {
+        setState({status: 'ready', version: state.version, notes: state.notes}); return;
+      }
       if (downloadDeadline !== null && now() >= downloadDeadline) {
         setState({status: 'failed', version: state.version, notes: state.notes, reason: 'The update did not finish installing in time.'});
       }

@@ -334,6 +334,8 @@ export interface UpdateStatus {
   current: { version: string; kernel_version: string; git_describe?: string };
   latest: { tag: string; url: string } | null;
   update_available: boolean;
+  /** Whether the check reached GitHub. False means unknown, not up to date. */
+  checked?: boolean;
   how: string;
 }
 
