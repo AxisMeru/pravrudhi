@@ -1,4 +1,18 @@
 # Rival claims await verified product sources. Matrix order breaks next_gap ties.
+# OpenClaw was assessed on 2026-09-08 by reading its source at
+# /home/ss/gb10-archive/openclaw_build/swarm-platform — its modules, API routes, React dashboard pages and
+# components — not by reputation. Until then every row read `unknown`, which the completion gate's adversarial
+# reviewer correctly called out: the operator named OpenClaw as a rival twice and no row had ever looked at it.
+#
+# What the reading found, so the verdicts below are legible rather than asserted. OpenClaw is a server plus a
+# web dashboard for a multi-agent swarm. It is strong exactly where that shape is strong — dispatch,
+# orchestration, parallel worktrees, running arbitrary coding agents, operations and metrics surfaces, and
+# messaging, which it treats as a first-class page rather than an afterthought. It has no Electron anywhere, so
+# every desktop- and editor-shaped row is a genuine `none` rather than an unexamined one.
+#
+# Two things it has that are worth taking rather than merely beating: an autonomous loop that executes
+# (autonomousLoop.js) where this engine's heartbeat only chooses, and a per-agent communication trace
+# (AgentCommunicationTrace.tsx) showing what agents said to each other, which this engine does not surface.
 rows:
 - id: command-palette
   capability: Keyboard command palette
@@ -7,7 +21,7 @@ rows:
     orca: unknown
     claude_desktop: unknown
     codex: unknown
-    openclaw: unknown
+    openclaw: none  # no palette in ui/src; navigation is page links
   ours: have
   evidence:
     - 'command: grep -qF CommandPalette app/frontend/src/app/layout.tsx'
@@ -22,7 +36,7 @@ rows:
     orca: unknown
     claude_desktop: unknown
     codex: unknown
-    openclaw: unknown
+    openclaw: have  # orchestrator.js, coordinator.js, queueManager.js, routes/agents.js
   ours: have
   evidence:
   - 'command: grep -qF "<DispatchPanel />" app/frontend/src/app/swarm/page.tsx'
@@ -35,7 +49,7 @@ rows:
     orca: unknown
     claude_desktop: unknown
     codex: unknown
-    openclaw: unknown
+    openclaw: partial  # openclawRunner.js sandboxes runs; OpsPage and LogViewerPanel show them
   ours: have
   evidence:
   - 'command: grep -qF "<SandboxesSection />" app/frontend/src/app/swarm/page.tsx'
@@ -49,7 +63,7 @@ rows:
     orca: unknown
     claude_desktop: unknown
     codex: unknown
-    openclaw: unknown
+    openclaw: none  # diffs are internal to worktreeManager.js; no viewer in the dashboard
   ours: have
   evidence:
   - 'command: grep -qF "<DiffViewer" app/frontend/src/app/diffs/page.tsx'
@@ -62,7 +76,7 @@ rows:
     orca: unknown
     claude_desktop: unknown
     codex: unknown
-    openclaw: unknown
+    openclaw: none  # WebSocket carries agent events; AgentCommunicationTrace observes, no chat
   ours: partial
   evidence:
   - 'command: grep -qF "text/event-stream" src/pravrudhi/api/chat.py'
@@ -81,7 +95,7 @@ rows:
     orca: unknown
     claude_desktop: unknown
     codex: unknown
-    openclaw: unknown
+    openclaw: have  # telegramRelay.js and a TelegramPage in the dashboard
   ours: have
   evidence:
   - 'command: grep -qF "<NotificationBell />" app/frontend/src/components/Sidebar.tsx'
@@ -98,7 +112,7 @@ rows:
     orca: unknown
     claude_desktop: unknown
     codex: unknown
-    openclaw: unknown
+    openclaw: none  # no electron anywhere in the tree
   ours: have
   evidence:
   - app/desktop/package.json
@@ -130,7 +144,7 @@ rows:
     orca: unknown
     claude_desktop: unknown
     codex: unknown
-    openclaw: unknown
+    openclaw: have  # OpsPage, SystemStatusBar, MetricsPanel
   ours: have
   evidence:
   - 'command: grep -qF "<SwarmPanel />" app/frontend/src/app/system/page.tsx'
@@ -143,7 +157,8 @@ rows:
 - id: parallel-worktrees
   capability: Parallel agents in isolated worktrees
   why_it_matters: Run several agents at once without them overwriting each other.
-  rivals: {orca: have, claude_desktop: unknown, codex: unknown, openclaw: unknown}
+  # openclaw (have): worktreeManager.js
+  rivals: {orca: have, claude_desktop: unknown, codex: unknown, openclaw: have}
   ours: have
   evidence:
   - src/pravrudhi/application/delegate.py
@@ -154,7 +169,8 @@ rows:
 - id: embedded-terminal
   capability: Embedded terminal emulator
   why_it_matters: Run and watch a command without leaving the application.
-  rivals: {orca: have, claude_desktop: unknown, codex: unknown, openclaw: unknown}
+  # openclaw (none): terminal appears only in server.js logging
+  rivals: {orca: have, claude_desktop: unknown, codex: unknown, openclaw: none}
   ours: partial
   evidence:
   - app/frontend/src/components/terminal/RunTerminal.tsx
@@ -168,7 +184,8 @@ rows:
 - id: github-integration
   capability: GitHub repository and pull request integration
   why_it_matters: Review and land work without switching to a browser.
-  rivals: {orca: have, claude_desktop: unknown, codex: unknown, openclaw: unknown}
+  # openclaw (partial): referenced from DashboardPage.tsx only
+  rivals: {orca: have, claude_desktop: unknown, codex: unknown, openclaw: partial}
   ours: partial
   evidence:
   - src/pravrudhi/application/updates.py
@@ -177,7 +194,8 @@ rows:
 - id: any-cli-agent
   capability: Drive any command line agent
   why_it_matters: Use the agent that suits the task rather than the one the app ships with.
-  rivals: {orca: have, claude_desktop: unknown, codex: unknown, openclaw: unknown}
+  # openclaw (have): openclawRunner.js runs coding agents under a policy
+  rivals: {orca: have, claude_desktop: unknown, codex: unknown, openclaw: have}
   ours: have
   evidence:
   - src/pravrudhi/agents/registry.py
@@ -188,14 +206,16 @@ rows:
 - id: design-mode
   capability: Direct visual editing of an interface
   why_it_matters: Change a layout by pointing at it instead of describing it.
-  rivals: {orca: have, claude_desktop: unknown, codex: unknown, openclaw: unknown}
+  # openclaw (none): nothing in ui/src
+  rivals: {orca: have, claude_desktop: unknown, codex: unknown, openclaw: none}
   ours: none
   evidence: []
   notes: Not built and not currently planned. Listed so the gap is visible rather than absent.
 - id: ssh-remote
   capability: Work on a remote machine over SSH
   why_it_matters: Use the machine that has the hardware.
-  rivals: {orca: have, claude_desktop: unknown, codex: unknown, openclaw: unknown}
+  # openclaw (partial): ssh referenced in server.js; no remote-host surface in the dashboard
+  rivals: {orca: have, claude_desktop: unknown, codex: unknown, openclaw: partial}
   ours: have
   evidence:
   - src/pravrudhi/hosts/transports.py
@@ -205,7 +225,8 @@ rows:
 - id: file-drag
   capability: Drag a file into the conversation
   why_it_matters: Attach context without typing a path.
-  rivals: {orca: have, claude_desktop: unknown, codex: unknown, openclaw: unknown}
+  # openclaw (none): nothing in ui/src
+  rivals: {orca: have, claude_desktop: unknown, codex: unknown, openclaw: none}
   ours: have
   evidence:
   - app/frontend/src/components/chat/ChatDropTarget.tsx
@@ -222,7 +243,8 @@ rows:
 - id: diff-annotation
   capability: Annotate a generated diff
   why_it_matters: Say what is wrong with a change at the line it is wrong on.
-  rivals: {orca: have, claude_desktop: unknown, codex: unknown, openclaw: unknown}
+  # openclaw (none): nothing in ui/src
+  rivals: {orca: have, claude_desktop: unknown, codex: unknown, openclaw: none}
   ours: have
   evidence:
   - app/frontend/src/components/diffs/DiffViewer.tsx
@@ -236,7 +258,8 @@ rows:
 - id: command-line
   capability: A command line for the whole product
   why_it_matters: Script the tool and use it over a plain SSH session.
-  rivals: {orca: have, claude_desktop: unknown, codex: unknown, openclaw: unknown}
+  # openclaw (partial): shell scripts (run-swarm.sh, smoke.sh), not a command surface
+  rivals: {orca: have, claude_desktop: unknown, codex: unknown, openclaw: partial}
   ours: have
   evidence:
   - src/pravrudhi/cli/app.py
@@ -245,7 +268,8 @@ rows:
 - id: keyboard-native
   capability: Keyboard-driven navigation throughout
   why_it_matters: Work without reaching for the pointer.
-  rivals: {orca: have, claude_desktop: unknown, codex: unknown, openclaw: unknown}
+  # openclaw (none): nothing in ui/src
+  rivals: {orca: have, claude_desktop: unknown, codex: unknown, openclaw: none}
   ours: have
   evidence:
   - 'command: grep -qF metaKey app/frontend/src/components/palette/CommandPalette.tsx'
@@ -257,7 +281,8 @@ rows:
 - id: account-switching
   capability: Switch between provider accounts
   why_it_matters: Separate work from personal quota, and survive one account being rate limited.
-  rivals: {orca: have, claude_desktop: unknown, codex: unknown, openclaw: unknown}
+  # openclaw (partial): auth.js exists; no account switcher in the dashboard
+  rivals: {orca: have, claude_desktop: unknown, codex: unknown, openclaw: partial}
   ours: partial
   evidence:
   - src/pravrudhi/application/credentials.py
@@ -266,7 +291,8 @@ rows:
 - id: markdown-editor
   capability: Edit a document in the application
   why_it_matters: Keep notes and plans where the work is.
-  rivals: {orca: have, claude_desktop: unknown, codex: unknown, openclaw: unknown}
+  # openclaw (none): markdown only in evaluator and telegram relay output
+  rivals: {orca: have, claude_desktop: unknown, codex: unknown, openclaw: none}
   ours: have
   evidence:
   - 'command: .venv/bin/python -m pytest tests/test_api_and_product.py -k note -q'
