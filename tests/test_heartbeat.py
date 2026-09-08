@@ -581,3 +581,43 @@ def test_continuity_says_it_is_proposing_a_remedy_rather_than_running_one() -> N
     assert "pools" in reason and result == {"check": "pools", "remedy": heartbeat._continuity_remedy("pools")[1]}
     assert not reason.startswith("running "), reason
     assert "propos" in reason, reason
+
+
+def test_review_criterion_carries_the_finding_not_the_reviewer_s_preamble(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A review's opening sentence often announces that a finding exists without stating it.
+
+    The real one that stalled the studio loop read "I inspected the actual code and assets behind each criterion
+    rather than trusting the citations, and found a real reason the completion does not satisfy the operator's
+    request." It clears the label guard - long, and no trailing colon - so it became the criterion. Three
+    dispatches each produced twenty-odd files guessing at what the reason might have been, none of them could be
+    marked met, and the attempt budget then parked the whole request. A finding a builder can act on names the
+    thing it is about; a preamble names nothing.
+    """
+    from pravrudhi.application import completion, heartbeat, requests
+
+    (tmp_path / "README.md").write_text("there")
+    req = requests.capture(tmp_path, "do the work")
+    requests.add_criteria(tmp_path, req.id, [requests.Criterion(text="works", source="operator")])
+    requests.meet(tmp_path, req.id, 0, [requests.Evidence(kind="file", ref="README.md")])
+    requests.advance(tmp_path, req.id, "in_progress")
+    requests.advance(tmp_path, req.id, "delivered")
+
+    findings = (
+        "## Summary\n\n"
+        "I inspected the actual code and assets behind each criterion rather than trusting the citations, "
+        "and found a real reason the completion does not satisfy the operator's request.\n\n"
+        "The parity matrix in `parity.py` documents itself as not autonomous, and nothing in the drive loop "
+        "ever calls it, so no agent persists on parity.\n"
+    )
+    review = completion.ReviewResult(findings=findings, blocking=True, reason="refused")
+    monkeypatch.setattr(completion, "gate",
+                        lambda root, r, **kw: completion.GateResult(r, False, "review", [], review))
+
+    heartbeat._beat_completion_gate(tmp_path, req.id)
+
+    added = [c for c in requests.get(tmp_path, req.id).criteria
+             if c.text.startswith(heartbeat._REVIEW_CRITERION_PREFIX)][0]
+    assert "parity.py" in added.text, added.text
+    assert "found a real reason" not in added.text, "the criterion announces a finding instead of stating one"

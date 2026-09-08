@@ -27,6 +27,7 @@ as it would under manual dispatch, for a human to review and execute.
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
@@ -322,6 +323,24 @@ _OBLIGATION_TIER = "standard"
 _REVIEW_CRITERION_PREFIX = "Answer the completion review's finding: "
 
 
+_NAMES_SOMETHING = re.compile(r"`[^`]+`|\b[\w-]+\.(?:py|tsx|ts|jsx|js|ya?ml|json|md|sh|toml)\b")
+
+
+def _names_something(line: str) -> bool:
+    """Whether a line states a finding rather than announcing that one exists.
+
+    The label guard above catches "Summary of the strongest reason:". It does not catch the sentence that
+    follows a heading in a well-written review: "I inspected the actual code and assets behind each criterion
+    rather than trusting the citations, and found a real reason the completion does not satisfy the operator's
+    request." That is long and has no trailing colon, so it became the criterion - and it names nothing, so the
+    three agents that picked it up could only guess, produced twenty-odd files apiece, and the attempt budget
+    parked the request. A finding a builder can act on says which file, module or asset is wrong; a preamble
+    describes the reviewing. Naming a thing is the difference, and these reviewers write those names in
+    backticks or as filenames.
+    """
+    return bool(_NAMES_SOMETHING.search(line))
+
+
 def _criterion_from_finding(root: Path, request_id: str, finding: str) -> bool:
     """Turn a blocking review into one unmet criterion, unless its finding is already recorded.
 
@@ -337,16 +356,18 @@ def _criterion_from_finding(root: Path, request_id: str, finding: str) -> bool:
     # The first line that actually says something. A review opens with headings and label lines ("Summary of the
     # strongest reason:"), and taking the first non-heading line produced a criterion reading "…strongest
     # reason:" — a demand with the demand missing, which is worthless to whoever builds against it.
-    headline = ""
+    headline, fallback = "", ""
     for raw in finding.splitlines():
         line = raw.strip().lstrip("#").strip().lstrip("*").strip()
         if not line or line.startswith(("---", "===")):
             continue
         if line.endswith(":") or len(line) < 40:
             continue  # a label, not the finding it labels
-        headline = line
-        break
-    headline = headline or " ".join(finding.split())[:300]
+        fallback = fallback or line
+        if _names_something(line):
+            headline = line
+            break
+    headline = headline or fallback or " ".join(finding.split())[:300]
     requests.add_criteria(
         root, request_id,
         [requests.Criterion(text=f"{_REVIEW_CRITERION_PREFIX}{headline[:300]}", source="engine")],
