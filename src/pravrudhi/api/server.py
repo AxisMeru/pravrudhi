@@ -28,6 +28,7 @@ from pravrudhi.api.runs import build_router as build_runs_router
 from pravrudhi.api.schemas import (
     AgentCooldownsResponse,
     AgentsResponse,
+    AgentTraceResponse,
     AppetiteResponse,
     ApplyResultResponse,
     BacklogResponse,
@@ -1037,6 +1038,20 @@ def create_app(root: Path) -> FastAPI:
         project = _project(user, workspace)
         clear_telegram(project)
         return asdict(telegram_status(project, engine_root=root))
+
+    @api.get("/agent-trace", response_model=AgentTraceResponse)
+    def agent_trace_ep(limit: int = 100) -> dict[str, Any]:
+        """What the agents have been doing, newest first: dispatched, accepted, rejected, rate limited, moved to
+        another route. One chronological read across a whole wave, which the per-job records cannot give."""
+        from dataclasses import asdict
+
+        from pravrudhi.application.continuity import entries
+
+        rows = [asdict(e) for e in entries(root, n=max(1, min(limit, 500)))]
+        for row in rows:
+            for key in ("detail", "agent", "objective"):
+                row[key] = row.get(key) or ""
+        return {"entries": list(reversed(rows))}
 
     @api.get("/recipes")
     def recipes_ep() -> RecipesResponse:

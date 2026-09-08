@@ -69,9 +69,15 @@ class TestWhichRoutesCanAnswer:
         assert "qwen-lite-max" not in {r.id for r in usable_routes(tmp_path)}
 
     def test_the_tables_own_order_is_kept(self, tmp_path: Path) -> None:
-        """Cheapest verified route first, sentinel last, exactly as the swarm would reach them."""
+        """Cheapest verified route first, sentinel last, exactly as the swarm would reach them.
+
+        The free-tier loop used to sit between them. Its coding quota is spent, so it is out of the tiers and
+        no longer a route anything can reach; what still has to hold is that the cheapest seat that can answer
+        comes before the sentinel standing behind it.
+        """
         ids = [r.id for r in usable_routes(tmp_path)]
-        assert ids.index("qwen-lite-max") < ids.index("qwen-loop") < ids.index("qwen-coder")
+        assert "qwen-loop" not in ids, "a route with no tier cannot answer a completion"
+        assert ids.index("qwen-lite-max") < ids.index("qwen-coder")
 
 
 class TestFallingThrough:

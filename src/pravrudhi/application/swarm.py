@@ -197,6 +197,17 @@ def _retry_elsewhere(
                    [f"every route at the {t.tier} tier is rate limited after {MAX_FALLBACKS} attempts"])
 
 
+def _note_verdict(root: Path, verdict: Verdict) -> None:
+    """Append one line to the agent trace for a finished task."""
+    body = (f"touched {len(verdict.files)} file(s): {', '.join(verdict.files)}"
+            if verdict.accepted else "; ".join(verdict.reasons) or "rejected, no reason recorded")
+    continuity.note(
+        root, kind="accepted" if verdict.accepted else "rejected",
+        summary=f"{verdict.task_id} {'accepted' if verdict.accepted else 'rejected'} by {verdict.agent}",
+        detail=body[:600], agent=verdict.agent,
+    )
+
+
 def run_wave(
     build_agent: Any, wave: list[SwarmTask], *, log: Any = print, root: Path | None = None,
     blackboard: bool = False, wave_id: str = "default",
@@ -268,6 +279,20 @@ def run_wave(
                     )
                     rid = chosen.get(t.spec.task_id)
                 results.append(verdict)
+                if root is not None:
+                    # What this agent actually did, in the one chronological place a person can read across a
+                    # whole wave. Adapted from OpenClaw, whose dashboard shows each agent's messages as rounds
+                    # run; this engine dispatched agents and recorded only limits and fallbacks, so the record
+                    # of the work itself existed nowhere a reader could follow.
+                    #
+                    # Guarded separately, and that is the point rather than caution. Written bare inside this
+                    # try, a rejected note raised and the wave's own `except` turned it into a second verdict
+                    # reading "dispatch raised" — a side record inventing an outcome for work that had already
+                    # succeeded. A record of what happened must never be able to change what happened.
+                    try:
+                        _note_verdict(root, verdict)
+                    except Exception as note_error:  # noqa: BLE001
+                        log(f"trace: not recording {verdict.task_id} ({note_error})")
                 if root is not None and rid is not None and not limited:
                     routing.record_outcome(root, routing.Outcome(
                         tier=t.tier, route_id=rid, task_id=t.spec.task_id,

@@ -708,6 +708,27 @@ class MemoryNoteResponse(BaseModel):
     """When the note was last edited, empty for one nobody has edited."""
 
 
+class AgentTraceEntry(BaseModel):
+    """One thing an agent did, in the order it happened."""
+
+    at: str
+    kind: str
+    summary: str
+    detail: str = ""
+    agent: str = ""
+    objective: str = ""
+
+
+class AgentTraceResponse(BaseModel):
+    """What the agents have been doing, newest first.
+
+    Adapted from OpenClaw, whose dashboard shows each agent's messages as rounds run. This engine dispatched
+    agents and recorded only usage limits and fallbacks, so what the agents actually did was readable nowhere.
+    """
+
+    entries: list[AgentTraceEntry]
+
+
 class MessagingStatusResponse(BaseModel):
     """Whether this workspace has a Telegram bot and where it delivers. Carries no token: `configured` answers
     "is there a credential" without being one, which is the only thing a route may say about a secret."""

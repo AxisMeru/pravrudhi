@@ -162,26 +162,40 @@ def test_the_hosted_sentinel_is_permitted_everywhere_but_always_last() -> None:
 def test_the_verified_alibaba_routes_carry_load_where_they_were_measured() -> None:
     """One verified tool call admits a route to the tiers it was checked at, and no further.
 
-    Both Alibaba routes were admitted on the same evidence and the same reasoning. They are separate routes
-    because they are separate endpoints with separate key files and separate quotas: the Lite Plan can be spent
-    while the free tier is not, and collapsing them would hide that.
+    The two Alibaba routes are separate because they are separate endpoints with separate key files and
+    separate quotas — which is exactly what made the difference on 2026-09-08: the free tier's coding quota was
+    spent while the subscribed plan was not. Collapsing them would have hidden that.
+
+    So the free route is out of the tiers and the plan carries the load. Its evidence has not been withdrawn and
+    its row is still in the table; a spent quota is a fact about now, not about whether the loop runs.
     """
     t = routing.load_table()
     assert t.routes["qwen-loop"].agent == "opencode:alibaba"
     assert t.routes["qwen-lite-max"].agent == "opencode:alibaba-plan"
-    for route_id in ("qwen-loop", "qwen-lite-max"):
-        for tier in ("mechanical", "standard"):
-            assert route_id in [r.id for r in t.permitted(tier)], (route_id, tier)
-        for tier in ("design", "critical"):
+
+    for tier in ("mechanical", "standard"):
+        assert "qwen-lite-max" in [r.id for r in t.permitted(tier)], tier
+        assert "qwen-loop" not in [r.id for r in t.permitted(tier)], (
+            "the free tier answers 'the free quota has been exhausted' when asked to work"
+        )
+    for tier in ("design", "critical"):
+        for route_id in ("qwen-loop", "qwen-lite-max"):
             assert route_id not in [r.id for r in t.permitted(tier)], (route_id, tier)
 
 
 def test_the_cheaper_verified_route_is_reached_before_the_dearer_one() -> None:
-    """The Lite Plan flagship costs less than the free-tier loop and is the vendor's stronger model."""
+    """Cost decides the order among routes that can actually serve the tier.
+
+    This compared the Lite Plan against the free-tier loop until the free tier's quota was spent and it left
+    the tiers. The comparison that still means something is against the paid seat behind it: the subscribed
+    plan is an order of magnitude cheaper than sonnet and is reached first.
+    """
     t = routing.load_table()
     for tier in ("mechanical", "standard"):
         order = [r.id for r in t.permitted(tier)]
-        assert order.index("qwen-lite-max") < order.index("qwen-loop"), tier
+        assert "qwen-lite-max" in order, tier
+        assert order.index("qwen-lite-max") < order.index("sonnet"), tier
+        assert t.routes["qwen-lite-max"].relative_cost < t.routes["sonnet"].relative_cost
 
 
 def test_choose_drops_a_cooling_route_and_says_so(tmp_path: Path) -> None:

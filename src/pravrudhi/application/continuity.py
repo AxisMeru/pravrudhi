@@ -23,7 +23,11 @@ from pravrudhi import __version__ as ENGINE_VERSION
 from pravrudhi.application import objectives, recipes, subagents
 from pravrudhi.application.intent import compile_intent
 
-KINDS: tuple[str, ...] = ("dispatch", "limited", "fallback", "handback", "blocked", "milestone")
+# `accepted` and `rejected` are outcomes of a dispatch rather than states of the loop, and they are here
+# because the trace reads a wave by them: what was taken, what was refused, and where a route gave out.
+KINDS: tuple[str, ...] = (
+    "dispatch", "accepted", "rejected", "limited", "fallback", "handback", "blocked", "milestone",
+)
 
 
 class ContinuityError(ValueError):

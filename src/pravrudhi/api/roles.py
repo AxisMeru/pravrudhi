@@ -85,6 +85,7 @@ def require_admin(user: User | None) -> User | None:
 # one of these two sets. That is deliberate: a new route must be classified by whoever adds it, instead of
 # defaulting to public because nobody thought about it.
 ADMIN_ONLY: frozenset[str] = frozenset({
+    "/api/agent-trace",
     "/api/agents", "/api/agents/cooldowns",
     "/api/appetite",
     "/api/benchmarks",

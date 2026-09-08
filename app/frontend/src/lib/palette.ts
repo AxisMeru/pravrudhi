@@ -44,7 +44,7 @@ export interface PalettePage {
 // The line is the same one the engine draws: the ledger's candidates and nights, the promotion inbox, the swarm
 // that builds the engine, the diffs its agents produced, and the appetite driving it.
 export const STUDIO_ONLY_PAGES: ReadonlySet<string> = new Set([
-  "appetite", "inbox", "candidates", "swarm", "diffs", "heartbeat",
+  "appetite", "inbox", "candidates", "swarm", "diffs", "heartbeat", "trace",
 ]);
 
 // The sidebar keeps its own copy of this list, so the rule lives here and both ask it rather than each
@@ -71,6 +71,7 @@ export const PALETTE_PAGES: PalettePage[] = [
   { id: "diffs", label: "Diffs", href: "/diffs", icon: "FileDiff" },
   { id: "memory", label: "Memory", href: "/memory", icon: "Brain" },
   { id: "heartbeat", label: "Heartbeat", href: "/heartbeat", icon: "Activity" },
+  { id: "trace", label: "Agent trace", href: "/trace", icon: "Radio" },
   { id: "catalogue", label: "Catalogue", href: "/catalogue", icon: "Library" },
   { id: "chat", label: "Chat", href: "/chat", icon: "MessageSquare" },
   { id: "runs", label: "Runs", href: "/runs", icon: "History" },

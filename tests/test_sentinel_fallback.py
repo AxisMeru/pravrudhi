@@ -26,12 +26,23 @@ class _Agent:
         raise AssertionError("run_wave must go through dispatch, which is patched in these tests")
 
 
-def _factory(calls: list[str]) -> Any:
+def _factory(calls: list[str], limited: tuple[str, ...] = ("claude-code",)) -> Any:
+    """Which agents report a spent account. Parameterised because the chain's order follows the routing table,
+    and the table changed: the subscribed Alibaba plan is first at these tiers now. A test that hardcodes which
+    route is spent stops exercising the walk the moment the first seat is no longer the spent one."""
     def build(name: str, model: str | None) -> Any:
         calls.append(name)
-        return _Agent(name, limited=(name == "claude-code"))
+        return _Agent(name, limited=(name in limited))
 
     return build
+
+
+def _limit_message(agent_name: str) -> str:
+    """What this vendor actually says when an account is spent. Detection is per-agent (`limits.yaml`), so a
+    Claude sentence attributed to an Alibaba route is not a limit at all — it is an ordinary failure, and the
+    chain rightly refuses to treat it as a reason to fall back."""
+    return ("Error: Requests rate limit exceeded" if agent_name.startswith("opencode:alibaba")
+            else "Claude usage limit reached. Your limit will reset")
 
 
 def test_a_usage_limit_moves_the_task_to_the_sentinel(tmp_path: Path, monkeypatch: Any) -> None:
@@ -40,23 +51,25 @@ def test_a_usage_limit_moves_the_task_to_the_sentinel(tmp_path: Path, monkeypatc
     def fake_dispatch(agent: Any, spec: TaskSpec, *, log: Any = print) -> Verdict:
         dispatched.append(agent.name)
         if agent._limited:
-            return Verdict(spec.task_id, agent.name, False, ["Claude usage limit reached. Your limit will reset"])
+            return Verdict(spec.task_id, agent.name, False, [_limit_message(agent.name)])
         return Verdict(spec.task_id, agent.name, True, [], wall_s=1.0)
 
     monkeypatch.setattr("pravrudhi.application.swarm.dispatch", fake_dispatch)
     calls: list[str] = []
     task = SwarmTask(TaskSpec("t1", "do a thing", ("x.py",), "true", 60), "standard", "why")
 
-    out = run_wave(_factory(calls), [task], log=lambda *_: None, root=tmp_path)
+    out = run_wave(_factory(calls, limited=("opencode:alibaba-plan",)), [task], log=lambda *_: None, root=tmp_path)
 
-    # The requirement is that work continues when the paid account is spent, not that one particular free route
-    # serves it. This asserted `hosted` because the single-shot writer was the only free route that existed. A
-    # verified Qwen tool loop now sits ahead of it, which is a better fallback for agentic work and leaves the
-    # sentinel behind it for when the loop is itself spent or broken.
+    # The requirement is that work continues when the first seat is spent, not that one particular route serves
+    # it. Which route that is has changed twice as the table changed — it was the single-shot sentinel, then the
+    # Qwen loop — so what is asserted is that the work was finished by somebody other than the spent seat.
     assert len(out) == 1
     assert out[0].accepted, out[0].reasons
-    assert out[0].agent == "opencode:alibaba-plan", f"a free route should have taken over, got {out[0].agent}"
-    assert dispatched == ["claude-code", "opencode:alibaba-plan"], dispatched
+    assert out[0].agent != "opencode:alibaba-plan", "the spent seat cannot be the one that finished the work"
+    assert out[0].agent == "claude-code", f"the next seat at this tier should have taken over, got {out[0].agent}"
+    # The subscribed plan seat is first at this tier now, so it is the one whose limit has to move the
+    # work. Asserting the old cast would have passed while exercising no fallback at all.
+    assert dispatched == ["opencode:alibaba-plan", "claude-code"], dispatched
 
 
 def test_the_single_shot_sentinel_still_stands_behind_the_loop(tmp_path: Path, monkeypatch: Any) -> None:
@@ -81,20 +94,23 @@ def test_the_single_shot_sentinel_still_stands_behind_the_loop(tmp_path: Path, m
 
     assert out[0].accepted, out[0].reasons
     assert out[0].agent == "hosted", f"the sentinel should be the last resort, got {out[0].agent}"
-    assert dispatched == ["claude-code", "opencode:alibaba-plan", "opencode:alibaba", "hosted"], dispatched
+    # The order follows the routing table, which now puts the subscribed Alibaba plan first at this tier and
+    # has dropped the free tier out of the tiers entirely — its coding quota is spent, so it is no longer a
+    # route the chain can walk to. What is asserted is the walk past every spent route to the sentinel.
+    assert dispatched == ["opencode:alibaba-plan", "claude-code", "hosted"], dispatched
 
 
 def test_the_limited_route_is_cooled_and_not_blamed(tmp_path: Path, monkeypatch: Any) -> None:
     def fake_dispatch(agent: Any, spec: TaskSpec, *, log: Any = print) -> Verdict:
         if agent._limited:
-            return Verdict(spec.task_id, agent.name, False, ["Claude usage limit reached"])
+            return Verdict(spec.task_id, agent.name, False, [_limit_message(agent.name)])
         return Verdict(spec.task_id, agent.name, True, [], wall_s=1.0)
 
     monkeypatch.setattr("pravrudhi.application.swarm.dispatch", fake_dispatch)
     task = SwarmTask(TaskSpec("t2", "do a thing", ("x.py",), "true", 60), "standard", "why")
-    run_wave(_factory([]), [task], log=lambda *_: None, root=tmp_path)
+    run_wave(_factory([], limited=("opencode:alibaba-plan",)), [task], log=lambda *_: None, root=tmp_path)
 
-    assert "claude-code" in availability.cooling(tmp_path), "the spent account must cool down"
+    assert "opencode:alibaba-plan" in availability.cooling(tmp_path), "the spent account must cool down"
 
     # a limit is not evidence about quality, so no losing outcome may be recorded against the route
     outcomes = routing.outcomes(tmp_path)
