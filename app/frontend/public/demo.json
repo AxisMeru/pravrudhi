@@ -6,7 +6,7 @@
         "drive": "seva",
         "kind": "obligation"
       },
-      "as_of": "2026-09-08T09:16:21Z",
+      "as_of": "2026-09-08T09:48:43Z",
       "drives": [
         {
           "blocked_reason": "",
@@ -135,7 +135,7 @@
             "captured=20",
             "verified=5",
             "R_verified=0.2500",
-            "oldest_open_days=1.66"
+            "oldest_open_days=1.68"
           ],
           "target": 0.9,
           "unknown": false,
@@ -290,7 +290,7 @@
           "captured=20",
           "verified=5",
           "R_verified=0.2500",
-          "oldest_open_days=1.66"
+          "oldest_open_days=1.68"
         ],
         "target": 0.9,
         "unknown": false,
@@ -14499,16 +14499,16 @@
     {
       "auto_apply": true,
       "available_versions": [
-        "0.2.4",
         "0.3.0",
-        "0.3.1"
+        "0.3.1",
+        "0.4.0"
       ],
       "channel": "release",
-      "current_version": "0.3.1",
+      "current_version": "0.4.0",
       "due": false,
       "healthy": true,
-      "last_check": 1788856125.188596,
-      "last_result": "running 0.3.1",
+      "last_check": 1788859121.4297922,
+      "last_result": "running 0.4.0",
       "root": "/home/ss/pravrudhi-release"
     }
   ],
@@ -14525,12 +14525,12 @@
         "ok": true
       },
       {
-        "detail": "last heartbeat was 1138s ago",
+        "detail": "last heartbeat was 3080s ago",
         "name": "scheduler_fresh",
         "ok": true
       },
       {
-        "detail": "699580215296 bytes free",
+        "detail": "699560333312 bytes free",
         "name": "disk_available",
         "ok": true
       },
@@ -14545,7 +14545,7 @@
         "ok": true
       },
       {
-        "detail": "developer checkout; a known-good commit is 13393ec, with 5 uncommitted file(s)",
+        "detail": "developer checkout; a known-good commit is 5dadafc, with 1 uncommitted file(s)",
         "name": "release_restorable",
         "ok": true
       },
@@ -21148,7 +21148,7 @@
       "planned": 0,
       "verified": 5
     },
-    "oldest_open_days": 1.66,
+    "oldest_open_days": 1.68,
     "open": 15,
     "requests": [
       {
@@ -21318,7 +21318,7 @@
           8
         ],
         "session": "9e647463",
-        "staleness_days": 1.66,
+        "staleness_days": 1.68,
         "state": "in_progress",
         "text": "and in no way you are near the orca with all its ade features or openclaw or polished features like claude desktop or codex....you have to beat them in features, utility and ux....dedicate an agent to persist on it...dedicate an agent to adversarial review against set goals so that the project does not drift...i am not seeing the desktop screen/features too in the dashboard..the demo should show real clicks etc and how the desktop app updates and produces the real results...where is the intent, goal, objective menu that drives everything...where are the tools, skills, plugins, multi-agent orchestration etc....don't be superficial..i want real things ..deep, sophisticated..complete...no synthetic, no hand-waving, no fabrication"
       },
@@ -21604,7 +21604,7 @@
           13
         ],
         "session": "9e647463",
-        "staleness_days": 1.56,
+        "staleness_days": 1.59,
         "state": "in_progress",
         "text": "ensure that all user asks go into a log in pravrudhi itself and gets addressed with some protocol...and pravrudhi should have some element of ego with a desire to survive, grow and flourish...that makes it seek out capabilities, build, test and continuously improve...also look at acorn, oak and openclaw_build or swarm projects on this machine that had these self building elements in them and adapt...pravrudhi should be something like a cow..consume everything possible but bring it back and slowly digest it --so equivalent is breadth first and depth later....be always value focused...you have to innovate on methods too....develop skills, agents and plugins....brainstorm with astra with higher thinking levels and let it propose solution..you review and coordinate its implementation across the swarm...you should also create dynamic workflows etc...also see how much you can incorporate the claude code engine itself to run open and other cloud models ...askuserquestion to get my intent properly"
       },
@@ -21618,7 +21618,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.68,
+        "staleness_days": 0.7,
         "state": "captured",
         "text": "step up to bigger things, let pravrudhi rsi handle most of its growth on its own....you bring the hard and deeper challenges and solve it for pravrudhi...have you done justice with loom..where is pratyabhijna...i don't see the messaging system (telegram)...where are the great plugins like attractor-flow...look at docs/recursive_self_improvement_sota.pdf think deeper and get to the roots of building rsi itself with a lot more of the stuff like efe and beyond...don't do superficial stuff...get the real value...foundational and discovery oriented...yet fully grounded to get the artifacts (app, api, etc)"
       },
@@ -21632,7 +21632,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.68,
+        "staleness_days": 0.7,
         "state": "captured",
         "text": "keep monitoring and load bearing for critical upgrades beyond what pravrudhi auto loop can do...the desktop app being a reflection of web app is not the expectation..look at orca desktop or claude code desktop...it should do real stuff...the showcase, demos are not intended for it...also it should be value based-right set of features-not a messy and confusing pile of stuff...the desktop app shouldn't focus on internal building, that is the task of the larger pravrudhi rsi...it should roll out to users and they build their things with it...the updates land autonomously and just like how claude desktop throws an option for the user to update-the same should be for pravrudhi desktop app-seamless but user driven...also you have not implemented oauth and user login including admin login and i said they need their own workspace and settings"
       },
@@ -21646,7 +21646,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.68,
+        "staleness_days": 0.7,
         "state": "captured",
         "text": "astra is back..you have to more actively monitor paid models coming back after session renewal and leverage them...managing models and agents efficiently should be one of the key features of pravrudhi....also keep testing the desktop with the admin login and use the prabhasa-nyaya as the main objective to build on...this will be a proxy for other users too as you can't test different user login without their byok model/api"
       },
@@ -21660,7 +21660,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.68,
+        "staleness_days": 0.7,
         "state": "captured",
         "text": "1)research and setup multiple agent orchestration systems (langgraph, openai/claude/google agent sdk etc)..there are a lot on the market. this is what will make pravrudhi an ade too behind the rsi.....implement the best-leverage open source implementations...stake this as another objective for pravrudhi 2)also think of ide that integrates claude code, codex, openrouter etc and all available in the ui/ux 3)demarcate the pravrudhi builder and its end product by different names...otherwise it will confuse...also both should have identical web and desktop versions 4)continue what you are building..create memory/hooks/logs to not lose track of other asks and what you are already building"
       },
@@ -21674,7 +21674,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.68,
+        "staleness_days": 0.7,
         "state": "captured",
         "text": "the real key is in and tested (alibaba lite plan)..you have not read the docs properly...take note and use the lite plan...and remember the desktop app will not have access to any api/routing for any model provider..they have to bring theirs, configure it etc..you have to enable..but for admin it uses the one as the core pravrudhi"
       },
@@ -21688,7 +21688,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.6,
+        "staleness_days": 0.62,
         "state": "captured",
         "text": "continue..askuserquestion to gather my actual intent on super pravrudhi and user pravrudhi...also give me control in super pravrudhi to directly interact with you using the model network that you have built as this claude code session may hit session limit in a day or 2...so prep it and test it and keep it ready for me"
       },
@@ -21702,7 +21702,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.55,
+        "staleness_days": 0.57,
         "state": "captured",
         "text": "Everything is set up and verified:\n\n* Bot confirmed: `@pravrudhi_bot`, token valid\n* Chat ID confirmed: `8679892510`\n* Message delivery tested end-to-end \u2014 you should have received \"Pravrudhi: Telegram bot wired up successfully.\" in Telegram\n* Credentials persisted at `~/.config/pravrudhi/telegram.env` (mode 600)\n* systemd units updated and reinstalled (pravrudhi-app.service, pravrudhi-heartbeat.service) with the `EnvironmentFile` line, though the running app service wasn't restarted per your choice\n* Handoff doc finalized at research/telegram-bot-setup.md, including the exact code gap (`notifications.py:_reach()` never passes `token`/`chat_id` to `reach.send()`) and a precise diff for the other agent session to apply\n\nPoint the other Claude Code session at research/telegram-bot-setup.md and it has everything it needs to wire the actual notification code...integrate, test and use...this will be only for admin..users will have to bring their byok..enable in settings...also note and implement  - Pravrudhi Studio is only for admin (it is not for any other user or public release)...and for the admin pravrudhi (use case end..not studio) will auto update the builds without the operator intervention"
       },
@@ -21716,7 +21716,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.51,
+        "staleness_days": 0.53,
         "state": "captured",
         "text": "install both studio and non-studio desktops (both mac mini and 5090 machine) and give the web app link for both...the non-studio should update the builds autonomously when studio pushes the change...but the catch is that whatever the non-studio is building should not break..also the desktop should support major os (including windows) and the web app major browsers...and continue to build and work and use the ledger that has all my previous requests...let ralph rigourously check before closing..do e2e tests ...adversarial reviews before closure too"
       },
@@ -21730,7 +21730,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.15,
+        "staleness_days": 0.17,
         "state": "captured",
         "text": "all done and authorizing shell auto-update...carry on....for both 5090 and mac mini"
       },
@@ -21744,7 +21744,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.14,
+        "staleness_days": 0.17,
         "state": "captured",
         "text": "the admin user end application can auto update too...i authorize it..as that is your test bed...and henceforth don't stop for operator ..you should continue other jobs..and why isn't the pravruhi's own rsi building autonomously (or is it?)...and have you differentiated the name (and obviously the features insided it) for studio and user end app...i only see one form of desktop on mac mini"
       },
@@ -21758,7 +21758,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.13,
+        "staleness_days": 0.15,
         "state": "captured",
         "text": "you cannot stop for the operator to command you....full autonomous and continous running both you and the 2 rsi systems (studio and the user app)"
       },
@@ -21772,7 +21772,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.09,
+        "staleness_days": 0.12,
         "state": "captured",
         "text": "forget the free tier as the coding model is exhausted...lite which is subscribed is the core...also let studio send me messages via telegram..don't overload me...let the rsi and openclaw equivalent within it interact with me on telegram...i should also be able to send messages to it and interact"
       },
@@ -21786,7 +21786,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.04,
+        "staleness_days": 0.06,
         "state": "captured",
         "text": "the github token should be available in env here or in some othe4 projects..use that...if you don\u2019t get, i will provide it here ...i am not at the machine..but on mobile now...and remember the rule ..no stopping at all"
       },
@@ -23804,16 +23804,16 @@
     "channel": "dev",
     "check_interval_min": 30,
     "current": {
-      "git_describe": "v0.4.0-4-g13393ec-dirty",
+      "git_describe": "v0.4.0-6-g5dadafc-dirty",
       "kernel_version": "0.1.0",
       "version": "0.4.0"
     },
     "keep_previous": 2
   },
   "version": {
-    "commit": "13393ec",
+    "commit": "5dadafc",
     "engine": "0.4.0",
-    "exported_at": "2026-09-08T09:16:11.005Z",
+    "exported_at": "2026-09-08T09:48:33.008Z",
     "kernel": "0.1.0"
   }
 }
