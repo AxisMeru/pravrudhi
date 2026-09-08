@@ -476,6 +476,9 @@ def create_app(root: Path) -> FastAPI:
 
     @api.get("/external", response_model_exclude_unset=True)
     def external() -> ExternalResultsResponse:
+        # No ledger means nothing has been scored yet — an empty list, not a missing file. See `/nights`.
+        if not ledger.exists():
+            return ExternalResultsResponse.model_validate([])
         return ExternalResultsResponse.model_validate(external_rows(ledger))
 
     @api.get("/nights")
@@ -654,6 +657,8 @@ def create_app(root: Path) -> FastAPI:
 
     @api.get("/observations")
     def observations(limit: int = 200) -> ObservationsResponse:
+        if not ledger.exists():
+            return ObservationsResponse.model_validate([])
         rows = [ev.model_dump() for ev in iter_events(ledger) if ev.kind == "observe"]
         return ObservationsResponse.model_validate(rows[-limit:])
 

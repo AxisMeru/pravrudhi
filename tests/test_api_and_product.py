@@ -264,3 +264,40 @@ def test_a_workspace_that_has_run_nothing_still_serves_every_page(tmp_path: Path
         assert answer.status_code == 200, f"{path} answered {answer.status_code} on a workspace with no ledger"
 
     assert client.get("/api/nights").json() in ([], {"nights": []})
+
+
+def test_no_endpoint_at_all_needs_a_ledger_that_does_not_exist(tmp_path: Path) -> None:
+    """Every GET route, not a list someone remembered to update.
+
+    The first attempt at this fixed the two endpoints a hand-written list happened to include, and CI failed
+    again on `/api/external` and `/api/observations` — which that list did not name. Sweeping the router finds
+    the ones nobody thought of, which is the whole difference between checking and believing.
+    """
+    from fastapi.routing import APIRoute, APIRouter
+
+    def walk(routes: object) -> list[APIRoute]:
+        found: list[APIRoute] = []
+        for route in routes:  # type: ignore[attr-defined]
+            if isinstance(route, APIRoute):
+                found.append(route)
+            else:
+                sub = getattr(route, "original_router", None)
+                if isinstance(sub, APIRouter):
+                    found.extend(walk(sub.routes))
+        return found
+
+    root = tmp_path / "never-used"
+    root.mkdir()
+    app = create_app(root)
+    client = TestClient(app, base_url="http://127.0.0.1:8008")
+
+    failing = []
+    for route in walk(app.routes):
+        if "GET" not in route.methods or "{" in route.path:
+            continue
+        try:
+            if client.get(route.path).status_code >= 500:
+                failing.append(route.path)
+        except FileNotFoundError:
+            failing.append(route.path)
+    assert not failing, f"these endpoints need a ledger a fresh install does not have: {failing}"
