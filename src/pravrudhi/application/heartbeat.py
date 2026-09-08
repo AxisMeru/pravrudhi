@@ -261,6 +261,61 @@ def _obligation_prompt(request_text: str, criterion_text: str, scratch: str, val
 _OBLIGATION_TIER = "standard"
 
 
+def _default_review_agent(root: Path) -> Any:
+    """The read-only agent the completion gate reviews with, built the way the CLI builds it. A machine with no
+    coding agent installed returns empty findings, which the gate treats as a review that did not do its job
+    and refuses on — the fail-closed direction, and the right one for an unattended loop."""
+    from pravrudhi.agents.registry import build_agent as make_agent
+
+    def dispatch(task: Any) -> str:
+        agent = make_agent(root, "claude-code", "sonnet")
+        if agent is None:
+            return ""
+        workspace = agent.create_workspace(task.task_id)
+        run = agent.run(task.prompt, workspace, timeout_s=task.timeout_s)
+        agent.stop(workspace)
+        return str(run.text)
+
+    return dispatch
+
+
+def _beat_completion_gate(root: Path, request_id: str) -> ActionResult:
+    """Run the completion gate on a fully evidenced request, and act on either answer.
+
+    Passing closes the request, which is what the operator delegated. Refusing means the work is not done —
+    so the request goes back to `in_progress` carrying the reviewer's own finding as its note. That is not
+    bookkeeping: while it sits at `delivered` it is "awaiting the gate" and every future beat chooses it again,
+    which is exactly how this loop wedged. Back at `in_progress` its unmet work is what the next beat sees, and
+    the engine moves.
+    """
+    from pravrudhi.application import completion
+
+    try:
+        result = completion.gate(root, request_id, dispatch=_default_review_agent(root), e2e="uv run pytest -q")
+    except Exception as error:  # noqa: BLE001 (a gate that cannot run must not stop the heartbeat)
+        return (
+            {"request": request_id},
+            f"the completion gate could not run on {request_id}: {error}",
+            {"kind": "gate", "ran": False, "error": str(error)},
+        )
+
+    if result.passed:
+        requests.advance(root, request_id, "verified", note=result.reason)
+        return (
+            {"request": request_id},
+            f"{request_id} passed the completion gate and is verified",
+            {"kind": "gate", "ran": True, "passed": True},
+        )
+
+    finding = (result.review.findings.strip() if result.review is not None else "") or result.reason
+    requests.advance(root, request_id, "in_progress", note=f"completion gate refused: {finding}"[:4000])
+    return (
+        {"request": request_id},
+        f"{request_id} did not pass the completion gate and is building again: {result.reason}",
+        {"kind": "gate", "ran": True, "passed": False, "reason": result.reason},
+    )
+
+
 def _beat_obligations(root: Path, dispatch: DispatchFn | None) -> ActionResult:
     """`seva` (obligations): the oldest unmet request criterion (`requests.next_unmet`), dispatched through the
     swarm exactly like a capability step, scoped to its own proposal scratch directory under `proposals/requests/`."""
@@ -271,12 +326,12 @@ def _beat_obligations(root: Path, dispatch: DispatchFn | None) -> ActionResult:
         # Everything on this request is evidenced and it has not been through the gate, so the work is the gate,
         # not more building. Reporting "no request has an unmet criterion" and stopping was how the loop came to
         # say it had nothing to do while three requests were still owed.
-        return (
-            {"request": str(owed["request"])},
-            f"{owed['request']} is fully evidenced and awaiting the completion gate "
-            f"(`pravrudhi requests-advance {owed['request']} verified`)",
-            None,
-        )
+        #
+        # And then it ran the gate for nobody. Naming the command an operator could type is not doing the work:
+        # every beat chose this same request, returned no result, and the engine idled for a day while its own
+        # adversarial reviewer sat on a finding nobody had read. A beat that can only describe the next action
+        # is not a heartbeat. So the gate runs here.
+        return _beat_completion_gate(root, str(owed["request"]))
     if owed["kind"] == "advance_request":
         return (
             {"request": str(owed["request"])},

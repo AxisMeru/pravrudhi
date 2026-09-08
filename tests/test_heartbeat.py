@@ -380,3 +380,86 @@ def test_hysteresis_persists_across_two_beats(tmp_path, monkeypatch):
     state_after_second = kshudha.load_state(tmp_path)
     assert state_after_second.beat == 2
     assert state_after_second.drives["samarthya"].phase == "hungry"
+
+
+class TestABeatThatActsRatherThanDescribes:
+    """A beat that can only name the next action is not a heartbeat.
+
+    `_beat_obligations` used to answer a fully evidenced request with the command an operator could type and
+    `result: None`. Every beat then chose that same request, did nothing, and reported it had chosen. The engine
+    idled at night 16 for a day while its own adversarial reviewer sat on a finding nobody had read, because
+    nothing ran the gate that would have surfaced it.
+    """
+
+    @staticmethod
+    def _evidenced_request(root: Path) -> str:
+        from pravrudhi.application import requests
+
+        req = requests.capture(root, "make the thing work")
+        requests.add_criteria(root, req.id, [requests.Criterion(text="the thing works", source="operator")])
+        requests.meet(root, req.id, 0, [requests.Evidence(kind="file", ref="README.md", note="it is there")])
+        requests.advance(root, req.id, "in_progress")
+        requests.advance(root, req.id, "delivered")
+        return req.id
+
+    def test_a_passing_gate_closes_the_request_rather_than_naming_a_command(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from pravrudhi.application import completion, heartbeat, requests
+
+        (tmp_path / "README.md").write_text("it is there")
+        request_id = self._evidenced_request(tmp_path)
+        monkeypatch.setattr(
+            completion, "gate",
+            lambda root, rid, **kw: completion.GateResult(rid, True, "everything re-verified"),
+        )
+
+        chose, reason, result = heartbeat._beat_completion_gate(tmp_path, request_id)
+
+        assert result is not None and result["passed"] is True, "the beat reported instead of acting"
+        assert requests.get(tmp_path, request_id).state == "verified"
+        assert chose == {"request": request_id}
+        assert "verified" in reason
+
+    def test_a_refused_gate_sends_the_request_back_to_building_so_the_loop_moves_on(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The wedge itself. While it sits at `delivered` it reads as "awaiting the gate" and every future beat
+        chooses it again; at `in_progress` its unmet work is what the next beat sees."""
+        from pravrudhi.application import completion, heartbeat, requests
+
+        (tmp_path / "README.md").write_text("it is there")
+        request_id = self._evidenced_request(tmp_path)
+        review = completion.ReviewResult(findings="the rival named twice was never assessed", blocking=True,
+                                         reason="the review found a reason this does not satisfy the request")
+        monkeypatch.setattr(
+            completion, "gate",
+            lambda root, rid, **kw: completion.GateResult(rid, False, "adversarial review: refused", [], review),
+        )
+
+        _chose, _reason, result = heartbeat._beat_completion_gate(tmp_path, request_id)
+
+        assert result is not None and result["passed"] is False
+        after = requests.get(tmp_path, request_id)
+        assert after.state == "in_progress", "a refused request stayed delivered and will be re-chosen forever"
+        assert any("never assessed" in " ".join(n.values()) for n in after.notes), \
+            "the reviewer's finding was not kept where the next beat can read it"
+
+    def test_a_gate_that_cannot_run_reports_and_does_not_stop_the_heartbeat(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An unattended loop that raises on a broken gate stops beating altogether."""
+        from pravrudhi.application import completion, heartbeat, requests
+
+        request_id = self._evidenced_request(tmp_path)
+
+        def explode(*_a: object, **_k: object) -> object:
+            raise RuntimeError("no agent installed")
+
+        monkeypatch.setattr(completion, "gate", explode)
+
+        _chose, reason, result = heartbeat._beat_completion_gate(tmp_path, request_id)
+
+        assert result is not None and result["ran"] is False
+        assert "no agent installed" in reason
+        assert requests.get(tmp_path, request_id).state == "delivered", "a broken gate must not move the request"
