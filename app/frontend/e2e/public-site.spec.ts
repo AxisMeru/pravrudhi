@@ -14,9 +14,13 @@ test("the landing page leads with the measured result, not an error", async ({ p
   await expect(page.getByText(/Recorded demo/i)).toBeVisible();
   await expect(page.getByText(/No engine reachable/i)).toHaveCount(0);
 
-  // the headline improvement, read from the engine's own external-benchmark record
-  await expect(page.getByText(/scored by an independent benchmark tool/i)).toBeVisible();
-  const gain = page.getByText(/^\+\d+\.\d+ points$/);
+  // The headline improvement, and that it was scored outside the engine rather than self-reported. Both
+  // assertions used to name a `Headline` component the landing page no longer renders — it shows `ResultBand`,
+  // whose gain is a percentage rather than "points" and whose provenance line reads "Scored outside the engine".
+  // The whole `public-site` project is absent from CI (which runs only `deployed-*` and a grep-filtered
+  // `local-engine-*`), so both stale assertions failed unnoticed against a page that was rendering correctly.
+  await expect(page.getByText(/Scored outside the engine on \d+ items/i)).toBeVisible();
+  const gain = page.locator("section").getByText(/^\+\d+\.\d+%$/).first();
   await expect(gain).toBeVisible();
   expect(parseFloat((await gain.innerText()).replace(/[^\d.]/g, ""))).toBeGreaterThan(0);
 });

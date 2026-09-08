@@ -23,7 +23,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body>
         <div className="flex h-screen">
           <Sidebar />
-          <div className="flex min-w-0 flex-1 flex-col">
+          {/* Room for the drawer toggle, which is fixed at top-left below `md` and would otherwise sit on top
+              of the first line of every page. */}
+          <div className="flex min-w-0 flex-1 flex-col pt-14 md:pt-0">
             <ConnectionBanner />
             <main className="flex-1 overflow-y-auto">{children}</main>
           </div>

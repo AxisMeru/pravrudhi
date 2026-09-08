@@ -29,6 +29,8 @@ import {
   Monitor,
   GitCompare,
   GitBranch,
+  Menu,
+  X,
 } from "lucide-react";
 import type { ComponentType } from "react";
 import { NotificationBell } from "@/components/notifications/NotificationBell";
@@ -83,6 +85,13 @@ export function Sidebar() {
   const [pendingInbox, setPendingInbox] = useState(0);
   const [openRequests, setOpenRequests] = useState(0);
 
+  const [navOpen, setNavOpen] = useState(false);
+
+  // A drawer that survives a route change hides the page the reader just asked for.
+  useEffect(() => {
+    setNavOpen(false);
+  }, [pathname]);
+
   useEffect(() => {
     let cancelled = false;
     inbox()
@@ -105,7 +114,33 @@ export function Sidebar() {
   }, []);
 
   return (
-    <aside className="flex h-full w-60 shrink-0 flex-col border-r border-[var(--color-border)] bg-[var(--color-surface)]">
+    <>
+      {/* Below `md` the sidebar is a drawer. It used to be a fixed 240px column at every width, which on a
+          390px phone took 62% of the screen permanently and left 150px for the content — no overflow, so
+          nothing caught it, just an app that could not be read on the device the operator actually carries. */}
+      <button
+        type="button"
+        onClick={() => setNavOpen((open) => !open)}
+        aria-label={navOpen ? "Close navigation" : "Open navigation"}
+        aria-expanded={navOpen}
+        aria-controls="primary-navigation"
+        className="fixed left-3 top-3 z-[60] rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] p-2 text-[var(--color-text)] shadow-lg md:hidden"
+      >
+        {navOpen ? <X size={18} aria-hidden /> : <Menu size={18} aria-hidden />}
+      </button>
+      {navOpen ? (
+        <div
+          onClick={() => setNavOpen(false)}
+          aria-hidden
+          className="fixed inset-0 z-40 bg-black/60 md:hidden"
+        />
+      ) : null}
+      <aside
+        id="primary-navigation"
+        className={`fixed inset-y-0 left-0 z-50 flex h-full w-60 shrink-0 transform flex-col border-r border-[var(--color-border)] bg-[var(--color-surface)] transition-transform duration-200 md:static md:translate-x-0 ${
+          navOpen ? "translate-x-0" : "-translate-x-full"
+        }`}
+      >
       <div className="border-b border-[var(--color-border)] px-5 py-5">
         <div className="flex items-center justify-between gap-2">
           <div className="text-lg font-semibold tracking-tight text-[var(--color-text)]">{whoami.edition}</div>
@@ -148,6 +183,7 @@ export function Sidebar() {
           );
         })}
       </nav>
-    </aside>
+      </aside>
+    </>
   );
 }

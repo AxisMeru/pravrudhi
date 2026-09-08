@@ -6,7 +6,7 @@
         "drive": "seva",
         "kind": "obligation"
       },
-      "as_of": "2026-09-08T12:26:19Z",
+      "as_of": "2026-09-08T12:37:48Z",
       "drives": [
         {
           "blocked_reason": "",
@@ -117,8 +117,8 @@
           "sources": [
             "routes_total=7",
             "routes_available=7",
-            "routes_cooling=0",
-            "usable=7",
+            "routes_cooling=1",
+            "usable=6",
             "required_min=1"
           ],
           "target": 1.0,
@@ -136,7 +136,7 @@
             "captured=20",
             "verified=5",
             "R_verified=0.2500",
-            "oldest_open_days=1.79"
+            "oldest_open_days=1.80"
           ],
           "target": 0.9,
           "unknown": false,
@@ -273,8 +273,8 @@
         "sources": [
           "routes_total=7",
           "routes_available=7",
-          "routes_cooling=0",
-          "usable=7",
+          "routes_cooling=1",
+          "usable=6",
           "required_min=1"
         ],
         "target": 1.0,
@@ -292,7 +292,7 @@
           "captured=20",
           "verified=5",
           "R_verified=0.2500",
-          "oldest_open_days=1.79"
+          "oldest_open_days=1.80"
         ],
         "target": 0.9,
         "unknown": false,
@@ -1565,12 +1565,12 @@
         "target_model": "Qwen/Qwen3-0.6B",
         "task_family": "gsm8k-trainB"
       },
-      "cost_gpu_h": 3.1493049695843363,
+      "cost_gpu_h": 3.2540727569913073,
       "edit_family": "data_mixture",
       "id": "c-0045",
       "incumbent_hash": null,
       "last_boundary": null,
-      "n_obs": 153,
+      "n_obs": 158,
       "promoted": true,
       "proposed_seq": 587,
       "pruned": null,
@@ -1587,6 +1587,11 @@
         0.0,
         0.0,
         0.040000000000000036,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
         0.0,
         0.0,
         0.0,
@@ -5162,25 +5167,27 @@
     },
     {
       "audit_high": false,
-      "badge": "grey",
+      "badge": "red",
       "bucket": {
         "corpus": "gsm8k-trainD-train",
         "target_model": "Qwen/Qwen3-0.6B",
         "task_family": "gsm8k-trainD"
       },
-      "cost_gpu_h": 0.015156234406943744,
+      "cost_gpu_h": 0.03376017211891141,
       "edit_family": "grpo",
       "id": "c-0189",
       "incumbent_hash": null,
-      "last_boundary": null,
-      "n_obs": 0,
+      "last_boundary": "prune",
+      "n_obs": 1,
       "promoted": false,
       "proposed_seq": 2470,
-      "pruned": null,
+      "pruned": "asiddha",
       "rebased": 0,
       "skipped": false,
       "surface": "W3.adapter",
-      "xs": []
+      "xs": [
+        -0.02499999999999991
+      ]
     },
     {
       "audit_high": false,
@@ -5208,50 +5215,52 @@
     },
     {
       "audit_high": false,
-      "badge": "amber",
+      "badge": "red",
       "bucket": {
         "corpus": "gsm8k-trainD-train",
         "target_model": "Qwen/Qwen3-0.6B",
         "task_family": "gsm8k-trainD"
       },
-      "cost_gpu_h": 0.031167041423614136,
+      "cost_gpu_h": 0.05490927514419632,
       "edit_family": "adapter",
       "id": "c-0191",
       "incumbent_hash": null,
-      "last_boundary": "continue",
-      "n_obs": 1,
+      "last_boundary": "prune",
+      "n_obs": 2,
       "promoted": false,
       "proposed_seq": 2472,
-      "pruned": null,
+      "pruned": "asiddha",
       "rebased": 0,
       "skipped": false,
       "surface": "W3.adapter",
       "xs": [
-        0.015000000000000013
+        0.015000000000000013,
+        -0.0050000000000000044
       ]
     },
     {
       "audit_high": false,
-      "badge": "amber",
+      "badge": "red",
       "bucket": {
         "corpus": "gsm8k-trainD-train",
         "target_model": "Qwen/Qwen3-0.6B",
         "task_family": "gsm8k-trainD"
       },
-      "cost_gpu_h": 0.02772865354717295,
+      "cost_gpu_h": 0.0480315417672197,
       "edit_family": "data_mixture",
       "id": "c-0192",
       "incumbent_hash": null,
-      "last_boundary": "continue",
-      "n_obs": 1,
+      "last_boundary": "prune",
+      "n_obs": 2,
       "promoted": false,
       "proposed_seq": 2473,
-      "pruned": null,
+      "pruned": "asiddha",
       "rebased": 0,
       "skipped": false,
       "surface": "W3.adapter",
       "xs": [
-        -0.010000000000000009
+        -0.010000000000000009,
+        -0.07499999999999996
       ]
     },
     {
@@ -5280,26 +5289,27 @@
     },
     {
       "audit_high": false,
-      "badge": "amber",
+      "badge": "red",
       "bucket": {
         "corpus": "gsm8k-trainD-train",
         "target_model": "Qwen/Qwen3-0.6B",
         "task_family": "gsm8k-trainD"
       },
-      "cost_gpu_h": 0.03125336135724663,
+      "cost_gpu_h": 0.05226200520449008,
       "edit_family": "template",
       "id": "c-0194",
       "incumbent_hash": null,
-      "last_boundary": "continue",
-      "n_obs": 1,
+      "last_boundary": "prune",
+      "n_obs": 2,
       "promoted": false,
       "proposed_seq": 2475,
-      "pruned": null,
+      "pruned": "asiddha",
       "rebased": 0,
       "skipped": false,
       "surface": "W3.adapter",
       "xs": [
-        0.020000000000000018
+        0.020000000000000018,
+        -0.040000000000000036
       ]
     },
     {
@@ -5376,26 +5386,27 @@
     },
     {
       "audit_high": false,
-      "badge": "amber",
+      "badge": "red",
       "bucket": {
         "corpus": "gsm8k-trainD-train",
         "target_model": "Qwen/Qwen3-0.6B",
         "task_family": "gsm8k-trainD"
       },
-      "cost_gpu_h": 0.026864188276360636,
+      "cost_gpu_h": 0.045909032624395975,
       "edit_family": "adapter",
       "id": "c-0198",
       "incumbent_hash": null,
-      "last_boundary": "continue",
-      "n_obs": 1,
+      "last_boundary": "prune",
+      "n_obs": 2,
       "promoted": false,
       "proposed_seq": 2479,
-      "pruned": null,
+      "pruned": "asiddha",
       "rebased": 0,
       "skipped": false,
       "surface": "W3.adapter",
       "xs": [
-        0.025000000000000022
+        0.025000000000000022,
+        -0.029999999999999916
       ]
     },
     {
@@ -5566,11 +5577,11 @@
       "base": "92cd23e7d63ebb3d9c6f7c1aefe9a6f51666521f",
       "files": [
         {
-          "added": 134,
+          "added": 167,
           "binary": false,
           "hunks": [
             {
-              "header": "@@ -0,0 +1,134 @@",
+              "header": "@@ -0,0 +1,167 @@",
               "lines": [
                 {
                   "kind": "add",
@@ -5678,31 +5689,95 @@
                 },
                 {
                   "kind": "add",
-                  "text": "The proposal: define a **completion-evidence bundle** format and a **verifier**"
+                  "text": "The proposal has two halves, both stdlib-only and both executable now, in this"
                 },
                 {
                   "kind": "add",
-                  "text": "(`verify_evidence_bundle.py`) such that a completion claim is accepted *only*"
+                  "text": "sandbox:"
                 },
                 {
                   "kind": "add",
-                  "text": "when the bundle passes the verifier. The verifier is executable now, in this"
+                  "text": ""
                 },
                 {
                   "kind": "add",
-                  "text": "sandbox, with stdlib only, and its own correctness is exercised by"
+                  "text": "1. A **completion-evidence bundle** format and a **verifier**"
                 },
                 {
                   "kind": "add",
-                  "text": "`selftest_verify_evidence_bundle.py` (which builds clearly-labeled *test"
+                  "text": "   (`verify_evidence_bundle.py`) such that a completion claim is accepted"
                 },
                 {
                   "kind": "add",
-                  "text": "fixtures* in a temp dir to prove the verifier accepts good bundles and rejects"
+                  "text": "   *only* when a bundle passes the verifier. Its own correctness is exercised"
                 },
                 {
                   "kind": "add",
-                  "text": "tampered ones \u2014 the fixtures are self-test artifacts, never project evidence)."
+                  "text": "   by `selftest_verify_evidence_bundle.py` (which builds clearly-labeled"
+                },
+                {
+                  "kind": "add",
+                  "text": "   *test fixtures* in a temp dir to prove the verifier accepts good bundles"
+                },
+                {
+                  "kind": "add",
+                  "text": "   and rejects tampered ones \u2014 the fixtures are self-test artifacts, never"
+                },
+                {
+                  "kind": "add",
+                  "text": "   project evidence)."
+                },
+                {
+                  "kind": "add",
+                  "text": "2. A **producer package**, `pra7/`, that is the machinery a real completion"
+                },
+                {
+                  "kind": "add",
+                  "text": "   run would use to generate the artifacts the verifier checks \u2014 an intent"
+                },
+                {
+                  "kind": "add",
+                  "text": "   registry and menu (O6), a persistence agent (O2), an adversarial-review"
+                },
+                {
+                  "kind": "add",
+                  "text": "   agent (O3), a capability registry + multi-agent orchestrator (O7), a"
+                },
+                {
+                  "kind": "add",
+                  "text": "   desktop-session recorder and transcript verifier (O4/O5), a dashboard"
+                },
+                {
+                  "kind": "add",
+                  "text": "   builder with a desktop pane (O4), and a `claim` command that computes"
+                },
+                {
+                  "kind": "add",
+                  "text": "   MET/UNMET per demand and, for a full claim, also runs"
+                },
+                {
+                  "kind": "add",
+                  "text": "   `verify_evidence_bundle.py` (loaded directly from this directory as the"
+                },
+                {
+                  "kind": "add",
+                  "text": "   single source of truth, see `pra7/claims.py::load_bundle_verifier`)."
+                },
+                {
+                  "kind": "add",
+                  "text": "   `pra7/` is a second, independent answer to \"prove it, don't narrate it\" \u2014"
+                },
+                {
+                  "kind": "add",
+                  "text": "   the gate script proposes *what* a bundle must contain; `pra7/` proposes"
+                },
+                {
+                  "kind": "add",
+                  "text": "   *how* one gets produced without a human fabricating the numbers by hand."
+                },
+                {
+                  "kind": "add",
+                  "text": "   Neither has been run against a real desktop session; see \u00a75."
                 },
                 {
                   "kind": "add",
@@ -6042,6 +6117,50 @@
                 },
                 {
                   "kind": "add",
+                  "text": "| `pra7/intent.py` | Goal registry + the intent/goal/objective menu (O6): `IntentStore.menu()` renders it, `bootstrap()` seeds one requirement per operator demand O1\u2013O8 so the menu and the evidence checks share one id space. |"
+                },
+                {
+                  "kind": "add",
+                  "text": "| `pra7/persist_agent.py` | Persistence agent (O2): runs fixed cycles or wall-clock duration, writes a hash-chained heartbeat log, escalates after N stalled cycles, `verify()` recomputes the chain. |"
+                },
+                {
+                  "kind": "add",
+                  "text": "| `pra7/adversary_agent.py` | Adversarial-review agent (O3): reviews every registered goal against its own evidence, emits a hash-chained verdict (`pass`/`fail`/`drift` + written objection) per goal, `verify_log()` recomputes the chain. |"
+                },
+                {
+                  "kind": "add",
+                  "text": "| `pra7/registry.py` | Capability registry + invocation ledger (O7): `register` declares a tool/skill/plugin with an entrypoint; `call` actually invokes it (subprocess) and records input/output sha256. |"
+                },
+                {
+                  "kind": "add",
+                  "text": "| `pra7/orchestrate.py` | Multi-agent DAG orchestrator (O7): thread-pool scheduler with leases, heartbeats, retry-with-backoff, and agent-message handoffs written to the invocation ledger; cyclic plans raise instead of deadlocking. |"
+                },
+                {
+                  "kind": "add",
+                  "text": "| `pra7/desktop_capture.py` | Desktop session recorder + transcript verifier (O4/O5): pairs a real event grabber with a real frame grabber (both are injected callables \u2014 no grabber ships a synthetic default), and `TranscriptVerifier` checks the interleave/monotonicity/non-identity properties described in \u00a72.1. |"
+                },
+                {
+                  "kind": "add",
+                  "text": "| `pra7/dashboard.py` | Dashboard builder (O4): emits JSON + HTML including a desktop pane wired to the same session artifacts `desktop_capture.py` produces; `check()` fails if the pane has no linked capture. |"
+                },
+                {
+                  "kind": "add",
+                  "text": "| `pra7/chain.py` | Shared hash-chain, canonical-JSON, and sha256 helpers used by every log in this package. |"
+                },
+                {
+                  "kind": "add",
+                  "text": "| `pra7/evidence.py` | Typed evidence records + on-disk store shared by `claims.py` and the agents. |"
+                },
+                {
+                  "kind": "add",
+                  "text": "| `pra7/claims.py` | `evaluate()` computes MET/UNMET per demand from artifacts (never asserted); `CompletionClaim.verify()` additionally runs `verify_evidence_bundle.py` for a full claim. |"
+                },
+                {
+                  "kind": "add",
+                  "text": "| `pra7/cli.py`, `pra7/__main__.py` | `python -m pra7 <command> --root <dir>` \u2014 single entry point; commands map 1:1 onto O1\u2013O8 (see module docstring). Every command's default outcome is failure, not success. |"
+                },
+                {
+                  "kind": "add",
                   "text": ""
                 },
                 {
@@ -6067,6 +6186,30 @@
                 {
                   "kind": "add",
                   "text": "uv run python proposals/requests/r-5795501a/7/verify_evidence_bundle.py <bundle_dir>"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "# producer side (pra7), same demand ids as the table in \u00a71:"
+                },
+                {
+                  "kind": "add",
+                  "text": "uv run python -m pra7 init      --root /tmp/pra7-demo"
+                },
+                {
+                  "kind": "add",
+                  "text": "uv run python -m pra7 menu      --root /tmp/pra7-demo"
+                },
+                {
+                  "kind": "add",
+                  "text": "uv run python -m pra7 status    --root /tmp/pra7-demo"
+                },
+                {
+                  "kind": "add",
+                  "text": "uv run python -m pra7 claim     --root /tmp/pra7-demo"
                 },
                 {
                   "kind": "add",
@@ -6270,6 +6413,60 @@
             }
           ],
           "path": "proposals/requests/r-5795501a/7/pra7/__init__.py",
+          "removed": 0,
+          "too_large": false
+        },
+        {
+          "added": 10,
+          "binary": false,
+          "hunks": [
+            {
+              "header": "@@ -0,0 +1,10 @@",
+              "lines": [
+                {
+                  "kind": "add",
+                  "text": "\"\"\"Allow ``python -m pra7``.\"\"\""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "from __future__ import annotations"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "import sys"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "from .cli import main"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "if __name__ == \"__main__\":"
+                },
+                {
+                  "kind": "add",
+                  "text": "    sys.exit(main())"
+                }
+              ]
+            }
+          ],
+          "path": "proposals/requests/r-5795501a/7/pra7/__main__.py",
           "removed": 0,
           "too_large": false
         },
@@ -11988,6 +12185,1600 @@
             }
           ],
           "path": "proposals/requests/r-5795501a/7/pra7/claims.py",
+          "removed": 0,
+          "too_large": false
+        },
+        {
+          "added": 395,
+          "binary": false,
+          "hunks": [
+            {
+              "header": "@@ -0,0 +1,395 @@",
+              "lines": [
+                {
+                  "kind": "add",
+                  "text": "#!/usr/bin/env python3"
+                },
+                {
+                  "kind": "add",
+                  "text": "\"\"\"Single entry point for the pra7 machinery."
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "    uv run python -m pra7 <command> --root <artifact_root> ..."
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "Commands map one-to-one onto the operator's demands:"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "    init        create the intent spine (O6)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    menu        render the intent/goal/objective menu (O6)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    status      compute MET/UNMET per demand from artifacts (O8)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    persist     run the persistence agent (O2)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    adversary   run the adversarial-review agent (O3)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    register    declare a tool/skill/plugin (O7)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    call        invoke a capability and record it (O7)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    orchestrate run a multi-agent plan (O7)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    record      capture a real desktop session (O4/O5)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    session     verify a captured session (O4/O5)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    dashboard   build/check the dashboard with the desktop pane (O4)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    bundle      assemble artifacts into a completion-evidence bundle (O1/O8)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    claim       verify a completion claim; exit 0 only if supported (all)"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "Every command exits non-zero when the thing it stands for is not demonstrated."
+                },
+                {
+                  "kind": "add",
+                  "text": "There is no command whose default outcome is success."
+                },
+                {
+                  "kind": "add",
+                  "text": "\"\"\""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "from __future__ import annotations"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "import argparse"
+                },
+                {
+                  "kind": "add",
+                  "text": "import json"
+                },
+                {
+                  "kind": "add",
+                  "text": "import os"
+                },
+                {
+                  "kind": "add",
+                  "text": "import shutil"
+                },
+                {
+                  "kind": "add",
+                  "text": "import sys"
+                },
+                {
+                  "kind": "add",
+                  "text": "from typing import Any"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "from .adversary_agent import AdversaryAgent"
+                },
+                {
+                  "kind": "add",
+                  "text": "from .chain import canonical_json, sha256_file, utcnow_iso"
+                },
+                {
+                  "kind": "add",
+                  "text": "from .claims import CompletionClaim, evaluate, render_table"
+                },
+                {
+                  "kind": "add",
+                  "text": "from .dashboard import Dashboard"
+                },
+                {
+                  "kind": "add",
+                  "text": "from .desktop_capture import SessionRecorder, TranscriptVerifier"
+                },
+                {
+                  "kind": "add",
+                  "text": "from .intent import DEMAND_IDS, IntentStore"
+                },
+                {
+                  "kind": "add",
+                  "text": "from .orchestrate import Orchestrator, Plan, Task, demo_plan"
+                },
+                {
+                  "kind": "add",
+                  "text": "from .persist_agent import PersistAgent"
+                },
+                {
+                  "kind": "add",
+                  "text": "from .registry import Capability, CapabilityRegistry, InvocationLedger"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "__all__ = [\"main\", \"assemble_bundle\"]"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "BUNDLE_FILES = ("
+                },
+                {
+                  "kind": "add",
+                  "text": "    \"goals.json\","
+                },
+                {
+                  "kind": "add",
+                  "text": "    \"events.json\","
+                },
+                {
+                  "kind": "add",
+                  "text": "    \"captures.json\","
+                },
+                {
+                  "kind": "add",
+                  "text": "    \"comparison.json\","
+                },
+                {
+                  "kind": "add",
+                  "text": "    \"persistence.jsonl\","
+                },
+                {
+                  "kind": "add",
+                  "text": "    \"adversarial.jsonl\","
+                },
+                {
+                  "kind": "add",
+                  "text": "    \"invocations.jsonl\","
+                },
+                {
+                  "kind": "add",
+                  "text": ")"
+                },
+                {
+                  "kind": "add",
+                  "text": "BUNDLE_DIRS = (\"frames\", \"payloads\")"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "def assemble_bundle(root: str, out: str, bundle_id: str, fixture: bool = False) -> str:"
+                },
+                {
+                  "kind": "add",
+                  "text": "    \"\"\"Copy artifacts from ``root`` into a bundle dir and write its manifest."
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "    The manifest's integrity list covers every copied file, which is what the"
+                },
+                {
+                  "kind": "add",
+                  "text": "    verifier's anti-smuggling check requires. Files that do not exist are not"
+                },
+                {
+                  "kind": "add",
+                  "text": "    invented: a bundle assembled from an empty root is an empty bundle, and it"
+                },
+                {
+                  "kind": "add",
+                  "text": "    fails verification. That is the point."
+                },
+                {
+                  "kind": "add",
+                  "text": "    \"\"\""
+                },
+                {
+                  "kind": "add",
+                  "text": "    if os.path.abspath(out) == os.path.abspath(root):"
+                },
+                {
+                  "kind": "add",
+                  "text": "        raise ValueError(\"bundle output must differ from the artifact root\")"
+                },
+                {
+                  "kind": "add",
+                  "text": "    if os.path.isdir(out):"
+                },
+                {
+                  "kind": "add",
+                  "text": "        shutil.rmtree(out)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    os.makedirs(out, exist_ok=True)"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "    copied: list[str] = []"
+                },
+                {
+                  "kind": "add",
+                  "text": "    for name in BUNDLE_FILES:"
+                },
+                {
+                  "kind": "add",
+                  "text": "        src = os.path.join(root, name)"
+                },
+                {
+                  "kind": "add",
+                  "text": "        if os.path.isfile(src):"
+                },
+                {
+                  "kind": "add",
+                  "text": "            shutil.copy2(src, os.path.join(out, name))"
+                },
+                {
+                  "kind": "add",
+                  "text": "            copied.append(name)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    for sub in BUNDLE_DIRS:"
+                },
+                {
+                  "kind": "add",
+                  "text": "        src_dir = os.path.join(root, sub)"
+                },
+                {
+                  "kind": "add",
+                  "text": "        if not os.path.isdir(src_dir):"
+                },
+                {
+                  "kind": "add",
+                  "text": "            continue"
+                },
+                {
+                  "kind": "add",
+                  "text": "        for dirpath, _dirs, files in os.walk(src_dir):"
+                },
+                {
+                  "kind": "add",
+                  "text": "            for fname in sorted(files):"
+                },
+                {
+                  "kind": "add",
+                  "text": "                abs_src = os.path.join(dirpath, fname)"
+                },
+                {
+                  "kind": "add",
+                  "text": "                rel = os.path.relpath(abs_src, root).replace(os.sep, \"/\")"
+                },
+                {
+                  "kind": "add",
+                  "text": "                dst = os.path.join(out, rel)"
+                },
+                {
+                  "kind": "add",
+                  "text": "                os.makedirs(os.path.dirname(dst), exist_ok=True)"
+                },
+                {
+                  "kind": "add",
+                  "text": "                shutil.copy2(abs_src, dst)"
+                },
+                {
+                  "kind": "add",
+                  "text": "                copied.append(rel)"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "    if \"goals.json\" not in copied and os.path.isfile(os.path.join(root, IntentStore.FILENAME)):"
+                },
+                {
+                  "kind": "add",
+                  "text": "        store = IntentStore(root).load()"
+                },
+                {
+                  "kind": "add",
+                  "text": "        with open(os.path.join(out, \"goals.json\"), \"w\", encoding=\"utf-8\") as fh:"
+                },
+                {
+                  "kind": "add",
+                  "text": "            fh.write(canonical_json(store.export_goals_json()) + \"\\n\")"
+                },
+                {
+                  "kind": "add",
+                  "text": "        copied.append(\"goals.json\")"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "    stamps: list[str] = []"
+                },
+                {
+                  "kind": "add",
+                  "text": "    for rel in copied:"
+                },
+                {
+                  "kind": "add",
+                  "text": "        path = os.path.join(out, rel)"
+                },
+                {
+                  "kind": "add",
+                  "text": "        if rel.endswith(\".jsonl\"):"
+                },
+                {
+                  "kind": "add",
+                  "text": "            with open(path, \"r\", encoding=\"utf-8\") as fh:"
+                },
+                {
+                  "kind": "add",
+                  "text": "                for line in fh:"
+                },
+                {
+                  "kind": "add",
+                  "text": "                    line = line.strip()"
+                },
+                {
+                  "kind": "add",
+                  "text": "                    if not line:"
+                },
+                {
+                  "kind": "add",
+                  "text": "                        continue"
+                },
+                {
+                  "kind": "add",
+                  "text": "                    try:"
+                },
+                {
+                  "kind": "add",
+                  "text": "                        entry = json.loads(line)"
+                },
+                {
+                  "kind": "add",
+                  "text": "                    except json.JSONDecodeError:"
+                },
+                {
+                  "kind": "add",
+                  "text": "                        continue"
+                },
+                {
+                  "kind": "add",
+                  "text": "                    if isinstance(entry, dict) and isinstance(entry.get(\"ts_utc\"), str):"
+                },
+                {
+                  "kind": "add",
+                  "text": "                        stamps.append(entry[\"ts_utc\"])"
+                },
+                {
+                  "kind": "add",
+                  "text": "        elif rel.endswith(\".json\"):"
+                },
+                {
+                  "kind": "add",
+                  "text": "            try:"
+                },
+                {
+                  "kind": "add",
+                  "text": "                with open(path, \"r\", encoding=\"utf-8\") as fh:"
+                },
+                {
+                  "kind": "add",
+                  "text": "                    doc = json.load(fh)"
+                },
+                {
+                  "kind": "add",
+                  "text": "            except (OSError, json.JSONDecodeError):"
+                },
+                {
+                  "kind": "add",
+                  "text": "                continue"
+                },
+                {
+                  "kind": "add",
+                  "text": "            for item in _iter_dicts(doc):"
+                },
+                {
+                  "kind": "add",
+                  "text": "                for key in (\"ts_utc\", \"created_utc\", \"generated_utc\"):"
+                },
+                {
+                  "kind": "add",
+                  "text": "                    if isinstance(item.get(key), str):"
+                },
+                {
+                  "kind": "add",
+                  "text": "                        stamps.append(item[key])"
+                },
+                {
+                  "kind": "add",
+                  "text": "    window_start = min(stamps) if stamps else utcnow_iso()"
+                },
+                {
+                  "kind": "add",
+                  "text": "    window_end = max(stamps) if stamps else utcnow_iso()"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "    registry = CapabilityRegistry(root)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    manifest = {"
+                },
+                {
+                  "kind": "add",
+                  "text": "        \"bundle_id\": bundle_id,"
+                },
+                {
+                  "kind": "add",
+                  "text": "        \"fixture\": fixture,"
+                },
+                {
+                  "kind": "add",
+                  "text": "        \"created_utc\": utcnow_iso(),"
+                },
+                {
+                  "kind": "add",
+                  "text": "        \"schema\": \"pra7.bundle/1\","
+                },
+                {
+                  "kind": "add",
+                  "text": "        \"source_root\": os.path.abspath(root),"
+                },
+                {
+                  "kind": "add",
+                  "text": "        \"window\": {\"start_utc\": window_start, \"end_utc\": window_end},"
+                },
+                {
+                  "kind": "add",
+                  "text": "        \"inventory\": registry.inventory(),"
+                },
+                {
+                  "kind": "add",
+                  "text": "        \"integrity\": ["
+                },
+                {
+                  "kind": "add",
+                  "text": "            {\"path\": rel, \"sha256\": sha256_file(os.path.join(out, rel))}"
+                },
+                {
+                  "kind": "add",
+                  "text": "            for rel in sorted(copied)"
+                },
+                {
+                  "kind": "add",
+                  "text": "        ],"
+                },
+                {
+                  "kind": "add",
+                  "text": "    }"
+                },
+                {
+                  "kind": "add",
+                  "text": "    with open(os.path.join(out, \"manifest.json\"), \"w\", encoding=\"utf-8\") as fh:"
+                },
+                {
+                  "kind": "add",
+                  "text": "        fh.write(canonical_json(manifest) + \"\\n\")"
+                },
+                {
+                  "kind": "add",
+                  "text": "        fh.flush()"
+                },
+                {
+                  "kind": "add",
+                  "text": "        os.fsync(fh.fileno())"
+                },
+                {
+                  "kind": "add",
+                  "text": "    return out"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "def _iter_dicts(doc: Any) -> Any:"
+                },
+                {
+                  "kind": "add",
+                  "text": "    if isinstance(doc, dict):"
+                },
+                {
+                  "kind": "add",
+                  "text": "        yield doc"
+                },
+                {
+                  "kind": "add",
+                  "text": "        for value in doc.values():"
+                },
+                {
+                  "kind": "add",
+                  "text": "            yield from _iter_dicts(value)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    elif isinstance(doc, list):"
+                },
+                {
+                  "kind": "add",
+                  "text": "        for item in doc:"
+                },
+                {
+                  "kind": "add",
+                  "text": "            yield from _iter_dicts(item)"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "def _ensure_store(root: str) -> IntentStore:"
+                },
+                {
+                  "kind": "add",
+                  "text": "    os.makedirs(root, exist_ok=True)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    store = IntentStore(root)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    store.bootstrap()"
+                },
+                {
+                  "kind": "add",
+                  "text": "    return store"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "# ------------------------------------------------------------------ commands"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "def cmd_init(args: argparse.Namespace) -> int:"
+                },
+                {
+                  "kind": "add",
+                  "text": "    store = _ensure_store(args.root)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    print(f\"intent store: {store.path}\")"
+                },
+                {
+                  "kind": "add",
+                  "text": "    print(f\"requirements: {len(store.requirements)} goals: {len(store.goals)}\")"
+                },
+                {
+                  "kind": "add",
+                  "text": "    print(f\"anchor sha256: {store.anchor_sha256}\")"
+                },
+                {
+                  "kind": "add",
+                  "text": "    return 0"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "def cmd_menu(args: argparse.Namespace) -> int:"
+                },
+                {
+                  "kind": "add",
+                  "text": "    store = _ensure_store(args.root)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    statuses = evaluate(args.root, store)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    print(store.menu({d: statuses[d].status for d in statuses}))"
+                },
+                {
+                  "kind": "add",
+                  "text": "    print(render_table([statuses[d] for d in DEMAND_IDS if d in statuses]))"
+                },
+                {
+                  "kind": "add",
+                  "text": "    return 0"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "def cmd_status(args: argparse.Namespace) -> int:"
+                },
+                {
+                  "kind": "add",
+                  "text": "    store = _ensure_store(args.root)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    statuses = evaluate(args.root, store)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    print(render_table([statuses[d] for d in DEMAND_IDS if d in statuses]))"
+                },
+                {
+                  "kind": "add",
+                  "text": "    met = sum(1 for s in statuses.values() if s.met)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    return 0 if met == len(DEMAND_IDS) else 1"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "def cmd_persist(args: argparse.Namespace) -> int:"
+                },
+                {
+                  "kind": "add",
+                  "text": "    _ensure_store(args.root)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    agent = PersistAgent(args.root, interval_s=args.interval,"
+                },
+                {
+                  "kind": "add",
+                  "text": "                         escalate_after=args.escalate_after)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    result = agent.run(cycles=args.cycles, max_seconds=args.max_seconds)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    print(json.dumps(result, indent=2, sort_keys=True))"
+                },
+                {
+                  "kind": "add",
+                  "text": "    ok, detail = agent.verify()"
+                },
+                {
+                  "kind": "add",
+                  "text": "    print(f\"persistence log: {'OK' if ok else 'BROKEN'} :: {detail}\")"
+                },
+                {
+                  "kind": "add",
+                  "text": "    return 0 if ok else 1"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "def cmd_adversary(args: argparse.Namespace) -> int:"
+                },
+                {
+                  "kind": "add",
+                  "text": "    store = _ensure_store(args.root)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    agent = AdversaryAgent(args.root, stale_after_s=args.stale_after)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    verdicts = agent.review_all(store)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    print(agent.render(verdicts))"
+                },
+                {
+                  "kind": "add",
+                  "text": "    ok, detail = agent.verify_log()"
+                },
+                {
+                  "kind": "add",
+                  "text": "    print(f\"verdict log: {'OK' if ok else 'BROKEN'} :: {detail}\")"
+                },
+                {
+                  "kind": "add",
+                  "text": "    summary = agent.summary(verdicts)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    blocking = summary.get(\"SEV-1\", 0) + summary.get(\"drift\", 0)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    return 1 if blocking or not ok else 0"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "def cmd_register(args: argparse.Namespace) -> int:"
+                },
+                {
+                  "kind": "add",
+                  "text": "    registry = CapabilityRegistry(args.root)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    registry.register("
+                },
+                {
+                  "kind": "add",
+                  "text": "        Capability("
+                },
+                {
+                  "kind": "add",
+                  "text": "            name=args.name,"
+                },
+                {
+                  "kind": "add",
+                  "text": "            kind=args.kind,"
+                },
+                {
+                  "kind": "add",
+                  "text": "            entrypoint=args.entrypoint,"
+                },
+                {
+                  "kind": "add",
+                  "text": "            description=args.description,"
+                },
+                {
+                  "kind": "add",
+                  "text": "            provides=tuple(args.provides or ()),"
+                },
+                {
+                  "kind": "add",
+                  "text": "            requires=tuple(args.requires or ()),"
+                },
+                {
+                  "kind": "add",
+                  "text": "        )"
+                },
+                {
+                  "kind": "add",
+                  "text": "    )"
+                },
+                {
+                  "kind": "add",
+                  "text": "    print(f\"registered {args.kind} {args.name}\")"
+                },
+                {
+                  "kind": "add",
+                  "text": "    return 0"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "def cmd_call(args: argparse.Namespace) -> int:"
+                },
+                {
+                  "kind": "add",
+                  "text": "    registry = CapabilityRegistry(args.root)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    ledger = InvocationLedger(args.root, registry)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    result = ledger.call(args.name, args.args or (), goal_id=args.goal,"
+                },
+                {
+                  "kind": "add",
+                  "text": "                         obj_id=args.obj, agent=args.agent)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    print(f\"exit={result.exit_status} out={result.stdout_path} \""
+                },
+                {
+                  "kind": "add",
+                  "text": "          f\"sha256={result.stdout_sha256[:16]}\")"
+                },
+                {
+                  "kind": "add",
+                  "text": "    return 0 if result.ok else result.exit_status"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "def cmd_orchestrate(args: argparse.Namespace) -> int:"
+                },
+                {
+                  "kind": "add",
+                  "text": "    orch = Orchestrator(args.root, slots=args.slots)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    results = orch.run(demo_plan(goal_id=args.goal))"
+                },
+                {
+                  "kind": "add",
+                  "text": "    print(orch.report(results))"
+                },
+                {
+                  "kind": "add",
+                  "text": "    ok, detail = orch.verify_log()"
+                },
+                {
+                  "kind": "add",
+                  "text": "    print(f\"run log: {'OK' if ok else 'BROKEN'} :: {detail}\")"
+                },
+                {
+                  "kind": "add",
+                  "text": "    return 1 if any(r.status != \"done\" for r in results.values()) or not ok else 0"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "def cmd_record(args: argparse.Namespace) -> int:"
+                },
+                {
+                  "kind": "add",
+                  "text": "    _ensure_store(args.root)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    recorder = SessionRecorder(args.root, grabber=args.grab,"
+                },
+                {
+                  "kind": "add",
+                  "text": "                               pane_grabber=args.pane_grab or args.grab,"
+                },
+                {
+                  "kind": "add",
+                  "text": "                               goal_id=args.goal)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    try:"
+                },
+                {
+                  "kind": "add",
+                  "text": "        recorder.capture_around_events(regions=tuple(args.regions))"
+                },
+                {
+                  "kind": "add",
+                  "text": "        if args.events:"
+                },
+                {
+                  "kind": "add",
+                  "text": "            recorder.ingest_events(args.events, goal_id=args.goal)"
+                },
+                {
+                  "kind": "add",
+                  "text": "        for _ in range(args.steps):"
+                },
+                {
+                  "kind": "add",
+                  "text": "            recorder.capture_around_events(regions=tuple(args.regions))"
+                },
+                {
+                  "kind": "add",
+                  "text": "        for path in args.result or []:"
+                },
+                {
+                  "kind": "add",
+                  "text": "            recorder.declare_result(path)"
+                },
+                {
+                  "kind": "add",
+                  "text": "        meta = recorder.finalize(args.session, fixture=args.fixture)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    except Exception as exc:  # noqa: BLE001 - refusal must surface, not fabricate"
+                },
+                {
+                  "kind": "add",
+                  "text": "        print(f\"capture refused: {exc}\", file=sys.stderr)"
+                },
+                {
+                  "kind": "add",
+                  "text": "        return 2"
+                },
+                {
+                  "kind": "add",
+                  "text": "    print(f\"session finalized: {meta}\")"
+                },
+                {
+                  "kind": "add",
+                  "text": "    return 0"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "def cmd_session(args: argparse.Namespace) -> int:"
+                },
+                {
+                  "kind": "add",
+                  "text": "    verifier = TranscriptVerifier(args.root, max_delay_ms=args.max_delay_ms,"
+                },
+                {
+                  "kind": "add",
+                  "text": "                                  min_diff=args.min_diff)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    rc, text = verifier.verify()"
+                },
+                {
+                  "kind": "add",
+                  "text": "    print(text)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    return rc"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "def cmd_dashboard(args: argparse.Namespace) -> int:"
+                },
+                {
+                  "kind": "add",
+                  "text": "    _ensure_store(args.root)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    dash = Dashboard(args.root)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    if args.check_only:"
+                },
+                {
+                  "kind": "add",
+                  "text": "        ok, problems = dash.check()"
+                },
+                {
+                  "kind": "add",
+                  "text": "        for problem in problems:"
+                },
+                {
+                  "kind": "add",
+                  "text": "            print(f\"[FAIL] {problem}\")"
+                },
+                {
+                  "kind": "add",
+                  "text": "        return 0 if ok else 1"
+                },
+                {
+                  "kind": "add",
+                  "text": "    json_path, html_path = dash.write()"
+                },
+                {
+                  "kind": "add",
+                  "text": "    print(f\"{json_path}\\n{html_path}\")"
+                },
+                {
+                  "kind": "add",
+                  "text": "    ok, problems = dash.check()"
+                },
+                {
+                  "kind": "add",
+                  "text": "    for problem in problems:"
+                },
+                {
+                  "kind": "add",
+                  "text": "        print(f\"[FAIL] {problem}\")"
+                },
+                {
+                  "kind": "add",
+                  "text": "    return 0 if ok else 1"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "def cmd_bundle(args: argparse.Namespace) -> int:"
+                },
+                {
+                  "kind": "add",
+                  "text": "    _ensure_store(args.root)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    out = assemble_bundle(args.root, args.out, args.bundle_id, fixture=args.fixture)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    print(f\"bundle assembled: {out}\")"
+                },
+                {
+                  "kind": "add",
+                  "text": "    from .claims import load_bundle_verifier"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "    verifier = load_bundle_verifier()"
+                },
+                {
+                  "kind": "add",
+                  "text": "    rc, text = verifier.verify_bundle(out, allow_fixtures=args.fixture)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    print(text)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    return rc"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "def cmd_claim(args: argparse.Namespace) -> int:"
+                },
+                {
+                  "kind": "add",
+                  "text": "    _ensure_store(args.root)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    claim = CompletionClaim(root=args.root, bundle=args.bundle,"
+                },
+                {
+                  "kind": "add",
+                  "text": "                            allow_fixtures=args.allow_fixtures,"
+                },
+                {
+                  "kind": "add",
+                  "text": "                            claimant=args.claimant)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    supported, text = claim.verify()"
+                },
+                {
+                  "kind": "add",
+                  "text": "    print(text)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    if args.out:"
+                },
+                {
+                  "kind": "add",
+                  "text": "        print(f\"verdict written: {claim.write(args.out)}\")"
+                },
+                {
+                  "kind": "add",
+                  "text": "    return 0 if supported else 1"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "def main(argv: list[str] | None = None) -> int:"
+                },
+                {
+                  "kind": "add",
+                  "text": "    parser = argparse.ArgumentParser(prog=\"pra7\", description=__doc__,"
+                },
+                {
+                  "kind": "add",
+                  "text": "                                     formatter_class=argparse.RawDescriptionHelpFormatter)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    sub = parser.add_subparsers(dest=\"cmd\", required=True)"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "    def add(name: str, func: Any, help_text: str) -> argparse.ArgumentParser:"
+                },
+                {
+                  "kind": "add",
+                  "text": "        p = sub.add_parser(name, help=help_text)"
+                },
+                {
+                  "kind": "add",
+                  "text": "        p.add_argument(\"--root\", required=True)"
+                },
+                {
+                  "kind": "add",
+                  "text": "        p.set_defaults(func=func)"
+                },
+                {
+                  "kind": "add",
+                  "text": "        return p"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "    add(\"init\", cmd_init, \"create the intent spine\")"
+                },
+                {
+                  "kind": "add",
+                  "text": "    add(\"menu\", cmd_menu, \"render the menu that drives everything\")"
+                },
+                {
+                  "kind": "add",
+                  "text": "    add(\"status\", cmd_status, \"compute MET/UNMET per demand\")"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "    p = add(\"persist\", cmd_persist, \"run the persistence agent\")"
+                },
+                {
+                  "kind": "add",
+                  "text": "    p.add_argument(\"--cycles\", type=int, default=3)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    p.add_argument(\"--interval\", type=float, default=0.0)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    p.add_argument(\"--max-seconds\", type=float, default=0.0)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    p.add_argument(\"--escalate-after\", type=int, default=3)"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "    p = add(\"adversary\", cmd_adversary, \"run the adversarial-review agent\")"
+                },
+                {
+                  "kind": "add",
+                  "text": "    p.add_argument(\"--stale-after\", type=float, default=120.0)"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "    p = add(\"register\", cmd_register, \"declare a capability\")"
+                },
+                {
+                  "kind": "add",
+                  "text": "    p.add_argument(\"--name\", required=True)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    p.add_argument(\"--kind\", required=True, choices=(\"tool\", \"skill\", \"plugin\"))"
+                },
+                {
+                  "kind": "add",
+                  "text": "    p.add_argument(\"--entrypoint\", required=True)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    p.add_argument(\"--description\", default=\"\")"
+                },
+                {
+                  "kind": "add",
+                  "text": "    p.add_argument(\"--provides\", nargs=\"*\", default=[])"
+                },
+                {
+                  "kind": "add",
+                  "text": "    p.add_argument(\"--requires\", nargs=\"*\", default=[])"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "    p = add(\"call\", cmd_call, \"invoke a capability and record it\")"
+                },
+                {
+                  "kind": "add",
+                  "text": "    p.add_argument(\"--name\", required=True)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    p.add_argument(\"--goal\", default=\"\")"
+                },
+                {
+                  "kind": "add",
+                  "text": "    p.add_argument(\"--obj\", default=\"\")"
+                },
+                {
+                  "kind": "add",
+                  "text": "    p.add_argument(\"--agent\", default=\"\")"
+                },
+                {
+                  "kind": "add",
+                  "text": "    p.add_argument(\"args\", nargs=\"*\")"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "    p = add(\"orchestrate\", cmd_orchestrate, \"run a multi-agent plan\")"
+                },
+                {
+                  "kind": "add",
+                  "text": "    p.add_argument(\"--slots\", type=int, default=3)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    p.add_argument(\"--goal\", default=\"G-O7\")"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "    p = add(\"record\", cmd_record, \"capture a real desktop session\")"
+                },
+                {
+                  "kind": "add",
+                  "text": "    p.add_argument(\"--session\", default=\"session-1\")"
+                },
+                {
+                  "kind": "add",
+                  "text": "    p.add_argument(\"--grab\", default=\"\")"
+                },
+                {
+                  "kind": "add",
+                  "text": "    p.add_argument(\"--pane-grab\", default=\"\")"
+                },
+                {
+                  "kind": "add",
+                  "text": "    p.add_argument(\"--events\", default=\"\")"
+                },
+                {
+                  "kind": "add",
+                  "text": "    p.add_argument(\"--regions\", nargs=\"*\", default=[\"desktop\", \"dashboard_desktop_pane\"])"
+                },
+                {
+                  "kind": "add",
+                  "text": "    p.add_argument(\"--steps\", type=int, default=0)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    p.add_argument(\"--result\", nargs=\"*\", default=[])"
+                },
+                {
+                  "kind": "add",
+                  "text": "    p.add_argument(\"--goal\", default=\"\")"
+                },
+                {
+                  "kind": "add",
+                  "text": "    p.add_argument(\"--fixture\", action=\"store_true\")"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "    p = add(\"session\", cmd_session, \"verify a captured session\")"
+                },
+                {
+                  "kind": "add",
+                  "text": "    p.add_argument(\"--max-delay-ms\", type=int, default=2000)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    p.add_argument(\"--min-diff\", type=float, default=0.001)"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "    p = add(\"dashboard\", cmd_dashboard, \"build/check the dashboard\")"
+                },
+                {
+                  "kind": "add",
+                  "text": "    p.add_argument(\"--check-only\", action=\"store_true\")"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "    p = add(\"bundle\", cmd_bundle, \"assemble + verify a completion-evidence bundle\")"
+                },
+                {
+                  "kind": "add",
+                  "text": "    p.add_argument(\"--out\", required=True)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    p.add_argument(\"--bundle-id\", default=\"bundle-1\")"
+                },
+                {
+                  "kind": "add",
+                  "text": "    p.add_argument(\"--fixture\", action=\"store_true\")"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "    p = add(\"claim\", cmd_claim, \"verify a completion claim\")"
+                },
+                {
+                  "kind": "add",
+                  "text": "    p.add_argument(\"--bundle\", default=\"\")"
+                },
+                {
+                  "kind": "add",
+                  "text": "    p.add_argument(\"--claimant\", default=\"\")"
+                },
+                {
+                  "kind": "add",
+                  "text": "    p.add_argument(\"--allow-fixtures\", action=\"store_true\")"
+                },
+                {
+                  "kind": "add",
+                  "text": "    p.add_argument(\"--out\", default=\"\")"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "    args = parser.parse_args(argv)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    return int(args.func(args))"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "if __name__ == \"__main__\":"
+                },
+                {
+                  "kind": "add",
+                  "text": "    sys.exit(main())"
+                }
+              ]
+            }
+          ],
+          "path": "proposals/requests/r-5795501a/7/pra7/cli.py",
           "removed": 0,
           "too_large": false
         },
@@ -45458,7 +47249,7 @@
       "healthy": true,
       "last_check": null,
       "last_result": "dev channel: tracks the git checkout directly, not a packaged release",
-      "root": "/home/ss/projects/pravrudhi"
+      "root": "."
     },
     {
       "auto_apply": true,
@@ -45469,9 +47260,9 @@
       ],
       "channel": "release",
       "current_version": "0.4.0",
-      "due": true,
+      "due": false,
       "healthy": true,
-      "last_check": 1788866726.0213532,
+      "last_check": 1788870436.501805,
       "last_result": "running 0.4.0",
       "root": "/home/ss/pravrudhi-release"
     }
@@ -45489,12 +47280,12 @@
         "ok": true
       },
       {
-        "detail": "last heartbeat was 5215s ago",
+        "detail": "last heartbeat was 2221s ago",
         "name": "scheduler_fresh",
         "ok": true
       },
       {
-        "detail": "697354776576 bytes free",
+        "detail": "697147514880 bytes free",
         "name": "disk_available",
         "ok": true
       },
@@ -45509,7 +47300,7 @@
         "ok": true
       },
       {
-        "detail": "developer checkout; a known-good commit is c9d2b93",
+        "detail": "developer checkout; a known-good commit is 0504bb9",
         "name": "release_restorable",
         "ok": true
       },
@@ -45522,6 +47313,41 @@
     "state": "ready"
   },
   "heartbeat": [
+    {
+      "at": "2026-09-08T12:00:51Z",
+      "chose": {
+        "criterion": "7",
+        "request": "r-5795501a"
+      },
+      "drive": "obligations",
+      "drive_deficit": 0.7222222222222222,
+      "looked_at": [],
+      "reason": "dispatched request r-5795501a criterion 7 (accepted)",
+      "result": {
+        "accepted": true,
+        "files": [
+          "proposals/requests/r-5795501a/7/README.md",
+          "proposals/requests/r-5795501a/7/pra7/__init__.py",
+          "proposals/requests/r-5795501a/7/pra7/__main__.py",
+          "proposals/requests/r-5795501a/7/pra7/adversary_agent.py",
+          "proposals/requests/r-5795501a/7/pra7/chain.py",
+          "proposals/requests/r-5795501a/7/pra7/claims.py",
+          "proposals/requests/r-5795501a/7/pra7/cli.py",
+          "proposals/requests/r-5795501a/7/pra7/dashboard.py",
+          "proposals/requests/r-5795501a/7/pra7/desktop_capture.py",
+          "proposals/requests/r-5795501a/7/pra7/evidence.py",
+          "proposals/requests/r-5795501a/7/pra7/intent.py",
+          "proposals/requests/r-5795501a/7/pra7/orchestrate.py",
+          "proposals/requests/r-5795501a/7/pra7/persist_agent.py",
+          "proposals/requests/r-5795501a/7/pra7/registry.py",
+          "proposals/requests/r-5795501a/7/selftest_verify_evidence_bundle.py",
+          "proposals/requests/r-5795501a/7/verify_evidence_bundle.py"
+        ],
+        "reasons": [],
+        "route": "claude-code"
+      },
+      "sentence": "I am working on what the operator is still owed because obligations has the largest eligible deficit."
+    },
     {
       "at": "2026-09-08T10:59:28Z",
       "chose": {
@@ -45805,18 +47631,6 @@
       "reason": "r-5795501a is fully evidenced and awaiting the completion gate (`pravrudhi requests-advance r-5795501a verified`)",
       "result": null,
       "sentence": "I am working on what the operator is still owed because obligations has the largest eligible deficit."
-    },
-    {
-      "at": "2026-09-07T21:32:28Z",
-      "chose": {
-        "request": "r-5795501a"
-      },
-      "drive": "obligations",
-      "drive_deficit": 0.6296296296296297,
-      "looked_at": [],
-      "reason": "r-5795501a is fully evidenced and awaiting the completion gate (`pravrudhi requests-advance r-5795501a verified`)",
-      "result": null,
-      "sentence": "I am working on what the operator is still owed because obligations has the largest eligible deficit."
     }
   ],
   "inbox": [
@@ -45824,21 +47638,21 @@
       "badge": "amber",
       "candidate": "c-0060",
       "night": "harness-night1",
-      "pack": "/home/ss/projects/pravrudhi/research/inbox/harness-night1/c-0060",
+      "pack": "research/inbox/harness-night1/c-0060",
       "signed": false
     },
     {
       "badge": "green",
       "candidate": "c-0078",
       "night": "harness-night3",
-      "pack": "/home/ss/projects/pravrudhi/research/inbox/harness-night3/c-0078",
+      "pack": "research/inbox/harness-night3/c-0078",
       "signed": false
     },
     {
       "badge": "green",
       "candidate": "c-0045",
       "night": "night4",
-      "pack": "/home/ss/projects/pravrudhi/research/inbox/night4/c-0045",
+      "pack": "research/inbox/night4/c-0045",
       "signed": false
     }
   ],
@@ -46156,6 +47970,15 @@
       "pruned": 0,
       "selection_policy": "efe",
       "spent_gpu_h": 0.0,
+      "track": "lora"
+    },
+    {
+      "candidates": 12,
+      "night": 18,
+      "promoted": [],
+      "pruned": 12,
+      "selection_policy": "efe",
+      "spent_gpu_h": 0.892,
       "track": "lora"
     }
   ],
@@ -50878,6 +52701,86 @@
         "delta_in": null
       },
       "seq": 2568
+    },
+    {
+      "candidate_id": "c-0045",
+      "night": 18,
+      "payload": {
+        "delta_in": null
+      },
+      "seq": 2572
+    },
+    {
+      "candidate_id": "c-0189",
+      "night": 18,
+      "payload": {
+        "delta_in": null
+      },
+      "seq": 2574
+    },
+    {
+      "candidate_id": "c-0045",
+      "night": 18,
+      "payload": {
+        "delta_in": null
+      },
+      "seq": 2581
+    },
+    {
+      "candidate_id": "c-0191",
+      "night": 18,
+      "payload": {
+        "delta_in": null
+      },
+      "seq": 2583
+    },
+    {
+      "candidate_id": "c-0045",
+      "night": 18,
+      "payload": {
+        "delta_in": null
+      },
+      "seq": 2586
+    },
+    {
+      "candidate_id": "c-0198",
+      "night": 18,
+      "payload": {
+        "delta_in": null
+      },
+      "seq": 2588
+    },
+    {
+      "candidate_id": "c-0045",
+      "night": 18,
+      "payload": {
+        "delta_in": null
+      },
+      "seq": 2591
+    },
+    {
+      "candidate_id": "c-0194",
+      "night": 18,
+      "payload": {
+        "delta_in": null
+      },
+      "seq": 2593
+    },
+    {
+      "candidate_id": "c-0045",
+      "night": 18,
+      "payload": {
+        "delta_in": null
+      },
+      "seq": 2596
+    },
+    {
+      "candidate_id": "c-0192",
+      "night": 18,
+      "payload": {
+        "delta_in": null
+      },
+      "seq": 2598
     }
   ],
   "parity": {
@@ -52421,7 +54324,7 @@
       "planned": 0,
       "verified": 5
     },
-    "oldest_open_days": 1.79,
+    "oldest_open_days": 1.8,
     "open": 15,
     "requests": [
       {
@@ -52591,7 +54494,7 @@
           8
         ],
         "session": "9e647463",
-        "staleness_days": 1.79,
+        "staleness_days": 1.8,
         "state": "in_progress",
         "text": "and in no way you are near the orca with all its ade features or openclaw or polished features like claude desktop or codex....you have to beat them in features, utility and ux....dedicate an agent to persist on it...dedicate an agent to adversarial review against set goals so that the project does not drift...i am not seeing the desktop screen/features too in the dashboard..the demo should show real clicks etc and how the desktop app updates and produces the real results...where is the intent, goal, objective menu that drives everything...where are the tools, skills, plugins, multi-agent orchestration etc....don't be superficial..i want real things ..deep, sophisticated..complete...no synthetic, no hand-waving, no fabrication"
       },
@@ -52891,7 +54794,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.81,
+        "staleness_days": 0.82,
         "state": "captured",
         "text": "step up to bigger things, let pravrudhi rsi handle most of its growth on its own....you bring the hard and deeper challenges and solve it for pravrudhi...have you done justice with loom..where is pratyabhijna...i don't see the messaging system (telegram)...where are the great plugins like attractor-flow...look at docs/recursive_self_improvement_sota.pdf think deeper and get to the roots of building rsi itself with a lot more of the stuff like efe and beyond...don't do superficial stuff...get the real value...foundational and discovery oriented...yet fully grounded to get the artifacts (app, api, etc)"
       },
@@ -52905,7 +54808,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.81,
+        "staleness_days": 0.82,
         "state": "captured",
         "text": "keep monitoring and load bearing for critical upgrades beyond what pravrudhi auto loop can do...the desktop app being a reflection of web app is not the expectation..look at orca desktop or claude code desktop...it should do real stuff...the showcase, demos are not intended for it...also it should be value based-right set of features-not a messy and confusing pile of stuff...the desktop app shouldn't focus on internal building, that is the task of the larger pravrudhi rsi...it should roll out to users and they build their things with it...the updates land autonomously and just like how claude desktop throws an option for the user to update-the same should be for pravrudhi desktop app-seamless but user driven...also you have not implemented oauth and user login including admin login and i said they need their own workspace and settings"
       },
@@ -52919,7 +54822,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.81,
+        "staleness_days": 0.82,
         "state": "captured",
         "text": "astra is back..you have to more actively monitor paid models coming back after session renewal and leverage them...managing models and agents efficiently should be one of the key features of pravrudhi....also keep testing the desktop with the admin login and use the prabhasa-nyaya as the main objective to build on...this will be a proxy for other users too as you can't test different user login without their byok model/api"
       },
@@ -52933,7 +54836,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.81,
+        "staleness_days": 0.82,
         "state": "captured",
         "text": "1)research and setup multiple agent orchestration systems (langgraph, openai/claude/google agent sdk etc)..there are a lot on the market. this is what will make pravrudhi an ade too behind the rsi.....implement the best-leverage open source implementations...stake this as another objective for pravrudhi 2)also think of ide that integrates claude code, codex, openrouter etc and all available in the ui/ux 3)demarcate the pravrudhi builder and its end product by different names...otherwise it will confuse...also both should have identical web and desktop versions 4)continue what you are building..create memory/hooks/logs to not lose track of other asks and what you are already building"
       },
@@ -52947,7 +54850,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.81,
+        "staleness_days": 0.82,
         "state": "captured",
         "text": "the real key is in and tested (alibaba lite plan)..you have not read the docs properly...take note and use the lite plan...and remember the desktop app will not have access to any api/routing for any model provider..they have to bring theirs, configure it etc..you have to enable..but for admin it uses the one as the core pravrudhi"
       },
@@ -52961,7 +54864,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.73,
+        "staleness_days": 0.74,
         "state": "captured",
         "text": "continue..askuserquestion to gather my actual intent on super pravrudhi and user pravrudhi...also give me control in super pravrudhi to directly interact with you using the model network that you have built as this claude code session may hit session limit in a day or 2...so prep it and test it and keep it ready for me"
       },
@@ -52975,7 +54878,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.68,
+        "staleness_days": 0.69,
         "state": "captured",
         "text": "Everything is set up and verified:\n\n* Bot confirmed: `@pravrudhi_bot`, token valid\n* Chat ID confirmed: `8679892510`\n* Message delivery tested end-to-end \u2014 you should have received \"Pravrudhi: Telegram bot wired up successfully.\" in Telegram\n* Credentials persisted at `~/.config/pravrudhi/telegram.env` (mode 600)\n* systemd units updated and reinstalled (pravrudhi-app.service, pravrudhi-heartbeat.service) with the `EnvironmentFile` line, though the running app service wasn't restarted per your choice\n* Handoff doc finalized at research/telegram-bot-setup.md, including the exact code gap (`notifications.py:_reach()` never passes `token`/`chat_id` to `reach.send()`) and a precise diff for the other agent session to apply\n\nPoint the other Claude Code session at research/telegram-bot-setup.md and it has everything it needs to wire the actual notification code...integrate, test and use...this will be only for admin..users will have to bring their byok..enable in settings...also note and implement  - Pravrudhi Studio is only for admin (it is not for any other user or public release)...and for the admin pravrudhi (use case end..not studio) will auto update the builds without the operator intervention"
       },
@@ -52989,7 +54892,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.64,
+        "staleness_days": 0.65,
         "state": "captured",
         "text": "install both studio and non-studio desktops (both mac mini and 5090 machine) and give the web app link for both...the non-studio should update the builds autonomously when studio pushes the change...but the catch is that whatever the non-studio is building should not break..also the desktop should support major os (including windows) and the web app major browsers...and continue to build and work and use the ledger that has all my previous requests...let ralph rigourously check before closing..do e2e tests ...adversarial reviews before closure too"
       },
@@ -53003,7 +54906,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.28,
+        "staleness_days": 0.29,
         "state": "captured",
         "text": "all done and authorizing shell auto-update...carry on....for both 5090 and mac mini"
       },
@@ -53017,7 +54920,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.27,
+        "staleness_days": 0.28,
         "state": "captured",
         "text": "the admin user end application can auto update too...i authorize it..as that is your test bed...and henceforth don't stop for operator ..you should continue other jobs..and why isn't the pravruhi's own rsi building autonomously (or is it?)...and have you differentiated the name (and obviously the features insided it) for studio and user end app...i only see one form of desktop on mac mini"
       },
@@ -53031,7 +54934,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.26,
+        "staleness_days": 0.27,
         "state": "captured",
         "text": "you cannot stop for the operator to command you....full autonomous and continous running both you and the 2 rsi systems (studio and the user app)"
       },
@@ -53059,7 +54962,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.17,
+        "staleness_days": 0.18,
         "state": "captured",
         "text": "the github token should be available in env here or in some othe4 projects..use that...if you don\u2019t get, i will provide it here ...i am not at the machine..but on mobile now...and remember the rule ..no stopping at all"
       },
@@ -53680,6 +55583,17 @@
   },
   "runs": [
     {
+      "candidates": 12,
+      "id": "n18-lora",
+      "night": 18,
+      "policy": "efe",
+      "promoted": [],
+      "pruned": 12,
+      "spent_gpu_h": 0.892,
+      "status": "finished",
+      "target": "model"
+    },
+    {
       "candidates": 0,
       "id": "n17-lora",
       "night": 17,
@@ -53755,17 +55669,6 @@
       "spent_gpu_h": 0.0,
       "status": "finished",
       "target": "harness"
-    },
-    {
-      "candidates": 8,
-      "id": "n10-lora",
-      "night": 10,
-      "policy": "greedy",
-      "promoted": [],
-      "pruned": 8,
-      "spent_gpu_h": 0.559,
-      "status": "finished",
-      "target": "model"
     }
   ],
   "search": {
@@ -53905,20 +55808,20 @@
   },
   "status": {
     "badges": {
-      "amber": 17,
+      "amber": 13,
       "green": 2,
-      "grey": 20,
-      "red": 162
+      "grey": 19,
+      "red": 167
     },
     "candidates": 201,
     "chain_ok": true,
-    "events": 2571,
+    "events": 2602,
     "inbox_pending": [
       "/home/ss/projects/pravrudhi/research/inbox/night4/c-0045",
       "research/inbox/harness-night3/c-0078"
     ],
     "initialised": true,
-    "ledger_head": "306b647ac4bcd79ecb0bda9b8efcbf863fc3524a11274a4fce38f2f4cc02902c",
+    "ledger_head": "3bb27b64aea0564653ecf82fee4b3be4db937e01c2e9bbd7e71b2c6a6041b60b",
     "locks": {
       "frozen_surfaces": [],
       "paused": false,
@@ -54127,6 +56030,24 @@
         "incumbent": "c-0045",
         "outcomes": {},
         "spent_gpu_h": 0.0
+      },
+      "18": {
+        "incumbent": "c-0045",
+        "outcomes": {
+          "c-0189": "pruned",
+          "c-0190": "pruned",
+          "c-0191": "pruned",
+          "c-0192": "pruned",
+          "c-0193": "pruned",
+          "c-0194": "pruned",
+          "c-0195": "pruned",
+          "c-0196": "pruned",
+          "c-0197": "pruned",
+          "c-0198": "pruned",
+          "c-0199": "pruned",
+          "c-0200": "pruned"
+        },
+        "spent_gpu_h": 0.8923095126638265
       }
     },
     "promoted": {
@@ -54137,8 +56058,8 @@
         "c-0045"
       ]
     },
-    "pruned": 136,
-    "state_hash": "a4a36d451b2f1f44c6f8683797832f6aaf9906b57996a11a138fb8052372fa7c"
+    "pruned": 141,
+    "state_hash": "2702fd306b6edaf430b32091bcb2a43a63f84bba514b7a8222a651a840ac500a"
   },
   "swarm": {
     "agents": [
@@ -54180,9 +56101,9 @@
     ],
     "routing": [
       {
-        "agent": "opencode:alibaba-plan",
-        "model": "qwen3.8-max",
-        "reason": "qwen-lite-max has the best measured success rate at this tier (2/6) and nothing cheaper matches it; dropped cooling route(s) local-glm, qwen-coder",
+        "agent": "claude-code",
+        "model": "sonnet",
+        "reason": "no route has 3 outcomes at this tier yet, so the declared order decides; dropped cooling route(s) qwen-lite-max, local-glm, qwen-coder",
         "records": [
           {
             "hi": 0.7000116786584712,
@@ -54229,14 +56150,14 @@
             "trials": 0
           }
         ],
-        "relative_cost": 0.15,
-        "route": "qwen-lite-max",
+        "relative_cost": 2.9,
+        "route": "sonnet",
         "tier": "mechanical"
       },
       {
-        "agent": "opencode:alibaba-plan",
-        "model": "qwen3.8-max",
-        "reason": "qwen-lite-max is cheaper than sonnet and has only 2 outcomes, too few to rule out; trying it; dropped cooling route(s) qwen-coder",
+        "agent": "claude-code",
+        "model": "sonnet",
+        "reason": "sonnet has the best measured success rate at this tier (25/31) and nothing cheaper matches it; dropped cooling route(s) qwen-lite-max, qwen-coder",
         "records": [
           {
             "hi": 0.9054713451991339,
@@ -54272,8 +56193,8 @@
             "trials": 0
           }
         ],
-        "relative_cost": 0.15,
-        "route": "qwen-lite-max",
+        "relative_cost": 2.9,
+        "route": "sonnet",
         "tier": "standard"
       },
       {
@@ -55089,16 +57010,16 @@
     "channel": "dev",
     "check_interval_min": 30,
     "current": {
-      "git_describe": "v0.4.0-21-gc9d2b93",
+      "git_describe": "v0.4.0-22-g0504bb9",
       "kernel_version": "0.1.0",
       "version": "0.4.0"
     },
     "keep_previous": 2
   },
   "version": {
-    "commit": "c9d2b93",
+    "commit": "0504bb9",
     "engine": "0.4.0",
-    "exported_at": "2026-09-08T12:26:08.718Z",
+    "exported_at": "2026-09-08T12:37:38.491Z",
     "kernel": "0.1.0"
   }
 }
