@@ -261,6 +261,41 @@ def _obligation_prompt(request_text: str, criterion_text: str, scratch: str, val
 _OBLIGATION_TIER = "standard"
 
 
+_REVIEW_CRITERION_PREFIX = "Answer the completion review's finding: "
+
+
+def _criterion_from_finding(root: Path, request_id: str, finding: str) -> bool:
+    """Turn a blocking review into one unmet criterion, unless its finding is already recorded.
+
+    The same objection must not accumulate a new criterion on every beat: an hourly loop would bury the request
+    under identical demands and never finish any of them. One open review criterion at a time is enough, because
+    until it is met the gate will refuse for the same reason anyway.
+    """
+    request = requests.get(root, request_id)
+    if request is None:
+        return False
+    if any(c.text.startswith(_REVIEW_CRITERION_PREFIX) and not c.met for c in request.criteria):
+        return False
+    # The first line that actually says something. A review opens with headings and label lines ("Summary of the
+    # strongest reason:"), and taking the first non-heading line produced a criterion reading "…strongest
+    # reason:" — a demand with the demand missing, which is worthless to whoever builds against it.
+    headline = ""
+    for raw in finding.splitlines():
+        line = raw.strip().lstrip("#").strip().lstrip("*").strip()
+        if not line or line.startswith(("---", "===")):
+            continue
+        if line.endswith(":") or len(line) < 40:
+            continue  # a label, not the finding it labels
+        headline = line
+        break
+    headline = headline or " ".join(finding.split())[:300]
+    requests.add_criteria(
+        root, request_id,
+        [requests.Criterion(text=f"{_REVIEW_CRITERION_PREFIX}{headline[:300]}", source="engine")],
+    )
+    return True
+
+
 def _default_review_agent(root: Path) -> Any:
     """The read-only agent the completion gate reviews with, built the way the CLI builds it. A machine with no
     coding agent installed returns empty findings, which the gate treats as a review that did not do its job
@@ -308,11 +343,19 @@ def _beat_completion_gate(root: Path, request_id: str) -> ActionResult:
         )
 
     finding = (result.review.findings.strip() if result.review is not None else "") or result.reason
+
+    # A blocking review does not mean the criteria are met and something else is wrong. It means the criteria
+    # were too narrow — the reviewer's whole job is to find what the acceptance wording let through. So the
+    # finding becomes an unmet criterion, which is what gives the next beat something to build.
+    #
+    # Without this the request only oscillates: refused back to `in_progress`, called "ready to move" because
+    # every existing criterion still carries evidence, advanced to `delivered`, refused again, forever.
+    added = _criterion_from_finding(root, request_id, finding)
     requests.advance(root, request_id, "in_progress", note=f"completion gate refused: {finding}"[:4000])
     return (
         {"request": request_id},
         f"{request_id} did not pass the completion gate and is building again: {result.reason}",
-        {"kind": "gate", "ran": True, "passed": False, "reason": result.reason},
+        {"kind": "gate", "ran": True, "passed": False, "reason": result.reason, "criterion_added": added},
     )
 
 
@@ -333,10 +376,14 @@ def _beat_obligations(root: Path, dispatch: DispatchFn | None) -> ActionResult:
         # is not a heartbeat. So the gate runs here.
         return _beat_completion_gate(root, str(owed["request"]))
     if owed["kind"] == "advance_request":
+        # Ready to move, so move it. Describing the move and returning nothing was the same failure as the
+        # branch above, and together they oscillated: the gate refused a delivered request back to
+        # `in_progress`, this branch called it ready, and neither ever changed anything.
+        requests.advance(root, str(owed["request"]), "delivered", note="every criterion carries evidence")
         return (
             {"request": str(owed["request"])},
-            f"{owed['description']} — every criterion carries evidence, so it is ready to move",
-            None,
+            f"{owed['request']} has evidence on every criterion and is now delivered, awaiting the gate",
+            {"kind": "advance", "to": "delivered"},
         )
     found = requests.next_unmet(root)
     if found is None:  # pragma: no cover - next_obligation already answered meet_criterion

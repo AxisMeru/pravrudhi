@@ -463,3 +463,105 @@ class TestABeatThatActsRatherThanDescribes:
         assert result is not None and result["ran"] is False
         assert "no agent installed" in reason
         assert requests.get(tmp_path, request_id).state == "delivered", "a broken gate must not move the request"
+
+
+class TestTheLoopDoesNotOscillate:
+    """Two branches that only described their work also fed each other.
+
+    The gate refused a `delivered` request back to `in_progress`; the next beat saw every existing criterion
+    still carrying evidence, called it ready to move, and advanced it to `delivered`; the gate refused it again.
+    Fixing one branch without the other buys a faster wedge, not a working loop.
+    """
+
+    @staticmethod
+    def _evidenced(root: Path) -> str:
+        from pravrudhi.application import requests
+
+        req = requests.capture(root, "make the thing genuinely work")
+        requests.add_criteria(root, req.id, [requests.Criterion(text="the thing works", source="operator")])
+        requests.meet(root, req.id, 0, [requests.Evidence(kind="file", ref="README.md", note="there")])
+        requests.advance(root, req.id, "in_progress")
+        requests.advance(root, req.id, "delivered")
+        return req.id
+
+    def test_a_refusal_leaves_unmet_work_behind(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        from pravrudhi.application import completion, heartbeat, requests
+
+        (tmp_path / "README.md").write_text("there")
+        rid = self._evidenced(tmp_path)
+        review = completion.ReviewResult(
+            findings="## Verdict\n\nThe rival named twice was never assessed.", blocking=True, reason="refused")
+        monkeypatch.setattr(completion, "gate",
+                            lambda root, r, **kw: completion.GateResult(r, False, "review", [], review))
+
+        heartbeat._beat_completion_gate(tmp_path, rid)
+
+        after = requests.get(tmp_path, rid)
+        unmet = [c for c in after.criteria if not c.met]
+        assert unmet, "a refused request kept every criterion met, so the next beat has nothing to build"
+        assert "never assessed" in unmet[0].text
+
+    def test_the_same_objection_does_not_accumulate_criteria(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An hourly loop repeating one objection would bury the request under identical demands."""
+        from pravrudhi.application import completion, heartbeat, requests
+
+        (tmp_path / "README.md").write_text("there")
+        rid = self._evidenced(tmp_path)
+        review = completion.ReviewResult(findings="the same objection", blocking=True, reason="refused")
+        monkeypatch.setattr(completion, "gate",
+                            lambda root, r, **kw: completion.GateResult(r, False, "review", [], review))
+
+        # Twice, as an hourly loop would: the second refusal must recognise its own open criterion.
+        heartbeat._beat_completion_gate(tmp_path, rid)
+        heartbeat._beat_completion_gate(tmp_path, rid)
+
+        after = requests.get(tmp_path, rid)
+        review_criteria = [c for c in after.criteria if c.text.startswith(heartbeat._REVIEW_CRITERION_PREFIX)]
+        assert len(review_criteria) == 1, f"one objection produced {len(review_criteria)} criteria"
+
+    def test_a_request_ready_to_move_is_moved(self, tmp_path: Path) -> None:
+        from pravrudhi.application import heartbeat, requests
+
+        req = requests.capture(tmp_path, "something owed")
+        requests.add_criteria(tmp_path, req.id, [requests.Criterion(text="done", source="operator")])
+        requests.meet(tmp_path, req.id, 0, [requests.Evidence(kind="file", ref="README.md")])
+        requests.advance(tmp_path, req.id, "in_progress")
+
+        _chose, _reason, result = heartbeat._beat_obligations(tmp_path, lambda _t: "")
+
+        assert result is not None and result.get("kind") == "advance", "the beat described the move again"
+        assert requests.get(tmp_path, req.id).state == "delivered"
+
+
+def test_the_criterion_from_a_finding_carries_the_finding_not_its_label(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A review opens with headings and label lines. Taking the first non-heading line produced a criterion
+    reading "Summary of the strongest reason:" — a demand with the demand missing, useless to the builder that
+    picks it up next beat."""
+    from pravrudhi.application import completion, heartbeat, requests
+
+    (tmp_path / "README.md").write_text("there")
+    req = requests.capture(tmp_path, "do the work")
+    requests.add_criteria(tmp_path, req.id, [requests.Criterion(text="works", source="operator")])
+    requests.meet(tmp_path, req.id, 0, [requests.Evidence(kind="file", ref="README.md")])
+    requests.advance(tmp_path, req.id, "in_progress")
+    requests.advance(tmp_path, req.id, "delivered")
+
+    findings = (
+        "## Verdict: does not satisfy the request\n\n"
+        "Summary of the strongest reason:\n\n"
+        "The rival named twice by the operator was never assessed anywhere in the product.\n"
+    )
+    review = completion.ReviewResult(findings=findings, blocking=True, reason="refused")
+    monkeypatch.setattr(completion, "gate",
+                        lambda root, r, **kw: completion.GateResult(r, False, "review", [], review))
+
+    heartbeat._beat_completion_gate(tmp_path, req.id)
+
+    added = [c for c in requests.get(tmp_path, req.id).criteria
+             if c.text.startswith(heartbeat._REVIEW_CRITERION_PREFIX)][0]
+    assert "never assessed" in added.text
+    assert not added.text.rstrip().endswith(":"), "the criterion is a label with no finding behind it"
