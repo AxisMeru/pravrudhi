@@ -1,5 +1,6 @@
 """Offline adapter tests: fake CLI transport, never a provider request."""
 import json
+from pathlib import Path
 
 import pytest
 
@@ -33,7 +34,8 @@ def test_dispatch_uses_model_and_environment_only(tmp_path, monkeypatch, key):
     ])
 
     def transport(cmd, cwd, timeout_s, env):
-        assert cmd == ["opencode", "run", "--format", "json", "--agent", "build", "-m", "pravrudhi-alibaba/qwen-test", "read x"]
+        assert cmd == ["opencode", "run", "--format", "json", "--agent", "build", "--dir", str(tmp_path.resolve()),
+                       "-m", "pravrudhi-alibaba/qwen-test", "read x"]
         assert cwd == tmp_path and timeout_s == 12
         assert key.reveal() not in str(cmd)
         config = json.loads(env["OPENCODE_CONFIG_CONTENT"])
@@ -92,3 +94,30 @@ def test_spawn_failure_returns_failure_without_exception_contents(tmp_path, monk
     monkeypatch.setattr(alibaba, "_run", fail)
     result = alibaba.AlibabaAgent(tmp_path).run("read", tmp_path)
     assert not result.ok and key.reveal() not in repr(result)
+
+
+def test_the_workspace_is_named_absolutely_so_writes_cannot_escape_it(tmp_path, monkeypatch, key):
+    """OpenCode resolves a relative path against the project root it detects, not against its cwd.
+
+    An agent worktree lives under `.worktrees/` inside the repository, so that detected root is the main checkout:
+    given only `cwd`, a real dispatch wrote its whole deliverable there and left the worktree empty. `--dir` with
+    an absolute path moves both the write tool and the bash tool's workdir into the worktree, which was confirmed
+    against the live model before this test was written.
+    """
+    seen: dict[str, list[str]] = {}
+
+    def transport(cmd, cwd, timeout_s, env):
+        seen["cmd"] = cmd
+        return 0, event("step_finish", reason="stop"), "", 0.5
+
+    monkeypatch.setattr(alibaba, "_run", transport)
+    ws = tmp_path / ".worktrees" / "agent-t"
+    ws.mkdir(parents=True)
+    agent = build_agent(tmp_path, "opencode:alibaba", "qwen-test")
+    agent.run("do it", ws, timeout_s=12)
+
+    cmd = seen["cmd"]
+    assert "--dir" in cmd, cmd
+    given = cmd[cmd.index("--dir") + 1]
+    assert Path(given).is_absolute(), given
+    assert Path(given) == ws.resolve()

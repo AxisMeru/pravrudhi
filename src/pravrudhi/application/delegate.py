@@ -111,9 +111,17 @@ def validate_in(workspace: Path, command: str, timeout_s: int = 1800) -> tuple[b
 
 
 def _tree_state(root: Path) -> set[str]:
-    """Uncommitted paths in a checkout, so a change made there during a dispatch can be told from one made before."""
+    """Uncommitted paths in a checkout, so a change made there during a dispatch can be told from one made before.
+
+    `-uall` is load-bearing. By default `git status --porcelain` collapses an untracked directory to one entry, so
+    a deliverable written into the main checkout appears as `proposals/probe/` rather than as the file itself. A
+    task declares its scope as globs over files, which no directory name can match, so the escape was invisible
+    and the verdict read "no change produced" - the same sentence as the incident this check was added for. Every
+    real escape creates a new directory, because a proposal's first file always does.
+    """
     try:
-        p = subprocess.run(["git", "status", "--porcelain"], cwd=root, capture_output=True, text=True, timeout=60)
+        p = subprocess.run(["git", "status", "--porcelain", "-uall"], cwd=root, capture_output=True, text=True,
+                           timeout=60)
     except (OSError, subprocess.SubprocessError):
         return set()
     return {ln[3:] for ln in p.stdout.splitlines() if ln.strip()}

@@ -94,3 +94,32 @@ def test_the_operators_own_concurrent_edits_in_main_are_not_blamed_on_the_agent(
     v = dispatch(OperatorEditsMeanwhile(root, ws), TaskSpec("t", "do it", ("deliverable.py",), validate="true"),
                  log=lambda *a: None)
     assert not any("outside its worktree" in r for r in v.reasons), v.reasons
+
+
+def test_an_escape_into_a_new_directory_is_seen_even_though_git_collapses_it(tmp_path: Path) -> None:
+    """The real case, and the one the first form of this check missed.
+
+    A deliverable is almost always the first file in a new directory, and `git status --porcelain` collapses an
+    untracked directory to a single entry — `proposals/probe/` rather than `proposals/probe/alpha/README.md`.
+    A declared path is a glob over files, so the directory entry matches nothing, the escape goes unnamed, and
+    the verdict reads "no change produced" while the agent's work sits unreviewed in the main checkout. That is
+    the exact wording of the incident this module was written after, reproduced with a real agent.
+    """
+    root = _repo(tmp_path / "main")
+    ws = tmp_path / "ws"
+    ws.mkdir()
+
+    class EscapesIntoANewDirectory(EscapingAgent):
+        def run(self, prompt: str, workspace: Path, timeout_s: int = 0) -> AgentRun:
+            out = self.root / "proposals" / "probe" / "alpha"
+            out.mkdir(parents=True)
+            (out / "README.md").write_text("the deliverable, written into the wrong tree\n")
+            return AgentRun(agent=self.name, ok=True, exit_code=0, wall_s=0.1, text="", workspace=workspace)
+
+    v = dispatch(
+        EscapesIntoANewDirectory(root, ws),
+        TaskSpec("t", "do it", ("proposals/probe/alpha/*",), validate="true"),
+        log=lambda *a: None,
+    )
+    assert not v.accepted
+    assert any("outside its worktree" in r and "proposals/probe/alpha/README.md" in r for r in v.reasons), v.reasons

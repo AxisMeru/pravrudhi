@@ -102,8 +102,15 @@ class AlibabaAgent(GitWorktreeMixin):
         key = None
         try:
             key = credential(self.provider_id)
+            # `--dir`, absolute, is what actually confines the run. OpenCode resolves a relative path against the
+            # project root it detects rather than against its cwd, and an agent worktree sits under `.worktrees/`
+            # inside the repository, so that root is the main checkout: given only `cwd`, a real dispatch wrote its
+            # whole deliverable there and its worktree diff was empty. Absolute because a relative `--dir` is
+            # itself resolved against the same detected root, which is the bug rather than the fix.
             code, out, err, wall = _run(
-                ["opencode", "run", "--format", "json", "--agent", "build", "-m", f"{PROVIDER}/{self.model}", prompt],
+                ["opencode", "run", "--format", "json", "--agent", "build",
+                 "--dir", str(Path(workspace).resolve()),
+                 "-m", f"{PROVIDER}/{self.model}", prompt],
                 workspace, timeout_s,
                 env={KEY_NAME: key.reveal(),
                      "OPENCODE_CONFIG_CONTENT": json.dumps(configuration(self.model, self.provider_id))},
