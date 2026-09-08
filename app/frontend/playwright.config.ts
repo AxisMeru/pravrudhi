@@ -18,7 +18,8 @@ function requestedProjects(argv: readonly string[]): string[] {
   return projects;
 }
 const requested = requestedProjects(process.argv);
-const needsLocalEngine = requested.length === 0 || requested.some((name) => name.startsWith("local-engine"));
+const needsLocalEngine =
+  requested.length === 0 || requested.some((name) => name.startsWith("local-engine") || name === "capture");
 
 // The three rendering engines behind every major desktop browser: Chromium is Chrome and Edge, WebKit is
 // Safari, Gecko is Firefox. Running one of them and calling the result "works in browsers" is the claim this
@@ -46,6 +47,9 @@ function acrossEngines<T extends { name: string; use?: object }>(project: T) {
  */
 export default defineConfig({
   testDir: "./e2e",
+  // The recording is not part of any ordinary run: it takes a minute, writes into the site's public directory
+  // and would make every suite slower for no assurance. Asked for by name, it runs.
+  testIgnore: process.argv.some((a) => a.includes("capture")) ? [] : ["capture-demo.spec.ts"],
   timeout: 45_000,
   expect: { timeout: 15_000 },
   retries: 1,
@@ -59,6 +63,13 @@ export default defineConfig({
       name: "public-site",
       testMatch: "public-site.spec.ts",
     }),
+    // The recording of a real session, kept out of the ordinary suites: it starts an engine, drives it, and
+    // writes a video into the site's public directory, which is a build step rather than a test.
+    {
+      name: "capture",
+      testMatch: "capture-demo.spec.ts",
+      use: { baseURL: localEngineURL },
+    },
     ...acrossEngines({
       name: "local-engine",
       testMatch: "local-engine.spec.ts",

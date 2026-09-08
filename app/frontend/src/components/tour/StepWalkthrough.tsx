@@ -36,6 +36,25 @@ export function StepWalkthrough({ data }: { data: TourData }) {
       <p className="text-xs text-[var(--color-muted)]">
         These are real screens, captured by driving a running browser through this engine — not a design.
       </p>
+
+      {/* The recording, above the frames. A completion review put the objection plainly: the frames "show what
+          pages look like, not what happens when you click something". This is one continuous session — the
+          command palette opened with Ctrl+K, a result clicked, a digit shortcut jumping pages — recorded while
+          the assertions around it passed, so a session that failed is never what gets published. */}
+      <figure>
+        <video
+          src={`${TOUR_BASE_PATH}/walkthrough/session.webm`}
+          controls
+          loop
+          muted
+          playsInline
+          className="w-full rounded-lg border border-[var(--color-border)]"
+        />
+        <figcaption className="mt-2 text-sm text-[var(--color-text)]">
+          One recorded session: the command palette opened from the keyboard, a page reached by clicking a
+          result, another by its digit shortcut. Every frame is the consequence of an action taken in the run.
+        </figcaption>
+      </figure>
       <figure>
         {/* eslint-disable-next-line @next/next/no-img-element -- a static public asset, not a remote image */}
         <img
