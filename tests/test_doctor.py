@@ -164,3 +164,29 @@ def test_routing_is_satisfied_when_every_tier_can_run_what_it_chose(
     result = run_doctor(ready_root)
     routing = next(c for c in result["checks"] if c["name"] == "routing")
     assert routing["ok"], routing
+
+
+def test_routing_names_a_cli_that_exists_but_is_not_on_this_process_path(
+    ready_root: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Say where the binary actually is, because "not installed" was the misleading part.
+
+    On 2026-09-08 `opencode` was installed and worked perfectly in the operator's shell. It was invisible only to
+    `systemd --user`, whose PATH omits nvm's bin directory. A report saying the CLI is not installed sends someone
+    to reinstall a CLI that is already there. Naming the path it was found at turns the same failure into an
+    obvious one, and this is the check that has to survive a move to a machine nobody has configured yet.
+    """
+    from pravrudhi.application import doctor as doctor_module
+
+    elsewhere = tmp_path / "nvm" / "versions" / "node" / "v24.20.0" / "bin"
+    elsewhere.mkdir(parents=True)
+    (elsewhere / "opencode").write_text("#!/bin/sh\nexit 0\n")
+    (elsewhere / "opencode").chmod(0o755)
+
+    monkeypatch.setattr(doctor_module, "_build_agent", lambda root, name, model: None if "opencode" in name else object())
+    monkeypatch.setattr(doctor_module, "_SEARCH_ROOTS", (elsewhere.parent.parent,))  # the node/ dir holding version dirs
+
+    routing = next(c for c in run_doctor(ready_root)["checks"] if c["name"] == "routing")
+    assert not routing["ok"], routing
+    assert str(elsewhere / "opencode") in routing["detail"], routing["detail"]
+    assert "not on this process's PATH" in routing["detail"], routing["detail"]

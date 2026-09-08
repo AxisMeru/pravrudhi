@@ -16,6 +16,53 @@ PREREG_FILES = ("lora_night.yaml", "harness_night.yaml", "controller.yaml", "can
 
 ROUTED_TIERS = ("mechanical", "standard", "design", "critical")
 
+# The CLI each agent adapter shells out to, so a missing one can be looked for rather than merely reported absent.
+_AGENT_CLI = {"claude-code": "claude", "codex": "codex", "opencode": "opencode", "orca": "orca-ide"}
+
+# Where a CLI commonly lives when it is installed but absent from a service's PATH. nvm is first because it is the
+# case that actually bit: npm globals land in a node-version-specific directory that only an interactive shell
+# that sourced nvm ever puts on PATH, and `systemd --user` never does.
+_SEARCH_ROOTS = (
+    Path.home() / ".nvm" / "versions" / "node",
+    Path.home() / ".local" / "bin",
+    Path.home() / ".bun" / "bin",
+    Path("/opt/homebrew/bin"),
+    Path("/usr/local/bin"),
+)
+
+
+def _cli_for(agent: str) -> str | None:
+    for prefix, binary in _AGENT_CLI.items():
+        if agent == prefix or agent.startswith(prefix + ":"):
+            return binary
+    return None
+
+
+def _found_off_path(agent: str) -> str | None:
+    """The CLI's real location when it exists but this process cannot see it.
+
+    "opencode CLI not installed" sent a reader to reinstall a CLI that was installed and working in their own
+    shell; the only thing wrong was which PATH the process inherited. Naming the file turns that into an obvious
+    diagnosis. Returns None when the CLI is genuinely absent, which is a different and honest message.
+    """
+    binary = _cli_for(agent)
+    if not binary or shutil.which(binary):
+        return None
+    for root in _SEARCH_ROOTS:
+        try:
+            if not root.is_dir():
+                continue
+            candidates = [root / binary, *(child / "bin" / binary for child in sorted(root.iterdir()) if child.is_dir())]
+        except OSError:
+            continue
+        for candidate in candidates:
+            try:
+                if candidate.is_file():
+                    return str(candidate)
+            except OSError:
+                continue
+    return None
+
 
 def _routing_check(root: Path) -> dict[str, Any]:
     """Whether the route the router would actually pick at each tier has an agent that can run.
@@ -52,7 +99,11 @@ def _routing_check(root: Path) -> dict[str, Any]:
             broken.append(f"{tier}: {error}")
             continue
         if not runnable(choice.route):
-            broken.append(f"{tier}: would route to {choice.route.id} ({choice.route.agent}), which cannot run here")
+            note = f"{tier}: would route to {choice.route.id} ({choice.route.agent}), which cannot run here"
+            found = _found_off_path(choice.route.agent)
+            if found:
+                note += f" - its CLI is at {found} but not on this process's PATH"
+            broken.append(note)
 
     if broken and not any(runnable(route) for route in table.routes.values()):
         return {
