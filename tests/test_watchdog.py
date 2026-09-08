@@ -107,3 +107,32 @@ def test_a_workspace_with_no_records_says_so_rather_than_healthy(tmp_path: Path)
 def test_a_workspace_with_records_is_not_blind(tmp_path: Path) -> None:
     _beats(tmp_path, [{"at": "2026-09-08T01:00:00Z", "chose": {"a": "1"}, "reason": "x"}])
     assert not watchdog.blind(tmp_path)
+
+
+def test_the_same_findings_are_only_announced_once(tmp_path: Path) -> None:
+    """A watchdog that repeats itself gets muted, and a muted watchdog is worse than none.
+
+    It sent the operator the identical line — one cooling route — every thirty minutes. Nothing had changed
+    between runs, so nothing needed saying: the first message was the alert and every one after it was noise
+    training the reader to ignore the channel.
+    """
+    findings = [watchdog.Finding(kind="cheap_seat_down", severity="medium", detail="flash is cooling")]
+
+    assert watchdog.worth_announcing(tmp_path, findings), "the first time is the alert"
+    assert not watchdog.worth_announcing(tmp_path, findings), "the second time is noise"
+    assert not watchdog.worth_announcing(tmp_path, findings)
+
+
+def test_a_changed_finding_is_announced_again(tmp_path: Path) -> None:
+    first = [watchdog.Finding(kind="cheap_seat_down", severity="medium", detail="flash is cooling")]
+    second = [watchdog.Finding(kind="loop_repeating", severity="high", detail="the loop has not moved")]
+    assert watchdog.worth_announcing(tmp_path, first)
+    assert watchdog.worth_announcing(tmp_path, second), "a different problem is a different alert"
+
+
+def test_recovery_is_announced_once_and_then_silence(tmp_path: Path) -> None:
+    """Going quiet after a problem clears leaves the reader believing it is still broken."""
+    findings = [watchdog.Finding(kind="cheap_seat_down", severity="medium", detail="flash is cooling")]
+    assert watchdog.worth_announcing(tmp_path, findings)
+    assert watchdog.worth_announcing(tmp_path, []), "the all-clear is worth one message"
+    assert not watchdog.worth_announcing(tmp_path, []), "and only one"

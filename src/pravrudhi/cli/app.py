@@ -361,9 +361,9 @@ def watch_cmd(
         typer.echo(json.dumps({"findings": [f.to_dict() for f in findings]}, indent=1))
     else:
         typer.echo(watchdog.render(findings, root=root))
-    if notify and findings:
-        # Only when something is wrong: a watchdog that messages on every run is one the operator mutes, and a
-        # muted watchdog is worse than none because it looks like coverage.
+    # Only when the picture CHANGES. "Only when something is wrong" was not enough: the same cooling route was
+    # reported every thirty minutes, which is the same overload by a slower route.
+    if notify and watchdog.worth_announcing(root, findings) and findings:
         import os
 
         from pravrudhi.application import reach

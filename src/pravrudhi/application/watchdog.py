@@ -173,6 +173,42 @@ def blind(root: Path) -> bool:
     return not (root / ".pravrudhi" / "heartbeat.jsonl").is_file() and not (root / "research" / "ledger.jsonl").is_file()
 
 
+_ANNOUNCED_FILE = ".pravrudhi/watchdog-announced.json"
+
+
+def _digest(findings: Iterable[Finding]) -> str:
+    """What is wrong, ignoring how it is worded. Two runs of the same problem must hash the same.
+
+    The detail text carries a return time that ticks between runs, so hashing it would make every run look like
+    a new problem — which is the bug this exists to stop, wearing a different hat.
+    """
+    return "|".join(sorted(f"{f.kind}:{f.severity}" for f in findings))
+
+
+def worth_announcing(root: Path, findings: Iterable[Finding]) -> bool:
+    """Whether this is news. True the first time a set of problems appears, and once when they clear.
+
+    The watchdog sent the operator an identical line every thirty minutes: one cooling route, unchanged, over
+    and over. Nothing had happened between runs, so nothing needed saying. The first message was the alert and
+    every one after it was noise teaching the reader to ignore the channel — which is how a watchdog becomes
+    worse than no watchdog, because the silence still looks like coverage.
+
+    Recovery is announced exactly once. Going quiet when a problem clears leaves the reader believing it is
+    still broken, and a second all-clear says nothing the first did not.
+    """
+    current = _digest(findings)
+    path = Path(root) / _ANNOUNCED_FILE
+    try:
+        previous = str(json.loads(path.read_text())["digest"])
+    except (OSError, ValueError, KeyError, TypeError):
+        previous = ""
+    if current == previous:
+        return False
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"digest": current}))
+    return True
+
+
 def render(findings: Iterable[Finding], *, root: Path | None = None) -> str:
     """One message, short enough to read on a phone and specific enough to act on."""
     items = list(findings)
@@ -188,4 +224,4 @@ def render(findings: Iterable[Finding], *, root: Path | None = None) -> str:
     return "".join(lines)[:3400]
 
 
-__all__ = ["Finding", "REPEAT_LIMIT", "blind", "check", "render"]
+__all__ = ["Finding", "REPEAT_LIMIT", "blind", "check", "render", "worth_announcing"]
