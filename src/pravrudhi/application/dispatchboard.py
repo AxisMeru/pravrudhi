@@ -237,6 +237,27 @@ def cancel(root: Path, job_id: str) -> Job:
         return job
 
 
+def _model_for(agent_name: str) -> str | None:
+    """The model the routing table gives this agent, or None to let the agent choose its own.
+
+    An agent name is not enough to run anything: `opencode:alibaba` and `opencode:alibaba-plan` are the same
+    program against two endpoints serving different models, so the model has to come from the route rather than
+    from the agent's default. `swarm.py` already takes it from `route.pair()`; this is the same lookup for the
+    path where the operator pinned an agent by hand.
+    """
+    from pravrudhi.application import routing
+
+    try:
+        table = routing.load_table()
+    except Exception:  # noqa: BLE001 (an unreadable table must not stop a pinned dispatch)
+        return None
+    for route in table.routes.values():
+        name, model = route.pair()
+        if name == agent_name and model:
+            return model
+    return None
+
+
 def _finish(root: Path, job: Job, verdict: Verdict) -> None:
     job.state = "accepted" if verdict.accepted else "rejected"
     job.route = verdict.agent
@@ -259,7 +280,10 @@ def _run(root: Path, job: Job, build_agent: Any, log: Any) -> None:
     spec = apply_policy(spec, policy)
     if job.agent:
         # A pinned agent bypasses the router entirely: the operator named exactly who should do this work.
-        agent_obj = build_agent(job.agent, None)
+        # The router is still where the model lives, though. Passing None here let the agent fall back to its
+        # own default, and for `opencode:alibaba-plan` that default is a model the plan endpoint does not
+        # serve — every job pinned to it answered "Model not exist." while the route reported ready.
+        agent_obj = build_agent(job.agent, _model_for(job.agent))
         if agent_obj is None:
             _finish(root, job, Verdict(job.id, job.agent, False, [f"agent {job.agent!r} is not available here"]))
             return

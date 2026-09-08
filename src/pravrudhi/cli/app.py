@@ -1287,6 +1287,18 @@ def requests_advance_cmd(
     typer.echo(f"{req.id} -> {req.state}")
 
 
+@app.command("telegram-poll")
+def telegram_poll_cmd(root: Path = ROOT_OPT, json_out: bool = REQUESTS_JSON_OPT) -> None:
+    """Answer whatever the operator has sent the bot since the last poll.
+
+    Only the configured chat is obeyed and every command is a name from a fixed set, so a message arriving from
+    the network cannot ask this engine to do anything it does not already do (application/telegram_inbox.py)."""
+    from pravrudhi.application.telegram_inbox import live_poll
+
+    answered = live_poll(root)
+    typer.echo(json.dumps({"answered": answered}) if json_out else f"answered {answered}")
+
+
 @app.command("parity")
 def parity_cmd(
     action: str | None = typer.Argument(None, help="gaps: show rival advantages only"),
