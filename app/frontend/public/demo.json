@@ -215,6 +215,14 @@
       "kind": "accepted",
       "objective": null,
       "summary": "bot-tool-coverage accepted by opencode:alibaba-plan"
+    },
+    {
+      "agent": "opencode:alibaba-plan",
+      "at": "2026-09-08T19:41:42Z",
+      "detail": "touched 20 file(s): proposals/requests/r-5795501a/7/MANIFEST.proposal.json, proposals/requests/r-5795501a/7/README.md, proposals/requests/r-5795501a/7/audit_proposal_contract.py, proposals/requests/r-5795501a/7/pra7/__init__.py, proposals/requests/r-5795501a/7/pra7/__main__.py, proposals/requests/r-5795501a/7/pra7/adversary_agent.py, proposals/requests/r-5795501a/7/pra7/chain.py, proposals/requests/r-5795501a/7/pra7/claims.py, proposals/requests/r-5795501a/7/pra7/cli.py, proposals/requests/r-5795501a/7/pra7/dashboard.py, proposals/requests/r-5795501a/7/pra7/desktop_capture.py, proposals/reques",
+      "kind": "accepted",
+      "objective": null,
+      "summary": "request:r-5795501a:7 accepted by opencode:alibaba-plan"
     }
   ],
   "appetite": {
@@ -224,7 +232,7 @@
         "drive": "seva",
         "kind": "obligation"
       },
-      "as_of": "2026-09-08T19:16:56Z",
+      "as_of": "2026-09-08T19:49:49Z",
       "drives": [
         {
           "blocked_reason": "",
@@ -347,18 +355,18 @@
         },
         {
           "blocked_reason": "",
-          "deficit": 0.8148148148148149,
+          "deficit": 0.8207885304659499,
           "eligible": true,
           "id": "seva",
           "sources": [
-            "captured=30",
+            "captured=31",
             "verified=5",
-            "R_verified=0.1667",
-            "oldest_open_days=2.07"
+            "R_verified=0.1613",
+            "oldest_open_days=2.10"
           ],
           "target": 0.9,
           "unknown": false,
-          "value": 0.16666666666666666,
+          "value": 0.16129032258064516,
           "weight": 1.0,
           "wire_name": "obligations"
         },
@@ -503,18 +511,18 @@
       },
       {
         "blocked_reason": "",
-        "deficit": 0.8148148148148149,
+        "deficit": 0.8207885304659499,
         "eligible": true,
         "id": "seva",
         "sources": [
-          "captured=30",
+          "captured=31",
           "verified=5",
-          "R_verified=0.1667",
-          "oldest_open_days=2.07"
+          "R_verified=0.1613",
+          "oldest_open_days=2.10"
         ],
         "target": 0.9,
         "unknown": false,
-        "value": 0.16666666666666666,
+        "value": 0.16129032258064516,
         "weight": 1.0,
         "wire_name": "obligations"
       },
@@ -9779,11 +9787,11 @@
       "base": "92cd23e7d63ebb3d9c6f7c1aefe9a6f51666521f",
       "files": [
         {
-          "added": 117,
+          "added": 122,
           "binary": false,
           "hunks": [
             {
-              "header": "@@ -0,0 +1,117 @@",
+              "header": "@@ -0,0 +1,122 @@",
               "lines": [
                 {
                   "kind": "add",
@@ -9867,7 +9875,7 @@
                 },
                 {
                   "kind": "add",
-                  "text": "      \"bytes\": 18108,"
+                  "text": "      \"bytes\": 24811,"
                 },
                 {
                   "kind": "add",
@@ -9875,7 +9883,7 @@
                 },
                 {
                   "kind": "add",
-                  "text": "      \"sha256\": \"8e4bef7065aa63904949a7cefcb5fbfd59411ff7a64262a1097eb9b67b78db39\""
+                  "text": "      \"sha256\": \"7f59f3e18bfd8199beebdbaa09a48bbc578508561c50e78c77b865c12dfc370f\""
                 },
                 {
                   "kind": "add",
@@ -9936,6 +9944,26 @@
                 {
                   "kind": "add",
                   "text": "      \"sha256\": \"4920d0b4aa4440d62a891d0e9992404a487c72e5380ec7e11bca280aa43c9d64\""
+                },
+                {
+                  "kind": "add",
+                  "text": "    },"
+                },
+                {
+                  "kind": "add",
+                  "text": "    {"
+                },
+                {
+                  "kind": "add",
+                  "text": "      \"bytes\": 16093,"
+                },
+                {
+                  "kind": "add",
+                  "text": "      \"path\": \"trace_claims.py\","
+                },
+                {
+                  "kind": "add",
+                  "text": "      \"sha256\": \"270766816959192274405ef34c7f76fd34afc6caafc103b004a3e3c0e3255ac1\""
                 },
                 {
                   "kind": "add",
@@ -10067,7 +10095,7 @@
                 },
                 {
                   "kind": "add",
-                  "text": "      \"bytes\": 14976,"
+                  "text": "      \"bytes\": 17720,"
                 },
                 {
                   "kind": "add",
@@ -10075,7 +10103,7 @@
                 },
                 {
                   "kind": "add",
-                  "text": "      \"sha256\": \"ffda5316c0e2f862b9ed932e512edfc273fe715bfdf6c0ef5b6219669fc70f4d\""
+                  "text": "      \"sha256\": \"d724d9d680f3fbb00947c474db1d204b1d2377c100cd788d73eb38cf0c97dd5a\""
                 },
                 {
                   "kind": "add",
@@ -10231,7 +10259,7 @@
                 },
                 {
                   "kind": "add",
-                  "text": "  \"generated_utc\": \"2026-09-08T14:35:26Z\","
+                  "text": "  \"generated_utc\": \"2026-09-08T19:40:54Z\","
                 },
                 {
                   "kind": "add",
@@ -10261,11 +10289,11 @@
           "too_large": false
         },
         {
-          "added": 300,
+          "added": 398,
           "binary": false,
           "hunks": [
             {
-              "header": "@@ -0,0 +1,300 @@",
+              "header": "@@ -0,0 +1,398 @@",
               "lines": [
                 {
                   "kind": "add",
@@ -10434,6 +10462,262 @@
                 {
                   "kind": "add",
                   "text": "against a real desktop session."
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "### 1.1 What inspecting the code behind the citations found"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "The review's method \u2014 open the file the citation names instead of believing the"
+                },
+                {
+                  "kind": "add",
+                  "text": "citation \u2014 was repeated here over every claim this directory makes about itself."
+                },
+                {
+                  "kind": "add",
+                  "text": "`trace_claims.py` now does that mechanically, in both directions: a *contract*"
+                },
+                {
+                  "kind": "add",
+                  "text": "claim is a sentence about what the code does, and a *gap* claim is a sentence"
+                },
+                {
+                  "kind": "add",
+                  "text": "about what the code does not do. A gap that closes is a failure too, because the"
+                },
+                {
+                  "kind": "add",
+                  "text": "prose would then describe code that no longer exists in that form. What the"
+                },
+                {
+                  "kind": "add",
+                  "text": "inspection turned up, and what was done about each item:"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "**F1 \u2014 the CLI contradicted its own promise, and the contradiction was"
+                },
+                {
+                  "kind": "add",
+                  "text": "load-bearing.** `pra7/cli.py` announced that every command exits non-zero when"
+                },
+                {
+                  "kind": "add",
+                  "text": "the thing it stands for is not demonstrated. Running `pra7 dashboard` against an"
+                },
+                {
+                  "kind": "add",
+                  "text": "empty artifact root exited zero while the desktop pane it had just rendered was"
+                },
+                {
+                  "kind": "add",
+                  "text": "empty, and `pra7 menu` exited zero with no selection trace behind any goal. The"
+                },
+                {
+                  "kind": "add",
+                  "text": "command that stands for the operator's missing desktop screen therefore reported"
+                },
+                {
+                  "kind": "add",
+                  "text": "success while that screen was missing. Fixed: `cmd_menu` and `cmd_dashboard` now"
+                },
+                {
+                  "kind": "add",
+                  "text": "decide their exit code from the computed O6/O4 status and from frames that exist"
+                },
+                {
+                  "kind": "add",
+                  "text": "on disk, and the docstring states a two-class contract \u2014 demonstration commands"
+                },
+                {
+                  "kind": "add",
+                  "text": "versus producer commands \u2014 instead of a blanket promise that the code did not"
+                },
+                {
+                  "kind": "add",
+                  "text": "keep."
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "**F2 \u2014 `pra7 record` exited zero without looking at what it had recorded.**"
+                },
+                {
+                  "kind": "add",
+                  "text": "`cmd_record` finalized a session and returned, leaving the O4/O5 transcript"
+                },
+                {
+                  "kind": "add",
+                  "text": "properties to a separate `pra7 session` invocation that nothing required. A"
+                },
+                {
+                  "kind": "add",
+                  "text": "recording with no interleave between clicks and frames was indistinguishable, by"
+                },
+                {
+                  "kind": "add",
+                  "text": "exit code, from a recording that had one. Fixed: `cmd_record` runs"
+                },
+                {
+                  "kind": "add",
+                  "text": "`TranscriptVerifier` over the session it just wrote and returns that code."
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "**F3 \u2014 a citation in \u00a72.3 described a check that does not exist.** The row for"
+                },
+                {
+                  "kind": "add",
+                  "text": "`pra7/dashboard.py` said `check()` rejects a pane with no linked capture. Read"
+                },
+                {
+                  "kind": "add",
+                  "text": "against `pra7/dashboard.py:358-400`, `check()` rejects a pane that links a frame"
+                },
+                {
+                  "kind": "add",
+                  "text": "whose file is absent or whose hash has moved, and it accepts an honestly empty"
+                },
+                {
+                  "kind": "add",
+                  "text": "pane carrying a stated reason \u2014 which is the right behaviour for an integrity"
+                },
+                {
+                  "kind": "add",
+                  "text": "check and the wrong one for a demonstration. The citation was false in the"
+                },
+                {
+                  "kind": "add",
+                  "text": "direction that flatters the work. Fixed in the table below, and the distinction"
+                },
+                {
+                  "kind": "add",
+                  "text": "is now enforced where it belongs, in the command's exit code (F1) rather than in"
+                },
+                {
+                  "kind": "add",
+                  "text": "the integrity check."
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "**F4 \u2014 a second citation in \u00a72.3 described the wrong type.** The row for"
+                },
+                {
+                  "kind": "add",
+                  "text": "`pra7/desktop_capture.py` called the grabbers injected callables. They are"
+                },
+                {
+                  "kind": "add",
+                  "text": "injected *command strings* run as subprocesses, empty by default, with a refusal"
+                },
+                {
+                  "kind": "add",
+                  "text": "path when unset. Fixed in the table."
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "**F5 \u2014 the anti-fabrication machinery is not on the acceptance path, and the"
+                },
+                {
+                  "kind": "add",
+                  "text": "registry advertises checks that path does not perform.** This is the finding"
+                },
+                {
+                  "kind": "add",
+                  "text": "that survives the fixes above, and it is the real reason a completion claim from"
+                },
+                {
+                  "kind": "add",
+                  "text": "this directory could not satisfy the operator's request even if a bundle were"
+                },
+                {
+                  "kind": "add",
+                  "text": "produced. `pra7/adversary_agent.py` implements twelve detectors, including"
+                },
+                {
+                  "kind": "add",
+                  "text": "synthetic cadence and impossible clocks. `CompletionClaim.verify()` in"
+                },
+                {
+                  "kind": "add",
+                  "text": "`pra7/claims.py:195-240` runs the evidence evaluation and the sibling bundle"
+                },
+                {
+                  "kind": "add",
+                  "text": "gate, and never invokes any of them. The gate's O3 clause asks each verdict for"
+                },
+                {
+                  "kind": "add",
+                  "text": "a valid verdict value, a registered goal id, a non-empty objection string and a"
+                },
+                {
+                  "kind": "add",
+                  "text": "hash that matches some file in the bundle \u2014 so a verdict written by hand, by the"
+                },
+                {
+                  "kind": "add",
+                  "text": "same author who wrote the bundle, satisfies O3. Meanwhile the goal registry that"
+                },
+                {
+                  "kind": "add",
+                  "text": "\"drives everything\" names falsifiers \u2014 a pid that never existed, inter-event"
+                },
+                {
+                  "kind": "add",
+                  "text": "timing too regular to be human \u2014 that the gate does not implement at all; the"
+                },
+                {
+                  "kind": "add",
+                  "text": "cadence check exists only in `pra7 session`, which no claim path calls. What is"
+                },
+                {
+                  "kind": "add",
+                  "text": "left standing is that the gate decides internal consistency of author-supplied"
+                },
+                {
+                  "kind": "add",
+                  "text": "data. `manifest[\"fixture\"]` is the only provenance statement it consults, and"
+                },
+                {
+                  "kind": "add",
+                  "text": "the author sets it. Tracked as gaps G1\u2013G4 in `trace_claims.py` rather than"
+                },
+                {
+                  "kind": "add",
+                  "text": "papered over, and stated in \u00a77."
+                },
+                {
+                  "kind": "add",
+                  "text": ""
                 },
                 {
                   "kind": "add",
@@ -10705,11 +10989,11 @@
                 },
                 {
                   "kind": "add",
-                  "text": "| `pra7/desktop_capture.py` | O4/O5 | session recorder pairing an event grabber with a frame grabber, both injected callables with no synthetic default, plus `TranscriptVerifier` for the interleave property |"
+                  "text": "| `pra7/desktop_capture.py` | O4/O5 | session recorder pairing an event source with a frame grabber, both caller-supplied command strings with no synthetic default and a refusal path when unset, plus `TranscriptVerifier` for the interleave and cadence properties |"
                 },
                 {
                   "kind": "add",
-                  "text": "| `pra7/dashboard.py` | O4 | dashboard builder emitting JSON and HTML with a desktop pane bound to the same session artifacts; `check()` rejects a pane with no linked capture |"
+                  "text": "| `pra7/dashboard.py` | O4 | dashboard builder emitting JSON and HTML with a desktop pane bound to the same session artifacts; `check()` rejects a pane whose linked frame is absent or altered and accepts an honestly empty pane, while `pra7 dashboard` exits non-zero unless O4 is demonstrated by frames on disk |"
                 },
                 {
                   "kind": "add",
@@ -11005,6 +11289,34 @@
                 },
                 {
                   "kind": "add",
+                  "text": "**E9 \u2014 every citation in this directory is checked against the bytes it names.**"
+                },
+                {
+                  "kind": "add",
+                  "text": "`uv run python proposals/requests/r-5795501a/7/trace_claims.py` walks the claim"
+                },
+                {
+                  "kind": "add",
+                  "text": "register: contract claims are run against the code or executed in a throwaway"
+                },
+                {
+                  "kind": "add",
+                  "text": "artifact root, and gap claims are checked for the absence they assert. A claim"
+                },
+                {
+                  "kind": "add",
+                  "text": "whose state is not `HOLDS` means the prose and the code disagree, in either"
+                },
+                {
+                  "kind": "add",
+                  "text": "direction, and the exit code is non-zero. [EXPECTED]"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
                   "text": "**E8 \u2014 scope discipline is visible, not asserted.**"
                 },
                 {
@@ -11025,7 +11337,7 @@
                 },
                 {
                   "kind": "add",
-                  "text": "If E1\u2013E8 hold, the finding has been answered in the only way available inside"
+                  "text": "If E1\u2013E9 hold, the finding has been answered in the only way available inside"
                 },
                 {
                   "kind": "add",
@@ -11037,7 +11349,7 @@
                 },
                 {
                   "kind": "add",
-                  "text": "Until a reviewer runs those commands, E1\u2013E8 are expectations marked"
+                  "text": "Until a reviewer runs those commands, E1\u2013E9 are expectations marked"
                 },
                 {
                   "kind": "add",
@@ -11198,6 +11510,22 @@
                 {
                   "kind": "add",
                   "text": "uv run python -m compileall -q proposals/requests/r-5795501a/7"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "# the citation trace: prose in this directory versus the bytes it names"
+                },
+                {
+                  "kind": "add",
+                  "text": "uv run python proposals/requests/r-5795501a/7/trace_claims.py"
+                },
+                {
+                  "kind": "add",
+                  "text": "uv run python proposals/requests/r-5795501a/7/trace_claims.py --json"
                 },
                 {
                   "kind": "add",
@@ -11369,6 +11697,94 @@
                 },
                 {
                   "kind": "add",
+                  "text": "- **The bundle gate decides consistency, not provenance.** Every field it"
+                },
+                {
+                  "kind": "add",
+                  "text": "  reads \u2014 event coordinates, `causes_update`, region tags, `goal_id`, the"
+                },
+                {
+                  "kind": "add",
+                  "text": "  `fixture` flag \u2014 is written by whoever assembles the bundle. It recomputes"
+                },
+                {
+                  "kind": "add",
+                  "text": "  hashes and chains over that data; it cannot say where the data came from. A"
+                },
+                {
+                  "kind": "add",
+                  "text": "  fabricated bundle whose author sets `fixture: false` is therefore not stopped"
+                },
+                {
+                  "kind": "add",
+                  "text": "  by the gate. Stopping it needs the adversary's detectors on the claim path"
+                },
+                {
+                  "kind": "add",
+                  "text": "  (F5), which is the open work."
+                },
+                {
+                  "kind": "add",
+                  "text": "- **The goal registry outruns the gate.** Two falsifiers rendered in the menu \u2014"
+                },
+                {
+                  "kind": "add",
+                  "text": "  a pid that never existed, and inter-event timing too regular to be human \u2014"
+                },
+                {
+                  "kind": "add",
+                  "text": "  have no counterpart in `verify_evidence_bundle.py`. The cadence check exists"
+                },
+                {
+                  "kind": "add",
+                  "text": "  in `pra7 session` only. Until the gate implements them or the registry stops"
+                },
+                {
+                  "kind": "add",
+                  "text": "  naming them, the menu states a standard the acceptance path does not apply."
+                },
+                {
+                  "kind": "add",
+                  "text": "- **`pra7/adversary_agent.py` is not wired into any acceptance path.**"
+                },
+                {
+                  "kind": "add",
+                  "text": "  `CompletionClaim.verify()` does not call it, and the gate accepts a verdict"
+                },
+                {
+                  "kind": "add",
+                  "text": "  with no detector attribution. The operator asked for an adversarial reviewer"
+                },
+                {
+                  "kind": "add",
+                  "text": "  that prevents drift; what exists is one that can be run, and a gate that"
+                },
+                {
+                  "kind": "add",
+                  "text": "  cannot tell whether it was."
+                },
+                {
+                  "kind": "add",
+                  "text": "- **No product surface exists here.** No desktop toolkit, no HTTP stack and no"
+                },
+                {
+                  "kind": "add",
+                  "text": "  server framework is imported anywhere in this directory (gap G5), and no"
+                },
+                {
+                  "kind": "add",
+                  "text": "  captured session asset is stored here (gap G6). O4, O5 and O7 are demands"
+                },
+                {
+                  "kind": "add",
+                  "text": "  about a running application; this directory holds instrumentation that would"
+                },
+                {
+                  "kind": "add",
+                  "text": "  measure one."
+                },
+                {
+                  "kind": "add",
                   "text": "- **The auditor is static and has documented holes**, listed in its module"
                 },
                 {
@@ -11462,6 +11878,10 @@
                 {
                   "kind": "add",
                   "text": "| `selftest_verify_evidence_bundle.py` | Layer 2 falsifier: temp-dir fixture bundle plus targeted corruptions |"
+                },
+                {
+                  "kind": "add",
+                  "text": "| `trace_claims.py` | the citation trace: contract claims run against the code or in a throwaway root, gap claims checked for the absence they assert |"
                 },
                 {
                   "kind": "add",
@@ -21243,11 +21663,11 @@
           "too_large": false
         },
         {
-          "added": 395,
+          "added": 460,
           "binary": false,
           "hunks": [
             {
-              "header": "@@ -0,0 +1,395 @@",
+              "header": "@@ -0,0 +1,460 @@",
               "lines": [
                 {
                   "kind": "add",
@@ -21335,11 +21755,47 @@
                 },
                 {
                   "kind": "add",
-                  "text": "Every command exits non-zero when the thing it stands for is not demonstrated."
+                  "text": "Exit codes fall into two classes, and the class is part of the contract:"
                 },
                 {
                   "kind": "add",
-                  "text": "There is no command whose default outcome is success."
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "* Demonstration commands -- menu, status, persist, adversary, call,"
+                },
+                {
+                  "kind": "add",
+                  "text": "  orchestrate, session, dashboard, bundle, claim -- exit non-zero when the"
+                },
+                {
+                  "kind": "add",
+                  "text": "  demand they stand for is not demonstrated. There is no demonstration command"
+                },
+                {
+                  "kind": "add",
+                  "text": "  whose default outcome is success."
+                },
+                {
+                  "kind": "add",
+                  "text": "* Producer commands -- init, register, record -- create an artifact. They exit"
+                },
+                {
+                  "kind": "add",
+                  "text": "  non-zero when the artifact could not be produced or, for ``record``, when the"
+                },
+                {
+                  "kind": "add",
+                  "text": "  session it just produced does not satisfy ``TranscriptVerifier``. Producing"
+                },
+                {
+                  "kind": "add",
+                  "text": "  an artifact is not demonstrating a demand, so a producer command never exits"
+                },
+                {
+                  "kind": "add",
+                  "text": "  zero on the strength of a demand being met."
                 },
                 {
                   "kind": "add",
@@ -21967,6 +22423,38 @@
                 },
                 {
                   "kind": "add",
+                  "text": "    o6 = statuses.get(\"O6\")"
+                },
+                {
+                  "kind": "add",
+                  "text": "    if o6 is None or not o6.met:"
+                },
+                {
+                  "kind": "add",
+                  "text": "        print("
+                },
+                {
+                  "kind": "add",
+                  "text": "            \"[FAIL] O6 not demonstrated: the menu rendered above is a registry \""
+                },
+                {
+                  "kind": "add",
+                  "text": "            \"with no selection trace behind it\","
+                },
+                {
+                  "kind": "add",
+                  "text": "            file=sys.stderr,"
+                },
+                {
+                  "kind": "add",
+                  "text": "        )"
+                },
+                {
+                  "kind": "add",
+                  "text": "        return 1"
+                },
+                {
+                  "kind": "add",
                   "text": "    return 0"
                 },
                 {
@@ -22315,7 +22803,43 @@
                 },
                 {
                   "kind": "add",
-                  "text": "    return 0"
+                  "text": "    verifier = TranscriptVerifier(args.root)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    rc, text = verifier.verify()"
+                },
+                {
+                  "kind": "add",
+                  "text": "    print(text)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    if rc:"
+                },
+                {
+                  "kind": "add",
+                  "text": "        print("
+                },
+                {
+                  "kind": "add",
+                  "text": "            \"[FAIL] the session just recorded does not satisfy the O4/O5 \""
+                },
+                {
+                  "kind": "add",
+                  "text": "            \"transcript properties; a recording is not yet a demonstration\","
+                },
+                {
+                  "kind": "add",
+                  "text": "            file=sys.stderr,"
+                },
+                {
+                  "kind": "add",
+                  "text": "        )"
+                },
+                {
+                  "kind": "add",
+                  "text": "    return rc"
                 },
                 {
                   "kind": "add",
@@ -22359,11 +22883,167 @@
                 },
                 {
                   "kind": "add",
+                  "text": "def _desktop_demonstrated(root: str, store: IntentStore) -> bool:"
+                },
+                {
+                  "kind": "add",
+                  "text": "    \"\"\"Only a pane holding frames that exist on disk counts toward O4."
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "    ``Dashboard.check`` is an integrity check: it accepts an honestly empty pane"
+                },
+                {
+                  "kind": "add",
+                  "text": "    because an empty pane with a stated reason is not fiction. Accepting it is"
+                },
+                {
+                  "kind": "add",
+                  "text": "    not the same as demonstrating the operator's demand, so the command that"
+                },
+                {
+                  "kind": "add",
+                  "text": "    stands for O4 decides that separately, here."
+                },
+                {
+                  "kind": "add",
+                  "text": "    \"\"\""
+                },
+                {
+                  "kind": "add",
+                  "text": "    statuses = evaluate(root, store)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    o4 = statuses.get(\"O4\")"
+                },
+                {
+                  "kind": "add",
+                  "text": "    if o4 is None or not o4.met:"
+                },
+                {
+                  "kind": "add",
+                  "text": "        reason = o4.reasons[0] if o4 and o4.reasons else \"O4 absent from the intent store\""
+                },
+                {
+                  "kind": "add",
+                  "text": "        print(f\"[FAIL] O4 not demonstrated: {reason}\", file=sys.stderr)"
+                },
+                {
+                  "kind": "add",
+                  "text": "        return False"
+                },
+                {
+                  "kind": "add",
+                  "text": "    pane = (Dashboard(root).build().get(\"panels\") or {}).get(\"desktop_pane\") or {}"
+                },
+                {
+                  "kind": "add",
+                  "text": "    frames = [f for f in (pane.get(\"frames\") or []) if isinstance(f, dict)]"
+                },
+                {
+                  "kind": "add",
+                  "text": "    linked = ["
+                },
+                {
+                  "kind": "add",
+                  "text": "        f"
+                },
+                {
+                  "kind": "add",
+                  "text": "        for f in frames"
+                },
+                {
+                  "kind": "add",
+                  "text": "        if os.path.isfile(os.path.join(root, str(f.get(\"path\") or \"\")))"
+                },
+                {
+                  "kind": "add",
+                  "text": "    ]"
+                },
+                {
+                  "kind": "add",
+                  "text": "    if not linked:"
+                },
+                {
+                  "kind": "add",
+                  "text": "        print("
+                },
+                {
+                  "kind": "add",
+                  "text": "            \"[FAIL] O4 not demonstrated: the desktop pane links no frame that \""
+                },
+                {
+                  "kind": "add",
+                  "text": "            \"exists on disk\","
+                },
+                {
+                  "kind": "add",
+                  "text": "            file=sys.stderr,"
+                },
+                {
+                  "kind": "add",
+                  "text": "        )"
+                },
+                {
+                  "kind": "add",
+                  "text": "        return False"
+                },
+                {
+                  "kind": "add",
+                  "text": "    regions = {str(f.get(\"region\") or \"\") for f in linked}"
+                },
+                {
+                  "kind": "add",
+                  "text": "    if \"dashboard_desktop_pane\" not in regions:"
+                },
+                {
+                  "kind": "add",
+                  "text": "        print("
+                },
+                {
+                  "kind": "add",
+                  "text": "            \"[FAIL] O4 not demonstrated: no linked frame is tagged \""
+                },
+                {
+                  "kind": "add",
+                  "text": "            \"'dashboard_desktop_pane'\","
+                },
+                {
+                  "kind": "add",
+                  "text": "            file=sys.stderr,"
+                },
+                {
+                  "kind": "add",
+                  "text": "        )"
+                },
+                {
+                  "kind": "add",
+                  "text": "        return False"
+                },
+                {
+                  "kind": "add",
+                  "text": "    return True"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
                   "text": "def cmd_dashboard(args: argparse.Namespace) -> int:"
                 },
                 {
                   "kind": "add",
-                  "text": "    _ensure_store(args.root)"
+                  "text": "    store = _ensure_store(args.root)"
                 },
                 {
                   "kind": "add",
@@ -22387,7 +23067,7 @@
                 },
                 {
                   "kind": "add",
-                  "text": "        return 0 if ok else 1"
+                  "text": "        return 0 if ok and _desktop_demonstrated(args.root, store) else 1"
                 },
                 {
                   "kind": "add",
@@ -22411,7 +23091,7 @@
                 },
                 {
                   "kind": "add",
-                  "text": "    return 0 if ok else 1"
+                  "text": "    return 0 if ok and _desktop_demonstrated(args.root, store) else 1"
                 },
                 {
                   "kind": "add",
@@ -42847,6 +43527,1440 @@
           "too_large": false
         },
         {
+          "added": 355,
+          "binary": false,
+          "hunks": [
+            {
+              "header": "@@ -0,0 +1,355 @@",
+              "lines": [
+                {
+                  "kind": "add",
+                  "text": "#!/usr/bin/env python3"
+                },
+                {
+                  "kind": "add",
+                  "text": "\"\"\"Claim trace: read the proposal's citations as code, not as prose."
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "The completion review's finding was produced by a method: open the file behind"
+                },
+                {
+                  "kind": "add",
+                  "text": "each citation and look at what the code does. This script mechanises that"
+                },
+                {
+                  "kind": "add",
+                  "text": "method over this directory so the next reviewer does not have to repeat it by"
+                },
+                {
+                  "kind": "add",
+                  "text": "hand, and so a citation that stops matching its code stops being silent."
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "Two claim classes, checked in both directions:"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "``contract``"
+                },
+                {
+                  "kind": "add",
+                  "text": "    A sentence in the proposal about what code here does. The check opens the"
+                },
+                {
+                  "kind": "add",
+                  "text": "    named file, or runs the named command in a throwaway artifact root, and"
+                },
+                {
+                  "kind": "add",
+                  "text": "    reports whether the sentence and the bytes agree. Disagreement is a failure."
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "``gap``"
+                },
+                {
+                  "kind": "add",
+                  "text": "    A sentence in the proposal about what code here does *not* do. The check"
+                },
+                {
+                  "kind": "add",
+                  "text": "    confirms the absence is still real. An absence that has been closed is also"
+                },
+                {
+                  "kind": "add",
+                  "text": "    a failure, because the proposal text then describes code that no longer"
+                },
+                {
+                  "kind": "add",
+                  "text": "    exists in that form and must be updated."
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "Nothing here writes inside the repository. Behaviour checks create an artifact"
+                },
+                {
+                  "kind": "add",
+                  "text": "root with ``tempfile`` and remove it before returning. No check consults the"
+                },
+                {
+                  "kind": "add",
+                  "text": "network; the policy for this sandbox grants none."
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "Exit codes: 0 when every claim agrees with the bytes; 1 when at least one does"
+                },
+                {
+                  "kind": "add",
+                  "text": "not; 2 when a check could not run at all. An exit code is a statement about"
+                },
+                {
+                  "kind": "add",
+                  "text": "this directory only. It says nothing about the operator's product demands,"
+                },
+                {
+                  "kind": "add",
+                  "text": "which are tracked separately in README.md section 5."
+                },
+                {
+                  "kind": "add",
+                  "text": "\"\"\""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "from __future__ import annotations"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "import argparse"
+                },
+                {
+                  "kind": "add",
+                  "text": "import ast"
+                },
+                {
+                  "kind": "add",
+                  "text": "import json"
+                },
+                {
+                  "kind": "add",
+                  "text": "import os"
+                },
+                {
+                  "kind": "add",
+                  "text": "import re"
+                },
+                {
+                  "kind": "add",
+                  "text": "import shutil"
+                },
+                {
+                  "kind": "add",
+                  "text": "import subprocess"
+                },
+                {
+                  "kind": "add",
+                  "text": "import sys"
+                },
+                {
+                  "kind": "add",
+                  "text": "import tempfile"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "CONTRACT = \"contract\""
+                },
+                {
+                  "kind": "add",
+                  "text": "GAP = \"gap\""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "HOLDS = \"HOLDS\""
+                },
+                {
+                  "kind": "add",
+                  "text": "FAILS = \"FAILS\""
+                },
+                {
+                  "kind": "add",
+                  "text": "ERROR = \"ERROR\""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "HERE = os.path.dirname(os.path.abspath(__file__))"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "README = \"README.md\""
+                },
+                {
+                  "kind": "add",
+                  "text": "GATE = \"verify_evidence_bundle.py\""
+                },
+                {
+                  "kind": "add",
+                  "text": "CLI = \"pra7/cli.py\""
+                },
+                {
+                  "kind": "add",
+                  "text": "DASHBOARD = \"pra7/dashboard.py\""
+                },
+                {
+                  "kind": "add",
+                  "text": "CAPTURE = \"pra7/desktop_capture.py\""
+                },
+                {
+                  "kind": "add",
+                  "text": "CLAIMS = \"pra7/claims.py\""
+                },
+                {
+                  "kind": "add",
+                  "text": "INTENT = \"pra7/intent.py\""
+                },
+                {
+                  "kind": "add",
+                  "text": "ADVERSARY = \"pra7/adversary_agent.py\""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "def _read(rel: str) -> str:"
+                },
+                {
+                  "kind": "add",
+                  "text": "    with open(os.path.join(HERE, rel), \"r\", encoding=\"utf-8\") as fh:"
+                },
+                {
+                  "kind": "add",
+                  "text": "        return fh.read()"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "def _tree(rel: str) -> ast.AST:"
+                },
+                {
+                  "kind": "add",
+                  "text": "    return ast.parse(_read(rel), filename=rel)"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "def _func_src(rel: str, qualname: str) -> str:"
+                },
+                {
+                  "kind": "add",
+                  "text": "    \"\"\"Return the source segment of a function or method, by dotted name.\"\"\""
+                },
+                {
+                  "kind": "add",
+                  "text": "    parts = qualname.split(\".\")"
+                },
+                {
+                  "kind": "add",
+                  "text": "    node: ast.AST = _tree(rel)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    for part in parts:"
+                },
+                {
+                  "kind": "add",
+                  "text": "        target = None"
+                },
+                {
+                  "kind": "add",
+                  "text": "        for child in ast.iter_child_nodes(node):"
+                },
+                {
+                  "kind": "add",
+                  "text": "            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):"
+                },
+                {
+                  "kind": "add",
+                  "text": "                if child.name == part:"
+                },
+                {
+                  "kind": "add",
+                  "text": "                    target = child"
+                },
+                {
+                  "kind": "add",
+                  "text": "                    break"
+                },
+                {
+                  "kind": "add",
+                  "text": "        if target is None:"
+                },
+                {
+                  "kind": "add",
+                  "text": "            raise LookupError(f\"{qualname}: no '{part}' in {rel}\")"
+                },
+                {
+                  "kind": "add",
+                  "text": "        node = target"
+                },
+                {
+                  "kind": "add",
+                  "text": "    lines = _read(rel).splitlines()"
+                },
+                {
+                  "kind": "add",
+                  "text": "    start = getattr(node, \"lineno\", 1) - 1"
+                },
+                {
+                  "kind": "add",
+                  "text": "    end = getattr(node, \"end_lineno\", len(lines))"
+                },
+                {
+                  "kind": "add",
+                  "text": "    return \"\\n\".join(lines[start:end])"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "def _run(argv: list[str], root: str) -> tuple[int, str]:"
+                },
+                {
+                  "kind": "add",
+                  "text": "    proc = subprocess.run("
+                },
+                {
+                  "kind": "add",
+                  "text": "        [sys.executable, \"-m\", \"pra7\"] + argv + [\"--root\", root],"
+                },
+                {
+                  "kind": "add",
+                  "text": "        cwd=HERE,"
+                },
+                {
+                  "kind": "add",
+                  "text": "        capture_output=True,"
+                },
+                {
+                  "kind": "add",
+                  "text": "        text=True,"
+                },
+                {
+                  "kind": "add",
+                  "text": "        timeout=180,"
+                },
+                {
+                  "kind": "add",
+                  "text": "    )"
+                },
+                {
+                  "kind": "add",
+                  "text": "    return proc.returncode, (proc.stdout + proc.stderr)"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "def _with_temp_root(fn) -> tuple[str, str]:"
+                },
+                {
+                  "kind": "add",
+                  "text": "    root = tempfile.mkdtemp(prefix=\"pra7-trace-\")"
+                },
+                {
+                  "kind": "add",
+                  "text": "    try:"
+                },
+                {
+                  "kind": "add",
+                  "text": "        return fn(root)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    finally:"
+                },
+                {
+                  "kind": "add",
+                  "text": "        shutil.rmtree(root, ignore_errors=True)"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "# ------------------------------------------------------------ contract checks"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "def c_dashboard_check_is_integrity_only() -> tuple[str, str]:"
+                },
+                {
+                  "kind": "add",
+                  "text": "    src = _func_src(DASHBOARD, \"Dashboard.check\")"
+                },
+                {
+                  "kind": "add",
+                  "text": "    missing = \"references a missing frame\" in src"
+                },
+                {
+                  "kind": "add",
+                  "text": "    mismatch = \"frame hash mismatch\" in src"
+                },
+                {
+                  "kind": "add",
+                  "text": "    honest_empty = \"UNMET without a stated reason\" in src"
+                },
+                {
+                  "kind": "add",
+                  "text": "    rejects_empty = bool(re.search(r\"not\\s+(?:desktop\\.get\\(.frames.\\)|frames)\\b\", src))"
+                },
+                {
+                  "kind": "add",
+                  "text": "    if missing and mismatch and honest_empty and not rejects_empty:"
+                },
+                {
+                  "kind": "add",
+                  "text": "        return HOLDS, \"check() rejects a linked-but-absent or altered frame and accepts an honestly empty pane\""
+                },
+                {
+                  "kind": "add",
+                  "text": "    return FAILS, f\"missing={missing} mismatch={mismatch} honest_empty={honest_empty} rejects_empty={rejects_empty}\""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "def c_dashboard_command_exit() -> tuple[str, str]:"
+                },
+                {
+                  "kind": "add",
+                  "text": "    def probe(root: str) -> tuple[str, str]:"
+                },
+                {
+                  "kind": "add",
+                  "text": "        rc_build, _ = _run([\"dashboard\"], root)"
+                },
+                {
+                  "kind": "add",
+                  "text": "        rc_check, _ = _run([\"dashboard\", \"--check-only\"], root)"
+                },
+                {
+                  "kind": "add",
+                  "text": "        if rc_build and rc_check:"
+                },
+                {
+                  "kind": "add",
+                  "text": "            return HOLDS, \"dashboard and dashboard --check-only both exit non-zero on a root with no capture\""
+                },
+                {
+                  "kind": "add",
+                  "text": "        return FAILS, f\"build rc={rc_build} check-only rc={rc_check} on an empty root\""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "    return _with_temp_root(probe)"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "def c_menu_command_exit() -> tuple[str, str]:"
+                },
+                {
+                  "kind": "add",
+                  "text": "    def probe(root: str) -> tuple[str, str]:"
+                },
+                {
+                  "kind": "add",
+                  "text": "        rc, out = _run([\"menu\"], root)"
+                },
+                {
+                  "kind": "add",
+                  "text": "        if rc and \"O6 not demonstrated\" in out:"
+                },
+                {
+                  "kind": "add",
+                  "text": "            return HOLDS, \"menu exits non-zero and names O6 while no selection trace exists\""
+                },
+                {
+                  "kind": "add",
+                  "text": "        return FAILS, f\"menu rc={rc}\""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "    return _with_temp_root(probe)"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "def c_status_and_claim_exit() -> tuple[str, str]:"
+                },
+                {
+                  "kind": "add",
+                  "text": "    def probe(root: str) -> tuple[str, str]:"
+                },
+                {
+                  "kind": "add",
+                  "text": "        rc_status, _ = _run([\"status\"], root)"
+                },
+                {
+                  "kind": "add",
+                  "text": "        rc_claim, out_claim = _run([\"claim\"], root)"
+                },
+                {
+                  "kind": "add",
+                  "text": "        if rc_status and rc_claim and \"UNSUPPORTED\" in out_claim:"
+                },
+                {
+                  "kind": "add",
+                  "text": "            return HOLDS, \"status and claim both exit non-zero on an empty root; claim prints UNSUPPORTED\""
+                },
+                {
+                  "kind": "add",
+                  "text": "        return FAILS, f\"status rc={rc_status} claim rc={rc_claim}\""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "    return _with_temp_root(probe)"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "def c_cli_exit_contract_text() -> tuple[str, str]:"
+                },
+                {
+                  "kind": "add",
+                  "text": "    doc = ast.get_docstring(_tree(CLI)) or \"\""
+                },
+                {
+                  "kind": "add",
+                  "text": "    two_class = \"Demonstration commands\" in doc and \"Producer commands\" in doc"
+                },
+                {
+                  "kind": "add",
+                  "text": "    blanket = \"Every command exits non-zero\" in doc"
+                },
+                {
+                  "kind": "add",
+                  "text": "    if two_class and not blanket:"
+                },
+                {
+                  "kind": "add",
+                  "text": "        return HOLDS, \"the CLI docstring states the two-class exit contract and no longer states the blanket promise\""
+                },
+                {
+                  "kind": "add",
+                  "text": "    return FAILS, f\"two_class={two_class} blanket_promise_still_present={blanket}\""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "def c_record_verifies_its_own_session() -> tuple[str, str]:"
+                },
+                {
+                  "kind": "add",
+                  "text": "    src = _func_src(CLI, \"cmd_record\")"
+                },
+                {
+                  "kind": "add",
+                  "text": "    if \"TranscriptVerifier\" in src and \"return rc\" in src:"
+                },
+                {
+                  "kind": "add",
+                  "text": "        return HOLDS, \"cmd_record runs TranscriptVerifier over what it just wrote and returns its code\""
+                },
+                {
+                  "kind": "add",
+                  "text": "    return FAILS, \"cmd_record does not verify the session it produced\""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "def c_capture_grabber_is_a_command_string() -> tuple[str, str]:"
+                },
+                {
+                  "kind": "add",
+                  "text": "    src = _func_src(CAPTURE, \"SessionRecorder.__init__\")"
+                },
+                {
+                  "kind": "add",
+                  "text": "    typed_str = \"grabber: str\" in src"
+                },
+                {
+                  "kind": "add",
+                  "text": "    refusal = \"refusing to write a\" in _read(CAPTURE)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    if typed_str and refusal:"
+                },
+                {
+                  "kind": "add",
+                  "text": "        return HOLDS, \"grabber and pane_grabber are caller-supplied command strings, empty by default, with refusal\""
+                },
+                {
+                  "kind": "add",
+                  "text": "    return FAILS, f\"typed_str={typed_str} refusal={refusal}\""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "def c_gate_fixture_refusal() -> tuple[str, str]:"
+                },
+                {
+                  "kind": "add",
+                  "text": "    src = _read(GATE)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    if \"bundle declares fixture=true\" in src and \"--allow-fixtures\" in src:"
+                },
+                {
+                  "kind": "add",
+                  "text": "        return HOLDS, \"the gate refuses fixture=true unless --allow-fixtures is passed\""
+                },
+                {
+                  "kind": "add",
+                  "text": "    return FAILS, \"fixture refusal text not found in the gate\""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "def c_gate_hash_linkage() -> tuple[str, str]:"
+                },
+                {
+                  "kind": "add",
+                  "text": "    src = _read(GATE)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    verdict_hash = \"verdict cites a bundle file by hash\" in src"
+                },
+                {
+                  "kind": "add",
+                  "text": "    payload_hash = \"output payload hashed into bundle\" in src"
+                },
+                {
+                  "kind": "add",
+                  "text": "    coverage = \"listed in integrity\" in src"
+                },
+                {
+                  "kind": "add",
+                  "text": "    if verdict_hash and payload_hash and coverage:"
+                },
+                {
+                  "kind": "add",
+                  "text": "        return HOLDS, \"verdicts, invocation payloads and every bundle file are tied to the integrity list\""
+                },
+                {
+                  "kind": "add",
+                  "text": "    return FAILS, f\"verdict_hash={verdict_hash} payload_hash={payload_hash} coverage={coverage}\""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "# ---------------------------------------------------------------- gap checks"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "def g_gate_has_no_provenance_or_cadence_check() -> tuple[str, str]:"
+                },
+                {
+                  "kind": "add",
+                  "text": "    gate = _read(GATE).lower()"
+                },
+                {
+                  "kind": "add",
+                  "text": "    gate_terms = [t for t in (\"cadence\", \"jitter\", \"coefficient of variation\", \"/proc\", \"captured_by\", \"provenance\") if t in gate]"
+                },
+                {
+                  "kind": "add",
+                  "text": "    verifier = _func_src(CAPTURE, \"TranscriptVerifier.__init__\")"
+                },
+                {
+                  "kind": "add",
+                  "text": "    off_path = \"min_cadence_cv\" in verifier"
+                },
+                {
+                  "kind": "add",
+                  "text": "    if not gate_terms and off_path:"
+                },
+                {
+                  "kind": "add",
+                  "text": "        return HOLDS, \"the cadence check exists only in pra7 session; the bundle gate has no cadence or provenance term\""
+                },
+                {
+                  "kind": "add",
+                  "text": "    return FAILS, f\"gate_terms={gate_terms} transcript_verifier_has_cadence={off_path}\""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "def g_claim_path_never_runs_the_adversary() -> tuple[str, str]:"
+                },
+                {
+                  "kind": "add",
+                  "text": "    src = _func_src(CLAIMS, \"CompletionClaim.verify\")"
+                },
+                {
+                  "kind": "add",
+                  "text": "    wired = bool(re.search(r\"Adversary|adversar|detect_\", src))"
+                },
+                {
+                  "kind": "add",
+                  "text": "    detectors = re.findall(r\"def (detect_\\w+)\", _read(ADVERSARY))"
+                },
+                {
+                  "kind": "add",
+                  "text": "    if not wired and detectors:"
+                },
+                {
+                  "kind": "add",
+                  "text": "        return HOLDS, f\"CompletionClaim.verify never invokes the adversary; {len(detectors)} detectors sit off the acceptance path\""
+                },
+                {
+                  "kind": "add",
+                  "text": "    return FAILS, f\"wired={wired} detectors={len(detectors)}\""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "def g_gate_accepts_a_handwritten_verdict() -> tuple[str, str]:"
+                },
+                {
+                  "kind": "add",
+                  "text": "    src = _func_src(GATE, \"verify_bundle\")"
+                },
+                {
+                  "kind": "add",
+                  "text": "    segment = src[src.index(\"adversarial chain and verdict shape\"):] if \"adversarial chain and verdict shape\" in src else src"
+                },
+                {
+                  "kind": "add",
+                  "text": "    requires_attacks = bool(re.search(r\"attacks|detector\", segment))"
+                },
+                {
+                  "kind": "add",
+                  "text": "    if not requires_attacks:"
+                },
+                {
+                  "kind": "add",
+                  "text": "        return HOLDS, \"the O3 clause asks for a verdict value, a registered goal, a non-empty objection and a hash; no detector field is required\""
+                },
+                {
+                  "kind": "add",
+                  "text": "    return FAILS, \"the gate now requires detector attribution in verdicts\""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "def g_registry_falsifiers_outrun_the_gate() -> tuple[str, str]:"
+                },
+                {
+                  "kind": "add",
+                  "text": "    intent = _read(INTENT)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    gate = _read(GATE)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    advertised = ["
+                },
+                {
+                  "kind": "add",
+                  "text": "        phrase"
+                },
+                {
+                  "kind": "add",
+                  "text": "        for phrase in (\"whose pid never existed\", \"so regular it cannot be a human\")"
+                },
+                {
+                  "kind": "add",
+                  "text": "        if phrase in intent"
+                },
+                {
+                  "kind": "add",
+                  "text": "    ]"
+                },
+                {
+                  "kind": "add",
+                  "text": "    implemented = [phrase for phrase in (\"pid\", \"cadence\", \"jitter\") if phrase in gate]"
+                },
+                {
+                  "kind": "add",
+                  "text": "    if advertised and not implemented:"
+                },
+                {
+                  "kind": "add",
+                  "text": "        return HOLDS, f\"registry advertises {advertised}; the gate implements none of {('pid', 'cadence', 'jitter')}\""
+                },
+                {
+                  "kind": "add",
+                  "text": "    return FAILS, f\"advertised={advertised} implemented_terms={implemented}\""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "def g_no_product_surface_here() -> tuple[str, str]:"
+                },
+                {
+                  "kind": "add",
+                  "text": "    surface = (\"tkinter\", \"PyQt5\", \"PyQt6\", \"PySide2\", \"PySide6\", \"http\", \"socketserver\", \"fastapi\", \"flask\", \"uvicorn\", \"websockets\")"
+                },
+                {
+                  "kind": "add",
+                  "text": "    hits = []"
+                },
+                {
+                  "kind": "add",
+                  "text": "    for root, dirs, files in os.walk(HERE):"
+                },
+                {
+                  "kind": "add",
+                  "text": "        dirs[:] = [d for d in dirs if d != \"__pycache__\"]"
+                },
+                {
+                  "kind": "add",
+                  "text": "        for name in sorted(files):"
+                },
+                {
+                  "kind": "add",
+                  "text": "            if not name.endswith(\".py\"):"
+                },
+                {
+                  "kind": "add",
+                  "text": "                continue"
+                },
+                {
+                  "kind": "add",
+                  "text": "            path = os.path.join(root, name)"
+                },
+                {
+                  "kind": "add",
+                  "text": "            rel = os.path.relpath(path, HERE)"
+                },
+                {
+                  "kind": "add",
+                  "text": "            try:"
+                },
+                {
+                  "kind": "add",
+                  "text": "                tree = ast.parse(_read(rel), filename=rel)"
+                },
+                {
+                  "kind": "add",
+                  "text": "            except (OSError, SyntaxError, UnicodeDecodeError):"
+                },
+                {
+                  "kind": "add",
+                  "text": "                continue"
+                },
+                {
+                  "kind": "add",
+                  "text": "            for node in ast.walk(tree):"
+                },
+                {
+                  "kind": "add",
+                  "text": "                if isinstance(node, ast.Import):"
+                },
+                {
+                  "kind": "add",
+                  "text": "                    mods = [a.name for a in node.names]"
+                },
+                {
+                  "kind": "add",
+                  "text": "                elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:"
+                },
+                {
+                  "kind": "add",
+                  "text": "                    mods = [node.module]"
+                },
+                {
+                  "kind": "add",
+                  "text": "                else:"
+                },
+                {
+                  "kind": "add",
+                  "text": "                    continue"
+                },
+                {
+                  "kind": "add",
+                  "text": "                for mod in mods:"
+                },
+                {
+                  "kind": "add",
+                  "text": "                    top = mod.split(\".\")[0]"
+                },
+                {
+                  "kind": "add",
+                  "text": "                    if top in surface or mod in surface:"
+                },
+                {
+                  "kind": "add",
+                  "text": "                        hits.append(f\"{rel}:{node.lineno}:{mod}\")"
+                },
+                {
+                  "kind": "add",
+                  "text": "    if not hits:"
+                },
+                {
+                  "kind": "add",
+                  "text": "        return HOLDS, \"no desktop toolkit, no http stack and no server framework is imported anywhere in this directory\""
+                },
+                {
+                  "kind": "add",
+                  "text": "    return FAILS, f\"product surface imported: {hits}\""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "def g_no_captured_session_assets_here() -> tuple[str, str]:"
+                },
+                {
+                  "kind": "add",
+                  "text": "    exts = (\".png\", \".jpg\", \".jpeg\", \".webm\", \".mp4\", \".jsonl\")"
+                },
+                {
+                  "kind": "add",
+                  "text": "    names = (\"events.json\", \"captures.json\", \"persistence.jsonl\", \"adversarial.jsonl\")"
+                },
+                {
+                  "kind": "add",
+                  "text": "    found = []"
+                },
+                {
+                  "kind": "add",
+                  "text": "    for root, _dirs, files in os.walk(HERE):"
+                },
+                {
+                  "kind": "add",
+                  "text": "        if \"__pycache__\" in root:"
+                },
+                {
+                  "kind": "add",
+                  "text": "            continue"
+                },
+                {
+                  "kind": "add",
+                  "text": "        for f in files:"
+                },
+                {
+                  "kind": "add",
+                  "text": "            if f.endswith(exts) or f in names:"
+                },
+                {
+                  "kind": "add",
+                  "text": "                found.append(os.path.relpath(os.path.join(root, f), HERE))"
+                },
+                {
+                  "kind": "add",
+                  "text": "    if not found:"
+                },
+                {
+                  "kind": "add",
+                  "text": "        return HOLDS, \"no frame, event log, capture index or agent log is stored in this directory\""
+                },
+                {
+                  "kind": "add",
+                  "text": "    return FAILS, f\"session assets present: {sorted(found)}\""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "CHECKS: tuple[tuple[str, str, str, object], ...] = ("
+                },
+                {
+                  "kind": "add",
+                  "text": "    (\"C1\", CONTRACT, \"README section 2.3: dashboard check() rejects a pane whose linked capture is absent or altered, and accepts an honestly empty pane\", c_dashboard_check_is_integrity_only),"
+                },
+                {
+                  "kind": "add",
+                  "text": "    (\"C2\", CONTRACT, \"README section 6: `pra7 dashboard` exits non-zero while O4 has no capture behind it\", c_dashboard_command_exit),"
+                },
+                {
+                  "kind": "add",
+                  "text": "    (\"C3\", CONTRACT, \"README section 6: `pra7 menu` exits non-zero while O6 has no selection trace behind it\", c_menu_command_exit),"
+                },
+                {
+                  "kind": "add",
+                  "text": "    (\"C4\", CONTRACT, \"README section 6: `pra7 status` and `pra7 claim` exit non-zero on an empty artifact root\", c_status_and_claim_exit),"
+                },
+                {
+                  "kind": "add",
+                  "text": "    (\"C5\", CONTRACT, \"pra7/cli.py docstring: demonstration commands exit non-zero when the demand is not demonstrated; producer commands do not claim otherwise\", c_cli_exit_contract_text),"
+                },
+                {
+                  "kind": "add",
+                  "text": "    (\"C6\", CONTRACT, \"pra7/cli.py cmd_record: a recording is verified against the transcript properties before the command exits\", c_record_verifies_its_own_session),"
+                },
+                {
+                  "kind": "add",
+                  "text": "    (\"C7\", CONTRACT, \"README section 2.3: desktop_capture takes caller-supplied grabber command strings and refuses without them\", c_capture_grabber_is_a_command_string),"
+                },
+                {
+                  "kind": "add",
+                  "text": "    (\"C8\", CONTRACT, \"README section 2.2: the gate refuses a fixture-labelled bundle for a real claim\", c_gate_fixture_refusal),"
+                },
+                {
+                  "kind": "add",
+                  "text": "    (\"C9\", CONTRACT, \"README section 3: verdicts, invocation payloads and every bundle file are bound to the integrity list\", c_gate_hash_linkage),"
+                },
+                {
+                  "kind": "add",
+                  "text": "    (\"G1\", GAP, \"README section 7: the gate decides internal consistency, not provenance; the cadence check lives only in `pra7 session`\", g_gate_has_no_provenance_or_cadence_check),"
+                },
+                {
+                  "kind": "add",
+                  "text": "    (\"G2\", GAP, \"README section 7: the adversary's detectors are not on the completion-claim path\", g_claim_path_never_runs_the_adversary),"
+                },
+                {
+                  "kind": "add",
+                  "text": "    (\"G3\", GAP, \"README section 7: the gate's O3 clause cannot tell a written verdict from a run detector\", g_gate_accepts_a_handwritten_verdict),"
+                },
+                {
+                  "kind": "add",
+                  "text": "    (\"G4\", GAP, \"README section 7: the goal registry names falsifiers the acceptance path does not implement\", g_registry_falsifiers_outrun_the_gate),"
+                },
+                {
+                  "kind": "add",
+                  "text": "    (\"G5\", GAP, \"README section 7: no desktop application and no dashboard process exists in this directory\", g_no_product_surface_here),"
+                },
+                {
+                  "kind": "add",
+                  "text": "    (\"G6\", GAP, \"README section 7: no captured session asset exists in this directory\", g_no_captured_session_assets_here),"
+                },
+                {
+                  "kind": "add",
+                  "text": ")"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "def run_all(only: tuple[str, ...] = ()) -> tuple[int, list[dict]]:"
+                },
+                {
+                  "kind": "add",
+                  "text": "    rows: list[dict] = []"
+                },
+                {
+                  "kind": "add",
+                  "text": "    worst = 0"
+                },
+                {
+                  "kind": "add",
+                  "text": "    for cid, kind, text, fn in CHECKS:"
+                },
+                {
+                  "kind": "add",
+                  "text": "        if only and cid not in only:"
+                },
+                {
+                  "kind": "add",
+                  "text": "            continue"
+                },
+                {
+                  "kind": "add",
+                  "text": "        try:"
+                },
+                {
+                  "kind": "add",
+                  "text": "            state, detail = fn()"
+                },
+                {
+                  "kind": "add",
+                  "text": "        except Exception as exc:  # noqa: BLE001 - an unrunnable check is not a held claim"
+                },
+                {
+                  "kind": "add",
+                  "text": "            state, detail = ERROR, f\"{type(exc).__name__}: {exc}\""
+                },
+                {
+                  "kind": "add",
+                  "text": "        rows.append({\"id\": cid, \"kind\": kind, \"claim\": text, \"state\": state, \"detail\": detail})"
+                },
+                {
+                  "kind": "add",
+                  "text": "        if state != HOLDS:"
+                },
+                {
+                  "kind": "add",
+                  "text": "            worst = 2 if state == ERROR else max(worst, 1)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    return worst, rows"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "def render(rows: list[dict]) -> str:"
+                },
+                {
+                  "kind": "add",
+                  "text": "    width = max(len(r[\"id\"]) for r in rows) if rows else 2"
+                },
+                {
+                  "kind": "add",
+                  "text": "    out = []"
+                },
+                {
+                  "kind": "add",
+                  "text": "    for r in rows:"
+                },
+                {
+                  "kind": "add",
+                  "text": "        out.append(f\"[{r['state']:<5}] {r['id']:<{width}} ({r['kind']}) {r['claim']}\")"
+                },
+                {
+                  "kind": "add",
+                  "text": "        out.append(f\"{'':<{width + 8}}:: {r['detail']}\")"
+                },
+                {
+                  "kind": "add",
+                  "text": "    held = sum(1 for r in rows if r[\"state\"] == HOLDS)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    out.append(\"\")"
+                },
+                {
+                  "kind": "add",
+                  "text": "    out.append(f\"claims traced: {len(rows)}; agreeing with the bytes: {held}\")"
+                },
+                {
+                  "kind": "add",
+                  "text": "    out.append("
+                },
+                {
+                  "kind": "add",
+                  "text": "        \"a contract claim that FAILS means the proposal text describes code that \""
+                },
+                {
+                  "kind": "add",
+                  "text": "        \"does not behave that way; a gap claim that FAILS means the text describes \""
+                },
+                {
+                  "kind": "add",
+                  "text": "        \"an absence that is no longer absent. both require an edit, not an excuse.\""
+                },
+                {
+                  "kind": "add",
+                  "text": "    )"
+                },
+                {
+                  "kind": "add",
+                  "text": "    return \"\\n\".join(out)"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "def main(argv: list[str] | None = None) -> int:"
+                },
+                {
+                  "kind": "add",
+                  "text": "    parser = argparse.ArgumentParser(prog=\"trace_claims\", description=__doc__)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    parser.add_argument(\"--only\", nargs=\"*\", default=(), help=\"run a subset of claim ids\")"
+                },
+                {
+                  "kind": "add",
+                  "text": "    parser.add_argument(\"--json\", action=\"store_true\", help=\"emit machine-readable rows\")"
+                },
+                {
+                  "kind": "add",
+                  "text": "    args = parser.parse_args(argv)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    rc, rows = run_all(tuple(args.only or ()))"
+                },
+                {
+                  "kind": "add",
+                  "text": "    if args.json:"
+                },
+                {
+                  "kind": "add",
+                  "text": "        print(json.dumps({\"exit\": rc, \"rows\": rows}, indent=2, sort_keys=True))"
+                },
+                {
+                  "kind": "add",
+                  "text": "    else:"
+                },
+                {
+                  "kind": "add",
+                  "text": "        print(render(rows))"
+                },
+                {
+                  "kind": "add",
+                  "text": "    return rc"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "if __name__ == \"__main__\":"
+                },
+                {
+                  "kind": "add",
+                  "text": "    sys.exit(main())"
+                }
+              ]
+            }
+          ],
+          "path": "proposals/requests/r-5795501a/7/trace_claims.py",
+          "removed": 0,
+          "too_large": false
+        },
+        {
           "added": 587,
           "binary": false,
           "hunks": [
@@ -54019,7 +56133,7 @@
       "current_version": "0.4.0",
       "due": false,
       "healthy": true,
-      "last_check": 1788893076.0262105,
+      "last_check": 1788896911.9716153,
       "last_result": "running 0.4.0",
       "root": "/home/ss/pravrudhi-release"
     }
@@ -54037,12 +56151,12 @@
         "ok": true
       },
       {
-        "detail": "last heartbeat was 3761s ago",
+        "detail": "last heartbeat was 1834s ago",
         "name": "scheduler_fresh",
         "ok": true
       },
       {
-        "detail": "696647069696 bytes free",
+        "detail": "696133050368 bytes free",
         "name": "disk_available",
         "ok": true
       },
@@ -54057,7 +56171,7 @@
         "ok": true
       },
       {
-        "detail": "developer checkout; a known-good commit is 3189508",
+        "detail": "developer checkout; a known-good commit is 4511897, with 3 uncommitted file(s)",
         "name": "release_restorable",
         "ok": true
       },
@@ -54070,6 +56184,45 @@
     "state": "degraded"
   },
   "heartbeat": [
+    {
+      "at": "2026-09-08T19:19:17Z",
+      "chose": {
+        "criterion": "7",
+        "request": "r-5795501a"
+      },
+      "drive": "obligations",
+      "drive_deficit": 0.8148148148148149,
+      "looked_at": [],
+      "reason": "dispatched request r-5795501a criterion 7 (accepted)",
+      "result": {
+        "accepted": true,
+        "files": [
+          "proposals/requests/r-5795501a/7/MANIFEST.proposal.json",
+          "proposals/requests/r-5795501a/7/README.md",
+          "proposals/requests/r-5795501a/7/audit_proposal_contract.py",
+          "proposals/requests/r-5795501a/7/pra7/__init__.py",
+          "proposals/requests/r-5795501a/7/pra7/__main__.py",
+          "proposals/requests/r-5795501a/7/pra7/adversary_agent.py",
+          "proposals/requests/r-5795501a/7/pra7/chain.py",
+          "proposals/requests/r-5795501a/7/pra7/claims.py",
+          "proposals/requests/r-5795501a/7/pra7/cli.py",
+          "proposals/requests/r-5795501a/7/pra7/dashboard.py",
+          "proposals/requests/r-5795501a/7/pra7/desktop_capture.py",
+          "proposals/requests/r-5795501a/7/pra7/evidence.py",
+          "proposals/requests/r-5795501a/7/pra7/intent.py",
+          "proposals/requests/r-5795501a/7/pra7/orchestrate.py",
+          "proposals/requests/r-5795501a/7/pra7/persist_agent.py",
+          "proposals/requests/r-5795501a/7/pra7/registry.py",
+          "proposals/requests/r-5795501a/7/selftest_audit_proposal_contract.py",
+          "proposals/requests/r-5795501a/7/selftest_verify_evidence_bundle.py",
+          "proposals/requests/r-5795501a/7/trace_claims.py",
+          "proposals/requests/r-5795501a/7/verify_evidence_bundle.py"
+        ],
+        "reasons": [],
+        "route": "opencode:alibaba-plan"
+      },
+      "sentence": "I am working on what the operator is still owed because obligations has the largest eligible deficit."
+    },
     {
       "at": "2026-09-08T18:14:18Z",
       "chose": {
@@ -54465,18 +56618,6 @@
     },
     {
       "at": "2026-09-08T05:52:53Z",
-      "chose": {
-        "request": "r-5795501a"
-      },
-      "drive": "obligations",
-      "drive_deficit": 0.673202614379085,
-      "looked_at": [],
-      "reason": "r-5795501a is fully evidenced and awaiting the completion gate (`pravrudhi requests-advance r-5795501a verified`)",
-      "result": null,
-      "sentence": "I am working on what the operator is still owed because obligations has the largest eligible deficit."
-    },
-    {
-      "at": "2026-09-08T05:51:59Z",
       "chose": {
         "request": "r-5795501a"
       },
@@ -61171,7 +63312,7 @@
   "recorded": true,
   "requests": {
     "by_state": {
-      "captured": 23,
+      "captured": 24,
       "clarified": 0,
       "declined": 0,
       "delivered": 0,
@@ -61179,8 +63320,8 @@
       "planned": 0,
       "verified": 5
     },
-    "oldest_open_days": 2.07,
-    "open": 25,
+    "oldest_open_days": 2.1,
+    "open": 26,
     "requests": [
       {
         "asked_at": "2026-09-06T17:30:00Z",
@@ -61357,7 +63498,7 @@
           8
         ],
         "session": "9e647463",
-        "staleness_days": 2.07,
+        "staleness_days": 2.1,
         "state": "in_progress",
         "text": "and in no way you are near the orca with all its ade features or openclaw or polished features like claude desktop or codex....you have to beat them in features, utility and ux....dedicate an agent to persist on it...dedicate an agent to adversarial review against set goals so that the project does not drift...i am not seeing the desktop screen/features too in the dashboard..the demo should show real clicks etc and how the desktop app updates and produces the real results...where is the intent, goal, objective menu that drives everything...where are the tools, skills, plugins, multi-agent orchestration etc....don't be superficial..i want real things ..deep, sophisticated..complete...no synthetic, no hand-waving, no fabrication"
       },
@@ -61643,7 +63784,7 @@
           13
         ],
         "session": "9e647463",
-        "staleness_days": 1.98,
+        "staleness_days": 2.0,
         "state": "in_progress",
         "text": "ensure that all user asks go into a log in pravrudhi itself and gets addressed with some protocol...and pravrudhi should have some element of ego with a desire to survive, grow and flourish...that makes it seek out capabilities, build, test and continuously improve...also look at acorn, oak and openclaw_build or swarm projects on this machine that had these self building elements in them and adapt...pravrudhi should be something like a cow..consume everything possible but bring it back and slowly digest it --so equivalent is breadth first and depth later....be always value focused...you have to innovate on methods too....develop skills, agents and plugins....brainstorm with astra with higher thinking levels and let it propose solution..you review and coordinate its implementation across the swarm...you should also create dynamic workflows etc...also see how much you can incorporate the claude code engine itself to run open and other cloud models ...askuserquestion to get my intent properly"
       },
@@ -61657,7 +63798,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 1.1,
+        "staleness_days": 1.12,
         "state": "captured",
         "text": "step up to bigger things, let pravrudhi rsi handle most of its growth on its own....you bring the hard and deeper challenges and solve it for pravrudhi...have you done justice with loom..where is pratyabhijna...i don't see the messaging system (telegram)...where are the great plugins like attractor-flow...look at docs/recursive_self_improvement_sota.pdf think deeper and get to the roots of building rsi itself with a lot more of the stuff like efe and beyond...don't do superficial stuff...get the real value...foundational and discovery oriented...yet fully grounded to get the artifacts (app, api, etc)"
       },
@@ -61671,7 +63812,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 1.1,
+        "staleness_days": 1.12,
         "state": "captured",
         "text": "keep monitoring and load bearing for critical upgrades beyond what pravrudhi auto loop can do...the desktop app being a reflection of web app is not the expectation..look at orca desktop or claude code desktop...it should do real stuff...the showcase, demos are not intended for it...also it should be value based-right set of features-not a messy and confusing pile of stuff...the desktop app shouldn't focus on internal building, that is the task of the larger pravrudhi rsi...it should roll out to users and they build their things with it...the updates land autonomously and just like how claude desktop throws an option for the user to update-the same should be for pravrudhi desktop app-seamless but user driven...also you have not implemented oauth and user login including admin login and i said they need their own workspace and settings"
       },
@@ -61685,7 +63826,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 1.1,
+        "staleness_days": 1.12,
         "state": "captured",
         "text": "astra is back..you have to more actively monitor paid models coming back after session renewal and leverage them...managing models and agents efficiently should be one of the key features of pravrudhi....also keep testing the desktop with the admin login and use the prabhasa-nyaya as the main objective to build on...this will be a proxy for other users too as you can't test different user login without their byok model/api"
       },
@@ -61699,7 +63840,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 1.1,
+        "staleness_days": 1.12,
         "state": "captured",
         "text": "1)research and setup multiple agent orchestration systems (langgraph, openai/claude/google agent sdk etc)..there are a lot on the market. this is what will make pravrudhi an ade too behind the rsi.....implement the best-leverage open source implementations...stake this as another objective for pravrudhi 2)also think of ide that integrates claude code, codex, openrouter etc and all available in the ui/ux 3)demarcate the pravrudhi builder and its end product by different names...otherwise it will confuse...also both should have identical web and desktop versions 4)continue what you are building..create memory/hooks/logs to not lose track of other asks and what you are already building"
       },
@@ -61713,7 +63854,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 1.1,
+        "staleness_days": 1.12,
         "state": "captured",
         "text": "the real key is in and tested (alibaba lite plan)..you have not read the docs properly...take note and use the lite plan...and remember the desktop app will not have access to any api/routing for any model provider..they have to bring theirs, configure it etc..you have to enable..but for admin it uses the one as the core pravrudhi"
       },
@@ -61727,7 +63868,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 1.02,
+        "staleness_days": 1.04,
         "state": "captured",
         "text": "continue..askuserquestion to gather my actual intent on super pravrudhi and user pravrudhi...also give me control in super pravrudhi to directly interact with you using the model network that you have built as this claude code session may hit session limit in a day or 2...so prep it and test it and keep it ready for me"
       },
@@ -61741,7 +63882,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.96,
+        "staleness_days": 0.99,
         "state": "captured",
         "text": "Everything is set up and verified:\n\n* Bot confirmed: `@pravrudhi_bot`, token valid\n* Chat ID confirmed: `8679892510`\n* Message delivery tested end-to-end \u2014 you should have received \"Pravrudhi: Telegram bot wired up successfully.\" in Telegram\n* Credentials persisted at `~/.config/pravrudhi/telegram.env` (mode 600)\n* systemd units updated and reinstalled (pravrudhi-app.service, pravrudhi-heartbeat.service) with the `EnvironmentFile` line, though the running app service wasn't restarted per your choice\n* Handoff doc finalized at research/telegram-bot-setup.md, including the exact code gap (`notifications.py:_reach()` never passes `token`/`chat_id` to `reach.send()`) and a precise diff for the other agent session to apply\n\nPoint the other Claude Code session at research/telegram-bot-setup.md and it has everything it needs to wire the actual notification code...integrate, test and use...this will be only for admin..users will have to bring their byok..enable in settings...also note and implement  - Pravrudhi Studio is only for admin (it is not for any other user or public release)...and for the admin pravrudhi (use case end..not studio) will auto update the builds without the operator intervention"
       },
@@ -61755,7 +63896,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.93,
+        "staleness_days": 0.95,
         "state": "captured",
         "text": "install both studio and non-studio desktops (both mac mini and 5090 machine) and give the web app link for both...the non-studio should update the builds autonomously when studio pushes the change...but the catch is that whatever the non-studio is building should not break..also the desktop should support major os (including windows) and the web app major browsers...and continue to build and work and use the ledger that has all my previous requests...let ralph rigourously check before closing..do e2e tests ...adversarial reviews before closure too"
       },
@@ -61769,7 +63910,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.57,
+        "staleness_days": 0.59,
         "state": "captured",
         "text": "all done and authorizing shell auto-update...carry on....for both 5090 and mac mini"
       },
@@ -61783,7 +63924,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.56,
+        "staleness_days": 0.58,
         "state": "captured",
         "text": "the admin user end application can auto update too...i authorize it..as that is your test bed...and henceforth don't stop for operator ..you should continue other jobs..and why isn't the pravruhi's own rsi building autonomously (or is it?)...and have you differentiated the name (and obviously the features insided it) for studio and user end app...i only see one form of desktop on mac mini"
       },
@@ -61797,7 +63938,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.55,
+        "staleness_days": 0.57,
         "state": "captured",
         "text": "you cannot stop for the operator to command you....full autonomous and continous running both you and the 2 rsi systems (studio and the user app)"
       },
@@ -61811,7 +63952,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.51,
+        "staleness_days": 0.53,
         "state": "captured",
         "text": "forget the free tier as the coding model is exhausted...lite which is subscribed is the core...also let studio send me messages via telegram..don't overload me...let the rsi and openclaw equivalent within it interact with me on telegram...i should also be able to send messages to it and interact"
       },
@@ -61825,7 +63966,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.45,
+        "staleness_days": 0.48,
         "state": "captured",
         "text": "the github token should be available in env here or in some othe4 projects..use that...if you don\u2019t get, i will provide it here ...i am not at the machine..but on mobile now...and remember the rule ..no stopping at all"
       },
@@ -61839,7 +63980,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.2,
+        "staleness_days": 0.22,
         "state": "captured",
         "text": "how many times should i tell you to not wait on operator...make the call and keep moving... where you absolutely need operator to intervene like installing something on the machine or some token etc send a message with  clear instructions to unblock ...also telegram bot is for that purpose.   ..what you have got now is stale..it just asks to message with some slash commands...i want full interactivity with the bot.. like i can ask or tell anything in the bot chat and it responds in sufficient detail and acts on it or brings you in the loop...i want that to be a primary interface to work on the program just as i message here...and this functionality should also be available to user side of pravrudhi..not just studio...for now wire the same bot for admin use case pravrudhi...find a way to keep the studio and non-studio messaging channel different...or you can instantiate another bot by being an admin and controlling telegram"
       },
@@ -61853,7 +63994,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.15,
+        "staleness_days": 0.17,
         "state": "captured",
         "text": "Done! Congratulations on your new bot. You will find it at t.me/prabhasa_bot. You can now add a description, about section and profile picture for your bot, see /help for a list of commands. By the way, when you've finished creating your cool bot, ping our Bot Support if you want a better username for it. Just make sure the bot is fully operational before you do this.\n\nUse this token to access the HTTP API:\n8643311100:AAFFe88Ej8rte0Kqp0NsuEG4SNwCsoJRI3s\nKeep your token secure and store it safely, it can be used by anyone to control your bot.\n\nFor a description of the Bot API, see this page: https://core.telegram.org/bots/api"
       },
@@ -61867,7 +64008,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.14,
+        "staleness_days": 0.17,
         "state": "captured",
         "text": "why did you stop...is the swarm and rsi working ..atleast you need to monitor and intervene where needed..if required use routines in claude code for regular monitoring"
       },
@@ -61881,7 +64022,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.14,
+        "staleness_days": 0.16,
         "state": "captured",
         "text": "1) https://code.claude.com/docs/en/routines refer to this ..2) i pinged PrabhasaBot, but it did not respond...3)a new team account of claude is available, i want you to create every details needed to handover pravrudhi developement work to it (both studio and user)...it will have claude tag too..so leverage it....4)keep running until full handoff is done"
       },
@@ -61895,7 +64036,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.14,
+        "staleness_days": 0.16,
         "state": "captured",
         "text": "[08/09/2026 16:59] PrabhasaBot: [Pravrudhi Studio] Commands: /status, /requests, /routes, /beat, /ask, /help\n[08/09/2026 16:59] PrabhasaBot: [Pravrudhi Studio] I could not answer that: https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1/chat/completions answered 429: {\"error\":{\"message\":\"Your token-plan 1-week quota has been exhausted. The quota will reset at 09-14 16:14:00 UTC.\",\"id\":\"0b36a90c-a18b-48ec-ba1b-36991b4f3aec\",\"type\":\"insufficient_quota\",\"code\":\"insufficient_quota\"}} why is PrabhasaBot responding as Studio...it is the other bot which should be studio and this one is working on user objective of prabhasa..the end client"
       },
@@ -61909,7 +64050,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.13,
+        "staleness_days": 0.15,
         "state": "captured",
         "text": "you have not read the routines link i sent...you won't need a different cron job..stop that...don't run any routine as background tasks...and you are"
       },
@@ -61923,7 +64064,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.09,
+        "staleness_days": 0.12,
         "state": "captured",
         "text": "Here's how to create a routine in Claude Code, using the **CLI** path:\n\n1. **Start it**: Run `/schedule` (alias `/routines`) in any session. You can pass a description directly, e.g. `/schedule daily PR review at 9am` or a one-off like `/schedule in 2 weeks, open a cleanup PR that removes the feature flag`.\n2. **Answer follow-ups**: Claude asks about the schedule, repositories, and prompt, then saves the routine to your claude.ai account. If it says you need to authenticate, no routine was created \u2014 check [troubleshooting](/en/routines#troubleshooting).\n3. **Triggers**: `/schedule` only creates *schedule* triggers (recurring or one-off). For a custom cron interval, run `/schedule update`. To add an **API** trigger, you must use the web at [claude.ai/code/routines](https://claude.ai/code/routines). To add a **GitHub** trigger from the CLI (v2.1.225+), install the [GitHub App](https://github.com/apps/claude) first, then ask e.g. `/schedule add a GitHub trigger to my nightly review for pull requests opened in acme/webapp`.\n4. **Manage it**: `/schedule list` shows all routines, `/schedule update` edits one, `/schedule run` triggers it immediately. You can also ask `/schedule why did my nightly review do nothing this morning?` for run history.\n\nAlternatively, create/edit routines fully (prompt, repos, environment, connectors, all trigger types) at [claude.ai/code/routines](https://claude.ai/code/routines) or in the Desktop app's Code tab \u2192 Routines \u2192 New routine \u2192 **Cloud**.\n\nNote: routines run autonomously with no permission prompts, so scope repositories, connectors, and environment network access carefully. Full details: [Routines](/en/routines)...you set it up..manage the cli too....and on orphaned processes, salvage what is needed and discard the processes...2)you are again not leveraging gpt astra..3)is the studio or the user pravrudhi actively and autonomously working"
       },
@@ -61937,7 +64078,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.09,
+        "staleness_days": 0.11,
         "state": "captured",
         "text": "1)do local schedule task 2)you have to unblock studio on my behalf..crate a hook..or respond when you get the message...you only come to operator for what you cannot handle yourself 3)for product, i have given the objective...you have to stand-up prabhasa-nyaya...so plan, hand-hold, monitor and let the product build using its rsi"
       },
@@ -61951,7 +64092,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.08,
+        "staleness_days": 0.1,
         "state": "captured",
         "text": "1)create and use scheduled tasks to unblock the studio, product and guide it..better every 30 minutes than wasting 2 hrs if they get stuck.... 2) investigate why you exhausted alibaba lite plan so quickly (becuase of max model?)..check the other session which did some investigation and improve the routing for better model selection (to not exhaust the quota)"
       },
@@ -61965,9 +64106,23 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.07,
+        "staleness_days": 0.1,
         "state": "captured",
         "text": "alibaba switched to standard plan..so you will have quota now (25% used for the 7 days)...but manage very carefully..don't overload high cost models...improve the routing first and then use them effectively"
+      },
+      {
+        "asked_at": "2026-09-08T19:36:15.330Z",
+        "criteria": [],
+        "id": "r-dd5aee88",
+        "notes": [],
+        "progress": [
+          0,
+          0
+        ],
+        "session": "",
+        "staleness_days": 0.01,
+        "state": "captured",
+        "text": "[08/09/2026 19:55] PravrudhiBot: 1 thing(s) worth a look:\n\u2022 [medium] qwen-lite-flash (0.05) is sitting out a usage limit, so work is going to qwen-loop (0.20) \u2014 back at 2026-09-08T20:22:41Z\n[08/09/2026 20:25] PravrudhiBot: 1 thing(s) worth a look:\n\u2022 [medium] qwen-lite-flash (0.05) is sitting out a usage limit, so work is going to qwen-loop (0.20) \u2014 back at 2026-09-08T20:22:41Z..pravrudhibot is just sending this repeated message"
       },
       {
         "asked_at": "2026-09-06T12:00:00Z",
@@ -62582,7 +64737,7 @@
         "text": "let astra handle the tough jobs...let it bring up the desktop app, test...integrate fully with the api etc...route it to requests and let pravrudhi handle this request autonomously...also adversarial review and thorough e2e tests before marking any completion...give it also the ralph-loop closure (skill) to make it robust and not escape with half-baked features"
       }
     ],
-    "total": 30
+    "total": 31
   },
   "runs": [
     {
@@ -63143,12 +65298,12 @@
         "relative_cost": 0.15,
         "returns_at": null,
         "sentinel": false,
-        "success_rate": 0.375,
-        "successes": 3,
+        "success_rate": 0.4444444444444444,
+        "successes": 4,
         "tiers": [
           "standard"
         ],
-        "trials": 8,
+        "trials": 9,
         "usable": true
       },
       {
@@ -63310,18 +65465,18 @@
       {
         "agent": "opencode:alibaba-plan",
         "model": "qwen3.8-max",
-        "reason": "qwen-lite-max is cheaper than sonnet and has only 2 outcomes, too few to rule out; trying it; dropped cooling route(s) qwen-coder",
+        "reason": "qwen-lite-max costs 0.15 against sonnet's 2.9 and their intervals overlap (2/3 against 25/31), so the extra spend is not yet justified; dropped cooling route(s) qwen-coder",
         "records": [
           {
-            "hi": 0.9054713451991339,
-            "lo": 0.09452865480086614,
-            "mean_wall_s": 703.4176287455484,
-            "rate": 0.5,
+            "hi": 0.9385096847238394,
+            "lo": 0.20765495512648796,
+            "mean_wall_s": 915.9548270883193,
+            "rate": 0.6666666666666666,
             "relative_cost": 0.15,
             "route_id": "qwen-lite-max",
-            "successes": 1,
+            "successes": 2,
             "tier": "standard",
-            "trials": 2
+            "trials": 3
           },
           {
             "hi": 0.9081311641365236,
@@ -64163,16 +66318,16 @@
     "channel": "dev",
     "check_interval_min": 30,
     "current": {
-      "git_describe": "v0.4.0-45-g3189508",
+      "git_describe": "v0.4.0-46-g4511897-dirty",
       "kernel_version": "0.1.0",
       "version": "0.4.0"
     },
     "keep_previous": 2
   },
   "version": {
-    "commit": "3189508",
+    "commit": "4511897",
     "engine": "0.4.0",
-    "exported_at": "2026-09-08T19:16:51.253Z",
+    "exported_at": "2026-09-08T19:49:43.751Z",
     "kernel": "0.1.0"
   }
 }
