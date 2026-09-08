@@ -3,10 +3,18 @@
 The loop could already say what happened; this is the other direction. It matters more for safety, because a
 message arriving over the network is untrusted input asking the engine to do something.
 
-Two rules make that tractable, and both are enforced here rather than trusted to a caller. Only the configured
-chat is obeyed — the bot's token is enough for anyone who finds it to send messages, and the answer to those is
-silence. And a command is a name from a fixed set, never a string handed to a shell: the engine answers
-questions it already knows how to answer, so there is nothing here for an injected instruction to reach.
+Only the configured chat is obeyed — the bot's token is enough for anyone who finds it to send messages, and the
+answer to those is silence. That check is the one that matters and it is enforced here rather than trusted to a
+caller.
+
+Anything that is not a slash command is a conversation, answered by `chat.converse`: the engine's own surface,
+with the tool access, citations and honesty pass it already applies to the chat page. The bot used to accept six
+commands and answer prose with "I hear: <your text>" followed by a status block, which is a receipt rather than a
+reply — the interface the operator actually carries was the least capable one the project owns.
+
+Free text does NOT weaken the earlier argument that there is "nothing here for an injected instruction to reach".
+`converse` reaches the engine's own record through a fixed tool set; it does not hand strings to a shell. The
+boundary is the same one the chat page already trusts, and it is reached only from the configured chat.
 
 The operator asked not to be overloaded, which is why the offset is persisted. Telegram redelivers every update
 until the offset moves past it; a poller that forgets answers the same question every minute.
@@ -21,6 +29,51 @@ from typing import Any
 
 Fetch = Callable[..., dict[str, Any]]
 Send = Callable[[str], None]
+
+_THREADS_FILE = ".pravrudhi/telegram-threads.json"
+
+
+def _converse(root: Path, message: str, *, thread_id: str | None = None, **kw: Any) -> Any:
+    """Indirection so a test can drive the bot without a model endpoint, and so an import of the chat stack is
+    paid only when someone actually talks."""
+    from pravrudhi.application.chat import converse
+
+    return converse(root, message, thread_id=thread_id, **kw)
+
+
+def _unreachable_type() -> type[BaseException]:
+    """The chat stack's own exception, imported lazily so this module stays importable without it."""
+    try:
+        from pravrudhi.application.chat import ChatEndpointUnreachable as _Real
+
+        return _Real
+    except Exception:  # noqa: BLE001
+        return ChatEndpointUnreachable
+
+
+class ChatEndpointUnreachable(RuntimeError):
+    """Stand-in for the chat stack's exception, so a test can raise the condition without importing it."""
+
+
+def _threads(root: Path) -> dict[str, str]:
+    try:
+        data = json.loads((Path(root) / _THREADS_FILE).read_text())
+        return {str(k): str(v) for k, v in data.items()} if isinstance(data, dict) else {}
+    except (OSError, ValueError, AttributeError):
+        return {}
+
+
+def _remember_thread(root: Path, chat_id: str, thread_id: str) -> None:
+    """One conversation per chat, so a follow-up question means what it looks like it means.
+
+    Keyed by chat: the studio workspace and a product install answer from different roots, and two people in two
+    chats must never inherit each other's context.
+    """
+    path = Path(root) / _THREADS_FILE
+    path.parent.mkdir(parents=True, exist_ok=True)
+    current = _threads(root)
+    current[str(chat_id)] = thread_id
+    path.write_text(json.dumps(current, indent=1, sort_keys=True))
 
 COMMANDS: tuple[str, ...] = ("status", "requests", "routes", "beat", "ask", "help")
 """Every name this engine answers to. A command outside this set is answered with help, never guessed at."""
@@ -100,9 +153,48 @@ def _beat_text(root: Path) -> str:
     return f"{result.sentence}\n{result.reason}"[:900]
 
 
-def reply_for(root: Path, command: str, argument: str) -> str:
+def _unreachable_help(error: Exception) -> str:
+    """A failure the operator can act on, because they are usually not at the machine when they message.
+
+    Naming the endpoint and the one command that fixes it is the difference between a message worth sending and
+    noise. The slash commands are named too, because they keep working without a model and that is exactly when
+    someone needs them.
+    """
+    return (
+        f"I could not reach the model endpoint, so I cannot answer that one in full.\n\n{error}\n\n"
+        "To unblock: start the engine with `pravrudhi app` on that machine, or point it elsewhere by setting "
+        "PRAVRUDHI_CHAT_ENDPOINT to an OpenAI-compatible URL.\n\n"
+        "Meanwhile /status, /requests, /routes and /beat all answer without a model."
+    )
+
+
+def _edition_label() -> str:
+    """Which engine is answering.
+
+    One bot serves both installs until a second chat exists, and a message that does not say which engine
+    produced it is worse than no message: a studio answer read as the product's would send the operator looking
+    for work on the wrong machine. When the two do have separate chats the per-root settings keep their ids
+    apart and this label becomes redundant rather than wrong.
+    """
+    try:
+        from pravrudhi.api.edition import engine_edition
+
+        return str(engine_edition())
+    except Exception:  # noqa: BLE001 - a label must never be the reason a reply fails
+        return "Pravrudhi"
+
+
+def reply_for(root: Path, command: str, argument: str, *, chat_id: str = "") -> str:
     """What to say back. Every branch returns text; an answer that raised would stop the poller answering at
-    all, and an unattended operator link that goes quiet on an error is worse than one that says it failed."""
+    all, and an unattended operator link that goes quiet on an error is worse than one that says it failed.
+
+    The slash commands are deliberately kept as fast paths that never touch the model: they are what the
+    operator needs when the engine is unwell, which is the moment a model-backed answer is least likely to work.
+    """
+    return f"[{_edition_label()}] {_body_for(root, command, argument, chat_id=chat_id)}"
+
+
+def _body_for(root: Path, command: str, argument: str, *, chat_id: str) -> str:
     try:
         if command == "status":
             return _status_text(root)
@@ -113,13 +205,37 @@ def reply_for(root: Path, command: str, argument: str) -> str:
         if command == "beat":
             return _beat_text(root)
         if command == "ask":
-            # Deliberately not an agent call: this reaches the engine's own record, which is the thing worth
-            # asking from a phone, and costs nothing.
-            return (f"I hear: {argument[:200]}\n\n{_status_text(root)}\n\n"
-                    f"Ask with /status, /requests, /routes or /beat.")
+            return _answer(root, argument, chat_id=chat_id)
     except Exception as error:  # noqa: BLE001 (a failed answer must still be an answer)
         return f"could not answer /{command}: {error}"
     return "Commands: " + ", ".join(f"/{c}" for c in COMMANDS)
+
+
+def _answer(root: Path, message: str, *, chat_id: str) -> str:
+    """Anything that is not a command, answered by the engine's own conversation.
+
+    `converse` carries the tool access and the honesty pass that strips numbers the tools did not return, so what
+    arrives on the phone is held to the same standard as the chat page rather than to a lower one because the
+    screen is smaller.
+    """
+    if not message.strip():
+        return "Ask me anything about this engine, or use " + ", ".join(f"/{c}" for c in COMMANDS) + "."
+    prior = _threads(root).get(str(chat_id)) if chat_id else None
+    try:
+        outcome = _converse(root, message, thread_id=prior)
+    except Exception as error:  # noqa: BLE001
+        if isinstance(error, _unreachable_type() | ChatEndpointUnreachable):
+            return _unreachable_help(error)
+        return f"I could not answer that: {error}"
+    thread_id = getattr(outcome, "thread_id", "") or ""
+    if chat_id and thread_id:
+        _remember_thread(root, str(chat_id), thread_id)
+    reply = (getattr(outcome, "reply", "") or "").strip() or "I have nothing to add to that."
+    refusals = tuple(getattr(outcome, "refusals", ()) or ())
+    if refusals:
+        # The honesty pass removed something. Saying so is the point of having it.
+        reply += "\n\n(dropped from my draft, unsupported by the record: " + "; ".join(refusals[:3]) + ")"
+    return reply
 
 
 def poll_once(root: Path, *, chat_id: str, fetch: Fetch, send: Send) -> int:
@@ -148,7 +264,7 @@ def poll_once(root: Path, *, chat_id: str, fetch: Fetch, send: Send) -> int:
         parsed = parse_command(str(message.get("text") or ""))
         if parsed is None:
             continue
-        send(reply_for(root, parsed[0], parsed[1]))
+        send(reply_for(root, parsed[0], parsed[1], chat_id=str(chat_id)))
         answered += 1
 
     if highest is not None:

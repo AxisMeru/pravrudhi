@@ -84,6 +84,10 @@ TOOL_SCHEMA: tuple[dict[str, Any], ...] = (
     {"name": "memory_remember", "description": "Record a durable fact for the user. Refused if it restates a "
                                                "ledger number.",
      "parameters": _one_arg("text", "the fact to remember, in the user's own terms")},
+    {"name": "nights", "description": "Every night this engine has run, newest last: how many candidates it "
+                                      "proposed, how many were pruned or promoted, and the GPU-hours it spent. "
+                                      "Ask this for anything about a night, a candidate or the incumbent.",
+     "parameters": _NO_ARGS},
     {"name": "routing_report", "description": "What the router would choose at each tier now, and why.",
      "parameters": _NO_ARGS},
     {"name": "evidence", "description": "A rendered evidence document by name.",
@@ -249,6 +253,15 @@ def _summarise(tool: str, args: dict[str, Any], result: dict[str, Any]) -> str:
     """
     if "error" in result:
         return str(result["error"])
+    if tool == "nights":
+        rows = result.get("nights") or []
+        last = rows[-1] if rows else None
+        if last is None:
+            return "no nights on record yet"
+        return (
+            f"{len(rows)} nights; the last is night {last['night']} with {last['candidates']} candidates, "
+            f"{last['pruned']} pruned, {len(last['promoted'])} promoted, {last['spent_gpu_h']} GPU-h spent"
+        )
     if tool == "objectives":
         rows = list(result.get("objectives") or [])
         names = ", ".join(str(o.get("id")) for o in rows) or "none"
@@ -293,7 +306,15 @@ def dispatch(root: Path, store: MemoryStore, tool: str, args: dict[str, Any]) ->
                               refusal=refusal)
 
     result: dict[str, Any]
-    if tool == "objectives":
+    if tool == "nights":
+        # The engine's whole subject was unreachable: asked what night 18 did, the assistant correctly reported
+        # having no record, because no tool read the ledger's night rows, and the honesty pass then refused to
+        # invent one — which made a missing tool look like a missing result.
+        from pravrudhi.application.demo_export import _nights
+
+        rows = _nights(root / "research" / "ledger.jsonl")
+        result = {"nights": rows[-40:]}
+    elif tool == "objectives":
         from pravrudhi.application.objectives import load_all, problems, summary
 
         result = {
@@ -689,7 +710,12 @@ def default_complete(endpoint: str = "", model: str = "local") -> Complete:
     """
     from pravrudhi.models.openai_compat import ChatClient
 
-    client = ChatClient(endpoint or chat_endpoint(), model=model)
+    # A configurable endpoint that could not carry a credential could only ever be an unauthenticated local one,
+    # which tied the chat surface — and so the Telegram bot, used precisely when away from the machine — to a GPU
+    # server running at home. Both are read from the environment so no key is ever written into this repository.
+    key = os.environ.get("PRAVRUDHI_CHAT_API_KEY", "").strip() or None
+    named = os.environ.get("PRAVRUDHI_CHAT_MODEL", "").strip()
+    client = ChatClient(endpoint or chat_endpoint(), model=named or model, api_key=key)
 
     def complete(messages: list[dict[str, str]], tools: list[dict[str, Any]]) -> dict[str, Any]:
         try:
