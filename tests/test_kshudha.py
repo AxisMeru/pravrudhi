@@ -246,6 +246,34 @@ class TestSentence:
         assert "benchmark_headroom" in text
         assert "a budgeted trial slot" in text
 
+    def test_a_diagnostic_fallback_does_not_claim_an_eligible_deficit(self) -> None:
+        """With nothing hungry and eligible, `select` falls back to a cheap diagnostic on an unknown drive.
+
+        That fallback is correct — an idle loop should look at something it cannot yet measure rather than
+        fabricate work. The sentence was not: it read "freshness has the largest eligible deficit" for a drive
+        whose `eligible` is False and whose deficit is None. The product heartbeat printed exactly that once its
+        continuity block was cleared, and it is the operator's only human-readable account of what the loop is
+        doing, so it must not assert a measurement that does not exist.
+        """
+        appetite = select(
+            [
+                Drive(
+                    id="pramana_navyata", wire_name="freshness", value=0.0, target=1.0, deficit=None,
+                    weight=1.0, eligible=False,
+                    blocked_reason="no evidence-freshness source is wired into the engine yet",
+                    sources=(), unknown=True,
+                ),
+            ],
+            state=AppetiteState(),
+            overdue=False,
+            config=CFG,
+            now=_at(0),
+        )
+        assert appetite.selected == "pramana_navyata"
+        text = sentence(appetite)
+        assert "freshness" in text
+        assert "largest eligible deficit" not in text, text
+
 
 class TestState:
     def test_round_trips_through_disk(self, tmp_path: Path) -> None:

@@ -438,7 +438,10 @@ def _beat_continuity(sthiti: kshudha.Drive) -> ActionResult:
     name = min(failing, key=lambda n: (_continuity_remedy(n)[0], n))
     _, remedy = _continuity_remedy(name)
     chose = {"check": name}
-    reason = f"running the remedy for the failing {name!r} continuity check: {remedy}"
+    # "proposing", not "running": this beat deliberately executes nothing, and the previous wording said
+    # otherwise once an hour for eight hours on the product workspace while the pool went unsealed and the
+    # deficit never moved. The journal is what the operator reads to see whether the loop is working.
+    reason = f"proposing the remedy for the failing {name!r} continuity check (not run here): {remedy}"
     return chose, reason, {"check": name, "remedy": remedy}
 
 

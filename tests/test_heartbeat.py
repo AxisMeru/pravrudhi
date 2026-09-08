@@ -565,3 +565,19 @@ def test_the_criterion_from_a_finding_carries_the_finding_not_its_label(
              if c.text.startswith(heartbeat._REVIEW_CRITERION_PREFIX)][0]
     assert "never assessed" in added.text
     assert not added.text.rstrip().endswith(":"), "the criterion is a label with no finding behind it"
+
+
+def test_continuity_says_it_is_proposing_a_remedy_rather_than_running_one() -> None:
+    """The beat must not claim to have done what it has deliberately not done.
+
+    `_beat_continuity` never executes a repair, by design and by its own docstring: installing Docker or repairing
+    a ledger is not something a heartbeat does unattended. It wrote "running the remedy for the failing 'pools'
+    continuity check" all the same. On the product workspace that line appeared once an hour for eight hours with
+    the pool never sealed and the deficit never moving, which reads in the journal as work happening. A beat that
+    proposes is useful; a beat that says it ran something it did not is worse than silence.
+    """
+    drive = sthiti_drive_with_failing_checks(deficit=0.17, failing=("pools",))
+    _chose, reason, result = heartbeat._beat_continuity(drive)
+    assert "pools" in reason and result == {"check": "pools", "remedy": heartbeat._continuity_remedy("pools")[1]}
+    assert not reason.startswith("running "), reason
+    assert "propos" in reason, reason

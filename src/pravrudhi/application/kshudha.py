@@ -760,7 +760,18 @@ def sentence(appetite: Appetite) -> str:
     if appetite.selected is not None:
         d = by_id[appetite.selected]
         what = appetite.action["description"] if appetite.action else d.wire_name
-        base = f"I am working on {what} because {d.wire_name} has the largest eligible deficit"
+        if d.unknown or d.deficit is None:
+            # `select` falls back to a diagnostic on an unknown drive when nothing is hungry and eligible. That
+            # is the right thing to do with an idle loop, but the old wording credited the drive with "the
+            # largest eligible deficit" — a measurement it does not have and a status it does not hold. The
+            # product heartbeat printed exactly that, and this sentence is the operator's only plain-language
+            # account of why the engine did what it did.
+            base = (
+                f"I am working on {what} because nothing has a measured deficit to act on, "
+                f"and {d.wire_name} is unmeasured"
+            )
+        else:
+            base = f"I am working on {what} because {d.wire_name} has the largest eligible deficit"
         if blocked:
             top = blocked[0]
             waiting_for = top.blocked_reason or "an unspecified blocker"
