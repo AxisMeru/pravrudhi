@@ -5155,15 +5155,15 @@
         "name": "claude-code"
       },
       {
-        "available": false,
+        "available": true,
         "name": "codex"
       },
       {
-        "available": false,
+        "available": true,
         "name": "opencode:alibaba"
       },
       {
-        "available": false,
+        "available": true,
         "name": "opencode:alibaba-plan"
       },
       {
@@ -5171,11 +5171,11 @@
         "name": "orca:claude"
       },
       {
-        "available": false,
+        "available": true,
         "name": "orca:codex"
       },
       {
-        "available": false,
+        "available": true,
         "name": "orca:local"
       }
     ],
@@ -5206,7 +5206,7 @@
         "kind": "agent"
       },
       {
-        "available": false,
+        "available": true,
         "id": "agent-codex",
         "kind": "agent"
       },
@@ -20058,7 +20058,7 @@
       "healthy": true,
       "last_check": null,
       "last_result": "dev channel: tracks the git checkout directly, not a packaged release",
-      "root": "/home/ss/projects/pravrudhi"
+      "root": "."
     },
     {
       "auto_apply": true,
@@ -20089,12 +20089,12 @@
         "ok": true
       },
       {
-        "detail": "last heartbeat was 3144s ago",
+        "detail": "last heartbeat was 3202s ago",
         "name": "scheduler_fresh",
         "ok": true
       },
       {
-        "detail": "697853947904 bytes free",
+        "detail": "697852399616 bytes free",
         "name": "disk_available",
         "ok": true
       },
@@ -20109,17 +20109,17 @@
         "ok": true
       },
       {
-        "detail": "developer checkout; a known-good commit is 0795de4, with 1 uncommitted file(s)",
+        "detail": "developer checkout; a known-good commit is 92cd23e, with 2 uncommitted file(s)",
         "name": "release_restorable",
         "ok": true
       },
       {
-        "detail": "only 1 tested independent route(s) available (need 2): ['orca:claude']",
+        "detail": "tested independent routes available: ['codex', 'orca:claude', 'orca:codex', 'orca:local']",
         "name": "route_fallback",
-        "ok": false
+        "ok": true
       }
     ],
-    "state": "degraded"
+    "state": "ready"
   },
   "heartbeat": [
     {
@@ -20414,21 +20414,21 @@
       "badge": "amber",
       "candidate": "c-0060",
       "night": "harness-night1",
-      "pack": "/home/ss/projects/pravrudhi/research/inbox/harness-night1/c-0060",
+      "pack": "research/inbox/harness-night1/c-0060",
       "signed": false
     },
     {
       "badge": "green",
       "candidate": "c-0078",
       "night": "harness-night3",
-      "pack": "/home/ss/projects/pravrudhi/research/inbox/harness-night3/c-0078",
+      "pack": "research/inbox/harness-night3/c-0078",
       "signed": false
     },
     {
       "badge": "green",
       "candidate": "c-0045",
       "night": "night4",
-      "pack": "/home/ss/projects/pravrudhi/research/inbox/night4/c-0045",
+      "pack": "research/inbox/night4/c-0045",
       "signed": false
     }
   ],
@@ -25734,7 +25734,7 @@
       {
         "capability": "Choose the agent and model from measured outcomes",
         "evidence": [
-          "command: grep -qF def choose( src/pravrudhi/application/routing.py",
+          "command: grep -qF \"def choose(\" src/pravrudhi/application/routing.py",
           "command: grep -qF wilson src/pravrudhi/application/routing.py"
         ],
         "id": "measured-routing",
@@ -25752,8 +25752,8 @@
         "capability": "Every stated number traces to an append-only ledger row",
         "evidence": [
           "pravrudhi_kernel/src/pravrudhi_kernel/ledger/writer.py",
-          "command: grep -qF def verify( pravrudhi_kernel/src/pravrudhi_kernel/ledger/verify.py",
-          "command: grep -qF def replay( pravrudhi_kernel/src/pravrudhi_kernel/ledger/replay.py"
+          "command: grep -qF \"def verify(\" pravrudhi_kernel/src/pravrudhi_kernel/ledger/verify.py",
+          "command: grep -qF \"def replay(\" pravrudhi_kernel/src/pravrudhi_kernel/ledger/replay.py"
         ],
         "id": "evidence-ledger",
         "notes": "The ledger is written once and verified as a chain, and replay folds it back into the state a night saw. The scope is the mechanism; it does not assert that every surface in the product reads from it.",
@@ -25769,8 +25769,8 @@
       {
         "capability": "Read back the parent structure of the search",
         "evidence": [
-          "command: grep -qF def parent_map( src/pravrudhi/application/archive.py",
-          "command: grep -qF def ancestry_report( src/pravrudhi/application/archive.py"
+          "command: grep -qF \"def parent_map(\" src/pravrudhi/application/archive.py",
+          "command: grep -qF \"def ancestry_report(\" src/pravrudhi/application/archive.py"
         ],
         "id": "search-ancestry",
         "notes": "The lineage field was written on every proposal from the start and read by nothing. Folded, the committed ledger gives 189 candidates, two distinct parents and a maximum depth of two - a two-node star, which is recorded here as the shape the search currently has rather than as an achievement.",
@@ -25786,7 +25786,7 @@
       {
         "capability": "Report whether the budget forced a choice at all",
         "evidence": [
-          "command: grep -qF def selection_pressure( src/pravrudhi/application/archive.py"
+          "command: grep -qF \"def selection_pressure(\" src/pravrudhi/application/archive.py"
         ],
         "id": "selection-pressure",
         "notes": "Per night, the live pool against what was run. On the committed ledger the budget bound on seven of sixteen nights, so on the other nine the controller ranked a set it was going to run in full. This row exists to keep that measurable; it is the least flattering number the engine reports about itself.",
@@ -25802,7 +25802,7 @@
       {
         "capability": "Run unattended within a declared appetite",
         "evidence": [
-          "command: grep -qF def run_night( src/pravrudhi/application/night.py",
+          "command: grep -qF \"def run_night(\" src/pravrudhi/application/night.py",
           "src/pravrudhi/assets/configs/appetite.yaml"
         ],
         "id": "unattended-nights",
@@ -26826,7 +26826,7 @@
       "planned": 0,
       "verified": 5
     },
-    "oldest_open_days": 1.72,
+    "oldest_open_days": 1.73,
     "open": 15,
     "requests": [
       {
@@ -26996,7 +26996,7 @@
           8
         ],
         "session": "9e647463",
-        "staleness_days": 1.72,
+        "staleness_days": 1.73,
         "state": "in_progress",
         "text": "and in no way you are near the orca with all its ade features or openclaw or polished features like claude desktop or codex....you have to beat them in features, utility and ux....dedicate an agent to persist on it...dedicate an agent to adversarial review against set goals so that the project does not drift...i am not seeing the desktop screen/features too in the dashboard..the demo should show real clicks etc and how the desktop app updates and produces the real results...where is the intent, goal, objective menu that drives everything...where are the tools, skills, plugins, multi-agent orchestration etc....don't be superficial..i want real things ..deep, sophisticated..complete...no synthetic, no hand-waving, no fabrication"
       },
@@ -28541,19 +28541,19 @@
         "reason": "ready"
       },
       {
-        "available": false,
+        "available": true,
         "name": "codex",
-        "reason": "codex CLI not installed"
+        "reason": "ready"
       },
       {
-        "available": false,
+        "available": true,
         "name": "opencode:alibaba",
-        "reason": "opencode CLI not installed"
+        "reason": "ready (quota and network not probed)"
       },
       {
-        "available": false,
+        "available": true,
         "name": "opencode:alibaba-plan",
-        "reason": "opencode CLI not installed"
+        "reason": "ready (quota and network not probed)"
       },
       {
         "available": true,
@@ -28561,14 +28561,14 @@
         "reason": "ready"
       },
       {
-        "available": false,
+        "available": true,
         "name": "orca:codex",
-        "reason": "orca is up but codex is not on PATH"
+        "reason": "ready"
       },
       {
-        "available": false,
+        "available": true,
         "name": "orca:local",
-        "reason": "orca is up but opencode is not on PATH"
+        "reason": "ready"
       }
     ],
     "routing": [
@@ -29482,16 +29482,16 @@
     "channel": "dev",
     "check_interval_min": 30,
     "current": {
-      "git_describe": "v0.4.0-12-g0795de4-dirty",
+      "git_describe": "v0.4.0-13-g92cd23e-dirty",
       "kernel_version": "0.1.0",
       "version": "0.4.0"
     },
     "keep_previous": 2
   },
   "version": {
-    "commit": "0795de4",
+    "commit": "92cd23e",
     "engine": "0.4.0",
-    "exported_at": "2026-09-08T10:53:17.253Z",
+    "exported_at": "2026-09-08T10:54:15.008Z",
     "kernel": "0.1.0"
   }
 }

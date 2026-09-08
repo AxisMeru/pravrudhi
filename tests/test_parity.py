@@ -178,3 +178,29 @@ class TestTheBoardThisRepositoryShips:
     def test_ids_are_unique(self) -> None:
         ids = [r.id for r in self._rows()]  # type: ignore[attr-defined]
         assert len(ids) == len(set(ids))
+
+
+def test_no_grep_evidence_has_an_unquoted_multi_word_pattern() -> None:
+    """A grep pattern containing a space silently becomes a different, weaker check.
+
+    Evidence is split with `shlex`, so `grep -qF def parent_map( file.py` passes `def` as the pattern and
+    `parent_map(` as a filename. `grep -q` exits 0 on the first match in any file it can read, so the check
+    passes because the file contains the word `def` - it would pass against a function that had been deleted.
+    Five rows were added this way on 2026-09-08 and every one of them verified green. The pattern must be
+    quoted so it survives the split; this test is what tells you when it was not.
+    """
+    import shlex
+
+    offenders: list[str] = []
+    for row in parity.load(REPO_ROOT):
+        for evidence in row.evidence:
+            if not evidence.startswith("command:"):
+                continue
+            argv = shlex.split(evidence.removeprefix("command:").strip())
+            if not argv or argv[0] != "grep":
+                continue
+            operands = [a for a in argv[1:] if not a.startswith("-")]
+            for name in operands[1:]:
+                if not (REPO_ROOT / name).exists():
+                    offenders.append(f"{row.id}: pattern {operands[0]!r} leaves {name!r}, which is not a file")
+    assert not offenders, "\n".join(offenders)
