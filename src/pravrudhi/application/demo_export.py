@@ -24,7 +24,7 @@ from pravrudhi import KERNEL_VERSION
 from pravrudhi import __version__ as ENGINE_VERSION
 from pravrudhi.agents.registry import survey as agent_survey
 from pravrudhi.api.runs import models_listing
-from pravrudhi.application import routing, selfbuild, subagents
+from pravrudhi.application import continuity, routing, selfbuild, subagents
 from pravrudhi.application.external import external_rows
 from pravrudhi.application.intent import compile_intent
 from pravrudhi.application.objectives import load_all
@@ -230,6 +230,18 @@ def _heartbeat(root: Path) -> list[dict[str, Any]]:
     return [b.to_dict() for b in reversed(history(root, 20))]
 
 
+def _agent_trace(root: Path) -> list[dict[str, Any]]:
+    """What the agents actually did, for the published snapshot.
+
+    The trace is the OpenClaw adaptation: dispatch used to record only usage limits and fallbacks, so whether an
+    agent's work was taken or refused, and why, was readable nowhere. The record exists and the page reads it from
+    the live API — but the published site runs in demo mode, where that call is deliberately skipped, and nothing
+    put the entries in the snapshot. So the one surface showing agent activity read "No agent activity recorded
+    yet" on the site the operator actually watches, while sixteen real entries sat on disk.
+    """
+    return [e.to_dict() for e in continuity.entries(root, 100)]
+
+
 def _swarm(root: Path) -> dict[str, Any]:
     """The same shapes the live `/api/swarm` route serves: agent availability, the routing table's live
     per-tier choice, and the last 20 runs of both the objective swarm and the self-build swarm, newest first."""
@@ -384,6 +396,7 @@ def build_demo(root: Path) -> dict[str, Any]:
         },
         "recipes": availability(),
         "swarm": _swarm(root),
+        "agent_trace": _agent_trace(root),
         "heartbeat": _heartbeat(root),
         "requests": _requests(root),
         "fleet": _fleet(root),

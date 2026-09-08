@@ -16,7 +16,14 @@ export interface TraceEntry {
 }
 
 export async function agentTrace(limit = 100): Promise<TraceEntry[]> {
-  if (IS_DEMO) return [];
+  // The published site runs in demo mode, where returning [] rendered "No agent activity recorded yet" on the one
+  // page that shows what the agents did — while the engine had a full trace on disk. The snapshot carries it now,
+  // so demo reads the record rather than claiming there isn't one.
+  if (IS_DEMO) {
+    const { demo } = await import("./demo");
+    const bundle = (await demo()) as Awaited<ReturnType<typeof demo>> & { agent_trace?: TraceEntry[] };
+    return (bundle.agent_trace ?? []).slice(-limit).reverse();
+  }
   const path = `/api/agent-trace?limit=${limit}`;
   const res = await fetch(`${apiBase()}${path}`, { cache: "no-store" });
   if (!res.ok) throw new ApiError(res.status, path);
