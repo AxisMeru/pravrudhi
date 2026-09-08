@@ -9,7 +9,9 @@ without the operator saying so.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
+import urllib.parse
 import urllib.request
 from collections.abc import Callable
 from pathlib import Path
@@ -59,9 +61,65 @@ def current() -> dict[str, Any]:
     return out
 
 
+def _github_token() -> str:
+    """A token for the GitHub API, if this machine has one.
+
+    Unauthenticated GitHub allows sixty requests an hour per address, and this machine spends that from three
+    places at once: the engine's hourly release check, each desktop's update check, and whatever else is on the
+    box. The budget ran out while cutting 0.4.0, and the engine then reported "no update available" for a
+    release that existed — the failure `checked` now distinguishes, and this is the reason it stops happening.
+
+    Read from the environment so no credential lives in the repository, and its absence changes nothing: the
+    request goes out anonymously exactly as before.
+    """
+    for name in ("PRAVRUDHI_GITHUB_TOKEN", "GITHUB_TOKEN"):
+        token = os.environ.get(name, "").strip()
+        if token:
+            return token
+    return ""
+
+
+_GITHUB_HOSTS = ("api.github.com", "github.com", "uploads.github.com")
+
+
+class _StripAuthOnRedirect(urllib.request.HTTPRedirectHandler):
+    """Drop the credential the moment a redirect leaves GitHub.
+
+    urllib copies headers onto the redirected request, and a release asset's URL always redirects to a CDN
+    host — so a request that carries a token and follows redirects hands that token to whatever it lands on.
+    Not theoretical: fetching a CI log in this project redirected to Azure blob storage with the header
+    attached, which is how it was noticed.
+
+    Only https on a known GitHub host keeps the credential. A lookalike like `api.github.com.evil.test` ends
+    with the right characters and is a different host, so the check is on the parsed hostname and not on how
+    the string reads.
+    """
+
+    def redirect_request(self, req: Any, fp: Any, code: int, msg: str, headers: Any, newurl: str) -> Any:
+        new = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if new is None:
+            return None
+        parsed = urllib.parse.urlparse(newurl)
+        if parsed.scheme != "https" or parsed.hostname not in _GITHUB_HOSTS:
+            for name in list(new.headers):
+                if name.lower() == "authorization":
+                    del new.headers[name]
+            new.unredirected_hdrs.pop("Authorization", None)
+        return new
+
+
+def github_opener() -> urllib.request.OpenerDirector:
+    """An opener that will not carry a credential off GitHub."""
+    return urllib.request.build_opener(_StripAuthOnRedirect())
+
+
 def _default_fetch(url: str, timeout: float) -> Any:
-    request = urllib.request.Request(url, headers={"Accept": "application/vnd.github+json"})
-    with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310 (fixed GitHub API host)
+    headers = {"Accept": "application/vnd.github+json"}
+    token = _github_token()
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    request = urllib.request.Request(url, headers=headers)
+    with github_opener().open(request, timeout=timeout) as response:  # noqa: S310 (fixed GitHub API host)
         return json.loads(response.read().decode("utf-8"))
 
 

@@ -118,3 +118,97 @@ class TestNotKnowingIsNotBeingUpToDate:
 
         st = status(fetch=lambda _url, _t: {"tag_name": "v999.0.0", "html_url": "https://x"})
         assert st["checked"] is True and st["update_available"] is True
+
+
+class TestAskingGitHubAsSomebody:
+    """Unauthenticated GitHub allows 60 requests an hour per address, and this machine spends that from three
+    places at once: the engine's hourly release check, each desktop's update check, and anything else on the
+    box. Exhausting it is not hypothetical — it happened while cutting 0.4.0, and the engine then reported
+    "no update available" for a release that existed.
+
+    A token raises the same calls to 5000 an hour. It is read from the environment so nothing is stored in the
+    repository, and its absence changes nothing: the call goes out anonymously exactly as before.
+    """
+
+    @staticmethod
+    def _headers_sent(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
+        """Intercept at the opener, which is where the request now goes — patching `urlopen` would let a real
+        request escape and prove nothing about what was sent."""
+        from pravrudhi.application import updates
+
+        seen: dict[str, str] = {}
+
+        class FakeResponse:
+            def read(self) -> bytes:
+                return b"{}"
+
+            def __enter__(self) -> FakeResponse:
+                return self
+
+            def __exit__(self, *_a: object) -> None:
+                return None
+
+        class FakeOpener:
+            def open(self, request: Any, timeout: float = 0) -> FakeResponse:
+                seen.update(dict(request.header_items()))
+                return FakeResponse()
+
+        monkeypatch.setattr(updates, "github_opener", lambda: FakeOpener())
+        updates._default_fetch("https://api.github.com/x", 5.0)
+        return seen
+
+    def test_a_token_in_the_environment_is_sent(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("PRAVRUDHI_GITHUB_TOKEN", "a-token")
+        seen = self._headers_sent(monkeypatch)
+        assert any(v == "Bearer a-token" for v in seen.values()), f"no token was sent: {sorted(seen)}"
+
+    def test_without_a_token_the_call_carries_no_authorization(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """An anonymous check must stay anonymous rather than sending an empty credential."""
+        monkeypatch.delenv("PRAVRUDHI_GITHUB_TOKEN", raising=False)
+        monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+        seen = self._headers_sent(monkeypatch)
+        assert not any("authorization" in k.lower() for k in seen), f"sent a credential anyway: {sorted(seen)}"
+
+
+class TestTheTokenNeverLeavesGitHub:
+    """A release asset's URL always redirects to a CDN host, so a request that carries a credential and follows
+    redirects hands that credential to whatever it lands on. Not theoretical: fetching a CI log in this session
+    redirected to Azure blob storage, and the header followed it there.
+
+    urllib's default redirect handler copies headers onto the new request. The opener used here removes the
+    Authorization header the moment the host stops being GitHub's.
+    """
+
+    @staticmethod
+    def _redirected(opener_factory, target: str) -> dict[str, str]:
+        import urllib.request
+
+        opener = opener_factory()
+        handler = next(h for h in opener.handlers if isinstance(h, urllib.request.HTTPRedirectHandler))
+        original = urllib.request.Request(
+            "https://api.github.com/x", headers={"Authorization": "Bearer secret-token"}
+        )
+        new = handler.redirect_request(original, None, 302, "Found", {}, target)
+        return {} if new is None else dict(new.header_items())
+
+    def test_a_redirect_off_github_drops_the_credential(self) -> None:
+        from pravrudhi.application.updates import github_opener
+
+        headers = self._redirected(github_opener, "https://objects.githubusercontent.com/asset")
+        assert not any("authorization" in k.lower() for k in headers), (
+            f"the token followed the redirect to a CDN: {sorted(headers)}"
+        )
+
+    def test_a_redirect_within_github_keeps_it(self) -> None:
+        """The API redirects within its own hosts too, and dropping the credential there would break the call."""
+        from pravrudhi.application.updates import github_opener
+
+        headers = self._redirected(github_opener, "https://api.github.com/y")
+        assert any("authorization" in k.lower() for k in headers), "the credential was dropped on GitHub itself"
+
+    def test_a_lookalike_host_does_not_count_as_github(self) -> None:
+        from pravrudhi.application.updates import github_opener
+
+        for target in ("https://api.github.com.evil.test/x", "https://notgithub.com/x", "http://api.github.com/x"):
+            headers = self._redirected(github_opener, target)
+            assert not any("authorization" in k.lower() for k in headers), f"credential sent to {target}"

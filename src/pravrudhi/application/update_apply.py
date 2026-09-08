@@ -177,10 +177,20 @@ def verify_digest(data: bytes, filename: str, sha256sums_text: str) -> bool:
 
 
 def _default_fetch(url: str) -> bytes:
-    request = urllib.request.Request(
-        url, headers={"Accept": "application/vnd.github+json", "User-Agent": "pravrudhi-update-apply"}
-    )
-    with urllib.request.urlopen(request, timeout=FETCH_TIMEOUT_S) as response:  # noqa: S310 (fixed GitHub hosts)
+    # The same token the check uses. Authenticating one of the two callers was worse than neither: the status
+    # check reported the new release while the apply that downloads it kept answering 403, so the engine could
+    # see an update it could never install.
+    from pravrudhi.application.updates import _github_token, github_opener
+
+    headers = {"Accept": "application/vnd.github+json", "User-Agent": "pravrudhi-update-apply"}
+    token = _github_token()
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    request = urllib.request.Request(url, headers=headers)
+    # This function downloads release assets, and an asset URL always redirects to a CDN host — so following
+    # redirects with a credential attached would hand the operator's token to whatever served the bytes. The
+    # opener drops it the moment the host stops being GitHub's.
+    with github_opener().open(request, timeout=FETCH_TIMEOUT_S) as response:  # noqa: S310 (fixed GitHub hosts)
         result: bytes = response.read()
         return result
 

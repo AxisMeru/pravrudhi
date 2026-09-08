@@ -8,6 +8,7 @@ import subprocess
 import time
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -768,3 +769,86 @@ def test_apply_switches_when_the_new_version_can_read_the_workspace(tmp_path: Pa
 
     assert result.applied is True, result.reason
     assert result.version == version
+
+
+def _apply_headers_sent(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
+    """What the download path actually puts on the wire. Intercepted at the opener, because that is where the
+    request goes now — patching `urlopen` would let a real request escape and prove nothing."""
+    from pravrudhi.application import updates
+
+    seen: dict[str, str] = {}
+
+    class FakeResponse:
+        def read(self) -> bytes:
+            return b"{}"
+
+        def __enter__(self) -> FakeResponse:
+            return self
+
+        def __exit__(self, *_a: object) -> None:
+            return None
+
+    class FakeOpener:
+        def open(self, request: Any, timeout: float = 0) -> FakeResponse:
+            seen.update(dict(request.header_items()))
+            return FakeResponse()
+
+    monkeypatch.setattr(updates, "github_opener", lambda: FakeOpener())
+    from pravrudhi.application.update_apply import _default_fetch
+
+    _default_fetch("https://api.github.com/x")
+    return seen
+
+
+def test_the_apply_path_authenticates_too(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Both GitHub callers need the token, not one of them.
+
+    `updates._default_fetch` was given a token and this one was not, so the check that reports a new release
+    authenticated while the apply that downloads it stayed anonymous — and the apply is the call that runs on a
+    timer. Observed: the release updater answering "HTTP Error 403: rate limit exceeded" minutes after the
+    status check had reported the new version.
+    """
+    monkeypatch.setenv("PRAVRUDHI_GITHUB_TOKEN", "a-token")
+    seen = _apply_headers_sent(monkeypatch)
+    assert any(v == "Bearer a-token" for v in seen.values()), f"the apply path stayed anonymous: {sorted(seen)}"
+
+
+def test_the_apply_path_stays_anonymous_without_a_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("PRAVRUDHI_GITHUB_TOKEN", raising=False)
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    seen = _apply_headers_sent(monkeypatch)
+    assert not any("authorization" in k.lower() for k in seen), f"sent a credential anyway: {sorted(seen)}"
+
+
+def test_the_download_path_does_not_carry_the_token_off_github(monkeypatch: pytest.MonkeyPatch) -> None:
+    """This is the function that downloads release assets, and `browser_download_url` always redirects to a
+    CDN. Following that with an Authorization header attached hands the operator's token to whatever serves
+    the bytes."""
+    import urllib.request
+
+    from pravrudhi.application.update_apply import _default_fetch
+
+    monkeypatch.setenv("PRAVRUDHI_GITHUB_TOKEN", "a-token")
+    opened: dict[str, object] = {}
+
+    class FakeResponse:
+        def read(self) -> bytes:
+            return b"{}"
+
+        def __enter__(self) -> FakeResponse:
+            return self
+
+        def __exit__(self, *_a: object) -> None:
+            return None
+
+    class RecordingOpener:
+        handlers = [urllib.request.HTTPRedirectHandler()]
+
+        def open(self, request: object, timeout: float = 0) -> FakeResponse:
+            opened["request"] = request
+            return FakeResponse()
+
+    monkeypatch.setattr("pravrudhi.application.updates.github_opener", lambda: RecordingOpener())
+    _default_fetch("https://api.github.com/x")
+
+    assert "request" in opened, "the download did not go through the redirect-aware opener"

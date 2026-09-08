@@ -314,9 +314,33 @@ def _search(ledger: Path) -> dict[str, Any]:
     }
 
 
+def _write_empty_ledger(ledger: Path) -> None:
+    """Create the empty ledger a fresh workspace would have.
+
+    The kernel owns reading and verifying this file and is not ours to change (CHARTER §6), so rather than
+    teach every reader to tolerate its absence, the absent case is turned into the one the kernel already
+    handles: a file with no events. Written beside the workspace like any other initialisation, never inside
+    `pravrudhi_kernel/`.
+    """
+    ledger.parent.mkdir(parents=True, exist_ok=True)
+    ledger.touch()
+
+
 def build_demo(root: Path) -> dict[str, Any]:
     root = Path(root)
     ledger = root / "research" / "ledger.jsonl"
+
+    # `research/` is gitignored under this project's public/local split, so a fresh clone has no ledger — and
+    # neither does CI, nor any machine that has installed this and not yet run a night. Opening it
+    # unconditionally raised FileNotFoundError, which is why the export worked on a machine carrying local
+    # state and nowhere else; CI had been red on exactly this since 2026-09-07.
+    #
+    # A workspace that has produced nothing is an empty bundle, not an error. The sections that do not come
+    # from the ledger — capabilities, parity, objectives, the recipe library — are still worth exporting, and
+    # they are what a fresh install has to show for itself.
+    if not ledger.exists():
+        _write_empty_ledger(ledger)
+
     st = replay(ledger)
     nights = _nights(ledger)
     featured = next((n for n in nights if n["promoted"]), nights[-1] if nights else None)

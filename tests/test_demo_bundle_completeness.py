@@ -69,3 +69,22 @@ def test_the_exemption_list_names_only_sections_that_are_really_absent(tmp_path:
     written = _exported_sections(tmp_path)
     stale = sorted(DELIBERATELY_ABSENT & written)
     assert not stale, f"these are exported now and no longer need an exemption: {stale}"
+
+
+def test_a_checkout_with_no_ledger_still_exports(tmp_path: Path) -> None:
+    """`research/` is gitignored under this project's public/local split, so a fresh clone — and therefore CI,
+    and therefore any machine that installs this — has no ledger at all. `build_demo` opened it unconditionally
+    and raised FileNotFoundError, which is why the two tests above passed only on a machine carrying local
+    state and failed everywhere else. CI had been red on this since 2026-09-07.
+
+    A workspace with no ledger has produced nothing yet. That is an empty bundle, not an error.
+    """
+    from pravrudhi.application.demo_export import build_demo
+
+    (tmp_path / "research").mkdir(parents=True, exist_ok=True)
+    assert not (tmp_path / "research" / "ledger.jsonl").exists()
+
+    bundle = build_demo(tmp_path)
+
+    assert isinstance(bundle, dict) and bundle, "an engine with no ledger exported nothing at all"
+    assert bundle.get("runs") == [], "runs were invented for a workspace that has never run a night"
