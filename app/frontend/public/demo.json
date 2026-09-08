@@ -6,7 +6,7 @@
         "drive": "seva",
         "kind": "obligation"
       },
-      "as_of": "2026-09-08T11:23:05Z",
+      "as_of": "2026-09-08T11:55:34Z",
       "drives": [
         {
           "blocked_reason": "",
@@ -136,7 +136,7 @@
             "captured=20",
             "verified=5",
             "R_verified=0.2500",
-            "oldest_open_days=1.75"
+            "oldest_open_days=1.77"
           ],
           "target": 0.9,
           "unknown": false,
@@ -292,7 +292,7 @@
           "captured=20",
           "verified=5",
           "R_verified=0.2500",
-          "oldest_open_days=1.75"
+          "oldest_open_days=1.77"
         ],
         "target": 0.9,
         "unknown": false,
@@ -1565,12 +1565,12 @@
         "target_model": "Qwen/Qwen3-0.6B",
         "task_family": "gsm8k-trainB"
       },
-      "cost_gpu_h": 2.923142602846104,
+      "cost_gpu_h": 2.963231791547409,
       "edit_family": "data_mixture",
       "id": "c-0045",
       "incumbent_hash": null,
       "last_boundary": null,
-      "n_obs": 142,
+      "n_obs": 144,
       "promoted": true,
       "proposed_seq": 587,
       "pruned": null,
@@ -1587,6 +1587,8 @@
         0.0,
         0.0,
         0.040000000000000036,
+        0.0,
+        0.0,
         0.0,
         0.0,
         0.0,
@@ -5148,6 +5150,274 @@
       "xs": [
         -0.12
       ]
+    },
+    {
+      "audit_high": false,
+      "badge": "grey",
+      "bucket": {
+        "corpus": "gsm8k-trainD-train",
+        "target_model": "Qwen/Qwen3-0.6B",
+        "task_family": "gsm8k-trainD"
+      },
+      "cost_gpu_h": 0.0,
+      "edit_family": "grpo",
+      "id": "c-0189",
+      "incumbent_hash": null,
+      "last_boundary": null,
+      "n_obs": 0,
+      "promoted": false,
+      "proposed_seq": 2470,
+      "pruned": null,
+      "rebased": 0,
+      "skipped": false,
+      "surface": "W3.adapter",
+      "xs": []
+    },
+    {
+      "audit_high": false,
+      "badge": "grey",
+      "bucket": {
+        "corpus": "gsm8k-trainD-train",
+        "target_model": "Qwen/Qwen3-0.6B",
+        "task_family": "gsm8k-trainD"
+      },
+      "cost_gpu_h": 0.0,
+      "edit_family": "grpo",
+      "id": "c-0190",
+      "incumbent_hash": null,
+      "last_boundary": null,
+      "n_obs": 0,
+      "promoted": false,
+      "proposed_seq": 2471,
+      "pruned": null,
+      "rebased": 0,
+      "skipped": false,
+      "surface": "W3.adapter",
+      "xs": []
+    },
+    {
+      "audit_high": false,
+      "badge": "amber",
+      "bucket": {
+        "corpus": "gsm8k-trainD-train",
+        "target_model": "Qwen/Qwen3-0.6B",
+        "task_family": "gsm8k-trainD"
+      },
+      "cost_gpu_h": 0.031167041423614136,
+      "edit_family": "adapter",
+      "id": "c-0191",
+      "incumbent_hash": null,
+      "last_boundary": "continue",
+      "n_obs": 1,
+      "promoted": false,
+      "proposed_seq": 2472,
+      "pruned": null,
+      "rebased": 0,
+      "skipped": false,
+      "surface": "W3.adapter",
+      "xs": [
+        0.015000000000000013
+      ]
+    },
+    {
+      "audit_high": false,
+      "badge": "grey",
+      "bucket": {
+        "corpus": "gsm8k-trainD-train",
+        "target_model": "Qwen/Qwen3-0.6B",
+        "task_family": "gsm8k-trainD"
+      },
+      "cost_gpu_h": 0.0,
+      "edit_family": "data_mixture",
+      "id": "c-0192",
+      "incumbent_hash": null,
+      "last_boundary": null,
+      "n_obs": 0,
+      "promoted": false,
+      "proposed_seq": 2473,
+      "pruned": null,
+      "rebased": 0,
+      "skipped": false,
+      "surface": "W3.adapter",
+      "xs": []
+    },
+    {
+      "audit_high": false,
+      "badge": "grey",
+      "bucket": {
+        "corpus": "gsm8k-trainD-train",
+        "target_model": "Qwen/Qwen3-0.6B",
+        "task_family": "gsm8k-trainD"
+      },
+      "cost_gpu_h": 0.0,
+      "edit_family": "grpo",
+      "id": "c-0193",
+      "incumbent_hash": null,
+      "last_boundary": null,
+      "n_obs": 0,
+      "promoted": false,
+      "proposed_seq": 2474,
+      "pruned": null,
+      "rebased": 0,
+      "skipped": false,
+      "surface": "W3.adapter",
+      "xs": []
+    },
+    {
+      "audit_high": false,
+      "badge": "grey",
+      "bucket": {
+        "corpus": "gsm8k-trainD-train",
+        "target_model": "Qwen/Qwen3-0.6B",
+        "task_family": "gsm8k-trainD"
+      },
+      "cost_gpu_h": 0.011382334296682126,
+      "edit_family": "template",
+      "id": "c-0194",
+      "incumbent_hash": null,
+      "last_boundary": null,
+      "n_obs": 0,
+      "promoted": false,
+      "proposed_seq": 2475,
+      "pruned": null,
+      "rebased": 0,
+      "skipped": false,
+      "surface": "W3.adapter",
+      "xs": []
+    },
+    {
+      "audit_high": false,
+      "badge": "grey",
+      "bucket": {
+        "corpus": "gsm8k-trainD-train",
+        "target_model": "Qwen/Qwen3-0.6B",
+        "task_family": "gsm8k-trainD"
+      },
+      "cost_gpu_h": 0.0,
+      "edit_family": "grpo",
+      "id": "c-0195",
+      "incumbent_hash": null,
+      "last_boundary": null,
+      "n_obs": 0,
+      "promoted": false,
+      "proposed_seq": 2476,
+      "pruned": null,
+      "rebased": 0,
+      "skipped": false,
+      "surface": "W3.adapter",
+      "xs": []
+    },
+    {
+      "audit_high": false,
+      "badge": "grey",
+      "bucket": {
+        "corpus": "gsm8k-trainD-train",
+        "target_model": "Qwen/Qwen3-0.6B",
+        "task_family": "gsm8k-trainD"
+      },
+      "cost_gpu_h": 0.0,
+      "edit_family": "data_mixture",
+      "id": "c-0196",
+      "incumbent_hash": null,
+      "last_boundary": null,
+      "n_obs": 0,
+      "promoted": false,
+      "proposed_seq": 2477,
+      "pruned": null,
+      "rebased": 0,
+      "skipped": false,
+      "surface": "W3.adapter",
+      "xs": []
+    },
+    {
+      "audit_high": false,
+      "badge": "grey",
+      "bucket": {
+        "corpus": "gsm8k-trainD-train",
+        "target_model": "Qwen/Qwen3-0.6B",
+        "task_family": "gsm8k-trainD"
+      },
+      "cost_gpu_h": 0.0,
+      "edit_family": "grpo",
+      "id": "c-0197",
+      "incumbent_hash": null,
+      "last_boundary": null,
+      "n_obs": 0,
+      "promoted": false,
+      "proposed_seq": 2478,
+      "pruned": null,
+      "rebased": 0,
+      "skipped": false,
+      "surface": "W3.adapter",
+      "xs": []
+    },
+    {
+      "audit_high": false,
+      "badge": "amber",
+      "bucket": {
+        "corpus": "gsm8k-trainD-train",
+        "target_model": "Qwen/Qwen3-0.6B",
+        "task_family": "gsm8k-trainD"
+      },
+      "cost_gpu_h": 0.026864188276360636,
+      "edit_family": "adapter",
+      "id": "c-0198",
+      "incumbent_hash": null,
+      "last_boundary": "continue",
+      "n_obs": 1,
+      "promoted": false,
+      "proposed_seq": 2479,
+      "pruned": null,
+      "rebased": 0,
+      "skipped": false,
+      "surface": "W3.adapter",
+      "xs": [
+        0.025000000000000022
+      ]
+    },
+    {
+      "audit_high": false,
+      "badge": "grey",
+      "bucket": {
+        "corpus": "gsm8k-trainD-train",
+        "target_model": "Qwen/Qwen3-0.6B",
+        "task_family": "gsm8k-trainD"
+      },
+      "cost_gpu_h": 0.0,
+      "edit_family": "grpo",
+      "id": "c-0199",
+      "incumbent_hash": null,
+      "last_boundary": null,
+      "n_obs": 0,
+      "promoted": false,
+      "proposed_seq": 2480,
+      "pruned": null,
+      "rebased": 0,
+      "skipped": false,
+      "surface": "W3.adapter",
+      "xs": []
+    },
+    {
+      "audit_high": false,
+      "badge": "grey",
+      "bucket": {
+        "corpus": "gsm8k-trainD-train",
+        "target_model": "Qwen/Qwen3-0.6B",
+        "task_family": "gsm8k-trainD"
+      },
+      "cost_gpu_h": 0.0,
+      "edit_family": "data_mixture",
+      "id": "c-0200",
+      "incumbent_hash": null,
+      "last_boundary": null,
+      "n_obs": 0,
+      "promoted": false,
+      "proposed_seq": 2481,
+      "pruned": null,
+      "rebased": 0,
+      "skipped": false,
+      "surface": "W3.adapter",
+      "xs": []
     }
   ],
   "capabilities": {
@@ -21625,7 +21895,7 @@
     }
   ],
   "engine": {
-    "candidates": 189,
+    "candidates": 201,
     "version": "0.4.0"
   },
   "external": [
@@ -23431,7 +23701,7 @@
       "healthy": true,
       "last_check": null,
       "last_result": "dev channel: tracks the git checkout directly, not a packaged release",
-      "root": "."
+      "root": "/home/ss/projects/pravrudhi"
     },
     {
       "auto_apply": true,
@@ -23462,12 +23732,12 @@
         "ok": true
       },
       {
-        "detail": "last heartbeat was 1672s ago",
+        "detail": "last heartbeat was 3370s ago",
         "name": "scheduler_fresh",
         "ok": true
       },
       {
-        "detail": "697769345024 bytes free",
+        "detail": "697659183104 bytes free",
         "name": "disk_available",
         "ok": true
       },
@@ -23482,7 +23752,7 @@
         "ok": true
       },
       {
-        "detail": "developer checkout; a known-good commit is c722d33, with 5 uncommitted file(s)",
+        "detail": "developer checkout; a known-good commit is 588245e, with 4 uncommitted file(s)",
         "name": "release_restorable",
         "ok": true
       },
@@ -23797,21 +24067,21 @@
       "badge": "amber",
       "candidate": "c-0060",
       "night": "harness-night1",
-      "pack": "research/inbox/harness-night1/c-0060",
+      "pack": "/home/ss/projects/pravrudhi/research/inbox/harness-night1/c-0060",
       "signed": false
     },
     {
       "badge": "green",
       "candidate": "c-0078",
       "night": "harness-night3",
-      "pack": "research/inbox/harness-night3/c-0078",
+      "pack": "/home/ss/projects/pravrudhi/research/inbox/harness-night3/c-0078",
       "signed": false
     },
     {
       "badge": "green",
       "candidate": "c-0045",
       "night": "night4",
-      "pack": "research/inbox/night4/c-0045",
+      "pack": "/home/ss/projects/pravrudhi/research/inbox/night4/c-0045",
       "signed": false
     }
   ],
@@ -24120,6 +24390,15 @@
       "pruned": 1,
       "selection_policy": "efe",
       "spent_gpu_h": 0.06,
+      "track": "lora"
+    },
+    {
+      "candidates": 0,
+      "night": 17,
+      "promoted": [],
+      "pruned": 0,
+      "selection_policy": "efe",
+      "spent_gpu_h": 0.0,
       "track": "lora"
     }
   ],
@@ -28666,6 +28945,38 @@
         "delta_in": null
       },
       "seq": 2459
+    },
+    {
+      "candidate_id": "c-0045",
+      "night": 18,
+      "payload": {
+        "delta_in": null
+      },
+      "seq": 2510
+    },
+    {
+      "candidate_id": "c-0191",
+      "night": 18,
+      "payload": {
+        "delta_in": null
+      },
+      "seq": 2512
+    },
+    {
+      "candidate_id": "c-0045",
+      "night": 18,
+      "payload": {
+        "delta_in": null
+      },
+      "seq": 2515
+    },
+    {
+      "candidate_id": "c-0198",
+      "night": 18,
+      "payload": {
+        "delta_in": null
+      },
+      "seq": 2517
     }
   ],
   "parity": {
@@ -30209,7 +30520,7 @@
       "planned": 0,
       "verified": 5
     },
-    "oldest_open_days": 1.75,
+    "oldest_open_days": 1.77,
     "open": 15,
     "requests": [
       {
@@ -30379,7 +30690,7 @@
           8
         ],
         "session": "9e647463",
-        "staleness_days": 1.75,
+        "staleness_days": 1.77,
         "state": "in_progress",
         "text": "and in no way you are near the orca with all its ade features or openclaw or polished features like claude desktop or codex....you have to beat them in features, utility and ux....dedicate an agent to persist on it...dedicate an agent to adversarial review against set goals so that the project does not drift...i am not seeing the desktop screen/features too in the dashboard..the demo should show real clicks etc and how the desktop app updates and produces the real results...where is the intent, goal, objective menu that drives everything...where are the tools, skills, plugins, multi-agent orchestration etc....don't be superficial..i want real things ..deep, sophisticated..complete...no synthetic, no hand-waving, no fabrication"
       },
@@ -30665,7 +30976,7 @@
           13
         ],
         "session": "9e647463",
-        "staleness_days": 1.65,
+        "staleness_days": 1.67,
         "state": "in_progress",
         "text": "ensure that all user asks go into a log in pravrudhi itself and gets addressed with some protocol...and pravrudhi should have some element of ego with a desire to survive, grow and flourish...that makes it seek out capabilities, build, test and continuously improve...also look at acorn, oak and openclaw_build or swarm projects on this machine that had these self building elements in them and adapt...pravrudhi should be something like a cow..consume everything possible but bring it back and slowly digest it --so equivalent is breadth first and depth later....be always value focused...you have to innovate on methods too....develop skills, agents and plugins....brainstorm with astra with higher thinking levels and let it propose solution..you review and coordinate its implementation across the swarm...you should also create dynamic workflows etc...also see how much you can incorporate the claude code engine itself to run open and other cloud models ...askuserquestion to get my intent properly"
       },
@@ -30679,7 +30990,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.77,
+        "staleness_days": 0.79,
         "state": "captured",
         "text": "step up to bigger things, let pravrudhi rsi handle most of its growth on its own....you bring the hard and deeper challenges and solve it for pravrudhi...have you done justice with loom..where is pratyabhijna...i don't see the messaging system (telegram)...where are the great plugins like attractor-flow...look at docs/recursive_self_improvement_sota.pdf think deeper and get to the roots of building rsi itself with a lot more of the stuff like efe and beyond...don't do superficial stuff...get the real value...foundational and discovery oriented...yet fully grounded to get the artifacts (app, api, etc)"
       },
@@ -30693,7 +31004,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.77,
+        "staleness_days": 0.79,
         "state": "captured",
         "text": "keep monitoring and load bearing for critical upgrades beyond what pravrudhi auto loop can do...the desktop app being a reflection of web app is not the expectation..look at orca desktop or claude code desktop...it should do real stuff...the showcase, demos are not intended for it...also it should be value based-right set of features-not a messy and confusing pile of stuff...the desktop app shouldn't focus on internal building, that is the task of the larger pravrudhi rsi...it should roll out to users and they build their things with it...the updates land autonomously and just like how claude desktop throws an option for the user to update-the same should be for pravrudhi desktop app-seamless but user driven...also you have not implemented oauth and user login including admin login and i said they need their own workspace and settings"
       },
@@ -30707,7 +31018,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.77,
+        "staleness_days": 0.79,
         "state": "captured",
         "text": "astra is back..you have to more actively monitor paid models coming back after session renewal and leverage them...managing models and agents efficiently should be one of the key features of pravrudhi....also keep testing the desktop with the admin login and use the prabhasa-nyaya as the main objective to build on...this will be a proxy for other users too as you can't test different user login without their byok model/api"
       },
@@ -30721,7 +31032,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.77,
+        "staleness_days": 0.79,
         "state": "captured",
         "text": "1)research and setup multiple agent orchestration systems (langgraph, openai/claude/google agent sdk etc)..there are a lot on the market. this is what will make pravrudhi an ade too behind the rsi.....implement the best-leverage open source implementations...stake this as another objective for pravrudhi 2)also think of ide that integrates claude code, codex, openrouter etc and all available in the ui/ux 3)demarcate the pravrudhi builder and its end product by different names...otherwise it will confuse...also both should have identical web and desktop versions 4)continue what you are building..create memory/hooks/logs to not lose track of other asks and what you are already building"
       },
@@ -30735,7 +31046,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.77,
+        "staleness_days": 0.79,
         "state": "captured",
         "text": "the real key is in and tested (alibaba lite plan)..you have not read the docs properly...take note and use the lite plan...and remember the desktop app will not have access to any api/routing for any model provider..they have to bring theirs, configure it etc..you have to enable..but for admin it uses the one as the core pravrudhi"
       },
@@ -30749,7 +31060,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.69,
+        "staleness_days": 0.71,
         "state": "captured",
         "text": "continue..askuserquestion to gather my actual intent on super pravrudhi and user pravrudhi...also give me control in super pravrudhi to directly interact with you using the model network that you have built as this claude code session may hit session limit in a day or 2...so prep it and test it and keep it ready for me"
       },
@@ -30763,7 +31074,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.64,
+        "staleness_days": 0.66,
         "state": "captured",
         "text": "Everything is set up and verified:\n\n* Bot confirmed: `@pravrudhi_bot`, token valid\n* Chat ID confirmed: `8679892510`\n* Message delivery tested end-to-end \u2014 you should have received \"Pravrudhi: Telegram bot wired up successfully.\" in Telegram\n* Credentials persisted at `~/.config/pravrudhi/telegram.env` (mode 600)\n* systemd units updated and reinstalled (pravrudhi-app.service, pravrudhi-heartbeat.service) with the `EnvironmentFile` line, though the running app service wasn't restarted per your choice\n* Handoff doc finalized at research/telegram-bot-setup.md, including the exact code gap (`notifications.py:_reach()` never passes `token`/`chat_id` to `reach.send()`) and a precise diff for the other agent session to apply\n\nPoint the other Claude Code session at research/telegram-bot-setup.md and it has everything it needs to wire the actual notification code...integrate, test and use...this will be only for admin..users will have to bring their byok..enable in settings...also note and implement  - Pravrudhi Studio is only for admin (it is not for any other user or public release)...and for the admin pravrudhi (use case end..not studio) will auto update the builds without the operator intervention"
       },
@@ -30777,7 +31088,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.6,
+        "staleness_days": 0.62,
         "state": "captured",
         "text": "install both studio and non-studio desktops (both mac mini and 5090 machine) and give the web app link for both...the non-studio should update the builds autonomously when studio pushes the change...but the catch is that whatever the non-studio is building should not break..also the desktop should support major os (including windows) and the web app major browsers...and continue to build and work and use the ledger that has all my previous requests...let ralph rigourously check before closing..do e2e tests ...adversarial reviews before closure too"
       },
@@ -30791,7 +31102,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.24,
+        "staleness_days": 0.26,
         "state": "captured",
         "text": "all done and authorizing shell auto-update...carry on....for both 5090 and mac mini"
       },
@@ -30805,7 +31116,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.23,
+        "staleness_days": 0.25,
         "state": "captured",
         "text": "the admin user end application can auto update too...i authorize it..as that is your test bed...and henceforth don't stop for operator ..you should continue other jobs..and why isn't the pravruhi's own rsi building autonomously (or is it?)...and have you differentiated the name (and obviously the features insided it) for studio and user end app...i only see one form of desktop on mac mini"
       },
@@ -30819,7 +31130,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.22,
+        "staleness_days": 0.24,
         "state": "captured",
         "text": "you cannot stop for the operator to command you....full autonomous and continous running both you and the 2 rsi systems (studio and the user app)"
       },
@@ -30833,7 +31144,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.19,
+        "staleness_days": 0.21,
         "state": "captured",
         "text": "forget the free tier as the coding model is exhausted...lite which is subscribed is the core...also let studio send me messages via telegram..don't overload me...let the rsi and openclaw equivalent within it interact with me on telegram...i should also be able to send messages to it and interact"
       },
@@ -30847,7 +31158,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.13,
+        "staleness_days": 0.15,
         "state": "captured",
         "text": "the github token should be available in env here or in some othe4 projects..use that...if you don\u2019t get, i will provide it here ...i am not at the machine..but on mobile now...and remember the rule ..no stopping at all"
       },
@@ -31468,6 +31779,17 @@
   },
   "runs": [
     {
+      "candidates": 0,
+      "id": "n17-lora",
+      "night": 17,
+      "policy": "efe",
+      "promoted": [],
+      "pruned": 0,
+      "spent_gpu_h": 0.0,
+      "status": "finished",
+      "target": "model"
+    },
+    {
       "candidates": 1,
       "id": "n16-lora",
       "night": 16,
@@ -31543,24 +31865,13 @@
       "spent_gpu_h": 0.559,
       "status": "finished",
       "target": "model"
-    },
-    {
-      "candidates": 8,
-      "id": "n9-lora",
-      "night": 9,
-      "policy": "efe",
-      "promoted": [],
-      "pruned": 8,
-      "spent_gpu_h": 0.726,
-      "status": "finished",
-      "target": "model"
     }
   ],
   "search": {
     "ancestry": {
       "distinct_parents": 2,
       "max_depth": 2,
-      "nodes": 189,
+      "nodes": 201,
       "roots": 1,
       "widest": [
         "c-0000",
@@ -31681,25 +31992,32 @@
         "live": 1,
         "night": 16,
         "selected": 1
+      },
+      {
+        "binding": false,
+        "declined": 0,
+        "live": 12,
+        "night": 18,
+        "selected": 12
       }
     ]
   },
   "status": {
     "badges": {
-      "amber": 13,
+      "amber": 15,
       "green": 2,
-      "grey": 19,
+      "grey": 29,
       "red": 155
     },
-    "candidates": 189,
+    "candidates": 201,
     "chain_ok": true,
-    "events": 2463,
+    "events": 2519,
     "inbox_pending": [
       "/home/ss/projects/pravrudhi/research/inbox/night4/c-0045",
       "research/inbox/harness-night3/c-0078"
     ],
     "initialised": true,
-    "ledger_head": "0e53e201ccd884eaf7724dcf22930be0b507768ae1e5dabfa239197204a58d0c",
+    "ledger_head": "52d0dbbe5227eb7c121fe7607d3c6ff7cb8ffbccdd8bff2d87dfecdc6cd7d1ae",
     "locks": {
       "frozen_surfaces": [],
       "paused": false,
@@ -31903,6 +32221,11 @@
           "c-0188": "pruned"
         },
         "spent_gpu_h": 0.060162590841969676
+      },
+      "17": {
+        "incumbent": "c-0045",
+        "outcomes": {},
+        "spent_gpu_h": 0.0
       }
     },
     "promoted": {
@@ -31914,7 +32237,7 @@
       ]
     },
     "pruned": 129,
-    "state_hash": "2dc9efc58772543de7b6acf977ebbb5540b607078bef0fbe30e38bad89e523f0"
+    "state_hash": "3612e6c009e843b32a571f5c248ea55ac8e5177201109a10d61b9dbd28e81e83"
   },
   "swarm": {
     "agents": [
@@ -32865,16 +33188,16 @@
     "channel": "dev",
     "check_interval_min": 30,
     "current": {
-      "git_describe": "v0.4.0-16-gc722d33-dirty",
+      "git_describe": "v0.4.0-19-g588245e-dirty",
       "kernel_version": "0.1.0",
       "version": "0.4.0"
     },
     "keep_previous": 2
   },
   "version": {
-    "commit": "c722d33",
+    "commit": "588245e",
     "engine": "0.4.0",
-    "exported_at": "2026-09-08T11:27:13.597Z",
+    "exported_at": "2026-09-08T11:55:23.135Z",
     "kernel": "0.1.0"
   }
 }
