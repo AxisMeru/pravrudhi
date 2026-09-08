@@ -88,6 +88,16 @@ TOOL_SCHEMA: tuple[dict[str, Any], ...] = (
                                       "proposed, how many were pruned or promoted, and the GPU-hours it spent. "
                                       "Ask this for anything about a night, a candidate or the incumbent.",
      "parameters": _NO_ARGS},
+    {"name": "candidates", "description": "Every candidate this engine holds, newest last, each with its badge "
+                                          "— the same rows the candidates page renders.",
+     "parameters": _NO_ARGS},
+    {"name": "agent_trace", "description": "What the agents actually did, newest last: dispatches accepted or "
+                                           "refused, usage limits hit, and routes handed on.",
+     "parameters": _NO_ARGS},
+    {"name": "routing_seats", "description": "Every route with its relative cost, its measured record, and "
+                                             "whether it can be dispatched to now or is sitting out a usage "
+                                             "limit and until when.",
+     "parameters": _NO_ARGS},
     {"name": "routing_report", "description": "What the router would choose at each tier now, and why.",
      "parameters": _NO_ARGS},
     {"name": "evidence", "description": "A rendered evidence document by name.",
@@ -253,6 +263,24 @@ def _summarise(tool: str, args: dict[str, Any], result: dict[str, Any]) -> str:
     """
     if "error" in result:
         return str(result["error"])
+    if tool == "candidates":
+        rows = result.get("candidates") or []
+        badges: dict[str, int] = {}
+        for row in rows:
+            badges[str(row.get("badge"))] = badges.get(str(row.get("badge")), 0) + 1
+        return f"{len(rows)} candidates; " + ", ".join(f"{n} {b}" for b, n in sorted(badges.items()))
+    if tool == "agent_trace":
+        entries = result.get("entries") or []
+        if not entries:
+            return "no agent activity recorded yet"
+        return f"{len(entries)} trace entries; the last is {entries[-1].get('summary')}"
+    if tool == "routing_seats":
+        seats = result.get("seats") or []
+        down = [s for s in seats if not s.get("usable")]
+        return (
+            f"{len(seats)} seats, {len(seats) - len(down)} usable"
+            + (f"; sitting out a limit: {', '.join(str(s.get('id')) for s in down)}" if down else "")
+        )
     if tool == "nights":
         rows = result.get("nights") or []
         last = rows[-1] if rows else None
@@ -306,7 +334,20 @@ def dispatch(root: Path, store: MemoryStore, tool: str, args: dict[str, Any]) ->
                               refusal=refusal)
 
     result: dict[str, Any]
-    if tool == "nights":
+    if tool == "candidates":
+        from pravrudhi.application.demo_export import _candidates
+        from pravrudhi_kernel.ledger.replay import replay
+
+        result = {"candidates": _candidates(root, replay(root / "research" / "ledger.jsonl"))[-60:]}
+    elif tool == "agent_trace":
+        from pravrudhi.application import continuity
+
+        result = {"entries": [e.to_dict() for e in continuity.entries(root, 60)]}
+    elif tool == "routing_seats":
+        from pravrudhi.application.roster import roster
+
+        result = {"seats": [s.to_dict() for s in roster(root)]}
+    elif tool == "nights":
         # The engine's whole subject was unreachable: asked what night 18 did, the assistant correctly reported
         # having no record, because no tool read the ledger's night rows, and the honesty pass then refused to
         # invent one — which made a missing tool look like a missing result.
