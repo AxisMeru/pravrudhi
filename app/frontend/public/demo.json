@@ -239,6 +239,14 @@
       "kind": "fallback",
       "objective": null,
       "summary": "request:r-5795501a:7 moved from opencode:alibaba-plan to sonnet"
+    },
+    {
+      "agent": "claude-code",
+      "at": "2026-09-08T21:02:01Z",
+      "detail": "touched 21 file(s): proposals/requests/r-5795501a/7/MANIFEST.proposal.json, proposals/requests/r-5795501a/7/README.md, proposals/requests/r-5795501a/7/audit_proposal_contract.py, proposals/requests/r-5795501a/7/pra7/__init__.py, proposals/requests/r-5795501a/7/pra7/__main__.py, proposals/requests/r-5795501a/7/pra7/adversary_agent.py, proposals/requests/r-5795501a/7/pra7/chain.py, proposals/requests/r-5795501a/7/pra7/claims.py, proposals/requests/r-5795501a/7/pra7/cli.py, proposals/requests/r-5795501a/7/pra7/dashboard.py, proposals/requests/r-5795501a/7/pra7/desktop_capture.py, proposals/reques",
+      "kind": "accepted",
+      "objective": null,
+      "summary": "request:r-5795501a:7 accepted by claude-code"
     }
   ],
   "appetite": {
@@ -248,7 +256,7 @@
         "drive": "seva",
         "kind": "obligation"
       },
-      "as_of": "2026-09-08T20:55:02Z",
+      "as_of": "2026-09-08T21:25:51Z",
       "drives": [
         {
           "blocked_reason": "",
@@ -378,7 +386,7 @@
             "captured=31",
             "verified=5",
             "R_verified=0.1613",
-            "oldest_open_days=2.14"
+            "oldest_open_days=2.16"
           ],
           "target": 0.9,
           "unknown": false,
@@ -534,7 +542,7 @@
           "captured=31",
           "verified=5",
           "R_verified=0.1613",
-          "oldest_open_days=2.14"
+          "oldest_open_days=2.16"
         ],
         "target": 0.9,
         "unknown": false,
@@ -9803,11 +9811,11 @@
       "base": "92cd23e7d63ebb3d9c6f7c1aefe9a6f51666521f",
       "files": [
         {
-          "added": 122,
+          "added": 127,
           "binary": false,
           "hunks": [
             {
-              "header": "@@ -0,0 +1,122 @@",
+              "header": "@@ -0,0 +1,127 @@",
               "lines": [
                 {
                   "kind": "add",
@@ -9891,7 +9899,7 @@
                 },
                 {
                   "kind": "add",
-                  "text": "      \"bytes\": 24811,"
+                  "text": "      \"bytes\": 29992,"
                 },
                 {
                   "kind": "add",
@@ -9899,7 +9907,7 @@
                 },
                 {
                   "kind": "add",
-                  "text": "      \"sha256\": \"7f59f3e18bfd8199beebdbaa09a48bbc578508561c50e78c77b865c12dfc370f\""
+                  "text": "      \"sha256\": \"f39f717c9bef730c56a61602941b364159f3174aac04ac6dda69271473d7c653\""
                 },
                 {
                   "kind": "add",
@@ -9951,7 +9959,7 @@
                 },
                 {
                   "kind": "add",
-                  "text": "      \"bytes\": 19150,"
+                  "text": "      \"bytes\": 30357,"
                 },
                 {
                   "kind": "add",
@@ -9959,7 +9967,7 @@
                 },
                 {
                   "kind": "add",
-                  "text": "      \"sha256\": \"4920d0b4aa4440d62a891d0e9992404a487c72e5380ec7e11bca280aa43c9d64\""
+                  "text": "      \"sha256\": \"899bb95b9c6b60659c971d29c71c435ab3ae4f49ecee3f00e667f57f50922737\""
                 },
                 {
                   "kind": "add",
@@ -9971,7 +9979,7 @@
                 },
                 {
                   "kind": "add",
-                  "text": "      \"bytes\": 16093,"
+                  "text": "      \"bytes\": 18782,"
                 },
                 {
                   "kind": "add",
@@ -9979,7 +9987,7 @@
                 },
                 {
                   "kind": "add",
-                  "text": "      \"sha256\": \"270766816959192274405ef34c7f76fd34afc6caafc103b004a3e3c0e3255ac1\""
+                  "text": "      \"sha256\": \"88b65e5a691ba1e7be86b5dce857ee556371333979e14cabcfaa84e1710ab5e4\""
                 },
                 {
                   "kind": "add",
@@ -9991,7 +9999,7 @@
                 },
                 {
                   "kind": "add",
-                  "text": "      \"bytes\": 24431,"
+                  "text": "      \"bytes\": 54160,"
                 },
                 {
                   "kind": "add",
@@ -9999,7 +10007,7 @@
                 },
                 {
                   "kind": "add",
-                  "text": "      \"sha256\": \"33f2a465cd70e80b85c574a8de72d9e0145cff90c3444399d13a945ec462a96c\""
+                  "text": "      \"sha256\": \"4d56cb1078065430494ce0d490a132fa46b7088f46c2b43b94becd5f336e61a7\""
                 },
                 {
                   "kind": "add",
@@ -10051,7 +10059,7 @@
                 },
                 {
                   "kind": "add",
-                  "text": "      \"bytes\": 33525,"
+                  "text": "      \"bytes\": 42657,"
                 },
                 {
                   "kind": "add",
@@ -10059,7 +10067,7 @@
                 },
                 {
                   "kind": "add",
-                  "text": "      \"sha256\": \"7e8f8a76461a213bef132c03569afa56c98921563fdf5c3549517e63345e7398\""
+                  "text": "      \"sha256\": \"9fb79024c3298b99122a878addf59cb9ae6689571e947bebccff9f1850a3b099\""
                 },
                 {
                   "kind": "add",
@@ -10091,7 +10099,7 @@
                 },
                 {
                   "kind": "add",
-                  "text": "      \"bytes\": 11442,"
+                  "text": "      \"bytes\": 21900,"
                 },
                 {
                   "kind": "add",
@@ -10099,7 +10107,7 @@
                 },
                 {
                   "kind": "add",
-                  "text": "      \"sha256\": \"3ee2c0d6f2cb2f4b312425de0fff3ce70fc329ccc9c81d39e960a46a673490cd\""
+                  "text": "      \"sha256\": \"285ca4ca8f3e6e93cebae610fa14af73bf97a2d10d30fab1b07b288763bdfc7a\""
                 },
                 {
                   "kind": "add",
@@ -10111,7 +10119,7 @@
                 },
                 {
                   "kind": "add",
-                  "text": "      \"bytes\": 17720,"
+                  "text": "      \"bytes\": 18692,"
                 },
                 {
                   "kind": "add",
@@ -10119,7 +10127,7 @@
                 },
                 {
                   "kind": "add",
-                  "text": "      \"sha256\": \"d724d9d680f3fbb00947c474db1d204b1d2377c100cd788d73eb38cf0c97dd5a\""
+                  "text": "      \"sha256\": \"25a386856112b6fc57b9a2f5b921cce914c8d21532402a257cfb0bc8dace3d78\""
                 },
                 {
                   "kind": "add",
@@ -10191,7 +10199,27 @@
                 },
                 {
                   "kind": "add",
-                  "text": "      \"bytes\": 28261,"
+                  "text": "      \"bytes\": 19097,"
+                },
+                {
+                  "kind": "add",
+                  "text": "      \"path\": \"pra7/falsifiers.py\","
+                },
+                {
+                  "kind": "add",
+                  "text": "      \"sha256\": \"8c12d027a629fce4e1712df09866e5c388a6567fe2a8e140061574e0777cad5f\""
+                },
+                {
+                  "kind": "add",
+                  "text": "    },"
+                },
+                {
+                  "kind": "add",
+                  "text": "    {"
+                },
+                {
+                  "kind": "add",
+                  "text": "      \"bytes\": 28322,"
                 },
                 {
                   "kind": "add",
@@ -10199,7 +10227,7 @@
                 },
                 {
                   "kind": "add",
-                  "text": "      \"sha256\": \"30fd183f63855402c1d759855ac4cf5c3c0b46f9f474a58b52f84ca13b6c5420\""
+                  "text": "      \"sha256\": \"6422d88fb966133decfe9f33e00a7be571d472632d7734df72a88c4fa44f14a5\""
                 },
                 {
                   "kind": "add",
@@ -10275,7 +10303,7 @@
                 },
                 {
                   "kind": "add",
-                  "text": "  \"generated_utc\": \"2026-09-08T19:40:54Z\","
+                  "text": "  \"generated_utc\": \"2026-09-08T21:01:44Z\","
                 },
                 {
                   "kind": "add",
@@ -10305,11 +10333,11 @@
           "too_large": false
         },
         {
-          "added": 398,
+          "added": 466,
           "binary": false,
           "hunks": [
             {
-              "header": "@@ -0,0 +1,398 @@",
+              "header": "@@ -0,0 +1,466 @@",
               "lines": [
                 {
                   "kind": "add",
@@ -10737,6 +10765,186 @@
                 },
                 {
                   "kind": "add",
+                  "text": "**That gap is now closed.** The O3 clause in `verify_evidence_bundle.py` now"
+                },
+                {
+                  "kind": "add",
+                  "text": "requires detector attribution in a verdict rather than accepting any"
+                },
+                {
+                  "kind": "add",
+                  "text": "well-shaped one (closes G3); the gate itself carries the terms `cadence`,"
+                },
+                {
+                  "kind": "add",
+                  "text": "`jitter`, `coefficient of variation`, `/proc` and `provenance` that it"
+                },
+                {
+                  "kind": "add",
+                  "text": "previously had none of (closes G1); `pid`, `cadence` and `jitter` \u2014 the terms"
+                },
+                {
+                  "kind": "add",
+                  "text": "the goal registry's falsifiers name \u2014 now all appear in the gate (closes G4);"
+                },
+                {
+                  "kind": "add",
+                  "text": "and `CompletionClaim.gates()`, which `verify()` calls, runs a dry-run"
+                },
+                {
+                  "kind": "add",
+                  "text": "adversarial re-review of the submitted bundle through"
+                },
+                {
+                  "kind": "add",
+                  "text": "`pra7/adversary_agent.py`'s real detectors, blocking the claim on any SEV-1"
+                },
+                {
+                  "kind": "add",
+                  "text": "finding, any drift verdict, or evidence that the dry review itself wrote to the"
+                },
+                {
+                  "kind": "add",
+                  "text": "bundle (closes G2). Because these four are no longer absences, they are no"
+                },
+                {
+                  "kind": "add",
+                  "text": "longer tracked as gap claims \u2014 a gap claim that stops being true is exactly"
+                },
+                {
+                  "kind": "add",
+                  "text": "the citation drift this directory exists to catch, so leaving it registered as"
+                },
+                {
+                  "kind": "add",
+                  "text": "a gap and reading `FAILS` next to it would be the same failure mode restated."
+                },
+                {
+                  "kind": "add",
+                  "text": "`trace_claims.py`'s register now carries them as contract claims **C10\u2013C13**,"
+                },
+                {
+                  "kind": "add",
+                  "text": "asserting the closure directly, and all four report `HOLDS`."
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "**F6 \u2014 inspecting the checker, not only the checked, found a second citation"
+                },
+                {
+                  "kind": "add",
+                  "text": "failure, and it is the answer this task's criterion asks for.** Doing exactly"
+                },
+                {
+                  "kind": "add",
+                  "text": "what the completion review did \u2014 opening the file a citation names instead of"
+                },
+                {
+                  "kind": "add",
+                  "text": "trusting it \u2014 turned up a bug in the citation-tracer itself."
+                },
+                {
+                  "kind": "add",
+                  "text": "`g_claim_path_never_runs_the_adversary` in `trace_claims.py` searched only the"
+                },
+                {
+                  "kind": "add",
+                  "text": "literal source text of `CompletionClaim.verify` for the words `Adversary`,"
+                },
+                {
+                  "kind": "add",
+                  "text": "`adversar` or `detect_`. `verify()` contains none of those words; it calls"
+                },
+                {
+                  "kind": "add",
+                  "text": "`self.gates()`, and the adversarial re-review lives one call down, inside"
+                },
+                {
+                  "kind": "add",
+                  "text": "`gates()`. Because the check never looked past `verify()`'s own body, it kept"
+                },
+                {
+                  "kind": "add",
+                  "text": "reporting `HOLDS` \u2014 \"the adversary is not on the completion-claim path\" \u2014 for a"
+                },
+                {
+                  "kind": "add",
+                  "text": "gap that an earlier fix had already closed. A reviewer who trusted that"
+                },
+                {
+                  "kind": "add",
+                  "text": "citation would have believed O3 was still unenforced; a reviewer who opened"
+                },
+                {
+                  "kind": "add",
+                  "text": "`pra7/claims.py` and read `gates()` would have found it enforced. That is the"
+                },
+                {
+                  "kind": "add",
+                  "text": "operator's review finding, recurring inside the tool this directory built to"
+                },
+                {
+                  "kind": "add",
+                  "text": "prevent it \u2014 proof that \"inspect the code, not the citation\" has to be applied"
+                },
+                {
+                  "kind": "add",
+                  "text": "to the inspector too, not just to the thing it inspects."
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "Fixed by making the check follow the call graph instead of one method's text:"
+                },
+                {
+                  "kind": "add",
+                  "text": "it walks `CompletionClaim.verify`'s AST for `self.`-prefixed method calls,"
+                },
+                {
+                  "kind": "add",
+                  "text": "recurses into each reachable method inside the class, and searches the"
+                },
+                {
+                  "kind": "add",
+                  "text": "concatenation of all of them for adversary references. A later refactor that"
+                },
+                {
+                  "kind": "add",
+                  "text": "moves the call further down the chain re-triggers `FAILS` instead of going"
+                },
+                {
+                  "kind": "add",
+                  "text": "stale silently, because the check now tracks the property \u2014 does the"
+                },
+                {
+                  "kind": "add",
+                  "text": "acceptance path reach the adversary? \u2014 instead of an implementation detail \u2014"
+                },
+                {
+                  "kind": "add",
+                  "text": "does one named method's text say so? Renamed to `c_claim_path_runs_the_adversary`"
+                },
+                {
+                  "kind": "add",
+                  "text": "and registered as contract claim **C11** (\u00a7 above), it now reports"
+                },
+                {
+                  "kind": "add",
+                  "text": "`reachable_methods=['evaluate', 'gates', 'verify'] wired=True` and `HOLDS`."
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
                   "text": ""
                 },
                 {
@@ -11017,7 +11225,11 @@
                 },
                 {
                   "kind": "add",
-                  "text": "| `pra7/claims.py` | O1\u2013O8 | `evaluate()` computes MET/UNMET per demand from artifacts; `CompletionClaim.verify()` additionally runs the Layer 2 gate |"
+                  "text": "| `pra7/claims.py` | O1\u2013O8 | `evaluate()` computes MET/UNMET per demand from artifacts; `CompletionClaim.gates()`, reachable from `verify()`, additionally runs the Layer 2 gate and a dry-run adversarial re-review through `pra7/adversary_agent.py` |"
+                },
+                {
+                  "kind": "add",
+                  "text": "| `pra7/falsifiers.py` | O3/O6 | couples the goal registry to its enforcers: resolves every falsifier clause in `pra7/intent.py` against a live `verify_evidence_bundle.py` check id or a live `AdversaryAgent.detect_<name>` method, at runtime, so the menu cannot advertise a standard nothing enforces without `pra7 falsifiers` exiting non-zero |"
                 },
                 {
                   "kind": "add",
@@ -11609,19 +11821,35 @@
                 },
                 {
                   "kind": "add",
-                  "text": "uv run python -m pra7 init   --root <artifact_root>"
+                  "text": "uv run python -m pra7 init       --root <artifact_root>"
                 },
                 {
                   "kind": "add",
-                  "text": "uv run python -m pra7 menu   --root <artifact_root>"
+                  "text": "uv run python -m pra7 menu       --root <artifact_root>"
                 },
                 {
                   "kind": "add",
-                  "text": "uv run python -m pra7 status --root <artifact_root>"
+                  "text": "uv run python -m pra7 status     --root <artifact_root>"
                 },
                 {
                   "kind": "add",
-                  "text": "uv run python -m pra7 claim  --root <artifact_root>"
+                  "text": "uv run python -m pra7 claim      --root <artifact_root>"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "# no --root: this one checks the registry against the live gate and detector"
+                },
+                {
+                  "kind": "add",
+                  "text": "# classes, not against an artifact directory"
+                },
+                {
+                  "kind": "add",
+                  "text": "uv run python -m pra7 falsifiers"
                 },
                 {
                   "kind": "add",
@@ -11713,71 +11941,143 @@
                 },
                 {
                   "kind": "add",
-                  "text": "- **The bundle gate decides consistency, not provenance.** Every field it"
+                  "text": "- **The bundle gate still decides consistency, not root provenance \u2014 that"
                 },
                 {
                   "kind": "add",
-                  "text": "  reads \u2014 event coordinates, `causes_update`, region tags, `goal_id`, the"
+                  "text": "  boundary did not move.** Every field it reads \u2014 event coordinates,"
                 },
                 {
                   "kind": "add",
-                  "text": "  `fixture` flag \u2014 is written by whoever assembles the bundle. It recomputes"
+                  "text": "  `causes_update`, region tags, `goal_id`, the `fixture` flag \u2014 is written by"
                 },
                 {
                   "kind": "add",
-                  "text": "  hashes and chains over that data; it cannot say where the data came from. A"
+                  "text": "  whoever assembles the bundle; the gate recomputes hashes and chains over that"
                 },
                 {
                   "kind": "add",
-                  "text": "  fabricated bundle whose author sets `fixture: false` is therefore not stopped"
+                  "text": "  data but cannot say where it originally came from. What did move: the gate"
                 },
                 {
                   "kind": "add",
-                  "text": "  by the gate. Stopping it needs the adversary's detectors on the claim path"
+                  "text": "  now requires detector attribution in every verdict (closed G3) and carries"
                 },
                 {
                   "kind": "add",
-                  "text": "  (F5), which is the open work."
+                  "text": "  its own cadence and provenance terms (closed G1), and `CompletionClaim.gates()`"
                 },
                 {
                   "kind": "add",
-                  "text": "- **The goal registry outruns the gate.** Two falsifiers rendered in the menu \u2014"
+                  "text": "  runs the adversary's real detectors against the bundle in a dry run rather"
                 },
                 {
                   "kind": "add",
-                  "text": "  a pid that never existed, and inter-event timing too regular to be human \u2014"
+                  "text": "  than trusting a verdict on its face (closed G2). A fabricated bundle whose"
                 },
                 {
                   "kind": "add",
-                  "text": "  have no counterpart in `verify_evidence_bundle.py`. The cadence check exists"
+                  "text": "  author sets `fixture: false` and whose events are synthetic enough to trip a"
                 },
                 {
                   "kind": "add",
-                  "text": "  in `pra7 session` only. Until the gate implements them or the registry stops"
+                  "text": "  detector \u2014 impossible clocks, a pid that never existed, cadence too regular"
                 },
                 {
                   "kind": "add",
-                  "text": "  naming them, the menu states a standard the acceptance path does not apply."
+                  "text": "  to be human \u2014 is now something the adversarial-rereview gate can catch,"
                 },
                 {
                   "kind": "add",
-                  "text": "- **`pra7/adversary_agent.py` is not wired into any acceptance path.**"
+                  "text": "  provided the fabrication is clumsy enough for the existing twelve detectors"
                 },
                 {
                   "kind": "add",
-                  "text": "  `CompletionClaim.verify()` does not call it, and the gate accepts a verdict"
+                  "text": "  to see. It is not something the bundle gate alone can catch, and a"
                 },
                 {
                   "kind": "add",
-                  "text": "  with no detector attribution. The operator asked for an adversarial reviewer"
+                  "text": "  sufficiently careful fabrication that evades all twelve detectors is not"
                 },
                 {
                   "kind": "add",
-                  "text": "  that prevents drift; what exists is one that can be run, and a gate that"
+                  "text": "  caught by anything in this directory \u2014 see G5/G6 below for why that residual"
                 },
                 {
                   "kind": "add",
-                  "text": "  cannot tell whether it was."
+                  "text": "  gap cannot be closed from inside a proposal sandbox."
+                },
+                {
+                  "kind": "add",
+                  "text": "- **The goal registry no longer outruns the gate, and now checks that itself.**"
+                },
+                {
+                  "kind": "add",
+                  "text": "  `pid`, `cadence` and `jitter` \u2014 the terms the menu's falsifiers name \u2014 all"
+                },
+                {
+                  "kind": "add",
+                  "text": "  appear in `verify_evidence_bundle.py` (closed G4). `pra7/falsifiers.py` goes"
+                },
+                {
+                  "kind": "add",
+                  "text": "  further: it resolves every falsifier clause in the registry against either a"
+                },
+                {
+                  "kind": "add",
+                  "text": "  live gate check id or a live `AdversaryAgent.detect_<name>` method, at"
+                },
+                {
+                  "kind": "add",
+                  "text": "  runtime, by reading the class and the gate module rather than by transcribing"
+                },
+                {
+                  "kind": "add",
+                  "text": "  their contents here. A clause that resolves to nothing, or a gate/detector"
+                },
+                {
+                  "kind": "add",
+                  "text": "  that stops existing, is `UNRESOLVED` rather than silently believed. `pra7"
+                },
+                {
+                  "kind": "add",
+                  "text": "  falsifiers` exits non-zero on any `UNRESOLVED` row."
+                },
+                {
+                  "kind": "add",
+                  "text": "- **`pra7/adversary_agent.py` is wired into the acceptance path.**"
+                },
+                {
+                  "kind": "add",
+                  "text": "  `CompletionClaim.verify()` calls `self.gates()`, and `gates()` runs a"
+                },
+                {
+                  "kind": "add",
+                  "text": "  dry-run adversarial re-review over the submitted bundle, blocking the claim"
+                },
+                {
+                  "kind": "add",
+                  "text": "  on any SEV-1 finding, any drift verdict, or evidence that the dry review"
+                },
+                {
+                  "kind": "add",
+                  "text": "  itself wrote to the bundle it was attacking (closed G2; see F6 for how the"
+                },
+                {
+                  "kind": "add",
+                  "text": "  citation-tracer initially missed this because it checked only `verify()`'s"
+                },
+                {
+                  "kind": "add",
+                  "text": "  own text). This satisfies the wiring the operator's O3 demand named. It does"
+                },
+                {
+                  "kind": "add",
+                  "text": "  not by itself supply anything to review \u2014 an empty or absent bundle still"
+                },
+                {
+                  "kind": "add",
+                  "text": "  fails the claim, per C1\u2013C6 below, and this directory contains no bundle."
                 },
                 {
                   "kind": "add",
@@ -22101,11 +22401,11 @@
                 },
                 {
                   "kind": "add",
-                  "text": "    Used to prove that a review which claims to have written nothing really"
+                  "text": "    Used to check whether a review that claims to have written nothing left"
                 },
                 {
                   "kind": "add",
-                  "text": "    wrote nothing."
+                  "text": "    the bundle's files unchanged."
                 },
                 {
                   "kind": "add",
@@ -23495,11 +23795,11 @@
           "too_large": false
         },
         {
-          "added": 460,
+          "added": 485,
           "binary": false,
           "hunks": [
             {
-              "header": "@@ -0,0 +1,460 @@",
+              "header": "@@ -0,0 +1,485 @@",
               "lines": [
                 {
                   "kind": "add",
@@ -23583,6 +23883,10 @@
                 },
                 {
                   "kind": "add",
+                  "text": "    falsifiers  check the goal registry's falsifiers against live enforcement (O3/O6)"
+                },
+                {
+                  "kind": "add",
                   "text": ""
                 },
                 {
@@ -23599,15 +23903,15 @@
                 },
                 {
                   "kind": "add",
-                  "text": "  orchestrate, session, dashboard, bundle, claim -- exit non-zero when the"
+                  "text": "  orchestrate, session, dashboard, bundle, claim, falsifiers -- exit non-zero"
                 },
                 {
                   "kind": "add",
-                  "text": "  demand they stand for is not demonstrated. There is no demonstration command"
+                  "text": "  when the demand they stand for is not demonstrated. There is no"
                 },
                 {
                   "kind": "add",
-                  "text": "  whose default outcome is success."
+                  "text": "  demonstration command whose default outcome is success."
                 },
                 {
                   "kind": "add",
@@ -23628,6 +23932,22 @@
                 {
                   "kind": "add",
                   "text": "  zero on the strength of a demand being met."
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "``falsifiers`` takes no ``--root``: unlike every other command, it inspects"
+                },
+                {
+                  "kind": "add",
+                  "text": "this package's own source and the live ``verify_evidence_bundle`` module, not"
+                },
+                {
+                  "kind": "add",
+                  "text": "an artifact directory, so there is nothing under a root for it to read."
                 },
                 {
                   "kind": "add",
@@ -25031,6 +25351,54 @@
                 },
                 {
                   "kind": "add",
+                  "text": "def cmd_falsifiers(args: argparse.Namespace) -> int:"
+                },
+                {
+                  "kind": "add",
+                  "text": "    from . import falsifiers"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "    rows = falsifiers.resolve_all()"
+                },
+                {
+                  "kind": "add",
+                  "text": "    if args.json:"
+                },
+                {
+                  "kind": "add",
+                  "text": "        print(canonical_json({\"rows\": [r.to_json() for r in rows]}))"
+                },
+                {
+                  "kind": "add",
+                  "text": "    else:"
+                },
+                {
+                  "kind": "add",
+                  "text": "        print(falsifiers.render(rows))"
+                },
+                {
+                  "kind": "add",
+                  "text": "    bad = falsifiers.unresolved(rows)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    return 1 if bad and not args.allow_unresolved else 0"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
                   "text": "def main(argv: list[str] | None = None) -> int:"
                 },
                 {
@@ -25312,6 +25680,38 @@
                 {
                   "kind": "add",
                   "text": "    p.add_argument(\"--out\", default=\"\")"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "    p = sub.add_parser("
+                },
+                {
+                  "kind": "add",
+                  "text": "        \"falsifiers\","
+                },
+                {
+                  "kind": "add",
+                  "text": "        help=\"check that the menu's falsifiers resolve to a live gate check or detector\","
+                },
+                {
+                  "kind": "add",
+                  "text": "    )"
+                },
+                {
+                  "kind": "add",
+                  "text": "    p.add_argument(\"--json\", action=\"store_true\")"
+                },
+                {
+                  "kind": "add",
+                  "text": "    p.add_argument(\"--allow-unresolved\", action=\"store_true\")"
+                },
+                {
+                  "kind": "add",
+                  "text": "    p.set_defaults(func=cmd_falsifiers)"
                 },
                 {
                   "kind": "add",
@@ -48337,11 +48737,11 @@
           "too_large": false
         },
         {
-          "added": 355,
+          "added": 412,
           "binary": false,
           "hunks": [
             {
-              "header": "@@ -0,0 +1,355 @@",
+              "header": "@@ -0,0 +1,412 @@",
               "lines": [
                 {
                   "kind": "add",
@@ -49149,7 +49549,35 @@
                 },
                 {
                   "kind": "add",
-                  "text": "def g_gate_has_no_provenance_or_cadence_check() -> tuple[str, str]:"
+                  "text": "def c_gate_carries_cadence_and_provenance_terms() -> tuple[str, str]:"
+                },
+                {
+                  "kind": "add",
+                  "text": "    \"\"\"Closure check for the former G1: the gate gained the terms it lacked."
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "    A prior revision of this register tracked this as a *gap* -- the bundle"
+                },
+                {
+                  "kind": "add",
+                  "text": "    gate had no cadence or provenance vocabulary at all, so `pra7 session`'s"
+                },
+                {
+                  "kind": "add",
+                  "text": "    check was the only one that existed. That is no longer true, so this is"
+                },
+                {
+                  "kind": "add",
+                  "text": "    now a *contract* claim about what the gate carries, checked the same way."
+                },
+                {
+                  "kind": "add",
+                  "text": "    \"\"\""
                 },
                 {
                   "kind": "add",
@@ -49173,15 +49601,11 @@
                 },
                 {
                   "kind": "add",
-                  "text": "        return HOLDS, \"the cadence check exists only in pra7 session; the bundle gate has no cadence or provenance term\""
+                  "text": "        return FAILS, \"the cadence check exists only in pra7 session; the bundle gate has no cadence or provenance term\""
                 },
                 {
                   "kind": "add",
-                  "text": "    return FAILS, f\"gate_terms={gate_terms} transcript_verifier_has_cadence={off_path}\""
-                },
-                {
-                  "kind": "add",
-                  "text": ""
+                  "text": "    return HOLDS, f\"gate_terms={gate_terms} transcript_verifier_has_cadence={off_path}\""
                 },
                 {
                   "kind": "add",
@@ -49189,11 +49613,195 @@
                 },
                 {
                   "kind": "add",
-                  "text": "def g_claim_path_never_runs_the_adversary() -> tuple[str, str]:"
+                  "text": ""
                 },
                 {
                   "kind": "add",
-                  "text": "    src = _func_src(CLAIMS, \"CompletionClaim.verify\")"
+                  "text": "def c_claim_path_runs_the_adversary() -> tuple[str, str]:"
+                },
+                {
+                  "kind": "add",
+                  "text": "    \"\"\"Closure check for the former G2: the acceptance path reaches the adversary."
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "    ``CompletionClaim.verify`` calls ``self.gates()``, so a check that reads only"
+                },
+                {
+                  "kind": "add",
+                  "text": "    ``verify``'s source text misses wiring that lives one call down -- an earlier"
+                },
+                {
+                  "kind": "add",
+                  "text": "    revision of this check did exactly that and kept reporting a gap the code no"
+                },
+                {
+                  "kind": "add",
+                  "text": "    longer had (see README F6). This resolves ``verify``'s direct call targets"
+                },
+                {
+                  "kind": "add",
+                  "text": "    inside the ``CompletionClaim`` class (by AST, not by guessing names) and"
+                },
+                {
+                  "kind": "add",
+                  "text": "    searches all of them, so a future refactor that moves the call further down"
+                },
+                {
+                  "kind": "add",
+                  "text": "    is still caught: this contract claim would go back to ``FAILS`` instead of"
+                },
+                {
+                  "kind": "add",
+                  "text": "    silently staying green."
+                },
+                {
+                  "kind": "add",
+                  "text": "    \"\"\""
+                },
+                {
+                  "kind": "add",
+                  "text": "    tree = _tree(CLAIMS)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    cls = next("
+                },
+                {
+                  "kind": "add",
+                  "text": "        (n for n in ast.walk(tree) if isinstance(n, ast.ClassDef) and n.name == \"CompletionClaim\"),"
+                },
+                {
+                  "kind": "add",
+                  "text": "        None,"
+                },
+                {
+                  "kind": "add",
+                  "text": "    )"
+                },
+                {
+                  "kind": "add",
+                  "text": "    if cls is None:"
+                },
+                {
+                  "kind": "add",
+                  "text": "        raise LookupError(\"CompletionClaim: no such class in \" + CLAIMS)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    methods = {"
+                },
+                {
+                  "kind": "add",
+                  "text": "        n.name: n for n in cls.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))"
+                },
+                {
+                  "kind": "add",
+                  "text": "    }"
+                },
+                {
+                  "kind": "add",
+                  "text": "    if \"verify\" not in methods:"
+                },
+                {
+                  "kind": "add",
+                  "text": "        raise LookupError(\"CompletionClaim.verify: no such method in \" + CLAIMS)"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "    def called_methods(node: ast.AST) -> set[str]:"
+                },
+                {
+                  "kind": "add",
+                  "text": "        return {"
+                },
+                {
+                  "kind": "add",
+                  "text": "            call.func.attr"
+                },
+                {
+                  "kind": "add",
+                  "text": "            for call in ast.walk(node)"
+                },
+                {
+                  "kind": "add",
+                  "text": "            if isinstance(call, ast.Call)"
+                },
+                {
+                  "kind": "add",
+                  "text": "            and isinstance(call.func, ast.Attribute)"
+                },
+                {
+                  "kind": "add",
+                  "text": "            and isinstance(call.func.value, ast.Name)"
+                },
+                {
+                  "kind": "add",
+                  "text": "            and call.func.value.id == \"self\""
+                },
+                {
+                  "kind": "add",
+                  "text": "        }"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "    reachable: list[str] = []"
+                },
+                {
+                  "kind": "add",
+                  "text": "    frontier = [\"verify\"]"
+                },
+                {
+                  "kind": "add",
+                  "text": "    seen: set[str] = set()"
+                },
+                {
+                  "kind": "add",
+                  "text": "    while frontier:"
+                },
+                {
+                  "kind": "add",
+                  "text": "        name = frontier.pop()"
+                },
+                {
+                  "kind": "add",
+                  "text": "        if name in seen or name not in methods:"
+                },
+                {
+                  "kind": "add",
+                  "text": "            continue"
+                },
+                {
+                  "kind": "add",
+                  "text": "        seen.add(name)"
+                },
+                {
+                  "kind": "add",
+                  "text": "        reachable.append(name)"
+                },
+                {
+                  "kind": "add",
+                  "text": "        frontier.extend(called_methods(methods[name]) - seen)"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "    src = \"\\n\".join(ast.get_source_segment(_read(CLAIMS), methods[n]) or \"\" for n in reachable)"
                 },
                 {
                   "kind": "add",
@@ -49209,11 +49817,23 @@
                 },
                 {
                   "kind": "add",
-                  "text": "        return HOLDS, f\"CompletionClaim.verify never invokes the adversary; {len(detectors)} detectors sit off the acceptance path\""
+                  "text": "        return FAILS, ("
                 },
                 {
                   "kind": "add",
-                  "text": "    return FAILS, f\"wired={wired} detectors={len(detectors)}\""
+                  "text": "            f\"CompletionClaim.verify never invokes the adversary, even transitively \""
+                },
+                {
+                  "kind": "add",
+                  "text": "            f\"through {sorted(seen)}; {len(detectors)} detectors sit off the acceptance path\""
+                },
+                {
+                  "kind": "add",
+                  "text": "        )"
+                },
+                {
+                  "kind": "add",
+                  "text": "    return HOLDS, f\"reachable_methods={sorted(seen)} wired={wired} detectors={len(detectors)}\""
                 },
                 {
                   "kind": "add",
@@ -49225,7 +49845,11 @@
                 },
                 {
                   "kind": "add",
-                  "text": "def g_gate_accepts_a_handwritten_verdict() -> tuple[str, str]:"
+                  "text": "def c_gate_requires_detector_attribution() -> tuple[str, str]:"
+                },
+                {
+                  "kind": "add",
+                  "text": "    \"\"\"Closure check for the former G3: O3 can no longer be satisfied by a bare verdict.\"\"\""
                 },
                 {
                   "kind": "add",
@@ -49245,15 +49869,11 @@
                 },
                 {
                   "kind": "add",
-                  "text": "        return HOLDS, \"the O3 clause asks for a verdict value, a registered goal, a non-empty objection and a hash; no detector field is required\""
+                  "text": "        return FAILS, \"the O3 clause asks for a verdict value, a registered goal, a non-empty objection and a hash; no detector field is required\""
                 },
                 {
                   "kind": "add",
-                  "text": "    return FAILS, \"the gate now requires detector attribution in verdicts\""
-                },
-                {
-                  "kind": "add",
-                  "text": ""
+                  "text": "    return HOLDS, \"the gate requires detector attribution in verdicts\""
                 },
                 {
                   "kind": "add",
@@ -49261,7 +49881,15 @@
                 },
                 {
                   "kind": "add",
-                  "text": "def g_registry_falsifiers_outrun_the_gate() -> tuple[str, str]:"
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "def c_registry_falsifiers_implemented_by_gate() -> tuple[str, str]:"
+                },
+                {
+                  "kind": "add",
+                  "text": "    \"\"\"Closure check for the former G4: the terms the menu advertises now appear in the gate.\"\"\""
                 },
                 {
                   "kind": "add",
@@ -49301,11 +49929,11 @@
                 },
                 {
                   "kind": "add",
-                  "text": "        return HOLDS, f\"registry advertises {advertised}; the gate implements none of {('pid', 'cadence', 'jitter')}\""
+                  "text": "        return FAILS, f\"registry advertises {advertised}; the gate implements none of {('pid', 'cadence', 'jitter')}\""
                 },
                 {
                   "kind": "add",
-                  "text": "    return FAILS, f\"advertised={advertised} implemented_terms={implemented}\""
+                  "text": "    return HOLDS, f\"advertised={advertised} implemented_terms={implemented}\""
                 },
                 {
                   "kind": "add",
@@ -49537,19 +50165,19 @@
                 },
                 {
                   "kind": "add",
-                  "text": "    (\"G1\", GAP, \"README section 7: the gate decides internal consistency, not provenance; the cadence check lives only in `pra7 session`\", g_gate_has_no_provenance_or_cadence_check),"
+                  "text": "    (\"C10\", CONTRACT, \"README section 1.1 (F5 closure) and section 7: the bundle gate carries cadence and provenance terms of its own\", c_gate_carries_cadence_and_provenance_terms),"
                 },
                 {
                   "kind": "add",
-                  "text": "    (\"G2\", GAP, \"README section 7: the adversary's detectors are not on the completion-claim path\", g_claim_path_never_runs_the_adversary),"
+                  "text": "    (\"C11\", CONTRACT, \"README section 1.1 (F5/F6 closure) and section 7: CompletionClaim.verify reaches the adversary transitively through gates()\", c_claim_path_runs_the_adversary),"
                 },
                 {
                   "kind": "add",
-                  "text": "    (\"G3\", GAP, \"README section 7: the gate's O3 clause cannot tell a written verdict from a run detector\", g_gate_accepts_a_handwritten_verdict),"
+                  "text": "    (\"C12\", CONTRACT, \"README section 1.1 (F5 closure) and section 7: the gate's O3 clause requires detector attribution, not just a well-shaped verdict\", c_gate_requires_detector_attribution),"
                 },
                 {
                   "kind": "add",
-                  "text": "    (\"G4\", GAP, \"README section 7: the goal registry names falsifiers the acceptance path does not implement\", g_registry_falsifiers_outrun_the_gate),"
+                  "text": "    (\"C13\", CONTRACT, \"README section 1.1 (F5 closure) and section 7: the goal registry's pid/cadence/jitter falsifiers are implemented in the gate\", c_registry_falsifiers_implemented_by_gate),"
                 },
                 {
                   "kind": "add",
@@ -63525,12 +64153,12 @@
         "ok": true
       },
       {
-        "detail": "last heartbeat was 5747s ago",
+        "detail": "last heartbeat was 3798s ago",
         "name": "scheduler_fresh",
         "ok": true
       },
       {
-        "detail": "696079085568 bytes free",
+        "detail": "696064008192 bytes free",
         "name": "disk_available",
         "ok": true
       },
@@ -63545,7 +64173,7 @@
         "ok": true
       },
       {
-        "detail": "developer checkout; a known-good commit is 84a0bd9",
+        "detail": "developer checkout; a known-good commit is eb69470",
         "name": "release_restorable",
         "ok": true
       },
@@ -63558,6 +64186,46 @@
     "state": "degraded"
   },
   "heartbeat": [
+    {
+      "at": "2026-09-08T20:22:36Z",
+      "chose": {
+        "criterion": "7",
+        "request": "r-5795501a"
+      },
+      "drive": "obligations",
+      "drive_deficit": 0.8207885304659499,
+      "looked_at": [],
+      "reason": "dispatched request r-5795501a criterion 7 (accepted)",
+      "result": {
+        "accepted": true,
+        "files": [
+          "proposals/requests/r-5795501a/7/MANIFEST.proposal.json",
+          "proposals/requests/r-5795501a/7/README.md",
+          "proposals/requests/r-5795501a/7/audit_proposal_contract.py",
+          "proposals/requests/r-5795501a/7/pra7/__init__.py",
+          "proposals/requests/r-5795501a/7/pra7/__main__.py",
+          "proposals/requests/r-5795501a/7/pra7/adversary_agent.py",
+          "proposals/requests/r-5795501a/7/pra7/chain.py",
+          "proposals/requests/r-5795501a/7/pra7/claims.py",
+          "proposals/requests/r-5795501a/7/pra7/cli.py",
+          "proposals/requests/r-5795501a/7/pra7/dashboard.py",
+          "proposals/requests/r-5795501a/7/pra7/desktop_capture.py",
+          "proposals/requests/r-5795501a/7/pra7/evidence.py",
+          "proposals/requests/r-5795501a/7/pra7/falsifiers.py",
+          "proposals/requests/r-5795501a/7/pra7/intent.py",
+          "proposals/requests/r-5795501a/7/pra7/orchestrate.py",
+          "proposals/requests/r-5795501a/7/pra7/persist_agent.py",
+          "proposals/requests/r-5795501a/7/pra7/registry.py",
+          "proposals/requests/r-5795501a/7/selftest_audit_proposal_contract.py",
+          "proposals/requests/r-5795501a/7/selftest_verify_evidence_bundle.py",
+          "proposals/requests/r-5795501a/7/trace_claims.py",
+          "proposals/requests/r-5795501a/7/verify_evidence_bundle.py"
+        ],
+        "reasons": [],
+        "route": "claude-code"
+      },
+      "sentence": "I am working on what the operator is still owed because obligations has the largest eligible deficit."
+    },
     {
       "at": "2026-09-08T19:19:17Z",
       "chose": {
@@ -63980,18 +64648,6 @@
     },
     {
       "at": "2026-09-08T05:54:27Z",
-      "chose": {
-        "request": "r-5795501a"
-      },
-      "drive": "obligations",
-      "drive_deficit": 0.673202614379085,
-      "looked_at": [],
-      "reason": "r-5795501a is fully evidenced and awaiting the completion gate (`pravrudhi requests-advance r-5795501a verified`)",
-      "result": null,
-      "sentence": "I am working on what the operator is still owed because obligations has the largest eligible deficit."
-    },
-    {
-      "at": "2026-09-08T05:52:53Z",
       "chose": {
         "request": "r-5795501a"
       },
@@ -70694,7 +71350,7 @@
       "planned": 0,
       "verified": 5
     },
-    "oldest_open_days": 2.14,
+    "oldest_open_days": 2.16,
     "open": 26,
     "requests": [
       {
@@ -70872,7 +71528,7 @@
           8
         ],
         "session": "9e647463",
-        "staleness_days": 2.14,
+        "staleness_days": 2.16,
         "state": "in_progress",
         "text": "and in no way you are near the orca with all its ade features or openclaw or polished features like claude desktop or codex....you have to beat them in features, utility and ux....dedicate an agent to persist on it...dedicate an agent to adversarial review against set goals so that the project does not drift...i am not seeing the desktop screen/features too in the dashboard..the demo should show real clicks etc and how the desktop app updates and produces the real results...where is the intent, goal, objective menu that drives everything...where are the tools, skills, plugins, multi-agent orchestration etc....don't be superficial..i want real things ..deep, sophisticated..complete...no synthetic, no hand-waving, no fabrication"
       },
@@ -71158,7 +71814,7 @@
           13
         ],
         "session": "9e647463",
-        "staleness_days": 2.05,
+        "staleness_days": 2.07,
         "state": "in_progress",
         "text": "ensure that all user asks go into a log in pravrudhi itself and gets addressed with some protocol...and pravrudhi should have some element of ego with a desire to survive, grow and flourish...that makes it seek out capabilities, build, test and continuously improve...also look at acorn, oak and openclaw_build or swarm projects on this machine that had these self building elements in them and adapt...pravrudhi should be something like a cow..consume everything possible but bring it back and slowly digest it --so equivalent is breadth first and depth later....be always value focused...you have to innovate on methods too....develop skills, agents and plugins....brainstorm with astra with higher thinking levels and let it propose solution..you review and coordinate its implementation across the swarm...you should also create dynamic workflows etc...also see how much you can incorporate the claude code engine itself to run open and other cloud models ...askuserquestion to get my intent properly"
       },
@@ -71172,7 +71828,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 1.16,
+        "staleness_days": 1.19,
         "state": "captured",
         "text": "step up to bigger things, let pravrudhi rsi handle most of its growth on its own....you bring the hard and deeper challenges and solve it for pravrudhi...have you done justice with loom..where is pratyabhijna...i don't see the messaging system (telegram)...where are the great plugins like attractor-flow...look at docs/recursive_self_improvement_sota.pdf think deeper and get to the roots of building rsi itself with a lot more of the stuff like efe and beyond...don't do superficial stuff...get the real value...foundational and discovery oriented...yet fully grounded to get the artifacts (app, api, etc)"
       },
@@ -71186,7 +71842,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 1.16,
+        "staleness_days": 1.19,
         "state": "captured",
         "text": "keep monitoring and load bearing for critical upgrades beyond what pravrudhi auto loop can do...the desktop app being a reflection of web app is not the expectation..look at orca desktop or claude code desktop...it should do real stuff...the showcase, demos are not intended for it...also it should be value based-right set of features-not a messy and confusing pile of stuff...the desktop app shouldn't focus on internal building, that is the task of the larger pravrudhi rsi...it should roll out to users and they build their things with it...the updates land autonomously and just like how claude desktop throws an option for the user to update-the same should be for pravrudhi desktop app-seamless but user driven...also you have not implemented oauth and user login including admin login and i said they need their own workspace and settings"
       },
@@ -71200,7 +71856,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 1.16,
+        "staleness_days": 1.19,
         "state": "captured",
         "text": "astra is back..you have to more actively monitor paid models coming back after session renewal and leverage them...managing models and agents efficiently should be one of the key features of pravrudhi....also keep testing the desktop with the admin login and use the prabhasa-nyaya as the main objective to build on...this will be a proxy for other users too as you can't test different user login without their byok model/api"
       },
@@ -71214,7 +71870,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 1.16,
+        "staleness_days": 1.19,
         "state": "captured",
         "text": "1)research and setup multiple agent orchestration systems (langgraph, openai/claude/google agent sdk etc)..there are a lot on the market. this is what will make pravrudhi an ade too behind the rsi.....implement the best-leverage open source implementations...stake this as another objective for pravrudhi 2)also think of ide that integrates claude code, codex, openrouter etc and all available in the ui/ux 3)demarcate the pravrudhi builder and its end product by different names...otherwise it will confuse...also both should have identical web and desktop versions 4)continue what you are building..create memory/hooks/logs to not lose track of other asks and what you are already building"
       },
@@ -71228,7 +71884,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 1.16,
+        "staleness_days": 1.19,
         "state": "captured",
         "text": "the real key is in and tested (alibaba lite plan)..you have not read the docs properly...take note and use the lite plan...and remember the desktop app will not have access to any api/routing for any model provider..they have to bring theirs, configure it etc..you have to enable..but for admin it uses the one as the core pravrudhi"
       },
@@ -71242,7 +71898,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 1.09,
+        "staleness_days": 1.11,
         "state": "captured",
         "text": "continue..askuserquestion to gather my actual intent on super pravrudhi and user pravrudhi...also give me control in super pravrudhi to directly interact with you using the model network that you have built as this claude code session may hit session limit in a day or 2...so prep it and test it and keep it ready for me"
       },
@@ -71256,7 +71912,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 1.03,
+        "staleness_days": 1.05,
         "state": "captured",
         "text": "Everything is set up and verified:\n\n* Bot confirmed: `@pravrudhi_bot`, token valid\n* Chat ID confirmed: `8679892510`\n* Message delivery tested end-to-end \u2014 you should have received \"Pravrudhi: Telegram bot wired up successfully.\" in Telegram\n* Credentials persisted at `~/.config/pravrudhi/telegram.env` (mode 600)\n* systemd units updated and reinstalled (pravrudhi-app.service, pravrudhi-heartbeat.service) with the `EnvironmentFile` line, though the running app service wasn't restarted per your choice\n* Handoff doc finalized at research/telegram-bot-setup.md, including the exact code gap (`notifications.py:_reach()` never passes `token`/`chat_id` to `reach.send()`) and a precise diff for the other agent session to apply\n\nPoint the other Claude Code session at research/telegram-bot-setup.md and it has everything it needs to wire the actual notification code...integrate, test and use...this will be only for admin..users will have to bring their byok..enable in settings...also note and implement  - Pravrudhi Studio is only for admin (it is not for any other user or public release)...and for the admin pravrudhi (use case end..not studio) will auto update the builds without the operator intervention"
       },
@@ -71270,7 +71926,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.99,
+        "staleness_days": 1.01,
         "state": "captured",
         "text": "install both studio and non-studio desktops (both mac mini and 5090 machine) and give the web app link for both...the non-studio should update the builds autonomously when studio pushes the change...but the catch is that whatever the non-studio is building should not break..also the desktop should support major os (including windows) and the web app major browsers...and continue to build and work and use the ledger that has all my previous requests...let ralph rigourously check before closing..do e2e tests ...adversarial reviews before closure too"
       },
@@ -71284,7 +71940,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.64,
+        "staleness_days": 0.66,
         "state": "captured",
         "text": "all done and authorizing shell auto-update...carry on....for both 5090 and mac mini"
       },
@@ -71298,7 +71954,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.63,
+        "staleness_days": 0.65,
         "state": "captured",
         "text": "the admin user end application can auto update too...i authorize it..as that is your test bed...and henceforth don't stop for operator ..you should continue other jobs..and why isn't the pravruhi's own rsi building autonomously (or is it?)...and have you differentiated the name (and obviously the features insided it) for studio and user end app...i only see one form of desktop on mac mini"
       },
@@ -71312,7 +71968,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.62,
+        "staleness_days": 0.64,
         "state": "captured",
         "text": "you cannot stop for the operator to command you....full autonomous and continous running both you and the 2 rsi systems (studio and the user app)"
       },
@@ -71326,7 +71982,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.58,
+        "staleness_days": 0.6,
         "state": "captured",
         "text": "forget the free tier as the coding model is exhausted...lite which is subscribed is the core...also let studio send me messages via telegram..don't overload me...let the rsi and openclaw equivalent within it interact with me on telegram...i should also be able to send messages to it and interact"
       },
@@ -71340,7 +71996,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.52,
+        "staleness_days": 0.54,
         "state": "captured",
         "text": "the github token should be available in env here or in some othe4 projects..use that...if you don\u2019t get, i will provide it here ...i am not at the machine..but on mobile now...and remember the rule ..no stopping at all"
       },
@@ -71354,7 +72010,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.26,
+        "staleness_days": 0.29,
         "state": "captured",
         "text": "how many times should i tell you to not wait on operator...make the call and keep moving... where you absolutely need operator to intervene like installing something on the machine or some token etc send a message with  clear instructions to unblock ...also telegram bot is for that purpose.   ..what you have got now is stale..it just asks to message with some slash commands...i want full interactivity with the bot.. like i can ask or tell anything in the bot chat and it responds in sufficient detail and acts on it or brings you in the loop...i want that to be a primary interface to work on the program just as i message here...and this functionality should also be available to user side of pravrudhi..not just studio...for now wire the same bot for admin use case pravrudhi...find a way to keep the studio and non-studio messaging channel different...or you can instantiate another bot by being an admin and controlling telegram"
       },
@@ -71368,7 +72024,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.22,
+        "staleness_days": 0.24,
         "state": "captured",
         "text": "Done! Congratulations on your new bot. You will find it at t.me/prabhasa_bot. You can now add a description, about section and profile picture for your bot, see /help for a list of commands. By the way, when you've finished creating your cool bot, ping our Bot Support if you want a better username for it. Just make sure the bot is fully operational before you do this.\n\nUse this token to access the HTTP API:\n8643311100:AAFFe88Ej8rte0Kqp0NsuEG4SNwCsoJRI3s\nKeep your token secure and store it safely, it can be used by anyone to control your bot.\n\nFor a description of the Bot API, see this page: https://core.telegram.org/bots/api"
       },
@@ -71382,7 +72038,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.21,
+        "staleness_days": 0.23,
         "state": "captured",
         "text": "why did you stop...is the swarm and rsi working ..atleast you need to monitor and intervene where needed..if required use routines in claude code for regular monitoring"
       },
@@ -71396,7 +72052,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.21,
+        "staleness_days": 0.23,
         "state": "captured",
         "text": "1) https://code.claude.com/docs/en/routines refer to this ..2) i pinged PrabhasaBot, but it did not respond...3)a new team account of claude is available, i want you to create every details needed to handover pravrudhi developement work to it (both studio and user)...it will have claude tag too..so leverage it....4)keep running until full handoff is done"
       },
@@ -71410,7 +72066,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.2,
+        "staleness_days": 0.23,
         "state": "captured",
         "text": "[08/09/2026 16:59] PrabhasaBot: [Pravrudhi Studio] Commands: /status, /requests, /routes, /beat, /ask, /help\n[08/09/2026 16:59] PrabhasaBot: [Pravrudhi Studio] I could not answer that: https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1/chat/completions answered 429: {\"error\":{\"message\":\"Your token-plan 1-week quota has been exhausted. The quota will reset at 09-14 16:14:00 UTC.\",\"id\":\"0b36a90c-a18b-48ec-ba1b-36991b4f3aec\",\"type\":\"insufficient_quota\",\"code\":\"insufficient_quota\"}} why is PrabhasaBot responding as Studio...it is the other bot which should be studio and this one is working on user objective of prabhasa..the end client"
       },
@@ -71424,7 +72080,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.2,
+        "staleness_days": 0.22,
         "state": "captured",
         "text": "you have not read the routines link i sent...you won't need a different cron job..stop that...don't run any routine as background tasks...and you are"
       },
@@ -71438,7 +72094,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.16,
+        "staleness_days": 0.18,
         "state": "captured",
         "text": "Here's how to create a routine in Claude Code, using the **CLI** path:\n\n1. **Start it**: Run `/schedule` (alias `/routines`) in any session. You can pass a description directly, e.g. `/schedule daily PR review at 9am` or a one-off like `/schedule in 2 weeks, open a cleanup PR that removes the feature flag`.\n2. **Answer follow-ups**: Claude asks about the schedule, repositories, and prompt, then saves the routine to your claude.ai account. If it says you need to authenticate, no routine was created \u2014 check [troubleshooting](/en/routines#troubleshooting).\n3. **Triggers**: `/schedule` only creates *schedule* triggers (recurring or one-off). For a custom cron interval, run `/schedule update`. To add an **API** trigger, you must use the web at [claude.ai/code/routines](https://claude.ai/code/routines). To add a **GitHub** trigger from the CLI (v2.1.225+), install the [GitHub App](https://github.com/apps/claude) first, then ask e.g. `/schedule add a GitHub trigger to my nightly review for pull requests opened in acme/webapp`.\n4. **Manage it**: `/schedule list` shows all routines, `/schedule update` edits one, `/schedule run` triggers it immediately. You can also ask `/schedule why did my nightly review do nothing this morning?` for run history.\n\nAlternatively, create/edit routines fully (prompt, repos, environment, connectors, all trigger types) at [claude.ai/code/routines](https://claude.ai/code/routines) or in the Desktop app's Code tab \u2192 Routines \u2192 New routine \u2192 **Cloud**.\n\nNote: routines run autonomously with no permission prompts, so scope repositories, connectors, and environment network access carefully. Full details: [Routines](/en/routines)...you set it up..manage the cli too....and on orphaned processes, salvage what is needed and discard the processes...2)you are again not leveraging gpt astra..3)is the studio or the user pravrudhi actively and autonomously working"
       },
@@ -71452,7 +72108,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.16,
+        "staleness_days": 0.18,
         "state": "captured",
         "text": "1)do local schedule task 2)you have to unblock studio on my behalf..crate a hook..or respond when you get the message...you only come to operator for what you cannot handle yourself 3)for product, i have given the objective...you have to stand-up prabhasa-nyaya...so plan, hand-hold, monitor and let the product build using its rsi"
       },
@@ -71466,7 +72122,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.14,
+        "staleness_days": 0.17,
         "state": "captured",
         "text": "1)create and use scheduled tasks to unblock the studio, product and guide it..better every 30 minutes than wasting 2 hrs if they get stuck.... 2) investigate why you exhausted alibaba lite plan so quickly (becuase of max model?)..check the other session which did some investigation and improve the routing for better model selection (to not exhaust the quota)"
       },
@@ -71480,7 +72136,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.14,
+        "staleness_days": 0.16,
         "state": "captured",
         "text": "alibaba switched to standard plan..so you will have quota now (25% used for the 7 days)...but manage very carefully..don't overload high cost models...improve the routing first and then use them effectively"
       },
@@ -71494,7 +72150,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.05,
+        "staleness_days": 0.08,
         "state": "captured",
         "text": "[08/09/2026 19:55] PravrudhiBot: 1 thing(s) worth a look:\n\u2022 [medium] qwen-lite-flash (0.05) is sitting out a usage limit, so work is going to qwen-loop (0.20) \u2014 back at 2026-09-08T20:22:41Z\n[08/09/2026 20:25] PravrudhiBot: 1 thing(s) worth a look:\n\u2022 [medium] qwen-lite-flash (0.05) is sitting out a usage limit, so work is going to qwen-loop (0.20) \u2014 back at 2026-09-08T20:22:41Z..pravrudhibot is just sending this repeated message"
       },
@@ -73692,16 +74348,16 @@
     "channel": "dev",
     "check_interval_min": 30,
     "current": {
-      "git_describe": "v0.4.0-49-g84a0bd9",
+      "git_describe": "v0.4.0-50-geb69470",
       "kernel_version": "0.1.0",
       "version": "0.4.0"
     },
     "keep_previous": 2
   },
   "version": {
-    "commit": "84a0bd9",
+    "commit": "eb69470",
     "engine": "0.4.0",
-    "exported_at": "2026-09-08T20:54:56.761Z",
+    "exported_at": "2026-09-08T21:25:46.506Z",
     "kernel": "0.1.0"
   }
 }
