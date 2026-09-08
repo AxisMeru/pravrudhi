@@ -13,6 +13,7 @@ from pravrudhi.application.deliberate import DecorativeAbort, deliberate
 from pravrudhi.application.execute import NightContext, evaluate_and_dispose, train
 from pravrudhi.application.propose import propose, strategy_switch_rate
 from pravrudhi.application.spine import resolve_model_snapshot
+from pravrudhi.models.llama_server import LlamaServer
 from pravrudhi.models.proposer import proposer_client
 from pravrudhi.targets import LoraRecipe
 from pravrudhi_kernel.ledger import LedgerWriter
@@ -25,6 +26,22 @@ def load_train_rows(parquet: Path) -> list[dict[str, str]]:
     import pyarrow.parquet as pq
 
     return [{"question": str(r["question"]), "answer": str(r["answer"])} for r in pq.read_table(parquet).to_pylist()]
+
+
+def proposer_ctx(max_tokens: int) -> int:
+    """Context for the proposer server: room for the answer AND for a prompt that grows with the history.
+
+    This was `max_tokens * 2 + 8192`, whose additive term is an assumption about prompt length. The proposer
+    prompt is built from `ledger_summary`, so it grows as the ledger fills. By night 17 that prompt was 16268
+    tokens inside a 16384-token context, leaving 116 tokens to answer in: the reply was cut mid-object, the
+    fragment failed schema validation, and the night closed having spent 0.00 of 3.0 GPU-hours while reporting
+    `status: closed`. The engine had quietly tightened its own proposer as it accumulated evidence.
+
+    Sizing below the server's own default only saves memory, and that saving cost the loop its main job for days,
+    so the default is now a floor. A larger `max_tokens` still raises it: the floor is a floor, not a cap.
+    `propose` additionally reports any truncation as such, so a future shortfall is visible rather than silent.
+    """
+    return max(LlamaServer(Path(__file__)).ctx, max_tokens * 2 + 8192)
 
 
 def run_night(
@@ -88,7 +105,7 @@ def run_night(
         log(f"deliberation window: {already} proposals already in the ledger for night {night}; not proposing again")
     else:
         with proposer_client(
-            gguf, ctx=int(cfg["proposer"]["max_tokens"]) * 2 + 8192, endpoint=endpoint, log=log
+            gguf, ctx=proposer_ctx(int(cfg["proposer"]["max_tokens"])), endpoint=endpoint, log=log
         ) as client:
             accepted = propose(
                 root,

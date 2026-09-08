@@ -219,6 +219,30 @@ def propose_generic(
         epoch=0,
         night=night,
     )
+    if res.finish_reason == "length":
+        # Truncation is not a bad candidate, and recording it as one cost days. The proposer prompt is built from
+        # `ledger_summary`, so it grows with the history; the context was sized by a formula that assumed a short
+        # one. On night 17 a 16268-token prompt in a 16384-token context left 116 tokens to answer in, the object
+        # was cut mid-field, and the only visible signal was "strategy: Field required" — which reads as a model
+        # producing nonsense rather than a model never given room to finish.
+        w.append(
+            "audit",
+            "proposer",
+            {
+                "kind": "proposer_truncated",
+                "severity": "high",
+                "detail": "the proposer hit the completion limit; the context leaves too little room to answer",
+                "prompt_tokens": res.prompt_tokens,
+                "completion_tokens": res.completion_tokens,
+                "max_tokens": max_tokens,
+            },
+            epoch=0,
+            night=night,
+        )
+        log(
+            f"proposer: TRUNCATED — prompt {res.prompt_tokens} tokens left only {res.completion_tokens} for the "
+            f"answer (max_tokens={max_tokens}); widen the proposer context"
+        )
     try:
         raw = _extract_json_array(res.text)
     except ValueError as e:
