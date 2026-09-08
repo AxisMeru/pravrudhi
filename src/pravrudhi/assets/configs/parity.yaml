@@ -100,7 +100,8 @@ rows:
   evidence:
   - 'command: grep -qF "<NotificationBell />" app/frontend/src/components/Sidebar.tsx'
   - app/frontend/src/components/notifications/NotificationBell.tsx
-  - 'command: .venv/bin/python -m pytest tests/test_messaging.py -q'
+  - tests/test_messaging.py
+  - 'command: grep -qF a_workspace_never_reaches_the_operators_environment tests/test_messaging.py'
   - app/frontend/src/app/settings/page.tsx
   notes: The in-app bell is mounted, and a notification is also delivered to Telegram - the operator's engine
     through its own environment, a user's workspace through a bot they add in settings, and never one through
@@ -124,7 +125,8 @@ rows:
   - app/desktop/electron-builder.studio.json
   - docs/DESKTOP.md
   - app/frontend/src/app/desktop/page.tsx
-  - 'command: npm --prefix app/desktop test'
+  - app/desktop/test/edition.test.js
+  - 'command: grep -qF shellStale app/desktop/renderer/app.js'
   - 'command: grep -q windows-latest .github/workflows/release.yml'
   notes: >-
     Run rather than read, and now as two installs. Studio and the product are separate builds with their own
@@ -152,8 +154,18 @@ rows:
   notes: Source-level System page; actual health depends on live data.
 # Orca's own twelve advertised capabilities, taken from the feature wall its installed AppImage ships in
 # resources/onboarding/feature-wall (each tile names its source recording and the date it was made). Every
-# orca: have below is that list, not an impression of it. The other three rivals stay unknown because nothing
-# comparable has been inspected for them, and guessing would make the whole table worthless.
+# orca: have below is that list, not an impression of it.
+#
+# The eight rows still reading `orca: unknown` are the ones where this engine has something Orca does not
+# advertise, and they are exactly the rows that would substantiate "richer than Orca". They were probed on
+# 2026-09-08 against the installed AppImage's bundle and the probe was not good enough to record: narrow
+# patterns returned zero for streaming, sandbox, health and queueing, and broader ones returned hundreds of
+# hits for all four. The first result was evidence about the pattern, not about Orca. Substring counts in a
+# minified bundle cannot tell a product surface from an internal helper, so the column stays unknown.
+#
+# What the board therefore says today, plainly: ahead of Orca on nothing assessed, level on eight, behind on
+# four, and eight never checked. It does not support a claim of being richer, and filling the column on the
+# strength of grep counts would make it worthless — which is the whole reason it exists.
 - id: parallel-worktrees
   capability: Parallel agents in isolated worktrees
   why_it_matters: Run several agents at once without them overwriting each other.
@@ -274,7 +286,7 @@ rows:
   evidence:
   - 'command: grep -qF metaKey app/frontend/src/components/palette/CommandPalette.tsx'
   - 'command: grep -qF KeyboardShortcuts app/frontend/src/app/layout.tsx'
-  - 'command: npm --prefix app/frontend test'
+  - app/frontend/src/components/keyboard/dismiss.spec.ts
   notes: Ctrl+K opens the palette over pages, actions and records; digits 1-9 reach the sidebar directly; "/"
     focuses the page's own input; "?" lists every shortcut; Escape closes the topmost layer only, which is the
     part with a test rather than a screenshot. A key pressed while typing is left to the field it was typed into.
@@ -295,7 +307,7 @@ rows:
   rivals: {orca: have, claude_desktop: unknown, codex: unknown, openclaw: none}
   ours: have
   evidence:
-  - 'command: .venv/bin/python -m pytest tests/test_api_and_product.py -k note -q'
+  - 'command: grep -qF a_note_can_be_written_corrected_and_deleted_over_the_api tests/test_api_and_product.py'
   - 'command: grep -qF onSave={saveNote} app/frontend/src/app/memory/page.tsx'
   notes: A note is written, corrected in place and deleted, with a Markdown source/preview editor over a
     renderer whose escaping and scheme allowlist are tested as attacks. The claim is the round trip rather than

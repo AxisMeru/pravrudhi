@@ -310,6 +310,11 @@ export interface MessagingStatus {
 }
 
 export async function messagingStatus(): Promise<MessagingStatus> {
+  // The recording has no engine behind it, so asking one for messaging settings reaches a local address that
+  // is not there and logs a CORS error on the settings page. The write paths were guarded and this read was
+  // not; the deployed suite caught it in Firefox and WebKit, on the published site, where a console error is
+  // exactly what a visitor's browser would show.
+  if (IS_DEMO) return { configured: false, enabled: false, chat_id: "", from_environment: false };
   return getJSON<MessagingStatus>("/api/messaging/telegram");
 }
 
