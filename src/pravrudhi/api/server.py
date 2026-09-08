@@ -480,6 +480,11 @@ def create_app(root: Path) -> FastAPI:
 
     @api.get("/nights")
     def nights_ep() -> NightsResponse:
+        # A workspace that has run nothing has no ledger — `research/` is gitignored and the file appears when
+        # the first night does. Opening it unconditionally meant a fresh install answered this page with a
+        # FileNotFoundError before its user had done anything.
+        if not ledger.exists():
+            return NightsResponse.model_validate([])
         starts: dict[tuple[int, str], dict[str, Any]] = {}
         rows: list[dict[str, Any]] = []
         for event in iter_events(ledger):
@@ -629,6 +634,9 @@ def create_app(root: Path) -> FastAPI:
 
     @api.get("/candidates")
     def candidates() -> CandidatesResponse:
+        # Same as `/nights`: nothing proposed yet is an empty list, not a missing file.
+        if not ledger.exists():
+            return CandidatesResponse.model_validate([])
         st = replay(ledger)
         return CandidatesResponse.model_validate(
             [{"id": cid, "badge": st.badges[cid], **c.model_dump()} for cid, c in st.candidates.items()]

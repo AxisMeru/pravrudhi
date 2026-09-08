@@ -243,3 +243,24 @@ def test_a_bot_token_with_nowhere_to_deliver_is_refused(tmp_path: Path) -> None:
     refused = c.put("/api/messaging/telegram", json={"token": "123456:ABC"}, headers=tok)
     assert refused.status_code == 422
     assert c.get("/api/messaging/telegram", headers=tok).json()["configured"] is False
+
+
+def test_a_workspace_that_has_run_nothing_still_serves_every_page(tmp_path: Path) -> None:
+    """A fresh install has no ledger — `research/` is gitignored and nothing has run a night — and two
+    endpoints opened it unconditionally. So installing this engine and opening the Candidates or Nights page
+    produced a FileNotFoundError from the server, before the user had done anything wrong.
+
+    It surfaced as CI's live-interface job failing with `[WebServer] FileNotFoundError`, on the one job that
+    drives a real engine from a clean checkout. Nothing run yet means no nights and no candidates, which is an
+    empty answer rather than a crash.
+    """
+    root = tmp_path / "never-used"
+    root.mkdir()
+    assert not (root / "research" / "ledger.jsonl").exists()
+    client = TestClient(create_app(root), base_url="http://127.0.0.1:8008")
+
+    for path in ("/api/nights", "/api/candidates"):
+        answer = client.get(path)
+        assert answer.status_code == 200, f"{path} answered {answer.status_code} on a workspace with no ledger"
+
+    assert client.get("/api/nights").json() in ([], {"nights": []})
