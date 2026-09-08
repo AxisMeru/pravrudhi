@@ -19,11 +19,28 @@ minimum_trials: 3
 confidence: 0.95
 
 routes:
+  - id: qwen-lite-flash
+    agent: opencode:alibaba-plan
+    model: qwen3.8-flash
+    relative_cost: 0.05
+    token_budget: 6000000
+    tiers: [mechanical]
+    note: >-
+      The same Lite Plan, its cheap high-throughput model. Added 2026-09-08 after the plan's one-week quota was
+      exhausted inside a day. The cause was not one expensive call: qwen3.8-max, the vendor's FLAGSHIP, was the
+      declared first choice at both mechanical and standard, driving agent loops whose steps cost about 20,000
+      tokens each (one measured step of a trivial task: 20,419 total, 19,584 read from cache), dispatched hourly.
+      Mechanical work is what a fast cheap model is for. The two share one quota, so this buys no capacity; it
+      lowers the burn rate for the work that never needed the flagship, which is most of it. Admitted at
+      mechanical only -- the same tier the plan's other model earned on one verified tool call -- because a
+      cheaper model is not thereby a better one.
+
   - id: qwen-lite-max
     agent: opencode:alibaba-plan
     model: qwen3.8-max
     relative_cost: 0.15
-    tiers: [mechanical, standard]
+    token_budget: 2000000
+    tiers: [standard]
     note: >-
       Alibaba's Lite Plan flagship, on a plan-exclusive endpoint with its own key file and a credit budget rather
       than a free-tier token cap. Verified live on 2026-09-07: given a file and a read tool it called the tool
@@ -128,7 +145,10 @@ declared:
   # The verified Qwen loop is declared ahead of the single-shot sentinel at the two tiers it was measured at, so
   # a spent paid account falls to a real tool loop first and to a one-shot writer only after that. Both are named
   # here rather than left to the cost sort, which ranked them by id and put the sentinel above the loop.
-  mechanical: [qwen-lite-max, sonnet, local-glm]
+  # mechanical leads with the plan's cheap high-throughput model, not its flagship. The flagship led both tiers
+  # until 2026-09-08, when a one-week quota went in a day: mechanical fires most often, and an agent loop costs
+  # roughly 20,000 tokens per step whichever model runs it, so the model that runs there decides the burn rate.
+  mechanical: [qwen-lite-flash, sonnet, local-glm]
   standard: [qwen-lite-max, sonnet]
   design: [sonnet, opus, astra]
   critical: [astra, opus, sonnet]

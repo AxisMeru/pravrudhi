@@ -126,7 +126,7 @@ def _remember_thread(root: Path, chat_id: str, thread_id: str) -> None:
     current[str(chat_id)] = thread_id
     path.write_text(json.dumps(current, indent=1, sort_keys=True))
 
-COMMANDS: tuple[str, ...] = ("status", "requests", "routes", "beat", "ask", "help")
+COMMANDS: tuple[str, ...] = ("status", "requests", "request", "routes", "beat", "ask", "help")
 """Every name this engine answers to. A command outside this set is answered with help, never guessed at."""
 
 _OFFSET_FILE = ".pravrudhi/telegram-offset.json"
@@ -187,6 +187,26 @@ def _requests_text(root: Path) -> str:
         met = sum(1 for c in criteria if c.get("met"))
         lines.append(f"{r.get('id')} [{r.get('state')}] {met}/{len(criteria)} — {str(r.get('text', ''))[:70]}")
     return "\n".join(lines)
+
+
+def _request_text(root: Path, text: str, *, chat_id: str) -> str:
+    """Put the operator's ask on record. The text is CAPTURED, never interpreted as instructions to execute.
+
+    This is the bot's first action rather than another answer: until now it could report what the engine had
+    done and nothing else, so anything the operator wanted had to wait for them to reach a terminal. A captured
+    request is what the obligations drive works from, so this is also the shortest path from a phone to the loop
+    actually building something.
+
+    The distinction in the first line is the whole safety argument. A message arriving over the network is
+    untrusted input; recording it as a request the operator can review is safe, and acting on its contents
+    directly would not be.
+    """
+    if not text.strip():
+        return "Usage: /request <what you want done>"
+    from pravrudhi.application.requests import capture
+
+    request = capture(root, text, session=f"telegram:{chat_id}")
+    return f"Request on record: {request.id} [{request.state}]. Use /requests to review it."
 
 
 def _routes_text(root: Path) -> str:
@@ -251,6 +271,8 @@ def _body_for(root: Path, command: str, argument: str, *, chat_id: str) -> str:
             return _status_text(root)
         if command == "requests":
             return _requests_text(root)
+        if command == "request":
+            return _request_text(root, argument, chat_id=chat_id)
         if command == "routes":
             return _routes_text(root)
         if command == "beat":
@@ -291,6 +313,8 @@ def _answer(root: Path, message: str, *, chat_id: str) -> str:
 
 def poll_once(root: Path, *, chat_id: str, fetch: Fetch, send: Send) -> int:
     """Answer whatever has arrived since the last poll. Returns how many messages were answered."""
+    if not str(chat_id).strip():
+        return 0  # no configured or paired chat means no authority to act on anything that arrives
     offset = _read_offset(root)
     try:
         payload = fetch(offset=offset)

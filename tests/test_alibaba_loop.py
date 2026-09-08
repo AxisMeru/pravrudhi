@@ -121,3 +121,26 @@ def test_the_workspace_is_named_absolutely_so_writes_cannot_escape_it(tmp_path, 
     given = cmd[cmd.index("--dir") + 1]
     assert Path(given).is_absolute(), given
     assert Path(given) == ws.resolve()
+
+
+def test_the_transcript_yields_what_the_turn_cost(tmp_path, monkeypatch, key):
+    """A dispatch that cannot say what it spent cannot be budgeted, and a quota went in a day for want of this.
+
+    OpenCode reports usage on each `step_finish`. The largest total across the turn is the cumulative figure —
+    the counts include the context replayed every step, so summing them would multiply one conversation's cost
+    by its number of steps.
+    """
+    transcript = "\n".join([
+        event("step_finish", reason="tool-calls", tokens={"total": 20419, "input": 569, "output": 50}),
+        event("step_finish", reason="tool-calls", tokens={"total": 33110, "input": 856, "output": 66}),
+        event("step_finish", reason="stop", tokens={"total": 41002, "input": 980, "output": 71}),
+    ])
+    monkeypatch.setattr(alibaba, "_run", lambda *a, **k: (0, transcript, "", 1.0))
+    result = alibaba.AlibabaAgent(tmp_path).run("do it", tmp_path)
+    assert result.ok
+    assert result.tokens == 41002, result.tokens
+
+
+def test_a_transcript_without_usage_reports_zero_not_a_guess(tmp_path, monkeypatch, key):
+    monkeypatch.setattr(alibaba, "_run", lambda *a, **k: (0, event("step_finish", reason="stop"), "", 1.0))
+    assert alibaba.AlibabaAgent(tmp_path).run("x", tmp_path).tokens == 0

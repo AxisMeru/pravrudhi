@@ -107,3 +107,34 @@ def test_every_reply_names_which_engine_answered(tmp_path: Path, monkeypatch: py
 
     assert prose.startswith("[Pravrudhi Studio]"), prose
     assert status.startswith("[Pravrudhi Studio]"), status
+
+
+def test_the_bot_can_put_a_request_on_record(tmp_path: Path) -> None:
+    """The bot's first action, rather than another answer.
+
+    Until this it could report what the engine had done and nothing else, so anything the operator wanted had to
+    wait until they reached a terminal. A captured request is what the obligations drive works from, so this is
+    the shortest path from a phone to the loop building something.
+    """
+    from pravrudhi.application import requests
+
+    reply = tg.reply_for(tmp_path, "request", "seal a Sanskrit evaluation pool", chat_id="42")
+    assert "Request on record: r-" in reply, reply
+
+    backlog = requests.load(tmp_path)
+    assert any("Sanskrit evaluation pool" in r.text for r in backlog), [r.text for r in backlog]
+
+
+def test_an_empty_request_is_usage_not_an_empty_record(tmp_path: Path) -> None:
+    from pravrudhi.application import requests
+
+    assert "Usage:" in tg.reply_for(tmp_path, "request", "   ", chat_id="42")
+    assert requests.load(tmp_path) == []
+
+
+def test_no_paired_chat_means_no_authority_to_act(tmp_path: Path) -> None:
+    """An unconfigured bot must answer nobody, rather than treating the first arrival as its operator."""
+    called: list[str] = []
+    payload = {"result": [{"update_id": 1, "message": {"chat": {"id": 7}, "text": "/request do a thing"}}]}
+    answered = tg.poll_once(tmp_path, chat_id="", fetch=lambda offset=None: payload, send=called.append)
+    assert answered == 0 and called == []

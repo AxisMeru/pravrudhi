@@ -173,11 +173,17 @@ def test_the_verified_alibaba_routes_carry_load_where_they_were_measured() -> No
     assert t.routes["qwen-loop"].agent == "opencode:alibaba"
     assert t.routes["qwen-lite-max"].agent == "opencode:alibaba-plan"
 
+    # The PLAN carries both tiers; which of its models does so is a separate question, answered by cost. Since
+    # 2026-09-08 the flagship keeps `standard` and the cheap high-throughput model takes `mechanical`, because
+    # running the flagship on the tier that fires most often is what exhausted a one-week quota in a day.
     for tier in ("mechanical", "standard"):
-        assert "qwen-lite-max" in [r.id for r in t.permitted(tier)], tier
+        agents = {t.routes[r.id].agent for r in t.permitted(tier)}
+        assert "opencode:alibaba-plan" in agents, tier
         assert "qwen-loop" not in [r.id for r in t.permitted(tier)], (
             "the free tier answers 'the free quota has been exhausted' when asked to work"
         )
+    assert "qwen-lite-flash" in [r.id for r in t.permitted("mechanical")]
+    assert "qwen-lite-max" in [r.id for r in t.permitted("standard")]
     for tier in ("design", "critical"):
         for route_id in ("qwen-loop", "qwen-lite-max"):
             assert route_id not in [r.id for r in t.permitted(tier)], (route_id, tier)
@@ -191,11 +197,13 @@ def test_the_cheaper_verified_route_is_reached_before_the_dearer_one() -> None:
     plan is an order of magnitude cheaper than sonnet and is reached first.
     """
     t = routing.load_table()
+    plan_route = {"mechanical": "qwen-lite-flash", "standard": "qwen-lite-max"}
     for tier in ("mechanical", "standard"):
         order = [r.id for r in t.permitted(tier)]
-        assert "qwen-lite-max" in order, tier
-        assert order.index("qwen-lite-max") < order.index("sonnet"), tier
-        assert t.routes["qwen-lite-max"].relative_cost < t.routes["sonnet"].relative_cost
+        seat = plan_route[tier]
+        assert seat in order, tier
+        assert order.index(seat) < order.index("sonnet"), tier
+        assert t.routes[seat].relative_cost < t.routes["sonnet"].relative_cost
 
 
 def test_choose_drops_a_cooling_route_and_says_so(tmp_path: Path) -> None:

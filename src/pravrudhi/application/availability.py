@@ -104,6 +104,33 @@ string, because an error message is full of numbers and a wrong parse here holds
 or, worse, returns it before the account has."""
 
 
+# "reset at 09-14 16:14:00 UTC" — a month-day with a clock, which is how a weekly quota states a return that is
+# days rather than hours away. Without this the bare-clock rule below read the 16:14 and offered it as today or
+# tomorrow, so the engine retried a seat with six days left to run, took another refusal, and cooled again.
+_DATED = re.compile(r"(\d{1,2})-(\d{1,2})\s+(\d{1,2}):(\d{2})(?::\d{2})?\s*(UTC|GMT)?", re.IGNORECASE)
+
+
+def _dated_reset(text: str, now: datetime) -> datetime | None:
+    """A month-day-and-time the vendor stated, resolved against the year it must belong to."""
+    match = _DATED.search(text or "")
+    if not match:
+        return None
+    month, day, hour, minute = (int(match.group(i)) for i in (1, 2, 3, 4))
+    if not (1 <= month <= 12 and 1 <= day <= 31 and hour <= 23 and minute <= 59):
+        return None
+    try:
+        stated = now.replace(year=now.year, month=month, day=day, hour=hour, minute=minute, second=0, microsecond=0)
+    except ValueError:
+        return None
+    # A date already past means the vendor is naming next year's, which happens either side of a new year.
+    if stated < now:
+        try:
+            stated = stated.replace(year=now.year + 1)
+        except ValueError:
+            return None
+    return stated.astimezone(UTC)
+
+
 def reset_at(text: str, *, now: datetime | None = None, tz: tzinfo | None = None) -> datetime | None:
     """When the vendor says the account comes back, or None if it did not say.
 
@@ -116,6 +143,11 @@ def reset_at(text: str, *, now: datetime | None = None, tz: tzinfo | None = None
     earlier in the day than the failure means tomorrow: a vendor saying "try again at 9 AM" at 5 PM is not
     offering this morning.
     """
+    when_now = _aware(now or datetime.now(UTC))
+    dated = _dated_reset(text, when_now)
+    if dated is not None:
+        return dated
+
     match = _TIME.search(text or "")
     if not match:
         return None

@@ -44,6 +44,10 @@ class AgentRun:
     workspace: Path
     session_id: str | None = None
     cost_usd: float | None = None
+    tokens: int = 0
+    """What the turn consumed, when the adapter can tell. Zero means unknown, never free — a dispatch that
+    cannot report its cost cannot be budgeted, and a weekly quota went in a day for want of this."""
+
     stderr_tail: str = ""
 
 

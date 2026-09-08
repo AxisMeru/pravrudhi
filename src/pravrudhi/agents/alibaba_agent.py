@@ -5,6 +5,7 @@ reference only. Availability is a local check, not a claim that quota remains.
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import shlex
@@ -121,7 +122,7 @@ class AlibabaAgent(GitWorktreeMixin):
         # Exact replacement also protects credentials not matched by the generic redactor.
         out = redact(out.replace(key.reveal(), "[REDACTED]"))
         err = redact(err.replace(key.reveal(), "[REDACTED]"))
-        finished, failed, session = False, False, None
+        finished, failed, session, tokens = False, False, None, 0
         for line in out.splitlines():
             try:
                 event = json.loads(line)
@@ -131,6 +132,12 @@ class AlibabaAgent(GitWorktreeMixin):
                 continue
             session = event.get("sessionID") or session
             failed |= event.get("type") == "error"
+            # OpenCode reports usage on each step. The counts are cumulative — every step replays the context —
+            # so the largest is the turn's cost and summing them would multiply one conversation by its steps.
+            usage = (event.get("part") or {}).get("tokens") if isinstance(event.get("part"), dict) else None
+            if isinstance(usage, dict):
+                with contextlib.suppress(TypeError, ValueError):
+                    tokens = max(tokens, int(usage.get("total") or 0))
             part = event.get("part") or {}
             if isinstance(part, dict):
                 finished |= event.get("type") == "step_finish" and part.get("reason") == "stop"
@@ -138,4 +145,4 @@ class AlibabaAgent(GitWorktreeMixin):
         if not ok and not err:
             err = "OpenCode reported an error or exited without a completed turn"
         return AgentRun(self.name, ok, code if code else (0 if ok else 1), wall, out, workspace,
-                        session_id=session, stderr_tail=err[-2000:])
+                        session_id=session, tokens=tokens, stderr_tail=err[-2000:])

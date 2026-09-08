@@ -64,6 +64,10 @@ class Verdict:
     files: list[str] = field(default_factory=list)
     validation_output: str = ""
     wall_s: float = 0.0
+    tokens: int = 0
+    """What the dispatch consumed, carried up from the agent so the router can budget. Zero means the adapter
+    could not tell, never that the work was free."""
+
     limited: bool = False
     resets_at: str = ""
     """When the vendor said the account comes back, ISO-8601 in UTC, empty when it did not say. Parsed here for
@@ -180,7 +184,8 @@ def dispatch(agent: Any, task: TaskSpec, *, log: Any = print) -> Verdict:
             reasons.append("validation failed")
     verdict = Verdict(
         task_id=task.task_id, agent=agent.name, accepted=not reasons, reasons=reasons,
-        files=diff.files, validation_output=output[-2000:], wall_s=run.wall_s, limited=limited, resets_at=resets_at,
+        files=diff.files, validation_output=output[-2000:], wall_s=run.wall_s,
+        tokens=int(getattr(run, "tokens", 0) or 0), limited=limited, resets_at=resets_at,
     )
     log(f"{task.task_id}: {'ACCEPTED' if verdict.accepted else 'REJECTED'} ({'; '.join(reasons) or 'all checks passed'})")
     return verdict

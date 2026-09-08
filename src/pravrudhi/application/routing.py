@@ -53,6 +53,14 @@ class Route:
     relative_cost: float
     tiers: tuple[str, ...]
     note: str = ""
+    token_budget: int = 0
+    """Tokens this route may spend in a rolling week, or 0 for "not declared".
+
+    Cost ratio answers "which is cheaper per unit of work"; it does not answer "how much of this is left". A
+    router with only the first will spend the second and be surprised, which is what happened on 2026-09-08 when
+    a one-week plan allowance went inside a day. Only a seat whose allowance is actually known declares one —
+    inventing a budget for a differently-billed account would be a number the engine does not have."""
+
     sentinel: bool = False
     """A standby that takes over, rather than a route that competes.
 
@@ -80,6 +88,8 @@ class Outcome:
     wall_s: float
     at: str = ""
     limited: bool = False
+    tokens: int = 0
+    """What this dispatch consumed, when the adapter could tell. Zero means unknown, never free."""
 
 
 @dataclass(frozen=True)
@@ -144,6 +154,7 @@ def load_table(path: Path | None = None) -> Table:
             model=str(r["model"]),
             relative_cost=float(r["relative_cost"]),
             tiers=tuple(str(t) for t in (r.get("tiers") or ())),
+            token_budget=int(r.get("token_budget") or 0),
             note=str(r.get("note") or "").strip(),
             sentinel=bool(r.get("sentinel", False)),
         )
@@ -197,7 +208,8 @@ def outcomes(root: Path) -> list[Outcome]:
             d = json.loads(line)
             out.append(Outcome(tier=d["tier"], route_id=d["route_id"], task_id=d.get("task_id", ""),
                                accepted=bool(d["accepted"]), wall_s=float(d.get("wall_s", 0.0)), at=d.get("at", ""),
-                               limited=bool(d.get("limited", False))))
+                               limited=bool(d.get("limited", False)),
+                               tokens=int(d.get("tokens") or 0)))
         except (json.JSONDecodeError, KeyError, TypeError, ValueError):
             continue  # a corrupt line must not blind the router to the rest
     return out
@@ -249,6 +261,16 @@ def choose(table: Table, rows: list[Outcome], tier: str, root: Path | None = Non
 
     usable = availability.usable_routes(root, permitted) if root is not None else permitted
 
+    # A seat that has spent its declared weekly allowance is dropped exactly as a cooling one is: work moves to
+    # another route rather than stopping, because running out of cheap capacity should make the engine dearer,
+    # not idle. This is the check the router did not have on 2026-09-08, when a one-week plan allowance went in a
+    # day and the first anyone knew was a 429 saying come back in six.
+    exhausted: set[str] = over_budget(root, table) if root is not None else set()
+    if exhausted:
+        within = [r for r in usable if r.id not in exhausted]
+        if within:  # if every route is spent, spending is no longer the deciding fact
+            usable = within
+
     # Sentinels stand by. They enter the running only when nothing ordinary is left standing at this tier.
     ordinary = [r for r in usable if not r.sentinel]
     standby = [r for r in usable if r.sentinel]
@@ -281,7 +303,10 @@ def choose(table: Table, rows: list[Outcome], tier: str, root: Path | None = Non
     considered = tuple(r.id for r in usable)
     usable_ids = set(considered)
     dropped = [r.id for r in permitted if r.id not in usable_ids]
+    spent_out = sorted(exhausted & {r.id for r in permitted}) if root is not None else []
     cooling_suffix = f"; dropped cooling route(s) {', '.join(dropped)}" if dropped else ""
+    if spent_out:
+        cooling_suffix += f"; dropped for weekly token allowance: {', '.join(spent_out)}"
 
     rs_all = records(table, rows, tier)
     rs = [r for r in rs_all if r.route_id in usable_ids]
@@ -311,6 +336,40 @@ def choose(table: Table, rows: list[Outcome], tier: str, root: Path | None = Non
                   f"({pick.successes}/{pick.trials} against {best.successes}/{best.trials}), so the extra "
                   f"spend is not yet justified{cooling_suffix}")
     return Choice(tier, route, reason, considered, tuple(rs_all))
+
+
+def spend(root: Path, *, window_days: int = 7, now: datetime | None = None) -> dict[str, int]:
+    """Tokens consumed per route inside a rolling window.
+
+    A weekly allowance must not be spent by last month's work, so the window is rolling rather than a calendar
+    period: a route that ran hot a fortnight ago is not still paying for it today.
+    """
+    cutoff = (now or datetime.now(UTC)).timestamp() - window_days * 86400
+    totals: dict[str, int] = {}
+    for row in outcomes(root):
+        if not row.tokens:
+            continue
+        try:
+            when = datetime.strptime(row.at, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC).timestamp()
+        except (ValueError, TypeError):
+            continue  # an unparseable timestamp must not silently count as recent
+        if when >= cutoff:
+            totals[row.route_id] = totals.get(row.route_id, 0) + int(row.tokens)
+    return totals
+
+
+def over_budget(root: Path, table: Table, *, now: datetime | None = None) -> set[str]:
+    """Routes that have spent their declared allowance for the week.
+
+    Only a route that declares one can exceed one. Claude and codex seats are billed differently and declare
+    nothing, so they are never dropped for spend — guessing an allowance for them would be a number the engine
+    does not have, and dropping a route on a guess is how you end up with no route at all.
+    """
+    spent = spend(root, now=now)
+    return {
+        route.id for route in table.routes.values()
+        if route.token_budget and spent.get(route.id, 0) >= route.token_budget
+    }
 
 
 def permitted_after(
