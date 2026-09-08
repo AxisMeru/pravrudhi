@@ -22,6 +22,7 @@ until the offset moves past it; a poller that forgets answers the same question 
 
 from __future__ import annotations
 
+import contextlib
 import json
 from collections.abc import Callable
 from pathlib import Path
@@ -31,6 +32,56 @@ Fetch = Callable[..., dict[str, Any]]
 Send = Callable[[str], None]
 
 _THREADS_FILE = ".pravrudhi/telegram-threads.json"
+_PAIR_FILE = ".pravrudhi/telegram-chat.json"
+
+
+def paired_chat(root: Path) -> str | None:
+    """The chat this workspace has been paired with, if any."""
+    try:
+        value = str(json.loads((Path(root) / _PAIR_FILE).read_text())["chat_id"]).strip()
+        return value or None
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
+def _remember_chat(root: Path, chat_id: str) -> None:
+    path = Path(root) / _PAIR_FILE
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"chat_id": str(chat_id)}, indent=1))
+
+
+def adopt_chat(root: Path, *, fetch: Fetch, send: Callable[[str, str], None]) -> str | None:
+    """Pair with the first chat that speaks, when this workspace has none.
+
+    Telegram reveals no chat id until a person opens the conversation, so a newly created bot cannot be
+    configured ahead of time: without this the operator has to message the bot, go and find the numeric id, and
+    paste it back — three pieces of clerical work to connect something they already own.
+
+    It fires only when there is no chat id at all, and takes the first chat and nothing after. A bot that
+    re-adopted would follow whoever spoke most recently, which is not a pairing.
+    """
+    if paired_chat(root):
+        return None
+    try:
+        payload = fetch(offset=None)
+    except Exception:  # noqa: BLE001 (an unreachable Telegram is not a reason to fail a poll)
+        return None
+    for update in payload.get("result") or []:
+        message = update.get("message") or update.get("channel_post")
+        if not isinstance(message, dict):
+            continue
+        chat = message.get("chat") or {}
+        chat_id = chat.get("id")
+        if chat_id is None:
+            continue
+        _remember_chat(root, str(chat_id))
+        # Addressed to the chat just adopted: the greeting cannot close over a target that does not exist yet, and
+        # a greeting that fails must not undo a pairing that succeeded.
+        with contextlib.suppress(Exception):
+            send(str(chat_id), f"[{_edition_label()}] Paired. Ask me anything about this engine, or use "
+                 + ", ".join(f"/{c}" for c in COMMANDS) + ".")
+        return str(chat_id)
+    return None
 
 
 def _converse(root: Path, message: str, *, thread_id: str | None = None, **kw: Any) -> Any:
@@ -285,8 +336,8 @@ def live_poll(root: Path) -> int:
     from pravrudhi.application.credentials import Secret
 
     token = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
-    chat_id = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
-    if not token or not chat_id:
+    chat_id = os.environ.get("TELEGRAM_CHAT_ID", "").strip() or paired_chat(root) or ""
+    if not token:
         return 0
 
     def fetch(offset: int | None = None) -> dict[str, Any]:
@@ -296,12 +347,23 @@ def live_poll(root: Path) -> int:
         with urllib.request.urlopen(url, timeout=30) as response:  # noqa: S310 (a fixed, known host)
             return json.loads(response.read().decode("utf-8"))  # type: ignore[no-any-return]
 
-    def send(text: str) -> None:
+    def send_to(target: str, text: str) -> None:
         reach.send(root, kind="operator_reply", title=text, detail="",
-                   token=Secret(provider="telegram", value=token), chat_id=chat_id,
+                   token=Secret(provider="telegram", value=token), chat_id=target,
                    filter_config=reach.NotificationFilter(kinds={"operator_reply"}))
 
-    return poll_once(root, chat_id=chat_id, fetch=fetch, send=send)
+    if not chat_id:
+        # Nothing configured and nothing paired: the next person to message this bot becomes its operator. The
+        # greeting has to be addressed to the chat being adopted, which is not known until `adopt_chat` finds it,
+        # so the sender takes its target rather than closing over one that is still empty.
+        adopted = adopt_chat(root, fetch=fetch, send=send_to)
+        if adopted is None:
+            return 0
+        chat_id = adopted
+
+    return poll_once(root, chat_id=chat_id, fetch=fetch, send=lambda text: send_to(chat_id, text))
 
 
-__all__ = ["COMMANDS", "live_poll", "parse_command", "poll_once", "reply_for"]
+__all__ = [
+    "COMMANDS", "adopt_chat", "live_poll", "paired_chat", "parse_command", "poll_once", "reply_for",
+]
