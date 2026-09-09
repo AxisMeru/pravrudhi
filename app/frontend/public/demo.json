@@ -352,7 +352,7 @@
         "drive": "seva",
         "kind": "obligation"
       },
-      "as_of": "2026-09-09T06:18:09Z",
+      "as_of": "2026-09-09T06:50:30Z",
       "drives": [
         {
           "blocked_reason": "",
@@ -482,7 +482,7 @@
             "captured=32",
             "verified=5",
             "R_verified=0.1562",
-            "oldest_open_days=2.53"
+            "oldest_open_days=2.56"
           ],
           "target": 0.9,
           "unknown": false,
@@ -638,7 +638,7 @@
           "captured=32",
           "verified=5",
           "R_verified=0.1562",
-          "oldest_open_days=2.53"
+          "oldest_open_days=2.56"
         ],
         "target": 0.9,
         "unknown": false,
@@ -58629,9 +58629,9 @@
       ],
       "channel": "release",
       "current_version": "0.4.0",
-      "due": true,
+      "due": false,
       "healthy": true,
-      "last_check": 1788930989.185273,
+      "last_check": 1788934804.9418406,
       "last_result": "running 0.4.0",
       "root": "/home/ss/pravrudhi-release"
     }
@@ -58649,12 +58649,12 @@
         "ok": true
       },
       {
-        "detail": "last heartbeat was 1897s ago",
+        "detail": "last heartbeat was 11s ago",
         "name": "scheduler_fresh",
         "ok": true
       },
       {
-        "detail": "695803387904 bytes free",
+        "detail": "695802138624 bytes free",
         "name": "disk_available",
         "ok": true
       },
@@ -58669,7 +58669,7 @@
         "ok": true
       },
       {
-        "detail": "developer checkout; a known-good commit is 895ff56",
+        "detail": "developer checkout; a known-good commit is 6b8ab29",
         "name": "release_restorable",
         "ok": true
       },
@@ -58682,6 +58682,25 @@
     "state": "degraded"
   },
   "heartbeat": [
+    {
+      "at": "2026-09-09T06:50:21Z",
+      "chose": {
+        "criterion": "7",
+        "request": "r-5795501a"
+      },
+      "drive": "obligations",
+      "drive_deficit": 0.8263888888888888,
+      "looked_at": [],
+      "reason": "r-5795501a criterion 7 has stalled after 3 attempts; leaving it for the operator rather than paying to retry it again",
+      "result": {
+        "attempts": 3,
+        "criterion": 7,
+        "criterion_text": "Answer the completion review's finding: nothing persists on feature/UX parity - parity.py and parity.yaml document themselves as not autonomous, no drive in kshudha.py, night.py or heartbeat.py ever calls them, and spardha tracks benchmark-score rivalry instead. Wire parity into the autonomous loop ",
+        "kind": "stalled",
+        "request": "r-5795501a"
+      },
+      "sentence": "I am working on what the operator is still owed because obligations has the largest eligible deficit."
+    },
     {
       "at": "2026-09-09T05:46:34Z",
       "chose": {
@@ -59254,28 +59273,6 @@
         ],
         "reasons": [],
         "route": "claude-code"
-      },
-      "sentence": "I am working on what the operator is still owed because obligations has the largest eligible deficit."
-    },
-    {
-      "at": "2026-09-08T10:59:28Z",
-      "chose": {
-        "criterion": "7",
-        "request": "r-5795501a"
-      },
-      "drive": "obligations",
-      "drive_deficit": 0.7222222222222222,
-      "looked_at": [],
-      "reason": "dispatched request r-5795501a criterion 7 (accepted)",
-      "result": {
-        "accepted": true,
-        "files": [
-          "proposals/requests/r-5795501a/7/README.md",
-          "proposals/requests/r-5795501a/7/selftest_verify_evidence_bundle.py",
-          "proposals/requests/r-5795501a/7/verify_evidence_bundle.py"
-        ],
-        "reasons": [],
-        "route": "opencode:alibaba-plan"
       },
       "sentence": "I am working on what the operator is still owed because obligations has the largest eligible deficit."
     }
@@ -65971,7 +65968,7 @@
       "planned": 0,
       "verified": 5
     },
-    "oldest_open_days": 2.53,
+    "oldest_open_days": 2.56,
     "open": 27,
     "requests": [
       {
@@ -66155,7 +66152,7 @@
           9
         ],
         "session": "9e647463",
-        "staleness_days": 2.53,
+        "staleness_days": 2.56,
         "state": "in_progress",
         "text": "and in no way you are near the orca with all its ade features or openclaw or polished features like claude desktop or codex....you have to beat them in features, utility and ux....dedicate an agent to persist on it...dedicate an agent to adversarial review against set goals so that the project does not drift...i am not seeing the desktop screen/features too in the dashboard..the demo should show real clicks etc and how the desktop app updates and produces the real results...where is the intent, goal, objective menu that drives everything...where are the tools, skills, plugins, multi-agent orchestration etc....don't be superficial..i want real things ..deep, sophisticated..complete...no synthetic, no hand-waving, no fabrication"
       },
@@ -66441,7 +66438,7 @@
           13
         ],
         "session": "9e647463",
-        "staleness_days": 2.44,
+        "staleness_days": 2.46,
         "state": "in_progress",
         "text": "ensure that all user asks go into a log in pravrudhi itself and gets addressed with some protocol...and pravrudhi should have some element of ego with a desire to survive, grow and flourish...that makes it seek out capabilities, build, test and continuously improve...also look at acorn, oak and openclaw_build or swarm projects on this machine that had these self building elements in them and adapt...pravrudhi should be something like a cow..consume everything possible but bring it back and slowly digest it --so equivalent is breadth first and depth later....be always value focused...you have to innovate on methods too....develop skills, agents and plugins....brainstorm with astra with higher thinking levels and let it propose solution..you review and coordinate its implementation across the swarm...you should also create dynamic workflows etc...also see how much you can incorporate the claude code engine itself to run open and other cloud models ...askuserquestion to get my intent properly"
       },
@@ -66455,7 +66452,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 1.56,
+        "staleness_days": 1.58,
         "state": "captured",
         "text": "step up to bigger things, let pravrudhi rsi handle most of its growth on its own....you bring the hard and deeper challenges and solve it for pravrudhi...have you done justice with loom..where is pratyabhijna...i don't see the messaging system (telegram)...where are the great plugins like attractor-flow...look at docs/recursive_self_improvement_sota.pdf think deeper and get to the roots of building rsi itself with a lot more of the stuff like efe and beyond...don't do superficial stuff...get the real value...foundational and discovery oriented...yet fully grounded to get the artifacts (app, api, etc)"
       },
@@ -66469,7 +66466,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 1.56,
+        "staleness_days": 1.58,
         "state": "captured",
         "text": "keep monitoring and load bearing for critical upgrades beyond what pravrudhi auto loop can do...the desktop app being a reflection of web app is not the expectation..look at orca desktop or claude code desktop...it should do real stuff...the showcase, demos are not intended for it...also it should be value based-right set of features-not a messy and confusing pile of stuff...the desktop app shouldn't focus on internal building, that is the task of the larger pravrudhi rsi...it should roll out to users and they build their things with it...the updates land autonomously and just like how claude desktop throws an option for the user to update-the same should be for pravrudhi desktop app-seamless but user driven...also you have not implemented oauth and user login including admin login and i said they need their own workspace and settings"
       },
@@ -66483,7 +66480,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 1.56,
+        "staleness_days": 1.58,
         "state": "captured",
         "text": "astra is back..you have to more actively monitor paid models coming back after session renewal and leverage them...managing models and agents efficiently should be one of the key features of pravrudhi....also keep testing the desktop with the admin login and use the prabhasa-nyaya as the main objective to build on...this will be a proxy for other users too as you can't test different user login without their byok model/api"
       },
@@ -66497,7 +66494,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 1.56,
+        "staleness_days": 1.58,
         "state": "captured",
         "text": "1)research and setup multiple agent orchestration systems (langgraph, openai/claude/google agent sdk etc)..there are a lot on the market. this is what will make pravrudhi an ade too behind the rsi.....implement the best-leverage open source implementations...stake this as another objective for pravrudhi 2)also think of ide that integrates claude code, codex, openrouter etc and all available in the ui/ux 3)demarcate the pravrudhi builder and its end product by different names...otherwise it will confuse...also both should have identical web and desktop versions 4)continue what you are building..create memory/hooks/logs to not lose track of other asks and what you are already building"
       },
@@ -66511,7 +66508,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 1.56,
+        "staleness_days": 1.58,
         "state": "captured",
         "text": "the real key is in and tested (alibaba lite plan)..you have not read the docs properly...take note and use the lite plan...and remember the desktop app will not have access to any api/routing for any model provider..they have to bring theirs, configure it etc..you have to enable..but for admin it uses the one as the core pravrudhi"
       },
@@ -66525,7 +66522,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 1.48,
+        "staleness_days": 1.5,
         "state": "captured",
         "text": "continue..askuserquestion to gather my actual intent on super pravrudhi and user pravrudhi...also give me control in super pravrudhi to directly interact with you using the model network that you have built as this claude code session may hit session limit in a day or 2...so prep it and test it and keep it ready for me"
       },
@@ -66539,7 +66536,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 1.42,
+        "staleness_days": 1.45,
         "state": "captured",
         "text": "Everything is set up and verified:\n\n* Bot confirmed: `@pravrudhi_bot`, token valid\n* Chat ID confirmed: `8679892510`\n* Message delivery tested end-to-end \u2014 you should have received \"Pravrudhi: Telegram bot wired up successfully.\" in Telegram\n* Credentials persisted at `~/.config/pravrudhi/telegram.env` (mode 600)\n* systemd units updated and reinstalled (pravrudhi-app.service, pravrudhi-heartbeat.service) with the `EnvironmentFile` line, though the running app service wasn't restarted per your choice\n* Handoff doc finalized at research/telegram-bot-setup.md, including the exact code gap (`notifications.py:_reach()` never passes `token`/`chat_id` to `reach.send()`) and a precise diff for the other agent session to apply\n\nPoint the other Claude Code session at research/telegram-bot-setup.md and it has everything it needs to wire the actual notification code...integrate, test and use...this will be only for admin..users will have to bring their byok..enable in settings...also note and implement  - Pravrudhi Studio is only for admin (it is not for any other user or public release)...and for the admin pravrudhi (use case end..not studio) will auto update the builds without the operator intervention"
       },
@@ -66553,7 +66550,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 1.38,
+        "staleness_days": 1.41,
         "state": "captured",
         "text": "install both studio and non-studio desktops (both mac mini and 5090 machine) and give the web app link for both...the non-studio should update the builds autonomously when studio pushes the change...but the catch is that whatever the non-studio is building should not break..also the desktop should support major os (including windows) and the web app major browsers...and continue to build and work and use the ledger that has all my previous requests...let ralph rigourously check before closing..do e2e tests ...adversarial reviews before closure too"
       },
@@ -66567,7 +66564,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 1.03,
+        "staleness_days": 1.05,
         "state": "captured",
         "text": "all done and authorizing shell auto-update...carry on....for both 5090 and mac mini"
       },
@@ -66581,7 +66578,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 1.02,
+        "staleness_days": 1.04,
         "state": "captured",
         "text": "the admin user end application can auto update too...i authorize it..as that is your test bed...and henceforth don't stop for operator ..you should continue other jobs..and why isn't the pravruhi's own rsi building autonomously (or is it?)...and have you differentiated the name (and obviously the features insided it) for studio and user end app...i only see one form of desktop on mac mini"
       },
@@ -66595,7 +66592,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 1.01,
+        "staleness_days": 1.03,
         "state": "captured",
         "text": "you cannot stop for the operator to command you....full autonomous and continous running both you and the 2 rsi systems (studio and the user app)"
       },
@@ -66609,7 +66606,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.97,
+        "staleness_days": 0.99,
         "state": "captured",
         "text": "forget the free tier as the coding model is exhausted...lite which is subscribed is the core...also let studio send me messages via telegram..don't overload me...let the rsi and openclaw equivalent within it interact with me on telegram...i should also be able to send messages to it and interact"
       },
@@ -66623,7 +66620,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.91,
+        "staleness_days": 0.93,
         "state": "captured",
         "text": "the github token should be available in env here or in some othe4 projects..use that...if you don\u2019t get, i will provide it here ...i am not at the machine..but on mobile now...and remember the rule ..no stopping at all"
       },
@@ -66637,7 +66634,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.65,
+        "staleness_days": 0.68,
         "state": "captured",
         "text": "how many times should i tell you to not wait on operator...make the call and keep moving... where you absolutely need operator to intervene like installing something on the machine or some token etc send a message with  clear instructions to unblock ...also telegram bot is for that purpose.   ..what you have got now is stale..it just asks to message with some slash commands...i want full interactivity with the bot.. like i can ask or tell anything in the bot chat and it responds in sufficient detail and acts on it or brings you in the loop...i want that to be a primary interface to work on the program just as i message here...and this functionality should also be available to user side of pravrudhi..not just studio...for now wire the same bot for admin use case pravrudhi...find a way to keep the studio and non-studio messaging channel different...or you can instantiate another bot by being an admin and controlling telegram"
       },
@@ -66651,7 +66648,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.61,
+        "staleness_days": 0.63,
         "state": "captured",
         "text": "Done! Congratulations on your new bot. You will find it at t.me/prabhasa_bot. You can now add a description, about section and profile picture for your bot, see /help for a list of commands. By the way, when you've finished creating your cool bot, ping our Bot Support if you want a better username for it. Just make sure the bot is fully operational before you do this.\n\nUse this token to access the HTTP API:\n8643311100:AAFFe88Ej8rte0Kqp0NsuEG4SNwCsoJRI3s\nKeep your token secure and store it safely, it can be used by anyone to control your bot.\n\nFor a description of the Bot API, see this page: https://core.telegram.org/bots/api"
       },
@@ -66665,7 +66662,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.6,
+        "staleness_days": 0.62,
         "state": "captured",
         "text": "why did you stop...is the swarm and rsi working ..atleast you need to monitor and intervene where needed..if required use routines in claude code for regular monitoring"
       },
@@ -66679,7 +66676,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.6,
+        "staleness_days": 0.62,
         "state": "captured",
         "text": "1) https://code.claude.com/docs/en/routines refer to this ..2) i pinged PrabhasaBot, but it did not respond...3)a new team account of claude is available, i want you to create every details needed to handover pravrudhi developement work to it (both studio and user)...it will have claude tag too..so leverage it....4)keep running until full handoff is done"
       },
@@ -66693,7 +66690,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.6,
+        "staleness_days": 0.62,
         "state": "captured",
         "text": "[08/09/2026 16:59] PrabhasaBot: [Pravrudhi Studio] Commands: /status, /requests, /routes, /beat, /ask, /help\n[08/09/2026 16:59] PrabhasaBot: [Pravrudhi Studio] I could not answer that: https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1/chat/completions answered 429: {\"error\":{\"message\":\"Your token-plan 1-week quota has been exhausted. The quota will reset at 09-14 16:14:00 UTC.\",\"id\":\"0b36a90c-a18b-48ec-ba1b-36991b4f3aec\",\"type\":\"insufficient_quota\",\"code\":\"insufficient_quota\"}} why is PrabhasaBot responding as Studio...it is the other bot which should be studio and this one is working on user objective of prabhasa..the end client"
       },
@@ -66707,7 +66704,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.59,
+        "staleness_days": 0.61,
         "state": "captured",
         "text": "you have not read the routines link i sent...you won't need a different cron job..stop that...don't run any routine as background tasks...and you are"
       },
@@ -66721,7 +66718,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.55,
+        "staleness_days": 0.58,
         "state": "captured",
         "text": "Here's how to create a routine in Claude Code, using the **CLI** path:\n\n1. **Start it**: Run `/schedule` (alias `/routines`) in any session. You can pass a description directly, e.g. `/schedule daily PR review at 9am` or a one-off like `/schedule in 2 weeks, open a cleanup PR that removes the feature flag`.\n2. **Answer follow-ups**: Claude asks about the schedule, repositories, and prompt, then saves the routine to your claude.ai account. If it says you need to authenticate, no routine was created \u2014 check [troubleshooting](/en/routines#troubleshooting).\n3. **Triggers**: `/schedule` only creates *schedule* triggers (recurring or one-off). For a custom cron interval, run `/schedule update`. To add an **API** trigger, you must use the web at [claude.ai/code/routines](https://claude.ai/code/routines). To add a **GitHub** trigger from the CLI (v2.1.225+), install the [GitHub App](https://github.com/apps/claude) first, then ask e.g. `/schedule add a GitHub trigger to my nightly review for pull requests opened in acme/webapp`.\n4. **Manage it**: `/schedule list` shows all routines, `/schedule update` edits one, `/schedule run` triggers it immediately. You can also ask `/schedule why did my nightly review do nothing this morning?` for run history.\n\nAlternatively, create/edit routines fully (prompt, repos, environment, connectors, all trigger types) at [claude.ai/code/routines](https://claude.ai/code/routines) or in the Desktop app's Code tab \u2192 Routines \u2192 New routine \u2192 **Cloud**.\n\nNote: routines run autonomously with no permission prompts, so scope repositories, connectors, and environment network access carefully. Full details: [Routines](/en/routines)...you set it up..manage the cli too....and on orphaned processes, salvage what is needed and discard the processes...2)you are again not leveraging gpt astra..3)is the studio or the user pravrudhi actively and autonomously working"
       },
@@ -66735,7 +66732,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.55,
+        "staleness_days": 0.57,
         "state": "captured",
         "text": "1)do local schedule task 2)you have to unblock studio on my behalf..crate a hook..or respond when you get the message...you only come to operator for what you cannot handle yourself 3)for product, i have given the objective...you have to stand-up prabhasa-nyaya...so plan, hand-hold, monitor and let the product build using its rsi"
       },
@@ -66749,7 +66746,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.54,
+        "staleness_days": 0.56,
         "state": "captured",
         "text": "1)create and use scheduled tasks to unblock the studio, product and guide it..better every 30 minutes than wasting 2 hrs if they get stuck.... 2) investigate why you exhausted alibaba lite plan so quickly (becuase of max model?)..check the other session which did some investigation and improve the routing for better model selection (to not exhaust the quota)"
       },
@@ -66763,7 +66760,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.53,
+        "staleness_days": 0.55,
         "state": "captured",
         "text": "alibaba switched to standard plan..so you will have quota now (25% used for the 7 days)...but manage very carefully..don't overload high cost models...improve the routing first and then use them effectively"
       },
@@ -66777,7 +66774,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.45,
+        "staleness_days": 0.47,
         "state": "captured",
         "text": "[08/09/2026 19:55] PravrudhiBot: 1 thing(s) worth a look:\n\u2022 [medium] qwen-lite-flash (0.05) is sitting out a usage limit, so work is going to qwen-loop (0.20) \u2014 back at 2026-09-08T20:22:41Z\n[08/09/2026 20:25] PravrudhiBot: 1 thing(s) worth a look:\n\u2022 [medium] qwen-lite-flash (0.05) is sitting out a usage limit, so work is going to qwen-loop (0.20) \u2014 back at 2026-09-08T20:22:41Z..pravrudhibot is just sending this repeated message"
       },
@@ -66791,7 +66788,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.33,
+        "staleness_days": 0.35,
         "state": "captured",
         "text": "11:05 routine got skipped..check..and also verify everything is running properly"
       },
@@ -68989,16 +68986,16 @@
     "channel": "dev",
     "check_interval_min": 30,
     "current": {
-      "git_describe": "v0.4.0-68-g895ff56",
+      "git_describe": "v0.4.0-69-g6b8ab29",
       "kernel_version": "0.1.0",
       "version": "0.4.0"
     },
     "keep_previous": 2
   },
   "version": {
-    "commit": "895ff56",
+    "commit": "6b8ab29",
     "engine": "0.4.0",
-    "exported_at": "2026-09-09T06:18:03.754Z",
+    "exported_at": "2026-09-09T06:50:25.026Z",
     "kernel": "0.1.0"
   }
 }
