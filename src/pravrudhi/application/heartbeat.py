@@ -26,6 +26,7 @@ as it would under manual dispatch, for a human to review and execute.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import re
 from collections.abc import Callable
@@ -303,16 +304,103 @@ def stalled(root: Path, request_id: str, index: int) -> bool:
     return attempts(root, request_id, index) >= MAX_CRITERION_ATTEMPTS
 
 
-def _obligation_prompt(request_text: str, criterion_text: str, scratch: str, validate: str) -> str:
+def _obligation_prompt(
+    request_text: str, criterion_text: str, scratch: str, validate: str, *, prior: str = ""
+) -> str:
+    """`prior` is why the last attempt at this criterion was judged short.
+
+    Three dispatches at the same criterion each started from nothing and produced twenty-odd files apiece,
+    because none of them was told what the previous one had failed to do. A retry that carries the reason is a
+    second attempt; one that does not is the first attempt again at full price.
+    """
+    fell_short = f"A previous attempt was judged NOT to meet this criterion because: {prior}\n\n" if prior else ""
     return (
         f"Operator request (verbatim): {request_text}\n\n"
         f"Oldest unmet acceptance criterion: {criterion_text}\n\n"
+        f"{fell_short}"
         "Everything you write is a PROPOSAL toward this criterion, not evidence: nothing you produce may write to "
         "the ledger, research/, gates/ or pravrudhi_kernel/, and no number you state may be presented as a result.\n"
         f"Deliverable, written only under {scratch}/ using RELATIVE paths: a README.md stating the approach and "
         "what would count as evidence this criterion is met; plus any scripts. Scripts must at least compile.\n"
         f"Validate with `{validate}`."
     )
+
+
+_JUDGE_MARKER = "verdict:"
+
+
+def _judge_prompt(request_text: str, criterion_text: str, files: list[str]) -> str:
+    listing = "\n".join(f"  - {f}" for f in files) or "  (nothing)"
+    return (
+        "You are judging one acceptance criterion. You do not write code and you fix nothing.\n\n"
+        f"Operator request (verbatim): {request_text}\n\n"
+        f"The criterion: {criterion_text}\n\n"
+        f"What the last dispatch produced, relative to the repository root:\n{listing}\n\n"
+        "Read those files. Decide whether they actually satisfy the criterion as written - not whether they are "
+        "good work, and not whether they describe satisfying it. A proposal that explains what would meet the "
+        "criterion does not meet it.\n"
+        "Answer with a first line of exactly `VERDICT: met` or `VERDICT: not met`, then one short paragraph "
+        "saying why. If you say not met, say what is missing, because the next attempt is given your reason."
+    )
+
+
+def _judged(text: str) -> tuple[bool, str]:
+    """Whether the judge said met, fail-closed.
+
+    Anything that is not an explicit `VERDICT: met` is not met - the discipline `completion._judge_review`
+    applies to a confident summary that does not show its work, for the same reason: this decision closes a
+    criterion, and a judge that cannot be bothered to say so plainly has not made it.
+    """
+    lines = [line.strip() for line in (text or "").splitlines() if line.strip()]
+    for i, line in enumerate(lines):
+        low = line.lower()
+        if low.startswith(_JUDGE_MARKER):
+            said = low.split(":", 1)[1].strip()
+            reason = " ".join(lines[i + 1:])[:300] or line
+            return said.startswith("met"), reason
+    return False, (" ".join(lines)[:300] or "the judge said nothing")
+
+
+def _default_judge(root: Path) -> Any:
+    """The read-only agent that judges a criterion, on the cheap seat.
+
+    Judging is reading and answering, which is what `subagents` calls mechanical work; paying design rates to
+    ask "does this file do what the criterion says" is how a plan's allowance disappears into bookkeeping.
+    """
+    def ask(*, prompt: str) -> str:
+        agent = _registry_build_agent(root, "claude-code", "haiku")
+        if agent is None:
+            return ""
+        workspace = None
+        try:
+            workspace = agent.create_workspace("judge")
+            return str(agent.run(prompt, workspace, timeout_s=600).text)
+        except (OSError, RuntimeError, ValueError):
+            # A machine with no usable agent, or a root that is not a checkout, must not take the beat down: an
+            # unjudgeable criterion is simply not met, which is the fail-closed direction and the same one
+            # `completion._default_review_agent` takes when it cannot review.
+            return ""
+        finally:
+            if workspace is not None:
+                with contextlib.suppress(OSError, RuntimeError):
+                    agent.stop(workspace)
+
+    return ask
+
+
+def _last_judgement(root: Path, request_id: str, index: int) -> str:
+    """The reason the previous attempt at this criterion was refused, for the next attempt to start from."""
+    request = requests.get(root, request_id)
+    prefix = _judgement_note(index, "")
+    for entry in reversed(request.notes if request else []):
+        note = str(entry.get("note", "")) if isinstance(entry, dict) else str(entry)
+        if note.startswith(prefix):
+            return note[len(prefix):].strip()
+    return ""
+
+
+def _judgement_note(index: int, why: str) -> str:
+    return f"criterion {index} not yet met: {why}"
 
 
 # A criterion is proposal-shaped work like an evaluate/corpus step (subagents._TIER_BY_CAPABILITY), not a
@@ -438,7 +526,7 @@ def _beat_completion_gate(root: Path, request_id: str) -> ActionResult:
     )
 
 
-def _beat_obligations(root: Path, dispatch: DispatchFn | None) -> ActionResult:
+def _beat_obligations(root: Path, dispatch: DispatchFn | None, *, judge: Any = None) -> ActionResult:
     """`seva` (obligations): the oldest unmet request criterion (`requests.next_unmet`), dispatched through the
     swarm exactly like a capability step, scoped to its own proposal scratch directory under `proposals/requests/`."""
     owed = requests.next_obligation(root)
@@ -484,7 +572,8 @@ def _beat_obligations(root: Path, dispatch: DispatchFn | None) -> ActionResult:
     validate = f'test -n "$(ls -A {scratch})" && uv run python -m compileall -q {scratch}'
     spec = TaskSpec(
         task_id=f"request:{request.id}:{index}",
-        prompt=_obligation_prompt(request.text, criterion.text, scratch, validate),
+        prompt=_obligation_prompt(request.text, criterion.text, scratch, validate,
+                                  prior=_last_judgement(root, request.id, index)),
         allowed_paths=(f"{scratch}/*",),
         validate=validate,
     )
@@ -499,7 +588,26 @@ def _beat_obligations(root: Path, dispatch: DispatchFn | None) -> ActionResult:
         "reasons": list(verdict.reasons),
     }
     verb = "accepted" if verdict.accepted else "rejected"
-    return chose, f"dispatched request {request.id} criterion {index} ({verb})", result
+    if not verdict.accepted:
+        return chose, f"dispatched request {request.id} criterion {index} ({verb})", result
+
+    # Accepted says the diff stayed in scope and the validate command passed. It does not say the criterion is
+    # satisfied, so the beat asks rather than assuming - and until it did, nothing in the engine ever called
+    # `requests.meet`, which left every criterion a dead end that could only be retried until the budget parked
+    # it. Fail-closed: an unclear answer is not met.
+    answer = (judge or _default_judge(root))(
+        prompt=_judge_prompt(request.text, criterion.text, list(verdict.files)))
+    met, why = _judged(answer)
+    result["judged"] = "met" if met else "not met"
+    result["judgement"] = why
+    if met:
+        requests.meet(root, request.id, index,
+                      [requests.Evidence(kind="file", ref=f, note="produced for this criterion")
+                       for f in verdict.files])
+        clear_attempts(root, request.id, index)
+        return chose, f"request {request.id} criterion {index} is met: {why}", result
+    requests.note(root, request.id, _judgement_note(index, why))
+    return chose, f"dispatched request {request.id} criterion {index} ({verb}, judged not met): {why}", result
 
 
 # The cheapest-first order to try a failing doctor check's remedy in: (cost, remedy description). `gpu` is

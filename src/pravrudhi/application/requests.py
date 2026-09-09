@@ -24,7 +24,7 @@ from __future__ import annotations
 import contextlib
 import json
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Literal
@@ -225,6 +225,18 @@ def advance(root: Path, request_id: str, state: State, *, note: str = "") -> Req
     req.state = state
     req.notes.append({"at": _now(), "note": note or f"-> {state}"})
     return _replace(root, req)
+
+
+def note(root: Path, request_id: str, text: str) -> Request:
+    """Record something learned about a request without moving its state.
+
+    `advance` carries a note, which made every note a state change: the only way to write down why an attempt
+    fell short was to pretend the request had moved.
+    """
+    req = get(root, request_id)
+    if req is None:
+        raise RequestError(f"no request {request_id}")
+    return _replace(root, replace(req, notes=[*req.notes, {"at": _now(), "note": text}]))
 
 
 def add_criteria(root: Path, request_id: str, criteria: list[Criterion]) -> Request:
