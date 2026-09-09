@@ -26,4 +26,8 @@ def test_cli_emit_check_contract(tmp_path: Path) -> None:
 
 def test_cli_version() -> None:
     r = runner.invoke(app, ["--version"])
-    assert r.exit_code == 0 and "pravrudhi 0.4.0" in r.output
+    # Not a hardcoded number: this said "pravrudhi 0.4.0" while the shipped release was 0.4.2, so the test
+    # enforced the stale literal instead of noticing it.
+    from pravrudhi import __version__
+
+    assert r.exit_code == 0 and f"pravrudhi {__version__}" in r.output
