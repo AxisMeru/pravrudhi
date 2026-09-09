@@ -141,6 +141,51 @@ class ClaudeCodeAgent(GitWorktreeMixin):
         )
 
 
+def _codex_usage(out: str) -> tuple[int | None, int | None, int | None]:
+    """`(tokens, cache_read, cache_write)` from a `codex exec --json` event stream, or `(None, None, None)`.
+
+    The last `turn.completed` event wins: a run can report several turns and the final one is the cumulative
+    account of it.
+
+    The arithmetic is NOT the same as Anthropic's, and conflating them would misreport this seat badly. A real
+    trivial call returned input_tokens 15,296 with cached_input_tokens 12,160 — a four-word prompt cannot have
+    15k of fresh input, so `cached_input_tokens` is a SUBSET of `input_tokens` here. Anthropic instead reports a
+    small `input_tokens` beside a separate `cache_read_input_tokens`. So this sums input + output only, and
+    carries the cached figure separately for the ratio; `_usage` adds its cache counters in because there they
+    are genuinely disjoint.
+
+    `reasoning_output_tokens` is recorded by the vendor and deliberately NOT added here. On the one call
+    observed it was 0, so whether it is a subset of `output_tokens` or additional to it could not be
+    determined, and guessing would inflate or understate every astra dispatch. It is left out rather than
+    assumed; if a reasoning-heavy call ever shows output_tokens smaller than reasoning_output_tokens, that
+    settles it the other way and this should change.
+    """
+    tokens = read = write = None
+    for line in (out or "").splitlines():
+        line = line.strip()
+        if not line or not line.startswith("{"):
+            continue
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(event, dict) or event.get("type") != "turn.completed":
+            continue
+        usage = event.get("usage")
+        if not isinstance(usage, dict):
+            continue
+
+        def count(key: str, u: dict[str, Any] = usage) -> int:
+            try:
+                return int(u.get(key) or 0)
+            except (TypeError, ValueError):
+                return 0
+
+        tokens = count("input_tokens") + count("output_tokens")
+        read, write = count("cached_input_tokens"), count("cache_write_input_tokens")
+    return tokens, read, write
+
+
 class CodexAgent(GitWorktreeMixin):
     """Codex driven through `codex exec`, its documented non-interactive subcommand.
 
@@ -175,9 +220,12 @@ class CodexAgent(GitWorktreeMixin):
         # `.worktrees/agent-x` becomes `.worktrees/agent-x/.worktrees/agent-x`, which does not exist, and codex
         # exits immediately with "No such file or directory (os error 2)". Every dispatch to this agent failed
         # that way, in under a second, and read as the agent refusing the work rather than never starting it.
+        # `--json` makes codex emit JSONL events, which is the only way it reports token usage. Of astra's 32
+        # recorded dispatches none carried a cost, on the dearest route in the table, purely because this ran
+        # without it.
         cmd = [
             "codex", "exec", "--cd", str(Path(workspace).resolve()),
-            "--sandbox", self.sandbox, "--skip-git-repo-check",
+            "--sandbox", self.sandbox, "--skip-git-repo-check", "--json",
         ]
         if self.model:
             cmd += ["--model", self.model]
@@ -185,9 +233,15 @@ class CodexAgent(GitWorktreeMixin):
             cmd += ["-c", f"model_reasoning_effort={self.effort}"]
         cmd.append(prompt)
         code, out, err, wall = _run(cmd, workspace, timeout_s)
+        tokens, read, write = _codex_usage(out)
+        # `text` stays the WHOLE stream rather than the final message. `delegate.dispatch` classifies usage
+        # limits over `run.text`, and a vendor announces a limit at the end of its output, so trimming this to
+        # the assistant's last words would have hidden the limit sentence and silently broken the fallback
+        # chain for the most expensive seat in the table.
         return AgentRun(
             agent=self.name, ok=code == 0, exit_code=code, wall_s=wall, text=out,
             workspace=workspace, stderr_tail=err[-2000:],
+            tokens=tokens, cache_read_tokens=read, cache_write_tokens=write,
         )
 
 
