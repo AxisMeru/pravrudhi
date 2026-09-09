@@ -44,9 +44,23 @@ class AgentRun:
     workspace: Path
     session_id: str | None = None
     cost_usd: float | None = None
-    tokens: int = 0
-    """What the turn consumed, when the adapter can tell. Zero means unknown, never free — a dispatch that
-    cannot report its cost cannot be budgeted, and a weekly quota went in a day for want of this."""
+    tokens: int | None = None
+    """What the turn consumed, when the adapter can tell, cache included. `None` means the adapter could not
+    tell; zero means it told us the turn was free.
+
+    This was `int = 0` with a docstring reading "Zero means unknown, never free" — a distinction the type could
+    not carry and three `int(... or 0)` call sites then discarded. Counted across all 157 outcomes in
+    `.pravrudhi/routing.jsonl` on 2026-09-09, 155 read zero and only `alibaba_agent.py` ever assigned the field,
+    so `routing.spend` was measuring a weekly allowance against 1.3% of the dispatches while `over_budget` could
+    essentially never trip. A budget that cannot see what it is spending is not a control."""
+
+    cache_read_tokens: int | None = None
+    """Tokens served from the prompt cache. Kept apart from `cache_write_tokens` rather than summed into
+    `tokens`, because the whole point of a cache target is the ratio between them."""
+
+    cache_write_tokens: int | None = None
+    """Tokens written into the prompt cache: billed above the base rate, so a low hit ratio costs more than not
+    caching at all."""
 
     stderr_tail: str = ""
 

@@ -321,7 +321,10 @@ def run_wave(
                     routing.record_outcome(root, routing.Outcome(
                         tier=t.tier, route_id=rid, task_id=t.spec.task_id,
                         accepted=verdict.accepted, wall_s=verdict.wall_s,
-                        tokens=int(getattr(verdict, "tokens", 0) or 0),
+                        tokens=getattr(verdict, "tokens", None),
+                        cost_usd=getattr(verdict, "cost_usd", None),
+                        cache_read_tokens=getattr(verdict, "cache_read_tokens", None),
+                        cache_write_tokens=getattr(verdict, "cache_write_tokens", None),
                     ))
                 if blackboard and root is not None:
                     if verdict.accepted:

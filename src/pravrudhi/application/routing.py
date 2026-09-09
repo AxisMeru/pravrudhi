@@ -88,8 +88,22 @@ class Outcome:
     wall_s: float
     at: str = ""
     limited: bool = False
-    tokens: int = 0
-    """What this dispatch consumed, when the adapter could tell. Zero means unknown, never free."""
+    tokens: int | None = None
+    """What this dispatch consumed, cache included, when the adapter could tell.
+
+    `None` is "the seat could not tell"; zero is "the seat says it was free". This field was `int = 0` carrying
+    the docstring "Zero means unknown, never free" — a distinction the type could not hold. Counted on
+    2026-09-09, 155 of the 157 recorded outcomes read zero, so `spend` was summing 1.3% of the dispatches and
+    `over_budget` could essentially never trip."""
+
+    cost_usd: float | None = None
+    """What the vendor said it cost. Cheaper to trust than a token sum, because cache reads, cache writes and
+    output are billed at different rates. `cli_agents` already extracted this and the record dropped it."""
+
+    cache_read_tokens: int | None = None
+    cache_write_tokens: int | None = None
+    """The prompt-cache ratio's two halves. Recorded rather than summed into `tokens`, because the ratio is the
+    target and a sum destroys it."""
 
 
 @dataclass(frozen=True)
@@ -209,7 +223,10 @@ def outcomes(root: Path) -> list[Outcome]:
             out.append(Outcome(tier=d["tier"], route_id=d["route_id"], task_id=d.get("task_id", ""),
                                accepted=bool(d["accepted"]), wall_s=float(d.get("wall_s", 0.0)), at=d.get("at", ""),
                                limited=bool(d.get("limited", False)),
-                               tokens=int(d.get("tokens") or 0)))
+                               tokens=_maybe_int(d.get("tokens")),
+                               cost_usd=_maybe_float(d.get("cost_usd")),
+                               cache_read_tokens=_maybe_int(d.get("cache_read_tokens")),
+                               cache_write_tokens=_maybe_int(d.get("cache_write_tokens"))))
         except (json.JSONDecodeError, KeyError, TypeError, ValueError):
             continue  # a corrupt line must not blind the router to the rest
     return out
@@ -338,6 +355,59 @@ def choose(table: Table, rows: list[Outcome], tier: str, root: Path | None = Non
     return Choice(tier, route, reason, considered, tuple(rs_all))
 
 
+def _maybe_int(value: Any) -> int | None:
+    """`None` stays `None`. Reading an absent cost back as zero is how the distinction was lost in the first place."""
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _maybe_float(value: Any) -> float | None:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def cost_coverage(root: Path) -> dict[str, Any]:
+    """How much of the routing record actually carries a cost, overall and per route.
+
+    `spend` sums what it can see and says nothing about what it cannot, which is how a token budget stopped
+    being a control without anyone noticing: on 2026-09-09 it was measuring a weekly allowance against two of
+    157 dispatches. A target on token efficiency is meaningless until this share is high, so the share itself is
+    the first thing to report and the first thing to move.
+    """
+    rows = outcomes(root)
+    by_route: dict[str, dict[str, int]] = {}
+    measured = nonzero = 0
+    for row in rows:
+        seat = by_route.setdefault(row.route_id, {"total": 0, "measured": 0, "measured_nonzero": 0})
+        seat["total"] += 1
+        if row.tokens is not None:
+            seat["measured"] += 1
+            measured += 1
+            if row.tokens:
+                seat["measured_nonzero"] += 1
+                nonzero += 1
+    return {
+        "total": len(rows),
+        "measured": measured,
+        "unmeasured": len(rows) - measured,
+        "share_measured": round(measured / len(rows), 4) if rows else 0.0,
+        # Rows written before 2026-09-09 encoded "unknown" as zero, so `measured` overstates coverage on
+        # historical data. Reported separately rather than corrected, because a row cannot now be re-read: on
+        # the real record the two differ, 5 against 2 of 157. Judge progress by the nonzero share.
+        "measured_nonzero": nonzero,
+        "share_measured_nonzero": round(nonzero / len(rows), 4) if rows else 0.0,
+        "by_route": by_route,
+    }
+
+
 def spend(root: Path, *, window_days: int = 7, now: datetime | None = None) -> dict[str, int]:
     """Tokens consumed per route inside a rolling window.
 
@@ -347,8 +417,8 @@ def spend(root: Path, *, window_days: int = 7, now: datetime | None = None) -> d
     cutoff = (now or datetime.now(UTC)).timestamp() - window_days * 86400
     totals: dict[str, int] = {}
     for row in outcomes(root):
-        if not row.tokens:
-            continue
+        if row.tokens is None:
+            continue  # unmeasured, not free: `not row.tokens` also skipped a genuine zero
         try:
             when = datetime.strptime(row.at, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC).timestamp()
         except (ValueError, TypeError):

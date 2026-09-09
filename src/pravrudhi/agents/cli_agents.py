@@ -18,6 +18,7 @@ import signal
 import subprocess
 import time
 from pathlib import Path
+from typing import Any
 
 from pravrudhi.agents.base import AgentRun, Diff, GitWorktreeMixin
 
@@ -73,6 +74,32 @@ def _run(cmd: list[str], cwd: Path, timeout_s: int, env: dict[str, str] | None =
         raise
 
 
+def _usage(envelope: dict[str, Any]) -> tuple[int | None, int | None, int | None]:
+    """`(tokens, cache_read, cache_write)` from a claude result envelope, or `(None, None, None)`.
+
+    The measurement was always here. `claude -p --output-format json` returns a `usage` object beside the
+    `total_cost_usd` this adapter already read, and it was discarded: every claude-code dispatch recorded its
+    cost as zero, which `routing.spend` then skipped. A real envelope on 2026-09-09 carried input 2, output 4,
+    cache write 47,852 and cache read 23,101 — so the cache counters dwarf the visible turn, and summing them
+    away would hide the only number the prompt-cache target is about.
+
+    `None` rather than zero when the envelope has no usage: a seat that cannot report must not be indistinguishable
+    from a seat that cost nothing.
+    """
+    usage = envelope.get("usage")
+    if not isinstance(usage, dict):
+        return None, None, None
+
+    def count(key: str) -> int:
+        try:
+            return int(usage.get(key) or 0)
+        except (TypeError, ValueError):
+            return 0
+
+    read, write = count("cache_read_input_tokens"), count("cache_creation_input_tokens")
+    return count("input_tokens") + count("output_tokens") + read + write, read, write
+
+
 class ClaudeCodeAgent(GitWorktreeMixin):
     """Claude Code driven through its documented headless mode.
 
@@ -95,12 +122,14 @@ class ClaudeCodeAgent(GitWorktreeMixin):
             cmd += ["--model", self.model]
         code, out, err, wall = _run(cmd, workspace, timeout_s)
         text, session, cost = out, None, None
+        tokens = read = write = None
         try:
             env = json.loads(out)
             if isinstance(env, dict):
                 text = str(env.get("result", out))
                 session = env.get("session_id")
                 cost = env.get("total_cost_usd")
+                tokens, read, write = _usage(env)
                 if env.get("is_error"):
                     code = code or 1
         except ValueError:
@@ -108,6 +137,7 @@ class ClaudeCodeAgent(GitWorktreeMixin):
         return AgentRun(
             agent=self.name, ok=code == 0, exit_code=code, wall_s=wall, text=text,
             workspace=workspace, session_id=session, cost_usd=cost, stderr_tail=err[-2000:],
+            tokens=tokens, cache_read_tokens=read, cache_write_tokens=write,
         )
 
 
