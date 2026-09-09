@@ -59516,12 +59516,12 @@
         "ok": true
       },
       {
-        "detail": "last heartbeat was 5893s ago",
+        "detail": "last heartbeat was 5944s ago",
         "name": "scheduler_fresh",
         "ok": true
       },
       {
-        "detail": "694877642752 bytes free",
+        "detail": "694874394624 bytes free",
         "name": "disk_available",
         "ok": true
       },
@@ -59536,7 +59536,7 @@
         "ok": true
       },
       {
-        "detail": "developer checkout; a known-good commit is c733251",
+        "detail": "developer checkout; a known-good commit is a5cbad1",
         "name": "release_restorable",
         "ok": true
       },
@@ -67398,7 +67398,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 1.99,
+        "staleness_days": 2.0,
         "state": "captured",
         "text": "install both studio and non-studio desktops (both mac mini and 5090 machine) and give the web app link for both...the non-studio should update the builds autonomously when studio pushes the change...but the catch is that whatever the non-studio is building should not break..also the desktop should support major os (including windows) and the web app major browsers...and continue to build and work and use the ledger that has all my previous requests...let ralph rigourously check before closing..do e2e tests ...adversarial reviews before closure too"
       },
@@ -70044,16 +70044,16 @@
     "channel": "dev",
     "check_interval_min": 30,
     "current": {
-      "git_describe": "v0.4.4",
+      "git_describe": "v0.4.4-1-ga5cbad1",
       "kernel_version": "0.1.0",
       "version": "0.4.4"
     },
     "keep_previous": 2
   },
   "version": {
-    "commit": "c733251",
+    "commit": "a5cbad1",
     "engine": "0.4.4",
-    "exported_at": "2026-09-09T20:57:15.707Z",
+    "exported_at": "2026-09-09T20:58:10.516Z",
     "kernel": "0.1.0"
   }
 }
