@@ -23,7 +23,7 @@ routes:
     agent: opencode:alibaba-plan
     model: qwen3.8-flash
     relative_cost: 0.05
-    token_budget: 6000000
+    token_budget: 45000000
     tiers: [mechanical]
     note: >-
       The same Lite Plan, its cheap high-throughput model. Added 2026-09-08 after the plan's one-week quota was
@@ -39,7 +39,7 @@ routes:
     agent: opencode:alibaba-plan
     model: qwen3.8-max
     relative_cost: 0.15
-    token_budget: 2000000
+    token_budget: 12000000
     tiers: [standard]
     note: >-
       Alibaba's Lite Plan flagship, on a plan-exclusive endpoint with its own key file and a credit budget rather
@@ -135,6 +135,22 @@ routes:
 # do this work. A preferred route still yields to the ordinary rules when it is cooling or unavailable.
 prefer:
   critical: astra   # operator, 2026-09-06: "let astra handle the tough jobs"
+
+# Token budgets, recalibrated 2026-09-09 against measurement rather than guesswork.
+#
+# The first pair (flash 6,000,000 / max 2,000,000) were invented before anything could measure a dispatch, and
+# they were wrong by two orders of magnitude in both directions at once: the meter under-read by 536x, so they
+# never bound anything, and against real consumption they are smaller than a single run.
+#
+# What a dispatch actually costs, from OpenCode's own per-session accounting over 32 real sessions:
+#   min 20,137   median 888,011   max 8,679,807 tokens
+# Most of that is context replayed on every step, so cost scales with how long the agent runs, not with how
+# hard the task reads.
+#
+# What the week actually held: the plan seats consumed 57,079,701 tokens and hit the wall. The operator reported
+# the plan at 25% used when it was switched on, so the weekly allowance is on the order of 76,000,000. The pair
+# below totals 57,000,000, which leaves headroom for that estimate being wrong and still lets the cheap seat do
+# real work. These are control inputs derived from measurement, not a figure the vendor has published.
 
 declared:
   # The critical tier leads with astra on the operator's explicit instruction of 2026-09-06: "let astra handle
