@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import os
 import re
 from collections.abc import Callable
 from dataclasses import dataclass, replace
@@ -526,12 +527,74 @@ def _beat_completion_gate(root: Path, request_id: str) -> ActionResult:
     )
 
 
+def _triage_complete(root: Path) -> Callable[[str], str] | None:
+    """The chat seat used to decompose a prose ask, or `None` when none is configured or reachable.
+
+    Model access goes through the OpenAI-compatible client, and the criteria come back under
+    `requests.CRITERIA_SCHEMA` so the answer is a closed array rather than prose to be parsed. `None` is a
+    normal outcome, not a fault: triage then falls back to the deterministic drafter.
+    """
+    with contextlib.suppress(Exception):
+        from pravrudhi.application.chat import chat_endpoint
+        from pravrudhi.models.openai_compat import ChatClient
+
+        client = ChatClient(
+            chat_endpoint(),
+            model=os.environ.get("PRAVRUDHI_CHAT_MODEL", "").strip() or "local",
+            api_key=os.environ.get("PRAVRUDHI_CHAT_API_KEY", "").strip() or None,
+        )
+
+        def complete(prompt: str) -> str:
+            result = client.chat(
+                [{"role": "user", "content": prompt}],
+                temperature=0.2, max_tokens=1024, json_schema=requests.CRITERIA_SCHEMA,
+            )
+            return str(result.text)
+
+        return complete
+    return None
+
+
+def _beat_triage(root: Path, *, complete: Callable[[str], str] | None = None) -> ActionResult:
+    """Nothing has criteria to work, so the work is giving an ask some.
+
+    This branch used to report "every captured request is verified; nothing is owed". That sentence was false
+    whenever an ask sat in `captured`, and on 2026-09-09 it was false twenty-eight times over: `next_obligation`
+    filters on `r.open and r.criteria`, so every undrafted ask was invisible to it, and the loop described that
+    blindness as completion. A drive that cannot see work must not conclude there is none.
+
+    Drafting is one beat's action and dispatching is the next one's. Keeping them apart means the criteria the
+    engine wrote are on the record, and readable, before anything is paid to build against them.
+    """
+    pending = requests.untriaged(root)
+    if not pending:
+        return None, "every captured request is verified; nothing is owed", None
+    model = complete if complete is not None else _triage_complete(root)
+    for request in pending:
+        triaged = requests.triage(root, request.id, complete=model)
+        if triaged is None:
+            continue  # states nothing to draft from; the next ask may
+        texts = [c.text for c in triaged.criteria]
+        return (
+            {"request": request.id},
+            f"{request.id} had no acceptance criteria, so the loop could not see it; "
+            f"drafted {len(texts)} from the ask",
+            {"kind": "triage", "request": request.id, "criteria": texts},
+        )
+    return (
+        None,
+        f"{len(pending)} captured ask(s) state nothing the engine can draft a criterion from; "
+        f"they need the operator's words, not another beat",
+        None,
+    )
+
+
 def _beat_obligations(root: Path, dispatch: DispatchFn | None, *, judge: Any = None) -> ActionResult:
     """`seva` (obligations): the oldest unmet request criterion (`requests.next_unmet`), dispatched through the
     swarm exactly like a capability step, scoped to its own proposal scratch directory under `proposals/requests/`."""
     owed = requests.next_obligation(root)
     if owed is None:
-        return None, "every captured request is verified; nothing is owed", None
+        return _beat_triage(root)
     if owed["kind"] == "verify_request":
         # Everything on this request is evidenced and it has not been through the gate, so the work is the gate,
         # not more building. Reporting "no request has an unmet criterion" and stopping was how the loop came to
@@ -554,7 +617,7 @@ def _beat_obligations(root: Path, dispatch: DispatchFn | None, *, judge: Any = N
         )
     found = requests.next_unmet(root)
     if found is None:  # pragma: no cover - next_obligation already answered meet_criterion
-        return None, "every captured request is verified; nothing is owed", None
+        return _beat_triage(root)
     request, criterion, index = found
     if stalled(root, request.id, index):
         # Spent its budget: this loop has dispatched this exact criterion MAX_CRITERION_ATTEMPTS times without

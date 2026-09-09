@@ -14,9 +14,11 @@ on something else instead.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from pravrudhi.application import heartbeat
+from pravrudhi.application.requests import Criterion, add_criteria, capture, next_unmet
 
 
 def test_attempts_are_counted_per_criterion(tmp_path: Path) -> None:
@@ -50,3 +52,51 @@ def test_a_stalled_criterion_survives_a_restart(tmp_path: Path) -> None:
         heartbeat.record_attempt(tmp_path, "r-1", 7)
     assert heartbeat.stalled(tmp_path, "r-1", 7)
     assert (tmp_path / heartbeat._ATTEMPTS_FILE).is_file()
+
+
+class TestTheBudgetMovesTheLoopOn:
+    """Spending the budget must also release the choice.
+
+    The budget stopped the paying and left selection pinned to the thing it had just given up on. On 2026-09-09
+    both engines reported the same criterion on six consecutive beats — `r-5795501a` criterion 7 in the studio,
+    `r-3981d7e0` criterion 1 in the release install — each with the reason "has stalled after 3 attempts;
+    leaving it for the operator". Correct about not paying, and still the only thing either loop could see, so
+    neither did anything else for days while 28 captured asks waited behind it.
+    """
+
+    def test_a_stalled_criterion_is_not_chosen_again(self, tmp_path: Path) -> None:
+        old_at = (datetime.now(UTC) - timedelta(days=5)).isoformat().replace("+00:00", "Z")
+        parked = capture(tmp_path, "the ask the loop could not finish", asked_at=old_at)
+        add_criteria(tmp_path, parked.id, [Criterion(text="the criterion it gave up on", source="operator")])
+        fresh = capture(tmp_path, "an ask it has not tried yet")
+        add_criteria(tmp_path, fresh.id, [Criterion(text="work worth a beat", source="operator")])
+
+        picked = next_unmet(tmp_path)
+        assert picked is not None and picked[0].id == parked.id, "the oldest ask comes first while it is live"
+
+        for _ in range(heartbeat.MAX_CRITERION_ATTEMPTS):
+            heartbeat.record_attempt(tmp_path, parked.id, 0)
+
+        picked = next_unmet(tmp_path)
+        assert picked is not None, "a parked criterion must not hide the work behind it"
+        assert picked[0].id == fresh.id, "the beat goes to what the loop can still move"
+        assert picked[1].text == "work worth a beat"
+
+    def test_nothing_is_offered_when_every_criterion_is_parked(self, tmp_path: Path) -> None:
+        """`None` is what lets the beat fall through to another drive, rather than re-choosing a dead end."""
+        parked = capture(tmp_path, "the only ask, and it is stuck")
+        add_criteria(tmp_path, parked.id, [Criterion(text="stuck work", source="operator")])
+        for _ in range(heartbeat.MAX_CRITERION_ATTEMPTS):
+            heartbeat.record_attempt(tmp_path, parked.id, 0)
+        assert next_unmet(tmp_path) is None
+
+    def test_progress_puts_a_parked_criterion_back_in_play(self, tmp_path: Path) -> None:
+        """The budget is spent per attempt, not per criterion for ever: clearing it restores the choice."""
+        parked = capture(tmp_path, "stuck, then unstuck")
+        add_criteria(tmp_path, parked.id, [Criterion(text="stuck work", source="operator")])
+        for _ in range(heartbeat.MAX_CRITERION_ATTEMPTS):
+            heartbeat.record_attempt(tmp_path, parked.id, 0)
+        assert next_unmet(tmp_path) is None
+        heartbeat.clear_attempts(tmp_path, parked.id, 0)
+        picked = next_unmet(tmp_path)
+        assert picked is not None and picked[0].id == parked.id

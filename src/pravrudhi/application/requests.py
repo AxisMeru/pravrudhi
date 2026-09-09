@@ -23,7 +23,9 @@ from __future__ import annotations
 
 import contextlib
 import json
+import re
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -332,11 +334,31 @@ def staleness(req: Request, *, now: datetime | None = None) -> float:
     return max(0.0, (moment - asked) / timedelta(days=1))
 
 
+def _parked(root: Path, request_id: str, index: int) -> bool:
+    """Whether this criterion has spent its attempt budget.
+
+    Lazily imported because `heartbeat` imports this module, and because the budget is a property of dispatching
+    rather than of the ledger: a workspace that has never dispatched has parked nothing.
+    """
+    with contextlib.suppress(Exception):
+        from pravrudhi.application.heartbeat import stalled
+
+        return bool(stalled(root, request_id, index))
+    return False
+
+
 def next_unmet(root: Path, *, now: datetime | None = None) -> tuple[Request, Criterion, int] | None:
     """The oldest open request with an unmet criterion, and which criterion to work on.
 
     This is what the heartbeat calls. Ordering by staleness rather than by arrival keeps a request that was
     started and abandoned from sitting behind one that was never touched.
+
+    A criterion that has spent its attempt budget is skipped rather than offered. The budget stopped the loop
+    paying for the same dispatch hourly, but selection went on naming it, so on 2026-09-09 both engines reported
+    the identical choice for six consecutive beats and did nothing else for days while 28 captured asks waited
+    behind it. Declining to pay for a thing and declining to look past it are two decisions, and only the first
+    had been made. Returning `None` once everything is parked is what lets the beat fall through to another
+    drive instead of re-choosing a dead end.
     """
     best: tuple[float, Request, Criterion, int] | None = None
     for req in load(root):
@@ -345,6 +367,8 @@ def next_unmet(root: Path, *, now: datetime | None = None) -> tuple[Request, Cri
         for i, c in enumerate(req.criteria):
             if c.met:
                 continue
+            if _parked(root, req.id, i):
+                continue  # spent its budget; it must not hide the work behind it, here or on its own request
             age = staleness(req, now=now)
             if best is None or age > best[0]:
                 best = (age, req, c, i)
@@ -382,6 +406,148 @@ def next_obligation(root: Path, *, now: datetime | None = None) -> dict[str, Any
     }
 
 
+_CRITERION_CHARS = 300
+"""The ledger's criterion column. Long criteria were already truncated here by `_criterion_from_finding`."""
+
+# A digit, then ")" or ". ", at the start of the ask or after whitespace. The operator enumerates constantly
+# ("1)do local schedule task 2)you have to unblock studio"), sometimes without a space after the bracket. A "."
+# marker requires trailing whitespace so that "3.5" is a number rather than a third item.
+_ENUMERATED = re.compile(r"(?:^|(?<=\s))\d{1,2}(?:\)\s*|\.\s+)")
+
+
+def draft_criteria(text: str) -> list[Criterion]:
+    """Read an ask and write the acceptance criteria for it.
+
+    The operator delegated drafting, so these are `source="engine"` and carry no evidence: drafting decides what
+    to attempt, never that anything was done. The completion gate still reviews delivered work against the
+    operator's verbatim `Request.text`, so a criterion the engine wrote for itself cannot lower the bar.
+
+    An enumerated ask is split on its own numbering, which is the operator's structure rather than the engine's
+    reading of it. Prose becomes one criterion carrying the ask verbatim. Nothing is paraphrased and nothing is
+    inferred: a review that split prose on guesswork produced criteria naming nothing, and the three agents that
+    picked them up could only guess in turn (see `heartbeat._names_something`).
+    """
+    ask = (text or "").strip()
+    if not ask:
+        return []
+    if len(_ENUMERATED.findall(ask)) >= 2:  # one marker is a sentence that happens to start with "1)"
+        items = [part.strip() for part in _ENUMERATED.split(ask)]
+        drafted = [Criterion(text=i[:_CRITERION_CHARS], source="engine") for i in items if i]
+        if drafted:
+            return drafted
+    return [Criterion(text=ask[:_CRITERION_CHARS], source="engine")]
+
+
+def untriaged(root: Path, *, now: datetime | None = None) -> list[Request]:
+    """Open asks carrying no criteria, oldest first — the ones the loop cannot see.
+
+    `next_obligation` filters on `r.open and r.criteria`, so an ask with none is invisible to every drive. That
+    is not a small gap: twenty-eight of thirty-five requests were in this state while the loop reported nothing
+    was owed.
+    """
+    pending = [r for r in load(root) if r.open and not r.criteria]
+    return sorted(pending, key=lambda r: -staleness(r, now=now))
+
+
+_MAX_DRAFTED = 6
+"""Enough to cover an ask, few enough that no single beat can bury the backlog under one request."""
+
+CRITERIA_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "criteria": {"type": "array", "items": {"type": "string"}, "minItems": 1, "maxItems": _MAX_DRAFTED},
+    },
+    "required": ["criteria"],
+}
+"""Constrained decoding rather than prose parsing: llama.cpp compiles this to a grammar, so the array closes."""
+
+
+def _decompose_prompt(ask: str) -> str:
+    """The operator's words reach the model unrewritten; only the instruction around them is ours."""
+    return (
+        "An operator asked for the following, verbatim:\n\n"
+        f"{ask}\n\n"
+        "Write the acceptance criteria that would settle whether this ask has been delivered. Each criterion "
+        "must name the file, module, command or asset that has to change or hold, in backticks where it is an "
+        "identifier — a criterion that only says something should be better cannot be built against or judged. "
+        "State what must be true, not how to achieve it. Do not restate the ask. Do not invent measurements, "
+        "numbers or results. Return at most "
+        f"{_MAX_DRAFTED} criteria as JSON: "
+        '{"criteria": ["...", "..."]}'
+    )
+
+
+def _names_something(line: str) -> bool:
+    """The reviewer's test for an actionable finding, applied to the engine's own drafting.
+
+    Lazily imported from `heartbeat`, which owns the definition and the history behind it: a criterion naming
+    nothing was handed to three agents that could only guess.
+    """
+    with contextlib.suppress(Exception):
+        from pravrudhi.application.heartbeat import _names_something as names
+
+        return bool(names(line))
+    return True  # without the reviewer's rule, trust the draft rather than discard every criterion
+
+
+def decompose_ask(text: str, *, complete: Callable[[str], str]) -> list[Criterion]:
+    """Ask a model what would satisfy a prose ask, and keep only the criteria that name something.
+
+    `complete` takes a prompt and returns the model's raw text, which is why this is testable without an
+    endpoint. Every failure — an unreachable model, an answer that is not JSON, an answer whose criteria all
+    name nothing — returns `[]` and hands the decision back to the caller. A beat must not raise, and a bad
+    answer must not become a criterion the loop then pays three times to attempt.
+    """
+    ask = (text or "").strip()
+    if not ask:
+        return []
+    try:
+        answer = complete(_decompose_prompt(ask))
+    except Exception:  # noqa: BLE001 - an unreachable model is a fallback, not a failed beat
+        return []
+    try:
+        payload = json.loads(answer or "")
+    except (ValueError, TypeError):
+        return []
+    if not isinstance(payload, dict):
+        return []
+    items = payload.get("criteria")
+    if not isinstance(items, list):
+        return []
+    drafted: list[Criterion] = []
+    for item in items[:_MAX_DRAFTED]:
+        line = str(item or "").strip()
+        if not line or not _names_something(line):
+            continue  # a criterion nobody can build against is worse than one fewer criterion
+        drafted.append(Criterion(text=line[:_CRITERION_CHARS], source="engine"))
+    return drafted
+
+
+def triage(
+    root: Path, request_id: str, *, complete: Callable[[str], str] | None = None,
+) -> Request | None:
+    """Give one captured ask the criteria that let the loop pick it up, or `None` if there is nothing to do.
+
+    An ask that states its own parts is split on them and costs nothing. Prose is put to `complete` when one is
+    supplied, because a single criterion repeating a vague ask is a criterion that names nothing. If that
+    returns nothing usable the verbatim criterion stands: one criterion the operator can sharpen beats leaving
+    the ask invisible to every drive.
+
+    Returning `None` for an ask that already has criteria is what keeps an hourly loop from burying a request
+    under its own restatements — the same reason `_criterion_from_finding` allows one open review criterion at a
+    time.
+    """
+    request = get(root, request_id)
+    if request is None or request.criteria:
+        return None
+    drafted = draft_criteria(request.text)
+    if not drafted:
+        return None
+    if complete is not None and len(_ENUMERATED.findall(request.text.strip())) < 2:
+        drafted = decompose_ask(request.text, complete=complete) or drafted
+    return add_criteria(root, request_id, drafted)
+
+
 def backlog(root: Path, *, now: datetime | None = None) -> dict[str, Any]:
     """What is outstanding, in the shape the interface and the CLI both render."""
     rows = load(root)
@@ -400,7 +566,8 @@ def backlog(root: Path, *, now: datetime | None = None) -> dict[str, Any]:
 
 __all__ = [
     "Criterion", "Evidence", "Request", "RequestError", "STATES", "TRANSITIONS",
-    "add_criteria", "advance", "backlog", "capture", "get", "load", "meet", "next_obligation",
+    "add_criteria", "advance", "backlog", "capture", "draft_criteria", "get", "load", "meet",
+    "next_obligation", "triage", "untriaged", "decompose_ask", "CRITERIA_SCHEMA",
     "next_unmet",
     "retract_evidence", "save",
     "staleness", "store_path",
