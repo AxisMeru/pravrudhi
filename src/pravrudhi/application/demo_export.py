@@ -12,6 +12,7 @@ sequence of a real run as it happened.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import re
 import subprocess
@@ -346,7 +347,48 @@ def _write_empty_ledger(ledger: Path) -> None:
     ledger.touch()
 
 
-def build_demo(root: Path) -> dict[str, Any]:
+DEFAULT_PRODUCT_ROOT = Path.home() / "pravrudhi-release"
+"""Where the product install lives on the operator's machines.
+
+A default rather than a config entry because it is a machine layout, not a tuning knob;
+`build_demo(product_root=...)` overrides it, which is what the tests use."""
+
+
+def _product(root: Path | None) -> dict[str, Any] | None:
+    """The product install's own state, or `None` when there is no install to report.
+
+    Studio and the product keep separate ledgers, which is correct: separate workspaces, separate evidence.
+    But it meant the published snapshot - the only surface a cloud watcher can reach - carried nothing about
+    the product at all. Its requests, its heartbeat and its objectives were invisible, so the loop the operator
+    wants as Studio's feedback signal could not be observed even to say it had stopped. The stall-watch routine
+    correctly reported it "UNTRACEABLE" rather than calling it healthy, which is how this was found.
+
+    Each part is guarded separately and on purpose. An install that exists but cannot be fully read should
+    report what it can and still say it exists: knowing there IS a product whose state is unreadable is itself
+    the finding, and is nothing like there being no product.
+
+    Deliberately a small section rather than a second full snapshot. What a reader needs is whether the product
+    loop is moving and what it is working on.
+    """
+    if root is None:
+        return None
+    root = Path(root)
+    if not (root / ".pravrudhi").is_dir():
+        return None
+    out: dict[str, Any] = {"root": str(root)}
+    with contextlib.suppress(Exception):
+        out["requests"] = _requests(root)
+    with contextlib.suppress(Exception):
+        out["heartbeat"] = _heartbeat(root)
+    with contextlib.suppress(Exception):
+        out["objectives"] = [objective_summary(root, o) for o in load_all(root)]
+    with contextlib.suppress(Exception):
+        current = root / ".pravrudhi" / "releases" / "current"
+        out["version"] = current.resolve().name if current.exists() else None
+    return out
+
+
+def build_demo(root: Path, *, product_root: Path | None = DEFAULT_PRODUCT_ROOT) -> dict[str, Any]:
     root = Path(root)
     ledger = root / "research" / "ledger.jsonl"
 
@@ -408,6 +450,7 @@ def build_demo(root: Path) -> dict[str, Any]:
         "heartbeat": _heartbeat(root),
         "requests": _requests(root),
         "fleet": _fleet(root),
+        "product": _product(product_root),
         "health": _health(root),
         "update": _update(root),
         "inbox": _inbox(root),
