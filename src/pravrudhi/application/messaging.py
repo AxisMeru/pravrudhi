@@ -34,6 +34,10 @@ from pravrudhi.application.credentials import Secret, _is_inside_git_worktree
 TOKEN_ENV = "TELEGRAM_BOT_TOKEN"
 CHAT_ENV = "TELEGRAM_CHAT_ID"
 
+PAIR_FILE = ".pravrudhi/telegram-chat.json"
+"""Where the chat the operator paired by messaging the bot is recorded. Defined here because which chat a bot
+delivers to is decided in this module; `telegram_inbox` writes the file and imports the name from here."""
+
 
 class MessagingError(ValueError):
     """Configuration that would look complete and deliver nothing."""
@@ -89,11 +93,30 @@ def _stored_token(root: Path) -> str:
         return ""
 
 
-def _environment_bot() -> tuple[str, str] | None:
-    """The operator's own credential, as their service supplies it. Both halves or neither."""
+def paired_chat(root: Path) -> str:
+    """The chat the operator identified themselves to this bot from, or empty when they never have."""
+    try:
+        value = json.loads((Path(root) / PAIR_FILE).read_text())["chat_id"]
+    except (OSError, json.JSONDecodeError, KeyError, TypeError):
+        return ""
+    return str(value).strip()
+
+
+def _environment_bot(root: Path) -> tuple[str, str] | None:
+    """The operator's own credential, as their service supplies it.
+
+    Both halves or neither, because a token with nowhere to deliver reads as configured and delivers nothing.
+    The second half may come from the pairing rather than the environment: the product install shipped with
+    `TELEGRAM_CHAT_ID` present but empty, so this resolved to neither and prabhasa_bot sent nothing for a day
+    while its settings said it was configured - Telegram refused every send with "chat_id is empty". The
+    operator had already told that bot who they were by messaging it, and that pairing was on disk the whole
+    time. The environment still wins; the pairing is only consulted when it has nothing to say.
+    """
     token = os.environ.get(TOKEN_ENV, "").strip()
-    chat_id = os.environ.get(CHAT_ENV, "").strip()
-    return (token, chat_id) if token and chat_id else None
+    if not token:
+        return None
+    chat_id = os.environ.get(CHAT_ENV, "").strip() or paired_chat(root)
+    return (token, chat_id) if chat_id else None
 
 
 def _is_engine_root(root: Path, engine_root: Path | None) -> bool:
@@ -117,7 +140,7 @@ def telegram_status(root: Path, *, engine_root: Path | None = None) -> TelegramS
             chat_id=str(settings.get("chat_id", "")),
             from_environment=False,
         )
-    inherited = _environment_bot() if _is_engine_root(root, engine_root) else None
+    inherited = _environment_bot(root) if _is_engine_root(root, engine_root) else None
     if inherited is not None:
         return TelegramStatus(configured=True, enabled=True, chat_id=inherited[1], from_environment=True)
     return TelegramStatus(configured=False, enabled=False, chat_id="", from_environment=False)
@@ -198,12 +221,12 @@ def resolve_telegram(root: Path, *, engine_root: Path | None) -> tuple[Secret, s
     if not status.configured or not status.enabled or not status.chat_id:
         return None
     if status.from_environment:
-        inherited = _environment_bot()
+        inherited = _environment_bot(root)
         return (Secret(provider="telegram", value=inherited[0]), status.chat_id) if inherited else None
     return Secret(provider="telegram", value=_stored_token(root)), status.chat_id
 
 
 __all__ = [
-    "CHAT_ENV", "TOKEN_ENV", "MessagingError", "TelegramStatus",
+    "CHAT_ENV", "PAIR_FILE", "TOKEN_ENV", "MessagingError", "TelegramStatus",
     "clear_telegram", "resolve_telegram", "set_telegram", "telegram_status",
 ]

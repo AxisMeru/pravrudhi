@@ -16,6 +16,7 @@ from pathlib import Path
 import pytest
 
 from pravrudhi.application.messaging import (
+    PAIR_FILE,
     MessagingError,
     clear_telegram,
     resolve_telegram,
@@ -111,6 +112,34 @@ class TestTheOperatorsOwnEnvironment:
         assert status.configured is True and status.enabled is True
         assert status.chat_id == "env-chat" and status.from_environment is True
         assert "env-token" not in repr(status)
+
+    def test_an_empty_environment_chat_id_falls_back_to_the_pairing(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The product install shipped with TELEGRAM_CHAT_ID present but empty.
+
+        "Both halves or neither" then resolved to neither, so prabhasa_bot delivered nothing at all - Telegram
+        answered every send with "Bad Request: chat_id is empty". The operator had already told that bot who
+        they were by messaging it, and the pairing was on disk the whole time. Prefer the environment, fall
+        back to the pairing, still refuse when there is no chat at all.
+        """
+        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "env-token")
+        monkeypatch.setenv("TELEGRAM_CHAT_ID", "")
+        (tmp_path / ".pravrudhi").mkdir(parents=True, exist_ok=True)
+        (tmp_path / PAIR_FILE).write_text('{"chat_id": "8679892510"}')
+
+        resolved = resolve_telegram(tmp_path, engine_root=tmp_path)
+
+        assert resolved is not None, "a token with a paired chat has somewhere to deliver"
+        assert resolved[1] == "8679892510"
+
+    def test_a_token_with_no_chat_anywhere_is_still_refused(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "env-token")
+        monkeypatch.setenv("TELEGRAM_CHAT_ID", "")
+
+        assert resolve_telegram(tmp_path, engine_root=tmp_path) is None
 
     def test_a_workspace_is_told_it_has_no_bot_however_the_engine_is_configured(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

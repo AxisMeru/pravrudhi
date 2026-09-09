@@ -28,11 +28,12 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from pravrudhi.application.messaging import PAIR_FILE as _PAIR_FILE
+
 Fetch = Callable[..., dict[str, Any]]
 Send = Callable[[str], None]
 
 _THREADS_FILE = ".pravrudhi/telegram-threads.json"
-_PAIR_FILE = ".pravrudhi/telegram-chat.json"
 
 
 def paired_chat(root: Path) -> str | None:
