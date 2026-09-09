@@ -467,7 +467,7 @@ FROM_OPT = typer.Option(None, "--from", help="copy a packaged example objective 
 INTENT_OPT = typer.Option(None, "--intent", help="what you want, in your own words")
 TRACK_OPT = typer.Option(None, "--track", help="ledger track this objective's evidence accumulates under")
 METRIC_OPT = typer.Option(None, "--metric", help="benchmark metric, named as the evidence document names it")
-TOOL_OPT = typer.Option("lm-eval", "--tool", help="lm-eval | evalplus")
+TOOL_OPT = typer.Option("lm-eval", "--tool", help="lm-eval | evalplus | prabhasa")
 DOMAIN_OPT = typer.Option("", "--domain")
 TARGET_OPT = typer.Option(None, "--target-delta", help="how much improvement counts as success; omit for 'better is better'")
 
@@ -1075,7 +1075,7 @@ def main() -> None:
 @app.command("ext-record")
 def ext_record_cmd(
     path: Path = EXT_RESULT_ARG,
-    tool: str = typer.Option(..., "--tool", help="lm-eval | evalplus"),
+    tool: str = typer.Option(..., "--tool", help="lm-eval | evalplus | prabhasa"),
     track: str = typer.Option(..., "--track", help="M (model) | H (harness)"),
     condition: str = typer.Option(..., "--condition", help="base | adapter:c-0045 | harness:c-0012"),
     model: str = typer.Option(..., "--model"),
