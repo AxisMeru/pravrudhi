@@ -54,3 +54,38 @@ cooldown_minutes:
   opencode:alibaba: 20
   # Plan credits reset on a weekly cycle rather than a short window, so a longer wait before retrying.
   opencode:alibaba-plan: 120
+
+# Phrases that mean "the transport stumbled", as distinct from "this account is out of quota". Not keyed by agent:
+# a reset connection is a property of the network, not of the vendor, and a new seat added later gets the same
+# treatment without another entry here.
+#
+# Counted across 157 recorded outcomes on 2026-09-09, all 41 rejections were one class. A dispatch that timed out
+# after 1800s was recorded as an ordinary loss against `opencode:alibaba-plan` and the fallback chain never ran,
+# because only a "limited" verdict reaches it. Thirty minutes of wall clock bought nothing and the same route was
+# chosen again on the next beat.
+#
+# Matched loosely and case-insensitively, like the limit patterns. A wrong match costs one dispatch on a different
+# route; a missed one costs a route's reputation for a fault that was never its fault.
+transient:
+  - "connection reset"
+  - "econnreset"
+  - "etimedout"
+  - "econnrefused"
+  - "enotfound"
+  - "socket hang up"
+  - "fetch failed"
+  - "timeout after"
+  - "timed out"
+  - "502"
+  - "503"
+  - "504"
+  - "bad gateway"
+  - "service unavailable"
+  - "gateway timeout"
+  - "upstream connect error"
+  - "temporarily unavailable"
+  - "internal server error"
+
+# How long to hold a seat that merely stumbled. Far shorter than a quota cooldown: the account is fine, so holding
+# it out for an hour would throw away a working route over one bad connection.
+transient_cooldown_minutes: 2

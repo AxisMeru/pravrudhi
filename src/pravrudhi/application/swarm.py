@@ -15,11 +15,12 @@ declared paths cannot collide, which is checked before anything is dispatched ra
 
 from __future__ import annotations
 
+import contextlib
 import json
 import subprocess
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -128,6 +129,19 @@ def _hit_a_usage_limit(agent_id: str, verdict: Verdict) -> bool:
     if verdict.limited:
         return True
     return availability.classify(agent_id, _verdict_text(verdict), 1) == "limited"
+
+
+def _stumbled(agent_id: str, verdict: Verdict) -> bool:
+    """Whether the transport failed rather than the route.
+
+    A reset connection or a wall-clock timeout is not a verdict on the route, so it belongs in the same fallback
+    chain a usage limit reaches. Before this it was an ordinary loss: a dispatch that timed out after 1800s was
+    recorded against `opencode:alibaba-plan`, the chain never ran, thirty minutes of wall clock bought nothing,
+    and the next beat chose the same seat again.
+    """
+    if verdict.accepted or verdict.limited:
+        return False
+    return availability.classify(agent_id, _verdict_text(verdict), 1) == "transient"
 
 
 MAX_FALLBACKS = 4
@@ -293,8 +307,33 @@ def run_wave(
             try:
                 verdict = fut.result()
                 rid = chosen.get(t.spec.task_id)
-                limited = root is not None and _hit_a_usage_limit(chosen_agent.get(t.spec.task_id, ""), verdict)
-                if limited and root is not None:
+                spent_seat = chosen_agent.get(t.spec.task_id, "")
+                limited = root is not None and _hit_a_usage_limit(spent_seat, verdict)
+                # A stumble takes the same route out of rotation and hands the work on, but only for minutes:
+                # the account is fine, and an hour's cooldown would discard a working seat over one bad
+                # connection. `transient_cooldown_minutes` is why the two are not simply merged.
+                stumbled = root is not None and not limited and _stumbled(spent_seat, verdict)
+                if stumbled and root is not None:
+                    availability.mark_limited(
+                        root, spent_seat,
+                        until=datetime.now(UTC) + timedelta(minutes=availability.transient_cooldown_minutes()),
+                    )
+                if (limited or stumbled) and root is not None:
+                    # Write the event down before handing the work on. `_retry_elsewhere` replaces both the
+                    # verdict and the chosen route, so without this row the quota event vanishes and only the
+                    # fallback's success survives — which is how 157 outcomes came to contain no `limited` row
+                    # at all while the Lite Plan was in fact exhausted. `routing.records` keeps it out of the
+                    # route's trial count, so recording it costs the statistic nothing.
+                    if rid is not None:
+                        with contextlib.suppress(Exception):
+                            routing.record_outcome(root, routing.Outcome(
+                                tier=t.tier, route_id=rid, task_id=t.spec.task_id, accepted=False,
+                                wall_s=verdict.wall_s, limited=True,
+                                tokens=getattr(verdict, "tokens", None),
+                                cost_usd=getattr(verdict, "cost_usd", None),
+                                cache_read_tokens=getattr(verdict, "cache_read_tokens", None),
+                                cache_write_tokens=getattr(verdict, "cache_write_tokens", None),
+                            ))
                     # A usage limit says nothing about the quality of the route, so it must not be recorded as a
                     # loss; it says the account is spent for now. Cool that agent down and hand the task to the
                     # cheapest route still standing, which is what keeps the loop running unattended.
@@ -317,7 +356,11 @@ def run_wave(
                         _note_verdict(root, verdict)
                     except Exception as note_error:  # noqa: BLE001
                         log(f"trace: not recording {verdict.task_id} ({note_error})")
-                if root is not None and rid is not None and not limited:
+                # Recorded even when limited or stumbling. The `not limited` guard here meant no quota event
+                # was ever written: zero of 157 outcomes, while the Lite Plan was in fact exhausted. It was
+                # redundant defence — `routing.records` already drops limited rows so they cannot move a route's
+                # trials — and it discarded the evidence instead of protecting the statistic.
+                if root is not None and rid is not None:
                     routing.record_outcome(root, routing.Outcome(
                         tier=t.tier, route_id=rid, task_id=t.spec.task_id,
                         accepted=verdict.accepted, wall_s=verdict.wall_s,

@@ -51,6 +51,27 @@ def _limit_patterns() -> dict[str, list[str]]:
 LIMIT_PATTERNS: dict[str, list[str]] = _limit_patterns()
 
 
+def _transient_patterns() -> list[str]:
+    return [str(p) for p in (_load_config().get("transient") or [])]
+
+
+TRANSIENT_PATTERNS: list[str] = _transient_patterns()
+"""Phrases meaning the transport stumbled rather than the account being spent.
+
+Not keyed by agent: a reset connection belongs to the network, not the vendor. Kept in `limits.yaml` because
+constants live in configs in this repository, and because a vendor's new phrasing must be addable without a
+release."""
+
+
+def transient_cooldown_minutes() -> float:
+    """How long a merely-stumbling seat is held out. Short on purpose: the account is fine."""
+    value = _load_config().get("transient_cooldown_minutes")
+    try:
+        return float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return 2.0
+
+
 def _default_cooldown_minutes(agent_id: str) -> float:
     minutes = _load_config().get("cooldown_minutes") or {}
     if agent_id in minutes:
@@ -59,7 +80,10 @@ def _default_cooldown_minutes(agent_id: str) -> float:
 
 
 def classify(agent_id: str, text: str, returncode: int) -> str:
-    """"ok", "limited" or "failed" for one finished agent run.
+    """"ok", "limited", "transient" or "failed" for one finished agent run.
+
+    `transient` is the class that was missing. Without it a reset connection, a 1800s timeout and a genuinely bad
+    answer were one verdict: no fallback, and a loss recorded against a route that may have done nothing wrong.
 
     A wrong call in either direction only costs a cooldown or a loss recorded slightly late; it never crashes a
     wave, so the match against `LIMIT_PATTERNS` is deliberately a loose, case-insensitive substring test rather than
@@ -68,6 +92,10 @@ def classify(agent_id: str, text: str, returncode: int) -> str:
     haystack = (text or "").lower()
     if any(phrase.lower() in haystack for phrase in LIMIT_PATTERNS.get(agent_id, ())):
         return "limited"
+    if returncode != 0 and any(phrase.lower() in haystack for phrase in TRANSIENT_PATTERNS):
+        # Checked after `limited` deliberately: a 429 that also mentions a reset connection is a spent account,
+        # and calling it a stumble would retry into the same wall on a two-minute cooldown instead of an hour's.
+        return "transient"
     return "ok" if returncode == 0 else "failed"
 
 
