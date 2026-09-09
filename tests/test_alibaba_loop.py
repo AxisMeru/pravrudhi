@@ -126,9 +126,12 @@ def test_the_workspace_is_named_absolutely_so_writes_cannot_escape_it(tmp_path, 
 def test_the_transcript_yields_what_the_turn_cost(tmp_path, monkeypatch, key):
     """A dispatch that cannot say what it spent cannot be budgeted, and a quota went in a day for want of this.
 
-    OpenCode reports usage on each `step_finish`. The largest total across the turn is the cumulative figure —
-    the counts include the context replayed every step, so summing them would multiply one conversation's cost
-    by its number of steps.
+    This test used to assert the largest step, on the belief that OpenCode's per-step totals were cumulative.
+    They are not: each step reports its own input, output and cache read, and the cache read is the whole
+    conversation being sent again, so the per-step number climbs while the bill is the sum. Checked against
+    OpenCode's own session accounting, one 76-step session cost 8,679,807 tokens; the largest step in it was
+    170,830. Taking the largest read the seat's 56,232,328 tokens as 104,836 and the weekly plan emptied in a
+    day underneath a budget that never tripped.
     """
     transcript = "\n".join([
         event("step_finish", reason="tool-calls", tokens={"total": 20419, "input": 569, "output": 50}),
@@ -138,9 +141,39 @@ def test_the_transcript_yields_what_the_turn_cost(tmp_path, monkeypatch, key):
     monkeypatch.setattr(alibaba, "_run", lambda *a, **k: (0, transcript, "", 1.0))
     result = alibaba.AlibabaAgent(tmp_path).run("do it", tmp_path)
     assert result.ok
-    assert result.tokens == 41002, result.tokens
+    assert result.tokens == 20419 + 33110 + 41002, result.tokens
 
 
 def test_a_transcript_without_usage_reports_zero_not_a_guess(tmp_path, monkeypatch, key):
     monkeypatch.setattr(alibaba, "_run", lambda *a, **k: (0, event("step_finish", reason="stop"), "", 1.0))
     assert alibaba.AlibabaAgent(tmp_path).run("x", tmp_path).tokens == 0
+
+
+def test_a_turns_cost_is_every_steps_cost_added_up(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The step counts are per-step, not cumulative, and taking the largest under-read the bill by 500x.
+
+    The extraction took `max()` over the steps, with a comment asserting the counts were cumulative so the
+    largest was the turn's cost. They are not. Each step reports its own input, output and cache read, and the
+    cache read is the whole conversation being sent again - so the per-step figure grows while the real bill is
+    the sum. One measured session ran 76 steps: the largest step was 170,830 tokens and the session actually
+    cost 8,679,807, which OpenCode's own accounting confirms to within 0.3%.
+
+    That is why the weekly plan emptied in a day with the budget reading six figures. The 2,000,000-token
+    allowance on the flagship seat was never going to trip when the meter was reading 1/500th of the spend.
+    """
+    steps = [7168 + 2048 * i for i in range(40)]
+    stream = "\n".join(
+        json.dumps({"type": "step", "sessionID": "s-1",
+                    "part": {"tokens": {"total": t, "input": 500, "output": 100, "cache": {"read": t - 600}}}})
+        for t in steps
+    )
+    stream += "\n" + json.dumps({"type": "step_finish", "sessionID": "s-1", "part": {"reason": "stop"}})
+
+    monkeypatch.setattr(alibaba, "_run", lambda *a, **k: (0, stream, "", 1.0))
+    monkeypatch.setattr(alibaba, "credential",
+                        lambda _p="alibaba": Secret(provider="alibaba", value="sk-not-a-real-key-000"))
+
+    run = alibaba.AlibabaAgent(tmp_path).run("go", tmp_path)
+
+    assert run.tokens == sum(steps), "a turn costs what every one of its steps cost"
+    assert run.tokens > max(steps) * 10, "the largest step is nowhere near the bill"

@@ -149,6 +149,10 @@ declared:
   # until 2026-09-08, when a one-week quota went in a day: mechanical fires most often, and an agent loop costs
   # roughly 20,000 tokens per step whichever model runs it, so the model that runs there decides the burn rate.
   mechanical: [qwen-lite-flash, sonnet, local-glm]
-  standard: [qwen-lite-max, sonnet]
+  # astra is named last at standard and design as of 2026-09-09, so an idle subscription absorbs overflow when
+  # the seats above it are cooling - which is the situation for the five days the Lite Plan is out. Last, not
+  # first: head to head at critical, where the operator declared it first, astra is accepted on 60% of 30
+  # dispatches against sonnet's 86% of 36, so it earns overflow rather than precedence at these tiers.
+  standard: [qwen-lite-max, sonnet, astra]
   design: [sonnet, opus, astra]
   critical: [astra, opus, sonnet]

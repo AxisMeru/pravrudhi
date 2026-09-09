@@ -122,7 +122,9 @@ class AlibabaAgent(GitWorktreeMixin):
         # Exact replacement also protects credentials not matched by the generic redactor.
         out = redact(out.replace(key.reveal(), "[REDACTED]"))
         err = redact(err.replace(key.reveal(), "[REDACTED]"))
-        finished, failed, session, tokens = False, False, None, 0
+        finished, failed, session = False, False, None
+        # Per step, keyed by the step's own part id so a re-emitted step is not counted twice.
+        step_tokens: dict[str, int] = {}
         for line in out.splitlines():
             try:
                 event = json.loads(line)
@@ -132,15 +134,23 @@ class AlibabaAgent(GitWorktreeMixin):
                 continue
             session = event.get("sessionID") or session
             failed |= event.get("type") == "error"
-            # OpenCode reports usage on each step. The counts are cumulative — every step replays the context —
-            # so the largest is the turn's cost and summing them would multiply one conversation by its steps.
-            usage = (event.get("part") or {}).get("tokens") if isinstance(event.get("part"), dict) else None
-            if isinstance(usage, dict):
+            # OpenCode reports usage per step, not cumulatively. Each step's `total` is that step's own input,
+            # output and cache read, and the cache read is the whole conversation being sent again - so the
+            # per-step figure climbs while the bill is the sum of all of them. This took `max()`, on a comment
+            # asserting the counts were cumulative, and under-read a measured 8,679,807-token session as 170,830.
+            # Across the seat that was 56,232,328 tokens recorded as 104,836: the weekly plan emptied in a day
+            # with a 2,000,000-token budget that never came close to tripping, because the meter read 1/500th of
+            # the spend. Summing is checked against OpenCode's own per-session accounting and agrees to 0.3%.
+            part_now = event.get("part")
+            usage = part_now.get("tokens") if isinstance(part_now, dict) else None
+            if isinstance(part_now, dict) and isinstance(usage, dict):
                 with contextlib.suppress(TypeError, ValueError):
-                    tokens = max(tokens, int(usage.get("total") or 0))
+                    part_id = str(part_now.get("id") or f"step-{len(step_tokens)}")
+                    step_tokens[part_id] = max(step_tokens.get(part_id, 0), int(usage.get("total") or 0))
             part = event.get("part") or {}
             if isinstance(part, dict):
                 finished |= event.get("type") == "step_finish" and part.get("reason") == "stop"
+        tokens = sum(step_tokens.values())
         ok = code == 0 and finished and not failed
         if not ok and not err:
             err = "OpenCode reported an error or exited without a completed turn"
