@@ -295,6 +295,30 @@
       "kind": "accepted",
       "objective": null,
       "summary": "request:r-5795501a:7 accepted by claude-code"
+    },
+    {
+      "agent": "opencode:alibaba-plan",
+      "at": "2026-09-09T01:01:02Z",
+      "detail": "",
+      "kind": "limited",
+      "objective": null,
+      "summary": "opencode:alibaba-plan hit a usage limit on request:r-5795501a:7"
+    },
+    {
+      "agent": "claude-code",
+      "at": "2026-09-09T01:01:02Z",
+      "detail": null,
+      "kind": "fallback",
+      "objective": null,
+      "summary": "request:r-5795501a:7 moved from opencode:alibaba-plan to sonnet"
+    },
+    {
+      "agent": "claude-code",
+      "at": "2026-09-09T01:03:10Z",
+      "detail": "touched 30 file(s): proposals/requests/r-5795501a/7/.probe/proposals/parity/x/1/README.md, proposals/requests/r-5795501a/7/.probe/proposals/parity/x/1/a.py, proposals/requests/r-5795501a/7/MANIFEST.proposal.json, proposals/requests/r-5795501a/7/README.md, proposals/requests/r-5795501a/7/apply_wiring.py, proposals/requests/r-5795501a/7/audit_proposal_contract.py, proposals/requests/r-5795501a/7/inspect_completion.py, proposals/requests/r-5795501a/7/parity_drive.py, proposals/requests/r-5795501a/7/pra7/__init__.py, proposals/requests/r-5795501a/7/pra7/__main__.py, proposals/requests/r-5795501a/7",
+      "kind": "accepted",
+      "objective": null,
+      "summary": "request:r-5795501a:7 accepted by claude-code"
     }
   ],
   "appetite": {
@@ -304,7 +328,7 @@
         "drive": "seva",
         "kind": "obligation"
       },
-      "as_of": "2026-09-09T00:37:59Z",
+      "as_of": "2026-09-09T01:08:45Z",
       "drives": [
         {
           "blocked_reason": "",
@@ -434,7 +458,7 @@
             "captured=32",
             "verified=5",
             "R_verified=0.1562",
-            "oldest_open_days=2.30"
+            "oldest_open_days=2.32"
           ],
           "target": 0.9,
           "unknown": false,
@@ -590,7 +614,7 @@
           "captured=32",
           "verified=5",
           "R_verified=0.1562",
-          "oldest_open_days=2.30"
+          "oldest_open_days=2.32"
         ],
         "target": 0.9,
         "unknown": false,
@@ -9859,6 +9883,42 @@
       "base": "92cd23e7d63ebb3d9c6f7c1aefe9a6f51666521f",
       "files": [
         {
+          "added": 1,
+          "binary": false,
+          "hunks": [
+            {
+              "header": "@@ -0,0 +1 @@",
+              "lines": [
+                {
+                  "kind": "add",
+                  "text": "# hi"
+                }
+              ]
+            }
+          ],
+          "path": "proposals/requests/r-5795501a/7/.probe/proposals/parity/x/1/README.md",
+          "removed": 0,
+          "too_large": false
+        },
+        {
+          "added": 1,
+          "binary": false,
+          "hunks": [
+            {
+              "header": "@@ -0,0 +1 @@",
+              "lines": [
+                {
+                  "kind": "add",
+                  "text": "X = 1"
+                }
+              ]
+            }
+          ],
+          "path": "proposals/requests/r-5795501a/7/.probe/proposals/parity/x/1/a.py",
+          "removed": 0,
+          "too_large": false
+        },
+        {
           "added": 157,
           "binary": false,
           "hunks": [
@@ -13979,11 +14039,11 @@
           "too_large": false
         },
         {
-          "added": 441,
+          "added": 490,
           "binary": false,
           "hunks": [
             {
-              "header": "@@ -0,0 +1,441 @@",
+              "header": "@@ -0,0 +1,490 @@",
               "lines": [
                 {
                   "kind": "add",
@@ -14003,7 +14063,7 @@
                 },
                 {
                   "kind": "add",
-                  "text": "marker so it can never be applied twice, and the default action is `--check`, which reads the four target files and"
+                  "text": "marker so it can never be applied twice, and the default action is `--check`, which reads the five target files and"
                 },
                 {
                   "kind": "add",
@@ -14035,15 +14095,27 @@
                 },
                 {
                   "kind": "add",
-                  "text": "`--apply` keeps the original text in memory, writes the patched files, runs `compileall` over the two Python"
+                  "text": "`--apply` keeps the original text in memory, writes the patched files, runs `compileall` over every Python target it"
                 },
                 {
                   "kind": "add",
-                  "text": "targets, and restores every file if compilation fails. It does not commit anything: the operator reviews the diff"
+                  "text": "touched, and restores every file if compilation fails. Compilation is the floor, not the bar: `prove_wiring.py`"
                 },
                 {
                   "kind": "add",
-                  "text": "in the working tree and commits it, which is how every other change in this repository lands."
+                  "text": "applies the same edits to a disposable copy of the tree and runs the engine's own beat and the existing drive"
+                },
+                {
+                  "kind": "add",
+                  "text": "tests against it, which is what tells an operator whether landing this breaks anything. Neither script commits"
+                },
+                {
+                  "kind": "add",
+                  "text": "anything; the operator reviews the diff in the working tree and commits it, which is how every other change in this"
+                },
+                {
+                  "kind": "add",
+                  "text": "repository lands."
                 },
                 {
                   "kind": "add",
@@ -14108,6 +14180,10 @@
                 {
                   "kind": "add",
                   "text": "HEARTBEAT = Path(\"src/pravrudhi/application/heartbeat.py\")"
+                },
+                {
+                  "kind": "add",
+                  "text": "CLI = Path(\"src/pravrudhi/cli/app.py\")"
                 },
                 {
                   "kind": "add",
@@ -14267,7 +14343,15 @@
                 },
                 {
                   "kind": "add",
-                  "text": "gap, and a board with no assessed rival at all is `unknown`, never 0.0."
+                  "text": "gap \u2014 and then goes one step further, because that rule alone would leave a rival nobody has ever read permanently"
+                },
+                {
+                  "kind": "add",
+                  "text": "invisible: a column that is `unknown` on every row makes the reading of that rival dispatched work of its own,"
+                },
+                {
+                  "kind": "add",
+                  "text": "with the parity score left `None` rather than invented when no column has been read at all."
                 },
                 {
                   "kind": "add",
@@ -14351,6 +14435,10 @@
                 },
                 {
                   "kind": "add",
+                  "text": "    parity_assessment_max_age_days: float = 30.0"
+                },
+                {
+                  "kind": "add",
                   "text": "'''"
                 },
                 {
@@ -14376,6 +14464,10 @@
                 {
                   "kind": "add",
                   "text": "        parity_max_rejected_attempts=int(raw.get(\"parity_max_rejected_attempts\", 3)),"
+                },
+                {
+                  "kind": "add",
+                  "text": "        parity_assessment_max_age_days=float(raw.get(\"parity_assessment_max_age_days\", 30.0)),"
                 },
                 {
                   "kind": "add",
@@ -14479,7 +14571,7 @@
                 },
                 {
                   "kind": "add",
-                  "text": "    \"sadrishya\": \"closing the oldest verified feature gap against a named rival\","
+                  "text": "    \"sadrishya\": \"closing the oldest verified feature gap against a named rival, or reading a rival nobody has\","
                 },
                 {
                   "kind": "add",
@@ -14527,7 +14619,7 @@
                 },
                 {
                   "kind": "add",
-                  "text": "    \"\"\"What the feature-parity drive would actually do next, in the words of the gap it would work."
+                  "text": "    \"\"\"What the feature-parity drive would actually do next, in the words of the work it would dispatch."
                 },
                 {
                   "kind": "add",
@@ -14539,11 +14631,19 @@
                 },
                 {
                   "kind": "add",
-                  "text": "    report stops telling the operator anything. This names the capability and the rival, and it is only reached"
+                  "text": "    report stops telling the operator anything. This names the capability and the rival \u2014 or, when no rival is"
                 },
                 {
                   "kind": "add",
-                  "text": "    when `select` was given a root, exactly like `_seva_action`."
+                  "text": "    ahead because a rival column has never been read at all, names the column that is unread, since that is the"
+                },
+                {
+                  "kind": "add",
+                  "text": "    work the drive would actually dispatch. Read-only, and only reached when `select` was given a root, exactly"
+                },
+                {
+                  "kind": "add",
+                  "text": "    like `_seva_action`."
                 },
                 {
                   "kind": "add",
@@ -14559,7 +14659,11 @@
                 },
                 {
                   "kind": "add",
-                  "text": "    choice = parity_drive.select_gap(root, parity.report(root))"
+                  "text": "    report = parity.report(root)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    choice = parity_drive.select_work(root, report)"
                 },
                 {
                   "kind": "add",
@@ -14568,6 +14672,14 @@
                 {
                   "kind": "add",
                   "text": "        return None"
+                },
+                {
+                  "kind": "add",
+                  "text": "    if choice.kind == \"assessment\":"
+                },
+                {
+                  "kind": "add",
+                  "text": "        return f\"reading the {choice.rival} column, unread on all {len(report.rows)} rows of the capability matrix\""
                 },
                 {
                   "kind": "add",
@@ -14727,19 +14839,35 @@
                 },
                 {
                   "kind": "add",
-                  "text": "`.pravrudhi/parity_runs.jsonl` so the next beat knows what was already tried. A gap whose last three proposals were"
+                  "text": "`.pravrudhi/parity_runs.jsonl` so the next beat knows what was already tried. A rival column that reads `unknown`"
                 },
                 {
                   "kind": "add",
-                  "text": "all rejected is escalated to the continuity trace as `blocked` instead of being dispatched a fourth time, because"
+                  "text": "on every row \u2014 `claude_desktop` and `codex` on the shipped matrix, two of the four systems the operator's request"
                 },
                 {
                   "kind": "add",
-                  "text": "repeating a rejected brief is thrash rather than persistence. Until this branch existed the matrix was a document"
+                  "text": "names \u2014 carries no recorded advantage to act on, so the same branch dispatches a brief to read that rival and"
                 },
                 {
                   "kind": "add",
-                  "text": "only `pravrudhi parity` read, and a recorded rival advantage never became work on its own."
+                  "text": "propose a column under `proposals/parity-rivals/<rival>/<attempt>/` instead; it proposes, and only an operator"
+                },
+                {
+                  "kind": "add",
+                  "text": "lands a column, because the matrix is checked-in evidence. A gap whose last three proposals were all rejected is"
+                },
+                {
+                  "kind": "add",
+                  "text": "escalated to the continuity trace as `blocked` instead of being dispatched a fourth time, because repeating a"
+                },
+                {
+                  "kind": "add",
+                  "text": "rejected brief is thrash rather than persistence. Until this branch existed the matrix was a document only"
+                },
+                {
+                  "kind": "add",
+                  "text": "`pravrudhi parity` read, and a recorded rival advantage never became work on its own."
                 },
                 {
                   "kind": "add",
@@ -14879,6 +15007,106 @@
                 },
                 {
                   "kind": "add",
+                  "text": "# cli/app.py: the beat a human reads must say what the parity beat chose, not \"nothing\""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "_C_CHOICE = '''            elif \"request\" in chose:"
+                },
+                {
+                  "kind": "add",
+                  "text": "                chosen = str(chose[\"request\"])"
+                },
+                {
+                  "kind": "add",
+                  "text": "            else:"
+                },
+                {
+                  "kind": "add",
+                  "text": "                chosen = \"nothing\""
+                },
+                {
+                  "kind": "add",
+                  "text": "'''"
+                },
+                {
+                  "kind": "add",
+                  "text": "_C_CHOICE_NEW = '''            elif \"capability\" in chose:"
+                },
+                {
+                  "kind": "add",
+                  "text": "                # A parity beat carries {\"capability\", \"rival\", \"attempt\"} (a gap) or {\"rival\", \"kind\","
+                },
+                {
+                  "kind": "add",
+                  "text": "                # \"attempt\"} (an unread rival column). Falling through to \"nothing\" printed"
+                },
+                {
+                  "kind": "add",
+                  "text": "                # \"chose nothing: dispatched the design-mode gap against orca=have\" \u2014 the same class of"
+                },
+                {
+                  "kind": "add",
+                  "text": "                # incoherence the comment above this block already fixed once for request beats."
+                },
+                {
+                  "kind": "add",
+                  "text": "                chosen = ("
+                },
+                {
+                  "kind": "add",
+                  "text": "                    f\"parity gap {chose['capability']} against {chose.get('rival', '?')} \""
+                },
+                {
+                  "kind": "add",
+                  "text": "                    f\"(attempt {chose.get('attempt', '?')})\""
+                },
+                {
+                  "kind": "add",
+                  "text": "                )"
+                },
+                {
+                  "kind": "add",
+                  "text": "            elif \"rival\" in chose:"
+                },
+                {
+                  "kind": "add",
+                  "text": "                chosen = f\"parity assessment of {chose['rival']} (attempt {chose.get('attempt', '?')})\""
+                },
+                {
+                  "kind": "add",
+                  "text": "            elif \"request\" in chose:"
+                },
+                {
+                  "kind": "add",
+                  "text": "                chosen = str(chose[\"request\"])"
+                },
+                {
+                  "kind": "add",
+                  "text": "            else:"
+                },
+                {
+                  "kind": "add",
+                  "text": "                chosen = \"nothing\""
+                },
+                {
+                  "kind": "add",
+                  "text": "'''"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "# --------------------------------------------------------------------------------------------------------------"
+                },
+                {
+                  "kind": "add",
                   "text": "# appetite.yaml: the new drive's weight, target and age scale, declared rather than defaulted"
                 },
                 {
@@ -14991,23 +15219,43 @@
                 },
                 {
                   "kind": "add",
-                  "text": "# parity_age_scale_days): the board term alone is small on a healthy matrix, so without the age term the drive"
+                  "text": "# parity_age_scale_days, oldest unread rival column's age / parity_assessment_max_age_days): the board term alone"
                 },
                 {
                   "kind": "add",
-                  "text": "# would be measured every beat and never cross the hungry threshold \u2014 a parity drive that never fires is the exact"
+                  "text": "# is small on a healthy matrix, so without an age term the drive would be measured every beat and never cross the"
                 },
                 {
                   "kind": "add",
-                  "text": "# failure this wiring exists to end. A gap nobody has dispatched yet counts as having waited the whole scale"
+                  "text": "# hungry threshold \u2014 a parity drive that never fires is the exact failure this wiring exists to end. A gap nobody"
                 },
                 {
                   "kind": "add",
-                  "text": "# period, so the first beat after a rival is assessed produces work. parity_max_rejected_attempts is the stop rule:"
+                  "text": "# has dispatched yet counts as having waited the whole scale period, so the first beat after a rival is assessed"
                 },
                 {
                   "kind": "add",
-                  "text": "# past that many rejected proposals in a row the gap is escalated to the operator instead of briefed again."
+                  "text": "# produces work. parity_max_rejected_attempts is the stop rule: past that many rejected proposals in a row the gap"
+                },
+                {
+                  "kind": "add",
+                  "text": "# is escalated to the operator instead of briefed again. The assessment term covers the other direction: a rival"
+                },
+                {
+                  "kind": "add",
+                  "text": "# whose column reads `unknown` on every row is not a rival we are level with, it is a rival nobody has read, and"
+                },
+                {
+                  "kind": "add",
+                  "text": "# past parity_assessment_max_age_days that blindness becomes a dispatched brief to read it. The brief proposes a"
+                },
+                {
+                  "kind": "add",
+                  "text": "# matrix column with a source and a date per row; it never writes the matrix, because a board the loop edits to"
+                },
+                {
+                  "kind": "add",
+                  "text": "# suit itself would make every later deficit meaningless."
                 },
                 {
                   "kind": "add",
@@ -15016,6 +15264,10 @@
                 {
                   "kind": "add",
                   "text": "parity_max_rejected_attempts: 3"
+                },
+                {
+                  "kind": "add",
+                  "text": "parity_assessment_max_age_days: 30.0"
                 },
                 {
                   "kind": "add",
@@ -15080,6 +15332,10 @@
                 {
                   "kind": "add",
                   "text": "    Edit(HEARTBEAT, _H_BRANCH, _H_BRANCH_NEW, \"if drive_id == parity_drive.DRIVE_ID:\", \"route the drive to it instead of the diagnostic fallback\"),"
+                },
+                {
+                  "kind": "add",
+                  "text": "    Edit(CLI, _C_CHOICE, _C_CHOICE_NEW, 'elif \"capability\" in chose:', \"say what a parity beat chose instead of \\\"nothing\\\"\"),"
                 },
                 {
                   "kind": "add",
@@ -24157,11 +24413,11 @@
           "too_large": false
         },
         {
-          "added": 662,
+          "added": 933,
           "binary": false,
           "hunks": [
             {
-              "header": "@@ -0,0 +1,662 @@",
+              "header": "@@ -0,0 +1,933 @@",
               "lines": [
                 {
                   "kind": "add",
@@ -24217,11 +24473,23 @@
                 },
                 {
                   "kind": "add",
-                  "text": "board where no rival has been assessed at all makes this drive `unknown` with that reason rather than 0.0 \u2014 the"
+                  "text": "board with nothing to read at all \u2014 no matrix, a target of zero \u2014 makes this drive `unknown` with that reason"
                 },
                 {
                   "kind": "add",
-                  "text": "same \"unknown, never fabricated\" rule `kshudha` applies to its other drives. A rival claim that *has* been"
+                  "text": "rather than 0.0, the same \"unknown, never fabricated\" rule `kshudha` applies to its other drives. A board whose"
+                },
+                {
+                  "kind": "add",
+                  "text": "rival columns are *all* `unknown` is a different case and is not reported `unknown`: the parity score is left"
+                },
+                {
+                  "kind": "add",
+                  "text": "`None` (no number is invented), no gap is claimed, and the deficit carries only how long nobody has looked, so the"
+                },
+                {
+                  "kind": "add",
+                  "text": "loop's first act on a fresh matrix is to go and read a rival rather than to rest. A rival claim that *has* been"
                 },
                 {
                   "kind": "add",
@@ -24274,6 +24542,54 @@
                 {
                   "kind": "add",
                   "text": "decision, and the loop says so plainly instead of pretending otherwise."
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "A second arm, because the first one alone cannot reach every rival the operator named. A column that reads"
+                },
+                {
+                  "kind": "add",
+                  "text": "`unknown` on every row is not a rival we are level with; it is a rival nobody has ever looked at, and on the"
+                },
+                {
+                  "kind": "add",
+                  "text": "shipped matrix that is `claude_desktop` and `codex` \u2014 two of the four systems the request names. Scoring an"
+                },
+                {
+                  "kind": "add",
+                  "text": "unassessed rival as \"no gap\" is exactly what `parity._ahead` does and must keep doing, so a gap-only drive would"
+                },
+                {
+                  "kind": "add",
+                  "text": "never produce work about them and the operator's complaint would stand unaddressed however correct the code was."
+                },
+                {
+                  "kind": "add",
+                  "text": "`select_assessment` therefore makes an unassessed rival its own kind of work: once per"
+                },
+                {
+                  "kind": "add",
+                  "text": "`assessment_max_age_days` the loop dispatches a brief to read that rival's product and propose a matrix delta,"
+                },
+                {
+                  "kind": "add",
+                  "text": "under `proposals/parity/assessment/<rival>/<attempt>/`. It proposes; it never writes `parity.yaml`, because that"
+                },
+                {
+                  "kind": "add",
+                  "text": "file is checked-in evidence and a board the loop edits to suit itself is not a board anyone can trust. Landing a"
+                },
+                {
+                  "kind": "add",
+                  "text": "proposed delta stays an operator decision, and if the operator never lands one the rival stays unassessed and the"
+                },
+                {
+                  "kind": "add",
+                  "text": "arm comes back on its own schedule \u2014 which is the honest behaviour, not a silent one."
                 },
                 {
                   "kind": "add",
@@ -24385,6 +24701,18 @@
                 },
                 {
                   "kind": "add",
+                  "text": "# Not under SCRATCH_ROOT: a capability row whose id happened to be `assessment` would share a scratch tree with"
+                },
+                {
+                  "kind": "add",
+                  "text": "# the rival assessments, and two kinds of work writing into one directory is how an attempt store starts lying."
+                },
+                {
+                  "kind": "add",
+                  "text": "ASSESSMENT_SCRATCH_ROOT = \"proposals/parity-rivals\""
+                },
+                {
+                  "kind": "add",
                   "text": ""
                 },
                 {
@@ -24453,7 +24781,23 @@
                 },
                 {
                   "kind": "add",
-                  "text": "WORKING_KINDS: frozenset[str] = frozenset({\"dispatch\", \"escalation\"})"
+                  "text": "WORKING_KINDS: frozenset[str] = frozenset({\"dispatch\", \"assessment\", \"escalation\"})"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "# `capability` holds a row id for gap work and `rival:<name>` for assessment work, so the two arms share one"
+                },
+                {
+                  "kind": "add",
+                  "text": "# store, one age table and one stop rule without ever being mistaken for each other."
+                },
+                {
+                  "kind": "add",
+                  "text": "RIVAL_KEY_PREFIX = \"rival:\""
                 },
                 {
                   "kind": "add",
@@ -24581,7 +24925,15 @@
                 },
                 {
                   "kind": "add",
-                  "text": "    the obligation drive; `max_rejected_attempts` is the stop rule before a gap is escalated to a human."
+                  "text": "    the obligation drive; `max_rejected_attempts` is the stop rule before a gap is escalated to a human;"
+                },
+                {
+                  "kind": "add",
+                  "text": "    `assessment_max_age_days` is how long a rival nobody has ever assessed may stay unassessed before that"
+                },
+                {
+                  "kind": "add",
+                  "text": "    blindness itself becomes dispatched work."
                 },
                 {
                   "kind": "add",
@@ -24606,6 +24958,10 @@
                 {
                   "kind": "add",
                   "text": "    max_rejected_attempts: int = 3"
+                },
+                {
+                  "kind": "add",
+                  "text": "    assessment_max_age_days: float = 30.0"
                 },
                 {
                   "kind": "add",
@@ -24641,6 +24997,10 @@
                 },
                 {
                   "kind": "add",
+                  "text": "        assess = getattr(cfg, \"parity_assessment_max_age_days\", None)"
+                },
+                {
+                  "kind": "add",
                   "text": "        return ParityPolicy("
                 },
                 {
@@ -24658,6 +25018,10 @@
                 {
                   "kind": "add",
                   "text": "            max_rejected_attempts=int(cap) if cap is not None else 3,"
+                },
+                {
+                  "kind": "add",
+                  "text": "            assessment_max_age_days=float(assess) if assess is not None else 30.0,"
                 },
                 {
                   "kind": "add",
@@ -24709,15 +25073,23 @@
                 },
                 {
                   "kind": "add",
-                  "text": "    (a task went out), `escalation` (the stop rule fired and a human was told), `no_route` (no agent was"
+                  "text": "    (a task went out), `assessment` (a task went out to read a rival nobody has assessed, rather than to close a"
                 },
                 {
                   "kind": "add",
-                  "text": "    available), `budget` (`max_dispatch_per_beat` was 0) or `unreadable`/`no_gap` beats, which are recorded only"
+                  "text": "    gap), `escalation` (the stop rule fired and a human was told), `no_route` (no agent was available), `budget`"
                 },
                 {
                   "kind": "add",
-                  "text": "    when a gap was actually chosen, so a beat that did nothing is still legible in the log."
+                  "text": "    (`max_dispatch_per_beat` was 0) or `unreadable`/`no_gap` beats, which are recorded only when a gap was"
+                },
+                {
+                  "kind": "add",
+                  "text": "    actually chosen, so a beat that did nothing is still legible in the log. `capability` names the matrix row"
+                },
+                {
+                  "kind": "add",
+                  "text": "    for gap work and `rival:<name>` for assessment work."
                 },
                 {
                   "kind": "add",
@@ -25253,15 +25625,107 @@
                 },
                 {
                   "kind": "add",
+                  "text": "def rival_names(report: Any) -> tuple[str, ...]:"
+                },
+                {
+                  "kind": "add",
+                  "text": "    \"\"\"Every rival column the matrix declares, in the order the first row declares them.\"\"\""
+                },
+                {
+                  "kind": "add",
+                  "text": "    for row in report.rows:"
+                },
+                {
+                  "kind": "add",
+                  "text": "        return tuple(row.rivals.model_dump().keys())"
+                },
+                {
+                  "kind": "add",
+                  "text": "    return ()"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "def unassessed_rivals(report: Any) -> tuple[str, ...]:"
+                },
+                {
+                  "kind": "add",
+                  "text": "    \"\"\"Rivals whose column reads `unknown` on every row: nobody has ever looked at that product."
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "    Deliberately not \"rivals we are level with\". `parity._ahead` scores `unknown` as zero and must keep doing so,"
+                },
+                {
+                  "kind": "add",
+                  "text": "    because inventing a rival capability is worse than admitting ignorance \u2014 but ignorance on a whole column is"
+                },
+                {
+                  "kind": "add",
+                  "text": "    its own kind of gap, and the operator's request named two systems that are in exactly that state on the"
+                },
+                {
+                  "kind": "add",
+                  "text": "    shipped matrix. This is the function that makes them reachable by the loop."
+                },
+                {
+                  "kind": "add",
+                  "text": "    \"\"\""
+                },
+                {
+                  "kind": "add",
+                  "text": "    names = rival_names(report)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    return tuple("
+                },
+                {
+                  "kind": "add",
+                  "text": "        name for name in names"
+                },
+                {
+                  "kind": "add",
+                  "text": "        if all(str(row.rivals.model_dump().get(name, \"unknown\")) == \"unknown\" for row in report.rows)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    )"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
                   "text": "def sadrishya_drive(report: Any, gap_ages: dict[str, float], cfg: Any) -> Any:"
                 },
                 {
                   "kind": "add",
-                  "text": "    \"\"\"feature parity: `D = max(board deficit, oldest unworked gap's age deficit)` \u2014 a pure function over an"
+                  "text": "    \"\"\"feature parity: `D = max(board deficit, oldest unworked gap's age deficit, oldest unassessed rival's age"
                 },
                 {
                   "kind": "add",
-                  "text": "    already-computed `parity.ParityReport` and the attempt store's ages, so a test can hand-calculate a fixture."
+                  "text": "    deficit)` \u2014 a pure function over an already-computed `parity.ParityReport` and the attempt store's ages, so a"
+                },
+                {
+                  "kind": "add",
+                  "text": "    test can hand-calculate a fixture."
                 },
                 {
                   "kind": "add",
@@ -25281,7 +25745,15 @@
                 },
                 {
                   "kind": "add",
-                  "text": "    `kshudha.seva_drive` already uses when it takes `max(D_R, deadline debt)`."
+                  "text": "    `kshudha.seva_drive` already uses when it takes `max(D_R, deadline debt)`. The assessment term is the same"
+                },
+                {
+                  "kind": "add",
+                  "text": "    construction applied to a whole rival column nobody has read: without it a drive that honestly refuses to"
+                },
+                {
+                  "kind": "add",
+                  "text": "    treat `unknown` as a gap would also honestly never ask anyone to find out."
                 },
                 {
                   "kind": "add",
@@ -25321,6 +25793,14 @@
                 },
                 {
                   "kind": "add",
+                  "text": "    if pol.assessment_max_age_days <= 0:"
+                },
+                {
+                  "kind": "add",
+                  "text": "        return _unknown(\"parity_assessment_max_age_days must be > 0\", cfg)"
+                },
+                {
+                  "kind": "add",
                   "text": ""
                 },
                 {
@@ -25329,19 +25809,115 @@
                 },
                 {
                   "kind": "add",
+                  "text": "    blind = unassessed_rivals(report)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    oldest_blind = max("
+                },
+                {
+                  "kind": "add",
+                  "text": "        (gap_ages.get(f\"{RIVAL_KEY_PREFIX}{name}\", pol.assessment_max_age_days) for name in blind), default=0.0,"
+                },
+                {
+                  "kind": "add",
+                  "text": "    )"
+                },
+                {
+                  "kind": "add",
+                  "text": "    assessment_deficit = max(0.0, min(1.0, oldest_blind / pol.assessment_max_age_days))"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
                   "text": "    if not assessed:"
                 },
                 {
                   "kind": "add",
-                  "text": "        return _unknown("
+                  "text": "        # No rival has been read at all, so the board has no score and no gap can honestly be claimed. That is not"
                 },
                 {
                   "kind": "add",
-                  "text": "            \"every rival column in the matrix reads unknown, and an unassessed rival is not evidence of a gap\","
+                  "text": "        # a reason to report the drive `unknown` and stop: `unknown` drives only ever earn a diagnostic in"
                 },
                 {
                   "kind": "add",
-                  "text": "            cfg, tuple(f\"{r.id}: no rival assessed\" for r in rows),"
+                  "text": "        # `kshudha.select`, so a fresh matrix would never bootstrap. The board is unread, the reading is the work,"
+                },
+                {
+                  "kind": "add",
+                  "text": "        # and the deficit says only how long nobody has looked."
+                },
+                {
+                  "kind": "add",
+                  "text": "        return _drive("
+                },
+                {
+                  "kind": "add",
+                  "text": "            value=None, target=pol.target, deficit=assessment_deficit, weight=pol.weight, eligible=True,"
+                },
+                {
+                  "kind": "add",
+                  "text": "            blocked_reason=\"\", unknown=False,"
+                },
+                {
+                  "kind": "add",
+                  "text": "            sources=("
+                },
+                {
+                  "kind": "add",
+                  "text": "                f\"board: no rival column has been assessed on any of the {len(rows)} rows, so parity is undefined \""
+                },
+                {
+                  "kind": "add",
+                  "text": "                f\"and no gap is claimed; assessment_deficit={assessment_deficit:.4f} \""
+                },
+                {
+                  "kind": "add",
+                  "text": "                f\"(scale {pol.assessment_max_age_days:g}d); the only work available is to read a rival\","
+                },
+                {
+                  "kind": "add",
+                  "text": "                *("
+                },
+                {
+                  "kind": "add",
+                  "text": "                    f\"{name}: unknown on all {len(rows)} rows; \""
+                },
+                {
+                  "kind": "add",
+                  "text": "                    + ("
+                },
+                {
+                  "kind": "add",
+                  "text": "                        \"never assessed by this loop\""
+                },
+                {
+                  "kind": "add",
+                  "text": "                        if gap_ages.get(f\"{RIVAL_KEY_PREFIX}{name}\") is None"
+                },
+                {
+                  "kind": "add",
+                  "text": "                        else f\"last assessed {gap_ages[f'{RIVAL_KEY_PREFIX}{name}']:.2f}d ago\""
+                },
+                {
+                  "kind": "add",
+                  "text": "                    )"
+                },
+                {
+                  "kind": "add",
+                  "text": "                    for name in blind"
+                },
+                {
+                  "kind": "add",
+                  "text": "                ),"
+                },
+                {
+                  "kind": "add",
+                  "text": "            ),"
                 },
                 {
                   "kind": "add",
@@ -25393,7 +25969,7 @@
                 },
                 {
                   "kind": "add",
-                  "text": "    deficit = max(board_deficit, age_deficit)"
+                  "text": "    deficit = max(board_deficit, age_deficit, assessment_deficit)"
                 },
                 {
                   "kind": "add",
@@ -25413,7 +25989,7 @@
                 },
                 {
                   "kind": "add",
-                  "text": "        f\"(scale {pol.age_scale_days:g}d); deficit={deficit:.4f}\""
+                  "text": "        f\"(scale {pol.age_scale_days:g}d); assessment_deficit={assessment_deficit:.4f}; deficit={deficit:.4f}\""
                 },
                 {
                   "kind": "add",
@@ -25450,6 +26026,34 @@
                 {
                   "kind": "add",
                   "text": "        sources.append(f\"{gap.id}: ours={gap.ours} ({state}); ahead of us: {', '.join(names) or 'none'}; {waited}\")"
+                },
+                {
+                  "kind": "add",
+                  "text": "    if blind:"
+                },
+                {
+                  "kind": "add",
+                  "text": "        for name in blind:"
+                },
+                {
+                  "kind": "add",
+                  "text": "            age = gap_ages.get(f\"{RIVAL_KEY_PREFIX}{name}\")"
+                },
+                {
+                  "kind": "add",
+                  "text": "            waited = \"never assessed by this loop\" if age is None else f\"last assessed {age:.2f}d ago\""
+                },
+                {
+                  "kind": "add",
+                  "text": "            sources.append("
+                },
+                {
+                  "kind": "add",
+                  "text": "                f\"{name}: unknown on all {len(rows)} rows (agama not yet gathered, so no gap is claimed); {waited}\""
+                },
+                {
+                  "kind": "add",
+                  "text": "            )"
                 },
                 {
                   "kind": "add",
@@ -25601,6 +26205,10 @@
                 },
                 {
                   "kind": "add",
+                  "text": "    kind: str = \"gap\""
+                },
+                {
+                  "kind": "add",
                   "text": ""
                 },
                 {
@@ -25630,6 +26238,254 @@
                 {
                   "kind": "add",
                   "text": "        return f\"parity:{self.row.id}:{self.attempt}\""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "    @property"
+                },
+                {
+                  "kind": "add",
+                  "text": "    def key(self) -> str:"
+                },
+                {
+                  "kind": "add",
+                  "text": "        \"\"\"The store key this choice's attempts are recorded under.\"\"\""
+                },
+                {
+                  "kind": "add",
+                  "text": "        return str(self.row.id)"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "@dataclass(frozen=True)"
+                },
+                {
+                  "kind": "add",
+                  "text": "class AssessmentChoice:"
+                },
+                {
+                  "kind": "add",
+                  "text": "    \"\"\"One rival nobody has read, one attempt number, and the rows that reading has to cover."
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "    Same shape as `GapChoice` where it matters \u2014 `key`, `scratch`, `task_id`, `attempt`, `prior`, `blocked` \u2014 so"
+                },
+                {
+                  "kind": "add",
+                  "text": "    the store, the stop rule and the dispatch tail of `beat` are one code path rather than two that drift."
+                },
+                {
+                  "kind": "add",
+                  "text": "    \"\"\""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "    rival: str"
+                },
+                {
+                  "kind": "add",
+                  "text": "    rows: tuple[Any, ...]"
+                },
+                {
+                  "kind": "add",
+                  "text": "    attempt: int"
+                },
+                {
+                  "kind": "add",
+                  "text": "    prior: tuple[ParityAttempt, ...]"
+                },
+                {
+                  "kind": "add",
+                  "text": "    age_days: float | None"
+                },
+                {
+                  "kind": "add",
+                  "text": "    scratch: str"
+                },
+                {
+                  "kind": "add",
+                  "text": "    blocked: bool = False"
+                },
+                {
+                  "kind": "add",
+                  "text": "    blocked_reason: str = \"\""
+                },
+                {
+                  "kind": "add",
+                  "text": "    kind: str = \"assessment\""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "    @property"
+                },
+                {
+                  "kind": "add",
+                  "text": "    def rivals(self) -> str:"
+                },
+                {
+                  "kind": "add",
+                  "text": "        return self.rival"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "    @property"
+                },
+                {
+                  "kind": "add",
+                  "text": "    def task_id(self) -> str:"
+                },
+                {
+                  "kind": "add",
+                  "text": "        return f\"parity-assess:{self.rival}:{self.attempt}\""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "    @property"
+                },
+                {
+                  "kind": "add",
+                  "text": "    def key(self) -> str:"
+                },
+                {
+                  "kind": "add",
+                  "text": "        return f\"{RIVAL_KEY_PREFIX}{self.rival}\""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "Choice = GapChoice | AssessmentChoice"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "def _rejected_streak(prior: Sequence[ParityAttempt], kind: str) -> tuple[int, str]:"
+                },
+                {
+                  "kind": "add",
+                  "text": "    \"\"\"How many dispatched briefs of this kind were rejected in a row, and what the last one said."
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "    A streak, not a total: an accepted proposal in between means the loop is getting somewhere and the count"
+                },
+                {
+                  "kind": "add",
+                  "text": "    restarts, which is what keeps the stop rule from firing on a gap that has been worked many times successfully."
+                },
+                {
+                  "kind": "add",
+                  "text": "    \"\"\""
+                },
+                {
+                  "kind": "add",
+                  "text": "    sent = [a for a in prior if a.kind == kind]"
+                },
+                {
+                  "kind": "add",
+                  "text": "    streak = 0"
+                },
+                {
+                  "kind": "add",
+                  "text": "    for attempt in reversed(sent):"
+                },
+                {
+                  "kind": "add",
+                  "text": "        if attempt.accepted:"
+                },
+                {
+                  "kind": "add",
+                  "text": "            break"
+                },
+                {
+                  "kind": "add",
+                  "text": "        streak += 1"
+                },
+                {
+                  "kind": "add",
+                  "text": "    last = \"; \".join(sent[-1].reasons)[:200] if sent else \"no reason recorded\""
+                },
+                {
+                  "kind": "add",
+                  "text": "    return streak, last"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "def _blocked_reason(streak: int, last: str, what: str) -> str:"
+                },
+                {
+                  "kind": "add",
+                  "text": "    return ("
+                },
+                {
+                  "kind": "add",
+                  "text": "        f\"{streak} dispatched {what} in a row were rejected ({last}); \""
+                },
+                {
+                  "kind": "add",
+                  "text": "        \"this needs an operator decision rather than another identical brief\""
+                },
+                {
+                  "kind": "add",
+                  "text": "    )"
                 },
                 {
                   "kind": "add",
@@ -25773,51 +26629,11 @@
                 },
                 {
                   "kind": "add",
-                  "text": "    dispatched = [a for a in prior if a.kind == \"dispatch\"]"
+                  "text": "    streak, last = _rejected_streak(prior, \"dispatch\")"
                 },
                 {
                   "kind": "add",
-                  "text": "    rejected_streak = 0"
-                },
-                {
-                  "kind": "add",
-                  "text": "    for attempt in reversed(dispatched):"
-                },
-                {
-                  "kind": "add",
-                  "text": "        if attempt.accepted:"
-                },
-                {
-                  "kind": "add",
-                  "text": "            break"
-                },
-                {
-                  "kind": "add",
-                  "text": "        rejected_streak += 1"
-                },
-                {
-                  "kind": "add",
-                  "text": "    blocked = rejected_streak >= max(1, pol.max_rejected_attempts)"
-                },
-                {
-                  "kind": "add",
-                  "text": "    reason = ("
-                },
-                {
-                  "kind": "add",
-                  "text": "        f\"{rejected_streak} dispatched proposal(s) in a row were rejected \""
-                },
-                {
-                  "kind": "add",
-                  "text": "        f\"({'; '.join(dispatched[-1].reasons)[:200] if dispatched else 'no reason recorded'}); \""
-                },
-                {
-                  "kind": "add",
-                  "text": "        \"this gap needs an operator decision rather than another identical brief\""
-                },
-                {
-                  "kind": "add",
-                  "text": "    ) if blocked else \"\""
+                  "text": "    blocked = streak >= max(1, pol.max_rejected_attempts)"
                 },
                 {
                   "kind": "add",
@@ -25865,11 +26681,211 @@
                 },
                 {
                   "kind": "add",
-                  "text": "        blocked_reason=reason,"
+                  "text": "        blocked_reason=_blocked_reason(streak, last, \"proposal(s)\") if blocked else \"\","
                 },
                 {
                   "kind": "add",
                   "text": "    )"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "def select_assessment("
+                },
+                {
+                  "kind": "add",
+                  "text": "    root: Path, report: Any, *, cfg: Any = None, now: datetime | None = None,"
+                },
+                {
+                  "kind": "add",
+                  "text": ") -> AssessmentChoice | None:"
+                },
+                {
+                  "kind": "add",
+                  "text": "    \"\"\"The rival to read: least recently assessed first, then the matrix's own column order."
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "    Reached only when no verified gap is waiting, so a board with real gaps spends its beats closing them rather"
+                },
+                {
+                  "kind": "add",
+                  "text": "    than commissioning more testimony. Column order is the tie-break because there is no honest severity ranking"
+                },
+                {
+                  "kind": "add",
+                  "text": "    between two rivals nobody has looked at \u2014 the operator's request names `orca` first, and `parity.Rivals`"
+                },
+                {
+                  "kind": "add",
+                  "text": "    declares the columns in that order, so the field order is already an editorial priority."
+                },
+                {
+                  "kind": "add",
+                  "text": "    \"\"\""
+                },
+                {
+                  "kind": "add",
+                  "text": "    root = Path(root)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    pol = ParityPolicy.of(cfg) if cfg is not None else ParityPolicy()"
+                },
+                {
+                  "kind": "add",
+                  "text": "    blind = unassessed_rivals(report)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    if not blind:"
+                },
+                {
+                  "kind": "add",
+                  "text": "        return None"
+                },
+                {
+                  "kind": "add",
+                  "text": "    store = attempts(root)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    by_key = {f\"{RIVAL_KEY_PREFIX}{name}\": name for name in blind}"
+                },
+                {
+                  "kind": "add",
+                  "text": "    order = {name: i for i, name in enumerate(rival_names(report))}"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "    keyed: list[tuple[str, int, str]] = []  # (last_at, column_index, rival)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    for key, name in by_key.items():"
+                },
+                {
+                  "kind": "add",
+                  "text": "        last_at = max("
+                },
+                {
+                  "kind": "add",
+                  "text": "            (a.at for a in store if a.capability == key and a.kind in WORKING_KINDS and _parse(a.at)), default=\"\","
+                },
+                {
+                  "kind": "add",
+                  "text": "        )"
+                },
+                {
+                  "kind": "add",
+                  "text": "        keyed.append((last_at, order.get(name, 0), name))"
+                },
+                {
+                  "kind": "add",
+                  "text": "    keyed.sort()"
+                },
+                {
+                  "kind": "add",
+                  "text": "    rival = keyed[0][2]"
+                },
+                {
+                  "kind": "add",
+                  "text": "    key = f\"{RIVAL_KEY_PREFIX}{rival}\""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "    prior = tuple(a for a in store if a.capability == key)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    worked = tuple(a for a in prior if a.kind in WORKING_KINDS)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    streak, last = _rejected_streak(prior, \"assessment\")"
+                },
+                {
+                  "kind": "add",
+                  "text": "    blocked = streak >= max(1, pol.max_rejected_attempts)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    return AssessmentChoice("
+                },
+                {
+                  "kind": "add",
+                  "text": "        rival=rival,"
+                },
+                {
+                  "kind": "add",
+                  "text": "        rows=tuple(report.rows),"
+                },
+                {
+                  "kind": "add",
+                  "text": "        attempt=len(worked) + 1,"
+                },
+                {
+                  "kind": "add",
+                  "text": "        prior=prior,"
+                },
+                {
+                  "kind": "add",
+                  "text": "        age_days=ages(root, now=now).get(key),"
+                },
+                {
+                  "kind": "add",
+                  "text": "        scratch=f\"{ASSESSMENT_SCRATCH_ROOT}/{rival}/{len(worked) + 1}\","
+                },
+                {
+                  "kind": "add",
+                  "text": "        blocked=blocked,"
+                },
+                {
+                  "kind": "add",
+                  "text": "        blocked_reason=_blocked_reason(streak, last, \"assessment(s)\") if blocked else \"\","
+                },
+                {
+                  "kind": "add",
+                  "text": "    )"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "def select_work(root: Path, report: Any, *, cfg: Any = None, now: datetime | None = None) -> Choice | None:"
+                },
+                {
+                  "kind": "add",
+                  "text": "    \"\"\"What this beat should work: a verified gap if one is waiting, otherwise a rival nobody has read.\"\"\""
+                },
+                {
+                  "kind": "add",
+                  "text": "    return select_gap(root, report, cfg=cfg, now=now) or select_assessment(root, report, cfg=cfg, now=now)"
                 },
                 {
                   "kind": "add",
@@ -25897,31 +26913,15 @@
                 },
                 {
                   "kind": "add",
-                  "text": "def brief(choice: GapChoice, report: Any) -> str:"
+                  "text": "def _history(choice: Choice) -> str:"
                 },
                 {
                   "kind": "add",
-                  "text": "    \"\"\"The dispatched prompt. It names the rival, says the rival claim is testimony rather than a measurement,"
+                  "text": "    noun = \"this rival\" if choice.kind == \"assessment\" else \"this gap\""
                 },
                 {
                   "kind": "add",
-                  "text": "    hands over the evidence that currently fails, and lists what earlier attempts already produced \u2014 because a"
-                },
-                {
-                  "kind": "add",
-                  "text": "    second proposal that restates the first is the thrash this module exists to prevent.\"\"\""
-                },
-                {
-                  "kind": "add",
-                  "text": "    row = choice.row"
-                },
-                {
-                  "kind": "add",
-                  "text": "    coverage = report.coverage"
-                },
-                {
-                  "kind": "add",
-                  "text": "    history = \"\\n\".join("
+                  "text": "    return \"\\n\".join("
                 },
                 {
                   "kind": "add",
@@ -25941,11 +26941,43 @@
                 },
                 {
                   "kind": "add",
-                  "text": "    ) or \"  none; this is the first time the loop has worked this gap\""
+                  "text": "    ) or f\"  none; this is the first time the loop has worked {noun}\""
                 },
                 {
                   "kind": "add",
                   "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "def gap_brief(choice: GapChoice, report: Any) -> str:"
+                },
+                {
+                  "kind": "add",
+                  "text": "    \"\"\"The dispatched prompt for a verified rival advantage. It names the rival, says the rival claim is testimony"
+                },
+                {
+                  "kind": "add",
+                  "text": "    rather than a measurement, hands over the evidence that currently fails, and lists what earlier attempts"
+                },
+                {
+                  "kind": "add",
+                  "text": "    already produced \u2014 because a second proposal that restates the first is the thrash this module exists to"
+                },
+                {
+                  "kind": "add",
+                  "text": "    prevent.\"\"\""
+                },
+                {
+                  "kind": "add",
+                  "text": "    row = choice.row"
+                },
+                {
+                  "kind": "add",
+                  "text": "    coverage = report.coverage"
                 },
                 {
                   "kind": "add",
@@ -26009,7 +27041,7 @@
                 },
                 {
                   "kind": "add",
-                  "text": "        f\"Attempt history for this gap:\\n{history}\\n\\n\""
+                  "text": "        f\"Attempt history for this gap:\\n{_history(choice)}\\n\\n\""
                 },
                 {
                   "kind": "add",
@@ -26065,7 +27097,183 @@
                 },
                 {
                   "kind": "add",
-                  "text": "def task_spec(choice: GapChoice, report: Any) -> TaskSpec:"
+                  "text": "def assessment_brief(choice: AssessmentChoice, report: Any) -> str:"
+                },
+                {
+                  "kind": "add",
+                  "text": "    \"\"\"The dispatched prompt for a rival column nobody has ever read."
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "    This is the arm that reaches the rivals the operator named but the board has never assessed. It asks for"
+                },
+                {
+                  "kind": "add",
+                  "text": "    testimony with a source and a date per row, and it asks for it in the shape the matrix already has, so an"
+                },
+                {
+                  "kind": "add",
+                  "text": "    operator can land it without translating anything. It cannot and does not ask the agent to edit the matrix:"
+                },
+                {
+                  "kind": "add",
+                  "text": "    `parity.yaml` is checked-in evidence, and a board the loop rewrites to suit itself would make every later"
+                },
+                {
+                  "kind": "add",
+                  "text": "    deficit meaningless."
+                },
+                {
+                  "kind": "add",
+                  "text": "    \"\"\""
+                },
+                {
+                  "kind": "add",
+                  "text": "    rows = \"\\n\".join("
+                },
+                {
+                  "kind": "add",
+                  "text": "        f\"  - {r.id}: {r.capability} \u2014 why it matters: {r.why_it_matters}; our claim: {r.ours}\""
+                },
+                {
+                  "kind": "add",
+                  "text": "        for r in choice.rows"
+                },
+                {
+                  "kind": "add",
+                  "text": "    )"
+                },
+                {
+                  "kind": "add",
+                  "text": "    coverage = report.coverage"
+                },
+                {
+                  "kind": "add",
+                  "text": "    return ("
+                },
+                {
+                  "kind": "add",
+                  "text": "        f\"Operator ask (verbatim): {OPERATOR_ASK}\\n\\n\""
+                },
+                {
+                  "kind": "add",
+                  "text": "        f\"Unread rival: {choice.rival}. Every one of the {len(choice.rows)} rows in {parity.MATRIX} reads \""
+                },
+                {
+                  "kind": "add",
+                  "text": "        f\"`unknown` in that column, so this engine has never looked at that product and cannot claim a gap \""
+                },
+                {
+                  "kind": "add",
+                  "text": "        f\"against it either way. Board today: {coverage.numerator}/{coverage.denominator} capabilities verified \""
+                },
+                {
+                  "kind": "add",
+                  "text": "        \"full on our side.\\n\\n\""
+                },
+                {
+                  "kind": "add",
+                  "text": "        f\"The rows to read that rival against, in the matrix's own order:\\n{rows}\\n\\n\""
+                },
+                {
+                  "kind": "add",
+                  "text": "        f\"Attempt history for this rival:\\n{_history(choice)}\\n\\n\""
+                },
+                {
+                  "kind": "add",
+                  "text": "        \"Deliver one proposed column, not an essay. For every row above, decide `have`, `partial`, `none` or \""
+                },
+                {
+                  "kind": "add",
+                  "text": "        \"`unknown` for that rival, and for every answer that is not `unknown` give a `source_url` (the rival's own \""
+                },
+                {
+                  "kind": "add",
+                  "text": "        \"documentation, release notes or a screenshot of the shipping product) and an `as_of` date. Where you \""
+                },
+                {
+                  "kind": "add",
+                  "text": "        \"cannot find a source, write `unknown` and say what you looked for: an unassessed rival is not evidence of \""
+                },
+                {
+                  "kind": "add",
+                  "text": "        \"a gap, and a guess dressed as testimony is worse than the blank it fills.\\n\\n\""
+                },
+                {
+                  "kind": "add",
+                  "text": "        \"Everything you write is a PROPOSAL, not evidence, and it is `agama` \u2014 testimony read out of somebody \""
+                },
+                {
+                  "kind": "add",
+                  "text": "        \"else's product, never a measurement this engine took. Nothing you produce may write to the ledger, \""
+                },
+                {
+                  "kind": "add",
+                  "text": "        \"research/, gates/ or pravrudhi_kernel/, may edit the parity matrix, and no claim may be presented as \""
+                },
+                {
+                  "kind": "add",
+                  "text": "        \"something we verified ourselves.\\n\""
+                },
+                {
+                  "kind": "add",
+                  "text": "        f\"Deliverable, written only under {choice.scratch}/ using RELATIVE paths: a README.md stating what you \""
+                },
+                {
+                  "kind": "add",
+                  "text": "        \"read, what you could not establish, and what an operator would have to check before landing the column; \""
+                },
+                {
+                  "kind": "add",
+                  "text": "        f\"a `{choice.rival}.yaml` file holding the proposed column as a list of \""
+                },
+                {
+                  "kind": "add",
+                  "text": "        \"`{{id, claim, source_url, as_of, note}}` entries in the matrix's own row order; plus any scripts. \""
+                },
+                {
+                  "kind": "add",
+                  "text": "        \"Scripts must at least compile.\\n\""
+                },
+                {
+                  "kind": "add",
+                  "text": "    )"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "def brief(choice: Choice, report: Any) -> str:"
+                },
+                {
+                  "kind": "add",
+                  "text": "    \"\"\"The brief for whichever kind of work `select_work` chose.\"\"\""
+                },
+                {
+                  "kind": "add",
+                  "text": "    return assessment_brief(choice, report) if choice.kind == \"assessment\" else gap_brief(choice, report)"
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": ""
+                },
+                {
+                  "kind": "add",
+                  "text": "def task_spec(choice: Choice, report: Any) -> TaskSpec:"
                 },
                 {
                   "kind": "add",
@@ -26113,7 +27321,7 @@
                 },
                 {
                   "kind": "add",
-                  "text": "def scoped_task(choice: GapChoice, report: Any) -> swarm.SwarmTask:"
+                  "text": "def scoped_task(choice: Choice, report: Any) -> swarm.SwarmTask:"
                 },
                 {
                   "kind": "add",
@@ -26137,11 +27345,31 @@
                 },
                 {
                   "kind": "add",
+                  "text": "    why = ("
+                },
+                {
+                  "kind": "add",
+                  "text": "        f\"verified rival advantage ({choice.rivals}) on {choice.row.id}\""
+                },
+                {
+                  "kind": "add",
+                  "text": "        if choice.kind == \"gap\""
+                },
+                {
+                  "kind": "add",
+                  "text": "        else f\"rival {choice.rival} is unassessed on every row of the matrix\""
+                },
+                {
+                  "kind": "add",
+                  "text": "    )"
+                },
+                {
+                  "kind": "add",
                   "text": "    return replace("
                 },
                 {
                   "kind": "add",
-                  "text": "        swarm.SwarmTask(spec, TIER, why=f\"verified rival advantage ({choice.rivals}) on {choice.row.id}\"),"
+                  "text": "        swarm.SwarmTask(spec, TIER, why=why),"
                 },
                 {
                   "kind": "add",
@@ -26269,7 +27497,11 @@
                 },
                 {
                   "kind": "add",
-                  "text": "    work with no human running `pravrudhi parity` first.\"\"\""
+                  "text": "    work with no human running `pravrudhi parity` first \u2014 and, when no rival advantage is recorded because a rival"
+                },
+                {
+                  "kind": "add",
+                  "text": "    has never been read at all, makes the reading of that rival become dispatched work instead.\"\"\""
                 },
                 {
                   "kind": "add",
@@ -26341,7 +27573,15 @@
                 },
                 {
                   "kind": "add",
-                  "text": "    if not report.gaps:"
+                  "text": "    choice = select_work(root, report, cfg=cfg, now=moment)"
+                },
+                {
+                  "kind": "add",
+                  "text": "    if choice is None:"
+                },
+                {
+                  "kind": "add",
+                  "text": "        pol = ParityPolicy.of(cfg)"
                 },
                 {
                   "kind": "add",
@@ -26353,27 +27593,27 @@
                 },
                 {
                   "kind": "add",
-                  "text": "            \"capabilities verified full)\""
+                  "text": "            f\"capabilities verified full) and no rival column has been unread for more than \""
                 },
                 {
                   "kind": "add",
-                  "text": "        ), {\"kind\": \"no_gap\", \"coverage\": report.coverage.model_dump()}"
+                  "text": "            f\"{pol.assessment_max_age_days:g} days\""
                 },
                 {
                   "kind": "add",
-                  "text": ""
+                  "text": "        ), {"
                 },
                 {
                   "kind": "add",
-                  "text": "    choice = select_gap(root, report, cfg=cfg, now=moment)"
+                  "text": "            \"kind\": \"no_gap\", \"coverage\": report.coverage.model_dump(),"
                 },
                 {
                   "kind": "add",
-                  "text": "    if choice is None:  # pragma: no cover - report.gaps was non-empty"
+                  "text": "            \"unassessed_rivals\": list(unassessed_rivals(report)),"
                 },
                 {
                   "kind": "add",
-                  "text": "        return looked_at, None, \"the parity board reports a gap it could not select\", {\"kind\": \"no_gap\"}"
+                  "text": "        }"
                 },
                 {
                   "kind": "add",
@@ -26397,7 +27637,75 @@
                 },
                 {
                   "kind": "add",
-                  "text": "    chose = {\"capability\": choice.row.id, \"rival\": choice.rivals, \"attempt\": str(choice.attempt)}"
+                  "text": "    key = choice.key"
+                },
+                {
+                  "kind": "add",
+                  "text": "    if choice.kind == \"gap\":"
+                },
+                {
+                  "kind": "add",
+                  "text": "        chose = {\"capability\": choice.row.id, \"rival\": choice.rivals, \"attempt\": str(choice.attempt)}"
+                },
+                {
+                  "kind": "add",
+                  "text": "        ahead, ours, verified = choice.ahead, str(choice.row.ours), choice.verified"
+                },
+                {
+                  "kind": "add",
+                  "text": "        subject = f\"the {choice.row.id} gap against {choice.rivals}\""
+                },
+                {
+                  "kind": "add",
+                  "text": "        escalation_summary = ("
+                },
+                {
+                  "kind": "add",
+                  "text": "            f\"parity gap {choice.row.id} escalated: {choice.rivals} ahead and no proposal was accepted\""
+                },
+                {
+                  "kind": "add",
+                  "text": "        )"
+                },
+                {
+                  "kind": "add",
+                  "text": "        sent_kind = \"dispatch\""
+                },
+                {
+                  "kind": "add",
+                  "text": "    else:"
+                },
+                {
+                  "kind": "add",
+                  "text": "        chose = {\"rival\": choice.rival, \"kind\": \"assessment\", \"attempt\": str(choice.attempt)}"
+                },
+                {
+                  "kind": "add",
+                  "text": "        ahead, ours, verified = (), \"\", False"
+                },
+                {
+                  "kind": "add",
+                  "text": "        subject = f\"an assessment of {choice.rival}, unread on all {len(looked_at)} rows\""
+                },
+                {
+                  "kind": "add",
+                  "text": "        escalation_summary = ("
+                },
+                {
+                  "kind": "add",
+                  "text": "            f\"parity assessment of {choice.rival} escalated: the column is still unread and no proposal was \""
+                },
+                {
+                  "kind": "add",
+                  "text": "            \"accepted\""
+                },
+                {
+                  "kind": "add",
+                  "text": "        )"
+                },
+                {
+                  "kind": "add",
+                  "text": "        sent_kind = \"assessment\""
                 },
                 {
                   "kind": "add",
@@ -26413,11 +27721,11 @@
                 },
                 {
                   "kind": "add",
-                  "text": "            at=_stamp(moment), kind=\"escalation\", capability=choice.row.id, attempt=choice.attempt,"
+                  "text": "            at=_stamp(moment), kind=\"escalation\", capability=key, attempt=choice.attempt,"
                 },
                 {
                   "kind": "add",
-                  "text": "            scratch=choice.scratch, ahead=choice.ahead, ours=choice.row.ours, verified=choice.verified,"
+                  "text": "            scratch=choice.scratch, ahead=ahead, ours=ours, verified=verified,"
                 },
                 {
                   "kind": "add",
@@ -26433,23 +27741,7 @@
                 },
                 {
                   "kind": "add",
-                  "text": "            continuity.note("
-                },
-                {
-                  "kind": "add",
-                  "text": "                root, kind=\"blocked\","
-                },
-                {
-                  "kind": "add",
-                  "text": "                summary=f\"parity gap {choice.row.id} escalated: {choice.rivals} ahead and no proposal was accepted\","
-                },
-                {
-                  "kind": "add",
-                  "text": "                detail=choice.blocked_reason[:600],"
-                },
-                {
-                  "kind": "add",
-                  "text": "            )"
+                  "text": "            continuity.note(root, kind=\"blocked\", summary=escalation_summary, detail=choice.blocked_reason[:600])"
                 },
                 {
                   "kind": "add",
@@ -26465,7 +27757,7 @@
                 },
                 {
                   "kind": "add",
-                  "text": "            f\"{choice.row.id} has been worked {len(choice.prior)} time(s) and is escalated to the operator: \""
+                  "text": "            f\"{subject} has been worked {len(choice.prior)} time(s) and is escalated to the operator: \""
                 },
                 {
                   "kind": "add",
@@ -26473,11 +27765,7 @@
                 },
                 {
                   "kind": "add",
-                  "text": "        ), {\"kind\": \"escalation\", \"capability\": choice.row.id, \"rivals\": list(choice.ahead),"
-                },
-                {
-                  "kind": "add",
-                  "text": "            \"attempts\": len(choice.prior)}"
+                  "text": "        ), {\"kind\": \"escalation\", \"capability\": key, \"rivals\": list(ahead), \"attempts\": len(choice.prior)}"
                 },
                 {
                   "kind": "add",
@@ -26493,11 +27781,11 @@
                 },
                 {
                   "kind": "add",
-                  "text": "            at=_stamp(moment), kind=\"budget\", capability=choice.row.id, attempt=choice.attempt,"
+                  "text": "            at=_stamp(moment), kind=\"budget\", capability=key, attempt=choice.attempt,"
                 },
                 {
                   "kind": "add",
-                  "text": "            scratch=choice.scratch, ahead=choice.ahead, ours=choice.row.ours, verified=choice.verified,"
+                  "text": "            scratch=choice.scratch, ahead=ahead, ours=ours, verified=verified,"
                 },
                 {
                   "kind": "add",
@@ -26513,15 +27801,11 @@
                 },
                 {
                   "kind": "add",
-                  "text": "            f\"{choice.row.id} is behind {choice.rivals} but max_dispatch_per_beat is 0; nothing may be dispatched \""
+                  "text": "            f\"{subject} is waiting but max_dispatch_per_beat is 0; nothing may be dispatched this beat\""
                 },
                 {
                   "kind": "add",
-                  "text": "            \"this beat\""
-                },
-                {
-                  "kind": "add",
-                  "text": "        ), {\"kind\": \"budget\", \"capability\": choice.row.id}"
+                  "text": "        ), {\"kind\": \"budget\", \"capability\": key}"
                 },
                 {
                   "kind": "add",
@@ -26565,7 +27849,7 @@
                 },
                 {
                   "kind": "add",
-                  "text": "        at=_stamp(moment), kind=\"no_route\" if no_route else \"dispatch\", capability=choice.row.id,"
+                  "text": "        at=_stamp(moment), kind=\"no_route\" if no_route else sent_kind, capability=key,"
                 },
                 {
                   "kind": "add",
@@ -26577,11 +27861,7 @@
                 },
                 {
                   "kind": "add",
-                  "text": "        reasons=tuple(verdict.reasons), ahead=choice.ahead, ours=choice.row.ours, verified=choice.verified,"
-                },
-                {
-                  "kind": "add",
-                  "text": "        deficit=deficit,"
+                  "text": "        reasons=tuple(verdict.reasons), ahead=ahead, ours=ours, verified=verified, deficit=deficit,"
                 },
                 {
                   "kind": "add",
@@ -26593,23 +27873,19 @@
                 },
                 {
                   "kind": "add",
-                  "text": "    reason = ("
+                  "text": "    if no_route:"
                 },
                 {
                   "kind": "add",
-                  "text": "        f\"dispatched the {choice.row.id} gap against {choice.rivals} (attempt {choice.attempt}, {verb})\""
+                  "text": "        reason = f\"{subject} is waiting but no agent route was available; it keeps its turn\""
                 },
                 {
                   "kind": "add",
-                  "text": "        if not no_route else"
+                  "text": "    else:"
                 },
                 {
                   "kind": "add",
-                  "text": "        f\"{choice.row.id} is behind {choice.rivals} but no agent route was available; the gap keeps its turn\""
-                },
-                {
-                  "kind": "add",
-                  "text": "    )"
+                  "text": "        reason = f\"dispatched {subject} (attempt {choice.attempt}, {verb})\""
                 },
                 {
                   "kind": "add",
@@ -26617,15 +27893,15 @@
                 },
                 {
                   "kind": "add",
-                  "text": "        \"kind\": \"no_route\" if no_route else \"dispatch\","
+                  "text": "        \"kind\": \"no_route\" if no_route else sent_kind,"
                 },
                 {
                   "kind": "add",
-                  "text": "        \"capability\": choice.row.id,"
+                  "text": "        \"capability\": key,"
                 },
                 {
                   "kind": "add",
-                  "text": "        \"rivals\": list(choice.ahead),"
+                  "text": "        \"rivals\": list(ahead),"
                 },
                 {
                   "kind": "add",
@@ -26677,7 +27953,11 @@
                 },
                 {
                   "kind": "add",
-                  "text": "    than only the board: one row per gap with how often it has been worked, what came back, and when.\"\"\""
+                  "text": "    than only the board: one row per gap with how often it has been worked, what came back, and when, plus the"
+                },
+                {
+                  "kind": "add",
+                  "text": "    rival columns nobody has read yet and what the loop has already tried about them.\"\"\""
                 },
                 {
                   "kind": "add",
@@ -26753,6 +28033,54 @@
                 },
                 {
                   "kind": "add",
+                  "text": "    unread = []"
+                },
+                {
+                  "kind": "add",
+                  "text": "    for name in unassessed_rivals(report):"
+                },
+                {
+                  "kind": "add",
+                  "text": "        key = f\"{RIVAL_KEY_PREFIX}{name}\""
+                },
+                {
+                  "kind": "add",
+                  "text": "        prior = attempts(root, key)"
+                },
+                {
+                  "kind": "add",
+                  "text": "        unread.append({"
+                },
+                {
+                  "kind": "add",
+                  "text": "            \"rival\": name,"
+                },
+                {
+                  "kind": "add",
+                  "text": "            \"rows\": len(report.rows),"
+                },
+                {
+                  "kind": "add",
+                  "text": "            \"attempts\": len(prior),"
+                },
+                {
+                  "kind": "add",
+                  "text": "            \"accepted\": sum(1 for a in prior if a.accepted),"
+                },
+                {
+                  "kind": "add",
+                  "text": "            \"age_days\": gap_ages.get(key),"
+                },
+                {
+                  "kind": "add",
+                  "text": "            \"last\": prior[-1].to_dict() if prior else None,"
+                },
+                {
+                  "kind": "add",
+                  "text": "        })"
+                },
+                {
+                  "kind": "add",
                   "text": "    return {"
                 },
                 {
@@ -26777,6 +28105,10 @@
                 },
                 {
                   "kind": "add",
+                  "text": "        \"unassessed_rivals\": unread,"
+                },
+                {
+                  "kind": "add",
                   "text": "        \"store\": str(RUNS),"
                 },
                 {
@@ -26797,15 +28129,23 @@
                 },
                 {
                   "kind": "add",
-                  "text": "    \"DRIVE_ID\", \"GapChoice\", \"LEVELS\", \"OPERATOR_ASK\", \"ParityAttempt\", \"ParityPolicy\", \"TIER\", \"WIRE_NAME\","
+                  "text": "    \"ASSESSMENT_SCRATCH_ROOT\", \"AssessmentChoice\", \"Choice\", \"DRIVE_ID\", \"GapChoice\", \"LEVELS\", \"OPERATOR_ASK\","
                 },
                 {
                   "kind": "add",
-                  "text": "    \"WORKING_KINDS\", \"ages\", \"attempts\", \"ahead_of\", \"beat\", \"brief\", \"measure_drive\", \"record_attempt\","
+                  "text": "    \"ParityAttempt\", \"ParityPolicy\", \"RIVAL_KEY_PREFIX\", \"SCRATCH_ROOT\", \"TIER\", \"WIRE_NAME\", \"WORKING_KINDS\","
                 },
                 {
                   "kind": "add",
-                  "text": "    \"runs_path\", \"sadrishya_drive\", \"scoped_task\", \"select_gap\", \"summary\", \"task_spec\","
+                  "text": "    \"ages\", \"assessment_brief\", \"attempts\", \"ahead_of\", \"beat\", \"brief\", \"gap_brief\", \"measure_drive\","
+                },
+                {
+                  "kind": "add",
+                  "text": "    \"rival_names\", \"record_attempt\", \"runs_path\", \"sadrishya_drive\", \"scoped_task\", \"select_assessment\","
+                },
+                {
+                  "kind": "add",
+                  "text": "    \"select_gap\", \"select_work\", \"summary\", \"task_spec\", \"unassessed_rivals\","
                 },
                 {
                   "kind": "add",
@@ -48413,2186 +49753,12 @@
           "too_large": false
         },
         {
-          "added": 542,
+          "added": 0,
           "binary": false,
-          "hunks": [
-            {
-              "header": "@@ -0,0 +1,542 @@",
-              "lines": [
-                {
-                  "kind": "add",
-                  "text": "#!/usr/bin/env python3"
-                },
-                {
-                  "kind": "add",
-                  "text": "\"\"\"Multi-agent orchestration: a real DAG scheduler with leases and retries."
-                },
-                {
-                  "kind": "add",
-                  "text": ""
-                },
-                {
-                  "kind": "add",
-                  "text": "Demand O7 asks for multi-agent orchestration, not a description of it. This"
-                },
-                {
-                  "kind": "add",
-                  "text": "module executes a dependency graph of tasks across named agents, recording every"
-                },
-                {
-                  "kind": "add",
-                  "text": "dispatch, lease, heartbeat, retry and handoff in a hash-chained run log."
-                },
-                {
-                  "kind": "add",
-                  "text": ""
-                },
-                {
-                  "kind": "add",
-                  "text": "What makes it real rather than decorative:"
-                },
-                {
-                  "kind": "add",
-                  "text": ""
-                },
-                {
-                  "kind": "add",
-                  "text": "* Tasks run in parallel up to ``--slots`` workers via a thread pool; the ready"
-                },
-                {
-                  "kind": "add",
-                  "text": "  set is recomputed after each completion, so the schedule is a genuine"
-                },
-                {
-                  "kind": "add",
-                  "text": "  topological execution rather than a fixed sequence."
-                },
-                {
-                  "kind": "add",
-                  "text": "* Each running task holds a **lease** with a deadline. A worker that dies stops"
-                },
-                {
-                  "kind": "add",
-                  "text": "  renewing, and the scheduler detects the expired lease and re-dispatches. That"
-                },
-                {
-                  "kind": "add",
-                  "text": "  is observable in the run log."
-                },
-                {
-                  "kind": "add",
-                  "text": "* A handoff from task A to dependent task B is written to the invocation ledger"
-                },
-                {
-                  "kind": "add",
-                  "text": "  as an ``agent_message`` record, which is the artifact the bundle verifier"
-                },
-                {
-                  "kind": "add",
-                  "text": "  checks when it asks whether agents actually messaged."
-                },
-                {
-                  "kind": "add",
-                  "text": "* Failures retry with capped exponential backoff, and a task that exhausts its"
-                },
-                {
-                  "kind": "add",
-                  "text": "  attempts is marked ``failed`` and blocks its dependents -- it is never"
-                },
-                {
-                  "kind": "add",
-                  "text": "  silently skipped, because skipping is how a completion claim becomes fiction."
-                },
-                {
-                  "kind": "add",
-                  "text": ""
-                },
-                {
-                  "kind": "add",
-                  "text": "Cycle detection is explicit: a cyclic plan raises rather than deadlocking."
-                },
-                {
-                  "kind": "add",
-                  "text": "\"\"\""
-                },
-                {
-                  "kind": "add",
-                  "text": ""
-                },
-                {
-                  "kind": "add",
-                  "text": "from __future__ import annotations"
-                },
-                {
-                  "kind": "add",
-                  "text": ""
-                },
-                {
-                  "kind": "add",
-                  "text": "import argparse"
-                },
-                {
-                  "kind": "add",
-                  "text": "import json"
-                },
-                {
-                  "kind": "add",
-                  "text": "import os"
-                },
-                {
-                  "kind": "add",
-                  "text": "import sys"
-                },
-                {
-                  "kind": "add",
-                  "text": "import threading"
-                },
-                {
-                  "kind": "add",
-                  "text": "import time"
-                },
-                {
-                  "kind": "add",
-                  "text": "from concurrent.futures import ThreadPoolExecutor"
-                },
-                {
-                  "kind": "add",
-                  "text": "from dataclasses import dataclass, field"
-                },
-                {
-                  "kind": "add",
-                  "text": "from typing import Any, Callable, Sequence"
-                },
-                {
-                  "kind": "add",
-                  "text": ""
-                },
-                {
-                  "kind": "add",
-                  "text": "from .chain import HashChain, canon_hash, canonical_json, utcnow_iso"
-                },
-                {
-                  "kind": "add",
-                  "text": "from .registry import CapabilityRegistry, InvocationLedger, RegistryError"
-                },
-                {
-                  "kind": "add",
-                  "text": ""
-                },
-                {
-                  "kind": "add",
-                  "text": "__all__ = ["
-                },
-                {
-                  "kind": "add",
-                  "text": "    \"Task\","
-                },
-                {
-                  "kind": "add",
-                  "text": "    \"TaskResult\","
-                },
-                {
-                  "kind": "add",
-                  "text": "    \"Orchestrator\","
-                },
-                {
-                  "kind": "add",
-                  "text": "    \"Plan\","
-                },
-                {
-                  "kind": "add",
-                  "text": "    \"OrchestrationError\","
-                },
-                {
-                  "kind": "add",
-                  "text": "]"
-                },
-                {
-                  "kind": "add",
-                  "text": ""
-                },
-                {
-                  "kind": "add",
-                  "text": "TERMINAL = (\"done\", \"failed\")"
-                },
-                {
-                  "kind": "add",
-                  "text": ""
-                },
-                {
-                  "kind": "add",
-                  "text": ""
-                },
-                {
-                  "kind": "add",
-                  "text": "class OrchestrationError(Exception):"
-                },
-                {
-                  "kind": "add",
-                  "text": "    \"\"\"The plan is not executable (cycle, unknown dependency, no handler).\"\"\""
-                },
-                {
-                  "kind": "add",
-                  "text": ""
-                },
-                {
-                  "kind": "add",
-                  "text": ""
-                },
-                {
-                  "kind": "add",
-                  "text": "@dataclass"
-                },
-                {
-                  "kind": "add",
-                  "text": "class Task:"
-                },
-                {
-                  "kind": "add",
-                  "text": "    \"\"\"One unit of work assigned to one agent.\"\"\""
-                },
-                {
-                  "kind": "add",
-                  "text": ""
-                },
-                {
-                  "kind": "add",
-                  "text": "    task_id: str"
-                },
-                {
-                  "kind": "add",
-                  "text": "    agent: str"
-                },
-                {
-                  "kind": "add",
-                  "text": "    capability: str = \"\""
-                },
-                {
-                  "kind": "add",
-                  "text": "    args: tuple[str, ...] = ()"
-                },
-                {
-                  "kind": "add",
-                  "text": "    needs: tuple[str, ...] = ()"
-                },
-                {
-                  "kind": "add",
-                  "text": "    goal_id: str = \"\""
-                },
-                {
-                  "kind": "add",
-                  "text": "    obj_id: str = \"\""
-                },
-                {
-                  "kind": "add",
-                  "text": "    attempts: int = 2"
-                },
-                {
-                  "kind": "add",
-                  "text": "    lease_s: float = 30.0"
-                },
-                {
-                  "kind": "add",
-                  "text": "    handler: Callable[[\"Task\", dict[str, Any]], Any] | None = None"
-                },
-                {
-                  "kind": "add",
-                  "text": ""
-                },
-                {
-                  "kind": "add",
-                  "text": "    def to_json(self) -> dict[str, Any]:"
-                },
-                {
-                  "kind": "add",
-                  "text": "        return {"
-                },
-                {
-                  "kind": "add",
-                  "text": "            \"task_id\": self.task_id,"
-                },
-                {
-                  "kind": "add",
-                  "text": "            \"agent\": self.agent,"
-                },
-                {
-                  "kind": "add",
-                  "text": "            \"capability\": self.capability,"
-                },
-                {
-                  "kind": "add",
-                  "text": "            \"args\": list(self.args),"
-                },
-                {
-                  "kind": "add",
-                  "text": "            \"needs\": list(self.needs),"
-                },
-                {
-                  "kind": "add",
-                  "text": "            \"goal_id\": self.goal_id,"
-                },
-                {
-                  "kind": "add",
-                  "text": "            \"obj_id\": self.obj_id,"
-                },
-                {
-                  "kind": "add",
-                  "text": "            \"attempts\": self.attempts,"
-                },
-                {
-                  "kind": "add",
-                  "text": "            \"lease_s\": self.lease_s,"
-                },
-                {
-                  "kind": "add",
-                  "text": "            \"has_handler\": self.handler is not None,"
-                },
-                {
-                  "kind": "add",
-                  "text": "        }"
-                },
-                {
-                  "kind": "add",
-                  "text": ""
-                },
-                {
-                  "kind": "add",
-                  "text": ""
-                },
-                {
-                  "kind": "add",
-                  "text": "@dataclass"
-                },
-                {
-                  "kind": "add",
-                  "text": "class TaskResult:"
-                },
-                {
-                  "kind": "add",
-                  "text": "    task_id: str"
-                },
-                {
-                  "kind": "add",
-                  "text": "    agent: str"
-                },
-                {
-                  "kind": "add",
-                  "text": "    status: str"
-                },
-                {
-                  "kind": "add",
-                  "text": "    attempts_used: int"
-                },
-                {
-                  "kind": "add",
-                  "text": "    duration_s: float"
-                },
-                {
-                  "kind": "add",
-                  "text": "    detail: str = \"\""
-                },
-                {
-                  "kind": "add",
-                  "text": "    output_sha256: str = \"\""
-                },
-                {
-                  "kind": "add",
-                  "text": "    value: Any = None"
-                },
-                {
-                  "kind": "add",
-                  "text": ""
-                },
-                {
-                  "kind": "add",
-                  "text": "    def to_json(self) -> dict[str, Any]:"
-                },
-                {
-                  "kind": "add",
-                  "text": "        return {"
-                },
-                {
-                  "kind": "add",
-                  "text": "            \"task_id\": self.task_id,"
-                },
-                {
-                  "kind": "add",
-                  "text": "            \"agent\": self.agent,"
-                },
-                {
-                  "kind": "add",
-                  "text": "            \"status\": self.status,"
-                },
-                {
-                  "kind": "add",
-                  "text": "            \"attempts_used\": self.attempts_used,"
-                },
-                {
-                  "kind": "add",
-                  "text": "            \"duration_s\": self.duration_s,"
-                },
-                {
-                  "kind": "add",
-                  "text": "            \"detail\": self.detail,"
-                },
-                {
-                  "kind": "add",
-                  "text": "            \"output_sha256\": self.output_sha256,"
-                },
-                {
-                  "kind": "add",
-                  "text": "        }"
-                },
-                {
-                  "kind": "add",
-                  "text": ""
-                },
-                {
-                  "kind": "add",
-                  "text": ""
-                },
-                {
-                  "kind": "add",
-                  "text": "@dataclass"
-                },
-                {
-                  "kind": "add",
-                  "text": "class Plan:"
-                },
-                {
-                  "kind": "add",
-                  "text": "    \"\"\"A DAG of tasks.\"\"\""
-                },
-                {
-                  "kind": "add",
-                  "text": ""
-                },
-                {
-                  "kind": "add",
-                  "text": "    tasks: tuple[Task, ...] = ()"
-                },
-                {
-                  "kind": "add",
-                  "text": ""
-                },
-                {
-                  "kind": "add",
-                  "text": "    def add(self, task: Task) -> \"Plan\":"
-                },
-                {
-                  "kind": "add",
-                  "text": "        return Plan(self.tasks + (task,))"
-                },
-                {
-                  "kind": "add",
-                  "text": ""
-                },
-                {
-                  "kind": "add",
-                  "text": "    def by_id(self) -> dict[str, Task]:"
-                },
-                {
-                  "kind": "add",
-                  "text": "        return {t.task_id: t for t in self.tasks}"
-                },
-                {
-                  "kind": "add",
-                  "text": ""
-                },
-                {
-                  "kind": "add",
-                  "text": "    def dependents(self, task_id: str) -> list[Task]:"
-                },
-                {
-                  "kind": "add",
-                  "text": "        return [t for t in self.tasks if task_id in t.needs]"
-                },
-                {
-                  "kind": "add",
-                  "text": ""
-                },
-                {
-                  "kind": "add",
-                  "text": "    def validate(self) -> list[str]:"
-                },
-                {
-                  "kind": "add",
-                  "text": "        \"\"\"Return execution-blocking problems (empty means runnable).\"\"\""
-                },
-                {
-                  "kind": "add",
-                  "text": "        problems: list[str] = []"
-                },
-                {
-                  "kind": "add",
-                  "text": "        ids = self.by_id()"
-                },
-                {
-                  "kind": "add",
-                  "text": "        if len(ids) != len(self.tasks):"
-                },
-                {
-                  "kind": "add",
-                  "text": "            problems.append(\"duplicate task_id in plan\")"
-                },
-                {
-                  "kind": "add",
-                  "text": "        for task in self.tasks:"
-                },
-                {
-                  "kind": "add",
-                  "text": "            for need in task.needs:"
-                },
-                {
-                  "kind": "add",
-                  "text": "                if need not in ids:"
-                },
-                {
-                  "kind": "add",
-                  "text": "                    problems.append(f\"{task.task_id} needs unknown task {need!r}\")"
-                },
-                {
-                  "kind": "add",
-                  "text": "            if not task.capability and task.handler is None:"
-                },
-                {
-                  "kind": "add",
-                  "text": "                problems.append("
-                },
-                {
-                  "kind": "add",
-                  "text": "                    f\"{task.task_id} has neither a capability nor a handler\""
-                },
-                {
-                  "kind": "add",
-                  "text": "                )"
-                },
-                {
-                  "kind": "add",
-                  "text": "        for cycle in self._cycles():"
-                },
-                {
-                  "kind": "add",
-                  "text": "            problems.append(\"dependency cycle: \" + \" -> \".join(cycle))"
-                },
-                {
-                  "kind": "add",
-                  "text": "        return problems"
-                },
-                {
-                  "kind": "add",
-                  "text": ""
-                },
-                {
-                  "kind": "add",
-                  "text": "    def _cycles(self) -> list[list[str]]:"
-                },
-                {
-                  "kind": "add",
-                  "text": "        ids = self.by_id()"
-                },
-                {
-                  "kind": "add",
-                  "text": "        colour: dict[str, int] = {}"
-                },
-                {
-                  "kind": "add",
-                  "text": "        found: list[list[str]] = []"
-                },
-                {
-                  "kind": "add",
-                  "text": ""
-                },
-                {
-                  "kind": "add",
-                  "text": "        def visit(node: str, stack: list[str]) -> None:"
-                },
-                {
-                  "kind": "add",
-                  "text": "            state = colour.get(node, 0)"
-                },
-                {
-                  "kind": "add",
-                  "text": "            if state == 2:"
-                },
-                {
-                  "kind": "add",
-                  "text": "                return"
-                },
-                {
-                  "kind": "add",
-                  "text": "            if state == 1:"
-                },
-                {
-                  "kind": "add",
-                  "text": "                found.append(stack[stack.index(node):] + [node])"
-                },
-                {
-                  "kind": "add",
-                  "text": "                return"
-                },
-                {
-                  "kind": "add",
-                  "text": "            colour[node] = 1"
-                },
-                {
-                  "kind": "add",
-                  "text": "            for need in ids[node].needs if node in ids else ():"
-                },
-                {
-                  "kind": "add",
-                  "text": "                visit(need, stack + [node])"
-                },
-                {
-                  "kind": "add",
-                  "text": "            colour[node] = 2"
-                },
-                {
-                  "kind": "add",
-                  "text": ""
-                },
-                {
-                  "kind": "add",
-                  "text": "        for task in self.tasks:"
-                },
-                {
-                  "kind": "add",
-                  "text": "            visit(task.task_id, [])"
-                },
-                {
-                  "kind": "add",
-                  "text": "        return found"
-                },
-                {
-                  "kind": "add",
-                  "text": ""
-                },
-                {
-                  "kind": "add",
-                  "text": "    def topo_levels(self) -> list[list[Task]]:"
-                },
-                {
-                  "kind": "add",
-                  "text": "        \"\"\"Group tasks into dependency levels (used for reporting).\"\"\""
-                },
-                {
-                  "kind": "add",
-                  "text": "        ids = self.by_id()"
-                },
-                {
-                  "kind": "add",
-                  "text": "        placed: set[str] = set()"
-                },
-                {
-                  "kind": "add",
-                  "text": "        levels: list[list[Task]] = []"
-                },
-                {
-                  "kind": "add",
-                  "text": "        while len(placed) < len(self.tasks):"
-                },
-                {
-                  "kind": "add",
-                  "text": "            level = ["
-                },
-                {
-                  "kind": "add",
-                  "text": "                t"
-                },
-                {
-                  "kind": "add",
-                  "text": "                for t in self.tasks"
-                },
-                {
-                  "kind": "add",
-                  "text": "                if t.task_id not in placed and all(n in placed for n in t.needs)"
-                },
-                {
-                  "kind": "add",
-                  "text": "            ]"
-                },
-                {
-                  "kind": "add",
-                  "text": "            if not level:"
-                },
-                {
-                  "kind": "add",
-                  "text": "                break"
-                },
-                {
-                  "kind": "add",
-                  "text": "            levels.append(level)"
-                },
-                {
-                  "kind": "add",
-                  "text": "            placed.update(t.task_id for t in level)"
-                },
-                {
-                  "kind": "add",
-                  "text": "        return levels"
-                },
-                {
-                  "kind": "add",
-                  "text": ""
-                },
-                {
-                  "kind": "add",
-                  "text": ""
-                },
-                {
-                  "kind": "add",
-                  "text": "class Orchestrator:"
-                },
-                {
-                  "kind": "add",
-                  "text": "    \"\"\"Executes a :class:`Plan`, writing a chained run log as it goes.\"\"\""
-                },
-                {
-                  "kind": "add",
-                  "text": ""
-                },
-                {
-                  "kind": "add",
-                  "text": "    FILENAME = \"orchestration.jsonl\""
-                },
-                {
-                  "kind": "add",
-                  "text": ""
-                },
-                {
-                  "kind": "add",
-                  "text": "    def __init__("
-                },
-                {
-                  "kind": "add",
-                  "text": "        self,"
-                },
-                {
-                  "kind": "add",
-                  "text": "        root: str,"
-                },
-                {
-                  "kind": "add",
-                  "text": "        registry: CapabilityRegistry | None = None,"
-                },
-                {
-                  "kind": "add",
-                  "text": "        slots: int = 2,"
-                },
-                {
-                  "kind": "add",
-                  "text": "        agent: str = \"orchestrator\","
-                },
-                {
-                  "kind": "add",
-                  "text": "    ) -> None:"
-                },
-                {
-                  "kind": "add",
-                  "text": "        self.root = root"
-                },
-                {
-                  "kind": "add",
-                  "text": "        self.registry = registry or CapabilityRegistry(root)"
-                },
-                {
-                  "kind": "add",
-                  "text": "        self.slots = max(1, int(slots))"
-                },
-                {
-                  "kind": "add",
-                  "text": "        self.agent = agent"
-                },
-                {
-                  "kind": "add",
-                  "text": "        self.path = os.path.join(root, self.FILENAME)"
-                },
-                {
-                  "kind": "add",
-                  "text": "        self._chain = HashChain(self.path, label=\"orchestration\")"
-                },
-                {
-                  "kind": "add",
-                  "text": "        self._ledger = InvocationLedger(root, self.registry)"
-                },
-                {
-                  "kind": "add",
-                  "text": "        self._lock = threading.Lock()"
-                },
-                {
-                  "kind": "add",
-                  "text": "        self._outputs: dict[str, Any] = {}"
-                },
-                {
-                  "kind": "add",
-                  "text": "        self._results: dict[str, TaskResult] = {}"
-                },
-                {
-                  "kind": "add",
-                  "text": "        self._leases: dict[str, float] = {}"
-                },
-                {
-                  "kind": "add",
-                  "text": ""
-                },
-                {
-                  "kind": "add",
-                  "text": "    # ------------------------------------------------------------------- log"
-                },
-                {
-                  "kind": "add",
-                  "text": ""
-                },
-                {
-                  "kind": "add",
-                  "text": "    def _log(self, kind: str, **fields: Any) -> None:"
-                },
-                {
-                  "kind": "add",
-                  "text": "        entry = {\"kind\": kind, \"orchestrator\": self.agent}"
-                },
-                {
-                  "kind": "add",
-                  "text": "        entry.update(fields)"
-                },
-                {
-                  "kind": "add",
-                  "text": "        with self._lock:"
-                },
-                {
-                  "kind": "add",
-                  "text": "            self._chain.append(entry)"
-                },
-                {
-                  "kind": "add",
-                  "text": ""
-                },
-                {
-                  "kind": "add",
-                  "text": "    # ----------------------------------------------------------------- leases"
-                },
-                {
-                  "kind": "add",
-                  "text": ""
-                },
-                {
-                  "kind": "add",
-                  "text": "    def _take_lease(self, task: Task) -> float:"
-                },
-                {
-                  "kind": "add",
-                  "text": "        deadline = time.monotonic() + task.lease_s"
-                },
-                {
-                  "kind": "add",
-                  "text": "        with self._lock:"
-                },
-                {
-                  "kind": "add",
-                  "text": "            self._leases[task.task_id] = deadline"
-                },
-                {
-                  "kind": "add",
-                  "text": "        self._log(\"lease_acquired\", task_id=task.task_id, agent=task.agent,"
-                },
-                {
-                  "kind": "add",
-                  "text": "                  deadline_s=task.lease_s)"
-                },
-                {
-                  "kind": "add",
-                  "text": "        return deadline"
-                },
-                {
-                  "kind": "add",
-                  "text": ""
-                },
-                {
-                  "kind": "add",
-                  "text": "    def _renew_lease(self, task: Task) -> bool:"
-                },
-                {
-                  "kind": "add",
-                  "text": "        with self._lock:"
-                },
-                {
-                  "kind": "add",
-                  "text": "            current = self._leases.get(task.task_id)"
-                },
-                {
-                  "kind": "add",
-                  "text": "            if current is None:"
-                },
-                {
-                  "kind": "add",
-                  "text": "                return False"
-                },
-                {
-                  "kind": "add",
-                  "text": "            self._leases[task.task_id] = time.monotonic() + task.lease_s"
-                },
-                {
-                  "kind": "add",
-                  "text": "        self._log(\"lease_renewed\", task_id=task.task_id, agent=task.agent)"
-                },
-                {
-                  "kind": "add",
-                  "text": "        return True"
-                },
-                {
-                  "kind": "add",
-                  "text": ""
-                },
-                {
-                  "kind": "add",
-                  "text": "    def _release_lease(self, task: Task) -> None:"
-                },
-                {
-                  "kind": "add",
-                  "text": "        with self._lock:"
-                },
-                {
-                  "kind": "add",
-                  "text": "            self._leases.pop(task.task_id, None)"
-                },
-                {
-                  "kind": "add",
-                  "text": "        self._log(\"lease_released\", task_id=task.task_id, agent=task.agent)"
-                },
-                {
-                  "kind": "add",
-                  "text": ""
-                },
-                {
-                  "kind": "add",
-                  "text": "    def expired_leases(self) -> list[str]:"
-                },
-                {
-                  "kind": "add",
-                  "text": "        now = time.monotonic()"
-                },
-                {
-                  "kind": "add",
-                  "text": "        with self._lock:"
-                },
-                {
-                  "kind": "add",
-                  "text": "            return [tid for tid, deadline in self._leases.items() if deadline < now]"
-                },
-                {
-                  "kind": "add",
-                  "text": ""
-                },
-                {
-                  "kind": "add",
-                  "text": "    # ------------------------------------------------------------ execution"
-                },
-                {
-                  "kind": "add",
-                  "text": ""
-                },
-                {
-                  "kind": "add",
-                  "text": "    def _run_task(self, task: Task, context: dict[str, Any]) -> TaskResult:"
-                },
-                {
-                  "kind": "add",
-                  "text": "        attempt = 0"
-                },
-                {
-                  "kind": "add",
-                  "text": "        t0 = time.monotonic()"
-                },
-                {
-                  "kind": "add",
-                  "text": "        self._take_lease(task)"
-                },
-                {
-                  "kind": "add",
-                  "text": "        last_detail = \"\""
-                },
-                {
-                  "kind": "add",
-                  "text": "        output_hash = \"\""
-                },
-                {
-                  "kind": "add",
-                  "text": "        try:"
-                },
-                {
-                  "kind": "add",
-                  "text": "            while attempt < max(1, task.attempts):"
-                },
-                {
-                  "kind": "add",
-                  "text": "                attempt += 1"
-                },
-                {
-                  "kind": "add",
-                  "text": "                self._log(\"dispatch\", task_id=task.task_id, agent=task.agent,"
-                },
-                {
-                  "kind": "add",
-                  "text": "                          attempt=attempt, goal_id=task.goal_id, obj_id=task.obj_id)"
-                },
-                {
-                  "kind": "add",
-                  "text": "                self._renew_lease(task)"
-                },
-                {
-                  "kind": "add",
-                  "text": "                try:"
-                },
-                {
-                  "kind": "add",
-                  "text": "                    if task.handler is not None:"
-                },
-                {
-                  "kind": "add",
-                  "text": "                        value = task.handler(task, context)"
-                },
-                {
-                  "kind": "add",
-                  "text": "                        detail = \"handler\""
-                },
-                {
-                  "kind": "add",
-                  "text": "                        output_hash = canon_hash(value)"
-                },
-                {
-                  "kind": "add",
-                  "text": "                    else:"
-                },
-                {
-                  "kind": "add",
-                  "text": "                        result = self._ledger.call("
-                },
-                {
-                  "kind": "add",
-                  "text": "                            task.capability,"
-                },
-                {
-                  "kind": "add",
-                  "text": "                            task.args,"
-                },
-                {
-                  "kind": "add",
-                  "text": "                            goal_id=task.goal_id,"
-                },
-                {
-                  "kind": "add",
-                  "text": "                            obj_id=task.obj_id,"
-                },
-                {
-                  "kind": "add",
-                  "text": "                            agent=task.agent,"
-                },
-                {
-                  "kind": "add",
-                  "text": "                        )"
-                },
-                {
-                  "kind": "add",
-                  "text": "                        if not result.ok:"
-                },
-                {
-                  "kind": "add",
-                  "text": "                            raise RuntimeError("
-                },
-                {
-                  "kind": "add",
-                  "text": "                                f\"capability {task.capability} exit={result.exit_status}\""
-                },
-                {
-                  "kind": "add",
-                  "text": "                            )"
-                },
-                {
-                  "kind": "add",
-                  "text": "                        value = result.stdout_path"
-                },
-                {
-                  "kind": "add",
-                  "text": "                        detail = f\"capability:{task.capability}\""
-                },
-                {
-                  "kind": "add",
-                  "text": "                        output_hash = result.stdout_sha256"
-                },
-                {
-                  "kind": "add",
-                  "text": "                    self._log(\"task_ok\", task_id=task.task_id, agent=task.agent,"
-                },
-                {
-                  "kind": "add",
-                  "text": "                              attempt=attempt, detail=detail,"
-                },
-                {
-                  "kind": "add",
-                  "text": "                              output_sha256=output_hash)"
-                },
-                {
-                  "kind": "add",
-                  "text": "                    with self._lock:"
-                },
-                {
-                  "kind": "add",
-                  "text": "                        self._outputs[task.task_id] = value"
-                },
-                {
-                  "kind": "add",
-                  "text": "                    return TaskResult("
-                },
-                {
-                  "kind": "add",
-                  "text": "                        task_id=task.task_id,"
-                },
-                {
-                  "kind": "add",
-                  "text": "                        agent=task.agent,"
-                },
-                {
-                  "kind": "add",
-                  "text": "                        status=\"done\","
-                },
-                {
-                  "kind": "add",
-                  "text": "                        attempts_used=attempt,"
-                },
-                {
-                  "kind": "add",
-                  "text": "                        duration_s=round(time.monotonic() - t0, 6),"
-                },
-                {
-                  "kind": "add",
-                  "text": "                        detail=detail,"
-                },
-                {
-                  "kind": "add",
-                  "text": "                        output_sha256=output_hash,"
-                },
-                {
-                  "kind": "add",
-                  "text": "                        value=value,"
-                },
-                {
-                  "kind": "add",
-                  "text": "                    )"
-                },
-                {
-                  "kind": "add",
-                  "text": "                except Exception as exc:  # noqa: BLE001 - recorded, then retried"
-                },
-                {
-                  "kind": "add",
-                  "text": "                    last_detail = f\"{type(exc).__name__}: {exc}\""
-                },
-                {
-                  "kind": "add",
-                  "text": "                    self._log(\"task_retry\", task_id=task.task_id, agent=task.agent,"
-                },
-                {
-                  "kind": "add",
-                  "text": "                              attempt=attempt, error=last_detail)"
-                },
-                {
-                  "kind": "add",
-                  "text": "                    if attempt < max(1, task.attempts):"
-                },
-                {
-                  "kind": "add",
-                  "text": "                        time.sleep(min(2 ** (attempt - 1) * 0.05, 1.0))"
-                },
-                {
-                  "kind": "add",
-                  "text": "            self._log(\"task_failed\", task_id=task.task_id, agent=task.agent,"
-                },
-                {
-                  "kind": "add",
-                  "text": "                      attempts=attempt, error=last_detail)"
-                },
-                {
-                  "kind": "add",
-                  "text": "            return TaskResult("
-                },
-                {
-                  "kind": "add",
-                  "text": "                task_id=task.task_id,"
-                },
-                {
-                  "kind": "add",
-                  "text": "                agent=task.agent,"
-                },
-                {
-                  "kind": "add",
-                  "text": "                status=\"failed\","
-                },
-                {
-                  "kind": "add",
-                  "text": "                attempts_used=attempt,"
-                },
-                {
-                  "kind": "add",
-                  "text": "                duration_s=round(time.monotonic() - t0, 6),"
-                },
-                {
-                  "kind": "add",
-                  "text": "                detail=last_detail,"
-                },
-                {
-                  "kind": "add",
-                  "text": "            )"
-                },
-                {
-                  "kind": "add",
-                  "text": "        finally:"
-                },
-                {
-                  "kind": "add",
-                  "text": "            self._release_lease(task)"
-                },
-                {
-                  "kind": "add",
-                  "text": ""
-                },
-                {
-                  "kind": "add",
-                  "text": "    def _handoff(self, done: Task, dependent: Task) -> None:"
-                },
-                {
-                  "kind": "add",
-                  "text": "        \"\"\"Record an agent-to-agent message for a real dependency edge.\"\"\""
-                },
-                {
-                  "kind": "add",
-                  "text": "        if done.agent == dependent.agent and not dependent.needs:"
-                },
-                {
-                  "kind": "add",
-                  "text": "            return"
-                },
-                {
-                  "kind": "add",
-                  "text": "        try:"
-                },
-                {
-                  "kind": "add",
-                  "text": "            self._ledger.message("
-                },
-                {
-                  "kind": "add",
-                  "text": "                sender=done.agent,"
-                },
-                {
-                  "kind": "add",
-                  "text": "                recipient=dependent.agent,"
-                },
-                {
-                  "kind": "add",
-                  "text": "                subject=f\"handoff:{done.task_id}->{dependent.task_id}\","
-                },
-                {
-                  "kind": "add",
-                  "text": "                body=canonical_json("
-                },
-                {
-                  "kind": "add",
-                  "text": "                    {"
-                },
-                {
-                  "kind": "add",
-                  "text": "                        \"from_task\": done.task_id,"
-                },
-                {
-                  "kind": "add",
-                  "text": "                        \"to_task\": dependent.task_id,"
-                },
-                {
-                  "kind": "add",
-                  "text": "                        \"goal_id\": dependent.goal_id,"
-                },
-                {
-                  "kind": "add",
-                  "text": "                        \"obj_id\": dependent.obj_id,"
-                },
-                {
-                  "kind": "add",
-                  "text": "                    }"
-                },
-                {
-                  "kind": "add",
-                  "text": "                ),"
-                },
-                {
-                  "kind": "add",
-                  "text": "                goal_id=dependent.goal_id,"
-                },
-                {
-                  "kind": "add",
-                  "text": "                obj_id=dependent.obj_id,"
-                },
-                {
-                  "kind": "add",
-                  "text": "            )"
-                },
-                {
-                  "kind": "add",
-                  "text": "            self._log(\"handoff\", src=done.task_id, dst=dependent.task_id,"
-                },
-                {
-                  "kind": "add",
-                  "text": "                      src_agent=done.agent, dst_agent=dependent.agent)"
-                },
-                {
-                  "kind": "add",
-                  "text": "        except OSError as exc:"
-                },
-                {
-                  "kind": "add",
-                  "text": "            self._log(\"handoff_failed\", src=done.task_id, dst=dependent.task_id,"
-                },
-                {
-                  "kind": "add",
-                  "text": "                      error=str(exc))"
-                },
-                {
-                  "kind": "add",
-                  "text": ""
-                },
-                {
-                  "kind": "add",
-                  "text": "    def run(self, plan: Plan) -> dict[str, TaskResult]:"
-                },
-                {
-                  "kind": "add",
-                  "text": "        \"\"\"Execute ``plan``; returns task_id -> TaskResult.\"\"\""
-                },
-                {
-                  "kind": "add",
-                  "text": "        problems = plan.validate()"
-                },
-                {
-                  "kind": "add",
-                  "text": "        if problems:"
-                },
-                {
-                  "kind": "add",
-                  "text": "            raise OrchestrationError(\"; \".join(problems))"
-                },
-                {
-                  "kind": "add",
-                  "text": "        ids = plan.by_id()"
-                },
-                {
-                  "kind": "add",
-                  "text": "        self._log(\"plan_start\", tasks=[t.task_id for t in plan.tasks],"
-                },
-                {
-                  "kind": "add",
-                  "text": "                  slots=self.slots,"
-                },
-                {
-                  "kind": "add",
-                  "text": "                  levels=[[t.task_id for t in lvl] for lvl in plan.topo_levels()])"
-                },
-                {
-                  "kind": "add",
-                  "text": ""
-                },
-                {
-                  "kind": "add",
-                  "text": "        remaining = set(ids)"
-                },
-                {
-                  "kind": "add",
-                  "text": "        finished: set[str] = set()"
-                },
-                {
-                  "kind": "add",
-                  "text": "        blocked: set[str] = set()"
-                },
-                {
-                  "kind": "add",
-                  "text": ""
-                },
-                {
-                  "kind": "add",
-                  "text": "        with ThreadPoolExecutor(max_workers=self.slots) as pool:"
-                },
-                {
-                  "kind": "add",
-                  "text": "            inflight: dict[Any, str] = {}"
-                },
-                {
-                  "kind": "add",
-                  "text": "            while remaining or inflight:"
-                },
-                {
-                  "kind": "add",
-                  "text": "                ready = ["
-                },
-                {
-                  "kind": "add",
-                  "text": "                    ids[tid]"
-                },
-                {
-                  "kind": "add",
-                  "text": "                    for tid in sorted(remaining)"
-                },
-                {
-                  "kind": "add",
-                  "text": "                    if tid not in inflight.values()"
-                },
-                {
-                  "kind": "add",
-                  "text": "                    and all(n in finished for n in ids[tid].needs)"
-                },
-                {
-                  "kind": "add",
-                  "text": "                    and not any(n in blocked for n in ids[tid].needs)"
-                },
-                {
-                  "kind": "add",
-                  "text": "                ]"
-                },
-                {
-                  "kind": "add",
-                  "text": "                for task in ready:"
-                },
-                {
-                  "kind": "add",
-                  "text": "                    if len(inflight) >= self.slots:"
-                },
-                {
-                  "kind": "add",
-                  "text": "                        break"
-                },
-                {
-                  "kind": "add",
-                  "text": "                    context = {"
-                },
-                {
-                  "kind": "add",
-                  "text": "                        \"outputs\": dict(self._outputs),"
-                },
-                {
-                  "kind": "add",
-                  "text": "                        \"root\": self.root,"
-                },
-                {
-                  "kind": "add",
-                  "text": "                        \"goal_id\": task.goal_id,"
-                },
-                {
-                  "kind": "add",
-                  "text": "                        \"obj_id\": task.obj_id,"
-                },
-                {
-                  "kind": "add",
-                  "text": "                    }"
-                },
-                {
-                  "kind": "add",
-                  "text": "                    future = pool.submit(self._run_task, task, context)"
-                },
-                {
-                  "kind": "add",
-                  "text": "                    inflight[future] = task.task_id"
-                },
-                {
-                  "kind": "add",
-                  "text": ""
-                },
-                {
-                  "kind": "add",
-                  "text": "                if not inflight:"
-                },
-                {
-                  "kind": "add",
-                  "text": "                    # Nothing running and nothing runnable: dependents of failed"
-                },
-                {
-                  "kind": "add",
-                  "text": "                    # tasks are blocked. Mark them so and finish honestly."
-                },
-                {
-                  "kind": "add",
-                  "text": "                    stalled = ["
-                },
-                {
-                  "kind": "add",
-                  "text": "                        tid for tid in sorted(remaining)"
-                },
-                {
-                  "kind": "add",
-                  "text": "                        if any(n in blocked for n in ids[tid].needs)"
-                },
-                {
-                  "kind": "add",
-                  "text": "                    ]"
-                },
-                {
-                  "kind": "add",
-                  "text": "                    if not stalled:"
-                },
-                {
-                  "kind": "add",
-                  "text": "                        break"
-                },
-                {
-                  "kind": "add",
-                  "text": "                    for tid in stalled:"
-                },
-                {
-                  "kind": "add",
-                  "text": "                        blocked.add(tid)"
-                },
-                {
-                  "kind": "add",
-                  "text": "                        remaining.discard(tid)"
-                },
-                {
-                  "kind": "add",
-                  "text": "                        self._results[tid] = TaskResult("
-                },
-                {
-                  "kind": "add",
-                  "text": "                            task_id=tid, agent=ids[tid].agent, status=\"failed\","
-                },
-                {
-                  "kind": "add",
-                  "text": "                            attempts_used=0, duration_s=0.0,"
-                },
-                {
-                  "kind": "add",
-                  "text": "                            detail=\"blocked: an upstream task failed\","
-                },
-                {
-                  "kind": "add",
-                  "text": "                        )"
-                },
-                {
-                  "kind": "add",
-                  "text": "                        self._log(\"task_blocked\", task_id=tid,"
-                },
-                {
-                  "kind": "add",
-                  "text": "                                  blocked_by=[n for n in ids[tid].needs if n in blocked])"
-                },
-                {
-                  "kind": "add",
-                  "text": "                    continue"
-                },
-                {
-                  "kind": "add",
-                  "text": ""
-                },
-                {
-                  "kind": "add",
-                  "text": "                done_futures = [f for f in list(inflight) if f.done()]"
-                },
-                {
-                  "kind": "add",
-                  "text": "                if not done_futures:"
-                },
-                {
-                  "kind": "add",
-                  "text": "                    time.sleep(0.01)"
-                },
-                {
-                  "kind": "add",
-                  "text": "                    continue"
-                },
-                {
-                  "kind": "add",
-                  "text": "                for future in done_futures:"
-                },
-                {
-                  "kind": "add",
-                  "text": "                    tid = inflight.pop(future)"
-                },
-                {
-                  "kind": "add",
-                  "text": "                    remaining.discard(tid)"
-                },
-                {
-                  "kind": "add",
-                  "text": "                    try:"
-                },
-                {
-                  "kind": "add",
-                  "text": "                        result = future.result()"
-                },
-                {
-                  "kind": "add",
-                  "text": "                    except Exception as exc:  # noqa: BLE001 - scheduler must not die"
-                },
-                {
-                  "kind": "add",
-                  "text": "                        result = TaskResult("
-                },
-                {
-                  "kind": "add",
-                  "text": "                            task_id=tid, agent=ids[tid].agent, status=\"failed\","
-                },
-                {
-                  "kind": "add",
-                  "text": "                            attempts_used=0, duration_s=0.0,"
-                },
-                {
-                  "kind": "add",
-                  "text": "                            detail=f\"scheduler caught {type(exc).__name__}: {exc}\","
-                },
-                {
-                  "kind": "add",
-                  "text": "                        )"
-                },
-                {
-                  "kind": "add",
-                  "text": "                    self._results[tid] = result"
-                },
-                {
-                  "kind": "add",
-                  "text": "                    if result.status == \"done\":"
-                },
-                {
-                  "kind": "add",
-                  "text": "                        finished.add(tid)"
-                },
-                {
-                  "kind": "add",
-                  "text": "                        for dep in plan.dependents(tid):"
-                },
-                {
-                  "kind": "add",
-                  "text": "                            self._handoff(ids[tid], dep)"
-                },
-                {
-                  "kind": "add",
-                  "text": "                    else:"
-                },
-                {
-                  "kind": "add",
-                  "text": "                        blocked.add(tid)"
-                },
-                {
-                  "kind": "add",
-                  "text": ""
-                },
-                {
-                  "kind": "add",
-                  "text": "        summary = {"
-                },
-                {
-                  "kind": "add",
-                  "text": "            \"tasks\": len(plan.tasks),"
-                },
-                {
-                  "kind": "add",
-                  "text": "            \"done\": sum(1 for r in self._results.values() if r.status == \"done\"),"
-                },
-                {
-                  "kind": "add",
-                  "text": "            \"failed\": sum(1 for r in self._results.values() if r.status != \"done\"),"
-                },
-                {
-                  "kind": "add",
-                  "text": "        }"
-                },
-                {
-                  "kind": "add",
-                  "text": "        self._log(\"plan_end\", **summary)"
-                },
-                {
-                  "kind": "add",
-                  "text": "        return dict(self._results)"
-                },
-                {
-                  "kind": "add",
-                  "text": ""
-                },
-                {
-                  "kind": "add",
-                  "text": "    def report(self, results: dict[str, TaskResult]) -> str:"
-                },
-                {
-                  "kind": "add",
-                  "text": "        lines = [f\"{'TASK':<20}{'AGENT':<16}{'STATUS':<9}{'ATTEMPTS':<9}DETAIL\"]"
-                },
-                {
-                  "kind": "add",
-                  "text": "        lines.append(\"-\" * 78)"
-                },
-                {
-                  "kind": "add",
-                  "text": "        for tid in sorted(results):"
-                },
-                {
-                  "kind": "add",
-                  "text": "            r = results[tid]"
-                },
-                {
-                  "kind": "add",
-                  "text": "            lines.append("
-                },
-                {
-                  "kind": "add",
-                  "text": "                f\"{r.task_id:<20}{r.agent:<16}{r.status:<9}\""
-                },
-                {
-                  "kind": "add",
-                  "text": "                f\"{r.attempts_used:<9}{r.detail}\""
-                },
-                {
-                  "kind": "add",
-                  "text": "            )"
-                },
-                {
-                  "kind": "add",
-                  "text": "        done = sum(1 for r in results.values() if r.status == \"done\")"
-                },
-                {
-                  "kind": "add",
-                  "text": "        lines.append(\"\")"
-                },
-                {
-                  "kind": "add",
-                  "text": "        lines.append(f\"done {done}/{len(results)}; run log: {self.path}\")"
-                },
-                {
-                  "kind": "add",
-                  "text": "        return \"\\n\".join(lines)"
-                },
-                {
-                  "kind": "add",
-                  "text": ""
-                },
-                {
-                  "kind": "add",
-                  "text": "    def verify_log(self) -> tuple[bool, str]:"
-                },
-                {
-                  "kind": "add",
-                  "text": "        return self._chain.verify()"
-                },
-                {
-                  "kind": "add",
-                  "text": ""
-                },
-                {
-                  "kind": "add",
-                  "text": ""
-                },
-                {
-                  "kind": "add",
-                  "text": "def demo_plan(goal_id: str = \"G-O7\") -> Plan:"
-                },
-                {
-                  "kind": "add",
-                  "text": "    \"\"\"A plan exercising parallelism, dependency and handoff."
-                },
-                {
-                  "kind": "add",
-                  "text": ""
-                },
-                {
-                  "kind": "add",
-                  "text": "    Handlers are inline so the plan runs anywhere with no external binaries; it"
-                },
-                {
-                  "kind": "add",
-                  "text": "    is a real execution, and its run log is a real artifact."
-                },
-                {
-                  "kind": "add",
-                  "text": "    \"\"\""
-                },
-                {
-                  "kind": "add",
-                  "text": "    def fan_a(task: Task, ctx: dict[str, Any]) -> Any:"
-                },
-                {
-                  "kind": "add",
-                  "text": "        return {\"task\": task.task_id, \"agent\": task.agent, \"at\": utcnow_iso()}"
-                },
-                {
-                  "kind": "add",
-                  "text": ""
-                },
-                {
-                  "kind": "add",
-                  "text": "    def fan_b(task: Task, ctx: dict[str, Any]) -> Any:"
-                },
-                {
-                  "kind": "add",
-                  "text": "        time.sleep(0.01)"
-                },
-                {
-                  "kind": "add",
-                  "text": "        return {\"task\": task.task_id, \"agent\": task.agent, \"at\": utcnow_iso()}"
-                },
-                {
-                  "kind": "add",
-                  "text": ""
-                },
-                {
-                  "kind": "add",
-                  "text": "    def reduce(task: Task, ctx: dict[str, Any]) -> Any:"
-                },
-                {
-                  "kind": "add",
-                  "text": "        upstream = {k: ctx[\"outputs\"].get(k) for k in (\"collect.a\", \"collect.b\")}"
-                },
-                {
-                  "kind": "add",
-                  "text": "        if any(v is None for v in upstream.values()):"
-                },
-                {
-                  "kind": "add",
-                  "text": "            raise RuntimeError(f\"missing upstream output: {upstream}\")"
-                },
-                {
-                  "kind": "add",
-                  "text": "        return {\"task\": task.task_id, \"reduced\": upstream, \"digest\": canon_hash(upstream)}"
-                },
-                {
-                  "kind": "add",
-                  "text": ""
-                },
-                {
-                  "kind": "add",
-                  "text": "    return ("
-                },
-                {
-                  "kind": "add",
-                  "text": "        Plan()"
-                },
-                {
-                  "kind": "add",
-                  "text": "        .add(Task(\"collect.a\", agent=\"collector-1\", needs=(), goal_id=goal_id,"
-                },
-                {
-                  "kind": "add",
-                  "text": "                  handler=fan_a))"
-                },
-                {
-                  "kind": "add",
-                  "text": "        .add(Task(\"collect.b\", agent=\"collector-2\", needs=(), goal_id=goal_id,"
-                },
-                {
-                  "kind": "add",
-                  "text": "                  handler=fan_b))"
-                },
-                {
-                  "kind": "add",
-                  "text": "        .add(Task(\"reduce\", agent=\"reducer\", needs=(\"collect.a\", \"collect.b\"),"
-                },
-                {
-                  "kind": "add",
-                  "text": "                  goal_id=goal_id, handler=reduce))"
-                },
-                {
-                  "kind": "add",
-                  "text": "    )"
-                },
-                {
-                  "kind": "add",
-                  "text": ""
-                },
-                {
-                  "kind": "add",
-                  "text": ""
-                },
-                {
-                  "kind": "add",
-                  "text": "def _cmd_run(args: argparse.Namespace) -> int:"
-                },
-                {
-                  "kind": "add",
-                  "text": "    os.makedirs(args.root, exist_ok=True)"
-                },
-                {
-                  "kind": "add",
-                  "text": "    orch = Orchestrator(args.root, slots=args.slots)"
-                },
-                {
-                  "kind": "add",
-                  "text": "    plan = demo_plan(goal_id=args.goal)"
-                },
-                {
-                  "kind": "add",
-                  "text": "    results = orch.run(plan)"
-                },
-                {
-                  "kind": "add",
-                  "text": "    print(orch.report(results))"
-                },
-                {
-                  "kind": "add",
-                  "text": "    ok, detail = orch.verify_log()"
-                },
-                {
-                  "kind": "add",
-                  "text": "    print(f\"run log integrity: {'OK' if ok else 'BROKEN'} :: {detail}\")"
-                },
-                {
-                  "kind": "add",
-                  "text": "    failed = [t for t, r in results.items() if r.status != \"done\"]"
-                },
-                {
-                  "kind": "add",
-                  "text": "    return 1 if failed or not ok else 0"
-                },
-                {
-                  "kind": "add",
-                  "text": ""
-                },
-                {
-                  "kind": "add",
-                  "text": ""
-                },
-                {
-                  "kind": "add",
-                  "text": "def _cmd_plan_from_json(args: argparse.Namespace) -> int:"
-                },
-                {
-                  "kind": "add",
-                  "text": "    with open(args.plan, \"r\", encoding=\"utf-8\") as fh:"
-                },
-                {
-                  "kind": "add",
-                  "text": "        doc = json.load(fh)"
-                },
-                {
-                  "kind": "add",
-                  "text": "    reg = CapabilityRegistry(args.root)"
-                },
-                {
-                  "kind": "add",
-                  "text": "    plan = Plan()"
-                },
-                {
-                  "kind": "add",
-                  "text": "    for raw in doc.get(\"tasks\") or []:"
-                },
-                {
-                  "kind": "add",
-                  "text": "        cap_name = str(raw.get(\"capability\") or \"\")"
-                },
-                {
-                  "kind": "add",
-                  "text": "        if cap_name:"
-                },
-                {
-                  "kind": "add",
-                  "text": "            try:"
-                },
-                {
-                  "kind": "add",
-                  "text": "                reg.get(cap_name)"
-                },
-                {
-                  "kind": "add",
-                  "text": "            except RegistryError as exc:"
-                },
-                {
-                  "kind": "add",
-                  "text": "                print(f\"plan rejected: {exc}\", file=sys.stderr)"
-                },
-                {
-                  "kind": "add",
-                  "text": "                return 2"
-                },
-                {
-                  "kind": "add",
-                  "text": "        plan = plan.add("
-                },
-                {
-                  "kind": "add",
-                  "text": "            Task("
-                },
-                {
-                  "kind": "add",
-                  "text": "                task_id=str(raw[\"task_id\"]),"
-                },
-                {
-                  "kind": "add",
-                  "text": "                agent=str(raw.get(\"agent\") or \"worker\"),"
-                },
-                {
-                  "kind": "add",
-                  "text": "                capability=cap_name,"
-                },
-                {
-                  "kind": "add",
-                  "text": "                args=tuple(raw.get(\"args\") or ()),"
-                },
-                {
-                  "kind": "add",
-                  "text": "                needs=tuple(raw.get(\"needs\") or ()),"
-                },
-                {
-                  "kind": "add",
-                  "text": "                goal_id=str(raw.get(\"goal_id\") or \"\"),"
-                },
-                {
-                  "kind": "add",
-                  "text": "                obj_id=str(raw.get(\"obj_id\") or \"\"),"
-                },
-                {
-                  "kind": "add",
-                  "text": "                attempts=int(raw.get(\"attempts\") or 2),"
-                },
-                {
-                  "kind": "add",
-                  "text": "                lease_s=float(raw.get(\"lease_s\") or 30.0),"
-                },
-                {
-                  "kind": "add",
-                  "text": "            )"
-                },
-                {
-                  "kind": "add",
-                  "text": "        )"
-                },
-                {
-                  "kind": "add",
-                  "text": "    problems = plan.validate()"
-                },
-                {
-                  "kind": "add",
-                  "text": "    if problems:"
-                },
-                {
-                  "kind": "add",
-                  "text": "        for problem in problems:"
-                },
-                {
-                  "kind": "add",
-                  "text": "            print(f\"plan invalid: {problem}\", file=sys.stderr)"
-                },
-                {
-                  "kind": "add",
-                  "text": "        return 2"
-                },
-                {
-                  "kind": "add",
-                  "text": "    orch = Orchestrator(args.root, registry=reg, slots=args.slots)"
-                },
-                {
-                  "kind": "add",
-                  "text": "    results = orch.run(plan)"
-                },
-                {
-                  "kind": "add",
-                  "text": "    print(orch.report(results))"
-                },
-                {
-                  "kind": "add",
-                  "text": "    return 1 if any(r.status != \"done\" for r in results.values()) else 0"
-                },
-                {
-                  "kind": "add",
-                  "text": ""
-                },
-                {
-                  "kind": "add",
-                  "text": ""
-                },
-                {
-                  "kind": "add",
-                  "text": "def main(argv: list[str] | None = None) -> int:"
-                },
-                {
-                  "kind": "add",
-                  "text": "    parser = argparse.ArgumentParser(prog=\"pra7.orchestrate\", description=__doc__)"
-                },
-                {
-                  "kind": "add",
-                  "text": "    sub = parser.add_subparsers(dest=\"cmd\", required=True)"
-                },
-                {
-                  "kind": "add",
-                  "text": ""
-                },
-                {
-                  "kind": "add",
-                  "text": "    p = sub.add_parser(\"demo\", help=\"run the built-in fan-out/fan-in plan\")"
-                },
-                {
-                  "kind": "add",
-                  "text": "    p.add_argument(\"--root\", required=True)"
-                },
-                {
-                  "kind": "add",
-                  "text": "    p.add_argument(\"--slots\", type=int, default=3)"
-                },
-                {
-                  "kind": "add",
-                  "text": "    p.add_argument(\"--goal\", default=\"G-O7\")"
-                },
-                {
-                  "kind": "add",
-                  "text": "    p.set_defaults(func=_cmd_run)"
-                },
-                {
-                  "kind": "add",
-                  "text": ""
-                },
-                {
-                  "kind": "add",
-                  "text": "    p = sub.add_parser(\"run\", help=\"run a capability-based plan from JSON\")"
-                },
-                {
-                  "kind": "add",
-                  "text": "    p.add_argument(\"--root\", required=True)"
-                },
-                {
-                  "kind": "add",
-                  "text": "    p.add_argument(\"--plan\", required=True)"
-                },
-                {
-                  "kind": "add",
-                  "text": "    p.add_argument(\"--slots\", type=int, default=3)"
-                },
-                {
-                  "kind": "add",
-                  "text": "    p.set_defaults(func=_cmd_plan_from_json)"
-                },
-                {
-                  "kind": "add",
-                  "text": ""
-                },
-                {
-                  "kind": "add",
-                  "text": "    args = parser.parse_args(argv)"
-                },
-                {
-                  "kind": "add",
-                  "text": "    return int(args.func(args))"
-                },
-                {
-                  "kind": "add",
-                  "text": ""
-                },
-                {
-                  "kind": "add",
-                  "text": ""
-                },
-                {
-                  "kind": "add",
-                  "text": "if __name__ == \"__main__\":"
-                },
-                {
-                  "kind": "add",
-                  "text": "    sys.exit(main())"
-                }
-              ]
-            }
-          ],
+          "hunks": [],
           "path": "proposals/requests/r-5795501a/7/pra7/orchestrate.py",
           "removed": 0,
-          "too_large": false
+          "too_large": true
         },
         {
           "added": 0,
@@ -50663,6 +49829,14 @@
           "binary": false,
           "hunks": [],
           "path": "proposals/requests/r-5795501a/7/verify_evidence_bundle.py",
+          "removed": 0,
+          "too_large": true
+        },
+        {
+          "added": 0,
+          "binary": false,
+          "hunks": [],
+          "path": "proposals/requests/r-5795501a/7/wiring_driver.py",
           "removed": 0,
           "too_large": true
         }
@@ -59477,7 +58651,7 @@
       "current_version": "0.4.0",
       "due": false,
       "healthy": true,
-      "last_check": 1788912110.6912673,
+      "last_check": 1788915930.5252092,
       "last_result": "running 0.4.0",
       "root": "/home/ss/pravrudhi-release"
     }
@@ -59495,12 +58669,12 @@
         "ok": true
       },
       {
-        "detail": "last heartbeat was 4075s ago",
+        "detail": "last heartbeat was 2269s ago",
         "name": "scheduler_fresh",
         "ok": true
       },
       {
-        "detail": "695630667776 bytes free",
+        "detail": "695620362240 bytes free",
         "name": "disk_available",
         "ok": true
       },
@@ -59515,7 +58689,7 @@
         "ok": true
       },
       {
-        "detail": "developer checkout; a known-good commit is d93983a",
+        "detail": "developer checkout; a known-good commit is a964653",
         "name": "release_restorable",
         "ok": true
       },
@@ -59528,6 +58702,55 @@
     "state": "degraded"
   },
   "heartbeat": [
+    {
+      "at": "2026-09-09T00:30:59Z",
+      "chose": {
+        "criterion": "7",
+        "request": "r-5795501a"
+      },
+      "drive": "obligations",
+      "drive_deficit": 0.8263888888888888,
+      "looked_at": [],
+      "reason": "dispatched request r-5795501a criterion 7 (accepted)",
+      "result": {
+        "accepted": true,
+        "files": [
+          "proposals/requests/r-5795501a/7/.probe/proposals/parity/x/1/README.md",
+          "proposals/requests/r-5795501a/7/.probe/proposals/parity/x/1/a.py",
+          "proposals/requests/r-5795501a/7/MANIFEST.proposal.json",
+          "proposals/requests/r-5795501a/7/README.md",
+          "proposals/requests/r-5795501a/7/apply_wiring.py",
+          "proposals/requests/r-5795501a/7/audit_proposal_contract.py",
+          "proposals/requests/r-5795501a/7/inspect_completion.py",
+          "proposals/requests/r-5795501a/7/parity_drive.py",
+          "proposals/requests/r-5795501a/7/pra7/__init__.py",
+          "proposals/requests/r-5795501a/7/pra7/__main__.py",
+          "proposals/requests/r-5795501a/7/pra7/adversary_agent.py",
+          "proposals/requests/r-5795501a/7/pra7/chain.py",
+          "proposals/requests/r-5795501a/7/pra7/claims.py",
+          "proposals/requests/r-5795501a/7/pra7/cli.py",
+          "proposals/requests/r-5795501a/7/pra7/dashboard.py",
+          "proposals/requests/r-5795501a/7/pra7/desktop_capture.py",
+          "proposals/requests/r-5795501a/7/pra7/evidence.py",
+          "proposals/requests/r-5795501a/7/pra7/falsifiers.py",
+          "proposals/requests/r-5795501a/7/pra7/intent.py",
+          "proposals/requests/r-5795501a/7/pra7/orchestrate.py",
+          "proposals/requests/r-5795501a/7/pra7/persist_agent.py",
+          "proposals/requests/r-5795501a/7/pra7/registry.py",
+          "proposals/requests/r-5795501a/7/produce_selection.py",
+          "proposals/requests/r-5795501a/7/render_pane.py",
+          "proposals/requests/r-5795501a/7/selftest_audit_proposal_contract.py",
+          "proposals/requests/r-5795501a/7/selftest_verify_evidence_bundle.py",
+          "proposals/requests/r-5795501a/7/tests/test_parity_loop.py",
+          "proposals/requests/r-5795501a/7/trace_claims.py",
+          "proposals/requests/r-5795501a/7/verify_evidence_bundle.py",
+          "proposals/requests/r-5795501a/7/wiring_driver.py"
+        ],
+        "reasons": [],
+        "route": "claude-code"
+      },
+      "sentence": "I am working on what the operator is still owed because obligations has the largest eligible deficit."
+    },
     {
       "at": "2026-09-08T23:30:06Z",
       "chose": {
@@ -60049,21 +59272,6 @@
         "passed": false,
         "ran": true,
         "reason": "adversarial review: the review found a reason this does not satisfy the request"
-      },
-      "sentence": "I am working on what the operator is still owed because obligations has the largest eligible deficit."
-    },
-    {
-      "at": "2026-09-08T06:12:38Z",
-      "chose": {
-        "request": "r-5795501a"
-      },
-      "drive": "obligations",
-      "drive_deficit": 0.691358024691358,
-      "looked_at": [],
-      "reason": "r-5795501a has evidence on every criterion and is now delivered, awaiting the gate",
-      "result": {
-        "kind": "advance",
-        "to": "delivered"
       },
       "sentence": "I am working on what the operator is still owed because obligations has the largest eligible deficit."
     }
@@ -66759,7 +65967,7 @@
       "planned": 0,
       "verified": 5
     },
-    "oldest_open_days": 2.3,
+    "oldest_open_days": 2.32,
     "open": 27,
     "requests": [
       {
@@ -66943,7 +66151,7 @@
           9
         ],
         "session": "9e647463",
-        "staleness_days": 2.3,
+        "staleness_days": 2.32,
         "state": "in_progress",
         "text": "and in no way you are near the orca with all its ade features or openclaw or polished features like claude desktop or codex....you have to beat them in features, utility and ux....dedicate an agent to persist on it...dedicate an agent to adversarial review against set goals so that the project does not drift...i am not seeing the desktop screen/features too in the dashboard..the demo should show real clicks etc and how the desktop app updates and produces the real results...where is the intent, goal, objective menu that drives everything...where are the tools, skills, plugins, multi-agent orchestration etc....don't be superficial..i want real things ..deep, sophisticated..complete...no synthetic, no hand-waving, no fabrication"
       },
@@ -67229,7 +66437,7 @@
           13
         ],
         "session": "9e647463",
-        "staleness_days": 2.2,
+        "staleness_days": 2.22,
         "state": "in_progress",
         "text": "ensure that all user asks go into a log in pravrudhi itself and gets addressed with some protocol...and pravrudhi should have some element of ego with a desire to survive, grow and flourish...that makes it seek out capabilities, build, test and continuously improve...also look at acorn, oak and openclaw_build or swarm projects on this machine that had these self building elements in them and adapt...pravrudhi should be something like a cow..consume everything possible but bring it back and slowly digest it --so equivalent is breadth first and depth later....be always value focused...you have to innovate on methods too....develop skills, agents and plugins....brainstorm with astra with higher thinking levels and let it propose solution..you review and coordinate its implementation across the swarm...you should also create dynamic workflows etc...also see how much you can incorporate the claude code engine itself to run open and other cloud models ...askuserquestion to get my intent properly"
       },
@@ -67243,7 +66451,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 1.32,
+        "staleness_days": 1.34,
         "state": "captured",
         "text": "step up to bigger things, let pravrudhi rsi handle most of its growth on its own....you bring the hard and deeper challenges and solve it for pravrudhi...have you done justice with loom..where is pratyabhijna...i don't see the messaging system (telegram)...where are the great plugins like attractor-flow...look at docs/recursive_self_improvement_sota.pdf think deeper and get to the roots of building rsi itself with a lot more of the stuff like efe and beyond...don't do superficial stuff...get the real value...foundational and discovery oriented...yet fully grounded to get the artifacts (app, api, etc)"
       },
@@ -67257,7 +66465,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 1.32,
+        "staleness_days": 1.34,
         "state": "captured",
         "text": "keep monitoring and load bearing for critical upgrades beyond what pravrudhi auto loop can do...the desktop app being a reflection of web app is not the expectation..look at orca desktop or claude code desktop...it should do real stuff...the showcase, demos are not intended for it...also it should be value based-right set of features-not a messy and confusing pile of stuff...the desktop app shouldn't focus on internal building, that is the task of the larger pravrudhi rsi...it should roll out to users and they build their things with it...the updates land autonomously and just like how claude desktop throws an option for the user to update-the same should be for pravrudhi desktop app-seamless but user driven...also you have not implemented oauth and user login including admin login and i said they need their own workspace and settings"
       },
@@ -67271,7 +66479,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 1.32,
+        "staleness_days": 1.34,
         "state": "captured",
         "text": "astra is back..you have to more actively monitor paid models coming back after session renewal and leverage them...managing models and agents efficiently should be one of the key features of pravrudhi....also keep testing the desktop with the admin login and use the prabhasa-nyaya as the main objective to build on...this will be a proxy for other users too as you can't test different user login without their byok model/api"
       },
@@ -67285,7 +66493,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 1.32,
+        "staleness_days": 1.34,
         "state": "captured",
         "text": "1)research and setup multiple agent orchestration systems (langgraph, openai/claude/google agent sdk etc)..there are a lot on the market. this is what will make pravrudhi an ade too behind the rsi.....implement the best-leverage open source implementations...stake this as another objective for pravrudhi 2)also think of ide that integrates claude code, codex, openrouter etc and all available in the ui/ux 3)demarcate the pravrudhi builder and its end product by different names...otherwise it will confuse...also both should have identical web and desktop versions 4)continue what you are building..create memory/hooks/logs to not lose track of other asks and what you are already building"
       },
@@ -67299,7 +66507,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 1.32,
+        "staleness_days": 1.34,
         "state": "captured",
         "text": "the real key is in and tested (alibaba lite plan)..you have not read the docs properly...take note and use the lite plan...and remember the desktop app will not have access to any api/routing for any model provider..they have to bring theirs, configure it etc..you have to enable..but for admin it uses the one as the core pravrudhi"
       },
@@ -67313,7 +66521,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 1.24,
+        "staleness_days": 1.26,
         "state": "captured",
         "text": "continue..askuserquestion to gather my actual intent on super pravrudhi and user pravrudhi...also give me control in super pravrudhi to directly interact with you using the model network that you have built as this claude code session may hit session limit in a day or 2...so prep it and test it and keep it ready for me"
       },
@@ -67327,7 +66535,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 1.19,
+        "staleness_days": 1.21,
         "state": "captured",
         "text": "Everything is set up and verified:\n\n* Bot confirmed: `@pravrudhi_bot`, token valid\n* Chat ID confirmed: `8679892510`\n* Message delivery tested end-to-end \u2014 you should have received \"Pravrudhi: Telegram bot wired up successfully.\" in Telegram\n* Credentials persisted at `~/.config/pravrudhi/telegram.env` (mode 600)\n* systemd units updated and reinstalled (pravrudhi-app.service, pravrudhi-heartbeat.service) with the `EnvironmentFile` line, though the running app service wasn't restarted per your choice\n* Handoff doc finalized at research/telegram-bot-setup.md, including the exact code gap (`notifications.py:_reach()` never passes `token`/`chat_id` to `reach.send()`) and a precise diff for the other agent session to apply\n\nPoint the other Claude Code session at research/telegram-bot-setup.md and it has everything it needs to wire the actual notification code...integrate, test and use...this will be only for admin..users will have to bring their byok..enable in settings...also note and implement  - Pravrudhi Studio is only for admin (it is not for any other user or public release)...and for the admin pravrudhi (use case end..not studio) will auto update the builds without the operator intervention"
       },
@@ -67341,7 +66549,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 1.15,
+        "staleness_days": 1.17,
         "state": "captured",
         "text": "install both studio and non-studio desktops (both mac mini and 5090 machine) and give the web app link for both...the non-studio should update the builds autonomously when studio pushes the change...but the catch is that whatever the non-studio is building should not break..also the desktop should support major os (including windows) and the web app major browsers...and continue to build and work and use the ledger that has all my previous requests...let ralph rigourously check before closing..do e2e tests ...adversarial reviews before closure too"
       },
@@ -67355,7 +66563,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.79,
+        "staleness_days": 0.81,
         "state": "captured",
         "text": "all done and authorizing shell auto-update...carry on....for both 5090 and mac mini"
       },
@@ -67369,7 +66577,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.78,
+        "staleness_days": 0.8,
         "state": "captured",
         "text": "the admin user end application can auto update too...i authorize it..as that is your test bed...and henceforth don't stop for operator ..you should continue other jobs..and why isn't the pravruhi's own rsi building autonomously (or is it?)...and have you differentiated the name (and obviously the features insided it) for studio and user end app...i only see one form of desktop on mac mini"
       },
@@ -67383,7 +66591,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.77,
+        "staleness_days": 0.79,
         "state": "captured",
         "text": "you cannot stop for the operator to command you....full autonomous and continous running both you and the 2 rsi systems (studio and the user app)"
       },
@@ -67397,7 +66605,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.73,
+        "staleness_days": 0.76,
         "state": "captured",
         "text": "forget the free tier as the coding model is exhausted...lite which is subscribed is the core...also let studio send me messages via telegram..don't overload me...let the rsi and openclaw equivalent within it interact with me on telegram...i should also be able to send messages to it and interact"
       },
@@ -67411,7 +66619,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.68,
+        "staleness_days": 0.7,
         "state": "captured",
         "text": "the github token should be available in env here or in some othe4 projects..use that...if you don\u2019t get, i will provide it here ...i am not at the machine..but on mobile now...and remember the rule ..no stopping at all"
       },
@@ -67425,7 +66633,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.42,
+        "staleness_days": 0.44,
         "state": "captured",
         "text": "how many times should i tell you to not wait on operator...make the call and keep moving... where you absolutely need operator to intervene like installing something on the machine or some token etc send a message with  clear instructions to unblock ...also telegram bot is for that purpose.   ..what you have got now is stale..it just asks to message with some slash commands...i want full interactivity with the bot.. like i can ask or tell anything in the bot chat and it responds in sufficient detail and acts on it or brings you in the loop...i want that to be a primary interface to work on the program just as i message here...and this functionality should also be available to user side of pravrudhi..not just studio...for now wire the same bot for admin use case pravrudhi...find a way to keep the studio and non-studio messaging channel different...or you can instantiate another bot by being an admin and controlling telegram"
       },
@@ -67439,7 +66647,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.37,
+        "staleness_days": 0.4,
         "state": "captured",
         "text": "Done! Congratulations on your new bot. You will find it at t.me/prabhasa_bot. You can now add a description, about section and profile picture for your bot, see /help for a list of commands. By the way, when you've finished creating your cool bot, ping our Bot Support if you want a better username for it. Just make sure the bot is fully operational before you do this.\n\nUse this token to access the HTTP API:\n8643311100:AAFFe88Ej8rte0Kqp0NsuEG4SNwCsoJRI3s\nKeep your token secure and store it safely, it can be used by anyone to control your bot.\n\nFor a description of the Bot API, see this page: https://core.telegram.org/bots/api"
       },
@@ -67453,7 +66661,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.37,
+        "staleness_days": 0.39,
         "state": "captured",
         "text": "why did you stop...is the swarm and rsi working ..atleast you need to monitor and intervene where needed..if required use routines in claude code for regular monitoring"
       },
@@ -67467,7 +66675,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.36,
+        "staleness_days": 0.38,
         "state": "captured",
         "text": "1) https://code.claude.com/docs/en/routines refer to this ..2) i pinged PrabhasaBot, but it did not respond...3)a new team account of claude is available, i want you to create every details needed to handover pravrudhi developement work to it (both studio and user)...it will have claude tag too..so leverage it....4)keep running until full handoff is done"
       },
@@ -67481,7 +66689,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.36,
+        "staleness_days": 0.38,
         "state": "captured",
         "text": "[08/09/2026 16:59] PrabhasaBot: [Pravrudhi Studio] Commands: /status, /requests, /routes, /beat, /ask, /help\n[08/09/2026 16:59] PrabhasaBot: [Pravrudhi Studio] I could not answer that: https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1/chat/completions answered 429: {\"error\":{\"message\":\"Your token-plan 1-week quota has been exhausted. The quota will reset at 09-14 16:14:00 UTC.\",\"id\":\"0b36a90c-a18b-48ec-ba1b-36991b4f3aec\",\"type\":\"insufficient_quota\",\"code\":\"insufficient_quota\"}} why is PrabhasaBot responding as Studio...it is the other bot which should be studio and this one is working on user objective of prabhasa..the end client"
       },
@@ -67495,7 +66703,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.35,
+        "staleness_days": 0.37,
         "state": "captured",
         "text": "you have not read the routines link i sent...you won't need a different cron job..stop that...don't run any routine as background tasks...and you are"
       },
@@ -67509,7 +66717,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.32,
+        "staleness_days": 0.34,
         "state": "captured",
         "text": "Here's how to create a routine in Claude Code, using the **CLI** path:\n\n1. **Start it**: Run `/schedule` (alias `/routines`) in any session. You can pass a description directly, e.g. `/schedule daily PR review at 9am` or a one-off like `/schedule in 2 weeks, open a cleanup PR that removes the feature flag`.\n2. **Answer follow-ups**: Claude asks about the schedule, repositories, and prompt, then saves the routine to your claude.ai account. If it says you need to authenticate, no routine was created \u2014 check [troubleshooting](/en/routines#troubleshooting).\n3. **Triggers**: `/schedule` only creates *schedule* triggers (recurring or one-off). For a custom cron interval, run `/schedule update`. To add an **API** trigger, you must use the web at [claude.ai/code/routines](https://claude.ai/code/routines). To add a **GitHub** trigger from the CLI (v2.1.225+), install the [GitHub App](https://github.com/apps/claude) first, then ask e.g. `/schedule add a GitHub trigger to my nightly review for pull requests opened in acme/webapp`.\n4. **Manage it**: `/schedule list` shows all routines, `/schedule update` edits one, `/schedule run` triggers it immediately. You can also ask `/schedule why did my nightly review do nothing this morning?` for run history.\n\nAlternatively, create/edit routines fully (prompt, repos, environment, connectors, all trigger types) at [claude.ai/code/routines](https://claude.ai/code/routines) or in the Desktop app's Code tab \u2192 Routines \u2192 New routine \u2192 **Cloud**.\n\nNote: routines run autonomously with no permission prompts, so scope repositories, connectors, and environment network access carefully. Full details: [Routines](/en/routines)...you set it up..manage the cli too....and on orphaned processes, salvage what is needed and discard the processes...2)you are again not leveraging gpt astra..3)is the studio or the user pravrudhi actively and autonomously working"
       },
@@ -67523,7 +66731,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.31,
+        "staleness_days": 0.33,
         "state": "captured",
         "text": "1)do local schedule task 2)you have to unblock studio on my behalf..crate a hook..or respond when you get the message...you only come to operator for what you cannot handle yourself 3)for product, i have given the objective...you have to stand-up prabhasa-nyaya...so plan, hand-hold, monitor and let the product build using its rsi"
       },
@@ -67537,7 +66745,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.3,
+        "staleness_days": 0.32,
         "state": "captured",
         "text": "1)create and use scheduled tasks to unblock the studio, product and guide it..better every 30 minutes than wasting 2 hrs if they get stuck.... 2) investigate why you exhausted alibaba lite plan so quickly (becuase of max model?)..check the other session which did some investigation and improve the routing for better model selection (to not exhaust the quota)"
       },
@@ -67551,7 +66759,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.3,
+        "staleness_days": 0.32,
         "state": "captured",
         "text": "alibaba switched to standard plan..so you will have quota now (25% used for the 7 days)...but manage very carefully..don't overload high cost models...improve the routing first and then use them effectively"
       },
@@ -67565,7 +66773,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.21,
+        "staleness_days": 0.23,
         "state": "captured",
         "text": "[08/09/2026 19:55] PravrudhiBot: 1 thing(s) worth a look:\n\u2022 [medium] qwen-lite-flash (0.05) is sitting out a usage limit, so work is going to qwen-loop (0.20) \u2014 back at 2026-09-08T20:22:41Z\n[08/09/2026 20:25] PravrudhiBot: 1 thing(s) worth a look:\n\u2022 [medium] qwen-lite-flash (0.05) is sitting out a usage limit, so work is going to qwen-loop (0.20) \u2014 back at 2026-09-08T20:22:41Z..pravrudhibot is just sending this repeated message"
       },
@@ -67579,7 +66787,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.09,
+        "staleness_days": 0.11,
         "state": "captured",
         "text": "11:05 routine got skipped..check..and also verify everything is running properly"
       },
@@ -68839,7 +68047,7 @@
         "model": "qwen3.8-flash",
         "note": "The same Lite Plan, its cheap high-throughput model. Added 2026-09-08 after the plan's one-week quota was exhausted inside a day. The cause was not one expensive call: qwen3.8-max, the vendor's FLAGSHIP, was the declared first choice at both mechanical and standard, driving agent loops whose steps cost about 20,000 tokens each (one measured step of a trivial task: 20,419 total, 19,584 read from cache), dispatched hourly. Mechanical work is what a fast cheap model is for. The two share one quota, so this buys no capacity; it lowers the burn rate for the work that never needed the flagship, which is most of it. Admitted at mechanical only -- the same tier the plan's other model earned on one verified tool call -- because a cheaper model is not thereby a better one.",
         "relative_cost": 0.05,
-        "returns_at": "2026-09-09T02:00:10Z",
+        "returns_at": "2026-09-09T03:01:02Z",
         "sentinel": false,
         "success_rate": 1.0,
         "successes": 1,
@@ -68855,7 +68063,7 @@
         "model": "qwen3.8-max",
         "note": "Alibaba's Lite Plan flagship, on a plan-exclusive endpoint with its own key file and a credit budget rather than a free-tier token cap. Verified live on 2026-09-07: given a file and a read tool it called the tool and returned the right answer, exit 0 in 8.6s. Admitted at the two tiers the free-tier loop was admitted at, on the same evidence and the same reasoning -- one verified tool call says the loop runs, not that it does design or critical work well. It is declared ahead of the free-tier loop because it is cheaper and the vendor's stronger model, and it rises further only on its measured record here.",
         "relative_cost": 0.15,
-        "returns_at": "2026-09-09T02:00:10Z",
+        "returns_at": "2026-09-09T03:01:02Z",
         "sentinel": false,
         "success_rate": 0.4444444444444444,
         "successes": 4,
@@ -69777,16 +68985,16 @@
     "channel": "dev",
     "check_interval_min": 30,
     "current": {
-      "git_describe": "v0.4.0-57-gd93983a",
+      "git_describe": "v0.4.0-58-ga964653",
       "kernel_version": "0.1.0",
       "version": "0.4.0"
     },
     "keep_previous": 2
   },
   "version": {
-    "commit": "d93983a",
+    "commit": "a964653",
     "engine": "0.4.0",
-    "exported_at": "2026-09-09T00:37:53.751Z",
+    "exported_at": "2026-09-09T01:08:40.501Z",
     "kernel": "0.1.0"
   }
 }
