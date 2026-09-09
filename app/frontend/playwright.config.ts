@@ -82,7 +82,7 @@ export default defineConfig({
       // A trailing slash is load-bearing: goto() resolves a relative path against this base, and a bare
       // leading-slash path would resolve against the origin instead, dropping the GitHub Pages /pravrudhi/app
       // prefix entirely (the exact class of bug this suite exists to catch).
-      use: { baseURL: `${(process.env.DEPLOYED_URL ?? "https://sharathsphd.github.io/pravrudhi/app").replace(/\/+$/, "")}/` },
+      use: { baseURL: `${(process.env.DEPLOYED_URL ?? "https://axismeru.github.io/pravrudhi/app").replace(/\/+$/, "")}/` },
     }),
   ],
   webServer: needsLocalEngine

@@ -89,7 +89,7 @@ reads like a bad key and is not. This has cost time twice; `agents/alibaba_agent
 ## 6. Getting to a working checkout
 
 ```bash
-git clone git@github.com:SharathSPhD/pravrudhi.git && cd pravrudhi
+git clone git@github.com:AxisMeru/pravrudhi.git && cd pravrudhi
 make init          # installs the commit hook — do this first
 uv sync            # python 3.13
 make smoke         # ~5 minutes, ~1835 tests; must be green before you change anything
@@ -130,7 +130,7 @@ hourly after it, and one request criterion dispatched nine times in a day and re
 Working and demonstrable: both editions installed on the 5090 and the Mac mini; the Mac mini self-updated
 0.3.1 → 0.4.0 unattended with rollback versions retained; night 18 ran twelve real GPU candidates end to end
 (all pruned, nothing promoted, 0.892 of 3.0 GPU-h); the live site at
-`https://sharathsphd.github.io/pravrudhi/app` updates itself every 30 minutes; both Telegram bots hold real
+`https://axismeru.github.io/pravrudhi/app` updates itself every 30 minutes; both Telegram bots hold real
 conversations through the engine's own `chat.converse`.
 
 Known open, in the order I would take them:

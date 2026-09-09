@@ -118,8 +118,8 @@ export const PLATFORM_INSTALLS: PlatformInstall[] = [
   },
 ];
 
-export const RELEASES_URL = "https://github.com/SharathSPhD/pravrudhi/releases";
-export const DOCS_URL = "https://github.com/SharathSPhD/pravrudhi#readme";
+export const RELEASES_URL = "https://github.com/AxisMeru/pravrudhi/releases";
+export const DOCS_URL = "https://github.com/AxisMeru/pravrudhi#readme";
 
 // The window this page shows a real capture of. Absent from the repository until someone runs the shell with
 // PRAVRUDHI_DESKTOP_SHOT set and commits the result — see main.js's capturePage handler — so callers must

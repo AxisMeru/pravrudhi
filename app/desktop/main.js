@@ -57,7 +57,7 @@ async function finishSmoke(error) {
   } catch (failure) { console.error('Smoke report:', failure); smokeExitCode = await smoke.fail(failure); }
   app.quit();
 }
-const docs = 'https://github.com/SharathSPhD/pravrudhi#readme';
+const docs = 'https://github.com/AxisMeru/pravrudhi#readme';
 const statusFile = path.join(__dirname, 'renderer/index.html');
 const statusURL = pathToFileURL(statusFile).href;
 let settings, stateFile, workspace, tray, engine, controller, quitting = false, queue = Promise.resolve();

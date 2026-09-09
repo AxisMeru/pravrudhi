@@ -10,7 +10,7 @@ import { expect, test as base, type ConsoleMessage, type Request } from "@playwr
 
 const test = base.extend<{ originFailures: void }>({
   originFailures: [async ({ context, baseURL }, use): Promise<void> => {
-    const siteOrigin = new URL(baseURL ?? "https://sharathsphd.github.io").origin;
+    const siteOrigin = new URL(baseURL ?? "https://axismeru.github.io").origin;
     const badOriginRequests: string[] = [];
     context.on("response", (response): void => {
       if (new URL(response.url()).origin === siteOrigin && response.status() >= 400) {

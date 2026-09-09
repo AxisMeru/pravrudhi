@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "pravrudhi"
-version = "0.4.3"
+version = "0.4.4"
 description = "Recursive self-improvement engine for language-model systems: run a budgeted night over your own model and harness."
 readme = "README.md"
 requires-python = ">=3.13,<3.14"
@@ -35,7 +35,7 @@ dependencies = [
 pravrudhi = "pravrudhi.cli.app:main"
 
 [project.urls]
-Repository = "https://github.com/SharathSPhD/pravrudhi"
+Repository = "https://github.com/AxisMeru/pravrudhi"
 
 [dependency-groups]
 dev = [

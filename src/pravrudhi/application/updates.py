@@ -20,7 +20,7 @@ from typing import Any
 from pravrudhi import KERNEL_VERSION, __version__
 
 PACKAGE_NAME = "pravrudhi"
-REPO = "SharathSPhD/pravrudhi"
+REPO = "AxisMeru/pravrudhi"
 RELEASES_URL = f"https://api.github.com/repos/{REPO}/releases/latest"
 FETCH_TIMEOUT_S = 5.0
 

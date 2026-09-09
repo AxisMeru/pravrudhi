@@ -1,6 +1,6 @@
 # Pravrudhi Desktop
 
-An Electron desktop application that finds, starts, and supervises your installed Pravrudhi engine. It ships no Python and requires the engine to be installed separately, including its built frontend. See the [engine installation instructions](https://github.com/SharathSPhD/pravrudhi#readme).
+An Electron desktop application that finds, starts, and supervises your installed Pravrudhi engine. It ships no Python and requires the engine to be installed separately, including its built frontend. See the [engine installation instructions](https://github.com/AxisMeru/pravrudhi#readme).
 
 From `app/desktop/`, run development with:
 

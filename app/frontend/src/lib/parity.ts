@@ -80,7 +80,7 @@ export async function parity(): Promise<ParitySnapshot | null> {
 // A relative repository path such as `src/pravrudhi/application/parity.py`, as opposed to freeform prose. Only
 // evidence that looks like one earns a link — this constant already appears in `lib/desktop.ts`, so it is a
 // reused fact about this repository, not a guessed URL.
-const REPO_BLOB_BASE = "https://github.com/SharathSPhD/pravrudhi/blob/main/";
+const REPO_BLOB_BASE = "https://github.com/AxisMeru/pravrudhi/blob/main/";
 const PATH_LIKE = /^[\w.-]+(\/[\w.-]+)+\.\w+$/;
 
 // A row carries several pieces of evidence, some repository paths and some commands. The first path-like one is

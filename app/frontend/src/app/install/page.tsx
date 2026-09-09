@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Check, Copy } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
 
-const QUICKSTART = `git clone https://github.com/SharathSPhD/pravrudhi.git
+const QUICKSTART = `git clone https://github.com/AxisMeru/pravrudhi.git
 cd pravrudhi
 uv sync
 uv run pravrudhi init --root .

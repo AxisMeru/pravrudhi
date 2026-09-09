@@ -7,7 +7,7 @@ Nothing on this page states a measurement. Measurements live in the paper under 
 ## Quickstart (one GPU, Linux, Docker with the NVIDIA runtime)
 
 ```bash
-git clone https://github.com/SharathSPhD/pravrudhi.git && cd pravrudhi
+git clone https://github.com/AxisMeru/pravrudhi.git && cd pravrudhi
 uv sync
 uv run pravrudhi init --root .                       # kernel state dir, config, pre-registrations, prompts, genesis ledger
 make exec-image                                       # execution image (public NVIDIA PyTorch base; override with BASE_IMAGE=)

@@ -12,7 +12,7 @@ over the value out of band.
 
 These cannot be done by an agent — they need a human with the accounts.
 
-- [ ] **Grant the team account access to `SharathSPhD/pravrudhi`.** Write access, since routines push
+- [ ] **Grant the team account access to `AxisMeru/pravrudhi`.** Write access, since routines push
       `claude/`-prefixed branches and open pull requests.
 - [ ] **Install the [Claude GitHub App](https://github.com/apps/claude) on the repository.** Required for the
       PR-review routine's GitHub trigger. `/web-setup` grants cloning but does **not** install the app or enable
@@ -58,7 +58,7 @@ Do these on the machine, or ask the operator to. Each one has caught a real fail
 - [ ] `pravrudhi watch --root .` and `--root ~/pravrudhi-release`.
 - [ ] Message both Telegram bots. The studio bot answers `[Pravrudhi Studio]`, `@prabhasa_bot` answers
       `[Pravrudhi]`. If either says the wrong one, `PRAVRUDHI_EDITION` is unset on that unit.
-- [ ] Open `https://sharathsphd.github.io/pravrudhi/app` and confirm `recorded` in the snapshot is under an hour
+- [ ] Open `https://axismeru.github.io/pravrudhi/app` and confirm `recorded` in the snapshot is under an hour
       old. If it is stale, the publish unit has stopped — check it is not pointed at a disposable worktree.
 
 ## D. Handing over the two loops

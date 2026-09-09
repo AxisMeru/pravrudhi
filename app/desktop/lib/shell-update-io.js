@@ -9,7 +9,7 @@ const {promisify} = require('node:util');
 
 const run = promisify(execFile);
 
-const RELEASE_API = 'https://api.github.com/repos/SharathSPhD/pravrudhi/releases/latest';
+const RELEASE_API = 'https://api.github.com/repos/AxisMeru/pravrudhi/releases/latest';
 const DOWNLOAD_TIMEOUT_MS = 15 * 60 * 1000;
 
 async function latestRelease(fetchFn = fetch) {
