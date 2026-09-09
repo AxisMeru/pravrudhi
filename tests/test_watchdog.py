@@ -16,6 +16,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from pravrudhi.application import watchdog
 
 
@@ -136,3 +138,38 @@ def test_recovery_is_announced_once_and_then_silence(tmp_path: Path) -> None:
     assert watchdog.worth_announcing(tmp_path, findings)
     assert watchdog.worth_announcing(tmp_path, []), "the all-clear is worth one message"
     assert not watchdog.worth_announcing(tmp_path, []), "and only one"
+
+
+def test_an_install_behind_the_source_is_reported(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The gap that cost a week's quota.
+
+    Every guard against runaway spend was written in the development checkout and none of it was in release
+    0.4.0, which is what the end-user install ran. The updater said "already at 0.4.0" every half hour and was
+    telling the truth: the version had never been bumped, so the fixes were finished and unshipped. Nothing
+    measured the distance between what is written and what is installed, so nothing could mention it.
+    """
+    releases = tmp_path / ".pravrudhi" / "releases"
+    (releases / "0.4.0").mkdir(parents=True)
+    (releases / "current").symlink_to(releases / "0.4.0")
+    monkeypatch.setattr(watchdog, "_packaged_version", lambda: "0.4.2")
+
+    found = watchdog._stale_install(tmp_path)
+
+    assert len(found) == 1 and found[0].severity == "high"
+    assert "0.4.0" in found[0].detail and "0.4.2" in found[0].detail
+
+
+def test_an_install_level_with_the_source_is_not_reported(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    releases = tmp_path / ".pravrudhi" / "releases"
+    (releases / "0.4.2").mkdir(parents=True)
+    (releases / "current").symlink_to(releases / "0.4.2")
+    monkeypatch.setattr(watchdog, "_packaged_version", lambda: "0.4.2")
+
+    assert watchdog._stale_install(tmp_path) == []
+
+
+def test_a_source_checkout_has_no_install_to_be_behind(tmp_path: Path) -> None:
+    """The development checkout runs from source and has no `releases/current`; it is never stale."""
+    assert watchdog._stale_install(tmp_path) == []

@@ -149,10 +149,57 @@ def _cheap_seat_down(root: Path) -> list[Finding]:
     )]
 
 
+def _stale_install(root: Path) -> list[Finding]:
+    """An engine running a release older than the safeguards that were written for it.
+
+    This is the one that cost a week's quota. Every guard against runaway spend - the per-criterion attempt cap,
+    the token budget, the cheap seat, reading a token count at all - was written in the development checkout and
+    none of it was in release 0.4.0, which is what the end-user install actually runs. So the heaviest consumer
+    of the plan ran for a day with no brakes, retried one criterion thirteen times at the dearest seat, and
+    recorded zero tokens against every one of them because its code could not read a count.
+
+    Nothing said so. The updater reported "already at 0.4.0" every half hour, truthfully, because 0.4.0 was the
+    newest release that existed: the version had never been bumped, so the fixes were finished and unshipped.
+    The gap between what is written and what is installed is invisible unless something measures it.
+    """
+    installed = _installed_version(root)
+    packaged = _packaged_version()
+    if not installed or not packaged or installed == packaged:
+        return []
+    return [Finding(
+        kind="stale_install",
+        severity="high",
+        detail=(
+            f"this install runs {installed} while the source tree is at {packaged}: any safeguard added since "
+            f"{installed} is not running here. Cut a release, or it never reaches the engine that spends."
+        ),
+    )]
+
+
+def _installed_version(root: Path) -> str:
+    """What this workspace actually runs, read from the release it points at rather than from the source."""
+    current = Path(root) / ".pravrudhi" / "releases" / "current"
+    if not current.exists():
+        return ""
+    try:
+        return current.resolve().name
+    except OSError:
+        return ""
+
+
+def _packaged_version() -> str:
+    from importlib.metadata import PackageNotFoundError, version
+
+    try:
+        return version("pravrudhi")
+    except PackageNotFoundError:
+        return ""
+
+
 def check(root: Path) -> list[Finding]:
     """Every check, most serious first. A check that raises is dropped rather than allowed to silence the rest."""
     findings: list[Finding] = []
-    for probe in (_repeating, _empty_night, _cheap_seat_down):
+    for probe in (_repeating, _empty_night, _cheap_seat_down, _stale_install):
         try:
             findings.extend(probe(Path(root)))
         except Exception:  # noqa: BLE001
