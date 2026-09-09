@@ -149,6 +149,40 @@ def _cheap_seat_down(root: Path) -> list[Finding]:
     )]
 
 
+def _parked_criteria(root: Path) -> list[Finding]:
+    """Criteria that have spent their attempt budget, read from the attempt record rather than inferred.
+
+    A parked criterion used to reveal itself through `_repeating`: selection kept naming it, so the beats
+    repeated and the stall check fired. Once selection learned to skip it (`requests.next_unmet`) the loop
+    correctly moved on and the unfinishable work went silent — a better loop and a worse record. Reporting it
+    from `heartbeat.attempts` says which criterion, on which request, and what it cost to find out.
+    """
+    try:
+        from pravrudhi.application import requests as reqs
+        from pravrudhi.application.heartbeat import attempts, stalled
+
+        rows = reqs.load(Path(root))
+    except Exception:  # noqa: BLE001 - a watchdog that raises is worse than one that misses
+        return []
+    findings: list[Finding] = []
+    for request in rows:
+        if not request.open:
+            continue
+        for index, criterion in enumerate(request.criteria):
+            if criterion.met or not stalled(Path(root), request.id, index):
+                continue
+            findings.append(Finding(
+                kind="parked_criterion",
+                severity="high",
+                detail=(
+                    f"{request.id} criterion {index} is parked after "
+                    f"{attempts(Path(root), request.id, index)} attempts, so the loop has moved on and will not "
+                    f"retry it: \"{criterion.text[:160]}\""
+                ),
+            ))
+    return findings
+
+
 def _stale_install(root: Path) -> list[Finding]:
     """An engine running a release older than the safeguards that were written for it.
 
@@ -199,7 +233,7 @@ def _packaged_version() -> str:
 def check(root: Path) -> list[Finding]:
     """Every check, most serious first. A check that raises is dropped rather than allowed to silence the rest."""
     findings: list[Finding] = []
-    for probe in (_repeating, _empty_night, _cheap_seat_down, _stale_install):
+    for probe in (_repeating, _parked_criteria, _empty_night, _cheap_seat_down, _stale_install):
         try:
             findings.extend(probe(Path(root)))
         except Exception:  # noqa: BLE001
