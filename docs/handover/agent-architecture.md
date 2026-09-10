@@ -115,10 +115,12 @@ In priority order, each already scoped enough to hand to a session without furth
    reports `ready`, the best edge count, and what is missing. `test_the_live_routing_log_is_not_yet_ready_to_
    tie_break` asserts it is not ready against the real log — **so that test failing is the signal to pick this
    card back up.** No re-research needed; just run it.
-3. **Reconcile M6.2.** The spec asked for same-seat retry with config-driven backoff; what shipped
-   (`ed6ac7a`) is fallback-with-cooldown instead, which solves the same problem differently. Someone should
-   either update the spec to match what's built, or build the backoff path the spec actually asked for — not
-   leave the two silently disagreeing.
+3. ~~**Reconcile M6.2.**~~ **DONE 2026-09-10.** The spec now carries the deviation. `ed6ac7a` shipped the
+   transient class and the config-driven patterns as asked and deliberately did not build the backoff,
+   because §6 of that same spec had already noted the ceiling was unjustified while DashScope's reset window
+   is unread — a 60s ceiling against a 5-minute window retries into certain failure. Fallback-to-a-working-seat
+   plus a short cooldown gets the work done instead. **Do not "finish" the backoff**: the spec's ask revives
+   only if the reset window becomes known.
 4. **Google ADK** — if a Gemini credential becomes available, evaluate it properly rather than leaving it as
    the unknown it is today.
 5. **Knowledge graphs** — no action needed unless a concrete query the avacchedaka-store can't serve shows up.
