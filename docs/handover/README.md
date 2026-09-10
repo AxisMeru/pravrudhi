@@ -16,7 +16,9 @@ the standing incumbent — all of it recorded in an append-only ledger that ever
 than caches. The **kernel** (`pravrudhi_kernel/`) computes all evidence and is not yours to edit. The **engine**
 (`src/pravrudhi/`) proposes, orchestrates and serves. The **app** (`app/frontend/`) is how a person watches it.
 
-Read `CHARTER.md` next — particularly §6, the hard rules. Then `docs/architecture.md`.
+Read `CHARTER.md` next — particularly §6, the hard rules. Then `docs/architecture.md`. If you're picking up the
+multi-agent orchestration strand specifically (LangGraph/OpenAI/Claude/Google agent SDKs, knowledge graphs, the
+dispatch/routing/agents/hosts stack), read `docs/handover/agent-architecture.md` instead of re-researching it.
 
 ## 2. Two editions, one codebase
 
