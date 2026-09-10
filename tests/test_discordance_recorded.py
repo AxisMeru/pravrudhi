@@ -49,6 +49,11 @@ def test_paired_discordance_is_recorded_without_changing_decision(monkeypatch, t
         night=1,
         variance=variance,
         cfg={"model": "test", "evaluation": {"k_items": 5, "exposure_cap": 10}},
+        # A real NightContext derives these from the night config's `answer_kind`; the stub must carry them or
+        # it models an object that cannot exist.
+        eval_template="gsm8k_v1",
+        train_template="gsm8k_v1",
+        answer_kind="numeric",
         incumbent_id="c-0000",
         incumbent_adapter=None,
         incumbent=BASELINE,

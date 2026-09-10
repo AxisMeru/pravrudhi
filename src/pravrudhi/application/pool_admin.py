@@ -9,6 +9,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+from pravrudhi.application.choice import LETTERS, render_choice_question
 from pravrudhi_kernel.metrics import seal_pool
 from pravrudhi_kernel.sandbox import ensure_kernel_state
 from pravrudhi_kernel.sandbox.runner import docker_available
@@ -35,7 +36,7 @@ MMLU_LAW_SUBJECTS = ("jurisprudence", "professional_law")
 # sealed. The price is a small pool (191 real items), which the noise-floor study measures rather than assumes.
 MMLU_INTERNAL_SPLITS = ("validation", "dev")
 MMLU_EXTERNAL_SPLITS = ("test",)
-MMLU_LETTERS = "ABCDEFGHIJ"
+MMLU_LETTERS = LETTERS  # kept as a name here; the rendering itself lives in `choice`
 
 
 def seal_gsm8k(root: Path, parquet: Path, bench: str = "gsm8k-test", offset: int = 0, count: int | None = None) -> dict[str, Any]:
@@ -78,18 +79,6 @@ def seal_mbpp_plus(root: Path, cache: Path, bench: str = "mbppplus") -> dict[str
         "origin": "EvalPlus MBPP+ v0.2.0 (Apache-2.0), exported from the evalplus package",
     }
     return seal_pool(Path(state.pools_dir) / bench, bench, rows, src)
-
-
-def _choice_question(question: str, options: Sequence[str]) -> str:
-    """The item as the model sees it: the question, then the options under their letters.
-
-    The instruction to answer with a letter lives in the harness template, not here, exactly as the GSM8K
-    pool holds the bare problem and `gsm8k_v1.md` asks for "Final answer: <number>". A pool holds data; how
-    the data is asked is the harness's, and it is hashed separately."""
-    if not 1 < len(options) <= len(MMLU_LETTERS):
-        raise ValueError(f"an item needs 2 to {len(MMLU_LETTERS)} options, got {len(options)}")
-    lines = [f"{MMLU_LETTERS[i]}. {str(opt).strip()}" for i, opt in enumerate(options)]
-    return question.strip() + "\n\n" + "\n".join(lines) + "\n"
 
 
 def _mmlu_parquet(cache: Path, subject: str, split: str) -> Path:
@@ -143,7 +132,7 @@ def seal_mmlu(
                 options = list(r["choices"])
                 rows.append(
                     {
-                        "question": _choice_question(str(r["question"]), options),
+                        "question": render_choice_question(str(r["question"]), options),
                         "answer": MMLU_LETTERS[int(r["answer"])],
                     }
                 )

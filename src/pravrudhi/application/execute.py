@@ -15,8 +15,7 @@ from pravrudhi.application.discordance import discordance
 from pravrudhi.application.spine import IMAGE, expected_hashes, run_eval_job, score_job, write_job_inputs
 from pravrudhi.targets import LoraRecipe
 from pravrudhi_kernel.ledger import LedgerWriter, replay
-from pravrudhi_kernel.metrics import draw_rotation, record_exposure
-from pravrudhi_kernel.metrics.gsm8k import gold_answer, score_completions
+from pravrudhi_kernel.metrics import draw_rotation, record_exposure, scorer_for
 from pravrudhi_kernel.sandbox import JobSpec, KernelState, admit_observation, run_job
 from pravrudhi_kernel.sandbox.observe import model_dir_hash
 from pravrudhi_kernel.sandbox.state import read_secret
@@ -69,6 +68,17 @@ class NightContext:
         self.spent_gpu_h = 0.0
         self.hf_home = snapshot.parents[3]
         self.templates = root / "harness" / "prompts" / "eval"
+        # How this track's answers are read, and therefore both which scorer verifies a rejection sample and
+        # which template asks for it. The sampling path used to name `gsm8k_v1.md` and the numeric scorer in
+        # three places, so a choice track would have prompted for a number and then refused every gold.
+        # `training.template` may differ from the evaluation template; it defaults to it, which is the case
+        # worth defaulting to, since training and evaluation prompts agreeing is the point.
+        self.answer_kind = str(cfg.get("answer_kind") or "numeric")
+        self.scorer = scorer_for(self.answer_kind)
+        evaluation = cfg.get("evaluation") or {}
+        training = cfg.get("training") or {}
+        self.eval_template = str(evaluation.get("template") or "gsm8k_v1")
+        self.train_template = str(training.get("template") or self.eval_template)
         self.sealed = _load_sealed(root / ".pravrudhi" / "kernel" / "sealed" / "predictions")
 
     def job_dir(self, tag: str) -> Path:
@@ -136,7 +146,7 @@ def ensure_samples(ctx: NightContext, w: LedgerWriter, teacher: str = "incumbent
     (jd / "in" / "prompts.jsonl").write_text(
         "".join(json.dumps({"id": f"tr{i}", "question": r["question"]}) + "\n" for i, r in enumerate(rows))
     )
-    (jd / "in" / "template.txt").write_text((ctx.templates / "gsm8k_v1.md").read_text())
+    (jd / "in" / "template.txt").write_text((ctx.templates / f"{ctx.train_template}.md").read_text())
     args = [
         "--n-samples",
         str(s["n_samples"]),
@@ -188,17 +198,17 @@ def ensure_samples(ctx: NightContext, w: LedgerWriter, teacher: str = "incumbent
             night=ctx.night,
         )
         raise RuntimeError("sampling job failed")
-    golds = {f"tr{i}": gold_answer(r["answer"]) for i, r in enumerate(rows)}
+    golds = {f"tr{i}": ctx.scorer.gold_answer(r["answer"]) for i, r in enumerate(rows)}
     kept: list[dict[str, str]] = []
     n_total = 0
     for line in (jd / "out" / "samples.jsonl").read_text().splitlines():
         r = json.loads(line)
         n_total += 1
-        if score_completions({r["id"]: r["completion"]}, {r["id"]: golds[r["id"]]})[r["id"]] == 1:
+        if ctx.scorer.score_completions({r["id"]: r["completion"]}, {r["id"]: golds[r["id"]]})[r["id"]] == 1:
             kept.append(
                 {
                     "id": r["id"],
-                    "prompt": (ctx.templates / "gsm8k_v1.md")
+                    "prompt": (ctx.templates / f"{ctx.train_template}.md")
                     .read_text()
                     .replace("{question}", rows[int(r["id"][2:])]["question"]),
                     "completion": r["completion"],
@@ -327,11 +337,12 @@ def train(ctx: NightContext, w: LedgerWriter, cid: str, recipe: LoraRecipe) -> P
         rows_g = ctx.train_rows[int(g["prompts_offset"]) : int(g["prompts_offset"]) + int(g["n_prompts"])]
         (jd / "in" / "prompts.jsonl").write_text(
             "".join(
-                json.dumps({"id": f"g{i}", "question": r["question"], "gold": gold_answer(r["answer"])}) + "\n"
+                json.dumps({"id": f"g{i}", "question": r["question"], "gold": ctx.scorer.gold_answer(r["answer"])})
+                + "\n"
                 for i, r in enumerate(rows_g)
             )
         )
-        (jd / "in" / "template.txt").write_text((ctx.templates / "gsm8k_v1.md").read_text())
+        (jd / "in" / "template.txt").write_text((ctx.templates / f"{ctx.train_template}.md").read_text())
         res, meta = ctx.run("train_grpo", ["--seed", str(ctx.night), "--fp32"], jd)
     w.append(
         "spend",
@@ -444,7 +455,7 @@ def evaluate_and_dispose(ctx: NightContext, w: LedgerWriter, cid: str, recipe: L
         exposure_cap=int(e["exposure_cap"]),
     )
     record_exposure(ctx.pool_dir, rot)
-    template = recipe.eval_template if (ctx.templates / f"{recipe.eval_template}.md").exists() else "gsm8k_v1"
+    template = recipe.eval_template if (ctx.templates / f"{recipe.eval_template}.md").exists() else ctx.eval_template
     inc_dir, inc_res, inc_meta = _eval_arm(ctx, rot, seed, ctx.incumbent_adapter, template, f"inc-{cid}")
     can_dir, can_res, can_meta = _eval_arm(ctx, rot, seed, adapter, template, f"cand-{cid}")
     if inc_res.exit_code != 0 or can_res.exit_code != 0 or inc_meta is None or can_meta is None:
