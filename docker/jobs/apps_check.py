@@ -23,6 +23,12 @@ FAILURE_CHARS = 200
 # Reads {code, stdin, fn_name} on its own stdin, then re-points stdin at the test input so a solution that also
 # calls input() behaves; the candidate's own prints go to a buffer, so what this writes to stdout is the value
 # solve returned and nothing else -- the same thing the visible `assert solve(...) == ...` compares.
+#
+# Accepting a solution's PRINTED output as a fallback was tried and reverted. These items look like
+# standard-input problems, but every question in the pool states `def solve(stdin: str) -> str` and carries a
+# visible `assert solve(...) == ...` -- so the return contract is what the model is told, what the harness's
+# own retry feedback tests, and what the sealer sealed. A hidden scorer more lenient than the visible test the
+# model is given is worse than a strict one: the loop would prune candidates the scorer would have passed.
 RUNNER = """\
 import contextlib, io, json, sys
 

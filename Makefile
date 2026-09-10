@@ -54,3 +54,16 @@ exec-image:      ## build pravrudhi/exec-5090 from the local NVIDIA 25.06 lineag
 	# `:latest`, and every GPU job then died on `ModuleNotFoundError: No module named 'transformers'`.
 	docker build --build-arg BASE_IMAGE=$${BASE_IMAGE:-$$(docker image inspect rtx5090-train:latest >/dev/null 2>&1 && echo rtx5090-train:latest || echo nvcr.io/nvidia/pytorch:25.06-py3)} \
 	  -f docker/exec-5090.Dockerfile -t pravrudhi/exec-5090:$$(git describe --always --dirty) -t pravrudhi/exec-5090:latest .
+
+# The external-scorers image. It carries `docker/jobs`, so it goes stale every time a job is added -- and a
+# stale one does not fail loudly: `score_apps.py` was missing from it, so the `apps` bench scored 0.0000
+# everywhere (ADR-0037). Needs network to build; runs without it.
+.PHONY: ext-image
+ext-image:
+	docker build -f docker/ext-scorers.Dockerfile -t pravrudhi/ext-scorers:latest .
+	docker run --rm --entrypoint sh pravrudhi/ext-scorers:latest -c 'for j in $$(ls /opt/pravrudhi/jobs/*.py); do echo "$$j"; done' | sort > /tmp/pravrudhi-ext-jobs.txt
+	@for f in docker/jobs/*.py; do \
+		b=$$(basename $$f); \
+		grep -q "/opt/pravrudhi/jobs/$$b" /tmp/pravrudhi-ext-jobs.txt || { echo "MISSING from image: $$b"; exit 1; }; \
+	done
+	@echo "ext-scorers:latest carries every docker/jobs/*.py"

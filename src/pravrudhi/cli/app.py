@@ -36,6 +36,11 @@ OBJECTIVE_OPT: str | None = typer.Option(
 NIGHT_CONFIG_OPT: Path | None = typer.Option(
     None, "--config", help="Frozen night pre-registration to run; default research/prereg/lora_night.yaml."
 )
+# The harness track's default is a different file, and one shared help string said `lora_night.yaml` on both.
+# A config selector that misnames its own default is how the wrong night gets run.
+HARNESS_CONFIG_OPT: Path | None = typer.Option(
+    None, "--config", help="Frozen night pre-registration to run; default research/prereg/harness_night.yaml."
+)
 APPS_SOURCE_OPT = typer.Option(..., "--source", help="APPS split on disk (test.jsonl or parquet), fetched separately")
 APPS_COUNT_OPT = typer.Option(400, "--count")
 APPS_SEED_OPT = typer.Option(0, "--seed")
@@ -477,6 +482,59 @@ def night_cmd(
         log=typer.echo, selection_policy=policy, proposer_endpoint=proposer_endpoint, plan=plan,
     )
     typer.echo(json.dumps(out, indent=2))
+
+
+panel_app = typer.Typer(help="Ask many vendors the same thing and record every answer identically.")
+PANEL_PROMPTS_ARG = typer.Argument(..., help="JSONL with an `id` and a `prompt` per line.")
+PANEL_VENDOR_OPT: list[str] = typer.Option([], "--vendor", help="Repeatable. Default: every reachable vendor.")
+PANEL_OUT_OPT = typer.Option(Path("research/panel"), "--out")
+app.add_typer(panel_app, name="panel")
+
+
+@panel_app.command("vendors")
+def panel_vendors_cmd() -> None:
+    """Every declared vendor, whether it can be asked right now, and why not if it cannot.
+
+    Declared and unreachable is a normal state: the direct-API vendors are built before their keys exist so
+    that when a key lands nothing has to be designed in a hurry. Bring-your-own-key reads the named
+    environment variable, so a vendor record never holds a secret.
+    """
+    from pravrudhi.application.panel import VENDORS
+
+    for vid in sorted(VENDORS):
+        v = VENDORS[vid]
+        ok, why = v.reachable
+        mark = "ready" if ok else "-"
+        typer.echo(f"{vid:16s} {v.interface:15s} {mark:6s} {why}")
+
+
+@panel_app.command("run")
+def panel_run_cmd(
+    prompts: Path = PANEL_PROMPTS_ARG,
+    vendor: list[str] = PANEL_VENDOR_OPT,
+    out: Path = PANEL_OUT_OPT,
+) -> None:
+    """Ask every named vendor every prompt. A vendor that cannot answer is recorded as a gap.
+
+    Never substituted: `swarm` falls back to a working seat because its job is to get work done, and doing
+    that here would attribute one vendor's answer to another, which in a comparison reads as a result.
+    """
+    from pravrudhi.application.panel import VENDORS, load_vendors, run_panel
+
+    rows = [json.loads(line) for line in prompts.read_text().splitlines() if line.strip()]
+    ids = list(vendor) if vendor else [v for v in sorted(VENDORS) if VENDORS[v].reachable[0]]
+    vendors = load_vendors(ids)
+    typer.echo(f"asking {len(vendors)} vendor(s) {len(rows)} prompt(s): {', '.join(v.id for v in vendors)}")
+    answers = run_panel(out, rows, vendors)
+    gaps = [a for a in answers if a.error]
+    for v in vendors:
+        got = [a for a in answers if a.vendor == v.id and not a.error]
+        typer.echo(f"  {v.id:16s} answered {len(got)}/{len(rows)}")
+    if gaps:
+        typer.echo(f"{len(gaps)} gap(s) recorded, not filled:")
+        for a in gaps[:5]:
+            typer.echo(f"  {a.vendor} {a.prompt_id}: {(a.error or '')[:120]}")
+    typer.echo(f"wrote {out / 'panel' / 'answers.jsonl'}")
 
 
 @app.command("inbox")
@@ -968,7 +1026,7 @@ def study_harness_nf(
     k: int = typer.Option(100, "--k"),
     night: int = typer.Option(0, "--night"),
     root: Path = ROOT_OPT,
-    config: Path | None = NIGHT_CONFIG_OPT,
+    config: Path | None = HARNESS_CONFIG_OPT,
 ) -> None:
     """A/A of the baseline harness on the configured pool; writes the floor that config names."""
     from pravrudhi.application.harness_track import harness_noise_floor
@@ -989,7 +1047,7 @@ def harness_night_cmd(
     root: Path = ROOT_OPT,
     gguf: Path | None = GGUF_OPT,
     seed_recipe: list[Path] = SEED_RECIPE_OPT,
-    config: Path | None = NIGHT_CONFIG_OPT,
+    config: Path | None = HARNESS_CONFIG_OPT,
 ) -> None:
     """Track H night: fixed model, mutable harness, paired on the configured pool's rotations.
 

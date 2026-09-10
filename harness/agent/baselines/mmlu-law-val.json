@@ -1,0 +1,13 @@
+{
+  "execution_family": "system_prompt",
+  "feedback_template": "Your previous answer was not in the required form:\n{feedback}\nAnswer again with the option letter alone.",
+  "max_new_tokens": 512,
+  "n_samples": 1,
+  "rationale": "The starting recipe for a multiple-choice law bench. The grammar default asks for a Python code block, which on this pool is not a weak harness but a wrong one, and is most of why the harness baseline measured 0.1042 here against the model track's 0.3993. Nothing here is tuned.",
+  "retries": 0,
+  "strategy": "prompt_only",
+  "system_prompt": "You are answering multiple-choice questions about law. Read the question and the options, then reply with the letter of the correct option and nothing else.",
+  "template": "{question}\n\nAnswer with the option letter alone.",
+  "thinking": false,
+  "use_visible_tests": false
+}

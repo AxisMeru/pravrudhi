@@ -99,21 +99,29 @@ class HarnessContext:
         self.state: KernelState = ensure_kernel_state(root, docker_available=docker_available())
         self.snapshot = resolve_model_snapshot(str(cfg["model"]))
         self.hf_home = self.snapshot.parents[3]
-        self.pool_dir = root / ".pravrudhi" / "kernel" / "pools" / str(cfg["bench"])
+        self.bench = str(cfg["bench"])
+        self.pool_dir = root / ".pravrudhi" / "kernel" / "pools" / self.bench
         self.incumbent_id = BASELINE_ID
-        self.incumbent: HarnessRecipe = BASELINE
+        # The recipe every candidate this night is paired against. `harness_grammar.BASELINE` is a CODE
+        # recipe -- "You are an expert Python programmer ... return only the code in one ```python block" --
+        # and it was the starting incumbent on a law multiple-choice bench, which is most of why the harness
+        # baseline scored 0.1042 there against the model track's 0.3993. Fixing the proposer prompt (night
+        # 19) was half the defect; the other half is that the search started from a recipe for another task.
+        # Config-driven so the two nights cannot disagree, and absent means the grammar default, which keeps
+        # the code track exactly as it was.
+        self.baseline: HarnessRecipe = baseline_recipe(root, cfg)
+        self.incumbent: HarnessRecipe = self.baseline
         self.spent_gpu_h = 0.0
         self.sealed = _load_sealed(root / ".pravrudhi" / "kernel" / "sealed" / "predictions")
         # The floor this config names, or the track's default. A config whose bench does not match the floor's
         # is refused below: `harness_night.yaml` ran bench `apps` (ADR-0029) against a floor measured on
         # `mbppplus`, so this track had the same silent defect the model track did.
-        declared = str(cfg.get("noise_floor") or "")
-        vf = (root / declared) if declared else root / "research" / "prereg" / "variance_harness.json"
+        vf = floor_path(root, cfg)
         self.variance_file = vf
         self.variance: Variance | None = None
         if vf.exists():
             v = json.loads(vf.read_text())
-            measured, bench = str(v.get("bench") or ""), str(cfg["bench"])
+            measured, bench = str(v.get("bench") or ""), self.bench
             if measured and measured != bench:
                 raise ValueError(
                     f"{vf.name} was measured on bench {measured!r} but this night runs {bench!r}; the boundary "
@@ -261,6 +269,23 @@ def score_agent(ctx: HarnessContext, jd: Path, rot: Rotation) -> tuple[dict[str,
             if line.strip():
                 r = json.loads(line)
                 scores[r["id"]] = int(r["score"])
+    # A scoring job that did not run must not become a rotation of zeros.
+    #
+    # `scores.setdefault(i, 0)` below is right for an item the scorer reported nothing about -- that is a
+    # failure of that item. It is wrong when the JOB failed, because then it fabricates a verdict for every
+    # item at once. The `ext-scorers` image was built before `score_apps.py` existed, so `docker run` died
+    # with "can't open file '/opt/pravrudhi/jobs/score_apps.py'", `scores.jsonl` never appeared, and the
+    # `apps` bench measured plus_pass=0.0000 for what would have been every rotation of every night -- a
+    # stale image reported as a model that cannot code. This is the same defect `docker/entry.sh` had when an
+    # unknown job name fell through to `generate.py`: a failure that produces plausible output for something
+    # nobody asked for. Refused loudly, and the container's own words are in the message.
+    if res.exit_code != 0 or not sp.exists():
+        raise RuntimeError(
+            f"{scorer.name} did not score this rotation: exit {res.exit_code}"
+            f"{', timed out' if res.timed_out else ''}, scores.jsonl "
+            f"{'present but unusable' if sp.exists() else 'never written'}. Every item would otherwise have "
+            f"been recorded as a failure. stderr: {res.stderr_tail[-400:].strip() or '(empty)'}"
+        )
     for i in rot.item_ids:
         scores.setdefault(i, 0)
     ref = sd / "out" / "per_item_scores.jsonl"
@@ -403,6 +428,67 @@ def admit_candidate(
     )
 
 
+def baseline_recipe(root: Path, cfg: dict[str, Any]) -> HarnessRecipe:
+    """The recipe candidates are paired against on this bench.
+
+    A bench that is not code needs its own: the grammar's default recipe instructs the model to be a Python
+    programmer and answer in a ```python block, which on a multiple-choice law pool is not a weak harness but
+    a wrong one. Declared with `baseline_recipe:` in the pre-registration; absent means the grammar default,
+    so the code track is unchanged.
+    """
+    declared = str(cfg.get("baseline_recipe") or "")
+    if not declared:
+        return BASELINE
+    path = Path(root) / declared
+    if not path.exists():
+        raise ValueError(f"{path} does not exist, and it is the recipe every candidate tonight is paired against")
+    parsed = parse_harness(json.loads(path.read_text()))
+    if isinstance(parsed, str):
+        # `parse_harness` returns the grammar's complaint as a string rather than raising, because the
+        # proposer's candidates are expected to be invalid sometimes. A baseline is not: an unparseable one
+        # would silently fall back to the code recipe and the night would measure the mismatch again.
+        raise ValueError(f"{path} is not a valid harness recipe: {parsed}")
+    return parsed
+
+
+def promoted_path(root: Path, bench: str) -> Path:
+    """Where a promotion writes the new canonical recipe: one file per bench.
+
+    There was one file for every bench, and `scripts/ext_humaneval.sh` reads it (README §harness track). So a
+    law night's promotion silently became what the external HumanEval+ proof ran, and the next code delta
+    would have been attributed to the code harness track. Evidence from one bench governing another is the
+    same defect as a noise floor measured on another pool; this is the fourth place it appeared.
+    """
+    return Path(root) / "harness" / "agent" / bench / "harness.json"
+
+
+def floor_path(root: Path, cfg: dict[str, Any]) -> Path:
+    """Where this config's noise floor lives. One rule, read by the night and the study alike, so the two
+    cannot disagree about which file is the pair of which bench."""
+    declared = str(cfg.get("noise_floor") or "")
+    return (Path(root) / declared) if declared else Path(root) / "research" / "prereg" / "variance_harness.json"
+
+
+def floor_dest(root: Path, cfg: dict[str, Any]) -> Path:
+    """`floor_path`, refusing to overwrite a floor measured on a different bench.
+
+    The read side already refuses a floor whose bench does not match the night's. Without this, the way to
+    satisfy that check is to overwrite the other bench's floor -- which is how `variance_harness.json`
+    (mbppplus, ADR-0029) would have been destroyed by measuring `apps` against the default path, leaving no
+    trace and no red. A floor belongs to one bench; a config that needs its own must name it.
+    """
+    dest = floor_path(root, cfg)
+    if dest.exists():
+        held = str(json.loads(dest.read_text()).get("bench") or "")
+        if held and held != str(cfg["bench"]):
+            raise ValueError(
+                f"{dest.name} holds the floor measured on bench {held!r} and this study measured "
+                f"{cfg['bench']!r}; writing would destroy it. Give this config its own "
+                f"`noise_floor: research/prereg/variance_harness_{cfg['bench']}.json`."
+            )
+    return dest
+
+
 def harness_noise_floor(
     root: Path,
     *,
@@ -446,12 +532,12 @@ def harness_noise_floor(
         )
         record_exposure(ctx.pool_dir, rot)
         for s in range(seeds):
-            jd, res, meta = run_agent(ctx, BASELINE, rot, s, f"nf-r{r}-s{s}")
+            jd, res, meta = run_agent(ctx, ctx.baseline, rot, s, f"nf-r{r}-s{s}")
             if res.exit_code != 0 or meta is None:
                 log(f"rotation {r} seed {s}: agent FAILED {res.stderr_tail[-300:]}")
                 continue
             scores, sref, sres = score_agent(ctx, jd, rot)
-            h = _hashes(ctx, jd, BASELINE)
+            h = _hashes(ctx, jd, ctx.baseline)
             meta["items_sha256"] = h.items
             _, obs = admit_observation(
                 w,
@@ -496,8 +582,7 @@ def harness_noise_floor(
         "k_items": k,
         "labels": "model-measured, screen tier, baseline harness A/A",
     }
-    declared = str(cfg.get("noise_floor") or "")
-    dest = (root / declared) if declared else root / "research" / "prereg" / "variance_harness.json"
+    dest = floor_dest(root, cfg)
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_text(json.dumps(out, indent=2, sort_keys=True) + "\n")
     w.append(
@@ -867,10 +952,9 @@ def _execute_one(ctx: HarnessContext, w: LedgerWriter, cid: str, rec: HarnessRec
             surface="H3.prompt",
         )
         ctx.incumbent, ctx.incumbent_id = rec, cid
-        (ctx.root / "harness" / "agent").mkdir(parents=True, exist_ok=True)
-        (ctx.root / "harness" / "agent" / "harness.json").write_text(
-            json.dumps(rec.harness_json(), indent=2, sort_keys=True) + "\n"
-        )
+        dest = promoted_path(ctx.root, ctx.bench)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text(json.dumps(rec.harness_json(), indent=2, sort_keys=True) + "\n")
         ctx.log(f"{cid}: PROMOTED harness (T2); now the incumbent")
         return "promoted"
     return "continue"

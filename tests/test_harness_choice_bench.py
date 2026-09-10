@@ -135,3 +135,25 @@ def test_the_choice_prompt_demands_the_field_that_threw_every_candidate_away() -
     assert "REQUIRED on every candidate" in choice
     assert "retries: 0" in choice
     assert "at least 10 characters" in choice
+
+
+def test_the_floor_writer_refuses_to_overwrite_another_benchs_floor(tmp_path: Path) -> None:
+    """The read side refuses a floor measured on another bench. Without the same rule on the write side, the
+    way to satisfy that check is to destroy the other bench's floor -- which is how the mbppplus floor
+    (ADR-0029) would have gone when `apps` was measured against the default path."""
+    from pravrudhi.application.harness_track import floor_dest, floor_path
+
+    prereg = tmp_path / "research" / "prereg"
+    prereg.mkdir(parents=True)
+    (prereg / "variance_harness.json").write_text(json.dumps({"bench": "mbppplus", "sigma_seed": 0.01}))
+
+    with pytest.raises(ValueError, match="holds the floor measured on bench 'mbppplus'"):
+        floor_dest(tmp_path, {"bench": "apps"})
+
+    # Naming its own file is the fix, and it is the same rule the night reads by.
+    cfg = {"bench": "apps", "noise_floor": "research/prereg/variance_harness_apps.json"}
+    assert floor_dest(tmp_path, cfg) == prereg / "variance_harness_apps.json"
+    assert floor_path(tmp_path, cfg) == floor_dest(tmp_path, cfg)
+    # Re-measuring the same bench into its own floor is not an overwrite worth refusing.
+    (prereg / "variance_harness_apps.json").write_text(json.dumps({"bench": "apps", "sigma_seed": 0.02}))
+    assert floor_dest(tmp_path, cfg).exists()

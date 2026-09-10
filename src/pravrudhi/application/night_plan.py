@@ -96,9 +96,18 @@ def resolve(root: Path, *, objective: str | None = None, config: Path | None = N
     declared = str(cfg.get("noise_floor") or "")
     variance = (root / declared) if declared else (_prereg(root) / DEFAULT_VARIANCE)
     if not variance.exists():
+        # The two tracks measure their floors with different commands, and a config knows which it is. The
+        # single model-track suggestion sent a reader of `harness_night.yaml` to `study noise-floor --bench`,
+        # which measures the trainee rather than the harness and would write a floor for the wrong thing.
+        track = str(cfg.get("track") or "lora")
+        how = (
+            f"pravrudhi study harness-noise-floor --config {path}"
+            if track.startswith("harness")
+            else f"pravrudhi study noise-floor --bench {bench} --out {variance}"
+        )
         raise NightPlanError(
             f"{path.name} needs the noise floor at {variance}, which does not exist; measure it with "
-            f"`pravrudhi study noise-floor --bench {bench} --out {variance}` before running a night on it"
+            f"`{how}` before running a night on it"
         )
     floor = json.loads(variance.read_text())
     measured = str(floor.get("bench") or "")

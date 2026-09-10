@@ -1,0 +1,11 @@
+{
+  "feedback_template": "Your previous solution failed these checks:\n{feedback}\nFix the code and return the full corrected function in one ```python block.",
+  "max_new_tokens": 512,
+  "n_samples": 1,
+  "retries": 1,
+  "system_prompt": "You are an expert Python programmer. Write correct, efficient code and return only a single Python code block.",
+  "temperature": 0.4,
+  "template": "{question}\n\nImplement the function described above. Return only the code in one ```python block.",
+  "thinking": false,
+  "use_visible_tests": true
+}

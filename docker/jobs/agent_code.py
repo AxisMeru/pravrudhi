@@ -16,11 +16,24 @@ from checks import visible_tests as checks_visible_tests
 from common import load_model, model_dir_hash, read_jsonl, sha256_file, write_jsonl
 
 CODE_RE = re.compile(r"```(?:python)?\n(.*?)```", re.S)
+#: An opening fence with no closing one. `max_new_tokens` truncates long APPS solutions mid-code, so the
+#: closing fence never arrives, `CODE_RE` matches nothing, and the fallback returned the raw text WITH the
+#: opening fence on it -- which is a guaranteed `SyntaxError: invalid syntax` at line 1 pointing at
+#: "```python". Every such item scored zero for a reason that was ours, and read as a model that cannot code.
+OPEN_FENCE_RE = re.compile(r"```(?:python)?\n(.*)\Z", re.S)
 
 
 def extract_code(text: str) -> str:
+    """The last fenced block, or an unterminated one, or the text as given.
+
+    A truncated solution is usually wrong anyway. The point is that it fails as the incomplete code it is,
+    where the failure names the missing line, instead of as a syntax error in a fence we left on.
+    """
     m = CODE_RE.findall(text)
-    return (m[-1] if m else text).strip()
+    if m:
+        return m[-1].strip()
+    unterminated = OPEN_FENCE_RE.search(text)
+    return (unterminated.group(1) if unterminated else text).strip()
 
 
 def visible_tests(question: str) -> list[str]:

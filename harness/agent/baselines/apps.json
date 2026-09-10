@@ -1,0 +1,14 @@
+{
+  "execution_family": "system_prompt",
+  "feedback_template": "Your previous solution failed these checks:\n{feedback}\nFix the code and return the whole corrected solve function.",
+  "max_new_tokens": 1024,
+  "n_samples": 1,
+  "rationale": "The starting recipe for the APPS pool. Every question already states the signature and carries a visible assert, so the only real change is max_new_tokens: at 512 long solutions were truncated mid-block, so the closing fence never arrived. Nothing here is tuned.",
+  "retries": 0,
+  "strategy": "prompt_only",
+  "system_prompt": "You are an expert Python programmer. Write a complete solution and return it in one Python code block.",
+  "temperature": 0.2,
+  "template": "{question}\n\nReturn the complete solution in one Python code block, and make sure the block is closed. Use the exact function signature the question states, and read nothing from the real standard input: the input arrives as the function's argument.",
+  "thinking": false,
+  "use_visible_tests": true
+}

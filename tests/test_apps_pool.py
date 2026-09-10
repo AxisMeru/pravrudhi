@@ -19,10 +19,16 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "docker" / "jobs"))
 
+from agent_code import extract_code  # noqa: E402
 from apps_check import run_solve  # noqa: E402
 from checks import visible_tests  # noqa: E402
 
-from pravrudhi.application.harness_track import SCORERS, _scorer  # noqa: E402
+from pravrudhi.application.harness_track import (  # noqa: E402
+    SCORERS,
+    _scorer,
+    baseline_recipe,
+    promoted_path,
+)
 from pravrudhi.application.pool_admin import seal_apps  # noqa: E402
 from pravrudhi_kernel.metrics.pool import load_manifest, read_item  # noqa: E402
 
@@ -148,3 +154,62 @@ def test_the_jsonl_export_keys_its_id_as_id_not_problem_id(tmp_path: Path) -> No
     assert _apps_task_id({"id": 9}) == "9"
     assert _apps_task_id({"problem_id": 1, "id": 2}) == "1", "the parquet name wins when both are present"
     assert _apps_task_id({"question": "no id at all"}) is None
+
+
+def test_an_unterminated_fence_yields_the_code_and_not_the_fence() -> None:
+    """`max_new_tokens` truncates long APPS solutions mid-code, so the closing fence never arrives. The
+    extractor returned the raw text WITH the opening fence on it, and every such item failed with
+    `SyntaxError: invalid syntax` at line 1 pointing at the fence -- our error, read as a model that cannot
+    code."""
+    truncated = "Here it is:\n```python\ndef solve(stdin):\n    return '4\\n'\n    # cut off mid-th"
+    got = extract_code(truncated)
+    assert not got.startswith("```")
+    assert got.startswith("def solve(stdin):")
+    # A closed fence still wins, and the LAST one, so a worked example before the answer does not.
+    closed = "```python\ndef solve(s):\n    return 'no'\n```\nand better:\n```python\ndef solve(s):\n    return 'yes'\n```"
+    assert extract_code(closed) == "def solve(s):\n    return 'yes'"
+    # Text with no fence at all is unchanged.
+    assert extract_code("def solve(s):\n    return ''") == "def solve(s):\n    return ''"
+
+
+def test_the_runner_compares_what_solve_returned_and_not_what_it_printed() -> None:
+    """Deliberate and reverted once. These items look like standard-input problems, but every question in the
+    pool states `def solve(stdin: str) -> str` and carries a visible `assert solve(...) == ...`, so the return
+    contract is what the model is told and what the harness's own retry feedback tests. A hidden scorer more
+    lenient than the visible test would prune candidates it would itself have passed."""
+    printer = "def solve(stdin):\n    print('4')"
+    assert run_solve(printer, ["x\n"], ["4\n"], timeout_s=6.0)["passed"] == 0
+    returner = "def solve(stdin):\n    return '4\\n'"
+    assert run_solve(returner, ["x\n"], ["4\n"], timeout_s=6.0)["passed"] == 1
+
+
+def test_a_baseline_recipe_is_per_bench_and_absent_means_the_grammar_default(tmp_path: Path) -> None:
+    """The grammar default is a CODE recipe. It was the starting incumbent on a law multiple-choice bench,
+    which is most of why the harness baseline scored 0.1042 there against the model track's 0.3993."""
+    root = Path(__file__).resolve().parents[1]
+    default = baseline_recipe(root, {"bench": "mbppplus"})
+    assert "Python programmer" in default.system_prompt
+
+    law = baseline_recipe(root, {"bench": "mmlu-law-val", "baseline_recipe": "harness/agent/baselines/mmlu-law-val.json"})
+    assert "Python" not in law.system_prompt
+    assert "letter of the correct option" in law.system_prompt
+
+    apps = baseline_recipe(root, {"bench": "apps", "baseline_recipe": "harness/agent/baselines/apps.json"})
+    assert apps.max_new_tokens == 1024, "512 truncated long solutions mid-block"
+
+    with pytest.raises(ValueError, match="does not exist"):
+        baseline_recipe(tmp_path, {"bench": "apps", "baseline_recipe": "nope.json"})
+
+    bad = tmp_path / "bad.json"
+    bad.write_text(json.dumps({"strategy": "prompt_only", "execution_family": "system_prompt", "retries": 9}))
+    # `parse_harness` returns the grammar's complaint as a string rather than raising, because the proposer's
+    # candidates are expected to be invalid sometimes. A baseline is not.
+    with pytest.raises(ValueError, match="not a valid harness recipe"):
+        baseline_recipe(tmp_path, {"bench": "apps", "baseline_recipe": "bad.json"})
+
+
+def test_a_promotion_writes_one_file_per_bench() -> None:
+    """There was one file for every bench, and `scripts/ext_humaneval.sh` reads it, so a law night's
+    promotion silently became what the external HumanEval+ proof ran."""
+    assert promoted_path(Path("/r"), "apps") == Path("/r/harness/agent/apps/harness.json")
+    assert promoted_path(Path("/r"), "mmlu-law-val") != promoted_path(Path("/r"), "apps")

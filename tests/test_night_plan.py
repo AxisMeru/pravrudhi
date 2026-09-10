@@ -151,3 +151,18 @@ def test_the_plan_names_the_training_corpus_the_config_declares(root: Path) -> N
 def test_a_config_with_no_training_corpus_leaves_the_caller_its_default(root: Path) -> None:
     # The model track passes `--train-parquet` and must keep working unchanged.
     assert resolve(root).train_corpus is None
+
+
+def test_a_missing_floor_names_the_command_for_that_track(tmp_path: Path) -> None:
+    """The two tracks measure their floors differently, and the single model-track suggestion sent a reader of
+    a harness config to `study noise-floor --bench`, which measures the trainee rather than the harness and
+    would write a floor for the wrong thing."""
+    prereg = tmp_path / "research" / "prereg"
+    prereg.mkdir(parents=True)
+    (prereg / "h.yaml").write_text("bench: apps\ntrack: harness\nnoise_floor: research/prereg/gone.json\n")
+    (prereg / "m.yaml").write_text("bench: apps\ntrack: lora\nnoise_floor: research/prereg/gone.json\n")
+
+    with pytest.raises(NightPlanError, match="study harness-noise-floor --config"):
+        resolve(tmp_path, config=prereg / "h.yaml")
+    with pytest.raises(NightPlanError, match="study noise-floor --bench apps"):
+        resolve(tmp_path, config=prereg / "m.yaml")
