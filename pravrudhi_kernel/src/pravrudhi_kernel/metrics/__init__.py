@@ -1,9 +1,9 @@
 """Benchmark definitions, sealed pools and scorers (T0). The only place a number about a model is computed.
 
-ADR-REF: ADR-0035. This module used to re-export `gsm8k`'s four functions as *the* scorer, so the engine had a
-single scoring path, numeric by construction, on every model-track night. A pool is now scored by the scorer
-its own manifest declares. There is no unconditional re-export: a caller names the kind it means, and a pool
-answers for itself.
+ADR-REF: ADR-0035, extended by ADR-0036 (`text`). This module used to re-export `gsm8k`'s four functions as
+*the* scorer, so the engine had a single scoring path, numeric by construction, on every model-track night.
+A pool is now scored by the scorer its own manifest declares. There is no unconditional re-export: a caller
+names the kind it means, and a pool answers for itself.
 
 Two consequences worth stating plainly, because both are provenance rather than convenience:
 
@@ -19,7 +19,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Protocol
 
-from pravrudhi_kernel.metrics import gsm8k, mmlu
+from pravrudhi_kernel.metrics import citation, gsm8k, mmlu
 from pravrudhi_kernel.metrics.pool import (
     ANSWER_KINDS,
     DEFAULT_ANSWER_KIND,
@@ -44,7 +44,7 @@ class Scorer(Protocol):
     def score_completions(self, completions: Mapping[str, str], golds: Mapping[str, str]) -> dict[str, int]: ...
 
 
-SCORERS: dict[str, Scorer] = {"choice": mmlu, "numeric": gsm8k}
+SCORERS: dict[str, Scorer] = {"choice": mmlu, "numeric": gsm8k, "text": citation}
 
 # A kind with no scorer seals a pool nothing can score; a scorer with no kind is unreachable. Either drift is
 # a defect, so it fails at import rather than on the night that needed it.
@@ -92,6 +92,7 @@ __all__ = [
     "Scorer",
     "answer_kind",
     "draw_rotation",
+    "citation",
     "gsm8k",
     "mmlu",
     "record_exposure",

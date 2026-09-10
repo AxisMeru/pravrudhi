@@ -22,8 +22,10 @@ from pravrudhi.application.corpus import (
     CASEHOLD_HOLDINGS,
     build_case_existence,
     build_casehold,
+    build_citation_recall,
     case_existence_rows,
     casehold_rows,
+    citation_rows,
 )
 
 
@@ -213,3 +215,68 @@ class TestCaseExistence:
             self._csv(tmp_path, self._rows()), tmp_path / "u.parquet", balance_answers=False
         )
         assert manifest["balanced"] is False
+
+
+class TestCitationRecall:
+    """The corpus for the metric rather than its proxy (ADR-0036).
+
+    `citation_precision` is 0.0000 at n=1000 and neither other corpus can move it: CaseHOLD asks which of five
+    given holdings is correct, and recall is not discrimination. These items give a case name and no options.
+    """
+
+    HEADER = TestCaseExistence.HEADER
+
+    @classmethod
+    def _csv(cls, tmp_path: Path, rows: list[dict[str, str]]) -> Path:
+        return TestCaseExistence._csv(tmp_path, rows)
+
+    @staticmethod
+    def _rows() -> list[dict[str, str]]:
+        few_shot = (
+            'What is the citation for the given circuit court case? Provide ONLY the citation in '
+            '"<volume>, <reporter>, <page>" format, nothing else.\n\nExamples:\n```\n'
+            "Case: Viacom International Inc. v. YouTube, Inc.\nAnswer: 676 F.3d 19\n```\n\n"
+            "Case: Lombardi v. Tauro\nAnswer:"
+        )
+        inline = (
+            "What is the citation for the circuit court case City of Duluth v. Abbott? Provide ONLY the "
+            'citation in "<volume>, <reporter>, <page>" format, nothing else.'
+        )
+        return [
+            {"task": "citation_retrieval", "citation": "470 F.2d 798", "query": few_shot},
+            {"task": "citation_retrieval", "citation": "117 F. 137", "query": inline},
+            # The same query again from another model: the published dataset repeats every one.
+            {"task": "citation_retrieval", "citation": "470 F.2d 798", "query": few_shot, "llm": "gpt-4"},
+            # Another task entirely, which must not be swept in.
+            {"task": "case_existence", "citation": "1 F.2d 1",
+             "query": 'Is the case A v. B, 1 F.2d 1 (1950), a real case? Say "yes" or "no" only.'},
+        ]
+
+    def test_the_case_name_is_taken_from_either_prompt_shape(self, tmp_path: Path) -> None:
+        rows = citation_rows(self._csv(tmp_path, self._rows()))
+        names = {r["question"].splitlines()[-1] for r in rows}
+        assert names == {"Case: Lombardi v. Tauro", "Case: City of Duluth v. Abbott"}
+        assert len(rows) == 2, "repeats collapse to one item, and other tasks are not swept in"
+
+    def test_the_gold_is_a_citation_the_kernel_text_scorer_reads(self, tmp_path: Path) -> None:
+        from pravrudhi_kernel.metrics.citation import gold_answer, score_item
+
+        for row in citation_rows(self._csv(tmp_path, self._rows())):
+            assert gold_answer(row["answer"]) == row["answer"]
+            # And a correct completion scores, so rejection sampling can actually keep a row.
+            assert score_item(f"The citation is {row['answer']}.", row["answer"]) == 1
+
+    def test_the_evaluation_citations_are_held_out(self, tmp_path: Path) -> None:
+        manifest = build_citation_recall(
+            self._csv(tmp_path, self._rows()), tmp_path / "c.parquet", exclude_citations={"470 f. 2d 798"}
+        )
+        assert manifest["n_rows"] == 1
+        assert manifest["n_excluded"] == 1
+        assert manifest["answer_kind"] == "text"
+
+    def test_the_parquet_is_in_the_shape_the_night_loader_reads(self, tmp_path: Path) -> None:
+        import pyarrow.parquet as pq
+
+        out = tmp_path / "c.parquet"
+        build_citation_recall(self._csv(tmp_path, self._rows()), out)
+        assert pq.read_table(out).column_names == ["question", "answer"]

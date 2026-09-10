@@ -44,6 +44,10 @@ REGLAB_URL = "https://huggingface.co/datasets/{repo}/resolve/main/dataset.csv"
 REGLAB_REAL_TASKS = ("case_existence", "citation_retrieval")
 REGLAB_FAKE_TASKS = ("fake_case_existence", "fake_dissent", "fake_year_overruled")
 EXISTENCE_INSTRUCTION = "Is this a real case?"
+CITATION_INSTRUCTION = (
+    'What is the citation for the given case? Provide ONLY the citation in "<volume> <reporter> <page>" '
+    "format, nothing else."
+)
 EXISTENCE_OPTIONS = ("yes", "no")
 
 CASEHOLD_REPO = "casehold/casehold"
@@ -109,6 +113,24 @@ def _case_name(query: str) -> str:
     """The case as named in a RegLab existence prompt, which reads `Is the case X, <cite> (year), a real case?`"""
     match = re.search(r"Is the case (.+?), a real case\?", query)
     return match.group(1).strip() if match else query.strip()
+
+
+def _cited_case_name(query: str) -> str:
+    """The case named in a RegLab citation prompt, which reads `What is the citation for ... case X? Provide...`
+
+    The published prompts come in several shapes -- with and without a few-shot block, with the case in the
+    sentence or on its own `Case:` line -- so the name is taken from whichever form matched rather than by
+    assuming one.
+
+    The LAST `Case:` block, not the first. A few-shot prompt lists worked examples before the real question, so
+    the first match is an example -- and pairing an example's NAME with the target's CITATION would have
+    written a systematically mislabelled corpus that nothing downstream could detect.
+    """
+    blocks = re.findall(r"(?s)\bCase:\s*(.+?)\s*(?:\nAnswer:|$)", query)
+    if blocks:
+        return str(blocks[-1]).strip()
+    inline = re.search(r"citation for (?:the )?(?:\w+ )*?case (.+?)\?", query)
+    return inline.group(1).strip() if inline else ""
 
 
 def case_existence_rows(
@@ -224,6 +246,87 @@ def build_case_existence(
         "note": (
             "Teaches declining, which is the behaviour the objective names and whose baseline is "
             "citation_abstention 0.0000 at n=2444. A is yes (the case is real), B is no (it was invented)."
+        ),
+    }
+    out.with_suffix(".manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
+    return manifest
+
+
+def citation_rows(source: Path, *, exclude_citations: Iterable[str] = ()) -> list[dict[str, str]]:
+    """Case name -> citation, as free-text items (ADR-0036).
+
+    The corpus for the metric itself rather than for its proxy. `citation_precision` is 0.0000 at n=1000 and
+    neither of the other two corpora can move it: CaseHOLD asks which of five given holdings is correct, and
+    recall is not discrimination. RegLab's `citation_retrieval` rows carry the ground-truth citation in their
+    own column, 13,531 distinct (case, citation) pairs once the repeats across models and temperatures are
+    collapsed.
+
+    Verified at training time by `metrics.citation`, which is why ADR-0036 had to add it: `gsm8k.gold_answer`
+    rejects a citation for lacking '####' and `mmlu.gold_answer` for not being one letter, so rejection
+    sampling could not check a single row of this.
+    """
+    csv.field_size_limit(sys.maxsize)
+    held = {_citation_key(c) for c in exclude_citations}
+    seen: set[tuple[str, str]] = set()
+    out: list[dict[str, str]] = []
+    with Path(source).open(newline="") as fh:
+        for record in csv.DictReader(fh):
+            if str(record.get("task") or "") != "citation_retrieval":
+                continue
+            citation = str(record.get("citation") or "").strip()
+            if not citation or _citation_key(citation) in held:
+                continue
+            name = _cited_case_name(str(record.get("query") or ""))
+            if not name:
+                continue
+            key = (name, _citation_key(citation))
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(
+                {
+                    "id": f"cite-{len(out):06d}",
+                    "question": f"{CITATION_INSTRUCTION}\n\nCase: {name}",
+                    "answer": citation,
+                }
+            )
+    return out
+
+
+def build_citation_recall(
+    source: Path, out: Path, *, exclude_citations: Iterable[str] = (), count: int | None = None, seed: int = 0
+) -> dict[str, Any]:
+    """Write the citation-recall training parquet, recording what was held out."""
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    excluded = list(exclude_citations)
+    everything = citation_rows(source)
+    rows = citation_rows(source, exclude_citations=excluded)
+    n_excluded = len(everything) - len(rows)
+    if count is not None and count < len(rows):
+        rows = sorted(random.Random(seed).sample(rows, count), key=lambda r: r["id"])
+    out = Path(out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    pq.write_table(
+        pa.table({"question": [r["question"] for r in rows], "answer": [r["answer"] for r in rows]}), out
+    )
+    manifest = {
+        "corpus": "reglab-citation-recall",
+        "answer_kind": "text",
+        "n_rows": len(rows),
+        "n_excluded": n_excluded,
+        "seed": seed,
+        "source": {
+            "file": Path(source).name,
+            "sha256": hashlib.sha256(Path(source).read_bytes()).hexdigest(),
+            "origin": REGLAB_ORIGIN,
+        },
+        "held_out_citations": sorted(excluded)[:50],
+        "note": (
+            "Recall, not discrimination: the model is given a case name and no options. Verified by "
+            "metrics.citation (ADR-0036). One citation per case, so a case reported in two reporters "
+            "undercounts -- the same limit the external metric has."
         ),
     }
     out.with_suffix(".manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
