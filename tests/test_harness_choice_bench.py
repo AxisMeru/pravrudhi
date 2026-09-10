@@ -157,3 +157,51 @@ def test_the_floor_writer_refuses_to_overwrite_another_benchs_floor(tmp_path: Pa
     # Re-measuring the same bench into its own floor is not an overwrite worth refusing.
     (prereg / "variance_harness_apps.json").write_text(json.dumps({"bench": "apps", "sigma_seed": 0.02}))
     assert floor_dest(tmp_path, cfg).exists()
+
+
+def test_the_unparsed_count_travels_into_the_observation(tmp_path: Path) -> None:
+    """On a choice bench this is the term that DOMINATES the measurement, and it was recoverable from a job
+    directory and absent from the ledger. The casehold-val floor is the case: rotations scored 0.441, 0.368
+    and 0.188, and that spread tracks unparsed rates of 35%, 40% and 52% rather than anything about law. A
+    number that explains a result has to be in the row that reports it -- CHARTER §6."""
+    from pravrudhi.application.harness_track import with_unparsed
+
+    out = tmp_path / "out"
+    out.mkdir()
+    ref = out / "per_item_scores.jsonl"
+    ref.write_text("")
+
+    # No file written by the scorer means none were unparsed, which is a real zero.
+    assert with_unparsed({"model": "m"}, ref) == {"model": "m", "n_unparsed": 0}
+
+    (out / "unparsed.json").write_text(json.dumps({"n": 50, "ids": ["a"] * 50}))
+    got = with_unparsed({"model": "m"}, ref)
+    assert got["n_unparsed"] == 50
+    assert got["model"] == "m", "the existing meta must survive"
+
+    # An unreadable file is unknown, not a comforting zero -- the same distinction the scorers keep between a
+    # format miss and a wrong answer.
+    (out / "unparsed.json").write_text("{ this is not json")
+    assert with_unparsed({}, ref)["n_unparsed"] is None
+
+
+def test_the_bucket_no_longer_claims_a_code_corpus_on_a_law_bench(tmp_path: Path) -> None:
+    """`corpus` was the literal string "mbppplus" for every bench this track ran, so the ledger's
+    casehold-val and mmlu-law-val observations all named a code corpus that was never involved."""
+    from pravrudhi.application.harness_track import HarnessContext
+
+    prereg = tmp_path / "research" / "prereg"
+    prereg.mkdir(parents=True)
+    (prereg / "v.json").write_text(json.dumps({"bench": "casehold-val", "sigma_seed": 0.01}))
+    cfg = {
+        "model": "Qwen/Qwen3-1.7B", "bench": "casehold-val",
+        "noise_floor": "research/prereg/v.json",
+        "boundary": {"alpha_eff": 0.05, "alpha_fut": 0.2, "k_max": 4, "sigma_mode": "adaptive",
+                     "n0": 3, "delta_min_floor": 0.034, "min_n_confirm": 2},
+    }
+    ctx = HarnessContext(tmp_path, cfg, 1, lambda _: None, measuring=True)
+    assert ctx.bucket["task_family"] == "casehold-val"
+    assert "mbppplus" not in ctx.bucket["corpus"]
+    # This track trains nothing, and the honest value says so rather than naming a corpus or repeating the
+    # bench (which `task_family` already carries).
+    assert "trains-nothing" in ctx.bucket["corpus"]

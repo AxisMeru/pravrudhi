@@ -169,7 +169,17 @@ class HarnessContext:
                     "min_n_confirm": int(b.get("min_n_confirm", 1)),
                 }
             )
-        self.bucket = {"task_family": str(cfg["bench"]), "target_model": str(cfg["model"]), "corpus": "mbppplus"}
+        # `corpus` was the literal string "mbppplus" for every bench this track has ever run, so the ledger's
+        # casehold-val and mmlu-law-val observations all claimed a CODE corpus that was never involved. Found
+        # by reading an observation envelope, not by any check. `Bucket.corpus` is a required `str`, so the
+        # honest value is not None but a statement of the fact: this track trains nothing, and what varies is
+        # the harness. The bench is already in `task_family`; repeating it here as a corpus would be a
+        # different untruth.
+        self.bucket = {
+            "task_family": self.bench,
+            "target_model": str(cfg["model"]),
+            "corpus": "none:harness-track-trains-nothing",
+        }
 
     def job_dir(self, tag: str) -> Path:
         d = Path(self.state.jobs_dir) / f"h{self.night}-{tag}-{int(time.time() * 1000) % 10**8}"
@@ -376,7 +386,7 @@ def paired_eval(
     admit_observation(
         w,
         expected=ih,
-        job_meta=imeta,
+        job_meta=with_unparsed(imeta, iref),
         per_item_scores=iscores,
         per_item_ref=str(iref),
         run_id=ijd.name,
@@ -418,7 +428,7 @@ def admit_candidate(
     admit_observation(
         w,
         expected=ch,
-        job_meta=cmeta,
+        job_meta=with_unparsed(cmeta, cref),
         per_item_scores=cscores,
         per_item_ref=str(cref),
         run_id=cjd.name,
@@ -474,6 +484,28 @@ def baseline_recipe(root: Path, cfg: dict[str, Any]) -> HarnessRecipe:
         # would silently fall back to the code recipe and the night would measure the mismatch again.
         raise ValueError(f"{path} is not a valid harness recipe: {parsed}")
     return parsed
+
+
+def with_unparsed(meta: dict[str, Any], per_item_ref: Path) -> dict[str, Any]:
+    """`meta` plus the count of completions that committed to no answer at all.
+
+    Both scoring paths already write `unparsed.json` beside the per-item scores, and neither lifted it into
+    the observation -- so on a choice bench the term that DOMINATES the measurement was recoverable from a
+    job directory and absent from the ledger. The casehold-val floor is the case in point: its three rotations
+    scored 0.441, 0.368 and 0.188, and the spread tracks an unparsed rate of 35%, 40% and 52% rather than
+    anything about law. A number that explains a result has to be in the row that reports it, or the row
+    invites the wrong reading -- and CHARTER §6 says no number is stated that the ledger does not contain.
+
+    Absence is recorded as absence: a run whose scorer wrote no `unparsed.json` gets 0, and one whose file
+    cannot be read gets `None` rather than a comforting zero.
+    """
+    path = Path(per_item_ref).parent / "unparsed.json"
+    if not path.exists():
+        return {**meta, "n_unparsed": 0}
+    try:
+        return {**meta, "n_unparsed": int(json.loads(path.read_text())["n"])}
+    except (OSError, ValueError, KeyError):
+        return {**meta, "n_unparsed": None}
 
 
 def baseline_sha256(recipe: HarnessRecipe) -> str:
@@ -577,7 +609,7 @@ def harness_noise_floor(
             _, obs = admit_observation(
                 w,
                 expected=h,
-                job_meta=meta,
+                job_meta=with_unparsed(meta, sref),
                 per_item_scores=scores,
                 per_item_ref=str(sref),
                 run_id=jd.name,
@@ -925,7 +957,7 @@ def _execute_one(ctx: HarnessContext, w: LedgerWriter, cid: str, rec: HarnessRec
     admit_observation(
         w,
         expected=ih,
-        job_meta=imeta,
+        job_meta=with_unparsed(imeta, iref),
         per_item_scores=iscores,
         per_item_ref=str(iref),
         run_id=ijd.name,
