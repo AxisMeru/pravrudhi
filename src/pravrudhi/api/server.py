@@ -66,6 +66,7 @@ from pravrudhi.api.schemas import (
     ObjectiveResponse,
     ObjectivesResponse,
     ObservationsResponse,
+    PanelVendorsResponse,
     ParityResponse,
     PlanResponse,
     ProviderKeyRemovedResponse,
@@ -978,6 +979,37 @@ def create_app(root: Path) -> FastAPI:
             {"id": p.id, "title": p.title, "configured": p.id in configured, "key_prefix": p.key_prefix}
             for p in PROVIDERS.values()
         ]
+
+    @api.get("/panel/vendors", response_model=PanelVendorsResponse)
+    async def panel_vendors_ep(
+        workspace: str | None = None, user: User | None = CurrentUserDep
+    ) -> list[dict[str, Any]]:
+        """The seats a comparison can use from this install, and why any of them cannot be used.
+
+        User-facing rather than operator-only, and that is the decision this route records. Everything under
+        `ADMIN_ONLY` is about Pravrudhi improving *itself*. Comparing vendors is not: it is the thing a user
+        of the product does when they build their own verification layer on top of whichever models they can
+        reach, which is what Track A is (ADR-0001, AxisMeru/prabhasa-nyaya). The operator's `panel run` and a
+        user's comparison read the same registry and the same stored keys.
+
+        Read-only on purpose. A key arrives through `/api/providers/{provider_id}/key`, which validates it
+        against the provider; a second way in would be a second thing to get wrong, and this response can
+        never carry a secret because it only ever names variables and provider ids.
+        """
+        from pravrudhi.application.panel import PANEL_CONFIG, VENDORS, tuned
+
+        project = _project(user, workspace)
+        rows: list[dict[str, Any]] = []
+        for vendor in tuned(list(VENDORS.values()), config=project / PANEL_CONFIG):
+            # `reachable` resolves a stored key against the CALLER's project, not the engine's root, so one
+            # user's configured key never shows as another's.
+            ok, detail = vendor.reachable_in(project)
+            rows.append({
+                "id": vendor.id, "interface": vendor.interface, "model": vendor.model,
+                "provider": vendor.provider or None, "credential_env": vendor.credential or None,
+                "params": dict(vendor.params), "reachable": ok, "detail": detail, "note": vendor.note,
+            })
+        return rows
 
     @api.post("/providers/{provider_id}/key", response_model=ProviderKeyResponse)
     async def set_provider_key(

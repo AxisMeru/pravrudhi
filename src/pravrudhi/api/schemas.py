@@ -983,6 +983,29 @@ class ProvidersResponse(RootModel[list[ProviderResponse]]):
     """The provider collection previously left its entries untyped."""
 
 
+class PanelVendorResponse(BaseModel):
+    """One seat a comparison can use, and whether it can be used right now.
+
+    No key and no prefix of one. `credential_env` is the NAME of a variable and `provider` the id whose key
+    `/api/providers/{provider_id}/key` accepts, so a caller can see what to supply without this response ever
+    being able to carry a secret.
+    """
+
+    id: str
+    interface: str
+    model: str
+    provider: str | None
+    credential_env: str | None
+    params: dict[str, JsonValue]
+    reachable: bool
+    detail: str
+    note: str
+
+
+class PanelVendorsResponse(RootModel[list[PanelVendorResponse]]):
+    """What a user's own vendor comparison can reach from this install."""
+
+
 class ProviderKeyResponse(BaseModel):
     """Storing a bring-your-own key had no response contract, and one typed loosely could carry the key
     itself back to the caller instead of just whether it validated."""

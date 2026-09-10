@@ -47,21 +47,31 @@ class Vendor:
     base_url: str = ""
     credential: str = ""    # the NAME of an environment variable, never a value
     credential_file: str = ""   # optional 0600 file holding `NAME=value`, this project's own convention
+    provider: str = ""      # the `credentials.PROVIDERS` id whose stored key this vendor can use, if any
     note: str = ""
 
-    def key(self) -> str | None:
-        """The credential, from the environment or from the 0600 file this project stores keys in.
+    def key(self, root: Path | None = None) -> str | None:
+        """The credential: the environment, then the product's own credential store, then the 0600 file.
 
-        Both, in that order, because bring-your-own-key is an environment variable when the product is in
-        someone else's hands, and a mode-0600 file under `~/.config` on the operator's own machine -- which
-        is where `DASHSCOPE_API_KEY` already lives. Reading only the environment reported a configured key as
-        missing.
+        Three places because bring-your-own-key means three different things depending on whose hands this is
+        in. An environment variable is how a CI or a headless install supplies one. The product's store --
+        `<root>/.pravrudhi/credentials/<provider>.key`, written by `/api/providers/{id}/key` -- is how a USER
+        supplies one, by pasting it into the app; without this the panel could not see a key the product had
+        already accepted, which would make "the fleet is in the product" untrue in the only way that matters.
+        A mode-0600 file under `~/.config` is the operator's own machine, which is where `DASHSCOPE_API_KEY`
+        already lives; reading only the environment reported that configured key as missing.
         """
         if not self.credential:
             return None
         from_env = os.environ.get(self.credential)
         if from_env:
             return from_env
+        if self.provider and root is not None:
+            from pravrudhi.application.credentials import FileCredentialStore
+
+            stored = FileCredentialStore(Path(root)).get(self.provider)
+            if stored:
+                return stored.reveal()
         if not self.credential_file:
             return None
         path = Path(self.credential_file).expanduser()
@@ -84,7 +94,16 @@ class Vendor:
 
     @property
     def reachable(self) -> tuple[bool, str]:
-        """Whether this vendor can be asked right now, and why not if it cannot."""
+        """`reachable_in` against the current directory: the operator's own install."""
+        return self.reachable_in(Path.cwd())
+
+    def reachable_in(self, root: Path) -> tuple[bool, str]:
+        """Whether this vendor can be asked from `root`, and why not if it cannot.
+
+        The root is a parameter because a stored key belongs to one project. Resolving it against the
+        engine's own directory would show one user's configured key as everyone's -- the failure
+        `workspace_root` exists to prevent, arrived at from a different direction.
+        """
         if self.interface == "cli":
             import shutil
 
@@ -93,10 +112,16 @@ class Vendor:
         if self.interface == "openai_compat" and self.credential:
             if os.environ.get(self.credential):
                 return True, "key in environment"
-            if self.key():
-                return True, f"key in {self.credential_file}"
-            where = f" or {self.credential_file}" if self.credential_file else ""
-            return False, f"{self.credential} is not set in the environment{where} (bring your own key)"
+            if self.provider and self.key(root) and not self.credential_file:
+                return True, f"key stored for provider {self.provider}"
+            if self.key(root):
+                return True, f"key in {self.credential_file or f'the store for {self.provider}'}"
+            places = ["the environment"]
+            if self.provider:
+                places.append(f"the stored key for {self.provider}")
+            if self.credential_file:
+                places.append(self.credential_file)
+            return False, f"{self.credential} is in none of {', '.join(places)} (bring your own key)"
         if self.interface == "local_gguf":
             return (True, "local weights") if Path(self.model).exists() else (False, f"{self.model} missing")
         return True, "no credential required"
@@ -125,6 +150,32 @@ _CLI = {"temperature": 0.0, "max_tokens": 2048}
 # because an unpinned sampler makes a comparison unrepeatable.
 _API = {"temperature": 0.0, "max_tokens": 2048, "top_p": 1.0, "seed": 0}
 
+def _from_provider(provider_id: str, model: str, compat_suffix: str = "") -> Vendor:
+    """A panel vendor built from the product's BYOK provider of the same name.
+
+    The key variable, the title and the key validation stay in the registry that owns them; only the model id
+    and the OpenAI-compatibility suffix are the panel's business.
+
+    `compat_suffix` is per provider and not derived, because the shape differs and a rule would be wrong for
+    one of them: Google's OpenAI-compatible endpoint is `.../v1beta/openai` while Anthropic's is the same
+    `.../v1` the native API uses. A single "append /openai unless openai_compatible" rule produced
+    `https://api.anthropic.com/v1/openai`, which does not exist.
+    """
+    from pravrudhi.application.credentials import PROVIDERS
+
+    provider = PROVIDERS[provider_id]
+    return Vendor(
+        id=f"{provider_id}-api",
+        interface="openai_compat",
+        model=model,
+        base_url=provider.base_url.rstrip("/") + compat_suffix,
+        credential=provider.key_env,
+        provider=provider_id,
+        params=dict(_API),
+        note=f"{provider.title}; bring your own key via /api/providers/{provider_id}/key -- unrunnable until one exists",
+    )
+
+
 VENDORS: dict[str, Vendor] = {
     "claude-cli": Vendor(
         id="claude-cli", interface="cli", model="claude", params=dict(_CLI),
@@ -137,25 +188,23 @@ VENDORS: dict[str, Vendor] = {
     "qwen-dashscope": Vendor(
         id="qwen-dashscope", interface="openai_compat", model="qwen3-coder-plus",
         base_url="https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
-        credential="DASHSCOPE_API_KEY", credential_file="~/.config/llm/dashscope.env", params=dict(_API),
+        credential="DASHSCOPE_API_KEY", credential_file="~/.config/llm/dashscope.env",
+        provider="alibaba", params=dict(_API),
         note="the operator's Singapore credential; the file it comes from picks the endpoint",
     ),
-    "anthropic-api": Vendor(
-        id="anthropic-api", interface="openai_compat", model="claude-opus-5",
-        base_url="https://api.anthropic.com/v1", credential="ANTHROPIC_API_KEY", params=dict(_API),
-        note="built, unrunnable until a key exists; not a show stopper for A1.1",
-    ),
-    "openai-api": Vendor(
-        id="openai-api", interface="openai_compat", model="gpt-5",
-        base_url="https://api.openai.com/v1", credential="OPENAI_API_KEY", params=dict(_API),
-        note="built, unrunnable until a key exists",
-    ),
-    "google-api": Vendor(
-        id="google-api", interface="openai_compat", model="gemini-3-pro",
-        base_url="https://generativelanguage.googleapis.com/v1beta/openai",
-        credential="GOOGLE_API_KEY", params=dict(_API),
-        note="built, unrunnable until a key exists",
-    ),
+    # Derived from the product's own BYOK registry, not restated. `credentials.PROVIDERS` already holds the
+    # base URL and key variable for each of these, the product already has `/api/providers/{id}/key` to put a
+    # key there, and two registries naming the same endpoint drift -- one of them gets a new base URL and the
+    # other keeps answering. So a key a user pastes into the app is the key a panel run uses, which is what
+    # "expand the fleet into the product" has to mean if it means anything.
+    **{
+        f"{_pid}-api": _from_provider(_pid, _model, _suffix)
+        for _pid, _model, _suffix in (
+            ("anthropic", "claude-opus-5", ""),          # OpenAI-compatible on the same /v1 as the native API
+            ("openai", "gpt-5", ""),
+            ("google", "gemini-3-pro", "/openai"),       # the native /v1beta is a different protocol
+        )
+    },
     "glm-local": Vendor(
         id="glm-local", interface="local_gguf",
         model=str(Path.home() / ".cache/huggingface/hub/models--ggml-org--GLM-4.7-Flash-GGUF"),
@@ -258,7 +307,7 @@ def ask_vendor(vendor: Vendor, prompt: str) -> Answer:
     if vendor.interface == "openai_compat":
         from pravrudhi.models.openai_compat import ChatClient
 
-        key = vendor.key()
+        key = vendor.key(Path.cwd())
         if vendor.credential and not key:
             raise RuntimeError(f"{vendor.credential} is not set")
         client = ChatClient(base_url=vendor.base_url, model=vendor.model, api_key=key)
@@ -289,7 +338,7 @@ def panel_manifest(prompts: Sequence[dict[str, str]], vendors: Sequence[Vendor])
         "vendors": [
             {
                 "id": v.id, "interface": v.interface, "model": v.model, "params": dict(v.params),
-                "credential_env": v.credential or None, "note": v.note,
+                "credential_env": v.credential or None, "provider": v.provider or None, "note": v.note,
                 "reachable": v.reachable[0], "reachable_detail": v.reachable[1],
             }
             for v in vendors

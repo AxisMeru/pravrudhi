@@ -164,3 +164,42 @@ def test_an_override_value_is_typed_by_what_it_looks_like() -> None:
     assert parse_override("v:thinking=TRUE") == ("v", "thinking", True)
     assert parse_override("v:seed=none") == ("v", "seed", None)
     assert parse_override("v:model=gpt-5") == ("v", "model", "gpt-5")
+
+
+def test_a_panel_vendor_uses_a_key_the_product_stored(tmp_path: Path) -> None:
+    """"Expand the fleet into the product" is untrue in the only way that matters if a key a user pasted into
+    the app is invisible to a panel run. `/api/providers/{id}/key` writes into
+    `<root>/.pravrudhi/credentials/<provider>.key`, and this is the panel reading it."""
+    from pravrudhi.application.credentials import FileCredentialStore
+
+    FileCredentialStore(tmp_path).put("openai", "sk-stored-by-the-product")
+    vendor = VENDORS["openai-api"]
+    assert vendor.provider == "openai"
+    assert vendor.key(tmp_path) == "sk-stored-by-the-product"
+    # No root, no store: a vendor asked in isolation falls back to the environment alone and finds nothing.
+    assert vendor.key() is None
+
+
+def test_the_environment_outranks_the_stored_key(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A headless or CI install supplies its key in the environment, and that has to win over whatever a
+    previous interactive session left in the store."""
+    from pravrudhi.application.credentials import FileCredentialStore
+
+    FileCredentialStore(tmp_path).put("openai", "sk-stored")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-from-env")
+    assert VENDORS["openai-api"].key(tmp_path) == "sk-from-env"
+
+
+def test_an_api_vendors_endpoint_comes_from_the_products_registry() -> None:
+    """One registry for a base URL. Two that name the same endpoint drift: one gets a new URL and the other
+    keeps answering. The compatibility suffix is per provider and NOT derived, because a single rule was wrong
+    for one of them -- Anthropic's OpenAI-compatible endpoint is the same /v1 as its native API, so appending
+    /openai produced https://api.anthropic.com/v1/openai, which does not exist."""
+    from pravrudhi.application.credentials import PROVIDERS
+
+    assert VENDORS["openai-api"].base_url == PROVIDERS["openai"].base_url
+    assert VENDORS["anthropic-api"].base_url == PROVIDERS["anthropic"].base_url
+    assert VENDORS["google-api"].base_url == PROVIDERS["google"].base_url.rstrip("/") + "/openai"
+    for vid in ("openai-api", "anthropic-api", "google-api", "qwen-dashscope"):
+        v = VENDORS[vid]
+        assert v.credential == PROVIDERS[v.provider].key_env, vid

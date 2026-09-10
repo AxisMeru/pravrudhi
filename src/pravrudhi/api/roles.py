@@ -124,6 +124,9 @@ USER_FACING: frozenset[str] = frozenset({
     "/api/notifications", "/api/notifications/read",
     "/api/objectives", "/api/objectives/plan-preview", "/api/objectives/{oid}",
     "/api/objectives/{oid}/loom", "/api/objectives/{oid}/plan", "/api/objectives/{oid}/subagents",
+    # Not operator-only: comparing the models you can reach is what a user of the product does when they
+    # build their own verification layer on one. See the route's own docstring.
+    "/api/panel/vendors",
     "/api/providers", "/api/providers/{provider_id}/key",
     "/api/recipes",
     "/api/tools",
