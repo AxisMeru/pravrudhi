@@ -15,7 +15,7 @@ import yaml
 from pravrudhi.application.spine import expected_hashes, resolve_model_snapshot, run_eval_job, score_job, write_job_inputs
 from pravrudhi_kernel.ledger import LedgerWriter
 from pravrudhi_kernel.ledger.verify import iter_events
-from pravrudhi_kernel.metrics import draw_rotation, record_exposure
+from pravrudhi_kernel.metrics import answer_kind, draw_rotation, is_binary, record_exposure
 from pravrudhi_kernel.sandbox import admit_observation, ensure_kernel_state
 from pravrudhi_kernel.sandbox.observe import model_dir_hash
 from pravrudhi_kernel.sandbox.runner import docker_available
@@ -36,6 +36,23 @@ def current_incumbent(root: Path) -> dict[str, Any] | None:
                 "seq": ev.seq,
             }
     return last
+
+
+def pass_interval(x: np.ndarray, *, binary: bool, seed: int) -> dict[str, Any]:
+    """A 95% interval for one arm's pass rate, by the method its score scale admits.
+
+    A Wilson interval is a confidence interval for a PROPORTION and needs a count of successes.
+    `int(x.sum())` supplies one for any scale -- it type-checks, it stays inside `[0, n]`, and on the `set`
+    kind's per-item Jaccard it silently truncates (66.7 successes becomes 66) and returns a number nobody can
+    interpret. So Wilson is computed only where it means something, a bootstrap interval for the mean is
+    reported in its place otherwise, and `method` names which one ran. ADR-0038.
+    """
+    n = int(x.size)
+    if not n:
+        return {"method": "wilson" if binary else "bca_mean", "ci95": None}
+    if binary:
+        return {"method": "wilson", "ci95": list(wilson_ci(int(x.sum()), n))}
+    return {"method": "bca_mean", "ci95": list(boot_ci_bca_mean(x, n_boot=10_000, seed=seed))}
 
 
 def paired_confirm(
@@ -125,6 +142,12 @@ def paired_confirm(
     xc = np.array([c["scores"][i] for i in ids], float)
     d = xc - xb
     mean_b, mean_c = float(xb.mean()), float(xc.mean())
+    # From the pool's own declared kind, not by inspecting the values: a fractional pool whose 100 items
+    # happened to all score 0 or 1 would otherwise be labelled binary and get a Wilson interval that the next
+    # rotation would invalidate.
+    binary_scores = is_binary(answer_kind(pool_dir))
+    ci_c = pass_interval(xc, binary=binary_scores, seed=seed)
+    ci_b = pass_interval(xb, binary=binary_scores, seed=seed)
     admit_observation(
         w,
         expected=b["exp"],
@@ -161,11 +184,27 @@ def paired_confirm(
         "wins": int((d > 0).sum()),
         "losses": int((d < 0).sum()),
         "ties": int((d == 0).sum()),
-        "wilson_candidate": list(wilson_ci(int(xc.sum()), len(ids))),
-        "wilson_baseline": list(wilson_ci(int(xb.sum()), len(ids))),
+        # Which scale the per-item scores are on, always stated. Every field below depends on it, and a
+        # reader cannot tell 0.667 from a truncated 0/1 count after the fact.
+        "score_scale": "binary" if binary_scores else "fractional",
+        # A Wilson interval is a confidence interval for a PROPORTION, so it needs a count of successes.
+        # `int(xc.sum())` supplies one for any scale -- it type-checks, it stays inside [0, n], and on the
+        # `set` kind's per-item Jaccard it silently truncates (66.7 successes becomes 66) and returns a number
+        # nobody can interpret. So it is computed only where it means something, and a bootstrap interval for
+        # the mean is reported in its place otherwise. ADR-0038.
+        "pass_ci_candidate": ci_c,
+        "pass_ci_baseline": ci_b,
+        # Kept under their old names for readers that already parse them, and null on a scale where they do
+        # not apply rather than quietly holding the interval of a truncated count.
+        "wilson_candidate": ci_c["ci95"] if binary_scores else None,
+        "wilson_baseline": ci_b["ci95"] if binary_scores else None,
         "mde_note": (
             "at n=100 paired binary items the minimum detectable paired effect at 80% power is about 0.08 in pass rate "
             "for typical discordance; effects below that are reported with their interval, not as detections"
+            if binary_scores
+            else "the paired MDE above was derived for binary items and does not transfer to a fractional "
+            "score; no equivalent has been derived for this scale, so read delta_bca95 rather than a "
+            "detection threshold"
         ),
     }
     admit_observation(
