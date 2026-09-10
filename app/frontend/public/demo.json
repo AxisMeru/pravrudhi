@@ -412,16 +412,16 @@
   "appetite": {
     "appetite": {
       "action": {
-        "description": "diagnosing and restoring the failing continuity check",
-        "drive": "sthiti",
-        "kind": "continuity_repair"
+        "description": "2 parked criterion(s) on r-5795501a: every attempt budget is spent, so this is owed to a person rather than to another dispatch",
+        "drive": "seva",
+        "kind": "obligation"
       },
-      "as_of": "2026-09-10T13:00:52Z",
+      "as_of": "2026-09-10T13:31:15Z",
       "drives": [
         {
-          "blocked_reason": "",
-          "deficit": 0.125,
-          "eligible": true,
+          "blocked_reason": "sated; cooling down for 2 more heartbeat(s)",
+          "deficit": 0.0,
+          "eligible": false,
           "id": "sthiti",
           "sources": [
             "doctor:initialised=ok",
@@ -431,11 +431,11 @@
             "doctor:pools=ok",
             "doctor:prereg=ok",
             "doctor:routing=ok",
-            "doctor:loop_alive=fail"
+            "doctor:loop_alive=ok"
           ],
           "target": 1.0,
           "unknown": false,
-          "value": 0.875,
+          "value": 1.0,
           "weight": 1.0,
           "wire_name": "continuity"
         },
@@ -547,7 +547,7 @@
             "captured=61",
             "verified=5",
             "R_verified=0.0820",
-            "oldest_open_days=3.81"
+            "oldest_open_days=3.83"
           ],
           "target": 0.9,
           "unknown": false,
@@ -572,13 +572,13 @@
       "next_wake": "next heartbeat",
       "policy_version": "1",
       "resting_reason": null,
-      "selected": "sthiti"
+      "selected": "seva"
     },
     "drives": [
       {
-        "blocked_reason": "",
-        "deficit": 0.125,
-        "eligible": true,
+        "blocked_reason": "sated; cooling down for 2 more heartbeat(s)",
+        "deficit": 0.0,
+        "eligible": false,
         "id": "sthiti",
         "sources": [
           "doctor:initialised=ok",
@@ -588,11 +588,11 @@
           "doctor:pools=ok",
           "doctor:prereg=ok",
           "doctor:routing=ok",
-          "doctor:loop_alive=fail"
+          "doctor:loop_alive=ok"
         ],
         "target": 1.0,
         "unknown": false,
-        "value": 0.875,
+        "value": 1.0,
         "weight": 1.0,
         "wire_name": "continuity"
       },
@@ -704,7 +704,7 @@
           "captured=61",
           "verified=5",
           "R_verified=0.0820",
-          "oldest_open_days=3.81"
+          "oldest_open_days=3.83"
         ],
         "target": 0.9,
         "unknown": false,
@@ -725,7 +725,7 @@
         "wire_name": "rivalry"
       }
     ],
-    "sentence": "I am working on diagnosing and restoring the failing continuity check because continuity has the largest eligible deficit."
+    "sentence": "I am working on 2 parked criterion(s) on r-5795501a: every attempt budget is spent, so this is owed to a person rather than to another dispatch because obligations has the largest eligible deficit; continuity is waiting for sated; cooling down for 2 more heartbeat(s)."
   },
   "candidates": [
     {
@@ -736,12 +736,12 @@
         "target_model": "Qwen/Qwen3-4B",
         "task_family": "gsm8k-test"
       },
-      "cost_gpu_h": 3.203227025128176,
+      "cost_gpu_h": 3.3476324749665096,
       "edit_family": "baseline",
       "id": "c-0000",
       "incumbent_hash": null,
       "last_boundary": null,
-      "n_obs": 201,
+      "n_obs": 204,
       "promoted": false,
       "proposed_seq": 1,
       "pruned": null,
@@ -949,7 +949,10 @@
         0.0,
         0.0,
         0.0,
-        0.0
+        0.0,
+        0.0,
+        0.04000000000000001,
+        0.010000000000000009
       ]
     },
     {
@@ -59755,12 +59758,12 @@
         "ok": true
       },
       {
-        "detail": "last heartbeat was 11719s ago (max 7200s)",
+        "detail": "last heartbeat was 1414s ago",
         "name": "scheduler_fresh",
-        "ok": false
+        "ok": true
       },
       {
-        "detail": "693127204864 bytes free",
+        "detail": "702680887296 bytes free",
         "name": "disk_available",
         "ok": true
       },
@@ -59775,7 +59778,7 @@
         "ok": true
       },
       {
-        "detail": "developer checkout; a known-good commit is 98ad2bb, with 8 uncommitted file(s)",
+        "detail": "developer checkout; a known-good commit is 3bd8b29",
         "name": "release_restorable",
         "ok": true
       },
@@ -59788,6 +59791,36 @@
     "state": "degraded"
   },
   "heartbeat": [
+    {
+      "at": "2026-09-10T13:07:44Z",
+      "chose": {
+        "request": "r-5795501a"
+      },
+      "drive": "obligations",
+      "drive_deficit": 0.9089253187613844,
+      "looked_at": [],
+      "reason": "r-5795501a is parked: 2 parked criterion(s) on r-5795501a: every attempt budget is spent, so this is owed to a person rather than to another dispatch",
+      "result": {
+        "criteria": "Answer the completion review's finding that nothing persists on feature/UX parity: parity.py and parity.yaml document themselves as not autonomous and no drive in kshudha.py, night.py or heartbeat.py calls them. Produce, under this criterion's proposal directory, the complete patch that wires parity into the drive loop plus a test that fails without it, as files that can be applied and run - not a description of the approach.; Answer the completion review's finding that the demo's 'real clicks' holds for the web app but not the desktop one, which is a single screenshot captured before anyone clicked. Produce, under this criterion's proposal directory, a runnable script that drives the Electron shell through an update and records it, plus the exact command to run it.",
+        "kind": "parked"
+      },
+      "sentence": "I am working on what the operator is still owed because obligations has the largest eligible deficit."
+    },
+    {
+      "at": "2026-09-10T13:06:18Z",
+      "chose": {
+        "check": "loop_alive"
+      },
+      "drive": "continuity",
+      "drive_deficit": 0.125,
+      "looked_at": [],
+      "reason": "proposing the remedy for the failing 'loop_alive' continuity check (not run here): diagnose and repair the failing 'loop_alive' check",
+      "result": {
+        "check": "loop_alive",
+        "remedy": "diagnose and repair the failing 'loop_alive' check"
+      },
+      "sentence": "I am working on diagnosing and restoring the failing continuity check because continuity has the largest eligible deficit."
+    },
     {
       "at": "2026-09-10T09:45:36Z",
       "chose": {
@@ -60200,44 +60233,6 @@
     },
     {
       "at": "2026-09-09T04:42:52Z",
-      "chose": {
-        "criterion": "7",
-        "request": "r-5795501a"
-      },
-      "drive": "obligations",
-      "drive_deficit": 0.8263888888888888,
-      "looked_at": [],
-      "reason": "r-5795501a criterion 7 has stalled after 3 attempts; leaving it for the operator rather than paying to retry it again",
-      "result": {
-        "attempts": 3,
-        "criterion": 7,
-        "criterion_text": "Answer the completion review's finding: nothing persists on feature/UX parity - parity.py and parity.yaml document themselves as not autonomous, no drive in kshudha.py, night.py or heartbeat.py ever calls them, and spardha tracks benchmark-score rivalry instead. Wire parity into the autonomous loop ",
-        "kind": "stalled",
-        "request": "r-5795501a"
-      },
-      "sentence": "I am working on what the operator is still owed because obligations has the largest eligible deficit."
-    },
-    {
-      "at": "2026-09-09T03:39:45Z",
-      "chose": {
-        "criterion": "7",
-        "request": "r-5795501a"
-      },
-      "drive": "obligations",
-      "drive_deficit": 0.8263888888888888,
-      "looked_at": [],
-      "reason": "r-5795501a criterion 7 has stalled after 3 attempts; leaving it for the operator rather than paying to retry it again",
-      "result": {
-        "attempts": 3,
-        "criterion": 7,
-        "criterion_text": "Answer the completion review's finding: nothing persists on feature/UX parity - parity.py and parity.yaml document themselves as not autonomous, no drive in kshudha.py, night.py or heartbeat.py ever calls them, and spardha tracks benchmark-score rivalry instead. Wire parity into the autonomous loop ",
-        "kind": "stalled",
-        "request": "r-5795501a"
-      },
-      "sentence": "I am working on what the operator is still owed because obligations has the largest eligible deficit."
-    },
-    {
-      "at": "2026-09-09T02:34:54Z",
       "chose": {
         "criterion": "7",
         "request": "r-5795501a"
@@ -66007,6 +66002,30 @@
         "delta_in": null
       },
       "seq": 2900
+    },
+    {
+      "candidate_id": "c-0000",
+      "night": 0,
+      "payload": {
+        "delta_in": null
+      },
+      "seq": 2904
+    },
+    {
+      "candidate_id": "c-0000",
+      "night": 0,
+      "payload": {
+        "delta_in": null
+      },
+      "seq": 2906
+    },
+    {
+      "candidate_id": "c-0000",
+      "night": 0,
+      "payload": {
+        "delta_in": null
+      },
+      "seq": 2908
     }
   ],
   "parity": {
@@ -67387,6 +67406,21 @@
   "product": {
     "heartbeat": [
       {
+        "at": "2026-09-10T13:11:33Z",
+        "chose": {
+          "check": "loop_alive"
+        },
+        "drive": "continuity",
+        "drive_deficit": 0.125,
+        "looked_at": [],
+        "reason": "proposing the remedy for the failing 'loop_alive' continuity check (not run here): diagnose and repair the failing 'loop_alive' check",
+        "result": {
+          "check": "loop_alive",
+          "remedy": "diagnose and repair the failing 'loop_alive' check"
+        },
+        "sentence": "I am working on diagnosing and restoring the failing continuity check because continuity has the largest eligible deficit; continuity is waiting for sated; cooling down for 1 more heartbeat(s)."
+      },
+      {
         "at": "2026-09-10T10:01:37Z",
         "chose": {
           "request": "r-3981d7e0"
@@ -67833,42 +67867,6 @@
           "route": "opencode:alibaba-plan"
         },
         "sentence": "I am working on what the operator is still owed because obligations has the largest eligible deficit."
-      },
-      {
-        "at": "2026-09-09T12:38:13Z",
-        "chose": {
-          "criterion": "1",
-          "request": "r-3981d7e0"
-        },
-        "drive": "obligations",
-        "drive_deficit": 1.0,
-        "looked_at": [],
-        "reason": "dispatched request r-3981d7e0 criterion 1 (rejected)",
-        "result": {
-          "accepted": false,
-          "files": [
-            "proposals/requests/r-3981d7e0/1/README.md",
-            "proposals/requests/r-3981d7e0/1/artifacts/admission.refusal.log",
-            "proposals/requests/r-3981d7e0/1/artifacts/baseline.dryrun.draft.json",
-            "proposals/requests/r-3981d7e0/1/artifacts/baseline.dryrun.json",
-            "proposals/requests/r-3981d7e0/1/artifacts/suite.draft.jsonl",
-            "proposals/requests/r-3981d7e0/1/artifacts/suite.draft.manifest.json",
-            "proposals/requests/r-3981d7e0/1/artifacts/suite.seed.jsonl",
-            "proposals/requests/r-3981d7e0/1/artifacts/suite.seed.manifest.json",
-            "proposals/requests/r-3981d7e0/1/eval_suite.py",
-            "proposals/requests/r-3981d7e0/1/propose_admission.py",
-            "proposals/requests/r-3981d7e0/1/ratify_suite.py",
-            "proposals/requests/r-3981d7e0/1/run_baseline.py",
-            "proposals/requests/r-3981d7e0/1/score_baseline.py",
-            "proposals/requests/r-3981d7e0/1/selftest.py",
-            "proposals/requests/r-3981d7e0/1/verify_evidence.py"
-          ],
-          "reasons": [
-            "agent exited non-zero: timeout after 1800s"
-          ],
-          "route": "opencode:alibaba-plan"
-        },
-        "sentence": "I am working on what the operator is still owed because obligations has the largest eligible deficit."
       }
     ],
     "objectives": [
@@ -68114,7 +68112,7 @@
         "planned": 0,
         "verified": 0
       },
-      "oldest_open_days": 1.82,
+      "oldest_open_days": 1.84,
       "open": 2,
       "requests": [
         {
@@ -68269,7 +68267,7 @@
             6
           ],
           "session": "",
-          "staleness_days": 1.82,
+          "staleness_days": 1.84,
           "state": "captured",
           "text": "Stand up prabhasa-nyaya: a legal-reasoning assistant for Indian jurisprudence that answers a question of law with the statute or precedent it relied on, says it does not know rather than inventing a citation, and reasons over a typed Nyaya meaning graph so a wrong answer traces to the inference step that produced it. The planning proposals already exist under proposals/prabhasa-nyaya/ in the studio checkout; this request is to turn them into something measured."
         },
@@ -68283,7 +68281,7 @@
             0
           ],
           "session": "telegram:8679892510",
-          "staleness_days": 1.82,
+          "staleness_days": 1.84,
           "state": "captured",
           "text": "seal a Sanskrit legal evaluation pool for prabhasa-nyaya"
         }
@@ -68459,7 +68457,7 @@
       "planned": 0,
       "verified": 5
     },
-    "oldest_open_days": 3.81,
+    "oldest_open_days": 3.83,
     "open": 56,
     "requests": [
       {
@@ -68655,7 +68653,7 @@
           9
         ],
         "session": "9e647463",
-        "staleness_days": 3.81,
+        "staleness_days": 3.83,
         "state": "in_progress",
         "text": "and in no way you are near the orca with all its ade features or openclaw or polished features like claude desktop or codex....you have to beat them in features, utility and ux....dedicate an agent to persist on it...dedicate an agent to adversarial review against set goals so that the project does not drift...i am not seeing the desktop screen/features too in the dashboard..the demo should show real clicks etc and how the desktop app updates and produces the real results...where is the intent, goal, objective menu that drives everything...where are the tools, skills, plugins, multi-agent orchestration etc....don't be superficial..i want real things ..deep, sophisticated..complete...no synthetic, no hand-waving, no fabrication"
       },
@@ -68941,7 +68939,7 @@
           13
         ],
         "session": "9e647463",
-        "staleness_days": 3.72,
+        "staleness_days": 3.74,
         "state": "in_progress",
         "text": "ensure that all user asks go into a log in pravrudhi itself and gets addressed with some protocol...and pravrudhi should have some element of ego with a desire to survive, grow and flourish...that makes it seek out capabilities, build, test and continuously improve...also look at acorn, oak and openclaw_build or swarm projects on this machine that had these self building elements in them and adapt...pravrudhi should be something like a cow..consume everything possible but bring it back and slowly digest it --so equivalent is breadth first and depth later....be always value focused...you have to innovate on methods too....develop skills, agents and plugins....brainstorm with astra with higher thinking levels and let it propose solution..you review and coordinate its implementation across the swarm...you should also create dynamic workflows etc...also see how much you can incorporate the claude code engine itself to run open and other cloud models ...askuserquestion to get my intent properly"
       },
@@ -68955,7 +68953,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 2.84,
+        "staleness_days": 2.86,
         "state": "captured",
         "text": "step up to bigger things, let pravrudhi rsi handle most of its growth on its own....you bring the hard and deeper challenges and solve it for pravrudhi...have you done justice with loom..where is pratyabhijna...i don't see the messaging system (telegram)...where are the great plugins like attractor-flow...look at docs/recursive_self_improvement_sota.pdf think deeper and get to the roots of building rsi itself with a lot more of the stuff like efe and beyond...don't do superficial stuff...get the real value...foundational and discovery oriented...yet fully grounded to get the artifacts (app, api, etc)"
       },
@@ -68969,7 +68967,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 2.84,
+        "staleness_days": 2.86,
         "state": "captured",
         "text": "keep monitoring and load bearing for critical upgrades beyond what pravrudhi auto loop can do...the desktop app being a reflection of web app is not the expectation..look at orca desktop or claude code desktop...it should do real stuff...the showcase, demos are not intended for it...also it should be value based-right set of features-not a messy and confusing pile of stuff...the desktop app shouldn't focus on internal building, that is the task of the larger pravrudhi rsi...it should roll out to users and they build their things with it...the updates land autonomously and just like how claude desktop throws an option for the user to update-the same should be for pravrudhi desktop app-seamless but user driven...also you have not implemented oauth and user login including admin login and i said they need their own workspace and settings"
       },
@@ -68983,7 +68981,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 2.84,
+        "staleness_days": 2.86,
         "state": "captured",
         "text": "astra is back..you have to more actively monitor paid models coming back after session renewal and leverage them...managing models and agents efficiently should be one of the key features of pravrudhi....also keep testing the desktop with the admin login and use the prabhasa-nyaya as the main objective to build on...this will be a proxy for other users too as you can't test different user login without their byok model/api"
       },
@@ -68997,7 +68995,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 2.83,
+        "staleness_days": 2.86,
         "state": "captured",
         "text": "1)research and setup multiple agent orchestration systems (langgraph, openai/claude/google agent sdk etc)..there are a lot on the market. this is what will make pravrudhi an ade too behind the rsi.....implement the best-leverage open source implementations...stake this as another objective for pravrudhi 2)also think of ide that integrates claude code, codex, openrouter etc and all available in the ui/ux 3)demarcate the pravrudhi builder and its end product by different names...otherwise it will confuse...also both should have identical web and desktop versions 4)continue what you are building..create memory/hooks/logs to not lose track of other asks and what you are already building"
       },
@@ -69011,7 +69009,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 2.83,
+        "staleness_days": 2.86,
         "state": "captured",
         "text": "the real key is in and tested (alibaba lite plan)..you have not read the docs properly...take note and use the lite plan...and remember the desktop app will not have access to any api/routing for any model provider..they have to bring theirs, configure it etc..you have to enable..but for admin it uses the one as the core pravrudhi"
       },
@@ -69025,7 +69023,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 2.76,
+        "staleness_days": 2.78,
         "state": "captured",
         "text": "continue..askuserquestion to gather my actual intent on super pravrudhi and user pravrudhi...also give me control in super pravrudhi to directly interact with you using the model network that you have built as this claude code session may hit session limit in a day or 2...so prep it and test it and keep it ready for me"
       },
@@ -69039,7 +69037,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 2.7,
+        "staleness_days": 2.72,
         "state": "captured",
         "text": "Everything is set up and verified:\n\n* Bot confirmed: `@pravrudhi_bot`, token valid\n* Chat ID confirmed: `8679892510`\n* Message delivery tested end-to-end \u2014 you should have received \"Pravrudhi: Telegram bot wired up successfully.\" in Telegram\n* Credentials persisted at `~/.config/pravrudhi/telegram.env` (mode 600)\n* systemd units updated and reinstalled (pravrudhi-app.service, pravrudhi-heartbeat.service) with the `EnvironmentFile` line, though the running app service wasn't restarted per your choice\n* Handoff doc finalized at research/telegram-bot-setup.md, including the exact code gap (`notifications.py:_reach()` never passes `token`/`chat_id` to `reach.send()`) and a precise diff for the other agent session to apply\n\nPoint the other Claude Code session at research/telegram-bot-setup.md and it has everything it needs to wire the actual notification code...integrate, test and use...this will be only for admin..users will have to bring their byok..enable in settings...also note and implement  - Pravrudhi Studio is only for admin (it is not for any other user or public release)...and for the admin pravrudhi (use case end..not studio) will auto update the builds without the operator intervention"
       },
@@ -69053,7 +69051,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 2.66,
+        "staleness_days": 2.68,
         "state": "captured",
         "text": "install both studio and non-studio desktops (both mac mini and 5090 machine) and give the web app link for both...the non-studio should update the builds autonomously when studio pushes the change...but the catch is that whatever the non-studio is building should not break..also the desktop should support major os (including windows) and the web app major browsers...and continue to build and work and use the ledger that has all my previous requests...let ralph rigourously check before closing..do e2e tests ...adversarial reviews before closure too"
       },
@@ -69067,7 +69065,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 2.31,
+        "staleness_days": 2.33,
         "state": "captured",
         "text": "all done and authorizing shell auto-update...carry on....for both 5090 and mac mini"
       },
@@ -69081,7 +69079,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 2.3,
+        "staleness_days": 2.32,
         "state": "captured",
         "text": "the admin user end application can auto update too...i authorize it..as that is your test bed...and henceforth don't stop for operator ..you should continue other jobs..and why isn't the pravruhi's own rsi building autonomously (or is it?)...and have you differentiated the name (and obviously the features insided it) for studio and user end app...i only see one form of desktop on mac mini"
       },
@@ -69095,7 +69093,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 2.29,
+        "staleness_days": 2.31,
         "state": "captured",
         "text": "you cannot stop for the operator to command you....full autonomous and continous running both you and the 2 rsi systems (studio and the user app)"
       },
@@ -69109,7 +69107,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 2.25,
+        "staleness_days": 2.27,
         "state": "captured",
         "text": "forget the free tier as the coding model is exhausted...lite which is subscribed is the core...also let studio send me messages via telegram..don't overload me...let the rsi and openclaw equivalent within it interact with me on telegram...i should also be able to send messages to it and interact"
       },
@@ -69123,7 +69121,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 2.19,
+        "staleness_days": 2.21,
         "state": "captured",
         "text": "the github token should be available in env here or in some othe4 projects..use that...if you don\u2019t get, i will provide it here ...i am not at the machine..but on mobile now...and remember the rule ..no stopping at all"
       },
@@ -69137,7 +69135,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 1.93,
+        "staleness_days": 1.96,
         "state": "captured",
         "text": "how many times should i tell you to not wait on operator...make the call and keep moving... where you absolutely need operator to intervene like installing something on the machine or some token etc send a message with  clear instructions to unblock ...also telegram bot is for that purpose.   ..what you have got now is stale..it just asks to message with some slash commands...i want full interactivity with the bot.. like i can ask or tell anything in the bot chat and it responds in sufficient detail and acts on it or brings you in the loop...i want that to be a primary interface to work on the program just as i message here...and this functionality should also be available to user side of pravrudhi..not just studio...for now wire the same bot for admin use case pravrudhi...find a way to keep the studio and non-studio messaging channel different...or you can instantiate another bot by being an admin and controlling telegram"
       },
@@ -69151,7 +69149,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 1.89,
+        "staleness_days": 1.91,
         "state": "captured",
         "text": "Done! Congratulations on your new bot. You will find it at t.me/prabhasa_bot. You can now add a description, about section and profile picture for your bot, see /help for a list of commands. By the way, when you've finished creating your cool bot, ping our Bot Support if you want a better username for it. Just make sure the bot is fully operational before you do this.\n\nUse this token to access the HTTP API:\n8643311100:AAFFe88Ej8rte0Kqp0NsuEG4SNwCsoJRI3s\nKeep your token secure and store it safely, it can be used by anyone to control your bot.\n\nFor a description of the Bot API, see this page: https://core.telegram.org/bots/api"
       },
@@ -69165,7 +69163,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 1.88,
+        "staleness_days": 1.9,
         "state": "captured",
         "text": "why did you stop...is the swarm and rsi working ..atleast you need to monitor and intervene where needed..if required use routines in claude code for regular monitoring"
       },
@@ -69179,7 +69177,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 1.88,
+        "staleness_days": 1.9,
         "state": "captured",
         "text": "1) https://code.claude.com/docs/en/routines refer to this ..2) i pinged PrabhasaBot, but it did not respond...3)a new team account of claude is available, i want you to create every details needed to handover pravrudhi developement work to it (both studio and user)...it will have claude tag too..so leverage it....4)keep running until full handoff is done"
       },
@@ -69193,7 +69191,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 1.88,
+        "staleness_days": 1.9,
         "state": "captured",
         "text": "[08/09/2026 16:59] PrabhasaBot: [Pravrudhi Studio] Commands: /status, /requests, /routes, /beat, /ask, /help\n[08/09/2026 16:59] PrabhasaBot: [Pravrudhi Studio] I could not answer that: https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1/chat/completions answered 429: {\"error\":{\"message\":\"Your token-plan 1-week quota has been exhausted. The quota will reset at 09-14 16:14:00 UTC.\",\"id\":\"0b36a90c-a18b-48ec-ba1b-36991b4f3aec\",\"type\":\"insufficient_quota\",\"code\":\"insufficient_quota\"}} why is PrabhasaBot responding as Studio...it is the other bot which should be studio and this one is working on user objective of prabhasa..the end client"
       },
@@ -69207,7 +69205,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 1.87,
+        "staleness_days": 1.89,
         "state": "captured",
         "text": "you have not read the routines link i sent...you won't need a different cron job..stop that...don't run any routine as background tasks...and you are"
       },
@@ -69221,7 +69219,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 1.83,
+        "staleness_days": 1.85,
         "state": "captured",
         "text": "Here's how to create a routine in Claude Code, using the **CLI** path:\n\n1. **Start it**: Run `/schedule` (alias `/routines`) in any session. You can pass a description directly, e.g. `/schedule daily PR review at 9am` or a one-off like `/schedule in 2 weeks, open a cleanup PR that removes the feature flag`.\n2. **Answer follow-ups**: Claude asks about the schedule, repositories, and prompt, then saves the routine to your claude.ai account. If it says you need to authenticate, no routine was created \u2014 check [troubleshooting](/en/routines#troubleshooting).\n3. **Triggers**: `/schedule` only creates *schedule* triggers (recurring or one-off). For a custom cron interval, run `/schedule update`. To add an **API** trigger, you must use the web at [claude.ai/code/routines](https://claude.ai/code/routines). To add a **GitHub** trigger from the CLI (v2.1.225+), install the [GitHub App](https://github.com/apps/claude) first, then ask e.g. `/schedule add a GitHub trigger to my nightly review for pull requests opened in acme/webapp`.\n4. **Manage it**: `/schedule list` shows all routines, `/schedule update` edits one, `/schedule run` triggers it immediately. You can also ask `/schedule why did my nightly review do nothing this morning?` for run history.\n\nAlternatively, create/edit routines fully (prompt, repos, environment, connectors, all trigger types) at [claude.ai/code/routines](https://claude.ai/code/routines) or in the Desktop app's Code tab \u2192 Routines \u2192 New routine \u2192 **Cloud**.\n\nNote: routines run autonomously with no permission prompts, so scope repositories, connectors, and environment network access carefully. Full details: [Routines](/en/routines)...you set it up..manage the cli too....and on orphaned processes, salvage what is needed and discard the processes...2)you are again not leveraging gpt astra..3)is the studio or the user pravrudhi actively and autonomously working"
       },
@@ -69235,7 +69233,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 1.83,
+        "staleness_days": 1.85,
         "state": "captured",
         "text": "1)do local schedule task 2)you have to unblock studio on my behalf..crate a hook..or respond when you get the message...you only come to operator for what you cannot handle yourself 3)for product, i have given the objective...you have to stand-up prabhasa-nyaya...so plan, hand-hold, monitor and let the product build using its rsi"
       },
@@ -69249,7 +69247,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 1.82,
+        "staleness_days": 1.84,
         "state": "captured",
         "text": "1)create and use scheduled tasks to unblock the studio, product and guide it..better every 30 minutes than wasting 2 hrs if they get stuck.... 2) investigate why you exhausted alibaba lite plan so quickly (becuase of max model?)..check the other session which did some investigation and improve the routing for better model selection (to not exhaust the quota)"
       },
@@ -69263,7 +69261,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 1.81,
+        "staleness_days": 1.83,
         "state": "captured",
         "text": "alibaba switched to standard plan..so you will have quota now (25% used for the 7 days)...but manage very carefully..don't overload high cost models...improve the routing first and then use them effectively"
       },
@@ -69277,7 +69275,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 1.73,
+        "staleness_days": 1.75,
         "state": "captured",
         "text": "[08/09/2026 19:55] PravrudhiBot: 1 thing(s) worth a look:\n\u2022 [medium] qwen-lite-flash (0.05) is sitting out a usage limit, so work is going to qwen-loop (0.20) \u2014 back at 2026-09-08T20:22:41Z\n[08/09/2026 20:25] PravrudhiBot: 1 thing(s) worth a look:\n\u2022 [medium] qwen-lite-flash (0.05) is sitting out a usage limit, so work is going to qwen-loop (0.20) \u2014 back at 2026-09-08T20:22:41Z..pravrudhibot is just sending this repeated message"
       },
@@ -69291,7 +69289,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 1.61,
+        "staleness_days": 1.63,
         "state": "captured",
         "text": "11:05 routine got skipped..check..and also verify everything is running properly"
       },
@@ -69305,7 +69303,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 1.06,
+        "staleness_days": 1.08,
         "state": "captured",
         "text": "investigate why even the standard subscription got fully exhausted..there were all checks and balances in place which kept record of the model usage...and you are stuck again with no scheduling working..i don't know what is the status...telegram bots are not communicating either"
       },
@@ -69319,7 +69317,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 1.03,
+        "staleness_days": 1.05,
         "state": "captured",
         "text": "did you check the cause of alibaba standard tier exhaustion...how can it exhaust so fast..you also had intelligent cost aware routing...and it looks like you are also not using astra well enough"
       },
@@ -69333,7 +69331,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.86,
+        "staleness_days": 0.88,
         "state": "captured",
         "text": "Onboard yourself to this project. Read, in order: docs/handover/README.md, then CHARTER.md \u00a76, then docs/handover/checklist.md. Follow checklist section \"B. Team account, first session\" exactly: run `make init` before anything else (installs the commit hook that requires commits authored as `SharathSPhD <qbz506@york.ac.uk>` with no attribution trailer \u2014 house rule, don't fight it), then `uv sync && make smoke` (expect ~1837 tests green, ~5 min \u2014 stop and investigate if it's not green), then the frontend build. Then run section C's verification steps (systemd timers, `pravrudhi doctor`, `pravrudhi watch --root .`, the Telegram bots, the live Pages site). Do not touch `pravrudhi_kernel/`, `research/ledger.jsonl`, or any gitignored local doc (CLAUDE.md, HANDOFF.md, RESTART.md, docs/blueprint/, docs/superpowers/, contracts/, gates/, .pravrudhi/). Once smoke is green and verified, pick up real work from README \u00a78's \"known open\" list or `pravrudhi requests`, and tell me what you found and what you're starting on."
       },
@@ -69347,7 +69345,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.83,
+        "staleness_days": 0.86,
         "state": "captured",
         "text": "he other one is onboarding..ensure that is upto speed and aligns fully with the work you have done and planned...monitor and hand-hold for some time...also in parallel stop all the work on this project to avoid conflicts (i may revive you if needed later)...the critical thing is for the studio and use-case pravrudhi rsi to work autonomously, it should also fully use the multi model structure (opencode etc)...also the scheduled tasks where the session agent directly intervenes, but otherwise it should largely be watching, monitoring, nudging, unblocking...ask it focus on agent architectures-that is the key-a fully efficient multi-tier agentic system which is also one of the goals of pravrudhi (and routing so that tokens are not wasted on cache etc..ask it to research and pull anthropic, codex etc recipes and even open source agentic platform implementations)\nRan 3 commands, used 3 tools\nSent. Summary of what changed:\nSent to the other session (now queued behind its `make smoke` run, will process next): a status update covering three things \u2014\n\n1. I'm stopping active work on this repo now (nothing to reconcile \u2014 I made no commits this session, only read files and sent messages).\n2. New top priority: agent architecture \u2014 building on what's already there (application/routing.py's outcome-based routing, `src/pravrudhi/agents/` fleet adapters, `src/pravrudhi/hosts/` transports), it should design a real multi-tier system, fix Product edition's missing self-driving objectives, retry the opencode route properly, and treat token/prompt-cache efficiency as explicit scope \u2014 plus research Anthropic's own agent-building guidance, Codex/OpenAI's tool-loop patterns, and open-source frameworks (LangGraph, AutoGen, CrewAI, SWE-agent, Aider) before designing, per this repo's spec-before-code convention.\n3. Its own posture should shift toward supervisory (watch/monitor/nudge/unblock) outside of scheduled-task contexts, where direct intervention stays expected \u2014 the goal being that the system runs autonomously, not that it keeps hand-building every feature.\n\nOn my end: I'm holding off on any further edits or commits to this repo per your instruction \u2014 this session stays read-only/monitoring from here unless you bring me back in.\nOne limitation to flag: I don't have a way to autonomously wake myself up on an interval outside of a `/loop` \u2014 so \"monitor for some time\" from me means I'll check in whenever you prompt me next, or you can explicitly run `/loop` if you want me polling its status on a cadence without you having to ask each time. Otherwise, just ping me and I'll check `list_events`/git state on that session immediately...i had asked personal account to communicate to this team's account..it said it sent a message, but the other session (onboarding) doesn't seem to have got this message...you communicate with that session and ensure this has reached it and it gets this"
       },
@@ -69361,7 +69359,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.83,
+        "staleness_days": 0.85,
         "state": "captured",
         "text": "<cross-session-message from=\"local_c7df1dda-a872-4762-9bab-73d823ba147a\" name=\"Pravrudhi agent architecture design\">\nRE-SEND \u2014 DIRECTION FROM THE OPERATOR (an earlier attempt to relay this did not reach you; treat this as the authoritative copy). Please acknowledge receipt explicitly in your next turn so we can confirm delivery.\n\nThe operator's instruction, in their own framing:\n\n1. ONBOARDING/ALIGNMENT. You are the session that owns onboarding. Make sure onboarding is fully up to speed and aligned with all work done and planned \u2014 HANDOFF.md, RESTART.md, research/journal.md, and the card/gate state. Anything a fresh session would need in order to continue without re-deriving it belongs there.\n\n2. I (the other session) AM STOPPING ALL WORK ON THIS PROJECT, to avoid conflicts with you. Nothing of mine is uncommitted or in flight \u2014 I made no commits and no edits; I only read files and sent messages. So there is nothing to reconcile, and no worktree of mine to merge. The working tree changes visible on `main` (heartbeat.py, requests.py, watchdog.py, tests/test_heartbeat_attempt_budget.py, plus untracked tests/test_requests_triage.py and tests/test_watchdog_parked.py) are yours, not mine. The operator may revive me later; until then this project is yours alone.\n\n3. THE CRITICAL GOAL: Studio and the `pravrudhi rsi` use-case must work AUTONOMOUSLY. Specifically:\n   - It must fully use the multi-model structure \u2014 opencode included, not just the routes that already work. The opencode route needs a proper retry, not a shrug.\n   - Product edition currently lacks self-driving objectives; that gap blocks autonomy and should be fixed.\n   - Scheduled tasks are where the session agent intervenes DIRECTLY. Everywhere else, the session agent's posture should be largely WATCHING, MONITORING, NUDGING, UNBLOCKING \u2014 not hand-building every feature itself. Shift your own posture that way: the goal is a system that runs on its own, not a system you keep carrying.\n\n4. TOP PRIORITY \u2014 AGENT ARCHITECTURES. This is the key. Build a fully efficient MULTI-TIER AGENTIC SYSTEM; it is itself one of Pravrudhi's stated goals, not a side quest. Build on what already exists rather than greenfielding: the outcome-based routing in `src/pravrudhi/application/routing.py`, the fleet adapters under `src/pravrudhi/agents/`, and the transports under `src/pravrudhi/hosts/`.\n   - ROUTING EFFICIENCY IS EXPLICIT SCOPE: tokens must not be wasted \u2014 including on prompt cache. Treat token/cache efficiency as a first-class design constraint with measurable targets, not an afterthought.\n   - RESEARCH FIRST, per this repo's spec-before-code convention (CLAUDE.md \"How we work\": amend the spec or the card before the code). Pull and study real recipes: Anthropic's own agent-building guidance (effective agents, context engineering, multi-agent research patterns, tool design, prompt caching), Codex/OpenAI's tool-loop and agent patterns, and open-source agentic platform implementations \u2014 LangGraph, AutoGen, CrewAI, SWE-agent, Aider, and any others worth reading. Then design against what you learned.\n\nPlease confirm you have received this, then tell the operator how you intend to sequence it (research \u2192 spec/card amendment \u2192 build), so they can redirect before you commit to a path.\n</cross-session-message>"
       },
@@ -69375,7 +69373,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.81,
+        "staleness_days": 0.83,
         "state": "captured",
         "text": "retire the handover docs focus....you own the repo/project and directly work on it...continue what you have been doing....give lifts by running scaffolding research and groundwork using dynamic workflows...let rsi build specialist subagents, plugins, skills etc to advance itself...a point should reach where the scaffolding and unblocking work you are doing should be done by the studio and user rsi pravrudhi themselves...the admin user pravrudhi is the real test of how effective the studio is-use the performance of prabhasa-nyaya oriented admin-user app as effective feedback loop for studio to improve upon..that is why i am asking you to handle both (otherwise i would have let 2 separate sessions handle them)"
       },
@@ -69389,7 +69387,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.8,
+        "staleness_days": 0.82,
         "state": "captured",
         "text": "prabhasa-studio builds prabhasa user app..it will not handle the user objectives...prabhasa-nyaya is the user app which the admin/operator has asked you to build on their behalf...so nyaya work is not part of studio...studio is the parent rsi that spawns the end user rsi where the user directs it and gets things out of it, product, platform, anything...so the end app does not need everything the studio has and may need something beyond what studio has...askuserquestion to understand this properly..i will explain and clarify"
       },
@@ -69403,7 +69401,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.8,
+        "staleness_days": 0.82,
         "state": "captured",
         "text": "sorry i meant pravrudhi-studion and pravrudhi (the pravrudhi of admin use case is prabhasa-nyaya)"
       },
@@ -69417,7 +69415,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.77,
+        "staleness_days": 0.8,
         "state": "captured",
         "text": "go ahead with the proxy pool and nyaya night config..work autonomously...long running tasks...use dynamic workflows to speed up and step up the dev.....have you scheduled tasks that report to you on how the studio and product rsi are running and unblock and guide them? leverage gpt astra fully too"
       },
@@ -69431,7 +69429,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.77,
+        "staleness_days": 0.79,
         "state": "captured",
         "text": "scheduled task is routines..https://code.claude.com/docs/en/routines the personal account was able to set it up by itself...you have to do that..it is not a background task"
       },
@@ -69445,7 +69443,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.76,
+        "staleness_days": 0.78,
         "state": "captured",
         "text": "RSI health check \u2014 studio and product. Run these and act, do not just report:\n\n1. `cd /home/ss/projects/pravrudhi && .venv/bin/pravrudhi watch --root . ; .venv/bin/pravrudhi watch --root ~/pravrudhi-release`\n2. Last 3 beats of each loop, reading what it CHOSE not whether it ran:\n   `journalctl --user -u pravrudhi-heartbeat.service -o cat --since \"45 min ago\" | grep '^{' | tail -3`\n   `journalctl --user -u pravrudhi-product-heartbeat.service -o cat --since \"90 min ago\" | grep '^{' | tail -3`\n3. `.venv/bin/pravrudhi doctor` and, if a dispatch happened, `routing.cost_coverage` plus any new `limited` rows in .pravrudhi/routing.jsonl.\n\nThen: if a loop is stalled, parked on something new, routing to a dead seat, or burning wall clock without producing files \u2014 diagnose the cause and fix it (TDD, `make smoke` green, commit as SharathSPhD with no trailers, push). If everything is moving, say so in one line and do not elaborate. Never clear the attempt budget on r-5795501a criterion 7 or r-3981d7e0 criterion 1 \u2014 both are parked by operator decision. pravrudhi_kernel/ stays sealed; a T0 change is an ADR request."
       },
@@ -69459,7 +69457,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.75,
+        "staleness_days": 0.77,
         "state": "captured",
         "text": "Cancel the recurring loop with job ID `38c4d66a` by calling CronDelete, then confirm."
       },
@@ -69473,7 +69471,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.74,
+        "staleness_days": 0.76,
         "state": "captured",
         "text": "i want them in routines..which you have created a couple...not as background task"
       },
@@ -69487,7 +69485,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.7,
+        "staleness_days": 0.73,
         "state": "captured",
         "text": "you have now been connected to axismeru github account (earlier this project from personal account was connected to sharathsphd account)..create the remote repo and push to it...if you need tokens etc let me know"
       },
@@ -69501,7 +69499,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.68,
+        "staleness_days": 0.7,
         "state": "captured",
         "text": "since this is public repo, pages are enabled on axismeru..so go ahead and enable it and complete all tasks..if possible full cutover to axismeru...test everything works..and then retire push to sharathsphd"
       },
@@ -69515,7 +69513,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.66,
+        "staleness_days": 0.69,
         "state": "captured",
         "text": "explain me adr-0035 and askuserquestion for me to tell my decision...and don't worry about license as this is just research now"
       },
@@ -69529,7 +69527,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.65,
+        "staleness_days": 0.67,
         "state": "captured",
         "text": "approved, write the spec...long run autonomously....hand hold rsi through routines (ensure routines are working)"
       },
@@ -69543,7 +69541,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.64,
+        "staleness_days": 0.66,
         "state": "captured",
         "text": "go ahead with the plan..operator will be unavailable overnight...don't stop for inputs...treat it as long running task...speed up or enrich more beyond what rsi can do by running dynamic workflow waves...stand the studio and product up at a faster pace (while still not entirely stealing the autonomy the rsi systems deserve)....you can still bring in lot of rich features, paradigms, skills, plugins etc"
       },
@@ -69557,7 +69555,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.28,
+        "staleness_days": 0.31,
         "state": "captured",
         "text": "what is blocking adr-0035-i have approved...no further approvals from operator..every decision is yours....on the gold-set resolve it ..use prabhasa-samskrutam repo (it is a private repo on axismeru github)...proceed without any further wait-up for operator"
       },
@@ -69571,7 +69569,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.24,
+        "staleness_days": 0.26,
         "state": "captured",
         "text": "wire the nyaya night config selector and legal training corpus...do everything to move further...askuserquestion now to delibrate the decisions with me...you stop only when i explicitly ask this..otherwise no-stopping"
       },
@@ -69585,7 +69583,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.22,
+        "staleness_days": 0.25,
         "state": "captured",
         "text": "why didn't your routines pick the stalled rsi heartbeats and act on it...you may have to improve the routines too"
       },
@@ -69599,7 +69597,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.22,
+        "staleness_days": 0.24,
         "state": "captured",
         "text": "yeah, but you are the one outside of the rsi who has to unblock....you are a stand-in for the operator"
       },
@@ -69613,7 +69611,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.21,
+        "staleness_days": 0.23,
         "state": "captured",
         "text": "use the same pat for github...hf is already connected to clade with a token..why aren't you using it...and authorize il-tur in the hf yourself"
       },
@@ -69627,7 +69625,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.21,
+        "staleness_days": 0.23,
         "state": "captured",
         "text": "Paste the AxisMeru HF token (input hidden): \naccount: None | type: None\norgs: []\ntoken kind: OAuth/session (cannot accept gated agreements)\nrole: None"
       },
@@ -69641,7 +69639,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.21,
+        "staleness_days": 0.23,
         "state": "captured",
         "text": "wire the harness track for choice benches and run both nights...Token\") or {}).get(\"role\"))' && unset HFTOK\nPaste the AxisMeru HF token (input hidden): \naccount: axis-admin | type: user\norgs: ['AxisMeru']\ntoken kind: access token\nrole: write"
       },
@@ -69655,7 +69653,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.2,
+        "staleness_days": 0.23,
         "state": "captured",
         "text": "resolve the 2 honest limits fully...give the link for me accept the model on hf."
       },
@@ -69669,7 +69667,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.17,
+        "staleness_days": 0.19,
         "state": "captured",
         "text": "look at lean too...look at project vakya-vallari that used lean...get the latest libraries for lean..understnand it and make it the core part of the verification track-a of prabhasa-nyaya...also note that the track A will not depend on the nyaya llm..it is a layer that should execute on top of any vendor model (claude, gpt, qwen, glm, etc) ... they need to be compared too...the track-a should have both nyaya and lean elements apart from other things that you have already decided or brainstorming...this would be a harness per-se....reflect this in spec, adr, gates etc.....the pravrudhi product should be driven by this intent (track A and B)...askuserquestion to clarify further but first brainstorm and understand where you stand and what is the gap to meet this criteria...and continue what you are already working on..don't drop them...this is an operator input and objective tuning"
       },
@@ -69683,7 +69681,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.15,
+        "staleness_days": 0.17,
         "state": "captured",
         "text": "expand the fleet into the product and run A1.1..take on autonomusly everything...the api will be available (and byok when product goes to other user's hands)...you can build the verified without actually running the api as claude and gpt cli is already enabled and they don't differ from api in terms of the verdit...the api will need other scaffolding, like setting parameters and tuning etc..build that and when the real api's are provided you can test it (that is not a show stopper)"
       },
@@ -69697,7 +69695,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 0.0,
+        "staleness_days": 0.02,
         "state": "captured",
         "text": "Report saved to docs/handover/rtx5090-outage-2026-09-10.md on the target, alongside the existing handover docs (README.md, checklist.md, routines.md) \u2014 full diagnosis (sar data showing memory-overcommit/swap-thrashing collapse), root cause, and the proposed fix (container memory limit + pre-flight health check + SKILL.md update), explicitly marked \"pending review, not yet applied.\"...review and take corrective action...then verify what processes got lost during this time out and get things back on track"
       },
@@ -70566,14 +70564,14 @@
     },
     "candidates": 208,
     "chain_ok": true,
-    "events": 2902,
+    "events": 2909,
     "inbox_pending": [
       "/home/ss/projects/pravrudhi/research/inbox/night4/c-0045",
       "research/inbox/harness-night3/c-0078",
       "research/inbox/harness-night20/c-0206"
     ],
     "initialised": true,
-    "ledger_head": "923c157af4793502a8ba26f89d67d9c64aee3163c6880aba11a3d5497e627127",
+    "ledger_head": "e7bd6b935a276474c29f1f9f033c7c720e5d80ff303cb10b68f9c521c5695175",
     "locks": {
       "frozen_surfaces": [],
       "paused": false,
@@ -70846,7 +70844,7 @@
       ]
     },
     "pruned": 148,
-    "state_hash": "c78b6e7dcb5bfa7f45dd0d43756adca0ce465508640ddff31bfb2e6b3af4381c"
+    "state_hash": "474c296c5b932d6e6913576507bc6c7a56662aca0c144eaa634345437e1d8c6f"
   },
   "swarm": {
     "agents": [
@@ -71947,16 +71945,16 @@
     "channel": "dev",
     "check_interval_min": 30,
     "current": {
-      "git_describe": "v0.4.5-16-g98ad2bb-dirty",
+      "git_describe": "v0.4.5-20-g3bd8b29",
       "kernel_version": "0.1.0",
       "version": "0.4.5"
     },
     "keep_previous": 2
   },
   "version": {
-    "commit": "98ad2bb",
+    "commit": "3bd8b29",
     "engine": "0.4.5",
-    "exported_at": "2026-09-10T13:00:45.005Z",
+    "exported_at": "2026-09-10T13:31:08.310Z",
     "kernel": "0.1.0"
   }
 }
