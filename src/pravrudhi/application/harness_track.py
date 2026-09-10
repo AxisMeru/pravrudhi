@@ -94,7 +94,16 @@ def _scorer(pool_dir: Path) -> tuple[Path, bool]:
 
 
 class HarnessContext:
-    def __init__(self, root: Path, cfg: dict[str, Any], night: int, log: Log) -> None:  # noqa: D107
+    def __init__(  # noqa: D107
+        self, root: Path, cfg: dict[str, Any], night: int, log: Log, *, measuring: bool = False
+    ) -> None:
+        # `measuring=True` for the study that WRITES the floor. The pairing checks below refuse a floor that
+        # does not match this config's bench and baseline -- correct for a night, and a deadlock for the study
+        # that would replace it: the floor study builds this same context, so it was refused by the staleness
+        # it exists to fix, and the error told the reader to run the command that had just failed. Skipping
+        # them here is safe because `floor_dest` still refuses to overwrite another BENCH's floor on the way
+        # out, which is the loss that check protects against.
+        self.measuring = measuring
         self.root, self.cfg, self.night, self.log = root, cfg, night, log
         self.state: KernelState = ensure_kernel_state(root, docker_available=docker_available())
         self.snapshot = resolve_model_snapshot(str(cfg["model"]))
@@ -119,7 +128,7 @@ class HarnessContext:
         vf = floor_path(root, cfg)
         self.variance_file = vf
         self.variance: Variance | None = None
-        if vf.exists():
+        if vf.exists() and not measuring:
             v = json.loads(vf.read_text())
             measured, bench = str(v.get("bench") or ""), self.bench
             if measured and measured != bench:
@@ -140,8 +149,9 @@ class HarnessContext:
                     f"{vf.name} was measured at baseline "
                     f"{held[:12] + '...' if held else '(unrecorded, before ADR-0037)'} and this night pairs "
                     f"against {want[:12]}...; the boundary would come from another recipe's variance. "
-                    f"Re-measure it with `pravrudhi study harness-noise-floor --config <the night config that "
-                    f"names {vf.name}>` before running a night on it."
+                    f"Re-measure the floor before running a night on it -- `pravrudhi study "
+                    f"harness-noise-floor` writes it and is not subject to this check, since it is the thing "
+                    f"that fixes it."
                 )
             b = cfg["boundary"]
             dm = max(2 * float(v["sigma_seed"]), float(b["delta_min_floor"]))
@@ -529,7 +539,8 @@ def harness_noise_floor(
     # Whichever harness config is running, not `harness_night.yaml` unconditionally: this track can run more
     # than one bench, and its floor and its bench must be the pair `night_plan` checks for the model track.
     cfg = yaml.safe_load((Path(config) if config else root / "research" / "prereg" / "harness_night.yaml").read_text())
-    ctx = HarnessContext(root, cfg, night, log)
+    # This study WRITES the floor, so it must not be refused by the staleness of the one already there.
+    ctx = HarnessContext(root, cfg, night, log, measuring=True)
     w = LedgerWriter.open(root / "research" / "ledger.jsonl", "0.1.0")
     w.append(
         "audit",
@@ -672,7 +683,14 @@ def run_harness_night(
 ) -> dict[str, Any]:
     # Whichever harness config is running, not `harness_night.yaml` unconditionally: this track can run more
     # than one bench, and its floor and its bench must be the pair `night_plan` checks for the model track.
-    cfg = yaml.safe_load((Path(config) if config else root / "research" / "prereg" / "harness_night.yaml").read_text())
+    #
+    # The PATH is kept, not just the parsed body. `deliberate` reads a night config of its own to learn which
+    # bench to filter live candidates by, and defaults to `lora_night.yaml` when not told -- so night 21
+    # proposed eight `apps` candidates, filtered them all against `gsm8k-trainD`, logged "no live candidates"
+    # and closed having spent 0.00 of 2.0 GPU-hours. A night that does nothing and reports `status: closed`
+    # is the worst shape a failure can take, so the path travels with the config.
+    config_path = Path(config) if config else root / "research" / "prereg" / "harness_night.yaml"
+    cfg = yaml.safe_load(config_path.read_text())
     ctx = HarnessContext(root, cfg, night, log)
     if ctx.variance is None:
         raise RuntimeError(f"run the harness noise floor first: {ctx.variance_file} does not exist")
@@ -778,6 +796,7 @@ def run_harness_night(
                 selection_policy=policy,
                 surface="H3.prompt",
                 target_model=str(cfg["model"]),
+                night_config=config_path,
             )
         except DecorativeAbort as e:
             w.append(

@@ -82,3 +82,29 @@ def test_the_model_filter_still_applies() -> None:
         bench="mmlu-law-val",
     )
     assert pool == ["c-0201"]
+
+
+def test_deliberate_names_the_bench_it_filtered_by_when_nothing_survives() -> None:
+    """Night 21 proposed eight `apps` candidates, `deliberate` filtered them against `gsm8k-trainD` because
+    the caller passed no `night_config`, and the night closed `status: closed` having spent 0.00 of 2.0
+    GPU-hours. "no live candidates" alone cost three files of tracing; the bench and its source must be in
+    the line."""
+    from pravrudhi.application.deliberate import live_candidates
+
+    meta = {
+        "c-0208": {"bucket": {"task_family": "apps", "target_model": "M"}, "surface": "H3.prompt"},
+        "c-0209": {"bucket": {"task_family": "apps", "target_model": "M"}, "surface": "H3.prompt"},
+    }
+
+    class C:
+        pruned = promoted = audit_high = skipped = False
+        last_boundary = "continue"
+        n_obs = 1
+
+    cands = {c: C() for c in meta}
+    # The filter itself is right: an `apps` candidate is not live on a `gsm8k-trainD` night.
+    assert live_candidates(cands, meta, "c-0000", bench="gsm8k-trainD") == []
+    # And it is live on its own bench, so the night that named its config gets its candidates.
+    assert sorted(live_candidates(cands, meta, "c-0000", bench="apps")) == ["c-0208", "c-0209"]
+    # Unfiltered is what the diagnostic reports as "live before those filters".
+    assert len(live_candidates(cands, meta, "c-0000")) == 2

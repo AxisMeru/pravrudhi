@@ -148,6 +148,58 @@ def seal_mmlu(
     return seal_pool(Path(state.pools_dir) / bench, bench, rows, src, answer_kind="choice")
 
 
+#: CaseHOLD's own validation split. Disjoint from `train` by construction, which is the whole reason to use
+#: it: the model track does rejection sampling on `casehold-train`, and an evaluation pool drawn from those
+#: same rows would have the loop selecting on what it trained on.
+CASEHOLD_INTERNAL_SPLIT = "val"
+
+#: Reserved for the external proof tier, never sealed as an internal pool.
+CASEHOLD_EXTERNAL_SPLITS = ("test",)
+
+
+def seal_casehold(root: Path, source: Path, bench: str = "casehold-val") -> dict[str, Any]:
+    """Seal CaseHOLD's validation split as the law tracks' internal choice pool (ADR-0041).
+
+    `mmlu-law-val` is spent: 191 items, 115 of them at exposure cap 16, leaving 76 eligible against a draw of
+    96 — so the nyaya harness night died at `draw_rotation` before evaluating anything. Raising the cap again
+    (it went 8 -> 16 on 2026-09-10) buys a night or two and re-uses the same 191 items harder; this is the
+    same move ADR-0029 made when MBPP+ ran out, which is to get a bigger pool rather than more re-use.
+
+    Five options rather than MMLU's four, and the answer distribution is near-uniform across A-E, so chance is
+    0.20 here against 0.25 there. That is not comparable to `mmlu-law-val` and is not meant to be: a pass rate
+    on this pool is a different quantity, which is exactly why `live_candidates` filters by bench.
+
+    The rows are rendered by `application.choice`, the same renderer the training corpus uses, so an adapter
+    is never asked in a format it did not train in.
+    """
+    from pravrudhi.application.corpus import CASEHOLD_ORIGIN, casehold_rows
+
+    source = Path(source)
+    rows = [{"question": r["question"], "answer": r["answer"]} for r in casehold_rows(source)]
+    if not rows:
+        raise ValueError(f"{source} yielded no rows; a pool of nothing would refuse every draw")
+    state = ensure_kernel_state(root, docker_available=docker_available())
+    src = {
+        "origin": CASEHOLD_ORIGIN,
+        "split": CASEHOLD_INTERNAL_SPLIT,
+        "files": [
+            {
+                "file": source.name,
+                "sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
+                "n_rows": len(rows),
+            }
+        ],
+        "n_rows": len(rows),
+        "held_out_for_external_proof": list(CASEHOLD_EXTERNAL_SPLITS),
+        "disjoint_from": [
+            "casehold-train, which the model track trains on -- CaseHOLD's own split boundary, not a filter "
+            "applied here",
+            "casehold test, which is the external proof",
+        ],
+    }
+    return seal_pool(Path(state.pools_dir) / bench, bench, rows, src, answer_kind="choice")
+
+
 def fetch_apps(dest: Path, split: str = "test") -> Path:
     """Download one APPS split's parquet into `dest` and return the local path.
 

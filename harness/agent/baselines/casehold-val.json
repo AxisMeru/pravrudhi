@@ -1,0 +1,14 @@
+{
+  "execution_family": "system_prompt",
+  "feedback_template": "Your previous answer was not in the required form:\n{feedback}\nAnswer again with the option letter alone.",
+  "max_new_tokens": 512,
+  "n_samples": 1,
+  "rationale": "The starting recipe for CaseHOLD's five-option holding task. Same shape as the mmlu-law-val baseline and deliberately not tuned: the night's job is to find the token budget and the decoding, and a baseline that already had them would measure nothing. Its own file per ADR-0037, so the floor's baseline_sha256 pairs with this bench and not another.",
+  "retries": 0,
+  "strategy": "prompt_only",
+  "system_prompt": "You are answering multiple-choice questions about US case law. Each question quotes a passage whose cited holding has been masked, and lists candidate holdings under letters. Reply with the letter of the correct holding and nothing else.",
+  "template": "{question}\n\nAnswer with the option letter alone.",
+  "temperature": 0.2,
+  "thinking": false,
+  "use_visible_tests": false
+}

@@ -41,6 +41,8 @@ NIGHT_CONFIG_OPT: Path | None = typer.Option(
 HARNESS_CONFIG_OPT: Path | None = typer.Option(
     None, "--config", help="Frozen night pre-registration to run; default research/prereg/harness_night.yaml."
 )
+CASEHOLD_SOURCE_OPT = typer.Option(..., "--source", help="CaseHOLD val CSV on disk, fetched separately")
+CASEHOLD_BENCH_OPT = typer.Option("casehold-val", "--bench")
 APPS_SOURCE_OPT = typer.Option(..., "--source", help="APPS split on disk (test.jsonl or parquet), fetched separately")
 APPS_COUNT_OPT = typer.Option(400, "--count")
 APPS_SEED_OPT = typer.Option(0, "--seed")
@@ -188,6 +190,26 @@ def pool_seal_mmlu(
     from pravrudhi.application.pool_admin import seal_mmlu
 
     m = seal_mmlu(root, cache, bench)
+    typer.echo(
+        f"sealed {m['bench']}: {m['n_items']} items, answer_kind {m['answer_kind']}, "
+        f"pool_version {m['pool_version'][:16]}"
+    )
+
+
+@pool_app.command("seal-casehold")
+def pool_seal_casehold(
+    source: Path = CASEHOLD_SOURCE_OPT,
+    bench: str = CASEHOLD_BENCH_OPT,
+    root: Path = ROOT_OPT,
+) -> None:
+    """Seal CaseHOLD's validation split as the law tracks' internal choice pool (ADR-0041).
+
+    Validation only. `train` is what the model track does rejection sampling on, and `test` is the external
+    proof: selecting on either would have the loop score itself on what it learned from or is judged by.
+    """
+    from pravrudhi.application.pool_admin import seal_casehold
+
+    m = seal_casehold(root, source, bench)
     typer.echo(
         f"sealed {m['bench']}: {m['n_items']} items, answer_kind {m['answer_kind']}, "
         f"pool_version {m['pool_version'][:16]}"

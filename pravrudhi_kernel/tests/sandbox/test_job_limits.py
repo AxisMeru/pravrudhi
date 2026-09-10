@@ -96,3 +96,39 @@ def test_a_job_is_refused_rather_than_stacked_onto_a_host_at_the_wall(monkeypatc
     )
     with pytest.raises(HostUnderPressure, match="1.29GiB"):
         run_job(_spec())
+
+
+def test_the_floor_study_is_not_blocked_by_the_floor_it_replaces(tmp_path: Path) -> None:
+    """Found by running it, not by a test. The baseline-pairing check (ADR-0037) lives in
+    `HarnessContext.__init__`, and the floor STUDY builds the same context -- so the study was refused by the
+    staleness it exists to fix, and the error told the reader to run the command that had just failed.
+
+    Safe to skip while measuring because `floor_dest` still refuses to overwrite another bench's floor on the
+    way out, which is the loss that check protects against."""
+    import json as J
+
+    import pytest as P
+    import yaml
+
+    from pravrudhi.application.harness_track import HarnessContext
+
+    prereg = tmp_path / "research" / "prereg"
+    prereg.mkdir(parents=True)
+    (prereg / "variance.json").write_text(J.dumps(
+        {"bench": "mmlu-law-val", "sigma_seed": 0.02, "baseline_sha256": "stale" * 8}
+    ))
+    cfg = {
+        "model": "Qwen/Qwen3-1.7B", "bench": "mmlu-law-val",
+        "noise_floor": "research/prereg/variance.json",
+        "boundary": {"alpha_eff": 0.05, "alpha_fut": 0.2, "k_max": 4, "sigma_mode": "adaptive",
+                     "n0": 3, "delta_min_floor": 0.02, "min_n_confirm": 2},
+    }
+    yaml.safe_dump(cfg)  # the shape a prereg carries
+
+    # A night is refused, and names re-measuring as the fix.
+    with P.raises(ValueError, match="was measured at baseline"):
+        HarnessContext(tmp_path, cfg, 1, lambda _: None)
+    # The study that writes the floor is not.
+    ctx = HarnessContext(tmp_path, cfg, 1, lambda _: None, measuring=True)
+    assert ctx.measuring
+    assert ctx.variance is None, "measuring must not adopt the stale floor either"

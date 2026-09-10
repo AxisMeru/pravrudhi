@@ -105,7 +105,20 @@ def deliberate(
     if surface:
         pool = [c for c in pool if meta[c]["surface"] == surface]
     if not pool:
-        log("deliberate: no live candidates")
+        # Say what was filtered by and where it came from. "no live candidates" alone cost a whole night:
+        # night 21 proposed eight `apps` candidates and this filtered them against `gsm8k-trainD`, because
+        # the caller passed no `night_config` and the default is the MODEL track's. The night then closed
+        # `status: closed` having spent nothing, which reads as success. Naming the bench and its source
+        # turns three files of tracing into one line.
+        unfiltered = live_candidates(st.candidates, meta, incumbent_id)
+        why = (
+            f"bench={bench!r} (from {night_yaml.name}), target_model={tm!r}, surface={surface!r}; "
+            f"{len(unfiltered)} candidate(s) are live before those filters"
+        )
+        if unfiltered and bench:
+            benches = sorted({str((meta[c].get('bucket') or {}).get('task_family')) for c in unfiltered})
+            why += f"; those carry bench(es) {benches}"
+        log(f"deliberate: no live candidates -- {why}")
         return []
     if len(pool) == 1:
         # A choice among one is no choice: the decorative check does not apply (it would rightly fail), and the
