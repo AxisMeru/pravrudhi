@@ -963,11 +963,14 @@ def study_harness_nf(
     k: int = typer.Option(100, "--k"),
     night: int = typer.Option(0, "--night"),
     root: Path = ROOT_OPT,
+    config: Path | None = NIGHT_CONFIG_OPT,
 ) -> None:
-    """A/A of the baseline harness on MBPP+ (kernel-scored hidden tests); writes research/prereg/variance_harness.json."""
+    """A/A of the baseline harness on the configured pool; writes the floor that config names."""
     from pravrudhi.application.harness_track import harness_noise_floor
 
-    out = harness_noise_floor(root, rotations=rotations, seeds=seeds, k=k, night=night, log=typer.echo)
+    out = harness_noise_floor(
+        root, rotations=rotations, seeds=seeds, k=k, night=night, log=typer.echo, config=config
+    )
     typer.echo(json.dumps({k2: out[k2] for k2 in ("n_runs", "mean_plus_pass", "sigma_seed", "sigma_rot")}))
 
 
@@ -981,15 +984,19 @@ def harness_night_cmd(
     root: Path = ROOT_OPT,
     gguf: Path | None = GGUF_OPT,
     seed_recipe: list[Path] = SEED_RECIPE_OPT,
+    config: Path | None = NIGHT_CONFIG_OPT,
 ) -> None:
-    """Track H night: fixed model, mutable harness, paired on MBPP+ rotations, hidden tests scored in the sandbox."""
+    """Track H night: fixed model, mutable harness, paired on the configured pool's rotations.
+
+    A code pool's hidden tests run in the sandbox; a pool with no container scorer is scored in process by the
+    scorer its manifest declares (`harness_track.kernel_scored`)."""
     from pravrudhi.application.harness_track import load_seed_recipes, run_harness_night
     from pravrudhi.application.spine import resolve_model_snapshot
 
     if gguf is None:
         import yaml
 
-        cfg = yaml.safe_load((root / "research" / "prereg" / "harness_night.yaml").read_text())
+        cfg = yaml.safe_load((config or root / "research" / "prereg" / "harness_night.yaml").read_text())
         gguf = resolve_model_snapshot("Qwen/Qwen3-30B-A3B-GGUF") / str(cfg["proposer"]["gguf"])
     typer.echo(
         json.dumps(
@@ -997,6 +1004,7 @@ def harness_night_cmd(
                 root, night=night, k=k, budget_gpu_h=budget, gguf=gguf, log=typer.echo, selection_policy=policy,
                 proposer_endpoint=proposer_endpoint,
                 seed_recipes=load_seed_recipes(seed_recipe),
+                config=config,
             ),
             indent=2,
         )

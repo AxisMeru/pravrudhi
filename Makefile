@@ -49,4 +49,8 @@ kernel-image:
 	@echo "not implemented: L3" >&2; exit 2
 BASE_IMAGE ?= nvcr.io/nvidia/pytorch:25.06-py3
 exec-image:      ## build pravrudhi/exec-5090 from the local NVIDIA 25.06 lineage (ADR-0003)
-	docker build -f docker/exec-5090.Dockerfile -t pravrudhi/exec-5090:$$(git describe --always --dirty) -t pravrudhi/exec-5090:latest .
+	# BASE_IMAGE defaults to the host's lineage image when it exists. Running this without it rebuilt from the
+	# PUBLIC nvcr base, which carries no transformers/TRL/PEFT: the image built fine, replaced a working
+	# `:latest`, and every GPU job then died on `ModuleNotFoundError: No module named 'transformers'`.
+	docker build --build-arg BASE_IMAGE=$${BASE_IMAGE:-$$(docker image inspect rtx5090-train:latest >/dev/null 2>&1 && echo rtx5090-train:latest || echo nvcr.io/nvidia/pytorch:25.06-py3)} \
+	  -f docker/exec-5090.Dockerfile -t pravrudhi/exec-5090:$$(git describe --always --dirty) -t pravrudhi/exec-5090:latest .

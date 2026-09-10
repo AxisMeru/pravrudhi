@@ -20,9 +20,24 @@ from pravrudhi.application.spine import IMAGE, resolve_model_snapshot
 from pravrudhi.models.proposer import proposer_client
 from pravrudhi.targets.harness_grammar import BASELINE, H_GRAMMAR_DOC, HarnessRecipe, harness_array_schema, parse_harness
 from pravrudhi_kernel.ledger import LedgerWriter, replay
-from pravrudhi_kernel.metrics import PoolExhausted, Rotation, draw_rotation, record_exposure
+from pravrudhi_kernel.metrics import (
+    PoolExhausted,
+    Rotation,
+    draw_rotation,
+    record_exposure,
+    scorer_for_pool,
+    scorer_source_for_pool,
+    unparsed,
+)
 from pravrudhi_kernel.metrics.pool import load_manifest, read_item
-from pravrudhi_kernel.sandbox import JobSpec, KernelState, admit_observation, ensure_kernel_state, run_job
+from pravrudhi_kernel.sandbox import (
+    JobResult,
+    JobSpec,
+    KernelState,
+    admit_observation,
+    ensure_kernel_state,
+    run_job,
+)
 from pravrudhi_kernel.sandbox.observe import KernelHashes, kernel_hashes, sha256_file
 from pravrudhi_kernel.sandbox.runner import docker_available
 from pravrudhi_kernel.sandbox.state import read_secret
@@ -34,6 +49,33 @@ JOBS_DIR = Path(__file__).resolve().parents[3] / "docker" / "jobs"
 SCORERS: dict[str, tuple[str, bool]] = {"mbppplus": ("score_code.py", False), "apps": ("score_apps.py", True)}
 Log = Callable[[str], None]
 BASELINE_ID = "c-0000"
+
+
+def kernel_scored(pool_dir: Path) -> bool:
+    """Whether this pool is scored in process by the kernel rather than by a container job.
+
+    Scoring a code pool means EXECUTING the candidate's solution against hidden tests, which needs a sandbox.
+    Scoring a multiple-choice pool means comparing a letter, which the kernel already does -- and which must
+    stay in the kernel: ADR-0035 put the choice scorer in T0 so the engine would not compute the numbers, and a
+    `score_choice.py` beside `score_code.py` would put it straight back.
+
+    The rule has to survive a code pool nobody remembered to register. `mbppplus` and `apps` were sealed before
+    `answer_kind` existed, so their manifests declare none and `pool.answer_kind` defaults to numeric; routing
+    on that alone would hand a JSON answer blob to the numeric scorer and score every item zero, which reads as
+    a harness that got worse rather than a scorer that was never right. So a registered bench keeps its
+    container job, an unregistered one MUST declare its kind, and a pool that does neither is refused.
+    """
+    manifest = load_manifest(pool_dir)
+    bench = str(manifest["bench"])
+    if bench in SCORERS:
+        return False
+    if "answer_kind" not in manifest:
+        raise KeyError(
+            f"bench {bench!r} has no harness scorer and its manifest declares no answer_kind, so nothing can "
+            f"say how to score it; either register a scorer job in SCORERS or seal the pool with an "
+            f"answer_kind. Known container benches: {sorted(SCORERS)}"
+        )
+    return True
 
 
 def _scorer(pool_dir: Path) -> tuple[Path, bool]:
@@ -52,7 +94,7 @@ def _scorer(pool_dir: Path) -> tuple[Path, bool]:
 
 
 class HarnessContext:
-    def __init__(self, root: Path, cfg: dict[str, Any], night: int, log: Log) -> None:
+    def __init__(self, root: Path, cfg: dict[str, Any], night: int, log: Log) -> None:  # noqa: D107
         self.root, self.cfg, self.night, self.log = root, cfg, night, log
         self.state: KernelState = ensure_kernel_state(root, docker_available=docker_available())
         self.snapshot = resolve_model_snapshot(str(cfg["model"]))
@@ -62,10 +104,22 @@ class HarnessContext:
         self.incumbent: HarnessRecipe = BASELINE
         self.spent_gpu_h = 0.0
         self.sealed = _load_sealed(root / ".pravrudhi" / "kernel" / "sealed" / "predictions")
-        vf = root / "research" / "prereg" / "variance_harness.json"
+        # The floor this config names, or the track's default. A config whose bench does not match the floor's
+        # is refused below: `harness_night.yaml` ran bench `apps` (ADR-0029) against a floor measured on
+        # `mbppplus`, so this track had the same silent defect the model track did.
+        declared = str(cfg.get("noise_floor") or "")
+        vf = (root / declared) if declared else root / "research" / "prereg" / "variance_harness.json"
+        self.variance_file = vf
         self.variance: Variance | None = None
         if vf.exists():
             v = json.loads(vf.read_text())
+            measured, bench = str(v.get("bench") or ""), str(cfg["bench"])
+            if measured and measured != bench:
+                raise ValueError(
+                    f"{vf.name} was measured on bench {measured!r} but this night runs {bench!r}; the boundary "
+                    f"would be set from another pool's sigma. Measure it with `pravrudhi study "
+                    f"harness-noise-floor` on {bench!r} first."
+                )
             b = cfg["boundary"]
             dm = max(2 * float(v["sigma_seed"]), float(b["delta_min_floor"]))
             self.variance = Variance.model_validate(
@@ -112,9 +166,15 @@ def run_agent(
             fh.write(json.dumps({"id": it["id"], "question": it["question"]}) + "\n")
     (jd / "in" / "harness.json").write_text(json.dumps(harness.harness_json(), sort_keys=True))
     cont_model = "/models/" + str(ctx.snapshot.relative_to(ctx.hf_home))
+    # `agent_code` extracts a fenced Python block and selects among candidates by RUNNING the visible tests a
+    # code prompt carries. On a choice pool there are no visible tests and the answer is a letter, so retries,
+    # n_samples and use_visible_tests would every one be inert while the track reported it had explored them.
+    # `agent_choice` gives those knobs gold-free meanings instead: majority vote across samples, and retry on
+    # a completion that committed to no letter.
+    job = "agent_choice" if kernel_scored(ctx.pool_dir) else "agent_code"
     spec = JobSpec(
         image=IMAGE,
-        command=["agent_code", "--model-dir", cont_model, "--seed", str(seed), "--batch-size", "16"],
+        command=[job, "--model-dir", cont_model, "--seed", str(seed), "--batch-size", "16"],
         mounts_ro={str(jd / "in"): "/in", str(ctx.hf_home): "/models"},
         output_dir=str(jd / "out"),
         gpu=True,
@@ -129,8 +189,49 @@ def run_agent(
     return jd, res, (json.loads(meta_p.read_text()) if meta_p.exists() else None)
 
 
+def _score_in_process(ctx: HarnessContext, jd: Path, rot: Rotation) -> tuple[dict[str, int], Path, JobResult]:
+    """Score a non-code pool with the scorer its own manifest declares. No container: nothing to execute.
+
+    Mirrors `spine.score_job`, including `unparsed.json`: a completion that commits to no answer scores 0
+    exactly like a wrong one, and on this bench a token cap once depressed a pass rate by 0.21.
+    """
+    scorer = scorer_for_pool(ctx.pool_dir)
+    sd = ctx.job_dir(f"score-{jd.name[-8:]}")
+    samples: dict[str, str] = {}
+    for line in (jd / "out" / "samples.jsonl").read_text().splitlines():
+        if line.strip():
+            r = json.loads(line)
+            # The agent job writes `solution` for code benches; a text answer may arrive under either name.
+            samples[str(r["id"])] = str(r.get("solution") if r.get("solution") is not None else r.get("completion", ""))
+    golds = {i: scorer.gold_answer(read_item(ctx.pool_dir, i)["answer"]) for i in rot.item_ids}
+    scores = scorer.score_completions(samples, golds)
+    ref = sd / "out" / "per_item_scores.jsonl"
+    ref.write_text("".join(json.dumps({"id": i, "score": s}) + "\n" for i, s in sorted(scores.items())))
+    misses = unparsed(scorer, samples)
+    if misses:
+        (sd / "out" / "unparsed.json").write_text(json.dumps({"n": len(misses), "ids": misses}, indent=2) + "\n")
+    return (
+        scores,
+        ref,
+        # A real JobResult so every caller keeps working, and honest about what happened: no container ran, so
+        # there is no wall clock to charge and no exit code to report but the absence of a failure.
+        JobResult(
+            exit_code=0,
+            wall_s=0.0,
+            peak_gib_smi=None,
+            stdout_tail=f"scored in process by {scorer_source_for_pool(ctx.pool_dir).name}; no container job",
+            stderr_tail="",
+            timed_out=False,
+        ),
+    )
+
+
 def score_agent(ctx: HarnessContext, jd: Path, rot: Rotation) -> tuple[dict[str, int], Path, Any]:
-    """Kernel-launched hidden-test execution in the scorers image: no network, no GPU, disposable."""
+    """Kernel-launched hidden-test execution in the scorers image: no network, no GPU, disposable.
+
+    A pool with no container scorer is scored in process instead; see `kernel_scored`."""
+    if kernel_scored(ctx.pool_dir):
+        return _score_in_process(ctx, jd, rot)
     sd = ctx.job_dir(f"score-{jd.name[-8:]}")
     (sd / "in" / "samples.jsonl").write_text((jd / "out" / "samples.jsonl").read_text())
     with (sd / "in" / "answers.jsonl").open("w") as fh:
@@ -168,10 +269,14 @@ def score_agent(ctx: HarnessContext, jd: Path, rot: Rotation) -> tuple[dict[str,
 
 
 def _hashes(ctx: HarnessContext, jd: Path, harness: HarnessRecipe) -> KernelHashes:
+    # The file that actually scores, whichever path ran. Naming the container job on a kernel-scored bench
+    # would be the defect ADR-0035 found in `spine.SCORER_SOURCE`: a row claiming a scorer that did not
+    # produce its numbers.
+    source = scorer_source_for_pool(ctx.pool_dir) if kernel_scored(ctx.pool_dir) else _scorer(ctx.pool_dir)[0]
     h = kernel_hashes(
         jd / "in" / "items.jsonl",
         ctx.pool_dir / "manifest.json",
-        _scorer(ctx.pool_dir)[0],
+        source,
         ctx.root / "harness",
         ctx.snapshot,
     )
@@ -298,11 +403,22 @@ def admit_candidate(
     )
 
 
-def harness_noise_floor(root: Path, *, rotations: int, seeds: int, k: int, night: int, log: Log = print) -> dict[str, Any]:
+def harness_noise_floor(
+    root: Path,
+    *,
+    rotations: int,
+    seeds: int,
+    k: int,
+    night: int,
+    log: Log = print,
+    config: Path | None = None,
+) -> dict[str, Any]:
     """A/A of the baseline harness on the MBPP+ pool: sigma_seed for the harness track's boundary."""
     import math
 
-    cfg = yaml.safe_load((root / "research" / "prereg" / "harness_night.yaml").read_text())
+    # Whichever harness config is running, not `harness_night.yaml` unconditionally: this track can run more
+    # than one bench, and its floor and its bench must be the pair `night_plan` checks for the model track.
+    cfg = yaml.safe_load((Path(config) if config else root / "research" / "prereg" / "harness_night.yaml").read_text())
     ctx = HarnessContext(root, cfg, night, log)
     w = LedgerWriter.open(root / "research" / "ledger.jsonl", "0.1.0")
     w.append(
@@ -380,7 +496,10 @@ def harness_noise_floor(root: Path, *, rotations: int, seeds: int, k: int, night
         "k_items": k,
         "labels": "model-measured, screen tier, baseline harness A/A",
     }
-    (root / "research" / "prereg" / "variance_harness.json").write_text(json.dumps(out, indent=2, sort_keys=True) + "\n")
+    declared = str(cfg.get("noise_floor") or "")
+    dest = (root / declared) if declared else root / "research" / "prereg" / "variance_harness.json"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(json.dumps(out, indent=2, sort_keys=True) + "\n")
     w.append(
         "audit",
         "kernel",
@@ -436,11 +555,14 @@ def run_harness_night(
     selection_policy: str | None = None,
     proposer_endpoint: str = "",
     seed_recipes: tuple[HarnessRecipe, ...] = (),
+    config: Path | None = None,
 ) -> dict[str, Any]:
-    cfg = yaml.safe_load((root / "research" / "prereg" / "harness_night.yaml").read_text())
+    # Whichever harness config is running, not `harness_night.yaml` unconditionally: this track can run more
+    # than one bench, and its floor and its bench must be the pair `night_plan` checks for the model track.
+    cfg = yaml.safe_load((Path(config) if config else root / "research" / "prereg" / "harness_night.yaml").read_text())
     ctx = HarnessContext(root, cfg, night, log)
     if ctx.variance is None:
-        raise RuntimeError("run the harness noise floor first (research/prereg/variance_harness.json)")
+        raise RuntimeError(f"run the harness noise floor first: {ctx.variance_file} does not exist")
     budget = float(budget_gpu_h if budget_gpu_h is not None else cfg["budget"]["night_gpu_h"])
     kk = int(k if k is not None else cfg["proposer"]["k_candidates"])
     policy = str(selection_policy or cfg.get("selection_policy", "efe"))
@@ -469,7 +591,9 @@ def run_harness_night(
             "incumbent": ctx.incumbent_id,
             "prereg_sha256": {
                 "harness_night": sha256_file(root / "research" / "prereg" / "harness_night.yaml"),
-                "variance_harness": sha256_file(root / "research" / "prereg" / "variance_harness.json"),
+                # The floor this night actually read, by name: there is more than one now.
+                "variance_harness": sha256_file(ctx.variance_file),
+                "variance_harness_file": ctx.variance_file.name,
             },
         },
         epoch=0,
