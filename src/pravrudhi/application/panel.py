@@ -108,7 +108,16 @@ class Vendor:
             import shutil
 
             exe = self.model.split(":")[0]
-            return (True, "ready") if shutil.which(exe) else (False, f"{exe} not on PATH")
+            if not shutil.which(exe):
+                return False, f"{exe} not on PATH"
+            if exe == "claude":
+                # On PATH is not enough: this project uses its own Claude account, so a reachable binary with
+                # only the operator's personal login is deliberately NOT reachable here. Reporting it ready
+                # would send a panel run into 80 refusals.
+                from pravrudhi.agents.account import account_status
+
+                return account_status()
+            return True, "ready"
         if self.interface == "openai_compat" and self.credential:
             if os.environ.get(self.credential):
                 return True, "key in environment"
@@ -295,11 +304,19 @@ def ask_vendor(vendor: Vendor, prompt: str) -> Answer:
     if vendor.interface == "cli":
         from pravrudhi.agents.cli_agents import _run
 
+        env: dict[str, str] = {}
         if vendor.model == "claude":
+            # This project's own account, never the operator's personal login (operator instruction,
+            # 2026-09-10). It was the personal account's WEEKLY limit that ran out mid-panel during gate
+            # A1.1, answering 68 of 80 prompts and recording 12 gaps -- a comparison spending a person's
+            # own quota is the wrong shape as well as a fragile one.
+            from pravrudhi.agents.account import claude_env
+
             cmd = ["claude", "-p", prompt, "--output-format", "text"]
+            env = claude_env()
         else:
             cmd = ["codex", "exec", "--skip-git-repo-check", prompt]
-        code, out, err, wall = _run(cmd, Path.cwd(), int(vendor.params.get("timeout_s", 900)))
+        code, out, err, wall = _run(cmd, Path.cwd(), int(vendor.params.get("timeout_s", 900)), env=env)
         if code != 0:
             raise RuntimeError((err or out or f"{vendor.model} exited {code}")[-400:])
         return Answer(vendor.id, vendor.interface, vendor.model, "", out.strip(), wall, None, None)

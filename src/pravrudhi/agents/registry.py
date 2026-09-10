@@ -54,7 +54,14 @@ def survey(root: Path, *, include_orca: bool = True) -> list[AgentStatus]:
                 out.append(AgentStatus(name, False, "orca-ide runtime not reachable (needs a display server: xvfb)"))
             elif not a.available():
                 need = {"claude": "claude", "codex": "codex", "local": "opencode"}[a.agent_id]
-                out.append(AgentStatus(name, False, f"orca is up but {need} is not on PATH"))
+                why = f"orca is up but {need} is not on PATH"
+                if a.agent_id == "claude":
+                    from pravrudhi.agents.account import account_status
+
+                    ok, detail = account_status()
+                    if not ok:
+                        why = f"orca is up but {detail}"
+                out.append(AgentStatus(name, False, why))
             else:
                 out.append(AgentStatus(name, True, "ready"))
         elif isinstance(a, AlibabaAgent):

@@ -131,7 +131,16 @@ def headless_command(agent_id: str, prompt: str, model: str | None = None) -> li
     rather than a bespoke one written here.
     """
     if agent_id == "claude":
-        return ["claude", "-p", prompt, "--output-format", "json", "--allowed-tools", "Read,Edit,Write,Grep,Glob,Bash"]
+        # Orca runs this through a shell string it builds itself, so there is no environment dict to pass and
+        # the credential has to ride inside the command. `env` is a real binary and each item is quoted
+        # individually by `run_command`, so this survives the join intact. Operator instruction of 2026-09-10:
+        # this project does not use the personal Claude account, and an Orca terminal inherits the desktop
+        # session's environment, which is exactly where that account lives.
+        from pravrudhi.agents.account import claude_env
+
+        prefix = [f"{k}={v}" for k, v in sorted(claude_env().items())]
+        return ["env", *prefix, "claude", "-p", prompt, "--output-format", "json",
+                "--allowed-tools", "Read,Edit,Write,Grep,Glob,Bash"]
     if agent_id == "codex":
         return ["codex", "exec", "--sandbox", "workspace-write", "--skip-git-repo-check", prompt]
     if agent_id == "local":

@@ -114,13 +114,23 @@ class ClaudeCodeAgent(GitWorktreeMixin):
         self.root, self.model, self.allowed_tools = Path(root), model, allowed_tools
 
     def available(self) -> bool:
-        return shutil.which("claude") is not None
+        """The binary AND this project's own credential.
+
+        A seat that reports ready and then refuses on its first prompt is worse than one that reports why: the
+        dispatcher would keep choosing it. Operator instruction of 2026-09-10 -- this project does not use the
+        personal Claude account, so a personal login present does not make this seat available.
+        """
+        from pravrudhi.agents.account import provisioned
+
+        return shutil.which("claude") is not None and provisioned()
 
     def run(self, prompt: str, workspace: Path, timeout_s: int = 1800) -> AgentRun:
+        from pravrudhi.agents.account import claude_env
+
         cmd = ["claude", "-p", prompt, "--output-format", "json", "--allowed-tools", self.allowed_tools]
         if self.model:
             cmd += ["--model", self.model]
-        code, out, err, wall = _run(cmd, workspace, timeout_s)
+        code, out, err, wall = _run(cmd, workspace, timeout_s, env=claude_env())
         text, session, cost = out, None, None
         tokens = read = write = None
         try:
