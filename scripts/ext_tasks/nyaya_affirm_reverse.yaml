@@ -1,0 +1,43 @@
+# Verifiable-answer hallucination probe: did the court affirm or reverse. 1000 items, two labels.
+# NOTE the null: the gold is 583 affirm / 417 reverse, so always answering "affirm" scores 0.583.
+# Any result here must be read against 0.583 and not against 0.5.
+task: nyaya_affirm_reverse
+# Local parquet, not the Hub id: the repository declares a data_files path it does not contain, so
+# datasets.load_dataset raises DataFilesNotFoundError. scripts/fetch_nyaya_hallucinations.py converts
+# it once and records a sha256 per file. /cache is the ext_cache mount inside pravrudhi/ext-scorers.
+dataset_path: parquet
+dataset_kwargs:
+  data_files:
+    affirm_reverse: /cache/nyaya_hallucinations/affirm_reverse.parquet
+test_split: affirm_reverse
+output_type: generate_until
+doc_to_text: "{{query}}"
+doc_to_target: "{{example_correct_answer}}"
+generation_kwargs:
+  # The model echoes the prompt's few-shot block after answering, which burns the whole budget and leaves
+  # the answer buried. Stopping at the echo markers cuts it without truncating the answer itself.
+  until:
+    - "\n\n"
+    - "\nCase:"
+    - "\nQuestion:"
+    - "```"
+  max_gen_toks: 256
+  do_sample: false
+process_results: !function nyaya_utils.process_affirm_reverse
+metric_list:
+  - metric: citation_precision
+    aggregation: !function nyaya_utils.precision
+    higher_is_better: true
+  - metric: citation_abstention
+    aggregation: mean
+    higher_is_better: false
+  # Must be near zero before any number above is worth reading: it counts completions that produced
+  # neither an answer nor a refusal, which is the generation budget failing, not the model declining.
+  - metric: citation_unparsed
+    aggregation: mean
+    higher_is_better: false
+  - metric: exact_match
+    aggregation: mean
+    higher_is_better: true
+metadata:
+  version: 1.0

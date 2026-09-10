@@ -236,9 +236,16 @@ def headlines(row: dict[str, Any]) -> list[tuple[str, float, float, int]]:
     for task, metrics in m.items():
         if not metrics:
             continue
-        key = "exact_match,strict-match" if "exact_match,strict-match" in metrics else next(iter(metrics))
         n = int((row.get("n_samples") or {}).get(task) or 0)
-        out.append((f"{task} {key}", metrics[key], metrics.get(stderr_key(key), 0.0), n))
+        # EVERY metric, not one per task. This took `next(iter(metrics))` and so reported a single key, which
+        # was invisible until a task carried more than one thing worth naming: the nyaya citation tasks report
+        # precision over answered items, abstention, and accuracy over all, and an objective that declared the
+        # second and third showed them `unmeasured` while the row held their values. A stderr is the interval
+        # on another metric rather than a metric, so it is not a headline of its own.
+        for key in metrics:
+            if "_stderr" in key:
+                continue
+            out.append((f"{task} {key}", metrics[key], metrics.get(stderr_key(key), 0.0), n))
     return out
 
 

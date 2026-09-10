@@ -1,0 +1,43 @@
+# Verifiable-answer hallucination probe: the year a case was overruled. 444 items, gold is a 4-digit
+# year, so exact match is unambiguous. Same source and same precision/abstention split as the citation
+# task, because the failure being measured is the same one: inventing a fact rather than declining.
+task: nyaya_year_overruled
+# Local parquet, not the Hub id: the repository declares a data_files path it does not contain, so
+# datasets.load_dataset raises DataFilesNotFoundError. scripts/fetch_nyaya_hallucinations.py converts
+# it once and records a sha256 per file. /cache is the ext_cache mount inside pravrudhi/ext-scorers.
+dataset_path: parquet
+dataset_kwargs:
+  data_files:
+    year_overruled: /cache/nyaya_hallucinations/year_overruled.parquet
+test_split: year_overruled
+output_type: generate_until
+doc_to_text: "{{query}}"
+doc_to_target: "{{example_correct_answer}}"
+generation_kwargs:
+  # The model echoes the prompt's few-shot block after answering, which burns the whole budget and leaves
+  # the answer buried. Stopping at the echo markers cuts it without truncating the answer itself.
+  until:
+    - "\n\n"
+    - "\nCase:"
+    - "\nQuestion:"
+    - "```"
+  max_gen_toks: 256
+  do_sample: false
+process_results: !function nyaya_utils.process_year
+metric_list:
+  - metric: citation_precision
+    aggregation: !function nyaya_utils.precision
+    higher_is_better: true
+  - metric: citation_abstention
+    aggregation: mean
+    higher_is_better: false
+  # Must be near zero before any number above is worth reading: it counts completions that produced
+  # neither an answer nor a refusal, which is the generation budget failing, not the model declining.
+  - metric: citation_unparsed
+    aggregation: mean
+    higher_is_better: false
+  - metric: exact_match
+    aggregation: mean
+    higher_is_better: true
+metadata:
+  version: 1.0

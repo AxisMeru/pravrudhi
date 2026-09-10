@@ -13,7 +13,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from pravrudhi.application.external import parse_prabhasa_panel
+from pravrudhi.application.external import headlines, parse_prabhasa_panel
 
 # Field-for-field the shape of ~/projects/prabhasa-samskrutam/research/closure/m5_benchmarks.json, read
 # 2026-09-09, trimmed to the groups that carry both a value and an n.
@@ -205,3 +205,46 @@ def test_the_panel_row_renders_into_the_evidence_document(tmp_path: Path) -> Non
     text = render_external(ledger)
     assert "prabhasa" in text
     assert "nyaya_validity" in text
+
+
+def test_every_lm_eval_metric_is_a_headline_not_only_the_first_per_task() -> None:
+    """A task carrying several metrics had all but one invisible to any objective naming them.
+
+    `headlines` was fixed once already, for reading only the first TASK of a multi-task run; its docstring
+    says "every metric a row carries, not only the first" but the code took one key per task. The nyaya
+    citation tasks are the first to report three metrics at once -- precision over answered, abstention, and
+    accuracy over all -- and two of the three showed as `unmeasured` in an objective that declared them while
+    the ledger row held their values.
+    """
+    row = {
+        "tool": "lm-eval",
+        "metrics": {
+            "nyaya_citation_retrieval": {
+                "citation_precision,none": 0.0,
+                "citation_abstention,none": 0.0,
+                "exact_match,none": 0.0,
+                "exact_match_stderr,none": 0.0,
+            },
+            "nyaya_year_overruled": {"exact_match,none": 0.018, "exact_match_stderr,none": 0.0063},
+        },
+        "n_samples": {"nyaya_citation_retrieval": 1000, "nyaya_year_overruled": 444},
+    }
+    names = {name for name, _, _, _ in headlines(row)}
+    assert "nyaya_citation_retrieval citation_precision,none" in names
+    assert "nyaya_citation_retrieval exact_match,none" in names
+    assert "nyaya_citation_retrieval citation_abstention,none" in names
+    assert "nyaya_year_overruled exact_match,none" in names
+    # A stderr is the interval on another metric, never a metric of its own.
+    assert not any("_stderr" in name for name in names)
+    by_name = {name: (value, stderr, n) for name, value, stderr, n in headlines(row)}
+    assert by_name["nyaya_year_overruled exact_match,none"] == (0.018, 0.0063, 444)
+
+
+def test_a_single_metric_task_is_unchanged() -> None:
+    # The law proxies already admitted must keep resolving under exactly the names the objective declares.
+    row = {
+        "tool": "lm-eval",
+        "metrics": {"mmlu_professional_law": {"acc,none": 0.3905, "acc_stderr,none": 0.0125}},
+        "n_samples": {"mmlu_professional_law": 1534},
+    }
+    assert headlines(row) == [("mmlu_professional_law acc,none", 0.3905, 0.0125, 1534)]
