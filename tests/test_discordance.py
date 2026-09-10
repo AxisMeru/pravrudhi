@@ -105,3 +105,38 @@ def test_result_is_frozen() -> None:
     result = discordance({}, {})
     with pytest.raises(FrozenInstanceError):
         result.n = 1
+
+
+def test_the_screen_row_fields_are_decided_once_for_both_tracks() -> None:
+    """One derivation for one decision, because two of them drifted.
+
+    `harness_track` guarded the `discordance` call on the pool's declared kind and `execute` -- the model
+    track -- called it unconditionally, so the guard existed in exactly one of the two places that needed it.
+    Sealing `iltur-lsi-dev` (ADR-0043) made that reachable: a model-track night on a `set` pool would still
+    have raised on its first candidate, at the one call site nobody fixed.
+
+    Asked of the DECLARED kind, not the observed values, so a fractional pool whose items happened to score
+    0 or 1 on one rotation cannot be mistaken for a binary one and crash on the next.
+    """
+    from pravrudhi.application.discordance import discordance_fields
+
+    binary = discordance_fields("choice", {"a": 1, "b": 0}, {"a": 0, "b": 1})
+    assert binary["discordance"]["wins"] == 1 and binary["discordance"]["losses"] == 1
+    assert binary["discordance_note"] is None
+
+    # The fractional case: the statistic does not apply, and asking for it is what raised.
+    fractional = discordance_fields("set", {"a": 1.0}, {"a": 0.667})
+    assert fractional["discordance"] is None
+    assert "bootstrap" in fractional["discordance_note"] and "ADR-0038" in fractional["discordance_note"]
+
+
+def test_neither_track_reaches_past_the_shared_helper() -> None:
+    """Asserted on the source. A call site added later would be invisible to any behavioural test until a
+    `set` night ran on that track, which is exactly how this defect survived: it was latent until a pool of
+    the right kind existed, and by then it was a crash in a night rather than a red test."""
+    from pathlib import Path
+
+    for name in ("execute.py", "harness_track.py"):
+        src = Path(f"src/pravrudhi/application/{name}").read_text()
+        assert "discordance_fields(" in src, f"{name} does not use the shared helper"
+        assert "asdict(discordance(" not in src, f"{name} still calls discordance directly"

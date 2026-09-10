@@ -7,14 +7,13 @@ import json
 import os
 import time
 from collections.abc import Callable, Iterable, Mapping
-from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
 import yaml
 
 from pravrudhi.application.deliberate import DecorativeAbort, deliberate
-from pravrudhi.application.discordance import discordance
+from pravrudhi.application.discordance import discordance_fields
 from pravrudhi.application.propose import next_candidate_id, propose_generic, strategy_switch_rate
 from pravrudhi.application.spine import IMAGE, resolve_model_snapshot
 from pravrudhi.models.proposer import proposer_client
@@ -25,7 +24,6 @@ from pravrudhi_kernel.metrics import (
     Rotation,
     answer_kind,
     draw_rotation,
-    is_binary,
     record_exposure,
     scorer_for_pool,
     scorer_source_for_pool,
@@ -468,17 +466,7 @@ def admit_candidate(
             # night on `iltur-lsi-dev` would have crashed here on its first candidate. Asked of the pool's
             # DECLARED kind, not of the observed values, so a fractional pool whose items happened to score
             # 0/1 cannot be mistaken for a binary one.
-            "discordance": (
-                asdict(discordance(incumbent_scores, cscores))
-                if is_binary(ctx.answer_kind)
-                else None
-            ),
-            "discordance_note": (
-                None
-                if is_binary(ctx.answer_kind)
-                else "omitted: an exact binomial McNemar test is not defined on a fractional per-item score; "
-                "read the paired bootstrap interval instead (ADR-0038)"
-            ),
+            **discordance_fields(ctx.answer_kind, incumbent_scores, cscores),
             "stats": {
                 "boundary": br.decision,
                 "e_value": br.e_value,

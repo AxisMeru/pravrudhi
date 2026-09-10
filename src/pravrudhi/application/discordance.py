@@ -13,8 +13,11 @@ their win/loss odds. Concordant items still enter the pass-rate denominator.
 """
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from math import comb, exp, fsum, inf, log, log1p
+from typing import Any
+
+from pravrudhi_kernel.metrics import is_binary
 
 
 @dataclass(frozen=True)
@@ -95,3 +98,28 @@ def discordance(incumbent: Mapping[str, float], candidate: Mapping[str, float]) 
     # rounding a proportion near one to one before calculating its odds.
     or_upper = (1.0 - reverse_lower) / reverse_lower if losses else inf
     return Discordance(n, n - total, wins, losses, (wins - losses) / n, p_mcnemar, or_lower, or_upper)
+
+
+def discordance_fields(
+    answer_kind: str, incumbent: Mapping[str, float], candidate: Mapping[str, float]
+) -> dict[str, Any]:
+    """The `discordance` entry of a screen row, and the note that stands in its place on a fractional pool.
+
+    One derivation for one decision, because two of them drifted. The harness track asked
+    `is_binary(ctx.answer_kind)` before calling `discordance`; `execute` -- the model track -- called it
+    unconditionally. The guard therefore existed in exactly one of the two places that needed it, and sealing
+    the first `set` pool (ADR-0043) made the other reachable: a model-track night on `iltur-lsi-dev` would
+    still have raised on its first candidate.
+
+    Asked of the pool's DECLARED kind rather than of the observed values, so a fractional pool whose items
+    happened to score 0 or 1 on one rotation cannot be mistaken for a binary one and crash on the next.
+    """
+    if is_binary(answer_kind):
+        return {"discordance": asdict(discordance(incumbent, candidate)), "discordance_note": None}
+    return {
+        "discordance": None,
+        "discordance_note": (
+            "omitted: an exact binomial McNemar test is not defined on a fractional per-item score; "
+            "read the paired bootstrap interval instead (ADR-0038)"
+        ),
+    }

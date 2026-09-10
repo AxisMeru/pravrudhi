@@ -7,11 +7,10 @@ import json
 import os
 import time
 from collections.abc import Callable
-from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
-from pravrudhi.application.discordance import discordance
+from pravrudhi.application.discordance import discordance_fields
 from pravrudhi.application.spine import IMAGE, expected_hashes, run_eval_job, score_job, write_job_inputs
 from pravrudhi.targets import LoraRecipe
 from pravrudhi_kernel.ledger import LedgerWriter, replay
@@ -560,7 +559,10 @@ def evaluate_and_dispose(ctx: NightContext, w: LedgerWriter, cid: str, recipe: L
             "incumbent_run_id": inc_dir.name,
             "predicted": predicted,
             "brier": brier,
-            "discordance": asdict(discordance(inc_scores, can_scores)),
+            # Guarded on the pool's declared kind, like the harness track: `discordance` refuses a fractional
+            # score rather than computing a McNemar test that does not apply (ADR-0038). This call site was
+            # unconditional, so a model-track night on a `set` pool raised here on its first candidate.
+            **discordance_fields(ctx.answer_kind, inc_scores, can_scores),
             "stats": {
                 "boundary": br.decision,
                 "e_value": br.e_value,
