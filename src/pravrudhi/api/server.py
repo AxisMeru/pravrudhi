@@ -1180,7 +1180,7 @@ def create_app(root: Path) -> FastAPI:
             # `reject` and `defer` need no evidence: declining to promote something cannot promote it. Only
             # `approve` is gated, which keeps the delegation from blocking the loop's ability to prune.
             if req.decision == "approve":
-                unmet = unmet_conditions(delegation, badge=(row or {}).get("badge"))
+                unmet = unmet_conditions(delegation, act="promote_t2", badge=(row or {}).get("badge"))
                 if unmet:
                     raise HTTPException(409, "autonomous approval refused: " + "; ".join(unmet))
             who, autonomous = delegation.identity, True

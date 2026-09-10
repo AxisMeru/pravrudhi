@@ -76,7 +76,16 @@ def test_orca_refuses_clearly_when_its_runtime_is_absent(tmp_path, monkeypatch):
 def test_each_agent_kind_has_a_headless_invocation():
     from pravrudhi.agents.orca_agent import LOCAL_PROVIDER, headless_command
 
-    assert headless_command("claude", "do it")[:3] == ["claude", "-p", "do it"]
+    # `claude` is prefixed with `env CLAUDE_CONFIG_DIR=...` so an Orca terminal cannot reach the operator's
+    # personal account -- Orca builds its own shell string, so there is no environment dict to pass and the
+    # credential has to ride inside the command. The property to hold is that the pin is there and the
+    # invocation is unchanged after it, not the exact prefix length.
+    claude = headless_command("claude", "do it")
+    assert claude[0] == "env"
+    assert any(a.startswith("CLAUDE_CONFIG_DIR=") for a in claude), "the personal account must be unreachable"
+    at = claude.index("claude")
+    assert claude[at : at + 3] == ["claude", "-p", "do it"]
+    # And only for claude: codex has its own credential store and its own instruction.
     assert headless_command("codex", "do it")[:2] == ["codex", "exec"]
     local = headless_command("local", "do it", model="qwen3-30b-a3b")
     assert local[:4] == ["opencode", "run", "--format", "json"]

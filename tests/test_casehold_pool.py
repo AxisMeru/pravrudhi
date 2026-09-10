@@ -94,3 +94,74 @@ def test_the_live_pool_has_the_headroom_the_spent_one_lacked() -> None:
     assert n > 5000
     # k=96 at exposure cap 16: rotations available before the pool is spent.
     assert (n * 16) // 96 > 500, "a pool that ends nights on exposure budget is the thing being replaced"
+
+
+def test_outlier_length_questions_are_excluded_and_counted(tmp_path: Path) -> None:
+    """Found by running the floor, not by a test: every run of rotation 0 died with CUDA OOM while rotations
+    1 and 2 passed. A consistent per-rotation failure is content, not contention. `agent_choice.py` batches 16
+    prompts with padding=True, so one 115,303-character question -- ~29k tokens, against a p99 of 2,596 --
+    pads the whole batch to its own length and the job dies. An item the model cannot be ASKED is not an
+    evaluation item; it scores 0 for a context reason and reads as a legal-reasoning failure."""
+    from pravrudhi.application.pool_admin import CASEHOLD_MAX_QUESTION_CHARS
+
+    src = tmp_path / "casehold-val.csv"
+    with src.open("w", newline="") as fh:
+        w = csv.writer(fh)
+        w.writerow(HEADER)
+        # 1 in 40 is 2.5%, inside the 5% the sealer allows. 1 in 10 would be 10% and is refused -- correctly,
+        # and by this file's own next test. The real split drops 23 of 5,314, which is 0.43%.
+        for i in range(40):
+            row = [""] * WIDTH
+            row[0] = str(i)
+            row[1] = ("x" * 60000 if i == 3 else f"passage {i}") + " cites (<HOLDING>)"
+            for j in range(5):
+                row[2 + j] = f"holding {i}.{j}"
+            row[12] = str(i % 5)
+            w.writerow(row)
+
+    m = seal_casehold(tmp_path, src, "casehold-bounded")
+    assert m["n_items"] == 39, "the outlier must be gone"
+    manifest = load_manifest(Path(tmp_path) / ".pravrudhi" / "kernel" / "pools" / "casehold-bounded")
+    s = manifest["source"]
+    assert s["n_rows_in_split"] == 40
+    assert s["n_dropped_too_long"] == 1, "the exclusion has to be counted, or it becomes folklore"
+    assert s["max_question_chars"] == CASEHOLD_MAX_QUESTION_CHARS
+    longest = max(
+        len(json.loads(p.read_text())["question"])
+        for p in (Path(tmp_path) / ".pravrudhi" / "kernel" / "pools" / "casehold-bounded" / "items").iterdir()
+    )
+    assert longest <= CASEHOLD_MAX_QUESTION_CHARS
+
+
+def test_a_bound_that_cuts_into_the_distribution_is_refused(tmp_path: Path) -> None:
+    """Clipping outliers and trimming the hard end are different decisions, and only the first is this one.
+
+    The lengths have to VARY for this to be meaningful: a uniform fixture either keeps everything or nothing,
+    and nothing trips the empty-pool check first, which is a different refusal."""
+    src = tmp_path / "casehold-val.csv"
+    with src.open("w", newline="") as fh:
+        w = csv.writer(fh)
+        w.writerow(HEADER)
+        for i in range(20):
+            row = [""] * WIDTH
+            row[0] = str(i)
+            row[1] = "y" * (100 * (i + 1)) + " cites (<HOLDING>)"   # 100 .. 2000 chars, evenly spread
+            for j in range(5):
+                row[2 + j] = f"holding {i}.{j}"
+            row[12] = str(i % 5)
+            w.writerow(row)
+    # A bound at 1000 chars keeps ~9 of 20 and drops the rest: a slice, not a clip.
+    with pytest.raises(ValueError, match="slice of the distribution"):
+        seal_casehold(tmp_path, src, "casehold-overcut", max_chars=1000)
+
+
+def test_the_live_pool_carries_no_item_the_model_cannot_be_asked() -> None:
+    pool = Path(".pravrudhi/kernel/pools/casehold-val")
+    if not pool.exists():
+        pytest.skip("casehold-val is not sealed in this workspace")
+    from pravrudhi.application.pool_admin import CASEHOLD_MAX_QUESTION_CHARS
+
+    lens = [len(json.loads(p.read_text())["question"]) for p in (pool / "items").iterdir()]
+    assert max(lens) <= CASEHOLD_MAX_QUESTION_CHARS
+    src = load_manifest(pool)["source"]
+    assert src["n_dropped_too_long"] == 23, "the 23 outliers in CaseHOLD val, recorded rather than assumed"

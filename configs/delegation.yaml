@@ -29,11 +29,20 @@ scope:
   interp_claim: false
 
 # Removing the human does not remove the judgement -- it moves it here. Each of these is something a person
-# was implicitly doing by looking at the pack before signing.
+# was implicitly doing by looking before signing.
+#
+# Scoped PER ACT, because the two acts have different artefacts and the first attempt at this got it wrong:
+# conditions about a gate JSON's closure layers were also applied to inbox packs, which have no gate JSON, so
+# every autonomous approval was refused for "no gate check was run". Refusing an unchecked condition is right;
+# demanding a check that cannot exist for that artefact is not.
 conditions:
-  require_gate_check_clean: true      # `check_gate` returns no problems
-  require_closure_layers_pass: true   # every non-signoff closure layer is already "pass"
-  # An amber badge means the evidence is equivocal. The right autonomous response to equivocal evidence is to
-  # run the experiment that resolves it, not to approve it -- CHARTER §6: "Prune with statistics, then propose
-  # the experiment that finds what is true." Amber is refused with a reason and a next step, never parked.
-  require_green_badge: true
+  gate_signoff:
+    require_gate_check_clean: true      # `check_gate` returns no problems
+    require_closure_layers_pass: true   # every non-signoff closure layer is already "pass"
+  promote_t2:
+    # A promotion pack's evidence is the paired comparison the ledger already holds, and `badge` is replay's
+    # verdict on it -- nothing here is hand-set. An amber badge means the evidence is equivocal, and the right
+    # autonomous response to equivocal evidence is to run the experiment that resolves it, not to approve it
+    # (CHARTER §6: "Prune with statistics, then propose the experiment that finds what is true"). Amber is
+    # refused with a reason and a next step, never parked.
+    require_green_badge: true

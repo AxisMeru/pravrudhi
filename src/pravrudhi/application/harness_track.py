@@ -602,6 +602,21 @@ def harness_noise_floor(
             values.setdefault(rot.rotation_id, []).append(v)
             log(f"rotation {r} seed {s}: plus_pass={v:.4f} n={k} seq={obs.seq} wall={res.wall_s:.0f}s")
     allv = [x for vs in values.values() for x in vs]
+    # A floor is the variance of a COMPLETE A/A set, and a partial one is not a conservative floor -- it is a
+    # different number. Found by running it: three of nine runs OOM'd on the casehold-val floor because the
+    # previous night had not released its GPU memory yet, all three of them rotation 0, and the study wrote a
+    # floor from the surviving six without a word. `sigma_rot` is computed ACROSS rotations, so losing a whole
+    # rotation left it with one degree of freedom; `n_runs: 6` in the JSON was technically honest and nothing
+    # read it. Same shape as a scoring job that did not run becoming a rotation of zeros (ADR-0039).
+    wanted = rotations * seeds
+    if len(allv) < wanted:
+        got = {rid: len(vs) for rid, vs in values.items()}
+        raise RuntimeError(
+            f"noise floor incomplete: {len(allv)} of {wanted} runs succeeded ({rotations} rotations x "
+            f"{seeds} seeds), per rotation {got}. A floor measured on a subset is a different number, not a "
+            f"conservative one, and a missing rotation leaves sigma_rot with almost no degrees of freedom. "
+            f"The failures are above; fix them and re-measure rather than running a night on this."
+        )
     within = [math.sqrt(sum((x - sum(vs) / len(vs)) ** 2 for x in vs) / (len(vs) - 1)) for vs in values.values() if len(vs) >= 2]
     sigma_seed = math.sqrt(sum(x * x for x in within) / len(within)) if within else 0.0
     means = [sum(vs) / len(vs) for vs in values.values()]

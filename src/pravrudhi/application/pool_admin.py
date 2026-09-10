@@ -157,7 +157,24 @@ CASEHOLD_INTERNAL_SPLIT = "val"
 CASEHOLD_EXTERNAL_SPLITS = ("test",)
 
 
-def seal_casehold(root: Path, source: Path, bench: str = "casehold-val") -> dict[str, Any]:
+#: Longest question a `casehold-val` item may carry, in characters.
+#:
+#: Not a taste judgement about difficulty -- a cliff in the data. The distribution is p99 = 2,596 chars and
+#: p99.5 = 3,033, and then **23 items of 5,314 jump to as much as 115,303** with essentially nothing in
+#: between: the same 23 are excluded by any cut from 4,000 to 8,000. At ~4 chars per token that outlier is
+#: ~29k tokens, and `agent_choice.py` batches 16 prompts with `padding=True`, so one of them pads the whole
+#: batch to its length and the job dies with CUDA OOM. That is how the first casehold floor lost every run of
+#: rotation 0 while rotations 1 and 2 passed -- rotation 0 had drawn one.
+#:
+#: An item the model cannot be ASKED is not an evaluation item; it scores 0 for a context reason and reads as
+#: a legal-reasoning failure. Dropping 0.43% of the pool to remove items 40x the median is not a slice off the
+#: hard end of the distribution, and `n_dropped_too_long` records exactly how many went.
+CASEHOLD_MAX_QUESTION_CHARS = 4000
+
+
+def seal_casehold(
+    root: Path, source: Path, bench: str = "casehold-val", *, max_chars: int = CASEHOLD_MAX_QUESTION_CHARS
+) -> dict[str, Any]:
     """Seal CaseHOLD's validation split as the law tracks' internal choice pool (ADR-0041).
 
     `mmlu-law-val` is spent: 191 items, 115 of them at exposure cap 16, leaving 76 eligible against a draw of
@@ -175,9 +192,18 @@ def seal_casehold(root: Path, source: Path, bench: str = "casehold-val") -> dict
     from pravrudhi.application.corpus import CASEHOLD_ORIGIN, casehold_rows
 
     source = Path(source)
-    rows = [{"question": r["question"], "answer": r["answer"]} for r in casehold_rows(source)]
+    every = [{"question": r["question"], "answer": r["answer"]} for r in casehold_rows(source)]
+    rows = [r for r in every if len(r["question"]) <= max_chars]
+    dropped = len(every) - len(rows)
     if not rows:
         raise ValueError(f"{source} yielded no rows; a pool of nothing would refuse every draw")
+    if dropped > len(every) // 20:
+        # A bound that removes more than 5% is cutting into the distribution rather than clipping outliers,
+        # and that is a different decision from this one -- it would change what the bench measures.
+        raise ValueError(
+            f"max_chars={max_chars} would drop {dropped} of {len(every)} items ({100 * dropped / len(every):.1f}%). "
+            f"That is a slice of the distribution, not an outlier clip; choose the bound deliberately."
+        )
     state = ensure_kernel_state(root, docker_available=docker_available())
     src = {
         "origin": CASEHOLD_ORIGIN,
@@ -190,6 +216,18 @@ def seal_casehold(root: Path, source: Path, bench: str = "casehold-val") -> dict
             }
         ],
         "n_rows": len(rows),
+        "n_rows_in_split": len(every),
+        "max_question_chars": max_chars,
+        # Reported, not assumed. A reader has to be able to see how much of the split this pool is and why the
+        # rest is missing, or the exclusion becomes invisible and then becomes folklore.
+        "n_dropped_too_long": dropped,
+        "dropped_note": (
+            "Questions longer than max_question_chars are excluded because `agent_choice.py` batches 16 "
+            "prompts with padding=True, so a single outlier pads the batch to its own length and the job "
+            "dies with CUDA OOM -- which is what cost every run of rotation 0 on the first floor attempt. "
+            "The distribution has p99 2596 and p99.5 3033 chars and then jumps to 115303, so this clips "
+            "outliers rather than trimming the hard end."
+        ),
         "held_out_for_external_proof": list(CASEHOLD_EXTERNAL_SPLITS),
         "disjoint_from": [
             "casehold-train, which the model track trains on -- CaseHOLD's own split boundary, not a filter "

@@ -40,15 +40,23 @@ REAL_ENVELOPE = {
 }
 
 
-def _stub_cli(monkeypatch, payload: object, code: int = 0) -> None:
+def _stub_cli(monkeypatch, payload: object, code: int = 0, *, credential: Path | None = None) -> None:
     def fake_run(cmd, cwd, timeout_s, env=None):  # type: ignore[no-untyped-def]
         return code, json.dumps(payload) if not isinstance(payload, str) else payload, "", 1.5
     monkeypatch.setattr(cli_agents, "_run", fake_run)
+    # `ClaudeCodeAgent.run` refuses to spawn `claude` without this project's OWN credential, rather than
+    # falling back to the operator's personal login (2026-09-10 instruction). That refusal is production
+    # behaviour worth keeping, so these tests provision a credential instead of monkeypatching it away --
+    # which also documents what "provisioned" means: a config directory holding `.credentials.json`.
+    if credential is not None:
+        credential.mkdir(parents=True, exist_ok=True)
+        (credential / ".credentials.json").write_text("{}")
+        monkeypatch.setenv("PRAVRUDHI_CLAUDE_CONFIG_DIR", str(credential))
 
 
 class TestTheAdapterReportsWhatItSpent:
     def test_usage_in_the_envelope_becomes_the_run_cost(self, tmp_path: Path, monkeypatch) -> None:
-        _stub_cli(monkeypatch, REAL_ENVELOPE)
+        _stub_cli(monkeypatch, REAL_ENVELOPE, credential=tmp_path / 'claude')
         run = ClaudeCodeAgent(tmp_path).run("do a thing", tmp_path)
 
         assert run.ok
@@ -61,14 +69,18 @@ class TestTheAdapterReportsWhatItSpent:
 
     def test_an_envelope_without_usage_is_unmeasured_not_free(self, tmp_path: Path, monkeypatch) -> None:
         """The whole defect in one assertion: absence must not arrive as zero."""
-        _stub_cli(monkeypatch, {k: v for k, v in REAL_ENVELOPE.items() if k != "usage"})
+        _stub_cli(
+            monkeypatch,
+            {k: v for k, v in REAL_ENVELOPE.items() if k != "usage"},
+            credential=tmp_path / "claude",
+        )
         run = ClaudeCodeAgent(tmp_path).run("do a thing", tmp_path)
 
         assert run.tokens is None, "an adapter that cannot tell must say so, not report zero"
         assert run.cache_read_tokens is None and run.cache_write_tokens is None
 
     def test_unparseable_output_is_unmeasured(self, tmp_path: Path, monkeypatch) -> None:
-        _stub_cli(monkeypatch, "not json at all")
+        _stub_cli(monkeypatch, "not json at all", credential=tmp_path / 'claude')
         run = ClaudeCodeAgent(tmp_path).run("do a thing", tmp_path)
         assert run.tokens is None
 
@@ -77,7 +89,7 @@ class TestTheAdapterReportsWhatItSpent:
         envelope = dict(REAL_ENVELOPE)
         envelope["usage"] = {"input_tokens": 0, "output_tokens": 0,
                              "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0}
-        _stub_cli(monkeypatch, envelope)
+        _stub_cli(monkeypatch, envelope, credential=tmp_path / 'claude')
         assert ClaudeCodeAgent(tmp_path).run("x", tmp_path).tokens == 0
 
 

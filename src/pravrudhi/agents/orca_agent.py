@@ -138,7 +138,12 @@ def headless_command(agent_id: str, prompt: str, model: str | None = None) -> li
         # session's environment, which is exactly where that account lives.
         from pravrudhi.agents.account import claude_env
 
-        prefix = [f"{k}={v}" for k, v in sorted(claude_env().items())]
+        # `require=False`: this function BUILDS argv, it does not run it. The property that matters here is
+        # that CLAUDE_CONFIG_DIR is set, which makes the personal account unreachable whether or not the
+        # project's own credential is present yet -- and an unprovisioned directory then fails as the CLI's
+        # own login error rather than ours. Refusing to build a string was over-eager and broke five tests
+        # that are about command shape, not credentials; the refusal belongs in `run()`, where it is.
+        prefix = [f"{k}={v}" for k, v in sorted(claude_env(require=False).items())]
         return ["env", *prefix, "claude", "-p", prompt, "--output-format", "json",
                 "--allowed-tools", "Read,Edit,Write,Grep,Glob,Bash"]
     if agent_id == "codex":

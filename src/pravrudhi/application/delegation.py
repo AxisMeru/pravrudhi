@@ -40,7 +40,9 @@ class Delegation:
     instruction: str
     identity: str
     scope: dict[str, bool]
-    conditions: dict[str, bool]
+    #: Either `{condition: bool}` or `{act: {condition: bool}}`. Nested is the current shape (conditions are
+    #: per act); flat is honoured so an older config keeps working.
+    conditions: dict[str, Any]
     source: Path
 
     def permits(self, act: str) -> tuple[bool, str]:
@@ -53,7 +55,17 @@ class Delegation:
             return False, f"{self.source} sets scope.{act}: false"
         return True, f"delegated {self.granted} by the operator"
 
-    def requires(self, condition: str) -> bool:
+    def requires(self, condition: str, act: str) -> bool:
+        """Whether `condition` applies to `act`.
+
+        Scoped per act because the two acts have different artefacts. A gate JSON has closure layers; an inbox
+        pack does not, and applying the gate's conditions to a pack refused every autonomous approval for "no
+        gate check was run" -- demanding a check that cannot exist for that artefact rather than one that was
+        skipped. A flat block is still honoured, so an older config keeps working.
+        """
+        scoped = self.conditions.get(act)
+        if isinstance(scoped, dict):
+            return bool(scoped.get(condition, False))
         return bool(self.conditions.get(condition, False))
 
     @property
@@ -89,7 +101,7 @@ def load_delegation(root: Path = Path(".")) -> Delegation | None:
 
 
 def unmet_conditions(
-    delegation: Delegation, *, gate_problems: list[str] | None = None,
+    delegation: Delegation, *, act: str, gate_problems: list[str] | None = None,
     failing_layers: list[str] | None = None, badge: str | None = None,
 ) -> list[str]:
     """The delegation's conditions that this subject fails, as reasons a reader can act on.
@@ -99,17 +111,17 @@ def unmet_conditions(
     as a condition that held.
     """
     reasons: list[str] = []
-    if delegation.requires("require_gate_check_clean"):
+    if delegation.requires("require_gate_check_clean", act):
         if gate_problems is None:
             reasons.append("require_gate_check_clean is set but no gate check was run")
         elif gate_problems:
             reasons.append(f"gate check found {len(gate_problems)} problem(s): {'; '.join(gate_problems[:3])}")
-    if delegation.requires("require_closure_layers_pass"):
+    if delegation.requires("require_closure_layers_pass", act):
         if failing_layers is None:
             reasons.append("require_closure_layers_pass is set but the closure layers were not read")
         elif failing_layers:
             reasons.append(f"closure layers not passing: {', '.join(failing_layers)}")
-    if delegation.requires("require_green_badge"):
+    if delegation.requires("require_green_badge", act):
         if badge is None:
             reasons.append("require_green_badge is set but no badge was resolved")
         elif badge != "green":

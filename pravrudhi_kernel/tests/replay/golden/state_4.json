@@ -1171,7 +1171,7 @@
     "research/inbox/4/c-0044"
   ],
   "kernel_release": "0.1.0",
-  "ledger_head": "7e33792fe43e6d313dd6fa1ab65bc59944cdc0bbd7f255719a977bd899865ef8",
+  "ledger_head": "7bd162b6c4f21a1afbaa6b4f264c2ce117ae3943bf878ecd46352edbf93bc4e1",
   "locks": {
     "frozen_surfaces": [],
     "paused": false,
@@ -1266,7 +1266,7 @@
     "c-0036",
     "c-0045"
   ],
-  "state_hash": "479673fa0f06e441d128c3679e38313fa38cb0828a7e4ca6ab360d55468676c4",
+  "state_hash": "63b02374215e05e7858c99b05c04739d6f744ce94674509a1c9d285afd50aa0a",
   "sublations": 4,
   "t_last": "2026-09-04T01:29:31.000Z",
   "tau": {

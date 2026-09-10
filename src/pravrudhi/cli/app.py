@@ -41,6 +41,11 @@ NIGHT_CONFIG_OPT: Path | None = typer.Option(
 HARNESS_CONFIG_OPT: Path | None = typer.Option(
     None, "--config", help="Frozen night pre-registration to run; default research/prereg/harness_night.yaml."
 )
+INBOX_PACK_OPT = typer.Option(..., "--pack", help="Promotion pack directory, as `pravrudhi inbox` prints it")
+INBOX_DECISION_OPT = typer.Option("approve", "--decision", help="approve | reject | defer")
+INBOX_BY_OPT = typer.Option(
+    "", "--by", help="A person's name to sign as them; omit to sign autonomously under the recorded delegation"
+)
 CASEHOLD_SOURCE_OPT = typer.Option(..., "--source", help="CaseHOLD val CSV on disk, fetched separately")
 CASEHOLD_BENCH_OPT = typer.Option("casehold-val", "--bench")
 APPS_SOURCE_OPT = typer.Option(..., "--source", help="APPS split on disk (test.jsonl or parquet), fetched separately")
@@ -580,6 +585,30 @@ def inbox_cmd(root: Path = ROOT_OPT) -> None:
         typer.echo("inbox empty")
     for r in rows:
         typer.echo(f"{r['night']} {r['candidate']} badge={r['badge']} signed={r['signed']} {r['pack']}")
+
+
+@app.command("inbox-sign")
+def inbox_sign_cmd(
+    pack: Path = INBOX_PACK_OPT,
+    decision: str = INBOX_DECISION_OPT,
+    note: str = NOTE_OPT,
+    by: str = INBOX_BY_OPT,
+    root: Path = ROOT_OPT,
+) -> None:
+    """Record a decision on a promotion pack (ADR-0040).
+
+    `--by` a person's name signs as that person. Left at its default it signs autonomously, which requires a
+    recorded delegation in `configs/delegation.yaml` and satisfies its conditions -- the same path and the
+    same checks the product and studio apps take through `/inbox/sign`, so the CLI cannot be a way around
+    them.
+    """
+    from pravrudhi.application.inbox_sign import record_decision
+
+    out = record_decision(root, pack=pack, decision=decision, note=note, by=by)
+    typer.echo(
+        f"{out['decision']} {pack} by {out['by']} ({'autonomous' if out['autonomous'] else 'human'}); "
+        f"ledger seq {out['seq']}"
+    )
 
 
 @app.command("init")
