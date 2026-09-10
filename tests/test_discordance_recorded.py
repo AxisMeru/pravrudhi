@@ -116,3 +116,25 @@ def test_paired_discordance_is_recorded_without_changing_decision(monkeypatch, t
         for key in ["boundary", "e_value", "xbar", "halfwidth", "sigma_used", "n"]
     }
     assert events == baseline_events
+
+
+def test_discordance_refuses_fractional_scores() -> None:
+    """An exact binomial McNemar test is not defined on fractional outcomes: there is no "win" to count when
+    an item goes from 0.667 to 0.750, and float equality would call 0.6666666 and 0.6666667 discordant. The
+    `set` answer kind (ADR-0038) scores by Jaccard, so this is the boundary where a night on such a pool
+    stops loudly instead of reporting a statistic that does not apply to it."""
+    import pytest
+
+    from pravrudhi.application.discordance import discordance
+
+    ok = discordance({"a": 1, "b": 0}, {"a": 1, "b": 1})
+    assert (ok.wins, ok.losses) == (1, 0)
+    # Floats that happen to be 0/1 are still binary outcomes and are accepted.
+    assert discordance({"a": 1.0}, {"a": 0.0}).losses == 1
+
+    with pytest.raises(ValueError, match="not a binary outcome"):
+        discordance({"a": 0.667}, {"a": 1})
+    with pytest.raises(ValueError, match="candidate item 'a'"):
+        discordance({"a": 1}, {"a": 0.75})
+    # An unshared key in one arm must not refuse an otherwise valid comparison.
+    assert discordance({"a": 1, "z": 0.5}, {"a": 0}).losses == 1

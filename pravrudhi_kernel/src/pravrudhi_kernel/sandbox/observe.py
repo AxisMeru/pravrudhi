@@ -4,6 +4,7 @@ writes them."""
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -71,7 +72,7 @@ def admit_observation(
     *,
     expected: KernelHashes,
     job_meta: dict[str, Any],
-    per_item_scores: dict[str, int],
+    per_item_scores: Mapping[str, float],
     per_item_ref: str,
     run_id: str,
     candidate_id: str,

@@ -6,7 +6,7 @@ import hashlib
 import json
 import os
 import time
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
@@ -128,6 +128,21 @@ class HarnessContext:
                     f"would be set from another pool's sigma. Measure it with `pravrudhi study "
                     f"harness-noise-floor` on {bench!r} first."
                 )
+            # The bench check above is half the pairing. The other half is the BASELINE: a floor is the
+            # variance of repeated runs of one recipe, and pairing candidates against a different recipe
+            # sets the boundary from another arm's sigma -- the same defect as a floor from another pool,
+            # which ADR-0037 found in four places. Changing `baseline_recipe:` therefore invalidates the
+            # floor, and this refuses rather than trusting anyone to remember that.
+            want = baseline_sha256(self.baseline)
+            held = str(v.get("baseline_sha256") or "")
+            if held != want:
+                raise ValueError(
+                    f"{vf.name} was measured at baseline "
+                    f"{held[:12] + '...' if held else '(unrecorded, before ADR-0037)'} and this night pairs "
+                    f"against {want[:12]}...; the boundary would come from another recipe's variance. "
+                    f"Re-measure it with `pravrudhi study harness-noise-floor --config <the night config that "
+                    f"names {vf.name}>` before running a night on it."
+                )
             b = cfg["boundary"]
             dm = max(2 * float(v["sigma_seed"]), float(b["delta_min_floor"]))
             self.variance = Variance.model_validate(
@@ -197,7 +212,7 @@ def run_agent(
     return jd, res, (json.loads(meta_p.read_text()) if meta_p.exists() else None)
 
 
-def _score_in_process(ctx: HarnessContext, jd: Path, rot: Rotation) -> tuple[dict[str, int], Path, JobResult]:
+def _score_in_process(ctx: HarnessContext, jd: Path, rot: Rotation) -> tuple[Mapping[str, float], Path, JobResult]:
     """Score a non-code pool with the scorer its own manifest declares. No container: nothing to execute.
 
     Mirrors `spine.score_job`, including `unparsed.json`: a completion that commits to no answer scores 0
@@ -234,7 +249,7 @@ def _score_in_process(ctx: HarnessContext, jd: Path, rot: Rotation) -> tuple[dic
     )
 
 
-def score_agent(ctx: HarnessContext, jd: Path, rot: Rotation) -> tuple[dict[str, int], Path, Any]:
+def score_agent(ctx: HarnessContext, jd: Path, rot: Rotation) -> tuple[Mapping[str, float], Path, Any]:
     """Kernel-launched hidden-test execution in the scorers image: no network, no GPU, disposable.
 
     A pool with no container scorer is scored in process instead; see `kernel_scored`."""
@@ -379,13 +394,13 @@ def admit_candidate(
     w: LedgerWriter,
     cid: str,
     cand: HarnessRecipe,
-    cjd_scores: tuple[dict[str, int], Path, Any, dict[str, Any], Path],
+    cjd_scores: tuple[Mapping[str, float], Path, Any, dict[str, Any], Path],
     seed: int,
     rot_id: str,
     iv: float,
     br: Any,
     extra: dict[str, Any],
-    incumbent_scores: dict[str, int],
+    incumbent_scores: Mapping[str, float],
 ) -> None:
     cscores, cref, csres, cmeta, cjd = cjd_scores
     ch = _hashes(ctx, cjd, cand)
@@ -449,6 +464,15 @@ def baseline_recipe(root: Path, cfg: dict[str, Any]) -> HarnessRecipe:
         # would silently fall back to the code recipe and the night would measure the mismatch again.
         raise ValueError(f"{path} is not a valid harness recipe: {parsed}")
     return parsed
+
+
+def baseline_sha256(recipe: HarnessRecipe) -> str:
+    """The identity of the recipe a floor was measured at, or a night is paired against.
+
+    Over `harness_json()` rather than the model, so `rationale` -- prose that explains a recipe without
+    changing what it runs -- does not invalidate a floor.
+    """
+    return hashlib.sha256(json.dumps(recipe.harness_json(), sort_keys=True).encode()).hexdigest()
 
 
 def promoted_path(root: Path, bench: str) -> Path:
@@ -580,6 +604,10 @@ def harness_noise_floor(
         "sigma_seed": sigma_seed,
         "sigma_rot": sigma_rot,
         "k_items": k,
+        # Which recipe this is the variance OF. A floor without it cannot be checked against the night that
+        # reads it, and an unverifiable pairing is what ADR-0037 is about.
+        "baseline_sha256": baseline_sha256(ctx.baseline),
+        "baseline_recipe": str(cfg.get("baseline_recipe") or "harness_grammar.BASELINE"),
         "labels": "model-measured, screen tier, baseline harness A/A",
     }
     dest = floor_dest(root, cfg)

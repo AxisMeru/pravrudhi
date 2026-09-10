@@ -19,7 +19,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Protocol
 
-from pravrudhi_kernel.metrics import citation, gsm8k, mmlu
+from pravrudhi_kernel.metrics import citation, gsm8k, labels, mmlu
 from pravrudhi_kernel.metrics.pool import (
     ANSWER_KINDS,
     DEFAULT_ANSWER_KIND,
@@ -33,18 +33,38 @@ from pravrudhi_kernel.metrics.pool import (
 
 
 class Scorer(Protocol):
-    """What a scorer module must expose. `gsm8k` and `mmlu` are the implementations."""
+    """What a scorer module must expose. `gsm8k`, `mmlu`, `citation` and `labels` are the implementations.
+
+    The scores are typed `float` and returned as a `Mapping`, both so that `labels` fits without editing the
+    three scorers that came before it. A per-item Jaccard is fractional (ADR-0038), so an `int` return type
+    would have excluded it; and `Mapping` is covariant in its value type where `dict` is not, so
+    `dict[str, int]` satisfies `Mapping[str, float]` and `gsm8k.py` keeps the bytes that 499 `observe` rows in
+    this project's ledger name as the file that scored them.
+    """
 
     def gold_answer(self, answer_text: str) -> str: ...
 
     def extract_prediction(self, completion: str) -> str | None: ...
 
-    def score_item(self, completion: str, gold: str) -> int: ...
+    def score_item(self, completion: str, gold: str) -> float: ...
 
-    def score_completions(self, completions: Mapping[str, str], golds: Mapping[str, str]) -> dict[str, int]: ...
+    def score_completions(
+        self, completions: Mapping[str, str], golds: Mapping[str, str]
+    ) -> Mapping[str, float]: ...
 
 
-SCORERS: dict[str, Scorer] = {"choice": mmlu, "numeric": gsm8k, "text": citation}
+def is_binary(kind: str) -> bool:
+    """Whether this kind's per-item score is 0 or 1.
+
+    Asked before computing anything that assumes a Bernoulli trial. A Wilson interval over a mean of Jaccard
+    values is not a confidence interval for anything, and the way that mistake gets made is `int(sum(scores))`
+    passed to `wilson_ci` -- which type-checks, stays inside `[0, n]`, and produces a number nobody can
+    interpret. See ADR-0038.
+    """
+    return kind != "set"
+
+
+SCORERS: dict[str, Scorer] = {"choice": mmlu, "numeric": gsm8k, "set": labels, "text": citation}
 
 # A kind with no scorer seals a pool nothing can score; a scorer with no kind is unreachable. Either drift is
 # a defect, so it fails at import rather than on the night that needed it.
@@ -94,6 +114,8 @@ __all__ = [
     "draw_rotation",
     "citation",
     "gsm8k",
+    "is_binary",
+    "labels",
     "mmlu",
     "record_exposure",
     "scorer_for",

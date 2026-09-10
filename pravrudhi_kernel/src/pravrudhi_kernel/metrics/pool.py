@@ -22,7 +22,7 @@ from pravrudhi_kernel.schema.common import KernelModel
 # How a pool's answers are read, and therefore which scorer may score it (ADR-0035). Sorted, because
 # `metrics/__init__` asserts this tuple equals its scorer table: a kind with no scorer seals pools nothing can
 # score, and a scorer with no kind is unreachable.
-ANSWER_KINDS: tuple[str, ...] = ("choice", "numeric", "text")
+ANSWER_KINDS: tuple[str, ...] = ("choice", "numeric", "set", "text")
 DEFAULT_ANSWER_KIND = "numeric"
 
 

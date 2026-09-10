@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -95,7 +96,7 @@ def run_eval_job(
     return res, meta
 
 
-def score_job(job_dir: Path, pool_dir: Path, rot: Rotation) -> tuple[dict[str, int], Path]:
+def score_job(job_dir: Path, pool_dir: Path, rot: Rotation) -> tuple[Mapping[str, float], Path]:
     """Score a finished job with the scorer this pool declares (ADR-0035), never with a scorer chosen here."""
     scorer = scorer_for_pool(pool_dir)
     comps: dict[str, str] = {}
