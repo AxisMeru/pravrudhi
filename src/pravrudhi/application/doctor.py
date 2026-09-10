@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -62,6 +63,43 @@ def _found_off_path(agent: str) -> str | None:
             except OSError:
                 continue
     return None
+
+
+def _telegram_check(root: Path) -> dict[str, Any]:
+    """Whether this workspace's bot can speak to anyone, or only answer.
+
+    The product bot polls every two minutes, exits `{"answered": 0}`, and is reported as "not active at all".
+    Both are true at once: its timer runs and its `TELEGRAM_CHAT_ID` is blank DELIBERATELY, because Telegram
+    will not reveal a chat id until someone opens the conversation, so the poller pairs with the first chat
+    that messages it and writes the id down. Until that happens the bot cannot initiate anything, which from
+    the outside is indistinguishable from a bot that is dead -- and six other checks stayed green throughout.
+
+    A ten-second human action, so the detail names it rather than merely reporting a state. Not paired is a
+    warning about the install, not a fault in the engine.
+    """
+    from pravrudhi.application.telegram_inbox import paired_chat
+
+    chat = paired_chat(root) or os.environ.get("TELEGRAM_CHAT_ID", "").strip()
+    if chat:
+        return {"name": "telegram", "ok": True, "detail": "Paired: the bot can start a conversation, not only answer."}
+    # A workspace with no bot token has no bot, and failing it would make this the check people learn to
+    # ignore -- the reasoning `_routing_check` already applies to a machine with no agent installed. A
+    # CONFIGURED but unpaired bot is the fault worth reporting, because that is the one that looks alive.
+    configured = bool(os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()) or any(
+        (Path.home() / ".config" / "pravrudhi" / name).is_file()
+        for name in ("telegram.env", "telegram-product.env")
+    )
+    if not configured:
+        return {"name": "telegram", "ok": True, "detail": "No bot token configured here, so there is no bot to pair."}
+    return {
+        "name": "telegram",
+        "ok": False,
+        "detail": (
+            "A bot token is configured but NOT PAIRED, so the bot can only answer and can never message you "
+            "first. Send the bot any message once in Telegram and the next poll pairs it and writes the chat "
+            "id down. Telegram does not reveal a chat id until someone opens the conversation."
+        ),
+    }
 
 
 def _routing_check(root: Path) -> dict[str, Any]:
@@ -235,4 +273,5 @@ def run_doctor(root: Path) -> dict[str, Any]:
     })
     checks.append(_routing_check(root))
     checks.append(_loop_alive_check(root))
+    checks.append(_telegram_check(root))
     return {"ok": all(check["ok"] for check in checks), "checks": checks}

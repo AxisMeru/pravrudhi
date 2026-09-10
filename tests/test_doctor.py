@@ -37,16 +37,17 @@ def test_uninitialised(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: 
     report = run_doctor(tmp_path)
     assert report["ok"] is False
     assert {check["name"] for check in report["checks"]} == {
-        "initialised", "ledger", "docker", "gpu", "pools", "prereg", "routing", "loop_alive",
+        "initialised", "ledger", "docker", "gpu", "pools", "prereg", "routing", "loop_alive", "telegram",
     }
     for check in report["checks"]:
         assert set(check) == {"name", "ok", "detail"}
         assert isinstance(check["detail"], str) and check["detail"]
-        # Three checks stay ok on a bare machine and say why. No GPU on PATH cannot start a night but is not
-        # an error; with no agent installed at all there is no route to judge (see `_routing_check`); and a
+        # Four checks stay ok on a bare machine and each says why. No GPU on PATH cannot start a night but is
+        # not an error; with no agent installed at all there is no route to judge (see `_routing_check`); a
         # workspace that has never beaten is unobserved rather than stalled, which is the distinction
-        # `loop_alive` has to draw or it would fail every fresh install.
-        assert check["ok"] is (check["name"] in {"gpu", "routing", "loop_alive"})
+        # `loop_alive` has to draw or it would fail every fresh install; and a machine with no bot token has
+        # no bot to pair, which is why `telegram` fails only a bot that IS configured and unpaired.
+        assert check["ok"] is (check["name"] in {"gpu", "routing", "loop_alive", "telegram"})
     assert list(tmp_path.iterdir()) == []
     assert capsys.readouterr() == ("", "")
 
@@ -59,7 +60,7 @@ def test_initialised(ready_root: Path, capsys: pytest.CaptureFixture[str]) -> No
     # along, published it, and been read correctly by a cloud routine -- while the command a session actually
     # runs in its first five minutes never asked. A workspace with no heartbeat has not stalled, so the check
     # passes here rather than failing every fresh install.
-    assert len(report["checks"]) == 8
+    assert len(report["checks"]) == 9
     assert [c for c in report["checks"] if c["name"] == "loop_alive"]
     assert all(check["ok"] is True and check["detail"] for check in report["checks"])
     assert before == {p.relative_to(ready_root): p.read_bytes() for p in ready_root.rglob("*") if p.is_file()}
@@ -197,3 +198,68 @@ def test_routing_names_a_cli_that_exists_but_is_not_on_this_process_path(
     assert not routing["ok"], routing
     assert str(elsewhere / "opencode") in routing["detail"], routing["detail"]
     assert "not on this process's PATH" in routing["detail"], routing["detail"]
+
+
+@pytest.fixture(autouse=True)
+def _isolate_telegram(tmp_path_factory, monkeypatch):
+    """Keep this machine's own bot configuration out of every doctor test.
+
+    `_telegram_check` looks for a bot token in ~/.config/pravrudhi, which on the developer's machine exists
+    and is unpaired -- a real fault it is meant to report. Without this the check fires inside unrelated tests
+    and breaks the ones that assert how MANY checks failed. Those assertions are brittle, but coupling them to
+    the developer's home directory is the actual defect, and it is fixed here rather than in eleven tests.
+    """
+    monkeypatch.setattr(Path, "home", staticmethod(lambda: tmp_path_factory.mktemp("home")))
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    monkeypatch.delenv("TELEGRAM_CHAT_ID", raising=False)
+
+class TestTelegramPairing:
+    """A bot that cannot speak first, and nothing that says so.
+
+    The product bot `@prabhasa_bot` polls every two minutes and exits `{"answered": 0}`. Its timer is active,
+    its token is configured, and its `TELEGRAM_CHAT_ID` is blank DELIBERATELY -- Telegram will not reveal a
+    chat id until someone opens the conversation, so the poller pairs with the first chat that messages it.
+    Until then the bot can only answer and can never initiate, which from the operator's side is
+    indistinguishable from a bot that is dead. It reported "not active at all" while six checks were green.
+
+    So the unpaired state gets a check of its own. It is a warning about a ten-second human action, not a
+    fault in the engine, and the detail has to say what that action is.
+    """
+
+    def test_a_configured_but_unpaired_bot_is_reported_with_the_action_that_fixes_it(self, tmp_path, monkeypatch) -> None:
+        from pravrudhi.application.doctor import _telegram_check
+
+        monkeypatch.delenv("TELEGRAM_CHAT_ID", raising=False)
+        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "1234:abc")
+        check = _telegram_check(tmp_path)
+        assert check["name"] == "telegram"
+        assert not check["ok"]
+        assert "not paired" in check["detail"].lower() and "message" in check["detail"].lower()
+
+    def test_a_workspace_with_no_bot_at_all_is_not_failed(self, tmp_path, monkeypatch) -> None:
+        """The reasoning `_routing_check` already applies: failing every unprovisioned workspace is how a
+        check becomes the one people learn to ignore. A configured-but-unpaired bot is the real fault, because
+        that is the one whose timer runs and whose silence looks like death."""
+        from pravrudhi.application import doctor as doctor_mod
+
+        monkeypatch.delenv("TELEGRAM_CHAT_ID", raising=False)
+        monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+        monkeypatch.setattr(doctor_mod.Path, "home", staticmethod(lambda: tmp_path / "nohome"))
+        assert doctor_mod._telegram_check(tmp_path)["ok"]
+
+    def test_a_paired_workspace_passes(self, tmp_path, monkeypatch) -> None:
+        from pravrudhi.application.doctor import _telegram_check
+        from pravrudhi.application.messaging import PAIR_FILE
+
+        monkeypatch.delenv("TELEGRAM_CHAT_ID", raising=False)
+        path = tmp_path / PAIR_FILE
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"chat_id": "12345"}))
+        assert _telegram_check(tmp_path)["ok"]
+
+    def test_a_configured_chat_id_counts_as_paired(self, tmp_path, monkeypatch) -> None:
+        """The studio install sets it in the environment and never writes a pairing file; that is paired."""
+        from pravrudhi.application.doctor import _telegram_check
+
+        monkeypatch.setenv("TELEGRAM_CHAT_ID", "8679892510")
+        assert _telegram_check(tmp_path)["ok"]
