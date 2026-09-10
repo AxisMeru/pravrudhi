@@ -246,3 +246,21 @@ def test_a_timeout_is_counted_apart_from_a_wrong_answer() -> None:
     assert res == {"passed": 0, "total": 1, "timed_out": 1, "failures": ["test 0: timeout after 0.5s"]}
     wrong = run_solve("def solve(stdin):\n    return 'no'\n", ["1\n"], ["1\n"], timeout_s=10.0)
     assert wrong["timed_out"] == 0 and wrong["passed"] == 0
+
+
+def test_a_night_refuses_a_floor_measured_at_a_different_baseline(tmp_path: Path) -> None:
+    """The bench check is only half the pairing. A floor is the variance of repeated runs of ONE recipe, so
+    pairing candidates against a different one sets the boundary from another arm's sigma -- the same defect
+    as a floor from another pool, which ADR-0037 found in four places. Changing `baseline_recipe:` therefore
+    invalidates the floor, and this refuses rather than trusting anyone to remember."""
+    from pravrudhi.application.harness_track import baseline_sha256
+    from pravrudhi.targets.harness_grammar import BASELINE, parse_harness
+
+    law = parse_harness(json.loads(
+        (Path(__file__).resolve().parents[1] / "harness/agent/baselines/mmlu-law-val.json").read_text()
+    ))
+    assert not isinstance(law, str)
+    assert baseline_sha256(law) != baseline_sha256(BASELINE)
+    # `rationale` is prose that explains a recipe without changing what it runs, so it must not invalidate
+    # a floor -- otherwise a comment costs a GPU-hour.
+    assert baseline_sha256(law.model_copy(update={"rationale": "different words"})) == baseline_sha256(law)
