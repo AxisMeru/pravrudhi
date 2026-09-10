@@ -1,0 +1,14 @@
+{
+  "execution_family": "sampling",
+  "feedback_template": "Your previous answer was not usable: {feedback}. Reply with the applicable section names separated by commas and nothing else.",
+  "max_new_tokens": 1024,
+  "n_samples": 1,
+  "rationale": "Seeded per ADR-0045: 16 of 16 candidates across nights 23 and 26 left max_new_tokens at 512, and on this bench it is the binding constraint -- all 96 baseline completions truncate mid-list. Incumbent plus 1024 tokens and nothing else, derived programmatically so the budget is the only variable.",
+  "retries": 0,
+  "strategy": "prompt_only",
+  "system_prompt": "You identify which statutory sections apply to a case. You are given a case description and a list of candidate sections. For each section, decide whether the facts engage it. Name only the sections clearly engaged by the facts. Do not restate the list. Reply with section names separated by commas and nothing else.",
+  "temperature": 0.2,
+  "template": "{question}\n\nFor each section, determine if it is engaged by the facts. Name only the sections clearly engaged.",
+  "thinking": false,
+  "use_visible_tests": false
+}
