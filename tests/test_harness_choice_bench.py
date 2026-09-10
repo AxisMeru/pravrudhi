@@ -70,3 +70,40 @@ def test_the_choice_scorer_reads_the_pool_the_harness_track_would_use(tmp_path: 
     assert scorer.score_completions({item_id: "Answer: B"}, {item_id: gold}) == {item_id: 1}
     # And the observation must name the file that scored it, not a container job that never ran.
     assert scorer_source_for_pool(pool).name == "mmlu.py"
+
+
+def test_the_proposer_prompt_follows_the_config_not_a_hardcoded_v1() -> None:
+    """Night 19 ran green and explored the wrong space, which is this project's characteristic failure.
+
+    `harness_proposer/v1.md` describes MBPP+ to the proposer: docstrings, one visible assert, a ```python
+    block. Called unconditionally on a choice bench it produced seven candidates whose rationales were
+    "Best-of-3 sampling improves chances of passing visible tests" and "Template with explicit code block
+    requirement" -- on a multiple-choice question of law. All seven left `max_new_tokens` at 512, the single
+    knob measured to be worth 0.2951 on this pool.
+
+    The scoring was right, the job was right, and the night was useless. So the prompt file is read from the
+    config's `prompt_version`, and the choice prompt states the token-budget evidence and says plainly that
+    `use_visible_tests` does nothing here.
+    """
+    import re
+
+    source = (Path(__file__).resolve().parents[1] / "src/pravrudhi/application/harness_track.py").read_text()
+    assert 'prompt_file="harness_proposer/v1.md"' not in source
+    assert "prompt_version" in source
+
+    prompts = Path(__file__).resolve().parents[1] / "harness" / "prompts" / "harness_proposer"
+    choice = (prompts / "choice_v1.md").read_text()
+    # It must tell the proposer the thing the measurement knows, or it will propose 512 again.
+    assert "0.2951" in choice and "1024" in choice
+    assert "use_visible_tests" in choice and "NOTHING" in choice
+    # And it must not ask for code on a bench that has none.
+    assert "```python" not in choice.replace("Do not ask for a ```python", "")
+    # Every placeholder the renderer substitutes must be present, or the prompt renders with holes.
+    for token in ("{model}", "{k}", "{grammar}", "{state_summary}", "{incumbent_strategy}", "{rethink_note}"):
+        assert token in choice, token
+    # And no placeholder the renderer does not know about.
+    unknown = set(re.findall(r"\{[a-z_]+\}", choice)) - {
+        "{model}", "{k}", "{grammar}", "{state_summary}", "{incumbent_strategy}", "{rethink_note}",
+        "{question}", "{feedback}",
+    }
+    assert not unknown, unknown

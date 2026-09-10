@@ -629,7 +629,12 @@ def run_harness_night(
                 log=log,
                 grammar_doc=H_GRAMMAR_DOC,
                 parse_fn=parse_harness,
-                prompt_file="harness_proposer/v1.md",
+                # The config's own prompt version, not `v1` unconditionally. `v1` describes MBPP+ to the
+                # proposer -- docstrings, visible asserts, a ```python block -- so on a choice bench it
+                # produced seven candidates reasoning about "passing visible tests" and "explicit code block
+                # requirement", every one of them leaving `max_new_tokens` at 512, which is the single knob
+                # measured to be worth 0.2951 here. The night ran green and explored the wrong space.
+                prompt_file=f"harness_proposer/{cfg['proposer'].get('prompt_version', 'v1')}.md",
                 surface="H3.prompt",
                 op="harness",
                 json_schema=harness_array_schema(remaining_k),
