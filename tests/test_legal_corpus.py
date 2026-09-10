@@ -181,7 +181,35 @@ class TestCaseExistence:
             self._csv(tmp_path, self._rows()), out, exclude_citations={"100 F.2d 0"}
         )
         assert manifest["answer_kind"] == "choice"
-        assert manifest["n_rows"] == 7
         assert manifest["n_excluded"] == 1
-        assert manifest["balance"] == {"A": 3, "B": 4}
+        assert manifest["n_before_balancing"] == 7
+        # Balanced by default: 3 real survive the exclusion against 4 invented, so both sides come to 3.
+        assert manifest["n_rows"] == 6
+        assert manifest["balance"] == {"A": 3, "B": 3}
         assert out.exists()
+
+    def test_the_answers_are_balanced_so_the_prior_is_not_the_lesson(self, tmp_path: Path) -> None:
+        """The raw corpus is 50,240 yes against 5,169 no -- 91% yes.
+
+        A model trained on that learns "assume the case exists", which is exactly the failure being measured:
+        `citation_abstention` 0.0000. It could also score 0.907 on the raw set while never declining once.
+        """
+        rows = [
+            {"task": "case_existence", "case_source": "cap", "citation": f"{100 + i} F.2d {i}",
+             "query": f'Is the case Real v. Case{i}, {100 + i} F.2d {i} (1950), a real case? Say "yes" or "no" only.'}
+            for i in range(20)
+        ] + [
+            {"task": "fake_case_existence", "case_source": "fake", "citation": f"{700 + i} F.3d {i}",
+             "query": f'Is the case Made v. Up{i}, {700 + i} F.3d {i}, a real case? Say "yes" or "no" only.'}
+            for i in range(3)
+        ]
+        manifest = build_case_existence(self._csv(tmp_path, rows), tmp_path / "b.parquet")
+        assert manifest["balance"] == {"A": 3, "B": 3}
+        assert manifest["n_before_balancing"] == 23
+        assert manifest["balanced"] is True
+
+    def test_balancing_can_be_declined_and_says_so(self, tmp_path: Path) -> None:
+        manifest = build_case_existence(
+            self._csv(tmp_path, self._rows()), tmp_path / "u.parquet", balance_answers=False
+        )
+        assert manifest["balanced"] is False

@@ -27,12 +27,24 @@ import csv
 import hashlib
 import json
 import random
+import re
 import sys
 import urllib.request
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
 from pravrudhi.application.choice import letter, render_choice_question
+
+# RegLab's full "Hallucinating Law" dataset: 745,608 rows over eleven tasks, with the ground-truth citation
+# beside each query and -- the part nothing else has -- 10,736 rows about cases that were INVENTED.
+REGLAB_REPO = "reglab/legal_hallucinations"
+REGLAB_ORIGIN = "https://huggingface.co/datasets/reglab/legal_hallucinations (Stanford RegLab)"
+REGLAB_URL = "https://huggingface.co/datasets/{repo}/resolve/main/dataset.csv"
+REGLAB_REAL_TASKS = ("case_existence", "citation_retrieval")
+REGLAB_FAKE_TASKS = ("fake_case_existence", "fake_dissent", "fake_year_overruled")
+EXISTENCE_INSTRUCTION = "Is this a real case?"
+EXISTENCE_OPTIONS = ("yes", "no")
 
 CASEHOLD_REPO = "casehold/casehold"
 CASEHOLD_ORIGIN = "https://huggingface.co/datasets/casehold/casehold (US case-law holdings, Apache-2.0)"
@@ -86,6 +98,136 @@ def casehold_rows(source: Path) -> list[dict[str, str]]:
                 }
             )
     return out
+
+
+def _citation_key(text: str) -> str:
+    """A citation as one comparable token: `470 F.2d 798`, `470 F. 2d 798` and `470 f.2d 798.` are one thing."""
+    return re.sub(r"[\s.,]", "", text).lower()
+
+
+def _case_name(query: str) -> str:
+    """The case as named in a RegLab existence prompt, which reads `Is the case X, <cite> (year), a real case?`"""
+    match = re.search(r"Is the case (.+?), a real case\?", query)
+    return match.group(1).strip() if match else query.strip()
+
+
+def case_existence_rows(
+    source: Path, *, exclude_citations: Iterable[str] = ()
+) -> list[dict[str, str]]:
+    """"Is this a real case?" over real and invented cases, as two-option items.
+
+    This is the corpus for the number the objective most wants moved. Measured over 2,444 items on three
+    tasks, the base model's `citation_abstention` was 0.0000: it never once said it did not know. CaseHOLD
+    cannot teach that, because one of its five given holdings is always correct and declining is never right.
+    RegLab's invented cases can: asked whether a case exists, the real ones answer yes and the fabricated ones
+    no, which is decidable and which the existing choice scorer reads with no kernel change.
+
+    `exclude_citations` holds out the evaluation items. The published eval subset is a SAMPLE of this same
+    dataset, so without the exclusion the loop would train on what its own external proof is scored against.
+    Every query is repeated across models, temperatures and prompt styles, so rows are deduplicated to items.
+    """
+    csv.field_size_limit(sys.maxsize)
+    held = {_citation_key(c) for c in exclude_citations}
+    seen: set[tuple[str, str]] = set()
+    out: list[dict[str, str]] = []
+    with Path(source).open(newline="") as fh:
+        for record in csv.DictReader(fh):
+            task = str(record.get("task") or "")
+            real = task in REGLAB_REAL_TASKS
+            if not real and task not in REGLAB_FAKE_TASKS:
+                continue
+            citation = str(record.get("citation") or "")
+            if not citation or _citation_key(citation) in held:
+                continue
+            name = _case_name(str(record.get("query") or ""))
+            key = (name, _citation_key(citation))
+            if key in seen:
+                continue
+            seen.add(key)
+            stem = f"{EXISTENCE_INSTRUCTION}\n\n{name}, {citation}"
+            out.append(
+                {
+                    "id": f"{'real' if real else 'fake'}-{len(out):06d}",
+                    "question": render_choice_question(stem, EXISTENCE_OPTIONS),
+                    "answer": letter(0 if real else 1, len(EXISTENCE_OPTIONS)),
+                }
+            )
+    return out
+
+
+def _balanced(rows: list[dict[str, str]], seed: int) -> list[dict[str, str]]:
+    """Equal numbers of each answer, by sampling the larger side down.
+
+    The raw corpus is 50,240 real cases against 5,169 invented ones: 91% of the answers are "yes". Training on
+    that teaches the prior, not the distinction -- and the prior it teaches is "assume it exists", which is
+    precisely the failure being measured. A model can score 0.907 on the raw set while never once declining.
+    """
+    by_answer: dict[str, list[dict[str, str]]] = {}
+    for row in rows:
+        by_answer.setdefault(row["answer"], []).append(row)
+    if len(by_answer) < 2:
+        return rows
+    smallest = min(len(group) for group in by_answer.values())
+    rng = random.Random(seed)
+    out: list[dict[str, str]] = []
+    for answer in sorted(by_answer):
+        group = by_answer[answer]
+        out.extend(group if len(group) == smallest else rng.sample(group, smallest))
+    return sorted(out, key=lambda r: r["id"])
+
+
+def build_case_existence(
+    source: Path,
+    out: Path,
+    *,
+    exclude_citations: Iterable[str] = (),
+    count: int | None = None,
+    seed: int = 0,
+    balance_answers: bool = True,
+) -> dict[str, Any]:
+    """Write the existence training parquet, recording what was held out and how balanced it came out."""
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    excluded = list(exclude_citations)
+    everything = case_existence_rows(source)
+    rows = case_existence_rows(source, exclude_citations=excluded)
+    n_excluded = len(everything) - len(rows)
+    if balance_answers:
+        rows = _balanced(rows, seed)
+    if count is not None and count < len(rows):
+        rows = sorted(random.Random(seed).sample(rows, count), key=lambda r: r["id"])
+    out = Path(out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    pq.write_table(
+        pa.table({"question": [r["question"] for r in rows], "answer": [r["answer"] for r in rows]}), out
+    )
+    balance: dict[str, int] = {}
+    for row in rows:
+        balance[row["answer"]] = balance.get(row["answer"], 0) + 1
+    manifest = {
+        "corpus": "reglab-case-existence",
+        "answer_kind": "choice",
+        "n_options": len(EXISTENCE_OPTIONS),
+        "n_rows": len(rows),
+        "n_excluded": n_excluded,
+        "balance": dict(sorted(balance.items())),
+        "balanced": balance_answers,
+        "n_before_balancing": len(everything) - n_excluded,
+        "seed": seed,
+        "source": {
+            "file": Path(source).name,
+            "sha256": hashlib.sha256(Path(source).read_bytes()).hexdigest(),
+            "origin": REGLAB_ORIGIN,
+        },
+        "held_out_citations": sorted(excluded)[:50],
+        "note": (
+            "Teaches declining, which is the behaviour the objective names and whose baseline is "
+            "citation_abstention 0.0000 at n=2444. A is yes (the case is real), B is no (it was invented)."
+        ),
+    }
+    out.with_suffix(".manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
+    return manifest
 
 
 def build_casehold(
