@@ -144,9 +144,20 @@ def test_the_transcript_yields_what_the_turn_cost(tmp_path, monkeypatch, key):
     assert result.tokens == 20419 + 33110 + 41002, result.tokens
 
 
-def test_a_transcript_without_usage_reports_zero_not_a_guess(tmp_path, monkeypatch, key):
+def test_a_transcript_without_usage_is_unmeasured_not_free(tmp_path, monkeypatch, key):
+    """This asserted `== 0` and the assertion is what the defect looked like.
+
+    It was written when `AgentRun.tokens` was `int` and zero was the only way to say "no number", and its name
+    -- "reports zero not a guess" -- records that honest intent. The type has since become `int | None`
+    precisely because zero could not carry it: `tokens` now documents that "zero means it told us the turn was
+    free", and `routing.spend` sums measured zeros into a weekly allowance.
+
+    So the old assertion made every OpenCode dispatch report as free. Measured in `.pravrudhi/routing.jsonl`
+    on 2026-09-10: every `qwen-lite-max` outcome carried `tokens: 0` beside `sonnet` rows of 660,860 and
+    1,612,380 -- the seat meant to be the cheap bulk tier was the one the router could not budget for at all.
+    A transcript with no usage parts is UNMEASURED, and that is a different answer from free."""
     monkeypatch.setattr(alibaba, "_run", lambda *a, **k: (0, event("step_finish", reason="stop"), "", 1.0))
-    assert alibaba.AlibabaAgent(tmp_path).run("x", tmp_path).tokens == 0
+    assert alibaba.AlibabaAgent(tmp_path).run("x", tmp_path).tokens is None
 
 
 def test_a_turns_cost_is_every_steps_cost_added_up(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -13,6 +13,7 @@ from typing import Any
 
 from pravrudhi.agents.alibaba_agent import AlibabaAgent
 from pravrudhi.agents.cli_agents import ClaudeCodeAgent, CodexAgent
+from pravrudhi.agents.hermes_agent import HermesAgent
 from pravrudhi.agents.hosted_agent import HostedAgent
 from pravrudhi.agents.orca_agent import OrcaAgent
 from pravrudhi.models import hosted
@@ -29,6 +30,9 @@ def build_registry(root: Path, *, include_orca: bool = True) -> dict[str, Any]:
     agents: dict[str, Any] = {"claude-code": ClaudeCodeAgent(root), "codex": CodexAgent(root)}
     agents["opencode:alibaba"] = AlibabaAgent(root)
     agents["opencode:alibaba-plan"] = AlibabaAgent(root, model="qwen3.8-max", provider_id="alibaba-plan")
+    # Registered unconditionally: `available()` is a local check, and a seat absent from the registry cannot
+    # be reported as missing by `survey` or `doctor`, which is how an uninstalled CLI stays invisible.
+    agents["hermes"] = HermesAgent(root)
     if include_orca:
         for agent_id in ("claude", "codex", "local"):
             a = OrcaAgent(root, agent_id=agent_id)
