@@ -2,15 +2,13 @@
 
 from __future__ import annotations
 
-import json
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-import yaml
-
 from pravrudhi.application.deliberate import DecorativeAbort, deliberate
 from pravrudhi.application.execute import NightContext, evaluate_and_dispose, train
+from pravrudhi.application.night_plan import NightPlan, resolve
 from pravrudhi.application.propose import propose, strategy_switch_rate
 from pravrudhi.application.spine import resolve_model_snapshot
 from pravrudhi.models.llama_server import LlamaServer
@@ -55,10 +53,13 @@ def run_night(
     log: Callable[[str], None] = print,
     selection_policy: str | None = None,
     proposer_endpoint: str = "",
+    plan: NightPlan | None = None,
 ) -> dict[str, Any]:
-    cfg = yaml.safe_load((root / "research" / "prereg" / "lora_night.yaml").read_text())
+    # A night's frozen inputs are resolved once, together, and checked against each other; see night_plan.
+    # Defaulting here rather than requiring a plan keeps every existing caller and systemd unit working.
+    plan = plan or resolve(root)
+    cfg, var = plan.cfg, plan.floor
     policy = str(selection_policy or cfg.get("selection_policy", "efe"))
-    var = json.loads((root / "research" / "prereg" / "variance.json").read_text())
     budget = float(budget_gpu_h if budget_gpu_h is not None else cfg["budget"]["night_gpu_h"])
     k = int(k if k is not None else cfg["proposer"]["k_candidates"])
     state = ensure_kernel_state(root, docker_available=docker_available())
@@ -80,16 +81,21 @@ def run_night(
         {
             "kind": "night_start",
             "severity": "info",
-            "track": "lora",
+            "track": plan.track,
             "selection_policy": policy,
             "budget_gpu_h": budget,
             "k": k,
             "incumbent": ctx.incumbent_id,
+            # The files by name, not by role: a reader of this row must be able to tell WHICH night config
+            # and WHICH floor were used, now that there is more than one of each.
             "prereg_sha256": {
-                "lora_night": _sha(root / "research" / "prereg" / "lora_night.yaml"),
-                "variance": _sha(root / "research" / "prereg" / "variance.json"),
+                "night_config": _sha(plan.config),
+                "night_config_file": plan.config.name,
+                "variance": _sha(plan.variance),
+                "variance_file": plan.variance.name,
                 "canaries": _sha(root / "research" / "prereg" / "canaries.md"),
             },
+            "objective": plan.objective,
         },
         epoch=0,
         night=night,
@@ -134,7 +140,7 @@ def run_night(
         if remaining <= 0.05:
             break
         try:
-            order = deliberate(
+            order = deliberate(  # night_config below: the plan's, not a hardcoded lora_night.yaml
                 root,
                 w,
                 night=night,
@@ -147,6 +153,7 @@ def run_night(
                 log=log,
                 round_index=rnd,
                 selection_policy=policy,
+                night_config=plan.config,
             )
         except DecorativeAbort as e:
             log(f"night aborted: decorative controller ({e})")

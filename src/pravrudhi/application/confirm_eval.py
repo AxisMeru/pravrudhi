@@ -38,8 +38,17 @@ def current_incumbent(root: Path) -> dict[str, Any] | None:
     return last
 
 
-def paired_confirm(root: Path, *, night: int, candidate_id: str | None, seed: int, k: int, log: Any = print) -> dict[str, Any]:
-    cfg = yaml.safe_load((root / "research" / "prereg" / "lora_night.yaml").read_text())
+def paired_confirm(
+    root: Path,
+    *,
+    night: int,
+    candidate_id: str | None,
+    seed: int,
+    k: int,
+    log: Any = print,
+    night_config: Path | None = None,
+) -> dict[str, Any]:
+    cfg = yaml.safe_load((Path(night_config) if night_config else root / "research" / "prereg" / "lora_night.yaml").read_text())
     state = ensure_kernel_state(root, docker_available=docker_available())
     inc = current_incumbent(root)
     if candidate_id:

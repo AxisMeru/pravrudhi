@@ -29,6 +29,13 @@ POLICY_OPT = typer.Option(
     None, "--policy", help="selection arm for H1: efe (default, from prereg) | greedy | thompson | random"
 )
 NIGHT_OPT = typer.Option(1, "--night")
+# Which track a night runs. Neither flag is the model track, unchanged, so every existing unit keeps working.
+OBJECTIVE_OPT: str | None = typer.Option(
+    None, "--objective", help="Run the night for this objective; the prereg that claims it supplies the rest."
+)
+NIGHT_CONFIG_OPT: Path | None = typer.Option(
+    None, "--config", help="Frozen night pre-registration to run; default research/prereg/lora_night.yaml."
+)
 APPS_SOURCE_OPT = typer.Option(..., "--source", help="APPS split on disk (test.jsonl or parquet), fetched separately")
 APPS_COUNT_OPT = typer.Option(400, "--count")
 APPS_SEED_OPT = typer.Option(0, "--seed")
@@ -444,19 +451,25 @@ def night_cmd(
     root: Path = ROOT_OPT,
     train_parquet: Path = TRAIN_PARQUET_OPT,
     gguf: Path | None = GGUF_OPT,
+    objective: str | None = OBJECTIVE_OPT,
+    config: Path | None = NIGHT_CONFIG_OPT,
 ) -> None:
     """Run one budgeted night: propose -> deliberate -> execute -> dispose. Every observation is kernel-scored."""
     from pravrudhi.application.night import run_night
+    from pravrudhi.application.night_plan import resolve
     from pravrudhi.application.spine import resolve_model_snapshot
 
+    plan = resolve(root, objective=objective, config=config)
+    typer.echo(
+        f"night {night}: {plan.config.name} on {plan.bench} ({plan.answer_kind}), floor {plan.variance.name}"
+        + (f", objective {plan.objective}" if plan.objective else "")
+    )
     if gguf is None:
-        import yaml
-
-        cfg = yaml.safe_load((root / "research" / "prereg" / "lora_night.yaml").read_text())
-        gguf = resolve_model_snapshot("Qwen/Qwen3-30B-A3B-GGUF") / str(cfg["proposer"]["gguf"])
+        # The proposer's GGUF comes from whichever config is running, not from lora_night unconditionally.
+        gguf = resolve_model_snapshot("Qwen/Qwen3-30B-A3B-GGUF") / str(plan.cfg["proposer"]["gguf"])
     out = run_night(
         root, night=night, budget_gpu_h=budget, k=k, train_parquet=train_parquet, gguf=gguf,
-        log=typer.echo, selection_policy=policy, proposer_endpoint=proposer_endpoint,
+        log=typer.echo, selection_policy=policy, proposer_endpoint=proposer_endpoint, plan=plan,
     )
     typer.echo(json.dumps(out, indent=2))
 

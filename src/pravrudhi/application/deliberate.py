@@ -69,9 +69,12 @@ def deliberate(
     target_model: str | None = None,
     round_index: int = 0,
     selection_policy: str = "efe",
+    night_config: Path | None = None,
 ) -> list[str]:
     cfg = yaml.safe_load((root / "research" / "prereg" / "controller.yaml").read_text())
-    night_yaml = root / "research" / "prereg" / "lora_night.yaml"
+    # The controller's own constants are shared by every track; which night config supplied the target model
+    # is not. Defaulting to lora_night keeps the model track's behaviour identical.
+    night_yaml = Path(night_config) if night_config else root / "research" / "prereg" / "lora_night.yaml"
     cfg_night = yaml.safe_load(night_yaml.read_text()) if night_yaml.exists() else None
     sigma2_eval = max(sigma_seed, 1e-4) ** 2
     ledger = root / "research" / "ledger.jsonl"
