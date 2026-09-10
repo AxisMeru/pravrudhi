@@ -59537,12 +59537,12 @@
         "ok": true
       },
       {
-        "detail": "last heartbeat was 1595s ago",
+        "detail": "last heartbeat was 1612s ago",
         "name": "scheduler_fresh",
         "ok": true
       },
       {
-        "detail": "693601902592 bytes free",
+        "detail": "693600710656 bytes free",
         "name": "disk_available",
         "ok": true
       },
@@ -59552,12 +59552,12 @@
         "ok": true
       },
       {
-        "detail": "ledger chain verifies; state.json is stale at seq 2621, not diverged",
+        "detail": "ledger chain verifies; state.json matches replay at seq 2641",
         "name": "ledger_integrity",
         "ok": true
       },
       {
-        "detail": "developer checkout; a known-good commit is f5e4614, with 1 uncommitted file(s)",
+        "detail": "developer checkout; a known-good commit is 52cc26f, with 1 uncommitted file(s)",
         "name": "release_restorable",
         "ok": true
       },
@@ -68553,7 +68553,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 1.98,
+        "staleness_days": 1.99,
         "state": "captured",
         "text": "the github token should be available in env here or in some othe4 projects..use that...if you don\u2019t get, i will provide it here ...i am not at the machine..but on mobile now...and remember the rule ..no stopping at all"
       },
@@ -68595,7 +68595,7 @@
           0
         ],
         "session": "",
-        "staleness_days": 1.67,
+        "staleness_days": 1.68,
         "state": "captured",
         "text": "why did you stop...is the swarm and rsi working ..atleast you need to monitor and intervene where needed..if required use routines in claude code for regular monitoring"
       },
@@ -71241,16 +71241,16 @@
     "channel": "dev",
     "check_interval_min": 30,
     "current": {
-      "git_describe": "v0.4.5-dirty",
+      "git_describe": "v0.4.5-1-g52cc26f-dirty",
       "kernel_version": "0.1.0",
       "version": "0.4.5"
     },
     "keep_previous": 2
   },
   "version": {
-    "commit": "f5e4614",
+    "commit": "52cc26f",
     "engine": "0.4.5",
-    "exported_at": "2026-09-10T08:02:43.518Z",
+    "exported_at": "2026-09-10T08:03:00.272Z",
     "kernel": "0.1.0"
   }
 }
