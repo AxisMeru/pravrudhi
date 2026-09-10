@@ -101,18 +101,30 @@ def build_gold_set(per_class: int, seed: int = 0) -> list[dict[str, Any]]:
 
     # Enumerate rather than search: for each world, every (paksa, sadhya, hetu) triple is classified by
     # derivation and filed. Generation stops when every bank is full or the world supply is exhausted.
+    #
+    # At most one item per class per world, so every class draws from a comparable spread of worlds. Filling
+    # each bank greedily instead let the easy classes fill from the first few worlds while the rare ones
+    # ranged over hundreds, which would make a per-class rate partly a statement about world size.
     for world in _worlds(rng, 4000):
         if all(len(b) >= per_class for b in banks.values()):
             break
+        filed: set[str] = set()
         for paksa in world:
             for sadhya in props:
                 for hetu in props:
-                    if sadhya == hetu and rng.random() < 0.8:
-                        continue  # keep a few self-referential cases, not a flood of them
+                    # An inference whose probans IS its probandum ("it has water because it has water") is
+                    # not an inference: Nyaya requires hetu and sadhya to be distinct terms, and such an item
+                    # is passed by anything that merely checks the hetu is present in the paksa. Keeping a
+                    # fraction of them made 70 of 120 valid items tautologies, because being trivially
+                    # pervaded is the cheapest way into the valid bank; the class the panel reports as
+                    # `nyaya_validity` was then majority-degenerate. They are excluded outright.
+                    if sadhya == hetu:
+                        continue
                     verdict = derive_verdict(world, paksa, sadhya, hetu)
                     bank = banks[verdict]
-                    if len(bank) >= per_class:
+                    if len(bank) >= per_class or verdict in filed:
                         continue
+                    filed.add(verdict)
                     bank.append({
                         "id": f"{verdict}-{len(bank):04d}",
                         "world": {locus: sorted(p) for locus, p in sorted(world.items())},

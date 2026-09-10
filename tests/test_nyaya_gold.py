@@ -17,12 +17,13 @@ Spec: docs/superpowers/specs/2026-09-09-prabhasa-nyaya-measurement-design.md, ca
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
-from nyaya_gold import build_gold_set, derive_verdict  # noqa: E402
+from nyaya_gold import CLASSES, build_gold_set, derive_verdict  # noqa: E402
 
 # The world prabhasa-samskrutam's own gate uses, verbatim.
 FIXTURE_WORLD = {
@@ -102,3 +103,33 @@ class TestTheGoldSet:
 
     def test_a_different_seed_gives_a_different_set(self) -> None:
         assert build_gold_set(per_class=10, seed=1) != build_gold_set(per_class=10, seed=2)
+
+
+def test_no_item_is_a_tautology() -> None:
+    # An inference whose probans is its probandum is passed by anything that checks only whether the hetu is
+    # present in the paksa. The first generated set had 70 of 120 valid items in that shape, so the class the
+    # product's panel reports as `nyaya_validity` was majority-degenerate.
+    for item in build_gold_set(per_class=20, seed=0):
+        assert item["hetu"] != item["sadhya"], item["id"]
+
+
+def test_every_class_draws_from_many_distinct_worlds() -> None:
+    # A per-class rate must be a statement about the fallacy, not about world size. Filling each bank
+    # greedily let the easy classes come from a handful of early worlds.
+    gold = build_gold_set(per_class=20, seed=0)
+    for cls in CLASSES:
+        worlds = {json.dumps(i["world"], sort_keys=True) for i in gold if i["expected"] == cls}
+        assert len(worlds) >= 15, (cls, len(worlds))
+
+
+def test_valid_items_have_a_corroborating_locus_that_is_not_the_paksa() -> None:
+    # The udaharana requirement: a valid inference is witnessed somewhere other than the subject itself.
+    for item in build_gold_set(per_class=20, seed=0):
+        if item["expected"] != "valid":
+            continue
+        others = [
+            locus
+            for locus, props in item["world"].items()
+            if locus != item["paksa"] and item["hetu"] in props and item["sadhya"] in props
+        ]
+        assert others, item["id"]
