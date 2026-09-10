@@ -9,7 +9,9 @@
 \textbf{Track} & \textbf{Condition} & \textbf{Model} & \textbf{Tool} & \textbf{Metric} & \textbf{Value} & \textbf{$\pm$} & \textbf{$n$} \\
 \midrule
 M & base & Qwen/Qwen3-0.6B & lm-eval & gsm8k exact\_match,strict-match & 0.4086 & 0.0135 & 1319 \\
+M & base & Qwen/Qwen3-0.6B & lm-eval & gsm8k exact\_match,flexible-extract & 0.4064 & 0.0135 & 1319 \\
 M & adapter:c-0045 & Qwen/Qwen3-0.6B & lm-eval & gsm8k exact\_match,strict-match & 0.4898 & 0.0138 & 1319 \\
+M & adapter:c-0045 & Qwen/Qwen3-0.6B & lm-eval & gsm8k exact\_match,flexible-extract & 0.4913 & 0.0138 & 1319 \\
 H & base & Qwen/Qwen3-1.7B & evalplus & humaneval+ pass@1 & 0.5915 & 0.0744 & 164 \\
 H & harness:c-0060 & Qwen/Qwen3-1.7B & evalplus & humaneval+ pass@1 & 0.0854 & 0.0433 & 164 \\
 H & base-replicate & Qwen/Qwen3-1.7B & evalplus & humaneval+ pass@1 & 0.5854 & 0.0746 & 164 \\
