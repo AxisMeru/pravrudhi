@@ -1,0 +1,14 @@
+{
+  "execution_family": "template",
+  "feedback_template": "Your previous answer was not usable: {feedback}. Reply with the applicable section names separated by commas and nothing else.",
+  "max_new_tokens": 512,
+  "n_samples": 1,
+  "rationale": "c-0251, promoted on night 26 at n=2 (0.028 -> 0.052). Adopted as the baseline under ADR-0044 so the track compounds: night 27 restarted from the weak baseline instead, re-searched from scratch and promoted nothing. Identical to harness/agent/iltur-lsi-dev/harness.json; strategy and execution_family restored, which harness_json() strips.",
+  "retries": 0,
+  "strategy": "prompt_only",
+  "system_prompt": "You identify which statutory sections apply to a case. You are given a case description and a list of candidate sections. For each section, decide whether the facts engage it. Name only the sections clearly engaged by the facts. Do not restate the list. Reply with section names separated by commas and nothing else.",
+  "temperature": 0.2,
+  "template": "{question}\n\nFor each section, determine if it is engaged by the facts. Name only the sections clearly engaged.",
+  "thinking": false,
+  "use_visible_tests": false
+}

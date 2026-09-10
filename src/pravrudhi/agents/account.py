@@ -22,6 +22,15 @@ The operator then settled the location by logging out of the personal account en
 project's account in at the default path (2026-09-10), so on this machine there is no second account to keep
 apart — see `PROJECT_CLAUDE_HOME`. The separation still matters for a product install in someone else's
 hands, which is what `PRAVRUDHI_CLAUDE_CONFIG_DIR` is for.
+
+Later the same day the project's designated account changed again: CLI-agent load was moved off
+`admin@axismeru.com` onto a second premium seat on the same Axis Meru team plan, `sharath.sathish@gmail.com`
+(`default_claude_max_5x` tier), logged in at this same default path. It is a personal-domain *address*, not
+the operator's personal *account* the CHARTER rule was written against — it is a seat the operator holds on
+this project's own team plan, chosen deliberately to spread CLI load, and the operator did the login
+themselves in an interactive terminal. Nothing here should treat that email domain as a signal to refuse; the
+refusal this module raises is for *no credential provisioned*, not for which mailbox the credential belongs
+to. `admin@axismeru.com` remains the desktop-app login only.
 """
 
 from __future__ import annotations

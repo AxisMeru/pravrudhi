@@ -459,3 +459,49 @@ class TestTheCredentialActuallyReachesTheTransport:
         notifications.emit(tmp_path, kind="promotion_needed", title="x", engine_root=tmp_path)
 
         assert seen == {}, "a blank EnvironmentFile was treated as a configured bot"
+
+
+class TestComposeIsInformative:
+    """A message a person receives on their phone has to say what happened, where, and what to do about it.
+
+    The operator's report was that the bot's "communication is not that informative". The whole message was
+    `f"*{title}*\\n{detail}"`, so `"MyTask was accepted"` arrived with no indication of which install sent it,
+    when, what kind of event it was, or whether it wanted anything from the reader. Three of the kinds that
+    reach a person -- `promotion_needed`, `audit_severity_high`, `pool_depleted` -- are actionable by
+    definition: they are on the send list precisely because someone is meant to do something.
+    """
+
+    def test_the_kind_and_source_travel_with_the_message(self) -> None:
+        from pravrudhi.application.reach import compose
+
+        text = compose(kind="promotion_needed", title="c-0238 promoted", detail="+0.188 then +0.135",
+                       edition="studio", when="20:47 UTC")
+        # Asserted on the message with MarkdownV2's escapes removed: the content has to travel, and coupling
+        # the test to which characters Telegram requires escaping would fail on a rendering change that is
+        # not a regression.
+        plain = text.replace("\\", "")
+        assert "c-0238 promoted" in plain
+        assert "+0.188 then +0.135" in plain
+        assert "studio" in plain and "20:47 UTC" in plain
+        # The machine tag is NOT escaped, because it sits in a code span so it stays greppable.
+        assert "promotion_needed" in text
+
+    def test_an_actionable_kind_carries_its_next_step(self) -> None:
+        from pravrudhi.application.reach import compose
+
+        for kind in ("promotion_needed", "audit_severity_high", "pool_depleted"):
+            text = compose(kind=kind, title="t", detail="d", edition="product", when="00:00 UTC")
+            assert "→" in text, f"{kind} carries no next step"
+
+    def test_an_unknown_kind_still_renders_without_inventing_an_action(self) -> None:
+        """Inventing a next step for a kind nobody has thought about is worse than omitting one."""
+        from pravrudhi.application.reach import compose
+
+        text = compose(kind="something_new", title="t", detail="d", edition="studio", when="00:00 UTC")
+        assert "t" in text and "something_new" in text and "→" not in text
+
+    def test_an_empty_detail_does_not_leave_a_dangling_blank_line(self) -> None:
+        from pravrudhi.application.reach import compose
+
+        text = compose(kind="pool_depleted", title="t", detail="", edition="studio", when="00:00 UTC")
+        assert "\n\n\n" not in text

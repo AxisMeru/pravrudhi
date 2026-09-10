@@ -14,9 +14,11 @@ Patterns adapted from the OpenClaw swarm-platform telegram implementation:
 
 from __future__ import annotations
 
+import contextlib
 import secrets
 import time
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -47,6 +49,49 @@ DEFAULT_SEND_KINDS = {
     "audit_severity_high",   # Critical audit finding
     "pool_depleted",         # Compute pool is empty or nearly so
 }
+
+
+#: What a reader is meant to DO about each kind that reaches them. Only the kinds on the send list have an
+#: entry: inventing a next step for a kind nobody has thought about is worse than omitting one, because a
+#: reader who follows a made-up instruction has been actively misled rather than merely under-informed.
+NEXT_STEP = {
+    "promotion_needed": "sign or refuse it: `pravrudhi inbox`",
+    "audit_severity_high": "read the finding: `pravrudhi status`",
+    "pool_depleted": "the pool is out of eligible items; seal a larger one or raise the exposure cap",
+}
+
+#: A glyph per kind so a phone notification can be triaged before it is read. Deliberately dull and few.
+_GLYPH = {"promotion_needed": "\u2713", "audit_severity_high": "\u26a0", "pool_depleted": "\u25cb"}
+
+
+def compose(*, kind: str, title: str, detail: str = "", edition: str = "", when: str = "") -> str:
+    """The text a person actually receives, in MarkdownV2.
+
+    The whole message used to be `f"*{title}*\n{detail}"`, which is why the operator reported the bot's
+    communication as uninformative: `"MyTask was accepted"` arrived with no indication of which install sent
+    it, when, what kind of event it was, or whether it wanted anything. Every one of those is known at the
+    call site and none of them was travelling.
+
+    The footer carries the machine `kind` verbatim rather than a prettified version of it, because that is the
+    string a reader greps the notification feed for, and a message that cannot be traced back to its record is
+    a dead end.
+    """
+    head = f"{_GLYPH.get(kind, '')} *{escape_markdown_v2(title)}*".strip()
+    lines = [head]
+    if detail:
+        lines.append(escape_markdown_v2(detail))
+    step = NEXT_STEP.get(kind)
+    if step:
+        lines.append(escape_markdown_v2("\u2192 " + step))
+    # The kind goes in a CODE SPAN, not plain text. MarkdownV2 escapes `_`, so a plain-text
+    # `promotion_needed` renders as `promotion\_needed` and stops being the string a reader can grep the
+    # notification feed for -- which is the one job the machine tag has in the message.
+    tail = " \u00b7 ".join(escape_markdown_v2(x) for x in (edition, when) if x)
+    footer = "`" + kind.replace("\\", "").replace("`", "") + "`"
+    if tail:
+        footer += " \u00b7 " + tail
+    lines.append(footer)
+    return "\n".join(lines).strip()
 
 
 class TransportError(RuntimeError):
@@ -223,10 +268,21 @@ def send(
     if chat_id is None:
         return SendResult(sent=False, reason="no_chat_id_configured")
 
-    # Format and escape the message.
-    escaped_title = escape_markdown_v2(title)
-    escaped_detail = escape_markdown_v2(detail)
-    message = f"*{escaped_title}*\n{escaped_detail}".strip()
+    # `compose` carries the kind, the install and the time, and the next step for the kinds that have one.
+    # The message used to be title-and-detail alone, which is why a notification could not be told apart from
+    # any other install's, placed in time, or acted on without going and looking.
+    edition = ""
+    with contextlib.suppress(Exception):  # a label is a nicety; failing to find one must not lose the message
+        from pravrudhi.application.telegram_inbox import _edition_label  # noqa: PLC0415 (circular at module scope)
+
+        edition = str(_edition_label())
+    message = compose(
+        kind=kind,
+        title=title,
+        detail=detail,
+        edition=edition,
+        when=datetime.now(UTC).strftime("%H:%M UTC"),
+    )
 
     # Send via the sink.
     result = sink.send(chat_id=chat_id, text=message)
