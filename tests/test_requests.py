@@ -24,6 +24,7 @@ from pravrudhi.application.requests import (
     get,
     load,
     meet,
+    next_obligation,
     next_unmet,
     staleness,
 )
@@ -270,3 +271,41 @@ def test_dropping_an_index_that_does_not_exist_is_refused(tmp_path: Path) -> Non
     requests.add_criteria(tmp_path, req.id, [requests.Criterion(text="only one", source="operator")])
     with pytest.raises(requests.RequestError):
         requests.drop_criterion(tmp_path, req.id, 5)
+
+
+class TestAParkedRequestDoesNotStarveTheRest:
+    """A selector that returns work it cannot act on, every hour, is not selecting.
+
+    Measured on 2026-09-10 from the heartbeat journal: five consecutive beats chose `r-5795501a`, found all its
+    remaining criteria attempt-budget-spent, and returned `{"kind": "parked"}`. In the same workspace
+    `r-cad91781` had 0 of 13 criteria unmet -- every one carrying evidence, one step from the completion gate --
+    and was never looked at, because `next_obligation` takes the single STALEST open row and stops there.
+    Staleness 4.2 against 4.1 was the whole difference, and five hours of the loop went into saying so.
+
+    Parking is reported only when NOTHING is actionable. It stays visible either way:
+    `watchdog._parked_criteria` reports it to `pravrudhi watch` independently of what the beat chose.
+    """
+
+    def test_an_actionable_request_is_preferred_to_a_staler_parked_one(self, tmp_path, monkeypatch) -> None:
+        stale = capture(tmp_path, "older ask", asked_at="2026-09-01T00:00:00Z")
+        fresh = capture(tmp_path, "newer ask", asked_at="2026-09-02T00:00:00Z")
+        add_criteria(tmp_path, stale.id, [Criterion(text="cannot be met", source="operator")])
+        add_criteria(tmp_path, fresh.id, [Criterion(text="already met", source="operator")])
+        meet(tmp_path, fresh.id, 0, [Evidence("commit", "abc1234")])
+        # Parking is a property of dispatch attempts, not of the ledger, so it is simulated here: what is
+        # under test is the SELECTION, not how a criterion comes to be parked.
+        monkeypatch.setattr(requests, "_parked", lambda root, rid, i: rid == stale.id)
+
+        owed = next_obligation(tmp_path)
+        assert owed is not None, "nothing offered while an actionable request waited"
+        assert owed["request"] == fresh.id, f"chose {owed['request']} ({owed['kind']}) over an actionable request"
+        assert owed["kind"] != "parked_request"
+
+    def test_parked_is_still_reported_when_nothing_else_can_move(self, tmp_path, monkeypatch) -> None:
+        """The branch must not vanish: when every open request is parked, saying so IS the work."""
+        only = capture(tmp_path, "only ask", asked_at="2026-09-01T00:00:00Z")
+        add_criteria(tmp_path, only.id, [Criterion(text="cannot be met", source="operator")])
+        monkeypatch.setattr(requests, "_parked", lambda root, rid, i: True)
+
+        owed = next_obligation(tmp_path)
+        assert owed is not None and owed["kind"] == "parked_request" and owed["request"] == only.id

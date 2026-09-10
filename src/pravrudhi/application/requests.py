@@ -394,7 +394,24 @@ def next_obligation(root: Path, *, now: datetime | None = None) -> dict[str, Any
     open_rows = [r for r in load(root) if r.open and r.criteria]
     if not open_rows:
         return None
-    ready = sorted(open_rows, key=lambda r: -staleness(r, now=now))[0]
+    # Staleness orders the whole backlog, not just its head. Taking `[0]` and stopping meant that when the
+    # stalest row was parked, every beat reported it parked and nothing else was ever looked at: measured on
+    # 2026-09-10, five consecutive beats chose `r-5795501a` while `r-cad91781` sat with 0 of 13 criteria unmet,
+    # one step from its completion gate, 0.1 of a staleness point behind. A selector that returns work it
+    # cannot act on, hourly, is not selecting. So a parked row is remembered and the scan continues; it is
+    # reported only when nothing anywhere can move.
+    parked: dict[str, Any] | None = None
+    for ready in sorted(open_rows, key=lambda r: -staleness(r, now=now)):
+        found = _obligation_for(ready)
+        if found["kind"] == "parked_request":
+            parked = parked or found
+            continue
+        return found
+    return parked
+
+
+def _obligation_for(ready: Request) -> dict[str, Any]:
+    """What one open request is owed: its gate, its parked criteria, or its next step."""
     if ready.state == "delivered":
         return {
             "kind": "verify_request", "request": ready.id, "criterion": None, "text": "",
