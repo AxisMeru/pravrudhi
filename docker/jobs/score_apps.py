@@ -70,7 +70,8 @@ def main() -> int:
                 fn_name=str(tests.get("fn_name", "solve")),
             )
         except (KeyError, OSError, ValueError) as e:
-            res = {"passed": 0, "total": 0, "failures": [f"pool read failed: {type(e).__name__}: {e}"]}
+            res = {"passed": 0, "total": 0, "timed_out": 0,
+                   "failures": [f"pool read failed: {type(e).__name__}: {e}"]}
         ok = int(res["total"] > 0 and res["passed"] == res["total"])
         rows.append(
             {
@@ -82,6 +83,11 @@ def main() -> int:
                 "pass": ok,
                 "passed": res["passed"],
                 "total": res["total"],
+                # Carried per item and totalled below. A timeout is not the same evidence as a wrong answer:
+                # under load a correct-but-slow solution exceeds the budget, so the score would depend on
+                # what else the machine was doing, and a rotation of timeouts reads identically to a rotation
+                # of wrong answers unless the count travels with it.
+                "timed_out": res.get("timed_out", 0),
                 "failures": res["failures"],
             }
         )
@@ -96,6 +102,8 @@ def main() -> int:
         "pool_manifest_sha256": sha256_file(pool / "manifest.json"),
         "n_items": n,
         "n_pass": sum(r["score"] for r in rows),
+        "n_timed_out_tests": sum(int(r["timed_out"]) for r in rows),
+        "n_items_with_a_timeout": sum(1 for r in rows if r["timed_out"]),
         "timeout_s": float(a.timeout),
         "wall_s": time.monotonic() - t0,
     }

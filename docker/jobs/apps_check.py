@@ -13,12 +13,20 @@ Pure stdlib and no torch: importable and testable outside the container.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 MAX_FAILURES = 8
 FAILURE_CHARS = 200
+#: How many of one item's hidden pairs run at once. Each pair is its own interpreter, so these are processes
+#: and threads only wait on them. Serial, one item of 12 pairs cost up to 72 seconds of wall clock and a
+#: 100-item rotation took the better part of an hour -- nine of those is a floor study nobody can run in a
+#: day. Held well below the core count on purpose: the 6-second budget is wall clock, so oversubscribing the
+#: machine turns correct-but-slow solutions into timeouts and makes the score depend on the load.
+WORKERS = max(1, min(4, (os.cpu_count() or 2) // 2))
 
 # Reads {code, stdin, fn_name} on its own stdin, then re-points stdin at the test input so a solution that also
 # calls input() behaves; the candidate's own prints go to a buffer, so what this writes to stdout is the value
@@ -58,14 +66,9 @@ def run_solve(
     candidate's fault -- a crash, a hang and a wrong answer are all just failures of that one test."""
     if len(inputs) != len(outputs):
         raise ValueError(f"{len(inputs)} inputs against {len(outputs)} outputs")
-    failures: list[str] = []
-    passed = 0
 
-    def note(msg: str) -> None:
-        if len(failures) < MAX_FAILURES:
-            failures.append(msg)
-
-    for i, (stdin, expected) in enumerate(zip(inputs, outputs, strict=True)):
+    def one(index: int, stdin: str, expected: str) -> tuple[int, bool, bool, str]:
+        """(index, passed, timed_out, message) for a single pair."""
         payload = json.dumps({"code": code, "stdin": stdin, "fn_name": fn_name})
         try:
             proc = subprocess.run(  # noqa: S603 - fixed argv, candidate code arrives on stdin, no shell
@@ -76,14 +79,23 @@ def run_solve(
                 timeout=timeout_s,
             )
         except subprocess.TimeoutExpired:
-            note(f"test {i}: timeout after {timeout_s:g}s")
-            continue
+            return index, False, True, f"test {index}: timeout after {timeout_s:g}s"
         if proc.returncode != 0:
-            note(f"test {i}: {proc.stderr.strip()[-FAILURE_CHARS:]}")
-            continue
+            return index, False, False, f"test {index}: {proc.stderr.strip()[-FAILURE_CHARS:]}"
         got, want = normalise(proc.stdout), normalise(expected)
         if got != want:
-            note(f"test {i}: expected {want[:FAILURE_CHARS]!r}, got {got[:FAILURE_CHARS]!r}")
-            continue
-        passed += 1
-    return {"passed": passed, "total": len(inputs), "failures": failures}
+            return index, False, False, f"test {index}: expected {want[:FAILURE_CHARS]!r}, got {got[:FAILURE_CHARS]!r}"
+        return index, True, False, ""
+
+    with ThreadPoolExecutor(max_workers=WORKERS) as pool:
+        results = sorted(
+            pool.map(lambda a: one(*a), [(i, s, e) for i, (s, e) in enumerate(zip(inputs, outputs, strict=True))]),
+        )
+    passed = sum(1 for _, ok, _, _ in results if ok)
+    timed_out = sum(1 for _, _, late, _ in results if late)
+    failures = [msg for _, ok, _, msg in results if not ok][:MAX_FAILURES]
+    # `timed_out` is reported separately because a timeout is not the same evidence as a wrong answer. Under
+    # load a correct solution can exceed the budget, which makes the score depend on what else the machine
+    # was doing -- and a rotation of timeouts reads identically to a rotation of wrong answers unless the
+    # count travels with it.
+    return {"passed": passed, "total": len(inputs), "timed_out": timed_out, "failures": failures}

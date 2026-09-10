@@ -113,7 +113,7 @@ def test_seal_apps_refuses_a_count_the_slice_cannot_fill(tmp_path: Path) -> None
 
 def test_run_solve_passes_a_correct_candidate() -> None:
     res = run_solve(SUM_SOLVE, ["1 2\n", "3 4\n"], ["3\n", "7 \n"], timeout_s=10.0)
-    assert res == {"passed": 2, "total": 2, "failures": []}
+    assert res == {"passed": 2, "total": 2, "timed_out": 0, "failures": []}
 
 
 def test_run_solve_fails_a_wrong_candidate() -> None:
@@ -213,3 +213,36 @@ def test_a_promotion_writes_one_file_per_bench() -> None:
     promotion silently became what the external HumanEval+ proof ran."""
     assert promoted_path(Path("/r"), "apps") == Path("/r/harness/agent/apps/harness.json")
     assert promoted_path(Path("/r"), "mmlu-law-val") != promoted_path(Path("/r"), "apps")
+
+
+def test_the_pairs_of_one_item_run_concurrently_and_keep_their_order() -> None:
+    """Serial, one item of twelve pairs cost up to 72 seconds of wall clock and a 100-item rotation took the
+    better part of an hour -- nine of those is a floor study nobody can run in a day. Each pair is its own
+    interpreter, so these are processes and the threads only wait on them.
+
+    Order still has to hold: the failure messages name test indices, and a reader matching `test 7:` against
+    the seventh sealed pair has to be right."""
+    import time
+
+    slow = "def solve(stdin):\n    import time\n    time.sleep(0.6)\n    return stdin\n"
+    pairs = [f"{i}\n" for i in range(4)]
+    t0 = time.monotonic()
+    res = run_solve(slow, pairs, pairs, timeout_s=10.0)
+    elapsed = time.monotonic() - t0
+    assert res["passed"] == 4
+    assert elapsed < 4 * 0.6, f"four 0.6s pairs took {elapsed:.2f}s, so they ran serially"
+
+    wrong = "def solve(stdin):\n    return '' if stdin.strip() in ('1', '2') else stdin\n"
+    failures = run_solve(wrong, pairs, pairs, timeout_s=10.0)["failures"]
+    assert [f.split(":")[0] for f in failures] == ["test 1", "test 2"], failures
+
+
+def test_a_timeout_is_counted_apart_from_a_wrong_answer() -> None:
+    """A timeout is not the same evidence. Under load a correct-but-slow solution exceeds the budget, so the
+    score depends on what else the machine was doing -- and a rotation of timeouts reads identically to a
+    rotation of wrong answers unless the count travels with it."""
+    hangs = "def solve(stdin):\n    import time\n    time.sleep(5)\n    return stdin\n"
+    res = run_solve(hangs, ["1\n"], ["1\n"], timeout_s=0.5)
+    assert res == {"passed": 0, "total": 1, "timed_out": 1, "failures": ["test 0: timeout after 0.5s"]}
+    wrong = run_solve("def solve(stdin):\n    return 'no'\n", ["1\n"], ["1\n"], timeout_s=10.0)
+    assert wrong["timed_out"] == 0 and wrong["passed"] == 0
