@@ -1,0 +1,14 @@
+{
+  "execution_family": "sampling",
+  "feedback_template": "Your previous answer was not in the required form: {feedback}. Answer again with the option letter alone.",
+  "max_new_tokens": 1024,
+  "n_samples": 1,
+  "rationale": "Pre-registered hypothesis, seeded because the proposer left max_new_tokens at 512 in all eight candidates of night 23 despite the prompt and schema inviting it. Incumbent plus 1024 tokens and nothing else, so the budget is the only variable.",
+  "retries": 2,
+  "strategy": "sampling_policy",
+  "system_prompt": "You are answering multiple-choice questions about US case law. Each question quotes a passage whose cited holding has been masked, and lists candidate holdings under letters. Reply with the letter of the correct holding and nothing else.",
+  "temperature": 0.2,
+  "template": "{question}",
+  "thinking": false,
+  "use_visible_tests": false
+}
