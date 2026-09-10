@@ -107,3 +107,31 @@ def test_the_proposer_prompt_follows_the_config_not_a_hardcoded_v1() -> None:
         "{question}", "{feedback}",
     }
     assert not unknown, unknown
+
+
+def test_the_proposer_records_the_prompt_it_actually_rendered() -> None:
+    """`propose.py` hardcoded `"prompt_version": "v1"` while `prompt_file` was already a parameter.
+
+    Harness night 20 rendered `harness_proposer/choice_v1.md` and wrote `prompt_version: "v1"` into its
+    `proposer_call` audit row, so the ledger named a prompt that was not the one used. Same family as
+    `spine.SCORER_SOURCE` naming gsm8k.py whatever had scored: a row is only evidence if it says what happened.
+    """
+    source = (Path(__file__).resolve().parents[1] / "src/pravrudhi/application/propose.py").read_text()
+    assert '"prompt_version": "v1"' not in source
+    assert '"prompt_version": Path(prompt_file).stem' in source
+    assert '"prompt_file": prompt_file' in source
+
+
+def test_the_choice_prompt_demands_the_field_that_threw_every_candidate_away() -> None:
+    """All eight of night 20's candidates were rejected on `feedback_template` alone.
+
+    Seven for "String should have at least 10 characters" and one for not containing `{feedback}`. The grammar
+    doc does state the requirement, and the model dropped the field anyway on the `prompts_only` candidates --
+    so the prompt now says it is required even at `retries: 0`, and gives an example.
+    """
+    choice = (
+        Path(__file__).resolve().parents[1] / "harness/prompts/harness_proposer/choice_v1.md"
+    ).read_text()
+    assert "REQUIRED on every candidate" in choice
+    assert "retries: 0" in choice
+    assert "at least 10 characters" in choice

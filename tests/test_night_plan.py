@@ -129,3 +129,25 @@ def test_the_default_pair_in_this_repository_is_checked_not_assumed(tmp_path: Pa
     message = str(caught.value)
     assert "gsm8k-trainD" in message and "gsm8k-trainC" in message
     assert "study noise-floor" not in message, "the floor exists; what is wrong is which pool it describes"
+
+
+def test_the_plan_names_the_training_corpus_the_config_declares(root: Path) -> None:
+    """Caught before the first nyaya night, not by it.
+
+    `run_night` took `train_parquet` from the CLI, whose default is
+    `.pravrudhi/data/gsm8k-train.parquet`. With the choice scorer now selected from the pool, a nyaya night
+    would have rejection-sampled GSM8K rows and handed `steps\\n#### 18` to `mmlu.gold_answer`, which raises
+    on anything that is not one option letter -- so the night would have died in `ensure_samples`, or worse,
+    kept nothing and trained on an empty set.
+    """
+    prereg = root / "research" / "prereg"
+    (prereg / "nyaya_night.yaml").write_text(
+        yaml.safe_dump({**NYAYA, "training": {"corpus": ".pravrudhi/data/casehold-train.parquet"}})
+    )
+    plan = resolve(root, objective="prabhasa-nyaya")
+    assert plan.train_corpus == root / ".pravrudhi" / "data" / "casehold-train.parquet"
+
+
+def test_a_config_with_no_training_corpus_leaves_the_caller_its_default(root: Path) -> None:
+    # The model track passes `--train-parquet` and must keep working unchanged.
+    assert resolve(root).train_corpus is None

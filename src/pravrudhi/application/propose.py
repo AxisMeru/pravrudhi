@@ -209,7 +209,12 @@ def propose_generic(
         {
             "kind": "proposer_call",
             "severity": "info",
-            "prompt_version": "v1",
+            # The prompt file that actually rendered, not a literal. This was hardcoded "v1" while
+            # `prompt_file` was already a parameter, so the row named a prompt that need not be the one used:
+            # harness night 20 ran `harness_proposer/choice_v1.md` and recorded `v1`. Same family of defect as
+            # `spine.SCORER_SOURCE` naming gsm8k.py for every scorer.
+            "prompt_version": Path(prompt_file).stem,
+            "prompt_file": prompt_file,
             "prompt_tokens": res.prompt_tokens,
             "completion_tokens": res.completion_tokens,
             "wall_s": res.wall_s,

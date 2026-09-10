@@ -36,7 +36,11 @@ class DecorativeAbort(RuntimeError):
 
 
 def live_candidates(
-    state_candidates: dict[str, Any], meta: dict[str, dict[str, Any]], incumbent_id: str, target_model: str | None = None
+    state_candidates: dict[str, Any],
+    meta: dict[str, dict[str, Any]],
+    incumbent_id: str,
+    target_model: str | None = None,
+    bench: str | None = None,
 ) -> list[str]:
     out = []
     for cid in meta:
@@ -44,6 +48,16 @@ def live_candidates(
             continue
         if target_model and (meta[cid].get("bucket") or {}).get("target_model") not in (None, target_model):
             continue  # a candidate proposed for another trainee is not live here (its adapter cannot load)
+        if bench and (meta[cid].get("bucket") or {}).get("task_family") not in (None, bench):
+            # Nor is one proposed for another BENCH. This filter did not exist, and until 2026-09-10 it did
+            # not matter: the engine ran one bench per track. It now runs three, and harness night 20 paired
+            # candidates carried over from code-bench nights on a law pool. Checked against the ledger at the
+            # time: of 170 observed candidates only two had observations on more than one bench -- `c-0000`,
+            # the baseline, which is re-measured on every bench by design and excluded above, and `c-0045`
+            # across two GSM8K train slices after ADR-0033 moved the pool. So this closes a latent gap rather
+            # than a live one, and what it prevents is a sequential boundary accumulating n across benches
+            # whose pass rates are not the same quantity.
+            continue
         c = state_candidates.get(cid)
         if c is None or c.pruned or c.promoted or c.audit_high or c.skipped:
             continue
@@ -86,7 +100,8 @@ def deliberate(
     )
     st = replay(ledger)
     tm = target_model or (str(cfg_night.get("model")) if cfg_night else None)
-    pool = live_candidates(st.candidates, meta, incumbent_id, target_model=tm)
+    bench = str(cfg_night.get("bench")) if cfg_night and cfg_night.get("bench") else None
+    pool = live_candidates(st.candidates, meta, incumbent_id, target_model=tm, bench=bench)
     if surface:
         pool = [c for c in pool if meta[c]["surface"] == surface]
     if not pool:

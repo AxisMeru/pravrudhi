@@ -246,6 +246,21 @@ class TestSelectionPressure:
         rows = selection_pressure(path)
         recent = [p for p in rows if p.night >= 7]
         assert recent, "the ledger should carry nights from 7 onward"
-        assert sum(p.binding for p in recent) <= 2, (
+        # Nights 19 and 20 are excluded BY NAME, with the reason, rather than by relaxing the bound -- a
+        # looser bound would hide the next occurrence, which is the whole point of this tripwire.
+        #
+        # Both bound, and neither did so because selection got harder. `live_candidates` filtered by
+        # target_model and not by bench, so the first harness nights on `mmlu-law-val` pulled in the 48
+        # candidates proposed on `mbppplus`: `selection_pressure` correctly reported a live pool of 44 against
+        # 15-19 selected, because the ledger correctly records that those nights really did select across
+        # benches. The filter gained a `bench` clause on 2026-09-10 (tests/test_live_candidates_bench.py), so
+        # a night now sees only its own bench's candidates -- but the ledger is append-only and these two
+        # nights stay binding forever.
+        #
+        # The claim this measurement supports is therefore unchanged: selection has had to choose on one night
+        # out of thirteen where the pool was measured honestly. If a night after 20 binds, that IS the finding
+        # this assertion exists to surface.
+        known_inflated = {19, 20}
+        assert sum(p.binding for p in recent if p.night not in known_inflated) <= 2, (
             "if selection started binding regularly, this measurement and the plan built on it need revisiting"
         )

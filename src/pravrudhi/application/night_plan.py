@@ -40,6 +40,7 @@ class NightPlan:
     objective: str | None
     track: str
     bench: str
+    train_corpus: Path | None
 
     @property
     def answer_kind(self) -> str:
@@ -106,6 +107,11 @@ def resolve(root: Path, *, objective: str | None = None, config: Path | None = N
             f"{path.name} runs bench {bench!r} but {variance.name} was measured on bench {measured!r}; "
             "the boundary would be set from another pool's sigma and the night would not be reproducible"
         )
+    # The corpus rejection sampling draws from, when the config names one. `run_night` took this from the
+    # CLI, whose default is the GSM8K training parquet -- so a choice track would have sampled numeric rows
+    # and handed `steps\n#### 18` to `mmlu.gold_answer`, which refuses anything but an option letter. None
+    # means the caller's own default stands, which is what keeps the model track unchanged.
+    declared_corpus = str((cfg.get("training") or {}).get("corpus") or "")
     return NightPlan(
         config=path,
         variance=variance,
@@ -114,4 +120,5 @@ def resolve(root: Path, *, objective: str | None = None, config: Path | None = N
         objective=str(cfg.get("objective")) if cfg.get("objective") else None,
         track=str(cfg.get("track") or "lora"),
         bench=bench,
+        train_corpus=(root / declared_corpus) if declared_corpus else None,
     )

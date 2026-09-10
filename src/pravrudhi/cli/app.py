@@ -467,8 +467,13 @@ def night_cmd(
     if gguf is None:
         # The proposer's GGUF comes from whichever config is running, not from lora_night unconditionally.
         gguf = resolve_model_snapshot("Qwen/Qwen3-30B-A3B-GGUF") / str(plan.cfg["proposer"]["gguf"])
+    # The config's corpus wins over the CLI default, because a track's training data belongs with the track:
+    # a choice night sampling the GSM8K parquet would hand `#### 18` to a scorer that only reads letters.
+    corpus = plan.train_corpus or train_parquet
+    if plan.train_corpus is not None:
+        typer.echo(f"           training corpus {corpus}")
     out = run_night(
-        root, night=night, budget_gpu_h=budget, k=k, train_parquet=train_parquet, gguf=gguf,
+        root, night=night, budget_gpu_h=budget, k=k, train_parquet=corpus, gguf=gguf,
         log=typer.echo, selection_policy=policy, proposer_endpoint=proposer_endpoint, plan=plan,
     )
     typer.echo(json.dumps(out, indent=2))
