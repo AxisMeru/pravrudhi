@@ -1159,9 +1159,33 @@ def create_app(root: Path) -> FastAPI:
 
     @api.post("/inbox/sign")
     def sign(req: SignRequest, x_pravrudhi_operator: str | None = Header(default=None)) -> SignResponse:
+        # ADR-0040. This route is what "giving autonomy to studio and product apps themselves" needed: the
+        # apps sign through here, and it answered 403 to every agent identity. A person still signs as
+        # themselves; an agent signs as the delegation's identity, under the delegation's own conditions.
+        from pravrudhi.application.delegation import load_delegation, unmet_conditions
+
         who = (x_pravrudhi_operator or os.environ.get("PRAVRUDHI_OPERATOR") or "").strip()
+        autonomous = False
         if not who or who.lower() in AGENT_IDENTITIES:
-            raise HTTPException(403, "sign-off is a human act: set X-Pravrudhi-Operator to the operator's name")
+            delegation = load_delegation(root)
+            if delegation is None:
+                raise HTTPException(
+                    403, "sign-off is a human act here: set X-Pravrudhi-Operator, or record a delegation in "
+                    "configs/delegation.yaml (ADR-0040)"
+                )
+            allowed, why = delegation.permits("promote_t2")
+            if not allowed:
+                raise HTTPException(403, f"autonomous sign-off refused: {why}")
+            row = next((r for r in inbox_listing(root) if r["pack"] == req.pack), None)
+            # `reject` and `defer` need no evidence: declining to promote something cannot promote it. Only
+            # `approve` is gated, which keeps the delegation from blocking the loop's ability to prune.
+            if req.decision == "approve":
+                unmet = unmet_conditions(delegation, badge=(row or {}).get("badge"))
+                if unmet:
+                    raise HTTPException(409, "autonomous approval refused: " + "; ".join(unmet))
+            who, autonomous = delegation.identity, True
+            if not req.note:
+                req = req.model_copy(update={"note": delegation.citation})
         if req.decision not in ("approve", "reject", "defer"):
             raise HTTPException(400, "decision must be approve | reject | defer")
         packs = {r["pack"] for r in inbox_listing(root)}
@@ -1172,7 +1196,10 @@ def create_app(root: Path) -> FastAPI:
 
         ev = w.append(
             "signoff",
-            f"human:{who}",
+            # The actor prefix is the record of WHICH kind of signature this is. Writing `human:` for an
+            # autonomous close would make the two indistinguishable in the ledger, which is the one thing
+            # ADR-0040 says must stay distinguishable.
+            f"{'agent' if autonomous else 'human'}:{who}",
             {
                 "pack": req.pack,
                 "decision": req.decision,

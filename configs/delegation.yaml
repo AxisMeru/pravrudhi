@@ -1,0 +1,39 @@
+# Who may close a gate, and on what conditions.
+#
+# CHARTER §6's fourth Sākṣī rule reads: "promotion to canonical (merging adapters into a base checkpoint,
+# merging to main, signing an interp claim) is a human act via the inbox." `gate.sign_gate` and the
+# `/inbox/sign` route both enforced that by refusing any agent identity outright.
+#
+# The operator withdrew that requirement on 2026-09-10 (ADR-0040). This file is what carries the withdrawal,
+# rather than a flag on a command: the authority has to be auditable, and no agent should be able to assume it
+# by passing an argument. Set `active: false` and every autonomous close stops immediately.
+version: 1
+active: true
+granted: 2026-09-10
+instruction: >
+  "run both harness nights once the floors land giving autonomy to studio and product apps themselves....there
+  is no point in waiting for me for gate approvals...stop that and proceed autonomously..change adr/rules if
+  needed..continue"
+
+# The signature an autonomous close carries. NEVER a human name: a reader must always be able to tell an
+# autonomous promotion from one a person looked at, and that matters more once they are the common case.
+signature_identity: agent-for-operator
+
+scope:
+  gate_signoff: true      # closing a gate JSON
+  promote_t2: true        # approving an inbox pack (a T2 promotion)
+  merge_to_main: true     # already delegated on 2026-09-05 ("merge and push to origin main at each milestone")
+  # An interp claim asserts what a model is internally doing. It is not a gate approval, it is a scientific
+  # claim, and nothing built so far carries the evidence to sign one. Left off deliberately rather than swept
+  # in with the rest; flip it here if that is wrong.
+  interp_claim: false
+
+# Removing the human does not remove the judgement -- it moves it here. Each of these is something a person
+# was implicitly doing by looking at the pack before signing.
+conditions:
+  require_gate_check_clean: true      # `check_gate` returns no problems
+  require_closure_layers_pass: true   # every non-signoff closure layer is already "pass"
+  # An amber badge means the evidence is equivocal. The right autonomous response to equivocal evidence is to
+  # run the experiment that resolves it, not to approve it -- CHARTER §6: "Prune with statistics, then propose
+  # the experiment that finds what is true." Amber is refused with a reason and a next step, never parked.
+  require_green_badge: true
