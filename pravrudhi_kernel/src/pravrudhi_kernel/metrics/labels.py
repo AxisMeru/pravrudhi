@@ -49,8 +49,17 @@ EMPTY = ""
 #: is "Sections 34, 302 and 120B", where only the FIRST number carries a marker.
 _MARKER = re.compile(r"(?i)\bs(?:ection|ec)?s?\.?\s*")
 
-#: One section number with an optional alphanumeric suffix (`120B`, `498A`).
-_NUM = re.compile(r"(\d{1,3}[A-Za-z]{0,2})\b")
+#: One section number with an optional alphanumeric suffix (`120B`, `498A`) and an optional parenthesised
+#: sub-clause (`294(b)`, `376(2)`).
+#:
+#: The sub-clause is not cosmetic. Two of IL-TUR's hundred labels carry one, and without it `Section 294(b)`
+#: normalised to `Section 294` -- so a prediction of the bare section would have been scored CORRECT against
+#: a gold of the sub-clause. That is false credit, not a rounding error, and it touched 22 of 400 dev rows.
+#: Found by checking the real corpus against the published label list, which is the only way it could be.
+#:
+#: `(?![\w(])` in place of `\b`: a trailing `)` is not a word character, so `\b` would not anchor after
+#: `294(b)`, and it also stops `294` matching when `(b)` follows and should have been taken with it.
+_NUM = re.compile(r"(\d{1,3}[A-Za-z]{0,2}(?:\([0-9A-Za-z]{1,4}\))?)(?![\w(])")
 
 #: What joins numbers in a list under one marker. `r/w` and "read with" are how Indian judgments cite
 #: sections together and are common in this corpus's own text.
@@ -60,11 +69,34 @@ _JOIN = re.compile(r"(?i)\s*(?:,|&|/|and|or|r/w|read with)\s*")
 _NOTHING = re.compile(r"(?i)\bno(?:ne|t any)?\s+(?:section|statute|provision)s?\b(?![^.]*\bother than\b)")
 
 
-def _sort_key(label: str) -> tuple[int, str]:
-    """Numeric order, then suffix. Lexicographic would put `Section 107` before `Section 34`, which makes the
-    canonical form depend on how a number happens to be spelled."""
-    m = re.match(r"Section (\d+)([A-Z]*)$", label)
-    return (int(m.group(1)), m.group(2)) if m else (10**6, label)
+#: Splits a matched number into its three parts so each can be normalised on its own terms.
+_PARTS = re.compile(r"(?i)^(\d{1,3})([A-Z]{0,2})(?:\(([0-9A-Z]{1,4})\))?$")
+
+
+def normalise_number(num: str) -> str:
+    """`302` / `498a` / `294(B)` as the corpus writes them: `302`, `498A`, `294(b)`.
+
+    Uppercasing the whole match was wrong, and only the real data showed it: IL-TUR writes the letter suffix
+    upper (`Section 498A`) and the sub-clause lower (`Section 294(b)`), so a blanket `.upper()` produced
+    `Section 294(B)` and failed to match its own gold. Two different conventions in one label, and both have
+    to be honoured or the canonical form is not canonical.
+    """
+    m = _PARTS.match(num)
+    if not m:
+        return num.upper()
+    number, suffix, clause = m.group(1), (m.group(2) or "").upper(), m.group(3)
+    return f"{number}{suffix}" + (f"({clause.lower()})" if clause else "")
+
+
+def _sort_key(label: str) -> tuple[int, str, str]:
+    """Numeric order, then letter suffix, then sub-clause.
+
+    Lexicographic would put `Section 107` before `Section 34`, which makes the canonical form depend on how a
+    number happens to be spelled. The sub-clause is part of the key because `Section 376` and `Section 376(2)`
+    are different labels and a canonical form that ordered them arbitrarily would not be canonical.
+    """
+    m = re.match(r"Section (\d+)([A-Za-z]*)(\([0-9A-Za-z]+\))?$", label)
+    return (int(m.group(1)), m.group(2) or "", m.group(3) or "") if m else (10**6, label, "")
 
 
 def canonical(labels: set[str]) -> str:
@@ -87,7 +119,7 @@ def parse_labels(text: str) -> set[str]:
             num = _NUM.match(text, at)
             if not num:
                 break
-            found.add(f"Section {num.group(1).upper()}")
+            found.add(f"Section {normalise_number(num.group(1))}")
             at = num.end()
             join = _JOIN.match(text, at)
             if not join:

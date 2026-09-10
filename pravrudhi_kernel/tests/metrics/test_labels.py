@@ -93,3 +93,47 @@ def test_score_completions_keys_on_the_gold_and_a_missing_completion_scores_zero
     got = L.score_completions({"a": "Section 34 applies."}, golds)
     assert got == {"a": 1.0, "b": 0.0}
     assert set(got) == set(golds)
+
+
+def test_a_parenthesised_sub_clause_is_part_of_the_label() -> None:
+    """Two of IL-TUR's hundred labels carry one -- `Section 294(b)` and `Section 376(2)` -- and without it
+    both normalised to the bare section. A prediction of `Section 302` would then have been scored CORRECT
+    against a gold of `Section 302(2)`: false credit, not a rounding error. It touched 22 of 400 dev rows,
+    and only checking the real corpus against the published label list could have found it."""
+    assert L.parse_labels("Section 294(b)") == {"Section 294(b)"}
+    assert L.parse_labels("Section 376(2)") == {"Section 376(2)"}
+    # The bare section and the sub-clause are DIFFERENT labels, so they must not score as each other.
+    assert L.score_item("Section 376 applies.", "Section 376(2)") == 0.0
+    assert L.score_item("Section 376(2) applies.", "Section 376(2)") == 1.0
+    # And they order deterministically, or the canonical form is not canonical.
+    assert L.canonical({"Section 376(2)", "Section 376"}) == "Section 376|Section 376(2)"
+    # A sub-clause inside a list under one marker still parses.
+    assert L.parse_labels("Sections 294(b) and 376(2)") == {"Section 294(b)", "Section 376(2)"}
+
+
+def test_normalisation_honours_both_of_the_corpus_conventions() -> None:
+    """IL-TUR writes the letter suffix UPPER (`498A`) and the sub-clause LOWER (`294(b)`). A blanket
+    `.upper()` produced `Section 294(B)` and failed to match its own gold."""
+    assert L.normalise_number("498a") == "498A"
+    assert L.normalise_number("294(B)") == "294(b)"
+    assert L.normalise_number("376(2)") == "376(2)"
+    assert L.normalise_number("302") == "302"
+    assert L.parse_labels("section 498a") == {"Section 498A"}
+    assert L.parse_labels("Section 294(B)") == {"Section 294(b)"}
+
+
+def test_every_published_il_tur_label_round_trips() -> None:
+    """The check that found the sub-clause defect, kept as a test against the real corpus. A scorer built from
+    a published spec and never run against the data is a scorer with unknown defects."""
+    import pathlib
+
+    src = pathlib.Path(".pravrudhi/corpus/iltur/statutes-00000-of-00001.parquet")
+    if not src.exists():
+        pytest.skip("IL-TUR statutes not fetched in this workspace")
+    import pyarrow.parquet as pq
+
+    names = [r["id"] for r in pq.read_table(src).to_pylist()]
+    assert len(names) == 100, "IL-TUR's LSI label space is 100 IPC sections"
+    for n in names:
+        assert L.parse_labels(n) == {n}, f"{n!r} does not survive its own canonical form"
+        assert L.gold_answer(n) == n
