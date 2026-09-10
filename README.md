@@ -41,7 +41,7 @@ uv run pravrudhi routing --root .                               # which agent an
 uv run pravrudhi pool seal-mbppplus --root .
 uv run pravrudhi study harness-noise-floor --root .
 uv run pravrudhi harness-night --night 1 --root .
-scripts/ext_humaneval.sh Qwen/Qwen3-1.7B harness/agent/apps/harness.json ./research/ext/humaneval-after   # per bench (ADR-0037): one global file meant a law night could set what the code proof ran
+scripts/ext_humaneval.sh Qwen/Qwen3-1.7B harness/agent/apps/harness.json ./research/ext/humaneval-after   # only AFTER a code-bench night promotes: the recipe is written per bench (ADR-0037), because one global file meant a law night could set what the code proof ran
 
 # external proof tier (third-party scorers; results enter the ledger by hash and render to docs/evidence/P1_external.md)
 scripts/ext_eval.sh Qwen/Qwen3-0.6B gsm8k ./research/ext/base            # lm-evaluation-harness, offline

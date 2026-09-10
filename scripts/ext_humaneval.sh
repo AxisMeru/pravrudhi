@@ -4,6 +4,21 @@
 set -euo pipefail
 MODEL="$1"; HARNESS="$2"; OUT="$3"; SEED="${4:-0}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# ADR-0037 moved the promoted recipe to one file per bench, so `harness/agent/<bench>/harness.json` does not
+# exist until that bench has promoted something. Without this the run died on `cp: cannot stat`, which says
+# nothing about why. It refuses rather than falling back to the old global `harness/agent/harness.json`: that
+# file still holds the night-3 code incumbent and nothing writes it any more, so a fallback would quietly
+# score the external proof against a stale recipe and report the number as current.
+if [[ ! -f "$HARNESS" ]]; then
+  echo "REFUSED: no harness recipe at $HARNESS" >&2
+  echo "  A promoted recipe is written per bench (ADR-0037) and appears only after that bench promotes." >&2
+  echo "  Run a harness night on the code bench first, or pass a recipe explicitly." >&2
+  if [[ -f "$ROOT/harness/agent/harness.json" ]]; then
+    echo "  Do NOT pass harness/agent/harness.json: it is the pre-ADR-0037 global file, holds the night-3" >&2
+    echo "  code incumbent, and nothing has written it since. Proof run against it would not be current." >&2
+  fi
+  exit 2
+fi
 HFH="${HF_HOME:-$HOME/.cache/huggingface}"
 SNAP="$(ls -d "$HFH/hub/models--${MODEL//\//--}/snapshots/"*/ | head -1)"; REL="/models/${SNAP#$HFH/}"
 mkdir -p "$OUT/in" "$OUT/out"
