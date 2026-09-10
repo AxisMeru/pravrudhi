@@ -238,6 +238,113 @@ def seal_casehold(
     return seal_pool(Path(state.pools_dir) / bench, bench, rows, src, answer_kind="choice")
 
 
+#: IL-TUR's own validation split. `train` is for the model track's rejection sampling and `test` is the
+#: external proof, so selecting on either would have the loop score itself on what it learned from or is
+#: judged by.
+LSI_INTERNAL_SPLIT = "dev"
+LSI_EXTERNAL_SPLITS = ("test",)
+
+#: Characters of case text kept per item. **The decision ADR-0043 records.**
+#:
+#: LSI case text is median 3,418 characters but p90 17,900 and max 442,434 — a continuous heavy tail, not
+#: CaseHOLD's cliff of 23 pathological outliers past a p99.5 of 3,033. A length BOUND that excluded the tail
+#: would drop 37% of the split, and `seal_casehold` rightly refuses anything over 5% as slicing the
+#: distribution. So this truncates instead of excluding, and the difference is the whole decision:
+#:
+#: * **Truncating keeps every case**, so the pool is not selected on length. Excluding would bias it in
+#:   exactly the dimension being measured, because a longer judgment carries more sections — the median case
+#:   has three and the largest 28.
+#: * It is what IL-TUR's own published baselines do (BERT-family models at 512 tokens), so the number stays
+#:   comparable to the literature rather than being a private variant.
+#: * It **lowers the achievable ceiling**, because a truncated case can drop the passage that identifies a
+#:   section. That is a real cost and belongs in the manifest beside the number, not discovered later.
+#:
+#: 6,000 characters is ~1,500 tokens, leaving room for the 1,301-character label block every prompt carries
+#: plus the generation budget, at a batch of 16 that pads to its longest member.
+LSI_MAX_CASE_CHARS = 6000
+
+#: Head truncation, matching the baselines. An Indian judgment states the facts and the charge early and the
+#: holding late; taking the head keeps what the offence is, which is what the sections follow from.
+LSI_INSTRUCTION = (
+    "Identify every section of the Indian Penal Code that applies to the case below. Choose only from the "
+    "listed sections. Answer with the section names separated by commas and nothing else."
+)
+
+
+def seal_lsi(
+    root: Path,
+    source: Path,
+    statutes: Path,
+    bench: str = "iltur-lsi-dev",
+    *,
+    max_case_chars: int = LSI_MAX_CASE_CHARS,
+) -> dict[str, Any]:
+    """Seal IL-TUR's LSI validation split as the first internal `set` pool (ADR-0043).
+
+    The label space is given in the prompt. IL-TUR's baselines are classifiers over the 100 sections, so a
+    generative model asked to invent the space from nothing would be measured on a harder and different task
+    — and would produce unparseable answers rather than wrong ones.
+
+    Gold is written as section NAMES, not the corpus's integer indices, so the kernel's `set` scorer keeps
+    receiving what it already parses. The index-to-name mapping is the sealer's job and lives here.
+    """
+    import pyarrow.parquet as pq
+
+    from pravrudhi_kernel.metrics.labels import canonical
+
+    names = [str(r["id"]) for r in pq.read_table(Path(statutes)).to_pylist()]
+    if len(names) != 100:
+        raise ValueError(f"expected IL-TUR's 100-section label space, got {len(names)} from {statutes}")
+    label_block = "\n".join(f"- {n}" for n in names)
+
+    rows: list[dict[str, Any]] = []
+    truncated = 0
+    for record in pq.read_table(Path(source)).to_pylist():
+        gold = {names[i] for i in record["labels"]}
+        if not gold:
+            continue  # an item with no applicable section has no answer for `set` to score
+        case = " ".join(record["text"]).strip()
+        if len(case) > max_case_chars:
+            case = case[:max_case_chars]
+            truncated += 1
+        rows.append(
+            {
+                "question": f"{LSI_INSTRUCTION}\n\nSections:\n{label_block}\n\nCase:\n{case}",
+                # The canonical form itself, so the sealed gold IS what the scorer's `gold_answer` produces
+                # and cannot drift from it. `canonical` already orders numerically, so nothing re-sorts here.
+                "answer": canonical(gold),
+            }
+        )
+    if not rows:
+        raise ValueError(f"{source} yielded no rows; a pool of nothing would refuse every draw")
+
+    state = ensure_kernel_state(root, docker_available=docker_available())
+    src = {
+        "origin": "https://huggingface.co/datasets/Exploration-Lab/IL-TUR (LSI task, gated, CC-BY-NC-SA-4.0)",
+        "split": LSI_INTERNAL_SPLIT,
+        "files": [
+            {"file": Path(f).name, "sha256": hashlib.sha256(Path(f).read_bytes()).hexdigest()}
+            for f in (source, statutes)
+        ],
+        "n_rows": len(rows),
+        "label_space": names,
+        "max_case_chars": max_case_chars,
+        # Reported, because truncation lowers the ceiling and a reader must be able to see how much of the
+        # corpus was affected. Every case is KEPT -- that is the difference from a length bound, and the
+        # reason this is truncation and not exclusion.
+        "n_truncated": truncated,
+        "truncation": (
+            f"Head truncation at {max_case_chars} characters, as IL-TUR's own BERT-family baselines truncate. "
+            f"No case is excluded, so the pool is not selected on length -- which matters because a longer "
+            f"judgment carries more sections. A truncated case can lose the passage that identifies a "
+            f"section, so this lowers the achievable ceiling and that is part of the number."
+        ),
+        "held_out_for_external_proof": list(LSI_EXTERNAL_SPLITS),
+        "disjoint_from": ["IL-TUR lsi train, which is for training", "IL-TUR lsi test, the external proof"],
+    }
+    return seal_pool(Path(state.pools_dir) / bench, bench, rows, src, answer_kind="set")
+
+
 def fetch_apps(dest: Path, split: str = "test") -> Path:
     """Download one APPS split's parquet into `dest` and return the local path.
 

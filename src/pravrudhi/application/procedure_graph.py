@@ -125,3 +125,41 @@ def build_graph(root: Path) -> ProcedureGraph:
         for (f, t, r), (c, a) in sorted(counts.items())
     )
     return ProcedureGraph(nodes=frozenset(nodes), edges=edges)
+
+
+#: How many observations an edge needs before its success rate could tie-break anything.
+#:
+#: Not a taste threshold. `routing.choose` already aggregates the same log per route, so a transition edge only
+#: earns a say if it says something the per-route rate does not -- and to distinguish two rates at all you need
+#: enough trials that their intervals can fail to overlap. At n=5 a Wilson interval on a proportion spans
+#: roughly 0.5; below that an edge cannot separate itself from the baseline whatever it observed.
+TIEBREAK_MIN_COUNT = 5
+
+
+def tiebreak_readiness(graph: ProcedureGraph, min_count: int = TIEBREAK_MIN_COUNT) -> dict[str, object]:
+    """Whether this graph yet carries evidence that could tie-break a route choice, and what is missing.
+
+    The question card M6.4 turns on, made runnable instead of argued. The graph is a RE-AGGREGATION of the
+    same `routing.jsonl` that `routing.choose` already reads per route -- so it adds a different view, not new
+    information, and the view only earns a vote once some transition has been seen often enough to distinguish
+    itself from the destination's overall rate.
+
+    Run this before proposing M6.4 again. On 2026-09-10 it answered `ready: False` with 3 edges at count 1
+    apiece from 161 routing rows, which is why that card was deferred rather than built: a control input backed
+    by single observations is the n=1 inference the sequential boundary exists to prevent everywhere else.
+    """
+    eligible = tuple(e for e in graph.edges if e.count >= min_count)
+    return {
+        "ready": bool(eligible),
+        "min_count": min_count,
+        "n_edges": len(graph.edges),
+        "max_edge_count": max((e.count for e in graph.edges), default=0),
+        "eligible_edges": tuple(f"{e.from_route}->{e.to_route}" for e in eligible),
+        "why": (
+            f"{len(eligible)} edge(s) at or above {min_count} observations"
+            if eligible
+            else f"no edge has reached {min_count} observations (best is "
+            f"{max((e.count for e in graph.edges), default=0)}); a tie-breaker backed by that many trials "
+            f"cannot separate itself from the per-route rate `choose` already uses"
+        ),
+    }

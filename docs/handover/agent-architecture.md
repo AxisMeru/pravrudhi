@@ -101,9 +101,20 @@ In priority order, each already scoped enough to hand to a session without furth
 1. **Card M6.3 — the tier model.** Blocked on cost being observable; M6.1 landed 2026-09-09, so this is now
    unblocked. Express it in the existing `Route`/`Outcome`/`Table` vocabulary per the spec — do not invent new
    vocabulary. Owner: whichever edition's loop next has budget; this is engine-wide, not edition-specific.
-2. **Card M6.4 (proposed, not built) — wire `procedure_graph.suggest_next` into `routing.choose`.** Needs a
-   decision on how a report becomes a tie-breaker without becoming a control the router trusts over measured
-   success rate, plus its own test plan. Do not skip straight to code — this repo's rule is spec first.
+2. ~~**Card M6.4 — wire `procedure_graph.suggest_next` into `routing.choose`.**~~ **DEFERRED 2026-09-10, on
+   evidence.** The decision this asked for is settled, and settled against wiring it — for now.
+
+   The graph is a **re-aggregation of the same `routing.jsonl` that `choose` already reads**, not a new source
+   of information. It offers a different view (transition A→B fared better than A→C) which per-route rates
+   cannot express — but on this machine's 161-row log that view is **3 edges of exactly 1 observation each**,
+   against per-route counts of sonnet 107 and astra 32. A tie-breaker backed by single observations is the n=1
+   inference the sequential boundary exists to prevent everywhere else in this engine, and it would be driving
+   dispatch.
+
+   The criterion for revisiting is runnable rather than prose: `procedure_graph.tiebreak_readiness(graph)`
+   reports `ready`, the best edge count, and what is missing. `test_the_live_routing_log_is_not_yet_ready_to_
+   tie_break` asserts it is not ready against the real log — **so that test failing is the signal to pick this
+   card back up.** No re-research needed; just run it.
 3. **Reconcile M6.2.** The spec asked for same-seat retry with config-driven backoff; what shipped
    (`ed6ac7a`) is fallback-with-cooldown instead, which solves the same problem differently. Someone should
    either update the spec to match what's built, or build the backoff path the spec actually asked for — not

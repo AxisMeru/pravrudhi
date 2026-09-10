@@ -46,6 +46,9 @@ INBOX_DECISION_OPT = typer.Option("approve", "--decision", help="approve | rejec
 INBOX_BY_OPT = typer.Option(
     "", "--by", help="A person's name to sign as them; omit to sign autonomously under the recorded delegation"
 )
+LSI_SOURCE_OPT = typer.Option(..., "--source", help="IL-TUR lsi dev parquet on disk, fetched separately")
+LSI_STATUTES_OPT = typer.Option(..., "--statutes", help="IL-TUR lsi statutes parquet (the 100-section label space)")
+LSI_BENCH_OPT = typer.Option("iltur-lsi-dev", "--bench")
 CASEHOLD_SOURCE_OPT = typer.Option(..., "--source", help="CaseHOLD val CSV on disk, fetched separately")
 CASEHOLD_BENCH_OPT = typer.Option("casehold-val", "--bench")
 APPS_SOURCE_OPT = typer.Option(..., "--source", help="APPS split on disk (test.jsonl or parquet), fetched separately")
@@ -199,6 +202,30 @@ def pool_seal_mmlu(
         f"sealed {m['bench']}: {m['n_items']} items, answer_kind {m['answer_kind']}, "
         f"pool_version {m['pool_version'][:16]}"
     )
+
+
+@pool_app.command("seal-lsi")
+def pool_seal_lsi(
+    source: Path = LSI_SOURCE_OPT,
+    statutes: Path = LSI_STATUTES_OPT,
+    bench: str = LSI_BENCH_OPT,
+    root: Path = ROOT_OPT,
+) -> None:
+    """Seal IL-TUR's LSI validation split as the first internal `set` pool (ADR-0043).
+
+    Validation only: train is the model track's rejection-sampling corpus and test is the external proof.
+    Case text is head-truncated rather than length-filtered, so no case is excluded and the pool is not
+    selected on length -- a longer judgment carries more sections.
+    """
+    from pravrudhi.application.pool_admin import seal_lsi
+
+    m = seal_lsi(root, source, statutes, bench)
+    src = m.get("source") or {}
+    typer.echo(
+        f"sealed {m['bench']}: {m['n_items']} items, answer_kind {m['answer_kind']}, "
+        f"pool_version {m['pool_version'][:16]}"
+    )
+    typer.echo(f"  head-truncated at {src.get('max_case_chars')} chars: {src.get('n_truncated')} of {m['n_items']}")
 
 
 @pool_app.command("seal-casehold")

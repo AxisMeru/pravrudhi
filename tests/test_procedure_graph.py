@@ -11,6 +11,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from pravrudhi.application.procedure_graph import build_graph
 
 
@@ -115,3 +117,43 @@ def test_a_corrupt_log_line_does_not_blind_the_graph(tmp_path: Path) -> None:
         fh.write(json.dumps(_row("t7", "sonnet", "2026-09-09T00:00:00Z", accepted=True)) + "\n")
     g = build_graph(tmp_path)
     assert g.nodes == frozenset({"sonnet"})
+
+
+def test_tiebreak_readiness_answers_the_m6_4_question_with_data(tmp_path: Path) -> None:
+    """Card M6.4 -- promoting this report to a control input -- was deferred on evidence, not preference. The
+    graph re-aggregates the same routing.jsonl that `choose` already reads per route, so it earns a vote only
+    once some transition has been seen often enough to distinguish itself from the destination's own rate."""
+    from pravrudhi.application.procedure_graph import (
+        TIEBREAK_MIN_COUNT,
+        Edge,
+        ProcedureGraph,
+        tiebreak_readiness,
+    )
+
+    thin = ProcedureGraph(
+        nodes=frozenset({"a", "b"}),
+        edges=(Edge(from_route="a", to_route="b", reason="limited", count=1, accepted=1),),
+    )
+    r = tiebreak_readiness(thin)
+    assert r["ready"] is False
+    assert r["max_edge_count"] == 1
+    assert "cannot separate itself" in str(r["why"])
+
+    thick = ProcedureGraph(
+        nodes=frozenset({"a", "b"}),
+        edges=(Edge(from_route="a", to_route="b", reason="limited", count=TIEBREAK_MIN_COUNT, accepted=4),),
+    )
+    ready = tiebreak_readiness(thick)
+    assert ready["ready"] is True
+    assert ready["eligible_edges"] == ("a->b",)
+
+
+def test_the_live_routing_log_is_not_yet_ready_to_tie_break() -> None:
+    """The measurement behind the deferral, asserted against this machine's real log rather than a fixture.
+    If this starts failing, the log has grown enough that M6.4 is worth revisiting -- which is the point."""
+    from pravrudhi.application.procedure_graph import build_graph, tiebreak_readiness
+
+    if not Path(".pravrudhi/routing.jsonl").exists():
+        pytest.skip("no routing log in this workspace")
+    r = tiebreak_readiness(build_graph(Path(".")))
+    assert r["ready"] is False, f"routing log now supports a tie-breaker: {r['why']} -- revisit card M6.4"

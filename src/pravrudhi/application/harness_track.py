@@ -23,7 +23,9 @@ from pravrudhi_kernel.ledger import LedgerWriter, replay
 from pravrudhi_kernel.metrics import (
     PoolExhausted,
     Rotation,
+    answer_kind,
     draw_rotation,
+    is_binary,
     record_exposure,
     scorer_for_pool,
     scorer_source_for_pool,
@@ -110,6 +112,17 @@ class HarnessContext:
         self.hf_home = self.snapshot.parents[3]
         self.bench = str(cfg["bench"])
         self.pool_dir = root / ".pravrudhi" / "kernel" / "pools" / self.bench
+        # How this pool's answers are read, from the POOL's manifest rather than the config, because the
+        # manifest is what the scorer dispatches on. A config that declares a different kind is refused: that
+        # is the same disagreement-between-frozen-inputs defect as a floor measured on another bench.
+        self.answer_kind = answer_kind(self.pool_dir) if self.pool_dir.exists() else str(cfg.get("answer_kind") or "numeric")
+        declared_kind = str(cfg.get("answer_kind") or "")
+        if declared_kind and self.pool_dir.exists() and declared_kind != self.answer_kind:
+            raise ValueError(
+                f"{self.bench} was sealed with answer_kind {self.answer_kind!r} but this config declares "
+                f"{declared_kind!r}; the scorer dispatches on the manifest, so the config would describe a "
+                f"night that is not being run"
+            )
         self.incumbent_id = BASELINE_ID
         # The recipe every candidate this night is paired against. `harness_grammar.BASELINE` is a CODE
         # recipe -- "You are an expert Python programmer ... return only the code in one ```python block" --
@@ -449,7 +462,23 @@ def admit_candidate(
         extra={
             "arm": "candidate",
             "track": "harness",
-            "discordance": asdict(discordance(incumbent_scores, cscores)),
+            # McNemar is DEFINED on binary paired outcomes (ADR-0038): there is no "win" to count when an
+            # item goes from 0.667 to 0.750, and `discordance` refuses a fractional score rather than
+            # computing a statistic that does not apply. Sealing the first `set` pool made that live -- a
+            # night on `iltur-lsi-dev` would have crashed here on its first candidate. Asked of the pool's
+            # DECLARED kind, not of the observed values, so a fractional pool whose items happened to score
+            # 0/1 cannot be mistaken for a binary one.
+            "discordance": (
+                asdict(discordance(incumbent_scores, cscores))
+                if is_binary(ctx.answer_kind)
+                else None
+            ),
+            "discordance_note": (
+                None
+                if is_binary(ctx.answer_kind)
+                else "omitted: an exact binomial McNemar test is not defined on a fractional per-item score; "
+                "read the paired bootstrap interval instead (ADR-0038)"
+            ),
             "stats": {
                 "boundary": br.decision,
                 "e_value": br.e_value,

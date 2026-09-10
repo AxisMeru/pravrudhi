@@ -165,3 +165,54 @@ def test_the_live_pool_carries_no_item_the_model_cannot_be_asked() -> None:
     assert max(lens) <= CASEHOLD_MAX_QUESTION_CHARS
     src = load_manifest(pool)["source"]
     assert src["n_dropped_too_long"] == 23, "the 23 outliers in CaseHOLD val, recorded rather than assumed"
+
+
+def test_the_first_set_pool_would_have_crashed_the_night_it_ran_on(tmp_path: Path) -> None:
+    """Sealing `iltur-lsi-dev` made ADR-0038's "remaining work" live. McNemar is defined on binary paired
+    outcomes -- there is no "win" to count when an item goes from 0.667 to 0.750 -- so `discordance` refuses a
+    fractional score rather than computing a statistic that does not apply. The harness night called it
+    unconditionally, so the first candidate of the first `set` night would have raised."""
+    from pravrudhi.application.discordance import discordance
+    from pravrudhi_kernel.metrics import is_binary
+
+    assert not is_binary("set")
+    assert is_binary("choice") and is_binary("numeric") and is_binary("text")
+    # The refusal is real, which is why the call site has to ask first.
+    with pytest.raises(ValueError, match="not a binary outcome"):
+        discordance({"a": 1.0}, {"a": 0.667})
+
+
+def test_a_config_that_disagrees_with_its_pools_sealed_kind_is_refused(tmp_path: Path) -> None:
+    """The scorer dispatches on the manifest, so a config declaring a different kind describes a night that is
+    not being run -- the same disagreement-between-frozen-inputs defect as a floor measured on another bench."""
+    from pravrudhi.application.harness_track import HarnessContext
+
+    src = _csv(tmp_path / "casehold-val.csv")
+    seal_casehold(tmp_path, src, "casehold-kindcheck")
+    prereg = tmp_path / "research" / "prereg"
+    prereg.mkdir(parents=True, exist_ok=True)
+    (prereg / "v.json").write_text(json.dumps({"bench": "casehold-kindcheck", "sigma_seed": 0.01}))
+    cfg = {
+        "model": "Qwen/Qwen3-1.7B", "bench": "casehold-kindcheck",
+        "noise_floor": "research/prereg/v.json", "answer_kind": "set",  # the pool is `choice`
+        "boundary": {"alpha_eff": 0.05, "alpha_fut": 0.2, "k_max": 4, "sigma_mode": "adaptive",
+                     "n0": 3, "delta_min_floor": 0.034, "min_n_confirm": 2},
+    }
+    with pytest.raises(ValueError, match="was sealed with answer_kind 'choice'"):
+        HarnessContext(tmp_path, cfg, 1, lambda _: None, measuring=True)
+
+
+def test_the_live_lsi_pool_is_a_set_pool_scored_in_process() -> None:
+    pool = Path(".pravrudhi/kernel/pools/iltur-lsi-dev")
+    if not pool.exists():
+        pytest.skip("iltur-lsi-dev is not sealed in this workspace")
+    from pravrudhi.application.pool_admin import LSI_MAX_CASE_CHARS
+
+    assert answer_kind(pool) == "set"
+    assert kernel_scored(pool) is True
+    src = load_manifest(pool)["source"]
+    # Truncated, not filtered: every case is kept, so the pool is not selected on length.
+    assert src["n_rows"] == 10181
+    assert src["n_truncated"] == 3784
+    assert src["max_case_chars"] == LSI_MAX_CASE_CHARS
+    assert src["held_out_for_external_proof"] == ["test"]
