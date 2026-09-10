@@ -51,6 +51,7 @@ def noise_floor(
     batch_size: int,
     night: int,
     gpu_cost_per_hour: float = 1.0,
+    out: Path | None = None,
     log: Any = print,
 ) -> dict[str, Any]:
     state = ensure_kernel_state(root, docker_available=docker_available())
@@ -215,7 +216,11 @@ def noise_floor(
         "runs": rows,
         "labels": "model-measured; screen tier; single model; unmodified trainee (A/A); isolation container",
     }
-    dest = root / "research" / "prereg" / "variance.json"
+    # One file per track, not one file per machine: `night.py` reads `variance.json` as the model track's floor
+    # and the harness track already keeps its own `variance_harness.json`. A study on a different objective's
+    # pool writing to the shared name would re-point every later gsm8k night's boundary at a legal-domain
+    # sigma, which is the failure ADR-0025 records in the archiving branch just below.
+    dest = out if out is not None else root / "research" / "prereg" / "variance.json"
     # A study on a new pool or trainee must not erase the one it replaces. Every noise floor is the parameter that
     # a night's boundary was set from, so an overwritten file makes that night's evidence unreproducible: this was
     # found when an evidence document for an earlier pool silently began quoting a later pool's sigma (ADR-0025).

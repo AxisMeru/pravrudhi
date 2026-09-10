@@ -25,6 +25,18 @@ APPS_SOLVE_INSTRUCTION = (
     "and returns the exact output."
 )
 
+# ADR-REF: ADR-0035. The product objective's proxy, sealed as the loop's selection instrument.
+MMLU_REPO = "cais/mmlu"
+MMLU_ORIGIN = "https://huggingface.co/datasets/cais/mmlu (MIT)"
+MMLU_LAW_SUBJECTS = ("jurisprudence", "professional_law")
+# The test splits are what lm-eval scores on the external proof tier, and the operator's delegation makes the
+# external number the proof of improvement while the internal pool is the selection instrument only. A pool
+# containing the proof items would let selection show up inside its own proof, so only validation and dev are
+# sealed. The price is a small pool (191 real items), which the noise-floor study measures rather than assumes.
+MMLU_INTERNAL_SPLITS = ("validation", "dev")
+MMLU_EXTERNAL_SPLITS = ("test",)
+MMLU_LETTERS = "ABCDEFGHIJ"
+
 
 def seal_gsm8k(root: Path, parquet: Path, bench: str = "gsm8k-test", offset: int = 0, count: int | None = None) -> dict[str, Any]:
     import pyarrow.parquet as pq
@@ -66,6 +78,85 @@ def seal_mbpp_plus(root: Path, cache: Path, bench: str = "mbppplus") -> dict[str
         "origin": "EvalPlus MBPP+ v0.2.0 (Apache-2.0), exported from the evalplus package",
     }
     return seal_pool(Path(state.pools_dir) / bench, bench, rows, src)
+
+
+def _choice_question(question: str, options: Sequence[str]) -> str:
+    """The item as the model sees it: the question, then the options under their letters.
+
+    The instruction to answer with a letter lives in the harness template, not here, exactly as the GSM8K
+    pool holds the bare problem and `gsm8k_v1.md` asks for "Final answer: <number>". A pool holds data; how
+    the data is asked is the harness's, and it is hashed separately."""
+    if not 1 < len(options) <= len(MMLU_LETTERS):
+        raise ValueError(f"an item needs 2 to {len(MMLU_LETTERS)} options, got {len(options)}")
+    lines = [f"{MMLU_LETTERS[i]}. {str(opt).strip()}" for i, opt in enumerate(options)]
+    return question.strip() + "\n\n" + "\n".join(lines) + "\n"
+
+
+def _mmlu_parquet(cache: Path, subject: str, split: str) -> Path:
+    """The cached parquet for one MMLU subject and split.
+
+    The hub layout is `hub/datasets--cais--mmlu/snapshots/<rev>/<subject>/<split>-*.parquet`. The revision is
+    globbed rather than pinned because the cache directory is the record of what was fetched; the manifest
+    pins the file by sha256, which is the thing that has to be reproducible."""
+    matches = sorted(cache.glob(f"hub/datasets--cais--mmlu/snapshots/*/{subject}/{split}-*.parquet"))
+    if not matches:
+        raise FileNotFoundError(
+            f"no cached {MMLU_REPO} parquet for {subject}/{split} under {cache}; fetch it once with "
+            f"`huggingface-cli download {MMLU_REPO} --repo-type dataset --include '{subject}/*'` "
+            f"(HF_HOME={cache}) and seal from the file on disk"
+        )
+    return matches[-1]
+
+
+def seal_mmlu(
+    root: Path,
+    cache: Path,
+    bench: str = "mmlu-law-val",
+    *,
+    subjects: Sequence[str] = MMLU_LAW_SUBJECTS,
+    splits: Sequence[str] = MMLU_INTERNAL_SPLITS,
+) -> dict[str, Any]:
+    """Seal a law slice of MMLU as the first internal multiple-choice pool (ADR-0035).
+
+    Question = the stem with its options under letters; answer = the option letter. The manifest declares
+    `answer_kind: choice`, which is what makes the pool scoreable at all: before ADR-0035 the kernel had one
+    scorer and `gold_answer("A")` raised.
+    """
+    import pyarrow.parquet as pq
+
+    rows: list[dict[str, Any]] = []
+    files: list[dict[str, Any]] = []
+    for subject in sorted(subjects):
+        for split in splits:
+            src_file = _mmlu_parquet(Path(cache), subject, split)
+            table = pq.read_table(src_file).to_pylist()
+            files.append(
+                {
+                    "subject": subject,
+                    "split": split,
+                    "file": src_file.name,
+                    "sha256": hashlib.sha256(src_file.read_bytes()).hexdigest(),
+                    "n_rows": len(table),
+                }
+            )
+            for r in table:
+                options = list(r["choices"])
+                rows.append(
+                    {
+                        "question": _choice_question(str(r["question"]), options),
+                        "answer": MMLU_LETTERS[int(r["answer"])],
+                    }
+                )
+    state = ensure_kernel_state(root, docker_available=docker_available())
+    src = {
+        "origin": MMLU_ORIGIN,
+        "subjects": sorted(subjects),
+        "splits": list(splits),
+        "files": files,
+        "n_rows": len(rows),
+        "held_out_for_external_proof": list(MMLU_EXTERNAL_SPLITS),
+    }
+    return seal_pool(Path(state.pools_dir) / bench, bench, rows, src, answer_kind="choice")
 
 
 def fetch_apps(dest: Path, split: str = "test") -> Path:

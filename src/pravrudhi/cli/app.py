@@ -127,6 +127,8 @@ pool_app = typer.Typer(help="Seal benchmark pools into the kernel state director
 app.add_typer(study_app, name="study")
 app.add_typer(pool_app, name="pool")
 MODEL_OPT = typer.Option("Qwen/Qwen3-4B", "--model")
+# A track whose floor must not share the model track's file (see noise_floor's dest comment).
+NF_OUT_OPT: Path | None = typer.Option(None, "--out", help="Where to write the floor; default research/prereg/variance.json.")
 POOL_OPT = typer.Option("gsm8k-test", "--bench")
 TEMPLATE_OPT = typer.Option(Path("harness/prompts/eval/gsm8k_v1.md"), "--template")
 
@@ -158,6 +160,26 @@ def pool_seal_apps(
 
     m = seal_apps(root, source, bench, count=count, seed=seed)
     typer.echo(json.dumps({k: v for k, v in m.items() if not isinstance(v, (list, dict))}, indent=2, sort_keys=True))
+
+
+@pool_app.command("seal-mmlu")
+def pool_seal_mmlu(
+    bench: str = typer.Option("mmlu-law-val", "--bench"),
+    cache: Path = CACHE_OPT,
+    root: Path = ROOT_OPT,
+) -> None:
+    """Seal a law slice of MMLU as the product objective's internal choice pool (ADR-0035).
+
+    Validation and dev splits only: the test splits are what the external proof tier scores, and the loop must
+    not select on the items its own proof is measured against.
+    """
+    from pravrudhi.application.pool_admin import seal_mmlu
+
+    m = seal_mmlu(root, cache, bench)
+    typer.echo(
+        f"sealed {m['bench']}: {m['n_items']} items, answer_kind {m['answer_kind']}, "
+        f"pool_version {m['pool_version'][:16]}"
+    )
 
 
 @pool_app.command("seal-mbppplus")
@@ -216,9 +238,10 @@ def study_noise_floor(
     max_new_tokens: int = typer.Option(512, "--max-new-tokens"),
     batch_size: int = typer.Option(16, "--batch-size"),
     night: int = typer.Option(0, "--night"),
+    out: Path | None = NF_OUT_OPT,
 ) -> None:
     """R rotations x S seeds of the unmodified trainee, each a real kernel-scored observe row; writes
-    variance.json."""
+    variance.json, or --out for a track that must not share the model track's floor."""
     from pravrudhi.application.noise_floor import noise_floor
 
     var = noise_floor(
@@ -234,6 +257,7 @@ def study_noise_floor(
         max_new_tokens=max_new_tokens,
         batch_size=batch_size,
         night=night,
+        out=out,
         log=typer.echo,
     )
     typer.echo(
