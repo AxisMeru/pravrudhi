@@ -1,3 +1,4 @@
+import contextlib
 import json
 from pathlib import Path
 from typing import Any
@@ -1035,6 +1036,47 @@ def routing_cmd(root: Path = ROOT_OPT, as_json: bool = typer.Option(False, "--js
             if rec["trials"]:
                 typer.echo(f"      {rec['route_id']:12s} {rec['successes']}/{rec['trials']} accepted "
                            f"[{rec['lo']:.2f}, {rec['hi']:.2f}]  mean {rec['mean_wall_s']:.0f}s")
+    _echo_spend(root)
+
+
+def _echo_spend(root: Path, window_days: int = 7) -> None:
+    """What the last week actually cost, per route, beside the routing it produced.
+
+    Printed here rather than behind its own command because the number was reachable only by grepping
+    `.pravrudhi/routing.jsonl`, and a spend figure nobody looks at is not a control. `over_budget` has existed
+    the whole time and can only bite a route that declares an allowance, so routes without one are shown
+    spending against a dash rather than silently omitted.
+
+    Coverage is printed FIRST and deliberately: a spend total is only as true as the fraction of dispatches
+    that reported anything, and reading the total without it is how an under-reporting seat looks cheap.
+    """
+    from pravrudhi.application import routing as routing_mod
+
+    try:
+        totals = routing_mod.spend(root, window_days=window_days)
+        cover = routing_mod.cost_coverage(root)
+    except Exception as exc:  # noqa: BLE001 - a reporting line must never break the command it decorates
+        typer.echo(f"\nspend: unavailable ({exc})")
+        return
+    total, measured = int(cover.get("total") or 0), int(cover.get("measured") or 0)
+    typer.echo(f"\nspend, last {window_days} days")
+    typer.echo(f"  measured {measured}/{total} dispatches ({100 * measured // max(total, 1)}%) "
+               f"-- an unmeasured dispatch is not a free one")
+    if not totals:
+        typer.echo("  nothing recorded in the window")
+        return
+    table = None
+    with contextlib.suppress(Exception):
+        # No argument: `load_table` takes the path to routing.yaml, not the repository root. Passing `root`
+        # loaded no routes, so every seat printed "no declared allowance" while the Lite Plan's 45M and 12M
+        # sat in the config -- the spend view's first act was to misreport the control it exists to surface.
+        table = routing_mod.load_table()
+    for route_id, spent in sorted(totals.items(), key=lambda kv: -kv[1]):
+        cap = None
+        if table is not None:
+            cap = getattr(getattr(table, "routes", {}).get(route_id, None), "token_budget", 0) or None
+        share = f"{100 * spent // cap}% of {cap:,}" if cap else "no declared allowance"
+        typer.echo(f"  {route_id:16s} {spent:>12,} tokens   {share}")
 
 
 @app.command("tools")

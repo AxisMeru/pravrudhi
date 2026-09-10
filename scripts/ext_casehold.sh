@@ -20,8 +20,12 @@
 # reply commits to no letter; lm-eval has no equivalent, so an unparsed reply is scored wrong here. Conservative
 # is the safe direction for a claim. `n_samples > 1` is REFUSED rather than approximated.
 set -euo pipefail
-MODEL="$1"; HARNESS="$2"; OUT="$3"; LIMIT="${4:-}"
+MODEL="$1"; HARNESS="$2"; LIMIT="${4:-}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# Absolute, because every -v below is a docker bind mount and docker reads a relative path as a NAMED
+# VOLUME, not a directory: both arms of the first real run died with "includes invalid characters for a
+# local volume name".
+mkdir -p "$3"; OUT="$(cd "$3" && pwd)"
 HFH="${HF_HOME:-$HOME/.cache/huggingface}"
 
 if [[ ! -f "$HARNESS" ]]; then
@@ -62,9 +66,10 @@ rm -f "$OUT"/results_*.json "$OUT/results.json"
 docker run --rm --gpus all --user "$(id -u):$(id -g)" \
   -v "$HFH:/models:ro" -v "$CACHE:/cache:rw" -v "$TASKS:/tasks:ro" -v "$OUT:/out:rw" \
   -e HF_HOME=/cache -e HF_DATASETS_CACHE=/cache/datasets -e HF_HUB_OFFLINE=1 -e TRANSFORMERS_OFFLINE=1 \
+  -e PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
   pravrudhi/ext-scorers:latest lm_eval --model hf \
     --model_args "pretrained=$REL,dtype=bfloat16,trust_remote_code=False" \
-    --tasks casehold_harness --batch_size 16 --output_path /out --log_samples \
+    --tasks casehold_harness --batch_size "${BATCH:-4}" --output_path /out --log_samples \
     --include_path /tasks "${LIM_ARG[@]}" 2>&1 | grep -vE "Warning|warn" | tail -25
 
 f="$(find "$OUT" -name 'results_*.json' | sort | tail -1)"

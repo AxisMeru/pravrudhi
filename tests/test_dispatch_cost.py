@@ -157,3 +157,58 @@ class TestCoverageDoesNotFlatterItselfOnLegacyRows:
         assert cover["measured"] == 3, "a recorded zero is a measurement under the new encoding"
         assert cover["measured_nonzero"] == 1, "and only one row actually carries a cost"
         assert cover["share_measured_nonzero"] == 0.25
+
+
+class TestOpenCodeUsageIsUnmeasuredWhenAbsent:
+    """The same invariant this file already enforces for `claude`, now for the OpenCode seat.
+
+    Measured in `.pravrudhi/routing.jsonl` on 2026-09-10: every `qwen-lite-max` outcome carries `tokens: 0`
+    while the two `sonnet` outcomes beside them carry 660,860 and 1,612,380. Zero is this codebase's word for
+    "the seat says it was free", and an Alibaba dispatch is not free -- so the seat the operator wants as the
+    bulk tier is the one reporting a number that reads as no spend at all.
+
+    The cause is `sum(step_tokens.values())` over an empty dict, which is 0. It is the surviving sibling of the
+    `max()`-versus-`sum()` defect recorded in the comment above it, which under-read a measured 8,679,807-token
+    session as 170,830 and let a weekly plan empty in a day without the budget ever tripping. That one made the
+    meter read 1/500th of the spend; this one makes it read none of it.
+    """
+
+    def test_a_stream_with_no_usage_parts_is_unmeasured_not_free(self) -> None:
+        from pravrudhi.agents.alibaba_agent import usage_from_events
+
+        stream = "\n".join(
+            json.dumps(e)
+            for e in ({"sessionID": "s1"}, {"type": "step_finish", "part": {"reason": "stop"}})
+        )
+        assert usage_from_events(stream) is None
+
+    def test_usage_parts_are_summed_across_steps(self) -> None:
+        """Summed, not maxed: OpenCode reports each step's own total, and the bill is their sum."""
+        from pravrudhi.agents.alibaba_agent import usage_from_events
+
+        stream = "\n".join(
+            json.dumps({"part": {"id": pid, "tokens": {"total": n}}})
+            for pid, n in (("p1", 1000), ("p2", 2500), ("p3", 400))
+        )
+        assert usage_from_events(stream) == 3900
+
+    def test_a_re_emitted_step_is_not_counted_twice(self) -> None:
+        from pravrudhi.agents.alibaba_agent import usage_from_events
+
+        stream = "\n".join(
+            json.dumps({"part": {"id": pid, "tokens": {"total": n}}})
+            for pid, n in (("p1", 1000), ("p1", 1000), ("p2", 500))
+        )
+        assert usage_from_events(stream) == 1500
+
+    def test_a_genuine_zero_survives(self) -> None:
+        """A step that really reported zero is a measured zero and must not become `None`: the distinction
+        runs both ways, and collapsing it in either direction is the defect."""
+        from pravrudhi.agents.alibaba_agent import usage_from_events
+
+        assert usage_from_events(json.dumps({"part": {"id": "p1", "tokens": {"total": 0}}})) == 0
+
+    def test_unparseable_output_is_unmeasured(self) -> None:
+        from pravrudhi.agents.alibaba_agent import usage_from_events
+
+        assert usage_from_events("not json at all\n{broken") is None
