@@ -1,6 +1,6 @@
 import pytest
 
-from pravrudhi_kernel.metrics import extract_prediction, gold_answer, score_completions, score_item
+from pravrudhi_kernel.metrics.gsm8k import extract_prediction, gold_answer, score_completions, score_item
 
 
 @pytest.mark.parametrize(

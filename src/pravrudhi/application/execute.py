@@ -15,7 +15,8 @@ from pravrudhi.application.discordance import discordance
 from pravrudhi.application.spine import IMAGE, expected_hashes, run_eval_job, score_job, write_job_inputs
 from pravrudhi.targets import LoraRecipe
 from pravrudhi_kernel.ledger import LedgerWriter, replay
-from pravrudhi_kernel.metrics import draw_rotation, gold_answer, record_exposure, score_completions
+from pravrudhi_kernel.metrics import draw_rotation, record_exposure
+from pravrudhi_kernel.metrics.gsm8k import gold_answer, score_completions
 from pravrudhi_kernel.sandbox import JobSpec, KernelState, admit_observation, run_job
 from pravrudhi_kernel.sandbox.observe import model_dir_hash
 from pravrudhi_kernel.sandbox.state import read_secret

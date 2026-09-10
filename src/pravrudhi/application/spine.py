@@ -8,13 +8,12 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from pravrudhi_kernel.metrics import Rotation, score_completions
+from pravrudhi_kernel.metrics import Rotation, scorer_for_pool, scorer_source_for_pool, unparsed
 from pravrudhi_kernel.metrics.pool import read_item
 from pravrudhi_kernel.sandbox import JobResult, JobSpec, KernelState, kernel_hashes, run_job
 from pravrudhi_kernel.sandbox.observe import KernelHashes
 
 IMAGE = "pravrudhi/exec-5090:latest"
-SCORER_SOURCE = Path(__file__).resolve().parents[3] / "pravrudhi_kernel" / "src" / "pravrudhi_kernel" / "metrics" / "gsm8k.py"
 
 
 def resolve_model_snapshot(repo_id: str, hf_home: Path | None = None) -> Path:
@@ -97,19 +96,29 @@ def run_eval_job(
 
 
 def score_job(job_dir: Path, pool_dir: Path, rot: Rotation) -> tuple[dict[str, int], Path]:
-    from pravrudhi_kernel.metrics import gold_answer
-
+    """Score a finished job with the scorer this pool declares (ADR-0035), never with a scorer chosen here."""
+    scorer = scorer_for_pool(pool_dir)
     comps: dict[str, str] = {}
     for line in (job_dir / "out" / "completions.jsonl").read_text().splitlines():
         if line.strip():
             r = json.loads(line)
             comps[r["id"]] = r["completion"]
-    golds = {i: gold_answer(read_item(pool_dir, i)["answer"]) for i in rot.item_ids}
-    scores = score_completions(comps, golds)
+    golds = {i: scorer.gold_answer(read_item(pool_dir, i)["answer"]) for i in rot.item_ids}
+    scores = scorer.score_completions(comps, golds)
     ref = job_dir / "out" / "per_item_scores.jsonl"
     ref.write_text("".join(json.dumps({"id": i, "score": s}) + "\n" for i, s in sorted(scores.items())))
+    # A completion that commits to no answer scores 0, exactly like a wrong one. Written beside the scores
+    # rather than mixed into them, so a pass rate depressed by format misses can be told from one depressed by
+    # the model being wrong, without changing the file every existing reader parses.
+    misses = unparsed(scorer, comps)
+    if misses:
+        (job_dir / "out" / "unparsed.json").write_text(json.dumps({"n": len(misses), "ids": misses}, indent=2) + "\n")
     return scores, ref
 
 
 def expected_hashes(job_dir: Path, pool_dir: Path, harness_dir: Path, model_snapshot: Path) -> KernelHashes:
-    return kernel_hashes(job_dir / "in" / "items.jsonl", pool_dir / "manifest.json", SCORER_SOURCE, harness_dir, model_snapshot)
+    """Hashes an observation commits to. The scorer is resolved from the pool, not fixed here: this constant
+    named `gsm8k.py` unconditionally, which was true while one scorer existed and would have become a lie on
+    the first choice-pool night — an observation naming a file that did not score it."""
+    scorer_source = scorer_source_for_pool(pool_dir)
+    return kernel_hashes(job_dir / "in" / "items.jsonl", pool_dir / "manifest.json", scorer_source, harness_dir, model_snapshot)

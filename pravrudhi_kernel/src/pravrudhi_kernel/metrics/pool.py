@@ -1,7 +1,7 @@
 """Sealed held-out pool with HMAC rotation draws and an exposure cap (06-evaluation-and-statistics.md §2).
 
 Layout (kernel-owned, mode 0700):
-  <pool_dir>/manifest.json   {bench, pool_version, n_items, item_hashes, source}
+  <pool_dir>/manifest.json   {bench, pool_version, n_items, item_hashes, source, answer_kind}
   <pool_dir>/items/<id>.json {id, question, answer}          mode 0600 — the agent never lists this directory
   <pool_dir>/exposure.json   {item_id: [rotation_id, ...]}
 """
@@ -18,6 +18,12 @@ from typing import Any
 
 from pravrudhi_kernel.ledger.jcs import canonicalize
 from pravrudhi_kernel.schema.common import KernelModel
+
+# How a pool's answers are read, and therefore which scorer may score it (ADR-0035). Sorted, because
+# `metrics/__init__` asserts this tuple equals its scorer table: a kind with no scorer seals pools nothing can
+# score, and a scorer with no kind is unreachable.
+ANSWER_KINDS: tuple[str, ...] = ("choice", "numeric")
+DEFAULT_ANSWER_KIND = "numeric"
 
 
 class PoolExhausted(RuntimeError):
@@ -37,9 +43,18 @@ def _sha(b: bytes) -> str:
     return hashlib.sha256(b).hexdigest()
 
 
-def seal_pool(pool_dir: Path, bench: str, rows: Iterable[Mapping[str, Any]], source: Mapping[str, Any]) -> dict[str, Any]:
+def seal_pool(
+    pool_dir: Path,
+    bench: str,
+    rows: Iterable[Mapping[str, Any]],
+    source: Mapping[str, Any],
+    *,
+    answer_kind: str = DEFAULT_ANSWER_KIND,
+) -> dict[str, Any]:
     """Write the pool once. Returns the manifest. Refuses to overwrite an existing manifest."""
     pool_dir = Path(pool_dir)
+    if answer_kind not in ANSWER_KINDS:
+        raise ValueError(f"unknown answer kind {answer_kind!r}; known kinds are {', '.join(ANSWER_KINDS)}")
     manifest_path = pool_dir / "manifest.json"
     if manifest_path.exists():
         raise FileExistsError(f"pool already sealed at {manifest_path}; refresh is an epoch-boundary act")
@@ -55,7 +70,15 @@ def seal_pool(pool_dir: Path, bench: str, rows: Iterable[Mapping[str, Any]], sou
         p.write_bytes(blob)
         os.chmod(p, 0o600)
         hashes[item["id"]] = _sha(blob)
-    body = {"bench": bench, "n_items": len(hashes), "item_hashes": hashes, "source": dict(source)}
+    # `answer_kind` goes into the body before the version is computed, so the version commits to how the
+    # items are read and not only to what they say: the same rows scored two ways are two different pools.
+    body = {
+        "bench": bench,
+        "n_items": len(hashes),
+        "item_hashes": hashes,
+        "source": dict(source),
+        "answer_kind": answer_kind,
+    }
     body["pool_version"] = _sha(canonicalize(body).encode("utf-8"))
     manifest_path.write_text(json.dumps(body, indent=2, sort_keys=True) + "\n")
     os.chmod(manifest_path, 0o600)
@@ -66,6 +89,16 @@ def seal_pool(pool_dir: Path, bench: str, rows: Iterable[Mapping[str, Any]], sou
 def load_manifest(pool_dir: Path) -> dict[str, Any]:
     m: dict[str, Any] = json.loads((Path(pool_dir) / "manifest.json").read_text())
     return m
+
+
+def answer_kind(pool_dir: Path) -> str:
+    """The declared answer kind, defaulting to numeric when the key is absent.
+
+    Absent means sealed before ADR-0035, when the engine had one scorer and it was numeric. The default is
+    therefore the regression guarantee, not a guess: every pool this project has ever sealed resolves to the
+    same scorer it was actually scored by.
+    """
+    return str(load_manifest(pool_dir).get("answer_kind") or DEFAULT_ANSWER_KIND)
 
 
 def manifest_hash(pool_dir: Path) -> str:
