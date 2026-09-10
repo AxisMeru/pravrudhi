@@ -488,6 +488,12 @@ panel_app = typer.Typer(help="Ask many vendors the same thing and record every a
 PANEL_PROMPTS_ARG = typer.Argument(..., help="JSONL with an `id` and a `prompt` per line.")
 PANEL_VENDOR_OPT: list[str] = typer.Option([], "--vendor", help="Repeatable. Default: every reachable vendor.")
 PANEL_OUT_OPT = typer.Option(Path("research/panel"), "--out")
+PANEL_CONFIG_OPT: Path | None = typer.Option(
+    None, "--panel-config", help="Per-vendor parameters; default configs/panel.yaml when it exists."
+)
+PANEL_PARAM_OPT: list[str] = typer.Option(
+    [], "--param", help="Repeatable tuning override, `vendor:key=value` (e.g. codex-cli:temperature=0.7)."
+)
 app.add_typer(panel_app, name="panel")
 
 
@@ -513,17 +519,22 @@ def panel_run_cmd(
     prompts: Path = PANEL_PROMPTS_ARG,
     vendor: list[str] = PANEL_VENDOR_OPT,
     out: Path = PANEL_OUT_OPT,
+    panel_config: Path | None = PANEL_CONFIG_OPT,
+    param: list[str] = PANEL_PARAM_OPT,
 ) -> None:
     """Ask every named vendor every prompt. A vendor that cannot answer is recorded as a gap.
 
     Never substituted: `swarm` falls back to a working seat because its job is to get work done, and doing
     that here would attribute one vendor's answer to another, which in a comparison reads as a result.
+
+    Parameters come from `configs/panel.yaml` and then from `--param`, and whichever ran is what the run's own
+    manifest records -- the same vendor at a different temperature is a different measurement.
     """
-    from pravrudhi.application.panel import VENDORS, load_vendors, run_panel
+    from pravrudhi.application.panel import PANEL_CONFIG, VENDORS, load_vendors, run_panel, tuned
 
     rows = [json.loads(line) for line in prompts.read_text().splitlines() if line.strip()]
     ids = list(vendor) if vendor else [v for v in sorted(VENDORS) if VENDORS[v].reachable[0]]
-    vendors = load_vendors(ids)
+    vendors = tuned(load_vendors(ids), config=panel_config or PANEL_CONFIG, overrides=param)
     typer.echo(f"asking {len(vendors)} vendor(s) {len(rows)} prompt(s): {', '.join(v.id for v in vendors)}")
     answers = run_panel(out, rows, vendors)
     gaps = [a for a in answers if a.error]

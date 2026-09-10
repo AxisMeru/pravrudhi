@@ -23,7 +23,9 @@ from pravrudhi.application.panel import (
     Vendor,
     load_vendors,
     panel_manifest,
+    parse_override,
     run_panel,
+    tuned,
 )
 
 
@@ -115,3 +117,50 @@ def test_byok_reads_the_key_from_the_environment_and_never_from_config() -> None
         blob = json.dumps(panel_manifest(PROMPTS, [v])).lower()
         assert "sk-" not in blob and "api_key=" not in blob
         assert "bearer" not in blob
+
+
+def test_answers_stream_as_they_arrive_and_the_manifest_is_written_first(tmp_path: Path) -> None:
+    """A run of 240 CLI calls held its only copy in memory for the best part of an hour: nothing to watch
+    while it ran, and nothing left if it died on the last vendor."""
+    seen: list[int] = []
+    prompts = [{"id": f"p{i}", "prompt": "hi"} for i in range(4)]
+    dest = tmp_path / "panel" / "answers.jsonl"
+
+    def ask(vendor: Vendor, prompt: str) -> Answer:
+        # Count the rows already on disk at the moment each answer is produced.
+        seen.append(len(dest.read_text().splitlines()) if dest.exists() else 0)
+        return Answer(vendor.id, vendor.interface, vendor.model, "", "ok", 0.1, None, None)
+
+    run_panel(tmp_path, prompts, load_vendors(["claude-cli"]), ask=ask)
+    assert seen == [0, 1, 2, 3], "each answer should be on disk before the next is asked"
+    assert (tmp_path / "panel" / "manifest.json").exists()
+
+
+def test_parameters_layer_config_then_explicit_and_a_typo_is_refused(tmp_path: Path) -> None:
+    """Refused rather than ignored: a typo in a tuning flag that silently does nothing produces a run
+    labelled with parameters it did not use."""
+    cfg = tmp_path / "panel.yaml"
+    cfg.write_text("vendors:\n  claude-cli: {temperature: 0.3, max_tokens: 99}\n")
+    vs = load_vendors(["claude-cli", "codex-cli"])
+
+    got = {v.id: v.params for v in tuned(vs, config=cfg, overrides=["claude-cli:temperature=0.9"])}
+    assert got["claude-cli"]["temperature"] == 0.9   # explicit beats config
+    assert got["claude-cli"]["max_tokens"] == 99     # config beats the registry
+    assert got["codex-cli"] == dict(VENDORS["codex-cli"].params), "untouched vendors keep their defaults"
+    # The registry itself is not mutated: a frozen vendor means the defaults stay the defaults.
+    assert VENDORS["claude-cli"].params["temperature"] == 0.0
+
+    with pytest.raises(KeyError, match="not in this panel"):
+        tuned(vs, overrides=["clude-cli:temperature=0.9"])
+    with pytest.raises(ValueError, match="vendor:key=value"):
+        parse_override("temperature=0.9")
+
+
+def test_an_override_value_is_typed_by_what_it_looks_like() -> None:
+    """Left as a string, `temperature="0.2"` reaches an HTTP body as a string and some endpoints accept it,
+    coerce it, and answer -- so the run succeeds and the manifest records a parameter nobody set to that."""
+    assert parse_override("v:temperature=0.2") == ("v", "temperature", 0.2)
+    assert parse_override("v:seed=7") == ("v", "seed", 7)
+    assert parse_override("v:thinking=TRUE") == ("v", "thinking", True)
+    assert parse_override("v:seed=none") == ("v", "seed", None)
+    assert parse_override("v:model=gpt-5") == ("v", "model", "gpt-5")

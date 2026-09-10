@@ -1,0 +1,17 @@
+# Per-vendor parameters for `pravrudhi panel run` and `panel sweep`. The registry in
+# `src/pravrudhi/application/panel.py` holds the defaults; anything here replaces them, and `--param
+# vendor:key=value` replaces both. Whatever ran is what the run's own manifest.json records.
+#
+# `temperature` is pinned on every vendor on purpose. An unpinned sampler makes a comparison unrepeatable,
+# and a vendor comparison whose numbers cannot be reproduced is an anecdote.
+vendors:
+  claude-cli: {temperature: 0.0, max_tokens: 2048, timeout_s: 900}
+  codex-cli: {temperature: 0.0, max_tokens: 2048, timeout_s: 900}
+  qwen-dashscope: {temperature: 0.0, max_tokens: 2048, top_p: 1.0, seed: 0}
+  # Declared before any key exists, on the operator's instruction, so that nothing is designed under time
+  # pressure when one lands. Reasoning-effort style knobs are deliberately absent: they are vendor-specific
+  # and go in as each API is first reached, with the run that shows what they changed.
+  anthropic-api: {temperature: 0.0, max_tokens: 2048, top_p: 1.0}
+  openai-api: {temperature: 0.0, max_tokens: 2048, top_p: 1.0, seed: 0}
+  google-api: {temperature: 0.0, max_tokens: 2048, top_p: 1.0}
+  glm-local: {temperature: 0.0, max_tokens: 2048, seed: 0}

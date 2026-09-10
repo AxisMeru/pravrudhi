@@ -165,6 +165,68 @@ VENDORS: dict[str, Vendor] = {
 }
 
 
+#: Where per-vendor parameters live when they are not the registry's defaults. Config-driven because the
+#: house rule puts constants in `configs/`, and because "the same vendor at a different temperature is a
+#: different measurement" is only checkable if the setting is a file someone can read.
+PANEL_CONFIG = Path("configs") / "panel.yaml"
+
+
+def parse_override(text: str) -> tuple[str, str, Any]:
+    """`vendor:key=value` -> (vendor, key, value), with the value typed by what it looks like.
+
+    Typed rather than left as a string because `temperature="0.2"` reaches an HTTP body as a string and some
+    endpoints accept it, coerce it, and answer -- so the run succeeds and the manifest records a parameter
+    nobody set to that.
+    """
+    vendor, sep, rest = text.partition(":")
+    key, eq, value = rest.partition("=")
+    if not (sep and eq and vendor.strip() and key.strip()):
+        raise ValueError(f"expected vendor:key=value, got {text!r}")
+    raw = value.strip()
+    typed: Any = raw
+    if raw.lower() in ("true", "false"):
+        typed = raw.lower() == "true"
+    elif raw.lower() in ("none", "null"):
+        typed = None
+    else:
+        for cast in (int, float):
+            try:
+                typed = cast(raw)
+                break
+            except ValueError:
+                continue
+    return vendor.strip(), key.strip(), typed
+
+
+def tuned(
+    vendors: Sequence[Vendor], *, config: Path | None = None, overrides: Iterable[str] = ()
+) -> list[Vendor]:
+    """The same vendors with their parameters replaced, config first and explicit overrides last.
+
+    A vendor is frozen, so this returns new ones: the registry's defaults stay the defaults, and what ran is
+    whatever `panel_manifest` recorded.
+    """
+    from dataclasses import replace
+
+    layered: dict[str, dict[str, Any]] = {}
+    path = Path(config) if config else None
+    if path and path.exists():
+        import yaml
+
+        body = yaml.safe_load(path.read_text()) or {}
+        for vid, params in (body.get("vendors") or {}).items():
+            layered.setdefault(str(vid), {}).update(dict(params or {}))
+    known = {v.id for v in vendors}
+    for text in overrides:
+        vid, key, value = parse_override(text)
+        if vid not in known:
+            # Refused rather than ignored: a typo in a tuning flag that silently does nothing produces a run
+            # labelled with parameters it did not use.
+            raise KeyError(f"--param names vendor {vid!r}, which is not in this panel: {', '.join(sorted(known))}")
+        layered.setdefault(vid, {})[key] = value
+    return [replace(v, params={**v.params, **layered.get(v.id, {})}) for v in vendors]
+
+
 def load_vendors(ids: Iterable[str]) -> list[Vendor]:
     """The named vendors, refusing an unknown id.
 
@@ -250,24 +312,24 @@ def run_panel(
     ask = ask or ask_vendor
     dest = Path(out_dir) / "panel"
     dest.mkdir(parents=True, exist_ok=True)
-    answers: list[Answer] = []
-    for vendor in vendors:
-        for item in prompts:
-            pid = str(item["id"])
-            try:
-                answer = ask(vendor, str(item["prompt"]))
-                answers.append(
-                    Answer(vendor.id, vendor.interface, vendor.model, pid, answer.text,
-                           answer.wall_s, answer.tokens, None)
-                )
-            except Exception as exc:  # noqa: BLE001 - a vendor that cannot answer is data, not a crash
-                answers.append(
-                    Answer(vendor.id, vendor.interface, vendor.model, pid, "", 0.0, None, str(exc)[:400])
-                )
-    (dest / "answers.jsonl").write_text(
-        "".join(json.dumps(asdict(a), sort_keys=True) + "\n" for a in answers)
-    )
+    # The manifest first, then each answer as it arrives. Writing everything at the end meant a run of 240
+    # CLI calls held its only copy in memory for the best part of an hour: nothing to watch while it ran, and
+    # nothing left if it died on the last vendor. Flushed per row so `wc -l` is honest progress.
     (dest / "manifest.json").write_text(
         json.dumps(panel_manifest(prompts, vendors), indent=2, sort_keys=True) + "\n"
     )
+    answers: list[Answer] = []
+    with (dest / "answers.jsonl").open("w") as fh:
+        for vendor in vendors:
+            for item in prompts:
+                pid = str(item["id"])
+                try:
+                    answer = ask(vendor, str(item["prompt"]))
+                    row = Answer(vendor.id, vendor.interface, vendor.model, pid, answer.text,
+                                 answer.wall_s, answer.tokens, None)
+                except Exception as exc:  # noqa: BLE001 - a vendor that cannot answer is data, not a crash
+                    row = Answer(vendor.id, vendor.interface, vendor.model, pid, "", 0.0, None, str(exc)[:400])
+                answers.append(row)
+                fh.write(json.dumps(asdict(row), sort_keys=True) + "\n")
+                fh.flush()
     return answers
