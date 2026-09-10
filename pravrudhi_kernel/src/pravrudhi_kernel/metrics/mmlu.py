@@ -39,6 +39,23 @@ _ALONE = re.compile(r"^[*_\s]*\(?([A-Ja-j])\)?[).:,]?[*_\s]*$")
 
 _PATTERNS = (_EXPLICIT, _BOXED, _BARE, _LABELLED)
 
+#: "I" is both an option letter and the first-person pronoun, and the pronoun is followed by a verb.
+#:
+#: ADR-0042. `Answer: I do not know` parsed as a confident vote for option I, because `_EXPLICIT` takes the
+#: letter after `answer:` and the `I` is followed by a space. Found on the casehold-val bench, where a
+#: candidate prompted to abstain produced five of them: the letters came back
+#: `{A: 21, B: 11, C: 8, D: 17, E: 13, I: 5}` on a pool with five options.
+#:
+#: It corrupts no score -- an out-of-range letter is wrong exactly as an unparsed answer is -- but it corrupts
+#: the DIAGNOSIS, counting refusals as wrong answers. Refusal-versus-wrong is the distinction this project's
+#: `citation_abstention` metric exists to measure (0.0000 at n=2444), and a scorer that reads "I do not know"
+#: as a letter cannot measure abstention at all.
+#:
+#: Deliberately narrow. `Answer: I`, `ANSWER: I.` and `The answer is I` remain votes for option I, because on
+#: a ten-option pool they are exactly that. Only a following lowercase word -- the verb that makes it a
+#: pronoun -- disqualifies the match.
+_PRONOUN_I = re.compile(r"^\s+[a-z]{2,}")
+
 
 def gold_answer(answer_text: str) -> str:
     m = _GOLD.match(answer_text.strip())
@@ -47,11 +64,18 @@ def gold_answer(answer_text: str) -> str:
     return m.group(1).upper()
 
 
+def _disqualified(completion: str, match: re.Match[str]) -> bool:
+    """Whether this match is the pronoun "I" rather than option I. See `_PRONOUN_I`."""
+    return match.group(1).upper() == "I" and bool(_PRONOUN_I.match(completion[match.end() :]))
+
+
 def extract_prediction(completion: str) -> str | None:
     for pattern in _PATTERNS:
-        found = pattern.findall(completion)
+        # `finditer`, not `findall`: the guard needs to see what FOLLOWS a match, and the last surviving
+        # match still wins so a closing commitment beats an opening aside.
+        found = [m for m in pattern.finditer(completion) if not _disqualified(completion, m)]
         if found:
-            return str(found[-1]).upper()
+            return str(found[-1].group(1)).upper()
     lines = [ln for ln in completion.splitlines() if ln.strip()]
     if lines:
         m = _ALONE.match(lines[-1])
