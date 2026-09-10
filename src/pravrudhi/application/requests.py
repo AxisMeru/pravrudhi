@@ -400,6 +400,21 @@ def next_obligation(root: Path, *, now: datetime | None = None) -> dict[str, Any
             "kind": "verify_request", "request": ready.id, "criterion": None, "text": "",
             "description": f"the completion gate on {ready.id}",
         }
+    still_unmet = ready.unmet()
+    if still_unmet:
+        # `next_unmet` offered nothing, so every unmet criterion here has spent its attempt budget. That is
+        # not "nothing left to build" -- it is work owed to a person -- and calling it ready was the defect
+        # that took both loops down on 2026-09-10: this function said advance, `advance` refused because the
+        # criteria are unmet, and the unhandled RequestError killed the beat every hour. Two definitions of
+        # done disagreed; there is now one, and it is `unmet()`, the same one the guard uses.
+        return {
+            "kind": "parked_request", "request": ready.id, "criterion": None,
+            "text": "; ".join(c.text for c in still_unmet[:3]),
+            "description": (
+                f"{len(still_unmet)} parked criterion(s) on {ready.id}: every attempt budget is spent, so "
+                "this is owed to a person rather than to another dispatch"
+            ),
+        }
     return {
         "kind": "advance_request", "request": ready.id, "criterion": None, "text": "",
         "description": f"the next step on {ready.id}, still {ready.state}",

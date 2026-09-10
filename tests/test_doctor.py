@@ -37,14 +37,16 @@ def test_uninitialised(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: 
     report = run_doctor(tmp_path)
     assert report["ok"] is False
     assert {check["name"] for check in report["checks"]} == {
-        "initialised", "ledger", "docker", "gpu", "pools", "prereg", "routing",
+        "initialised", "ledger", "docker", "gpu", "pools", "prereg", "routing", "loop_alive",
     }
     for check in report["checks"]:
         assert set(check) == {"name", "ok", "detail"}
         assert isinstance(check["detail"], str) and check["detail"]
-        # Two checks stay ok on a bare machine and say why. No GPU on PATH cannot start a night but is not an
-        # error, and with no agent installed at all there is no route to judge — see `_routing_check`.
-        assert check["ok"] is (check["name"] in {"gpu", "routing"})
+        # Three checks stay ok on a bare machine and say why. No GPU on PATH cannot start a night but is not
+        # an error; with no agent installed at all there is no route to judge (see `_routing_check`); and a
+        # workspace that has never beaten is unobserved rather than stalled, which is the distinction
+        # `loop_alive` has to draw or it would fail every fresh install.
+        assert check["ok"] is (check["name"] in {"gpu", "routing", "loop_alive"})
     assert list(tmp_path.iterdir()) == []
     assert capsys.readouterr() == ("", "")
 
@@ -53,7 +55,12 @@ def test_initialised(ready_root: Path, capsys: pytest.CaptureFixture[str]) -> No
     before = {p.relative_to(ready_root): p.read_bytes() for p in ready_root.rglob("*") if p.is_file()}
     report = run_doctor(ready_root)
     assert report["ok"] is True
-    assert len(report["checks"]) == 7
+    # Eight since 2026-09-10: `loop_alive` was added because `scheduler_fresh` had computed a dead loop all
+    # along, published it, and been read correctly by a cloud routine -- while the command a session actually
+    # runs in its first five minutes never asked. A workspace with no heartbeat has not stalled, so the check
+    # passes here rather than failing every fresh install.
+    assert len(report["checks"]) == 8
+    assert [c for c in report["checks"] if c["name"] == "loop_alive"]
     assert all(check["ok"] is True and check["detail"] for check in report["checks"])
     assert before == {p.relative_to(ready_root): p.read_bytes() for p in ready_root.rglob("*") if p.is_file()}
     assert capsys.readouterr() == ("", "")

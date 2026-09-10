@@ -118,6 +118,45 @@ def _routing_check(root: Path) -> dict[str, Any]:
     }
 
 
+def _loop_alive_check(root: Path) -> dict[str, Any]:
+    """Whether the unattended loop has beaten recently enough to be running at all.
+
+    `svasthya._check_scheduler_fresh` has computed this all along and `pravrudhi publish` puts it in the
+    snapshot, where a cloud routine read it correctly and said so. It was absent from `doctor` -- the command
+    `RESTART.md` tells a session to run in its first five minutes -- so on 2026-09-10 a session onboarded past
+    an eleven-hour-old alarm and started other work. A check nobody runs at the moment they could act on it is
+    a check that exists rather than one that works.
+    """
+    from pravrudhi.application import heartbeat
+    from pravrudhi.application.svasthya import assess
+
+    try:
+        beats = heartbeat.history(root, n=1)
+        if not beats:
+            # Never beaten is unobserved, not stalled: a fresh install has no heartbeat and has not failed.
+            # `watchdog._silent_loop` draws the same line, and `svasthya` deliberately does not, because for a
+            # survival check a scheduler that has never run IS a problem. For `doctor`, which runs on machines
+            # that have only just been initialised, it is not.
+            return {"name": "loop_alive", "ok": True, "detail": "no heartbeat recorded yet; nothing to judge."}
+        for check in assess(root).checks:
+            if check.name == "scheduler_fresh":
+                return {
+                    "name": "loop_alive",
+                    "ok": check.ok,
+                    "detail": (
+                        check.detail
+                        if check.ok
+                        else f"{check.detail} -- the loop is stopped, not slow. "
+                        "`journalctl --user -u pravrudhi-heartbeat.service -o cat -n 40` for the reason, then "
+                        "`systemctl --user reset-failed pravrudhi-heartbeat.service && "
+                        "systemctl --user start pravrudhi-heartbeat.service`"
+                    ),
+                }
+    except Exception as exc:  # noqa: BLE001 -- an unreadable log is a failing check, never a crashing doctor
+        return {"name": "loop_alive", "ok": False, "detail": f"heartbeat freshness could not be read: {exc}"}
+    return {"name": "loop_alive", "ok": False, "detail": "no heartbeat freshness check was produced"}
+
+
 def run_doctor(root: Path) -> dict[str, Any]:
     """Check required files, ledger integrity, Docker, and sealed pool presence without changing state."""
     checks: list[dict[str, Any]] = []
@@ -195,4 +234,5 @@ def run_doctor(root: Path) -> dict[str, Any]:
         "detail": "Missing pre-registration files: " + ", ".join(missing) if missing else "All pre-registration files exist.",
     })
     checks.append(_routing_check(root))
+    checks.append(_loop_alive_check(root))
     return {"ok": all(check["ok"] for check in checks), "checks": checks}

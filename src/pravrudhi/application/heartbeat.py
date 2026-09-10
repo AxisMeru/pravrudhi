@@ -605,11 +605,30 @@ def _beat_obligations(root: Path, dispatch: DispatchFn | None, *, judge: Any = N
         # adversarial reviewer sat on a finding nobody had read. A beat that can only describe the next action
         # is not a heartbeat. So the gate runs here.
         return _beat_completion_gate(root, str(owed["request"]))
+    if owed["kind"] == "parked_request":
+        # Every unmet criterion on the stalest request has spent its attempt budget. There is nothing to
+        # dispatch and nothing to advance: saying so is the work. `watchdog._parked_criteria` reports the same
+        # state to `pravrudhi watch`, so this is visible from both surfaces rather than only in a beat log.
+        return (
+            {"request": str(owed["request"])},
+            f"{owed['request']} is parked: {owed['description']}",
+            {"kind": "parked", "criteria": str(owed["text"])},
+        )
     if owed["kind"] == "advance_request":
         # Ready to move, so move it. Describing the move and returning nothing was the same failure as the
         # branch above, and together they oscillated: the gate refused a delivered request back to
         # `in_progress`, this branch called it ready, and neither ever changed anything.
-        requests.advance(root, str(owed["request"]), "delivered", note="every criterion carries evidence")
+        # Guarded even though `next_obligation` now agrees with the guard. A beat that raises kills the unit
+        # for an hour, and the two disagreed silently for a day before anyone read the journal; a refusal here
+        # is a thing to report, never a thing to crash on.
+        try:
+            requests.advance(root, str(owed["request"]), "delivered", note="every criterion carries evidence")
+        except requests.RequestError as e:
+            return (
+                {"request": str(owed["request"])},
+                f"{owed['request']} looked ready but the state machine refused: {e}",
+                {"kind": "advance_refused", "error": str(e)},
+            )
         return (
             {"request": str(owed["request"])},
             f"{owed['request']} has evidence on every criterion and is now delivered, awaiting the gate",

@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 from collections.abc import Iterable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -183,6 +184,52 @@ def _parked_criteria(root: Path) -> list[Finding]:
     return findings
 
 
+def _silent_loop(root: Path) -> list[Finding]:
+    """No beat at all for longer than the timer's period.
+
+    Every other probe here asks what the loop CHOSE. None asked whether it chose anything, and on 2026-09-10
+    both engines had been dead for hours -- the heartbeat crashed on an unhandled RequestError and systemd
+    left the unit failed -- while `_repeating` saw the same last twelve entries it had always seen and said
+    nothing. A frozen log and a busy log look identical to a check that reads only content.
+
+    The threshold is `svasthya`'s own `scheduler_max_stale_s`, not a second number invented here: that check
+    already flagged this correctly (`scheduler_fresh: false, last heartbeat was 38230s ago`) and published it
+    in the snapshot. What was missing was this surface -- `pravrudhi watch`, which runs every 30 minutes and
+    notifies -- asking the same question.
+    """
+    from pravrudhi.application.svasthya import load_config
+
+    beats = _beats(root, n=1)
+    if not beats:
+        return []  # `blind` already distinguishes an unobserved workspace from a well one
+    at = str(beats[-1].get("at") or "")
+    try:
+        last = datetime.fromisoformat(at.replace("Z", "+00:00"))
+    except ValueError:
+        return [
+            Finding(
+                kind="beat_unparsable",
+                severity="high",
+                detail=f"the newest heartbeat record has an unreadable timestamp {at!r}, so its age is unknown",
+            )
+        ]
+    max_stale = float(load_config().scheduler_max_stale_s)
+    age = (datetime.now(UTC) - last).total_seconds()
+    if age <= max_stale:
+        return []
+    return [
+        Finding(
+            kind="loop_silent",
+            severity="high",
+            detail=(
+                f"no heartbeat for {age / 3600:.1f}h (limit {max_stale / 3600:.1f}h); the last was at {at}. "
+                "The loop is not slow, it is not running: check `systemctl --user status "
+                "pravrudhi-heartbeat.service` and the journal for an unhandled exception."
+            ),
+        )
+    ]
+
+
 def _stale_install(root: Path) -> list[Finding]:
     """An engine running a release older than the safeguards that were written for it.
 
@@ -233,7 +280,7 @@ def _packaged_version() -> str:
 def check(root: Path) -> list[Finding]:
     """Every check, most serious first. A check that raises is dropped rather than allowed to silence the rest."""
     findings: list[Finding] = []
-    for probe in (_repeating, _parked_criteria, _empty_night, _cheap_seat_down, _stale_install):
+    for probe in (_silent_loop, _repeating, _parked_criteria, _empty_night, _cheap_seat_down, _stale_install):
         try:
             findings.extend(probe(Path(root)))
         except Exception:  # noqa: BLE001

@@ -17,8 +17,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from pravrudhi.application import requests
-from pravrudhi.application.requests import capture, draft_criteria, get, triage
+import pytest
+
+from pravrudhi.application import heartbeat, requests
+from pravrudhi.application.requests import Criterion, Evidence, capture, draft_criteria, get, triage
 
 
 class TestDraftCriteria:
@@ -255,3 +257,67 @@ class TestTheBeatUsesAModelForProse:
 
         built = heartbeat._triage_complete(tmp_path)
         assert built is not None and callable(built), "a suppressed exception must not hide a broken seat"
+
+
+class TestParkedIsNotDelivered:
+    """The regression that took both loops down on 2026-09-10.
+
+    Skipping a budget-exhausted criterion made `next_unmet` return None, and `next_obligation` read that as
+    "nothing left to build" and emitted `advance_request`. `advance` then refused -- correctly, since a
+    parked criterion is not a met one -- and the RequestError was unhandled, so the whole beat died. Both
+    the studio and the product heartbeat had been failing every hour since:
+
+        RequestError: r-5795501a still has 2 unmet criterion(s)
+        RequestError: r-3981d7e0 cannot go from captured to delivered
+
+    Two definitions of done disagreed. `next_obligation` counted a criterion whose attempts were spent as
+    nothing left to build; `advance` counted it as unmet. The disagreement, not either definition, was the
+    defect, and the crash is what made it urgent rather than merely wrong.
+    """
+
+    @staticmethod
+    def _parked(root: Path) -> str:
+        req = capture(root, "a thing that cannot be done")
+        requests.add_criteria(root, req.id, [Criterion(text="never satisfiable", source="engine")])
+        for _ in range(heartbeat.MAX_CRITERION_ATTEMPTS):
+            heartbeat.record_attempt(root, req.id, 0)
+        return req.id
+
+    def test_it_is_reported_as_parked_rather_than_claimed_ready(self, tmp_path: Path) -> None:
+        request_id = self._parked(tmp_path)
+        assert requests.next_unmet(tmp_path) is None, "the budget is spent, so nothing is offered to work on"
+        owed = requests.next_obligation(tmp_path)
+        assert owed is not None
+        assert owed["kind"] == "parked_request"
+        assert owed["request"] == request_id
+
+    def test_the_guard_that_refused_it_is_unchanged(self, tmp_path: Path) -> None:
+        # The fix is upstream of `advance`. Delivering a request with an unmet criterion must still be
+        # refused, and from `captured` the transition table refuses it even earlier. Both refusals are
+        # correct; both were reached by a caller that should not have tried, and killed the beat.
+        request_id = self._parked(tmp_path)
+        with pytest.raises(requests.RequestError, match="cannot go from captured to delivered"):
+            requests.advance(tmp_path, request_id, "delivered")
+        requests.advance(tmp_path, request_id, "in_progress")
+        with pytest.raises(requests.RequestError, match="unmet criterion"):
+            requests.advance(tmp_path, request_id, "delivered")
+
+    def test_the_obligations_beat_survives_a_parked_request(self, tmp_path: Path) -> None:
+        # The crash itself, at the level it happened. `_beat_obligations` called `advance` on the strength of
+        # `next_obligation` saying the request was ready; the refusal propagated out of the beat and the unit
+        # exited 1 every hour. What it reports matters less than that it returns at all.
+        request_id = self._parked(tmp_path)
+        before = requests.get(tmp_path, request_id)
+        assert before is not None
+        chose, reason, extra = heartbeat._beat_obligations(tmp_path, None)
+        after = requests.get(tmp_path, request_id)
+        assert after is not None and after.state == before.state, "reporting a parked request changes nothing"
+        assert request_id in json.dumps([chose, reason, extra], default=str)
+
+    def test_a_genuinely_finished_request_still_advances(self, tmp_path: Path) -> None:
+        # The fix must not close the path it was protecting.
+        req = capture(tmp_path, "a thing that can be done")
+        requests.add_criteria(tmp_path, req.id, [Criterion(text="satisfiable", source="engine")])
+        requests.meet(tmp_path, req.id, 0, [Evidence(kind="commit", ref="abc1234")])
+        owed = requests.next_obligation(tmp_path)
+        assert owed is not None and owed["kind"] == "advance_request"

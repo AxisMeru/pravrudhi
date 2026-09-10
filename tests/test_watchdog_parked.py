@@ -11,6 +11,8 @@ the last six beats. That is the better evidence anyway: it names the criterion a
 
 from __future__ import annotations
 
+import json
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from pravrudhi.application import heartbeat, watchdog
@@ -59,3 +61,44 @@ def test_the_check_runs_as_part_of_the_watchdog(tmp_path: Path) -> None:
     kinds = [f.kind for f in watchdog.check(tmp_path)]
     assert "parked_criterion" in kinds, "a check nothing calls is not a check"
     assert rid in watchdog.render(watchdog.check(tmp_path))
+
+
+class TestSilentLoop:
+    """A frozen heartbeat log and a busy one look identical to a check that reads only content.
+
+    On 2026-09-10 both engines had been dead for hours -- the beat crashed on an unhandled RequestError and
+    systemd left the unit failed -- while `_repeating` saw the same last twelve entries it had always seen and
+    reported nothing. `svasthya._check_scheduler_fresh` had the finding right (`last heartbeat was 38230s ago`)
+    and published it; `pravrudhi watch`, the surface that runs every 30 minutes and notifies, never asked.
+    """
+
+    @staticmethod
+    def _log(root: Path, at: str) -> None:
+        d = root / ".pravrudhi"
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "heartbeat.jsonl").write_text(
+            json.dumps({"at": at, "chose": {"drive": "obligations"}, "drive": "obligations"}) + "\n"
+        )
+
+    def test_a_beat_within_the_limit_is_not_flagged(self, tmp_path: Path) -> None:
+        fresh = datetime.now(UTC) - timedelta(minutes=20)
+        self._log(tmp_path, fresh.isoformat(timespec="seconds").replace("+00:00", "Z"))
+        assert [f for f in watchdog.check(tmp_path) if f.kind == "loop_silent"] == []
+
+    def test_a_loop_that_stopped_is_flagged_high_with_the_command_to_run(self, tmp_path: Path) -> None:
+        dead = datetime.now(UTC) - timedelta(hours=11)
+        self._log(tmp_path, dead.isoformat(timespec="seconds").replace("+00:00", "Z"))
+        found = [f for f in watchdog.check(tmp_path) if f.kind == "loop_silent"]
+        assert len(found) == 1
+        assert found[0].severity == "high"
+        assert "11.0h" in found[0].detail
+        assert "systemctl --user status" in found[0].detail, "a finding a reader cannot act on is half a finding"
+
+    def test_an_unreadable_timestamp_is_a_finding_not_a_silent_pass(self, tmp_path: Path) -> None:
+        self._log(tmp_path, "not-a-time")
+        found = [f for f in watchdog.check(tmp_path) if f.kind == "beat_unparsable"]
+        assert len(found) == 1 and found[0].severity == "high"
+
+    def test_a_workspace_with_no_beats_is_left_to_blind(self, tmp_path: Path) -> None:
+        # An empty workspace is unobserved, not stalled; `watchdog.blind` is what says so.
+        assert [f for f in watchdog.check(tmp_path) if f.kind == "loop_silent"] == []
