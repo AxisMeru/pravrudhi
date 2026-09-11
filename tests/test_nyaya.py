@@ -43,13 +43,22 @@ def test_a_lay_question_reaches_the_homicide_sections_through_the_lexicon() -> N
 def test_citations_are_checked_against_the_corpus_not_believed() -> None:
     c = nyaya.load_corpus()
     shown = [c.by_id["IPC/Section 302"], c.by_id["IPC/Section 300"]]
-    text = "ANSWER: Murder is punished with death or life imprisonment [IPC/Section 302]. See also [IPC/Section 34] and [IPC/Section 999].\nCITATIONS: IPC/Section 302\nCONFIDENCE: high"
+    text = (
+        "ANSWER: Murder is punished with death or life imprisonment [IPC/Section 302]. See also [IPC/Section 34] "
+        "and [IPC/Section 999].\nCITATIONS: IPC/Section 302\nCONFIDENCE: high"
+    )
     cites, verdict, conf = nyaya.check_answer(text, shown, c)
-    assert {x.id: x.status for x in cites} == {"IPC/Section 302": "licensed", "IPC/Section 34": "unshown", "IPC/Section 999": "invented"}
+    assert {x.id: x.status for x in cites} == {
+        "IPC/Section 302": "licensed",
+        "IPC/Section 34": "unshown",
+        "IPC/Section 999": "invented",
+    }
     assert verdict == "invented_citation" and conf == "high"
     ok, verdict, _ = nyaya.check_answer("ANSWER: [IPC/Section 302] applies.\nCONFIDENCE: medium", shown, c)
     assert verdict == "licensed"
-    _, verdict, _ = nyaya.check_answer("I do not know: the provided sources do not cover this. A family-law statute would be needed.", shown, c)
+    _, verdict, _ = nyaya.check_answer(
+        "I do not know: the provided sources do not cover this. A family-law statute would be needed.", shown, c
+    )
     assert verdict == "abstained"
     _, verdict, _ = nyaya.check_answer("The accused is guilty because everyone knows it.", shown, c)
     assert verdict == "unlicensed"
@@ -71,7 +80,7 @@ def test_ask_runs_every_vendor_records_failures_and_writes_no_ledger_row(tmp_pat
         tmp_path,
         "What is the punishment for murder under section 302 IPC?",
         ("claude-cli", "codex-cli"),
-        ask_fn=_fake({"*": "ANSWER: Death or imprisonment for life, and fine [IPC/Section 302].\nCITATIONS: IPC/Section 302\nCONFIDENCE: high"}),
+        ask_fn=_fake({"*": "ANSWER: Death or imprisonment for life, and fine [IPC/Section 302].\nCONFIDENCE: high"}),
     )
     by = {a.vendor: a for a in rec.answers}
     assert by["claude-cli"].verdict == "licensed" and by["claude-cli"].citations[0].status == "licensed"
@@ -105,7 +114,9 @@ def test_the_routes_serve_the_product_and_need_the_local_token_to_ask(tmp_path: 
     vendors = c.get("/api/nyaya/vendors").json()["vendors"]
     assert {v["id"] for v in vendors} == set(nyaya.DEFAULT_VENDORS) and all("available" in v for v in vendors)
     assert c.post("/api/nyaya/ask", json={"question": "murder"}).status_code in (401, 403)  # no local token
-    r = c.post("/api/nyaya/ask", json={"question": "murder", "vendors": ["claude-cli"]}, headers={TOKEN_HEADER: app_token(tmp_path)})
+    r = c.post(
+        "/api/nyaya/ask", json={"question": "murder", "vendors": ["claude-cli"]}, headers={TOKEN_HEADER: app_token(tmp_path)}
+    )
     assert r.status_code == 200 and r.json()["answers"][0]["verdict"] == "licensed"
     r = c.post("/api/nyaya/ask", json={"question": "murder", "vendors": ["nope"]}, headers={TOKEN_HEADER: app_token(tmp_path)})
     assert r.status_code == 422

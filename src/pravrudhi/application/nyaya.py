@@ -46,7 +46,9 @@ ASSET_DIR = Path(__file__).resolve().parent.parent / "assets" / "nyaya"
 #: citation can be checked by equality and nothing has to be inferred from prose.
 CITE = re.compile(r"\[([A-Za-z]+/Section [0-9]+[A-Za-z]?(?:\([0-9a-z]+\))?)\]")
 
-ABSTAIN = re.compile(r"(?i)\b(I do not know|I don't know|do not cover|does not cover|cannot be answered from the sources|insufficient sources)")
+ABSTAIN = re.compile(
+    r"(?i)\b(I do not know|I don't know|do not cover|does not cover|cannot be answered from the sources|insufficient sources)"
+)
 
 #: Vendors the product offers for an ask, in the order the page lists them. All are `panel.VENDORS`; a vendor
 #: whose credential or binary is missing is reported as unavailable rather than dropped.
@@ -171,7 +173,7 @@ def grounded_prompt(question: str, hits: list[Document]) -> str:
         "1. Rely only on the SOURCES above. Cite each one you rely on inline, exactly as its bracketed id, "
         "e.g. [IPC/Section 302]. Do not cite anything that is not listed.\n"
         "2. If the sources do not cover the question, reply exactly: "
-        "\"I do not know: the provided sources do not cover this.\" and then say in one sentence what kind "
+        '"I do not know: the provided sources do not cover this." and then say in one sentence what kind '
         "of source would be needed.\n"
         "3. Structure: ANSWER (2-6 sentences, citing as you go), then CITATIONS: a comma-separated list of the "
         "ids you relied on, then CONFIDENCE: high | medium | low.\n"
@@ -350,7 +352,9 @@ def ask(
     return rec
 
 
-def audit(root: Path, sources: str, answer: str, checker: str = "claude-cli", *, ask_fn: panel.AskFn | None = None) -> dict[str, Any]:
+def audit(
+    root: Path, sources: str, answer: str, checker: str = "claude-cli", *, ask_fn: panel.AskFn | None = None
+) -> dict[str, Any]:
     """The auditor on its own: a user's answer and sources, one checker, one structured verdict."""
     cv = panel.load_vendors((checker,))[0]
     fn = ask_fn or panel.ask_vendor

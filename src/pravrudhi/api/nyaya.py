@@ -40,7 +40,14 @@ def build_nyaya_router(root: Path, ask_fn: panel.AskFn | None = None) -> APIRout
     @router.get("/corpus")
     def corpus(q: str = "", k: int = 8) -> dict[str, Any]:
         c = nyaya.load_corpus(workspace)
-        hits = [{"id": d.id, "act": d.act, "section": d.section, "title": d.title, "score": s, "text": d.text} for d, s in c.retrieve(q, k=k)] if q.strip() else []
+        hits = (
+            [
+                {"id": d.id, "act": d.act, "section": d.section, "title": d.title, "score": s, "text": d.text}
+                for d, s in c.retrieve(q, k=k)
+            ]
+            if q.strip()
+            else []
+        )
         return {"documents": len(c.documents), "sources": c.sources, "hits": hits}
 
     @router.get("/asks")

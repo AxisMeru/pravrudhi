@@ -606,7 +606,8 @@ def nyaya_ask_cmd(
         if a.citations:
             typer.echo("    citations: " + ", ".join(f"{c.id}={c.status}" for c in a.citations))
         if a.audit:
-            typer.echo(f"    audit[{a.audit.get('checker')}]: {a.audit.get('verdict')} {a.audit.get('class') or ''} {a.audit.get('why') or ''}")
+            au = a.audit
+            typer.echo(f"    audit[{au.get('checker')}]: {au.get('verdict')} {au.get('class') or ''} {au.get('why') or ''}")
 
 
 @panel_app.command("vendors")

@@ -293,7 +293,10 @@ def _law_text(root: Path, question: str) -> str:
     from pravrudhi.application.nyaya import ask, available_vendors
 
     if not question.strip():
-        return "Usage: /law <a question of Indian law>. The answer is grounded in the statute corpus and every citation is checked."
+        return (
+            "Usage: /law <a question of Indian law>. The answer is grounded in the statute corpus and every "
+            "citation is checked."
+        )
     ready = [v["id"] for v in available_vendors(root) if v["available"]]
     if not ready:
         return "No vendor can answer here: no CLI installed and no key stored. Add one under Settings > Providers."
