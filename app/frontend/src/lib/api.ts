@@ -811,3 +811,86 @@ export async function chatThread(id: string): Promise<ChatTurn[]> {
   if (IS_DEMO) throw new ApiError(501, `/api/chat/threads/${id}`);
   return (await getJSON<{ id: string; turns: ChatTurn[] }>(`/api/chat/threads/${encodeURIComponent(id)}`)).turns;
 }
+
+// prabhasa-nyaya: a question of Indian law, answered from sources by the vendors the user picks, every
+// citation checked against the corpus. A verdict is a check of the answer against the sources it was shown,
+// never a statement about the law, and nothing here is ledger evidence (provenance `agama`).
+export interface NyayaVendor {
+  id: string;
+  model: string;
+  interface: string;
+  available: boolean;
+  why: string | null;
+  note: string;
+}
+
+export interface NyayaCitation {
+  id: string;
+  status: "licensed" | "unshown" | "invented";
+}
+
+export interface NyayaAudit {
+  checker: string;
+  verdict: string;
+  span?: string | null;
+  class?: string | null;
+  why?: string | null;
+}
+
+export interface NyayaAnswer {
+  vendor: string;
+  model: string;
+  text: string;
+  wall_s: number;
+  citations: NyayaCitation[];
+  verdict: "licensed" | "unlicensed" | "invented_citation" | "abstained" | "error";
+  confidence: string;
+  error?: string | null;
+  audit?: NyayaAudit | null;
+}
+
+export interface NyayaSource {
+  id: string;
+  act: string;
+  section: string;
+  title: string;
+}
+
+export interface NyayaAsk {
+  id: string;
+  asked_at: string;
+  question: string;
+  sources: NyayaSource[];
+  answers: NyayaAnswer[];
+  provenance: string;
+  note: string;
+}
+
+export interface NyayaCorpusHit extends NyayaSource {
+  score: number;
+  text: string;
+}
+
+export async function nyayaVendors(): Promise<NyayaVendor[]> {
+  if (IS_DEMO) return [];
+  return (await getJSON<{ vendors: NyayaVendor[] }>("/api/nyaya/vendors")).vendors;
+}
+
+export async function nyayaCorpus(q: string): Promise<{ documents: number; sources: Record<string, unknown>[]; hits: NyayaCorpusHit[] }> {
+  return getJSON(`/api/nyaya/corpus?q=${encodeURIComponent(q)}`);
+}
+
+export async function nyayaAsk(question: string, vendors: string[], checker: string | null): Promise<NyayaAsk> {
+  if (IS_DEMO) throw new ApiError(501, "/api/nyaya/ask");
+  return postJSON<NyayaAsk>("/api/nyaya/ask", { question, vendors, checker });
+}
+
+export async function nyayaAudit(sources: string, answer: string, checker: string): Promise<NyayaAudit & { raw?: string }> {
+  if (IS_DEMO) throw new ApiError(501, "/api/nyaya/audit");
+  return postJSON("/api/nyaya/audit", { sources, answer, checker });
+}
+
+export async function nyayaAsks(): Promise<NyayaAsk[]> {
+  if (IS_DEMO) return [];
+  return (await getJSON<{ asks: NyayaAsk[] }>("/api/nyaya/asks")).asks;
+}

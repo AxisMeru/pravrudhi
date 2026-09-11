@@ -116,6 +116,8 @@ ADMIN_ONLY: frozenset[str] = frozenset({
 USER_FACING: frozenset[str] = frozenset({
     "/api/app-token",
     "/api/chat", "/api/chat/stream", "/api/chat/threads", "/api/chat/threads/{thread_id}",
+    # prabhasa-nyaya: a legal question answered from sources and checked. The product's first domain surface.
+    "/api/nyaya/ask", "/api/nyaya/audit", "/api/nyaya/corpus", "/api/nyaya/vendors", "/api/nyaya/asks",
     "/api/doctor",
     "/api/health", "/api/status",
     "/api/me",

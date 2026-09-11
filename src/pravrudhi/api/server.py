@@ -92,6 +92,10 @@ from pravrudhi.api.schemas import (
     WorkspaceResponse,
     WorkspacesResponse,
 )
+
+# One set, from the module that carries the delegation (ADR-0040). A copy here omitted `agent-for-operator`,
+# so that identity fell through to the human path and signed with no condition checked.
+from pravrudhi.application.delegation import AGENT_IDENTITIES
 from pravrudhi.application.doctor import run_doctor
 from pravrudhi.application.evidence import render_h1
 from pravrudhi.application.external import external_rows
@@ -110,8 +114,6 @@ from pravrudhi.application.status import status
 from pravrudhi.hosts.fleet import fleet_report
 from pravrudhi_kernel.ledger import LedgerWriter, replay
 from pravrudhi_kernel.ledger.verify import iter_events
-
-AGENT_IDENTITIES = frozenset({"pravrudhi-agent", "agent", "claude"})
 
 # The three ways this engine launches a coding agent as a subprocess. Matched against a process's argv so a live
 # dispatch can be told apart from a stalled one; see `_scan_live_agents`.
@@ -213,7 +215,7 @@ class UpdateApplyRequest(BaseModel):
     channel: Literal["dev", "release"] | None = None
 
 
-def create_app(root: Path) -> FastAPI:
+def create_app(root: Path, *, nyaya_ask_fn: Any | None = None) -> FastAPI:
     root = Path(root)
     app = FastAPI(title="pravrudhi", version=__version__)
     # Every JSON route lives under /api. The interface is a static export mounted at the root, and the two
@@ -1216,6 +1218,11 @@ def create_app(root: Path) -> FastAPI:
 
     app.include_router(api)
     app.include_router(build_chat_router(root))
+    # prabhasa-nyaya as a product surface: a question of Indian law, answered from sources by any vendor the
+    # user can reach, every citation checked against the corpus. User-facing in both editions.
+    from pravrudhi.api.nyaya import build_nyaya_router
+
+    app.include_router(build_nyaya_router(root, ask_fn=nyaya_ask_fn))
     # The run subsystem — starting work, watching it, stopping it — was written, tested and never mounted, so
     # `/api/runs` answered 404 and nothing in the product could begin anything. The desktop application could
     # sign in, list workspaces and set a band, and then had no way to act, because the route that acts was not

@@ -127,7 +127,7 @@ def _remember_thread(root: Path, chat_id: str, thread_id: str) -> None:
     current[str(chat_id)] = thread_id
     path.write_text(json.dumps(current, indent=1, sort_keys=True))
 
-COMMANDS: tuple[str, ...] = ("status", "requests", "request", "routes", "beat", "ask", "help")
+COMMANDS: tuple[str, ...] = ("status", "requests", "request", "routes", "beat", "ask", "law", "help")
 """Every name this engine answers to. A command outside this set is answered with help, never guessed at."""
 
 _OFFSET_FILE = ".pravrudhi/telegram-offset.json"
@@ -280,9 +280,33 @@ def _body_for(root: Path, command: str, argument: str, *, chat_id: str) -> str:
             return _beat_text(root)
         if command == "ask":
             return _answer(root, argument, chat_id=chat_id)
+        if command == "law":
+            return _law_text(root, argument)
     except Exception as error:  # noqa: BLE001 (a failed answer must still be an answer)
         return f"could not answer /{command}: {error}"
     return "Commands: " + ", ".join(f"/{c}" for c in COMMANDS)
+
+
+def _law_text(root: Path, question: str) -> str:
+    """`/law <question>`: prabhasa-nyaya from the phone. The first available vendor answers from statute
+    sources; every citation is checked against the corpus; the verdict names what the check means."""
+    from pravrudhi.application.nyaya import ask, available_vendors
+
+    if not question.strip():
+        return "Usage: /law <a question of Indian law>. The answer is grounded in the statute corpus and every citation is checked."
+    ready = [v["id"] for v in available_vendors(root) if v["available"]]
+    if not ready:
+        return "No vendor can answer here: no CLI installed and no key stored. Add one under Settings > Providers."
+    rec = ask(root, question, (ready[0],))
+    a = rec.answers[0]
+    if a.error:
+        return f"{a.vendor} could not answer: {a.error}"
+    cites = ", ".join(f"{c.id} ({c.status})" for c in a.citations) or "none"
+    return (
+        f"{a.text.strip()}\n\nverdict: {a.verdict} — a check of this answer against the sources shown to it, not a "
+        f"statement about the law. citations: {cites}. sources: {', '.join(s['id'] for s in rec.sources) or 'none'}. "
+        f"recorded as {rec.id}."
+    )
 
 
 def _answer(root: Path, message: str, *, chat_id: str) -> str:

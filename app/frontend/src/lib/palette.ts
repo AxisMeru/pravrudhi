@@ -60,6 +60,7 @@ export function pagesFor(isStudio: boolean): PalettePage[] {
 export const PALETTE_PAGES: PalettePage[] = [
   { id: "start", label: "Start", href: "/start", icon: "Rocket", digit: 1 },
   { id: "improve", label: "Improve", href: "/", icon: "Sparkles", digit: 2 },
+  { id: "nyaya", label: "Nyaya", href: "/nyaya", icon: "Scale" },
   { id: "tour", label: "Tour", href: "/tour", icon: "Compass", digit: 3 },
   { id: "appetite", label: "Appetite", href: "/appetite", icon: "Flame", digit: 4 },
   { id: "objectives", label: "Objectives", href: "/objectives", icon: "Target", digit: 5 },

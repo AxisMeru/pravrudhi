@@ -567,6 +567,47 @@ PANEL_PARAM_OPT: list[str] = typer.Option(
 )
 app.add_typer(panel_app, name="panel")
 
+nyaya_app = typer.Typer(help="prabhasa-nyaya: a question of Indian law, answered from sources and checked.")
+app.add_typer(nyaya_app, name="nyaya")
+NYAYA_VENDOR_OPT: list[str] = typer.Option(["claude-cli"], "--vendor", help="Repeatable. See `pravrudhi nyaya vendors`.")
+NYAYA_CHECKER_OPT: str | None = typer.Option(None, "--checker", help="A vendor that audits each answer (A1.1 shape).")
+
+
+@nyaya_app.command("vendors")
+def nyaya_vendors_cmd(root: Path = ROOT_OPT) -> None:
+    """Which vendors this install can ask, and why not when it cannot."""
+    from pravrudhi.application.nyaya import available_vendors
+
+    for v in available_vendors(root):
+        typer.echo(f"{v['id']:16s} {v['model']:14s} {'ready' if v['available'] else '-':6s} {v['why'] or ''}")
+
+
+@nyaya_app.command("ask")
+def nyaya_ask_cmd(
+    question: str,
+    vendor: list[str] = NYAYA_VENDOR_OPT,
+    checker: str | None = NYAYA_CHECKER_OPT,
+    root: Path = ROOT_OPT,
+) -> None:
+    """Ask every named vendor, in parallel; every citation is checked against the corpus; the record is written
+    under research/nyaya/asks with provenance agama. A verdict is a check of the answer against the sources it
+    was shown, not a statement about the law."""
+    from pravrudhi.application.nyaya import ask
+
+    rec = ask(root, question, tuple(vendor), checker=checker)
+    typer.echo(f"{rec.id}  sources: {', '.join(s['id'] for s in rec.sources) or 'none'}")
+    for a in rec.answers:
+        head = f"--- {a.vendor} ({a.model})  verdict={a.verdict}  confidence={a.confidence}  {a.wall_s}s"
+        typer.echo(head)
+        if a.error:
+            typer.echo(f"    error: {a.error}")
+            continue
+        typer.echo(a.text)
+        if a.citations:
+            typer.echo("    citations: " + ", ".join(f"{c.id}={c.status}" for c in a.citations))
+        if a.audit:
+            typer.echo(f"    audit[{a.audit.get('checker')}]: {a.audit.get('verdict')} {a.audit.get('class') or ''} {a.audit.get('why') or ''}")
+
 
 @panel_app.command("vendors")
 def panel_vendors_cmd() -> None:

@@ -24,6 +24,7 @@ import {
   Compass,
   Flame,
   Rocket,
+  Scale,
   Search,
   Command,
 } from "lucide-react";
@@ -63,6 +64,7 @@ const PAGE_ICONS: Record<string, ComponentType<{ size?: number; className?: stri
   Compass,
   Flame,
   Rocket,
+  Scale,
 };
 
 const PAGE_ICON_BY_HREF = new Map(PALETTE_PAGES.map((p) => [p.href, PAGE_ICONS[p.icon]]));
