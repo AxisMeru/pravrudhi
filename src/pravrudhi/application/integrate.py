@@ -22,7 +22,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-BUILD_VALIDATE = "uv run ruff check src tests && uv run pytest -q tests"
+# CI runs mypy as well; the loop's first commit that passed ruff and pytest and failed mypy (`60f5a49`, an untyped
+# lambda) went red on main, so the loop proves what CI proves before it commits.
+BUILD_VALIDATE = "uv run ruff check src tests && uv run mypy src && uv run pytest -q tests"
 """What a build-mode agent's worktree must pass before its change is judged, and what the main tree must pass
 after it is integrated. One command for both, so "it passed there" and "it passes here" mean one thing."""
 

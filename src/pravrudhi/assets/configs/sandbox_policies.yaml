@@ -28,7 +28,7 @@ policies:
     tools: ["agent-claude-code", "runtime-uv", "mcp-git"]
     max_wall_s: 3600
     # The same command integrate.BUILD_VALIDATE runs in the main tree after a build-mode merge.
-    validate: "uv run ruff check src tests && uv run pytest -q tests"
+    validate: "uv run ruff check src tests && uv run mypy src && uv run pytest -q tests"
 
   review:
     allowed_paths: []

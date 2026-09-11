@@ -228,7 +228,10 @@ def _evidence_for(run: BuildRun) -> dict[str, Any]:
     said -- never hand-set, the same discipline `inbox_sign.record_decision`'s badge already applies to a
     promotion pack."""
     status = "pass" if run.accepted else "fail"
-    layer = lambda verdict, evidence: {"verdict": verdict, "evidence": evidence}  # noqa: E731
+
+    def layer(verdict: str, evidence: list[str]) -> dict[str, Any]:
+        return {"verdict": verdict, "evidence": evidence}
+
     return {
         "status": status,
         "tier": CARD_TIER,
