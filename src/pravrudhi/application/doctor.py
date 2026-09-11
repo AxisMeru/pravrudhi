@@ -76,10 +76,20 @@ def _telegram_check(root: Path) -> dict[str, Any]:
 
     A ten-second human action, so the detail names it rather than merely reporting a state. Not paired is a
     warning about the install, not a fault in the engine.
+
+    A bot this workspace stored itself through `messaging.set_telegram` (what `pravrudhi messaging set` and
+    `/api/messaging/telegram` both call) is paired from the moment it exists: `set_telegram` refuses a token
+    with no chat id, so a stored bot always has somewhere to deliver. It never touches telegram_inbox's pairing
+    file, which is why `telegram_status` is consulted here rather than only `paired_chat`.
     """
+    from pravrudhi.application.messaging import telegram_status
     from pravrudhi.application.telegram_inbox import paired_chat
 
-    chat = paired_chat(root) or os.environ.get("TELEGRAM_CHAT_ID", "").strip()
+    chat = (
+        telegram_status(root, engine_root=root).chat_id
+        or paired_chat(root)
+        or os.environ.get("TELEGRAM_CHAT_ID", "").strip()
+    )
     if chat:
         return {"name": "telegram", "ok": True, "detail": "Paired: the bot can start a conversation, not only answer."}
     # A workspace with no bot token has no bot, and failing it would make this the check people learn to

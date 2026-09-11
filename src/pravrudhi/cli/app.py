@@ -1664,6 +1664,65 @@ def telegram_poll_cmd(root: Path = ROOT_OPT, json_out: bool = REQUESTS_JSON_OPT)
     typer.echo(json.dumps({"answered": answered}) if json_out else f"answered {answered}")
 
 
+messaging_app = typer.Typer(help="This workspace's own Telegram bot, separate from the engine operator's.")
+app.add_typer(messaging_app, name="messaging")
+MESSAGING_TOKEN_OPT: str | None = typer.Option(
+    None, "--token", help="Bot token from BotFather; stored once, mode 0600, and never read back by any route."
+)
+MESSAGING_CHAT_OPT: str | None = typer.Option(None, "--chat-id", help="Chat id to deliver to.")
+MESSAGING_ENABLED_OPT: bool | None = typer.Option(
+    None, "--enabled/--disabled", help="Turn delivery on or off without discarding the stored credential."
+)
+
+
+@messaging_app.command("status")
+def messaging_status_cmd(root: Path = ROOT_OPT, as_json: bool = REQUESTS_JSON_OPT) -> None:
+    """Whether this workspace has a Telegram bot, whether it is delivering, and where -- never the token
+    (application/messaging.py)."""
+    from dataclasses import asdict
+
+    from pravrudhi.application.messaging import telegram_status
+
+    status = telegram_status(root, engine_root=root)
+    if as_json:
+        typer.echo(json.dumps(asdict(status), sort_keys=True))
+        return
+    if not status.configured:
+        typer.echo("no bot configured for this workspace")
+        return
+    origin = "the engine's own environment" if status.from_environment else "this workspace's stored credential"
+    typer.echo(
+        f"configured via {origin}; {'enabled' if status.enabled else 'disabled'}; chat {status.chat_id or '(none)'}"
+    )
+
+
+@messaging_app.command("set")
+def messaging_set_cmd(
+    token: str | None = MESSAGING_TOKEN_OPT,
+    chat_id: str | None = MESSAGING_CHAT_OPT,
+    enabled: bool | None = MESSAGING_ENABLED_OPT,
+    root: Path = ROOT_OPT,
+) -> None:
+    """Store or amend this workspace's bot. Each argument left out is left alone, so `--disabled` on its own
+    silences delivery without re-sending the token."""
+    from pravrudhi.application.messaging import MessagingError, set_telegram
+
+    try:
+        status = set_telegram(root, token=token, chat_id=chat_id, enabled=enabled)
+    except MessagingError as e:
+        typer.echo(str(e), err=True)
+        raise typer.Exit(code=1) from e
+    typer.echo(f"{'enabled' if status.enabled else 'disabled'}; chat {status.chat_id or '(none)'}")
+
+
+@messaging_app.command("clear")
+def messaging_clear_cmd(root: Path = ROOT_OPT) -> None:
+    """Forget this workspace's bot entirely."""
+    from pravrudhi.application.messaging import clear_telegram
+
+    typer.echo("cleared" if clear_telegram(root) else "no bot was configured for this workspace")
+
+
 @app.command("parity")
 def parity_cmd(
     action: str | None = typer.Argument(None, help="gaps: show rival advantages only"),

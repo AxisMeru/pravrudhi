@@ -263,3 +263,17 @@ class TestTelegramPairing:
 
         monkeypatch.setenv("TELEGRAM_CHAT_ID", "8679892510")
         assert _telegram_check(tmp_path)["ok"]
+
+    def test_a_workspace_bot_stored_through_messaging_set_telegram_counts_as_paired(self, tmp_path, monkeypatch) -> None:
+        """`set_telegram` (what `pravrudhi messaging set` calls) refuses a token with no chat id, so a bot it
+        stores already has somewhere to deliver the moment it exists -- it never touches telegram_inbox's
+        pairing file, which is the only thing the check used to look at. Without this, a workspace that
+        configured its own bot through settings or the CLI read here as having no bot at all."""
+        from pravrudhi.application.doctor import _telegram_check
+        from pravrudhi.application.messaging import set_telegram
+
+        set_telegram(tmp_path, token="123456:ABC-DEF", chat_id="8679892510")
+
+        check = _telegram_check(tmp_path)
+        assert check["ok"] is True
+        assert check["detail"] == "Paired: the bot can start a conversation, not only answer."

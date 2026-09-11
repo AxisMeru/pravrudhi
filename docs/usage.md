@@ -36,11 +36,30 @@ work only inside their own git worktree, a task declares the paths it may touch,
 that declaration or touches the kernel, the ledger, sealed state or the pre-registration files is rejected whole.
 Hosted assistants improve code only; weight-level distillation teachers stay open-weight models.
 
+## Messaging (Telegram)
+
+A workspace can carry its own Telegram bot, separate from the engine operator's own environment credential.
+`pravrudhi messaging set --token <bot-token-from-botfather> --chat-id <chat-id>` stores it: the token is written
+once, mode 0600, and is refused inside a git work tree; a token with no chat id is refused too, because
+configuration that looks complete and delivers nothing is worse than none. `pravrudhi messaging status` reports
+whether a bot is configured, whether it is enabled, and which credential it came from -- the workspace's own or,
+only at the engine's own root, its environment -- without ever printing the token back; add `--json` for the
+same shape `/api/messaging/telegram` returns. `pravrudhi messaging set --disabled` (or `--enabled`) turns
+delivery off or on without discarding the stored credential, and `pravrudhi messaging clear` forgets it
+entirely. See `src/pravrudhi/application/messaging.py` for the boundary this enforces.
+
+`pravrudhi telegram-poll` answers whatever has arrived on the paired chat since the last poll: the slash
+commands `/status`, `/requests`, `/routes`, `/beat`, `/law` and `/help`, plus free text, which is answered
+through the engine's own conversation surface with the same tool access and honesty pass the chat page already
+applies. Only the configured or paired chat is ever obeyed, so a message from anyone else is silence. See
+`src/pravrudhi/application/telegram_inbox.py`.
+
 ## Checking an installation
 
 `pravrudhi doctor` reports whether this installation is ready to run: initialised, ledger chain verifying, docker
-present, at least one sealed pool, pre-registration files in place. It exits non-zero if any check failed, so it
-can gate a script.
+present, at least one sealed pool, pre-registration files in place, and whether this workspace's Telegram bot (if
+any) is paired -- able to message first, not only answer. It exits non-zero if any check failed, so it can gate a
+script.
 
 ## Messages and plugins
 
