@@ -3,29 +3,27 @@
 // Every function here can fail — there may be no engine running, or an endpoint may not exist yet on an
 // older engine build. Callers are expected to handle rejection; nothing here retries or hides a failure.
 
-const LOOPBACK = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
 
 function detectBase(): string {
   const configured = process.env.NEXT_PUBLIC_API_BASE?.replace(/\/+$/, "");
   if (configured) return configured;
-  if (typeof window !== "undefined" && LOOPBACK.has(window.location.hostname)) return "";
-  return "http://localhost:8008";
+  // Served by the engine itself (loopback) the API is same-origin. Served from a hosted origin with no engine
+  // named, there is no engine: same-origin requests answer 404 and the connection banner says so. The page never
+  // reaches for an engine on the visitor's machine (ADR-0051 addendum 2: the web apps are real installs, and a
+  // real install has a hosted engine or none).
+  return "";
 }
 
 // Resolve at request time so static prerendering cannot freeze the browser's base.
 export { detectBase as apiBase };
 
-// Whether this page is a recording rather than a live engine.
+// Whether this page is the recording rather than a live engine.
 //
-// Decided at runtime, from where the page is being served, because that is what actually determines it: a browser
-// blocks a page on a public origin from reaching an engine on the visitor's machine, so a public page trying
-// anyway produces nothing but console errors. A page served by the engine itself is on localhost and is live.
-// NEXT_PUBLIC_DEMO forces the recording on for local preview of the public site.
+// Only the build says so: the Pages site is built with NEXT_PUBLIC_DEMO=1 and is the one recorded demo. Until
+// 2026-09-11 any non-loopback origin was read as the recording, which turned the real web apps on Vercel into
+// copies of the demo the moment they were deployed (ADR-0051 addendum 2: "studio is not a demo").
 function detectDemo(): boolean {
-  if (process.env.NEXT_PUBLIC_DEMO === "1") return true;
-  if (typeof window === "undefined") return false;
-  if (process.env.NEXT_PUBLIC_API_BASE) return false;
-  return !LOOPBACK.has(window.location.hostname);
+  return process.env.NEXT_PUBLIC_DEMO === "1";
 }
 
 export const IS_DEMO = detectDemo();
