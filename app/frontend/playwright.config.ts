@@ -58,9 +58,9 @@ export default defineConfig({
   retries: 1,
   reporter: [["list"]],
   use: {
-    // Studio's public record is the Pages site (ADR-0051); pravrudhi.vercel.app is the product's web door, from
-    // AxisMeru/pravrudhi-app, and no longer serves this frontend.
-    baseURL: process.env.BASE_URL ?? "https://sharathsphd.github.io/pravrudhi/app/",
+    // The recorded demo lives on Pages under the AxisMeru organisation (ADR-0051, addendum 2); the Vercel apps are
+    // real installs and carry no recording.
+    baseURL: process.env.BASE_URL ?? "https://axismeru.github.io/pravrudhi/app/",
     trace: "retain-on-failure",
   },
   projects: [

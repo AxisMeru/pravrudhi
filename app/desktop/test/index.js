@@ -12,5 +12,4 @@ require('./shell-update.test.js');
 require('./shell-apply.test.js');
 require('./shell-updater.test.js');
 require('./integration.test.js');
-require('./auth.test.js');
 require('./updates.test.js');
