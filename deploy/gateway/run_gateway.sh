@@ -34,9 +34,9 @@ origin_of() { case "$1" in studio) echo "$STUDIO_ORIGIN";; product) echo "$PRODU
 
 verify_token() {
   local status
-  status=$(curl -s -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" https://api.cloudflare.com/client/v4/user/tokens/verify \
+  status=$(curl -s -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "$API/tokens/verify" \
     | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["result"]["status"] if d.get("success") else "invalid: " + "; ".join(e["message"] for e in d.get("errors", [])))')
-  [ "$status" = "active" ] || { echo "Cloudflare token in $CONF/cloudflare.env is not usable ($status). It must be an API token (My Profile > API Tokens > Create Token), not the Global API Key, with Workers Scripts:Edit and Workers KV Storage:Edit on the account." >&2; exit 1; }
+  [ "$status" = "active" ] || { echo "Cloudflare token in $CONF/cloudflare.env is not usable ($status). It must be an API token (user- or account-owned; not the Global API Key) with Workers Scripts:Edit and Workers KV Storage:Edit on the account." >&2; exit 1; }
 }
 
 setup() {
