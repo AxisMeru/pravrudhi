@@ -92,3 +92,20 @@ def test_the_engine_does_not_refuse_its_own_interface(tmp_path: Path) -> None:
     assert same_origin("https://evil.example", "127.0.0.1:8008") is False
     assert same_origin("http://127.0.0.1:9999", "127.0.0.1:8008") is False  # a different port is a different origin
     assert same_origin("file://", "127.0.0.1:8008") is False
+
+
+def test_a_browser_preflight_that_names_the_bearer_header_is_allowed(tmp_path: Path, monkeypatch) -> None:
+    """A signed-in web door sends `Authorization: Bearer …` on every call, which makes the browser preflight
+    with that header named; the engine's allow-list once omitted it (and PUT/DELETE), so every authenticated
+    call from https://pravrudhi.vercel.app died at the CORS layer as "Disallowed CORS headers" while anonymous
+    ones passed. Found by the operator on 2026-09-12, the first time anyone signed in through a Worker."""
+    monkeypatch.setenv("PRAVRUDHI_ALLOWED_ORIGINS", "https://pravrudhi.vercel.app")
+    c, _ = _client(tmp_path)
+    for method in ("GET", "POST", "PUT", "DELETE"):
+        r = c.options("/api/state", headers={
+            "origin": "https://pravrudhi.vercel.app",
+            "access-control-request-method": method,
+            "access-control-request-headers": "authorization,content-type",
+        })
+        assert r.status_code == 200, f"{method}: {r.status_code} {r.text}"
+        assert "authorization" in r.headers.get("access-control-allow-headers", "").lower()

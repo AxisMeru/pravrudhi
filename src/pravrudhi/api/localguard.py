@@ -135,8 +135,10 @@ def install(app: FastAPI, root: Path, *, enforce: bool = True) -> None:
     app.add_middleware(
         CORSMiddleware,
         allow_origins=allowed_origins(),
-        allow_methods=["GET", "POST", "OPTIONS"],
-        allow_headers=["content-type", TOKEN_HEADER, "x-pravrudhi-operator"],
+        allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        # `authorization` carries the signed-in user's token from a hosted web door (ADR-0051 addendum 3); a
+        # browser preflights any request that names it, and an allow-list without it refuses every such call.
+        allow_headers=["content-type", "authorization", TOKEN_HEADER, "x-pravrudhi-operator"],
     )
     app.add_middleware(LocalGuard, root=root, enforce=enforce)  # type: ignore[arg-type]
 
