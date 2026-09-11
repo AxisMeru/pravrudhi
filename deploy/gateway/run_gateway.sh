@@ -86,7 +86,7 @@ PIDS=()
 tunnel() {
   local edition=$1 port log url; port=$(port_of "$1"); log="$LOGS/tunnel-$edition.log"
   : > "$log"; cloudflared tunnel --url "http://127.0.0.1:$port" >"$log" 2>&1 & PIDS+=($!)
-  for _ in $(seq 1 30); do url=$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' "$log" | head -1); [ -n "$url" ] && break; sleep 1; done
+  for _ in $(seq 1 30); do url=$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' "$log" | head -1 || true); [ -n "$url" ] && break; sleep 1; done
   [ -n "$url" ] || { echo "no tunnel url for $edition" >&2; exit 1; }
   grep -q "Registered tunnel connection" "$log" || sleep 5
   curl -sf "${auth[@]}" -X PUT "$API/storage/kv/namespaces/$CF_KV_ID/values/engine_url_$edition" --data "$url" >/dev/null
