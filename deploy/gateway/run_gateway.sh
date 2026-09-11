@@ -69,12 +69,14 @@ ensure_engine() {
   if docker ps --format '{{.Names}} {{.Image}}' | grep -q "^$name pravrudhi-engine:$PRAVRUDHI_VERSION$"; then return; fi
   docker rm -f "$name" >/dev/null 2>&1 || true
   mkdir -p "$STATE/$edition"
+  local extra=()
+  [ "$edition" = studio ] && extra=(-e "PRAVRUDHI_ADMINS=$PRAVRUDHI_ADMINS")   # Studio admits only the operator
   docker run -d --name "$name" --restart unless-stopped --memory 3g \
     -p "127.0.0.1:$port:8765" -v "$STATE/$edition:/data" \
     --env-file "$CONF/chat.env" \
     -e PRAVRUDHI_EDITION="$edition" -e SUPABASE_URL="$SUPABASE_URL" \
     -e PRAVRUDHI_ALLOWED_ORIGINS="$(origin_of "$edition")" \
-    ${edition/studio/-e PRAVRUDHI_ADMINS=$PRAVRUDHI_ADMINS} ${edition/product/} \
+    "${extra[@]}" \
     "pravrudhi-engine:$PRAVRUDHI_VERSION" >/dev/null
   for _ in $(seq 1 60); do curl -sf "http://127.0.0.1:$port/api/health" >/dev/null 2>&1 && return; sleep 1; done
   echo "engine $edition did not answer on $port" >&2; docker logs --tail 20 "$name" >&2; exit 1
