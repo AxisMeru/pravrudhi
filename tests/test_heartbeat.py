@@ -878,3 +878,14 @@ class TestDispatchLevelFailureHandling:
         assert heartbeat.attempts(tmp_path, req_id, 0) == 1, \
             "judged rejection must consume an attempt"
         assert result is not None and result.get("judged") == "not met"
+
+
+def test_a_judgement_keeps_enough_of_its_reason_for_the_next_attempt_to_act_on() -> None:
+    """r-1977143a criterion 1 was refused twice on 2026-09-11 and both stored reasons stopped mid-sentence at 300
+    characters, before the part that said what was missing; the next attempt started from a truncated hint."""
+    from pravrudhi.application.heartbeat import _judged
+
+    reason = " ".join(f"point {i} about what the change still lacks." for i in range(40))
+    met, why = _judged(f"VERDICT: not met\n{reason}")
+    assert not met
+    assert len(why) >= 1000 and why.startswith("point 0")

@@ -466,6 +466,12 @@ def _judge_prompt(
     )
 
 
+# How much of the judge's reason is kept for the next attempt to start from. 300 characters cut r-1977143a's two
+# refusals off before the sentence that said what was missing (2026-09-11), so the retry began from a hint that
+# named the strengths and none of the gap.
+_JUDGEMENT_CHARS = 1500
+
+
 def _judged(text: str) -> tuple[bool, str]:
     """Whether the judge said met, fail-closed.
 
@@ -480,9 +486,9 @@ def _judged(text: str) -> tuple[bool, str]:
         low = line.lower().strip("*_`# ").replace("**", "").replace("`", "")
         if low.startswith(_JUDGE_MARKER):
             said = low.split(":", 1)[1].strip(" *_`")
-            reason = " ".join(lines[i + 1:])[:300] or line
+            reason = " ".join(lines[i + 1:])[:_JUDGEMENT_CHARS] or line
             return said.startswith("met"), reason
-    return False, (" ".join(lines)[:300] or "the judge said nothing")
+    return False, (" ".join(lines)[:_JUDGEMENT_CHARS] or "the judge said nothing")
 
 
 def _default_judge(root: Path, *, workspace: Path | None = None) -> Any:
