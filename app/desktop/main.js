@@ -8,7 +8,16 @@ const {createApiClient} = require('./lib/api');
 const {selectConnection, defaultWorkspace} = require('./lib/connection');
 const {createProcessOwner, singleInstance, focusWindow} = require('./lib/lifecycle');
 const {engineEnv, readEdition, userDataName} = require('./lib/edition');
+const {createAuth} = require('./lib/auth');
+const {OAUTH_REDIRECT_PATH} = require('./lib/oauth-constants');
 const edition = readEdition(process.resourcesPath);
+// Product and Studio each get their own callback scheme (matching their own userData directory, see
+// lib/edition.js::userDataName) so a machine with both installed cannot have the OAuth redirect from one
+// delivered to the other.
+const oauthScheme = userDataName(edition);
+if (typeof app.setAsDefaultProtocolClient === 'function') {
+  app.setAsDefaultProtocolClient(oauthScheme, ...(process.defaultApp && process.argv[1] ? [process.execPath, path.resolve(process.argv[1])] : []));
+}
 const {engineMenu, trayState} = require('./lib/menu');
 const {createSmokeReporter} = require('./lib/smoke');
 const {shellIsStale} = require('./lib/updates');
@@ -66,6 +75,22 @@ let status = {phase: 'starting', detail: 'Finding your installed engine…', che
 const api = createApiClient(()=>status.origin);
 const engineController = {restart:()=>serialize(start),stop:()=>serialize(stop),checkForUpdates:updates,openWorkspace:async()=>{ const error = await shell.openPath(workspace); if (error) throw new Error(error); }};
 function persist() { writeState(stateFile, settings); }
+// A redirect can only arrive after the user has clicked "Sign in…" in the menu, which does not exist until
+// app.whenReady() has already loaded `settings` (see below) — so there is no launch-time race to guard against
+// here; a session change simply has nowhere to persist to before that point.
+function persistAuth(value) { if (!settings) return; if (value) settings.auth = value; else delete settings.auth; persist(); }
+const auth = createAuth({redirectUri: `${oauthScheme}://${OAUTH_REDIRECT_PATH}`, onSession: persistAuth});
+async function signInWithBrowser() { const {url} = await auth.beginBrowserSignIn(); await shell.openExternal(url); }
+// The Supabase OAuth redirect the system browser hands back, whichever door it came through: `open-url` is how
+// macOS delivers it to an already-running app, and a launch through the custom protocol on Windows/Linux is
+// instead redirected by the OS into this already-running instance's `second-instance` event (see
+// lib/lifecycle.js::singleInstance), arriving as one more argv entry.
+function deliverAuthRedirect(url) {
+  if (typeof url !== 'string' || !url.startsWith(`${oauthScheme}://`)) return;
+  auth.completeBrowserSignIn(url).then(() => statusScreens()).catch(e => dialog.showErrorBox('Pravrudhi', e.message));
+}
+app.on('open-url', (event, url) => { event.preventDefault(); deliverAuthRedirect(url); });
+app.on('second-instance', (_event, argv) => deliverAuthRedirect(argv.find(a => typeof a === 'string' && a.startsWith(`${oauthScheme}://`))));
 function publish(patch) { status = {...status, ...patch}; refreshTray(); }
 function statusScreens() { for (const w of windows) w.loadFile(statusFile).catch(() => {}); }
 function focus() { focusWindow(windows, createWindow); }
@@ -288,6 +313,7 @@ if (instanceReady) {
   for (const signal of ['SIGINT','SIGTERM']) process.on(signal, () => app.quit());
   app.whenReady().then(async () => {
     stateFile = path.join(app.getPath('userData'), 'desktop-state.json'); settings = readState(stateFile);
+    auth.restore(settings.auth); // a session signed into a previous launch; unusable until its first `token()` refresh
     workspace = defaultWorkspace({env:process.env.PRAVRUDHI_WORKSPACE,saved:settings.workspace,binary:await discoverEngine({saved:settings.enginePath}),home:app.getPath('home')}); settings.workspace = workspace;
     const handlers = {'engine:status':() => ({...status,workspace,shellVersion:app.getVersion(),shellStale:shellIsStale(app.getVersion(),latestTag)}), 'engine:locate':locate,'engine:restart':() => serialize(start),'engine:stop':() => serialize(stop),'engine:doctor':doctor,'engine:updates':updates,'engine:workspace':engineController.openWorkspace, 'engine:health':api.health, 'engine:update-state':api.update, 'engine:open':async()=>{ if (!status.origin) throw new Error('Engine is not connected.'); for (const w of windows) await w.loadURL(status.origin); }};
     for (const [channel, handler] of Object.entries(handlers)) ipcMain.handle(channel, (event) => {
@@ -300,6 +326,7 @@ if (instanceReady) {
       {role:'editMenu'},
       {label:'View',submenu:[{role:'reload'},{role:'resetZoom'},{role:'zoomIn'},{role:'zoomOut'},{type:'separator'},{role:'toggleDevTools'},{role:'togglefullscreen'}]},
       {label:'Engine',submenu:[...engineMenu(engineController,safe),{label:'Connection and diagnostics',click:statusScreens},{label:'Choose workspace…',click:safe(async () => { const r = await dialog.showOpenDialog({properties:['openDirectory']}); if (!r.canceled) { workspace = r.filePaths[0]; settings.workspace = workspace; delete settings.engineURL; persist(); await serialize(start); } })}]},
+      {label:'Account',submenu:[{label:'Sign in…',click:safe(signInWithBrowser)},{label:'Sign out',click:safe(() => auth.signOut())}]},
       {label:'Help',submenu:[{label:'Documentation',click:safe(() => shell.openExternal(docs))},{label:'About Pravrudhi',click:safe(() => dialog.showMessageBox({message:'Pravrudhi',detail:`Desktop ${app.getVersion()}\nEngine ${status.version}\n${status.binary || 'No engine located'}\nWorkspace: ${workspace}`}))}]}
     ]));
     // A bundled, generated bitmap keeps the tray independent of system icon themes.

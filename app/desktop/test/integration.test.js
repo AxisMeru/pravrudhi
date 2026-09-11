@@ -224,6 +224,74 @@ test('main bootstrap attaches, runs doctor, loads the engine and reports before 
   assert.equal(report.page_title,'Engine fixture');assert.equal(report.launched,true);assert.equal(report.health_ok,true);assert.deepEqual(report.errors,[]);
 });
 
+test('main.js registers its OAuth redirect scheme, opens the browser to sign in, and delivers both redirect paths to auth.completeBrowserSignIn',async()=>{
+  const fs=require('node:fs');const vm=require('node:vm');const path=require('node:path');
+  const desktopDir=path.dirname(require.resolve('../main'));
+  const app=new EventEmitter();let report,exited,shutdown=false,registeredScheme,openedUrl,signedOut=false;
+  const completedUrls=[];
+  const exit=new Promise(resolve=>{exited=resolve;});
+  Object.assign(app,{requestSingleInstanceLock:()=>true,setPath(){},getPath:()=>desktopDir,getVersion:()=> 'test-shell',
+    setAsDefaultProtocolClient:(scheme)=>{registeredScheme=scheme;},
+    whenReady:async()=>{},quit:()=>app.emit('before-quit',{preventDefault(){}}),exit:code=>exited(code)});
+  class Window extends EventEmitter {
+    constructor(options) {
+      super();this.webContents=new EventEmitter();
+      Object.assign(this.webContents,{session:{setPermissionRequestHandler(){}},setWindowOpenHandler(){},executeJavaScript:async script=>assert.match(script,/apiReady/),getTitle:()=>this.title});
+    }
+    async loadFile(){this.title='Desktop fixture';this.webContents.emit('did-finish-load');}
+    async loadURL(url){assert.equal(url,'http://127.0.0.1:8008');this.title='Engine fixture';this.webContents.emit('did-finish-load');}
+    // The Windows/Linux redirect delivery for a custom protocol URL arrives on 'second-instance', the same
+    // event lib/lifecycle.js::singleInstance already listens on to refocus the primary window.
+    isMinimized(){return false;} restore(){} show(){} focus(){}
+  }
+  class Tray { on(){} setToolTip(){} setContextMenu(){} }
+  let menuTemplate;
+  const core=require('../lib/core');const lifecycle=require('../lib/lifecycle');
+  const modules={
+    // Only the first buildFromTemplate call is the application menu; refreshTray() (called once the tray exists,
+    // and again on every status change) calls it too, for the tray's own context menu.
+    electron:{app,BrowserWindow:Window,Menu:{buildFromTemplate:items=>{if(!menuTemplate)menuTemplate=items;return items;},setApplicationMenu(){}},Tray,nativeImage:{createFromBitmap(){}},ipcMain:{handle(){}},dialog:{showErrorBox:(_title,message)=>assert.fail(message)},shell:{openExternal:async url=>{openedUrl=url;}},screen:{getAllDisplays:()=>[]}},
+    './lib/core':{...core,discoverEngine:async()=> 'fixture-engine',pollHealth:async()=>({ok:true}),readState:()=>({}),writeState(){}},
+    './lib/connection':{selectConnection:async()=>({attached:true,binary:'fixture-engine',origin:'http://127.0.0.1:8008'}),defaultWorkspace:()=>desktopDir},
+    './lib/api':{createApiClient:()=>({health:async()=>({ok:true,version:'fixture'})})},
+    './lib/smoke':{createSmokeReporter:file=>createSmokeReporter(file,{write:(_file,value)=>{report=value;}})},
+    './lib/lifecycle':{...lifecycle,createProcessOwner:()=>({launch:(_binary,args)=>{
+      assert.equal(args[0],'doctor');const child=new EventEmitter();child.stdout=new EventEmitter();child.stderr=new EventEmitter();
+      queueMicrotask(()=>{child.stdout.emit('data',JSON.stringify({checks:[]}));child.emit('close',0);});return child;
+    },stop:async()=>{},shutdown:async()=>{shutdown=true;}})},
+    // A stand-in for the real PKCE machinery in lib/auth.js, which already has its own unit tests: this test is
+    // only about whether main.js opens the URL that comes back and hands every redirect it receives onward.
+    './lib/auth':{createAuth:()=>({
+      status:()=>({configured:false,user:null}), signIn:async()=>{}, signOut:()=>{signedOut=true;}, token:async()=>null, restore(){},
+      beginBrowserSignIn:async()=>({url:'https://example.com/auth/v1/authorize?x=1'}),
+      completeBrowserSignIn:async(url)=>{completedUrls.push(url);return {user:{id:'u-1'}};},
+    })}
+  };
+  vm.runInNewContext(fs.readFileSync(require.resolve('../main'),'utf8'),{
+    require:name=>modules[name] || (name.startsWith('./') ? require(path.join(desktopDir,name)) : require(name)),
+    __dirname:desktopDir,process:{env:{PRAVRUDHI_DESKTOP_SMOKE:'1'},on(){}},console,Buffer,AbortController,AbortSignal,URL,setTimeout,clearTimeout,
+    fetch:async()=>({ok:true,headers:{get:()=> 'text/html'}})
+  });
+  assert.equal(await exit,0);assert.equal(shutdown,true);
+
+  assert.equal(registeredScheme,'pravrudhi-desktop',"the redirect scheme must match this edition's own userData name");
+  const account=menuTemplate.find(m=>m.label==='Account');
+  assert.ok(account,'no Account menu was built for sign-in/out');
+
+  await account.submenu.find(i=>i.label==='Sign in…').click();
+  assert.equal(openedUrl,'https://example.com/auth/v1/authorize?x=1','sign-in did not open the authorize URL in the system browser');
+
+  app.emit('open-url',{preventDefault(){}},'pravrudhi-desktop://oauth-callback?code=abc&state=s');
+  app.emit('second-instance',{},['electron','.','pravrudhi-desktop://oauth-callback?code=xyz&state=s2']);
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.deepEqual(completedUrls,
+    ['pravrudhi-desktop://oauth-callback?code=abc&state=s','pravrudhi-desktop://oauth-callback?code=xyz&state=s2'],
+    "both the macOS open-url path and the Windows/Linux second-instance argv path must reach completeBrowserSignIn");
+
+  await account.submenu.find(i=>i.label==='Sign out').click();
+  assert.equal(signedOut,true);
+});
+
 test('the product never reaches an operator surface', async () => {
   // The engine splits its routes into the operator's and the product's in src/pravrudhi/api/roles.py, and the
   // desktop application is the product. Naming the forbidden paths here rather than trusting review means a
