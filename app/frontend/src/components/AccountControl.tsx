@@ -26,7 +26,7 @@ export function AccountControl() {
     return (
       <Link
         href="/signin"
-        className="block rounded-md bg-[var(--color-text)] px-3 py-1.5 text-xs font-medium text-[var(--color-background)] hover:opacity-90"
+        className="block rounded-md bg-[var(--color-text)] px-3 py-1.5 text-xs font-medium text-[var(--color-bg)] hover:opacity-90"
       >
         Sign in
       </Link>
@@ -41,7 +41,7 @@ export function AccountControl() {
       <button
         onClick={handleSignOut}
         disabled={isSigningOut}
-        className="rounded-md p-1.5 hover:bg-[var(--color-surface-hover)] disabled:opacity-50"
+        className="rounded-md p-1.5 hover:bg-[var(--color-surface-raised)] disabled:opacity-50"
         aria-label="Sign out"
         title="Sign out"
       >

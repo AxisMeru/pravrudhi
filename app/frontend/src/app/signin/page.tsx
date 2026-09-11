@@ -3,7 +3,13 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { signIn as supabaseSignIn, signUp as supabaseSignUp, currentSession } from "@/lib/auth";
+import {
+  signIn as supabaseSignIn,
+  signUp as supabaseSignUp,
+  currentSession,
+  sendMagicLink,
+  completeMagicLink,
+} from "@/lib/auth";
 
 export default function SignInPage() {
   const router = useRouter();
@@ -15,11 +21,27 @@ export default function SignInPage() {
   const [confirmationMessage, setConfirmationMessage] = useState<string | null>(null);
 
   useEffect(() => {
-    // If already signed in, redirect to home
-    if (currentSession()) {
-      router.push("/");
-    }
+    // A magic link lands here with the session in the URL fragment; finish it, then go home. Otherwise, an
+    // existing session goes home at once.
+    let off = false;
+    completeMagicLink().then((result) => {
+      if (off) return;
+      if (result?.ok || currentSession()) router.push("/");
+      else if (result && !result.ok) setError(result.error);
+    });
+    return () => { off = true; };
   }, [router]);
+
+  async function handleMagicLink() {
+    if (!email) { setError("Enter your email first, then ask for the link."); return; }
+    setError(null);
+    setConfirmationMessage(null);
+    setIsLoading(true);
+    const result = await sendMagicLink(email);
+    if (result.ok) setConfirmationMessage(`A sign-in link is on its way to ${email}. Open it on this device to continue.`);
+    else setError(result.error);
+    setIsLoading(false);
+  }
 
   const isConfigured = !!process.env.NEXT_PUBLIC_SUPABASE_URL;
 
@@ -55,7 +77,7 @@ export default function SignInPage() {
 
   if (!isConfigured) {
     return (
-      <div className="flex h-screen items-center justify-center bg-[var(--color-background)]">
+      <div className="flex h-screen items-center justify-center bg-[var(--color-bg)]">
         <div className="mx-auto w-full max-w-sm space-y-6 px-4">
           <div className="space-y-2">
             <h1 className="text-2xl font-semibold text-[var(--color-text)]">Sign in</h1>
@@ -66,7 +88,7 @@ export default function SignInPage() {
           <div className="space-y-4">
             <Link
               href="/"
-              className="block rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-2 text-center text-sm font-medium text-[var(--color-text)] hover:bg-[var(--color-surface-hover)]"
+              className="block rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-2 text-center text-sm font-medium text-[var(--color-text)] hover:bg-[var(--color-surface-raised)]"
             >
               Back to home
             </Link>
@@ -77,7 +99,7 @@ export default function SignInPage() {
   }
 
   return (
-    <div className="flex h-screen items-center justify-center bg-[var(--color-background)]">
+    <div className="flex h-screen items-center justify-center bg-[var(--color-bg)]">
       <div className="mx-auto w-full max-w-sm space-y-6 px-4">
         <div className="space-y-2">
           <h1 className="text-2xl font-semibold text-[var(--color-text)]">
@@ -138,11 +160,20 @@ export default function SignInPage() {
           <button
             type="submit"
             disabled={isLoading}
-            className="w-full rounded-md bg-[var(--color-text)] px-4 py-2 text-sm font-medium text-[var(--color-background)] hover:opacity-90 disabled:opacity-50"
+            className="w-full rounded-md bg-[var(--color-text)] px-4 py-2 text-sm font-medium text-[var(--color-bg)] hover:opacity-90 disabled:opacity-50"
           >
             {isLoading ? (isSignUp ? "Creating account..." : "Signing in...") : isSignUp ? "Create account" : "Sign in"}
           </button>
         </form>
+
+        <button
+          type="button"
+          onClick={handleMagicLink}
+          disabled={isLoading}
+          className="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-2 text-sm font-medium text-[var(--color-text)] hover:bg-[var(--color-surface-raised)] disabled:opacity-50"
+        >
+          Email me a sign-in link instead
+        </button>
 
         <div className="space-y-3">
           <div className="text-center text-sm text-[var(--color-text-dim)]">
