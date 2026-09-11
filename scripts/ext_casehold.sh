@@ -16,9 +16,13 @@
 #   * the SCORER -- scripts/ext_tasks/casehold_utils.py, an independent implementation of the same
 #     specification, importing neither the harness policy nor the kernel's authoritative scorer.
 #
-# What it cannot carry, and why the number is therefore a LOWER BOUND: `retries`. The harness re-asks when a
-# reply commits to no letter; lm-eval has no equivalent, so an unparsed reply is scored wrong here. Conservative
-# is the safe direction for a claim. `n_samples > 1` is REFUSED rather than approximated.
+# What the lm-eval path cannot carry, and why ITS number is a LOWER BOUND: `retries`. The harness re-asks when
+# a reply commits to no letter; lm-eval has no equivalent, so an unparsed reply is scored wrong there.
+#
+# EXT_RETRIES=1 (2026-09-11, ADR-0048) runs `scripts/ext_casehold_generate.py` instead of lm-eval: the same
+# chat template, temperature, budget and retry-with-feedback loop as docker/jobs/agent_choice.py, scored by the
+# independent external parser. That path measures the SAME harness the loop selected, which the lm-eval path
+# never did -- and that gap is how c-0238's "gain" hid for eighteen days. `n_samples > 1` is REFUSED either way.
 set -euo pipefail
 MODEL="$1"; HARNESS="$2"; LIMIT="${4:-}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -47,6 +51,25 @@ if [[ ! -s "$CSV" ]]; then
   mv "$CSV.part" "$CSV"
 fi
 echo "casehold-test.csv sha256 $(sha256sum "$CSV" | cut -d' ' -f1)"
+
+if [[ "${EXT_RETRIES:-0}" == "1" ]]; then
+  rm -f "$OUT/results.json"
+  docker run --rm --gpus all --user "$(id -u):$(id -g)" \
+    -v "$HFH:/models:ro" -v "$CACHE:/cache:ro" -v "$OUT:/out:rw" -v "$ROOT/scripts:/scripts:ro" \
+    -v "$(cd "$(dirname "$HARNESS")" && pwd):/recipe:ro" \
+    -e HF_HOME=/cache -e HF_HUB_OFFLINE=1 -e TRANSFORMERS_OFFLINE=1 \
+    -e PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
+    pravrudhi/ext-scorers:latest python /scripts/ext_casehold_generate.py \
+      --recipe "/recipe/$(basename "$HARNESS")" --csv /cache/casehold-test.csv --model-dir "$REL" \
+      --output /out/results.json --batch-size "${BATCH:-8}" ${LIMIT:+--limit "$LIMIT"} 2>&1 | grep -vE "Warning|warn" | tail -15
+  python3 - "$OUT/results.json" <<'PY'
+import json, sys
+r = json.load(open(sys.argv[1]))
+print("EXT-RETRIES", {k: (round(v, 4) if isinstance(v, float) else v) for k, v in r["meta"].items()})
+print("retries applied as the recipe states; scored by the independent external parser; the same harness the loop selected.")
+PY
+  exit 0
+fi
 
 TASKS="$OUT/tasks"; mkdir -p "$TASKS"
 cp "$ROOT/scripts/ext_tasks/casehold_utils.py" "$TASKS/"
