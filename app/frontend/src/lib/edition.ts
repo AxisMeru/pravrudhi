@@ -3,7 +3,9 @@
 // itself correctly whoever opened it — including an operator signing in as an ordinary user to see what their
 // own product feels like.
 //
-// The recorded demo is the public site, which nobody is signed in to, so it shows the product.
+// The recorded demo is the public site: a recording of Pravrudhi Studio improving Pravrudhi, so it presents as
+// Studio and shows every page the recording holds. Naming it the product hid the recorded tour, appetite, inbox,
+// requests, candidates and swarm pages behind "Not part of this edition" (found by the deployed e2e, 2026-09-11).
 
 import { apiBase, IS_DEMO } from "@/lib/api";
 
@@ -21,18 +23,33 @@ export const PRODUCT: Edition = {
   tagline: "Improve your own model, agent or app, on your own hardware, while you watch.",
 };
 
-export async function edition(): Promise<Edition> {
-  if (IS_DEMO) return PRODUCT;
+export const RECORDING: Edition = {
+  edition: STUDIO,
+  tagline: "A recording of Pravrudhi Studio improving Pravrudhi, published from its own ledger.",
+};
+
+/**
+ * The edition the engine actually reported, or null when nothing did: the recorded site (no engine), an engine
+ * that answered anything but 200, or one that could not be reached. Callers that must not mistake silence for
+ * an answer (the page gate) read this; callers that only need a name to print read `edition()`.
+ */
+export async function knownEdition(): Promise<Edition | null> {
+  if (IS_DEMO) return null;
   try {
     const res = await fetch(`${apiBase()}/api/me`, { cache: "no-store" });
-    if (!res.ok) return PRODUCT;
+    if (!res.ok) return null;
     const body = (await res.json()) as Partial<Edition>;
     return {
       edition: body.edition || PRODUCT.edition,
       tagline: body.tagline || PRODUCT.tagline,
     };
   } catch {
-    // An engine that cannot be reached is not a reason to show no name at all.
-    return PRODUCT;
+    return null;
   }
+}
+
+export async function edition(): Promise<Edition> {
+  if (IS_DEMO) return RECORDING;
+  // An engine that cannot be reached is not a reason to show no name at all.
+  return (await knownEdition()) ?? PRODUCT;
 }

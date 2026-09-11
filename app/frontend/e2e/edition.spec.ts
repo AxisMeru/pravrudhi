@@ -60,3 +60,20 @@ test("Studio's admin routes answer 404 on a product install and JSON on Studio",
   if (studio) expect([200, 401, 403]).toContain(parity.status());
   else expect(parity.status(), "a product install does not have this surface").toBe(404);
 });
+
+test("a product install's pages make no request the engine refuses", async ({ page, request }) => {
+  const studio = (await editionOf(request)) === "Pravrudhi Studio";
+  test.skip(studio, "Studio may ask for its own surfaces");
+  const failed: string[] = [];
+  page.on("response", (r) => {
+    if (r.status() >= 400) failed.push(`${r.status()} ${new URL(r.url()).pathname}`);
+  });
+  for (const [path, heading] of EVERY_EDITION) {
+    await page.goto(path);
+    await expect(page.locator("main").getByRole("heading", { name: heading, exact: true }).first()).toBeVisible();
+    await page.waitForTimeout(800);
+  }
+  // Found 2026-09-11 by the product repository's own e2e: the sidebar asked /api/inbox and /api/requests on every
+  // page and settings asked /api/agents, all 404 on a product install, so every product page logged errors.
+  expect(failed, "no request a product page makes may be refused by a product engine").toEqual([]);
+});

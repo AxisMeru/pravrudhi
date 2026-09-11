@@ -14,6 +14,7 @@ import {
   type RunHandle,
 } from "./api";
 import { candidatesList, type Candidate } from "./candidates";
+import { knownEdition, STUDIO } from "./edition";
 import { percent } from "./num";
 
 // A percentage already screened by lib/num.ts's `percent`, with an explicit sign prepended -- every delta this
@@ -224,10 +225,14 @@ function runPolicyFor(run: RunHandle | undefined): string | null {
 }
 
 export async function modelCards(): Promise<ModelCard[]> {
+  // /api/candidates and /api/external are Studio's (api/roles.py ADMIN_ONLY): a product engine answers 404 to
+  // both, and the join below already degrades to the metrics /api/models carries, so a product install is not
+  // asked -- two refused requests on every visit to /models was the only effect (edition e2e, 2026-09-11).
+  const studio = (await knownEdition())?.edition === STUDIO;
   const [promoted, candidates, externalRows, runRows] = await Promise.all([
     fetchModels(),
-    candidatesList().catch(() => [] as Candidate[]),
-    external().catch(() => [] as ExternalRow[]),
+    studio ? candidatesList().catch(() => [] as Candidate[]) : Promise.resolve([] as Candidate[]),
+    studio ? external().catch(() => [] as ExternalRow[]) : Promise.resolve([] as ExternalRow[]),
     fetchRuns().catch(() => [] as RunHandle[]),
   ]);
 

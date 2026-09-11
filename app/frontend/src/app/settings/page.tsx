@@ -24,6 +24,7 @@ import {
   type UpdateStatus,
 } from "@/lib/api";
 import { PageHeader } from "@/components/PageHeader";
+import { edition, STUDIO } from "@/lib/edition";
 
 interface RowState {
   pending: boolean;
@@ -461,7 +462,10 @@ export default function SettingsPage() {
 
   useEffect(() => {
     let cancelled = false;
-    agents()
+    // Coding agents are Studio's; on a product install /api/agents answers 404, so ask the edition first and
+    // show the honest "not here" state instead of a failed request on every visit.
+    edition()
+      .then((e) => (e.edition === STUDIO ? agents() : Promise.reject(new Error("not this edition"))))
       .then((data) => {
         if (!cancelled) setRows(data);
       })

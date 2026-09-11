@@ -42,6 +42,22 @@ Hosted assistants improve code only; weight-level distillation teachers stay ope
 present, at least one sealed pool, pre-registration files in place. It exits non-zero if any check failed, so it
 can gate a script.
 
+## Messages and plugins
+
+The engine can talk to you on Telegram and can draw on tools, connectors and plugins installed on the machine.
+Both are ordinary commands, not internal modules.
+
+* `pravrudhi telegram-poll` reads the messages a paired Telegram bot has received and answers them from the
+  engine's own state (`application/telegram_inbox.py`); the network cannot ask the engine to do anything it does
+  not already do. The first message you send the bot pairs it and records the chat, after which the engine can
+  start a conversation rather than only answer one. Studio's bot is the operator's; a product install
+  configures its own bot in settings, where the token is stored like a provider key (`application/messaging.py`),
+  and the chat id and the on/off switch are ordinary settings.
+* `pravrudhi doctor` includes a `telegram` check: paired, or no token configured here (so nothing to pair), or
+  a token without a paired chat with the step that pairs it.
+* `pravrudhi tools [--category ...]` lists the tools, connectors and plugins this engine can draw on and which
+  of them are installed here (`application/tools.py`).
+
 ## Sign-off and export
 
 Promotion to incumbent inside a night is automatic and reversible by replay; merging an adapter into base weights, or shipping it, is a human act. Sign a pack through the API with the `X-Pravrudhi-Operator` header (agent identities are refused) or a gate with `pravrudhi gate sign`, then `pravrudhi export <dir>` copies the green adapter with a provenance manifest naming the candidate, the ledger head and the adapter hash.

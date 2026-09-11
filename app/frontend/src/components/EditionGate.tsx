@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
-import { edition, STUDIO } from "@/lib/edition";
+import { knownEdition, STUDIO } from "@/lib/edition";
 import { isStudioOnlyHref } from "@/lib/palette";
 
 /**
@@ -20,8 +20,10 @@ export function EditionGate({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     let off = false;
-    edition()
-      .then((e) => !off && setIsStudio(e.edition === STUDIO))
+    // `edition()` answers "product" for an unreachable engine so a name is always printed; the gate must not,
+    // so it reads only what the engine actually reported and stays open on silence.
+    knownEdition()
+      .then((e) => !off && setIsStudio(e === null ? null : e.edition === STUDIO))
       .catch(() => !off && setIsStudio(null));
     return () => {
       off = true;

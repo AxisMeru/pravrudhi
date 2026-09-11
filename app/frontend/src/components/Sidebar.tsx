@@ -95,6 +95,9 @@ export function Sidebar() {
   }, [pathname]);
 
   useEffect(() => {
+    // The inbox and requests badges are Studio's; a product install answers 404 to both routes, and asking on
+    // every page put two console errors on every product page (found by the product's own e2e, 2026-09-11).
+    if (whoami.edition !== STUDIO) return;
     let cancelled = false;
     inbox()
       .then((items) => {
@@ -113,7 +116,7 @@ export function Sidebar() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [whoami.edition]);
 
   return (
     <>
