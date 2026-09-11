@@ -639,6 +639,40 @@ def _triage_complete(root: Path) -> Callable[[str], str] | None:
             )
             return str(result.text)
 
+        # Reachability is checked HERE, not on first use: an unreachable endpoint used to make `decompose_ask`
+        # return [] on every ask, which the caller could not tell from "the model read it and found nothing",
+        # so every prose ask got the verbatim fallback and the fleet's own seats were never asked.
+        client.chat([{"role": "user", "content": "reply with the single word ok"}], temperature=0.0, max_tokens=4)
+        return complete
+    return _fleet_complete(root)
+
+
+#: The seats triage may fall back to when no chat endpoint answers, in order. The loop's own CLI seats can
+#: decompose an ask as well as a hosted model can, and the operator asked that the fleet be used.
+_TRIAGE_VENDORS: tuple[str, ...] = ("claude-cli", "codex-cli")
+
+
+def _fleet_complete(root: Path) -> Callable[[str], str] | None:
+    """Decompose through the first CLI seat that is installed, or `None` when there is none.
+
+    Only for an initialised workspace: a bare directory (every test's `tmp_path`) has no fleet, and a triage
+    that phoned a real seat from a unit test would spend the operator's quota on "step up to bigger things".
+    """
+    if not (Path(root) / ".pravrudhi" / "config.yaml").exists():
+        return None
+    with contextlib.suppress(Exception):
+        from pravrudhi.application import nyaya, panel
+
+        ready = [v["id"] for v in nyaya.available_vendors(root, _TRIAGE_VENDORS) if v["available"]]
+        if not ready:
+            return None
+        vendor = panel.VENDORS[ready[0]]
+
+        def complete(prompt: str) -> str:
+            text = panel.ask_vendor(vendor, prompt + "\n\nReply with the JSON object only.").text
+            start, end = text.find("{"), text.rfind("}")
+            return text[start : end + 1] if start >= 0 and end > start else text
+
         return complete
     return None
 
@@ -677,9 +711,119 @@ def _beat_triage(root: Path, *, complete: Callable[[str], str] | None = None) ->
     )
 
 
+def build_paths_for(text: str) -> tuple[str, ...]:
+    """Extract repository paths from criterion text and widen to directory globs.
+
+    Returns paths under allowed prefixes (src/, tests/, app/frontend/src/, scripts/, docs/, configs/, plugin/),
+    widened to their directory glob. Returns () if any named path is under protected prefixes.
+
+    Recognized forms:
+    - Backticked paths: `src/foo.py` -> src/*
+    - Bare filenames: "update utils.py" (under allowed dirs)
+    - tests/* is always included
+    """
+    from pravrudhi.application.selfbuild import PROTECTED_PREFIXES
+
+    if not text or not text.strip():
+        return ()
+
+    # Extract backticked paths
+    backticked = re.findall(r'`([^`]+)`', text)
+
+    # Also look for bare Python/TypeScript/shell/yaml/markdown file references
+    # This is more forgiving to capture mentions like "update handler.py" or "create test_foo.py"
+    bare_files = re.findall(r'\b([\w_-]+\.(?:py|ts|tsx|sh|yaml|yml|md))\b', text)
+
+    all_paths = list(backticked) + list(bare_files)
+
+    # Check if any path is under protected prefixes
+    for path in all_paths:
+        if any(path.startswith(prefix) for prefix in PROTECTED_PREFIXES):
+            return ()
+
+    # Widen paths to directory globs and normalize
+    widened: set[str] = set()
+
+    for path in all_paths:
+        path = path.strip()
+        if not path:
+            continue
+
+        # If it's a file, widen to directory
+        if "/" in path or "." in path:
+            parts = path.split("/")
+            if parts[0] in ("src", "tests", "app", "scripts", "docs", "configs", "plugin"):
+                widened.add(f"{parts[0]}/*")
+            elif path.startswith("app/frontend/"):
+                widened.add("app/frontend/src/*")
+        else:
+            # Bare filename - try to infer from context or add tests
+            if path.endswith(".py"):
+                widened.add("src/*")
+            elif path.startswith("test"):
+                widened.add("tests/*")
+
+    # Always include tests
+    widened.add("tests/*")
+
+    return tuple(sorted(widened))
+
+
+_BUILD_TIER = "design"
+"""Real code is design-tier work: the routing table names the seats that may write it."""
+
+from pravrudhi.application.integrate import BUILD_VALIDATE  # noqa: E402  one command for worktree and main tree
+
+
+def _build_prompt(request_text: str, criterion_text: str, paths: tuple[str, ...], validate: str, *, prior: str = "") -> str:
+    fell_short = f"A previous attempt was judged NOT to meet this criterion because: {prior}\n\n" if prior else ""
+    return (
+        f"Operator request (verbatim): {request_text}\n\n"
+        f"Acceptance criterion to deliver: {criterion_text}\n\n"
+        f"{fell_short}"
+        "You are MAKING this change in the engine's own source, not proposing it. House rules: a failing test "
+        "first, then the change; constants in configs/ or an existing constants module, never magic numbers in "
+        "code; Sanskrit primary keys in identifiers where the module already uses them; no new dependencies. "
+        "You may write only under: " + ", ".join(paths) + ". You may never write under pravrudhi_kernel/, "
+        "research/, gates/ or .pravrudhi/, and no number you state may be presented as a result. "
+        f"Before you finish, `{validate}` must pass in your worktree. Do not commit."
+    )
+
+
+def dispatch_mode(criterion: requests.Criterion) -> str:
+    """Determine dispatch mode: 'build' or 'proposal' (default).
+
+    Returns 'build' when:
+    - criterion.mode is explicitly set to "build", OR
+    - criterion.mode is unset (defaults to "proposal") AND build_paths_for returns non-empty
+      AND the text names a code file (.py, .ts, .tsx, .sh, .yaml, .md)
+
+    Otherwise returns 'proposal'.
+    """
+    # Explicit build mode always uses build
+    if criterion.mode == "build":
+        return "build"
+
+    # Auto-detect: check if paths are named and file is a code file
+    paths = build_paths_for(criterion.text)
+    if not paths:
+        return "proposal"
+
+    # Check if text mentions code files
+    code_extensions = r'\.(py|ts|tsx|sh|yaml|yml|md)\b'
+    if re.search(code_extensions, criterion.text):
+        return "build"
+
+    return "proposal"
+
+
 def _beat_obligations(root: Path, dispatch: DispatchFn | None, *, judge: Any = None) -> ActionResult:
     """`seva` (obligations): the oldest unmet request criterion (`requests.next_unmet`), dispatched through the
-    swarm exactly like a capability step, scoped to its own proposal scratch directory under `proposals/requests/`."""
+    swarm exactly like a capability step, scoped to its own proposal scratch directory under `proposals/requests/`.
+
+    When a criterion is in 'build' mode, it is dispatched with allowed_paths set to the paths the criterion
+    names, under the 'selfbuild' sandbox policy. On MET, the worktree is integrated into the main tree,
+    validated, and committed. On validation failure or conflict, files are restored and the criterion stays unmet."""
     owed = requests.next_obligation(root)
     if owed is None:
         return _beat_triage(root)
@@ -694,9 +838,13 @@ def _beat_obligations(root: Path, dispatch: DispatchFn | None, *, judge: Any = N
         # is not a heartbeat. So the gate runs here.
         return _beat_completion_gate(root, str(owed["request"]))
     if owed["kind"] == "parked_request":
-        # Every unmet criterion on the stalest request has spent its attempt budget. There is nothing to
-        # dispatch and nothing to advance: saying so is the work. `watchdog._parked_criteria` reports the same
-        # state to `pravrudhi watch`, so this is visible from both surfaces rather than only in a beat log.
+        # Every unmet criterion on every request WITH criteria has spent its attempt budget. That is not the
+        # same as nothing to do: an ask with no criteria is invisible to `next_obligation`, and on 2026-09-11
+        # ninety of them sat captured while both loops reported the same parked request every hour for five
+        # hours with `looked_at: []`. Giving one of them criteria is work this beat can do; only when there is
+        # none left is "parked" the whole truth. `watchdog._parked_criteria` still reports the parked state.
+        if requests.untriaged(root):
+            return _beat_triage(root)
         return (
             {"request": str(owed["request"])},
             f"{owed['request']} is parked: {owed['description']}",
@@ -737,18 +885,36 @@ def _beat_obligations(root: Path, dispatch: DispatchFn | None, *, judge: Any = N
             {"kind": "stalled", "request": request.id, "criterion": index,
              "attempts": attempts(root, request.id, index), "criterion_text": criterion.text[:300]},
         )
-    scratch = _obligation_scratch(request.id, index)
-    (root / scratch).mkdir(parents=True, exist_ok=True)
-    validate = f'test -n "$(ls -A {scratch})" && uv run python -m compileall -q {scratch}'
-    spec = TaskSpec(
-        task_id=f"request:{request.id}:{index}",
-        prompt=_obligation_prompt(request.text, criterion.text, scratch, validate,
-                                  prior=_last_judgement(root, request.id, index)),
-        allowed_paths=(f"{scratch}/*",),
-        validate=validate,
-    )
-    task = swarm.SwarmTask(spec, _OBLIGATION_TIER, why=f"oldest unmet criterion of request {request.id}")
-    scoped = replace(task, spec=apply_policy(task.spec, policy_for("proposal")))
+    mode = dispatch_mode(criterion)
+    task_id = f"request:{request.id}:{index}"
+    if mode == "build":
+        # The change itself, in the agent's own worktree under selfbuild's write policy, validated by the
+        # engine's own tests. Until 2026-09-11 every obligation went the proposal way below, so the swarm could
+        # only ever write a README while the gate judged the operator's actual ask -- the structural reason the
+        # gate refused what the swarm accepted, twelve dispatches running.
+        paths = build_paths_for(criterion.text)
+        spec = TaskSpec(
+            task_id=task_id,
+            prompt=_build_prompt(request.text, criterion.text, paths, BUILD_VALIDATE,
+                                 prior=_last_judgement(root, request.id, index)),
+            allowed_paths=paths,
+            validate=BUILD_VALIDATE,
+        )
+        task = swarm.SwarmTask(spec, _BUILD_TIER, why=f"oldest unmet criterion of request {request.id} (build)")
+        scoped = replace(task, spec=apply_policy(task.spec, policy_for("selfbuild")))
+    else:
+        scratch = _obligation_scratch(request.id, index)
+        (root / scratch).mkdir(parents=True, exist_ok=True)
+        validate = f'test -n "$(ls -A {scratch})" && uv run python -m compileall -q {scratch}'
+        spec = TaskSpec(
+            task_id=task_id,
+            prompt=_obligation_prompt(request.text, criterion.text, scratch, validate,
+                                      prior=_last_judgement(root, request.id, index)),
+            allowed_paths=(f"{scratch}/*",),
+            validate=validate,
+        )
+        task = swarm.SwarmTask(spec, _OBLIGATION_TIER, why=f"oldest unmet criterion of request {request.id}")
+        scoped = replace(task, spec=apply_policy(task.spec, policy_for("proposal")))
     build_agent = dispatch or _default_build_agent(root)
     # H4: Do NOT record attempt before dispatch. Dispatch-level failures (validation, workspace race)
     # return before judge runs and must not consume a judged attempt.
@@ -786,6 +952,23 @@ def _beat_obligations(root: Path, dispatch: DispatchFn | None, *, judge: Any = N
     result["judged"] = "met" if met else "not met"
     result["judgement"] = why
     if met:
+        result["mode"] = mode
+        if mode == "build":
+            # Met in the worktree is not met in the tree the operator runs. Integration merges the agent's
+            # branch three-way, validates in the main tree, commits as the house identity and records the
+            # commit as the evidence; a conflict or a failing validate leaves the criterion unmet with a note.
+            from pravrudhi.agents.base import GitWorktreeMixin
+            from pravrudhi.application import integrate
+
+            worktree = root / ".worktrees" / f"agent-{GitWorktreeMixin.ref_safe(task_id)}"
+            outcome = integrate.integrate_build_criterion(
+                root, {task_id: worktree}, request.id, index, validate=BUILD_VALIDATE,
+            )
+            result["integration"] = outcome.to_dict()
+            if not outcome.ok:
+                return chose, f"request {request.id} criterion {index} judged met but not integrated: {outcome.why}", result
+            clear_attempts(root, request.id, index)
+            return chose, f"request {request.id} criterion {index} is met and integrated as {outcome.commit}: {why}", result
         requests.meet(root, request.id, index,
                       [requests.Evidence(kind="file", ref=f, note="produced for this criterion")
                        for f in verdict.files])

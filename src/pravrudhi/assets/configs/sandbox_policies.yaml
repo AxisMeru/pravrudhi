@@ -18,12 +18,17 @@ policies:
     validate: "uv run python -m compileall -q ."
 
   selfbuild:
-    allowed_paths: ["src/pravrudhi/**", "tests/**"]
+    # Everything the engine is made of except the kernel, the evidence and its operational state (those are
+    # merged in as denied whatever is written here). Widened 2026-09-11 from src+tests when build-mode
+    # obligations began dispatching through this policy: a criterion about the interface, a script or a config
+    # is real work too, and confining it to src/ would have produced README proposals for the rest.
+    allowed_paths: ["src/pravrudhi/**", "tests/**", "app/frontend/src/**", "scripts/**", "docs/**", "configs/**", "plugin/**"]
     denied_paths: []
     network: provider-only
     tools: ["agent-claude-code", "runtime-uv", "mcp-git"]
     max_wall_s: 3600
-    validate: "uv run pytest -q"
+    # The same command integrate.BUILD_VALIDATE runs in the main tree after a build-mode merge.
+    validate: "uv run ruff check src tests && uv run pytest -q tests"
 
   review:
     allowed_paths: []

@@ -116,7 +116,7 @@ const SANDBOX_POLICIES: SandboxPolicy[] = [
   },
   {
     id: "selfbuild",
-    allowed_paths: ["src/pravrudhi/**", "tests/**"],
+    allowed_paths: ["src/pravrudhi/**", "tests/**", "app/frontend/src/**", "scripts/**", "docs/**", "configs/**", "plugin/**"],
     denied_paths: [...ALWAYS_DENIED],
     network: "provider-only",
     tools: ["agent-claude-code", "runtime-uv", "mcp-git"],

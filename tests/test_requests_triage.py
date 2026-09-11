@@ -106,6 +106,19 @@ class TestTheBeatTriages:
         assert triaged is not None and len(triaged.criteria) == 2
         assert requests.next_unmet(tmp_path) is not None, "the next beat can now pick this up"
 
+    def test_a_parked_request_does_not_hide_the_captured_asks_behind_it(self, tmp_path: Path) -> None:
+        """Both loops chose the same parked request every hour for five hours with `looked_at: []` while
+        ninety captured asks had no criteria: `parked_request` returned before triage was reached."""
+        from pravrudhi.application import heartbeat
+
+        parked = capture(tmp_path, "the parked one", criteria=[Criterion(text="a thing", source="operator")])
+        for _ in range(heartbeat.MAX_CRITERION_ATTEMPTS):
+            heartbeat.record_attempt(tmp_path, parked.id, 0)
+        fresh = capture(tmp_path, "1)wire the sidebar 2)say what changed")
+        chose, reason, result = heartbeat._beat_obligations(tmp_path, lambda _t: "")
+        assert result is not None and result["kind"] == "triage" and chose == {"request": fresh.id}, reason
+        assert len(get(tmp_path, fresh.id).criteria) == 2
+
     def test_a_workspace_with_no_requests_still_reports_nothing_owed(self, tmp_path: Path) -> None:
         from pravrudhi.application import heartbeat
 
@@ -163,16 +176,26 @@ class TestDecomposeAsk:
 
         assert requests.decompose_ask("do the thing", complete=complete) == []
 
-    def test_an_unusable_answer_drafts_nothing_rather_than_raising(self) -> None:
+    def test_an_unusable_answer_is_no_reading_rather_than_an_empty_one(self) -> None:
+        """`None`, not `[]`: garbage is not a model saying the ask names nothing."""
         for answer in ("not json at all", "{}", '{"criteria": "not a list"}', ""):
-            assert requests.decompose_ask("do the thing", complete=lambda _p, a=answer: a) == []
+            assert requests.decompose_ask("do the thing", complete=lambda _p, a=answer: a) is None
 
-    def test_a_model_that_fails_drafts_nothing_rather_than_raising(self) -> None:
+    def test_a_model_that_fails_is_no_reading_rather_than_raising(self) -> None:
         """An unreachable endpoint must not stop a beat; the verbatim fallback still applies."""
         def complete(_prompt: str) -> str:
             raise OSError("no chat model answered")
 
-        assert requests.decompose_ask("do the thing", complete=complete) == []
+        assert requests.decompose_ask("do the thing", complete=complete) is None
+
+    def test_an_ask_a_model_finds_non_actionable_is_declined_not_drafted_verbatim(self, tmp_path: Path) -> None:
+        """A pasted bot-provisioning reply and a forwarded Telegram echo each became a criterion three agents
+        were paid to attempt. When a model has read the ask and named nothing, the record says so."""
+        r = capture(tmp_path, "Done! Congratulations on your new bot. You will find it at t.me/example_bot.")
+        triaged = triage(tmp_path, r.id, complete=lambda _p: json.dumps({"criteria": ["be better"]}))
+        assert triaged is not None and triaged.state == "declined" and triaged.criteria == []
+        assert "names nothing" in triaged.notes[-1]["note"]
+        assert requests.untriaged(tmp_path) == [], "a declined ask is no longer owed"
 
     def test_the_ask_is_quoted_to_the_model_verbatim(self) -> None:
         seen: list[str] = []
@@ -249,14 +272,27 @@ class TestTheBeatUsesAModelForProse:
         _chose, _reason, result = heartbeat._beat_triage(tmp_path, complete=None)
         assert result is not None and result["criteria"] == [ask]
 
-    def test_the_engine_builds_a_real_chat_seat_for_triage(self, tmp_path: Path) -> None:
+    def test_the_engine_builds_a_real_chat_seat_for_triage(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """`_triage_complete` returning `None` is a legitimate outcome, which meant a coding error inside it
         looked exactly like an unconfigured endpoint: a `NameError` for a missing import was swallowed and the
         fallback test passed for the wrong reason. So the seat itself is asserted, not only the fallback."""
         from pravrudhi.application import heartbeat
+        from pravrudhi.models import openai_compat
 
+        class _Reachable:
+            def __init__(self, *a: object, **k: object) -> None:
+                pass
+
+            def chat(self, *a: object, **k: object) -> object:
+                return type("R", (), {"text": '{"criteria": ["`x.py` exists"]}'})()
+
+        # The seat is asked for a one-word reply when it is built, so an unconfigured or dead endpoint yields
+        # `None` here (and the fleet, on an initialised workspace) rather than a callable that fails later.
+        assert heartbeat._triage_complete(tmp_path) is None, "a bare directory has no seat and no fleet"
+        monkeypatch.setattr(openai_compat, "ChatClient", _Reachable)
         built = heartbeat._triage_complete(tmp_path)
         assert built is not None and callable(built), "a suppressed exception must not hide a broken seat"
+        assert "x.py" in built("anything")
 
 
 class TestParkedIsNotDelivered:

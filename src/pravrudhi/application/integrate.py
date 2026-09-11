@@ -15,10 +15,16 @@ file and which tasks disagree, rather than picking a winner and hoping.
 
 from __future__ import annotations
 
+import contextlib
+import os
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+BUILD_VALIDATE = "uv run ruff check src tests && uv run pytest -q tests"
+"""What a build-mode agent's worktree must pass before its change is judged, and what the main tree must pass
+after it is integrated. One command for both, so "it passed there" and "it passes here" mean one thing."""
 
 # Build products and local state: an agent may write them, but they are never carried back into the main tree.
 NEVER_INTEGRATE = (
@@ -121,4 +127,94 @@ def integrate(root: Path, worktrees: dict[str, Path], *, dry_run: bool = False) 
     return result
 
 
-__all__ = ["FileChange", "Integration", "NEVER_INTEGRATE", "changed_files", "integrate", "survey"]
+@dataclass
+class BuildOutcome:
+    """What integrating one build-mode criterion did to the main tree."""
+
+    ok: bool
+    why: str
+    commit: str = ""
+    files: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"ok": self.ok, "why": self.why, "commit": self.commit, "files": self.files}
+
+
+COMMIT_IDENTITY = {"GIT_AUTHOR_NAME": "SharathSPhD", "GIT_AUTHOR_EMAIL": "qbz506@york.ac.uk",
+                   "GIT_COMMITTER_NAME": "SharathSPhD", "GIT_COMMITTER_EMAIL": "qbz506@york.ac.uk"}
+"""The house identity (CLAUDE.md). The message names the loop and the criterion, so a reader can always tell a
+loop-built commit from one a person wrote; no trailer, which .githooks/commit-msg enforces."""
+
+
+def _restore(root: Path, files: list[str]) -> None:
+    """Put ONLY the integrated files back. Never `reset --hard`: the main checkout may carry a person's
+    uncommitted work in other files, and a loop that wiped it to undo its own change would be worse than the
+    failure it was undoing."""
+    # `git apply --3way` writes the index as well as the tree (conflict stages included), so a plain
+    # `checkout --` would restore the NEW content from the index. Unstage first, then take HEAD's bytes.
+    _git(root, "reset", "-q", "--", *files)
+    tracked = [f for f in files if _git(root, "cat-file", "-e", f"HEAD:{f}").returncode == 0]
+    if tracked:
+        _git(root, "checkout", "HEAD", "--", *tracked)
+    for f in files:
+        if f not in tracked:
+            with contextlib.suppress(OSError):
+                (root / f).unlink()
+
+
+def integrate_build_criterion(
+    root: Path, task_id_to_worktree: dict[str, Path], request_id: str, criterion_index: int,
+    *, validate: str = BUILD_VALIDATE,
+) -> BuildOutcome:
+    """Bring a build-mode criterion's worktree into the main tree, prove it there, and commit it as evidence.
+
+    Three-way merge (a conflict stops everything and is noted), then `validate` in the main tree (a failure
+    restores exactly the integrated files and is noted), then a commit of exactly those files whose sha becomes
+    the criterion's evidence. Nothing is pushed: pushing stays a milestone act, so a loop-built commit that
+    turns out wrong is reversible locally.
+    """
+    from pravrudhi.application import delegate, requests
+
+    root = Path(root)
+    files = sorted({f for wt in task_id_to_worktree.values() if wt.exists() for f in changed_files(wt)})
+    if not files:
+        return BuildOutcome(False, "the worktree changed nothing")
+    result = integrate(root, task_id_to_worktree)
+    if not result.ok:
+        why = "integration conflict: " + "; ".join(result.conflicts[:3])
+        _restore(root, files)
+        requests.note(root, request_id, why)
+        return BuildOutcome(False, why, files=files)
+    ok, output = delegate.validate_in(root, validate)
+    if not ok:
+        _restore(root, files)
+        why = "validate failed in the main tree after integration: " + " ".join(output.split())[-500:]
+        requests.note(root, request_id, why)
+        return BuildOutcome(False, why, files=files)
+    req = requests.get(root, request_id)
+    if req is None or criterion_index >= len(req.criteria):
+        _restore(root, files)
+        return BuildOutcome(False, f"no criterion {criterion_index} on {request_id}", files=files)
+    head = req.criteria[criterion_index].text[:60].replace("\n", " ")
+    message = f"{head} (request {request_id} criterion {criterion_index}, built by the loop under ADR-0040)"
+    _git(root, "add", "--", *files)
+    committed = subprocess.run(
+        ["git", "commit", "-q", "-m", message, "--", *files],
+        cwd=root, capture_output=True, text=True, env={**os.environ, **COMMIT_IDENTITY},
+    )
+    if committed.returncode != 0:
+        _git(root, "reset", "-q", "--", *files)
+        _restore(root, files)
+        why = "commit refused: " + committed.stderr.strip()[-300:]
+        requests.note(root, request_id, why)
+        return BuildOutcome(False, why, files=files)
+    sha = _git(root, "rev-parse", "HEAD").stdout.strip()
+    requests.meet(root, request_id, criterion_index,
+                  [requests.Evidence(kind="commit", ref=sha, note=f"built by the loop; files: {', '.join(files[:8])}")])
+    return BuildOutcome(True, "integrated, validated and committed", commit=sha, files=files)
+
+
+__all__ = [
+    "BUILD_VALIDATE", "BuildOutcome", "COMMIT_IDENTITY", "FileChange", "Integration", "NEVER_INTEGRATE",
+    "changed_files", "integrate", "integrate_build_criterion", "survey",
+]

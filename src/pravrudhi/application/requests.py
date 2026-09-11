@@ -70,27 +70,33 @@ class Evidence:
 
 @dataclass
 class Criterion:
-    """One checkable part of an ask. `source` records who wrote it: the operator, or the engine's reading of him."""
+    """One checkable part of an ask. `source` records who wrote it: the operator, or the engine's reading of him.
+
+    `mode` determines dispatch policy: "proposal" (default) sends to a scratch directory with read-only sandbox,
+    or "build" (when paths are named and files are code) dispatches with selfbuild policy and integration on MET."""
 
     text: str
     source: Literal["operator", "engine"] = "engine"
     met: bool = False
     evidence: list[Evidence] = field(default_factory=list)
+    mode: Literal["proposal", "build"] = "proposal"
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "text": self.text, "source": self.source, "met": self.met,
-            "evidence": [e.to_dict() for e in self.evidence],
+            "evidence": [e.to_dict() for e in self.evidence], "mode": self.mode,
         }
 
     @staticmethod
     def from_dict(d: dict[str, Any]) -> Criterion:
+        mode = d.get("mode", "proposal")
         return Criterion(
             text=str(d.get("text", "")),
             source="operator" if d.get("source") == "operator" else "engine",
             met=bool(d.get("met", False)),
             evidence=[Evidence(str(e.get("kind", "")), str(e.get("ref", "")), str(e.get("note", "")))
                       for e in (d.get("evidence") or [])],
+            mode="build" if mode == "build" else "proposal",
         )
 
 
@@ -530,7 +536,7 @@ def _names_something(line: str) -> bool:
     return True  # without the reviewer's rule, trust the draft rather than discard every criterion
 
 
-def decompose_ask(text: str, *, complete: Callable[[str], str]) -> list[Criterion]:
+def decompose_ask(text: str, *, complete: Callable[[str], str]) -> list[Criterion] | None:
     """Ask a model what would satisfy a prose ask, and keep only the criteria that name something.
 
     `complete` takes a prompt and returns the model's raw text, which is why this is testable without an
@@ -541,19 +547,23 @@ def decompose_ask(text: str, *, complete: Callable[[str], str]) -> list[Criterio
     ask = (text or "").strip()
     if not ask:
         return []
+    # `None` and `[]` are different answers. `None`: no model reading exists (unreachable, or an answer that is
+    # not the JSON asked for), so the caller keeps its deterministic fallback. `[]`: a model read the ask and
+    # named nothing to build against, which the caller may act on. Collapsing the two is how an unreachable
+    # endpoint made every ask look non-actionable, and how a non-actionable ask looked like a model outage.
     try:
         answer = complete(_decompose_prompt(ask))
     except Exception:  # noqa: BLE001 - an unreachable model is a fallback, not a failed beat
-        return []
+        return None
     try:
         payload = json.loads(answer or "")
     except (ValueError, TypeError):
-        return []
+        return None
     if not isinstance(payload, dict):
-        return []
+        return None
     items = payload.get("criteria")
     if not isinstance(items, list):
-        return []
+        return None
     drafted: list[Criterion] = []
     for item in items[:_MAX_DRAFTED]:
         line = str(item or "").strip()
@@ -584,7 +594,19 @@ def triage(
     if not drafted:
         return None
     if complete is not None and len(_ENUMERATED.findall(request.text.strip())) < 2:
-        drafted = decompose_ask(request.text, complete=complete) or drafted
+        decomposed = decompose_ask(request.text, complete=complete)
+        if decomposed is None:
+            decomposed = drafted  # no model reading exists; the verbatim criterion is the floor
+        elif not decomposed:
+            # A model read the ask and could name nothing to build against. The verbatim fallback used to stand
+            # here, and it is how a pasted bot-provisioning reply, a forwarded Telegram echo and "done...continue"
+            # each became a criterion three agents were paid to attempt. Declining records the reading; the
+            # operator can move it back to `captured` with a sharper sentence, and the loop moves on.
+            return advance(
+                root, request_id, "declined",
+                note="triage: the ask names nothing the engine can build against; sharpen it to revive it",
+            )
+        drafted = decomposed
     return add_criteria(root, request_id, drafted)
 
 
