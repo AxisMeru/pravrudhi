@@ -24,13 +24,16 @@ from __future__ import annotations
 
 import os
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
 
 import httpx
 from fastapi import Depends, HTTPException, Request
+from fastapi.responses import JSONResponse
+from starlette.requests import HTTPConnection
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 HttpFetch = Callable[..., httpx.Response]
 
@@ -177,16 +180,19 @@ def verify_token(token: str, *, fetch: HttpFetch = _default_fetch) -> dict[str, 
     return _introspect(token, fetch)
 
 
-async def current_user(request: Request) -> User | None:
-    """FastAPI dependency: who sent this request, or None when identity is not required.
+PUBLIC_PATHS: frozenset[str] = frozenset({"/api/health"})
+"""What an internet-facing engine answers without identity: the tunnel's and the gateway's liveness check, which
+carries no state and names nothing. Everything else under `/api` is somebody's."""
 
-    This is identity, not authorization for state changes: `localguard`'s local token remains the sole
-    CSRF guard on POST/PUT/DELETE in every deployment shape. A route depends on this to know *who*, never
-    to decide *whether* — that decision stays with `localguard` (same-origin + token) and, in `required`
-    mode, with the 401 this function itself raises when no valid identity is present.
+
+def user_from_headers(headers: Mapping[str, str]) -> User | None:
+    """Resolve the caller from request headers, or None when identity is not required and none was sent.
+
+    Raises 401 in `required` mode when no valid bearer token is present. Shared by the per-route dependency and
+    the whole-surface gate so the two can never disagree about who a caller is.
     """
     mode = auth_mode()
-    auth = request.headers.get("authorization", "")
+    auth = headers.get("authorization", "")
     if not auth.lower().startswith("bearer "):
         if mode == AuthMode.REQUIRED:
             raise HTTPException(status_code=401, detail="Missing bearer token")
@@ -201,6 +207,47 @@ async def current_user(request: Request) -> User | None:
     except Exception as exc:  # noqa: BLE001 — any verification failure is a 401
         raise HTTPException(status_code=401, detail=f"Invalid token: {exc}") from exc
     return User(id=str(claims.get("sub")), email=claims.get("email"), role=str(claims.get("role") or "authenticated"))
+
+
+async def current_user(request: Request) -> User | None:
+    """FastAPI dependency: who sent this request, or None when identity is not required.
+
+    This is identity, not authorization for state changes: `localguard`'s local token remains the sole
+    CSRF guard on POST/PUT/DELETE in every deployment shape. A route depends on this to know *who*, never
+    to decide *whether* — that decision stays with `localguard` (same-origin + token) and, in `required`
+    mode, with the whole-surface gate `RequireIdentity` installs, which refuses an anonymous caller before
+    any route runs.
+    """
+    return user_from_headers(request.headers)
+
+
+class RequireIdentity:
+    """ASGI middleware: in `required` mode, no `/api` path outside `PUBLIC_PATHS` answers an anonymous caller.
+
+    Until ADR-0051 addendum 3 put an engine on the internet, `required` only meant "a route that asks who is
+    calling gets an answer or a 401"; routes that never asked — the state, the ledger, the requests store —
+    answered anyone who found the port. The gate closes that: a preflight (no token by design) passes so the
+    browser can learn the CORS answer, a websocket without a token is closed with 4401, and the health check
+    stays open for the tunnel. It is installed inside the CORS layer so a 401 reaches the browser with its
+    origin headers rather than as an opaque network error.
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] in ("http", "websocket") and auth_mode() == AuthMode.REQUIRED:
+            path: str = scope.get("path", "")
+            if path.startswith("/api/") and path not in PUBLIC_PATHS and scope.get("method") != "OPTIONS":
+                try:
+                    user_from_headers(HTTPConnection(scope).headers)
+                except HTTPException as exc:
+                    if scope["type"] == "http":
+                        await JSONResponse({"detail": exc.detail}, status_code=exc.status_code)(scope, receive, send)
+                    else:
+                        await send({"type": "websocket.close", "code": 4401, "reason": str(exc.detail)})
+                    return
+        await self.app(scope, receive, send)
 
 
 CurrentUserDep = Depends(current_user)

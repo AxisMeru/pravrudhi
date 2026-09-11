@@ -22,7 +22,7 @@ from pravrudhi import KERNEL_VERSION, __version__
 from pravrudhi.agents.registry import survey
 from pravrudhi.api import roles
 from pravrudhi.api.chat import build_chat_router
-from pravrudhi.api.identity import CurrentUserDep, User, auth_mode
+from pravrudhi.api.identity import CurrentUserDep, RequireIdentity, User, auth_mode
 from pravrudhi.api.localguard import install as install_local_guard
 from pravrudhi.api.runs import build_router as build_runs_router
 from pravrudhi.api.schemas import (
@@ -225,6 +225,8 @@ def create_app(root: Path, *, nyaya_ask_fn: Any | None = None) -> FastAPI:
     api = APIRouter(prefix="/api")
     # A local engine that can start GPU work must not answer any page the user happens to be visiting: see
     # api/localguard.py. Cross-origin access is off unless the operator names the origins.
+    # In `required` mode nobody anonymous reaches a route; added before the guard so CORS wraps its 401s.
+    app.add_middleware(RequireIdentity)
     install_local_guard(app, root, enforce=os.environ.get("PRAVRUDHI_DISABLE_LOCAL_GUARD") != "1")
     # The guard returns a JSONResponse directly; declaring its resource leaves token handling intact.
     for route in app.routes:
