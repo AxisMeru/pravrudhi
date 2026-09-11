@@ -226,3 +226,67 @@ def test_the_seat_is_available_while_any_declared_seat_can_still_serve(tmp_path:
 
     availability.mark_limited(root, "claude-code:fallback", minutes=60)
     assert cli_agents.ClaudeCodeAgent(root).available() is False
+
+
+def test_the_provisioning_instruction_names_a_command_that_exists(tmp_path: Path) -> None:
+    """`claude login` is not a subcommand on CLI 2.x -- it is taken as a prompt and starts a session."""
+    root = _two_seats(tmp_path)
+    text = account.how_to_provision(account.seats(root)[1])
+    assert "claude auth login" in text
+    assert "claude login\n" not in text
+
+
+def test_the_provisioning_instruction_names_the_seat_that_is_missing(tmp_path: Path) -> None:
+    """One instruction for "a credential" is useless when there are two seats and one of them is fine."""
+    root = _two_seats(tmp_path)
+    fallback = account.seats(root)[1]
+    text = account.how_to_provision(fallback)
+    assert str(fallback.config_dir) in text
+    assert fallback.email in text
+
+
+def test_the_live_identity_of_a_seat_is_read_from_the_cli_not_the_profile_cache(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """The cache is the thing that lies; a check built on it cannot settle who a directory is logged in as."""
+    root = _two_seats(tmp_path)
+    seat = account.seats(root)[0]
+    monkeypatch.setattr(account, "_auth_status", lambda _d: {"loggedIn": True, "email": "live@example.com"})
+    assert account.live_identity(seat) == "live@example.com"
+
+
+def test_a_mismatch_is_judged_against_the_live_identity_when_the_cli_can_be_asked(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """A stale cache naming the wrong account is NOT a mismatch when the live token is the declared seat."""
+    root = _two_seats(tmp_path)
+    _seat_dir(tmp_path / "primary", email="stale@example.com", refresh="r-one")
+    monkeypatch.setattr(
+        account, "_auth_status",
+        lambda d: {"loggedIn": True, "email": "one@example.com" if d.name == "primary" else "two@example.com"},
+    )
+    assert account.mismatches(root, live=True) == []
+
+
+def test_a_live_identity_that_contradicts_the_registry_is_reported(tmp_path: Path, monkeypatch) -> None:
+    root = _two_seats(tmp_path)
+    monkeypatch.setattr(
+        account, "_auth_status",
+        lambda d: {"loggedIn": True, "email": "someone@example.com" if d.name == "primary" else "two@example.com"},
+    )
+    problems = account.mismatches(root, live=True)
+    assert any("someone@example.com" in p and "primary" in p for p in problems)
+
+
+def test_the_cheap_check_does_not_spawn_a_subprocess(tmp_path: Path, monkeypatch) -> None:
+    """`account_status` is polled by status surfaces; it must not shell out to the CLI to answer."""
+    root = _two_seats(tmp_path)
+    called: list[Path] = []
+    monkeypatch.setattr(account, "_auth_status", lambda d: called.append(d) or None)
+
+    account.mismatches(root)
+    account.account_status(root)
+    assert called == []
+
+    account.mismatches(root, live=True)
+    assert called != []

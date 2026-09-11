@@ -101,15 +101,29 @@ def provisioned() -> bool:
     return any((home / name).exists() for name in CREDENTIAL_FILES)
 
 
-def how_to_provision() -> str:
-    """The exact thing a person has to do, since no agent session can complete an OAuth flow."""
-    home = project_claude_home()
+def how_to_provision(seat: Seat | None = None) -> str:
+    """The exact thing a person has to do, since no agent session can complete an OAuth flow.
+
+    Names `claude auth login`, NOT `claude login`. The bare form is not a subcommand on CLI 2.x -- it falls
+    through to the default and starts a session with the word "login" as the prompt, which looks like the
+    instruction working right up until the credential is not there.
+
+    Takes the seat, so the instruction names the directory and the account that are actually missing. With two
+    seats and one of them fine, "log this project's Claude account in" does not say which.
+    """
+    home = seat.config_dir if seat is not None else project_claude_home()
+    email = seat.email if seat is not None else ""
     same = home == Path("~/.claude").expanduser()
+    make = "" if same else f"mkdir -p {home}\n  "
     where = "" if same else f'CLAUDE_CONFIG_DIR="{home}" '
+    pick = f" --email {email}" if email else ""
+    who = f" as {email}" if email else " as the account this project uses, not a personal one"
     return (
-        f"log this project's Claude account in once, in an interactive terminal:\n"
-        f"  {'' if same else f'mkdir -p {home}' + chr(10) + '  '}{where}claude login\n"
-        f"signing in as the account this project uses, not a personal one. An API key works too: put\n"
+        f"log this seat in once, in an interactive terminal:\n"
+        f"  {make}{where}claude auth login{pick}\n"
+        f"signing in{who}. The credential is written to {home} and nothing outside it is touched, so a login "
+        f"in another directory stays signed in -- `claude auth status --json` reports each directory "
+        f"separately. An API key works too: put\n"
         f"  ANTHROPIC_API_KEY=<key>\n"
         f"in a 0600 file and export it before running, or set {HOME_ENV} to a directory that already holds a\n"
         f"credential."
@@ -248,13 +262,51 @@ def select_seat(root: Path | None = None, *, now: datetime | None = None) -> Sea
     return None
 
 
-def mismatches(root: Path | None = None) -> list[str]:
+def _auth_status(config_dir: Path) -> dict[str, object] | None:
+    """`claude auth status --json` for one directory, or `None` when it cannot be asked.
+
+    A subprocess per seat, so this belongs to diagnostics rather than the dispatch path. It is also the only
+    authoritative answer available: everything else on disk is a cache that can disagree with the token beside
+    it, which is the whole reason this file needs a mismatch check at all.
+    """
+    import subprocess
+
+    try:
+        done = subprocess.run(
+            ["claude", "auth", "status", "--json"],
+            env={**os.environ, "CLAUDE_CONFIG_DIR": str(config_dir)},
+            capture_output=True, text=True, timeout=30, check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    try:
+        parsed = json.loads(done.stdout)
+    except ValueError:
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
+def live_identity(seat: Seat) -> str | None:
+    """Who a seat's directory is ACTUALLY logged in as, or `None` when the CLI could not be asked."""
+    status = _auth_status(seat.config_dir)
+    if not status or not status.get("loggedIn"):
+        return None
+    email = status.get("email")
+    return str(email) if email else None
+
+
+def mismatches(root: Path | None = None, *, live: bool = False) -> list[str]:
     """Everything about the seats on this machine that does not add up, in plain sentences.
 
     Two failures are worth naming because neither the CLI nor `provisioned()` can see them:
 
-    * a directory whose cached profile names a different account than the registry declares for it -- the
-      token may still be right, but every surface that reads the email off the config reports the wrong seat;
+    * a directory whose identity is not the account the registry declares for it -- the token may still be
+      right, but every surface that reads the email off the config reports the wrong seat;
+
+    `live=True` asks the CLI who each directory is actually logged in as, which is the only authoritative
+    answer and costs a subprocess per seat. It is OFF by default because `account_status` is polled by status
+    surfaces and a listing must not shell out; the default reads the profile cache, and says so when it
+    reports something, so nobody mistakes a stale cache for a wrong seat.
     * two seats holding the SAME credential. That is not two seats. A limit on one is a limit on the other,
       so the failover this module exists for would move to a directory that is already spent.
     """
@@ -262,14 +314,23 @@ def mismatches(root: Path | None = None) -> list[str]:
     problems: list[str] = []
 
     for seat in declared:
-        if not seat.provisioned:
+        if not seat.provisioned or not seat.email:
+            continue
+        actual = live_identity(seat) if live else None
+        if actual is not None:
+            # Authoritative. A cache naming someone else is then merely stale rather than a wrong seat,
+            # and saying so would send the operator to re-login a directory that is already correct.
+            if actual != seat.email:
+                problems.append(
+                    f"seat {seat.id!r} at {seat.config_dir} declares {seat.email} but is logged in as "
+                    f"{actual}"
+                )
             continue
         recorded = seat.recorded_email
-        if seat.email and recorded and recorded != seat.email:
+        if recorded and recorded != seat.email:
             problems.append(
                 f"seat {seat.id!r} at {seat.config_dir} declares {seat.email} but its cached profile says "
-                f"{recorded}; the token there may be either, and any surface reading the profile reports "
-                f"{recorded}"
+                f"{recorded} (the CLI could not be asked, so this is the cache, not the live token)"
             )
 
     by_fingerprint: dict[str, list[str]] = {}
@@ -299,9 +360,10 @@ def claude_env(*, require: bool = True, root: Path | None = None, now: datetime 
 
     home = project_claude_home()
     if require:
+        missing = next((s for s in seats(root) if not s.provisioned), None)
         raise PersonalAccountRefused(
             f"refusing to run `claude` with the operator's personal account. No seat this project declares can "
-            f"serve right now. {how_to_provision()}"
+            f"serve right now. {how_to_provision(missing)}"
         )
     # Always set, even when unprovisioned, so nothing can silently reach `~/.claude`.
     return {"CLAUDE_CONFIG_DIR": str(home)}
