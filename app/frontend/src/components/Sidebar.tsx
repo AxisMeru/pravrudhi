@@ -35,7 +35,7 @@ import {
 } from "lucide-react";
 import type { ComponentType } from "react";
 import { NotificationBell } from "@/components/notifications/NotificationBell";
-import { edition, PRODUCT, STUDIO, type Edition } from "@/lib/edition";
+import { BUILT_AS, edition, STUDIO, type Edition } from "@/lib/edition";
 import { isStudioOnlyHref } from "@/lib/palette";
 import { inbox } from "@/lib/inbox";
 import { requests } from "@/lib/requests";
@@ -78,7 +78,7 @@ const NAV: NavItem[] = [
 export function Sidebar() {
   const pathname = usePathname();
   // The interface names itself from who is asking, so an operator sees Studio and a user sees the product.
-  const [whoami, setWhoami] = useState<Edition>(PRODUCT);
+  const [whoami, setWhoami] = useState<Edition>(BUILT_AS);
   useEffect(() => {
     let off = false;
     edition().then((e) => !off && setWhoami(e)).catch(() => {});

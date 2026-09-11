@@ -48,8 +48,16 @@ export async function knownEdition(): Promise<Edition | null> {
   }
 }
 
+// What a build calls itself while no engine has answered. A Studio web app with its hosted engine not yet
+// named would otherwise introduce itself as the product (ADR-0051 addendum 2); the engine's answer, when it
+// comes, still wins.
+export const BUILT_AS: Edition =
+  process.env.NEXT_PUBLIC_EDITION === "studio"
+    ? { edition: STUDIO, tagline: "Improve Pravrudhi itself, on your own hardware, with the evidence in front of you." }
+    : PRODUCT;
+
 export async function edition(): Promise<Edition> {
   if (IS_DEMO) return RECORDING;
   // An engine that cannot be reached is not a reason to show no name at all.
-  return (await knownEdition()) ?? PRODUCT;
+  return (await knownEdition()) ?? BUILT_AS;
 }
