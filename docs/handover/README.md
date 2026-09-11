@@ -74,6 +74,42 @@ All 0600, all outside the repository, none in git. You need them from the operat
 key belongs to, not the variable. A plan key sent to the free-tier endpoint returns `401 invalid_api_key`, which
 reads like a bad key and is not. This has cost time twice; `agents/alibaba_agent.py` says so in its docstring.
 
+### Claude CLI seats
+
+Not a key file: an OAuth login, one per **config directory**. `configs/seats.yaml` lists them in precedence
+order and `pravrudhi.agents.account.select_seat` picks the first that can serve.
+
+| Seat | Directory | Role |
+|---|---|---|
+| `primary` | `~/.claude` | spent by default |
+| `fallback` | `~/.config/pravrudhi/claude-admin` | reached only when `primary` is inside a usage-limit cooldown |
+
+A seat is passed over for two reasons only — no credential, or cooling down. **An ordinary failure does not
+advance to the next seat**, because a prompt the model botched will be botched by the reserve too. Failover
+lives in `ClaudeCodeAgent.run`, so the router still sees one agent called `claude-code` and only cools it when
+every seat is spent.
+
+To add or re-provision one:
+
+```bash
+CLAUDE_CONFIG_DIR=<dir> claude auth login --email <account>   # NOT `claude login` -- not a subcommand on 2.x
+CLAUDE_CONFIG_DIR=<dir> claude auth status --json             # verify: this is the only authoritative source
+```
+
+Do the browser half in a private window signed in as the account you want, or claude.ai hands back whichever
+account that browser profile is already signed in as — which is how two directories ended up holding one
+credential.
+
+**The two files in a config directory have different lifetimes and can disagree.** `.credentials.json` is
+rewritten on every token refresh; `.claude.json` only when the profile is re-fetched, so it can name a
+different account than the live token beside it. Never read identity off `.claude.json`. `account.mismatches()`
+checks both that and the worse case — two directories holding the same refresh token, which looks like a
+failover pair and is one account.
+
+`~/.config/pravrudhi/claude-loop` is pinned by the five systemd units via `PRAVRUDHI_CLAUDE_CONFIG_DIR` so an
+interactive re-login cannot blank a running loop. As of 2026-09-11 it still holds a copy of `primary`'s token
+rather than its own login; give it one.
+
 ## 5. House rules that will bite you
 
 - **Commit as `SharathSPhD <qbz506@york.ac.uk>` with no attribution trailers.** Enforced by
