@@ -34,10 +34,10 @@ seats:
   # first it would absorb the whole load and the instruction would be inverted. It is the desktop app's login
   # as well, which is a further reason not to spend it on the loop's behalf without cause.
   #
-  # NOT YET PROVISIONED. This directory needs its own interactive `claude login` as admin@axismeru.com; no
-  # agent session can complete an OAuth flow. Until it holds a credential, `select_seat` will report one
-  # usable seat and the engine runs exactly as it did before this file existed -- failover that cannot happen
-  # is reported as unavailable, never silently treated as satisfied.
+  # Provisioned 2026-09-11 by the operator, in its own directory and its own browser session. The two seats
+  # hold genuinely independent credentials -- distinct refresh tokens, and `claude auth status --json`
+  # reports each directory separately -- so logging this one in did not sign the other out, which is the
+  # property the whole CLAUDE_CONFIG_DIR arrangement exists to hold.
   - id: fallback
     email: admin@axismeru.com
     config_dir: ~/.config/pravrudhi/claude-admin
