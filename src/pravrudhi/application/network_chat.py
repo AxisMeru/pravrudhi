@@ -26,14 +26,19 @@ from pathlib import Path
 from typing import Any
 
 from pravrudhi.application import availability, routing
+from pravrudhi.application.chat import ChatEndpointUnreachable
 
 # Which routes can answer a completion, and where each one's key comes from. A route whose agent is not here is
 # a command-line tool rather than an endpoint, and is skipped rather than treated as broken.
 ENDPOINT_AGENTS = ("opencode:alibaba-plan", "opencode:alibaba", "hosted")
 
 
-class NoModelAvailable(RuntimeError):
-    """Every route that could answer is unreachable, unconfigured, or spent."""
+class NoModelAvailable(ChatEndpointUnreachable):
+    """Every route that could answer is unreachable, unconfigured, or spent.
+
+    A `ChatEndpointUnreachable`, so the API answers 503 with this sentence and the page shows it. As a bare
+    RuntimeError it surfaced as a 500 on 2026-09-11, the studio app unit having never loaded `chat.env`, and the
+    page's Send button stayed disabled with nothing said."""
 
 
 def _endpoint_for(agent: str) -> tuple[str, str] | None:

@@ -132,3 +132,12 @@ class TestReadingTheAnswer:
     ) -> None:
         _fake_endpoints(monkeypatch, {"qwen3.8-max": '{"answer": "said it anyway"}'})
         assert network_complete(tmp_path)([{"role": "user", "content": "x"}], [])["content"] == "said it anyway"
+
+
+def test_no_model_available_is_an_unreachable_endpoint_so_the_api_answers_503() -> None:
+    """The 2026-09-11 e2e run caught /api/chat answering 500 for a network with nothing to answer; the API maps
+    ChatEndpointUnreachable to 503 with its message, so this must be one."""
+    from pravrudhi.application.chat import ChatEndpointUnreachable
+    from pravrudhi.application.network_chat import NoModelAvailable
+
+    assert issubclass(NoModelAvailable, ChatEndpointUnreachable)
