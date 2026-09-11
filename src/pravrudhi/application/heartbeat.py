@@ -30,6 +30,7 @@ import contextlib
 import json
 import os
 import re
+import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
@@ -809,12 +810,48 @@ def dispatch_mode(criterion: requests.Criterion) -> str:
     if not paths:
         return "proposal"
 
-    # Check if text mentions code files
+    # A code file, or a backticked path under a prefix the loop may write under (a directory counts: r-35e8ce7b
+    # criterion 0 named `docs/blueprint/02-design/` and a `.pdf`, went the proposal way twice, and the judge
+    # refused it twice for the sandbox reason).
     code_extensions = r'\.(py|ts|tsx|sh|yaml|yml|md)\b'
-    if re.search(code_extensions, criterion.text):
+    if re.search(code_extensions, criterion.text) or re.search(_BUILD_PREFIX_IN_BACKTICKS, criterion.text):
         return "build"
 
     return "proposal"
+
+
+_BUILD_PREFIX_IN_BACKTICKS = r"`(?:src|tests|app|scripts|docs|configs|plugin)/"
+
+
+def unbuildable(root: Path, criterion: requests.Criterion) -> str | None:
+    """Why no dispatch can meet this criterion in this checkout, or None when one might.
+
+    Two shapes cost the loop three paid attempts each before anyone read the reason. A criterion that names the
+    kernel: T0 changes are an ADR accepted under the delegation before the commit (ADR-0047), which a sandboxed
+    agent cannot produce, so build_paths_for() returns () and the proposal fallback writes a README the gate then
+    refuses. And a criterion whose named paths are gitignored here (docs/blueprint/ is local): the worktree can
+    write them and integrate cannot commit them, so "met" can never carry a commit."""
+    from pravrudhi.application.selfbuild import PROTECTED_PREFIXES
+
+    named = [p.strip() for p in re.findall(r"`([^`]+)`", criterion.text) if "/" in p]
+    protected = [p for p in named if any(p.startswith(prefix) for prefix in PROTECTED_PREFIXES)]
+    if protected:
+        return (
+            f"names {', '.join(sorted(set(protected)))}: a change under a protected prefix ({', '.join(PROTECTED_PREFIXES)}) "
+            "is an ADR accepted before the commit (ADR-0047) or a kernel-computed result, never a swarm dispatch"
+        )
+    repo_paths = [p for p in named if p.split("/")[0] in ("src", "tests", "app", "scripts", "docs", "configs", "plugin")]
+    if repo_paths and (root / ".git").exists():
+        probe = subprocess.run(
+            ["git", "check-ignore", "--", *repo_paths], cwd=root, capture_output=True, text=True, check=False,
+        )
+        ignored = [line for line in probe.stdout.splitlines() if line]
+        if ignored and len(ignored) == len(set(repo_paths)):
+            return (
+                f"every path it names is ignored in this checkout ({', '.join(ignored)}): a worktree can write "
+                "them and integrate cannot commit them, so no dispatch can meet it here"
+            )
+    return None
 
 
 def _beat_obligations(root: Path, dispatch: DispatchFn | None, *, judge: Any = None) -> ActionResult:
@@ -884,6 +921,20 @@ def _beat_obligations(root: Path, dispatch: DispatchFn | None, *, judge: Any = N
             f"leaving it for the operator rather than paying to retry it again",
             {"kind": "stalled", "request": request.id, "criterion": index,
              "attempts": attempts(root, request.id, index), "criterion_text": criterion.text[:300]},
+        )
+    why_not = unbuildable(root, criterion)
+    if why_not is not None:
+        # Spend the budget on paper rather than on three model calls that cannot succeed, and say why where the
+        # operator and the next triage will read it.
+        while not stalled(root, request.id, index):
+            record_attempt(root, request.id, index)
+        requests.note(root, request.id, f"criterion {index} unbuildable: {why_not}")
+        return (
+            {"request": request.id, "criterion": str(index)},
+            f"{request.id} criterion {index} cannot be met by any dispatch here ({why_not}); "
+            f"stalled without paying for an attempt",
+            {"kind": "unbuildable", "request": request.id, "criterion": index, "why": why_not,
+             "criterion_text": criterion.text[:300]},
         )
     mode = dispatch_mode(criterion)
     task_id = f"request:{request.id}:{index}"

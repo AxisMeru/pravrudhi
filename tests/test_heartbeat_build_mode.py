@@ -237,5 +237,57 @@ class TestBuildDispatch:
         assert crit.met and crit.evidence[0].kind == "commit"
 
 
+class TestDispatchModeDirectories:
+    def test_a_backticked_directory_under_an_allowed_prefix_is_build_mode(self) -> None:
+        """r-35e8ce7b criterion 0 named `docs/blueprint/02-design/` and a `.pdf`; no code extension, so it went
+        the proposal way twice and the judge refused it twice for writing under proposals/. A named directory the
+        loop may write under is a build criterion."""
+        criterion = requests.Criterion(
+            text="`docs/recursive_self_improvement_sota.pdf` is answered by a committed design document under "
+                 "`docs/blueprint/02-design/` that lists every mechanism"
+        )
+        assert heartbeat.dispatch_mode(criterion) == "build"
+
+    def test_prose_with_no_path_stays_proposal(self) -> None:
+        assert heartbeat.dispatch_mode(requests.Criterion(text="explain the plan to the operator")) == "proposal"
+
+
+class TestUnbuildable:
+    def test_a_kernel_path_is_unbuildable_with_the_adr_reason(self, repo: Path) -> None:
+        crit = requests.Criterion(text="`pravrudhi_kernel/src/pravrudhi_kernel/efe/` carries more terms")
+        why = heartbeat.unbuildable(repo, crit)
+        assert why is not None and "ADR-0047" in why and "pravrudhi_kernel/" in why
+
+    def test_paths_ignored_in_this_checkout_are_unbuildable(self, repo: Path) -> None:
+        (repo / ".gitignore").write_text("docs/blueprint/\n")
+        crit = requests.Criterion(text="a design document under `docs/blueprint/02-design/` lists every mechanism")
+        why = heartbeat.unbuildable(repo, crit)
+        assert why is not None and "docs/blueprint/02-design/" in why and "ignored" in why
+
+    def test_an_ordinary_source_path_is_buildable(self, repo: Path) -> None:
+        assert heartbeat.unbuildable(repo, requests.Criterion(text="`src/mod.py` sets VALUE = 2")) is None
+
+    def test_the_beat_stalls_an_unbuildable_criterion_without_dispatching(
+        self, repo: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """No model call for a criterion that no dispatch can meet; the budget is spent on paper, the reason
+        is on the request, and the beat moves on next time."""
+        root = repo.parent / "kernel-only"
+        root.mkdir()
+        _git(root, "init", "-q", "-b", "main")
+        requests.capture(root, "grow the kernel", request_id="r-k",
+                         criteria=[requests.Criterion(text="`pravrudhi_kernel/base.py` gains a term", source="operator")])
+
+        def never(*a: Any, **k: Any) -> list[Any]:
+            raise AssertionError("dispatched an unbuildable criterion")
+
+        monkeypatch.setattr(heartbeat.swarm, "run_wave", never)
+        chose, reason, result = heartbeat._beat_obligations(root, lambda _n, _m=None: object())
+        assert result is not None and result["kind"] == "unbuildable", reason
+        assert heartbeat.stalled(root, "r-k", 0)
+        notes = [str(n.get("note", n)) for n in requests.get(root, "r-k").notes]
+        assert any("ADR-0047" in n for n in notes)
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
