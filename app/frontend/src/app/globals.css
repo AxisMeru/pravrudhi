@@ -39,9 +39,14 @@ body {
   color: var(--color-text);
 }
 
-input,
-select,
-button {
-  font: inherit;
-  color: inherit;
+/* Element defaults live in the base layer so that utilities (a later layer) can override them. Unlayered,
+   this rule outranked every `text-*` utility on a button, and a `bg-text text-bg` button painted its text in
+   its own background colour (found on the sign-in pages, 2026-09-12). */
+@layer base {
+  input,
+  select,
+  button {
+    font: inherit;
+    color: inherit;
+  }
 }
