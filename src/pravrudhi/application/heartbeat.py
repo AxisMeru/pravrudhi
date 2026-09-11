@@ -255,6 +255,11 @@ _ATTEMPTS_FILE = ".pravrudhi/criterion-attempts.json"
 # spending, not correctness.
 MAX_CRITERION_ATTEMPTS = 3
 
+# Paper stalls are free of model calls but each one reads and rewrites the requests store; a beat that meets
+# a run of unbuildable criteria stalls this many before it yields, so one beat cannot spend its whole slot
+# on bookkeeping if a triage batch drafted a hundred kernel criteria at once.
+MAX_PAPER_STALLS_PER_BEAT = 25
+
 
 def _attempts_path(root: Path) -> Path:
     return Path(root) / _ATTEMPTS_FILE
@@ -840,6 +845,17 @@ def unbuildable(root: Path, criterion: requests.Criterion) -> str | None:
             f"names {', '.join(sorted(set(protected)))}: a change under a protected prefix ({', '.join(PROTECTED_PREFIXES)}) "
             "is an ADR accepted before the commit (ADR-0047) or a kernel-computed result, never a swarm dispatch"
         )
+    engine_like = [
+        p for p in named
+        if p.split("/")[0] in ("src", "pravrudhi", "app", "scripts", "plugin") or p.endswith((".py", ".ts", ".tsx"))
+    ]
+    if engine_like and not (root / "src").is_dir():
+        # A product install runs the engine from a wheel: there is no engine source in this root to change, and a
+        # worktree here can only produce files nothing imports. The ask belongs upstream in the studio backlog.
+        return (
+            f"names engine source ({', '.join(sorted(set(engine_like))[:4])}) and this root has no engine source "
+            "checkout (no src/ tree): a wheel install cannot build the engine; it belongs upstream in the studio backlog"
+        )
     repo_paths = [p for p in named if p.split("/")[0] in ("src", "tests", "app", "scripts", "docs", "configs", "plugin")]
     if repo_paths and (root / ".git").exists():
         probe = subprocess.run(
@@ -907,10 +923,34 @@ def _beat_obligations(root: Path, dispatch: DispatchFn | None, *, judge: Any = N
             f"{owed['request']} has evidence on every criterion and is now delivered, awaiting the gate",
             {"kind": "advance", "to": "delivered"},
         )
-    found = requests.next_unmet(root)
-    if found is None:  # pragma: no cover - next_obligation already answered meet_criterion
-        return _beat_triage(root)
-    request, criterion, index = found
+    paper: list[dict[str, Any]] = []
+    while True:
+        found = requests.next_unmet(root)
+        if found is None:
+            if paper:
+                return (
+                    {"request": paper[-1]["request"], "criterion": str(paper[-1]["criterion"])},
+                    f"stalled {len(paper)} criterion(s) no dispatch here can meet, and nothing else is owed",
+                    {"kind": "unbuildable", "stalled": paper, **paper[-1]},
+                )
+            return _beat_triage(root)  # pragma: no cover - next_obligation already answered meet_criterion
+        request, criterion, index = found
+        why_not = unbuildable(root, criterion)
+        if why_not is None:
+            break
+        # Spend the budget on paper rather than on three model calls that cannot succeed, say why where the
+        # operator and the next triage will read it, and keep going: stalling is bookkeeping, not the beat's
+        # work. The first live beat with this check stalled one kernel criterion and went home for 20 minutes.
+        while not stalled(root, request.id, index):
+            record_attempt(root, request.id, index)
+        requests.note(root, request.id, f"criterion {index} unbuildable: {why_not}")
+        paper.append({"request": request.id, "criterion": index, "why": why_not, "criterion_text": criterion.text[:300]})
+        if len(paper) >= MAX_PAPER_STALLS_PER_BEAT:
+            return (
+                {"request": request.id, "criterion": str(index)},
+                f"stalled {len(paper)} criterion(s) no dispatch here can meet; the rest wait for the next beat",
+                {"kind": "unbuildable", "stalled": paper, **paper[-1]},
+            )
     if stalled(root, request.id, index):
         # Spent its budget: this loop has dispatched this exact criterion MAX_CRITERION_ATTEMPTS times without
         # moving it, so a further identical dispatch buys nothing and costs a real model call. Say so where the
@@ -921,20 +961,6 @@ def _beat_obligations(root: Path, dispatch: DispatchFn | None, *, judge: Any = N
             f"leaving it for the operator rather than paying to retry it again",
             {"kind": "stalled", "request": request.id, "criterion": index,
              "attempts": attempts(root, request.id, index), "criterion_text": criterion.text[:300]},
-        )
-    why_not = unbuildable(root, criterion)
-    if why_not is not None:
-        # Spend the budget on paper rather than on three model calls that cannot succeed, and say why where the
-        # operator and the next triage will read it.
-        while not stalled(root, request.id, index):
-            record_attempt(root, request.id, index)
-        requests.note(root, request.id, f"criterion {index} unbuildable: {why_not}")
-        return (
-            {"request": request.id, "criterion": str(index)},
-            f"{request.id} criterion {index} cannot be met by any dispatch here ({why_not}); "
-            f"stalled without paying for an attempt",
-            {"kind": "unbuildable", "request": request.id, "criterion": index, "why": why_not,
-             "criterion_text": criterion.text[:300]},
         )
     mode = dispatch_mode(criterion)
     task_id = f"request:{request.id}:{index}"

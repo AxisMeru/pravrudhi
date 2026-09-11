@@ -264,6 +264,18 @@ class TestUnbuildable:
         why = heartbeat.unbuildable(repo, crit)
         assert why is not None and "docs/blueprint/02-design/" in why and "ignored" in why
 
+    def test_engine_source_named_in_a_root_without_engine_source_is_unbuildable(self, tmp_path: Path) -> None:
+        """The product install's 13:24 beat on 2026-09-11 drafted six criteria naming
+        `pravrudhi/application/pool_admin.py`; a wheel install has no such tree to change."""
+        root = tmp_path / "product"
+        root.mkdir()
+        _git(root, "init", "-q", "-b", "main")
+        crit = requests.Criterion(
+            text="`pravrudhi/application/pool_admin.py` exposes a sealer and `pravrudhi/cli/app.py` registers it"
+        )
+        why = heartbeat.unbuildable(root, crit)
+        assert why is not None and "upstream" in why and "engine source" in why
+
     def test_an_ordinary_source_path_is_buildable(self, repo: Path) -> None:
         assert heartbeat.unbuildable(repo, requests.Criterion(text="`src/mod.py` sets VALUE = 2")) is None
 
@@ -287,6 +299,29 @@ class TestUnbuildable:
         assert heartbeat.stalled(root, "r-k", 0)
         notes = [str(n.get("note", n)) for n in requests.get(root, "r-k").notes]
         assert any("ADR-0047" in n for n in notes)
+
+
+class TestPaperStallsDoNotSpendTheBeat:
+    def test_after_stalling_an_unbuildable_criterion_the_same_beat_dispatches_the_next(
+        self, repo: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The 13:20 beat on 2026-09-11 stalled one kernel criterion on paper and went home: a 20-minute slot
+        spent on no model call. Stalling is bookkeeping; the beat's work is the next buildable criterion."""
+        from pravrudhi.application.delegate import Verdict
+
+        requests.capture(repo, "grow the kernel", request_id="r-0", asked_at="2026-09-01T00:00:00Z",
+                         criteria=[requests.Criterion(text="`pravrudhi_kernel/base.py` gains a term", source="operator")])
+        seen: dict[str, Any] = {}
+
+        def fake_run_wave(build_agent: Any, wave: list[Any], **kw: Any) -> list[Any]:
+            task = wave[0]
+            seen["task"] = task.spec.task_id
+            return [Verdict(task_id=task.spec.task_id, agent="fake", accepted=False, reasons=["not this test"])]
+
+        monkeypatch.setattr(heartbeat.swarm, "run_wave", fake_run_wave)
+        heartbeat._beat_obligations(repo, lambda _n, _m=None: object())
+        assert seen["task"] == "request:r-1:0", "the buildable criterion was dispatched in the same beat"
+        assert heartbeat.stalled(repo, "r-0", 0)
 
 
 if __name__ == "__main__":
