@@ -50,7 +50,8 @@ setup() {
 
 ensure_image() {
   docker image inspect "pravrudhi-engine:$PRAVRUDHI_VERSION" >/dev/null 2>&1 && return
-  [ -f "$CONF/github.env" ] && { set -a; . "$CONF/github.env"; set +a; }
+  [ -f "$CONF/github-axismeru.env" ] && { set -a; . "$CONF/github-axismeru.env"; set +a; }
+  GITHUB_TOKEN="${GITHUB_TOKEN:-${PRAVRUDHI_GITHUB_TOKEN_AXISMERU:-}}"
   docker build --build-arg "PRAVRUDHI_VERSION=$PRAVRUDHI_VERSION" ${GITHUB_TOKEN:+--build-arg GITHUB_TOKEN=$GITHUB_TOKEN} \
     -t "pravrudhi-engine:$PRAVRUDHI_VERSION" "$HERE/../docker"
 }
