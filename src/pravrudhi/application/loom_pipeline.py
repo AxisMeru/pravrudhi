@@ -52,6 +52,27 @@ _ROLES = {
     "promote": {"model": "model", "evaluation": "evaluation"},
 }
 
+STAGE_EXECUTABLE = "executable"
+"""A concrete engine binding ships in this module; `executable_bindings()` supplies it."""
+
+STAGE_PENDING = "pending-engine-binding"
+"""No concrete engine binding ships here; `execute` refuses this stage until a host supplies one."""
+
+# The single source of truth for docs/LOOM.md's "Execution boundary": every grammar
+# stage, including `promote` (a policy callback rather than an engine job), must be
+# named here exactly once. `test_stage_executability_declares_every_loom_stage` pins
+# this against the grammar's own stage names so the table cannot silently drift.
+STAGE_EXECUTABILITY: Mapping[str, str] = {
+    "pretrain": STAGE_PENDING,
+    "continue_pretrain": STAGE_PENDING,
+    "sft": STAGE_EXECUTABLE,
+    "distill": STAGE_PENDING,
+    "evaluate": STAGE_PENDING,
+    "promote": STAGE_PENDING,
+}
+
+assert set(STAGE_EXECUTABILITY) == set(_ROLES), "STAGE_EXECUTABILITY must name exactly the grammar's stages"
+
 
 def lower(program: str | LoomProgram) -> Pipeline:
     """Compile declarations and stages; preserve the original tree and optional source.
@@ -234,3 +255,13 @@ def sft_binding() -> Binding:
                     (str(Path(inputs["corpus"])), "/in/train.jsonl")))
 
     return Binding(validate, prepare)
+
+
+def executable_bindings() -> dict[str, Binding]:
+    """The complete registry of concrete engine bindings this module ships.
+
+    Its keys are exactly the stages marked `STAGE_EXECUTABLE` in `STAGE_EXECUTABILITY`.
+    Stages marked `STAGE_PENDING` are deliberately absent: `execute` must still refuse
+    them at preflight rather than have a host binding silently stand in for one.
+    """
+    return {"sft": sft_binding()}

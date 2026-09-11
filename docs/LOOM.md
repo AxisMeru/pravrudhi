@@ -72,6 +72,29 @@ Promotion is a policy callback, not a GPU command. The host must connect its
 existing evidence-admission and promotion policy; successful job exit alone is
 never evidence for promotion. No default callback writes promotion rows.
 
+### Stage executability
+
+`loom_pipeline.STAGE_EXECUTABILITY` is the single source of truth for which of
+the six grammar stages ship a concrete engine binding today:
+
+| stage               | status                    |
+|----------------------|---------------------------|
+| `sft`                | executable                |
+| `pretrain`            | pending engine binding    |
+| `continue_pretrain`   | pending engine binding    |
+| `distill`             | pending engine binding    |
+| `evaluate`            | pending engine binding    |
+| `promote`             | pending engine binding (policy callback, not a job) |
+
+`executable_bindings()` returns exactly the bindings for the stages marked
+executable — only `sft`, via `sft_binding()`, as of this writing. A test pins
+`STAGE_EXECUTABILITY` to the grammar's own stage names so this table cannot
+silently drift from `_ROLES`, and a second test pins `executable_bindings()`
+to the table so a pending stage can never acquire a binding without the table
+changing first. Passing `executable_bindings()` to `execute` still fails
+preflight loudly for any pending stage instead of running it: `execute` never
+falls back to running an unbound stage.
+
 CPU verification: `uv run pytest tests/test_loom_pipeline.py -q`. Tests use a fake
 context and never launch training.
 

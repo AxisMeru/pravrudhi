@@ -4,9 +4,13 @@ import pytest
 
 from pravrudhi.application.loom import lift as parse
 from pravrudhi.application.loom_pipeline import (
+    STAGE_EXECUTABILITY,
+    STAGE_EXECUTABLE,
+    STAGE_PENDING,
     Binding,
     Job,
     PipelineError,
+    executable_bindings,
     execute,
     harness_recipe,
     lift,
@@ -152,3 +156,36 @@ def test_tampered_ir_rejected(tmp_path):
     p = lower(SOURCE)
     with pytest.raises(PipelineError, match='source tree'):
         execute(replace(p, stages=()), Context(tmp_path), {})
+
+
+def test_stage_executability_declares_every_loom_stage():
+    """docs/LOOM.md's Execution boundary must name every grammar stage exactly once."""
+    assert set(STAGE_EXECUTABILITY) == {
+        'pretrain', 'continue_pretrain', 'sft', 'distill', 'evaluate', 'promote',
+    }
+    assert STAGE_EXECUTABILITY['sft'] == STAGE_EXECUTABLE
+    assert all(status == STAGE_PENDING for op, status in STAGE_EXECUTABILITY.items() if op != 'sft')
+
+
+def test_executable_bindings_matches_executability_table():
+    """The concrete binding registry must offer exactly the stages marked executable."""
+    assert set(executable_bindings()) == {
+        op for op, status in STAGE_EXECUTABILITY.items() if status == STAGE_EXECUTABLE
+    }
+
+
+def test_executable_bindings_runs_prepared_sft(tmp_path):
+    ctx = Context(tmp_path)
+    p = lower('model m = load("/snapshots/m"); corpus c = load("/data/train.jsonl"); '
+              'n = sft(model=m, corpus=c) { lora_r = 16; };')
+    execute(p, ctx, executable_bindings())
+    assert ctx.calls[0][0] == 'train_sft'
+
+
+def test_pending_stage_fails_preflight_without_host_binding(tmp_path):
+    """A stage marked pending must still fail loudly, never run silently."""
+    ctx = Context(tmp_path)
+    p = lower('model m = load("m"); corpus c = load("c"); n = pretrain(model=m, corpus=c);')
+    with pytest.raises(PipelineError, match='no binding'):
+        execute(p, ctx, executable_bindings())
+    assert not ctx.calls
