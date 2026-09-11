@@ -44,7 +44,7 @@ ASSET_DIR = Path(__file__).resolve().parent.parent / "assets" / "nyaya"
 
 #: How a source is named in a prompt and cited in a reply. The id is the corpus document id verbatim, so a
 #: citation can be checked by equality and nothing has to be inferred from prose.
-CITE = re.compile(r"\[([A-Za-z]+/Section [0-9]+[A-Za-z]?(?:\([0-9a-z]+\))?)\]")
+CITE = re.compile(r"\[([A-Za-z]+/(?:Section|Article) [0-9]+[A-Za-z]?(?:\([0-9a-z]+\))?)\]")
 
 ABSTAIN = re.compile(
     r"(?i)\b(I do not know|I don't know|do not cover|does not cover|cannot be answered from the sources|insufficient sources)"

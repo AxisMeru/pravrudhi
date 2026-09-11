@@ -15,9 +15,15 @@ from pravrudhi.application.init import init_project
 
 def test_the_shipped_corpus_is_real_and_traceable() -> None:
     c = nyaya.load_corpus()
-    assert len(c.documents) >= 100
-    assert c.sources and c.sources[0]["dataset"] == "Exploration-Lab/IL-TUR" and c.sources[0]["sha256"]
+    assert len(c.documents) >= 550  # 100 IPC sections (IL-TUR) + 450 Constitution articles (Wikisource, 2020 text)
+    ipc = next(s for s in c.sources if s.get("dataset") == "Exploration-Lab/IL-TUR")
+    assert ipc["sha256"]
+    coi = next(s for s in c.sources if s.get("work") == "Constitution of India (2020)")
+    assert coi["site"] == "en.wikisource.org" and all(p["revid"] and p["sha256"] for p in coi["pages"])
     assert c.by_id["IPC/Section 302"].title.lower().startswith("punishment for murder")
+    assert c.by_id["COI/Article 14"].text.startswith("The State shall not deny to any person equality before the law")
+    assert c.by_id["COI/Article 21"].text.startswith("No person shall be deprived of his life or personal liberty")
+    assert "COI/Article 232" not in c.by_id  # repealed; only a chapter banner followed its number
 
 
 def test_retrieval_is_deterministic_and_a_named_section_comes_first() -> None:
@@ -38,6 +44,8 @@ def test_a_lay_question_reaches_the_homicide_sections_through_the_lexicon() -> N
     assert {"IPC/Section 304", "IPC/Section 300", "IPC/Section 299", "IPC/Section 302"} & set(ids)
     assert "IPC/Section 325" in ids or "IPC/Section 320" in ids
     assert nyaya.expand("nothing legal here", c.expansions) == "nothing legal here"
+    assert [d.id for d, _ in c.retrieve("equality before law", k=1)] == ["COI/Article 14"]
+    assert [d.id for d, _ in c.retrieve("right to life and personal liberty", k=1)] == ["COI/Article 21"]
 
 
 def test_citations_are_checked_against_the_corpus_not_believed() -> None:
@@ -62,6 +70,13 @@ def test_citations_are_checked_against_the_corpus_not_believed() -> None:
     assert verdict == "abstained"
     _, verdict, _ = nyaya.check_answer("The accused is guilty because everyone knows it.", shown, c)
     assert verdict == "unlicensed"
+    # The first Constitution ask came back `unlicensed` with two correct citations, because the citation
+    # pattern knew only "Section". An Article is a citation too.
+    cites, verdict, _ = nyaya.check_answer("No [COI/Article 15]; see also [COI/Article 999].", [c.by_id["COI/Article 15"]], c)
+    assert [(x.id, x.status) for x in cites] == [("COI/Article 15", "licensed"), ("COI/Article 999", "invented")]
+    assert verdict == "invented_citation"
+    _, verdict, _ = nyaya.check_answer("No [COI/Article 15].", [c.by_id["COI/Article 15"]], c)
+    assert verdict == "licensed"
 
 
 def _fake(text_by_vendor: dict[str, str]) -> panel.AskFn:
