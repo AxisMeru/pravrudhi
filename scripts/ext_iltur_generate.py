@@ -288,7 +288,9 @@ def load_model_and_tokenizer(model_dir: str) -> tuple[Any, Any]:
         trust_remote_code=False,
     )
     model.eval()
-    tokenizer = AutoTokenizer.from_pretrained(model_dir)
+    # Left padding, as docker/jobs/common.py loads it for the internal jobs: a decoder-only model generating
+    # from a right-padded batch continues from pad tokens and corrupts every prompt shorter than the longest.
+    tokenizer = AutoTokenizer.from_pretrained(model_dir, padding_side="left")
     return model, tokenizer
 
 
