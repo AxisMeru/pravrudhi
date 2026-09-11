@@ -15,6 +15,17 @@ Trust lives in the engine, not the edge: `PRAVRUDHI_AUTH=required` verifies ever
 admit only the operator, `PRAVRUDHI_ALLOWED_ORIGINS` names the one web origin. The Worker forwards headers
 untouched.
 
+## Live since 2026-09-11
+
+| edition | web app | Worker (permanent) | engine |
+|---|---|---|---|
+| Studio | https://pravrudhi.vercel.app | `https://pravrudhi-studio.tmp------h.workers.dev` | container `pravrudhi-engine-studio`, :8771 |
+| product | https://pravrudhi-app.vercel.app | `https://pravrudhi-app.tmp------h.workers.dev` | container `pravrudhi-engine-product`, :8772 |
+
+`tmp------h` is the workers.dev subdomain Cloudflare assigned the account before anyone chose one; the API
+refuses to change it once set ("Account already has an associated subdomain"), the dashboard allows it once.
+Renaming it changes both Worker URLs, so `NEXT_PUBLIC_API_BASE` on both Vercel projects follows.
+
 ## Files
 
 | file | role |
