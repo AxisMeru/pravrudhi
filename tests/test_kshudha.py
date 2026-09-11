@@ -9,6 +9,9 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
 
 from pravrudhi.agents.registry import AgentStatus
 from pravrudhi.application.kshudha import (
@@ -16,6 +19,7 @@ from pravrudhi.application.kshudha import (
     AppetiteState,
     Drive,
     DriveState,
+    load_config,
     load_state,
     pramana_navyata_drive,
     sadhana_drive,
@@ -25,6 +29,7 @@ from pravrudhi.application.kshudha import (
     sentence,
     seva_drive,
     seva_overdue,
+    spardha_drive,
     sthiti_drive,
     unnati_avakasha_drive,
 )
@@ -289,3 +294,75 @@ class TestState:
         (tmp_path / ".pravrudhi").mkdir()
         (tmp_path / ".pravrudhi" / "appetite.json").write_text("{not json")
         assert load_state(tmp_path) == AppetiteState()
+
+
+def _parity_with(numerator: int, denominator: int):
+    """A minimal stand-in for `parity.report`: only coverage and the next gap are read by the drive."""
+    fraction = (numerator / denominator) if denominator else None
+    # Duck-typed on purpose: the drive reads coverage.fraction and the gap's id/ours through `getattr`, so a
+    # test that built real pydantic models would couple this to parity's schema and break on a field it never
+    # reads.
+    return SimpleNamespace(
+        coverage=SimpleNamespace(numerator=numerator, denominator=denominator, fraction=fraction),
+        next_gap=SimpleNamespace(id="desktop-update", ours="none") if numerator < denominator else None,
+    )
+
+
+def _full_gap_parity():
+    return _parity_with(20, 25)
+
+
+def _empty_parity():
+    return _parity_with(0, 0)
+
+
+def _rival_figures():
+    return load_config().rivals
+
+
+class TestRivalryReadsTheParityMatrix:
+    """`parity.py` is a measured source of rivalry work that no drive ever consulted.
+
+    Its own docstring says it is "a repeatable source of work for the existing rivalry drive" and to "call
+    next_gap on each planning pass". Nothing called it: `grep parity` across kshudha.py, night.py and
+    heartbeat.py returned nothing, which is the completion review's finding and the criterion parked on
+    r-5795501a since the attempt budget ran out.
+
+    Meanwhile the matrix is real -- 25 capabilities, 20 verified, 4 gaps, coverage 0.80 on 2026-09-11 -- and
+    `spardha_drive` fell to `unknown` whenever no rival declared a figure on a benchmark this workspace had
+    measured, which is almost always. So the rivalry drive was never eligible and the only checked-in source
+    of capability work never produced any.
+
+    Capability coverage is MEASURED, not declared: every row's evidence is a path that must exist or a
+    read-only command that must pass, run against this repository. So using it keeps the "unknown, never
+    fabricated" rule the other six drives follow -- what it must never do is stand in for a benchmark
+    comparison when one is actually available.
+    """
+
+    def test_a_benchmark_comparison_still_wins_when_one_exists(self) -> None:
+        """Parity is the fallback, never the override: a measured rival gap is the better evidence."""
+        cfg = load_config()
+        rivals = tuple(_rival_figures())
+        if not rivals:
+            pytest.skip("no rival figure is declared in the shipped appetite config")
+        with_parity = spardha_drive({rivals[0].benchmark: 0.1}, rivals, cfg, parity=_full_gap_parity())
+        assert not with_parity.unknown
+        assert any("rival" in s or rivals[0].benchmark in s for s in with_parity.sources)
+
+    def test_capability_coverage_makes_the_drive_eligible_when_no_rival_figure_applies(self) -> None:
+        drive = spardha_drive({}, (), load_config(), parity=_full_gap_parity())
+        assert not drive.unknown, "a measured capability gap is evidence, so the drive must not be unknown"
+        assert drive.eligible
+        assert drive.deficit is not None and drive.deficit > 0
+        assert any("parity" in s for s in drive.sources), drive.sources
+
+    def test_without_a_parity_report_the_drive_is_unknown_as_before(self) -> None:
+        """The existing contract is unchanged for every caller that passes nothing."""
+        drive = spardha_drive({}, (), load_config())
+        assert drive.unknown and not drive.eligible
+
+    def test_an_empty_matrix_is_unknown_not_a_coverage_of_zero(self) -> None:
+        """An undefined coverage is not a total deficit. Reporting 1.0 would make an unpopulated matrix the
+        loudest drive in the engine."""
+        drive = spardha_drive({}, (), load_config(), parity=_empty_parity())
+        assert drive.unknown

@@ -18,8 +18,11 @@ not sqlite, and there is no reason for this one store to be the exception.
 (obligations), and `external`'s own admitted rows compared against the `rivals` declared in the appetite config
 for `spardha` (rivalry). The design's sixth drive, `pramana_navyata` (evidence freshness), has no source module
 in this codebase yet, so it is always reported `unknown` — exactly the "unknown, never fabricated" rule applied
-to a whole drive rather than one reading. `spardha` falls back to the same `unknown` rule whenever no rival
-figure names a benchmark this workspace has actually measured.
+to a whole drive rather than one reading. `spardha` falls back to this workspace's own CAPABILITY coverage --
+`parity.py`'s checked-in matrix, whose evidence is a path that must exist or a read-only command that must
+pass -- whenever no rival figure names a benchmark this workspace has measured, and to `unknown` when that
+matrix is empty too. Parity described itself as "a repeatable source of work for the existing rivalry drive"
+and nothing called it, so 25 tracked capabilities with 4 open gaps produced no work at all.
 
 `select` does not dispatch anything; `heartbeat.py` remains the only periodic dispatcher (design §5.1), and
 wiring this module into it is a separate task. `select` only turns a list of `Drive` readings, a persisted
@@ -29,6 +32,7 @@ wins, what it would do, and why every other drive did not.
 
 from __future__ import annotations
 
+import contextlib
 import json
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
@@ -391,7 +395,45 @@ def seva_overdue(backlog: dict[str, Any], cfg: AppetiteConfig) -> bool:
     return float(backlog.get("oldest_open_days", 0.0)) > cfg.seva_overdue_days
 
 
-def spardha_drive(measured: dict[str, float], rivals: tuple[RivalFigure, ...], cfg: AppetiteConfig) -> Drive:
+def _parity_fallback(parity: Any, cfg: AppetiteConfig, why: str) -> Drive:
+    """Capability coverage as the rivalry deficit, when no benchmark comparison is available.
+
+    `parity.py` describes itself as "a repeatable source of work for the existing rivalry drive" and says to
+    "call next_gap on each planning pass". Nothing did: no drive in this module, `night.py` or `heartbeat.py`
+    referenced it, so a matrix of 25 capabilities with 20 verified and 4 open gaps produced no work at all
+    while `spardha` fell to `unknown` on almost every pass -- a rival must both name a benchmark this
+    workspace has measured AND beat us on it before the drive says anything.
+
+    Coverage is MEASURED, not declared: every row's evidence is a path that must exist or a read-only command
+    that must pass, run against this repository. So this keeps the rule the other six drives follow. What it
+    must never do is displace a real benchmark comparison, which is why it is reached only after that path has
+    found nothing.
+
+    An EMPTY matrix stays unknown rather than reporting a deficit of 1.0. An undefined coverage is not a total
+    shortfall, and treating it as one would make an unpopulated matrix the loudest drive in the engine.
+    """
+    coverage = getattr(parity, "coverage", None)
+    fraction = getattr(coverage, "fraction", None)
+    if fraction is None:
+        return _unknown("spardha", cfg, f"{why}, and the parity matrix is empty so coverage is undefined")
+    deficit = clip(1.0 - float(fraction))
+    gap = getattr(parity, "next_gap", None)
+    sources = [
+        f"parity: {getattr(coverage, 'numerator', '?')}/{getattr(coverage, 'denominator', '?')} capabilities "
+        f"verified, evidence run against this repository"
+    ]
+    if gap is not None:
+        sources.append(f"parity next gap: {getattr(gap, 'id', 'unknown')} (ours={getattr(gap, 'ours', '?')})")
+    return Drive(
+        id="spardha", wire_name="rivalry", value=clip(float(fraction)), target=cfg.target("spardha"),
+        deficit=deficit, weight=cfg.weight("spardha"), eligible=True, blocked_reason="",
+        sources=tuple(sources), unknown=False,
+    )
+
+
+def spardha_drive(
+    measured: dict[str, float], rivals: tuple[RivalFigure, ...], cfg: AppetiteConfig, parity: Any = None
+) -> Drive:
     """rivalry: the requirement-weighted shortfall against the nearest declared rival that beats us, on a
     benchmark this workspace actually measured (a new drive, not in design §5.2).
 
@@ -406,9 +448,11 @@ def spardha_drive(measured: dict[str, float], rivals: tuple[RivalFigure, ...], c
     rule the other six drives already follow.
     """
     if not measured:
-        return _unknown("spardha", cfg, "no external result has been admitted to this workspace's ledger yet")
+        why = "no external result has been admitted to this workspace's ledger yet"
+        return _parity_fallback(parity, cfg, why) if parity is not None else _unknown("spardha", cfg, why)
     if not rivals:
-        return _unknown("spardha", cfg, "no rival figure is declared in the appetite config")
+        why = "no rival figure is declared in the appetite config"
+        return _parity_fallback(parity, cfg, why) if parity is not None else _unknown("spardha", cfg, why)
     by_benchmark: dict[str, list[RivalFigure]] = {}
     for r in rivals:
         by_benchmark.setdefault(r.benchmark, []).append(r)
@@ -518,7 +562,17 @@ def measure(root: Path, config: AppetiteConfig | None = None) -> list[Drive]:
     try:
         ledger = root / "research" / "ledger.jsonl"
         measured = _measured_benchmarks(ledger) if ledger.exists() else {}
-        drives.append(spardha_drive(measured, cfg.rivals, cfg))
+        # The parity matrix is this workspace's own checked-in capability evidence, and `parity.py` says it is
+        # "a repeatable source of work for the existing rivalry drive" and to "call next_gap on each planning
+        # pass". Nothing called it, so 25 tracked capabilities with 4 open gaps produced no work while this
+        # drive reported `unknown` on nearly every pass. Its evidence commands are read-only by contract, but a
+        # matrix that cannot be read must not take the drive down with it: `measure` never raises.
+        parity_report = None
+        with contextlib.suppress(Exception):
+            from pravrudhi.application import parity as parity_mod
+
+            parity_report = parity_mod.report(root)
+        drives.append(spardha_drive(measured, cfg.rivals, cfg, parity=parity_report))
     except (OSError, KeyError, ValueError):
         drives.append(_unknown("spardha", cfg, "external results or the rival config could not be read"))
 
