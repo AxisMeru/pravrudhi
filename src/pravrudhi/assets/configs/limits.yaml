@@ -100,3 +100,10 @@ transient:
 # How long to hold a seat that merely stumbled. Far shorter than a quota cooldown: the account is fine, so holding
 # it out for an hour would throw away a working route over one bad connection.
 transient_cooldown_minutes: 2
+
+# A cooldown longer than this is re-tried once it has run this long, then again after another such span: the
+# vendor's stated return time is what it said at the moment of failure, and a quota reset early on the console
+# (2026-09-11: the Lite Plan was reset by hand while the router held "2026-09-14T16:14Z" it had parsed days before)
+# would otherwise be masked until the stale timestamp passed. The retry costs at most one ordinary dispatch per
+# span, which re-marks the route from the vendor's fresh answer if the limit still stands.
+reprobe_hours: 6

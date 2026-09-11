@@ -99,11 +99,28 @@ def classify(agent_id: str, text: str, returncode: int) -> str:
     return "ok" if returncode == 0 else "failed"
 
 
+def reprobe_hours() -> float:
+    """After how long a still-running cooldown is offered to the router again (`limits.yaml`)."""
+    value = _load_config().get("reprobe_hours")
+    try:
+        return float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return 6.0
+
+
 def _cooldown_path(root: Path) -> Path:
     return Path(root) / ".pravrudhi" / "agent_cooldown.json"
 
 
-def _read(root: Path) -> dict[str, str]:
+_STAMP = "%Y-%m-%dT%H:%M:%SZ"
+
+
+def _read(root: Path) -> dict[str, dict[str, str]]:
+    """Every entry as `{"until": ..., "marked": ...}`.
+
+    The file held bare `until` strings until 2026-09-11; those still read, with no `marked` time, and are
+    rewritten in the new shape the next time anything is marked.
+    """
     p = _cooldown_path(root)
     if not p.exists():
         return {}
@@ -111,13 +128,30 @@ def _read(root: Path) -> dict[str, str]:
         data = json.loads(p.read_text())
     except (json.JSONDecodeError, OSError):
         return {}  # a corrupt cooldown file must not stop the router; it just forgets the cooldowns
-    return {str(k): str(v) for k, v in data.items()} if isinstance(data, dict) else {}
+    if not isinstance(data, dict):
+        return {}
+    out: dict[str, dict[str, str]] = {}
+    for k, v in data.items():
+        if isinstance(v, dict) and "until" in v:
+            out[str(k)] = {"until": str(v["until"]), **({"marked": str(v["marked"])} if "marked" in v else {})}
+        else:
+            out[str(k)] = {"until": str(v)}
+    return out
 
 
-def _write(root: Path, data: dict[str, str]) -> None:
+def _write(root: Path, data: dict[str, dict[str, str]]) -> None:
     p = _cooldown_path(root)
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(json.dumps(data, sort_keys=True))
+
+
+def _parse(stamp: str | None) -> datetime | None:
+    if not stamp:
+        return None
+    try:
+        return datetime.strptime(stamp, _STAMP).replace(tzinfo=UTC)
+    except ValueError:
+        return None
 
 
 def _aware(dt: datetime) -> datetime:
@@ -211,23 +245,33 @@ def mark_limited(
     else:
         mins = minutes if minutes is not None else _default_cooldown_minutes(agent_id)
         stop = when + timedelta(minutes=mins)
-    until_value = stop
     data = _read(root)
-    data[agent_id] = until_value.strftime("%Y-%m-%dT%H:%M:%SZ")
+    data[agent_id] = {"until": stop.strftime(_STAMP), "marked": when.strftime(_STAMP)}
     _write(root, data)
 
 
 def cooling(root: Path, now: datetime | None = None) -> dict[str, str]:
-    """Every agent id still inside its cooldown window, mapped to when that window ends."""
+    """Every agent id still held out, mapped to when its window ends.
+
+    A window is held only for `reprobe_hours` at a stretch. Past that, the route is offered again even though
+    the vendor's stated time has not come: what the vendor said was true when it said it, and a quota reset
+    early on the console is invisible from here except by trying. One ordinary dispatch is the probe; if the
+    limit still stands, the failure re-marks the route from the vendor's fresh answer and the next span begins.
+    An entry with no `marked` time (written before this rule) is due when more than a span of it remains.
+    """
     when = _aware(now or datetime.now(UTC))
+    span = timedelta(hours=reprobe_hours())
     out: dict[str, str] = {}
-    for agent_id, until_iso in _read(root).items():
-        try:
-            until = datetime.strptime(until_iso, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
-        except ValueError:
-            continue  # a hand-edited or corrupt entry must not wedge the agent as permanently cooling
-        if until > when:
-            out[agent_id] = until_iso
+    for agent_id, entry in _read(root).items():
+        until = _parse(entry.get("until"))
+        if until is None or until <= when:
+            continue  # expired, or a hand-edited entry that must not wedge the agent as permanently cooling
+        marked = _parse(entry.get("marked"))
+        # An entry with no mark predates this rule: it is due when more than a span of it remains.
+        due = (until - when >= span) if marked is None else (when - marked >= span)
+        if due:
+            continue  # offered to the router again; a failing probe re-marks it from the vendor's fresh answer
+        out[agent_id] = entry["until"]
     return out
 
 
@@ -255,6 +299,7 @@ def usable_routes[R: RouteLike](root: Path, routes: list[R], now: datetime | Non
 
 __all__ = [
     "LIMIT_PATTERNS",
+    "reprobe_hours",
     "classify",
     "mark_limited",
     "cooling",

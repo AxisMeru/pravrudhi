@@ -109,3 +109,34 @@ def test_recording_a_limited_outcome_starts_a_cooldown(tmp_path: Path) -> None:
         tmp_path, routing.Outcome("standard", route.id, "t", False, 1.0, limited=True), table=table
     )
     assert availability.is_cool(tmp_path, route.agent)
+
+def test_a_long_cooldown_is_offered_again_after_the_reprobe_span(tmp_path: Path) -> None:
+    """2026-09-11: the Lite Plan quota was reset by hand on the console while the router held a reset time it
+    had parsed three days earlier. What the vendor said was true when it said it; the only way to learn of an
+    early reset is to try, once per span."""
+    now = datetime(2026, 9, 11, 12, tzinfo=UTC)
+    availability.mark_limited(tmp_path, "opencode:alibaba-plan", now=now, until=now + timedelta(days=3))
+    span = timedelta(hours=availability.reprobe_hours())
+    assert availability.is_cool(tmp_path, "opencode:alibaba-plan", now=now + span / 2)
+    assert not availability.is_cool(tmp_path, "opencode:alibaba-plan", now=now + span)
+    # the probe failed and the vendor still names the same day: held for another span from that answer
+    availability.mark_limited(tmp_path, "opencode:alibaba-plan", now=now + span, until=now + timedelta(days=3))
+    assert availability.is_cool(tmp_path, "opencode:alibaba-plan", now=now + span + timedelta(hours=1))
+
+
+def test_a_short_cooldown_is_simply_honoured(tmp_path: Path) -> None:
+    now = datetime(2026, 9, 11, 12, tzinfo=UTC)
+    availability.mark_limited(tmp_path, "claude-code", minutes=90, now=now)
+    assert availability.is_cool(tmp_path, "claude-code", now=now + timedelta(minutes=89))
+    assert not availability.is_cool(tmp_path, "claude-code", now=now + timedelta(minutes=91))
+
+
+def test_a_bare_until_written_before_the_rule_still_reads_and_is_due_for_a_retry(tmp_path: Path) -> None:
+    (tmp_path / ".pravrudhi").mkdir()
+    (tmp_path / ".pravrudhi" / "agent_cooldown.json").write_text(
+        '{"opencode:alibaba-plan": "2026-09-14T16:14:00Z", "hosted": "2026-09-11T17:28:43Z"}'
+    )
+    now = datetime(2026, 9, 11, 17, tzinfo=UTC)
+    cooling = availability.cooling(tmp_path, now=now)
+    assert "hosted" in cooling, "a short window with no mark is still honoured until it ends"
+    assert "opencode:alibaba-plan" not in cooling, "a days-long window with no mark is older than any span"
