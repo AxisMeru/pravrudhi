@@ -77,7 +77,7 @@ export default function SignInPage() {
 
   if (!isConfigured) {
     return (
-      <div className="flex h-screen items-center justify-center bg-[var(--color-bg)]">
+      <div className="flex h-screen items-center justify-center bg-bg">
         <div className="mx-auto w-full max-w-sm space-y-6 px-4">
           <div className="space-y-2">
             <h1 className="text-2xl font-semibold text-[var(--color-text)]">Sign in</h1>
@@ -99,7 +99,7 @@ export default function SignInPage() {
   }
 
   return (
-    <div className="flex h-screen items-center justify-center bg-[var(--color-bg)]">
+    <div className="flex h-screen items-center justify-center bg-bg">
       <div className="mx-auto w-full max-w-sm space-y-6 px-4">
         <div className="space-y-2">
           <h1 className="text-2xl font-semibold text-[var(--color-text)]">
@@ -160,7 +160,7 @@ export default function SignInPage() {
           <button
             type="submit"
             disabled={isLoading}
-            className="w-full rounded-md bg-[var(--color-text)] px-4 py-2 text-sm font-medium text-[var(--color-bg)] hover:opacity-90 disabled:opacity-50"
+            className="w-full rounded-md bg-text px-4 py-2 text-sm font-medium text-bg hover:opacity-90 disabled:opacity-50"
           >
             {isLoading ? (isSignUp ? "Creating account..." : "Signing in...") : isSignUp ? "Create account" : "Sign in"}
           </button>

@@ -26,7 +26,7 @@ export function AccountControl() {
     return (
       <Link
         href="/signin"
-        className="block rounded-md bg-[var(--color-text)] px-3 py-1.5 text-xs font-medium text-[var(--color-bg)] hover:opacity-90"
+        className="block rounded-md bg-text px-3 py-1.5 text-xs font-medium text-bg hover:opacity-90"
       >
         Sign in
       </Link>
