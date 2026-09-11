@@ -245,6 +245,62 @@ class TestBuildDispatch:
         assert crit.met and crit.evidence[0].kind == "commit"
 
 
+class TestBuildJudgeReadsTheWorktree:
+    def test_the_default_judge_for_a_build_criterion_runs_in_the_dispatch_worktree(
+        self, repo: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """r-35e8ce7b criteria 5 and 6 were refused four times with "the files do not contain any of the three
+        functions": the agent had written them, in its worktree, and the judge read a fresh worktree of HEAD."""
+        from pravrudhi.application.delegate import Verdict
+
+        def fake_run_wave(build_agent: Any, wave: list[Any], **kw: Any) -> list[Any]:
+            task = wave[0]
+            wt = _worktree(repo, task.spec.task_id)
+            (wt / "src" / "mod.py").write_text("VALUE = 2\n")
+            return [Verdict(task_id=task.spec.task_id, agent="fake", accepted=True, files=["src/mod.py"])]
+
+        seen: dict[str, Any] = {}
+
+        def fake_default_judge(root: Path, *, workspace: Path | None = None) -> Any:
+            seen["workspace"] = workspace
+
+            def ask(*, prompt: str) -> str:
+                seen["prompt"] = prompt
+                return "verdict: not met\nnot judged here"
+
+            return ask
+
+        monkeypatch.setattr(heartbeat.swarm, "run_wave", fake_run_wave)
+        monkeypatch.setattr(heartbeat, "_default_judge", fake_default_judge)
+        heartbeat._beat_obligations(repo, lambda _n, _m=None: object())
+        assert seen["workspace"] == repo / ".worktrees" / "agent-request-r-1-0"
+        assert "worktree" in seen["prompt"] and "relative to the repository root" not in seen["prompt"]
+
+    def test_the_default_judge_borrows_a_given_workspace_and_never_removes_it(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        calls: list[str] = []
+
+        class Agent:
+            def create_workspace(self, task_id: str) -> Path:
+                calls.append("create")
+                return tmp_path / "judge"
+
+            def run(self, prompt: str, workspace: Path, timeout_s: int = 0) -> Any:
+                calls.append(f"run:{workspace.name}")
+                return type("R", (), {"text": "VERDICT: met\nfine"})()
+
+            def stop(self, workspace: Path) -> None:
+                calls.append(f"stop:{workspace.name}")
+
+        monkeypatch.setattr(heartbeat, "_registry_build_agent", lambda *_a, **_k: Agent())
+        heartbeat._default_judge(tmp_path, workspace=tmp_path / "build")(prompt="p")
+        assert calls == ["run:build"]
+        calls.clear()
+        heartbeat._default_judge(tmp_path)(prompt="p")
+        assert calls == ["create", "run:judge", "stop:judge"]
+
+
 class TestDispatchModeDirectories:
     def test_a_backticked_directory_under_an_allowed_prefix_is_build_mode(self) -> None:
         """r-35e8ce7b criterion 0 named `docs/blueprint/02-design/` and a `.pdf`; no code extension, so it went

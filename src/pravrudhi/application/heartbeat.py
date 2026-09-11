@@ -418,13 +418,15 @@ def _obligation_prompt(
 _JUDGE_MARKER = "verdict:"
 
 
-def _judge_prompt(request_text: str, criterion_text: str, files: list[str]) -> str:
+def _judge_prompt(
+    request_text: str, criterion_text: str, files: list[str], *, where: str = "the repository root"
+) -> str:
     listing = "\n".join(f"  - {f}" for f in files) or "  (nothing)"
     return (
         "You are judging one acceptance criterion. You do not write code and you fix nothing.\n\n"
         f"Operator request (verbatim): {request_text}\n\n"
         f"The criterion: {criterion_text}\n\n"
-        f"What the last dispatch produced, relative to the repository root:\n{listing}\n\n"
+        f"What the last dispatch produced, relative to {where}:\n{listing}\n\n"
         "Read those files. Decide whether they actually satisfy the criterion as written - not whether they are "
         "good work, and not whether they describe satisfying it. A proposal that explains what would meet the "
         "criterion does not meet it.\n"
@@ -450,29 +452,34 @@ def _judged(text: str) -> tuple[bool, str]:
     return False, (" ".join(lines)[:300] or "the judge said nothing")
 
 
-def _default_judge(root: Path) -> Any:
+def _default_judge(root: Path, *, workspace: Path | None = None) -> Any:
     """The read-only agent that judges a criterion, on the cheap seat.
 
     Judging is reading and answering, which is what `subagents` calls mechanical work; paying design rates to
     ask "does this file do what the criterion says" is how a plan's allowance disappears into bookkeeping.
+
+    `workspace` is the tree the judge reads in. A build criterion's change exists only in the dispatch's own
+    worktree until integration, so its judge must run there: until 2026-09-11 the judge read a fresh worktree of
+    HEAD, found none of the functions the criterion named, and refused four build attempts in a row for work
+    that was sitting one directory over. A workspace handed in is borrowed, never removed.
     """
     def ask(*, prompt: str) -> str:
         agent = _registry_build_agent(root, "claude-code", "haiku")
         if agent is None:
             return ""
-        workspace = None
+        own = None
         try:
-            workspace = agent.create_workspace("judge")
-            return str(agent.run(prompt, workspace, timeout_s=600).text)
+            own = None if workspace is not None else agent.create_workspace("judge")
+            return str(agent.run(prompt, workspace if workspace is not None else own, timeout_s=600).text)
         except (OSError, RuntimeError, ValueError):
             # A machine with no usable agent, or a root that is not a checkout, must not take the beat down: an
             # unjudgeable criterion is simply not met, which is the fail-closed direction and the same one
             # `completion._default_review_agent` takes when it cannot review.
             return ""
         finally:
-            if workspace is not None:
+            if own is not None:
                 with contextlib.suppress(OSError, RuntimeError):
-                    agent.stop(workspace)
+                    agent.stop(own)
 
     return ask
 
@@ -1038,8 +1045,17 @@ def _beat_obligations(root: Path, dispatch: DispatchFn | None, *, judge: Any = N
     # it. Fail-closed: an unclear answer is not met.
     # H4: Now record the judged attempt, only after dispatch accepted and we will run the judge.
     record_attempt(root, request.id, index)
-    answer = (judge or _default_judge(root))(
-        prompt=_judge_prompt(request.text, criterion.text, list(verdict.files)))
+    if mode == "build":
+        # The change is in the dispatch's worktree and nowhere else yet; a judge reading the repository root
+        # would be judging the tree without it.
+        from pravrudhi.agents.base import GitWorktreeMixin
+
+        build_worktree: Path | None = root / ".worktrees" / f"agent-{GitWorktreeMixin.ref_safe(task_id)}"
+        where = "the agent's worktree, which is your working directory and holds the change (the repository root does not yet)"
+    else:
+        build_worktree, where = None, "the repository root"
+    answer = (judge or _default_judge(root, workspace=build_worktree))(
+        prompt=_judge_prompt(request.text, criterion.text, list(verdict.files), where=where))
     met, why = _judged(answer)
     result["judged"] = "met" if met else "not met"
     result["judgement"] = why
