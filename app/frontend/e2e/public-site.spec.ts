@@ -11,7 +11,7 @@ import { expect, test } from "@playwright/test";
 test("the landing page leads with the measured result, not an error", async ({ page }) => {
   await page.goto("/");
   await expect(page).toHaveTitle(/Pravrudhi/);
-  await expect(page.getByText(/Recorded demo/i)).toBeVisible();
+  await expect(page.getByText(/Recorded from Pravrudhi Studio/i)).toBeVisible();
   await expect(page.getByText(/No engine reachable/i)).toHaveCount(0);
 
   // The headline improvement, and that it was scored outside the engine rather than self-reported. Both
