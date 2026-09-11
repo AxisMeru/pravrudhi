@@ -737,8 +737,14 @@ def build_paths_for(text: str) -> tuple[str, ...]:
     if not text or not text.strip():
         return ()
 
-    # Extract backticked paths
+    # Extract backticked paths. A trailing backtick with no partner is a name whose end was cut off (every
+    # criterion drafted before 2026-09-11 was clipped at 300 characters, and one ended in `docs/usage.); what
+    # remains of it still says which directory the work is in, so it counts.
     backticked = re.findall(r'`([^`]+)`', text)
+    if text.count("`") % 2:
+        tail = text[text.rfind("`") + 1:].strip()
+        if tail and "/" in tail and " " not in tail:
+            backticked.append(tail)
 
     # Also look for bare Python/TypeScript/shell/yaml/markdown file references
     # This is more forgiving to capture mentions like "update handler.py" or "create test_foo.py"

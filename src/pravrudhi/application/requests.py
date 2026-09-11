@@ -452,8 +452,27 @@ def _obligation_for(ready: Request, root: Path) -> dict[str, Any]:
     }
 
 
-_CRITERION_CHARS = 300
-"""The ledger's criterion column. Long criteria were already truncated here by `_criterion_from_finding`."""
+_CRITERION_CHARS = 1000
+"""Where a drafted criterion is cut. It was 300, and every criterion a model drafted on 2026-09-11 came out
+exactly 300 characters long, one of them ending in `docs/usage.` with its closing backtick gone, so the build
+scope never included docs and three dispatches were refused for writing the file the criterion named. A criterion
+is a sentence the judge must read whole; 1000 is room for one, and `_clip` cuts at a boundary, never inside a
+backticked name."""
+
+
+def _clip(text: str, limit: int = _CRITERION_CHARS) -> str:
+    """`text` within `limit`, cut at the last sentence end or whitespace before it, and never leaving a
+    backtick unpaired: a half name is worse than no name, because the scope parser would read it as prose."""
+    text = text.strip()
+    if len(text) <= limit:
+        return text
+    head = text[:limit]
+    cut = max(head.rfind(". "), head.rfind("; "), head.rfind(", "), head.rfind(" "))
+    if cut > limit // 2:
+        head = head[:cut].rstrip(" ,;")
+    if head.count("`") % 2:
+        head = head[: head.rfind("`")].rstrip(" ,;:")
+    return head.rstrip(".") + "..." if not head.endswith(".") else head
 
 # A digit, then ")" or ". ", at the start of the ask or after whitespace. The operator enumerates constantly
 # ("1)do local schedule task 2)you have to unblock studio"), sometimes without a space after the bracket. A "."
@@ -478,10 +497,10 @@ def draft_criteria(text: str) -> list[Criterion]:
         return []
     if len(_ENUMERATED.findall(ask)) >= 2:  # one marker is a sentence that happens to start with "1)"
         items = [part.strip() for part in _ENUMERATED.split(ask)]
-        drafted = [Criterion(text=i[:_CRITERION_CHARS], source="engine") for i in items if i]
+        drafted = [Criterion(text=_clip(i), source="engine") for i in items if i]
         if drafted:
             return drafted
-    return [Criterion(text=ask[:_CRITERION_CHARS], source="engine")]
+    return [Criterion(text=_clip(ask), source="engine")]
 
 
 def untriaged(root: Path, *, now: datetime | None = None) -> list[Request]:
@@ -574,7 +593,7 @@ def decompose_ask(text: str, *, complete: Callable[[str], str]) -> list[Criterio
         line = str(item or "").strip()
         if not line or not _names_something(line):
             continue  # a criterion nobody can build against is worse than one fewer criterion
-        drafted.append(Criterion(text=line[:_CRITERION_CHARS], source="engine"))
+        drafted.append(Criterion(text=_clip(line), source="engine"))
     return drafted
 
 

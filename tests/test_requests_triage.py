@@ -51,9 +51,13 @@ class TestDraftCriteria:
     def test_an_empty_ask_drafts_nothing(self) -> None:
         assert draft_criteria("   ") == []
 
-    def test_a_criterion_is_never_longer_than_the_ledger_column(self) -> None:
-        drafted = draft_criteria("x" * 900)
-        assert len(drafted) == 1 and len(drafted[0].text) <= 300
+    def test_a_criterion_is_never_longer_than_the_cap_and_is_cut_at_a_boundary(self) -> None:
+        from pravrudhi.application.requests import _CRITERION_CHARS
+
+        drafted = draft_criteria("x" * 1500)
+        assert len(drafted) == 1 and len(drafted[0].text) <= _CRITERION_CHARS + 3
+        worded = draft_criteria(("`src/pravrudhi/x.py` holds the value. " * 60).strip())
+        assert worded[0].text.count("`") % 2 == 0, "a clip never leaves a name half-quoted"
 
 
 class TestTriage:
@@ -369,3 +373,24 @@ def test_the_decomposer_is_told_what_the_engine_may_not_change() -> None:
         assert forbidden in prompt
     assert "src/pravrudhi/" in prompt
     assert "make the kernel's controller smarter" in prompt, "the operator's words stay verbatim"
+
+
+class TestClip:
+    def test_a_long_criterion_keeps_its_last_backticked_name_whole(self) -> None:
+        from pravrudhi.application.requests import _clip
+
+        text = ("The messaging surfaces are reachable from `src/pravrudhi/cli/app.py`, reported by `pravrudhi doctor` "
+                "and documented in `docs/usage.md` " + "with a sentence that runs on " * 40)
+        clipped = _clip(text, limit=140)
+        assert "`docs/usage.md`" in clipped or clipped.count("`") % 2 == 0
+        assert len(clipped) <= 143
+
+    def test_a_short_criterion_is_untouched(self) -> None:
+        from pravrudhi.application.requests import _clip
+
+        assert _clip("`src/x.py` sets VALUE = 2") == "`src/x.py` sets VALUE = 2"
+
+    def test_drafted_criteria_are_no_longer_cut_at_three_hundred(self) -> None:
+        from pravrudhi.application.requests import _CRITERION_CHARS
+
+        assert _CRITERION_CHARS >= 1000

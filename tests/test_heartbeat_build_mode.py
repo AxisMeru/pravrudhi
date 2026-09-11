@@ -62,6 +62,12 @@ class TestBuildPathsFor:
         # tests/* should be in the allowed paths
         assert "tests/*" in paths
 
+    def test_a_path_whose_closing_backtick_was_cut_off_still_counts(self) -> None:
+        """r-35e8ce7b criterion 4 ended in `docs/usage. after the 300-character clip; the agent wrote docs/usage.md
+        as the criterion asked and was refused three times for writing outside its scope."""
+        paths = heartbeat.build_paths_for("reported by `pravrudhi doctor`, and documented in `docs/usage.")
+        assert "docs/*" in paths
+
     def test_multiple_valid_paths(self) -> None:
         """Multiple valid paths are all returned."""
         text = "update `src/utils.py`, `tests/test_utils.py`, and `app/frontend/src/index.tsx`"
