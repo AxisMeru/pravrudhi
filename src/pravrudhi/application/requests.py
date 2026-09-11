@@ -402,7 +402,7 @@ def next_obligation(root: Path, *, now: datetime | None = None) -> dict[str, Any
     # reported only when nothing anywhere can move.
     parked: dict[str, Any] | None = None
     for ready in sorted(open_rows, key=lambda r: -staleness(r, now=now)):
-        found = _obligation_for(ready)
+        found = _obligation_for(ready, root)
         if found["kind"] == "parked_request":
             parked = parked or found
             continue
@@ -410,9 +410,17 @@ def next_obligation(root: Path, *, now: datetime | None = None) -> dict[str, Any
     return parked
 
 
-def _obligation_for(ready: Request) -> dict[str, Any]:
+def _obligation_for(ready: Request, root: Path) -> dict[str, Any]:
     """What one open request is owed: its gate, its parked criteria, or its next step."""
     if ready.state == "delivered":
+        # Check if the gate is stalled before offering it
+        with contextlib.suppress(Exception):
+            from pravrudhi.application.heartbeat import gate_stalled
+            if gate_stalled(root, ready.id):
+                return {
+                    "kind": "parked_request", "request": ready.id, "criterion": None, "text": "",
+                    "description": f"the completion gate on {ready.id} has stalled; this is owed to a person",
+                }
         return {
             "kind": "verify_request", "request": ready.id, "criterion": None, "text": "",
             "description": f"the completion gate on {ready.id}",

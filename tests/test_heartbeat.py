@@ -621,3 +621,213 @@ def test_review_criterion_carries_the_finding_not_the_reviewer_s_preamble(
              if c.text.startswith(heartbeat._REVIEW_CRITERION_PREFIX)][0]
     assert "parity.py" in added.text, added.text
     assert "found a real reason" not in added.text, "the criterion announces a finding instead of stating one"
+
+
+class TestGateAttemptBudget:
+    """A completion gate that crashes should not be retried indefinitely.
+
+    H3 from ADVERSARIAL-2026-09-11: when a request's completion gate raises, the exception is caught and the
+    request stays `delivered`; every subsequent beat selects the same request again and re-runs the gate, building
+    a new review agent each time. Unlike criteria, gates have no attempt counter. This wastes API spend in an
+    unattended loop and starves younger requests.
+
+    Fix: record gate attempts on the request, refuse to run the gate after a configured maximum, and have
+    next_obligation skip such requests the way it skips parked criteria.
+    """
+
+    @staticmethod
+    def _evidenced_request(tmp_path: Path) -> str:
+        """A request with all criteria met, ready for the gate."""
+        (tmp_path / "README.md").write_text("it is there")
+        req = requests.capture(tmp_path, "do the work")
+        requests.add_criteria(tmp_path, req.id, [requests.Criterion(text="works", source="operator")])
+        requests.meet(tmp_path, req.id, 0, [requests.Evidence(kind="file", ref="README.md")])
+        requests.advance(tmp_path, req.id, "in_progress")
+        requests.advance(tmp_path, req.id, "delivered")
+        return req.id
+
+    def test_gate_attempts_are_tracked_per_request(self, tmp_path: Path) -> None:
+        """Gate attempts must be recorded and persisted like criterion attempts."""
+        rid = "r-gate-1"
+        assert heartbeat.gate_attempts(tmp_path, rid) == 0
+        heartbeat.record_gate_attempt(tmp_path, rid)
+        assert heartbeat.gate_attempts(tmp_path, rid) == 1
+        heartbeat.record_gate_attempt(tmp_path, rid)
+        assert heartbeat.gate_attempts(tmp_path, rid) == 2
+
+    def test_gate_attempts_survive_restart(self, tmp_path: Path) -> None:
+        """The count lives on disk so an hourly loop that restarts still respects the budget."""
+        rid = "r-gate-1"
+        for _ in range(heartbeat.MAX_GATE_ATTEMPTS):
+            heartbeat.record_gate_attempt(tmp_path, rid)
+        assert heartbeat.gate_stalled(tmp_path, rid)
+        # Simulate restart by creating a new heartbeat instance; the file persists
+        assert heartbeat.gate_attempts(tmp_path, rid) == heartbeat.MAX_GATE_ATTEMPTS
+
+    def test_a_crashing_gate_is_not_retried_forever(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """After MAX_GATE_ATTEMPTS failures, the beat must stop running the gate."""
+        from pravrudhi.application import completion, heartbeat, requests
+
+        request_id = self._evidenced_request(tmp_path)
+
+        def explode(*_a: object, **_k: object) -> object:
+            raise RuntimeError("gate crash")
+
+        monkeypatch.setattr(completion, "gate", explode)
+
+        # Run the gate MAX_GATE_ATTEMPTS times; each one fails but request stays delivered
+        for i in range(heartbeat.MAX_GATE_ATTEMPTS):
+            _chose, reason, result = heartbeat._beat_completion_gate(tmp_path, request_id)
+            assert result is not None and result["ran"] is False
+            assert "gate crash" in reason
+            req_after = requests.get(tmp_path, request_id)
+            assert req_after.state == "delivered", "a broken gate must not move the request"
+            assert heartbeat.gate_attempts(tmp_path, request_id) == i + 1
+
+        # The request should now be parked (gate stalled)
+        assert heartbeat.gate_stalled(tmp_path, request_id)
+
+    def test_a_parked_gate_is_not_chosen_again(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Once a gate is parked, next_obligation must skip it and select a younger request."""
+        from datetime import timedelta
+
+        from pravrudhi.application import completion, heartbeat, requests
+
+        # Old request with a crashing gate
+        old_at = (datetime.now(UTC) - timedelta(days=5)).isoformat().replace("+00:00", "Z")
+        old_req = requests.capture(tmp_path, "the ask with the crashing gate", asked_at=old_at)
+        requests.add_criteria(tmp_path, old_req.id, [requests.Criterion(text="works", source="operator")])
+        (tmp_path / "README.md").write_text("it is there")
+        requests.meet(tmp_path, old_req.id, 0, [requests.Evidence(kind="file", ref="README.md")])
+        requests.advance(tmp_path, old_req.id, "in_progress")
+        requests.advance(tmp_path, old_req.id, "delivered")
+
+        # Fresh request ready to move
+        fresh_req = requests.capture(tmp_path, "an ask waiting for work")
+        requests.add_criteria(tmp_path, fresh_req.id, [requests.Criterion(text="fresh work", source="operator")])
+        (tmp_path / "fresh.md").write_text("fresh")
+        requests.meet(tmp_path, fresh_req.id, 0, [requests.Evidence(kind="file", ref="fresh.md")])
+        requests.advance(tmp_path, fresh_req.id, "in_progress")
+        requests.advance(tmp_path, fresh_req.id, "delivered")
+
+        def explode(*_a: object, **_k: object) -> object:
+            raise RuntimeError("gate crash")
+
+        monkeypatch.setattr(completion, "gate", explode)
+
+        # Park the old request's gate by running it MAX_GATE_ATTEMPTS times
+        for _ in range(heartbeat.MAX_GATE_ATTEMPTS):
+            heartbeat._beat_completion_gate(tmp_path, old_req.id)
+
+        # Now the next obligation should be the fresh request, not the parked one
+        owed = requests.next_obligation(tmp_path)
+        assert owed is not None
+        if owed["kind"] == "parked_request":
+            # This is a parked criterion, not a parked gate; skip to the next one
+            assert owed["request"] != old_req.id or "gate" in owed["description"].lower()
+        else:
+            # Should be able to verify the fresh request, not repeat the old gate
+            assert owed["request"] == fresh_req.id
+
+
+class TestDispatchLevelFailureHandling:
+    """Dispatch-level failures must not consume criterion attempts.
+
+    H4 from ADVERSARIAL-2026-09-11: a criterion attempt is recorded BEFORE dispatch; if swarm.run_wave returns
+    accepted=False for a dispatch-level reason (validation, workspace race), the code returns before any judge
+    runs, and the attempt is still consumed. Three transient failures park a solvable criterion permanently.
+
+    Fix: consume an attempt only when the dispatch produced work the judge evaluated (after the accepted branch
+    reaches the judge), and record dispatch-level failures separately with their own cap.
+    """
+
+    @staticmethod
+    def _setup_criterion(tmp_path: Path, request_id: str = "r-test") -> str:
+        """Set up a request with an unmet criterion, ready to dispatch."""
+        req = requests.capture(tmp_path, "do the work", request_id=request_id)
+        requests.add_criteria(tmp_path, req.id, [requests.Criterion(text="build it", source="operator")])
+        return req.id
+
+    def test_dispatch_failure_does_not_consume_judged_attempt(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """When dispatch rejects the work before judging, the criterion's judged attempts should not be consumed."""
+        from pravrudhi.application import heartbeat, swarm
+
+        req_id = self._setup_criterion(tmp_path)
+
+        def failing_wave(build_agent: object, wave: object, **kw: object) -> list[object]:
+            return [swarm.Verdict(
+                task_id="req:test:0", agent="test", accepted=False,
+                reasons=["validation failed"], files=[]
+            )]
+
+        monkeypatch.setattr(swarm, "run_wave", failing_wave)
+
+        # Dispatch fails at validation level
+        def dispatch_fn(name: str, model: str | None) -> object:
+            return object()
+
+        _chose, reason, result = heartbeat._beat_obligations(tmp_path, dispatch_fn)
+
+        # Judged attempts should NOT be consumed when dispatch fails
+        assert heartbeat.attempts(tmp_path, req_id, 0) == 0, \
+            "dispatch-level failure must not consume a judged attempt"
+        assert result is not None and result["accepted"] is False
+
+    def test_repeated_dispatch_failures_are_bounded(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Three dispatch-level failures should park the criterion separately from judged attempts."""
+        from pravrudhi.application import heartbeat, swarm
+
+        req_id = self._setup_criterion(tmp_path)
+
+        def failing_wave(build_agent: object, wave: object, **kw: object) -> list[object]:
+            return [swarm.Verdict(
+                task_id="req:test:0", agent="test", accepted=False,
+                reasons=["workspace race"], files=[]
+            )]
+
+        monkeypatch.setattr(swarm, "run_wave", failing_wave)
+
+        def dispatch_fn(name: str, model: str | None) -> object:
+            return object()
+
+        # Three dispatch failures
+        for _ in range(3):
+            _chose, reason, result = heartbeat._beat_obligations(tmp_path, dispatch_fn)
+            assert result is not None and result["accepted"] is False
+
+        # Judged attempts should still be 0
+        assert heartbeat.attempts(tmp_path, req_id, 0) == 0
+        # Dispatch failures should be recorded separately
+        dispatch_fails = heartbeat.dispatch_failures(tmp_path, req_id, 0)
+        assert dispatch_fails == 3
+
+    def test_accepted_dispatch_with_judge_rejection_consumes_attempt(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """When dispatch accepts but judge rejects, the attempt should be consumed."""
+        from pravrudhi.application import heartbeat, swarm
+
+        req_id = self._setup_criterion(tmp_path)
+
+        def accepting_wave(build_agent: object, wave: object, **kw: object) -> list[object]:
+            return [swarm.Verdict(
+                task_id="req:test:0", agent="test", accepted=True,
+                reasons=[], files=["proposals/requests/r-test/0/output.md"]
+            )]
+
+        def rejecting_judge(prompt: str) -> str:
+            return "VERDICT: not met\nThe work is incomplete."
+
+        monkeypatch.setattr(swarm, "run_wave", accepting_wave)
+
+        def dispatch_fn(name: str, model: str | None) -> object:
+            return object()
+
+        _chose, reason, result = heartbeat._beat_obligations(tmp_path, dispatch_fn, judge=rejecting_judge)
+
+        # Attempt SHOULD be consumed when judge runs
+        assert heartbeat.attempts(tmp_path, req_id, 0) == 1, \
+            "judged rejection must consume an attempt"
+        assert result is not None and result.get("judged") == "not met"

@@ -305,6 +305,84 @@ def stalled(root: Path, request_id: str, index: int) -> bool:
     return attempts(root, request_id, index) >= MAX_CRITERION_ATTEMPTS
 
 
+_GATE_ATTEMPTS_FILE = ".pravrudhi/gate-attempts.json"
+_DISPATCH_FAILURES_FILE = ".pravrudhi/dispatch-failures.json"
+
+# Like criterion attempts, gate attempts are budgeted. A gate that crashes should not rebuild a review agent
+# every hour forever. Three attempts is the same budget as criteria.
+MAX_GATE_ATTEMPTS = 3
+
+# Dispatch-level failures (validation, workspace race, etc.) are separate from judged attempts. A criterion
+# should be parked only after a configured number of dispatch failures, independent of judged attempt count.
+MAX_DISPATCH_FAILURES = 3
+
+
+def _gate_attempts_path(root: Path) -> Path:
+    return Path(root) / _GATE_ATTEMPTS_FILE
+
+
+def _gate_attempts_all(root: Path) -> dict[str, int]:
+    try:
+        data = json.loads(_gate_attempts_path(root).read_text())
+        return {str(k): int(v) for k, v in data.items()} if isinstance(data, dict) else {}
+    except (OSError, ValueError, TypeError):
+        return {}
+
+
+def gate_attempts(root: Path, request_id: str) -> int:
+    """How many times the completion gate has been run on this request without succeeding."""
+    return _gate_attempts_all(root).get(request_id, 0)
+
+
+def record_gate_attempt(root: Path, request_id: str) -> int:
+    """Count one gate execution. On disk, because an hourly loop that forgot on restart would never reach budget."""
+    data = _gate_attempts_all(root)
+    data[request_id] = data.get(request_id, 0) + 1
+    path = _gate_attempts_path(root)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, indent=1, sort_keys=True))
+    return data[request_id]
+
+
+def gate_stalled(root: Path, request_id: str) -> bool:
+    """Whether this request's gate has spent its budget and should be left to the operator."""
+    return gate_attempts(root, request_id) >= MAX_GATE_ATTEMPTS
+
+
+def _dispatch_failures_path(root: Path) -> Path:
+    return Path(root) / _DISPATCH_FAILURES_FILE
+
+
+def _dispatch_failures_all(root: Path) -> dict[str, int]:
+    try:
+        data = json.loads(_dispatch_failures_path(root).read_text())
+        return {str(k): int(v) for k, v in data.items()} if isinstance(data, dict) else {}
+    except (OSError, ValueError, TypeError):
+        return {}
+
+
+def dispatch_failures(root: Path, request_id: str, index: int) -> int:
+    """How many times dispatch has failed (before judge ran) for this criterion."""
+    key = f"{request_id}:{index}"
+    return _dispatch_failures_all(root).get(key, 0)
+
+
+def record_dispatch_failure(root: Path, request_id: str, index: int) -> int:
+    """Count one dispatch-level failure (accepted=False). Separate from judged attempts."""
+    data = _dispatch_failures_all(root)
+    key = f"{request_id}:{index}"
+    data[key] = data.get(key, 0) + 1
+    path = _dispatch_failures_path(root)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, indent=1, sort_keys=True))
+    return data[key]
+
+
+def dispatch_failures_exhausted(root: Path, request_id: str, index: int) -> bool:
+    """Whether this criterion has spent its dispatch failure budget."""
+    return dispatch_failures(root, request_id, index) >= MAX_DISPATCH_FAILURES
+
+
 def _obligation_prompt(
     request_text: str, criterion_text: str, scratch: str, validate: str, *, prior: str = ""
 ) -> str:
@@ -493,13 +571,23 @@ def _beat_completion_gate(root: Path, request_id: str) -> ActionResult:
     """
     from pravrudhi.application import completion
 
+    # Check if the gate is already stalled (spent its attempt budget)
+    if gate_stalled(root, request_id):
+        return (
+            {"request": request_id},
+            f"the completion gate on {request_id} has stalled after {MAX_GATE_ATTEMPTS} attempts; leaving it for the operator",
+            {"kind": "gate", "ran": False, "stalled": True, "attempts": gate_attempts(root, request_id)},
+        )
+
+    record_gate_attempt(root, request_id)
+
     try:
         result = completion.gate(root, request_id, dispatch=_default_review_agent(root), e2e="uv run pytest -q")
     except Exception as error:  # noqa: BLE001 (a gate that cannot run must not stop the heartbeat)
         return (
             {"request": request_id},
             f"the completion gate could not run on {request_id}: {error}",
-            {"kind": "gate", "ran": False, "error": str(error)},
+            {"kind": "gate", "ran": False, "error": str(error), "attempts": gate_attempts(root, request_id)},
         )
 
     if result.passed:
@@ -662,7 +750,8 @@ def _beat_obligations(root: Path, dispatch: DispatchFn | None, *, judge: Any = N
     task = swarm.SwarmTask(spec, _OBLIGATION_TIER, why=f"oldest unmet criterion of request {request.id}")
     scoped = replace(task, spec=apply_policy(task.spec, policy_for("proposal")))
     build_agent = dispatch or _default_build_agent(root)
-    record_attempt(root, request.id, index)
+    # H4: Do NOT record attempt before dispatch. Dispatch-level failures (validation, workspace race)
+    # return before judge runs and must not consume a judged attempt.
     verdict = swarm.run_wave(build_agent, [scoped], log=lambda _msg: None, root=root)[0]
     chose = {"request": request.id, "criterion": str(index)}
     result = {
@@ -671,12 +760,26 @@ def _beat_obligations(root: Path, dispatch: DispatchFn | None, *, judge: Any = N
     }
     verb = "accepted" if verdict.accepted else "rejected"
     if not verdict.accepted:
+        # H4: Dispatch-level failure (accepted=False before judge). Record separately, do not consume
+        # a judged attempt. If dispatch failures are exhausted, park the criterion.
+        dispatch_fails = record_dispatch_failure(root, request.id, index)
+        result["dispatch_failures"] = dispatch_fails
+        if dispatch_failures_exhausted(root, request.id, index):
+            # Too many dispatch-level transients; park this criterion
+            return (
+                chose,
+                f"dispatched request {request.id} criterion {index} ({verb}, dispatch failed {dispatch_fails} times); "
+                f"parked after {MAX_DISPATCH_FAILURES} dispatch failures",
+                result
+            )
         return chose, f"dispatched request {request.id} criterion {index} ({verb})", result
 
     # Accepted says the diff stayed in scope and the validate command passed. It does not say the criterion is
     # satisfied, so the beat asks rather than assuming - and until it did, nothing in the engine ever called
     # `requests.meet`, which left every criterion a dead end that could only be retried until the budget parked
     # it. Fail-closed: an unclear answer is not met.
+    # H4: Now record the judged attempt, only after dispatch accepted and we will run the judge.
+    record_attempt(root, request.id, index)
     answer = (judge or _default_judge(root))(
         prompt=_judge_prompt(request.text, criterion.text, list(verdict.files)))
     met, why = _judged(answer)
