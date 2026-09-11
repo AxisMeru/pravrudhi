@@ -2,20 +2,50 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 import yaml
 
+from pravrudhi.application.delegate import TaskSpec
+from pravrudhi.application.delegation import AGENT_IDENTITIES
 from pravrudhi.application.selfbuild import (
     PACKAGED_EXAMPLE,
     BuildRun,
     SelfBuildError,
+    close_gate,
     load_plan,
     preview,
+    propose_card,
     record_run,
     run_plan,
+    run_unattended_cycle,
     runs,
     runs_path,
 )
+from pravrudhi.application.swarm import SwarmTask
+
+
+def _task(task_id, allowed_paths, *, why="", validate="true"):
+    spec = TaskSpec(task_id=task_id, prompt="p", allowed_paths=tuple(allowed_paths), validate=validate)
+    return SwarmTask(spec, "standard", why=why)
+
+
+def _write_delegation(root, *, active=True):
+    cfg_dir = root / "configs"
+    cfg_dir.mkdir(parents=True, exist_ok=True)
+    (cfg_dir / "delegation.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "active": active,
+                "granted": "2026-09-11",
+                "instruction": "test delegation, not the operator's real one",
+                "signature_identity": "agent-for-operator",
+                "scope": {"gate_signoff": True},
+                "conditions": {},
+            }
+        )
+    )
 
 
 def _write_plan(tmp_path, tasks):
@@ -125,3 +155,97 @@ def test_runs_round_trip(tmp_path):
     assert got[0].accepted is True
     assert got[0].files == ("a.py",)
     assert got[0].at  # filled in by record_run
+
+
+def test_propose_card_refuses_a_task_naming_a_protected_path(tmp_path):
+    task = _task("sneaky", ["pravrudhi_kernel/stats.py"])
+
+    with pytest.raises(SelfBuildError) as e:
+        propose_card(tmp_path, task)
+
+    assert "pravrudhi_kernel/stats.py" in str(e.value)
+    assert not (tmp_path / "contracts").exists()  # a refused task leaves nothing on disk
+
+
+def test_propose_card_writes_the_next_card_shaped_like_l5_product_surface(tmp_path):
+    task = _task(
+        "build-loom", ["src/pravrudhi/application/loom.py"],
+        why="wire the loom surface", validate="uv run pytest -q tests/test_loom.py",
+    )
+
+    path = propose_card(tmp_path, task)
+
+    assert path == tmp_path / "contracts" / "L1_build-loom.md"
+    text = path.read_text()
+    assert text.startswith("# L1 — wire the loom surface\n")
+    assert "uv run pytest -q tests/test_loom.py" in text  # the acceptance
+    assert "gates/gate_L1.json" in text  # the gate file name
+
+    second = propose_card(tmp_path, _task("second-task", ["src/a.py"]))
+    assert second.name.startswith("L2_")  # the next free number, not a restart at L1
+
+
+def test_run_unattended_cycle_takes_task_and_build_agent_as_keywords_only(tmp_path):
+    # Matches the module's own documented shape, `run_unattended_cycle(root, *, build_agent)`: `task` sits
+    # alongside `build_agent` after the `*`, not as a second positional argument a caller could get wrong.
+    _write_delegation(tmp_path)
+    task = _task("build-it", ["x.py"])
+
+    with pytest.raises(TypeError):
+        run_unattended_cycle(tmp_path, task, build_agent=lambda name, model: OkAgent(["x.py"]))
+
+
+def test_run_unattended_cycle_proposes_runs_and_closes_a_passing_build(tmp_path):
+    _write_delegation(tmp_path)
+    task = _task("build-it", ["x.py"])
+
+    run, gate_path = run_unattended_cycle(
+        tmp_path, task=task, build_agent=lambda name, model: OkAgent(["x.py"]), log=lambda s: None,
+    )
+
+    assert isinstance(run, BuildRun)
+    assert run.accepted is True
+    assert gate_path.exists()
+
+    report = json.loads(gate_path.read_text())
+    assert report["status"] == "pass"
+    assert report["signoff"]["by"] == "agent-for-operator"
+    assert report["signoff"]["by"] in AGENT_IDENTITIES
+
+    on_disk = runs(tmp_path)
+    assert len(on_disk) == 1
+    assert on_disk[0].task_id == "build-it"
+
+
+def test_close_gate_refuses_when_the_delegation_is_inactive(tmp_path):
+    _write_delegation(tmp_path, active=False)
+    task = _task("build-it", ["x.py"])
+
+    run, gate_path = run_unattended_cycle(
+        tmp_path, task=task, build_agent=lambda name, model: OkAgent(["x.py"]), log=lambda s: None,
+    )
+
+    assert run.accepted is True  # the build itself is unaffected; only the close is refused
+    report = json.loads(gate_path.read_text())
+    assert report["signoff"]["by"] is None  # left unsigned, for a person to close by hand
+
+    with pytest.raises(SelfBuildError, match="delegation"):
+        close_gate(tmp_path, gate_path)
+
+
+def test_close_gate_refuses_when_check_gate_is_not_clean(tmp_path):
+    _write_delegation(tmp_path)
+    task = _task("build-it", ["x.py"])
+    _run, gate_path = run_unattended_cycle(
+        tmp_path, task=task, build_agent=lambda name, model: OkAgent(["x.py"]), log=lambda s: None,
+    )
+    report = json.loads(gate_path.read_text())
+    assert report["signoff"]["by"] == "agent-for-operator"  # closed once, cleanly, above
+
+    # Delete the card the gate was emitted against: `check_gate` can no longer find it, so the gate is not
+    # clean, and a second close attempt (as an unattended retry might make) must refuse rather than re-sign.
+    for card in (tmp_path / "contracts").glob("L1_*.md"):
+        card.unlink()
+
+    with pytest.raises(SelfBuildError, match="not clean"):
+        close_gate(tmp_path, gate_path)

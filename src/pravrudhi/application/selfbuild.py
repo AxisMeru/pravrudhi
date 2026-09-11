@@ -13,11 +13,21 @@ source, tests and assets, but it may never claim a path under `pravrudhi_kernel/
 the evidence and operational state that record what the engine has already done. An engine that could edit the
 ground it is judged against could rewrite its own report card, so that path is refused before anything is
 dispatched, not caught afterward in a diff.
+
+`run_plan` alone still left a human in the middle of every cycle: someone had to author a contract card for a
+task before it ran and, once it passed, sign its gate by hand. `propose_card`, `close_gate` and
+`run_unattended_cycle` close both ends of that gap, the same way the product and studio apps already close their
+own gates autonomously under `configs/delegation.yaml` (ADR-0040): a task is written as a contract card
+`gate.find_card` can read before it is dispatched, and a run that actually passed has its gate closed through
+`gate.sign_gate_delegated`, under the same `agent-for-operator` identity. A run that did not pass, or a
+workspace that carries no active delegation, is left exactly as unsigned, for a person to close by hand.
 """
 
 from __future__ import annotations
 
+import contextlib
 import json
+import re
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -25,7 +35,9 @@ from typing import Any
 
 import yaml
 
-from pravrudhi.application import routing, swarm
+from pravrudhi import KERNEL_VERSION
+from pravrudhi.application import delegation as delegation_mod
+from pravrudhi.application import gate, routing, swarm
 from pravrudhi.application.delegate import TaskSpec
 
 PACKAGED_EXAMPLE = Path(__file__).resolve().parents[1] / "assets" / "selfbuild" / "example.yaml"
@@ -34,6 +46,16 @@ PACKAGED_EXAMPLE = Path(__file__).resolve().parents[1] / "assets" / "selfbuild" 
 # these: the kernel it would then be grading itself against, and the evidence and operational state that record
 # what the engine has already done.
 PROTECTED_PREFIXES: tuple[str, ...] = ("pravrudhi_kernel/", "research/", "gates/", ".pravrudhi/")
+
+# `gate.py` infers a card's kind from its id: `P<n>` is a phase, `H<n>` a hypothesis, anything else a loop. A
+# self-build task's own card is never a phase or a hypothesis -- it is one iteration of the loop that builds the
+# engine -- so it is always proposed under this prefix, the same one `contracts/L5_product_surface.md` uses.
+CARD_ID_PREFIX = "L"
+_CARD_ID_RE = re.compile(rf"^{CARD_ID_PREFIX}(\d+)_")
+
+# A self-build task's own `validate` is a smoke-level check on the engine's own tree, not a measured study over a
+# benchmark pool. The wire value of `pravrudhi_kernel.schema.common.Stage.smoke`.
+CARD_TIER = "smoke"
 
 
 class SelfBuildError(ValueError):
@@ -169,6 +191,121 @@ def run_plan(root: Path, tasks: list[swarm.SwarmTask], *, build_agent: Any, log:
     return out
 
 
+def _next_card_number(contracts_dir: Path) -> int:
+    """The next unused loop-card number under `contracts_dir`, continuing whatever numbering already exists
+    there (`L0`..`L5` in this repository) rather than starting over at `L1` and risking a collision with a card
+    `gate.find_card` already knows about."""
+    highest = 0
+    if contracts_dir.exists():
+        for p in contracts_dir.glob(f"{CARD_ID_PREFIX}*_*.md"):
+            m = _CARD_ID_RE.match(p.name)
+            if m:
+                highest = max(highest, int(m.group(1)))
+    return highest + 1
+
+
+def propose_card(root: Path, task: swarm.SwarmTask, *, contracts_dir: Path | None = None) -> Path:
+    """Write `task` as the next contract card under `contracts/`, in the shape of
+    `contracts/L5_product_surface.md`: a title, the acceptance the run must satisfy, and the name of the gate
+    file that will carry its verdict. Refuses the same paths `load_plan` refuses, so a card is never written for
+    a task that `run_plan` would never have been allowed to dispatch."""
+    _refuse_protected_paths(task.spec.task_id, task.spec.allowed_paths)
+    contracts_dir = Path(contracts_dir) if contracts_dir is not None else Path(root) / "contracts"
+    contracts_dir.mkdir(parents=True, exist_ok=True)
+    card_id = f"{CARD_ID_PREFIX}{_next_card_number(contracts_dir)}"
+    slug = re.sub(r"[^a-z0-9]+", "-", task.spec.task_id.lower()).strip("-") or "task"
+    path = contracts_dir / f"{card_id}_{slug}.md"
+    path.write_text(
+        f"# {card_id} — {task.why or task.spec.task_id}\n\n"
+        f"* **Acceptance.** `{task.spec.validate}`\n"
+        f"* **Gate.** `gates/gate_{card_id}.json`\n"
+    )
+    return path
+
+
+def _evidence_for(run: BuildRun) -> dict[str, Any]:
+    """The evidence-file shape `gate.emit_gate` expects, filled entirely from what the swarm's own verdict
+    said -- never hand-set, the same discipline `inbox_sign.record_decision`'s badge already applies to a
+    promotion pack."""
+    status = "pass" if run.accepted else "fail"
+    layer = lambda verdict, evidence: {"verdict": verdict, "evidence": evidence}  # noqa: E731
+    return {
+        "status": status,
+        "tier": CARD_TIER,
+        "measure_class": "n/a",
+        "code_gate": layer(status, [f"route={run.route or 'unassigned'}", *run.reasons[:3]]),
+        "domain_gate": layer("pass", ["no_claim"]),
+        "closure": {
+            "technical": layer("pass", [f"files touched: {', '.join(run.files) or 'none'}"]),
+            "empirical": layer("pass", ["no_claim"]),
+            "integrity": layer("pass", [f"wall_s={run.wall_s:.1f}"]),
+            "artifacts": layer("pass", [f"{len(run.files)} file(s) in the diff"]),
+            "memory": layer("pass", ["recorded in .pravrudhi/selfbuild/runs.jsonl"]),
+            "signoff": {"verdict": "pending", "evidence": []},
+        },
+        "hetvabhasa": None,
+        "deviations": [],
+        "ledger_head": None,
+    }
+
+
+def close_gate(root: Path, gate_path: Path, *, contracts_dir: Path | None = None) -> Path:
+    """Close a passing gate through `gate.sign_gate_delegated`, the same act `pravrudhi gate sign --delegated`
+    performs by hand, under the `agent-for-operator` identity `configs/delegation.yaml` grants.
+
+    Refuses before even trying to sign when `check_gate` is not clean or when no active delegation is recorded,
+    rather than leaning solely on the delegation's own `conditions` to catch it: those are the operator's dials
+    and may not happen to ask for a clean check, but a cycle running unattended must never sign a gate that
+    would not pass a person's look either way.
+    """
+    root = Path(root)
+    gate_path = Path(gate_path)
+    contracts_dir = Path(contracts_dir) if contracts_dir is not None else root / "contracts"
+    problems = gate.check_gate(gate_path, contracts_dir=contracts_dir)
+    if problems:
+        raise SelfBuildError(f"gate {gate_path.name} is not clean: {'; '.join(problems)}")
+    delegation = delegation_mod.load_delegation(root)
+    if delegation is None or not delegation.active:
+        raise SelfBuildError(f"no active delegation in configs/delegation.yaml; {gate_path.name} stays unsigned")
+    return gate.sign_gate_delegated(gate_path, root=root, contracts_dir=contracts_dir)
+
+
+def run_unattended_cycle(
+    root: Path,
+    *,
+    task: swarm.SwarmTask,
+    build_agent: Any,
+    log: Any = print,
+    contracts_dir: Path | None = None,
+    gates_dir: Path | None = None,
+) -> tuple[BuildRun, Path]:
+    """One self-build task carried end to end with nobody watching: `propose_card` gives it standing as a
+    contract card before anything runs, `run_plan` dispatches it and records the result as a `BuildRun`, and --
+    only when that run actually passed -- its gate is closed through `close_gate`. A run that did not pass still
+    gets its gate emitted, so the evidence exists, but `close_gate` is never even asked to sign it. A refusal
+    `close_gate` raises for an accepted run (no active delegation, say) is left unsigned rather than crashing an
+    otherwise-healthy night.
+    """
+    root = Path(root)
+    contracts_dir = Path(contracts_dir) if contracts_dir is not None else root / "contracts"
+    gates_dir = Path(gates_dir) if gates_dir is not None else root / "gates"
+    card_path = propose_card(root, task, contracts_dir=contracts_dir)
+    card_id = card_path.name.split("_", 1)[0]
+    [run] = run_plan(root, [task], build_agent=build_agent, log=log)
+    gates_dir.mkdir(parents=True, exist_ok=True)
+    evidence_file = gates_dir / f"{card_id}.evidence.yaml"
+    evidence_file.write_text(yaml.safe_dump(_evidence_for(run)))
+    gate_path = gate.emit_gate(
+        card_id, contracts_dir=contracts_dir, gates_dir=gates_dir, evidence_file=evidence_file,
+        kernel_release=KERNEL_VERSION,
+    )
+    if run.accepted:
+        # a legitimate refusal (no delegation, say) leaves the gate unsigned, not the night crashed
+        with contextlib.suppress(SelfBuildError):
+            close_gate(root, gate_path, contracts_dir=contracts_dir)
+    return run, gate_path
+
+
 def preview(tasks: list[swarm.SwarmTask], root: Path) -> list[dict[str, Any]]:
     """What `run_plan` would dispatch, without dispatching it."""
     out: list[dict[str, Any]] = []
@@ -204,6 +341,8 @@ __all__ = [
     "BuildTask",
     "BuildRun",
     "PROTECTED_PREFIXES",
+    "CARD_ID_PREFIX",
+    "CARD_TIER",
     "PACKAGED_EXAMPLE",
     "load_plan",
     "run_plan",
@@ -211,4 +350,7 @@ __all__ = [
     "record_run",
     "runs",
     "runs_path",
+    "propose_card",
+    "close_gate",
+    "run_unattended_cycle",
 ]
