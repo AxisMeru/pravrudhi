@@ -877,6 +877,67 @@ def build_cmd(plan: Path = BUILD_PLAN_ARG, run: bool = BUILD_RUN_OPT, root: Path
         typer.echo(f"{'ACCEPT' if r.accepted else 'REJECT'} {r.task_id} [{r.route}] {r.wall_s:.0f}s")
 
 
+CYCLE_BUDGET_OPT = typer.Option(
+    ..., "--budget", help="wall-clock seconds allotted to the cycle's one self-build task"
+)
+CYCLE_DRY_RUN_OPT = typer.Option(
+    False, "--dry-run", help="propose the card and preview the task; do not dispatch it"
+)
+
+
+@app.command("cycle")
+def cycle_cmd(budget: int = CYCLE_BUDGET_OPT, dry_run: bool = CYCLE_DRY_RUN_OPT, root: Path = ROOT_OPT) -> None:
+    """The unattended cycle's one entry point: propose a card for the packaged self-build example's first task,
+    dispatch it through `selfbuild.run_unattended_cycle` under the given wall-clock budget, and close its gate
+    if the run passed. Exits non-zero when the gate did not close. `--dry-run` proposes the card and previews
+    the dispatch without running it.
+    """
+    from dataclasses import replace
+
+    from pravrudhi.agents.registry import build_agent as make_agent
+    from pravrudhi.application import selfbuild
+    from pravrudhi.application.gate import find_card
+    from pravrudhi.application.swarm import SwarmTask
+
+    base = selfbuild.load_plan(selfbuild.PACKAGED_EXAMPLE)[0]
+    task = SwarmTask(replace(base.spec, timeout_s=budget), base.tier, why=base.why)
+
+    if dry_run:
+        card_path = selfbuild.propose_card(root, task)
+        typer.echo(f"card proposed: {card_path}")
+        [item] = selfbuild.preview([task], root)
+        typer.echo(f"{item['task_id']:32s} {item['tier']:10s} {item['agent']}/{item['model'] or 'default'}")
+        typer.echo("(preview; omit --dry-run to dispatch)")
+        return
+
+    run, gate_path = selfbuild.run_unattended_cycle(
+        root, task=task, build_agent=lambda n, m: make_agent(root, n, m), log=typer.echo,
+    )
+    card_id = gate_path.stem.removeprefix("gate_")
+    card_path, title = find_card(card_id, root / "contracts")
+    typer.echo(f"card proposed: {card_path} ({title})")
+    for r in selfbuild.runs(root):
+        typer.echo(f"  {'ACCEPT' if r.accepted else 'REJECT'} {r.task_id} [{r.route}] {r.wall_s:.0f}s")
+
+    report = json.loads(gate_path.read_text())
+    signed_by = report["signoff"]["by"]
+    if signed_by:
+        typer.echo(f"gate {gate_path} closed by {signed_by}")
+        return
+    if not run.accepted:
+        reasons = "; ".join(run.reasons) or "no reason recorded"
+        typer.echo(f"gate {gate_path} not closed: run not accepted ({reasons})", err=True)
+        raise typer.Exit(code=1)
+    # `run_unattended_cycle` already tried this once and suppressed the reason so a healthy cycle would not
+    # crash on it; retrying it here, unsuppressed, is how the CLI surfaces the exact refusal.
+    try:
+        selfbuild.close_gate(root, gate_path)
+    except selfbuild.SelfBuildError as e:
+        typer.echo(f"gate {gate_path} not closed: {e}", err=True)
+        raise typer.Exit(code=1) from e
+    typer.echo(f"gate {gate_path} closed by {json.loads(gate_path.read_text())['signoff']['by']}")
+
+
 @app.command("update")
 def update_cmd(
     root: Path = ROOT_OPT,

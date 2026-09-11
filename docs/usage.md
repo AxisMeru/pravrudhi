@@ -4,6 +4,12 @@
 
 A night is a budgeted batch of experiments on your own model or harness. In the deliberation window a local proposer model (served by llama.cpp) reads the ledger's evidence and emits candidate recipes as JSON inside a fixed grammar; a predictor emits a predicted effect and a confidence for each, which are hash-committed before anything runs. The controller rebuilds its posterior from the ledger, scores each live candidate by expected free energy (expected information gain, expected log-preference, cost), refuses to proceed if the scores do not condition on the action, and fills the budget by a Thompson-like knapsack with an epistemic floor. In the execution windows each selected candidate is trained in a disposable container, evaluated against the incumbent on the same held-out rotation with the same sampling seed, scored by the kernel, and disposed by an always-valid sequential test; a candidate that crosses the efficacy boundary must also pass the pre-registered canaries before it becomes the incumbent. The night closes with audit rows for the strategy-switch rate and any rethink checkpoints.
 
+`pravrudhi cycle --budget <seconds>` is the unattended cycle's one entry point for the engine's own self-build
+track: it proposes a contract card for one self-build task, dispatches it under the given wall-clock budget
+through `selfbuild.run_unattended_cycle`, and closes the gate autonomously when the run passed and a delegation
+is active, printing the card, the recorded runs and the gate it closed -- or the exact refusal, with a non-zero
+exit, when it did not. Add `--dry-run` to see the proposed card and the dispatch preview without running it.
+
 ## What you can and cannot change
 
 You may edit anything under `harness/` (prompts, templates), `research/prereg/*.yaml` (budgets, grammar bounds, thresholds; each change is a pre-registration change and should carry an ADR in your own project), and `.pravrudhi/config.yaml`. You may not edit `research/ledger.jsonl`, `research/state.json`, or anything under `.pravrudhi/kernel/`; the ledger writer refuses a file whose hash chain does not verify, and `pravrudhi replay --verify` names the first broken line.
