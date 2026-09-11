@@ -444,9 +444,11 @@ def _judged(text: str) -> tuple[bool, str]:
     """
     lines = [line.strip() for line in (text or "").splitlines() if line.strip()]
     for i, line in enumerate(lines):
-        low = line.lower()
+        # Models bold or quote the marker (`**VERDICT: met**` cost r-35e8ce7b criterion 7 a met verdict on
+        # 2026-09-11): emphasis is not a different answer, so it is stripped before the marker is read.
+        low = line.lower().strip("*_`# ").replace("**", "").replace("`", "")
         if low.startswith(_JUDGE_MARKER):
-            said = low.split(":", 1)[1].strip()
+            said = low.split(":", 1)[1].strip(" *_`")
             reason = " ".join(lines[i + 1:])[:300] or line
             return said.startswith("met"), reason
     return False, (" ".join(lines)[:300] or "the judge said nothing")

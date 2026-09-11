@@ -107,3 +107,12 @@ def test_the_next_attempt_is_told_why_the_last_one_fell_short(tmp_path: Path) ->
     prompt = heartbeat._obligation_prompt(
         "stand it up", "the thing stands up", "scratch", "true", prior="it described rather than built")
     assert "it described rather than built" in prompt
+
+def test_a_bold_or_quoted_marker_is_still_the_verdict() -> None:
+    """The judge answered `**VERDICT: met**` on 2026-09-11 and the bare-marker parser read it as not met."""
+    from pravrudhi.application.heartbeat import _judged
+
+    assert _judged("**VERDICT: met** The files do it.\nAll three present.") == (True, "All three present.")
+    assert _judged("`VERDICT: not met`\nOne function is missing.") == (False, "One function is missing.")
+    assert _judged("**VERDICT:** met\nfine")[0] is True
+    assert _judged("VERDICT: unclear\nmaybe")[0] is False
