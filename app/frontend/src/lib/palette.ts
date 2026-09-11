@@ -43,9 +43,21 @@ export interface PalettePage {
 //
 // The line is the same one the engine draws: the ledger's candidates and nights, the promotion inbox, the swarm
 // that builds the engine, the diffs its agents produced, and the appetite driving it.
+//
+// Kept complete by tests/test_edition_pages.py, which derives the truth from roles.py's ADMIN_ONLY set and the
+// pages' own fetches: on 2026-09-11 the operator opened both editions and saw "almost the same interface",
+// because parity, search, system, requests, machines, tour and desktop had shipped after this list was written
+// and a product user got the page shell and a 404 when it fetched.
 export const STUDIO_ONLY_PAGES: ReadonlySet<string> = new Set([
   "appetite", "inbox", "candidates", "swarm", "diffs", "heartbeat", "trace",
+  "parity", "search", "system", "requests", "machines", "tour", "desktop",
 ]);
+
+// Pages the product keeps although one panel on them is Studio's (an admin-only route beside the user's own
+// data): settings (update apply/rollback, agent seats), models (the external tier), objectives (nights),
+// start (benchmarks). The panel fails closed on the product; the page is still the user's. A page that reaches
+// an admin-only route must be in exactly one of these two sets, or the test fails.
+export const MIXED_EDITION_PAGES: ReadonlySet<string> = new Set(["settings", "models", "objectives", "start"]);
 
 // The sidebar keeps its own copy of this list, so the rule lives here and both ask it rather than each
 // carrying its own idea of which pages are Studio's.
@@ -75,9 +87,13 @@ export const PALETTE_PAGES: PalettePage[] = [
   { id: "trace", label: "Agent trace", href: "/trace", icon: "Radio" },
   { id: "catalogue", label: "Catalogue", href: "/catalogue", icon: "Library" },
   { id: "chat", label: "Chat", href: "/chat", icon: "MessageSquare" },
+  { id: "search", label: "Search", href: "/search", icon: "GitBranch" },
   { id: "runs", label: "Runs", href: "/runs", icon: "History" },
   { id: "models", label: "Models", href: "/models", icon: "Package" },
   { id: "machines", label: "Machines", href: "/machines", icon: "Server" },
+  { id: "desktop", label: "Desktop", href: "/desktop", icon: "Monitor" },
+  { id: "parity", label: "Parity", href: "/parity", icon: "GitCompare" },
+  { id: "system", label: "System", href: "/system", icon: "Cpu" },
   { id: "settings", label: "Settings", href: "/settings", icon: "Settings" },
   { id: "install", label: "Install", href: "/install", icon: "Download" },
 ];

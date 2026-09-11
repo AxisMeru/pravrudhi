@@ -250,6 +250,12 @@ class TestDispatchModeDirectories:
         )
         assert heartbeat.dispatch_mode(criterion) == "build"
 
+    def test_a_desktop_shell_js_file_is_build_mode(self) -> None:
+        """r-70e8fe3c's criteria name `app/desktop/preload.js` and sat in proposal mode for four days: the
+        extension list knew every language the repo is written in except the desktop shell's."""
+        crit = requests.Criterion(text="`app/desktop/preload.js` exposes the `product` bridge")
+        assert heartbeat.dispatch_mode(crit) == "build"
+
     def test_prose_with_no_path_stays_proposal(self) -> None:
         assert heartbeat.dispatch_mode(requests.Criterion(text="explain the plan to the operator")) == "proposal"
 

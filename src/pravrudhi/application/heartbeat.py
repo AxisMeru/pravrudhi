@@ -822,7 +822,7 @@ def dispatch_mode(criterion: requests.Criterion) -> str:
     # A code file, or a backticked path under a prefix the loop may write under (a directory counts: r-35e8ce7b
     # criterion 0 named `docs/blueprint/02-design/` and a `.pdf`, went the proposal way twice, and the judge
     # refused it twice for the sandbox reason).
-    code_extensions = r'\.(py|ts|tsx|sh|yaml|yml|md)\b'
+    code_extensions = r'\.(py|ts|tsx|js|sh|yaml|yml|md)\b'  # .js: the desktop shell (app/desktop) is plain JS
     if re.search(code_extensions, criterion.text) or re.search(_BUILD_PREFIX_IN_BACKTICKS, criterion.text):
         return "build"
 

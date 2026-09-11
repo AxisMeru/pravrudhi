@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Sidebar } from "@/components/Sidebar";
 import { ConnectionBanner } from "@/components/ConnectionBanner";
+import { EditionGate } from "@/components/EditionGate";
 import { CommandPalette } from "@/components/palette/CommandPalette";
 import { KeyboardShortcuts } from "@/components/keyboard/KeyboardShortcuts";
 import "./globals.css";
@@ -27,7 +28,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               of the first line of every page. */}
           <div className="flex min-w-0 flex-1 flex-col pt-14 md:pt-0">
             <ConnectionBanner />
-            <main className="flex-1 overflow-y-auto">{children}</main>
+            <main className="flex-1 overflow-y-auto">
+              <EditionGate>{children}</EditionGate>
+            </main>
           </div>
         </div>
         {/* The palette was built and never mounted, so Ctrl+K did nothing. The parity matrix caught it by
