@@ -59,7 +59,7 @@ jobs:
 
   # The packaged app, smoked as a user would run it (2026-09-11, operator: "without that there is no way to confirm
   # the builds are as expected"). Linux only, where the AppImage can run under Xvfb; the engine it must find is the
-  # wheel this same tag builds. Reports beside the release rather than gating it until it has proven itself green.
+  # wheel this same tag builds. Green on v0.5.5 for both editions, so the release now waits for it.
   packaged-smoke:
     needs: [desktop]
     runs-on: ubuntu-latest
@@ -92,10 +92,10 @@ jobs:
           export PATH="$GITHUB_WORKSPACE/.engine/bin:$PATH"
           pravrudhi --version
           npm run smoke:dist -- ${{ matrix.edition }}
-          cat .smoke-dist/report.json
+          cat .smoke-dist/.smoke/report.json
 
   release:
-    needs: [desktop]
+    needs: [desktop, packaged-smoke]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
