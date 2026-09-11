@@ -1,15 +1,21 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { LogOut } from "lucide-react";
 import { currentSession, signOut } from "@/lib/auth";
 
+// Sign-in and sign-out both navigate, so the control never needs a change notification.
+const subscribeNever = () => () => {};
+
 export function AccountControl() {
   const router = useRouter();
   const [isSigningOut, setIsSigningOut] = useState(false);
-  const user = currentSession();
+  // The session lives in localStorage, which the static HTML cannot know: reading it during render made the
+  // server's "Sign in" disagree with the client's account (React #418 on every load). The server snapshot is
+  // "nobody", and the client reads the store once hydrated.
+  const user = useSyncExternalStore(subscribeNever, currentSession, () => null);
 
   async function handleSignOut() {
     setIsSigningOut(true);
