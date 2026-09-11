@@ -158,10 +158,15 @@ test("chat streaming endpoint is used and renders progressively", async ({ page,
     }
   }, 100);
 
+  // The composer disables Send while a turn is in flight AND whenever the input is empty, and sending clears the
+  // input — so "Send is enabled again" never comes true after a successful turn. Completion is the stream itself
+  // finishing (2026-09-11: this assertion failed against a healthy engine that had already answered "pong").
+  const streamed = page.waitForResponse((r) => r.url().includes("/api/chat/stream"), { timeout: 30_000 });
   await sendButton.click();
-
-  // Wait for the response to complete
-  await expect(sendButton).not.toBeDisabled({ timeout: 30_000 });
+  const streamResponse = await streamed;
+  expect(streamResponse.ok(), "the stream must be accepted").toBe(true);
+  await streamResponse.finished();
+  await page.waitForTimeout(500);
 
   clearInterval(captureInterval);
 
