@@ -19,12 +19,12 @@ untouched.
 
 | edition | web app | Worker (permanent) | engine |
 |---|---|---|---|
-| Studio | https://pravrudhi.vercel.app | `https://pravrudhi-studio.tmp------h.workers.dev` | container `pravrudhi-engine-studio`, :8771 |
-| product | https://pravrudhi-app.vercel.app | `https://pravrudhi-app.tmp------h.workers.dev` | container `pravrudhi-engine-product`, :8772 |
+| Studio | https://pravrudhi.vercel.app | `https://pravrudhi-studio.axismeru.workers.dev` | container `pravrudhi-engine-studio`, :8771 |
+| product | https://pravrudhi-app.vercel.app | `https://pravrudhi-app.axismeru.workers.dev` | container `pravrudhi-engine-product`, :8772 |
 
-`tmp------h` is the workers.dev subdomain Cloudflare assigned the account before anyone chose one; the API
-refuses to change it once set ("Account already has an associated subdomain"), the dashboard allows it once.
-Renaming it changes both Worker URLs, so `NEXT_PUBLIC_API_BASE` on both Vercel projects follows.
+The workers.dev subdomain was auto-assigned (`tmp------h`) and renamed to `axismeru` from the dashboard on
+2026-09-12 (the API refuses a rename once a subdomain exists). A rename moves both Worker URLs at once, so
+`NEXT_PUBLIC_API_BASE` on both Vercel projects follows it.
 
 ## Files
 
