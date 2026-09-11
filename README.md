@@ -54,13 +54,17 @@ uv run pravrudhi evidence external --root .
 
 `pravrudhi app` (see `app/README.md`) serves the same engine with a browser interface, plus a few surfaces the CLI does not have a command for. `/api/chat` is a conversational front door over the same replay functions as the routes above: a reply may only state a number a tool call actually returned, citing the ledger rows behind it, and whatever it cannot verify is stripped out and reported as a refusal rather than invented. Its model endpoint is `PRAVRUDHI_CHAT_ENDPOINT` (falling back to the proposer's own local llama.cpp). `/api/memory` holds durable notes kept apart from ledger evidence; they follow the caller, not the workspace. Identity is optional: set `PRAVRUDHI_AUTH=required` with a Supabase project configured (see `supabase/`) to get per-user accounts at `/api/me` and separate per-user workspaces at `/api/workspaces`; leave it unset and every route answers to the local operator, no account required.
 
+## Nyaya: a question of Indian law, answered from sources and checked
+
+`pravrudhi nyaya ask "<question>" --vendor claude-cli --vendor codex-cli [--checker <vendor>]`, the `/nyaya` page, `/api/nyaya/*`, and the product bot's `/law` all do the same thing: retrieve statute sections from a corpus with recorded provenance (100 Indian Penal Code sections from IL-TUR ship with the engine; add your own under `research/nyaya/corpus/*.json`), ask every chosen vendor in parallel from those sources only, and check each citation against the corpus by string comparison. A verdict is `licensed` (every cited section was among the sources shown), `unshown` (in the corpus, not shown), `invented` (nowhere), or `abstained` (the model said the sources do not cover it). An optional second vendor audits each answer for a reasoning error in the shape of the prabhasa-nyaya A1.1 benchmark. A verdict is a check of the answer against the sources it was given, never a statement about the law; asks are recorded under `research/nyaya/` with provenance `agama` and never enter the ledger.
+
 ## What runs where
 
 `pravrudhi_kernel/` is the evaluator kernel: schema, hash-chained ledger, vendored statistics, controller mathematics, sealed pools, scorers, and the sandbox runner. It has no model client and no network access; it is the only writer of evidence. `src/pravrudhi/` is the engine: targets, model backends, the proposer, the night orchestrator, CLI, API, and the Claude Code plugin under `plugin/`. The kernel is a dependency of the engine, never the reverse.
 
 ## Claude Code plugin
 
-`plugin/` carries skills `pravrudhi-night`, `pravrudhi-inbox`, `pravrudhi-status`, `pravrudhi-export`. Install it as a local plugin to drive a project from an agent session; sign-off stays a human act (the API refuses agent identities).
+`plugin/` carries skills `pravrudhi-night`, `pravrudhi-inbox`, `pravrudhi-status`, `pravrudhi-export`. Install it as a local plugin to drive a project from an agent session. Sign-off is a human act unless `configs/delegation.yaml` records a delegation (ADR-0040); then it closes as `agent-for-operator` under that file's conditions and never as a human name.
 
 ## Licence
 

@@ -140,7 +140,15 @@ def test_a_labelled_option_followed_by_its_text_is_the_answer(completion: str, w
         "He was a D. student in his day.",  # the label is not at the start of a line
         "Answer: I do not know",  # ADR-0042 stays: the pronoun is not option I
         "I cannot determine which holding applies.",  # no punctuation after I
+        # An echoed option block with no commitment is unparsed, not a vote for whichever option came last.
+        "A. holding one\nB. holding two\nC. holding three\nD. holding four",
+        "The options are:\n(A) first\n(B) second\nI cannot decide between them.",
     ],
 )
 def test_the_labelled_option_pattern_does_not_widen_into_prose(completion: str) -> None:
     assert extract_prediction(completion) is None
+
+
+def test_an_echoed_block_followed_by_a_commitment_still_yields_the_commitment() -> None:
+    assert extract_prediction("A. one\nB. two\nC. three\nD. four\n\nAnswer: C") == "C"
+    assert extract_prediction("D. holding that x\nD. holding that x, restated") == "D"

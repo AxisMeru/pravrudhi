@@ -91,10 +91,12 @@ def extract_prediction(completion: str) -> str | None:
         m = _ALONE.match(lines[-1])
         if m:
             return m.group(1).upper()
-        # A labelled option; the last such line wins, as with the patterns above.
-        labelled = [m for m in (_OPTION_LABEL.match(ln) for ln in lines) if m]
-        if labelled:
-            return str(labelled[-1].group(1)).upper()
+        # A labelled option. A completion that ECHOES the option block ("A. ... B. ... C. ... D. ...") and then
+        # commits to nothing is not a vote for D; it is unparsed. So this fires only when every labelled line
+        # names the same letter -- one answer, possibly restated -- never on a list of different ones.
+        letters = {str(m.group(1)).upper() for m in (_OPTION_LABEL.match(ln) for ln in lines) if m}
+        if len(letters) == 1:
+            return letters.pop()
     return None
 
 
