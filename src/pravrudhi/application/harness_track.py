@@ -768,11 +768,35 @@ def run_harness_night(
     from pravrudhi_kernel.ledger.verify import iter_events
 
     withdrawn = withdrawn_observations(ledger)
+    # Promotions before 2026-09-11 carry a recipe without `strategy`/`execution_family`; the propose row of the
+    # same candidate has both, so an old promotion is completed from it rather than silently skipped. A
+    # promotion that still cannot be read is written down as such: a night that quietly measured against the
+    # baseline after a promotion is the defect the review found in eleven consecutive `night_start` rows.
+    families: dict[str, dict[str, str]] = {}
+    load_failures: list[dict[str, Any]] = []
     for ev in iter_events(ledger):
+        if ev.kind == "propose" and ev.payload.get("op") == "harness" and ev.candidate_id:
+            fam = {"strategy": ev.payload.get("strategy"), "execution_family": ev.payload.get("edit_family")}
+            if all(fam.values()):
+                families[str(ev.candidate_id)] = {k: str(v) for k, v in fam.items()}
         if ev.kind == "promote" and ev.surface == "H3.prompt" and ev.payload.get("harness") and ev.seq not in withdrawn:
-            inc_parsed = parse_harness(ev.payload["harness"])
-            if not isinstance(inc_parsed, str):
+            raw = dict(ev.payload["harness"])
+            inc_parsed = parse_harness(raw)
+            if isinstance(inc_parsed, str) and str(ev.candidate_id) in families:
+                inc_parsed = parse_harness({**families[str(ev.candidate_id)], **raw})
+            if isinstance(inc_parsed, str):
+                load_failures.append({"seq": ev.seq, "candidate_id": str(ev.candidate_id), "reason": inc_parsed})
+            else:
                 ctx.incumbent, ctx.incumbent_id = inc_parsed, str(ev.candidate_id)
+    for failure in load_failures:
+        w.append(
+            "audit",
+            "kernel",
+            {"kind": "incumbent_load_failed", "severity": "warn", "track": "harness", **failure},
+            epoch=0,
+            night=night,
+            provenance="pratyaksha",
+        )
     w.append(
         "audit",
         "kernel",

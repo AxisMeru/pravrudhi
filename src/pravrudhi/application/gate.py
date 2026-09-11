@@ -10,10 +10,10 @@ from typing import Any
 
 import yaml
 
+from pravrudhi.application.delegation import AGENT_IDENTITIES, load_delegation, unmet_conditions
 from pravrudhi_kernel.schema import GateReport, Signoff
 
 CARD_HEADER = re.compile(r"^# (L\d+|P\d+|H\d+) — (.+)$", re.M)
-AGENT_IDENTITIES = frozenset({"pravrudhi-agent", "agent", "claude"})
 
 
 def find_card(card_id: str, contracts_dir: Path) -> tuple[Path, str]:
@@ -69,6 +69,37 @@ def check_gate(path: Path, *, contracts_dir: Path) -> list[str]:
 def sign_gate(path: Path, *, by: str, note: str) -> Path:
     if by.strip().lower() in AGENT_IDENTITIES:
         raise PermissionError("sign-off is a human act; refused for agent identity")
+    return _sign(path, by=by, note=note)
+
+
+def sign_gate_delegated(path: Path, *, root: Path, contracts_dir: Path) -> Path:
+    """Close a gate as the delegation's identity, under the delegation's own conditions (ADR-0040).
+
+    `sign_gate` refuses every agent identity, which is right for a caller asserting authority by argument. The
+    authority here comes from `configs/delegation.yaml`, and the judgement a person used to apply by reading
+    the pack is applied as conditions: the gate check is clean and every non-signoff closure layer already
+    passes. A condition that cannot be evaluated counts as unmet, never as satisfied. The signature is always
+    the delegation's identity, never a human name, and the note quotes the delegation so a reader can tell an
+    autonomous close from one a person looked at.
+    """
+    delegation = load_delegation(root)
+    if delegation is None:
+        raise PermissionError("no delegation recorded in configs/delegation.yaml; sign-off is a human act here")
+    allowed, why = delegation.permits("gate_signoff")
+    if not allowed:
+        raise PermissionError(f"autonomous gate sign-off refused: {why}")
+    problems = check_gate(path, contracts_dir=contracts_dir)
+    report = GateReport.model_validate_json(path.read_text())
+    layers = report.closure.model_dump()
+    failing = sorted(name for name, layer in layers.items() if name != "signoff" and layer["verdict"] != "pass")
+    unmet = unmet_conditions(delegation, act="gate_signoff", gate_problems=problems, failing_layers=failing)
+    if unmet:
+        raise PermissionError("autonomous gate sign-off refused: " + "; ".join(unmet))
+    note = f"autonomous close under the delegation of {delegation.granted}: {delegation.instruction.strip()}"
+    return _sign(path, by=delegation.identity, note=note)
+
+
+def _sign(path: Path, *, by: str, note: str) -> Path:
     report = GateReport.model_validate_json(path.read_text())
     signoff_layer = report.closure.signoff.model_copy(update={"verdict": "pass", "evidence": [f"signed_by={by}"]})
     signed = report.model_copy(

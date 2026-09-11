@@ -56,6 +56,16 @@ _PATTERNS = (_EXPLICIT, _BOXED, _BARE, _LABELLED)
 #: pronoun -- disqualifies the match.
 _PRONOUN_I = re.compile(r"^\s+[a-z]{2,}")
 
+#: A labelled option: a line that opens with the letter, punctuated as a label, and then the option's text --
+#: `D. holding that absent an actionable injury ...`, `D) the claim fails`. One of the two commonest ways a
+#: model answers a multiple-choice question, and on CaseHOLD the way this project's model actually answers.
+#:
+#: ADR-0046. Every pattern above needs the word "answer", "option" or "choice", and `_ALONE` needs the letter
+#: to stand by itself, so this shape scored 0 from the day the scorer was written (ADR-0035). The external
+#: casehold tier found it: the SAME 500 completions scored 0.5040 with an independent parser and 0.0040 here.
+#: The punctuation is what makes it a label rather than a word: `A holding` is prose, `A. holding` is option A.
+_OPTION_LABEL = re.compile(r"^[*_\s]*\(?([A-J])[.)]\s+\S")
+
 
 def gold_answer(answer_text: str) -> str:
     m = _GOLD.match(answer_text.strip())
@@ -81,6 +91,10 @@ def extract_prediction(completion: str) -> str | None:
         m = _ALONE.match(lines[-1])
         if m:
             return m.group(1).upper()
+        # A labelled option; the last such line wins, as with the patterns above.
+        labelled = [m for m in (_OPTION_LABEL.match(ln) for ln in lines) if m]
+        if labelled:
+            return str(labelled[-1].group(1)).upper()
     return None
 
 

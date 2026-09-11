@@ -53,7 +53,10 @@ class HarnessRecipe(BaseModel):
         return self
 
     def harness_json(self) -> dict[str, Any]:
-        return self.model_dump(exclude={"rationale", "strategy", "execution_family"})
+        """The recipe as the ledger and `harness/agent/<bench>/harness.json` carry it: everything a reader needs
+        to rebuild it. `strategy` and `execution_family` were excluded, so `parse_harness(harness_json())`
+        failed on every promotion and each night silently started from the baseline (2026-09-11 review, H1)."""
+        return self.model_dump(exclude={"rationale"})
 
     def cost_est_gpu_h(self) -> float:
         calls = self.n_samples * (1 + self.retries * 0.5)

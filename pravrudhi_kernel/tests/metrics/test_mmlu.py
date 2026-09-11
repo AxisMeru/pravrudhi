@@ -111,3 +111,36 @@ def test_no_other_letter_is_affected_by_the_pronoun_guard() -> None:
     """Only I is a pronoun. A following lowercase word must not disqualify any other letter."""
     for letter in "ABCDEFGHJ":
         assert extract_prediction(f"Answer: {letter} because it follows from the statute") == letter
+
+
+@pytest.mark.parametrize(
+    ("completion", "want"),
+    [
+        ("D. holding that absent an actionable injury to one spouse", "D"),
+        ("D) the claim fails", "D"),
+        ("\nD. holding that x", "D"),
+        ("(B) holding that the statute of limitations had run", "B"),
+        ("A. The statute bars the claim.", "A"),
+        ("I. the court held for the appellant", "I"),
+        ("The options differ on causation.\nC. holding that proximate cause was not shown", "C"),
+    ],
+)
+def test_a_labelled_option_followed_by_its_text_is_the_answer(completion: str, want: str) -> None:
+    """ADR-0046. `D. holding that ...` scored 0 against gold D from the day the scorer was written: every
+    pattern needed the word "answer"/"option"/"choice" and `_ALONE` needed the letter by itself. The external
+    casehold tier scored the same 500 completions 0.5040 with its own parser and 0.0040 here."""
+    assert extract_prediction(completion) == want
+    assert score_item(completion, want) == 1
+
+
+@pytest.mark.parametrize(
+    "completion",
+    [
+        "A holding is not a statute.",  # no label punctuation: the article, not option A
+        "He was a D. student in his day.",  # the label is not at the start of a line
+        "Answer: I do not know",  # ADR-0042 stays: the pronoun is not option I
+        "I cannot determine which holding applies.",  # no punctuation after I
+    ],
+)
+def test_the_labelled_option_pattern_does_not_widen_into_prose(completion: str) -> None:
+    assert extract_prediction(completion) is None

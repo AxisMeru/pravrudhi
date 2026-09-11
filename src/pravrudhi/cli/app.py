@@ -126,7 +126,23 @@ def contract_check(path: Path, root: Path = ROOT_OPT) -> None:
 
 
 @gate_app.command("sign")
-def gate_sign(path: Path, by: str = BY_OPT, note: str = NOTE_OPT) -> None:
+def gate_sign(
+    path: Path,
+    by: str = typer.Option("", "--by", help="A person's name. Omit with --delegated."),
+    note: str = NOTE_OPT,
+    delegated: bool = typer.Option(
+        False, "--delegated", help="Close as the delegation's identity under its conditions (ADR-0040, ADR-0047)."
+    ),
+    root: Path = ROOT_OPT,
+) -> None:
+    if delegated:
+        from pravrudhi.application.gate import sign_gate_delegated
+
+        sign_gate_delegated(path, root=root, contracts_dir=root / "contracts")
+        typer.echo(f"signed {path} as the delegation's identity")
+        return
+    if not by:
+        raise typer.BadParameter("--by is required unless --delegated is given")
     sign_gate(path, by=by, note=note)
     typer.echo(f"signed {path} by {by}")
 

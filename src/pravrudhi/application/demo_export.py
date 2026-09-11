@@ -474,8 +474,42 @@ def build_demo(root: Path, *, product_root: Path | None = DEFAULT_PRODUCT_ROOT) 
     }
 
 
+# Shapes that are credentials wherever they appear. The operator pasted a bot-provisioning reply into a request
+# and the request ledger is exported verbatim, so a live bot token reached the public site for two days. The
+# snapshot is the one artefact this engine publishes; nothing in it may be a credential, whatever surface it
+# came from. Each entry is (name, pattern, keep-prefix): with keep-prefix the first group is kept so the label
+# survives and only the value is removed.
+_SECRET_SHAPES: tuple[tuple[str, re.Pattern[str], bool], ...] = (
+    # No leading word boundary: in the serialised JSON a newline is the two characters `\n`, so the token
+    # follows the letter n and `\b` never fires. That is exactly how the first version let the token through.
+    ("telegram-bot-token", re.compile(r"\d{8,10}:AA[A-Za-z0-9_-]{30,40}"), False),
+    ("openai-style-key", re.compile(r"\bsk-[A-Za-z0-9_-]{20,}\b"), False),
+    ("github-token", re.compile(r"\bgh[pousr]_[A-Za-z0-9]{30,}\b"), False),
+    ("huggingface-token", re.compile(r"\bhf_[A-Za-z0-9]{30,}\b"), False),
+    # `chat_id: 8679…`, `Chat ID confirmed: \`8679…\``; the label and its punctuation survive, the number goes.
+    ("telegram-chat-id", re.compile(r"((?i:chat[_ ]?id)[^0-9]{0,24})\d{6,12}"), True),
+    ("telegram-session", re.compile(r"(telegram:)\d{6,12}"), True),  # a Telegram chat id used as a session key
+)
+
+
+class SecretInSnapshot(RuntimeError):
+    """The snapshot still carried a credential after redaction; it must not be written."""
+
+
+def redact_secrets(text: str) -> str:
+    """Replace every credential-shaped substring with a marker naming what was removed."""
+    for name, shape, keep_prefix in _SECRET_SHAPES:
+        marker = f"<redacted:{name}>"
+        text = shape.sub((lambda m, mk=marker: m.group(1) + mk) if keep_prefix else marker, text)
+    return text
+
+
 def write_demo(root: Path, dest: Path) -> Path:
     dest = Path(dest)
     dest.parent.mkdir(parents=True, exist_ok=True)
-    dest.write_text(json.dumps(build_demo(root), indent=2, sort_keys=True, default=str) + "\n")
+    text = redact_secrets(json.dumps(build_demo(root), indent=2, sort_keys=True, default=str) + "\n")
+    left = [name for name, shape, keep in _SECRET_SHAPES if not keep and shape.search(text)]
+    if left:
+        raise SecretInSnapshot(f"snapshot still carries {', '.join(left)} after redaction; refusing to write it")
+    dest.write_text(text)
     return dest
