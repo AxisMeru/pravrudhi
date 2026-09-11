@@ -1,0 +1,9 @@
+# Pratyabhijñā: re-cognition of testimony (āgama) by execution (pratyakṣa) — application/pratyabhijna.py.
+#
+# A sealed prediction's `delta_in` is compared to the kernel-executed observation by sign only: pratyabhijna asks
+# whether the testimony and the execution agree on the *direction* the candidate tips, not on decimal-place
+# recall. A value inside this band on either side of zero counts as "no direction testified" (or "no direction
+# observed") rather than as a coin toss that a rounding-noise sign then wins or loses. Set at the tightest useful
+# margin for `delta_in`, which propose.py's predictor already clamps to [-0.3, 0.3] (prompts/predictor/v1.md), so
+# this discards only float noise and never a claim the predictor could plausibly have meant to make.
+zero_band: 0.0001
