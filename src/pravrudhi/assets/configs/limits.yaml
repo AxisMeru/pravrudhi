@@ -48,6 +48,17 @@ patterns:
 cooldown_minutes:
   default: 60
   claude-code: 300
+  # A SEAT is held out separately from the vendor (`claude-code:<seat id>`, see `configs/seats.yaml`), so one
+  # spent seat does not take Claude out of rotation while the reserve is still there. Both were falling
+  # through to `default: 60` because neither key was listed; declared here at the value that was already in
+  # force, so the window is chosen rather than inherited by accident.
+  #
+  # Shorter than the vendor's 300 on purpose. A seat that has actually stated a return time is held until
+  # then (`mark_limited(until=...)`) and this window never applies; it is the guess for when the CLI says it
+  # is limited without saying until when, and guessing short costs one skipped dispatch while guessing long
+  # leaves a recovered seat idle for hours.
+  claude-code:primary: 60
+  claude-code:fallback: 60
   hosted: 60
   # DashScope's free tier resets on a short window rather than a daily one, so a shorter cooldown gets the loop
   # back into rotation without waiting out an hour it does not need.
