@@ -3,7 +3,10 @@ import path from "node:path";
 
 const localEngineHost: string = "127.0.0.1";
 const localEnginePort: number = 8137;
-const localEngineURL: string = `http://${localEngineHost}:${localEnginePort}`;
+// An engine that is already running (a product install on its own port, the studio's systemd app) is named in
+// LOCAL_ENGINE_URL; then no engine is started here and the `edition` project can be run against either edition.
+const externalEngineURL: string | undefined = process.env.LOCAL_ENGINE_URL?.replace(/\/+$/, "");
+const localEngineURL: string = externalEngineURL ?? `http://${localEngineHost}:${localEnginePort}`;
 const localEngineObservationMs: number = 6_000;
 
 // Which --project values this invocation asked for, so the local engine is only spun up when local-engine
@@ -76,6 +79,14 @@ export default defineConfig({
       use: { baseURL: localEngineURL },
       metadata: { localEngineObservationMs },
     }),
+    // Edition separation on a live engine of either edition (ADR-0049; the 2026-09-11 desktop review): the
+    // product must not offer or render Studio's pages, and Studio must keep them. Run against a running engine:
+    // LOCAL_ENGINE_URL=http://127.0.0.1:8300 npx playwright test --project edition-chromium
+    ...acrossEngines({
+      name: "edition",
+      testMatch: "edition.spec.ts",
+      use: { baseURL: localEngineURL },
+    }),
     ...acrossEngines({
       name: "deployed",
       testMatch: "deployed.spec.ts",
@@ -85,7 +96,7 @@ export default defineConfig({
       use: { baseURL: `${(process.env.DEPLOYED_URL ?? "https://axismeru.github.io/pravrudhi/app").replace(/\/+$/, "")}/` },
     }),
   ],
-  webServer: needsLocalEngine
+  webServer: needsLocalEngine && !externalEngineURL
     ? {
         // `python` is not on PATH here; the venv interpreter is the one the engine is installed into.
         command: `.venv/bin/python -m pravrudhi app --no-browser --port ${localEnginePort} --host ${localEngineHost}`,

@@ -102,3 +102,20 @@ class TestSilentLoop:
     def test_a_workspace_with_no_beats_is_left_to_blind(self, tmp_path: Path) -> None:
         # An empty workspace is unobserved, not stalled; `watchdog.blind` is what says so.
         assert [f for f in watchdog.check(tmp_path) if f.kind == "loop_silent"] == []
+
+
+def test_a_criterion_the_beat_stalled_on_paper_is_not_announced(tmp_path: Path) -> None:
+    """The studio bot sent the same four parked criteria every digest on 2026-09-11; all four had been stalled by the
+    beat itself as unbuildable (kernel path, gitignored docs) with the reason on the request. Decided is not owed."""
+    from pravrudhi.application import requests
+
+    r = capture(tmp_path, "grow the kernel", criteria=[Criterion(text="`pravrudhi_kernel/x.py` gains a term", source="operator")])
+    for _ in range(heartbeat.MAX_CRITERION_ATTEMPTS):
+        heartbeat.record_attempt(tmp_path, r.id, 0)
+    requests.note(tmp_path, r.id, "criterion 0 unbuildable: names pravrudhi_kernel/x.py: a protected prefix is an ADR")
+    assert watchdog._parked_criteria(tmp_path) == []
+
+    other = capture(tmp_path, "do the thing", criteria=[Criterion(text="`src/x.py` sets VALUE = 2", source="operator")])
+    for _ in range(heartbeat.MAX_CRITERION_ATTEMPTS):
+        heartbeat.record_attempt(tmp_path, other.id, 0)
+    assert [f.kind for f in watchdog._parked_criteria(tmp_path)] == ["parked_criterion"], "a real parking still is"

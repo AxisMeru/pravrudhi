@@ -150,6 +150,17 @@ def _cheap_seat_down(root: Path) -> list[Finding]:
     )]
 
 
+def _stalled_on_paper(request: Any, index: int) -> bool:
+    """Whether the beat itself stalled this criterion as unbuildable (heartbeat.unbuildable), which it records
+    as a note beginning `criterion <index> unbuildable:` on the request."""
+    prefix = f"criterion {index} unbuildable:"
+    for entry in getattr(request, "notes", []) or []:
+        note = str(entry.get("note", "")) if isinstance(entry, dict) else str(entry)
+        if note.startswith(prefix):
+            return True
+    return False
+
+
 def _parked_criteria(root: Path) -> list[Finding]:
     """Criteria that have spent their attempt budget, read from the attempt record rather than inferred.
 
@@ -171,6 +182,11 @@ def _parked_criteria(root: Path) -> list[Finding]:
             continue
         for index, criterion in enumerate(request.criteria):
             if criterion.met or not stalled(Path(root), request.id, index):
+                continue
+            if _stalled_on_paper(request, index):
+                # Decided, not owed: the beat spent this budget without a dispatch because no dispatch here can
+                # meet it (kernel path, gitignored docs, engine source in a wheel), and wrote why on the request.
+                # Announcing it to the operator every digest is the noise the studio bot was sending on 2026-09-11.
                 continue
             findings.append(Finding(
                 kind="parked_criterion",
