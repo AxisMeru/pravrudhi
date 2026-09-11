@@ -8,7 +8,7 @@ import os
 import time
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from pravrudhi.application.discordance import discordance_fields
 from pravrudhi.application.spine import IMAGE, expected_hashes, run_eval_job, score_job, write_job_inputs
@@ -16,11 +16,31 @@ from pravrudhi.targets import LoraRecipe
 from pravrudhi_kernel.ledger import LedgerWriter, replay
 from pravrudhi_kernel.metrics import draw_rotation, record_exposure, scorer_for
 from pravrudhi_kernel.sandbox import JobSpec, KernelState, admit_observation, run_job
-from pravrudhi_kernel.sandbox.observe import model_dir_hash
+from pravrudhi_kernel.sandbox.observe import KernelHashes, model_dir_hash
 from pravrudhi_kernel.sandbox.state import read_secret
 from pravrudhi_kernel.stats import Variance, sequential_boundary
 
 Log = Callable[[str], None]
+
+
+class _HashesWithParent:
+    """Wrapper for KernelHashes that adds harness_parent to model_dump output. This allows paired
+    observations to record the incumbent adapter's hash so replay's rebase detection can fire."""
+
+    def __init__(self, hashes: KernelHashes, harness_parent: str | None = None) -> None:
+        self._hashes = hashes
+        self._harness_parent = harness_parent
+
+    def model_dump(self) -> dict[str, Any]:
+        """Return hashes dict with harness_parent added if present."""
+        result = self._hashes.model_dump()
+        if self._harness_parent is not None:
+            result["harness_parent"] = self._harness_parent
+        return result
+
+    def __getattr__(self, name: str) -> Any:
+        """Delegate attribute access to the wrapped hashes object."""
+        return getattr(self._hashes, name)
 
 
 class NightContext:
@@ -482,10 +502,24 @@ def evaluate_and_dispose(ctx: NightContext, w: LedgerWriter, cid: str, recipe: L
         "target_model": str(ctx.cfg["model"]),
         "corpus": f"{ctx.variance.bench}-train",
     }
-    inc_exp = expected_hashes(inc_dir, ctx.pool_dir, harness_dir, ctx.snapshot)
-    can_exp = expected_hashes(can_dir, ctx.pool_dir, harness_dir, ctx.snapshot).model_copy(
+    inc_exp_raw = expected_hashes(inc_dir, ctx.pool_dir, harness_dir, ctx.snapshot)
+    can_exp_raw = expected_hashes(can_dir, ctx.pool_dir, harness_dir, ctx.snapshot).model_copy(
         update={"harness": model_dir_hash(adapter)}
     )
+    # When an incumbent adapter is used, record its hash so replay's rebase detection can fire
+    # (ADR-0013, H5 in ADVERSARIAL-2026-09-11.md)
+    incumbent_adapter_hash: str | None = None
+    if ctx.incumbent_adapter is not None:
+        incumbent_adapter_hash = model_dir_hash(ctx.incumbent_adapter)
+        # Update incumbent observation to use incumbent adapter's hash, not base snapshot hash
+        inc_exp_raw = inc_exp_raw.model_copy(update={"harness": incumbent_adapter_hash})
+        # Wrap both to inject harness_parent for rebase detection
+        inc_exp: KernelHashes | _HashesWithParent = _HashesWithParent(inc_exp_raw, incumbent_adapter_hash)
+        can_exp: KernelHashes | _HashesWithParent = _HashesWithParent(can_exp_raw, incumbent_adapter_hash)
+    else:
+        # No incumbent adapter: no harness_parent needed
+        inc_exp = _HashesWithParent(inc_exp_raw, None)
+        can_exp = _HashesWithParent(can_exp_raw, None)
     inc_value = sum(inc_scores.values()) / len(inc_scores)
     can_value = sum(can_scores.values()) / len(can_scores)
     delta = can_value - inc_value
@@ -505,7 +539,7 @@ def evaluate_and_dispose(ctx: NightContext, w: LedgerWriter, cid: str, recipe: L
         brier = (sealed["conf"] - y) ** 2
     admit_observation(
         w,
-        expected=inc_exp,
+        expected=cast(KernelHashes, inc_exp),
         job_meta=inc_meta,
         per_item_scores=inc_scores,
         per_item_ref=str(inc_ref),
@@ -535,7 +569,7 @@ def evaluate_and_dispose(ctx: NightContext, w: LedgerWriter, cid: str, recipe: L
     }
     _, obs = admit_observation(
         w,
-        expected=can_exp,
+        expected=cast(KernelHashes, can_exp),
         job_meta=can_meta,
         per_item_scores=can_scores,
         per_item_ref=str(can_ref),
