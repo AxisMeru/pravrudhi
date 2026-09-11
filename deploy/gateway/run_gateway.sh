@@ -32,7 +32,15 @@ auth=(-H "Authorization: Bearer $CLOUDFLARE_API_TOKEN")
 port_of()   { case "$1" in studio) echo 8771;; product) echo 8772;; esac; }
 origin_of() { case "$1" in studio) echo "$STUDIO_ORIGIN";; product) echo "$PRODUCT_ORIGIN";; esac; }
 
+verify_token() {
+  local status
+  status=$(curl -s -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" https://api.cloudflare.com/client/v4/user/tokens/verify \
+    | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["result"]["status"] if d.get("success") else "invalid: " + "; ".join(e["message"] for e in d.get("errors", [])))')
+  [ "$status" = "active" ] || { echo "Cloudflare token in $CONF/cloudflare.env is not usable ($status). It must be an API token (My Profile > API Tokens > Create Token), not the Global API Key, with Workers Scripts:Edit and Workers KV Storage:Edit on the account." >&2; exit 1; }
+}
+
 setup() {
+  verify_token
   if [ -z "${CF_KV_ID:-}" ]; then
     CF_KV_ID=$(curl -sf "${auth[@]}" -H 'content-type: application/json' -X POST "$API/storage/kv/namespaces" \
       --data '{"title":"pravrudhi-gateway"}' | python3 -c 'import json,sys; print(json.load(sys.stdin)["result"]["id"])')
