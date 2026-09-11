@@ -12,10 +12,21 @@ import json
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pytest
 import yaml
 
 from pravrudhi.agents import account
 from pravrudhi.application import availability
+
+
+@pytest.fixture(autouse=True)
+def _no_pinned_seat(monkeypatch: pytest.MonkeyPatch) -> None:
+    """These tests exercise the seat REGISTRY, so the pin that bypasses it must be absent.
+
+    The heartbeat service sets `PRAVRUDHI_CLAUDE_CONFIG_DIR` for every dispatch, and a build dispatch validates
+    its worktree with the engine's own tests under that environment: on 2026-09-11 thirteen of these failed there
+    and nowhere else, and the loop's first self-built change was rejected three times for it."""
+    monkeypatch.delenv(account.HOME_ENV, raising=False)
 
 
 def _seat_dir(path: Path, *, email: str, refresh: str = "r-default") -> Path:
