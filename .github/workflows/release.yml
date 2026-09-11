@@ -57,6 +57,43 @@ jobs:
             app/desktop/dist/${{ matrix.edition }}/*.zip
           if-no-files-found: error
 
+  # The packaged app, smoked as a user would run it (2026-09-11, operator: "without that there is no way to confirm
+  # the builds are as expected"). Linux only, where the AppImage can run under Xvfb; the engine it must find is the
+  # wheel this same tag builds. Reports beside the release rather than gating it until it has proven itself green.
+  packaged-smoke:
+    needs: [desktop]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        edition: [product, studio]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "24" }
+      - uses: astral-sh/setup-uv@v6
+        with: { python-version: "3.13" }
+      - name: build the interface and the wheels the packaged app will find
+        run: |
+          (cd app/frontend && npm ci && npm run build)
+          uv build --wheel
+          uv build --wheel --package pravrudhi-kernel
+          uv venv .engine
+          uv pip install --python .engine/bin/python dist/*.whl
+      - uses: actions/download-artifact@v4
+        with:
+          name: desktop-${{ matrix.edition }}-linux
+          path: app/desktop/dist/${{ matrix.edition }}
+      - name: smoke the packaged ${{ matrix.edition }} AppImage against the wheel engine
+        working-directory: app/desktop
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq xvfb libfuse2 > /dev/null
+          npm install --no-audit --no-fund
+          export PATH="$GITHUB_WORKSPACE/.engine/bin:$PATH"
+          pravrudhi --version
+          npm run smoke:dist -- ${{ matrix.edition }}
+          cat .smoke-dist/report.json
+
   release:
     needs: [desktop]
     runs-on: ubuntu-latest
