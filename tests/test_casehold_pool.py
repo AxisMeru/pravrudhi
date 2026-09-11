@@ -182,11 +182,15 @@ def test_the_first_set_pool_would_have_crashed_the_night_it_ran_on(tmp_path: Pat
         discordance({"a": 1.0}, {"a": 0.667})
 
 
-def test_a_config_that_disagrees_with_its_pools_sealed_kind_is_refused(tmp_path: Path) -> None:
+def test_a_config_that_disagrees_with_its_pools_sealed_kind_is_refused(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """The scorer dispatches on the manifest, so a config declaring a different kind describes a night that is
     not being run -- the same disagreement-between-frozen-inputs defect as a floor measured on another bench."""
     from pravrudhi.application.harness_track import HarnessContext
 
+    # The context resolves the model's local snapshot before it checks anything; CI has no model cache, so an
+    # empty snapshot directory stands in for the download. Nothing here reads the weights.
+    (tmp_path / "hf" / "hub" / "models--Qwen--Qwen3-1.7B" / "snapshots" / "ci").mkdir(parents=True)
+    monkeypatch.setenv("HF_HOME", str(tmp_path / "hf"))
     src = _csv(tmp_path / "casehold-val.csv")
     seal_casehold(tmp_path, src, "casehold-kindcheck")
     prereg = tmp_path / "research" / "prereg"

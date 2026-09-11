@@ -185,11 +185,14 @@ def test_the_unparsed_count_travels_into_the_observation(tmp_path: Path) -> None
     assert with_unparsed({}, ref)["n_unparsed"] is None
 
 
-def test_the_bucket_no_longer_claims_a_code_corpus_on_a_law_bench(tmp_path: Path) -> None:
+def test_the_bucket_no_longer_claims_a_code_corpus_on_a_law_bench(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """`corpus` was the literal string "mbppplus" for every bench this track ran, so the ledger's
     casehold-val and mmlu-law-val observations all named a code corpus that was never involved."""
     from pravrudhi.application.harness_track import HarnessContext
 
+    # CI has no model cache; an empty snapshot directory satisfies the resolver, and nothing reads weights.
+    (tmp_path / "hf" / "hub" / "models--Qwen--Qwen3-1.7B" / "snapshots" / "ci").mkdir(parents=True)
+    monkeypatch.setenv("HF_HOME", str(tmp_path / "hf"))
     prereg = tmp_path / "research" / "prereg"
     prereg.mkdir(parents=True)
     (prereg / "v.json").write_text(json.dumps({"bench": "casehold-val", "sigma_seed": 0.01}))

@@ -100,7 +100,7 @@ def test_a_job_is_refused_rather_than_stacked_onto_a_host_at_the_wall(monkeypatc
         run_job(_spec())
 
 
-def test_the_floor_study_is_not_blocked_by_the_floor_it_replaces(tmp_path: Path) -> None:
+def test_the_floor_study_is_not_blocked_by_the_floor_it_replaces(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Found by running it, not by a test. The baseline-pairing check (ADR-0037) lives in
     `HarnessContext.__init__`, and the floor STUDY builds the same context -- so the study was refused by the
     staleness it exists to fix, and the error told the reader to run the command that had just failed.
@@ -114,6 +114,9 @@ def test_the_floor_study_is_not_blocked_by_the_floor_it_replaces(tmp_path: Path)
 
     from pravrudhi.application.harness_track import HarnessContext
 
+    # CI has no model cache; an empty snapshot directory satisfies the resolver, and nothing reads weights.
+    (tmp_path / "hf" / "hub" / "models--Qwen--Qwen3-1.7B" / "snapshots" / "ci").mkdir(parents=True)
+    monkeypatch.setenv("HF_HOME", str(tmp_path / "hf"))
     prereg = tmp_path / "research" / "prereg"
     prereg.mkdir(parents=True)
     (prereg / "variance.json").write_text(J.dumps(
