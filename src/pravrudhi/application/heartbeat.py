@@ -40,7 +40,7 @@ from typing import Any
 import yaml
 
 from pravrudhi.agents.registry import build_agent as _registry_build_agent
-from pravrudhi.application import kshudha, recipes, requests, subagents, swarm
+from pravrudhi.application import availability, kshudha, recipes, requests, subagents, swarm
 from pravrudhi.application.delegate import TaskSpec
 from pravrudhi.application.intent import compile_intent
 from pravrudhi.application.objectives import load_all
@@ -179,6 +179,37 @@ def _default_build_agent(root: Path) -> BuildAgentFn:
         return _registry_build_agent(root, name, model)
 
     return build
+
+
+def _default_probe(root: Path) -> availability.ProbeFn:
+    """The real check `beat` puts every cooling agent id in front of, built the way the CLI builds a route: an
+    actual agent, asked the cheapest possible question (`availability.reprobe_prompt`), on the cheapest possible
+    budget (`availability.reprobe_timeout_s`).
+
+    Like `_default_judge`, independent of whatever `dispatch` a caller injected for the beat's own drive action —
+    probing a cooling route is not the same call as dispatching real work to whichever route wins the beat, so
+    it always builds its own agent rather than reusing that one. A route that cannot even be built, or that
+    errors before answering, is not yet recovered: fail-closed, same direction as every other unclear answer in
+    this module.
+    """
+    def probe(agent_id: str) -> bool:
+        agent = _registry_build_agent(root, agent_id, None)
+        if agent is None:
+            return False
+        workspace = None
+        try:
+            workspace = agent.create_workspace("reprobe")
+            run = agent.run(availability.reprobe_prompt(), workspace, timeout_s=availability.reprobe_timeout_s())
+            returncode = 0 if getattr(run, "ok", True) else 1
+            return availability.classify(agent_id, str(run.text), returncode) != "limited"
+        except (OSError, RuntimeError, ValueError):
+            return False
+        finally:
+            if workspace is not None:
+                with contextlib.suppress(OSError, RuntimeError):
+                    agent.stop(workspace)
+
+    return probe
 
 
 ActionResult = tuple[dict[str, str] | None, str, dict[str, Any] | None]
@@ -1179,13 +1210,22 @@ def _next_eligible(appetite: kshudha.Appetite, exclude: str) -> str | None:
     return diagnostics[0].id if diagnostics else None
 
 
-def beat(root: Path, *, dispatch: DispatchFn | None = None, now: datetime | None = None) -> BeatRecord:
+def beat(
+    root: Path, *, dispatch: DispatchFn | None = None, probe: availability.ProbeFn | None = None,
+    now: datetime | None = None,
+) -> BeatRecord:
     """One heartbeat: measure the six drives (`kshudha.measure`), let them select which one wins
     (`kshudha.select`), and dispatch the action wired to that drive — never the heartbeat's own precedence rule.
 
+    Before any of that, every route `availability.cooling` is still holding out is put in front of `probe`
+    (`availability.reprobe_cooling`) and recovered on the spot if it answers usable. That happens whichever drive
+    wins and whatever it dispatches to, because otherwise a route the vendor already restored only recovers when
+    some later dispatch happens to land on that exact route — which the winning drive here may never choose.
+
     `dispatch` takes the shape `swarm.run_wave` already expects of a `build_agent`: `(name, model) -> agent`.
     Injecting it is what lets a test exercise every branch here without ever running a real agent; production
-    callers may pass one, or leave it unset to use the fleet's own `agents.registry.build_agent`.
+    callers may pass one, or leave it unset to use the fleet's own `agents.registry.build_agent`. `probe` is the
+    same seam for the reprobe step, independent of `dispatch`.
     """
     root = Path(root)
     moment = now.astimezone(UTC) if now and now.tzinfo else (now.replace(tzinfo=UTC) if now else datetime.now(UTC))
@@ -1196,6 +1236,9 @@ def beat(root: Path, *, dispatch: DispatchFn | None = None, now: datetime | None
             root, moment, (), None, f"quiet hours: {moment.hour:02d}:00 UTC is in {config.quiet_hours}", None,
             drive=None, drive_deficit=None, sentence="",
         )
+
+    recovered = availability.reprobe_cooling(root, probe or _default_probe(root), now=moment)
+    reprobe_note = f"reprobed and recovered {', '.join(recovered)}; " if recovered else ""
 
     appetite_config = kshudha.load_config()
     state = kshudha.load_state(root)
@@ -1209,7 +1252,7 @@ def beat(root: Path, *, dispatch: DispatchFn | None = None, now: datetime | None
     drives_by_id = {d.id: d for d in appetite.drives}
 
     if drive_id is None:
-        reason = appetite.resting_reason or "resting: every drive is satisfied"
+        reason = reprobe_note + (appetite.resting_reason or "resting: every drive is satisfied")
         return _finish(root, moment, (), None, reason, None, drive=None, drive_deficit=None, sentence=sentence)
 
     drive_wire = kshudha.WIRE_NAMES[drive_id]
@@ -1222,8 +1265,8 @@ def beat(root: Path, *, dispatch: DispatchFn | None = None, now: datetime | None
         if next_id is None:
             chose, reason, result = _beat_resources(drives_by_id["sadhana"])
             return _finish(
-                root, moment, (), chose, reason, result, drive=drive_wire, drive_deficit=drive_deficit,
-                sentence=sentence,
+                root, moment, (), chose, reprobe_note + reason, result, drive=drive_wire,
+                drive_deficit=drive_deficit, sentence=sentence,
             )
         fallback_note = (
             "resources have the largest eligible deficit but no usable route exists; recording the desire and "
@@ -1236,6 +1279,7 @@ def beat(root: Path, *, dispatch: DispatchFn | None = None, now: datetime | None
     )
     if fallback_note:
         reason = fallback_note + reason
+    reason = reprobe_note + reason
 
     return _finish(
         root, moment, looked_at, chose, reason, result, drive=drive_wire, drive_deficit=drive_deficit,

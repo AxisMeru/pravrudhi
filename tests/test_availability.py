@@ -131,6 +131,39 @@ def test_a_short_cooldown_is_simply_honoured(tmp_path: Path) -> None:
     assert not availability.is_cool(tmp_path, "claude-code", now=now + timedelta(minutes=91))
 
 
+def test_reprobe_cooling_recovers_a_route_the_probe_finds_usable(tmp_path: Path) -> None:
+    """The probe is the active half of recovery: it must clear a route on its own answer, not on elapsed time --
+    the window below is nowhere near either agent's `until`, so neither would drop out of `cooling()` by itself."""
+    now = datetime(2026, 1, 1, tzinfo=UTC)
+    availability.mark_limited(tmp_path, "claude-code", minutes=120, now=now)
+    availability.mark_limited(tmp_path, "codex", minutes=120, now=now)
+    soon = now + timedelta(minutes=5)
+
+    recovered = availability.reprobe_cooling(tmp_path, lambda agent_id: agent_id == "claude-code", now=soon)
+
+    assert recovered == ("claude-code",)
+    assert not availability.is_cool(tmp_path, "claude-code", now=soon)
+    assert availability.is_cool(tmp_path, "codex", now=soon)
+
+
+def test_reprobe_cooling_leaves_a_route_the_probe_still_finds_limited(tmp_path: Path) -> None:
+    now = datetime(2026, 1, 1, tzinfo=UTC)
+    availability.mark_limited(tmp_path, "claude-code", minutes=120, now=now)
+    soon = now + timedelta(minutes=5)
+
+    recovered = availability.reprobe_cooling(tmp_path, lambda _agent_id: False, now=soon)
+
+    assert recovered == ()
+    assert availability.is_cool(tmp_path, "claude-code", now=soon)
+
+
+def test_reprobe_cooling_asks_nothing_when_nothing_is_cooling(tmp_path: Path) -> None:
+    def probe(agent_id: str) -> bool:
+        raise AssertionError(f"probe must not be called for {agent_id!r}: nothing is cooling")
+
+    assert availability.reprobe_cooling(tmp_path, probe) == ()
+
+
 def test_a_bare_until_written_before_the_rule_still_reads_and_is_due_for_a_retry(tmp_path: Path) -> None:
     (tmp_path / ".pravrudhi").mkdir()
     (tmp_path / ".pravrudhi" / "agent_cooldown.json").write_text(

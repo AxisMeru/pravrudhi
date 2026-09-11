@@ -11,7 +11,7 @@ import pytest
 import yaml
 
 from pravrudhi.agents.base import AgentRun, Diff
-from pravrudhi.application import heartbeat, kshudha, requests
+from pravrudhi.application import availability, heartbeat, kshudha, requests
 from pravrudhi.application.heartbeat import beat, history, load_config, log_path
 from pravrudhi.application.objectives import Benchmark, Objective
 from pravrudhi.application.objectives import write as write_objective
@@ -309,6 +309,53 @@ def test_unknown_drive_yields_a_diagnostic_rather_than_an_action(tmp_path, monke
     assert record.result["kind"] == "diagnostic"
     assert "no evidence-freshness source is wired into the engine yet" in record.reason
     assert runs(tmp_path) == []
+
+
+def test_beat_reprobes_a_cooling_route_even_when_the_beat_dispatches_elsewhere(tmp_path, monkeypatch):
+    """The route recovers because `beat` probed it directly, not because whatever it dispatched this beat
+    happened to run through it -- here nothing does: `patch_measure` with no overrides leaves every known drive
+    satisfied, so the winner is the unwired `freshness` diagnostic and no route is ever dispatched to at all."""
+    patch_measure(monkeypatch)
+    now = datetime(2026, 1, 1, 12, tzinfo=UTC)
+    availability.mark_limited(tmp_path, "claude-code", minutes=120, now=now)
+
+    probed: list[str] = []
+
+    def probe(agent_id: str) -> bool:
+        probed.append(agent_id)
+        return agent_id == "claude-code"
+
+    record = beat(tmp_path, dispatch=ok_dispatch, probe=probe, now=now)
+
+    assert probed == ["claude-code"]
+    assert not availability.is_cool(tmp_path, "claude-code", now=now)
+    assert record.drive == "freshness"
+
+
+def test_beat_leaves_a_cooling_route_alone_when_the_probe_still_finds_it_limited(tmp_path, monkeypatch):
+    patch_measure(monkeypatch)
+    now = datetime(2026, 1, 1, 12, tzinfo=UTC)
+    availability.mark_limited(tmp_path, "claude-code", minutes=120, now=now)
+
+    beat(tmp_path, dispatch=ok_dispatch, probe=lambda _agent_id: False, now=now)
+
+    assert availability.is_cool(tmp_path, "claude-code", now=now)
+
+
+def test_beat_does_not_build_an_agent_to_reprobe_when_nothing_is_cooling(tmp_path, monkeypatch):
+    """The default probe is real production wiring (it builds and runs an actual agent, like `_default_judge`
+    does its own judging, independent of whatever `dispatch` was injected); a beat with nothing cooling must
+    never reach it, or every ordinary unit test in this file would spin one up unasked."""
+    patch_measure(monkeypatch)
+
+    def build_agent(root: Path, name: str, model: str | None) -> None:
+        raise AssertionError(f"must not build an agent for {name!r}: nothing is cooling")
+
+    monkeypatch.setattr(heartbeat, "_registry_build_agent", build_agent)
+
+    record = beat(tmp_path, dispatch=ok_dispatch, now=datetime(2026, 1, 1, 12, tzinfo=UTC))
+
+    assert record.drive == "freshness"
 
 
 def test_resources_drive_records_its_desire_and_steps_aside(tmp_path, monkeypatch):

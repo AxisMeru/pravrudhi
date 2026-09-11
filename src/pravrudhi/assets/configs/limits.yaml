@@ -107,3 +107,10 @@ transient_cooldown_minutes: 2
 # would otherwise be masked until the stale timestamp passed. The retry costs at most one ordinary dispatch per
 # span, which re-marks the route from the vendor's fresh answer if the limit still stands.
 reprobe_hours: 6
+
+# What the heartbeat's own reprobe (`availability.reprobe_cooling`, driven from `pravrudhi heartbeat`) asks a
+# cooling route directly, and how long it waits for an answer. Kept to the single cheapest possible exchange: the
+# point of asking on a schedule rather than waiting for an ordinary dispatch to land on the route is to spend as
+# little as the question itself costs, not a whole task's worth of tokens.
+reprobe_prompt: "Reply with the single word ok."
+reprobe_timeout_s: 60

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta, tzinfo
 from pathlib import Path
 from typing import Any, Protocol
@@ -106,6 +107,21 @@ def reprobe_hours() -> float:
         return float(value)  # type: ignore[arg-type]
     except (TypeError, ValueError):
         return 6.0
+
+
+def reprobe_prompt() -> str:
+    """What `reprobe_cooling`'s default probe asks a cooling route, kept to the cheapest possible exchange."""
+    value = _load_config().get("reprobe_prompt")
+    return str(value) if value else "Reply with the single word ok."
+
+
+def reprobe_timeout_s() -> int:
+    """How long `reprobe_cooling`'s default probe waits for an answer before giving up on this beat."""
+    value = _load_config().get("reprobe_timeout_s")
+    try:
+        return int(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return 60
 
 
 def _cooldown_path(root: Path) -> Path:
@@ -297,13 +313,42 @@ def usable_routes[R: RouteLike](root: Path, routes: list[R], now: datetime | Non
     return [r for r in routes if r.agent not in cool]
 
 
+ProbeFn = Callable[[str], bool]
+"""Given a cooling agent id, answer whether it works right now. `True` recovers it; `False` or a raised error
+(a caller should catch its own) leaves it exactly as cooling as it was."""
+
+
+def reprobe_cooling(root: Path, probe: ProbeFn, *, now: datetime | None = None) -> tuple[str, ...]:
+    """Ask `probe` about every route `cooling()` is still holding out, and `clear` the ones it answers usable.
+
+    `cooling()` only recovers a route passively: at the vendor's own stated time, or -- past `reprobe_hours` --
+    the next time an ordinary dispatch happens to land on that exact route and succeed. Both depend on something
+    else eventually trying the route; neither is a check performed on the route's behalf. A route the vendor
+    already restored otherwise sits idle until some unrelated piece of the engine happens to route work to it,
+    which may be a long wait if other routes are simply preferred.
+
+    This is the active half, meant to be driven from a schedule (`pravrudhi heartbeat`): it puts every
+    still-cooling agent id in front of `probe` directly and clears whichever one answers usable, so a route
+    recovers because it was checked, not because a dispatch happened to stumble onto it.
+    """
+    when = _aware(now or datetime.now(UTC))
+    recovered = tuple(sorted(agent_id for agent_id in cooling(root, when) if probe(agent_id)))
+    for agent_id in recovered:
+        clear(root, agent_id)
+    return recovered
+
+
 __all__ = [
     "LIMIT_PATTERNS",
+    "ProbeFn",
     "reprobe_hours",
+    "reprobe_prompt",
+    "reprobe_timeout_s",
     "classify",
     "mark_limited",
     "cooling",
     "is_cool",
     "clear",
     "usable_routes",
+    "reprobe_cooling",
 ]
