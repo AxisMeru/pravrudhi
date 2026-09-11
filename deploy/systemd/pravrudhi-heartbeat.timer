@@ -1,9 +1,12 @@
 [Unit]
-Description=Beat once an hour
+Description=Beat every twenty minutes
 
 [Timer]
 OnBootSec=15min
-OnUnitActiveSec=60min
+# 60min until 2026-09-11. One beat is one dispatch, so the cadence IS the loop's throughput; with build mode
+# landing real changes, an hour per change was the slowest part of the system. Each beat still spends at most
+# one design-tier dispatch, so three an hour is bounded spend, not a free-for-all.
+OnUnitActiveSec=20min
 RandomizedDelaySec=5min
 Persistent=true
 

@@ -1568,6 +1568,39 @@ def requests_met_cmd(
     typer.echo(f"{req.id}[{index}] met: {req.criteria[index].text}")
 
 
+@app.command("requests-triage")
+def requests_triage_cmd(
+    limit: int = typer.Option(0, "--limit", help="How many untriaged asks to draft criteria for; 0 = all."),
+    root: Path = ROOT_OPT,
+) -> None:
+    """Give every captured ask its acceptance criteria now, instead of one per beat.
+
+    The beat triages one ask per hour, which is the right pace for a loop that must also build. It is the wrong
+    pace for a backlog of ninety asks that were invisible for a week; this drains it in one sitting through the
+    same seat and the same rules the beat uses (a model reading; decline when it names nothing to build)."""
+    from pravrudhi.application.heartbeat import _triage_complete
+    from pravrudhi.application.requests import triage, untriaged
+
+    pending = untriaged(root)
+    if limit:
+        pending = pending[:limit]
+    complete = _triage_complete(root)
+    typer.echo(f"{len(pending)} untriaged ask(s); model seat: {'yes' if complete else 'none (verbatim drafter)'}")
+    drafted = declined = untouched = 0
+    for req in pending:
+        out = triage(root, req.id, complete=complete)
+        if out is None:
+            untouched += 1
+            typer.echo(f"{req.id}  -   {req.text[:70]!r} states nothing to draft from")
+        elif out.state == "declined":
+            declined += 1
+            typer.echo(f"{req.id}  x   {req.text[:70]!r} declined: names nothing to build against")
+        else:
+            drafted += 1
+            typer.echo(f"{req.id}  +{len(out.criteria)} {req.text[:70]!r}")
+    typer.echo(f"drafted {drafted}, declined {declined}, untouched {untouched}")
+
+
 @app.command("requests-advance")
 def requests_advance_cmd(
     request_id: str = REQUEST_ID_ARG,
