@@ -357,3 +357,15 @@ class TestParkedIsNotDelivered:
         requests.meet(tmp_path, req.id, 0, [Evidence(kind="commit", ref="abc1234")])
         owed = requests.next_obligation(tmp_path)
         assert owed is not None and owed["kind"] == "advance_request"
+
+def test_the_decomposer_is_told_what_the_engine_may_not_change() -> None:
+    """Of 327 open criteria on 2026-09-11, 77 named the kernel, research/ or gitignored docs: the decomposer
+    proposed work the loop is forbidden to do, three dispatches each, until `heartbeat.unbuildable` learned to
+    stall them. The upstream fix is to tell it."""
+    from pravrudhi.application.requests import _decompose_prompt
+
+    prompt = _decompose_prompt("make the kernel's controller smarter")
+    for forbidden in ("pravrudhi_kernel/", "research/", "gates/", ".pravrudhi/", "docs/blueprint/"):
+        assert forbidden in prompt
+    assert "src/pravrudhi/" in prompt
+    assert "make the kernel's controller smarter" in prompt, "the operator's words stay verbatim"

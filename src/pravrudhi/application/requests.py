@@ -517,7 +517,12 @@ def _decompose_prompt(ask: str) -> str:
         "must name the file, module, command or asset that has to change or hold, in backticks where it is an "
         "identifier — a criterion that only says something should be better cannot be built against or judged. "
         "State what must be true, not how to achieve it. Do not restate the ask. Do not invent measurements, "
-        "numbers or results. Return at most "
+        "numbers or results. The engine may only change files under src/pravrudhi/, tests/, app/frontend/src/, "
+        "scripts/, configs/ and plugin/. It may NOT change pravrudhi_kernel/ (a kernel change is an ADR the "
+        "operator's delegate accepts, not a build), research/ (the ledger and pre-registrations are evidence, "
+        "written only by the kernel), gates/, .pravrudhi/, or local-only documents under docs/blueprint/ and "
+        "docs/superpowers/. A criterion that can only be met in those places is not a criterion for this engine: "
+        "either name the engine-side change that would make it true, or leave it out. Return at most "
         f"{_MAX_DRAFTED} criteria as JSON: "
         '{"criteria": ["...", "..."]}'
     )
