@@ -44,7 +44,7 @@ export function ConnectionBanner() {
       <div className="flex flex-wrap items-center gap-2 border-b border-emerald-500/30 bg-emerald-500/10 px-5 py-2 text-sm text-emerald-300">
         <PlayCircle size={14} />
         <span>
-          Recorded demo — real runs from an RTX&nbsp;5090. To improve your own model,{" "}
+          Recorded from Pravrudhi Studio&apos;s own runs, on one RTX&nbsp;5090. To improve your own model,{" "}
           <a className="underline underline-offset-2 hover:text-emerald-200" href="/install">
             install the engine
           </a>{" "}

@@ -2,7 +2,6 @@
 
 dl{display:grid;grid-template-columns:max-content 1fr;gap:8px 24px}dt{color:#92a0ae}dd{margin:0;overflow-wrap:anywhere}
 
-.product{border-top:1px solid #2d3640;padding-top:18px;margin-top:18px}
 .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:10px}
 .row input,.row select{font:inherit;background:#181e26;border:1px solid #303943;border-radius:7px;color:#e8ecef;padding:7px 10px}
 .workspace-list{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
@@ -12,4 +11,3 @@ dl{display:grid;grid-template-columns:max-content 1fr;gap:8px 24px}dt{color:#92a
 .progress-row:first-child{border-top:none}
 .progress-row small{color:#8c9ba8;font-size:11px}
 .band{margin-top:10px;display:flex;flex-direction:column;gap:6px}
-#product-error{color:#efbb87;white-space:pre-wrap}

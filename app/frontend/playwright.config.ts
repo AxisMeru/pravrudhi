@@ -58,7 +58,9 @@ export default defineConfig({
   retries: 1,
   reporter: [["list"]],
   use: {
-    baseURL: process.env.BASE_URL ?? "https://pravrudhi.vercel.app",
+    // Studio's public record is the Pages site (ADR-0051); pravrudhi.vercel.app is the product's web door, from
+    // AxisMeru/pravrudhi-app, and no longer serves this frontend.
+    baseURL: process.env.BASE_URL ?? "https://sharathsphd.github.io/pravrudhi/app/",
     trace: "retain-on-failure",
   },
   projects: [

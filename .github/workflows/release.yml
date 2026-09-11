@@ -9,17 +9,18 @@ permissions:
 
 jobs:
   desktop:
-    # Both editions on all three desktop operating systems. Studio is the operator's edition and the product is
-    # what a user installs; they carry different appIds and product names so one machine can hold both. Each
-    # runner builds its own platform: a macOS dmg cannot be produced off macOS, and a Windows installer needs
-    # wine to be cross-built, which is a dependency this would rather not have in a release path.
+    # Studio's edition on all three desktop operating systems, for the operator's own machines. The product's
+    # installers come from AxisMeru/pravrudhi-app (ADR-0051, 2026-09-11): Studio begets the engine wheels the
+    # product consumes and never ships the product itself. Each runner builds its own platform: a macOS dmg
+    # cannot be produced off macOS, and a Windows installer needs wine to be cross-built, which is a dependency
+    # this would rather not have in a release path.
     strategy:
       fail-fast: false
       matrix:
-        edition: [product, studio]
+        edition: [studio]
         platform: [linux, mac, win]
         # Each entry names an existing `platform`, so it adds the runner and artifact glob to that platform's
-        # combinations rather than to every one of them. Six jobs: two editions on three operating systems.
+        # combinations rather than to every one of them. Three jobs: one edition on three operating systems.
         include:
           - { platform: linux, os: ubuntu-latest }
           - { platform: mac, os: macos-latest }
@@ -66,7 +67,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        edition: [product, studio]
+        edition: [studio]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

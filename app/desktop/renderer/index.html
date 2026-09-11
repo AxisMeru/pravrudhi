@@ -20,25 +20,6 @@
 <section class="diagnostics"><div class="section-heading"><h2>Readiness checks</h2><button id="doctor" class="quiet">Run doctor</button></div><p id="doctor-state">Checks appear here if the engine cannot start.</p><div id="checks"></div></section>
 <p id="action-error" role="alert"></p>
 
-<section class="product" aria-label="Sign in">
-<div class="section-heading"><h2>Sign in</h2><button id="signout" class="quiet" hidden>Sign out</button></div>
-<div class="row"><input id="signin-email" type="email" placeholder="Email" autocomplete="username"><input id="signin-password" type="password" placeholder="Password" autocomplete="current-password"><button id="signin-submit">Sign in</button></div>
-<p id="signin-status" class="caption"></p>
-</section>
 
-<section class="product" id="workspace-section" hidden aria-label="Workspaces">
-<div class="section-heading"><h2>Your workspaces</h2></div>
-<div id="workspace-list" class="workspace-list"></div>
-<div class="row"><input id="workspace-slug" placeholder="new-workspace-name"><button id="workspace-create">Create workspace</button></div>
-</section>
-
-<section class="product" id="artifact-section" hidden aria-label="Artifacts">
-<div class="section-heading"><h2>Artifacts in <span id="current-workspace"></span></h2></div>
-<div id="artifact-list"></div>
-<h3>Start something new</h3>
-<div class="row wrap"><input id="artifact-id" placeholder="name"><input id="artifact-intent" placeholder="what it's for"><input id="artifact-location" placeholder="where it lives"><input id="artifact-metric" placeholder="success metric"><select id="artifact-direction"><option value="up">Higher is better</option><option value="down">Lower is better</option></select><button id="artifact-create">Start</button></div>
-</section>
-<p id="product-error" role="alert"></p>
-
-</main><script src="app.js"></script><script src="product.js"></script>
+</main><script src="app.js"></script>
 </body></html>
