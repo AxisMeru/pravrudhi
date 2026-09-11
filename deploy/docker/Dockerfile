@@ -2,7 +2,7 @@
 # Vercel (ADR-0051 addendum 2). The engine's intelligence is the vendor layer, so this image carries no GPU; GPU
 # work belongs to the artifact projects and, later, to cloud GPU. Build with the release the web app expects:
 #
-#   docker build --build-arg PRAVRUDHI_VERSION=0.5.5 -t pravrudhi-engine deploy/docker
+#   docker build --build-arg PRAVRUDHI_VERSION=0.5.7 -t pravrudhi-engine deploy/docker
 #
 # Run with the environment deploy/docker/README.md lists (identity required, local guard off, the Vercel origin
 # allowed, a Supabase project to verify tokens against) and a volume at /data for the root.

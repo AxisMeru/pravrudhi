@@ -1,0 +1,16 @@
+# ~/.config/systemd/user/pravrudhi-gateway.service — both hosted engines reachable through their Workers.
+# install: cp deploy/gateway/pravrudhi-gateway.service ~/.config/systemd/user/ && systemctl --user enable --now pravrudhi-gateway
+[Unit]
+Description=Pravrudhi gateway: engine containers behind cloudflared tunnels, registered in Cloudflare KV
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=%h/projects/pravrudhi/deploy/gateway/run_gateway.sh
+Restart=always
+RestartSec=20
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+
+[Install]
+WantedBy=default.target

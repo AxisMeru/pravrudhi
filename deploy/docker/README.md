@@ -4,7 +4,7 @@ One container per edition, behind its web app (ADR-0051, addendum 2): Studio's e
 `pravrudhi.vercel.app`, the product's behind `pravrudhi-app.vercel.app`. No GPU in the image; the engine's
 intelligence is the vendor layer.
 
-Build: `docker build --build-arg PRAVRUDHI_VERSION=0.5.5 -t pravrudhi-engine deploy/docker`.
+Build: `docker build --build-arg PRAVRUDHI_VERSION=0.5.7 -t pravrudhi-engine deploy/docker`.
 
 Environment the container needs:
 

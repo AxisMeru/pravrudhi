@@ -17,6 +17,26 @@ function detectBase(): string {
 // Resolve at request time so static prerendering cannot freeze the browser's base.
 export { detectBase as apiBase };
 
+// The hosted door's identity (ADR-0051 addendum 3): the Supabase session the operator signed in with, sent as a
+// bearer token on every request. A local or desktop Studio has no session and sends nothing, and the engine there
+// runs with identity disabled. When a hosted engine answers 401 the session is gone or was never made, and the
+// page goes to /signin rather than presenting the refusal as an engine that is not reachable.
+async function webSessionToken(): Promise<string | null> {
+  if (typeof window === "undefined") return null;
+  try {
+    const { accessToken } = await import("./auth");
+    return accessToken();
+  } catch {
+    return null;
+  }
+}
+
+function toSignIn(status: number): void {
+  if (status !== 401 || typeof window === "undefined" || !process.env.NEXT_PUBLIC_SUPABASE_URL) return;
+  if (window.location.pathname.startsWith("/signin")) return;
+  window.location.assign(new URL("/signin", window.location.origin).href);
+}
+
 // Whether this page is the recording rather than a live engine.
 //
 // Only the build says so: the Pages site is built with NEXT_PUBLIC_DEMO=1 and is the one recorded demo. Until
@@ -39,8 +59,15 @@ export class ApiError extends Error {
 }
 
 async function getJSON<T>(path: string): Promise<T> {
-  const res = await fetch(`${detectBase()}${path}`, { cache: "no-store" });
-  if (!res.ok) throw new ApiError(res.status, path);
+  const token = await webSessionToken();
+  const res = await fetch(`${detectBase()}${path}`, {
+    cache: "no-store",
+    headers: token ? { authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) {
+    toSignIn(res.status);
+    throw new ApiError(res.status, path);
+  }
   return (await res.json()) as T;
 }
 
@@ -63,12 +90,14 @@ export async function localToken(): Promise<string | null> {
 }
 
 async function postJSON<T>(path: string, body: unknown): Promise<T> {
-  const token = await localToken();
+  const localTok = await localToken();
+  const webTok = await webSessionToken();
   const res = await fetch(`${detectBase()}${path}`, {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      ...(token ? { "x-pravrudhi-token": token } : {}),
+      ...(localTok ? { "x-pravrudhi-token": localTok } : {}),
+      ...(webTok ? { authorization: `Bearer ${webTok}` } : {}),
     },
     body: JSON.stringify(body),
   });
@@ -77,12 +106,14 @@ async function postJSON<T>(path: string, body: unknown): Promise<T> {
 }
 
 async function putJSON<T>(path: string, body: unknown): Promise<T> {
-  const token = await localToken();
+  const localTok = await localToken();
+  const webTok = await webSessionToken();
   const res = await fetch(`${detectBase()}${path}`, {
     method: "PUT",
     headers: {
       "content-type": "application/json",
-      ...(token ? { "x-pravrudhi-token": token } : {}),
+      ...(localTok ? { "x-pravrudhi-token": localTok } : {}),
+      ...(webTok ? { authorization: `Bearer ${webTok}` } : {}),
     },
     body: JSON.stringify(body),
   });
@@ -91,10 +122,14 @@ async function putJSON<T>(path: string, body: unknown): Promise<T> {
 }
 
 async function deleteJSON<T>(path: string): Promise<T> {
-  const token = await localToken();
+  const localTok = await localToken();
+  const webTok = await webSessionToken();
   const res = await fetch(`${detectBase()}${path}`, {
     method: "DELETE",
-    headers: token ? { "x-pravrudhi-token": token } : {},
+    headers: {
+      ...(localTok ? { "x-pravrudhi-token": localTok } : {}),
+      ...(webTok ? { authorization: `Bearer ${webTok}` } : {}),
+    },
   });
   if (!res.ok) throw new ApiError(res.status, path);
   return (await res.json()) as T;
@@ -719,12 +754,14 @@ export async function* chatStream(
 ): AsyncGenerator<Record<string, unknown>, void, unknown> {
   if (IS_DEMO) throw new ApiError(501, "/api/chat/stream");
 
-  const token = await localToken();
+  const localTok = await localToken();
+  const webTok = await webSessionToken();
   const res = await fetch(`${detectBase()}/api/chat/stream`, {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      ...(token ? { "x-pravrudhi-token": token } : {}),
+      ...(localTok ? { "x-pravrudhi-token": localTok } : {}),
+      ...(webTok ? { authorization: `Bearer ${webTok}` } : {}),
     },
     body: JSON.stringify({ message, thread_id: threadId }),
   });

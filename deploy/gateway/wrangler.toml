@@ -1,0 +1,17 @@
+# Two Workers from one script: `wrangler deploy --env studio` and `wrangler deploy --env product`.
+# KV_NAMESPACE_ID is filled by run_gateway.sh --setup (it creates the namespace once and writes the id to
+# ~/.config/pravrudhi/cloudflare.env as CF_KV_ID); the account comes from CLOUDFLARE_ACCOUNT_ID in that file.
+name = "pravrudhi-gateway"
+main = "worker.js"
+compatibility_date = "2026-09-01"
+workers_dev = true
+
+[env.studio]
+name = "pravrudhi-studio"
+vars = { EDITION = "studio", ENGINE_KEY = "engine_url_studio" }
+kv_namespaces = [{ binding = "KV", id = "KV_NAMESPACE_ID" }]
+
+[env.product]
+name = "pravrudhi-app"
+vars = { EDITION = "product", ENGINE_KEY = "engine_url_product" }
+kv_namespaces = [{ binding = "KV", id = "KV_NAMESPACE_ID" }]

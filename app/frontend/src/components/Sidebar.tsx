@@ -36,6 +36,7 @@ import {
 import type { ComponentType } from "react";
 import { NotificationBell } from "@/components/notifications/NotificationBell";
 import { BUILT_AS, edition, STUDIO, type Edition } from "@/lib/edition";
+import { AccountControl } from "@/components/AccountControl";
 import { isStudioOnlyHref } from "@/lib/palette";
 import { inbox } from "@/lib/inbox";
 import { requests } from "@/lib/requests";
@@ -154,6 +155,12 @@ export function Sidebar() {
         <p className="mt-1 text-xs leading-snug text-[var(--color-text-dim)]">
           {whoami.tagline}
         </p>
+        {/* Only the hosted door has an account: a local or desktop Studio is the operator's by construction. */}
+        {process.env.NEXT_PUBLIC_SUPABASE_URL ? (
+          <div className="mt-3">
+            <AccountControl />
+          </div>
+        ) : null}
       </div>
       <nav className="flex flex-1 flex-col gap-1 p-3">
         {/* A product install does not serve the engine's self-improvement surfaces at all, so offering them
