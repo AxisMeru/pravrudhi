@@ -1,0 +1,43 @@
+# Which Claude seat the command line spends, and what happens when it stops being spendable.
+#
+# Operator instruction, 2026-09-11: *"admin@axismeru.com will be always available the other seat may drop on
+# and off....always use the other seat (sharath.sathish@gmail.com) for the cli to balance the usage load..if
+# it drops off the premium and cli returns error/something else enable the router/config to automatically
+# switch to admin account (but it should not use admin cli account if the other seat is active)"*.
+#
+# `account.py` already pinned CLAUDE_CONFIG_DIR so an invocation could not pick up an account by accident.
+# That settled WHICH account, on the assumption there was one. There are two, they are not interchangeable,
+# and the instruction gives them an order: spend the seat that comes and goes while it is there, and keep the
+# one that is always there in reserve. A seat is therefore no longer a constant in a module; it is a list with
+# a precedence, which is what this file is.
+#
+# ORDER IN THIS LIST IS THE PRECEDENCE. First entry is tried first. There is no `priority:` integer on
+# purpose -- two entries can be given the same integer and then the order is whatever the YAML loader did,
+# which is exactly the kind of "depending on" the account module was written to eliminate.
+#
+# A seat is skipped ONLY when it cannot serve: no credential in its directory, or it is inside a usage-limit
+# cooldown. An ordinary failure does NOT advance to the next seat -- a prompt the model botched will be
+# botched by the reserve seat too, and spending the always-available account on it is the opposite of
+# balancing load. That distinction is `availability.classify`'s, and it is made there rather than here.
+version: 1
+updated: 2026-09-11
+
+seats:
+  # The seat to spend. A second premium seat on the same Axis Meru team plan, held so that CLI load does not
+  # all land on one account. It is the one the operator describes as dropping on and off premium, so it is
+  # also the one the failover below exists for.
+  - id: primary
+    email: sharath.sathish@gmail.com
+    config_dir: ~/.claude
+
+  # The reserve. Always available, and therefore never chosen while `primary` can serve -- if this were tried
+  # first it would absorb the whole load and the instruction would be inverted. It is the desktop app's login
+  # as well, which is a further reason not to spend it on the loop's behalf without cause.
+  #
+  # NOT YET PROVISIONED. This directory needs its own interactive `claude login` as admin@axismeru.com; no
+  # agent session can complete an OAuth flow. Until it holds a credential, `select_seat` will report one
+  # usable seat and the engine runs exactly as it did before this file existed -- failover that cannot happen
+  # is reported as unavailable, never silently treated as satisfied.
+  - id: fallback
+    email: admin@axismeru.com
+    config_dir: ~/.config/pravrudhi/claude-admin

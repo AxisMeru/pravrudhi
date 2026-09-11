@@ -120,27 +120,60 @@ class ClaudeCodeAgent(GitWorktreeMixin):
         dispatcher would keep choosing it. Operator instruction of 2026-09-10 -- this project does not use the
         personal Claude account, so a personal login present does not make this seat available.
         """
-        from pravrudhi.agents.account import provisioned
+        from pravrudhi.agents.account import select_seat
 
-        return shutil.which("claude") is not None and provisioned()
+        return shutil.which("claude") is not None and select_seat(self.root) is not None
 
     def run(self, prompt: str, workspace: Path, timeout_s: int = 1800) -> AgentRun:
-        from pravrudhi.agents.account import claude_env
+        """One turn, on the highest-precedence seat that can serve, moving down the list on a usage limit.
+
+        The failover is HERE rather than in the router on purpose. Every caller that records a limit does so
+        against the agent id `claude-code`, which would take the whole vendor out of rotation on the first
+        spent seat and leave the reserve untouched -- the opposite of what the operator asked for. Absorbing a
+        limit this agent can route around, and returning one it cannot, means those five call sites keep
+        working unchanged and still cool the vendor when every seat really is spent.
+
+        Only a usage limit advances to the next seat. An ordinary failure is returned as it stands: a prompt
+        the model botched will be botched by the reserve too, and spending the always-available account on it
+        inverts the instruction (`configs/seats.yaml`, 2026-09-11).
+        """
+        from pravrudhi.agents.account import AGENT_ID, claude_env, select_seat
+        from pravrudhi.application import availability
 
         cmd = ["claude", "-p", prompt, "--output-format", "json", "--allowed-tools", self.allowed_tools]
         if self.model:
             cmd += ["--model", self.model]
-        code, out, err, wall = _run(cmd, workspace, timeout_s, env=claude_env())
+
+        spent: list[str] = []
+        last: AgentRun | None = None
+        while True:
+            seat = select_seat(self.root)
+            if seat is None or seat.id in spent:
+                break
+            spent.append(seat.id)
+            last = self._attempt(cmd, workspace, timeout_s, {"CLAUDE_CONFIG_DIR": str(seat.config_dir)})
+            whole = f"{last.text}\n{last.stderr_tail}"
+            if availability.classify(AGENT_ID, whole, last.exit_code) != "limited":
+                return last
+            availability.mark_limited(self.root, seat.cooldown_key, until=availability.reset_at(whole))
+
+        if last is None:
+            claude_env(root=self.root)  # no seat can serve: raise the documented refusal rather than guess
+        return last  # type: ignore[return-value]
+
+    def _attempt(self, cmd: list[str], workspace: Path, timeout_s: int, env: dict[str, str]) -> AgentRun:
+        """One dispatch to one seat. Knows nothing about seats beyond the environment it is handed."""
+        code, out, err, wall = _run(cmd, workspace, timeout_s, env=env)
         text, session, cost = out, None, None
         tokens = read = write = None
         try:
-            env = json.loads(out)
-            if isinstance(env, dict):
-                text = str(env.get("result", out))
-                session = env.get("session_id")
-                cost = env.get("total_cost_usd")
-                tokens, read, write = _usage(env)
-                if env.get("is_error"):
+            envelope = json.loads(out)
+            if isinstance(envelope, dict):
+                text = str(envelope.get("result", out))
+                session = envelope.get("session_id")
+                cost = envelope.get("total_cost_usd")
+                tokens, read, write = _usage(envelope)
+                if envelope.get("is_error"):
                     code = code or 1
         except ValueError:
             pass
