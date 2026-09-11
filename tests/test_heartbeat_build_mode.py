@@ -202,10 +202,12 @@ class TestBuildDispatch:
             seen["tier"] = task.tier
             seen["validate"] = task.spec.validate
             seen["prompt"] = task.spec.prompt
-            return [Verdict(task_id=task.spec.task_id, agent="fake", accepted=False, reasons=["not this test"])]
+            return [Verdict(task_id=task.spec.task_id, agent="fake", accepted=False, reasons=["validation failed"],
+                            validation_output="x" * 5000 + "E   assert 1 == 2\n1 failed")]
 
         monkeypatch.setattr(heartbeat.swarm, "run_wave", fake_run_wave)
-        heartbeat._beat_obligations(repo, lambda _n, _m=None: object())
+        _chose, _reason, result = heartbeat._beat_obligations(repo, lambda _n, _m=None: object())
+        assert result is not None and result["validation_output"].endswith("E   assert 1 == 2\n1 failed")
         assert seen["tier"] == "design"
         assert any(p.startswith("src/") for p in seen["allowed"]) and "tests/*" in seen["allowed"]
         assert not any(p.startswith("proposals") for p in seen["allowed"])

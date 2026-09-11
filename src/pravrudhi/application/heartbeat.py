@@ -260,6 +260,10 @@ MAX_CRITERION_ATTEMPTS = 3
 # on bookkeeping if a triage batch drafted a hundred kernel criteria at once.
 MAX_PAPER_STALLS_PER_BEAT = 25
 
+# How much of a failed validator's output the beat keeps in its journal row: enough for pytest's summary and the
+# last traceback, small enough that heartbeat.jsonl stays readable.
+VALIDATION_OUTPUT_TAIL = 1500
+
 
 def _attempts_path(root: Path) -> Path:
     return Path(root) / _ATTEMPTS_FILE
@@ -1007,6 +1011,11 @@ def _beat_obligations(root: Path, dispatch: DispatchFn | None, *, judge: Any = N
         # a judged attempt. If dispatch failures are exhausted, park the criterion.
         dispatch_fails = record_dispatch_failure(root, request.id, index)
         result["dispatch_failures"] = dispatch_fails
+        if verdict.validation_output:
+            # Two build dispatches on 2026-09-11 were rejected as "validation failed" and the reason lived only in
+            # a Verdict nobody kept; the tail of the validator's output is the difference between a beat the next
+            # reader can act on and one they must reproduce by hand.
+            result["validation_output"] = verdict.validation_output[-VALIDATION_OUTPUT_TAIL:]
         if dispatch_failures_exhausted(root, request.id, index):
             # Too many dispatch-level transients; park this criterion
             return (
