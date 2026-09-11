@@ -145,12 +145,22 @@ class TestTheArmsActuallyReceiveIt:
         assert hgm_scores(citta, ["c-0100"], {"c-0100": "c-7777"})["c-0100"] == 0.42
 
 
+def _real_ledger() -> Path | None:
+    """The local-only ledger, or None when this checkout has none. An EMPTY file is none: a build worktree on
+    2026-09-11 carried a zero-byte `research/ledger.jsonl` and the two tests below read it as a search with no
+    parents, so every build dispatch failed validation on the ledger it could not have."""
+    path = Path("research/ledger.jsonl")
+    if not path.exists() or path.stat().st_size == 0:
+        return None
+    return path
+
+
 class TestAgainstTheRealLedger:
     """The recorded history is a two-node star: 189 proposals descended from exactly two ancestors."""
 
     def test_the_committed_ledger_folds_to_two_parents(self) -> None:
-        path = Path("research/ledger.jsonl")
-        if not path.exists():
+        path = _real_ledger()
+        if path is None:
             return  # the ledger is local-only; the fold is covered by the fixtures above
         report = ancestry_report(parent_map(path))
         assert report.distinct_parents == 2, (
@@ -240,8 +250,8 @@ class TestSelectionPressure:
         assert not selection_pressure(self._ledger(tmp_path, rows))[0].binding
 
     def test_the_real_ledger_shows_the_budget_rarely_bound(self) -> None:
-        path = Path("research/ledger.jsonl")
-        if not path.exists():
+        path = _real_ledger()
+        if path is None:
             return
         rows = selection_pressure(path)
         recent = [p for p in rows if p.night >= 7]
