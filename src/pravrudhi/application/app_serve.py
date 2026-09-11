@@ -11,6 +11,7 @@ client-side route (a browser refresh on /runs) falls back to index.html the way 
 
 from __future__ import annotations
 
+import os
 import webbrowser
 from pathlib import Path
 from typing import Any
@@ -26,8 +27,21 @@ DEFAULT_PORT = 8008
 PACKAGED_FRONTEND = Path(__file__).resolve().parents[1] / "assets" / "frontend"
 
 
+FRONTEND_ENV = "PRAVRUDHI_FRONTEND_DIR"
+"""A host that ships its own interface names it here (ADR-0049: the product repository serves the product's
+frontend through the same engine; the wheel's packaged interface is Studio's). A named directory that has no
+index.html is refused rather than silently replaced by Studio's interface — a product that lost its frontend
+must say so, not show the operator's."""
+
+
 def frontend_dir(root: Path) -> Path | None:
     """The static export, if it has been built. Absent means API-only, which is still a working engine."""
+    named = os.environ.get(FRONTEND_ENV, "").strip()
+    if named:
+        out = Path(named)
+        if (out / "index.html").exists():
+            return out
+        raise FileNotFoundError(f"{FRONTEND_ENV}={named} has no index.html; refusing to serve another edition's interface")
     for out in (Path(root) / "app" / "frontend" / "out", PACKAGED_FRONTEND):
         if (out / "index.html").exists():
             return out

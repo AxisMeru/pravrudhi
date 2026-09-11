@@ -12,6 +12,10 @@ maintainer might want more tasks completed correctly. Each needs a suitable benc
 before the engine can say whether a change helped.
 
 The product is an installable engine with a command line, a local web interface and a hosted recorded site.
+Since 2026-09-11 (ADR-0049, local decisions record) the product is its own repository, `pravrudhi-app`: a
+clean-slate platform that pins an engine version from this repository's release channel and ships its own
+interface. This repository is Studio, where the engine improves itself; a user's objective produces an artifact
+repository of its own, of which `prabhasa-nyaya` is the operator's first.
 Model adaptation and harness changes are its current execution paths. Objectives and progress reporting exist,
 but connecting an objective to the execution choices remains work to complete. These requirements describe the
 intended experience; the [roadmap](ROADMAP.md) distinguishes current behavior from the next work.
