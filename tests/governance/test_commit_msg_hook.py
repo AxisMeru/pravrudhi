@@ -5,7 +5,7 @@ from pathlib import Path
 HOOK = Path(__file__).resolve().parents[2] / ".githooks" / "commit-msg"
 
 
-def _run(msg: str, tmp_path: Path, *, name: str = "SharathSPhD", email: str = "qbz506@york.ac.uk") -> tuple[int, str]:
+def _run(msg: str, tmp_path: Path, *, name: str = "SharathSPhD", email: str = "admin@axismeru.com") -> tuple[int, str]:
     f = tmp_path / "MSG"
     f.write_text(msg)
     env = os.environ | {"GIT_AUTHOR_NAME": name, "GIT_AUTHOR_EMAIL": email}
