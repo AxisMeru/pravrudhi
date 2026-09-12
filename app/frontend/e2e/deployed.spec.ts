@@ -49,7 +49,10 @@ const PAGES = [
   ["/install", "Get it running"],
 ] as const;
 
-const BROKEN_TEXT = /Could not reach|could not load|failed to|No engine reachable/i;
+// The interface's own failure states are short paragraphs that begin with one of these phrases. The match is
+// anchored to the start of a paragraph because the recording also shows the operator's asks verbatim, and an
+// ask about a broken page ("it still has no engine reachable") is content, not a failure state (2026-09-12).
+const BROKEN_TEXT = /^(Could not reach|could not load|failed to|No engine reachable)/i;
 
 // baseURL carries the GitHub Pages /pravrudhi/app prefix with a trailing slash; goto() resolves a relative path
 // against it, but a leading-slash path resolves against the origin and drops that prefix entirely — exactly the
@@ -80,7 +83,7 @@ for (const [path, heading] of PAGES) {
     // Let client-side fetches (demo.json, API calls) settle before checking for stale loading/error states.
     await page.waitForLoadState("networkidle");
 
-    await expect(page.getByText(BROKEN_TEXT)).toHaveCount(0);
+    await expect(page.locator("main p").filter({ hasText: BROKEN_TEXT })).toHaveCount(0);
     await expect(page.getByText(/^Loading(\.\.\.|…)$/)).toHaveCount(0);
 
     expect(consoleErrors, `${path} must not emit console errors:\n${consoleErrors.join("\n")}`).toEqual([]);
