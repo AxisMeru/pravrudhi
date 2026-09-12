@@ -8,5 +8,6 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 EnvironmentFile=%h/.config/pravrudhi/e2e.env
+EnvironmentFile=%h/.config/pravrudhi/telegram.env
 ExecStart=%h/projects/pravrudhi/deploy/e2e-nightly/run_e2e_nightly.sh
 TimeoutStartSec=1800

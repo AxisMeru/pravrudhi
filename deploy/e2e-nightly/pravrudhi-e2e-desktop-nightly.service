@@ -11,5 +11,6 @@ Type=oneshot
 EnvironmentFile=%h/.config/pravrudhi/e2e.env
 EnvironmentFile=%h/.config/pravrudhi/supabase.env
 EnvironmentFile=-%h/.config/pravrudhi/github-axismeru.env
+EnvironmentFile=%h/.config/pravrudhi/telegram.env
 ExecStart=%h/projects/pravrudhi/deploy/e2e-nightly/run_desktop_nightly.sh
 TimeoutStartSec=1800
