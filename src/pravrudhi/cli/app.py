@@ -627,9 +627,10 @@ def nyaya_validity_check_cmd(
 
     Default: no LLM, no network. `derive_verdict` decides each of 5 hand-labelled syllogisms from the world it
     names -- a smoke-check, n=2 valid and 3 invalid. `--constructed` runs the real measurement instead: a
-    600-item (default 100/class) six-bank gold set scored per class, with Wilson intervals, against
-    prabhasa-nyaya's independent Lean `Verdict.of` -- requires that repo's `make gate` to have been run first
-    so its `score` executable exists (or `PRABHASA_NYAYA_SCORE_BIN` pointed at one).
+    600-item (default 100/class) six-bank gold set, all six classes scored per class with Wilson intervals
+    against prabhasa-nyaya's independent Lean deciders (`Verdict.of`, `isSatpratipaksa`, `isBadhita`) --
+    requires that repo's `make gate` to have been run first so its `score` executable exists (or
+    `PRABHASA_NYAYA_SCORE_BIN` pointed at one).
     """
     from pravrudhi.application.nyaya_validity import record, record_constructed
 

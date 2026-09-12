@@ -25,11 +25,8 @@ from pravrudhi_kernel.ledger import LedgerWriter
 
 runner = CliRunner()
 
-# session-3's A2: prabhasa-nyaya/main does not yet have Score.lean merged, so `--constructed` is exercised
-# against the assistant-trackA worktree's own build until it is.
-_LEAN_SCORE_BIN = Path(
-    "/home/ss/projects/prabhasa-nyaya/.worktrees/assistant-trackA/lean/.lake/build/bin/score"
-)
+# prabhasa-nyaya main's own build (Score.lean, isSatpratipaksa and isBadhita all merged as of f47267f).
+_LEAN_SCORE_BIN = Path("/home/ss/projects/prabhasa-nyaya/lean/.lake/build/bin/score")
 requires_lean_scorer = pytest.mark.skipif(
     not _LEAN_SCORE_BIN.exists(), reason="prabhasa-nyaya's Lean `score` executable is not built at this path"
 )
@@ -122,10 +119,14 @@ class TestTheConstructedGoldSet:
         assert row["track"] == "nyaya"
         assert row["tier"] == "kernel"
         assert row["n_samples"]["nyaya_validity"] >= 15 * 6
-        assert row["metrics"]["nyaya_validity"]["pass_rate"] == 1.0  # all four decidable classes agree
-        assert set(row["decided_classes"]) == {"valid", "asiddha", "viruddha", "savyabhicara"}
-        assert set(row["not_decided_classes"]) == {"satpratipaksa", "badhita"}
-        assert row["per_class"]["satpratipaksa"]["note"] == "not decided (heuristic path)"
+        assert row["metrics"]["nyaya_validity"]["pass_rate"] == 1.0  # all six classes agree
+        assert set(row["decided_classes"]) == {
+            "valid", "asiddha", "viruddha", "savyabhicara", "satpratipaksa", "badhita",
+        }
+        assert row["not_decided_classes"] == []
+        assert row["per_class"]["satpratipaksa"]["pass_rate"] == 1.0
+        assert row["per_class"]["badhita"]["pass_rate"] == 1.0
+        assert row["lean_source_commit"]
 
     def test_cli_constructed_flag_runs_the_per_class_check(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

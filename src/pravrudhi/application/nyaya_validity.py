@@ -17,11 +17,12 @@ not `external`: the kernel ran this check in this process, right now, so there i
 hash for provenance. A result file is still written and hashed, so the row stays reproducible the same way an
 external one is.
 
-`record_constructed` (2026-09-12, session-3's A2 decisions) is additive: the 5-item smoke-check above is
+`record_constructed` (2026-09-12, session-3's A2/A4 decisions) is additive: the 5-item smoke-check above is
 unaffected. It runs `nyaya_gold.build_gold_set`'s six-bank constructed set through `nyaya_gold_score`, which
-scores the four decidable classes against prabhasa-nyaya's Lean `Verdict.of` and reports `satpratipaksa` /
-`badhita` as not decided rather than scoring them against anything -- so `nyaya_validity pass_rate` gets a
-real n (hundreds per class, not 2 and 3) the first time something actually calls it with `--constructed`.
+scores every class -- `Verdict.of` for four, `isSatpratipaksa` and `isBadhita` (A4) for the other two --
+against prabhasa-nyaya's Lean deciders, never this repo's own generator or derivation -- so `nyaya_validity
+pass_rate` gets a real n (hundreds per class, not 2 and 3) the first time something actually calls it with
+`--constructed`.
 """
 
 from __future__ import annotations
@@ -134,13 +135,14 @@ def record(root: Path, night: int = 0, condition: str = "base") -> dict[str, Any
 def record_constructed(
     root: Path, night: int = 0, condition: str = "base", per_class: int = 100, seed: int = 0,
 ) -> dict[str, Any]:
-    """Run the six-bank constructed gold set through prabhasa-nyaya's Lean scorer and admit the per-class
+    """Run the six-bank constructed gold set through prabhasa-nyaya's Lean deciders and admit the per-class
     result to the ledger, same track and metric name as `record` above.
 
-    `nyaya_validity pass_rate` here is the worst DECIDED class's pass rate (min over `valid`/`asiddha`/
-    `viruddha`/`savyabhicara`), never a pooled average across all six -- `satpratipaksa`/`badhita` are not
-    decided by anything this function scores against, and their counts travel in `per_class`/
-    `not_decided_classes` rather than being folded into the headline number.
+    As of 2026-09-12 (session-3's A4) all six classes are decided -- `Verdict.of` for four, `isSatpratipaksa`
+    and `isBadhita` for the other two. `nyaya_validity pass_rate` is the worst decided class's pass rate (a
+    genuine min over six now, not four), never a pooled average, so one easy class filling up cannot hide a
+    hard one still broken. The row also records `lean_source_commit`: which prabhasa-nyaya commit the
+    `score` binary that produced these numbers was built from.
     """
     root = Path(root)
     items = build_gold_set(per_class, seed)
@@ -167,6 +169,7 @@ def record_constructed(
         "per_class": result["per_class"],
         "decided_classes": result["decided_classes"],
         "not_decided_classes": result["not_decided_classes"],
+        "lean_source_commit": result["lean_source_commit"],
     }
     ledger = root / "research" / "ledger.jsonl"
     w = LedgerWriter.open(ledger, "0.1.0")
