@@ -35,7 +35,13 @@ except ImportError:
 # lock byte that real ledger content can ever occupy will eventually collide with a legitimate reader. Lock a
 # fixed sentinel offset far beyond any realistic ledger size instead - the same idiom SQLite's Windows VFS uses
 # for its own lock bytes - so the lock never overlaps real data. Locking beyond EOF does not extend the file.
-_WINDOWS_LOCK_BYTE = 2**48
+#
+# 2**30 (1 GiB): far past _tail()'s 64 KiB read window, and comfortably under every real filesystem's max file
+# offset - including legacy FAT32's ~4 GiB ceiling. A first attempt at 2**48 (256 TiB) worked on this box and on
+# the real Windows CI runner, but the Linux CI runner's backing filesystem rejected an lseek that far with
+# EINVAL - a filesystem-specific offset limit, not a logic bug. 1 GiB has never been an issue for the
+# equivalent SQLite lock bytes across decades of real filesystems.
+_WINDOWS_LOCK_BYTE = 2**30
 
 
 def _lock_exclusive(fd: int) -> None:
