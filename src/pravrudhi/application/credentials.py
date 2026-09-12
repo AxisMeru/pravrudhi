@@ -37,6 +37,7 @@ from typing import Any, Protocol
 import httpx
 
 from pravrudhi.api.identity import User
+from pravrudhi.api.roles import Role, role_of
 
 
 class UnknownProviderError(ValueError):
@@ -351,3 +352,35 @@ def store_for_project(
             "A signed-in user's provider keys live in their own workspace, not in the engine's project."
         )
     return FileCredentialStore(here)
+
+
+@dataclass(frozen=True, slots=True)
+class SessionCredentials:
+    """What one signed-in caller's provider-key access resolves to, labeled by `roles.role_of`.
+
+    `store` is exactly what `store_for_project` returns for this caller; the label never influences it. It
+    is carried alongside for the one place the distinction is legitimate — telling apart, in a model-access
+    log, the operator's own desktop session standing in for a BYOK user (the operator cannot log in as one)
+    from a real product user's session — never for deciding which keys either reaches.
+    """
+
+    store: CredentialStore
+    role: Role
+
+
+def store_for_session(
+    workspace_root: Path, *, engine_root: Path, user: User | None
+) -> SessionCredentials:
+    """The credential store for one HTTP session, admin or not, labeled with the audience `roles.role_of`
+    puts the caller in.
+
+    `roles.py` classifies a caller as operator or product audience to decide which *routes* they may reach;
+    that classification must never decide which *keys* their session reaches, or the operator's own desktop
+    session would stop being a valid stand-in for how a signed-in user's session behaves. This calls
+    `store_for_project` for the store and `role_of` for the label, and combines them without letting one
+    inform the other.
+    """
+    return SessionCredentials(
+        store=store_for_project(workspace_root, engine_root=engine_root, user=user),
+        role=role_of(user),
+    )

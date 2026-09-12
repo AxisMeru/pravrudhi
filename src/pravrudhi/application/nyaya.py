@@ -36,9 +36,12 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pravrudhi.application import panel
+
+if TYPE_CHECKING:
+    from pravrudhi.application.credentials import CredentialStore
 
 ASSET_DIR = Path(__file__).resolve().parent.parent / "assets" / "nyaya"
 
@@ -249,8 +252,15 @@ def parse_audit(text: str) -> dict[str, Any]:
     }
 
 
-def available_vendors(root: Path, ids: tuple[str, ...] = DEFAULT_VENDORS) -> list[dict[str, Any]]:
-    """Which vendors can be asked from this install, and why not when they cannot."""
+def available_vendors(
+    root: Path, ids: tuple[str, ...] = DEFAULT_VENDORS, *, store: CredentialStore | None = None
+) -> list[dict[str, Any]]:
+    """Which vendors can be asked from this install, and why not when they cannot.
+
+    `store` is the caller's own resolved session store (`api.nyaya._session`, via `credentials.store_for_session`);
+    without it this would fall back to reading `root` directly, which is right for the CLI's single-operator
+    path but wrong for a signed-in caller, whose store is not simply "whatever is under this root".
+    """
     import shutil
 
     out: list[dict[str, Any]] = []
@@ -259,7 +269,7 @@ def available_vendors(root: Path, ids: tuple[str, ...] = DEFAULT_VENDORS) -> lis
         why = None
         if v.interface == "cli" and shutil.which(v.model) is None:
             why = f"{v.model} is not installed"
-        elif v.interface == "openai_compat" and v.credential and not v.key(root):
+        elif v.interface == "openai_compat" and v.credential and not v.key(root, store=store):
             why = f"no key for {v.provider or v.credential}"
         elif v.interface == "local_gguf":
             why = "local weights are not served here yet"
@@ -302,8 +312,15 @@ def ask(
     checker: str | None = None,
     ask_fn: panel.AskFn | None = None,
     corpus: Corpus | None = None,
+    store: CredentialStore | None = None,
 ) -> Ask:
-    """Answer one question with each vendor, in parallel, and check every answer. Writes the record."""
+    """Answer one question with each vendor, in parallel, and check every answer. Writes the record.
+
+    `store` is the signed-in caller's own resolved credential store, threaded to the vendor that actually
+    calls the OpenAI-compatible client (`panel.ask_vendor`) so a BYOK key reaches the request it was stored
+    for, admin desktop session or ordinary product user alike. Ignored when `ask_fn` is supplied, since a
+    test double takes no store.
+    """
     question = question.strip()
     if not question:
         raise ValueError("an empty question asks nothing")
@@ -311,7 +328,11 @@ def ask(
     hits = [d for d, _ in corpus.retrieve(question, k=k)]
     prompt = grounded_prompt(question, hits)
     chosen = panel.load_vendors(vendors)
-    fn = ask_fn or panel.ask_vendor
+
+    def _default_ask(v: panel.Vendor, p: str) -> panel.Answer:
+        return panel.ask_vendor(v, p, root=Path(root), store=store)
+
+    fn = ask_fn or _default_ask
 
     def one(v: panel.Vendor) -> VendorAnswer:
         try:
@@ -353,11 +374,24 @@ def ask(
 
 
 def audit(
-    root: Path, sources: str, answer: str, checker: str = "claude-cli", *, ask_fn: panel.AskFn | None = None
+    root: Path,
+    sources: str,
+    answer: str,
+    checker: str = "claude-cli",
+    *,
+    ask_fn: panel.AskFn | None = None,
+    store: CredentialStore | None = None,
 ) -> dict[str, Any]:
-    """The auditor on its own: a user's answer and sources, one checker, one structured verdict."""
+    """The auditor on its own: a user's answer and sources, one checker, one structured verdict.
+
+    `store` reaches the checker vendor's own key resolution the same way `ask` threads it through.
+    """
     cv = panel.load_vendors((checker,))[0]
-    fn = ask_fn or panel.ask_vendor
+
+    def _default_ask(v: panel.Vendor, p: str) -> panel.Answer:
+        return panel.ask_vendor(v, p, root=Path(root), store=store)
+
+    fn = ask_fn or _default_ask
     res = fn(cv, AUDIT_PROMPT.format(sources=sources.strip(), answer=answer.strip()))
     rec = {"checker": cv.id, **parse_audit(res.text), "wall_s": round(res.wall_s, 2), "provenance": "agama"}
     out = Path(root) / "research" / "nyaya" / "audits"

@@ -14,7 +14,10 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
+from pravrudhi.api.identity import CurrentUserDep, User
+from pravrudhi.api.workspace_root import RootError, root_for
 from pravrudhi.application import nyaya, panel
+from pravrudhi.application.credentials import CredentialStore, store_for_session
 
 
 class AskRequest(BaseModel):
@@ -110,16 +113,35 @@ class NyayaAsksResponse(BaseModel):
 
 
 def build_nyaya_router(root: Path, ask_fn: panel.AskFn | None = None) -> APIRouter:
-    workspace = Path(root)
+    engine_root = Path(root)
     router = APIRouter(prefix="/api/nyaya")
 
+    def _session(user: User | None, workspace: str | None) -> tuple[Path, CredentialStore]:
+        """This caller's own project and the credential store that belongs to it.
+
+        Resolved exactly the way every other user-facing route resolves a project (`workspace_root.root_for`)
+        and exactly the way a signed-in caller's model access is meant to reach a key
+        (`credentials.store_for_session`) -- so the operator's own admin-labeled desktop session travels the
+        identical path a BYOK product user's session does, and neither `roles.py`'s label nor anything here
+        can bend that path for one and not the other.
+        """
+        try:
+            project = root_for(user, workspace, engine_root=engine_root)
+        except RootError as e:
+            raise HTTPException(400, str(e)) from e
+        return project, store_for_session(project, engine_root=engine_root, user=user).store
+
     @router.get("/vendors", response_model=NyayaVendorsResponse)
-    def vendors() -> dict[str, Any]:
-        return {"vendors": nyaya.available_vendors(workspace)}
+    def vendors(workspace: str | None = None, user: User | None = CurrentUserDep) -> dict[str, Any]:
+        project, store = _session(user, workspace)
+        return {"vendors": nyaya.available_vendors(project, store=store)}
 
     @router.get("/corpus", response_model=NyayaCorpusResponse)
-    def corpus(q: str = "", k: int = 8) -> dict[str, Any]:
-        c = nyaya.load_corpus(workspace)
+    def corpus(
+        q: str = "", k: int = 8, workspace: str | None = None, user: User | None = CurrentUserDep
+    ) -> dict[str, Any]:
+        project, _store = _session(user, workspace)
+        c = nyaya.load_corpus(project)
         hits = (
             [
                 {"id": d.id, "act": d.act, "section": d.section, "title": d.title, "score": s, "text": d.text}
@@ -131,25 +153,34 @@ def build_nyaya_router(root: Path, ask_fn: panel.AskFn | None = None) -> APIRout
         return {"documents": len(c.documents), "sources": c.sources, "hits": hits}
 
     @router.get("/asks", response_model=NyayaAsksResponse)
-    def asks(limit: int = 20) -> dict[str, Any]:
-        return {"asks": nyaya.recent_asks(workspace, limit=limit)}
+    def asks(limit: int = 20, workspace: str | None = None, user: User | None = CurrentUserDep) -> dict[str, Any]:
+        project, _store = _session(user, workspace)
+        return {"asks": nyaya.recent_asks(project, limit=limit)}
 
     @router.post("/ask", response_model=NyayaAskResponse)
-    def ask_ep(req: AskRequest) -> dict[str, Any]:
+    def ask_ep(
+        req: AskRequest, workspace: str | None = None, user: User | None = CurrentUserDep
+    ) -> dict[str, Any]:
         if not req.question.strip():
             raise HTTPException(422, "an empty question asks nothing")
+        project, store = _session(user, workspace)
         try:
-            rec = nyaya.ask(workspace, req.question, tuple(req.vendors), k=req.k, checker=req.checker, ask_fn=ask_fn)
+            rec = nyaya.ask(
+                project, req.question, tuple(req.vendors), k=req.k, checker=req.checker, ask_fn=ask_fn, store=store
+            )
         except KeyError as e:
             raise HTTPException(422, str(e)) from e
         return rec.to_dict()
 
     @router.post("/audit", response_model=NyayaAudit, response_model_by_alias=True)
-    def audit_ep(req: AuditRequest) -> dict[str, Any]:
+    def audit_ep(
+        req: AuditRequest, workspace: str | None = None, user: User | None = CurrentUserDep
+    ) -> dict[str, Any]:
         if not req.answer.strip():
             raise HTTPException(422, "nothing to audit")
+        project, store = _session(user, workspace)
         try:
-            return nyaya.audit(workspace, req.sources, req.answer, req.checker, ask_fn=ask_fn)
+            return nyaya.audit(project, req.sources, req.answer, req.checker, ask_fn=ask_fn, store=store)
         except KeyError as e:
             raise HTTPException(422, str(e)) from e
         except RuntimeError as e:

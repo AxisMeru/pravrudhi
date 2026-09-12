@@ -12,12 +12,14 @@ import pytest
 
 from pravrudhi.application import credentials as creds
 from pravrudhi.application.credentials import (
+    CredentialBoundaryError,
     FileCredentialStore,
     GitTrackedPathError,
     Secret,
     UnknownProviderError,
     redact,
     store_for,
+    store_for_project,
     validate,
 )
 
@@ -247,6 +249,103 @@ def test_store_for_raises_for_a_logged_in_user(tmp_path: Path) -> None:
     user = User(id="u1", email="someone@example.com", role="authenticated")
     with pytest.raises(NotImplementedError):
         store_for(tmp_path, user)
+
+
+# ---------------------------------------------------------------------------
+# store_for_project(): the boundary between a user's own workspace and the
+# engine's own project.
+# ---------------------------------------------------------------------------
+
+
+def test_store_for_project_returns_file_store_for_the_local_operator(tmp_path: Path) -> None:
+    """No signed-in user at all: the single-operator path, where the engine's own root is the only project."""
+    store = store_for_project(tmp_path, engine_root=tmp_path, user=None)
+    assert isinstance(store, FileCredentialStore)
+
+
+def test_store_for_project_refuses_a_signed_in_user_at_the_engine_root(tmp_path: Path) -> None:
+    from pravrudhi.api.identity import User
+
+    user = User(id="u-1", email="someone@example.com", role="authenticated")
+    with pytest.raises(CredentialBoundaryError):
+        store_for_project(tmp_path, engine_root=tmp_path, user=user)
+
+
+def test_store_for_project_lets_a_signed_in_user_use_their_own_workspace(tmp_path: Path) -> None:
+    from pravrudhi.api.identity import User
+
+    engine_root = tmp_path / "engine"
+    workspace = tmp_path / "workspace"
+    engine_root.mkdir()
+    workspace.mkdir()
+    user = User(id="u-1", email="someone@example.com", role="authenticated")
+    store = store_for_project(workspace, engine_root=engine_root, user=user)
+    assert isinstance(store, FileCredentialStore)
+
+
+def test_store_for_project_resolves_paths_before_comparing(tmp_path: Path) -> None:
+    """`engine/../engine` is the engine, and a bare string comparison would let it through."""
+    from pravrudhi.api.identity import User
+
+    engine_root = tmp_path / "engine"
+    engine_root.mkdir()
+    aliased = engine_root / ".." / "engine"
+    user = User(id="u-1", email="someone@example.com", role="authenticated")
+    with pytest.raises(CredentialBoundaryError):
+        store_for_project(aliased, engine_root=engine_root, user=user)
+
+
+# ---------------------------------------------------------------------------
+# store_for_session(): the same boundary, labeled with `roles.role_of` — proving that
+# label never changes which store comes back. This is the property that lets the
+# operator's own desktop session stand in for a BYOK user's: if being ADMIN bought a
+# way past the boundary above, testing as admin would not test what a user hits.
+# ---------------------------------------------------------------------------
+
+
+def test_store_for_session_gives_the_admin_no_bypass_at_the_engine_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from pravrudhi.api.identity import User
+    from pravrudhi.api.roles import ADMIN, role_of
+
+    monkeypatch.setenv("PRAVRUDHI_ADMINS", "op-1")
+    admin = User(id="op-1", email=None, role="authenticated")
+    assert role_of(admin) == ADMIN  # sanity: this really is the operator's own account
+
+    with pytest.raises(CredentialBoundaryError):
+        creds.store_for_session(tmp_path, engine_root=tmp_path, user=admin)
+
+
+def test_store_for_session_resolves_the_same_store_for_admin_and_user(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Different labels, identical access: the admin session is a valid proxy for a BYOK user's precisely
+    because nothing here treats it differently once the boundary check has passed."""
+    from pravrudhi.api.identity import User
+    from pravrudhi.api.roles import ADMIN, USER, role_of
+
+    engine_root = tmp_path / "engine"
+    workspace = tmp_path / "workspace"
+    engine_root.mkdir()
+    workspace.mkdir()
+
+    monkeypatch.setenv("PRAVRUDHI_ADMINS", "op-1")
+    admin = User(id="op-1", email=None, role="authenticated")
+    plain = User(id="u-2", email=None, role="authenticated")
+    assert role_of(admin) == ADMIN
+    assert role_of(plain) == USER
+
+    admin_session = creds.store_for_session(workspace, engine_root=engine_root, user=admin)
+    plain_session = creds.store_for_session(workspace, engine_root=engine_root, user=plain)
+    assert admin_session.role == ADMIN
+    assert plain_session.role == USER
+
+    admin_session.store.put("openai", FAKE_OPENAI_KEY)
+    stored = plain_session.store.get("openai")
+    assert stored is not None and stored.reveal() == FAKE_OPENAI_KEY, (
+        "admin and user sessions must resolve to the same workspace store, not different ones"
+    )
 
 
 # ---------------------------------------------------------------------------

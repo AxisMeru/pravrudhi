@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from pravrudhi.api.localguard import TOKEN_HEADER, app_token
@@ -119,6 +120,67 @@ def test_the_checker_audits_each_answer_in_the_a1_1_shape(tmp_path: Path) -> Non
     rec = nyaya.ask(tmp_path, "punishment for murder section 302", ("claude-cli",), checker="qwen-dashscope", ask_fn=fn)
     audit = rec.answers[0].audit
     assert audit and audit["verdict"] == "ERROR" and audit["class"] == "wrong_authority" and audit["span"] == "and fine"
+
+
+def test_ask_hands_its_resolved_store_to_the_default_vendor_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`ask_ep` resolves a `CredentialStore` per session and must hand it to the vendor path that actually
+    builds the OpenAI-compatible client, not just to a stand-in that never consults it. Proven here without a
+    network call: the default vendor path (`panel.ask_vendor`) is monkeypatched to record what it received,
+    since `ask_fn` (used everywhere else in this file) would bypass it entirely."""
+    init_project(tmp_path)
+    from pravrudhi.application.credentials import FileCredentialStore
+
+    seen: list[object] = []
+
+    def fake_ask_vendor(vendor: panel.Vendor, prompt: str, *, root=None, store=None) -> panel.Answer:  # type: ignore[no-untyped-def]
+        seen.append(store)
+        return panel.Answer(vendor.id, vendor.interface, vendor.model, "", "ANSWER: none.\nCONFIDENCE: low", 0.1, None, None)
+
+    monkeypatch.setattr(panel, "ask_vendor", fake_ask_vendor)
+    store = FileCredentialStore(tmp_path)
+    nyaya.ask(tmp_path, "does section 302 apply", ("claude-cli",), store=store)
+    assert seen == [store], "the default vendor path must receive the exact store the session resolved"
+
+
+class TestAdminSessionIsAValidByokProxy:
+    """The operator cannot log in as a real product user, so testing model access as the admin desktop session
+    is only a valid stand-in if nothing between `roles.py` and the OpenAI-compatible client treats the admin
+    label differently. Proven end to end here: the same account, admin-labeled or not, reaches the identical
+    stored key through `/api/nyaya/vendors`, which asks the vendor the same question `/api/nyaya/ask` would --
+    "is a key available for you" -- without needing a live provider to answer."""
+
+    def test_toggling_admin_status_does_not_change_which_stored_key_the_account_reaches(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from pravrudhi.api import identity
+        from pravrudhi.api.identity import User
+        from pravrudhi.application import credentials as creds_mod
+
+        init_project(tmp_path)
+        monkeypatch.setattr(creds_mod, "validate", lambda *a, **kw: (True, "ok"))
+        account = User(id="op-1", email=None, role="authenticated")
+        app = create_app(tmp_path)
+        app.dependency_overrides[identity.current_user] = lambda: account
+        client = TestClient(app, base_url="http://127.0.0.1:8008")
+
+        monkeypatch.delenv("PRAVRUDHI_ADMINS", raising=False)  # this account is an ordinary user right now
+        stored = client.post(
+            "/api/providers/alibaba/key",
+            json={"key": "sk-stored-while-a-plain-user"},
+            params={"workspace": "acme"},
+            headers={TOKEN_HEADER: app_token(tmp_path)},
+        )
+        assert stored.status_code == 200, stored.text
+
+        monkeypatch.setenv("PRAVRUDHI_ADMINS", "op-1")  # the SAME account, now the operator
+        seen = client.get("/api/nyaya/vendors", params={"workspace": "acme"})
+        assert seen.status_code == 200, seen.text
+        row = next(v for v in seen.json()["vendors"] if v["id"] == "qwen-dashscope")
+        assert row["available"] is True, (
+            "the admin label must never change which stored key the account's model access reaches"
+        )
 
 
 def test_the_routes_serve_the_product_and_need_the_local_token_to_ask(tmp_path: Path) -> None:

@@ -180,6 +180,22 @@ def test_a_panel_vendor_uses_a_key_the_product_stored(tmp_path: Path) -> None:
     assert vendor.key() is None
 
 
+def test_an_explicit_store_wins_over_a_bare_root_and_needs_no_disk_access_of_its_own(tmp_path: Path) -> None:
+    """`api.nyaya._session` resolves a `CredentialStore` from `credentials.store_for_session` once, per request,
+    and hands it here rather than letting `key()` re-derive one from a bare root -- the boundary between a
+    signed-in user's store and the engine's own is `credentials.py`'s job, not this method's."""
+    from pravrudhi.application.credentials import FileCredentialStore
+
+    store_root = tmp_path / "the-callers-own-workspace"
+    store_root.mkdir()
+    FileCredentialStore(store_root).put("openai", "sk-from-the-resolved-session")
+    other_root = tmp_path / "unrelated-directory-with-no-key"
+    other_root.mkdir()
+
+    vendor = VENDORS["openai-api"]
+    assert vendor.key(other_root, store=FileCredentialStore(store_root)) == "sk-from-the-resolved-session"
+
+
 def test_the_environment_outranks_the_stored_key(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """A headless or CI install supplies its key in the environment, and that has to win over whatever a
     previous interactive session left in the store."""

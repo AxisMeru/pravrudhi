@@ -33,7 +33,10 @@ import os
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from pravrudhi.application.credentials import CredentialStore
 
 
 @dataclass(frozen=True)
@@ -50,7 +53,7 @@ class Vendor:
     provider: str = ""      # the `credentials.PROVIDERS` id whose stored key this vendor can use, if any
     note: str = ""
 
-    def key(self, root: Path | None = None) -> str | None:
+    def key(self, root: Path | None = None, *, store: CredentialStore | None = None) -> str | None:
         """The credential: the environment, then the product's own credential store, then the 0600 file.
 
         Three places because bring-your-own-key means three different things depending on whose hands this is
@@ -60,16 +63,25 @@ class Vendor:
         already accepted, which would make "the fleet is in the product" untrue in the only way that matters.
         A mode-0600 file under `~/.config` is the operator's own machine, which is where `DASHSCOPE_API_KEY`
         already lives; reading only the environment reported that configured key as missing.
+
+        `store` is the resolved `credentials.store_for_session` store for an actual HTTP caller (admin or
+        BYOK user alike); it wins over `root` when given, since a caller with a resolved session already knows
+        which project's store it is allowed to read, and re-deriving that from a bare root here would let this
+        method quietly re-decide a boundary `credentials.py` already settled.
         """
         if not self.credential:
             return None
         from_env = os.environ.get(self.credential)
         if from_env:
             return from_env
-        if self.provider and root is not None:
-            from pravrudhi.application.credentials import FileCredentialStore
+        if self.provider and store is not None:
+            stored = store.get(self.provider)
+            if stored:
+                return stored.reveal()
+        elif self.provider and root is not None:
+            from pravrudhi.application.credentials import store_for
 
-            stored = FileCredentialStore(Path(root)).get(self.provider)
+            stored = store_for(Path(root), None).get(self.provider)
             if stored:
                 return stored.reveal()
         if not self.credential_file:
@@ -97,12 +109,13 @@ class Vendor:
         """`reachable_in` against the current directory: the operator's own install."""
         return self.reachable_in(Path.cwd())
 
-    def reachable_in(self, root: Path) -> tuple[bool, str]:
+    def reachable_in(self, root: Path, *, store: CredentialStore | None = None) -> tuple[bool, str]:
         """Whether this vendor can be asked from `root`, and why not if it cannot.
 
         The root is a parameter because a stored key belongs to one project. Resolving it against the
         engine's own directory would show one user's configured key as everyone's -- the failure
-        `workspace_root` exists to prevent, arrived at from a different direction.
+        `workspace_root` exists to prevent, arrived at from a different direction. `store` is the same
+        session-resolved store `key()` prefers, threaded through for the same reason.
         """
         if self.interface == "cli":
             import shutil
@@ -121,9 +134,9 @@ class Vendor:
         if self.interface == "openai_compat" and self.credential:
             if os.environ.get(self.credential):
                 return True, "key in environment"
-            if self.provider and self.key(root) and not self.credential_file:
+            if self.provider and self.key(root, store=store) and not self.credential_file:
                 return True, f"key stored for provider {self.provider}"
-            if self.key(root):
+            if self.key(root, store=store):
                 return True, f"key in {self.credential_file or f'the store for {self.provider}'}"
             places = ["the environment"]
             if self.provider:
@@ -299,8 +312,15 @@ def load_vendors(ids: Iterable[str]) -> list[Vendor]:
     return out
 
 
-def ask_vendor(vendor: Vendor, prompt: str) -> Answer:
-    """Ask one vendor one prompt. Raises on transport failure; `run_panel` turns that into a recorded gap."""
+def ask_vendor(
+    vendor: Vendor, prompt: str, *, root: Path | None = None, store: CredentialStore | None = None
+) -> Answer:
+    """Ask one vendor one prompt. Raises on transport failure; `run_panel` turns that into a recorded gap.
+
+    `root` and `store` reach the vendor's own key resolution (`Vendor.key`) unchanged; a session-aware caller
+    (`application.nyaya.ask`, resolved from a signed-in account's own project) passes its own `store` so the
+    OpenAI-compatible client below is built with that caller's key, never a bystander's.
+    """
     if vendor.interface == "cli":
         from pravrudhi.agents.cli_agents import _run
 
@@ -324,7 +344,7 @@ def ask_vendor(vendor: Vendor, prompt: str) -> Answer:
     if vendor.interface == "openai_compat":
         from pravrudhi.models.openai_compat import ChatClient
 
-        key = vendor.key(Path.cwd())
+        key = vendor.key(root or Path.cwd(), store=store)
         if vendor.credential and not key:
             raise RuntimeError(f"{vendor.credential} is not set")
         client = ChatClient(base_url=vendor.base_url, model=vendor.model, api_key=key)
