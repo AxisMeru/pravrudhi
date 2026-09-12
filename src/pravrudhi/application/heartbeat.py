@@ -439,7 +439,12 @@ def _obligation_prompt(
         f"Oldest unmet acceptance criterion: {criterion_text}\n\n"
         f"{fell_short}"
         "Everything you write is a PROPOSAL toward this criterion, not evidence: nothing you produce may write to "
-        "the ledger, research/, gates/ or pravrudhi_kernel/, and no number you state may be presented as a result.\n"
+        "the ledger, research/, gates/ or pravrudhi_kernel/, and no number you state may be presented as a result. "
+        "This bars more than a bare claim of a result: do not write ANY number, percentage or score that reads as "
+        "an outcome, even one you call fabricated, simulated, hypothetical, illustrative, a placeholder, or made "
+        "only to exercise a script - CHARTER §6 is no number is stated that the ledger does not contain, and "
+        "saying so in the same sentence does not except you from it. If a script needs a value to run, use an "
+        "unmistakably non-numeric stand-in (e.g. `PLACEHOLDER`), never a plausible-looking number.\n"
         f"Deliverable, written only under {scratch}/ using RELATIVE paths: a README.md stating the approach and "
         "what would count as evidence this criterion is met; plus any scripts. Scripts must at least compile.\n"
         f"Validate with `{validate}`."
@@ -461,6 +466,11 @@ def _judge_prompt(
         "Read those files. Decide whether they actually satisfy the criterion as written - not whether they are "
         "good work, and not whether they describe satisfying it. A proposal that explains what would meet the "
         "criterion does not meet it.\n"
+        "Also refuse (not met) if any file states a number, percentage, score or outcome AS an obtained result "
+        "when no real run produced it - including one the file itself admits is fabricated, simulated, "
+        "hypothetical, a placeholder, or made only to exercise a script. CHARTER §6: no number is stated that "
+        "the ledger does not contain. A file that is honest about inventing a number has still not met a "
+        "criterion that number was meant to satisfy.\n"
         "Answer with a first line of exactly `VERDICT: met` or `VERDICT: not met`, then one short paragraph "
         "saying why. If you say not met, say what is missing, because the next attempt is given your reason."
     )
@@ -489,6 +499,57 @@ def _judged(text: str) -> tuple[bool, str]:
             reason = " ".join(lines[i + 1:])[:_JUDGEMENT_CHARS] or line
             return said.startswith("met"), reason
     return False, (" ".join(lines)[:_JUDGEMENT_CHARS] or "the judge said nothing")
+
+
+# r-3981d7e0 criterion 5 was judged met with a README that stated, in its own words, that its numbers were
+# "fabricated to exercise the scripts" - honest about breaking CHARTER §6, and accepted anyway, because nothing
+# told the judge that a self-declared fabrication is still a fabrication. Asking the judge more clearly (see
+# `_judge_prompt`) is one layer; a judge is an LLM reading prose and can be talked past the same way this one
+# already was, so this is a second, deterministic layer that does not depend on the judge noticing at all.
+_FABRICATION_MARKERS: tuple[str, ...] = (
+    "fabricat",  # fabricated / fabricating / a fabrication
+    "simulat",  # simulated / simulating a result
+    "hypothetical",
+    "made up",
+    "made-up",
+    "placeholder value",
+    "placeholder number",
+    "dummy data",
+    "dummy value",
+    "for illustration",
+    "illustrative purposes",
+    "to exercise the script",
+    "not actually measured",
+    "not a real measurement",
+    "invented for",
+)
+
+
+def _self_declared_fabrication(text: str) -> str | None:
+    """The marker phrase, if this text admits that a number in it is not a real measurement."""
+    low = text.lower()
+    for marker in _FABRICATION_MARKERS:
+        if marker in low:
+            return marker
+    return None
+
+
+def _first_unevidenced_claim(workspace: Path, files: list[str]) -> str | None:
+    """The first marker phrase found across the produced files, read from where they were actually written.
+
+    A file that cannot be read (wrong workspace, already cleaned up, a test double that never wrote real files)
+    is silently skipped rather than treated as a violation: this backstop only ever adds a refusal, it never
+    manufactures one from an absence it cannot account for.
+    """
+    for name in files:
+        try:
+            text = (workspace / name).read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+        marker = _self_declared_fabrication(text)
+        if marker is not None:
+            return marker
+    return None
 
 
 def _default_judge(root: Path, *, workspace: Path | None = None) -> Any:
@@ -1094,7 +1155,7 @@ def _beat_obligations(root: Path, dispatch: DispatchFn | None, *, judge: Any = N
     # for an "empty" proposal directory that was never empty - just in the wrong worktree.
     from pravrudhi.agents.base import GitWorktreeMixin
 
-    build_worktree: Path | None = root / ".worktrees" / f"agent-{GitWorktreeMixin.ref_safe(task_id)}"
+    build_worktree: Path = root / ".worktrees" / f"agent-{GitWorktreeMixin.ref_safe(task_id)}"
     where = (
         "the agent's worktree, which is your working directory and holds the change (the repository root does not yet)"
         if mode == "build" else
@@ -1103,6 +1164,17 @@ def _beat_obligations(root: Path, dispatch: DispatchFn | None, *, judge: Any = N
     answer = (judge or _default_judge(root, workspace=build_worktree))(
         prompt=_judge_prompt(request.text, criterion.text, list(verdict.files), where=where))
     met, why = _judged(answer)
+    if met:
+        # A second, deterministic look, independent of whatever the judge said: the judge is an LLM reading
+        # prose and r-3981d7e0 criterion 5 already talked one past this exact rule once. This does not trust
+        # the judge to have caught it.
+        unbacked = _first_unevidenced_claim(build_worktree, list(verdict.files))
+        if unbacked is not None:
+            met = False
+            why = (
+                f"a produced file admits an unmeasured number ({unbacked!r}); CHARTER §6: no number is stated "
+                "that the ledger does not contain, and being honest about inventing one is not an exception"
+            )
     result["judged"] = "met" if met else "not met"
     result["judgement"] = why
     if met:
