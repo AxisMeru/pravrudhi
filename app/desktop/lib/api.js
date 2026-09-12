@@ -12,6 +12,8 @@ const ROUTES = Object.freeze({health:['GET','/api/health'], me:['GET','/api/me']
   runs:['GET','/api/runs'], startRun:['POST','/api/runs'],
   run:['GET','/api/runs/:id'], stopRun:['POST','/api/runs/:id/stop'],
   models:['GET','/api/models'],
+  providers:['GET','/api/providers'],
+  setProviderKey:['POST','/api/providers/:id/key'], deleteProviderKey:['DELETE','/api/providers/:id/key'],
   update:['GET','/api/update'], updateConfig:['GET','/api/update/config'],
   saveUpdateConfig:['PUT','/api/update/config'], appToken:['GET','/api/app-token']});
 
