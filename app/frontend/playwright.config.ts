@@ -86,7 +86,7 @@ export default defineConfig({
     // LOCAL_ENGINE_URL=http://127.0.0.1:8300 npx playwright test --project edition-chromium
     ...acrossEngines({
       name: "edition",
-      testMatch: "edition.spec.ts",
+      testMatch: ["edition.spec.ts", "edition-signin-guards.spec.ts"],
       use: { baseURL: localEngineURL },
     }),
     ...acrossEngines({
