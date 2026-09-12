@@ -1124,6 +1124,10 @@ PUBLISH_MSG_OPT = typer.Option(
     "Refresh the recorded snapshot so the published pages show what the engine has done",
     "--message", "-m", help="commit message for the snapshot refresh",
 )
+WRITE_ROOT_OPT = typer.Option(
+    None, "--write-root",
+    help="Where the snapshot/build/commit/push land (ADR-0053 §2); defaults to --root, unchanged.",
+)
 
 
 @app.command("appetite")
@@ -1185,6 +1189,7 @@ def integrate_cmd(
 @app.command("publish")
 def publish_cmd(
     root: Path = ROOT_OPT,
+    write_root: Path | None = WRITE_ROOT_OPT,
     message: str = PUBLISH_MSG_OPT,
     no_push: bool = typer.Option(False, "--no-push", help="build and commit, but do not push"),
     as_json: bool = typer.Option(False, "--json"),
@@ -1195,7 +1200,7 @@ def publish_cmd(
     """
     from pravrudhi.application.publish import publish
 
-    result = publish(root, message=message, do_push=not no_push)
+    result = publish(root, write_root=write_root, message=message, do_push=not no_push)
     if as_json:
         typer.echo(json.dumps(result.to_dict(), sort_keys=True))
     else:

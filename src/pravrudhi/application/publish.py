@@ -79,9 +79,14 @@ def _default_runner(cmd: list[str], cwd: Path) -> subprocess.CompletedProcess[st
     return subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=1800)
 
 
-def export_snapshot(root: Path, runner: RunnerFn) -> Step:
-    """Record what the engine has done. Always first: the build bakes this file into the bundle."""
-    dest = root / "app" / "frontend" / "public" / "demo.json"
+def export_snapshot(root: Path, runner: RunnerFn, *, write_root: Path | None = None) -> Step:
+    """Record what the engine has done. Always first: the build bakes this file into the bundle.
+
+    `write_root` is where the exported `demo.json` lands; it defaults to `root` (today's single-root
+    behaviour, unchanged). `root` is always where the ledger is read from - the two differ only when the
+    publisher runs from its own clone (ADR-0053 §2) while reading the loop root's actual results.
+    """
+    dest = (write_root if write_root is not None else root) / "app" / "frontend" / "public" / "demo.json"
     result = runner(["uv", "run", "pravrudhi", "demo-export", "--root", str(root), "--dest", str(dest)], root)
     if result.returncode != 0:
         return Step("export", False, (result.stderr or result.stdout).strip()[:400])
@@ -92,26 +97,36 @@ def export_snapshot(root: Path, runner: RunnerFn) -> Step:
     return Step("export", True, f"{len(keys)} sections: {', '.join(keys[:8])}")
 
 
-def generate_paper(root: Path, runner: RunnerFn) -> Step:
+def generate_paper(root: Path, runner: RunnerFn, *, write_root: Path | None = None) -> Step:
     """Regenerate the paper's ledger-sourced tables, and rebuild its PDF if LaTeX is installed.
 
     Table generation reads the same ledger the snapshot does, so a failure there is a real defect and stops the
     publish before anything is built. Rebuilding the PDF is a nicety on top: most hosts running this engine have
     never installed a LaTeX toolchain, and that absence must not block publishing the demo.
-    """
-    from pravrudhi.application.paper_data import write_tables
 
+    `write_root` (defaulting to `root`, as in `export_snapshot`) is where `paper/generated/*.tex` is written and
+    where `make` runs - `paper_data.write_tables` couples the read and the write to one root, so its two lines
+    are inlined here via the read-only `results_tables` instead of calling it, rather than changing that
+    module's own single-root contract for callers that have no reason to split the two.
+    """
+    from pravrudhi.application.paper_data import results_tables
+
+    write_root = write_root if write_root is not None else root
     try:
-        write_tables(root)
+        tables = results_tables(root)
     except Exception as e:  # noqa: BLE001 (a generation failure must be reported, not swallowed)
         return Step("paper", False, f"table generation failed: {e}")
+    out_dir = write_root / "paper" / "generated"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    for name, body in tables.items():
+        (out_dir / f"{name}.tex").write_text(body)
 
-    paper_dir = root / "paper"
+    paper_dir = write_root / "paper"
     if not (paper_dir / "Makefile").exists():
         return Step("paper", True, "tables regenerated; no paper/Makefile to build")
     if shutil.which("latexmk") is None:
         return Step("paper", True, "tables regenerated; no LaTeX toolchain installed, PDF not rebuilt")
-    result = runner(["make", "-C", str(paper_dir)], root)
+    result = runner(["make", "-C", str(paper_dir)], write_root)
     if result.returncode != 0:
         tail = (result.stderr or result.stdout).strip().splitlines()[-6:]
         return Step("paper", True, f"tables regenerated; PDF build failed: {' / '.join(tail)[:300]}")
@@ -202,28 +217,46 @@ def push(root: Path, runner: RunnerFn, *, remote: str = "origin", branch: str = 
 def publish(
     root: Path,
     *,
+    write_root: Path | None = None,
     message: str = "Refresh the recorded snapshot so the published pages show what the engine has done",
     runner: RunnerFn | None = None,
     fetch: Callable[[str], str] | None = None,
     do_push: bool = True,
 ) -> PublishResult:
-    """Export, build, verify, commit, push — stopping at the first step that fails, with the reason."""
+    """Export, build, verify, commit, push — stopping at the first step that fails, with the reason.
+
+    `root` is read from throughout (the ledger, the paper data); `write_root` (ADR-0053 §2, defaulting to
+    `root` so every existing call site is unchanged) is where the exported snapshot, the built interface and
+    the commit/push all land. The two differ when the publisher runs from its own clone while the loop root
+    holds the actual results - the main checkout the lead merges into must have exactly one writer.
+
+    `research/` is gitignored, so a clone that has never run the engine has no ledger at all. That is a
+    legitimate empty bundle for a single fresh install (`demo_export.build_demo`'s own deliberate design), but
+    it is a misconfigured `root` in the two-root case - the point of the split is reading a real loop root's
+    results, and an empty snapshot published to the live pages from the wrong `root` would be worse than this
+    refusing outright. So the check applies only when `write_root` is actually given.
+    """
     root = Path(root).resolve()
+    effective_write_root = Path(write_root).resolve() if write_root is not None else root
+    if write_root is not None and not (root / "research" / "ledger.jsonl").exists():
+        return PublishResult(
+            False, f"read root {root} has no research/ledger.jsonl - refusing to publish an empty snapshot", [],
+        )
     runner = runner or _default_runner
     steps: list[Step] = []
 
     for step in (
-        export_snapshot(root, runner),
-        generate_paper(root, runner),
-        build_interface(root, runner),
-        verify_pages(root, fetch=fetch),
+        export_snapshot(root, runner, write_root=effective_write_root),
+        generate_paper(root, runner, write_root=effective_write_root),
+        build_interface(effective_write_root, runner),
+        verify_pages(effective_write_root, fetch=fetch),
     ):
         steps.append(step)
         if not step.ok:
             return PublishResult(False, f"{step.name} failed: {step.detail}", steps)
 
     paths = ["app/frontend/public/demo.json", "paper/generated"]
-    step, sha = commit(root, runner, message, paths)
+    step, sha = commit(effective_write_root, runner, message, paths)
     steps.append(step)
     if not step.ok:
         return PublishResult(False, f"commit failed: {step.detail}", steps)
@@ -231,7 +264,7 @@ def publish(
     if not do_push:
         return PublishResult(True, "built and committed; not pushed", steps, sha)
 
-    step = push(root, runner)
+    step = push(effective_write_root, runner)
     steps.append(step)
     if not step.ok:
         return PublishResult(False, f"push failed: {step.detail}", steps, sha)

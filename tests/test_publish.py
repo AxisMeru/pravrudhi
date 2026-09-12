@@ -175,3 +175,63 @@ class TestSteps:
 
         result = publish(root, runner=runner)
         assert result.published, result.reason
+
+
+class TestTheReadRootAndWriteRootCanDiffer:
+    """ADR-0053 §2: the publisher's own clone commits and pushes; the loop root is only ever read from. The
+    main checkout the lead merges assistant branches into must have exactly one writer."""
+
+    def test_the_snapshot_and_build_land_in_write_root_not_read_root(self, tmp_path: Path) -> None:
+        read_root = tmp_path / "loop"
+        (read_root / "research").mkdir(parents=True)
+        (read_root / "research" / "ledger.jsonl").write_text("")  # exists and empty: zero real events, valid
+        write_root = _workspace(tmp_path / "publish-clone")
+
+        git_cwds: list[Path] = []
+
+        def runner(cmd: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
+            if "demo-export" in cmd:
+                # The real command writes to --dest; the fake stands in for that side effect so the export
+                # step's own read of the file it just "wrote" still succeeds.
+                dest = Path(cmd[cmd.index("--dest") + 1])
+                dest.write_text('{"requests": {}}')
+                assert cmd[cmd.index("--root") + 1] == str(read_root), "must read the ledger from read_root"
+                assert cwd == read_root, "demo-export must run where the engine (and its ledger) actually is"
+            if cmd[:1] == ["git"]:
+                git_cwds.append(cwd)
+            if cmd[:3] == ["git", "diff", "--cached"]:
+                return _ok(cmd, "app/frontend/public/demo.json\n")
+            return _ok(cmd, "abc1234")
+
+        result = publish(read_root, write_root=write_root, runner=runner)
+        assert result.published, result.reason
+        assert (write_root / "app" / "frontend" / "public" / "demo.json").exists()
+        assert not (read_root / "app").exists(), "nothing should be written into the read root at all"
+        assert git_cwds and all(c == write_root for c in git_cwds), "every git step must run in write_root"
+
+    def test_a_read_root_with_no_ledger_refuses_rather_than_publishing_empty(self, tmp_path: Path) -> None:
+        read_root = tmp_path / "not-a-real-engine-root"
+        read_root.mkdir()
+        write_root = _workspace(tmp_path / "publish-clone")
+
+        def runner(cmd: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
+            raise AssertionError("must refuse before running anything when read_root has no ledger")
+
+        result = publish(read_root, write_root=write_root, runner=runner)
+        assert not result.published
+        assert "ledger" in result.reason
+        assert result.steps == []
+
+    def test_a_single_root_publish_with_no_ledger_is_unaffected(self, tmp_path: Path) -> None:
+        """The no-ledger guard is scoped to the two-root case. A plain single-root publish (write_root unset)
+        keeps demo_export.build_demo's own deliberate behaviour: no ledger is a legitimate empty bundle for a
+        fresh single-machine install, not a refusal."""
+        root = _workspace(tmp_path)  # _workspace never creates research/ledger.jsonl
+
+        def runner(cmd: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
+            if cmd[:3] == ["git", "diff", "--cached"]:
+                return _ok(cmd, "app/frontend/public/demo.json\n")
+            return _ok(cmd, "abc1234")
+
+        result = publish(root, runner=runner)
+        assert result.published, result.reason
