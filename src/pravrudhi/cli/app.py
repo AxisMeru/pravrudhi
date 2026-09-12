@@ -610,6 +610,24 @@ def nyaya_ask_cmd(
             typer.echo(f"    audit[{au.get('checker')}]: {au.get('verdict')} {au.get('class') or ''} {au.get('why') or ''}")
 
 
+@nyaya_app.command("validity-check")
+def nyaya_validity_check_cmd(
+    condition: str = typer.Option("base", "--condition", help="base | candidate:<id>"),
+    night: int = typer.Option(0, "--night"),
+    root: Path = ROOT_OPT,
+) -> None:
+    """Run the kernel's own classical-Nyaya validity check and admit it to the ledger (track nyaya, tier kernel).
+
+    No LLM, no network: `derive_verdict` decides each syllogism from the world it names, scored against a
+    hand-labelled gold set asserted independently of that derivation. This is the harness the `nyaya` track's
+    objectives can build on without lm-eval or a trained model.
+    """
+    from pravrudhi.application.nyaya_validity import record
+
+    row = record(root, night=night, condition=condition)
+    typer.echo(json.dumps({k: row[k] for k in ("seq", "track", "condition", "tier", "tool", "metrics")}, indent=2))
+
+
 @panel_app.command("vendors")
 def panel_vendors_cmd() -> None:
     """Every declared vendor, whether it can be asked right now, and why not if it cannot.

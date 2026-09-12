@@ -1,9 +1,7 @@
-# A worked example. Copy it with `pravrudhi objective new --from prabhasa-nyaya`, then edit the intent to your own.
-#
-# This one is real: prabhasa-samskrutam is building a Sanskrit-substrate model whose reasoning layer is Navya-Nyaya,
-# and its MVP intent is a legal-domain instrument. It is the example because it exercises what a GSM8K objective
-# does not: a domain benchmark rather than a general one, corpus curation as a first-class recipe, and an intent
-# that could not be inferred from the benchmark alone.
+# This is the objective the loop builds on, not a throwaway sample: prabhasa-samskrutam is building a
+# Sanskrit-substrate model whose reasoning layer is Navya-Nyaya, and its MVP intent is a legal-domain instrument.
+# `pravrudhi objective new --from prabhasa-nyaya` copies it verbatim into a workspace; edit the intent there if a
+# different phrasing of the same track is wanted.
 
 intent: >-
   A legal-reasoning assistant for Indian jurisprudence that answers a question of law with the statute or precedent
@@ -29,6 +27,13 @@ benchmarks:
   - id: jurisprudence
     tool: lm-eval
     metric: mmlu_jurisprudence acc,none
+    direction: up
+  # Kernel-computed, not a third-party file admitted by hash: `pravrudhi nyaya validity-check` runs
+  # `derive_verdict` against a hand-labelled gold set and writes the row itself (tier kernel, not external).
+  # Needs no lm-eval and no trained model, so this track has a measurable benchmark from the start.
+  - id: nyaya-validity
+    tool: pravrudhi-nyaya-validity
+    metric: nyaya_validity pass_rate
     direction: up
 
 # Techniques this objective may draw on, named from the recipe library. Naming a recipe does not run it, and does

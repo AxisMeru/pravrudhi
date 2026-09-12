@@ -17,6 +17,15 @@ from pravrudhi_kernel.ledger.verify import iter_events
 from pravrudhi_kernel.sandbox.observe import sha256_file
 from pravrudhi_kernel.stats import wilson_ci
 
+#: A file admitted by hash: third-party tooling ran it outside the kernel.
+TIER_EXTERNAL = "external"
+#: A row this engine computed itself, right now, with no third-party file to admit by hash. First used by
+#: `pravrudhi.application.nyaya_validity.record`.
+TIER_KERNEL = "kernel"
+TOOL_PRABHASA = "prabhasa"
+#: The kernel's own classical-Nyaya validity check (`nyaya_validity.py`); tier `kernel`, not `external`.
+TOOL_NYAYA_VALIDITY = "pravrudhi-nyaya-validity"
+
 
 def _lm_eval_items(r: dict[str, Any]) -> dict[str, int]:
     """Per-doc pass/fail for the first task's `exact_match`, when `--log_samples` wrote them.
@@ -142,7 +151,7 @@ def parse_prabhasa_panel(path: Path) -> dict[str, Any]:
             (int(node[k]) for k in _N_KEYS if isinstance(node.get(k), (int, float))), 0
         )
     return {
-        "tool": "prabhasa",
+        "tool": TOOL_PRABHASA,
         "tool_version": str(panel.get("version") or panel.get("milestone") or "") or None,
         "metrics": metrics,
         "n_samples": n_samples,
@@ -171,16 +180,16 @@ def record_external(
         parsed = parse_lm_eval(path)
     elif tool == "evalplus":
         parsed = parse_evalplus(path, dataset)
-    elif tool == "prabhasa":
+    elif tool == TOOL_PRABHASA:
         parsed = parse_prabhasa_panel(path)
     else:
-        raise ValueError(f"unknown external scorer {tool!r}; known: lm-eval, evalplus, prabhasa")
+        raise ValueError(f"unknown external scorer {tool!r}; known: lm-eval, evalplus, {TOOL_PRABHASA}")
     ledger = root / "research" / "ledger.jsonl"
     w = LedgerWriter.open(ledger, "0.1.0")
     payload = {
         "kind": "external_eval",
         "severity": "info",
-        "tier": "external",
+        "tier": TIER_EXTERNAL,
         "track": track,
         "condition": condition,
         "model": model,
@@ -220,7 +229,7 @@ def headlines(row: dict[str, Any]) -> list[tuple[str, float, float, int]]:
     first task made the second invisible to any objective that named it, so a legal objective with two law tasks
     could be measured and still show one of them as unmeasured. EvalPlus rows carry one dataset and yield one."""
     m = row["metrics"]
-    if row["tool"] == "prabhasa":
+    if row["tool"] in (TOOL_PRABHASA, TOOL_NYAYA_VALIDITY):
         # One line per metric, like the lm-eval branch. A panel carries many groups and reading only the first
         # would leave a named metric showing as unmeasured - the same fault the lm-eval branch was fixed for.
         # No stderr: the panel reports rates and probe accuracies, and inventing an interval for them would
