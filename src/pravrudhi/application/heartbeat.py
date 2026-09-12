@@ -977,6 +977,37 @@ def _build_prompt(request_text: str, criterion_text: str, paths: tuple[str, ...]
 #: it, because the filler made `paths` non-empty regardless.
 _ONLY_THE_TESTS_FILLER: frozenset[str] = frozenset({"tests/*"})
 
+# A backticked, dotted identifier: `pravrudhi.agents.alibaba_agent`, `notifications.record()`,
+# `messaging.resolve_telegram`. This codebase's own criteria favour naming a Python module, function or
+# attribute this way over spelling out the file it lives in with a slash - r-dfff1a3d c1 and r-0704b2a0 c0
+# (2026-09-12) named only references shaped like this and dispatched as proposal twice each, because neither
+# `build_paths_for` nor the code-extension/prefix checks below ever look at a reference with no slash in it.
+_DOTTED_REFERENCE = re.compile(r"`([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)+)(\(\))?`")
+
+# The tail of a two-segment dotted match this common in prose without ever meaning code: a session-closure or
+# config filename (`HANDOFF.md`, `routing.yaml`, `pyproject.toml`). A three-or-more-segment match
+# (`pravrudhi.agents.alibaba_agent`) or a trailing call (`notifications.record()`) is unambiguous either way,
+# so this only screens the two-segment case; extensions the existing `code_extensions` regex already covers
+# below are included so a bare `.py` mention is not double-counted as a *reference* instead of a *file*.
+_NOT_A_PYTHON_REFERENCE_TAIL = frozenset({
+    "md", "yaml", "yml", "json", "jsonl", "toml", "txt", "csv", "service", "timer", "lock", "cfg", "ini",
+    "py", "ts", "tsx", "js", "sh",
+})
+
+
+def _names_a_python_reference(text: str) -> bool:
+    """Whether `text` backtick-names a Python module, function or attribute path with no slash in it - the
+    shape `pravrudhi.agents.alibaba_agent`, `notifications.record()` and `messaging.resolve_telegram` share,
+    and a slashed file path or a bare session/config filename (`HANDOFF.md`) does not."""
+    for match in _DOTTED_REFERENCE.finditer(text):
+        dotted, call = match.group(1), match.group(2)
+        if call:
+            return True
+        segments = dotted.split(".")
+        if len(segments) >= 3 or segments[-1].lower() not in _NOT_A_PYTHON_REFERENCE_TAIL:
+            return True
+    return False
+
 
 def dispatch_mode(criterion: requests.Criterion, *, root: Path | None = None) -> str:
     """Determine dispatch mode: 'build' or 'proposal' (default).
@@ -985,8 +1016,9 @@ def dispatch_mode(criterion: requests.Criterion, *, root: Path | None = None) ->
     - criterion.mode is explicitly set to "build", OR
     - criterion.mode is unset (defaults to "proposal") AND build_paths_for names something beyond its own
       `tests/*` filler (see `_ONLY_THE_TESTS_FILLER`) AND the text names a code file (.py, .ts, .tsx, .sh,
-      .yaml, .md), or a backticked path under a prefix this root (`root`) may build under - its own declared
-      `allowed_prefixes` when it has one, the engine's own set otherwise
+      .yaml, .md), a backticked path under a prefix this root (`root`) may build under, or a backticked
+      Python module/function/attribute reference with no slash in it (`_names_a_python_reference`) - its own
+      declared `allowed_prefixes` when it has one, the engine's own set otherwise
 
     Otherwise returns 'proposal'.
     """
@@ -994,9 +1026,13 @@ def dispatch_mode(criterion: requests.Criterion, *, root: Path | None = None) ->
     if criterion.mode == "build":
         return "build"
 
-    # Auto-detect: check if a REAL path is named - build_paths_for's own tests/*-only filler is not one.
+    # Auto-detect: check if a REAL path is named - build_paths_for's own tests/*-only filler is not one, unless
+    # the text also names a Python reference the filler alone cannot represent (see _names_a_python_reference).
     paths = build_paths_for(criterion.text, root=root)
-    if not paths or set(paths) <= _ONLY_THE_TESTS_FILLER:
+    if not paths:
+        return "proposal"
+    names_python_reference = _names_a_python_reference(criterion.text)
+    if set(paths) <= _ONLY_THE_TESTS_FILLER and not names_python_reference:
         return "proposal"
 
     from pravrudhi.application import build_config
@@ -1007,7 +1043,7 @@ def dispatch_mode(criterion: requests.Criterion, *, root: Path | None = None) ->
     code_extensions = r'\.(py|ts|tsx|js|sh|yaml|yml|md)\b'  # .js: the desktop shell (app/desktop) is plain JS
     prefixes = build_config.resolved_allowed_prefixes(root)
     prefix_pattern = r"`(?:" + "|".join(re.escape(p.rstrip("/")) for p in prefixes) + r")/"
-    if re.search(code_extensions, criterion.text) or re.search(prefix_pattern, criterion.text):
+    if names_python_reference or re.search(code_extensions, criterion.text) or re.search(prefix_pattern, criterion.text):
         return "build"
 
     return "proposal"

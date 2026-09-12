@@ -135,6 +135,63 @@ class TestDispatchMode:
         criterion = requests.Criterion(text="produce a report.md summarising the findings")
         assert heartbeat.dispatch_mode(criterion) == "proposal"
 
+    def test_a_stored_proposal_criterion_naming_only_a_python_reference_dispatches_as_build(self) -> None:
+        """r-dfff1a3d c1 and r-0704b2a0 c0 (2026-09-12) burned two beats each: both name only a dotted Python
+        module/function reference (`pravrudhi.agents.alibaba_agent`, `notifications.record()`), never a
+        slashed path with a recognised extension or an allowed-prefix backtick, so `build_paths_for` found
+        nothing beyond its own `tests/*` filler and `dispatch_mode`'s `paths <= filler` gate returned
+        "proposal" before the code-shape checks ever ran. The judge then correctly refused a draft as "not an
+        executed test" - true, and the wrong mode had produced it. Stored `mode` on both was `"proposal"`,
+        unchanged since drafting; the fix is in the auto-detection itself, not a one-time re-draft."""
+        criterion = requests.Criterion(
+            text=(
+                "A test exercising `pravrudhi.agents.alibaba_agent` proves the `alibaba-plan` provider "
+                "resolves its key from `~/.config/llm/dashscope-plan.env` under the variable `DASHSCOPE_API_KEY`."
+            ),
+            source="operator", mode="proposal",
+        )
+        assert heartbeat.dispatch_mode(criterion) == "build"
+
+    def test_a_short_dotted_function_call_also_reads_as_a_build_signal(self) -> None:
+        criterion = requests.Criterion(
+            text=(
+                "A notification recorded through `notifications.record()` on the operator's engine root is "
+                "delivered to Telegram: `_reach()` resolves a credential via `messaging.resolve_telegram`."
+            ),
+            mode="proposal",
+        )
+        assert heartbeat.dispatch_mode(criterion) == "build"
+
+    def test_a_bare_backticked_filename_does_not_read_as_a_python_reference(self) -> None:
+        """The same shape that made a bare `.md` mention force build mode before (the test above this class's
+        docstring warns about it): a dotted, backticked token whose tail is a known non-code file extension
+        (`HANDOFF.md`, `RESTART.md`, `routing.yaml`, `pyproject.toml`...) must not, on its own, read as a
+        Python reference - these are session-closure and config mentions, not code the dispatch would touch,
+        and forcing them into build mode would ask a draft-writing dispatch to satisfy pytest for a markdown
+        update. r-961ae809 c0 is a real, still-open criterion of exactly this shape."""
+        criterion = requests.Criterion(
+            text=(
+                "`HANDOFF.md` and `RESTART.md` on `main` name every in-flight item of this session — the card "
+                "or loop in progress, its worktree under `.worktrees/`, and what remains before either can be "
+                "called closed, in enough detail that a reader could resume it without asking a question."
+            ),
+            source="operator", mode="proposal",
+        )
+        assert heartbeat.dispatch_mode(criterion) == "proposal"
+
+    def test_a_design_note_criterion_names_no_code_at_all_and_stays_proposal(self) -> None:
+        """A genuine design-note ask: prose about a decision and its rationale, naming no file, no module and
+        no function - the shape `_drafted_mode`/`dispatch_mode` must keep sending to proposal."""
+        criterion = requests.Criterion(
+            text=(
+                "The tradeoff between a single shared credential and per-workspace bring-your-own keys is "
+                "written down with the reasoning for choosing the latter, so a future session does not "
+                "re-litigate it from nothing."
+            ),
+            source="operator", mode="proposal",
+        )
+        assert heartbeat.dispatch_mode(criterion) == "proposal"
+
 
 def _git(cwd: Path, *args: str) -> str:
     return subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True).stdout
@@ -373,6 +430,41 @@ class TestUnbuildable:
 
     def test_an_ordinary_source_path_is_buildable(self, repo: Path) -> None:
         assert heartbeat.unbuildable(repo, requests.Criterion(text="`src/mod.py` sets VALUE = 2")) is None
+
+    def test_a_criterion_still_in_the_mode_its_last_judgement_blamed_is_unbuildable_for_now(
+        self, repo: Path
+    ) -> None:
+        """A one-line check on the previous judgement (session-3, 2026-09-12): if it said the deliverable's
+        mode itself was the problem - "a draft is not an executed test", the shape a proposal-mode dispatch
+        produces - and this beat would still dispatch it in that same mode, retrying spends a dispatch to
+        reproduce the identical rejection. `criterion.mode` is left `"proposal"` on purpose here: the point is
+        that `dispatch_mode`'s own auto-detection, not just an explicit stored mode, is what gets checked."""
+        crit = requests.Criterion(text="write a design note about the tradeoff", source="operator", mode="proposal")
+        requests.capture(repo, "a design ask", request_id="r-mode-blocked", criteria=[crit])
+        requests.note(repo, "r-mode-blocked", heartbeat._judgement_note(0, "a draft is not an executed test"))
+        why = heartbeat.unbuildable(repo, crit, request_id="r-mode-blocked", index=0)
+        assert why is not None and "mode" in why
+
+    def test_a_criterion_whose_mode_has_since_changed_is_not_blocked_by_an_old_judgement(
+        self, repo: Path
+    ) -> None:
+        """The same prior judgement, but the criterion now dispatches as build (a fixed `dispatch_mode`, or an
+        explicit mode change) - retrying is no longer reproducing the same failure, so it is not blocked."""
+        crit = requests.Criterion(text="`src/mod.py` sets VALUE = 2", source="operator", mode="proposal")
+        requests.capture(repo, "a build ask", request_id="r-mode-fixed", criteria=[crit])
+        requests.note(repo, "r-mode-fixed", heartbeat._judgement_note(0, "a draft is not an executed test"))
+        assert heartbeat.dispatch_mode(crit, root=repo) == "build"
+        assert heartbeat.unbuildable(repo, crit, request_id="r-mode-fixed", index=0) is None
+
+    def test_a_criterion_with_no_prior_judgement_is_never_blocked_by_this_check(self, repo: Path) -> None:
+        crit = requests.Criterion(text="write a design note about the tradeoff", source="operator", mode="proposal")
+        requests.capture(repo, "a fresh design ask", request_id="r-mode-fresh", criteria=[crit])
+        assert heartbeat.unbuildable(repo, crit, request_id="r-mode-fresh", index=0) is None
+
+    def test_unbuildable_without_a_request_id_is_unaffected_by_the_mode_blocker_check(self, repo: Path) -> None:
+        """Backward compatible with every existing caller that checks only the structural reasons above,
+        `request_id`/`index` unset: this check never activates without them."""
+        assert heartbeat.unbuildable(repo, requests.Criterion(text="write a design note")) is None
 
     def test_the_beat_stalls_an_unbuildable_criterion_without_dispatching(
         self, repo: Path, monkeypatch: pytest.MonkeyPatch
