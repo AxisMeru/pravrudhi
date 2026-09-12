@@ -44,7 +44,7 @@ from pravrudhi.application import availability, kshudha, recipes, requests, suba
 from pravrudhi.application.delegate import TaskSpec
 from pravrudhi.application.intent import compile_intent
 from pravrudhi.application.objectives import load_all
-from pravrudhi.application.sandbox_policy import apply_policy, policy_for
+from pravrudhi.application.sandbox_policy import Policy, apply_policy, policy_for
 from pravrudhi.application.update_apply import run_in_progress
 
 PACKAGED_CONFIG = Path(__file__).resolve().parents[1] / "assets" / "configs" / "heartbeat.yaml"
@@ -828,17 +828,20 @@ def _beat_triage(root: Path, *, complete: Callable[[str], str] | None = None) ->
     )
 
 
-def build_paths_for(text: str) -> tuple[str, ...]:
+def build_paths_for(text: str, *, root: Path | None = None) -> tuple[str, ...]:
     """Extract repository paths from criterion text and widen to directory globs.
 
-    Returns paths under allowed prefixes (src/, tests/, app/frontend/src/, scripts/, docs/, configs/, plugin/),
-    widened to their directory glob. Returns () if any named path is under protected prefixes.
+    Returns paths under allowed prefixes - this root's own declaration (`.pravrudhi/config.yaml`'s `build:` block,
+    `build_config.resolved_allowed_prefixes`) when it has one, the engine's own set otherwise (src/, tests/,
+    app/frontend/src/, scripts/, docs/, configs/, plugin/). Returns () if any named path is under protected
+    prefixes, or if a declaring root's criterion names nothing under a prefix it declared.
 
     Recognized forms:
     - Backticked paths: `src/foo.py` -> src/*
-    - Bare filenames: "update utils.py" (under allowed dirs)
-    - tests/* is always included
+    - Bare filenames: "update utils.py" (under allowed dirs) - engine defaults only, see below
+    - tests/* is always included - engine defaults only; a declaring root says what it needs itself
     """
+    from pravrudhi.application import build_config
     from pravrudhi.application.selfbuild import PROTECTED_PREFIXES
 
     if not text or not text.strip():
@@ -864,8 +867,18 @@ def build_paths_for(text: str) -> tuple[str, ...]:
         if any(path.startswith(prefix) for prefix in PROTECTED_PREFIXES):
             return ()
 
+    declared = build_config.load_build_config(root).allowed_prefixes if root is not None else ()
+    if declared:
+        # A root that declared its own prefixes said what it needs; this does not also guess at bare
+        # filenames or add tests/* uninvited (a JS/TS repo may have no tests/ directory at all).
+        widened = {
+            f"{prefix.rstrip('/')}/*"
+            for path in all_paths for prefix in declared if path.strip().startswith(prefix)
+        }
+        return tuple(sorted(widened))
+
     # Widen paths to directory globs and normalize
-    widened: set[str] = set()
+    widened = set()
 
     for path in all_paths:
         path = path.strip()
@@ -898,6 +911,41 @@ _BUILD_TIER = "design"
 from pravrudhi.application.integrate import BUILD_VALIDATE  # noqa: E402  one command for worktree and main tree
 
 
+def _resolved_build_validate(root: Path) -> str:
+    """The command a build-mode criterion in `root` validates with: its own declaration
+    (`.pravrudhi/config.yaml`'s `build.validate`, r-9c8646fc) when it has one, this module's own `BUILD_VALIDATE`
+    otherwise - read as `heartbeat.BUILD_VALIDATE` rather than `integrate.BUILD_VALIDATE` directly, so a caller
+    (a test, or a future override) that patches this module's constant is still the one this function honours."""
+    from pravrudhi.application import build_config
+
+    return build_config.load_build_config(root).validate or BUILD_VALIDATE
+
+
+def _selfbuild_policy(root: Path) -> Policy:
+    """The write policy a build-mode dispatch runs under: the engine's own `selfbuild` preset
+    (`sandbox_policies.yaml`), narrowed for a root that has declared its own build loop (r-9c8646fc).
+
+    `apply_policy` sets a task's `validate` and intersects its `allowed_paths` against the POLICY's own, not the
+    task's - the `selfbuild` preset's are `src/pravrudhi/**`, `tests/**` and the engine's other own directories,
+    so a build task correctly scoped to `frontend/*` by `build_paths_for` would still be narrowed to nothing by
+    a policy that has never heard of `frontend/`, and its own hardcoded validate would still run the engine's
+    test suite regardless of what `TaskSpec.validate` said. A declaring root gets the same preset with its
+    `allowed_paths` and `validate` replaced by its own declaration; a root that has not declared one is unaffected.
+    """
+    from pravrudhi.application import build_config
+
+    policy = policy_for("selfbuild")
+    declared = build_config.load_build_config(root)
+    if not declared.allowed_prefixes and not declared.validate:
+        return policy
+    prefixes = declared.allowed_prefixes or build_config.DEFAULT_PREFIXES
+    return replace(
+        policy,
+        allowed_paths=tuple(f"{p.rstrip('/')}/*" for p in prefixes),
+        validate=declared.validate or policy.validate,
+    )
+
+
 def _build_prompt(request_text: str, criterion_text: str, paths: tuple[str, ...], validate: str, *, prior: str = "") -> str:
     fell_short = f"A previous attempt was judged NOT to meet this criterion because: {prior}\n\n" if prior else ""
     return (
@@ -913,13 +961,15 @@ def _build_prompt(request_text: str, criterion_text: str, paths: tuple[str, ...]
     )
 
 
-def dispatch_mode(criterion: requests.Criterion) -> str:
+def dispatch_mode(criterion: requests.Criterion, *, root: Path | None = None) -> str:
     """Determine dispatch mode: 'build' or 'proposal' (default).
 
     Returns 'build' when:
     - criterion.mode is explicitly set to "build", OR
     - criterion.mode is unset (defaults to "proposal") AND build_paths_for returns non-empty
-      AND the text names a code file (.py, .ts, .tsx, .sh, .yaml, .md)
+      AND the text names a code file (.py, .ts, .tsx, .sh, .yaml, .md), or a backticked path under a prefix
+      this root (`root`) may build under - its own declared `allowed_prefixes` when it has one, the engine's
+      own set otherwise
 
     Otherwise returns 'proposal'.
     """
@@ -928,21 +978,22 @@ def dispatch_mode(criterion: requests.Criterion) -> str:
         return "build"
 
     # Auto-detect: check if paths are named and file is a code file
-    paths = build_paths_for(criterion.text)
+    paths = build_paths_for(criterion.text, root=root)
     if not paths:
         return "proposal"
+
+    from pravrudhi.application import build_config
 
     # A code file, or a backticked path under a prefix the loop may write under (a directory counts: r-35e8ce7b
     # criterion 0 named `docs/blueprint/02-design/` and a `.pdf`, went the proposal way twice, and the judge
     # refused it twice for the sandbox reason).
     code_extensions = r'\.(py|ts|tsx|js|sh|yaml|yml|md)\b'  # .js: the desktop shell (app/desktop) is plain JS
-    if re.search(code_extensions, criterion.text) or re.search(_BUILD_PREFIX_IN_BACKTICKS, criterion.text):
+    prefixes = build_config.resolved_allowed_prefixes(root)
+    prefix_pattern = r"`(?:" + "|".join(re.escape(p.rstrip("/")) for p in prefixes) + r")/"
+    if re.search(code_extensions, criterion.text) or re.search(prefix_pattern, criterion.text):
         return "build"
 
     return "proposal"
-
-
-_BUILD_PREFIX_IN_BACKTICKS = r"`(?:src|tests|app|scripts|docs|configs|plugin)/"
 
 
 def unbuildable(root: Path, criterion: requests.Criterion) -> str | None:
@@ -953,6 +1004,7 @@ def unbuildable(root: Path, criterion: requests.Criterion) -> str | None:
     agent cannot produce, so build_paths_for() returns () and the proposal fallback writes a README the gate then
     refuses. And a criterion whose named paths are gitignored here (docs/blueprint/ is local): the worktree can
     write them and integrate cannot commit them, so "met" can never carry a commit."""
+    from pravrudhi.application import build_config
     from pravrudhi.application.selfbuild import PROTECTED_PREFIXES
 
     named = [p.strip() for p in re.findall(r"`([^`]+)`", criterion.text) if "/" in p]
@@ -962,18 +1014,25 @@ def unbuildable(root: Path, criterion: requests.Criterion) -> str | None:
             f"names {', '.join(sorted(set(protected)))}: a change under a protected prefix ({', '.join(PROTECTED_PREFIXES)}) "
             "is an ADR accepted before the commit (ADR-0047) or a kernel-computed result, never a swarm dispatch"
         )
-    engine_like = [
-        p for p in named
-        if p.split("/")[0] in ("src", "pravrudhi", "app", "scripts", "plugin") or p.endswith((".py", ".ts", ".tsx"))
-    ]
-    if engine_like and not (root / "src").is_dir():
-        # A product install runs the engine from a wheel: there is no engine source in this root to change, and a
-        # worktree here can only produce files nothing imports. The ask belongs upstream in the studio backlog.
-        return (
-            f"names engine source ({', '.join(sorted(set(engine_like))[:4])}) and this root has no engine source "
-            "checkout (no src/ tree): a wheel install cannot build the engine; it belongs upstream in the studio backlog"
-        )
-    repo_paths = [p for p in named if p.split("/")[0] in ("src", "tests", "app", "scripts", "docs", "configs", "plugin")]
+    declared_prefixes = build_config.load_build_config(root).allowed_prefixes
+    if not declared_prefixes:
+        # This check is about a root running the engine from a wheel, with no engine source of its own to
+        # change - it does not apply to a root that has declared its OWN build loop (r-9c8646fc): naming a
+        # `.tsx` file there is that root's own source, not a wayward reference to this engine's.
+        engine_like = [
+            p for p in named
+            if p.split("/")[0] in ("src", "pravrudhi", "app", "scripts", "plugin") or p.endswith((".py", ".ts", ".tsx"))
+        ]
+        if engine_like and not (root / "src").is_dir():
+            # A product install runs the engine from a wheel: there is no engine source in this root to change,
+            # and a worktree here can only produce files nothing imports. The ask belongs upstream in studio.
+            return (
+                f"names engine source ({', '.join(sorted(set(engine_like))[:4])}) and this root has no engine "
+                "source checkout (no src/ tree): a wheel install cannot build the engine; it belongs upstream "
+                "in the studio backlog"
+            )
+    prefixes = declared_prefixes or build_config.DEFAULT_PREFIXES
+    repo_paths = [p for p in named if any(p.startswith(prefix) for prefix in prefixes)]
     if repo_paths and (root / ".git").exists():
         probe = subprocess.run(
             ["git", "check-ignore", "--", *repo_paths], cwd=root, capture_output=True, text=True, check=False,
@@ -1079,23 +1138,26 @@ def _beat_obligations(root: Path, dispatch: DispatchFn | None, *, judge: Any = N
             {"kind": "stalled", "request": request.id, "criterion": index,
              "attempts": attempts(root, request.id, index), "criterion_text": criterion.text[:300]},
         )
-    mode = dispatch_mode(criterion)
+    mode = dispatch_mode(criterion, root=root)
     task_id = f"request:{request.id}:{index}"
     if mode == "build":
         # The change itself, in the agent's own worktree under selfbuild's write policy, validated by the
-        # engine's own tests. Until 2026-09-11 every obligation went the proposal way below, so the swarm could
-        # only ever write a README while the gate judged the operator's actual ask -- the structural reason the
-        # gate refused what the swarm accepted, twelve dispatches running.
-        paths = build_paths_for(criterion.text)
+        # engine's own tests, or by this root's OWN declared validate command (r-9c8646fc) when it has one -
+        # a JS/TS product repository's heartbeat must not "validate" a Python test suite it does not have.
+        # Until 2026-09-11 every obligation went the proposal way below, so the swarm could only ever write a
+        # README while the gate judged the operator's actual ask -- the structural reason the gate refused
+        # what the swarm accepted, twelve dispatches running.
+        paths = build_paths_for(criterion.text, root=root)
+        build_validate = _resolved_build_validate(root)
         spec = TaskSpec(
             task_id=task_id,
-            prompt=_build_prompt(request.text, criterion.text, paths, BUILD_VALIDATE,
+            prompt=_build_prompt(request.text, criterion.text, paths, build_validate,
                                  prior=_last_judgement(root, request.id, index)),
             allowed_paths=paths,
-            validate=BUILD_VALIDATE,
+            validate=build_validate,
         )
         task = swarm.SwarmTask(spec, _BUILD_TIER, why=f"oldest unmet criterion of request {request.id} (build)")
-        scoped = replace(task, spec=apply_policy(task.spec, policy_for("selfbuild")))
+        scoped = replace(task, spec=apply_policy(task.spec, _selfbuild_policy(root)))
     else:
         scratch = _obligation_scratch(request.id, index)
         (root / scratch).mkdir(parents=True, exist_ok=True)
@@ -1188,7 +1250,8 @@ def _beat_obligations(root: Path, dispatch: DispatchFn | None, *, judge: Any = N
 
             worktree = root / ".worktrees" / f"agent-{GitWorktreeMixin.ref_safe(task_id)}"
             outcome = integrate.integrate_build_criterion(
-                root, {task_id: worktree}, request.id, index, validate=BUILD_VALIDATE,
+                root, {task_id: worktree}, request.id, index,
+                validate=_resolved_build_validate(root),
             )
             result["integration"] = outcome.to_dict()
             if not outcome.ok:

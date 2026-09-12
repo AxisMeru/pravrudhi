@@ -40,6 +40,16 @@ def init_project(root: Path, *, model: str | None = None) -> dict[str, Any]:
         if model:
             cfg["target"] = dict(cfg["target"], model=model)
         cfg["isolation"] = state.isolation
+        if not (root / "src" / "pravrudhi").is_dir():
+            # This root is a product or artifact repository, not the engine's own checkout (r-9c8646fc): give
+            # it a build loop shaped to what is actually here rather than the engine's own commands and paths,
+            # which would validate nothing it built. A root nothing here recognises gets no `build:` block at
+            # all - the engine's own defaults, honestly, rather than a guessed command that might not run.
+            from pravrudhi.application.build_config import infer_build_config
+
+            build = infer_build_config(root)
+            if build is not None:
+                cfg["build"] = build
         cfg_path.write_text(yaml.safe_dump(cfg, sort_keys=False))
         created.append(str(cfg_path))
     for sub in ("research/prereg", "research/inbox", "harness/prompts", "harness/agent", "docs/evidence"):

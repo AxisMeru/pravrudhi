@@ -65,6 +65,23 @@ def _found_off_path(agent: str) -> str | None:
     return None
 
 
+def _build_validate_check(root: Path) -> dict[str, Any]:
+    """The command a build-mode criterion in this root will actually validate with: its own declaration
+    (r-9c8646fc, `.pravrudhi/config.yaml`'s `build.validate`) when it has one, the engine's own `BUILD_VALIDATE`
+    otherwise. Always ok - there is nothing to fail here, only something worth a reader knowing before a
+    heartbeat runs it unattended, the same reason `gpu` reports rather than fails."""
+    from pravrudhi.application.build_config import load_build_config, resolved_build_validate
+
+    command = resolved_build_validate(root)
+    declared = load_build_config(root).validate is not None
+    detail = (
+        f"Build-mode criteria validate with this root's own command: {command}"
+        if declared else
+        f"Build-mode criteria validate with the engine's own command: {command}"
+    )
+    return {"name": "build_validate", "ok": True, "detail": detail}
+
+
 def _telegram_check(root: Path) -> dict[str, Any]:
     """Whether this workspace's bot can speak to anyone, or only answer.
 
@@ -284,4 +301,5 @@ def run_doctor(root: Path) -> dict[str, Any]:
     checks.append(_routing_check(root))
     checks.append(_loop_alive_check(root))
     checks.append(_telegram_check(root))
+    checks.append(_build_validate_check(root))
     return {"ok": all(check["ok"] for check in checks), "checks": checks}

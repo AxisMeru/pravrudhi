@@ -394,5 +394,78 @@ class TestPaperStallsDoNotSpendTheBeat:
         assert heartbeat.stalled(repo, "r-0", 0)
 
 
+class TestDeclaredBuildConfig:
+    """r-9c8646fc: a root may declare its own `build:` block in `.pravrudhi/config.yaml`, so a JS/TS product
+    repository (no `src/pravrudhi/` of its own) gets its own validate command and its own allowed prefixes
+    instead of the engine's - a heartbeat there must not "validate" a Python test suite it does not have, nor
+    treat a named `.tsx` path as a stray reference to this engine's own source."""
+
+    @pytest.fixture
+    def product_repo(self, tmp_path: Path) -> Path:
+        root = tmp_path / "product"
+        root.mkdir()
+        _git(root, "init", "-q", "-b", "main")
+        _git(root, "config", "user.email", "test@example.com")
+        _git(root, "config", "user.name", "Test User")
+        (root / "frontend").mkdir()
+        (root / "frontend" / "App.tsx").write_text("export const App = 1;\n")
+        (root / "desktop").mkdir()
+        (root / "desktop" / "main.js").write_text("// main\n")
+        _git(root, "add", ".")
+        _git(root, "commit", "-q", "-m", "initial")
+        (root / ".pravrudhi").mkdir()
+        (root / ".pravrudhi" / "config.yaml").write_text(
+            'build:\n  validate: "true"\n  allowed_prefixes: [frontend/, desktop/]\n'
+        )
+        requests.capture(
+            root, "fix a bug in the frontend", request_id="r-p",
+            criteria=[requests.Criterion(text="`frontend/App.tsx` renders the new banner", source="operator")],
+        )
+        return root
+
+    def test_build_paths_for_honors_the_declared_prefixes(self, product_repo: Path) -> None:
+        crit = requests.get(product_repo, "r-p").criteria[0]
+        assert heartbeat.build_paths_for(crit.text, root=product_repo) == ("frontend/*",)
+
+    def test_dispatch_mode_is_build_for_a_declared_prefix_path(self, product_repo: Path) -> None:
+        crit = requests.get(product_repo, "r-p").criteria[0]
+        assert heartbeat.dispatch_mode(crit, root=product_repo) == "build"
+
+    def test_unbuildable_does_not_treat_a_declared_prefix_path_as_stray_engine_source(
+        self, product_repo: Path
+    ) -> None:
+        """Before this, a criterion naming a `.tsx` path was `engine_like` (it ends in `.tsx`) and this root
+        has no top-level `src/`, so it was refused as belonging "upstream in the studio backlog" - wrong for a
+        root that has declared its OWN build loop."""
+        crit = requests.get(product_repo, "r-p").criteria[0]
+        assert heartbeat.unbuildable(product_repo, crit) is None
+
+    def test_the_beat_dispatches_with_the_declared_validate_command_and_integrates(
+        self, product_repo: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from pravrudhi.application.delegate import Verdict
+
+        seen: dict[str, Any] = {}
+
+        def fake_run_wave(build_agent: Any, wave: list[Any], **kw: Any) -> list[Any]:
+            task = wave[0]
+            seen["validate"] = task.spec.validate
+            seen["allowed"] = task.spec.allowed_paths
+            wt = _worktree(product_repo, task.spec.task_id)
+            (wt / "frontend" / "App.tsx").write_text("export const App = 2;\n")
+            return [Verdict(task_id=task.spec.task_id, agent="fake", accepted=True, files=["frontend/App.tsx"])]
+
+        monkeypatch.setattr(heartbeat.swarm, "run_wave", fake_run_wave)
+        _chose, reason, result = heartbeat._beat_obligations(
+            product_repo, lambda _n, _m=None: object(),
+            judge=lambda **_kw: "VERDICT: met\nthe banner is there",
+        )
+
+        assert seen["validate"] == "true", "the root's OWN declared validate, not the engine's BUILD_VALIDATE"
+        assert seen["allowed"] == ("frontend/*",)
+        assert result is not None and result["integration"]["ok"], reason
+        assert (product_repo / "frontend" / "App.tsx").read_text() == "export const App = 2;\n"
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

@@ -38,16 +38,19 @@ def test_uninitialised(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: 
     assert report["ok"] is False
     assert {check["name"] for check in report["checks"]} == {
         "initialised", "ledger", "docker", "gpu", "pools", "prereg", "routing", "loop_alive", "telegram",
+        "build_validate",
     }
     for check in report["checks"]:
         assert set(check) == {"name", "ok", "detail"}
         assert isinstance(check["detail"], str) and check["detail"]
-        # Four checks stay ok on a bare machine and each says why. No GPU on PATH cannot start a night but is
+        # Five checks stay ok on a bare machine and each says why. No GPU on PATH cannot start a night but is
         # not an error; with no agent installed at all there is no route to judge (see `_routing_check`); a
         # workspace that has never beaten is unobserved rather than stalled, which is the distinction
-        # `loop_alive` has to draw or it would fail every fresh install; and a machine with no bot token has
-        # no bot to pair, which is why `telegram` fails only a bot that IS configured and unpaired.
-        assert check["ok"] is (check["name"] in {"gpu", "routing", "loop_alive", "telegram"})
+        # `loop_alive` has to draw or it would fail every fresh install; a machine with no bot token has
+        # no bot to pair, which is why `telegram` fails only a bot that IS configured and unpaired; and
+        # `build_validate` (r-9c8646fc) is informational, like `gpu` - there is nothing to fail on an
+        # uninitialised root, only a command worth a reader knowing before it runs unattended.
+        assert check["ok"] is (check["name"] in {"gpu", "routing", "loop_alive", "telegram", "build_validate"})
     assert list(tmp_path.iterdir()) == []
     assert capsys.readouterr() == ("", "")
 
@@ -59,8 +62,8 @@ def test_initialised(ready_root: Path, capsys: pytest.CaptureFixture[str]) -> No
     # Eight since 2026-09-10: `loop_alive` was added because `scheduler_fresh` had computed a dead loop all
     # along, published it, and been read correctly by a cloud routine -- while the command a session actually
     # runs in its first five minutes never asked. A workspace with no heartbeat has not stalled, so the check
-    # passes here rather than failing every fresh install.
-    assert len(report["checks"]) == 9
+    # passes here rather than failing every fresh install. Ten since r-9c8646fc added `build_validate`.
+    assert len(report["checks"]) == 10
     assert [c for c in report["checks"] if c["name"] == "loop_alive"]
     assert all(check["ok"] is True and check["detail"] for check in report["checks"])
     assert before == {p.relative_to(ready_root): p.read_bytes() for p in ready_root.rglob("*") if p.is_file()}
@@ -120,6 +123,28 @@ def test_gpu_absent(ready_root: Path) -> None:
     gpu_check = next(check for check in report["checks"] if check["name"] == "gpu")
     assert gpu_check["ok"] is True
     assert "no gpu detected" in gpu_check["detail"].lower()
+
+
+def test_build_validate_reports_the_engine_default_when_undeclared(ready_root: Path) -> None:
+    from pravrudhi.application.integrate import BUILD_VALIDATE
+
+    report = run_doctor(ready_root)
+    check = next(c for c in report["checks"] if c["name"] == "build_validate")
+    assert check["ok"] is True
+    assert BUILD_VALIDATE in check["detail"]
+    assert "engine's own" in check["detail"]
+
+
+def test_build_validate_reports_the_root_s_own_declared_command(ready_root: Path) -> None:
+    """r-9c8646fc: a product repository's `doctor` must print the command IT will actually run, not the
+    engine's own pytest invocation it has no test suite for."""
+    cfg = ready_root / ".pravrudhi" / "config.yaml"
+    cfg.write_text(cfg.read_text() + "\nbuild:\n  validate: npm --prefix frontend test\n")
+    report = run_doctor(ready_root)
+    check = next(c for c in report["checks"] if c["name"] == "build_validate")
+    assert check["ok"] is True
+    assert "npm --prefix frontend test" in check["detail"]
+    assert "root's own" in check["detail"]
 
 
 @pytest.mark.parametrize("damage", ["tamper", "empty", "malformed", "encoding"])
