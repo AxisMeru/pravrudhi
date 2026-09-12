@@ -113,16 +113,19 @@ def run(pipeline: Pipeline, ctx: Any, record_path: Path, *,
     An interrupted in-flight job requires host reconciliation; it is never blindly
     relaunched. The record is orchestration state, not kernel evidence or a ledger.
     """
-    import fcntl
+    # A function-level `import fcntl` survives module import and kills the CALL instead, so it stayed invisible
+    # on Windows until somebody ran a pipeline there. Swept with `requests.py`'s module-level one after v0.1.7.
+    from pravrudhi.application.portable_lock import LockUnavailable, exclusive_lock
 
     manifest = dry_run(pipeline, planners=planners)
     record_path = Path(record_path)
     record_path.parent.mkdir(parents=True, exist_ok=True)
-    with record_path.with_suffix(record_path.suffix + ".lock").open("a") as lock:
-        try:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError as exc:
-            raise PipelineError("pipeline record is already in use") from exc
+    try:
+        lock_ctx = exclusive_lock(record_path.with_suffix(record_path.suffix + ".lock"), blocking=False)
+        lock_ctx.__enter__()
+    except LockUnavailable as exc:
+        raise PipelineError("pipeline record is already in use") from exc
+    try:
         record = json.loads(record_path.read_text()) if record_path.exists() else {
             "manifest": manifest, "stages": {}}
         if record.get("manifest") != manifest:
@@ -166,3 +169,8 @@ def run(pipeline: Pipeline, ctx: Any, record_path: Path, *,
             _save(record_path, record)
             values[name] = value
         return values
+    finally:
+        # The lock was entered by hand (rather than via `with`) so that a LockUnavailable at ACQUISITION
+        # becomes a PipelineError while the body's own exceptions keep their own meaning. This releases it on
+        # every path out, `return values` included.
+        lock_ctx.__exit__(None, None, None)

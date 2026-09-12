@@ -22,7 +22,6 @@ wrote it, so a criterion invented by the engine can never be mistaken for someth
 from __future__ import annotations
 
 import contextlib
-import fcntl
 import json
 import re
 import uuid
@@ -31,6 +30,8 @@ from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Literal
+
+from pravrudhi.application.portable_lock import exclusive_lock
 
 State = Literal["captured", "clarified", "planned", "in_progress", "delivered", "verified", "declined"]
 
@@ -179,14 +180,10 @@ def locked(root: Path) -> Iterator[None]:
     CLI edit and a beat's write are each individually fast: either can simply wait its turn, and refusing one
     outright would just relocate the race to "try again," which is what editing the file by hand already was.
     """
-    path = store_path(root).with_suffix(".json.lock")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a") as fh:
-        fcntl.flock(fh, fcntl.LOCK_EX)
-        try:
-            yield
-        finally:
-            fcntl.flock(fh, fcntl.LOCK_UN)
+    # ADR-0052's portability fix reached the kernel's writer and stopped there; this module's bare top-level
+    # `import fcntl` killed the engine on Windows at import time, found by v0.1.7's packaged smoke.
+    with exclusive_lock(store_path(root).with_suffix(".json.lock")):
+        yield
 
 
 def load(root: Path) -> list[Request]:
