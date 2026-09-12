@@ -670,6 +670,98 @@ def _current_head(root: Path) -> str:
         return "unknown"
 
 
+_LOOP_SYNC_TIMEOUT_S = 120
+
+
+def _sync_loop_branch(root: Path) -> str | None:
+    """ADR-0053 §3: before any dispatch, bring a loop root's branch up to date with `origin/main` by rebase, so
+    a hypothesis is tested against what the team has actually landed rather than an increasingly stale clone.
+
+    Returns None on success (including "nothing to sync" and "not a git repository at all" - most roots in
+    tests, and any root not yet re-rooted under this ADR, are plain directories) or the conflict detail if the
+    rebase could not complete. The loop never resolves a conflict itself: on failure the rebase is aborted,
+    leaving the tree exactly as it was, and the detail is reported so a person looks at it.
+
+    A fetch failure (network hiccup, no remote configured) is treated the same as nothing-to-sync rather than a
+    conflict - that distinction matters only for a genuine content conflict a person must resolve; nothing to
+    resolve here, the next beat tries again.
+    """
+    def run(*args: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            ["git", *args], cwd=root, capture_output=True, text=True, timeout=_LOOP_SYNC_TIMEOUT_S,
+        )
+
+    try:
+        probe = run("rev-parse", "--is-inside-work-tree")
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if probe.returncode != 0 or probe.stdout.strip() != "true":
+        return None
+    if run("fetch", "origin", "main").returncode != 0:
+        return None
+    rebased = run("rebase", "origin/main")
+    if rebased.returncode == 0:
+        return None
+    detail = (rebased.stderr or rebased.stdout).strip()[:500]
+    run("rebase", "--abort")
+    return detail
+
+
+_REBASE_CONFLICT_STREAK_FILE = ".pravrudhi/rebase-conflicts.json"
+
+# ADR-0053 §3 amendment: quiet hours resolve themselves; a rebase conflict does not. Once the streak reaches
+# this many consecutive beats, the loop alerts externally rather than staying quiet - a heartbeat alive while
+# convergence is zero, with nobody told, is the failure the operator named. Same budget as every other strike
+# count in this file.
+MAX_REBASE_CONFLICTS_BEFORE_ALERT = 3
+
+
+def _rebase_conflict_streak_path(root: Path) -> Path:
+    return Path(root) / _REBASE_CONFLICT_STREAK_FILE
+
+
+def rebase_conflict_streak(root: Path) -> int:
+    """How many consecutive beats this loop root has failed to sync with origin/main."""
+    try:
+        data = json.loads(_rebase_conflict_streak_path(root).read_text())
+        return int(data.get("streak", 0)) if isinstance(data, dict) else 0
+    except (OSError, ValueError, TypeError):
+        return 0
+
+
+def record_rebase_conflict(root: Path) -> int:
+    """Count one beat that could not sync with origin/main."""
+    streak = rebase_conflict_streak(root) + 1
+    path = _rebase_conflict_streak_path(root)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"streak": streak}))
+    return streak
+
+
+def clear_rebase_conflict_streak(root: Path) -> None:
+    """A successful sync breaks the streak - the next conflict, if any, starts counting from 1."""
+    path = _rebase_conflict_streak_path(root)
+    if path.exists():
+        path.unlink()
+
+
+def _alert_rebase_conflict_streak(root: Path, streak: int, detail: str) -> None:
+    """Reaches the operator the same way a night finishing or a critical audit finding does (`reach.send`'s
+    `rebase_conflict_streak` kind), rather than depending on anyone reading `.pravrudhi/heartbeat.jsonl`. A
+    delivery failure must never take the beat down with it, so this mirrors `notifications._reach`'s own
+    swallow-and-continue discipline."""
+    try:
+        from pravrudhi.application import notifications
+
+        notifications.emit(
+            root, kind="rebase_conflict_streak",
+            title=f"loop stalled: {streak} consecutive rebase conflicts",
+            detail=detail, engine_root=root,
+        )
+    except Exception:  # noqa: BLE001 (a notification that cannot be delivered must never take the beat with it)
+        return
+
+
 # A criterion is proposal-shaped work like an evaluate/corpus step (subagents._TIER_BY_CAPABILITY), not a
 # candidate-shaping one — a fixed policy choice, not a measurement.
 _OBLIGATION_TIER = "standard"
@@ -1697,6 +1789,21 @@ def beat(
     """
     root = Path(root)
     moment = now.astimezone(UTC) if now and now.tzinfo else (now.replace(tzinfo=UTC) if now else datetime.now(UTC))
+
+    # ADR-0053 §3: keeping the branch current is not a dispatch action, so it runs before quiet hours can skip
+    # anything. Unlike quiet hours, a rebase conflict does not resolve itself - it parks the beat, not any one
+    # criterion (nothing has been selected yet at this point), and the loop never resolves the conflict itself.
+    sync_conflict = _sync_loop_branch(root)
+    if sync_conflict is not None:
+        streak = record_rebase_conflict(root)
+        if streak >= MAX_REBASE_CONFLICTS_BEFORE_ALERT:
+            _alert_rebase_conflict_streak(root, streak, sync_conflict)
+        return _finish(
+            root, moment, (), None, f"rebase-conflict: {sync_conflict}", None,
+            drive=None, drive_deficit=None, sentence="",
+        )
+    clear_rebase_conflict_streak(root)
+
     config = load_config(root)
 
     if moment.hour in config.quiet_hours:

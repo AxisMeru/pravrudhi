@@ -43,11 +43,14 @@ def escape_markdown_v2(text: str | None) -> str:
     return "".join(f"\\{c}" if c in _MARKDOWN_V2_ESCAPE_CHARS else c for c in str(text))
 
 
-# Kinds of notifications worth sending externally. Default: only wake for sign-offs, critical issues, resource depletion.
+# Kinds of notifications worth sending externally. Default: only wake for sign-offs, critical issues, resource
+# depletion, and a loop stalled where quiet hours or resting resolve themselves and this does not (ADR-0053 \u00a73
+# amendment: a heartbeat alive while convergence is zero, with nobody told, is the failure the operator named).
 DEFAULT_SEND_KINDS = {
     "promotion_needed",      # A night finished and needs sign-off
     "audit_severity_high",   # Critical audit finding
     "pool_depleted",         # Compute pool is empty or nearly so
+    "rebase_conflict_streak",  # A loop root cannot sync with origin/main and nobody has looked
 }
 
 
@@ -58,10 +61,14 @@ NEXT_STEP = {
     "promotion_needed": "sign or refuse it: `pravrudhi inbox`",
     "audit_severity_high": "read the finding: `pravrudhi status`",
     "pool_depleted": "the pool is out of eligible items; seal a larger one or raise the exposure cap",
+    "rebase_conflict_streak": "resolve the conflict by hand in the loop root; the loop will not resolve it itself",
 }
 
 #: A glyph per kind so a phone notification can be triaged before it is read. Deliberately dull and few.
-_GLYPH = {"promotion_needed": "\u2713", "audit_severity_high": "\u26a0", "pool_depleted": "\u25cb"}
+_GLYPH = {
+    "promotion_needed": "\u2713", "audit_severity_high": "\u26a0", "pool_depleted": "\u25cb",
+    "rebase_conflict_streak": "\u26a0",
+}
 
 
 def compose(*, kind: str, title: str, detail: str = "", edition: str = "", when: str = "") -> str:

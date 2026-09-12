@@ -3,6 +3,7 @@ action wired to that drive."""
 
 from __future__ import annotations
 
+import subprocess
 import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
@@ -1081,3 +1082,186 @@ def test_a_judgement_keeps_enough_of_its_reason_for_the_next_attempt_to_act_on()
     met, why = _judged(f"VERDICT: not met\n{reason}")
     assert not met
     assert len(why) >= 1000 and why.startswith("point 0")
+
+
+class TestLoopSyncsBeforeEveryBeat:
+    """ADR-0053 §3: before any dispatch, a loop root fast-forwards/rebases onto origin/main, so a hypothesis is
+    tested against what the team has actually landed rather than an increasingly stale clone. On conflict the
+    beat parks itself, not any one criterion (the drive/criterion that would run this beat hasn't even been
+    selected yet at this point in `beat()`) - it reports the reason and the loop never resolves the conflict
+    itself. A root that is not a git repository at all (every other test in this file, and any root not yet
+    re-rooted under this ADR) is left untouched: there is nothing to sync."""
+
+    @staticmethod
+    def _git(*args: str, cwd: Path, check: bool = True) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            ["git", *args], cwd=cwd, capture_output=True, text=True, timeout=30, check=check,
+        )
+
+    @classmethod
+    def _origin_and_clone(cls, tmp_path: Path) -> tuple[Path, Path, Path]:
+        """A bare `origin`, a `seed` checkout used to advance it, and a `clone` standing in for the loop root."""
+        origin = tmp_path / "origin.git"
+        cls._git("init", "--bare", "-b", "main", str(origin), cwd=tmp_path)
+        seed = tmp_path / "seed"
+        cls._git("clone", str(origin), str(seed), cwd=tmp_path)
+        (seed / "file.txt").write_text("v0\n")
+        cls._git("add", ".", cwd=seed)
+        cls._git("-c", "user.name=t", "-c", "user.email=t@t.example", "commit", "-m", "seed", cwd=seed)
+        cls._git("push", "origin", "main", cwd=seed)
+        clone = tmp_path / "clone"
+        cls._git("clone", str(origin), str(clone), cwd=tmp_path)
+        cls._git("config", "user.name", "t", cwd=clone)
+        cls._git("config", "user.email", "t@t.example", cwd=clone)
+        return origin, seed, clone
+
+    def test_a_plain_non_git_root_is_left_untouched(self, tmp_path: Path) -> None:
+        from pravrudhi.application.heartbeat import _sync_loop_branch
+
+        assert _sync_loop_branch(tmp_path) is None
+
+    def test_a_clean_rebase_advances_the_loop_root_onto_origin_main(self, tmp_path: Path) -> None:
+        from pravrudhi.application.heartbeat import _sync_loop_branch
+
+        _origin, seed, clone = self._origin_and_clone(tmp_path)
+
+        # The team lands unrelated work on main.
+        (seed / "team.txt").write_text("team work\n")
+        self._git("add", ".", cwd=seed)
+        self._git("-c", "user.name=t", "-c", "user.email=t@t.example", "commit", "-m", "team", cwd=seed)
+        self._git("push", "origin", "main", cwd=seed)
+
+        # The loop has its own unpushed commit, on a different file - no conflict.
+        (clone / "loop.txt").write_text("loop work\n")
+        self._git("add", ".", cwd=clone)
+        self._git("-c", "user.name=t", "-c", "user.email=t@t.example", "commit", "-m", "loop", cwd=clone)
+
+        result = _sync_loop_branch(clone)
+
+        assert result is None
+        assert (clone / "team.txt").exists(), "the rebase must have pulled the team's commit in"
+        assert (clone / "loop.txt").exists(), "the loop's own commit must survive, replayed on top"
+        log = self._git("log", "--oneline", cwd=clone).stdout
+        assert "team" in log and "loop" in log
+
+    def test_a_conflicting_rebase_aborts_and_reports_rather_than_resolving_itself(self, tmp_path: Path) -> None:
+        from pravrudhi.application.heartbeat import _sync_loop_branch
+
+        _origin, seed, clone = self._origin_and_clone(tmp_path)
+
+        # The team changes the same file the loop is about to change.
+        (seed / "file.txt").write_text("team version\n")
+        self._git("add", ".", cwd=seed)
+        self._git("-c", "user.name=t", "-c", "user.email=t@t.example", "commit", "-m", "team edit", cwd=seed)
+        self._git("push", "origin", "main", cwd=seed)
+
+        (clone / "file.txt").write_text("loop version\n")
+        self._git("add", ".", cwd=clone)
+        self._git("-c", "user.name=t", "-c", "user.email=t@t.example", "commit", "-m", "loop edit", cwd=clone)
+
+        result = _sync_loop_branch(clone)
+
+        assert result is not None and "loop edit" in result
+        # Left clean: no rebase in progress, and the loop's own commit is exactly as it was before the attempt.
+        assert not (clone / ".git" / "rebase-merge").exists()
+        assert not (clone / ".git" / "rebase-apply").exists()
+        assert (clone / "file.txt").read_text() == "loop version\n"
+
+    def test_beat_parks_itself_not_a_criterion_on_a_rebase_conflict(self, tmp_path: Path) -> None:
+        from pravrudhi.application import heartbeat
+
+        _origin, seed, clone = self._origin_and_clone(tmp_path)
+        (seed / "file.txt").write_text("team version\n")
+        self._git("add", ".", cwd=seed)
+        self._git("-c", "user.name=t", "-c", "user.email=t@t.example", "commit", "-m", "team edit", cwd=seed)
+        self._git("push", "origin", "main", cwd=seed)
+        (clone / "file.txt").write_text("loop version\n")
+        self._git("add", ".", cwd=clone)
+        self._git("-c", "user.name=t", "-c", "user.email=t@t.example", "commit", "-m", "loop edit", cwd=clone)
+
+        def dispatch_fn(name: str, model: str | None) -> object:
+            raise AssertionError("a rebase conflict must stop the beat before any dispatch is even considered")
+
+        record = heartbeat.beat(clone, dispatch=dispatch_fn)
+
+        assert record.chose is None
+        assert record.result is None
+        assert "rebase-conflict" in record.reason
+
+    def test_beat_proceeds_normally_after_a_clean_rebase(self, tmp_path: Path) -> None:
+        from pravrudhi.application import heartbeat
+
+        _origin, seed, clone = self._origin_and_clone(tmp_path)
+        (seed / "team.txt").write_text("team work\n")
+        self._git("add", ".", cwd=seed)
+        self._git("-c", "user.name=t", "-c", "user.email=t@t.example", "commit", "-m", "team", cwd=seed)
+        self._git("push", "origin", "main", cwd=seed)
+
+        record = heartbeat.beat(clone)
+
+        assert "rebase-conflict" not in record.reason
+        assert (clone / "team.txt").exists()
+
+    def _make_persistent_conflict(self, tmp_path: Path) -> Path:
+        """A clone whose local unpushed commit conflicts with origin/main every time it is rebased - `beat()`
+        aborts and restores it identically, so calling `beat` again reproduces the same conflict, simulating
+        consecutive stuck beats without needing a fake clock."""
+        _origin, seed, clone = self._origin_and_clone(tmp_path)
+        (seed / "file.txt").write_text("team version\n")
+        self._git("add", ".", cwd=seed)
+        self._git("-c", "user.name=t", "-c", "user.email=t@t.example", "commit", "-m", "team edit", cwd=seed)
+        self._git("push", "origin", "main", cwd=seed)
+        (clone / "file.txt").write_text("loop version\n")
+        self._git("add", ".", cwd=clone)
+        self._git("-c", "user.name=t", "-c", "user.email=t@t.example", "commit", "-m", "loop edit", cwd=clone)
+        return clone
+
+    def test_the_streak_builds_across_beats_and_does_not_alert_before_the_threshold(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from pravrudhi.application import heartbeat, notifications
+
+        clone = self._make_persistent_conflict(tmp_path)
+        alerts: list[dict[str, object]] = []
+        monkeypatch.setattr(notifications, "emit", lambda root, **kw: alerts.append(kw))
+
+        for _ in range(heartbeat.MAX_REBASE_CONFLICTS_BEFORE_ALERT - 1):
+            heartbeat.beat(clone)
+
+        assert alerts == [], "must not alert before the streak reaches the threshold"
+        assert heartbeat.rebase_conflict_streak(clone) == heartbeat.MAX_REBASE_CONFLICTS_BEFORE_ALERT - 1
+
+    def test_reaching_the_threshold_alerts_so_the_stall_does_not_depend_on_reading_the_journal(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """ADR-0053 §3 amendment: quiet hours resolve themselves; a rebase conflict does not. A heartbeat alive
+        while convergence is zero, with nobody told, is the failure the operator named."""
+        from pravrudhi.application import heartbeat, notifications
+
+        clone = self._make_persistent_conflict(tmp_path)
+        alerts: list[dict[str, object]] = []
+        monkeypatch.setattr(notifications, "emit", lambda root, **kw: alerts.append(kw))
+
+        for _ in range(heartbeat.MAX_REBASE_CONFLICTS_BEFORE_ALERT):
+            heartbeat.beat(clone)
+
+        assert len(alerts) == 1
+        assert alerts[0]["kind"] == "rebase_conflict_streak"
+
+        # Kept stuck: the next beat alerts again rather than falling silent once the threshold has been crossed.
+        heartbeat.beat(clone)
+        assert len(alerts) == 2
+
+    def test_a_clean_sync_resets_the_rebase_conflict_streak(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from pravrudhi.application import heartbeat, notifications
+
+        clone = self._make_persistent_conflict(tmp_path)
+        monkeypatch.setattr(notifications, "emit", lambda root, **kw: None)
+        heartbeat.beat(clone)
+        assert heartbeat.rebase_conflict_streak(clone) == 1
+
+        self._git("reset", "--hard", "origin/main", cwd=clone)  # the person resolves it by hand
+        heartbeat.beat(clone)
+        assert heartbeat.rebase_conflict_streak(clone) == 0
