@@ -16,6 +16,11 @@ const BROKEN_TEXT = /^(Could not reach|could not load|failed to|No engine reacha
 
 test("the sign-in buttons render with visible text, not matching text-on-background", async ({ page }) => {
   await page.goto("/signin");
+  // A build with no NEXT_PUBLIC_SUPABASE_URL renders "Sign-in is not configured for this installation" and
+  // neither button exists at all — that read as "element(s) not found" in CI (2026-09-12) until this said so
+  // plainly instead.
+  const unconfigured = await page.getByText("Sign-in is not configured for this installation").count();
+  expect(unconfigured, "sign-in page is unconfigured in this build").toBe(0);
   for (const name of ["Sign in", "Email me a sign-in link instead"]) {
     const button = page.getByRole("button", { name, exact: true });
     await expect(button).toBeVisible();
