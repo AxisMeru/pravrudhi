@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
-# Sākṣī rule (CHARTER §6): commit as SharathSPhD <qbz506@york.ac.uk>, no attribution trailers.
+# Sākṣī rule (CHARTER §6, updated 2026-09-12 by operator instruction): the project migrated from a personal
+# account to the Axis Meru team account; commit as SharathSPhD <admin@axismeru.com> going forward. Commits before
+# this date under qbz506@york.ac.uk or sharath.sathish@gmail.com are not rewritten.
 # Strips Co-Authored-By / Claude-Session lines; fails if the author identity differs.
 set -euo pipefail
 MSG="$1"
 WANT_NAME="SharathSPhD"
-WANT_EMAIL="qbz506@york.ac.uk"
+WANT_EMAIL="admin@axismeru.com"
 
 name="${GIT_AUTHOR_NAME:-$(git config user.name || true)}"
 email="${GIT_AUTHOR_EMAIL:-$(git config user.email || true)}"
