@@ -2,10 +2,10 @@
 // controller to leave something out. Both are folded from the ledger, so the recorded demo carries them
 // unchanged and a page without a live engine shows the same numbers rather than an error.
 
-import { apiBase, ApiError, IS_DEMO } from "@/lib/api";
+import { ApiError, IS_DEMO, apiBase, engineFetch } from "@/lib/api";
 
 async function getJSON<T>(path: string): Promise<T> {
-  const res = await fetch(`${apiBase()}${path}`, { cache: "no-store" });
+  const res = await engineFetch(`${apiBase()}${path}`, { cache: "no-store" });
   if (!res.ok) throw new ApiError(res.status, path);
   return (await res.json()) as T;
 }

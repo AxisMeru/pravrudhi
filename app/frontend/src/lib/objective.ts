@@ -3,7 +3,7 @@
 // work it produced. Kept out of lib/api.ts so this join logic does not contend with pages already built against
 // it, the same reason lib/candidates.ts keeps its own fetch path instead of extending api.ts's.
 
-import { ApiError, apiBase, IS_DEMO, runs as fetchRuns, type BenchmarkProgress, type RunHandle } from "./api";
+import { ApiError, IS_DEMO, apiBase, engineFetch, runs as fetchRuns, type BenchmarkProgress, type RunHandle } from "./api";
 import { candidatesSnapshot, type CandidateRow } from "./candidates";
 import { percent } from "./num";
 
@@ -46,7 +46,7 @@ interface NightTrack {
 }
 
 async function getJSON<T>(path: string): Promise<T> {
-  const res = await fetch(`${apiBase()}${path}`, { cache: "no-store" });
+  const res = await engineFetch(`${apiBase()}${path}`, { cache: "no-store" });
   if (!res.ok) throw new ApiError(res.status, path);
   return (await res.json()) as T;
 }

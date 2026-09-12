@@ -7,7 +7,7 @@
 // Studio and shows every page the recording holds. Naming it the product hid the recorded tour, appetite, inbox,
 // requests, candidates and swarm pages behind "Not part of this edition" (found by the deployed e2e, 2026-09-11).
 
-import { apiBase, IS_DEMO } from "@/lib/api";
+import { IS_DEMO, apiBase, engineFetch } from "@/lib/api";
 
 export interface Edition {
   edition: string;
@@ -36,7 +36,7 @@ export const RECORDING: Edition = {
 export async function knownEdition(): Promise<Edition | null> {
   if (IS_DEMO) return null;
   try {
-    const res = await fetch(`${apiBase()}/api/me`, { cache: "no-store" });
+    const res = await engineFetch(`${apiBase()}/api/me`, { cache: "no-store" });
     if (!res.ok) return null;
     const body = (await res.json()) as Partial<Edition>;
     return {

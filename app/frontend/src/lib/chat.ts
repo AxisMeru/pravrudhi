@@ -8,7 +8,7 @@
 // user's turn until it has an answer for it (see `application/chat.py`'s `_finish_turn`), so a stream that dies
 // before its `done` event leaves nothing in the thread for this fallback call to duplicate.
 
-import { apiBase, localToken, chat as chatBlocking, type ChatCitation, type ChatResponse } from "./api";
+import { apiBase, chat as chatBlocking, engineFetch, localToken, type ChatCitation, type ChatResponse } from "./api";
 
 export interface ChatToolEvent {
   phase: "called" | "returned";
@@ -73,7 +73,7 @@ export async function streamChat(
   let response: Response | null = null;
   try {
     const token = await localToken();
-    response = await fetch(`${apiBase()}/api/chat/stream`, {
+    response = await engineFetch(`${apiBase()}/api/chat/stream`, {
       method: "POST",
       headers: {
         "content-type": "application/json",

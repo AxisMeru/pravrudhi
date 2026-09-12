@@ -2,7 +2,7 @@
 // user rather than the ledger (see application/memory.py's module docstring on why the two must never be
 // confused). A new file rather than additions to api.ts, so pages built in parallel never contend for that one.
 
-import { ApiError, apiBase, IS_DEMO, localToken } from "./api";
+import { ApiError, IS_DEMO, apiBase, engineFetch, localToken } from "./api";
 
 export interface MemoryNote {
   id: string;
@@ -29,7 +29,7 @@ export interface MemorySnapshot {
 const EMPTY: MemorySnapshot = { preferences: [], notes: [], threads: [] };
 
 async function getJSON<T>(path: string): Promise<T> {
-  const res = await fetch(`${apiBase()}${path}`, { cache: "no-store" });
+  const res = await engineFetch(`${apiBase()}${path}`, { cache: "no-store" });
   if (!res.ok) throw new ApiError(res.status, path);
   return (await res.json()) as T;
 }
@@ -76,7 +76,7 @@ export class RememberError extends Error {
 export async function remember(text: string, source = ""): Promise<MemoryNote> {
   if (IS_DEMO) throw new RememberError(501, "this is a recorded run: writing a note needs a local engine");
   const token = await localToken();
-  const res = await fetch(`${apiBase()}/api/memory/notes`, {
+  const res = await engineFetch(`${apiBase()}/api/memory/notes`, {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -107,7 +107,7 @@ export async function forget(id: string): Promise<void> {
 
 async function writeNote(path: string, method: string, body?: unknown): Promise<MemoryNote> {
   const token = await localToken();
-  const res = await fetch(`${apiBase()}${path}`, {
+  const res = await engineFetch(`${apiBase()}${path}`, {
     method,
     headers: {
       ...(body === undefined ? {} : { "content-type": "application/json" }),

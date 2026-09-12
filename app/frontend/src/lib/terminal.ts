@@ -1,4 +1,4 @@
-import { apiBase, ApiError, IS_DEMO, type RunEvent } from "./api";
+import { ApiError, IS_DEMO, apiBase, engineFetch, type RunEvent } from "./api";
 
 function parseFrame(frame: string): RunEvent | null {
   const data = frame.split(/\r?\n/)
@@ -20,7 +20,7 @@ function parseFrame(frame: string): RunEvent | null {
 export async function* terminalStream(runId: string, signal: AbortSignal): AsyncGenerator<RunEvent> {
   const path = `/api/runs/${encodeURIComponent(runId)}/events`;
   if (IS_DEMO) throw new Error("Live terminal output requires a connected engine.");
-  const response = await fetch(`${apiBase()}${path}`, {
+  const response = await engineFetch(`${apiBase()}${path}`, {
     signal, cache: "no-store", headers: { Accept: "text/event-stream" },
   });
   if (!response.ok) throw new ApiError(response.status, path);

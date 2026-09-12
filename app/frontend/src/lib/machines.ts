@@ -5,7 +5,7 @@
 // endpoint may not exist yet on an older build — so every export either resolves or rejects; nothing here hides
 // a failure behind a fabricated value.
 
-import { apiBase, ApiError, IS_DEMO, agents as fetchAgents, hosts as fetchHosts } from "@/lib/api";
+import { ApiError, IS_DEMO, agents as fetchAgents, apiBase, engineFetch, hosts as fetchHosts } from "@/lib/api";
 import type { AgentStatus, HostCapabilities, HostRow } from "@/lib/api";
 import { fixed } from "@/lib/num";
 
@@ -13,7 +13,7 @@ export type { AgentStatus, HostCapabilities, HostRow };
 export { fetchAgents as agents, fetchHosts as hosts };
 
 async function getJSON<T>(path: string): Promise<T> {
-  const res = await fetch(`${apiBase()}${path}`, { cache: "no-store" });
+  const res = await engineFetch(`${apiBase()}${path}`, { cache: "no-store" });
   if (!res.ok) throw new ApiError(res.status, path);
   return (await res.json()) as T;
 }

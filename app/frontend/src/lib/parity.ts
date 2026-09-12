@@ -3,10 +3,10 @@
 // so every shape below is provisional until that route lands — a missing route, an old build without it, or a
 // malformed response all collapse to the same honest "nothing to show" rather than a crash.
 
-import { apiBase, ApiError, IS_DEMO } from "@/lib/api";
+import { ApiError, IS_DEMO, apiBase, engineFetch } from "@/lib/api";
 
 async function getJSON<T>(path: string): Promise<T> {
-  const res = await fetch(`${apiBase()}${path}`, { cache: "no-store" });
+  const res = await engineFetch(`${apiBase()}${path}`, { cache: "no-store" });
   if (!res.ok) throw new ApiError(res.status, path);
   return (await res.json()) as T;
 }

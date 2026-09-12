@@ -4,7 +4,7 @@
 // dispatched agents and recorded only usage limits and fallbacks, so what the agents actually did — accepted,
 // rejected, why, how long — was readable nowhere. The record now exists; this reads it.
 
-import { ApiError, apiBase, IS_DEMO } from "./api";
+import { ApiError, IS_DEMO, apiBase, engineFetch } from "./api";
 
 export interface TraceEntry {
   at: string;
@@ -25,7 +25,7 @@ export async function agentTrace(limit = 100): Promise<TraceEntry[]> {
     return (bundle.agent_trace ?? []).slice(-limit).reverse();
   }
   const path = `/api/agent-trace?limit=${limit}`;
-  const res = await fetch(`${apiBase()}${path}`, { cache: "no-store" });
+  const res = await engineFetch(`${apiBase()}${path}`, { cache: "no-store" });
   if (!res.ok) throw new ApiError(res.status, path);
   return ((await res.json()) as { entries: TraceEntry[] }).entries;
 }

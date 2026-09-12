@@ -2,7 +2,7 @@
 // the commit its branch forked from. A new file rather than additions to api.ts, so pages built in parallel
 // never contend for that one -- the same reasoning swarm.ts already followed for its own views.
 
-import { ApiError, apiBase, IS_DEMO } from "./api";
+import { ApiError, IS_DEMO, apiBase, engineFetch } from "./api";
 
 export type DiffLineKind = "context" | "add" | "del";
 
@@ -54,7 +54,7 @@ async function demoDiffRecords(): Promise<DemoDiffRecord[]> {
 }
 
 async function getJSON<T>(path: string): Promise<T> {
-  const res = await fetch(`${apiBase()}${path}`, { cache: "no-store" });
+  const res = await engineFetch(`${apiBase()}${path}`, { cache: "no-store" });
   if (!res.ok) throw new ApiError(res.status, path);
   return (await res.json()) as T;
 }

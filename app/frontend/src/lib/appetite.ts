@@ -2,7 +2,7 @@
 // target, and why. A new file rather than additions to api.ts, so pages built in parallel never contend for
 // that one — the same reason swarm.ts has its own client.
 
-import { ApiError, apiBase, IS_DEMO } from "./api";
+import { ApiError, IS_DEMO, apiBase, engineFetch } from "./api";
 
 // A drive with `unknown: true` carries no measurement at all — `value`, `target` and `deficit` are null and must
 // render as "not measurable yet", never as a zero or a bare dash. `sources` names what a known number was
@@ -40,7 +40,7 @@ export interface AppetiteResponse {
 }
 
 async function getJSON<T>(path: string): Promise<T> {
-  const res = await fetch(`${apiBase()}${path}`, { cache: "no-store" });
+  const res = await engineFetch(`${apiBase()}${path}`, { cache: "no-store" });
   if (!res.ok) throw new ApiError(res.status, path);
   return (await res.json()) as T;
 }

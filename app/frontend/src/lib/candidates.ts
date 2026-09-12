@@ -8,7 +8,7 @@
 // there is no separate untethered "score" — so every number this file derives is built from it or from the raw
 // observation rows, never invented.
 
-import { ApiError, apiBase, IS_DEMO, type Candidate } from "./api";
+import { ApiError, IS_DEMO, apiBase, engineFetch, type Candidate } from "./api";
 import { fixed } from "./num";
 
 export type { Candidate };
@@ -46,7 +46,7 @@ interface NightTrack {
 }
 
 async function getJSON<T>(path: string): Promise<T> {
-  const res = await fetch(`${apiBase()}${path}`, { cache: "no-store" });
+  const res = await engineFetch(`${apiBase()}${path}`, { cache: "no-store" });
   if (!res.ok) throw new ApiError(res.status, path);
   return (await res.json()) as T;
 }

@@ -4,7 +4,7 @@
 // reachable engine with nothing to report yet — so every export distinguishes "no data was ever emitted" from
 // "the fetch itself failed," the same discipline `lib/machines.ts` and `lib/swarm.ts` already follow.
 
-import { apiBase, ApiError, IS_DEMO } from "@/lib/api";
+import { ApiError, IS_DEMO, apiBase, engineFetch } from "@/lib/api";
 import { swarm as fetchSwarm } from "@/lib/swarm";
 import type { SwarmSnapshot } from "@/lib/swarm";
 
@@ -12,7 +12,7 @@ export type { SwarmSnapshot };
 export { fetchSwarm as swarm };
 
 async function getJSON<T>(path: string): Promise<T> {
-  const res = await fetch(`${apiBase()}${path}`, { cache: "no-store" });
+  const res = await engineFetch(`${apiBase()}${path}`, { cache: "no-store" });
   if (!res.ok) throw new ApiError(res.status, path);
   return (await res.json()) as T;
 }

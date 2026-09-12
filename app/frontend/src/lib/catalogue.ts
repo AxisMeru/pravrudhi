@@ -2,7 +2,7 @@
 // what is actually usable on this machine. A new file rather than additions to api.ts, so pages built in
 // parallel never contend for that one — the same reasoning lib/swarm.ts already follows.
 
-import { apiBase, IS_DEMO, recipeLibrary, type Recipe } from "./api";
+import { IS_DEMO, apiBase, engineFetch, recipeLibrary, type Recipe } from "./api";
 
 export type { Recipe } from "./api";
 
@@ -45,7 +45,7 @@ interface DemoCapabilityTool {
 }
 
 async function getJSON<T>(path: string): Promise<T> {
-  const res = await fetch(`${apiBase()}${path}`, { cache: "no-store" });
+  const res = await engineFetch(`${apiBase()}${path}`, { cache: "no-store" });
   if (!res.ok) throw new Error(`${path}: HTTP ${res.status}`);
   return (await res.json()) as T;
 }

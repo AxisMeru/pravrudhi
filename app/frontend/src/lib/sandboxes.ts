@@ -3,7 +3,7 @@
 // policy has forbidden. A new file rather than additions to swarm.ts, so the two views built in parallel never
 // contend for that one.
 
-import { ApiError, apiBase, IS_DEMO } from "./api";
+import { ApiError, IS_DEMO, apiBase, engineFetch } from "./api";
 
 export interface SandboxViolation {
   task_id: string;
@@ -39,7 +39,7 @@ export interface SandboxesSnapshot {
 }
 
 async function getJSON<T>(path: string): Promise<T> {
-  const res = await fetch(`${apiBase()}${path}`, { cache: "no-store" });
+  const res = await engineFetch(`${apiBase()}${path}`, { cache: "no-store" });
   if (!res.ok) throw new ApiError(res.status, path);
   return (await res.json()) as T;
 }

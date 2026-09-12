@@ -7,7 +7,7 @@
 // reuses `localToken` from api.ts, the same source the settings page's state-changing calls draw from, rather
 // than duplicating how that token is fetched or cached.
 
-import { ApiError, apiBase, IS_DEMO, localToken } from "./api";
+import { ApiError, IS_DEMO, apiBase, engineFetch, localToken } from "./api";
 
 export type Badge = "grey" | "amber" | "green" | "red";
 
@@ -50,7 +50,7 @@ export class SignError extends Error {
 }
 
 async function getJSON<T>(path: string): Promise<T> {
-  const res = await fetch(`${apiBase()}${path}`, { cache: "no-store" });
+  const res = await engineFetch(`${apiBase()}${path}`, { cache: "no-store" });
   if (!res.ok) throw new ApiError(res.status, path);
   return (await res.json()) as T;
 }
@@ -86,7 +86,7 @@ export async function signInboxItem(
 ): Promise<SignResult> {
   if (IS_DEMO) throw new SignError(501, "this is a recorded run: signing needs a local engine");
   const token = await localToken();
-  const res = await fetch(`${apiBase()}/api/inbox/sign`, {
+  const res = await engineFetch(`${apiBase()}/api/inbox/sign`, {
     method: "POST",
     headers: {
       "content-type": "application/json",

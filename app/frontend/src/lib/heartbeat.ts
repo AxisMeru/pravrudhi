@@ -2,7 +2,7 @@
 // dispatch (if anything), why, and what came back. A new file rather than additions to api.ts, so pages built
 // in parallel never contend for that one.
 
-import { ApiError, apiBase, IS_DEMO } from "./api";
+import { ApiError, IS_DEMO, apiBase, engineFetch } from "./api";
 
 export interface HeartbeatChoice {
   objective: string;
@@ -32,7 +32,7 @@ export interface HeartbeatBeat {
 }
 
 async function getJSON<T>(path: string): Promise<T> {
-  const res = await fetch(`${apiBase()}${path}`, { cache: "no-store" });
+  const res = await engineFetch(`${apiBase()}${path}`, { cache: "no-store" });
   if (!res.ok) throw new ApiError(res.status, path);
   return (await res.json()) as T;
 }

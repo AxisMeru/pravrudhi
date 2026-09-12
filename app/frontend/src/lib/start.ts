@@ -7,21 +7,7 @@
 // plan for a draft that has not been created yet. Both new calls are written locally here rather than in
 // lib/api.ts, because that file belongs to the Objectives page and is not this flow's to change.
 
-import {
-  apiBase,
-  ApiError,
-  IS_DEMO,
-  localToken,
-  objectives as fetchObjectives,
-  recipeLibrary,
-  postObjective,
-  dispatchSubagents,
-  type BenchmarkSpec,
-  type Objective,
-  type ObjectiveInput,
-  type Plan,
-  type Recipe,
-} from "@/lib/api";
+import { ApiError, IS_DEMO, apiBase, dispatchSubagents, engineFetch, localToken, objectives as fetchObjectives, postObjective, recipeLibrary, type BenchmarkSpec, type Objective, type ObjectiveInput, type Plan, type Recipe } from "@/lib/api";
 
 export { IS_DEMO, dispatchSubagents, postObjective, fetchObjectives, recipeLibrary };
 export type { Objective, ObjectiveInput, Plan, Recipe, BenchmarkSpec };
@@ -93,7 +79,7 @@ interface BenchmarksPayload {
 
 async function postJSON<T>(path: string, body: unknown): Promise<T> {
   const token = await localToken();
-  const res = await fetch(`${apiBase()}${path}`, {
+  const res = await engineFetch(`${apiBase()}${path}`, {
     method: "POST",
     headers: { "content-type": "application/json", ...(token ? { "x-pravrudhi-token": token } : {}) },
     body: JSON.stringify(body),
@@ -127,7 +113,7 @@ export async function fetchBenchmarks(): Promise<BenchmarkCatalogEntry[]> {
     }
     return [...seen.values()];
   }
-  const res = await fetch(`${apiBase()}/api/benchmarks`, { cache: "no-store" });
+  const res = await engineFetch(`${apiBase()}/api/benchmarks`, { cache: "no-store" });
   if (!res.ok) throw new ApiError(res.status, "/api/benchmarks");
   return ((await res.json()) as BenchmarksPayload).benchmarks;
 }
