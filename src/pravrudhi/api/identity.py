@@ -185,6 +185,19 @@ PUBLIC_PATHS: frozenset[str] = frozenset({"/api/health"})
 carries no state and names nothing. Everything else under `/api` is somebody's."""
 
 
+def _with_query_token(conn: HTTPConnection) -> Mapping[str, str]:
+    """The request's headers, with `?access_token=` standing in for a missing Authorization header.
+
+    A browser's EventSource cannot set headers, so the run event stream (`/api/runs/{id}/events`) carries the
+    session token in the query string instead. Only the absence of the header is filled; a header always wins.
+    """
+    headers = conn.headers
+    if "authorization" in headers:
+        return headers
+    token = conn.query_params.get("access_token")
+    return {**headers, "authorization": f"Bearer {token}"} if token else headers
+
+
 def user_from_headers(headers: Mapping[str, str]) -> User | None:
     """Resolve the caller from request headers, or None when identity is not required and none was sent.
 
@@ -218,7 +231,7 @@ async def current_user(request: Request) -> User | None:
     mode, with the whole-surface gate `RequireIdentity` installs, which refuses an anonymous caller before
     any route runs.
     """
-    return user_from_headers(request.headers)
+    return user_from_headers(_with_query_token(request))
 
 
 class RequireIdentity:
@@ -240,7 +253,7 @@ class RequireIdentity:
             path: str = scope.get("path", "")
             if path.startswith("/api/") and path not in PUBLIC_PATHS and scope.get("method") != "OPTIONS":
                 try:
-                    user_from_headers(HTTPConnection(scope).headers)
+                    user_from_headers(_with_query_token(HTTPConnection(scope)))
                 except HTTPException as exc:
                     if scope["type"] == "http":
                         await JSONResponse({"detail": exc.detail}, status_code=exc.status_code)(scope, receive, send)

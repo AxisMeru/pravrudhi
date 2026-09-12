@@ -84,3 +84,20 @@ def test_required_mode_refuses_every_api_route_without_a_token(tmp_path: Path, m
     # A browser's preflight carries no token by design; refusing it would refuse the signed-in user too.
     assert c.options("/api/state", headers={"origin": "https://pravrudhi.vercel.app",
                                             "access-control-request-method": "GET"}).status_code != 401
+
+
+def test_the_session_token_may_travel_in_the_query_string_for_event_streams(tmp_path: Path, monkeypatch) -> None:
+    """EventSource cannot set headers; the run event stream carries `?access_token=` instead. The query token only
+    stands in for a missing header, and the same verification applies (a bad one is still a 401)."""
+    monkeypatch.setenv("PRAVRUDHI_AUTH", "required")
+    monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
+    monkeypatch.setenv("SUPABASE_JWT_SECRET", "s3cret-long-enough-for-hs256-testing-purposes")
+    monkeypatch.setenv("PRAVRUDHI_DISABLE_LOCAL_GUARD", "1")
+    monkeypatch.delenv("VERCEL", raising=False)
+    monkeypatch.delenv("RENDER", raising=False)
+    token = jwt.encode({"sub": "user-1", "email": "u@example.com", "role": "authenticated", "aud": "authenticated",
+                        "exp": 4102444800}, "s3cret-long-enough-for-hs256-testing-purposes", algorithm="HS256")
+    c = _client(tmp_path)
+    assert c.get("/api/me").status_code == 401
+    assert c.get(f"/api/me?access_token={token}").json()["email"] == "u@example.com"
+    assert c.get("/api/me?access_token=nope").status_code == 401
