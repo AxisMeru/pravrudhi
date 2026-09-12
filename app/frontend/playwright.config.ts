@@ -97,6 +97,15 @@ export default defineConfig({
       // prefix entirely (the exact class of bug this suite exists to catch).
       use: { baseURL: `${(process.env.DEPLOYED_URL ?? "https://axismeru.github.io/pravrudhi/app").replace(/\/+$/, "")}/` },
     }),
+    // The nightly's Studio half (pravrudhi-e2e-nightly.service): the real hosted door
+    // (deploy/gateway/README.md), signed in as the same non-admin account pravrudhi-app's own live-chromium
+    // uses, proving PRAVRUDHI_ADMINS actually holds on the live engine rather than just in roles.py's tests.
+    {
+      name: "live-chromium",
+      testMatch: "live-admin-boundary.spec.ts",
+      timeout: 60_000,
+      use: { baseURL: (process.env.LIVE_URL ?? "https://pravrudhi.vercel.app").replace(/\/+$/, ""), ...devices["Desktop Chrome"] },
+    },
   ],
   webServer: needsLocalEngine && !externalEngineURL
     ? {
