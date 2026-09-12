@@ -10,7 +10,8 @@
 #   cloudflare.env  CLOUDFLARE_API_TOKEN (Workers Scripts:Edit, Workers KV Storage:Edit), CLOUDFLARE_ACCOUNT_ID,
 #                   CF_KV_ID (written by --setup)
 #   gateway.env     PRAVRUDHI_ADMINS (the operator's Supabase account, Studio admits only this),
-#                   PRAVRUDHI_VERSION (the release both containers run), optional STUDIO_ORIGIN / PRODUCT_ORIGIN
+#                   PRAVRUDHI_VERSION (the release both containers run), STUDIO_ROOT (the real Studio root the
+#                   hosted Studio engine serves; default a fresh root), optional STUDIO_ORIGIN / PRODUCT_ORIGIN
 #   supabase.env    SUPABASE_URL (token verification)
 #   chat.env        the vendor key the engine routes to (a cost the operator has accepted)
 #   github.env      GITHUB_TOKEN, only to fetch release wheels past the anonymous rate limit when building
@@ -68,11 +69,18 @@ ensure_engine() {
   local edition=$1 name="pravrudhi-engine-$1" port; port=$(port_of "$1")
   if docker ps --format '{{.Names}} {{.Image}}' | grep -q "^$name pravrudhi-engine:$PRAVRUDHI_VERSION$"; then return; fi
   docker rm -f "$name" >/dev/null 2>&1 || true
-  mkdir -p "$STATE/$edition"
-  local extra=()
-  [ "$edition" = studio ] && extra=(-e "PRAVRUDHI_ADMINS=$PRAVRUDHI_ADMINS")   # Studio admits only the operator
+  # Studio's hosted engine serves THE Studio: the operator's real root, with its ledger, requests and the local
+  # loop's work, not a fresh root of its own (operator, 2026-09-12: "earlier studio was on rsi...what happened").
+  # The product's engine keeps its own root; its users have workspaces there. The Studio container runs as the
+  # operator's uid so files it writes into the real root are the operator's, with a HOME the engine can use.
+  local data="$STATE/$edition" extra=()
+  if [ "$edition" = studio ]; then
+    data="${STUDIO_ROOT:-$STATE/studio}"
+    extra=(-e "PRAVRUDHI_ADMINS=$PRAVRUDHI_ADMINS" --user "$(id -u):$(id -g)" -e HOME=/tmp)   # Studio admits only the operator
+  fi
+  mkdir -p "$data"
   docker run -d --name "$name" --restart unless-stopped --memory 3g \
-    -p "127.0.0.1:$port:8765" -v "$STATE/$edition:/data" \
+    -p "127.0.0.1:$port:8765" -v "$data:/data" \
     --env-file "$CONF/chat.env" \
     -e PRAVRUDHI_EDITION="$edition" -e SUPABASE_URL="$SUPABASE_URL" \
     -e PRAVRUDHI_ALLOWED_ORIGINS="$(origin_of "$edition")" \
