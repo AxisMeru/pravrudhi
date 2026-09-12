@@ -150,7 +150,7 @@ def gaps_from_signals(
         if not req.open:
             continue
         for i, crit in enumerate(req.criteria):
-            if crit.met:
+            if crit.met or crit.declined:
                 continue
             gaps.append(Gap(
                 id=f"criterion:{req.id}:{i}", kind="criterion",

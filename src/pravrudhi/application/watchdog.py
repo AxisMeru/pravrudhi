@@ -181,7 +181,7 @@ def _parked_criteria(root: Path) -> list[Finding]:
         if not request.open:
             continue
         for index, criterion in enumerate(request.criteria):
-            if criterion.met or not stalled(Path(root), request.id, index):
+            if criterion.met or criterion.declined or not stalled(Path(root), request.id, index):
                 continue
             if _stalled_on_paper(request, index):
                 # Decided, not owed: the beat spent this budget without a dispatch because no dispatch here can

@@ -22,10 +22,11 @@ wrote it, so a criterion invented by the engine can never be mistaken for someth
 from __future__ import annotations
 
 import contextlib
+import fcntl
 import json
 import re
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -73,17 +74,24 @@ class Criterion:
     """One checkable part of an ask. `source` records who wrote it: the operator, or the engine's reading of him.
 
     `mode` determines dispatch policy: "proposal" (default) sends to a scratch directory with read-only sandbox,
-    or "build" (when paths are named and files are code) dispatches with selfbuild policy and integration on MET."""
+    or "build" (when paths are named and files are code) dispatches with selfbuild policy and integration on MET.
+
+    `declined` is a criterion-level "no": unlike `drop_criterion` (which erases a malformed criterion so the
+    completion gate can redraft a good one in its place) this keeps the criterion, its text, and the reason it
+    will not be pursued, all visible in `show` - the record is corrected without anything disappearing from it.
+    `unmet()` and `next_unmet()` both treat a declined criterion as settled, so the loop stops paying to
+    dispatch it without anyone marking it (falsely) met."""
 
     text: str
     source: Literal["operator", "engine"] = "engine"
     met: bool = False
+    declined: bool = False
     evidence: list[Evidence] = field(default_factory=list)
     mode: Literal["proposal", "build"] = "proposal"
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "text": self.text, "source": self.source, "met": self.met,
+            "text": self.text, "source": self.source, "met": self.met, "declined": self.declined,
             "evidence": [e.to_dict() for e in self.evidence], "mode": self.mode,
         }
 
@@ -94,6 +102,7 @@ class Criterion:
             text=str(d.get("text", "")),
             source="operator" if d.get("source") == "operator" else "engine",
             met=bool(d.get("met", False)),
+            declined=bool(d.get("declined", False)),
             evidence=[Evidence(str(e.get("kind", "")), str(e.get("ref", "")), str(e.get("note", "")))
                       for e in (d.get("evidence") or [])],
             mode="build" if mode == "build" else "proposal",
@@ -135,7 +144,7 @@ class Request:
         return self.state not in ("verified", "declined")
 
     def unmet(self) -> list[Criterion]:
-        return [c for c in self.criteria if not c.met]
+        return [c for c in self.criteria if not c.met and not c.declined]
 
     def progress(self) -> tuple[int, int]:
         return sum(1 for c in self.criteria if c.met), len(self.criteria)
@@ -147,6 +156,31 @@ def store_path(root: Path) -> Path:
 
 def _now() -> str:
     return datetime.now(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
+@contextlib.contextmanager
+def locked(root: Path) -> Iterator[None]:
+    """Exclusive access to this project's request store for one whole read-modify-write.
+
+    Every public mutator below holds this for its entire body, not just around `save`: a function that reads
+    the current request, decides a new value from it, and only locks the final write can still overwrite a
+    change a second caller made in between. The CLI (`pravrudhi requests set-mode`/`mark-met`/`decline`) and
+    the heartbeat's own beat both call these same functions, and an operator flipping a criterion by hand while
+    the loop is mid-beat is exactly the race this closes - the operator asked for a tool because a hand-edit
+    with no lock at all had already cost a beat once.
+
+    Blocking (not the non-blocking `LOCK_NB` `loom_run.py` uses for a long-running pipeline record) because a
+    CLI edit and a beat's write are each individually fast: either can simply wait its turn, and refusing one
+    outright would just relocate the race to "try again," which is what editing the file by hand already was.
+    """
+    path = store_path(root).with_suffix(".json.lock")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a") as fh:
+        fcntl.flock(fh, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(fh, fcntl.LOCK_UN)
 
 
 def load(root: Path) -> list[Request]:
@@ -179,20 +213,21 @@ def capture(
     session: str = "", request_id: str | None = None,
 ) -> Request:
     """Record an ask. Idempotent on the verbatim text, so re-running a seed does not duplicate the backlog."""
-    existing = load(root)
-    for r in existing:
-        if r.text.strip() == text.strip():
-            return r
-    req = Request(
-        id=request_id or f"r-{uuid.uuid4().hex[:8]}",
-        asked_at=asked_at or _now(),
-        text=text,
-        criteria=criteria or [],
-        session=session,
-    )
-    existing.append(req)
-    save(root, existing)
-    return req
+    with locked(root):
+        existing = load(root)
+        for r in existing:
+            if r.text.strip() == text.strip():
+                return r
+        req = Request(
+            id=request_id or f"r-{uuid.uuid4().hex[:8]}",
+            asked_at=asked_at or _now(),
+            text=text,
+            criteria=criteria or [],
+            session=session,
+        )
+        existing.append(req)
+        save(root, existing)
+        return req
 
 
 def get(root: Path, request_id: str) -> Request | None:
@@ -213,26 +248,35 @@ def _replace(root: Path, req: Request) -> Request:
 
 def advance(root: Path, request_id: str, state: State, *, note: str = "") -> Request:
     """Move a request along, refusing a move the state machine does not allow."""
-    req = get(root, request_id)
-    if req is None:
-        raise RequestError(f"no request {request_id}")
-    if state == req.state:
-        return req
-    if state not in TRANSITIONS.get(req.state, ()):
-        raise RequestError(
-            f"{request_id} cannot go from {req.state} to {state}; allowed: {', '.join(TRANSITIONS[req.state])}"
-        )
-    if state in ("delivered", "verified"):
-        missing = req.unmet()
-        if not req.criteria:
-            raise RequestError(f"{request_id} has no acceptance criteria, so there is nothing to have delivered")
-        if missing:
+    with locked(root):
+        req = get(root, request_id)
+        if req is None:
+            raise RequestError(f"no request {request_id}")
+        if state == req.state:
+            return req
+        if state not in TRANSITIONS.get(req.state, ()):
             raise RequestError(
-                f"{request_id} still has {len(missing)} unmet criterion(s): " + "; ".join(c.text for c in missing[:3])
+                f"{request_id} cannot go from {req.state} to {state}; allowed: {', '.join(TRANSITIONS[req.state])}"
             )
-    req.state = state
-    req.notes.append({"at": _now(), "note": note or f"-> {state}"})
-    return _replace(root, req)
+        if state in ("delivered", "verified"):
+            missing = req.unmet()
+            if not req.criteria:
+                raise RequestError(f"{request_id} has no acceptance criteria, so there is nothing to have delivered")
+            if missing:
+                raise RequestError(
+                    f"{request_id} still has {len(missing)} unmet criterion(s): "
+                    + "; ".join(c.text for c in missing[:3])
+                )
+            if not any(c.met for c in req.criteria):
+                # Every criterion is settled (`unmet()` is empty) but none is actually met - the request's
+                # criteria were all declined. Declining everything is a "no", not a delivery.
+                raise RequestError(
+                    f"{request_id} has no criterion actually marked met (every one is declined); "
+                    "decline the request itself instead of calling this delivered"
+                )
+        req.state = state
+        req.notes.append({"at": _now(), "note": note or f"-> {state}"})
+        return _replace(root, req)
 
 
 def note(root: Path, request_id: str, text: str) -> Request:
@@ -241,41 +285,126 @@ def note(root: Path, request_id: str, text: str) -> Request:
     `advance` carries a note, which made every note a state change: the only way to write down why an attempt
     fell short was to pretend the request had moved.
     """
-    req = get(root, request_id)
-    if req is None:
-        raise RequestError(f"no request {request_id}")
-    return _replace(root, replace(req, notes=[*req.notes, {"at": _now(), "note": text}]))
+    with locked(root):
+        req = get(root, request_id)
+        if req is None:
+            raise RequestError(f"no request {request_id}")
+        return _replace(root, replace(req, notes=[*req.notes, {"at": _now(), "note": text}]))
 
 
 def add_criteria(root: Path, request_id: str, criteria: list[Criterion]) -> Request:
-    req = get(root, request_id)
-    if req is None:
-        raise RequestError(f"no request {request_id}")
-    req.criteria.extend(criteria)
-    return _replace(root, req)
+    with locked(root):
+        req = get(root, request_id)
+        if req is None:
+            raise RequestError(f"no request {request_id}")
+        req.criteria.extend(criteria)
+        return _replace(root, req)
 
 
-def meet(root: Path, request_id: str, index: int, evidence: list[Evidence]) -> Request:
-    """Mark one criterion met. Refuses without evidence: an assertion is not a fact."""
-    req = get(root, request_id)
-    if req is None:
-        raise RequestError(f"no request {request_id}")
-    if not 0 <= index < len(req.criteria):
-        raise RequestError(f"{request_id} has no criterion {index}")
-    if not evidence:
-        raise RequestError("a criterion is met by evidence, not by assertion; supply at least one reference")
-    bad = [e for e in evidence if e.kind not in EVIDENCE_KINDS]
-    if bad:
-        raise RequestError(f"unknown evidence kind(s): {', '.join(sorted({e.kind for e in bad}))}")
-    req.criteria[index].met = True
-    req.criteria[index].evidence.extend(evidence)
-    # A criterion that moved has not stalled, so its attempt budget is spent honestly and returned. Clearing here
-    # rather than in the heartbeat means any route to "met" resets it, not only the one the loop happens to take.
-    with contextlib.suppress(Exception):
-        from pravrudhi.application.heartbeat import clear_attempts
+def meet(
+    root: Path, request_id: str, index: int, evidence: list[Evidence], *,
+    why: str = "", actor: str = "agent-for-operator",
+) -> Request:
+    """Mark one criterion met. Refuses without evidence: an assertion is not a fact.
 
-        clear_attempts(root, request_id, index)
-    return _replace(root, req)
+    `why`/`actor` are for a caller marking this by hand (`pravrudhi requests mark-met`): given a reason, it
+    lands as a dated note alongside the state change, naming who did it and why. The heartbeat's own automatic
+    path calls this with neither, exactly as it always has - a note only appears when there is a human decision
+    behind it worth recording.
+    """
+    with locked(root):
+        req = get(root, request_id)
+        if req is None:
+            raise RequestError(f"no request {request_id}")
+        if not 0 <= index < len(req.criteria):
+            raise RequestError(f"{request_id} has no criterion {index}")
+        if not evidence:
+            raise RequestError("a criterion is met by evidence, not by assertion; supply at least one reference")
+        bad = [e for e in evidence if e.kind not in EVIDENCE_KINDS]
+        if bad:
+            raise RequestError(f"unknown evidence kind(s): {', '.join(sorted({e.kind for e in bad}))}")
+        if req.criteria[index].declined:
+            raise RequestError(f"{request_id}[{index}] was declined; nothing declined can be marked met")
+        req.criteria[index].met = True
+        req.criteria[index].evidence.extend(evidence)
+        if why.strip():
+            refs = ", ".join(f"{e.kind}:{e.ref}" for e in evidence)
+            req.notes.append({
+                "at": _now(), "note": f"{actor}: criterion[{index}] met ({refs}) ({why.strip()})",
+            })
+        # A criterion that moved has not stalled, so its attempt budget is spent honestly and returned. Clearing
+        # here rather than in the heartbeat means any route to "met" resets it, not only the one the loop takes.
+        with contextlib.suppress(Exception):
+            from pravrudhi.application.heartbeat import clear_attempts
+
+            clear_attempts(root, request_id, index)
+        return _replace(root, req)
+
+
+def set_mode(
+    root: Path, request_id: str, index: int, mode: Literal["proposal", "build"], *,
+    why: str, actor: str = "agent-for-operator",
+) -> Request:
+    """Flip one criterion's dispatch mode by hand, with the reason kept on the request.
+
+    `_drafted_mode` decides this once, at draft time, and the heartbeat trusts what it stored from then on -
+    which means a criterion drafted before the text-shape detector existed, or one whose text simply evades it,
+    stays stuck in the wrong mode until a person corrects the record directly. Before this, that correction was
+    a hand-edit of `.pravrudhi/requests.json` with no note explaining why and no lock against the heartbeat
+    writing the same file at the same time; this is that correction, done properly.
+    """
+    if mode not in ("proposal", "build"):
+        raise RequestError(f"unknown mode {mode!r}; expected proposal or build")
+    if not why.strip():
+        raise RequestError("set-mode requires a reason; that is the whole point of keeping the note")
+    with locked(root):
+        req = get(root, request_id)
+        if req is None:
+            raise RequestError(f"no request {request_id}")
+        if not 0 <= index < len(req.criteria):
+            raise RequestError(f"{request_id} has no criterion {index}")
+        criterion = req.criteria[index]
+        old = criterion.mode
+        if old == mode:
+            return req
+        criterion.mode = mode
+        req.notes.append({
+            "at": _now(), "note": f"{actor}: criterion[{index}] mode {old} -> {mode} ({why.strip()})",
+        })
+        return _replace(root, req)
+
+
+def decline_criterion(
+    root: Path, request_id: str, index: int, *, why: str, actor: str = "agent-for-operator",
+) -> Request:
+    """Say no to one criterion without touching the rest of the request.
+
+    Unlike `drop_criterion` (which erases a criterion the completion gate wrote wrong, so it can redraft a good
+    one in its place) this keeps the criterion on the record, with the reason it will not be pursued. `unmet()`
+    and `next_unmet()` both skip a declined criterion, so the loop stops paying to dispatch it, and `advance`
+    no longer counts it toward "nothing left to build" - but also refuses to call the request delivered on the
+    strength of criteria that were only ever declined, never met.
+    """
+    if not why.strip():
+        raise RequestError("decline requires a reason; that is the whole point of keeping the note")
+    with locked(root):
+        req = get(root, request_id)
+        if req is None:
+            raise RequestError(f"no request {request_id}")
+        if not 0 <= index < len(req.criteria):
+            raise RequestError(f"{request_id} has no criterion {index}")
+        criterion = req.criteria[index]
+        if criterion.met:
+            raise RequestError(f"{request_id}[{index}] is already met; declining it would erase real evidence")
+        criterion.declined = True
+        with contextlib.suppress(Exception):
+            from pravrudhi.application.heartbeat import clear_attempts
+
+            clear_attempts(root, request_id, index)
+        req.notes.append({
+            "at": _now(), "note": f"{actor}: criterion[{index}] declined ({why.strip()})",
+        })
+        return _replace(root, req)
 
 
 def drop_criterion(root: Path, request_id: str, index: int) -> Request:
@@ -288,19 +417,20 @@ def drop_criterion(root: Path, request_id: str, index: int) -> Request:
 
     This removes the criterion and nothing else, so the gate can re-run and write a well-formed one in its place.
     It is not a way to dismiss a demand that is merely hard: a criterion that states something and has not been
-    met should stay unmet.
+    met should stay unmet. (For that, see `decline_criterion`, which keeps the record instead of erasing it.)
     """
-    req = get(root, request_id)
-    if req is None:
-        raise RequestError(f"no request {request_id}")
-    if not 0 <= index < len(req.criteria):
-        raise RequestError(f"{request_id} has no criterion {index}")
-    with contextlib.suppress(Exception):
-        from pravrudhi.application.heartbeat import clear_attempts
+    with locked(root):
+        req = get(root, request_id)
+        if req is None:
+            raise RequestError(f"no request {request_id}")
+        if not 0 <= index < len(req.criteria):
+            raise RequestError(f"{request_id} has no criterion {index}")
+        with contextlib.suppress(Exception):
+            from pravrudhi.application.heartbeat import clear_attempts
 
-        clear_attempts(root, request_id, index)
-    del req.criteria[index]
-    return _replace(root, req)
+            clear_attempts(root, request_id, index)
+        del req.criteria[index]
+        return _replace(root, req)
 
 
 def retract_evidence(root: Path, request_id: str, index: int, ref: str) -> Request:
@@ -311,19 +441,20 @@ def retract_evidence(root: Path, request_id: str, index: int, ref: str) -> Reque
     possible. Making a criterion pass by deleting the evidence that failed must not be, so a criterion left with
     no evidence returns to unmet.
     """
-    req = get(root, request_id)
-    if req is None:
-        raise RequestError(f"no request {request_id}")
-    if not 0 <= index < len(req.criteria):
-        raise RequestError(f"{request_id} has no criterion {index}")
-    criterion = req.criteria[index]
-    kept = [e for e in criterion.evidence if e.ref != ref]
-    if len(kept) == len(criterion.evidence):
-        raise RequestError(f"{request_id}[{index}] carries no evidence with ref {ref!r}")
-    criterion.evidence = kept
-    if not kept:
-        criterion.met = False
-    return _replace(root, req)
+    with locked(root):
+        req = get(root, request_id)
+        if req is None:
+            raise RequestError(f"no request {request_id}")
+        if not 0 <= index < len(req.criteria):
+            raise RequestError(f"{request_id} has no criterion {index}")
+        criterion = req.criteria[index]
+        kept = [e for e in criterion.evidence if e.ref != ref]
+        if len(kept) == len(criterion.evidence):
+            raise RequestError(f"{request_id}[{index}] carries no evidence with ref {ref!r}")
+        criterion.evidence = kept
+        if not kept:
+            criterion.met = False
+        return _replace(root, req)
 
 
 def staleness(req: Request, *, now: datetime | None = None) -> float:
@@ -377,7 +508,7 @@ def next_unmet(
         if not req.open or req.id in exclude:
             continue
         for i, c in enumerate(req.criteria):
-            if c.met:
+            if c.met or c.declined:
                 continue
             if _parked(root, req.id, i):
                 continue  # spent its budget; it must not hide the work behind it, here or on its own request
@@ -726,8 +857,9 @@ def backlog(root: Path, *, now: datetime | None = None) -> dict[str, Any]:
 
 __all__ = [
     "Criterion", "Evidence", "Request", "RequestError", "STATES", "TRANSITIONS",
-    "add_criteria", "advance", "backlog", "capture", "draft_criteria", "get", "load", "meet",
-    "next_obligation", "triage", "untriaged", "decompose_ask", "CRITERIA_SCHEMA",
+    "add_criteria", "advance", "backlog", "capture", "decline_criterion", "draft_criteria", "drop_criterion",
+    "get", "load", "locked", "meet",
+    "next_obligation", "set_mode", "triage", "untriaged", "decompose_ask", "CRITERIA_SCHEMA",
     "next_unmet",
     "retract_evidence", "save",
     "staleness", "store_path",

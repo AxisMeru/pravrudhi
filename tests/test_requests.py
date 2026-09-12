@@ -309,3 +309,179 @@ class TestAParkedRequestDoesNotStarveTheRest:
 
         owed = next_obligation(tmp_path)
         assert owed is not None and owed["kind"] == "parked_request" and owed["request"] == only.id
+
+
+class TestSetMode:
+    """`pravrudhi requests set-mode`'s underlying function: a hand-flip of dispatch mode, with a reason on
+    record. An operator flipping eleven criteria by hand one morning, with no tool and no note, is what this
+    replaces."""
+
+    def test_flipping_mode_records_the_reason_and_the_old_value(self, tmp_path: Path) -> None:
+        req = requests.capture(tmp_path, "ask")
+        requests.add_criteria(tmp_path, req.id, [Criterion(text="update `src/x.py`", source="operator")])
+
+        out = requests.set_mode(tmp_path, req.id, 0, "build", why="drafted before the detector existed")
+
+        assert out.criteria[0].mode == "build"
+        assert any("proposal -> build" in n["note"] and "drafted before the detector existed" in n["note"]
+                   for n in out.notes)
+
+    def test_a_blank_reason_is_refused(self, tmp_path: Path) -> None:
+        req = requests.capture(tmp_path, "ask")
+        requests.add_criteria(tmp_path, req.id, [Criterion(text="x", source="operator")])
+        with pytest.raises(RequestError):
+            requests.set_mode(tmp_path, req.id, 0, "build", why="  ")
+
+    def test_an_unknown_mode_is_refused(self, tmp_path: Path) -> None:
+        req = requests.capture(tmp_path, "ask")
+        requests.add_criteria(tmp_path, req.id, [Criterion(text="x", source="operator")])
+        with pytest.raises(RequestError):
+            requests.set_mode(tmp_path, req.id, 0, "sideways", why="because")  # type: ignore[arg-type]
+
+    def test_setting_the_mode_already_in_effect_is_a_silent_no_op(self, tmp_path: Path) -> None:
+        req = requests.capture(tmp_path, "ask")
+        requests.add_criteria(tmp_path, req.id, [Criterion(text="x", source="operator", mode="build")])
+        out = requests.set_mode(tmp_path, req.id, 0, "build", why="already build")
+        assert out.notes == [], "nothing changed, so nothing was written"
+
+
+class TestDeclineCriterion:
+    """A criterion-level "no" that keeps the record, unlike `drop_criterion` which erases one wrongly written."""
+
+    def test_a_declined_criterion_is_no_longer_unmet(self, tmp_path: Path) -> None:
+        req = requests.capture(tmp_path, "ask")
+        requests.add_criteria(tmp_path, req.id, [Criterion(text="out of scope", source="operator")])
+        out = requests.decline_criterion(tmp_path, req.id, 0, why="not something this engine can do")
+        assert out.criteria[0].declined is True
+        assert out.unmet() == []
+        assert any("declined" in n["note"] and "not something this engine can do" in n["note"] for n in out.notes)
+
+    def test_a_declined_criterion_does_not_block_the_beat_on_the_rest_of_the_request(self, tmp_path: Path) -> None:
+        req = requests.capture(tmp_path, "ask")
+        requests.add_criteria(tmp_path, req.id, [
+            Criterion(text="out of scope", source="operator"),
+            Criterion(text="still to build", source="operator"),
+        ])
+        requests.decline_criterion(tmp_path, req.id, 0, why="scope cut")
+        picked = requests.next_unmet(tmp_path)
+        assert picked is not None
+        _, criterion, index = picked
+        assert index == 1 and criterion.text == "still to build"
+
+    def test_an_already_met_criterion_cannot_be_declined(self, tmp_path: Path) -> None:
+        req = requests.capture(tmp_path, "ask")
+        requests.add_criteria(tmp_path, req.id, [Criterion(text="done", source="operator")])
+        requests.meet(tmp_path, req.id, 0, [Evidence("commit", "abc1234")])
+        with pytest.raises(RequestError):
+            requests.decline_criterion(tmp_path, req.id, 0, why="changed my mind")
+
+    def test_a_blank_reason_is_refused(self, tmp_path: Path) -> None:
+        req = requests.capture(tmp_path, "ask")
+        requests.add_criteria(tmp_path, req.id, [Criterion(text="x", source="operator")])
+        with pytest.raises(RequestError):
+            requests.decline_criterion(tmp_path, req.id, 0, why="   ")
+
+    def test_a_request_whose_only_criterion_is_declined_cannot_be_delivered(self, tmp_path: Path) -> None:
+        """Everything unmet() reports is settled, but nothing was actually met - a request delivered on the
+        strength of criteria that were only ever declined would be a false "done", not a real one."""
+        req = requests.capture(tmp_path, "ask")
+        requests.add_criteria(tmp_path, req.id, [Criterion(text="out of scope", source="operator")])
+        requests.decline_criterion(tmp_path, req.id, 0, why="scope cut")
+        requests.advance(tmp_path, req.id, "in_progress")
+        with pytest.raises(RequestError, match="no criterion actually marked met"):
+            requests.advance(tmp_path, req.id, "delivered")
+
+    def test_a_request_with_one_met_and_one_declined_criterion_can_still_be_delivered(self, tmp_path: Path) -> None:
+        req = requests.capture(tmp_path, "ask")
+        requests.add_criteria(tmp_path, req.id, [
+            Criterion(text="out of scope", source="operator"),
+            Criterion(text="the real ask", source="operator"),
+        ])
+        requests.decline_criterion(tmp_path, req.id, 0, why="scope cut")
+        requests.meet(tmp_path, req.id, 1, [Evidence("commit", "abc1234")])
+        requests.advance(tmp_path, req.id, "in_progress")
+        delivered = requests.advance(tmp_path, req.id, "delivered")
+        assert delivered.state == "delivered"
+
+
+class TestMarkMetByHand:
+    """`meet`'s optional `why`/`actor`: a note only appears when a human decision supplied a reason, so the
+    heartbeat's own automatic calls (which pass neither) keep writing exactly as they always have."""
+
+    def test_a_reason_lands_as_a_dated_note_naming_the_actor_and_the_evidence(self, tmp_path: Path) -> None:
+        req = requests.capture(tmp_path, "ask")
+        requests.add_criteria(tmp_path, req.id, [Criterion(text="the widget spins", source="operator")])
+        out = requests.meet(
+            tmp_path, req.id, 0, [Evidence("commit", "abc1234")],
+            why="watched it spin in the browser", actor="sharath",
+        )
+        assert out.criteria[0].met is True
+        assert len(out.notes) == 1
+        assert "sharath" in out.notes[0]["note"]
+        assert "commit:abc1234" in out.notes[0]["note"]
+        assert "watched it spin in the browser" in out.notes[0]["note"]
+
+    def test_the_heartbeats_own_call_with_no_reason_writes_no_note(self, tmp_path: Path) -> None:
+        req = requests.capture(tmp_path, "ask")
+        requests.add_criteria(tmp_path, req.id, [Criterion(text="the widget spins", source="operator")])
+        out = requests.meet(tmp_path, req.id, 0, [Evidence("commit", "abc1234")])
+        assert out.notes == []
+
+    def test_a_declined_criterion_cannot_be_marked_met(self, tmp_path: Path) -> None:
+        req = requests.capture(tmp_path, "ask")
+        requests.add_criteria(tmp_path, req.id, [Criterion(text="x", source="operator")])
+        requests.decline_criterion(tmp_path, req.id, 0, why="scope cut")
+        with pytest.raises(RequestError):
+            requests.meet(tmp_path, req.id, 0, [Evidence("commit", "abc1234")])
+
+
+class TestTheStoreIsLocked:
+    """The heartbeat and a hand-edit both write `.pravrudhi/requests.json`; the lock is what keeps one from
+    landing mid-write of the other. `locked()` is exclusive and reentrant-unsafe by design (see its docstring),
+    so this checks the property that actually matters: two writers racing for the same criterion do not produce
+    a torn or silently-overwritten file."""
+
+    def test_two_concurrent_writers_do_not_corrupt_the_store(self, tmp_path: Path) -> None:
+        import threading
+
+        req = requests.capture(tmp_path, "ask")
+        requests.add_criteria(tmp_path, req.id, [Criterion(text=f"c{i}", source="operator") for i in range(20)])
+        errors: list[Exception] = []
+
+        def meet_one(index: int) -> None:
+            try:
+                requests.meet(tmp_path, req.id, index, [Evidence("commit", f"sha{index}")])
+            except Exception as e:  # noqa: BLE001 - collected and asserted on below
+                errors.append(e)
+
+        threads = [threading.Thread(target=meet_one, args=(i,)) for i in range(20)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert errors == []
+        after = requests.get(tmp_path, req.id)
+        assert after is not None
+        assert all(c.met for c in after.criteria), "a lost update would leave some criteria un-met"
+
+    def test_locked_is_exclusive_within_one_process(self, tmp_path: Path) -> None:
+        import threading
+        import time
+
+        holder_ready = threading.Event()
+        hold_for = 0.2
+
+        def hold() -> None:
+            with requests.locked(tmp_path):
+                holder_ready.set()
+                time.sleep(hold_for)
+
+        t = threading.Thread(target=hold)
+        t.start()
+        assert holder_ready.wait(timeout=5)
+        start = time.monotonic()
+        with requests.locked(tmp_path):
+            waited = time.monotonic() - start
+        t.join()
+        assert waited >= hold_for * 0.5, "the second lock must wait for the first to release, not run past it"

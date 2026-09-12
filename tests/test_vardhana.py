@@ -117,6 +117,15 @@ class TestGapsFromSignals:
         )
         assert vardhana.gaps_from_signals((), [], [], [], [req]) == []
 
+    def test_a_declined_criterion_on_an_otherwise_open_request_is_not_a_gap(self) -> None:
+        """The request stays open (another criterion may still be pending); only the declined one is settled -
+        matching `requests.next_unmet`, which this gap search is meant to agree with."""
+        req = requests.Request(
+            id="r-4", asked_at="2026-01-01T00:00:00Z", text="do the thing",
+            criteria=[requests.Criterion(text="out of scope", met=False, declined=True)],
+        )
+        assert vardhana.gaps_from_signals((), [], [], [], [req]) == []
+
     def test_a_required_capability_absent_from_the_catalogue_is_a_gap(self) -> None:
         gaps = vardhana.gaps_from_signals(("tool:widget",), [{"id": "widget", "available": False}], [], [], [])
         assert len(gaps) == 1

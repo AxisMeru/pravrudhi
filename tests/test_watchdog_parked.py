@@ -52,6 +52,16 @@ def test_a_criterion_that_was_met_after_parking_is_not_reported(tmp_path: Path) 
     assert watchdog._parked_criteria(tmp_path) == []
 
 
+def test_a_criterion_that_was_declined_after_parking_is_not_reported(tmp_path: Path) -> None:
+    """Declining settles a criterion the same way meeting it does: the loop no longer owes anyone a retry, so
+    the watchdog must not keep nagging about something a person already said no to."""
+    from pravrudhi.application.requests import decline_criterion
+
+    rid = _parked_request(tmp_path)
+    decline_criterion(tmp_path, rid, 0, why="out of scope")
+    assert watchdog._parked_criteria(tmp_path) == []
+
+
 def test_a_clean_workspace_reports_nothing(tmp_path: Path) -> None:
     assert watchdog._parked_criteria(tmp_path) == []
 

@@ -14,6 +14,8 @@ gate_app = typer.Typer(help="Emit, check and sign gate JSON. Gates are never han
 contract_app = typer.Typer(help="House alias for `gate check`.")
 app.add_typer(gate_app, name="gate")
 app.add_typer(contract_app, name="contract")
+requests_app = typer.Typer(help="The operator's asks: triage them without hand-editing .pravrudhi/requests.json.")
+app.add_typer(requests_app, name="requests")
 
 ROOT_OPT = typer.Option(Path("."), "--root", help="Repository root holding contracts/ and gates/.")
 VERSION_OPT = typer.Option(False, "--version")
@@ -83,6 +85,21 @@ REQUEST_STATE_ARG = typer.Argument(
 )
 REQUEST_KIND_OPT = typer.Option(..., "--kind", help="commit | ledger_seq | file | command | screenshot | url")
 REQUEST_REF_OPT = typer.Option(..., "--ref")
+REQUEST_MODE_ARG = typer.Argument(..., help="proposal | build")
+REQUEST_WHY_OPT = typer.Option(..., "--why", help="why, for the note kept on the request")
+REQUEST_ACTOR_OPT = typer.Option(
+    "agent-for-operator", "--actor",
+    help="who is making this edit, for the note kept on the request (ADR-0040's default identity, or a caller's own)",
+)
+REQUEST_MARK_MET_EVIDENCE_OPT = typer.Option(
+    ..., "--evidence", help="a commit sha, ledger sequence, path, command, screenshot, or url"
+)
+REQUEST_MARK_MET_KIND_OPT = typer.Option(
+    "commit", "--kind", help="commit | ledger_seq | file | command | screenshot | url"
+)
+REQUEST_DECLINE_INDEX_ARG = typer.Argument(
+    None, help="criterion index, 0-based; omit to decline the whole request"
+)
 
 
 @app.callback(invoke_without_command=True)
@@ -1599,9 +1616,7 @@ def app_cmd(
     serve(root, host=host, port=port, open_browser=not no_browser)
 
 
-@app.command("requests")
-def requests_cmd(root: Path = ROOT_OPT, as_json: bool = REQUESTS_JSON_OPT) -> None:
-    """The operator's asks: id, state, criteria met, days waiting, and the first 60 characters of the ask."""
+def _render_backlog(root: Path, as_json: bool) -> None:
     from pravrudhi.application.requests import backlog
 
     data = backlog(root)
@@ -1618,24 +1633,141 @@ def requests_cmd(root: Path = ROOT_OPT, as_json: bool = REQUESTS_JSON_OPT) -> No
         typer.echo(f"{r['id']:10} {r['state']:12} {f'{met}/{total}':6} {r['staleness_days']:>6}  {ask}")
 
 
-@app.command("requests-show")
-def requests_show_cmd(request_id: str = REQUEST_ID_ARG, root: Path = ROOT_OPT) -> None:
-    """The full ask, each criterion with who wrote it and whether it is met, and its evidence."""
-    from pravrudhi.application.requests import get
-
-    req = get(root, request_id)
-    if req is None:
-        typer.echo(f"no request {request_id}", err=True)
-        raise typer.Exit(code=1)
+def _render_request(req: Any) -> None:
+    """Shared by `requests show` and the older `requests-show`: the ask, each criterion with who wrote it, its
+    dispatch mode, whether it is met, declined or still unmet, its evidence, and the audit trail of every note a
+    hand edit (`requests set-mode`/`mark-met`/`decline`) left on the request."""
     typer.echo(f"{req.id}  [{req.state}]  asked {req.asked_at}")
     typer.echo(req.text)
     typer.echo("")
     if not req.criteria:
         typer.echo("no acceptance criteria yet")
     for i, c in enumerate(req.criteria):
-        typer.echo(f"[{i}] ({c.source}) {'met' if c.met else 'unmet'}  {c.text}")
+        status = "met" if c.met else ("declined" if c.declined else "unmet")
+        typer.echo(f"[{i}] ({c.source}, {c.mode}) {status}  {c.text}")
         for e in c.evidence:
             typer.echo(f"      {e.kind}: {e.ref}" + (f"  {e.note}" if e.note else ""))
+    if req.notes:
+        typer.echo("\nnotes:")
+        for n in req.notes:
+            typer.echo(f"  {n.get('at', '')}  {n.get('note', '')}")
+
+
+@requests_app.callback(invoke_without_command=True)
+def requests_group(ctx: typer.Context, root: Path = ROOT_OPT, as_json: bool = REQUESTS_JSON_OPT) -> None:
+    """The operator's asks: id, state, criteria met, days waiting, and the first 60 characters of the ask.
+
+    Bare, this lists the backlog. `show`/`set-mode`/`mark-met`/`decline` triage one request so nobody has to
+    edit `.pravrudhi/requests.json` by hand - the file `requests-capture`'s local hook and the heartbeat both
+    write, now behind a lock so a hand edit and a beat's write can never land on top of each other.
+    """
+    if ctx.invoked_subcommand is not None:
+        return
+    _render_backlog(root, as_json)
+
+
+@requests_app.command("show")
+def requests_show_group_cmd(request_id: str = REQUEST_ID_ARG, root: Path = ROOT_OPT) -> None:
+    """The full ask, each criterion with who wrote it and whether it is met, and its evidence and audit notes."""
+    from pravrudhi.application.requests import get
+
+    req = get(root, request_id)
+    if req is None:
+        typer.echo(f"no request {request_id}", err=True)
+        raise typer.Exit(code=1)
+    _render_request(req)
+
+
+@requests_app.command("set-mode")
+def requests_set_mode_cmd(
+    request_id: str = REQUEST_ID_ARG,
+    index: int = REQUEST_INDEX_ARG,
+    mode: str = REQUEST_MODE_ARG,
+    why: str = REQUEST_WHY_OPT,
+    actor: str = REQUEST_ACTOR_OPT,
+    root: Path = ROOT_OPT,
+) -> None:
+    """Flip one criterion between `proposal` and `build` dispatch, with the reason kept on the request.
+
+    For a criterion drafted before `heartbeat.dispatch_mode`'s text-shape detector existed, or whose text
+    simply evades it: a hand-flip that used to mean editing the JSON directly, with no note and no lock against
+    the heartbeat's own write landing at the same time.
+    """
+    from pravrudhi.application.requests import RequestError, set_mode
+
+    if mode not in ("proposal", "build"):
+        typer.echo(f"unknown mode {mode!r}; expected proposal or build", err=True)
+        raise typer.Exit(code=2)
+    try:
+        req = set_mode(root, request_id, index, mode, why=why, actor=actor)  # type: ignore[arg-type]
+    except RequestError as e:
+        typer.echo(str(e), err=True)
+        raise typer.Exit(code=1) from e
+    typer.echo(f"{req.id}[{index}] mode -> {req.criteria[index].mode}")
+
+
+@requests_app.command("mark-met")
+def requests_mark_met_cmd(
+    request_id: str = REQUEST_ID_ARG,
+    index: int = REQUEST_INDEX_ARG,
+    evidence: str = REQUEST_MARK_MET_EVIDENCE_OPT,
+    kind: str = REQUEST_MARK_MET_KIND_OPT,
+    why: str = REQUEST_WHY_OPT,
+    actor: str = REQUEST_ACTOR_OPT,
+    root: Path = ROOT_OPT,
+) -> None:
+    """Mark one acceptance criterion met by hand, with the evidence and the reason both kept on the request."""
+    from pravrudhi.application.requests import Evidence, RequestError, meet
+
+    if not why.strip():
+        typer.echo("mark-met requires a reason; that is the whole point of keeping the note", err=True)
+        raise typer.Exit(code=2)
+    try:
+        req = meet(root, request_id, index, [Evidence(kind=kind, ref=evidence)], why=why, actor=actor)
+    except RequestError as e:
+        typer.echo(str(e), err=True)
+        raise typer.Exit(code=1) from e
+    typer.echo(f"{req.id}[{index}] met: {req.criteria[index].text}")
+
+
+@requests_app.command("decline")
+def requests_decline_cmd(
+    request_id: str = REQUEST_ID_ARG,
+    index: int | None = REQUEST_DECLINE_INDEX_ARG,
+    why: str = REQUEST_WHY_OPT,
+    actor: str = REQUEST_ACTOR_OPT,
+    root: Path = ROOT_OPT,
+) -> None:
+    """Say no, on the record. With an index, only that criterion is declined and the rest of the request
+    stands; without one, the whole request moves to `declined` (the existing state machine)."""
+    from pravrudhi.application.requests import RequestError, advance, decline_criterion
+
+    if not why.strip():
+        typer.echo("decline requires a reason; that is the whole point of keeping the note", err=True)
+        raise typer.Exit(code=2)
+    try:
+        if index is None:
+            req = advance(root, request_id, "declined", note=f"{actor}: declined ({why.strip()})")
+            typer.echo(f"{req.id} -> declined")
+        else:
+            req = decline_criterion(root, request_id, index, why=why, actor=actor)
+            typer.echo(f"{req.id}[{index}] declined: {req.criteria[index].text}")
+    except RequestError as e:
+        typer.echo(str(e), err=True)
+        raise typer.Exit(code=1) from e
+
+
+@app.command("requests-show")
+def requests_show_cmd(request_id: str = REQUEST_ID_ARG, root: Path = ROOT_OPT) -> None:
+    """The full ask, each criterion with who wrote it and whether it is met, and its evidence. Kept as the
+    original flat command name for `pravrudhi requests show`'s sake; identical rendering, either name."""
+    from pravrudhi.application.requests import get
+
+    req = get(root, request_id)
+    if req is None:
+        typer.echo(f"no request {request_id}", err=True)
+        raise typer.Exit(code=1)
+    _render_request(req)
 
 
 @app.command("requests-capture")
