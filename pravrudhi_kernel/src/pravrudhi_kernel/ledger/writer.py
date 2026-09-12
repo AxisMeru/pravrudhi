@@ -217,7 +217,12 @@ class LedgerWriter:
         """Append under an exclusive file lock. If another writer advanced the file since this writer last
         touched it, the head is taken from the file's last line and an audit{kind: head_resync} row is written
         first (ADR-0013): concurrent writers interleave, never fork the chain."""
-        fd = os.open(self.path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o640)
+        # ADR-0052 amendment: without O_BINARY, Windows opens this descriptor in text mode and the C runtime
+        # rewrites every \n written below as \r\n - silently, since os.write() gives no indication. getattr
+        # is 0 on POSIX (the flag doesn't exist there), leaving those bytes unchanged.
+        fd = os.open(
+            self.path, os.O_WRONLY | os.O_APPEND | os.O_CREAT | getattr(os, "O_BINARY", 0), 0o640
+        )
         try:
             _lock_exclusive(fd)
             lines: list[LedgerEvent] = []
