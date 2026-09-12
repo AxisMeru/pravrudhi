@@ -1084,15 +1084,22 @@ def _beat_obligations(root: Path, dispatch: DispatchFn | None, *, judge: Any = N
     # it. Fail-closed: an unclear answer is not met.
     # H4: Now record the judged attempt, only after dispatch accepted and we will run the judge.
     record_attempt(root, request.id, index)
-    if mode == "build":
-        # The change is in the dispatch's worktree and nowhere else yet; a judge reading the repository root
-        # would be judging the tree without it.
-        from pravrudhi.agents.base import GitWorktreeMixin
+    # Both modes land in the dispatch's own worktree and nowhere else yet: `delegate.dispatch` always runs the
+    # agent in `agent.create_workspace(task_id)` (a worktree branched from HEAD) and never merges or copies that
+    # worktree back into the main tree on its own - only a MET build criterion gets that step, afterwards, via
+    # `integrate.integrate_build_criterion`. A judge reading the repository root (or, worse, a judge that builds
+    # its OWN fresh worktree of HEAD because it was given no workspace) is reading a tree without the work,
+    # one directory over from where the dispatch actually wrote it. This was fixed for build mode on 2026-09-11
+    # and missed proposal mode, which is why studio's r-4b5cdaf1 and the product's r-3981d7e0 were refused
+    # for an "empty" proposal directory that was never empty - just in the wrong worktree.
+    from pravrudhi.agents.base import GitWorktreeMixin
 
-        build_worktree: Path | None = root / ".worktrees" / f"agent-{GitWorktreeMixin.ref_safe(task_id)}"
-        where = "the agent's worktree, which is your working directory and holds the change (the repository root does not yet)"
-    else:
-        build_worktree, where = None, "the repository root"
+    build_worktree: Path | None = root / ".worktrees" / f"agent-{GitWorktreeMixin.ref_safe(task_id)}"
+    where = (
+        "the agent's worktree, which is your working directory and holds the change (the repository root does not yet)"
+        if mode == "build" else
+        "the agent's worktree, which is your working directory and holds the proposal (the repository root does not yet)"
+    )
     answer = (judge or _default_judge(root, workspace=build_worktree))(
         prompt=_judge_prompt(request.text, criterion.text, list(verdict.files), where=where))
     met, why = _judged(answer)
