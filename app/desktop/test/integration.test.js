@@ -133,16 +133,25 @@ test('smoke writes parseable JSON to disk and preserves partial observations on 
   const report=JSON.parse(await fs.readFile(file,'utf8'));
   assert.equal(report.launched,true);assert.equal(report.engine_found,true);assert.equal(report.health_ok,false);assert.deepEqual(report.errors,['frontend missing']);
 });
-test('sandbox preload provides an enumerated invoke-only API with no renderer-controlled arguments',async()=>{
-  const fs=require('node:fs');const vm=require('node:vm');let exposed;const channels=[];
+test('sandbox preload provides an enumerated invoke-only API, forwarding renderer arguments only for the bring-your-own-key channels',async()=>{
+  const fs=require('node:fs');const vm=require('node:vm');let exposed;const calls=[];
   vm.runInNewContext(fs.readFileSync(require.resolve('../preload'),'utf8'),{require:name=>{
-    assert.equal(name,'electron');return {contextBridge:{exposeInMainWorld:(name,api)=>{assert.equal(name,'desktop');exposed=api;}},ipcRenderer:{invoke:async(...args)=>{assert.equal(args.length,1);channels.push(args[0]);}}};
+    assert.equal(name,'electron');return {contextBridge:{exposeInMainWorld:(name,api)=>{assert.equal(name,'desktop');exposed=api;}},ipcRenderer:{invoke:async(...args)=>{calls.push(args);}}};
   }});
   assert.ok(Object.isFrozen(exposed));
   for(const fn of Object.values(exposed)) await fn('untrusted arbitrary command');
   // engine:backlog and engine:inbox are gone with the operator surfaces they fed. They were still wired in
   // main.js and preload.js after the client dropped them, so every launch died on "handler is not a function".
-  assert.deepEqual(channels,['engine:health','engine:update-state','engine:open','engine:status','engine:locate','engine:restart','engine:stop','engine:doctor','engine:updates','engine:workspace']);
+  assert.deepEqual(calls.map(c=>c[0]),['engine:health','engine:update-state','engine:open','engine:status','engine:locate','engine:restart','engine:stop','engine:doctor','engine:updates','engine:workspace','providers:list','providers:validate','providers:key:set','providers:key:delete']);
+  // Every channel above ignores whatever the renderer passes it — none of them takes an argument at all. The
+  // provider channels are the one deliberate exception: a provider id and key are a user's own, typed by hand,
+  // and the engine's own boundary (tests/test_byok_boundary.py) resolves them by caller identity, not by
+  // trusting this shell to have kept them secret from the renderer that collected them.
+  assert.deepEqual(calls.slice(0,10).every(c=>c.length===1),true);
+  assert.deepEqual(calls.find(c=>c[0]==='providers:list'),['providers:list']);
+  assert.deepEqual(calls.find(c=>c[0]==='providers:validate'),['providers:validate','untrusted arbitrary command']);
+  assert.deepEqual(calls.find(c=>c[0]==='providers:key:set'),['providers:key:set','untrusted arbitrary command',undefined,undefined]);
+  assert.deepEqual(calls.find(c=>c[0]==='providers:key:delete'),['providers:key:delete','untrusted arbitrary command']);
 });
 test('first-run renderer displays API data and named failed doctor reasons with copyable commands',async()=>{
   const fs=require('node:fs');const vm=require('node:vm');const elements=new Map();
@@ -226,6 +235,63 @@ test('main bootstrap attaches, runs doctor, loads the engine and reports before 
   assert.equal(await exit,0);assert.equal(shutdown,true);assert.equal(spawnedApp,false);
   assert.equal(windowOptions.webPreferences.contextIsolation,true);assert.equal(windowOptions.webPreferences.nodeIntegration,false);assert.equal(windowOptions.webPreferences.sandbox,true);
   assert.equal(report.page_title,'Engine fixture');assert.equal(report.launched,true);assert.equal(report.health_ok,true);assert.deepEqual(report.errors,[]);
+});
+
+test('main wires the provider surface to the IPC channels preload exposes, gated the same as every other channel',async()=>{
+  const fs=require('node:fs');const vm=require('node:vm');const path=require('node:path');const {pathToFileURL}=require('node:url');
+  const desktopDir=path.dirname(require.resolve('../main'));
+  const app=new EventEmitter();let exited;
+  const exit=new Promise(resolve=>{exited=resolve;});
+  Object.assign(app,{requestSingleInstanceLock:()=>true,setPath(){},getPath:()=>desktopDir,getVersion:()=> 'test-shell',whenReady:async()=>{},quit:()=>app.emit('before-quit',{preventDefault(){}}),exit:code=>exited(code)});
+  let windowInstance;
+  class Window extends EventEmitter {
+    constructor() {
+      super();windowInstance=this;this.webContents=new EventEmitter();
+      Object.assign(this.webContents,{mainFrame:{},session:{setPermissionRequestHandler(){}},setWindowOpenHandler(){},executeJavaScript:async()=>{},getTitle:()=>this.title});
+    }
+    async loadFile(){this.title='Desktop fixture';this.webContents.emit('did-finish-load');}
+    async loadURL(){this.title='Engine fixture';this.webContents.emit('did-finish-load');}
+    static fromWebContents(wc){ return wc === windowInstance?.webContents ? windowInstance : undefined; }
+  }
+  class Tray { on(){} setToolTip(){} setContextMenu(){} }
+  const registered = {}, providerApi = {setKey:[], deleteKey:[]};
+  const core=require('../lib/core');const lifecycle=require('../lib/lifecycle');const {createSmokeReporter}=require('../lib/smoke');
+  const modules={
+    electron:{app,BrowserWindow:Window,Menu:{buildFromTemplate:items=>items,setApplicationMenu(){}},Tray,nativeImage:{createFromBitmap(){}},ipcMain:{handle:(channel,fn)=>{registered[channel]=fn;}},dialog:{showErrorBox:(_title,message)=>assert.fail(message)},shell:{},screen:{getAllDisplays:()=>[]}},
+    './lib/core':{...core,discoverEngine:async()=> 'fixture-engine',pollHealth:async()=>({ok:true}),readState:()=>({}),writeState(){}},
+    './lib/connection':{selectConnection:async()=>({attached:true,binary:'fixture-engine',origin:'http://127.0.0.1:8008'}),defaultWorkspace:()=>desktopDir},
+    './lib/api':{createApiClient:()=>({
+      health:async()=>({ok:true,version:'fixture'}),
+      providers:async()=>[{id:'alibaba',configured:false}],
+      setProviderKey:async(args)=>{providerApi.setKey.push(args);return {provider:'alibaba',configured:true,validated:true,reason:''};},
+      deleteProviderKey:async(args)=>{providerApi.deleteKey.push(args);return {provider:'alibaba',configured:false};},
+    })},
+    './lib/smoke':{createSmokeReporter:file=>createSmokeReporter(file,{write(){}})},
+    './lib/lifecycle':{...lifecycle,createProcessOwner:()=>({launch:()=>{
+      const child=new EventEmitter();child.stdout=new EventEmitter();child.stderr=new EventEmitter();
+      queueMicrotask(()=>{child.stdout.emit('data',JSON.stringify({checks:[]}));child.emit('close',1);});return child;
+    },stop:async()=>{},shutdown:async()=>{}})}
+  };
+  vm.runInNewContext(fs.readFileSync(require.resolve('../main'),'utf8'),{
+    require:name=>modules[name] || (name.startsWith('./') ? require(path.join(desktopDir,name)) : require(name)),
+    __dirname:desktopDir,process:{env:{PRAVRUDHI_DESKTOP_SMOKE:'1'},on(){}},console,Buffer,AbortController,AbortSignal,URL,setTimeout,clearTimeout,
+    fetch:async()=>({ok:true,headers:{get:()=> 'text/html'}})
+  });
+  await exit;
+  const statusURL = pathToFileURL(path.join(desktopDir,'renderer/index.html')).href;
+  windowInstance.webContents.mainFrame.url = statusURL;
+  const trusted = {senderFrame:windowInstance.webContents.mainFrame, sender:windowInstance.webContents};
+  assert.deepEqual(await registered['providers:list'](trusted), [{id:'alibaba',configured:false}]);
+  assert.equal((await registered['providers:validate'](trusted,'alibaba')).id, 'alibaba');
+  const added = await registered['providers:key:set'](trusted,'alibaba','sk-mine');
+  assert.equal(added.validated, true);
+  assert.deepEqual(providerApi.setKey[0], {id:'alibaba', body:{key:'sk-mine'}});
+  await registered['providers:key:delete'](trusted,'alibaba');
+  assert.deepEqual(providerApi.deleteKey[0], {id:'alibaba'});
+  const untrusted = {senderFrame:{url:'https://evil.example'}, sender:windowInstance.webContents};
+  // The trust check runs before the handler returns a promise at all, so it throws synchronously rather than
+  // rejecting one — the same shape every other channel's gate already has, unchanged by this wiring.
+  assert.throws(() => registered['providers:list'](untrusted), /Untrusted desktop request/);
 });
 
 test('the product never reaches an operator surface', async () => {

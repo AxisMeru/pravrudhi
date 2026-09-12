@@ -5,6 +5,7 @@ const {pathToFileURL} = require('node:url');
 const {discoverEngine, pollHealth, parseDoctor, linkPolicy, readState, writeState, validBounds} = require('./lib/core');
 const {recovery} = require('./lib/recovery');
 const {createApiClient} = require('./lib/api');
+const {createProviderSurface} = require('./renderer/product');
 const {selectConnection, defaultWorkspace} = require('./lib/connection');
 const {createProcessOwner, singleInstance, focusWindow} = require('./lib/lifecycle');
 const {engineEnv, readEdition, userDataName} = require('./lib/edition');
@@ -64,6 +65,10 @@ let settings, stateFile, workspace, tray, engine, controller, quitting = false, 
 const windows = new Set(), processes = createProcessOwner();
 let status = {phase: 'starting', detail: 'Finding your installed engine…', checks: [], version: 'Unknown', origin: null};
 const api = createApiClient(()=>status.origin);
+// The bring-your-own-key surface (renderer/product.js): this desktop shell never holds a provider key of its
+// own, it only relays a signed-in user's own key to the three routes the engine already classifies as the
+// product's, so the boundary in tests/test_byok_boundary.py is the engine's to keep, not this shell's.
+const providerSurface = createProviderSurface(api);
 const engineController = {restart:()=>serialize(start),stop:()=>serialize(stop),checkForUpdates:updates,openWorkspace:async()=>{ const error = await shell.openPath(workspace); if (error) throw new Error(error); }};
 function persist() { writeState(stateFile, settings); }
 function publish(patch) { status = {...status, ...patch}; refreshTray(); }
@@ -289,11 +294,13 @@ if (instanceReady) {
   app.whenReady().then(async () => {
     stateFile = path.join(app.getPath('userData'), 'desktop-state.json'); settings = readState(stateFile);
     workspace = defaultWorkspace({env:process.env.PRAVRUDHI_WORKSPACE,saved:settings.workspace,binary:await discoverEngine({saved:settings.enginePath}),home:app.getPath('home')}); settings.workspace = workspace;
-    const handlers = {'engine:status':() => ({...status,workspace,shellVersion:app.getVersion(),shellStale:shellIsStale(app.getVersion(),latestTag)}), 'engine:locate':locate,'engine:restart':() => serialize(start),'engine:stop':() => serialize(stop),'engine:doctor':doctor,'engine:updates':updates,'engine:workspace':engineController.openWorkspace, 'engine:health':api.health, 'engine:update-state':api.update, 'engine:open':async()=>{ if (!status.origin) throw new Error('Engine is not connected.'); for (const w of windows) await w.loadURL(status.origin); }};
-    for (const [channel, handler] of Object.entries(handlers)) ipcMain.handle(channel, (event) => {
+    const handlers = {'engine:status':() => ({...status,workspace,shellVersion:app.getVersion(),shellStale:shellIsStale(app.getVersion(),latestTag)}), 'engine:locate':locate,'engine:restart':() => serialize(start),'engine:stop':() => serialize(stop),'engine:doctor':doctor,'engine:updates':updates,'engine:workspace':engineController.openWorkspace, 'engine:health':api.health, 'engine:update-state':api.update, 'engine:open':async()=>{ if (!status.origin) throw new Error('Engine is not connected.'); for (const w of windows) await w.loadURL(status.origin); },
+      'providers:list':() => providerSurface.list(), 'providers:validate':(id) => providerSurface.validate(id),
+      'providers:key:set':(id, key, baseUrl) => providerSurface.add(id, key, baseUrl), 'providers:key:delete':(id) => providerSurface.remove(id)};
+    for (const [channel, handler] of Object.entries(handlers)) ipcMain.handle(channel, (event, ...args) => {
       const url = event.senderFrame?.url;
       if (!windows.has(BrowserWindow.fromWebContents(event.sender)) || event.senderFrame !== event.sender.mainFrame || !(url === statusURL || linkPolicy(url,status.origin) === 'internal')) throw new Error('Untrusted desktop request');
-      return handler();
+      return handler(...args);
     });
     Menu.setApplicationMenu(Menu.buildFromTemplate([
       {label:'File',submenu:[{label:'New Window',accelerator:'CmdOrCtrl+N',click:createWindow},{label:'Locate engine…',click:safe(locate)},{type:'separator'},{role:'quit'}]},
