@@ -364,6 +364,14 @@ MAX_GATE_ATTEMPTS = 3
 # should be parked only after a configured number of dispatch failures, independent of judged attempt count.
 MAX_DISPATCH_FAILURES = 3
 
+_NOOP_STREAK_FILE = ".pravrudhi/noop-streak.json"
+
+# ADR-0053 §5: a genuine "no change needed" report is a result, not a dispatch failure - it must not count
+# towards MAX_DISPATCH_FAILURES at all. It is instead re-judged against the repository's current state, and the
+# same budget of three (the number every other attempt cap in this file uses) closes the criterion as
+# already-met once that many consecutive genuine no-ops have each been independently judged true.
+MAX_NOOP_STREAK = 3
+
 
 def _gate_attempts_path(root: Path) -> Path:
     return Path(root) / _GATE_ATTEMPTS_FILE
@@ -429,6 +437,52 @@ def record_dispatch_failure(root: Path, request_id: str, index: int) -> int:
 def dispatch_failures_exhausted(root: Path, request_id: str, index: int) -> bool:
     """Whether this criterion has spent its dispatch failure budget."""
     return dispatch_failures(root, request_id, index) >= MAX_DISPATCH_FAILURES
+
+
+def _noop_streak_path(root: Path) -> Path:
+    return Path(root) / _NOOP_STREAK_FILE
+
+
+def _noop_streak_all(root: Path) -> dict[str, int]:
+    try:
+        data = json.loads(_noop_streak_path(root).read_text())
+        return {str(k): int(v) for k, v in data.items()} if isinstance(data, dict) else {}
+    except (OSError, ValueError, TypeError):
+        return {}
+
+
+def noop_streak(root: Path, request_id: str, index: int) -> int:
+    """How many consecutive genuine no-op dispatches this criterion has had, each independently judged met."""
+    key = f"{request_id}:{index}"
+    return _noop_streak_all(root).get(key, 0)
+
+
+def record_noop(root: Path, request_id: str, index: int) -> int:
+    """Count one genuine no-op judged met. ADR-0053 §5 - never a dispatch failure."""
+    data = _noop_streak_all(root)
+    key = f"{request_id}:{index}"
+    data[key] = data.get(key, 0) + 1
+    path = _noop_streak_path(root)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, indent=1, sort_keys=True))
+    return data[key]
+
+
+def clear_noop_streak(root: Path, request_id: str, index: int) -> None:
+    """A judged-false no-op, or the criterion closing, breaks the streak - the next no-op starts counting from 1."""
+    data = _noop_streak_all(root)
+    key = f"{request_id}:{index}"
+    if key in data:
+        del data[key]
+        _noop_streak_path(root).write_text(json.dumps(data, indent=1, sort_keys=True))
+
+
+def _is_genuine_noop(verdict: Any) -> bool:
+    """ADR-0053 §5: `delegate.dispatch`'s `diff.empty` branch already separates a genuine no-op (the agent's own
+    explanation, and nothing else wrong) from a real escape (which adds a second reason, e.g. `wrote outside its
+    worktree`). Exactly one reason, and it is that explanation, is what makes routing to the judge instead of
+    the dispatch-failure counter safe."""
+    return len(verdict.reasons) == 1 and verdict.reasons[0].startswith("no change produced: ")
 
 
 def _obligation_prompt(
@@ -604,6 +658,16 @@ def _last_judgement(root: Path, request_id: str, index: int) -> str:
 
 def _judgement_note(index: int, why: str) -> str:
     return f"criterion {index} not yet met: {why}"
+
+
+def _current_head(root: Path) -> str:
+    """The commit an already-met verdict's evidence points at (ADR-0053 §5): a criterion closed on the strength
+    of existing repository state should name which state, so the claim stays checkable after the fact."""
+    try:
+        p = subprocess.run(["git", "rev-parse", "HEAD"], cwd=root, capture_output=True, text=True, timeout=30)
+        return p.stdout.strip() if p.returncode == 0 and p.stdout.strip() else "unknown"
+    except (OSError, subprocess.SubprocessError):
+        return "unknown"
 
 
 # A criterion is proposal-shaped work like an evaluate/corpus step (subagents._TIER_BY_CAPABILITY), not a
@@ -1260,6 +1324,57 @@ def _apply_verdict(
     }
     verb = "accepted" if verdict.accepted else "rejected"
     if not verdict.accepted:
+        if _is_genuine_noop(verdict):
+            # ADR-0053 §5: a "no change needed" report is a result, not a dispatch failure - it never touches
+            # MAX_DISPATCH_FAILURES. The agent's claim is about the repository's existing state, and its own
+            # worktree is empty, so the judge reads `root` (current main) instead of the usual per-task worktree.
+            streak = record_noop(root, request.id, index)
+            result["noop_streak"] = streak
+            answer = (judge or _default_judge(root, workspace=root))(
+                prompt=_judge_prompt(
+                    request.text, criterion.text, [],
+                    where="the repository's current main tree, since the agent reported nothing needed changing",
+                )
+            )
+            met, why = _judged(answer)
+            if met:
+                unbacked = _first_unevidenced_claim(root, [])
+                if unbacked is not None:
+                    met = False
+                    why = (
+                        f"a produced file admits an unmeasured number ({unbacked!r}); CHARTER §6: no number is "
+                        "stated that the ledger does not contain, and being honest about inventing one is not "
+                        "an exception"
+                    )
+            result["judged"] = "met" if met else "not met"
+            result["judgement"] = why
+            if not met:
+                clear_noop_streak(root, request.id, index)
+                requests.note(root, request.id, _judgement_note(index, why))
+                return (
+                    chose,
+                    f"dispatched request {request.id} criterion {index} (no change needed, judged not met): {why}",
+                    result,
+                )
+            if streak < MAX_NOOP_STREAK:
+                return (
+                    chose,
+                    f"dispatched request {request.id} criterion {index} (no change needed, "
+                    f"{streak}/{MAX_NOOP_STREAK} consecutive): {why}",
+                    result,
+                )
+            head = _current_head(root)
+            requests.meet(
+                root, request.id, index,
+                [requests.Evidence(kind="commit", ref=head, note=f"already true as of {head}: {why}")],
+            )
+            clear_noop_streak(root, request.id, index)
+            clear_attempts(root, request.id, index)
+            return (
+                chose,
+                f"request {request.id} criterion {index} is already-met after {streak} consecutive no-ops: {why}",
+                result,
+            )
         # H4: Dispatch-level failure (accepted=False before judge). Record separately, do not consume
         # a judged attempt. If dispatch failures are exhausted, park the criterion.
         dispatch_fails = record_dispatch_failure(root, request.id, index)

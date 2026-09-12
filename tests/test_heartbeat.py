@@ -912,6 +912,130 @@ class TestDispatchLevelFailureHandling:
         assert result is not None and result.get("judged") == "not met"
 
 
+class TestNoOpDispatchIsAResultNotAFailure:
+    """ADR-0053 §5: an agent that concluded nothing needed changing has reported a result, not failed a dispatch.
+
+    The Studio heartbeat's 17:15 beat on 2026-09-12 recorded `dispatch_failures: 18` and parked a criterion whose
+    dispatched agent had honestly reported the work already done ("No files were created or modified, and I made
+    no commit"). `delegate.dispatch`'s `diff.empty` branch already tells a genuine no-op from a real escape: an
+    escape adds a second reason ("wrote outside its worktree..."); a genuine no-op leaves the explanation as the
+    only reason. So a no-op with exactly that one reason is re-judged against the repository's current state
+    (`root`, not the agent's empty worktree - there is nothing else to check there) instead of being counted as
+    a dispatch failure. Fail-closed still applies: `_first_unevidenced_claim` still runs, and only three
+    consecutive genuine no-ops (this session's own convention: a false claim resets the streak) close the
+    criterion as already-met."""
+
+    @staticmethod
+    def _setup_criterion(tmp_path: Path, request_id: str = "r-test") -> str:
+        req = requests.capture(tmp_path, "do the work", request_id=request_id)
+        requests.add_criteria(tmp_path, req.id, [requests.Criterion(text="build it", source="operator")])
+        return req.id
+
+    @staticmethod
+    def _noop_wave(build_agent: object, wave: object, **kw: object) -> list[object]:
+        from pravrudhi.application import swarm
+
+        return [swarm.Verdict(
+            task_id="req:test:0", agent="test", accepted=False,
+            reasons=["no change produced: I checked and this is already done."], files=[],
+        )]
+
+    @staticmethod
+    def _dispatch_fn(name: str, model: str | None) -> object:
+        return object()
+
+    def test_a_genuine_noop_does_not_record_a_dispatch_failure(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from pravrudhi.application import heartbeat, swarm
+
+        req_id = self._setup_criterion(tmp_path)
+        monkeypatch.setattr(swarm, "run_wave", self._noop_wave)
+
+        def met_judge(prompt: str) -> str:
+            return "VERDICT: met\nThe file already contains what the criterion asks for."
+
+        _chose, reason, result = heartbeat._beat_obligations(tmp_path, self._dispatch_fn, judge=met_judge)
+
+        assert heartbeat.dispatch_failures(tmp_path, req_id, 0) == 0, \
+            "a genuine no-op must not be booked as a dispatch failure"
+        assert heartbeat.attempts(tmp_path, req_id, 0) == 0, \
+            "a genuine no-op is not a judged build attempt either"
+        assert result is not None and result.get("judged") == "met"
+
+    def test_a_noop_with_a_second_reason_is_still_a_dispatch_failure(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The escape this check exists to keep catching: an empty worktree that is not a genuine no-op."""
+        from pravrudhi.application import heartbeat, swarm
+
+        req_id = self._setup_criterion(tmp_path)
+
+        def escaped_wave(build_agent: object, wave: object, **kw: object) -> list[object]:
+            return [swarm.Verdict(
+                task_id="req:test:0", agent="test", accepted=False,
+                reasons=[
+                    "no change produced: done.",
+                    "wrote outside its worktree, into the main checkout: proposals/probe/output.md",
+                ],
+                files=[],
+            )]
+
+        monkeypatch.setattr(swarm, "run_wave", escaped_wave)
+
+        def met_judge(prompt: str) -> str:
+            raise AssertionError("the judge must not run for a two-reason verdict")
+
+        _chose, reason, result = heartbeat._beat_obligations(tmp_path, self._dispatch_fn, judge=met_judge)
+
+        assert heartbeat.dispatch_failures(tmp_path, req_id, 0) == 1
+        assert result is not None and result["accepted"] is False and "judged" not in result
+
+    def test_three_consecutive_genuine_noops_close_the_criterion_as_already_met(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from pravrudhi.application import heartbeat, requests, swarm
+
+        req_id = self._setup_criterion(tmp_path)
+        monkeypatch.setattr(swarm, "run_wave", self._noop_wave)
+
+        def met_judge(prompt: str) -> str:
+            return "VERDICT: met\nThe file already contains what the criterion asks for."
+
+        for _ in range(2):
+            _chose, reason, result = heartbeat._beat_obligations(tmp_path, self._dispatch_fn, judge=met_judge)
+            assert result is not None and result.get("judged") == "met"
+            assert requests.get(tmp_path, req_id).criteria[0].met is False, \
+                "fewer than three consecutive no-ops must not close the criterion"
+
+        _chose, reason, result = heartbeat._beat_obligations(tmp_path, self._dispatch_fn, judge=met_judge)
+        assert requests.get(tmp_path, req_id).criteria[0].met is True
+        assert heartbeat.dispatch_failures(tmp_path, req_id, 0) == 0
+
+    def test_a_false_noop_claim_resets_the_streak_rather_than_closing_the_criterion(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from pravrudhi.application import heartbeat, requests, swarm
+
+        req_id = self._setup_criterion(tmp_path)
+        monkeypatch.setattr(swarm, "run_wave", self._noop_wave)
+
+        def met_judge(prompt: str) -> str:
+            return "VERDICT: met\nAlready there."
+
+        def not_met_judge(prompt: str) -> str:
+            return "VERDICT: not met\nThe criterion asks for something this file does not have."
+
+        heartbeat._beat_obligations(tmp_path, self._dispatch_fn, judge=met_judge)
+        heartbeat._beat_obligations(tmp_path, self._dispatch_fn, judge=not_met_judge)
+        heartbeat._beat_obligations(tmp_path, self._dispatch_fn, judge=met_judge)
+        heartbeat._beat_obligations(tmp_path, self._dispatch_fn, judge=met_judge)
+
+        # Two genuine no-ops since the false claim broke the streak - not yet three, not yet closed.
+        assert requests.get(tmp_path, req_id).criteria[0].met is False
+        assert heartbeat.dispatch_failures(tmp_path, req_id, 0) == 0
+
+
 def test_a_judgement_keeps_enough_of_its_reason_for_the_next_attempt_to_act_on() -> None:
     """r-1977143a criterion 1 was refused twice on 2026-09-11 and both stored reasons stopped mid-sentence at 300
     characters, before the part that said what was missing; the next attempt started from a truncated hint."""
