@@ -111,4 +111,9 @@ trap 'kill "${PIDS[@]}" 2>/dev/null || true' EXIT INT TERM
 ensure_image
 for edition in studio product; do ensure_engine "$edition"; tunnel "$edition"; done
 echo "gateway up; both engines registered"
-wait
+# A quick tunnel can die on its own; its KV entry would then point at a hostname Cloudflare no longer knows (530,
+# error 1033) for as long as the other tunnel lived. Exit on the first death so systemd restarts the whole serve
+# loop and re-registers both.
+wait -n
+echo "a tunnel exited; restarting to re-register" >&2
+exit 1
