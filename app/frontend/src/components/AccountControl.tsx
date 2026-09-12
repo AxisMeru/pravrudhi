@@ -5,11 +5,12 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { LogOut } from "lucide-react";
 import { currentSession, signOut } from "@/lib/auth";
+import type { Access } from "@/lib/edition";
 
 // Sign-in and sign-out both navigate, so the control never needs a change notification.
 const subscribeNever = () => () => {};
 
-export function AccountControl() {
+export function AccountControl({ access = "none" }: { access?: Access }) {
   const router = useRouter();
   const [isSigningOut, setIsSigningOut] = useState(false);
   // The session lives in localStorage, which the static HTML cannot know: reading it during render made the
@@ -43,6 +44,11 @@ export function AccountControl() {
     <div className="flex items-center gap-2">
       <div className="min-w-0 text-right">
         <p className="truncate text-xs font-medium text-[var(--color-text)]">{user.email}</p>
+        {/* Read from the engine's own resolved `access` (roles.access_for, server-side only), never inferred
+            from anything this session itself holds — a client-side session has no admin/member distinction. */}
+        {access === "admin" && (
+          <p className="text-[10px] uppercase tracking-wide text-[var(--color-text-dim)]">Admin</p>
+        )}
       </div>
       <button
         onClick={handleSignOut}

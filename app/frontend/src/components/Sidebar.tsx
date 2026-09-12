@@ -164,7 +164,7 @@ export function Sidebar() {
         {/* Only the hosted door has an account: a local or desktop Studio is the operator's by construction. */}
         {process.env.NEXT_PUBLIC_SUPABASE_URL ? (
           <div className="mt-3">
-            <AccountControl />
+            <AccountControl access={whoami.access} />
           </div>
         ) : null}
       </div>

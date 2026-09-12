@@ -127,7 +127,7 @@ class TestAccessFor:
         """A fourth value is a design decision, not something that appears by accident in a string comparison."""
         from pravrudhi.api.roles import ACCESS_VALUES
 
-        assert ACCESS_VALUES == frozenset({"admin", "member", "none"})
+        assert frozenset({"admin", "member", "none"}) == ACCESS_VALUES
 
 
 class TestRequireAdmin:
