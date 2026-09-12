@@ -9,6 +9,13 @@ interface User {
 interface Session {
   accessToken: string;
   user: User;
+  refreshToken?: string;
+  expiresAt?: number; // unix seconds; Supabase access tokens live one hour
+}
+
+interface Grant {
+  refresh_token?: string;
+  expires_in?: number;
 }
 
 const STORAGE_KEY = "pravrudhi-auth-session";
@@ -44,8 +51,13 @@ export function currentSession(): { id: string; email: string } | null {
 /**
  * Set session manually (used by tests and initialization).
  */
-export function setSession(token: string, user: User): void {
-  cachedSession = { accessToken: token, user };
+export function setSession(token: string, user: User, grant: Grant = {}): void {
+  cachedSession = {
+    accessToken: token,
+    user,
+    refreshToken: grant.refresh_token ?? cachedSession?.refreshToken,
+    expiresAt: grant.expires_in ? Math.floor(Date.now() / 1000) + grant.expires_in : cachedSession?.expiresAt,
+  };
   try {
     if (typeof localStorage !== "undefined") {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(cachedSession));
@@ -109,11 +121,11 @@ export async function signUp(
     const data = (await response.json()) as {
       access_token?: string;
       user: User;
-    };
+    } & Grant;
 
     // If access_token is present, confirmation is not required
     if (data.access_token) {
-      setSession(data.access_token, data.user);
+      setSession(data.access_token, data.user, data);
       return { ok: true, data: data.user };
     }
 
@@ -155,8 +167,8 @@ export async function signIn(
       return { ok: false, error: message };
     }
 
-    const data = (await response.json()) as { access_token: string; user: User };
-    setSession(data.access_token, data.user);
+    const data = (await response.json()) as { access_token: string; user: User } & Grant;
+    setSession(data.access_token, data.user, data);
     return { ok: true, data: data.user };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : "Unknown error" };
@@ -266,10 +278,51 @@ export async function completeMagicLink(): Promise<{ ok: true; data: User } | { 
     const response = await fetch(`${url}/auth/v1/user`, { headers: { authorization: `Bearer ${token}`, apikey: anonKey } });
     if (!response.ok) return { ok: false, error: "That link has expired; request a new one" };
     const user = (await response.json()) as User;
-    setSession(token, user);
+    setSession(token, user, {
+      refresh_token: params.get("refresh_token") ?? undefined,
+      expires_in: Number(params.get("expires_in")) || undefined,
+    });
     window.history.replaceState(null, "", window.location.pathname);
     return { ok: true, data: user };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : "Unknown error" };
+  }
+}
+
+/**
+ * Whether the stored access token is past, or within a minute of, its expiry. Unknown expiry counts as fresh;
+ * the engine's 401 is the judge then.
+ */
+export function sessionStale(): boolean {
+  const at = cachedSession?.expiresAt;
+  return at !== undefined && Math.floor(Date.now() / 1000) >= at - 60;
+}
+
+/**
+ * Exchange the refresh token for a new access token. Supabase access tokens live one hour; before this the
+ * session simply died after an hour and every engine call answered 401 while the account control still showed
+ * the address (the operator's first hour on the hosted door, 2026-09-12). A failed refresh clears the session so
+ * the page shows one truth: signed out.
+ */
+export async function refreshSession(): Promise<boolean> {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  const refresh = cachedSession?.refreshToken;
+  if (!url || !anonKey || !refresh) return false;
+  try {
+    const response = await fetch(`${url}/auth/v1/token?grant_type=refresh_token`, {
+      method: "POST",
+      headers: { "content-type": "application/json", apikey: anonKey },
+      body: JSON.stringify({ refresh_token: refresh }),
+    });
+    if (!response.ok) {
+      clearSession();
+      return false;
+    }
+    const data = (await response.json()) as { access_token: string; user: User } & Grant;
+    setSession(data.access_token, data.user, data);
+    return true;
+  } catch {
+    return false;
   }
 }

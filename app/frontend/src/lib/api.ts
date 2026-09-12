@@ -24,11 +24,27 @@ export { detectBase as apiBase };
 async function webSessionToken(): Promise<string | null> {
   if (typeof window === "undefined") return null;
   try {
-    const { accessToken } = await import("./auth");
+    const { accessToken, sessionStale, refreshSession } = await import("./auth");
+    if (accessToken() && sessionStale()) await refreshSession();
     return accessToken();
   } catch {
     return null;
   }
+}
+
+// A 401 with a session in hand: renew it once and say whether the caller should retry. A 401 with no session,
+// or after a failed renewal, means signed out; the stale session is dropped so the account control and the
+// sign-in page agree, then the page goes to /signin.
+async function recoverFrom401(): Promise<boolean> {
+  if (typeof window === "undefined") return false;
+  try {
+    const { accessToken, refreshSession, clearSession } = await import("./auth");
+    if (accessToken() && (await refreshSession())) return true;
+    clearSession();
+  } catch {
+    /* no session module: nothing to clear */
+  }
+  return false;
 }
 
 function toSignIn(status: number): void {
@@ -58,13 +74,14 @@ export class ApiError extends Error {
   }
 }
 
-async function getJSON<T>(path: string): Promise<T> {
+async function getJSON<T>(path: string, retried = false): Promise<T> {
   const token = await webSessionToken();
   const res = await fetch(`${detectBase()}${path}`, {
     cache: "no-store",
     headers: token ? { authorization: `Bearer ${token}` } : {},
   });
   if (!res.ok) {
+    if (res.status === 401 && !retried && (await recoverFrom401())) return getJSON<T>(path, true);
     toSignIn(res.status);
     throw new ApiError(res.status, path);
   }
