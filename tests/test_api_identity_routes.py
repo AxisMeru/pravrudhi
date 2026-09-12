@@ -136,6 +136,25 @@ def test_required_mode_refuses_every_api_route_without_a_token(tmp_path: Path, m
                                             "access-control-request-method": "GET"}).status_code != 401
 
 
+def test_an_anonymous_caller_in_optional_mode_is_refused_the_engine_root_workspace(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """`GET /workspaces` treated `user is None` as always meaning the operator, unlike `POST /workspaces` right
+    beside it (already refused this) and `_project` itself (checks `is_admin`, not just `user is None`) -- so
+    in `optional` mode, with authentication switched on but no token sent, a genuinely anonymous caller (not
+    the operator: `role_of(None)` is `USER` here, only `disabled` mode makes it `ADMIN`) was handed the
+    engine's own root path. Found by building route_scope.py's route-shape detector, then reading the code."""
+    monkeypatch.setenv("PRAVRUDHI_AUTH", "optional")
+    monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
+    monkeypatch.delenv("PRAVRUDHI_ADMINS", raising=False)
+    monkeypatch.delenv("VERCEL", raising=False)
+    monkeypatch.delenv("RENDER", raising=False)
+    c = _client(tmp_path)
+    refused = c.get("/api/workspaces")
+    assert refused.status_code == 400, refused.text
+    assert str(tmp_path) not in refused.text, "the engine's own root path must never reach an anonymous caller"
+
+
 def test_the_session_token_may_travel_in_the_query_string_for_event_streams(tmp_path: Path, monkeypatch) -> None:
     """EventSource cannot set headers; the run event stream carries `?access_token=` instead. The query token only
     stands in for a missing header, and the same verification applies (a bad one is still a 401)."""

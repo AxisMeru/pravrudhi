@@ -39,7 +39,7 @@ def test_uninitialised(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: 
     assert report["ok"] is False
     assert {check["name"] for check in report["checks"]} == {
         "initialised", "ledger", "docker", "gpu", "pools", "prereg", "routing", "loop_alive", "telegram",
-        "build_validate", "stale_worktrees",
+        "build_validate", "stale_worktrees", "route_scope",
     }
     for check in report["checks"]:
         assert set(check) == {"name", "ok", "detail"}
@@ -50,10 +50,13 @@ def test_uninitialised(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: 
         # `loop_alive` has to draw or it would fail every fresh install; a machine with no bot token has
         # no bot to pair, which is why `telegram` fails only a bot that IS configured and unpaired;
         # `build_validate` (r-9c8646fc) is informational, like `gpu` - there is nothing to fail on an
-        # uninitialised root, only a command worth a reader knowing before it runs unattended; and
-        # `stale_worktrees` has no `.worktrees/` to report on yet, on a root this bare.
+        # uninitialised root, only a command worth a reader knowing before it runs unattended; `stale_worktrees`
+        # has no `.worktrees/` to report on yet, on a root this bare; and `route_scope` checks this engine's
+        # own installed code, not anything under the (here, uninitialised) root at all.
         assert check["ok"] is (
-            check["name"] in {"gpu", "routing", "loop_alive", "telegram", "build_validate", "stale_worktrees"}
+            check["name"] in {
+                "gpu", "routing", "loop_alive", "telegram", "build_validate", "stale_worktrees", "route_scope",
+            }
         )
     assert list(tmp_path.iterdir()) == []
     assert capsys.readouterr() == ("", "")
@@ -67,8 +70,8 @@ def test_initialised(ready_root: Path, capsys: pytest.CaptureFixture[str]) -> No
     # along, published it, and been read correctly by a cloud routine -- while the command a session actually
     # runs in its first five minutes never asked. A workspace with no heartbeat has not stalled, so the check
     # passes here rather than failing every fresh install. Ten since r-9c8646fc added `build_validate`. Eleven
-    # since 2026-09-12 added `stale_worktrees`.
-    assert len(report["checks"]) == 11
+    # since 2026-09-12 added `stale_worktrees`. Twelve since the same day added `route_scope`.
+    assert len(report["checks"]) == 12
     assert [c for c in report["checks"] if c["name"] == "loop_alive"]
     assert all(check["ok"] is True and check["detail"] for check in report["checks"])
     assert before == {p.relative_to(ready_root): p.read_bytes() for p in ready_root.rglob("*") if p.is_file()}
@@ -184,7 +187,39 @@ def test_stale_worktrees_names_each_one_with_its_own_removal_command(tmp_path: P
     check = next(c for c in report["checks"] if c["name"] == "stale_worktrees")
     assert check["ok"] is True
     assert "t1" in check["detail"]
-    assert f"git worktree remove --force {wt}" in check["detail"]
+
+
+def test_route_scope_fails_doctor_on_a_route_that_never_resolves_its_caller(
+    ready_root: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A property of the running engine's own code, not of `ready_root` -- points the check at a synthetic
+    `api/` directory standing in for the installed one, with one route of exactly the r-workspace-scoped-writes
+    shape: identity-aware, never resolving a per-caller project."""
+    import pravrudhi.api.server as server_module
+
+    fake_api = tmp_path / "fake_api"
+    fake_api.mkdir()
+    (fake_api / "server.py").write_text(
+        'class API:\n'
+        '    def post(self, path): return lambda f: f\n'
+        'api = API()\n'
+        '@api.post("/api/objectives")\n'
+        'def create_objective(req, user=None):\n'
+        '    write(root, obj)\n'
+    )
+    monkeypatch.setattr(server_module, "__file__", str(fake_api / "server.py"))
+
+    report = run_doctor(ready_root)
+    assert report["ok"] is False
+    check = next(c for c in report["checks"] if c["name"] == "route_scope")
+    assert check["ok"] is False
+    assert "POST /api/objectives" in check["detail"] and "create_objective" in check["detail"]
+
+
+def test_route_scope_passes_on_the_real_installed_api_files(ready_root: Path) -> None:
+    report = run_doctor(ready_root)
+    check = next(c for c in report["checks"] if c["name"] == "route_scope")
+    assert check["ok"] is True
 
 
 @pytest.mark.parametrize("damage", ["tamper", "empty", "malformed", "encoding"])

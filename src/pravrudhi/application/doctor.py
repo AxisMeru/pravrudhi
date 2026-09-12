@@ -248,6 +248,33 @@ def _stale_worktrees_check(root: Path) -> dict[str, Any]:
     return {"name": "stale_worktrees", "ok": True, "detail": "\n".join(lines)}
 
 
+def _route_scope_check() -> dict[str, Any]:
+    """Every identity-aware route in this engine's own API resolves a per-caller project or store - the
+    general form of the guards r-workspace-scoped-writes (S11) and r-memory-per-user (S12) each added by hand,
+    so the next route of this class is caught here instead of live. A property of this running engine's own
+    code, not of whichever project `root` happens to be pointed at, so it reads the installed `api/` files
+    directly rather than anything under `root` - and, unlike every other check here, actually fails doctor:
+    an unresolved route is not a hygiene concern to note for later, it is the defect both incidents were.
+    """
+    import pravrudhi.api.server as server_module
+    from pravrudhi.application.route_scope import unscoped_routes
+
+    api_dir = Path(server_module.__file__).resolve().parent
+    files = [api_dir / name for name in ("server.py", "chat.py", "runs.py") if (api_dir / name).is_file()]
+    try:
+        found = unscoped_routes(files)
+    except (OSError, SyntaxError, UnicodeError) as exc:
+        return {"name": "route_scope", "ok": False, "detail": f"could not analyse this engine's own API files: {exc}"}
+    if not found:
+        return {
+            "name": "route_scope", "ok": True,
+            "detail": "every identity-aware route resolves a per-caller project or store.",
+        }
+    lines = [f"{len(found)} route(s) touch project state without resolving a per-caller project or store:"]
+    lines.extend(f"  {r.method} {r.path} ({r.function} in {r.file})" for r in found)
+    return {"name": "route_scope", "ok": False, "detail": "\n".join(lines)}
+
+
 def run_doctor(root: Path) -> dict[str, Any]:
     """Check required files, ledger integrity, Docker, and sealed pool presence without changing state."""
     checks: list[dict[str, Any]] = []
@@ -329,4 +356,5 @@ def run_doctor(root: Path) -> dict[str, Any]:
     checks.append(_telegram_check(root))
     checks.append(_build_validate_check(root))
     checks.append(_stale_worktrees_check(root))
+    checks.append(_route_scope_check())
     return {"ok": all(check["ok"] for check in checks), "checks": checks}

@@ -953,6 +953,12 @@ def create_app(root: Path, *, nyaya_ask_fn: Any | None = None) -> FastAPI:
         from pravrudhi.application.workspaces import list_workspaces, workspace_dir
 
         if user is None:
+            # Not "nobody signed in", but specifically the operator: `_project` raises exactly when this
+            # caller is neither admin nor running with authentication disabled, the same refusal
+            # `POST /workspaces` already gives. `user is None` alone used to mean "give them the engine root"
+            # here, so a genuinely anonymous caller in `optional` mode -- authentication on, no token sent --
+            # read the operator's own project path.
+            _project(None, None)
             return {"owner": "local", "workspaces": [{"slug": "local", "path": str(root)}]}
         return {"owner": user.id, "workspaces": [
             {"slug": s, "path": str(workspace_dir(user.id, s))} for s in list_workspaces(user.id)
