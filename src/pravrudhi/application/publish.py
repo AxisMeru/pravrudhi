@@ -28,6 +28,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from pravrudhi.application.integrate import COMMIT_IDENTITY
+
 RunnerFn = Callable[[list[str], Path], "subprocess.CompletedProcess[str]"]
 
 # Pages that must render real content, not an error, before anything is pushed. Each is checked for the strings
@@ -180,7 +182,8 @@ def commit(root: Path, runner: RunnerFn, message: str, paths: list[str]) -> tupl
     if not pending.stdout.strip():
         return Step("commit", True, "nothing to commit"), None
     result = runner(
-        ["git", "-c", "user.name=SharathSPhD", "-c", "user.email=qbz506@york.ac.uk", "commit", "-m", message], root
+        ["git", "-c", f"user.name={COMMIT_IDENTITY['GIT_AUTHOR_NAME']}",
+         "-c", f"user.email={COMMIT_IDENTITY['GIT_AUTHOR_EMAIL']}", "commit", "-m", message], root
     )
     if result.returncode != 0:
         return Step("commit", False, (result.stderr or result.stdout).strip()[:300]), None

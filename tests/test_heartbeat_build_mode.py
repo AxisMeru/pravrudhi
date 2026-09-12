@@ -233,7 +233,7 @@ class TestIntegrateBuildCriterion:
         assert outcome.ok, outcome.why
         assert (repo / "src" / "mod.py").read_text() == "VALUE = 2\n"
         log = _git(repo, "log", "-1", "--format=%an <%ae>%n%s")
-        assert log.splitlines()[0] == "SharathSPhD <qbz506@york.ac.uk>"
+        assert log.splitlines()[0] == "SharathSPhD <admin@axismeru.com>"
         assert log.splitlines()[1] == "`src/mod.py` sets VALUE = 2 (request r-1 criterion 0, built by the loop under ADR-0040)"
         crit = requests.get(repo, "r-1").criteria[0]
         assert crit.met and crit.evidence[0].kind == "commit" and crit.evidence[0].ref == outcome.commit

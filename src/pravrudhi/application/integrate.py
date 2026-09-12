@@ -142,8 +142,8 @@ class BuildOutcome:
         return {"ok": self.ok, "why": self.why, "commit": self.commit, "files": self.files}
 
 
-COMMIT_IDENTITY = {"GIT_AUTHOR_NAME": "SharathSPhD", "GIT_AUTHOR_EMAIL": "qbz506@york.ac.uk",
-                   "GIT_COMMITTER_NAME": "SharathSPhD", "GIT_COMMITTER_EMAIL": "qbz506@york.ac.uk"}
+COMMIT_IDENTITY = {"GIT_AUTHOR_NAME": "SharathSPhD", "GIT_AUTHOR_EMAIL": "admin@axismeru.com",
+                   "GIT_COMMITTER_NAME": "SharathSPhD", "GIT_COMMITTER_EMAIL": "admin@axismeru.com"}
 """The house identity (CLAUDE.md). The message names the loop and the criterion, so a reader can always tell a
 loop-built commit from one a person wrote; no trailer, which .githooks/commit-msg enforces."""
 
