@@ -29,17 +29,24 @@ except ImportError:
     msvcrt = None  # type: ignore[assignment]
 
 
+# Windows locking (unlike POSIX flock, which is purely advisory and never blocks an ordinary read/write, even
+# from a second fd in the same process) is mandatory: a locked byte range refuses reads and writes from every
+# OTHER handle until unlocked. _tail() opens a second handle on the same path to read the last line, so any
+# lock byte that real ledger content can ever occupy will eventually collide with a legitimate reader. Lock a
+# fixed sentinel offset far beyond any realistic ledger size instead - the same idiom SQLite's Windows VFS uses
+# for its own lock bytes - so the lock never overlaps real data. Locking beyond EOF does not extend the file.
+_WINDOWS_LOCK_BYTE = 2**48
+
+
 def _lock_exclusive(fd: int) -> None:
     if fcntl is not None:
         fcntl.flock(fd, fcntl.LOCK_EX)
     elif msvcrt is not None:
-        # msvcrt.locking locks the byte range starting at the file's CURRENT position, and an unlock call must
-        # name the same range. append() writes between the lock and unlock calls, and with O_APPEND every write
-        # moves that position to end-of-file - so unlocking "here" after a write is a different range than the
-        # one just locked, and Windows refuses it (PermissionError). Anchor both calls to byte 0 instead, saving
-        # and restoring the caller's position so it never sees this housekeeping.
+        # locking() locks/unlocks the range starting at the fd's CURRENT position, and an unlock call must name
+        # the same range as its lock - so both calls seek to the sentinel byte first, restoring the caller's
+        # position afterward.
         pos = os.lseek(fd, 0, os.SEEK_CUR)
-        os.lseek(fd, 0, os.SEEK_SET)
+        os.lseek(fd, _WINDOWS_LOCK_BYTE, os.SEEK_SET)
         msvcrt.locking(fd, msvcrt.LK_LOCK, 1)
         os.lseek(fd, pos, os.SEEK_SET)
     else:
@@ -51,7 +58,7 @@ def _unlock(fd: int) -> None:
         fcntl.flock(fd, fcntl.LOCK_UN)
     elif msvcrt is not None:
         pos = os.lseek(fd, 0, os.SEEK_CUR)
-        os.lseek(fd, 0, os.SEEK_SET)
+        os.lseek(fd, _WINDOWS_LOCK_BYTE, os.SEEK_SET)
         msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
         os.lseek(fd, pos, os.SEEK_SET)
     else:

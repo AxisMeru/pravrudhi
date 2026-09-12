@@ -75,3 +75,13 @@ def test_msvcrt_unlock_matches_lock_position_despite_intervening_append_write(tm
         writer_module._unlock(fd)
     finally:
         os.close(fd)
+
+
+def test_windows_lock_byte_never_overlaps_tail_s_read_window() -> None:
+    """The second Windows failure (windows-import-smoke on 9e5ba02, before this fix): Windows locking is
+    mandatory, not advisory like POSIX flock - a locked byte range refuses reads from every OTHER handle,
+    including a second handle opened by the same process. `_tail()` opens exactly such a second handle and
+    reads the file's last `min(size, 65536)` bytes, so locking byte 0 (or anything inside that window) collided
+    with it on every ledger no bigger than 64KB - i.e. every test ledger and most real ones. This pins the
+    invariant that keeps the two constants from drifting back into collision."""
+    assert writer_module._WINDOWS_LOCK_BYTE > 65536
