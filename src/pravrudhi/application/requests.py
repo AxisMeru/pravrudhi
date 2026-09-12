@@ -480,6 +480,57 @@ def _clip(text: str, limit: int = _CRITERION_CHARS) -> str:
 _ENUMERATED = re.compile(r"(?:^|(?<=\s))\d{1,2}(?:\)\s*|\.\s+)")
 
 
+def _drafted_mode(text: str) -> Literal["proposal", "build"]:
+    """Whether a freshly-drafted criterion is build-shaped, decided once at draft time rather than left for
+    every later beat to re-derive from a fixed (and possibly clipped) text.
+
+    r-9c8646fc's survey of the open backlog found 231 of 497 unmet `proposal`-mode criteria already dispatch as
+    build anyway, because `heartbeat.dispatch_mode` re-runs this same detection on any criterion whose `mode`
+    was never set to `"build"` explicitly - which is every drafted criterion, since neither `draft_criteria` nor
+    `decompose_ask` ever wrote one. That the guess and the later re-guess happen to agree most of the time is
+    not the same as deciding once: the persisted field should say what the loop will actually do with it, so a
+    reader of the requests store (a human, or `heartbeat.build_paths_for` operating on the record instead of
+    the live text) is not left to simulate dispatch to find out.
+    """
+    with contextlib.suppress(Exception):
+        from pravrudhi.application.heartbeat import dispatch_mode
+
+        return "build" if dispatch_mode(Criterion(text=text)) == "build" else "proposal"
+    return "proposal"
+
+
+# Three shapes r-9c8646fc's survey found among criteria `draft_criteria`'s verbatim fallback had accepted with no
+# filter at all (unlike `decompose_ask`, whose `_names_something` gate only ever applies to a MODEL's answer):
+# a re-pasted cross-session handoff (r-e08d27fa, r-4fa9b6c7, r-bc88c187 - an entire forwarded document, not an
+# ask about this engine), an instruction to communicate rather than to build anything (r-3772a0d8: "Reply to me
+# ... with the key lessons"), and a bare question. None of these can be delivered as evidence against; three
+# agents were paid to guess at each anyway.
+_PASTED_TRANSCRIPT = re.compile(r"<cross-session-message", re.I)
+_COMMUNICATION_ONLY = re.compile(
+    r"^\s*(reply to me|tell me|let me know|send_message|message me|write back|get back to me)\b", re.I,
+)
+_BARE_QUESTION = re.compile(r"\?\s*$")
+
+
+def _is_actionable_ask(text: str) -> bool:
+    """Whether a drafted criterion names something the engine could attempt, rather than a forwarded transcript,
+    an instruction to communicate, or a bare question - the discipline `decompose_ask` already applies to a
+    model's own answer (`_names_something`), extended to the text `draft_criteria` accepts with no model at all.
+
+    This is deliberately narrow: it catches the recognisable shapes above, not every unclear ask. A criterion
+    that names nothing but is not one of these shapes still stands, exactly as before - a human sharpening it
+    remains the fallback this cannot replace.
+    """
+    t = text.strip()
+    if not t:
+        return False
+    if _PASTED_TRANSCRIPT.search(t):
+        return False
+    if _COMMUNICATION_ONLY.match(t):
+        return False
+    return not _BARE_QUESTION.search(t)
+
+
 def draft_criteria(text: str) -> list[Criterion]:
     """Read an ask and write the acceptance criteria for it.
 
@@ -490,17 +541,21 @@ def draft_criteria(text: str) -> list[Criterion]:
     An enumerated ask is split on its own numbering, which is the operator's structure rather than the engine's
     reading of it. Prose becomes one criterion carrying the ask verbatim. Nothing is paraphrased and nothing is
     inferred: a review that split prose on guesswork produced criteria naming nothing, and the three agents that
-    picked them up could only guess in turn (see `heartbeat._names_something`).
+    picked them up could only guess in turn (see `heartbeat._names_something`). `mode` is decided once here
+    (`_drafted_mode`); actionability (`_is_actionable_ask`) is judged by `triage`, which is where a non-actionable
+    ask has somewhere to go (`declined`) - this function's contract stays "the criteria this text implies", not
+    "the criteria worth keeping".
     """
     ask = (text or "").strip()
     if not ask:
         return []
     if len(_ENUMERATED.findall(ask)) >= 2:  # one marker is a sentence that happens to start with "1)"
         items = [part.strip() for part in _ENUMERATED.split(ask)]
-        drafted = [Criterion(text=_clip(i), source="engine") for i in items if i]
+        drafted = [Criterion(text=(c := _clip(i)), source="engine", mode=_drafted_mode(c)) for i in items if i]
         if drafted:
             return drafted
-    return [Criterion(text=_clip(ask), source="engine")]
+    clipped = _clip(ask)
+    return [Criterion(text=clipped, source="engine", mode=_drafted_mode(clipped))]
 
 
 def untriaged(root: Path, *, now: datetime | None = None) -> list[Request]:
@@ -593,7 +648,8 @@ def decompose_ask(text: str, *, complete: Callable[[str], str]) -> list[Criterio
         line = str(item or "").strip()
         if not line or not _names_something(line):
             continue  # a criterion nobody can build against is worse than one fewer criterion
-        drafted.append(Criterion(text=_clip(line), source="engine"))
+        clipped = _clip(line)
+        drafted.append(Criterion(text=clipped, source="engine", mode=_drafted_mode(clipped)))
     return drafted
 
 
@@ -631,7 +687,19 @@ def triage(
                 note="triage: the ask names nothing the engine can build against; sharpen it to revive it",
             )
         drafted = decomposed
-    return add_criteria(root, request_id, drafted)
+    # The model path above already declines an unbuildable ask on ITS OWN reading; the verbatim/enumerated
+    # fallback (used whenever no model is reachable, or an enumerated ask never goes to one) got no such filter
+    # at all until r-9c8646fc's survey found a forwarded handoff document, an instruction to reply rather than
+    # build, and other non-deliverables sitting as "criteria" in the open backlog. Filtering per-item rather than
+    # declining the whole request keeps whatever in an enumerated ask WAS actionable.
+    actionable = [c for c in drafted if _is_actionable_ask(c.text)]
+    if not actionable:
+        return advance(
+            root, request_id, "declined",
+            note="triage: the drafted criteria are not something the engine can attempt (a forwarded transcript, "
+                 "an instruction to communicate, or a bare question) rather than a deliverable; sharpen it to revive it",
+        )
+    return add_criteria(root, request_id, actionable)
 
 
 def backlog(root: Path, *, now: datetime | None = None) -> dict[str, Any]:

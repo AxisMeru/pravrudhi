@@ -362,6 +362,79 @@ class TestParkedIsNotDelivered:
         owed = requests.next_obligation(tmp_path)
         assert owed is not None and owed["kind"] == "advance_request"
 
+class TestDraftedMode:
+    """r-9c8646fc: a criterion's `mode` is decided once at draft time (`heartbeat.dispatch_mode`'s own
+    detection, applied here rather than only re-derived later at dispatch), so the persisted field already
+    says what the loop will do with it."""
+
+    def test_a_verbatim_prose_criterion_naming_a_recognised_path_is_drafted_as_build(self) -> None:
+        drafted = draft_criteria("`src/pravrudhi/application/foo.py` gains a retry")
+        assert len(drafted) == 1 and drafted[0].mode == "build"
+
+    def test_a_verbatim_prose_criterion_naming_nothing_buildable_stays_proposal(self) -> None:
+        drafted = draft_criteria("astra is back..you have to more actively monitor paid models")
+        assert len(drafted) == 1 and drafted[0].mode == "proposal"
+
+    def test_an_enumerated_item_naming_a_path_is_drafted_as_build_independently_of_its_siblings(self) -> None:
+        drafted = draft_criteria(
+            "1)`src/pravrudhi/application/foo.py` gains a retry 2)tell the operator when it is done"
+        )
+        assert [c.mode for c in drafted] == ["build", "proposal"]
+
+    def test_a_model_decomposed_criterion_naming_a_path_is_drafted_as_build(self) -> None:
+        drafted = requests.decompose_ask(
+            "fix the retry logic",
+            complete=lambda _p: json.dumps({"criteria": ["`src/pravrudhi/application/foo.py` retries once"]}),
+        )
+        assert drafted is not None and drafted[0].mode == "build"
+
+
+class TestTriageDeclinesNonActionableDrafts:
+    """r-9c8646fc's survey of the open backlog found a forwarded cross-session handoff, a plain instruction to
+    reply rather than build, and other shapes accepted verbatim as "criteria" by the no-model fallback path -
+    `decompose_ask` already declines an unbuildable MODEL answer (see `test_an_ask_a_model_finds_non_actionable_
+    is_declined_not_drafted_verbatim` above); this is the same discipline for the path that never asks a model
+    at all."""
+
+    def test_a_forwarded_transcript_is_declined_without_a_model(self, tmp_path: Path) -> None:
+        r = capture(
+            tmp_path,
+            '<cross-session-message from="peer" name="handoff">\nStatus update: nothing to report.\n'
+            "</cross-session-message>",
+        )
+        triaged = triage(tmp_path, r.id)
+        assert triaged is not None and triaged.state == "declined" and triaged.criteria == []
+        assert "not something the engine can attempt" in triaged.notes[-1]["note"]
+
+    def test_an_instruction_to_reply_is_declined_without_a_model(self, tmp_path: Path) -> None:
+        r = capture(tmp_path, "Reply to me with the key lessons you learnt that I must carry forward")
+        triaged = triage(tmp_path, r.id)
+        assert triaged is not None and triaged.state == "declined"
+
+    def test_a_bare_question_is_declined_without_a_model(self, tmp_path: Path) -> None:
+        r = capture(tmp_path, "should we use approach A or approach B for the retry logic?")
+        triaged = triage(tmp_path, r.id)
+        assert triaged is not None and triaged.state == "declined"
+
+    def test_an_ordinary_prose_ask_is_unaffected(self, tmp_path: Path) -> None:
+        r = capture(tmp_path, "step up to bigger things")
+        triaged = triage(tmp_path, r.id)
+        assert triaged is not None and triaged.state != "declined" and len(triaged.criteria) == 1
+
+    def test_an_enumerated_ask_keeps_only_its_actionable_items(self, tmp_path: Path) -> None:
+        r = capture(tmp_path, "1)fix the retry bug 2)reply to me once it is done")
+        triaged = triage(tmp_path, r.id)
+        assert triaged is not None and [c.text for c in triaged.criteria] == ["fix the retry bug"]
+
+    def test_a_forwarded_transcript_is_declined_even_when_the_model_is_unusable(self, tmp_path: Path) -> None:
+        """An unreachable or unusable model falls back to the verbatim draft (`decompose_ask` returns `None`,
+        not `[]`) - the new filter must still catch the pasted transcript on that fallback text, not only on
+        the no-model path `test_a_forwarded_transcript_is_declined_without_a_model` already covers."""
+        r = capture(tmp_path, '<cross-session-message from="peer">nothing actionable here</cross-session-message>')
+        triaged = triage(tmp_path, r.id, complete=lambda _p: "not json")
+        assert triaged is not None and triaged.state == "declined"
+
+
 def test_the_decomposer_is_told_what_the_engine_may_not_change() -> None:
     """Of 327 open criteria on 2026-09-11, 77 named the kernel, research/ or gitignored docs: the decomposer
     proposed work the loop is forbidden to do, three dispatches each, until `heartbeat.unbuildable` learned to
