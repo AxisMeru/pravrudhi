@@ -18,12 +18,8 @@ Spec: docs/superpowers/specs/2026-09-09-prabhasa-nyaya-measurement-design.md, ca
 from __future__ import annotations
 
 import json
-import sys
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-
-from nyaya_gold import CLASSES, build_gold_set, derive_verdict  # noqa: E402
+from pravrudhi.application.nyaya_gold import CLASSES, build_gold_set, derive_verdict
 
 # The world prabhasa-samskrutam's own gate uses, verbatim.
 FIXTURE_WORLD = {
