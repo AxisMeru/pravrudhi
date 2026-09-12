@@ -1,0 +1,7 @@
+# Where prabhasa-nyaya's Lean `score` executable lives, for scoring the constructed hetvabhasa gold set
+# (pravrudhi.application.nyaya_gold_score). Relative to this repo's root, following the sibling-checkout
+# convention (`~/projects/prabhasa-nyaya` next to `~/projects/pravrudhi`).
+#
+# Override for a checkout that doesn't follow the convention: the PRABHASA_NYAYA_SCORE_BIN environment
+# variable, which wins over this file.
+score_bin: ../prabhasa-nyaya/lean/.lake/build/bin/score

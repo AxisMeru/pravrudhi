@@ -16,6 +16,12 @@ deliberately not imported here for the same reason -- a bug shared by both would
 not `external`: the kernel ran this check in this process, right now, so there is no third party's file to
 hash for provenance. A result file is still written and hashed, so the row stays reproducible the same way an
 external one is.
+
+`record_constructed` (2026-09-12, session-3's A2 decisions) is additive: the 5-item smoke-check above is
+unaffected. It runs `nyaya_gold.build_gold_set`'s six-bank constructed set through `nyaya_gold_score`, which
+scores the four decidable classes against prabhasa-nyaya's Lean `Verdict.of` and reports `satpratipaksa` /
+`badhita` as not decided rather than scoring them against anything -- so `nyaya_validity pass_rate` gets a
+real n (hundreds per class, not 2 and 3) the first time something actually calls it with `--constructed`.
 """
 
 from __future__ import annotations
@@ -26,6 +32,8 @@ from pathlib import Path
 from typing import Any
 
 from pravrudhi.application.external import TIER_KERNEL, TOOL_NYAYA_VALIDITY
+from pravrudhi.application.nyaya_gold import build_gold_set
+from pravrudhi.application.nyaya_gold_score import score_bin_path, score_gold_set
 from pravrudhi_kernel.ledger import LedgerWriter
 
 TRACK = "nyaya"
@@ -116,6 +124,49 @@ def record(root: Path, night: int = 0, condition: str = "base") -> dict[str, Any
         "n_samples": {"nyaya_validity": n},
         "metrics": {"nyaya_validity": {"pass_rate": k / n if n else 0.0}},
         "items": result["items"],
+    }
+    ledger = root / "research" / "ledger.jsonl"
+    w = LedgerWriter.open(ledger, "0.1.0")
+    ev = w.append("audit", "auditor", payload, epoch=0, night=night)
+    return {"seq": ev.seq, **payload}
+
+
+def record_constructed(
+    root: Path, night: int = 0, condition: str = "base", per_class: int = 100, seed: int = 0,
+) -> dict[str, Any]:
+    """Run the six-bank constructed gold set through prabhasa-nyaya's Lean scorer and admit the per-class
+    result to the ledger, same track and metric name as `record` above.
+
+    `nyaya_validity pass_rate` here is the worst DECIDED class's pass rate (min over `valid`/`asiddha`/
+    `viruddha`/`savyabhicara`), never a pooled average across all six -- `satpratipaksa`/`badhita` are not
+    decided by anything this function scores against, and their counts travel in `per_class`/
+    `not_decided_classes` rather than being folded into the headline number.
+    """
+    root = Path(root)
+    items = build_gold_set(per_class, seed)
+    result = score_gold_set(items, score_bin_path(root))
+
+    out_dir = root / "research" / "nyaya" / "validity"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / f"night-{night}-{condition.replace(':', '-')}-constructed.json"
+    out_path.write_text(json.dumps(result, indent=1, sort_keys=True) + "\n")
+    sha256 = hashlib.sha256(out_path.read_bytes()).hexdigest()
+
+    payload = {
+        "kind": "external_eval",
+        "severity": "info",
+        "tier": TIER_KERNEL,
+        "track": TRACK,
+        "condition": condition,
+        "model": "pravrudhi-kernel+prabhasa-nyaya-lean",
+        "file": str(out_path.relative_to(root)),
+        "sha256": sha256,
+        "tool": TOOL_NYAYA_VALIDITY,
+        "n_samples": {"nyaya_validity": result["n"]},
+        "metrics": {"nyaya_validity": {"pass_rate": result["pass_rate"]}},
+        "per_class": result["per_class"],
+        "decided_classes": result["decided_classes"],
+        "not_decided_classes": result["not_decided_classes"],
     }
     ledger = root / "research" / "ledger.jsonl"
     w = LedgerWriter.open(ledger, "0.1.0")

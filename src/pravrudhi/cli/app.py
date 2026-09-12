@@ -615,16 +615,29 @@ def nyaya_validity_check_cmd(
     condition: str = typer.Option("base", "--condition", help="base | candidate:<id>"),
     night: int = typer.Option(0, "--night"),
     root: Path = ROOT_OPT,
+    constructed: bool = typer.Option(
+        False, "--constructed",
+        help="Score the six-bank constructed hetvabhasa gold set against prabhasa-nyaya's Lean verifier "
+             "instead of the 5-item hand-labelled smoke-check (session-3's A2 decisions, 2026-09-12).",
+    ),
+    per_class: int = typer.Option(100, "--per-class", help="--constructed only: items per class."),
+    seed: int = typer.Option(0, "--seed", help="--constructed only: generator seed."),
 ) -> None:
     """Run the kernel's own classical-Nyaya validity check and admit it to the ledger (track nyaya, tier kernel).
 
-    No LLM, no network: `derive_verdict` decides each syllogism from the world it names, scored against a
-    hand-labelled gold set asserted independently of that derivation. This is the harness the `nyaya` track's
-    objectives can build on without lm-eval or a trained model.
+    Default: no LLM, no network. `derive_verdict` decides each of 5 hand-labelled syllogisms from the world it
+    names -- a smoke-check, n=2 valid and 3 invalid. `--constructed` runs the real measurement instead: a
+    600-item (default 100/class) six-bank gold set scored per class, with Wilson intervals, against
+    prabhasa-nyaya's independent Lean `Verdict.of` -- requires that repo's `make gate` to have been run first
+    so its `score` executable exists (or `PRABHASA_NYAYA_SCORE_BIN` pointed at one).
     """
-    from pravrudhi.application.nyaya_validity import record
+    from pravrudhi.application.nyaya_validity import record, record_constructed
 
-    row = record(root, night=night, condition=condition)
+    row = (
+        record_constructed(root, night=night, condition=condition, per_class=per_class, seed=seed)
+        if constructed
+        else record(root, night=night, condition=condition)
+    )
     typer.echo(json.dumps({k: row[k] for k in ("seq", "track", "condition", "tier", "tool", "metrics")}, indent=2))
 
 
