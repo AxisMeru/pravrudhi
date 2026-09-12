@@ -14,6 +14,9 @@
 # nightly (run_e2e_nightly.sh) is what proves the hosted engine.
 set -uo pipefail
 
+# shellcheck source=notify_telegram.sh
+source "$(dirname "${BASH_SOURCE[0]}")/notify_telegram.sh"
+
 REPORT_DIR="$HOME/.local/share/pravrudhi-hosted/e2e"
 mkdir -p "$REPORT_DIR"
 STAMP="$(date -u +%Y-%m-%dT%H-%M-%SZ)"
@@ -40,5 +43,6 @@ status=0
 ln -sf "$REPORT" "$REPORT_DIR/desktop-latest.log"
 if [ "$status" -ne 0 ]; then
   echo "pravrudhi-e2e-desktop-nightly failed; see $REPORT" >&2
+  notify_telegram "pravrudhi-e2e-desktop-nightly failed. Report: $REPORT"
 fi
 exit "$status"

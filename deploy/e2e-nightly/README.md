@@ -36,6 +36,30 @@ points at the newest one) and exits non-zero if either project failed, so a fail
 `systemctl --user --failed` and `journalctl --user -u pravrudhi-e2e-nightly` without anyone needing to go
 looking for it.
 
+## Telegram alert on failure
+
+Both nightlies source `notify_telegram.sh` and call `notify_telegram "<message naming the report path>"`
+only inside their existing non-zero-status branch — a passing night sends nothing. It posts a plain
+`POST .../sendMessage` to the operator's existing bot credential
+(`~/.config/pravrudhi/telegram.env`, `TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID` — the same `EnvironmentFile`
+`pravrudhi-heartbeat.service` already loads; never a new bot), so both `.service` units now list it as an
+additional `EnvironmentFile=`.
+
+It is plain text, not MarkdownV2: this is a single rare "a nightly failed" alert, not the engine's own
+noisier internal event stream (a night finishing, a job accepted) that `reach.py`'s `Sink` already handles
+with escaping, retries and delivery-id dedup — building that again for one alert would be the wrong size
+of thing for what it does.
+
+A send failure (missing credential, network, a bad chat id) is swallowed and only logged to stderr:
+the nightly's own PASS/FAIL result and exit code must never be masked by this notification side-channel
+failing.
+
+Verified live once, by hand, before enabling anything: sourced the script directly, called
+`notify_telegram "test: forced failure, fake report at /tmp/fake-report.log"` against a fake report path
+(never a real alarm for a green run), and confirmed delivery — Telegram returned `"ok":true` over HTTP 200
+with a real `message_id` for the operator's bot/chat. The `.service` units still need
+`systemctl --user daemon-reload` after install/upgrade for the new `EnvironmentFile=` line to take effect.
+
 ## Known limits
 
 * Assumes both repository checkouts already have their frontend `node_modules` reachable (`npm ci` runs each

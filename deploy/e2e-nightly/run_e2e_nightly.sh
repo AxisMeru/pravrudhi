@@ -9,6 +9,9 @@
 # deliberately non-admin account on the live Studio engine, not just in roles.py's own unit tests.
 set -uo pipefail
 
+# shellcheck source=notify_telegram.sh
+source "$(dirname "${BASH_SOURCE[0]}")/notify_telegram.sh"
+
 REPORT_DIR="$HOME/.local/share/pravrudhi-hosted/e2e"
 mkdir -p "$REPORT_DIR"
 STAMP="$(date -u +%Y-%m-%dT%H-%M-%SZ)"
@@ -41,5 +44,6 @@ status=0
 ln -sf "$REPORT" "$REPORT_DIR/latest.log"
 if [ "$status" -ne 0 ]; then
   echo "pravrudhi-e2e-nightly failed; see $REPORT" >&2
+  notify_telegram "pravrudhi-e2e-nightly failed. Report: $REPORT"
 fi
 exit "$status"
