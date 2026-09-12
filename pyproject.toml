@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "pravrudhi"
-version = "0.5.15"
+version = "0.5.16"
 description = "Recursive self-improvement engine for language-model systems: run a budgeted night over your own model and harness."
 readme = "README.md"
 requires-python = ">=3.13,<3.14"
