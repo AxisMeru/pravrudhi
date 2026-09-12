@@ -1,0 +1,10 @@
+[Unit]
+Description=Run pravrudhi-e2e-desktop-nightly once a day, after the web nightly
+
+[Timer]
+OnCalendar=*-*-* 03:30:00
+RandomizedDelaySec=15min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

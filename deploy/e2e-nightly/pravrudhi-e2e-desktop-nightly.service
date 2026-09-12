@@ -1,0 +1,15 @@
+# ~/.config/systemd/user/pravrudhi-e2e-desktop-nightly.service — nightly signed-in check of the released
+# desktop shell.
+# install: cp deploy/e2e-nightly/pravrudhi-e2e-desktop-nightly.{service,timer} ~/.config/systemd/user/ && systemctl --user daemon-reload && systemctl --user enable --now pravrudhi-e2e-desktop-nightly.timer
+[Unit]
+Description=Pravrudhi nightly: signed-in e2e check of the latest released desktop shell, against a real non-admin account
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=%h/.config/pravrudhi/e2e.env
+EnvironmentFile=%h/.config/pravrudhi/supabase.env
+EnvironmentFile=-%h/.config/pravrudhi/github-axismeru.env
+ExecStart=%h/projects/pravrudhi/deploy/e2e-nightly/run_desktop_nightly.sh
+TimeoutStartSec=1800
