@@ -79,8 +79,16 @@ class TestTheGoldSet:
     def test_it_reaches_the_target_size_per_class(self) -> None:
         gold = build_gold_set(per_class=40, seed=0)
         counts = {c: sum(1 for it in gold if it["expected"] == c) for it in gold for c in [it["expected"]]}
-        for cls in ("valid", "asiddha", "savyabhicara", "viruddha", "aprasiddha"):
+        for cls in ("valid", "asiddha", "savyabhicara", "viruddha", "satpratipaksa", "badhita"):
             assert counts.get(cls, 0) >= 40, f"{cls} has only {counts.get(cls, 0)}"
+
+    def test_aprasiddha_is_not_a_bank(self) -> None:
+        """Session-3's decision, 2026-09-12: aprasiddha is a sub-case of asiddha for this gold set, not a
+        sixth class. `derive_verdict` still knows the word (see TestTheRemainingClass below); nothing here is
+        ever labelled it."""
+        gold = build_gold_set(per_class=20, seed=0)
+        assert "aprasiddha" not in CLASSES
+        assert not any(it["expected"] == "aprasiddha" for it in gold)
 
     def test_every_item_carries_the_rule_its_label_derives_from(self) -> None:
         """Spec section 6's condition for admitting a constructed set: each item traceable to a rule."""
@@ -89,13 +97,42 @@ class TestTheGoldSet:
             assert item["rule"], item
             assert item["expected"] in item["rule"] or item["expected"] == "valid"
 
-    def test_every_items_label_is_reproduced_by_the_derivation(self) -> None:
-        """The set is self-consistent: re-deriving each label from the stored world reproduces it. A generator
-        that emitted a label its own rules disagree with would poison every score computed from it."""
+    def test_every_decidable_items_label_is_reproduced_by_the_derivation(self) -> None:
+        """The set is self-consistent: re-deriving each label from the stored world reproduces it, for the
+        four classes `derive_verdict` actually decides. A generator that emitted a label its own rules
+        disagree with would poison every score computed from it."""
         gold = build_gold_set(per_class=20, seed=1)
         for item in gold:
+            if item["expected"] not in ("valid", "asiddha", "viruddha", "savyabhicara"):
+                continue
             world = {k: frozenset(v) for k, v in item["world"].items()}
             assert derive_verdict(world, item["paksa"], item["sadhya"], item["hetu"]) == item["expected"]
+
+    def test_satpratipaksa_pairs_two_independently_valid_inferences(self) -> None:
+        """Not decided by `derive_verdict` (ADR-0001: rule- and prompt-based for now), so what is checked here
+        is the honest construction: each half, taken alone, is independently valid, and the two conclude
+        different sadhyas."""
+        gold = build_gold_set(per_class=20, seed=1)
+        items = [it for it in gold if it["expected"] == "satpratipaksa"]
+        assert len(items) >= 20
+        for item in items:
+            base_world = {k: frozenset(v) for k, v in item["world"].items()}
+            assert derive_verdict(base_world, item["paksa"], item["sadhya"], item["hetu"]) == "valid"
+            ci = item["counter_inference"]
+            counter_world = {k: frozenset(v) for k, v in ci["world"].items()}
+            assert derive_verdict(counter_world, ci["paksa"], ci["sadhya"], ci["hetu"]) == "valid"
+            assert ci["sadhya"] != item["sadhya"]
+
+    def test_badhita_names_a_defeating_source_for_an_independently_valid_inference(self) -> None:
+        gold = build_gold_set(per_class=20, seed=1)
+        items = [it for it in gold if it["expected"] == "badhita"]
+        assert len(items) >= 20
+        for item in items:
+            world = {k: frozenset(v) for k, v in item["world"].items()}
+            assert derive_verdict(world, item["paksa"], item["sadhya"], item["hetu"]) == "valid"
+            source = item["defeating_source"]
+            assert source["pramana"] in ("pratyaksa", "sabda")
+            assert item["sadhya"] in source["claim"]
 
     def test_it_is_deterministic_for_a_seed(self) -> None:
         """A benchmark that changes between runs cannot support a paired comparison."""
