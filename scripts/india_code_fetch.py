@@ -52,7 +52,7 @@ from urllib.request import Request, urlopen
 
 USER_AGENT = (
     "prabhasa-samskrutam-research/1.0 "
-    "(+contact: sharath.ai.colab@gmail.com; one-time research fetch of 5 named Act PDFs)"
+    "(+contact: qbz506@york.ac.uk; one-time research fetch of 5 named Act PDFs)"
 )
 
 _BITSTREAM_URL = "https://indiacode.gov.in/server/api/core/bitstreams/{bitstream_id}/content"
