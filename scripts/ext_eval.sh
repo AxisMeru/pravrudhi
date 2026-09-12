@@ -1,17 +1,24 @@
 #!/usr/bin/env bash
 # External proof-tier scoring with lm-evaluation-harness inside pravrudhi/ext-scorers, offline, datasets pre-cached.
-# usage: scripts/ext_eval.sh <hf-repo-id> <tasks,comma> <out-dir> [adapter-dir] [limit] [task-dir]
+# usage: scripts/ext_eval.sh <hf-repo-id> <tasks,comma> <out-dir> [adapter-dir] [limit] [task-dir] [trust-remote-code]
 # task-dir mounts custom lm-eval task YAMLs (--include_path). Defaults to scripts/ext_tasks when present,
 # so the nyaya citation tasks are available without an image rebuild.
+# trust-remote-code: explicit opt-in only ("true"/"1"; anything else, including omitted, is False). A model
+# whose architecture has no natively-registered transformers class (e.g. NemotronH) needs this to load at
+# all under --model hf; off by default because it means the harness executes code from the model repo, not
+# just its weights. The choice is recorded in the admitted row's provenance (external.py::parse_lm_eval
+# reads it back out of model_args as its own `trust_remote_code` field) so a reader can tell which runs
+# loaded custom code without having to parse model_args themselves.
 # Produces <out-dir>/results.json (lm-eval's own output) and prints the accuracy lines. Never touches the ledger.
 set -euo pipefail
-MODEL="$1"; TASKS="$2"; OUT="$3"; ADAPTER="${4:-}"; LIMIT="${5:-}"; TASKDIR="${6:-}"
+MODEL="$1"; TASKS="$2"; OUT="$3"; ADAPTER="${4:-}"; LIMIT="${5:-}"; TASKDIR="${6:-}"; TRC_IN="${7:-}"
+case "${TRC_IN,,}" in true|1) TRC=True ;; *) TRC=False ;; esac
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 HFH="${HF_HOME:-$HOME/.cache/huggingface}"
 SNAP="$(ls -d "$HFH/hub/models--${MODEL//\//--}/snapshots/"*/ | head -1)"
 REL="/models/${SNAP#$HFH/}"
 mkdir -p "$OUT"
-ARGS="pretrained=$REL,dtype=bfloat16,trust_remote_code=False"
+ARGS="pretrained=$REL,dtype=bfloat16,trust_remote_code=$TRC"
 MOUNTS=(-v "$HFH:/models:ro" -v "$ROOT/.pravrudhi/ext_cache:/cache:rw" -v "$OUT:/out:rw")
 if [[ -n "$ADAPTER" ]]; then MOUNTS+=(-v "$ADAPTER:/adapter:ro"); ARGS="$ARGS,peft=/adapter"; fi
 LIM=(); [[ -n "$LIMIT" ]] && LIM=(--limit "$LIMIT")

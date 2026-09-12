@@ -47,18 +47,39 @@ def _lm_eval_items(r: dict[str, Any]) -> dict[str, int]:
     return out
 
 
+def _trust_remote_code(model_args: str | None) -> bool:
+    """Whether `model_args` opted into loading custom model code, as its own explicit field.
+
+    `scripts/ext_eval.sh` builds `model_args` as a comma-joined string (lm-eval's own CLI
+    convention); `trust_remote_code=True` is buried in there like any other key. A reader
+    of an admitted row should not have to parse that string to tell whether a run loaded
+    code the kernel never reviewed - so this is surfaced as its own typed field rather than
+    left implicit. Off by default: absent or any value other than a case-insensitive "true"
+    reads as False, matching lm-eval/Studio's own opt-in-only stance on custom code.
+    """
+    if not model_args:
+        return False
+    for part in model_args.split(","):
+        key, _, value = part.partition("=")
+        if key.strip() == "trust_remote_code":
+            return value.strip().lower() == "true"
+    return False
+
+
 def parse_lm_eval(path: Path) -> dict[str, Any]:
     r = json.loads(path.read_text())
     metrics: dict[str, dict[str, float]] = {}
     for task, m in r["results"].items():
         metrics[task] = {k: float(v) for k, v in m.items() if isinstance(v, (int, float))}
+    model_args = (r.get("config") or {}).get("model_args")
     parsed: dict[str, Any] = {
         "tool": "lm-eval",
         "tool_version": r.get("lm_eval_version"),
         "transformers_version": r.get("transformers_version"),
         "n_samples": {t: v.get("effective") for t, v in (r.get("n-samples") or {}).items()},
         "n_shot": r.get("n-shot"),
-        "model_args": (r.get("config") or {}).get("model_args"),
+        "model_args": model_args,
+        "trust_remote_code": _trust_remote_code(model_args),
         "metrics": metrics,
     }
     items = _lm_eval_items(r)

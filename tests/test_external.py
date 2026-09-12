@@ -15,6 +15,28 @@ def _lm_eval(path: Path, acc: float) -> Path:
     return path
 
 
+def test_parse_lm_eval_trust_remote_code(tmp_path):
+    """model_args carries trust_remote_code as a raw substring; the parsed row must surface
+    it as its own explicit, typed field so a reader doesn't have to grep model_args to tell
+    whether a run loaded custom code (scripts/ext_eval.sh's opt-in, off by default)."""
+    on = tmp_path / "trc_true.json"
+    on.write_text(json.dumps({
+        "results": {"mmlu_pro_law": {"exact_match,custom-extract": 0.18}},
+        "n-samples": {"mmlu_pro_law": {"original": 1101, "effective": 1101}}, "n-shot": {"mmlu_pro_law": 0},
+        "lm_eval_version": "0.4.9", "transformers_version": "4.57",
+        "config": {"model_args": "pretrained=x,dtype=bfloat16,trust_remote_code=True"},
+    }))
+    off = tmp_path / "trc_false.json"
+    off.write_text(json.dumps({
+        "results": {"mmlu_pro_law": {"exact_match,custom-extract": 0.18}},
+        "n-samples": {"mmlu_pro_law": {"original": 1101, "effective": 1101}}, "n-shot": {"mmlu_pro_law": 0},
+        "lm_eval_version": "0.4.9", "transformers_version": "4.57",
+        "config": {"model_args": "pretrained=x,dtype=bfloat16,trust_remote_code=False"},
+    }))
+    assert parse_lm_eval(on)["trust_remote_code"] is True
+    assert parse_lm_eval(off)["trust_remote_code"] is False
+
+
 def test_parse_and_record(tmp_path):
     (tmp_path / "research").mkdir()
     LedgerWriter.open(tmp_path / "research" / "ledger.jsonl", "0.1.0")
