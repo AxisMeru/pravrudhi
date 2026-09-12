@@ -14,11 +14,60 @@
 #
 # The consequence is that cost cannot be managed by choosing a cheaper model on codex. It is managed by sending
 # work that does not need the strongest model to Claude Code instead, where a cheaper model does exist.
-updated: 2026-09-05
+updated: 2026-09-07
 minimum_trials: 3
 confidence: 0.95
 
 routes:
+  - id: qwen-lite-flash
+    agent: opencode:alibaba-plan
+    model: qwen3.8-flash
+    relative_cost: 0.05
+    token_budget: 45000000
+    tiers: [mechanical]
+    note: >-
+      The same Lite Plan, its cheap high-throughput model. Added 2026-09-08 after the plan's one-week quota was
+      exhausted inside a day. The cause was not one expensive call: qwen3.8-max, the vendor's FLAGSHIP, was the
+      declared first choice at both mechanical and standard, driving agent loops whose steps cost about 20,000
+      tokens each (one measured step of a trivial task: 20,419 total, 19,584 read from cache), dispatched hourly.
+      Mechanical work is what a fast cheap model is for. The two share one quota, so this buys no capacity; it
+      lowers the burn rate for the work that never needed the flagship, which is most of it. Admitted at
+      mechanical only -- the same tier the plan's other model earned on one verified tool call -- because a
+      cheaper model is not thereby a better one.
+
+  - id: qwen-lite-max
+    agent: opencode:alibaba-plan
+    model: qwen3.8-max
+    relative_cost: 0.15
+    token_budget: 12000000
+    tiers: [standard]
+    note: >-
+      Alibaba's Lite Plan flagship, on a plan-exclusive endpoint with its own key file and a credit budget rather
+      than a free-tier token cap. Verified live on 2026-09-07: given a file and a read tool it called the tool
+      and returned the right answer, exit 0 in 8.6s. Admitted at the two tiers the free-tier loop was admitted
+      at, on the same evidence and the same reasoning -- one verified tool call says the loop runs, not that it
+      does design or critical work well. It is declared ahead of the free-tier loop because it is cheaper and the
+      vendor's stronger model, and it rises further only on its measured record here.
+
+  - id: qwen-loop
+    agent: opencode:alibaba
+    model: qwen3-coder-plus
+    relative_cost: 0.2
+    tiers: []
+    note: >-
+      Out of the tiers since 2026-09-08: the free tier's coding quota is spent. Asked to do work it answers
+      "The free quota has been exhausted", observed through the agent rather than assumed, so it is a route the
+      swarm can no longer choose. The subscribed Lite Plan (qwen-lite-max) is the Alibaba seat that works and is
+      first at both tiers it serves. Kept here rather than deleted because the quota resets and the record of
+      what it did is worth keeping.
+      Qwen driving a real tool loop through OpenCode against DashScope Singapore. Verified live on 2026-09-07:
+      given a file and a read tool it called the tool and returned the right answer, exit 0 in 8.1s at zero
+      cost. An earlier attempt from inside a sandboxed agent failed at OpenCode's own log file before reaching
+      DashScope, which is a property of nesting one agent inside another's sandbox and not of this route;
+      agents/ALIBABA_LOOP.md keeps that transcript. Admitted at mechanical and standard because one verified
+      tool call is evidence the loop runs, not evidence it does design or critical work well. It rises through
+      the same measured outcomes as every other route, or it does not rise.
+
   - id: qwen-coder
     agent: hosted
     model: qwen3-coder-plus
@@ -31,20 +80,7 @@ routes:
       above mechanical, so the router reaches it only when every paid route at that tier is cooling down from a
       usage limit. A single-shot writer is a poor substitute for an agent loop and a far better one than a
       stopped loop, which is what the operator asked for on 2026-09-06: the system must run unattended when the
-      paid accounts are spent.
-
-  - id: qwen-loop
-    agent: loop
-    model: qwen3-coder-plus
-    relative_cost: 0.3
-    tiers: [mechanical, standard]
-    sentinel: true
-    note: >-
-      The same hosted free-tier model as qwen-coder, but driven through Pravrudhi's own tool-calling loop
-      (read_file, write_file, list_dir, search, run_command) instead of one single-shot JSON reply. Declared
-      after qwen-coder, its cheaper single-shot sibling: standby arbitration between sentinels is by
-      relative_cost, not declared order, so qwen-coder still takes over first when the paid routes are cooling
-      and qwen-loop is reached only if qwen-coder's own quota is also spent.
+      paid accounts are spent. It stays because the loop above it is a different route and can also be spent.
 
   - id: haiku
     agent: claude-code
@@ -88,8 +124,8 @@ routes:
     note: >-
       Costs nothing and, on the evidence so far, does little: it produced no change at all on two tasks a hosted
       agent completed in minutes. Serving text and driving an agentic tool-calling loop are different
-      capabilities. Restored to the mechanical tier only, and declared behind the hosted sentinel, so it is
-      reached solely when both the paid routes and the hosted quota are spent. Last resort, not a peer.
+      capabilities. Restored to the mechanical tier only, and declared behind sonnet, so it is
+      reached solely when the paid route is cooling. Last resort, not a peer.
 
 # Declared order decides before there is measured evidence, and it is also the tie-break the fallback path walks.
 # The sentinels sit last at every tier on purpose: they take over, they do not compete.
@@ -100,8 +136,39 @@ routes:
 prefer:
   critical: astra   # operator, 2026-09-06: "let astra handle the tough jobs"
 
+# Token budgets, recalibrated 2026-09-09 against measurement rather than guesswork.
+#
+# The first pair (flash 6,000,000 / max 2,000,000) were invented before anything could measure a dispatch, and
+# they were wrong by two orders of magnitude in both directions at once: the meter under-read by 536x, so they
+# never bound anything, and against real consumption they are smaller than a single run.
+#
+# What a dispatch actually costs, from OpenCode's own per-session accounting over 32 real sessions:
+#   min 20,137   median 888,011   max 8,679,807 tokens
+# Most of that is context replayed on every step, so cost scales with how long the agent runs, not with how
+# hard the task reads.
+#
+# What the week actually held: the plan seats consumed 57,079,701 tokens and hit the wall. The operator reported
+# the plan at 25% used when it was switched on, so the weekly allowance is on the order of 76,000,000. The pair
+# below totals 57,000,000, which leaves headroom for that estimate being wrong and still lets the cheap seat do
+# real work. These are control inputs derived from measurement, not a figure the vendor has published.
+
 declared:
-  mechanical: [qwen-coder, qwen-loop, sonnet, local-glm]
-  standard: [sonnet, qwen-coder, qwen-loop]
-  design: [sonnet, opus, astra, qwen-coder]
-  critical: [opus, sonnet, astra, qwen-coder]
+  # The critical tier leads with astra on the operator's explicit instruction of 2026-09-06: "let astra handle
+  # the tough jobs". It had been listed last there, behind opus and sonnet, which made it a last resort reached
+  # only once the cheaper routes were measured worse or cooling — permitted, but never preferred, which is the
+  # inverse of what was asked. Cost still governs the tiers below; this one is a stated preference, and a
+  # preference outranks the cost heuristic.
+  # The verified Qwen loop is declared ahead of the single-shot sentinel at the two tiers it was measured at, so
+  # a spent paid account falls to a real tool loop first and to a one-shot writer only after that. Both are named
+  # here rather than left to the cost sort, which ranked them by id and put the sentinel above the loop.
+  # mechanical leads with the plan's cheap high-throughput model, not its flagship. The flagship led both tiers
+  # until 2026-09-08, when a one-week quota went in a day: mechanical fires most often, and an agent loop costs
+  # roughly 20,000 tokens per step whichever model runs it, so the model that runs there decides the burn rate.
+  mechanical: [qwen-lite-flash, sonnet, local-glm]
+  # astra is named last at standard and design as of 2026-09-09, so an idle subscription absorbs overflow when
+  # the seats above it are cooling - which is the situation for the five days the Lite Plan is out. Last, not
+  # first: head to head at critical, where the operator declared it first, astra is accepted on 60% of 30
+  # dispatches against sonnet's 86% of 36, so it earns overflow rather than precedence at these tiers.
+  standard: [qwen-lite-max, sonnet, astra]
+  design: [sonnet, opus, astra]
+  critical: [astra, opus, sonnet]
