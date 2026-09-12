@@ -1,13 +1,43 @@
 #!/usr/bin/env python3
 """
-Build the Constitution of India corpus from Wikisource.
+Build statute corpora from en.wikisource.org for the Nyāya-law track.
 
-Fetches all subpages of "Constitution of India (2020)" from en.wikisource.org,
-saves raw JSON responses, parses to articles, and writes a corpus JSON file.
-Supports --verify mode to cross-check text against raw sources.
+Two fetch shapes, because Wikisource hosts Indian statutes both ways:
 
-Follows the verified recipe: prefixsearch for subpages, then action=parse
-for each subpage to get rendered HTML. No statute text literals in code.
+- **Multi-page** ("coi"): the Constitution of India (2020) is split into one Wikisource
+  subpage per Part/Schedule. Fetches each subpage, parses "N. Title.—Body" headings.
+- **Single-page** ("evidence_act"): the Indian Evidence Act 1872 is one Wikisource page
+  with internal ``<h2>`` (Part) / ``<h3>`` (Chapter) / ``<h4>`` (Section) headings and an
+  ``mw-editsection`` "[edit]" link as a sibling of each heading -- that markup must be
+  stripped as a block (a naive non-greedy strip leaves a stray "edit]" at the start of
+  every body; verified against the live page, see ``_EDITSECTION_RE``).
+
+Both write a corpus JSON of the same shape: ``{version, built, source:{site, work, pages,
+fetched_at, licence}, documents:[{id, act, section, title, text, part}]}``.
+
+**Licence basis (verified, not assumed).** The underlying legislative text of an Act of an
+Indian legislature is not protected by copyright: Copyright Act, 1957, s. 52(1)(q) exempts
+"any Act of a Legislature" (subject to not being reproduced together with added commentary,
+which this script does not do -- it extracts the bare text only) from infringement. This
+applies identically to the Constitution of India and to the Indian Evidence Act, 1872: both
+are Government-of-India legislative works, and this script's ``documents[].text`` values are
+their bare statutory text. Wikisource's own *transcription* (markup, formatting, the specific
+page as authored on that wiki) is separately offered under Wikisource's site-wide CC BY-SA
+licence -- this script does not reuse Wikisource's markup or prose beyond extracting the
+underlying statute text, but records that licence in ``source.licence`` for completeness
+since the raw HTML fetched (saved for --verify) is itself CC BY-SA content.
+
+**Searched for and NOT found on en.wikisource.org (2026-09-12):** the Indian Penal Code, the
+Indian Contract Act, and the Code of Criminal Procedure (only a 1979 amendment ordinance to
+the latter exists, not the Act itself). Checked via direct title lookup, ``list=allpages``
+prefix search, ``action=opensearch``, and full-text ``list=search`` under every plausible
+title variant (with/without "The", with/without year, "Code" vs "Act" word order) -- none
+resolved to a real page. Not fetched here; not silently substituted with anything else. A
+future source for these three needs a different site (e.g. the Government of India's own
+india code portal) and its own fetch/licence review, not an extension of this one.
+
+Follows the verified recipe: prefixsearch for subpages, then action=parse for each subpage
+(or the one page) to get rendered HTML. No statute text literals in code.
 """
 
 from __future__ import annotations
@@ -131,6 +161,18 @@ def fetch_page_html(subpage_title: str) -> tuple[dict[str, Any], str]:
     return data, html_text
 
 
+# A heading's mw-editsection sibling is itself two NESTED spans:
+#   <span class="mw-editsection"><span class="mw-editsection-bracket">[</span>
+#     <a ...><span>edit</span></a><span class="mw-editsection-bracket">]</span></span>
+# A non-greedy `<span class="mw-editsection">.*?</span>` stops at the FIRST </span> (the
+# inner bracket span's close), leaving the <a>edit</a> and closing bracket span unstripped
+# -- generic tag-stripping then turns those into a literal "edit]" leaking into the body
+# right after every heading. Matching through the outer span's real close (the second
+# </span> in a row) removes the whole block. Verified against the live Indian Evidence Act
+# 1872 page during development.
+_EDITSECTION_RE = re.compile(r'<span class="mw-editsection">.*?</span>\s*</span>', re.DOTALL)
+
+
 def strip_html(html_text: str) -> str:
     """
     Strip HTML tags and unescape entities. Drop footnote markers like [ 1 ].
@@ -141,6 +183,9 @@ def strip_html(html_text: str) -> str:
 
     # Remove script and style tags and content
     text = re.sub(r"<(script|style)[^>]*>.*?</\1>", "", text, flags=re.DOTALL | re.IGNORECASE)
+
+    # Remove the "[edit]" section-link block as a whole (see _EDITSECTION_RE docstring).
+    text = _EDITSECTION_RE.sub("", text)
 
     # Remove HTML tags
     text = re.sub(r"<[^>]+>", "", text)
@@ -207,24 +252,79 @@ def parse_articles(part_name: str, html_text: str) -> list[Article]:
     return articles
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Build Constitution of India corpus from Wikisource"
-    )
-    parser.add_argument(
-        "--verify",
-        action="store_true",
-        help="Verify that extracted text occurs verbatim in raw files",
-    )
-    parser.add_argument(
-        "--root",
-        type=Path,
-        default=Path("/home/ss/projects/pravrudhi"),
-        help="Root directory of the project",
-    )
-    args = parser.parse_args()
+# <h2>=Part, <h3>=Chapter, <h4>=Section in the Indian Evidence Act 1872's own rendering
+# (verified against the live page, not assumed): each level surfaced identically for every
+# heading checked, e.g. <h4 id="3._Interpretation_clause">3. Interpretation clause</h4>.
+_HEADING_RE = re.compile(r"<h([234])[^>]*>(.*?)</h\1>", re.DOTALL)
+_SECTION_HEADING_RE = re.compile(r"^(\d{1,3}[A-Z]?)\.\s*(.+)$", re.DOTALL)
 
-    root = args.root
+
+def parse_single_page_articles(act: str, id_prefix: str, html_text: str) -> list[Article]:
+    """
+    Parse a single-page Wikisource work (e.g. the Indian Evidence Act 1872) into Articles.
+
+    Unlike the Constitution's one-subpage-per-Part layout, this work is one Wikisource page
+    with Part/Chapter/Section conveyed by heading LEVEL (h2/h3/h4) rather than by which
+    subpage was fetched. A body runs from just after one heading to just before the next
+    (of any of the three levels) -- not to the next </p>, since a section can span several
+    paragraphs.
+    """
+    matches = list(_HEADING_RE.finditer(html_text))
+    articles: list[Article] = []
+    current_part = ""
+    current_chapter = ""
+    for i, m in enumerate(matches):
+        level = m.group(1)
+        heading_text = strip_html(m.group(2)).strip()
+        if level == "2":
+            current_part = heading_text
+            continue
+        if level == "3":
+            current_chapter = heading_text
+            continue
+        sec_match = _SECTION_HEADING_RE.match(heading_text)
+        if not sec_match:
+            continue
+        number, title = sec_match.groups()
+        start = m.end()
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(html_text)
+        body = strip_html(html_text[start:end]).strip()
+        if len(body) < 5:
+            continue
+        section_id = f"Section {number}"
+        part = f"{current_part} / {current_chapter}" if current_chapter else current_part
+        articles.append(
+            Article(
+                id=f"{id_prefix}/{section_id}",
+                act=act,
+                section=section_id,
+                title=title.rstrip("."),
+                text=body,
+                part=part,
+            )
+        )
+    return articles
+
+
+def _write_corpus(
+    corpus_file: Path, work: str, pages_meta: list[dict[str, Any]], licence: str, articles: list[Article]
+) -> None:
+    corpus = {
+        "version": 1,
+        "built": datetime.now(UTC).strftime("%Y-%m-%d"),
+        "source": {
+            "site": "en.wikisource.org",
+            "work": work,
+            "pages": pages_meta,
+            "fetched_at": datetime.now(UTC).isoformat(),
+            "licence": licence,
+        },
+        "documents": [a.to_dict() for a in articles],
+    }
+    corpus_file.write_text(json.dumps(corpus, indent=1, ensure_ascii=False), encoding="utf-8")
+
+
+def build_coi(root: Path, verify: bool) -> None:
     raw_dir = root / "research" / "nyaya" / "raw" / "coi"
     corpus_dir = root / "research" / "nyaya" / "corpus"
 
@@ -277,7 +377,7 @@ def main() -> None:
             failed_parts.append(subpage_title)
 
     # Verification mode
-    if args.verify:
+    if verify:
         print("\nVerifying extracted articles against raw sources...", file=sys.stderr)
         verify_count = 0
         for article in articles:
@@ -310,19 +410,14 @@ def main() -> None:
 
     # Write corpus JSON
     corpus_file = corpus_dir / "coi.json"
-    corpus = {
-        "version": 1,
-        "built": datetime.now(UTC).strftime("%Y-%m-%d"),
-        "source": {
-            "site": "en.wikisource.org",
-            "work": "Constitution of India (2020)",
-            "pages": pages_meta,
-            "fetched_at": datetime.now(UTC).isoformat(),
-            "licence": "Indian legislation (public); transcription CC BY-SA per Wikisource",
-        },
-        "documents": [a.to_dict() for a in articles],
-    }
-    corpus_file.write_text(json.dumps(corpus, indent=1, ensure_ascii=False), encoding="utf-8")
+    _write_corpus(
+        corpus_file,
+        "Constitution of India (2020)",
+        pages_meta,
+        "Indian legislation (public, Copyright Act 1957 s.52(1)(q)); "
+        "transcription CC BY-SA per Wikisource",
+        articles,
+    )
 
     # Summary
     print("\nSummary:", file=sys.stderr)
@@ -343,6 +438,71 @@ def main() -> None:
         if article_21:
             preview = article_21.text[:100]
             print(f"  Article 21 starts: {preview}...", file=sys.stderr)
+
+
+def build_evidence_act(root: Path) -> None:
+    """Fetch and parse the Indian Evidence Act 1872 (one Wikisource page, h2/h3/h4
+    structure -- see parse_single_page_articles)."""
+    raw_dir = root / "research" / "nyaya" / "raw" / "evidence_act"
+    corpus_dir = root / "research" / "nyaya" / "corpus"
+    raw_dir.mkdir(parents=True, exist_ok=True)
+    corpus_dir.mkdir(parents=True, exist_ok=True)
+
+    page_title = "Indian Evidence Act 1872"
+    print(f"Fetching {page_title}...", file=sys.stderr)
+    raw_json, html_text = fetch_page_html(page_title)
+
+    raw_file = raw_dir / f"{page_title.replace(' ', '_')}.json"
+    raw_file.write_text(json.dumps(raw_json, indent=1, ensure_ascii=False), encoding="utf-8")
+    revid = raw_json.get("parse", {}).get("revid")
+    sha256 = hashlib.sha256(raw_file.read_bytes()).hexdigest()
+
+    articles = parse_single_page_articles("Indian Evidence Act, 1872", "IEA", html_text)
+    print(f"  -> Extracted {len(articles)} sections", file=sys.stderr)
+
+    corpus_file = corpus_dir / "evidence_act.json"
+    _write_corpus(
+        corpus_file,
+        page_title,
+        [{"title": page_title, "revid": revid, "sha256": sha256}],
+        "Indian legislation (public, Copyright Act 1957 s.52(1)(q)); "
+        "transcription CC BY-SA per Wikisource",
+        articles,
+    )
+    print(f"  Corpus written to {corpus_file}", file=sys.stderr)
+    if articles:
+        s1 = next((a for a in articles if a.section == "Section 1"), None)
+        if s1:
+            print(f"  Section 1 starts: {s1.text[:100]}...", file=sys.stderr)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Build statute corpora from en.wikisource.org for the Nyaya-law track"
+    )
+    parser.add_argument(
+        "--work",
+        choices=["coi", "evidence_act", "all"],
+        default="coi",
+        help="Which corpus to (re)build (default: coi, for backward compatibility)",
+    )
+    parser.add_argument(
+        "--verify",
+        action="store_true",
+        help="Verify that extracted text occurs verbatim in raw files (coi only)",
+    )
+    parser.add_argument(
+        "--root",
+        type=Path,
+        default=Path("/home/ss/projects/pravrudhi"),
+        help="Root directory of the project",
+    )
+    args = parser.parse_args()
+
+    if args.work in ("coi", "all"):
+        build_coi(args.root, args.verify)
+    if args.work in ("evidence_act", "all"):
+        build_evidence_act(args.root)
 
 
 if __name__ == "__main__":
