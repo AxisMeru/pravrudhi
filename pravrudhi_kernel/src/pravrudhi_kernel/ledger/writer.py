@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import fcntl
 import hashlib
 import json
 import os
@@ -15,6 +14,37 @@ from pravrudhi_kernel.ledger.jcs import canonicalize
 from pravrudhi_kernel.ledger.verify import verify
 from pravrudhi_kernel.schema import Bucket, LedgerEvent
 from pravrudhi_kernel.schema.common import Pramana, Surface
+
+# ADR-0052: `fcntl` is POSIX-only, and a bare top-level `import fcntl` made the kernel - and so the whole CLI,
+# which imports it transitively - unimportable on Windows at all (`pravrudhi --version` was the first command
+# to try). Selected by which import actually succeeds, not by `sys.platform`: that is what lets a test prove
+# the import path is safe without a real Windows machine, by monkeypatching `fcntl` absent.
+try:
+    import fcntl
+except ImportError:
+    fcntl = None  # type: ignore[assignment]
+try:
+    import msvcrt
+except ImportError:
+    msvcrt = None  # type: ignore[assignment]
+
+
+def _lock_exclusive(fd: int) -> None:
+    if fcntl is not None:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+    elif msvcrt is not None:
+        msvcrt.locking(fd, msvcrt.LK_LOCK, 1)
+    else:
+        raise RuntimeError("no portable file lock available on this platform (neither fcntl nor msvcrt)")
+
+
+def _unlock(fd: int) -> None:
+    if fcntl is not None:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+    elif msvcrt is not None:
+        msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+    else:
+        raise RuntimeError("no portable file lock available on this platform (neither fcntl nor msvcrt)")
 
 
 class ChainBroken(RuntimeError):
@@ -165,7 +195,7 @@ class LedgerWriter:
         first (ADR-0013): concurrent writers interleave, never fork the chain."""
         fd = os.open(self.path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o640)
         try:
-            fcntl.flock(fd, fcntl.LOCK_EX)
+            _lock_exclusive(fd)
             lines: list[LedgerEvent] = []
             tail = self._tail()
             if tail is not None and tail[1] != self.head_hash:
@@ -187,7 +217,7 @@ class LedgerWriter:
             os.write(fd, "".join(e.model_dump_json() + "\n" for e in lines).encode("utf-8"))
             os.fsync(fd)
         finally:
-            fcntl.flock(fd, fcntl.LOCK_UN)
+            _unlock(fd)
             os.close(fd)
         self.seq, self.head_hash, self.t_last = ev.seq, ev.this_hash, ev.t
         self.head_path.write_text(json.dumps({"seq": ev.seq, "this_hash": ev.this_hash}) + "\n")
