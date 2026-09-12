@@ -1,4 +1,5 @@
 import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -16,8 +17,12 @@ from pravrudhi_kernel.sandbox.observe import model_dir_hash, sha256_tree
 from pravrudhi_kernel.sandbox.runner import docker_available
 
 needs_docker = pytest.mark.skipif(not docker_available(), reason="docker not available")
+windows_incompatible = pytest.mark.skipif(
+    sys.platform == "win32", reason="POSIX permission bits / docker --memory-swap; see ADR-0052 Windows note"
+)
 
 
+@windows_incompatible
 def test_kernel_state_dir_is_private(tmp_path: Path) -> None:
     st = ensure_kernel_state(tmp_path, docker_available=False)
     assert st.isolation == "process"
@@ -27,6 +32,7 @@ def test_kernel_state_dir_is_private(tmp_path: Path) -> None:
 
 
 @needs_docker
+@windows_incompatible
 def test_run_job_enforces_read_only_mount_and_no_network(tmp_path: Path) -> None:
     ro = tmp_path / "ro"
     ro.mkdir()
@@ -52,6 +58,7 @@ def test_run_job_enforces_read_only_mount_and_no_network(tmp_path: Path) -> None
 
 
 @needs_docker
+@windows_incompatible
 def test_run_job_timeout(tmp_path: Path) -> None:
     r = run_job(JobSpec(image="alpine:latest", command=["sleep", "5"], output_dir=str(tmp_path / "o"), timeout_s=1))
     assert r.timed_out and r.exit_code == 124

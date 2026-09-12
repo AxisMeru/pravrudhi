@@ -24,7 +24,7 @@ BANNED_ATTRS = {("np", "random"), ("numpy", "random")}
 def test_efe_modules_are_pure() -> None:
     problems = []
     for py in sorted(EFE.glob("*.py")):
-        tree = ast.parse(py.read_text())
+        tree = ast.parse(py.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
                 for a in node.names:

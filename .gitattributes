@@ -1,0 +1,5 @@
+# The kernel hashes its own source files for provenance (e.g. scorer_source() sha256, ADR-0035 §8) and those
+# hashes are carried by ledger rows across machines. `core.autocrlf` on a Windows checkout would otherwise
+# convert LF to CRLF on checkout, changing the bytes hashed and breaking every such hash's reproducibility on
+# Windows. Force LF checkout for text files on every platform so a hash of source bytes is the same everywhere.
+* text=auto eol=lf

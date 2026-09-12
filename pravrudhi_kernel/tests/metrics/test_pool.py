@@ -1,5 +1,6 @@
 import json
 import os
+import sys
 from pathlib import Path
 
 import pytest
@@ -18,6 +19,7 @@ def pool(tmp_path: Path) -> Path:
     return p
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX permission bits; see ADR-0052 Windows note")
 def test_seal_writes_hashed_items_with_private_modes(pool: Path) -> None:
     m = load_manifest(pool)
     assert m["n_items"] == 40 and len(m["item_hashes"]) == 40 and len(m["pool_version"]) == 64
