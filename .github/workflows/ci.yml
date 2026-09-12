@@ -45,6 +45,11 @@ jobs:
       - run: uv sync --all-groups --frozen
       - name: build the interface the engine serves
         working-directory: app/frontend
+        # A sign-in page needs a Supabase project named at build time to render its form at all; these two are
+        # public, inert values so the page has a form for the guards to check (nothing is called until submit).
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://ci-placeholder.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-placeholder
         run: |
           npm ci
           npm run build
