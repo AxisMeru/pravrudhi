@@ -29,6 +29,25 @@ which reads as a working install until someone opens a page. It now prefers
 `$HOME/pravrudhi-release`, the install the update channel maintains, and falls
 back only when there is no release.
 
+## Model provider credentials
+
+The two editions answer "whose keys pay for a model call" differently, and both halves belong in one place so
+neither is assumed from the other.
+
+A product install brings none of its own. Its route budget (`app/desktop/lib/api.js`'s `ROUTES`) carries no path
+that could run model work before a user has stored a key — `app/desktop/test/edition.test.js` asserts that no
+route template contains `chat` — and the one route it does carry, `POST /api/providers/:id/key` /
+`DELETE /api/providers/:id/key`, is exactly the step that lets a user bring and configure their own.
+
+An admin caller — `roles.role_of` in `src/pravrudhi/api/roles.py` returning `ADMIN` — on the Studio edition skips
+that step entirely. `store_for_project` in `src/pravrudhi/application/credentials.py` hands back the engine's own
+credential store whenever the project asked for is the engine's own root, which is what an unauthenticated local
+caller always asks for (the desktop operator: `role_of(None)` is `ADMIN` whenever `auth_mode()` is `DISABLED`) —
+no key is brought or configured. The model work Studio runs on itself follows the same rule: the swarm that
+drives Pravrudhi's own self-improvement loop draws its agent seats from the Lite Plan routing table
+(`configs/routing.yaml`), including the subscribed Alibaba Lite Plan seats (`qwen-lite-max`, `qwen-lite-flash`),
+without any bring-your-own step either.
+
 ## Repeatable build
 
 Use Node and npm on the Linux build machine (or a Mac build machine):
