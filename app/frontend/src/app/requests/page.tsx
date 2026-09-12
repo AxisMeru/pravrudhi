@@ -2,9 +2,10 @@
 
 import { useEffect, useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
+import { AskBox } from "@/components/requests/AskBox";
 import { RequestsList } from "@/components/requests/RequestsList";
 import { SummaryStrip } from "@/components/requests/SummaryStrip";
-import { requests, type RequestsResponse } from "@/lib/requests";
+import { requests, type RequestItem, type RequestsResponse } from "@/lib/requests";
 
 export default function RequestsPage() {
   // `undefined` is "still loading"; `null` is "the engine/recording has nothing to show" — kept apart from a
@@ -26,6 +27,22 @@ export default function RequestsPage() {
     };
   }, []);
 
+  // A freshly captured ask sorts to the end (the store orders oldest-first by `asked_at`, and nothing is newer
+  // than what was just asked), and starts "captured" - the state every new request is born in.
+  const addRequest = (request: RequestItem) => {
+    setData((prev) =>
+      prev
+        ? {
+            ...prev,
+            total: prev.total + 1,
+            open: prev.open + 1,
+            by_state: { ...prev.by_state, [request.state]: (prev.by_state[request.state] ?? 0) + 1 },
+            requests: [...prev.requests, request],
+          }
+        : prev,
+    );
+  };
+
   return (
     <div>
       <PageHeader
@@ -44,6 +61,7 @@ export default function RequestsPage() {
         )}
         {!failed && data && (
           <>
+            <AskBox onAsked={addRequest} />
             <SummaryStrip data={data} />
             <RequestsList items={data.requests} />
           </>

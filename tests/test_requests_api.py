@@ -93,6 +93,52 @@ def test_no_response_field_carries_a_secret_shaped_string(tmp_path: Path, client
         assert not any(marker in lowered for marker in ("api_key", "secret", "password", "bearer "))
 
 
+def test_the_web_door_can_originate_an_ask(tmp_path: Path, client: TestClient) -> None:
+    """r-e84f8a50: only the operator's local hook (`pravrudhi requests-capture`) could write the requests
+    store; the web door had no way to originate an ask at all."""
+    resp = client.post("/api/requests", json={"text": "wire the dashboard's ask box"}, headers=_auth(tmp_path))
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["text"] == "wire the dashboard's ask box"
+    assert body["state"] == "captured"
+    assert body["criteria"] == []
+
+    # Read back through GET, same as the criterion asks.
+    listing = client.get("/api/requests", headers=_auth(tmp_path))
+    assert listing.json()["total"] == 1
+    assert listing.json()["requests"][0]["id"] == body["id"]
+
+
+def test_an_asked_at_is_honoured_when_given(tmp_path: Path, client: TestClient) -> None:
+    resp = client.post(
+        "/api/requests", json={"text": "sharpen the retry logic", "asked_at": "2026-01-01T00:00:00.000Z"},
+        headers=_auth(tmp_path),
+    )
+    assert resp.json()["asked_at"] == "2026-01-01T00:00:00.000Z"
+
+
+def test_the_session_is_derived_from_the_caller_never_accepted_from_the_body(
+    tmp_path: Path, client: TestClient
+) -> None:
+    """`capture` takes an arbitrary `session` label; a client-supplied one would be a caller claiming whatever
+    provenance it likes for its own ask. The field is not even in the request schema."""
+    resp = client.post(
+        "/api/requests",
+        json={"text": "sharpen the retry logic", "session": "agent-for-operator"},
+        headers=_auth(tmp_path),
+    )
+    assert resp.status_code == 200
+    assert resp.json()["session"] == "web"  # authentication is off in this client; not the injected label
+
+
+def test_capturing_without_the_local_token_is_refused(tmp_path: Path, client: TestClient) -> None:
+    """`LocalGuard` requires the local token on every state-changing method regardless of `auth_mode` (see
+    `api/identity.py`'s own account: an `optional`-mode engine still requires it on POST/PUT/DELETE)."""
+    resp = client.post("/api/requests", json={"text": "sharpen the retry logic"})
+    assert resp.status_code == 401
+
+
 def test_a_fresh_workspace_answers_every_read_route_rather_than_erroring(tmp_path):
     """A new user's first screen asked for the inbox and got a 500: the listing replayed a ledger that did not
     exist yet. Every read-only route must answer on a workspace that has never run a night."""

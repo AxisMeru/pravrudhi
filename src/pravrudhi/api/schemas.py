@@ -1146,6 +1146,16 @@ class RequestEvidenceRequest(BaseModel):
     note: str = ""
 
 
+class RequestCaptureRequest(BaseModel):
+    """A new ask, in the same shape the operator's local hook writes with (`application.requests.capture`):
+    verbatim text and, optionally, when it was asked. `session` is not accepted here - the route derives it
+    from the caller's own identity, the same way `telegram_inbox` derives one from the chat id rather than
+    trusting a client-supplied label."""
+
+    text: str
+    asked_at: str | None = None
+
+
 class JobRequest(BaseModel):
     """An ad hoc brief for the dispatch board: what to do, where it may write, and how it is checked. `validate`
     is reserved on BaseModel (see `SubagentPreviewResponse`), so the wire field keeps its name and the Python

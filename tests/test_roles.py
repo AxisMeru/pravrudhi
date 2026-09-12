@@ -170,6 +170,21 @@ class TestTheGateActuallyRefuses:
         with self._client(tmp_path, monkeypatch) as client:
             assert client.get("/api/nights").status_code == 403
 
+    def test_a_write_route_on_the_same_surface_is_refused_the_same_way(self, tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+        """r-e84f8a50 added `POST /api/requests` (originate an ask) to the same `/requests` path `GET`,
+        `advance` and `evidence` already share; the gate applies per path, not per method, so a non-admin
+        caller must be refused here too - past the local-token check (LocalGuard requires it for every
+        state-changing method regardless of role), which is why one is supplied here and the anonymous GET
+        test above needs none."""
+        from pravrudhi.api.localguard import TOKEN_HEADER, app_token
+
+        with self._client(tmp_path, monkeypatch) as client:
+            resp = client.post(
+                "/api/requests", json={"text": "an ask from someone who is not the operator"},
+                headers={TOKEN_HEADER: app_token(tmp_path)},
+            )
+            assert resp.status_code == 403
+
     def test_the_same_caller_still_reaches_the_product(self, tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
         """A refusal that also broke the user surfaces would be a worse bug than the one being fixed."""
         with self._client(tmp_path, monkeypatch) as client:

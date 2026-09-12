@@ -74,6 +74,7 @@ from pravrudhi.api.schemas import (
     ProvidersResponse,
     RecipesResponse,
     RequestAdvanceRequest,
+    RequestCaptureRequest,
     RequestEvidenceRequest,
     RequestResponse,
     RosterResponse,
@@ -107,6 +108,7 @@ from pravrudhi.application.notifications import unread as unread_notifications
 from pravrudhi.application.requests import Evidence, Request, RequestError
 from pravrudhi.application.requests import advance as advance_request
 from pravrudhi.application.requests import backlog as requests_backlog
+from pravrudhi.application.requests import capture as capture_request
 from pravrudhi.application.requests import get as get_request
 from pravrudhi.application.requests import meet as meet_criterion
 from pravrudhi.application.requests import staleness as request_staleness
@@ -1128,6 +1130,19 @@ def create_app(root: Path, *, nyaya_ask_fn: Any | None = None) -> FastAPI:
         return RequestResponse.model_validate(
             {**req.to_dict(), "staleness_days": round(request_staleness(req), 2), "progress": list(req.progress())}
         )
+
+    @api.post("/requests")
+    async def requests_capture_ep(req: RequestCaptureRequest, user: User | None = CurrentUserDep) -> RequestResponse:
+        """Let the web door originate an ask, into the same store `pravrudhi requests-capture` (the operator's
+        local hook) already writes to - admin-only, same as every other `/requests*` route: the backlog this
+        feeds is the engine improving *itself* (CHARTER's RSI loop), not a per-user product surface, so the
+        classification in `api/roles.py` is unchanged, not merely inherited by the path already being listed.
+        `session` is derived from the caller, never accepted from the client - the same discipline
+        `telegram_inbox.py` already applies (`session=f"telegram:{chat_id}"`), so the backlog can tell a
+        web-submitted ask from a hook-submitted one without trusting a caller-supplied label."""
+        session = f"web:{user.id}" if user is not None else "web"
+        captured = capture_request(root, req.text, asked_at=req.asked_at, session=session)
+        return _request_response(captured)
 
     @api.get("/requests")
     def requests_ep() -> BacklogResponse:
