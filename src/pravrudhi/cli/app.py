@@ -502,6 +502,33 @@ def watch_cmd(
                        filter_config=reach.NotificationFilter(kinds={"operator_reply"}))
 
 
+@app.command("convergence")
+def convergence_cmd(
+    root: Path = ROOT_OPT,
+    hours: int = typer.Option(24, "--hours", help="trailing window to report over"),
+    json_out: bool = typer.Option(False, "--json", help="machine-readable figures"),
+) -> None:
+    """ADR-0053 §6: is this loop converging, or merely ticking?
+
+    Liveness is necessary and not sufficient. Both loops' timers fired on schedule through 2026-09-12 while one
+    parked eighteen dispatches on a single criterion and the other judged the same criterion unmet every hour,
+    and neither was noticed, because the only figure anyone looked at was whether the unit was active. The
+    figure that decides priority is criteria CLOSED: a zero there outranks every card and every release.
+
+    The window is trailing, so the count falls on its own as beats age out — compare like windows before reading
+    a drop as a regression.
+    """
+    from dataclasses import asdict
+
+    from pravrudhi.application.convergence import convergence
+
+    c = convergence(root, hours=hours)
+    if json_out:
+        typer.echo(json.dumps(asdict(c), indent=1))
+    else:
+        typer.echo(c.line(str(root)))
+
+
 @app.command("routes")
 def routes_cmd(root: Path = ROOT_OPT) -> None:
     """Which model can be used right now, how well it has done, and when a spent one comes back."""
