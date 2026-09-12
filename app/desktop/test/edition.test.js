@@ -61,3 +61,57 @@ test('the two editions keep their settings apart', () => {
   assert.equal(userDataName(STUDIO), 'pravrudhi-studio');
   assert.equal(userDataName(undefined), 'pravrudhi-desktop', 'an unknown build is the product, here too');
 });
+
+// Operator instruction: "the desktop app will not have access to any api/routing for any model provider..they
+// have to bring theirs, configure it etc..you have to enable..but for admin it uses the one as the core
+// pravrudhi". An unlabelled build is the product edition (`editionOf(undefined) === PRODUCT`, asserted above),
+// so this is the edition every released install runs as. Three names mark the operator's own seat, spent by
+// the engine on Studio's behalf and never on a product user's: the file the operator's raw Alibaba credential
+// lives in (agents/alibaba_agent.py::credential_path, under `~/.config/llm/`), the function that hands a
+// `claude` invocation the operator's own account (agents/account.py::claude_env), and the registry name for
+// the operator's paid Lite Plan seat (agents/registry.py::"opencode:alibaba-plan"). None is a JavaScript API
+// this shell could call directly; what it asserts is that the shell's own source never names them, and that
+// its route budget carries no path that could run model work before a user has stored a key of their own.
+test('the product path never reaches the operator\'s account key store or alibaba-plan seat', () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  assert.equal(editionOf(undefined), PRODUCT, 'a released, unlabelled build is the product edition');
+
+  const FORBIDDEN = Object.freeze(['.config/llm', 'claude_env', 'opencode:alibaba-plan']);
+
+  function scan(dir) {
+    const hits = [];
+    for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
+      if (entry.name === 'test' || entry.name === 'node_modules') continue;
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) { hits.push(...scan(full)); continue; }
+      if (!entry.name.endsWith('.js')) continue;
+      const source = fs.readFileSync(full, 'utf8');
+      for (const needle of FORBIDDEN) if (source.includes(needle)) hits.push(`${full}: ${needle}`);
+    }
+    return hits;
+  }
+
+  // A check that cannot fail is worth nothing: prove `scan` actually catches a planted violation before
+  // trusting it to report the real tree clean.
+  const fixture = fs.mkdtempSync(path.join(os.tmpdir(), 'edition-boundary-'));
+  try {
+    const planted = path.join(fixture, 'planted.js');
+    fs.writeFileSync(planted, "module.exports = 'opencode:alibaba-plan';");
+    assert.deepEqual(scan(fixture), [`${planted}: opencode:alibaba-plan`]);
+  } finally {
+    fs.rmSync(fixture, {recursive: true, force: true});
+  }
+
+  assert.deepEqual(scan(path.join(__dirname, '..')), []);
+
+  // The other half of "you have to enable": the route budget itself carries no path that could run model
+  // work, and does carry the one that lets a user store a key of their own.
+  const {ROUTES} = require('../lib/api');
+  const templates = Object.values(ROUTES).map(([, template]) => template);
+  assert.ok(!templates.some(t => t.includes('chat')),
+    'the product route budget must not carry a path that could run model work before a user has a key stored');
+  assert.ok(templates.includes('/api/providers/:id/key'),
+    'bringing and configuring a user\'s own key is the route that enables model work at all');
+});
