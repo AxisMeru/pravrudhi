@@ -33,7 +33,15 @@ def _lock_exclusive(fd: int) -> None:
     if fcntl is not None:
         fcntl.flock(fd, fcntl.LOCK_EX)
     elif msvcrt is not None:
+        # msvcrt.locking locks the byte range starting at the file's CURRENT position, and an unlock call must
+        # name the same range. append() writes between the lock and unlock calls, and with O_APPEND every write
+        # moves that position to end-of-file - so unlocking "here" after a write is a different range than the
+        # one just locked, and Windows refuses it (PermissionError). Anchor both calls to byte 0 instead, saving
+        # and restoring the caller's position so it never sees this housekeeping.
+        pos = os.lseek(fd, 0, os.SEEK_CUR)
+        os.lseek(fd, 0, os.SEEK_SET)
         msvcrt.locking(fd, msvcrt.LK_LOCK, 1)
+        os.lseek(fd, pos, os.SEEK_SET)
     else:
         raise RuntimeError("no portable file lock available on this platform (neither fcntl nor msvcrt)")
 
@@ -42,7 +50,10 @@ def _unlock(fd: int) -> None:
     if fcntl is not None:
         fcntl.flock(fd, fcntl.LOCK_UN)
     elif msvcrt is not None:
+        pos = os.lseek(fd, 0, os.SEEK_CUR)
+        os.lseek(fd, 0, os.SEEK_SET)
         msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+        os.lseek(fd, pos, os.SEEK_SET)
     else:
         raise RuntimeError("no portable file lock available on this platform (neither fcntl nor msvcrt)")
 
