@@ -1099,8 +1099,10 @@ class TestLoopSyncsBeforeEveryBeat:
         )
 
     @classmethod
-    def _origin_and_clone(cls, tmp_path: Path) -> tuple[Path, Path, Path]:
-        """A bare `origin`, a `seed` checkout used to advance it, and a `clone` standing in for the loop root."""
+    def _origin_and_clone(cls, tmp_path: Path, *, branch: str | None = "loop/studio") -> tuple[Path, Path, Path]:
+        """A bare `origin`, a `seed` checkout used to advance it, and a `clone` standing in for the loop root,
+        checked out on `branch` (a `loop/*` name by default - the only kind of root `_sync_loop_branch` acts on).
+        Pass `branch=None` to leave the clone on plain `main`, standing in for a root this ADR has not moved."""
         origin = tmp_path / "origin.git"
         cls._git("init", "--bare", "-b", "main", str(origin), cwd=tmp_path)
         seed = tmp_path / "seed"
@@ -1113,12 +1115,45 @@ class TestLoopSyncsBeforeEveryBeat:
         cls._git("clone", str(origin), str(clone), cwd=tmp_path)
         cls._git("config", "user.name", "t", cwd=clone)
         cls._git("config", "user.email", "t@t.example", cwd=clone)
+        if branch is not None:
+            cls._git("checkout", "-b", branch, cwd=clone)
         return origin, seed, clone
 
     def test_a_plain_non_git_root_is_left_untouched(self, tmp_path: Path) -> None:
         from pravrudhi.application.heartbeat import _sync_loop_branch
 
         assert _sync_loop_branch(tmp_path) is None
+
+    def test_a_git_root_on_main_is_left_untouched(self, tmp_path: Path) -> None:
+        """The lead's own main checkout is a git work tree on `main`, not a loop root. Syncing it unconditionally
+        would rebase the tree the lead cherry-picks assistant branches into and the publisher commits `demo.json`
+        into - rewriting shas the lead has not yet pushed, mid-merge, and aborting a rebase in a tree someone
+        else is actively working in. Only a branch matching `loop/*` is a root this ADR moved deliberately;
+        anything else must be left alone by construction, not by the accident of "happens not to be a git repo"."""
+        from pravrudhi.application.heartbeat import _sync_loop_branch
+
+        _origin, seed, clone = self._origin_and_clone(tmp_path, branch=None)
+        # The team advances origin/main after the clone - if the guard were merely "is this a git repo", this
+        # would rebase and silently succeed instead of doing nothing.
+        (seed / "team.txt").write_text("team work\n")
+        self._git("add", ".", cwd=seed)
+        self._git("-c", "user.name=t", "-c", "user.email=t@t.example", "commit", "-m", "team", cwd=seed)
+        self._git("push", "origin", "main", cwd=seed)
+
+        assert _sync_loop_branch(clone) is None
+        assert not (clone / "team.txt").exists(), "a root on main must never be synced, only a loop/* root"
+
+    def test_a_git_root_on_a_loop_branch_syncs(self, tmp_path: Path) -> None:
+        from pravrudhi.application.heartbeat import _sync_loop_branch
+
+        _origin, seed, clone = self._origin_and_clone(tmp_path)
+        (seed / "team.txt").write_text("team work\n")
+        self._git("add", ".", cwd=seed)
+        self._git("-c", "user.name=t", "-c", "user.email=t@t.example", "commit", "-m", "team", cwd=seed)
+        self._git("push", "origin", "main", cwd=seed)
+
+        assert _sync_loop_branch(clone) is None
+        assert (clone / "team.txt").exists(), "a loop/* root must sync with origin/main"
 
     def test_a_clean_rebase_advances_the_loop_root_onto_origin_main(self, tmp_path: Path) -> None:
         from pravrudhi.application.heartbeat import _sync_loop_branch

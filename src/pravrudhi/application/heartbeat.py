@@ -677,10 +677,19 @@ def _sync_loop_branch(root: Path) -> str | None:
     """ADR-0053 §3: before any dispatch, bring a loop root's branch up to date with `origin/main` by rebase, so
     a hypothesis is tested against what the team has actually landed rather than an increasingly stale clone.
 
-    Returns None on success (including "nothing to sync" and "not a git repository at all" - most roots in
-    tests, and any root not yet re-rooted under this ADR, are plain directories) or the conflict detail if the
-    rebase could not complete. The loop never resolves a conflict itself: on failure the rebase is aborted,
-    leaving the tree exactly as it was, and the detail is reported so a person looks at it.
+    Only acts when `root` is a git work tree currently on a `loop/*` branch (§1: that is the only kind of root
+    this ADR moves deliberately). Every other root - not a git repository at all, or a git repository on `main`
+    or anything else - is left strictly untouched. This is not an incidental narrowing: `beat()` calls this
+    unconditionally on every root, including the lead's own main checkout, which stays on plain `main` until an
+    explicit re-root. Guarding on "is this a git repo" alone would rebase that checkout every hour - the tree the
+    lead cherry-picks assistant branches into and the publisher commits `demo.json` into, rewriting shas not yet
+    pushed and aborting a rebase in a tree someone else is actively working in. The branch check is what keeps
+    this a no-op everywhere until a root is deliberately re-rooted onto `loop/<name>`, rather than by accident.
+
+    Returns None on success (including "nothing to sync", "not a loop root", and "not a git repository at all")
+    or the conflict detail if the rebase could not complete. The loop never resolves a conflict itself: on
+    failure the rebase is aborted, leaving the tree exactly as it was, and the detail is reported so a person
+    looks at it.
 
     A fetch failure (network hiccup, no remote configured) is treated the same as nothing-to-sync rather than a
     conflict - that distinction matters only for a genuine content conflict a person must resolve; nothing to
@@ -696,6 +705,12 @@ def _sync_loop_branch(root: Path) -> str | None:
     except (OSError, subprocess.SubprocessError):
         return None
     if probe.returncode != 0 or probe.stdout.strip() != "true":
+        return None
+    try:
+        branch = run("rev-parse", "--abbrev-ref", "HEAD")
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if branch.returncode != 0 or not branch.stdout.strip().startswith("loop/"):
         return None
     if run("fetch", "origin", "main").returncode != 0:
         return None
