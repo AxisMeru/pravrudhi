@@ -7,7 +7,10 @@ export default function TerminalPage() {
   const [runId, setRunId] = useState("");
   const [draft, setDraft] = useState("");
   useEffect(() => {
+    // The prerendered HTML has no window and no query string, so the real run_id is read after mount, same
+    // reasoning as the tour page's ?step=N.
     const initial = new URLSearchParams(window.location.search).get("run_id")?.trim() ?? "";
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- window.location is unavailable during SSR
     setRunId(initial);
     setDraft(initial);
   }, []);

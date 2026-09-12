@@ -99,7 +99,6 @@ export function DispatchPanel() {
     refresh();
     const id = setInterval(refresh, POLL_MS);
     return () => clearInterval(id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const paths = allowedPaths

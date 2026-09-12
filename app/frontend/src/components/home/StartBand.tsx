@@ -4,7 +4,7 @@
 // done, plus a link to the guided flow for someone who doesn't know what to type. In demo mode there is no
 // engine to run against, so the band explains how to get one instead.
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { Play } from "lucide-react";
 import { ApiError, IS_DEMO, startRun } from "@/lib/api";
@@ -190,10 +190,7 @@ function LiveStart() {
 }
 
 export function StartBand() {
-  // Decided after mount: the prerendered HTML has no window, so choosing here rather than at module load keeps
-  // the server output and the first client render identical.
-  const [mode, setMode] = useState<"unknown" | "demo" | "live">("unknown");
-  useEffect(() => setMode(IS_DEMO ? "demo" : "live"), []);
-  if (mode === "unknown") return <div className="h-48 animate-pulse rounded-lg bg-[var(--color-surface)]" />;
-  return mode === "demo" ? <DemoStart /> : <LiveStart />;
+  // IS_DEMO is NEXT_PUBLIC_DEMO, inlined at build time into both the server-rendered HTML and the client
+  // bundle identically, so it needs neither a placeholder render nor an effect to read safely.
+  return IS_DEMO ? <DemoStart /> : <LiveStart />;
 }

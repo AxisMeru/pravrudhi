@@ -66,24 +66,26 @@ function Section({
 }
 
 function useObjective(id: string) {
-  const [obj, setObj] = useState<ObjectiveDetail | null | undefined>(undefined);
+  // Tagged with the id it was fetched for, so a still-loading fetch from an objective the reader has already
+  // navigated away from never gets returned as if it belonged to the current one — derived at render time
+  // rather than reset with an extra synchronous commit at the top of the effect.
+  const [fetched, setFetched] = useState<{ id: string; obj: ObjectiveDetail | null } | undefined>(undefined);
 
   useEffect(() => {
     let cancelled = false;
-    setObj(undefined);
     objective(id)
       .then((o) => {
-        if (!cancelled) setObj(o);
+        if (!cancelled) setFetched({ id, obj: o });
       })
       .catch(() => {
-        if (!cancelled) setObj(null);
+        if (!cancelled) setFetched({ id, obj: null });
       });
     return () => {
       cancelled = true;
     };
   }, [id]);
 
-  return obj;
+  return fetched?.id === id ? fetched.obj : undefined;
 }
 
 function Detail({ id }: { id: string }) {

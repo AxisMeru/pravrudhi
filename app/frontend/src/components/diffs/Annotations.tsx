@@ -11,7 +11,12 @@ const Context = createContext<{
 
 export function AnnotationProvider({ task, revision, children }: { task: string; revision: string; children: ReactNode }) {
   const [state, setState] = useState<{ notes: Annotation[]; sessionOnly: boolean } | null>(null);
-  useEffect(() => { setState(readAnnotations(task)); }, [task]);
+  useEffect(() => {
+    // readAnnotations reads localStorage, unavailable during SSR — read after mount (and again if the task
+    // changes), same reasoning as every other browser-only read in this codebase (window, navigator).
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage is unavailable during SSR
+    setState(readAnnotations(task));
+  }, [task]);
   function update(file: string, notes: Annotation[]) {
     const persisted = saveAnnotations(task, file, notes);
     setState(previous => ({

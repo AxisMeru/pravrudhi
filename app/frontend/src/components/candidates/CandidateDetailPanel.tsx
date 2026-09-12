@@ -20,23 +20,26 @@ function Field({ label, value }: { label: string; value: ReactNode }) {
 // recorded demo snapshot carries no per-candidate ledger events, so that state is shown plainly rather than
 // silently rendering an empty list.
 export function CandidateDetailPanel({ row, onClose }: { row: CandidateRow; onClose: () => void }) {
-  const [detail, setDetail] = useState<CandidateDetail | null | undefined>(undefined);
+  // Tagged with the id it was fetched for, so a still-loading fetch from a candidate the reader has already
+  // moved on from never gets rendered as if it belonged to the current one — the same effect the removed
+  // `setDetail(undefined)` reset achieved, but derived at render time instead of an extra synchronous commit.
+  const [fetched, setFetched] = useState<{ id: string; detail: CandidateDetail | null } | undefined>(undefined);
 
   useEffect(() => {
     let cancelled = false;
-    setDetail(undefined);
     candidateDetail(row.candidate.id)
       .then((d) => {
-        if (!cancelled) setDetail(d);
+        if (!cancelled) setFetched({ id: row.candidate.id, detail: d });
       })
       .catch(() => {
-        if (!cancelled) setDetail(null);
+        if (!cancelled) setFetched({ id: row.candidate.id, detail: null });
       });
     return () => {
       cancelled = true;
     };
   }, [row.candidate.id]);
 
+  const detail = fetched?.id === row.candidate.id ? fetched.detail : undefined;
   const c = row.candidate;
 
   return (

@@ -5,7 +5,11 @@ import { expect, test as base, type ConsoleMessage, type Request } from "@playwr
  * A real engine must render each page and finish its browser requests without falling back to demo data.
  */
 const test = base.extend<{ browserDiagnostics: void }>({
-  browserDiagnostics: [async ({ context }, use): Promise<void> => {
+  // Playwright's fixture callback is conventionally destructured as `use`, but eslint-plugin-react-hooks now
+  // treats any function named `use*` as React's `use()` hook and flags calling it inside try/finally
+  // (react-hooks/rules-of-hooks) — a false positive, since this has nothing to do with React. Renamed rather
+  // than disabled: Playwright does not require the parameter to be called `use`.
+  browserDiagnostics: [async ({ context }, run): Promise<void> => {
     const failedRequests: string[] = [];
     const consoleErrors: string[] = [];
     const pageErrors: string[] = [];
@@ -28,7 +32,7 @@ const test = base.extend<{ browserDiagnostics: void }>({
       pageErrors.push(error.error().message);
     });
     try {
-      await use();
+      await run();
     } finally {
       expect.soft(failedRequests, "Every browser request must succeed on the local engine").toEqual([]);
       expect.soft(consoleErrors, "The local engine must not produce console errors").toEqual([]);
@@ -122,7 +126,7 @@ test("system page renders", async ({ page }) => {
   console.log("SYS ERRORS:", errs.join(" || ") || "none");
 });
 
-test("chat streaming endpoint is used and renders progressively", async ({ page, request }) => {
+test("chat streaming endpoint is used and renders progressively", async ({ page }) => {
   await page.goto("/chat");
   await expect(page.getByRole("heading", { name: "Chat" })).toBeVisible();
 

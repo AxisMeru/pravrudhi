@@ -47,11 +47,6 @@ function useLiveRun(id: string) {
 
   useEffect(() => {
     let cancelled = false;
-    closerRef.current?.();
-    closerRef.current = null;
-    setHandle(undefined);
-    setEvents([]);
-    setStreamFailed(false);
 
     run(id)
       .then((detail) => {
@@ -215,6 +210,9 @@ export function RunView() {
   const id = asStr(params.get("run"));
 
   if (!id) return <Empty text="No run id was given." />;
-  if (IS_DEMO) return <DemoRunView id={id} />;
-  return <LiveRun id={id} />;
+  // Keyed by id: switching between runs (e.g. via a link, without a full page load) should start each run's
+  // view from scratch rather than reset it in place — the same outcome useLiveRun's removed top-of-effect
+  // resets produced, but for free, and without a synchronous setState directly in an effect body.
+  if (IS_DEMO) return <DemoRunView key={id} id={id} />;
+  return <LiveRun key={id} id={id} />;
 }

@@ -44,6 +44,7 @@ export default function TourPage() {
 
   useEffect(() => {
     const fromUrl = Number(new URLSearchParams(window.location.search).get("step"));
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- window.location is unavailable during SSR
     if (Number.isInteger(fromUrl)) setCurrent(clampStep(fromUrl));
   }, []);
 
@@ -64,17 +65,17 @@ export default function TourPage() {
   const goTo = useCallback((n: number) => {
     const clamped = clampStep(n);
     setCurrent(clamped);
+    // Autoplay stops here, on the transition that reaches the last step, rather than in the effect below —
+    // called from a timer/event callback, not synchronously during the effect body, so it also covers the
+    // manual "Next" click reaching the end while playing.
+    if (clamped >= TOUR_STEPS.length) setPlaying(false);
     const url = new URL(window.location.href);
     url.searchParams.set("step", String(clamped));
     window.history.replaceState(null, "", url);
   }, []);
 
   useEffect(() => {
-    if (!playing) return;
-    if (current >= TOUR_STEPS.length) {
-      setPlaying(false);
-      return;
-    }
+    if (!playing || current >= TOUR_STEPS.length) return;
     const id = setTimeout(() => goTo(current + 1), AUTOPLAY_MS);
     return () => clearTimeout(id);
   }, [playing, current, goTo]);

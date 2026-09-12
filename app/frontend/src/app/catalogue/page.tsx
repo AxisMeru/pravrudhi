@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { PoliciesTable } from "@/components/catalogue/PoliciesTable";
 import { RecipesTable } from "@/components/catalogue/RecipesTable";
@@ -40,16 +40,18 @@ export default function CataloguePage() {
     };
   }, []);
 
-  const passesFilter = (available: boolean) =>
-    filter === "all" || (filter === "available" ? available : !available);
+  const passesFilter = useCallback(
+    (available: boolean) => filter === "all" || (filter === "available" ? available : !available),
+    [filter],
+  );
 
   const filteredTools = useMemo(
     () => (tools ?? []).filter((t) => passesFilter(t.available)),
-    [tools, filter],
+    [tools, passesFilter],
   );
   const filteredRecipes = useMemo(
     () => (recipes ?? []).filter((r) => passesFilter(r.available)),
-    [recipes, filter],
+    [recipes, passesFilter],
   );
 
   return (

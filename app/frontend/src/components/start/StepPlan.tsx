@@ -14,25 +14,32 @@ const AVAILABILITY_LABEL: Record<string, string> = {
 };
 
 export function StepPlan({ draft }: Props) {
-  const [plan, setPlan] = useState<Plan | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  // Tagged with the draft signature it was compiled for, so a still-compiling preview from before the reader's
+  // latest edit never gets shown as if it answered the current draft — derived at render time rather than
+  // reset with an extra synchronous commit at the top of the effect.
+  const signature = JSON.stringify([draft.id, draft.intent, draft.domain, draft.track, draft.targetDelta, draft.benchmarks]);
+  const [compiled, setCompiled] = useState<{ signature: string; plan: Plan | null; error: string | null }>({
+    signature: "",
+    plan: null,
+    error: null,
+  });
 
   useEffect(() => {
     let cancelled = false;
-    setPlan(null);
-    setError(null);
     previewPlan(draft)
       .then((p) => {
-        if (!cancelled) setPlan(p);
+        if (!cancelled) setCompiled({ signature, plan: p, error: null });
       })
       .catch((e) => {
-        if (!cancelled) setError(e instanceof Error ? e.message : String(e));
+        if (!cancelled) setCompiled({ signature, plan: null, error: e instanceof Error ? e.message : String(e) });
       });
     return () => {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draft.id, draft.intent, draft.domain, draft.track, draft.targetDelta, JSON.stringify(draft.benchmarks)]);
+  }, [signature]);
+
+  const { plan, error } = compiled.signature === signature ? compiled : { plan: null, error: null };
 
   return (
     <div>

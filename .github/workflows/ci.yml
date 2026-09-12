@@ -53,6 +53,9 @@ jobs:
         run: |
           npm ci
           npm run build
+      - name: frontend lint stays clean
+        working-directory: app/frontend
+        run: npx eslint . --max-warnings=0
       - name: install playwright browsers
         working-directory: app/frontend
         run: npx playwright install --with-deps chromium firefox

@@ -16,12 +16,16 @@ export function StepWalkthrough({ data }: { data: TourData }) {
   const [playing, setPlaying] = useState(false);
 
   useEffect(() => {
-    if (!playing) return;
-    if (idx >= frames.length - 1) {
-      setPlaying(false);
-      return;
-    }
-    const id = setTimeout(() => setIdx((i) => Math.min(i + 1, frames.length - 1)), FRAME_AUTOPLAY_MS);
+    if (!playing || idx >= frames.length - 1) return;
+    // The boundary stop happens inside the timeout callback (a deferred call, not a synchronous one during the
+    // effect body) rather than up front, so it fires exactly when advancing actually reaches the last frame.
+    const id = setTimeout(() => {
+      setIdx((i) => {
+        const next = Math.min(i + 1, frames.length - 1);
+        if (next >= frames.length - 1) setPlaying(false);
+        return next;
+      });
+    }, FRAME_AUTOPLAY_MS);
     return () => clearTimeout(id);
   }, [playing, idx, frames.length]);
 

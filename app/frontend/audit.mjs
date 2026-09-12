@@ -24,7 +24,7 @@ for (const p of paths) {
   }
   await page.waitForTimeout(4000);
   let text = '';
-  try { text = (await page.locator('body').innerText()).replace(/\n{2,}/g, '\n'); } catch (e) { text = 'NO BODY'; }
+  try { text = (await page.locator('body').innerText()).replace(/\n{2,}/g, '\n'); } catch { text = 'NO BODY'; }
   const name = (p.replace(/[^a-z0-9]/gi, '_') || 'root');
   await page.screenshot({ path: `${outdir}/${name}.png`, fullPage: true }).catch(() => {});
   console.log('==== ' + p + ' HTTP ' + status + ' ====');

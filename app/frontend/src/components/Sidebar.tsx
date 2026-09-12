@@ -90,10 +90,16 @@ export function Sidebar() {
 
   const [navOpen, setNavOpen] = useState(false);
 
-  // A drawer that survives a route change hides the page the reader just asked for.
-  useEffect(() => {
+  // A drawer that survives a route change hides the page the reader just asked for. Closing it here, during
+  // render, rather than in an effect after the fact: React's own pattern for resetting state when a prop
+  // changes (https://react.dev/reference/react/useState#storing-information-from-previous-renders) — comparing
+  // against the previous pathname and calling setState directly in the render body avoids the extra commit an
+  // effect would cause.
+  const [prevPathname, setPrevPathname] = useState(pathname);
+  if (pathname !== prevPathname) {
+    setPrevPathname(pathname);
     setNavOpen(false);
-  }, [pathname]);
+  }
 
   useEffect(() => {
     // The inbox and requests badges are Studio's; a product install answers 404 to both routes, and asking on

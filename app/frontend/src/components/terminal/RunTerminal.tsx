@@ -8,12 +8,19 @@ import { formatRunEvent, terminalStream } from "../../lib/terminal";
  * page is a remote execution surface, which this engine's threat model excludes.
  */
 export default function RunTerminal({ runId }: { runId: string }) {
+  // "Reload output" needs to restart the whole session from scratch, which a fresh mount gives for free — so
+  // the retry counter lives here, one level up, and is applied as a key rather than as an effect dependency
+  // that then has to reset every piece of session state by hand.
+  const [attempt, setAttempt] = useState(0);
+  return <RunTerminalSession key={attempt} runId={runId} onReload={() => setAttempt((value) => value + 1)} />;
+}
+
+function RunTerminalSession({ runId, onReload }: { runId: string; onReload: () => void }) {
   const [output, setOutput] = useState("");
   const [status, setStatus] = useState("Connecting…");
   const [error, setError] = useState("");
   const [copyStatus, setCopyStatus] = useState("");
   const [following, setFollowing] = useState(true);
-  const [attempt, setAttempt] = useState(0);
   const viewport = useRef<HTMLPreElement>(null);
   const follow = useRef(true);
 
@@ -29,12 +36,6 @@ export default function RunTerminal({ runId }: { runId: string }) {
         setOutput((previous) => previous + text);
       }
     };
-    setOutput("");
-    setError("");
-    setCopyStatus("");
-    setStatus("Connecting…");
-    follow.current = true;
-    setFollowing(true);
     void (async () => {
       let ended = false;
       try {
@@ -63,7 +64,7 @@ export default function RunTerminal({ runId }: { runId: string }) {
       controller.abort();
       if (frame !== undefined) cancelAnimationFrame(frame);
     };
-  }, [runId, attempt]);
+  }, [runId]);
 
   useLayoutEffect(() => {
     if (follow.current && viewport.current) viewport.current.scrollTop = viewport.current.scrollHeight;
@@ -88,7 +89,7 @@ export default function RunTerminal({ runId }: { runId: string }) {
           setFollowing(true);
           if (viewport.current) viewport.current.scrollTop = viewport.current.scrollHeight;
         }}>{following ? "Following tail" : "Jump to latest"}</button>
-        {error && <button className="rounded border px-3 py-1" onClick={() => setAttempt((value) => value + 1)}>Reload output</button>}
+        {error && <button className="rounded border px-3 py-1" onClick={onReload}>Reload output</button>}
       </div>
       {error && <p role="alert">{error} Reloading replaces scrollback with the server’s retained output.</p>}
       <p role="status" className="text-sm">{copyStatus}</p>

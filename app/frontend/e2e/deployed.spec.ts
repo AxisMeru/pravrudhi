@@ -1,4 +1,4 @@
-import { expect, test as base, type ConsoleMessage, type Request } from "@playwright/test";
+import { expect, test as base, type ConsoleMessage } from "@playwright/test";
 
 /**
  * The public-site project records against a fixed host and never notices when the deployed build itself is

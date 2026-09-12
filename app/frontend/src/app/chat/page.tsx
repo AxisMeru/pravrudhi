@@ -7,7 +7,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Send, Plus } from "lucide-react";
 import {
-  chat,
   chatStream,
   chatThreads,
   chatThread,
@@ -242,7 +241,7 @@ function LiveChat() {
     };
     setTurns((t) => [...t, initialAssistantTurn]);
 
-    let assistantTurn: DisplayTurn = { ...initialAssistantTurn };
+    const assistantTurn: DisplayTurn = { ...initialAssistantTurn };
     let threadId: string | null = null;
     let hasError = false;
 
@@ -409,10 +408,8 @@ function LiveChat() {
 }
 
 export default function ChatPage() {
-  // Decided after mount: the prerendered HTML has no window, so choosing here rather than at module load keeps
-  // the server output and the first client render identical.
-  const [mode, setMode] = useState<"unknown" | "demo" | "live">("unknown");
-  useEffect(() => setMode(IS_DEMO ? "demo" : "live"), []);
-  if (mode === "unknown") return <div className="h-48 animate-pulse rounded-lg bg-[var(--color-surface)]" />;
-  return mode === "demo" ? <DemoChat /> : <LiveChat />;
+  // IS_DEMO is NEXT_PUBLIC_DEMO, inlined at build time into both the server-rendered HTML and the client
+  // bundle identically — unlike window.location, there is no server/client disagreement to wait out here, so
+  // this needs neither a placeholder render nor an effect.
+  return IS_DEMO ? <DemoChat /> : <LiveChat />;
 }

@@ -11,6 +11,8 @@ export function KeyboardShortcuts() {
   const [mac, setMac] = useState(false);
 
   useEffect(() => {
+    // navigator is unavailable during SSR, so the platform-specific hint (⌘ vs Ctrl) is read after mount.
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- navigator is unavailable during SSR
     setMac(isMacPlatform());
   }, []);
 

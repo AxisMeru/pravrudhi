@@ -13,12 +13,11 @@ import { apiBase, IS_DEMO, health } from "@/lib/api";
  */
 export function ConnectionBanner() {
   const [reachable, setReachable] = useState(true);
-  const [demoMode, setDemoMode] = useState<boolean | null>(null);
 
-  useEffect(() => setDemoMode(IS_DEMO), []);
-
+  // IS_DEMO is NEXT_PUBLIC_DEMO, inlined at build time into both the server-rendered HTML and the client
+  // bundle identically, so it needs neither a placeholder render nor an effect to read safely.
   useEffect(() => {
-    if (demoMode !== false) return;
+    if (IS_DEMO) return;
     let cancelled = false;
 
     async function check() {
@@ -36,10 +35,9 @@ export function ConnectionBanner() {
       cancelled = true;
       clearInterval(id);
     };
-  }, [demoMode]);
+  }, []);
 
-  if (demoMode === null) return null;
-  if (demoMode) {
+  if (IS_DEMO) {
     return (
       <div className="flex flex-wrap items-center gap-2 border-b border-emerald-500/30 bg-emerald-500/10 px-5 py-2 text-sm text-emerald-300">
         <PlayCircle size={14} />
