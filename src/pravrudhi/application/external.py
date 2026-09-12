@@ -293,6 +293,19 @@ def _headline(row: dict[str, Any]) -> tuple[str, float, float, int]:
     return f"{ds}+ pass@1", p, (hi - lo) / 2, n
 
 
+def _trust_remote_code_cell(row: dict[str, Any]) -> str:
+    """'yes'/'no' when the row's own payload carries `trust_remote_code`, else '-'.
+
+    Most tools (evalplus, the prabhasa panel) have no such field at all - the concept
+    doesn't apply to them, so rendering 'no' would state a claim the row's payload does
+    not actually make. Only `lm-eval` rows (via scripts/ext_eval.sh's opt-in) carry it.
+    """
+    trc = row.get("trust_remote_code")
+    if trc is None:
+        return "-"
+    return "yes" if trc else "no"
+
+
 def render_external(ledger: Path) -> str:
     rows = external_rows(ledger)
     lines = [
@@ -302,18 +315,19 @@ def render_external(ledger: Path) -> str:
         "tooling outside the kernel (tier: external); the result file is admitted by SHA-256. The kernel's own "
         "selection record is in the night documents.",
         "",
-        "| seq | track | condition | model | scorer | metric | value | ±  | n | file sha256 |",  # noqa: E501
-        "|---|---|---|---|---|---|---|---|---|---|",
+        "| seq | track | condition | model | scorer | trust_remote_code | metric | value | ±  | n | file sha256 |",  # noqa: E501
+        "|---|---|---|---|---|---|---|---|---|---|---|",
     ]
     # `headlines`, not `_headline`. A row can carry many metrics - an lm-eval run over two tasks, or a whole
     # benchmark panel - and this rendered one per row, so every metric after the first was invisible in the
     # evidence document even though `headlines` had already been fixed to return them all for objectives.
     # A panel row would not render at all: `_headline`'s fallback branch reads row["dataset"], an EvalPlus key.
     for r in rows:
+        trc_cell = _trust_remote_code_cell(r)
         for name, v, e, n in headlines(r):
             lines.append(
                 f"| {r['seq']} | {r['track']} | {r['condition']} | {r['model']} | {r['tool']} "
-                f"{r.get('tool_version') or ''} | {name} | {v:.4f} | {e:.4f} | {n} | {r['sha256'][:16]} |"
+                f"{r.get('tool_version') or ''} | {trc_cell} | {name} | {v:.4f} | {e:.4f} | {n} | {r['sha256'][:16]} |"
             )
     lines += ["", "## Paired differences", ""]
     # Keyed by (track, metric name), so a base and a candidate are paired per metric rather than per row.

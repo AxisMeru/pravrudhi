@@ -59,3 +59,37 @@ def test_parse_and_record(tmp_path):
     assert "adapter:c-1 − base = +0.0800" in text
     assert "humaneval+ pass@1 | 0.3333" in text
     assert text == render_external(tmp_path / "research" / "ledger.jsonl")
+
+
+def test_render_external_shows_trust_remote_code(tmp_path):
+    """A reader of the evidence document must see trust_remote_code without opening the
+    ledger: rows that ran with it (custom model code, e.g. NemotronH) render 'yes', rows
+    that explicitly ran without it render 'no', and rows from tools where the concept
+    doesn't apply (evalplus has no such field at all) render '-' rather than a fabricated
+    'no' - Sakshi: no claim the row's own payload doesn't actually carry."""
+    (tmp_path / "research").mkdir()
+    LedgerWriter.open(tmp_path / "research" / "ledger.jsonl", "0.1.0")
+    on = tmp_path / "on.json"
+    on.write_text(json.dumps({
+        "results": {"mmlu_pro_law": {"exact_match,custom-extract": 0.18}},
+        "n-samples": {"mmlu_pro_law": {"original": 1101, "effective": 1101}}, "n-shot": {"mmlu_pro_law": 0},
+        "lm_eval_version": "0.4.9", "transformers_version": "4.57",
+        "config": {"model_args": "pretrained=x,trust_remote_code=True"},
+    }))
+    off = _lm_eval(tmp_path / "off.json", 0.40)  # model_args "pretrained=x" -> explicit False
+    ep = tmp_path / "he.json"
+    ep.write_text(json.dumps({"eval": {
+        "HumanEval/0": [{"base_status": "pass", "plus_status": "pass"}],
+    }}))
+    record_external(tmp_path, on, tool="lm-eval", track="B", condition="base", model="m", night=1)
+    record_external(tmp_path, off, tool="lm-eval", track="B", condition="base", model="m", night=1)
+    record_external(tmp_path, ep, tool="evalplus", dataset="humaneval", track="B", condition="base", model="m", night=1)
+    text = render_external(tmp_path / "research" / "ledger.jsonl")
+    assert "trust_remote_code" in text.splitlines()[4]  # header row
+    rows = [line for line in text.splitlines() if line.startswith("|") and "---" not in line][1:]
+    on_row = next(r for r in rows if "mmlu_pro_law" in r)
+    off_row = next(r for r in rows if "gsm8k" in r)
+    ep_row = next(r for r in rows if "humaneval+" in r)
+    assert " | yes | " in on_row
+    assert " | no | " in off_row
+    assert " | - | " in ep_row
