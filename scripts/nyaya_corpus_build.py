@@ -32,9 +32,53 @@ Indian Contract Act, and the Code of Criminal Procedure (only a 1979 amendment o
 the latter exists, not the Act itself). Checked via direct title lookup, ``list=allpages``
 prefix search, ``action=opensearch``, and full-text ``list=search`` under every plausible
 title variant (with/without "The", with/without year, "Code" vs "Act" word order) -- none
-resolved to a real page. Not fetched here; not silently substituted with anything else. A
-future source for these three needs a different site (e.g. the Government of India's own
-india code portal) and its own fetch/licence review, not an extension of this one.
+resolved to a real page. Not fetched here; not silently substituted with anything else.
+
+**India Code portal review (2026-09-12, read-only -- nothing fetched from either site below;
+this is the terms-of-use/format/licence check requested before any fetch, not a fetch).**
+``legislative.gov.in`` is the Legislative Department's own informational site, not an
+Act-text repository: its footer links out to "India Code" as the actual database, and it
+carries no per-Act pages of its own. The real candidate is ``indiacode.gov.in`` (migrated
+from the old ``indiacode.nic.in``, which now just redirects there):
+
+- *robots.txt*: unavailable both at ``/robots.txt`` (502 Bad Gateway, repeatedly, while
+  ``/home`` and the policy pages below load fine) and via the direct-fetch (curl) path used
+  for Wikisource above -- effectively absent rather than an explicit allow or disallow.
+- *Format*: the portal's own Term of Use states plainly that "the material available on
+  this Portal constitutes exact reproduction of officially adopted text **in pdf format**"
+  -- unlike Wikisource's per-section HTML headings, there is no machine-readable section
+  structure on offer; a real fetch would mean PDF text/layout extraction, a materially
+  different (and less reliable) engineering problem than ``parse_articles``/
+  ``parse_single_page_articles`` above.
+- *Terms of Use* (``/info/term-of-use``): content is for "personal, non-commercial use
+  only"; "Any modification, reproduction, distribution, or republication of the content for
+  commercial purposes without prior written permission is strictly prohibited"; and,
+  separately, "Not use any automated means to access the Portal for any purpose without our
+  express written permission" -- an explicit anti-automation clause, independent of the
+  commercial-use question.
+- *Copyright Policy* (``/info/copyright-policy``): asserts Portal-wide copyright over
+  "legislative texts" as hosted (not just branding/design) and explicitly lists "Database
+  Extraction: Systematic extraction, scraping, or harvesting of substantial portions of the
+  Portal's database or content" as a prohibited use without prior written permission. Its
+  own closing disclaimer concedes the underlying statutory text's status is different in
+  law ("this does not restrict the use of official legislative texts as required by law...
+  or as otherwise mandated by statute") -- consistent with Copyright Act s. 52(1)(q) above
+  -- but the Portal's *access* terms (no automation, no systematic extraction, personal/
+  non-commercial use only) are a separate, real constraint on how any of that text could be
+  obtained from this site specifically, distinct from whether the text itself is
+  copyrightable.
+- *Coverage confirmed, not assumed*: the portal's own "Most Viewed Laws" listed "The
+  Bharatiya Sakshya Adhiniyam, 2023" (the Evidence Act's 2023 replacement), so the
+  Penal-Code/Contract-Act/CrPC successors (Bharatiya Nyaya Sanhita, Bharatiya Nagarik
+  Suraksha Sanhita) are plausibly indexed too -- not individually confirmed by this pass; a
+  search of the portal's own UI did not complete cleanly during this review (see the B5
+  report for detail) and was not pushed further since this is a policy check, not a fetch.
+
+**Net for this task:** fetching from ``indiacode.gov.in`` by automated script conflicts with
+that portal's own stated Terms of Use and Copyright Policy (no automated access, no
+systematic extraction, without its prior written permission), on top of the format problem
+(PDF, not structured HTML). This is reported for a decision, not treated as settled here --
+no fetch has been attempted or written for this site.
 
 Follows the verified recipe: prefixsearch for subpages, then action=parse for each subpage
 (or the one page) to get rendered HTML. No statute text literals in code.
