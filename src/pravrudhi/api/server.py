@@ -683,6 +683,16 @@ def create_app(root: Path, *, nyaya_ask_fn: Any | None = None) -> FastAPI:
         except RootError as e:
             raise HTTPException(status_code=400, detail=str(e)) from e
 
+    def _memory(user: User | None) -> Any:
+        """This caller's memory store. Refused, never handed the engine's own root, for a genuinely anonymous
+        caller on a deployment where authentication is not switched off - see `memory_store.store_for`."""
+        from pravrudhi.application.memory_store import MemoryAccessError, store_for
+
+        try:
+            return store_for(root, user)
+        except MemoryAccessError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+
     @api.get("/objectives")
     def objectives_ep(
         workspace: str | None = None, user: User | None = CurrentUserDep
@@ -816,9 +826,7 @@ def create_app(root: Path, *, nyaya_ask_fn: Any | None = None) -> FastAPI:
         way it is kept apart from the ledger, which owns what the loop learned."""
         from dataclasses import asdict
 
-        from pravrudhi.application.memory_store import store_for
-
-        store = store_for(root, user)
+        store = _memory(user)
         return {
             "preferences": [{"key": k, **{kk: vv for kk, vv in asdict(p).items() if kk != "key"}}
                             for k, p in store.preferences().items()],
@@ -832,10 +840,9 @@ def create_app(root: Path, *, nyaya_ask_fn: Any | None = None) -> FastAPI:
         from dataclasses import asdict
 
         from pravrudhi.application.memory import MemoryError as MemErr
-        from pravrudhi.application.memory_store import store_for
 
         try:
-            return asdict(store_for(root, user).remember(req.text, source=req.source or "api"))
+            return asdict(_memory(user).remember(req.text, source=req.source or "api"))
         except MemErr as e:
             raise HTTPException(422, str(e)) from e
 
@@ -851,10 +858,9 @@ def create_app(root: Path, *, nyaya_ask_fn: Any | None = None) -> FastAPI:
         from dataclasses import asdict
 
         from pravrudhi.application.memory import MemoryError as MemErr
-        from pravrudhi.application.memory_store import store_for
 
         try:
-            note = store_for(root, user).revise(note_id, req.text, source=req.source or "api")
+            note = _memory(user).revise(note_id, req.text, source=req.source or "api")
         except MemErr as e:
             raise HTTPException(422, str(e)) from e
         if note is None:
@@ -865,9 +871,7 @@ def create_app(root: Path, *, nyaya_ask_fn: Any | None = None) -> FastAPI:
     async def forget_note_ep(note_id: str, user: User | None = CurrentUserDep) -> dict[str, Any]:
         """Delete a note. 404 rather than a silent success when there is nothing to delete, so a caller whose id
         was wrong learns it here instead of believing something was removed."""
-        from pravrudhi.application.memory_store import store_for
-
-        if not store_for(root, user).forget(note_id):
+        if not _memory(user).forget(note_id):
             raise HTTPException(404, "no such note")
         return {"forgotten": note_id}
 

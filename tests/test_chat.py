@@ -215,6 +215,48 @@ def test_a_thread_round_trips_through_the_api(tmp_path: Path) -> None:
     assert client.post("/api/chat", json={"message": "   ", "thread_id": None}).status_code == 422
 
 
+def test_two_signed_in_non_admin_users_threads_are_isolated_and_absent_from_root(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """`converse`/`converse_stream`/`threads_ep`/`thread_ep` all resolve their store through the same
+    `memory_store.store_for` the plain `/api/memory` routes do (r-memory-per-user, 2026-09-12): before that fix,
+    every signed-in non-admin caller's conversation landed in the shared engine root exactly the way their
+    memory notes did."""
+    import jwt
+
+    secret = "s3cret-long-enough-for-hs256-testing-purposes"
+    monkeypatch.setenv("PRAVRUDHI_AUTH", "optional")
+    monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
+    monkeypatch.setenv("SUPABASE_JWT_SECRET", secret)
+    monkeypatch.delenv("SUPABASE_SERVICE_KEY", raising=False)
+
+    def token(sub: str, email: str) -> str:
+        return jwt.encode(
+            {"sub": sub, "email": email, "role": "authenticated", "aud": "authenticated", "exp": 4102444800},
+            secret, algorithm="HS256",
+        )
+
+    _measured_workspace(tmp_path)
+    model = FakeModel({"content": "hello back", "tool_calls": []})
+    app = FastAPI()
+    app.include_router(build_chat_router(tmp_path, complete=model))
+    client = TestClient(app)
+    alice = {"authorization": f"Bearer {token('user-alice', 'alice@example.com')}"}
+    bob = {"authorization": f"Bearer {token('user-bob', 'bob@example.com')}"}
+
+    client.post("/api/chat", json={"message": "alice's turn", "thread_id": None}, headers=alice)
+    client.post("/api/chat", json={"message": "bob's turn", "thread_id": None}, headers=bob)
+
+    assert len(client.get("/api/chat/threads", headers=alice).json()["threads"]) == 1
+    assert len(client.get("/api/chat/threads", headers=bob).json()["threads"]) == 1
+    assert not (tmp_path / ".pravrudhi" / "memory" / "chat.jsonl").exists(), (
+        "neither user's conversation may land in the shared engine root"
+    )
+
+    refused = client.get("/api/chat/threads")  # no token: genuinely anonymous, authentication is not disabled
+    assert refused.status_code == 400, refused.text
+
+
 def test_the_engine_serves_the_chat_routes(tmp_path: Path) -> None:
     paths = set(create_app(tmp_path).openapi()["paths"])
     assert {"/api/chat", "/api/chat/threads", "/api/chat/threads/{thread_id}"} <= paths

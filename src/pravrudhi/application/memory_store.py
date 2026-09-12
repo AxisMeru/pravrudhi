@@ -288,12 +288,54 @@ class SupabaseMemoryStore:
         )
 
 
+class MemoryAccessError(ValueError):
+    """A caller for whom no memory location can be resolved: genuinely anonymous, on a deployment where
+    authentication is not switched off, so there is no local-operator-by-construction reading to fall back on
+    and no user id to keep a store apart by."""
+
+
+def _per_user_memory_root(engine_root: Path, user_id: str) -> Path:
+    """Where one signed-in user's file-backed memory lives when no Supabase project is configured to hold it
+    instead: `<engine_root>/.pravrudhi/memory-users/<user id>`, treated as its own root exactly the way
+    `application/workspaces.py` treats a workspace directory as a complete project root -- `FileMemoryStore`'s
+    own `.pravrudhi/memory/` layout applies underneath it unchanged, so nothing else in this module needs to
+    know the difference between a per-user root and the engine's own.
+
+    This project's standing rule is that no deployment is ever given a Supabase service key, so this is not a
+    rare fallback: it is the store every signed-in product user actually gets today, and the shared root every
+    one of them fell into before this existed.
+    """
+    uid = (user_id or "").strip()
+    if not uid or "/" in uid or "\\" in uid or ".." in uid:
+        raise MemoryAccessError(f"cannot resolve a memory location for user id {user_id!r}")
+    base = (Path(engine_root) / ".pravrudhi" / "memory-users").resolve()
+    path = (base / uid).resolve()
+    if path != base and base not in path.parents:
+        raise MemoryAccessError(f"memory path for user id {user_id!r} would escape {base}")
+    return path
+
+
 def store_for(root: Path, user: User | None) -> MemoryStore:
-    """The right store for this request: file-backed when there is no verified user or no Supabase project
-    configured to hold their rows, Supabase-backed otherwise."""
+    """The right store for this request: Supabase-backed when a verified user has a Supabase project configured
+    to hold their rows; a per-user file-backed store, keyed by their own id, when one is signed in but no such
+    project is configured (this deployment's standing case, since a service key is never issued); the engine's
+    own root only for the one caller it was always the project of - the operator, either signed in on the
+    admin allowlist or, with authentication switched off entirely, the local caller by construction.
+
+    A genuinely anonymous caller on a deployment where authentication is not disabled is refused rather than
+    handed the engine's own root: exactly the hole a signed-in non-admin user fell into before this existed,
+    just with no user id at all to keep it apart with.
+    """
+    from pravrudhi.api.roles import is_admin
+
     if user is not None:
         url = os.environ.get("SUPABASE_URL", "")
         service_key = os.environ.get("SUPABASE_SERVICE_KEY", "")
         if url and service_key:
             return SupabaseMemoryStore(url, service_key, user.id)
-    return FileMemoryStore(root)
+        if is_admin(user):
+            return FileMemoryStore(root)
+        return FileMemoryStore(_per_user_memory_root(root, user.id))
+    if is_admin(None):
+        return FileMemoryStore(root)
+    raise MemoryAccessError("sign in to use memory: nobody is asking, and this machine is not the operator's own")

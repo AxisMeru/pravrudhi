@@ -341,6 +341,8 @@ def test_append_turn_refuses_bad_role_before_fetch() -> None:
 
 
 def test_store_for_returns_file_store_when_no_user(tmp_path: Path) -> None:
+    """No `PRAVRUDHI_AUTH` set means `disabled` (identity.auth_mode's own default), so `user is None` is the
+    local operator by construction and reads the engine's own root, unchanged from before this file existed."""
     assert isinstance(store_for(tmp_path, None), FileMemoryStore)
 
 
@@ -351,6 +353,68 @@ def test_store_for_returns_file_store_when_supabase_env_unset(
     monkeypatch.delenv("SUPABASE_SERVICE_KEY", raising=False)
     user = User(id=USER_ID, email="u@example.com", role="authenticated")
     assert isinstance(store_for(tmp_path, user), FileMemoryStore)
+
+
+def test_store_for_gives_a_signed_in_user_a_store_isolated_from_the_shared_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No `SUPABASE_SERVICE_KEY` is this project's standing deployment (the operator forbids service keys), so
+    every signed-in product user used to fall through to `FileMemoryStore(root)` -- one shared memory file
+    across everyone, including the operator's own root. A note the caller writes must land somewhere that a
+    bare `FileMemoryStore(root)` over the same root cannot see."""
+    monkeypatch.delenv("SUPABASE_URL", raising=False)
+    monkeypatch.delenv("SUPABASE_SERVICE_KEY", raising=False)
+    user = User(id=USER_ID, email="u@example.com", role="authenticated")
+
+    store_for(tmp_path, user).remember("only mine", source="user")
+
+    assert FileMemoryStore(tmp_path).recall("only mine") == [], "the note must not be readable from the shared root"
+    assert store_for(tmp_path, user).recall("only mine"), "but is readable through the same user's own store"
+
+
+def test_two_signed_in_users_with_no_service_key_get_isolated_stores(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("SUPABASE_URL", raising=False)
+    monkeypatch.delenv("SUPABASE_SERVICE_KEY", raising=False)
+    alice = User(id="user-alice", email="alice@example.com", role="authenticated")
+    bob = User(id="user-bob", email="bob@example.com", role="authenticated")
+
+    store_for(tmp_path, alice).remember("alice's note", source="user")
+    store_for(tmp_path, bob).remember("bob's note", source="user")
+
+    assert [n.text for n in store_for(tmp_path, alice).recall("")] == ["alice's note"]
+    assert [n.text for n in store_for(tmp_path, bob).recall("")] == ["bob's note"]
+
+
+def test_store_for_refuses_an_anonymous_caller_when_authentication_is_not_disabled(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`user is None` reads as the local operator only when there is nobody to identify at all -- authentication
+    switched off. On a deployed install with authentication on, `user is None` is a genuinely anonymous caller,
+    and giving it the engine's own root is the same hole this whole fix closes for a signed-in non-admin."""
+    from pravrudhi.application.memory_store import MemoryAccessError
+
+    monkeypatch.setenv("PRAVRUDHI_AUTH", "optional")
+    with pytest.raises(MemoryAccessError):
+        store_for(tmp_path, None)
+
+
+def test_an_admin_with_no_supabase_configured_still_reads_the_engine_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Unchanged for the one caller for whom the engine root always was the project: the operator, signed in as
+    an account on PRAVRUDHI_ADMINS, exactly as `user is None` under disabled auth already does."""
+    monkeypatch.delenv("SUPABASE_URL", raising=False)
+    monkeypatch.delenv("SUPABASE_SERVICE_KEY", raising=False)
+    monkeypatch.setenv("PRAVRUDHI_AUTH", "optional")
+    monkeypatch.setenv("PRAVRUDHI_ADMINS", "admin@example.com")
+    admin = User(id="admin-1", email="admin@example.com", role="authenticated")
+
+    store = store_for(tmp_path, admin)
+    assert isinstance(store, FileMemoryStore)
+    store.remember("operator's own note", source="user")
+    assert FileMemoryStore(tmp_path).recall("operator's own note"), "the admin's store must be the engine root itself"
 
 
 def test_store_for_returns_supabase_store_when_user_and_env_present(

@@ -26,7 +26,7 @@ from pravrudhi.api.identity import CurrentUserDep, User
 from pravrudhi.api.schemas import ChatResponse, ChatThreadDetailResponse, ChatThreadsResponse
 from pravrudhi.application.chat import ChatEndpointUnreachable, Complete, converse, converse_stream
 from pravrudhi.application.memory import MemoryError as MemoryStoreError
-from pravrudhi.application.memory_store import store_for
+from pravrudhi.application.memory_store import MemoryAccessError, store_for
 
 
 class ChatRequest(BaseModel):
@@ -51,14 +51,24 @@ def build_chat_router(root: Path, complete: Complete | None = None) -> APIRouter
 
         complete = network_complete(workspace)
 
+    def _memory(user: User | None) -> Any:
+        """This caller's memory/chat store, resolved once so a refusal surfaces as a clean HTTP error before
+        any work (or, for `/chat/stream`, any streaming) begins — never as an uncaught `MemoryAccessError`
+        partway through a turn. See `memory_store.store_for`."""
+        try:
+            return store_for(workspace, user)
+        except MemoryAccessError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
     @router.post("/chat", response_model=ChatResponse)
     async def chat_ep(req: ChatRequest, user: User | None = CurrentUserDep) -> dict[str, Any]:
         """Answer one turn. Any number the turn's tools did not return is stripped and reported under
         `refusals`, so a reply is either traceable to the ledger or visibly missing a sentence."""
         if not req.message.strip():
             raise HTTPException(422, "a chat turn with no message asks nothing")
+        store = _memory(user)
         try:
-            outcome = converse(workspace, req.message, thread_id=req.thread_id, user=user, complete=complete)
+            outcome = converse(workspace, req.message, thread_id=req.thread_id, user=user, complete=complete, store=store)
         except ChatEndpointUnreachable as exc:
             raise HTTPException(503, str(exc)) from exc
         return outcome.to_dict()
@@ -77,11 +87,12 @@ def build_chat_router(root: Path, complete: Complete | None = None) -> APIRouter
         """
         if not req.message.strip():
             raise HTTPException(422, "a chat turn with no message asks nothing")
+        store = _memory(user)
 
         def events() -> Iterator[str]:
             try:
                 for ev in converse_stream(workspace, req.message, thread_id=req.thread_id, user=user,
-                                          complete=complete):
+                                          complete=complete, store=store):
                     yield f"data: {json.dumps(ev)}\n\n"
             except ChatEndpointUnreachable as exc:
                 yield f"data: {json.dumps({'type': 'error', 'error': str(exc)})}\n\n"
@@ -91,7 +102,7 @@ def build_chat_router(root: Path, complete: Complete | None = None) -> APIRouter
     @router.get("/chat/threads", response_model=ChatThreadsResponse)
     async def threads_ep(user: User | None = CurrentUserDep) -> dict[str, Any]:
         """The caller's conversations. A logged-in user's follow their account; a local engine's stay on disk."""
-        store = store_for(workspace, user)
+        store = _memory(user)
         return {
             "threads": [{"id": t.id, "updated": t.updated, "turns": len(t.turns)} for t in store.threads()]
         }
@@ -100,7 +111,7 @@ def build_chat_router(root: Path, complete: Complete | None = None) -> APIRouter
     async def thread_ep(thread_id: str, user: User | None = CurrentUserDep) -> dict[str, Any]:
         """One conversation in full. A thread that does not exist is a 404, not an empty conversation: the
         two are different facts and a client that conflates them will silently start writing into nothing."""
-        store = store_for(workspace, user)
+        store = _memory(user)
         try:
             thread = store.thread(thread_id)
         except MemoryStoreError as exc:
