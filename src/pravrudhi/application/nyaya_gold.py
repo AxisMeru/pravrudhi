@@ -19,30 +19,32 @@ real, distinct set-theoretic case, and removing it would be a substantive change
 that two other implementations are cross-checked against), but no candidate labelled `aprasiddha` is filed
 into any bank here.
 
-`satpratipaksa` and `badhita` are not decidable the way the other four are: ADR-0001 and
-`prabhasa-nyaya/lean/PrabhasaNyaya/Hetvabhasa.lean` both say so plainly -- they are "rule- and prompt-based for
-now", because within a single closed world (the format every other class here uses) a paksa's properties are
-already settled ground truth, and both fallacies are precisely about a paksa that is NOT yet settled: a
-counterbalanced reason (satpratipaksa) or one overridden by a stronger pramana (badhita). So these two banks
-are built differently, and honestly documented as a simplification rather than pretending false rigor:
+`satpratipaksa` and `badhita` are not decidable from ONE world and ONE inference the way the other four are --
+ADR-0001 and `prabhasa-nyaya/lean/PrabhasaNyaya/Hetvabhasa.lean` both say so -- because within a single closed
+world (the format every other class here uses) a paksa's properties are already settled ground truth, and
+both fallacies are precisely about a paksa that is NOT yet settled: a counterbalanced reason (satpratipaksa)
+or one overridden by a stronger pramana (badhita). Each is decided instead by a Lean function that takes ONE
+EXTRA premise beyond the single inference (session-3's A4, 2026-09-12), and each bank carries exactly that
+premise so the item is complete before the decider ever sees it:
 
 * `satpratipaksa` pairs two INDEPENDENTLY valid inferences (each individually checked by `derive_verdict`,
-  each in its own witnessing world) concluding different sadhyas. Two things independently support to
-  different conclusions -- that is the fallacy -- but this generator does not require the pair to share a
-  paksa across their two separate worlds; a real decider must bind that itself.
-* `badhita` takes one valid inference and names a `defeating_source`: a stronger pramana (pratyaksa or sabda,
-  chosen for variety) asserting the sadhya's negation. The claim is recorded, not verified -- there is no
-  closed-world fact to check it against, which is exactly why `Verdict.of` does not decide this class either.
-
-Both carry what a decider needs so the items are complete even before the decider exists (session-3, A2
-decision 1): the counter-inference in full, or the defeating claim in full, travel with the item rather than
-being asserted in a docstring nobody reads.
+  each in its own witnessing world) concluding different sadhyas -- decided by prabhasa-nyaya's
+  `isSatpratipaksa (w1, i1, w2, i2)`. Two things independently support different conclusions is the fallacy,
+  but this generator does not require the pair to share a paksa across their two separate worlds; a real
+  decider must bind that itself.
+* `badhita` takes one valid inference and a `defeating_source`: a constructed pratyaksa observation --
+  `{"pramana": "constructed", "observation": {"polarity": "absent", "locus": paksa, "prop": sadhya}}` --
+  asserting the sadhya's absence at the paksa, decided by prabhasa-nyaya's `isBadhita (w, i, obs)` over the
+  observation alone, independent of whether the inference's own vyapti half is even well-formed. `pramana:
+  "constructed"` is the honesty tag: this is a constructed perception with the same standing as this gold
+  set's already-constructed vyapti worlds, not a claim that a real pratyaksa was consulted. A REAL Article or
+  Section defeating a real legal claim is a different item shape entirely and is not this one.
 
 What this deliberately does NOT do: it does not import the verifier, and it does not score it. This emits the
-gold set only. Scoring belongs where the verifier lives (`prabhasa-nyaya`'s Lean `Verdict.of`, wired in
-`nyaya_gold_score.py`), so that a gold set which grades its own grader is impossible by construction -- the
-labels here are derived from the world independently of any verifier's opinion about it, and
-`satpratipaksa`/`badhita` are labelled as not decided by that verifier rather than scored against it.
+gold set only. Scoring belongs where the verifiers live (`prabhasa-nyaya`'s Lean `Verdict.of`,
+`isSatpratipaksa`, `isBadhita`, wired in `nyaya_gold_score.py`), so that a gold set which grades its own
+grader is impossible by construction -- every label here is derived from the item's own content independently
+of any verifier's opinion about it.
 """
 
 from __future__ import annotations
@@ -72,13 +74,11 @@ RULES = {
                      "equally supported counter-inference (see counter_inference) argues a different sadhya "
                      "for the same paksa. Verdict.of does not decide this class -- it names the competing "
                      "inference a future decider must weigh.",
-    "badhita": "badhita (defeated): the hetu's inference is individually valid, but a named stronger pramana "
-               "(see defeating_source) already asserts the sadhya's negation. Verdict.of does not decide this "
-               "class -- it names the defeating claim a future decider must weigh.",
+    "badhita": "badhita (defeated): the hetu's inference is individually valid, but defeating_source records "
+               "a constructed pratyaksa observation that the sadhya is absent at the paksa -- decided by "
+               "prabhasa-nyaya's isBadhita over that observation alone, independent of whether the vyapti "
+               "half is even well-formed.",
 }
-
-#: Stronger pramanas that can defeat an otherwise-valid inference, for badhita's defeating_source.
-_STRONGER_PRAMANAS = ("pratyaksa", "sabda")
 
 
 def derive_verdict(world: World, paksa: str, sadhya: str, hetu: str) -> str:
@@ -148,17 +148,27 @@ def _satpratipaksa_bank(
     return bank, pool[i:]
 
 
-def _badhita_bank(rng: random.Random, pool: list[dict[str, Any]], per_class: int) -> list[dict[str, Any]]:
-    """One valid inference per item, each carrying a named-but-unverified defeating claim from a stronger
-    pramana. Nothing in `pool` is consumed twice: each base is used by exactly one badhita item."""
+def _badhita_bank(pool: list[dict[str, Any]], per_class: int) -> list[dict[str, Any]]:
+    """One valid inference per item, each carrying a `defeating_source` that is a structured OBSERVATION --
+    pratyaksa asserting the item's own sadhya is absent at its own paksa -- tagged `pramana: "constructed"`,
+    exactly as every other class in this gold set is a constructed world rather than an asserted one
+    (2026-09-12, session-3's A4 decision 3, after the corpus-provenance question: a constructed perception has
+    the same standing here as the already-constructed vyapti worlds, and the honesty is in the tag, not in
+    pretending the source is a statute -- a REAL Article/Section defeating a real claim is a different item
+    shape, filed as a Studio backlog proposal, not this one).
+
+    Matches prabhasa-nyaya's `isBadhita`/`Observation.absent` exactly: every item built this way is,
+    by construction, genuinely badhita -- the observation always contradicts its own item's sadhya at its own
+    paksa, the same way a `valid` item is built to genuinely be valid. Nothing in `pool` is consumed twice:
+    each base is used by exactly one badhita item."""
     bank: list[dict[str, Any]] = []
     for base in pool[:per_class]:
         bank.append({
             "id": f"badhita-{len(bank):04d}",
             "world": base["world"], "paksa": base["paksa"], "sadhya": base["sadhya"], "hetu": base["hetu"],
             "defeating_source": {
-                "pramana": rng.choice(_STRONGER_PRAMANAS),
-                "claim": f"not-{base['sadhya']}",
+                "pramana": "constructed",
+                "observation": {"polarity": "absent", "locus": base["paksa"], "prop": base["sadhya"]},
             },
             "expected": "badhita",
             "rule": RULES["badhita"],
@@ -232,7 +242,7 @@ def build_gold_set(per_class: int, seed: int = 0) -> list[dict[str, Any]]:
         for i, v in enumerate(valid_pool[:per_class])
     ]
     satpratipaksa_bank, remainder = _satpratipaksa_bank(valid_pool[per_class:], per_class)
-    badhita_bank = _badhita_bank(rng, remainder, per_class)
+    badhita_bank = _badhita_bank(remainder, per_class)
 
     all_banks = {
         "valid": valid_bank,

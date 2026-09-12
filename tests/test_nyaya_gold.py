@@ -119,7 +119,11 @@ class TestTheGoldSet:
             assert derive_verdict(counter_world, ci["paksa"], ci["sadhya"], ci["hetu"]) == "valid"
             assert ci["sadhya"] != item["sadhya"]
 
-    def test_badhita_names_a_defeating_source_for_an_independently_valid_inference(self) -> None:
+    def test_badhita_names_a_constructed_observation_contradicting_its_own_item(self) -> None:
+        """Not decided by `derive_verdict` -- `isBadhita` decides it, over the observation alone, in
+        prabhasa-nyaya. What is checked here is that the observation actually contradicts THIS item: absent
+        at the item's own paksa, naming the item's own sadhya -- the same locus/property pair `isBadhita`'s
+        `Perception.contradicts` would look for."""
         gold = build_gold_set(per_class=20, seed=1)
         items = [it for it in gold if it["expected"] == "badhita"]
         assert len(items) >= 20
@@ -127,8 +131,9 @@ class TestTheGoldSet:
             world = {k: frozenset(v) for k, v in item["world"].items()}
             assert derive_verdict(world, item["paksa"], item["sadhya"], item["hetu"]) == "valid"
             source = item["defeating_source"]
-            assert source["pramana"] in ("pratyaksa", "sabda")
-            assert item["sadhya"] in source["claim"]
+            assert source["pramana"] == "constructed"
+            obs = source["observation"]
+            assert obs == {"polarity": "absent", "locus": item["paksa"], "prop": item["sadhya"]}
 
     def test_it_is_deterministic_for_a_seed(self) -> None:
         """A benchmark that changes between runs cannot support a paired comparison."""
