@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# Refuses a commit made directly in the primary checkout while HEAD is `main` (cli-web edited the pravrudhi-app
+# main checkout by mistake twice one evening and caught it by hand both times -- a control problem, not an
+# attention problem). Agent work belongs in a worktree (.worktrees/*), which this leaves untouched: a linked
+# worktree's `--git-dir` differs from `--git-common-dir` (it points at .git/worktrees/<name>), while the primary
+# checkout's are the same path -- that is the reliable way to tell them apart, not the working directory's name
+# or path, which anyone can reuse or rename.
+#
+# The lead's own merge flow is the one legitimate case of committing to `main` in the primary checkout, so this
+# is not a blanket "never commit on main" rule -- that would get disabled within a day and then protect nothing.
+# Set PRAVRUDHI_LEAD_MERGE=1 to proceed deliberately.
+set -euo pipefail
+
+if [ "${PRAVRUDHI_LEAD_MERGE:-}" = "1" ]; then
+  exit 0
+fi
+
+git_dir="$(git rev-parse --git-dir)"
+common_dir="$(git rev-parse --git-common-dir)"
+git_dir_abs="$(cd "$git_dir" && pwd)"
+common_dir_abs="$(cd "$common_dir" && pwd)"
+
+if [ "$git_dir_abs" != "$common_dir_abs" ]; then
+  exit 0  # a linked worktree, not the primary checkout
+fi
+
+branch="$(git rev-parse --abbrev-ref HEAD)"
+if [ "$branch" != "main" ]; then
+  exit 0
+fi
+
+cat >&2 <<'EOF'
+pre-commit: refusing a commit on `main` in the primary checkout.
+
+This is the tree the lead merges assistant branches into; a commit made directly here bypasses that
+review and risks colliding with an in-flight merge. Agent work belongs in a worktree (.worktrees/*),
+never here.
+
+If this really is the lead's own merge flow, set PRAVRUDHI_LEAD_MERGE=1 for this commit:
+  PRAVRUDHI_LEAD_MERGE=1 git commit ...
+EOF
+exit 1
