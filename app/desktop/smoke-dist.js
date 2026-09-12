@@ -54,6 +54,13 @@ async function main() {
         if (report.edition !== wanted) {
           throw new Error(`Built the ${wanted} edition but the packaged app ran as ${report.edition ?? 'nothing'}.`);
         }
+        // Studio has no account surface at all (main.js and preload.js carry zero auth/product references),
+        // so its packaged smoke must see 'not-applicable' rather than a stray or newly-introduced sign-in
+        // state — the standing check that Studio stays the operator's edition with nothing of the product's
+        // sign-in in it (see AxisMeru/pravrudhi-app's desktop/smoke-dist.js for the product's own check).
+        if (wanted === 'studio' && report.signin_state !== 'not-applicable') {
+          throw new Error(`Studio build's signin_state was '${report.signin_state}', not 'not-applicable' — Studio should have no sign-in surface at all.`);
+        }
         console.log(`Packaged ${wanted} app loaded ${report.engine_url}: ${report.page_title}`);
         process.exitCode = 0;
       } catch (error) {
