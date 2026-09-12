@@ -251,6 +251,10 @@ function RunCard({
 export default function RunsPage() {
   const [rows, setRows] = useState<RunHandle[] | null>(null);
   const [unsupported, setUnsupported] = useState(false);
+  // Set on any poll failure that is not the "older engine, no runs endpoint" 404; cleared the moment a poll
+  // next succeeds. Left unset before 2026-09-12, so any such failure fell through the catch block silently and
+  // `rows` stayed null forever — the page never left "Loading…" on the very outage this exists to report.
+  const [failed, setFailed] = useState(false);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [eventsByRun, setEventsByRun] = useState<Record<string, RunEvent[]>>({});
   const [streamFailed, setStreamFailed] = useState<Record<string, boolean>>({});
@@ -266,9 +270,14 @@ export default function RunsPage() {
         const sorted = [...data].sort((a, b) => (asNum(b.started_at) ?? 0) - (asNum(a.started_at) ?? 0));
         setRows(sorted);
         setUnsupported(false);
+        setFailed(false);
       } catch (err) {
         if (cancelled) return;
-        if (err instanceof ApiError && err.status === 404) setUnsupported(true);
+        if (err instanceof ApiError && err.status === 404) {
+          setUnsupported(true);
+          return;
+        }
+        setFailed(true);
       }
     }
 
@@ -346,7 +355,10 @@ export default function RunsPage() {
       <PageHeader title="Runs" subtitle="Every run the engine has started, newest first." />
       <div className="space-y-3 p-8">
         {unsupported && <p className="text-sm text-[var(--color-text-dim)]">engine does not report runs yet.</p>}
-        {!unsupported && rows === null && <p className="text-sm text-[var(--color-text-dim)]">Loading…</p>}
+        {!unsupported && failed && rows === null && (
+          <p className="text-sm text-[var(--color-text-dim)]">Could not reach the engine&apos;s runs API.</p>
+        )}
+        {!unsupported && !failed && rows === null && <p className="text-sm text-[var(--color-text-dim)]">Loading…</p>}
         {!unsupported && rows !== null && rows.length === 0 && (
           <p className="text-sm text-[var(--color-text-dim)]">No runs yet — start one from Improve.</p>
         )}

@@ -37,19 +37,16 @@ async function getJSON<T>(path: string): Promise<T> {
   return (await res.json()) as T;
 }
 
-// The heartbeat log may not exist yet on an older engine build, and the endpoint itself is being added
-// separately — either shows up as a 404 or a network error, and both mean the same thing to this page: no
-// beats to show yet. So the empty state is the only failure mode a caller ever sees; nothing here throws.
+// An empty array means the engine answered and has nothing to show; a rejection means it did not answer at all.
+// This used to catch every failure — a 500, a network error, anything — and return [] either way, so the
+// Heartbeat page showed "No heartbeats recorded yet" during a real outage (2026-09-12), the same shape of bug
+// the CORS/auth fixes closed elsewhere. Callers distinguish the two themselves now.
 export async function heartbeat(n = 100): Promise<HeartbeatBeat[]> {
   if (IS_DEMO) {
     const { demo } = await import("./demo");
     const bundle = (await demo()) as Awaited<ReturnType<typeof demo>> & { heartbeat?: HeartbeatBeat[] };
     return bundle.heartbeat ?? [];
   }
-  try {
-    const { beats } = await getJSON<{ beats: HeartbeatBeat[] }>(`/api/heartbeat?n=${n}`);
-    return beats;
-  } catch {
-    return [];
-  }
+  const { beats } = await getJSON<{ beats: HeartbeatBeat[] }>(`/api/heartbeat?n=${n}`);
+  return beats;
 }

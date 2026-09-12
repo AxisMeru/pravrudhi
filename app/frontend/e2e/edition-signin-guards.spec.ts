@@ -36,12 +36,19 @@ test("every offered page is signed-in content or the sign-in redirect, never a f
     await page.locator("nav a[href]").evaluateAll((links) => links.map((a) => new URL((a as HTMLAnchorElement).href).pathname)),
   );
   const brokenPages: string[] = [];
+  const stuckLoadingPages: string[] = [];
   for (const path of offered) {
     await page.goto(path);
     await page.waitForLoadState("networkidle");
     if (new URL(page.url()).pathname === "/signin") continue; // the engine's own auth gate, not a failure
     const broken = await page.locator("main p").filter({ hasText: BROKEN_TEXT }).count();
     if (broken > 0) brokenPages.push(path);
+    // Mirrors deployed.spec.ts's own check: a page stuck on "Loading…" after networkidle settled is a page
+    // whose error path never resolves the state — a poll or fetch that fails silently and leaves the spinner
+    // running forever, the same shape as /runs on 2026-09-12.
+    const loading = await page.getByText(/^Loading(\.\.\.|…)$/).count();
+    if (loading > 0) stuckLoadingPages.push(path);
   }
   expect(brokenPages, "no page may show its own \"could not reach\" text; it must render or redirect to /signin").toEqual([]);
+  expect(stuckLoadingPages, "no page may stay on \"Loading…\" once the network has gone idle").toEqual([]);
 });

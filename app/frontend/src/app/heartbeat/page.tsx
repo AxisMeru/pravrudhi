@@ -8,15 +8,20 @@ import { ObjectiveTouchCards } from "@/components/heartbeat/ObjectiveTouchCards"
 import { heartbeat, type HeartbeatBeat } from "@/lib/heartbeat";
 
 export default function HeartbeatPage() {
-  // `undefined` is "still loading"; an empty array covers both "no beats recorded yet" and "the endpoint
-  // isn't there yet" — heartbeat() never rejects, so there is no separate failure state to track here.
+  // `undefined` is "still loading"; an empty array is "the engine answered, nothing recorded yet" — kept apart
+  // from a failed fetch (heartbeat() rejects on those) so the empty state reads as honest rather than broken.
   const [beats, setBeats] = useState<HeartbeatBeat[] | undefined>(undefined);
+  const [failed, setFailed] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
-    heartbeat(100).then((rows) => {
-      if (!cancelled) setBeats(rows);
-    });
+    heartbeat(100)
+      .then((rows) => {
+        if (!cancelled) setBeats(rows);
+      })
+      .catch(() => {
+        if (!cancelled) setFailed(true);
+      });
     return () => {
       cancelled = true;
     };
@@ -29,11 +34,14 @@ export default function HeartbeatPage() {
         subtitle="Every beat the engine has taken: what it looked at, what it chose, why, and what happened."
       />
       <div className="space-y-8 p-8">
-        {beats === undefined && <p className="text-sm text-[var(--color-text-dim)]">Loading…</p>}
-        {beats !== undefined && beats.length === 0 && (
+        {failed && (
+          <p className="text-sm text-[var(--color-text-dim)]">Could not reach the engine&apos;s heartbeat log.</p>
+        )}
+        {!failed && beats === undefined && <p className="text-sm text-[var(--color-text-dim)]">Loading…</p>}
+        {!failed && beats !== undefined && beats.length === 0 && (
           <p className="text-sm text-[var(--color-text-dim)]">No heartbeats recorded yet.</p>
         )}
-        {beats !== undefined && beats.length > 0 && (
+        {!failed && beats !== undefined && beats.length > 0 && (
           <>
             <HeartbeatSummary beats={beats} />
 
