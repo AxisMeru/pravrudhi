@@ -735,7 +735,9 @@ def create_app(root: Path, *, nyaya_ask_fn: Any | None = None) -> FastAPI:
         )
 
     @api.post("/objectives")
-    def create_objective(req: ObjectiveRequest) -> ObjectiveResponse:
+    def create_objective(
+        req: ObjectiveRequest, workspace: str | None = None, user: User | None = CurrentUserDep
+    ) -> ObjectiveResponse:
         """Record an objective. Refused if it could not be measured, because an unmeasurable goal is a wish."""
         from pravrudhi.application.objectives import ObjectiveError, summary, write
 
@@ -743,8 +745,9 @@ def create_app(root: Path, *, nyaya_ask_fn: Any | None = None) -> FastAPI:
             obj = _draft_objective(req)
         except ObjectiveError as e:
             raise HTTPException(422, str(e)) from e
-        write(root, obj)
-        return ObjectiveResponse.model_validate(summary(root, obj))
+        here = _project(user, workspace)
+        write(here, obj)
+        return ObjectiveResponse.model_validate(summary(here, obj))
 
     def _plan_dict(obj: Any) -> dict[str, Any]:
         from dataclasses import asdict
@@ -758,11 +761,11 @@ def create_app(root: Path, *, nyaya_ask_fn: Any | None = None) -> FastAPI:
         return out
 
     @api.get("/objectives/{oid}/plan", response_model=PlanResponse)
-    def objective_plan(oid: str) -> dict[str, Any]:
+    def objective_plan(oid: str, workspace: str | None = None, user: User | None = CurrentUserDep) -> dict[str, Any]:
         """A proposed decomposition of the intent into work. A proposal, never evidence: nothing here has run."""
         from pravrudhi.application.objectives import load_all
 
-        for o in load_all(root):
+        for o in load_all(_project(user, workspace)):
             if o.id == oid:
                 return _plan_dict(o)
         raise HTTPException(404, "no such objective")
@@ -876,48 +879,54 @@ def create_app(root: Path, *, nyaya_ask_fn: Any | None = None) -> FastAPI:
 
         return {"tools": availability()}
 
-    def _objective_and_plan(oid: str) -> tuple[Any, Any]:
+    def _objective_and_plan(oid: str, project_root: Path) -> tuple[Any, Any]:
         from pravrudhi.application.intent import compile_intent
         from pravrudhi.application.objectives import load_all
         from pravrudhi.application.recipes import installed, library
 
-        for o in load_all(root):
+        for o in load_all(project_root):
             if o.id == oid:
                 return o, compile_intent(o, tuple(library()), installed_skills=frozenset(installed()))
         raise HTTPException(404, "no such objective")
 
     @api.get("/objectives/{oid}/loom", response_model=LoomResponse)
-    def objective_loom(oid: str) -> dict[str, Any]:
+    def objective_loom(oid: str, workspace: str | None = None, user: User | None = CurrentUserDep) -> dict[str, Any]:
         """The plan as Loom source. Readable and editable by a person; nothing in it has run."""
         from pravrudhi.application.loom import lift, lower, to_plan_steps
 
-        o, plan = _objective_and_plan(oid)
+        o, plan = _objective_and_plan(oid, _project(user, workspace))
         source = lower(plan)
         return {"objective": o.id, "source": source, "steps": list(to_plan_steps(lift(source)))}
 
     @api.get("/objectives/{oid}/subagents", response_model=SubagentsResponse)
-    def objective_subagents(oid: str) -> dict[str, Any]:
+    def objective_subagents(
+        oid: str, workspace: str | None = None, user: User | None = CurrentUserDep
+    ) -> dict[str, Any]:
         """What the engine would dispatch for this plan, and what it has dispatched so far."""
         from dataclasses import asdict
 
         from pravrudhi.application.subagents import preview, runs
 
-        o, plan = _objective_and_plan(oid)
-        return {"preview": preview(o, plan, root), "runs": [asdict(r) for r in runs(root, o.id)]}
+        here = _project(user, workspace)
+        o, plan = _objective_and_plan(oid, here)
+        return {"preview": preview(o, plan, here), "runs": [asdict(r) for r in runs(here, o.id)]}
 
     @api.post("/objectives/{oid}/subagents", response_model=DispatchResponse)
-    def objective_dispatch(oid: str) -> dict[str, Any]:
+    def objective_dispatch(
+        oid: str, workspace: str | None = None, user: User | None = CurrentUserDep
+    ) -> dict[str, Any]:
         """Hand the plan's tasks to the swarm in the background. Everything they produce is a proposal."""
         import threading
 
         from pravrudhi.agents.registry import build_agent
         from pravrudhi.application.subagents import dispatch_plan, tasks_from_plan
 
-        o, plan = _objective_and_plan(oid)
-        n = len(tasks_from_plan(o, plan, root=root))
+        here = _project(user, workspace)
+        o, plan = _objective_and_plan(oid, here)
+        n = len(tasks_from_plan(o, plan, root=here))
         threading.Thread(
             target=dispatch_plan, args=(o, plan),
-            kwargs={"root": root, "build_agent": lambda name, model: build_agent(root, name, model), "log": print},
+            kwargs={"root": here, "build_agent": lambda name, model: build_agent(here, name, model), "log": print},
             daemon=True,
         ).start()
         return {"objective": o.id, "started": n}
