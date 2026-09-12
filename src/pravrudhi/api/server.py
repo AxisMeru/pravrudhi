@@ -943,7 +943,7 @@ def create_app(root: Path, *, nyaya_ask_fn: Any | None = None) -> FastAPI:
         which = edition_for(user)
         base = {
             "mode": str(auth_mode()), "authenticated": user is not None,
-            "edition": which, "tagline": tagline_for(which),
+            "edition": which, "tagline": tagline_for(which), "access": roles.access_for(user),
         }
         return base if user is None else {**base, "id": user.id, "email": user.email, "role": user.role}
 

@@ -952,6 +952,10 @@ class MeResponse(BaseModel):
     id: str | None = None
     email: str | None = None
     role: str | None = None
+    access: str = "none"
+    """`"admin" | "member" | "none"` (`api.roles.access_for`), resolved server-side from the admin allowlist --
+    never from `role` above, which is this caller's own identity-provider claim and exactly what a forged token
+    would try to inflate. A renderer decides what to show from this field, not from `role`."""
     edition: str = "Pravrudhi"
     """Which of the two products this caller is looking at: Pravrudhi Studio builds Pravrudhi, Pravrudhi builds
     the user's own work. Derived from the role rather than compiled in, so one binary introduces itself

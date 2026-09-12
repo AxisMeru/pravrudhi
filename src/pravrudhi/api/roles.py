@@ -70,6 +70,25 @@ def is_admin(user: User | None) -> bool:
     return role_of(user) is ADMIN
 
 
+ACCESS_VALUES: frozenset[str] = frozenset({"admin", "member", "none"})
+"""What `/api/me` reports under `access`, and the only values it may report."""
+
+
+def access_for(user: User | None) -> str:
+    """The three-valued answer a client actually needs, over `role_of`'s two-valued authorization split.
+
+    `role_of` collapses "signed in, not on the allowlist" and "nobody signed in at all" to the same `USER`,
+    which is correct for gating -- both are refused an admin surface alike -- and wrong for a reader of `/me`,
+    who is asking a different question: is anyone here it can name. An anonymous caller on a deployed,
+    authenticated install is not "a member who happens not to be an admin"; it is nobody. The one case where
+    `user is None` does name somebody is authentication switched off, where `role_of` already resolves the
+    local caller to the operator by construction, and that still reports `admin` here, unchanged.
+    """
+    if role_of(user) is ADMIN:
+        return "admin"
+    return "none" if user is None else "member"
+
+
 def require_admin(user: User | None) -> User | None:
     """Let an operator through, refuse anyone else, and say nothing about who is on the list."""
     if role_of(user) is ADMIN:
@@ -196,6 +215,6 @@ async def _admin_dependency(request: Request) -> None:
 
 
 __all__ = [
-    "ADMIN", "ADMIN_ENV", "ADMIN_ONLY", "USER", "USER_FACING", "Role",
-    "admin_ids", "gate", "is_admin", "require_admin", "role_of",
+    "ACCESS_VALUES", "ADMIN", "ADMIN_ENV", "ADMIN_ONLY", "USER", "USER_FACING", "Role",
+    "access_for", "admin_ids", "gate", "is_admin", "require_admin", "role_of",
 ]

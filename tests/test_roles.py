@@ -77,6 +77,59 @@ class TestNobodySignedIn:
         assert role_of(None) == USER
 
 
+class TestAccessFor:
+    """`access_for` is what `/api/me` actually reports: `role_of`'s two-valued authorization split, widened by
+    one distinction that authorization itself does not need but a reader of `/me` does -- an anonymous caller
+    is not "a member who happens not to be an admin", it is nobody the engine can name at all.
+    """
+
+    def test_an_admin_account_reports_admin(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from pravrudhi.api.roles import access_for
+
+        monkeypatch.setenv("PRAVRUDHI_ADMINS", "u-1")
+        assert access_for(_user("u-1")) == "admin"
+
+    def test_a_signed_in_non_admin_account_reports_member_not_none(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from pravrudhi.api.roles import access_for
+
+        monkeypatch.setenv("PRAVRUDHI_ADMINS", "u-1")
+        assert access_for(_user("u-2")) == "member"
+
+    def test_no_caller_at_all_reports_none_when_authentication_is_on(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from pravrudhi.api.roles import access_for
+
+        monkeypatch.setenv("PRAVRUDHI_AUTH", "required")
+        assert access_for(None) == "none"
+
+    def test_no_caller_at_all_reports_admin_when_authentication_is_disabled(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The single-operator machine: nobody to name, and `role_of` already says the local caller is the
+        operator by construction. `access_for` must agree, not collapse this into "none" alongside a genuinely
+        anonymous caller on a deployed, authenticated install -- those are opposite situations."""
+        from pravrudhi.api.roles import access_for
+
+        monkeypatch.setenv("PRAVRUDHI_AUTH", "disabled")
+        assert access_for(None) == "admin"
+
+    def test_a_token_claiming_to_be_admin_still_reports_member(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The same guarantee `role_of` already gives `test_a_token_claiming_to_be_admin_is_still_a_user`,
+        carried through to the field a client actually reads."""
+        from pravrudhi.api.roles import access_for
+
+        monkeypatch.setenv("PRAVRUDHI_ADMINS", "u-1")
+        forged = User(id="u-2", email="attacker@example.com", role="admin")
+        assert access_for(forged) == "member"
+
+    def test_the_three_values_are_the_only_ones(self) -> None:
+        """A fourth value is a design decision, not something that appears by accident in a string comparison."""
+        from pravrudhi.api.roles import ACCESS_VALUES
+
+        assert ACCESS_VALUES == frozenset({"admin", "member", "none"})
+
+
 class TestRequireAdmin:
     def test_the_operator_passes_through(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("PRAVRUDHI_ADMINS", "u-1")
