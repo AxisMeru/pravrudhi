@@ -1013,14 +1013,35 @@ def dispatch_mode(criterion: requests.Criterion, *, root: Path | None = None) ->
     return "proposal"
 
 
-def unbuildable(root: Path, criterion: requests.Criterion) -> str | None:
+# A one-line check on the previous judgement (session-3, 2026-09-12): if it named the deliverable's mode as
+# the problem and this beat would still dispatch in that mode, retrying only reproduces the identical rejection.
+# Deliberately narrow, matching the one confirmed shape: a proposal-mode dispatch writes a draft to a scratch
+# directory, never runs it, and the judge correctly refuses a claim of "proves" or "asserts" against a draft.
+_MODE_BLOCKER_MARKERS: tuple[str, ...] = ("a draft is not an executed test",)
+
+
+def unbuildable(
+    root: Path, criterion: requests.Criterion, *, request_id: str = "", index: int = 0
+) -> str | None:
     """Why no dispatch can meet this criterion in this checkout, or None when one might.
 
     Two shapes cost the loop three paid attempts each before anyone read the reason. A criterion that names the
     kernel: T0 changes are an ADR accepted under the delegation before the commit (ADR-0047), which a sandboxed
     agent cannot produce, so build_paths_for() returns () and the proposal fallback writes a README the gate then
     refuses. And a criterion whose named paths are gitignored here (docs/blueprint/ is local): the worktree can
-    write them and integrate cannot commit them, so "met" can never carry a commit."""
+    write them and integrate cannot commit them, so "met" can never carry a commit.
+
+    `request_id`/`index` are optional and default to inactive (no `request_id` means the mode-blocker check
+    below never runs), so every existing caller that checks only the structural reasons above is unaffected.
+    """
+    if request_id:
+        last = _last_judgement(root, request_id, index)
+        if any(marker in last for marker in _MODE_BLOCKER_MARKERS) and dispatch_mode(criterion, root=root) == "proposal":
+            return (
+                "the previous attempt's own judgement said the mode was the blocker, and this beat would "
+                f"dispatch it in that same mode again: {last!r}"
+            )
+
     from pravrudhi.application import build_config
     from pravrudhi.application.selfbuild import PROTECTED_PREFIXES
 
@@ -1182,7 +1203,7 @@ def _more_candidates(
             req, crit, idx = found
             excluded.add(req.id)
             skip.add(req.id)
-            if stalled(root, req.id, idx) or unbuildable(root, crit) is not None:
+            if stalled(root, req.id, idx) or unbuildable(root, crit, request_id=req.id, index=idx) is not None:
                 continue
             picked.append((req, crit, idx))
     return picked
@@ -1333,7 +1354,7 @@ def _beat_obligations(root: Path, dispatch: DispatchFn | None, *, judge: Any = N
                 )
             return _beat_triage(root)  # pragma: no cover - next_obligation already answered meet_criterion
         request, criterion, index = found
-        why_not = unbuildable(root, criterion)
+        why_not = unbuildable(root, criterion, request_id=request.id, index=index)
         if why_not is None:
             break
         # Spend the budget on paper rather than on three model calls that cannot succeed, say why where the
