@@ -1036,6 +1036,42 @@ class TestNoOpDispatchIsAResultNotAFailure:
         assert heartbeat.dispatch_failures(tmp_path, req_id, 0) == 0
 
 
+def test_is_genuine_noop_recognises_what_delegate_dispatch_actually_produces(tmp_path: Path) -> None:
+    """`_is_genuine_noop` matches a literal built at delegate.py's own `reasons.append(f"no change produced:
+    ...")` call - a string-prefix coupling between two modules that a reword of that one line would break
+    silently: every no-op would fall back to the dispatch-failure counter, and TestNoOpDispatchIsAResultNotAFailure
+    would not notice, because its tests build `Verdict`s with the literal themselves rather than through
+    `delegate.dispatch`. This drives the real function so a reword fails loudly here instead of quietly at
+    runtime."""
+    from pravrudhi.agents.base import AgentRun, Diff
+    from pravrudhi.application.delegate import TaskSpec, dispatch
+
+    class NoOpAgent:
+        """Writes nothing and explains why, exactly as a real agent that concluded the work was already done."""
+
+        name = "fake"
+
+        def create_workspace(self, task_id: str, base_ref: str = "HEAD") -> Path:
+            ws = tmp_path / task_id
+            ws.mkdir(parents=True, exist_ok=True)
+            return ws
+
+        def run(self, prompt: str, workspace: Path, timeout_s: int = 60) -> AgentRun:
+            return AgentRun(
+                agent=self.name, ok=True, exit_code=0, wall_s=0.1,
+                text="I checked and this is already done.", workspace=workspace,
+            )
+
+        def collect_changes(self, workspace: Path) -> Diff:
+            return Diff(files=[])
+
+    task = TaskSpec(task_id="t-noop", prompt="p", allowed_paths=("a.py",), validate="true")
+    verdict = dispatch(NoOpAgent(), task, log=lambda s: None)
+
+    assert not verdict.accepted
+    assert heartbeat._is_genuine_noop(verdict), verdict.reasons
+
+
 def test_a_judgement_keeps_enough_of_its_reason_for_the_next_attempt_to_act_on() -> None:
     """r-1977143a criterion 1 was refused twice on 2026-09-11 and both stored reasons stopped mid-sentence at 300
     characters, before the part that said what was missing; the next attempt started from a truncated hint."""
