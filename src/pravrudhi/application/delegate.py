@@ -177,7 +177,14 @@ def dispatch(agent: Any, task: TaskSpec, *, log: Any = print) -> Verdict:
         when = availability.reset_at(whole) if limited else None
         resets_at = when.strftime("%Y-%m-%dT%H:%M:%SZ") if when else ""
     if diff.empty:
-        reasons.append("no change produced")
+        # A run that produced nothing is not always a run that did nothing: an agent that correctly refused to
+        # fabricate the operator's own words, or that hit a scope it could not act inside, says so in its final
+        # message. r-799f8dfb c0 (2026-09-12) was exactly that -- a criterion asking for the operator's verbatim
+        # answers to questions nobody had asked yet, an agent that said so and stopped rather than invent them,
+        # and a verdict that recorded only the generic string below, indistinguishable from an agent that had
+        # simply done nothing at all.
+        explanation = (run.text or "").strip()
+        reasons.append(f"no change produced: {explanation[-1000:]}" if explanation else "no change produced")
     if diff.violations:
         reasons.append(f"touched protected paths: {', '.join(diff.violations)}")
     stray = task.out_of_scope(diff)

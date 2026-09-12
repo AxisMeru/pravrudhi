@@ -18,6 +18,7 @@ scientific one, since a distilled trainee would no longer be measuring the loop.
 from __future__ import annotations
 
 import re
+import shutil
 import subprocess
 import time
 from collections.abc import Callable
@@ -119,20 +120,50 @@ class GitWorktreeMixin:
         return self.root / ".worktrees" / f"agent-{self.ref_safe(task_id)}"
 
     def create_workspace(self, task_id: str, base_ref: str = "HEAD") -> Path:
+        """A fresh worktree on a fresh branch, every time -- never whatever an earlier attempt at this same
+        task id happened to leave behind.
+
+        Used to return an existing directory unchanged (`if wt.exists(): return wt`), on the assumption that
+        one task id is dispatched once. It is not: a criterion refused on one beat is retried on a later one
+        under the same id, and a worktree nothing had cleaned up became the next attempt's starting state --
+        an untracked file, or even a whole commit, from a rejected attempt read as this attempt's own leftover
+        (2026-09-12, r-3981d7e0 c3: `git worktree list` in the product install showed six branches for one
+        criterion, one of them holding a committed change from an attempt the collector had called empty).
+        A retry must start exactly at `base_ref`, so any prior worktree and branch for this task id are torn
+        down first rather than reused.
+        """
         wt = self._worktree_path(task_id)
-        if wt.exists():
-            return wt
         branch = f"agent/{self.ref_safe(task_id)}"
+        if wt.exists():
+            r = git(["worktree", "remove", "--force", str(wt)], self.root)
+            if r.returncode != 0:
+                # The directory exists but git no longer recognises it as a worktree (its registration was lost
+                # or it was deleted by hand outside git) -- clear both by hand rather than leave stale state
+                # `worktree add` would then refuse to reuse.
+                shutil.rmtree(wt, ignore_errors=True)
+                git(["worktree", "prune"], self.root)
+        git(["branch", "-D", branch], self.root)  # no such branch is not an error worth checking for
         wt.parent.mkdir(parents=True, exist_ok=True)
         r = git(["worktree", "add", "-b", branch, str(wt), base_ref], self.root)
-        if r.returncode != 0 and "already exists" in (r.stderr or ""):
-            r = git(["worktree", "add", str(wt), branch], self.root)
         if r.returncode != 0:
             raise RuntimeError(f"git worktree add failed: {r.stderr.strip()[:400]}")
         return wt
 
     def collect_changes(self, workspace: Path) -> Diff:
-        stat = git(["diff", "--numstat", "HEAD"], workspace)
+        """Everything the dispatch has done: committed on its own branch since it forked from the main
+        checkout, or still sitting uncommitted or untracked in the working tree.
+
+        Used to diff only against the worktree's own `HEAD`, which shows nothing once an agent commits its
+        own work -- the commit moves `HEAD` to match the working tree. An agent that committed was then
+        reported as having produced no change at all, the same failure `application/diffs.py`'s
+        `worktree_diff` had already solved for the diff-viewer page by diffing against the merge-base with the
+        main checkout instead; this mirrors that fix here, where the verdict itself is decided.
+        """
+        root_head_p = git(["rev-parse", "HEAD"], self.root)
+        root_head = root_head_p.stdout.strip() if root_head_p.returncode == 0 else "HEAD"
+        base_p = git(["merge-base", "HEAD", root_head], workspace)
+        base = base_p.stdout.strip() if base_p.returncode == 0 and base_p.stdout.strip() else root_head
+        stat = git(["diff", "--numstat", base], workspace)
         files, ins, dele = [], 0, 0
         for line in stat.stdout.splitlines():
             parts = line.split("\t")
@@ -143,7 +174,7 @@ class GitWorktreeMixin:
                 dele += int(d) if d.isdigit() else 0
         untracked = git(["ls-files", "--others", "--exclude-standard"], workspace).stdout.split()
         files.extend(untracked)
-        patch = git(["diff", "HEAD"], workspace).stdout
+        patch = git(["diff", base], workspace).stdout
         return Diff(files=sorted(set(files)), insertions=ins, deletions=dele, patch=patch)
 
     def stop(self, workspace: Path) -> None:

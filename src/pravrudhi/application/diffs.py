@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import re
 import subprocess
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -239,4 +240,52 @@ def recent(root: Path, n: int = 20) -> list[TaskSummary]:
     return out
 
 
-__all__ = ["Diff", "DiffLine", "FileDiff", "Hunk", "TaskSummary", "recent", "worktree_diff"]
+@dataclass(frozen=True)
+class StaleWorktree:
+    """One dispatched task's worktree still on disk, with enough to decide by hand whether it is safe to
+    remove. `merged` means the branch is already an ancestor of the main checkout's `HEAD` -- a build criterion
+    that was integrated, or a branch someone fast-forwarded by hand -- so nothing here is lost by deleting it;
+    an unmerged branch may still be the only copy of a rejected attempt worth reading before it goes."""
+
+    task_id: str
+    path: str
+    branch: str
+    age_days: float
+    files: int | None
+    merged: bool
+    unreadable: str = ""
+
+
+def stale_agent_worktrees(root: Path) -> list[StaleWorktree]:
+    """Every `agent-*` worktree under `<root>/.worktrees/`, oldest first. Read-only, by design: `delegate.dispatch`
+    has never removed a worktree it created (`git worktree add` and nothing else, so the diff stays inspectable
+    after a rejection), and nothing else has either, which is how a Studio checkout accumulated 89 of them. This
+    only reports; which of a real fleet's worktrees are actually done is the operator's call, and the caller
+    reports the exact `git worktree remove` / `git branch -D` for each rather than run either.
+    """
+    root = Path(root)
+    wdir = root / ".worktrees"
+    if not wdir.is_dir():
+        return []
+    root_head_p = _git(["rev-parse", "HEAD"], root)
+    root_head = root_head_p.stdout.strip() if root_head_p.returncode == 0 else "HEAD"
+    out: list[StaleWorktree] = []
+    for p in sorted((x for x in wdir.glob("agent-*") if x.is_dir()), key=lambda x: x.stat().st_mtime):
+        task_id = p.name[len("agent-") :]
+        branch = f"agent/{GitWorktreeMixin.ref_safe(task_id)}"
+        diff = worktree_diff(root, task_id)
+        merged_p = _git(["merge-base", "--is-ancestor", branch, root_head], root)
+        out.append(StaleWorktree(
+            task_id=task_id, path=str(p), branch=branch,
+            age_days=round((time.time() - p.stat().st_mtime) / 86400, 1),
+            files=None if diff.reason else len(diff.files),
+            merged=merged_p.returncode == 0,
+            unreadable=diff.reason,
+        ))
+    return out
+
+
+__all__ = [
+    "Diff", "DiffLine", "FileDiff", "Hunk", "StaleWorktree", "TaskSummary",
+    "recent", "stale_agent_worktrees", "worktree_diff",
+]

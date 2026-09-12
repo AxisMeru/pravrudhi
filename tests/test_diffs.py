@@ -164,3 +164,33 @@ def test_recent_on_a_workspace_with_no_worktrees_is_empty(tmp_path: Path) -> Non
     _init_repo(root)
 
     assert diffs.recent(root) == []
+
+
+def test_stale_agent_worktrees_reports_each_one_and_whether_its_branch_is_merged(tmp_path: Path) -> None:
+    root = tmp_path / "repo"
+    _init_repo(root)
+
+    unmerged_wt = _add_worktree(root, "unmerged")
+    (unmerged_wt / "new.py").write_text("still open\n")
+    _run(["add", "."], unmerged_wt)
+    _run(["commit", "-q", "-m", "wip"], unmerged_wt)  # committed on its own branch, never merged to main
+
+    merged_wt = _add_worktree(root, "merged")
+    (merged_wt / "shipped.py").write_text("landed\n")
+    _run(["add", "."], merged_wt)
+    _run(["commit", "-q", "-m", "ship"], merged_wt)
+    _run(["merge", "--ff-only", "agent/merged"], root)  # main fast-forwards onto it: an ancestor of HEAD now
+
+    rows = {w.task_id: w for w in diffs.stale_agent_worktrees(root)}
+
+    assert set(rows) == {"unmerged", "merged"}
+    assert rows["unmerged"].merged is False and rows["unmerged"].files == 1
+    assert rows["merged"].merged is True and rows["merged"].branch == "agent/merged"
+    assert all(w.age_days >= 0 for w in rows.values())
+
+
+def test_stale_agent_worktrees_on_a_workspace_with_none_is_empty(tmp_path: Path) -> None:
+    root = tmp_path / "repo"
+    _init_repo(root)
+
+    assert diffs.stale_agent_worktrees(root) == []

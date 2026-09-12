@@ -222,6 +222,32 @@ def _loop_alive_check(root: Path) -> dict[str, Any]:
     return {"name": "loop_alive", "ok": False, "detail": "no heartbeat freshness check was produced"}
 
 
+def _stale_worktrees_check(root: Path) -> dict[str, Any]:
+    """How many dispatched tasks' worktrees are still on disk, and the commands that would remove each --
+    informational only, never a failing check: `delegate.dispatch` keeps every worktree it creates so a
+    rejected diff stays readable, and accumulating them is the cost of that, not a broken installation.
+    Reported so an operator can prune deliberately (2026-09-12: 89 of them in one Studio checkout) rather than
+    read `git worktree list` by hand to find out how many there are.
+    """
+    from pravrudhi.application.diffs import stale_agent_worktrees
+
+    try:
+        stale = stale_agent_worktrees(root)
+    except OSError as exc:
+        return {"name": "stale_worktrees", "ok": True, "detail": f"could not enumerate .worktrees/: {exc}"}
+    if not stale:
+        return {"name": "stale_worktrees", "ok": True, "detail": "no dispatched-task worktrees on disk."}
+    merged = [w for w in stale if w.merged]
+    lines = [f"{len(stale)} dispatched-task worktree(s) on disk, {len(merged)} already merged into HEAD:"]
+    for w in stale:
+        lines.append(
+            f"  {w.task_id} ({w.age_days}d old, {'merged' if w.merged else 'unmerged'}"
+            f"{f', {w.files} file(s)' if w.files is not None else ', unreadable'}): "
+            f"git worktree remove --force {w.path}" + (f" && git branch -D {w.branch}" if w.merged else "")
+        )
+    return {"name": "stale_worktrees", "ok": True, "detail": "\n".join(lines)}
+
+
 def run_doctor(root: Path) -> dict[str, Any]:
     """Check required files, ledger integrity, Docker, and sealed pool presence without changing state."""
     checks: list[dict[str, Any]] = []
@@ -302,4 +328,5 @@ def run_doctor(root: Path) -> dict[str, Any]:
     checks.append(_loop_alive_check(root))
     checks.append(_telegram_check(root))
     checks.append(_build_validate_check(root))
+    checks.append(_stale_worktrees_check(root))
     return {"ok": all(check["ok"] for check in checks), "checks": checks}

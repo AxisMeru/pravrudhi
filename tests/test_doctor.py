@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -38,19 +39,22 @@ def test_uninitialised(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: 
     assert report["ok"] is False
     assert {check["name"] for check in report["checks"]} == {
         "initialised", "ledger", "docker", "gpu", "pools", "prereg", "routing", "loop_alive", "telegram",
-        "build_validate",
+        "build_validate", "stale_worktrees",
     }
     for check in report["checks"]:
         assert set(check) == {"name", "ok", "detail"}
         assert isinstance(check["detail"], str) and check["detail"]
-        # Five checks stay ok on a bare machine and each says why. No GPU on PATH cannot start a night but is
+        # Six checks stay ok on a bare machine and each says why. No GPU on PATH cannot start a night but is
         # not an error; with no agent installed at all there is no route to judge (see `_routing_check`); a
         # workspace that has never beaten is unobserved rather than stalled, which is the distinction
         # `loop_alive` has to draw or it would fail every fresh install; a machine with no bot token has
-        # no bot to pair, which is why `telegram` fails only a bot that IS configured and unpaired; and
+        # no bot to pair, which is why `telegram` fails only a bot that IS configured and unpaired;
         # `build_validate` (r-9c8646fc) is informational, like `gpu` - there is nothing to fail on an
-        # uninitialised root, only a command worth a reader knowing before it runs unattended.
-        assert check["ok"] is (check["name"] in {"gpu", "routing", "loop_alive", "telegram", "build_validate"})
+        # uninitialised root, only a command worth a reader knowing before it runs unattended; and
+        # `stale_worktrees` has no `.worktrees/` to report on yet, on a root this bare.
+        assert check["ok"] is (
+            check["name"] in {"gpu", "routing", "loop_alive", "telegram", "build_validate", "stale_worktrees"}
+        )
     assert list(tmp_path.iterdir()) == []
     assert capsys.readouterr() == ("", "")
 
@@ -62,8 +66,9 @@ def test_initialised(ready_root: Path, capsys: pytest.CaptureFixture[str]) -> No
     # Eight since 2026-09-10: `loop_alive` was added because `scheduler_fresh` had computed a dead loop all
     # along, published it, and been read correctly by a cloud routine -- while the command a session actually
     # runs in its first five minutes never asked. A workspace with no heartbeat has not stalled, so the check
-    # passes here rather than failing every fresh install. Ten since r-9c8646fc added `build_validate`.
-    assert len(report["checks"]) == 10
+    # passes here rather than failing every fresh install. Ten since r-9c8646fc added `build_validate`. Eleven
+    # since 2026-09-12 added `stale_worktrees`.
+    assert len(report["checks"]) == 11
     assert [c for c in report["checks"] if c["name"] == "loop_alive"]
     assert all(check["ok"] is True and check["detail"] for check in report["checks"])
     assert before == {p.relative_to(ready_root): p.read_bytes() for p in ready_root.rglob("*") if p.is_file()}
@@ -145,6 +150,41 @@ def test_build_validate_reports_the_root_s_own_declared_command(ready_root: Path
     assert check["ok"] is True
     assert "npm --prefix frontend test" in check["detail"]
     assert "root's own" in check["detail"]
+
+
+def test_stale_worktrees_reports_none_without_failing_when_there_are_none(ready_root: Path) -> None:
+    """Not a git checkout at all here, which must read the same as a git checkout with an empty .worktrees/:
+    nothing to report, never a doctor failure -- worktrees accumulating is a cost of the fleet running, not a
+    broken installation."""
+    report = run_doctor(ready_root)
+    check = next(c for c in report["checks"] if c["name"] == "stale_worktrees")
+    assert check["ok"] is True
+    assert "no dispatched-task worktrees" in check["detail"]
+
+
+def test_stale_worktrees_names_each_one_with_its_own_removal_command(tmp_path: Path) -> None:
+    """A real git checkout, not `ready_root` -- that fixture restricts `PATH` to a fake `docker` to test the
+    tool-missing checks elsewhere, which would make git itself unreachable here too."""
+    root = tmp_path / "project"
+    root.mkdir()
+    (root / ".pravrudhi").mkdir()
+    (root / ".pravrudhi" / "config.yaml").write_text("version: 1\n")
+
+    def run(args: list[str]) -> None:
+        subprocess.run(["git", *args], cwd=root, capture_output=True, text=True, check=True)
+
+    run(["init", "-q"])
+    run(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "i", "--allow-empty"])
+    wt = root / ".worktrees" / "agent-t1"
+    wt.parent.mkdir(parents=True)
+    run(["worktree", "add", "-q", "-b", "agent/t1", str(wt), "HEAD"])
+    (wt / "new.py").write_text("x = 1\n")
+
+    report = run_doctor(root)
+    check = next(c for c in report["checks"] if c["name"] == "stale_worktrees")
+    assert check["ok"] is True
+    assert "t1" in check["detail"]
+    assert f"git worktree remove --force {wt}" in check["detail"]
 
 
 @pytest.mark.parametrize("damage", ["tamper", "empty", "malformed", "encoding"])
