@@ -27,7 +27,11 @@ from pravrudhi.application.nyaya_gold_score import (
 # part of.
 _LEAN_SCORE_BIN = Path("/home/ss/projects/prabhasa-nyaya/lean/.lake/build/bin/score")
 requires_lean_scorer = pytest.mark.skipif(
-    not _LEAN_SCORE_BIN.exists(), reason="prabhasa-nyaya's Lean `score` executable is not built at this path"
+    not _LEAN_SCORE_BIN.exists(),
+    reason=(
+        f"requires a build artifact from the sibling prabhasa-nyaya repository ({_LEAN_SCORE_BIN}); "
+        "CI never checks that repo out, so this class never runs there, on any commit"
+    ),
 )
 
 

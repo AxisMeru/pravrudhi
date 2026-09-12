@@ -28,7 +28,11 @@ runner = CliRunner()
 # prabhasa-nyaya main's own build (Score.lean, isSatpratipaksa and isBadhita all merged as of f47267f).
 _LEAN_SCORE_BIN = Path("/home/ss/projects/prabhasa-nyaya/lean/.lake/build/bin/score")
 requires_lean_scorer = pytest.mark.skipif(
-    not _LEAN_SCORE_BIN.exists(), reason="prabhasa-nyaya's Lean `score` executable is not built at this path"
+    not _LEAN_SCORE_BIN.exists(),
+    reason=(
+        f"requires a build artifact from the sibling prabhasa-nyaya repository ({_LEAN_SCORE_BIN}); "
+        "CI never checks that repo out, so this class never runs there, on any commit"
+    ),
 )
 
 
