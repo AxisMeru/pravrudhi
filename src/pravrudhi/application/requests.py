@@ -88,11 +88,16 @@ class Criterion:
     declined: bool = False
     evidence: list[Evidence] = field(default_factory=list)
     mode: Literal["proposal", "build"] = "proposal"
+    #: The text as it read before `amend_criterion` last translated a fragment of it, or None if never amended.
+    #: CHARTER §6 calls an update a sublation with reasons, and a sublation preserves what it supersedes - so
+    #: the superseded wording stays on the record beside the reason, rather than being overwritten by it.
+    amended_from: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "text": self.text, "source": self.source, "met": self.met, "declined": self.declined,
             "evidence": [e.to_dict() for e in self.evidence], "mode": self.mode,
+            "amended_from": self.amended_from,
         }
 
     @staticmethod
@@ -106,6 +111,7 @@ class Criterion:
             evidence=[Evidence(str(e.get("kind", "")), str(e.get("ref", "")), str(e.get("note", "")))
                       for e in (d.get("evidence") or [])],
             mode="build" if mode == "build" else "proposal",
+            amended_from=(str(d["amended_from"]) if d.get("amended_from") is not None else None),
         )
 
 
@@ -370,6 +376,66 @@ def set_mode(
         criterion.mode = mode
         req.notes.append({
             "at": _now(), "note": f"{actor}: criterion[{index}] mode {old} -> {mode} ({why.strip()})",
+        })
+        return _replace(root, req)
+
+
+def amend_criterion(
+    root: Path, request_id: str, index: int, *, old: str, new: str, why: str,
+    actor: str = "agent-for-operator", all_: bool = False,
+) -> Request:
+    """Translate a NAMED fragment of one criterion's text, keeping the original and the reason on the record.
+
+    Why this is not a general edit. A criterion's text is usually the operator's own words, and S14 built this
+    whole command surface so those words are never hand-edited in `.pravrudhi/requests.json`. But a criterion
+    can be correctly filed and still unactionable because a fragment of it is wrong for the root it now lives
+    in: `r-55c7083e` (2026-09-12) names `app/frontend/src/...`, the Studio layout, for files that exist in the
+    product repository at `frontend/src/...`. `build_paths_for` then finds no reachable path, every dispatch
+    auto-detects as proposal mode, the agent can only describe what it would write, and the judge correctly
+    refuses a proposal as evidence - hourly, indefinitely. That is a wrong string, not a wrong ask, and before
+    this there was no sanctioned way to say so.
+
+    So the shape is deliberately narrow: replace a fragment the caller names, which must occur exactly once.
+    Two occurrences is a refusal rather than a guess, because choosing between them would be this command
+    deciding what the operator meant. The ask can be translated between layouts; it cannot be quietly replaced
+    by a different ask, which is the property that made hand-edits unacceptable in the first place.
+
+    `amended_from` keeps the superseded wording (CHARTER §6: an update is a sublation with reasons, and a
+    sublation preserves what it supersedes). A met criterion is refused for a stronger reason than `decline`'s:
+    its evidence was judged against the text as it then read, so amending afterwards would silently re-point
+    real evidence at a different claim.
+    """
+    if not why.strip():
+        raise RequestError("amend requires a reason; that is the whole point of keeping the note")
+    if not old:
+        raise RequestError("amend requires the fragment to replace; a whole-text rewrite is not an amendment")
+    with locked(root):
+        req = get(root, request_id)
+        if req is None:
+            raise RequestError(f"no request {request_id}")
+        if not 0 <= index < len(req.criteria):
+            raise RequestError(f"{request_id} has no criterion {index}")
+        criterion = req.criteria[index]
+        if criterion.met:
+            raise RequestError(
+                f"{request_id}[{index}] is already met; its evidence was judged against the text as it reads, "
+                "so amending now would re-point that evidence at a different claim"
+            )
+        occurrences = criterion.text.count(old)
+        if occurrences == 0:
+            raise RequestError(f"{old!r} does not appear in {request_id}[{index}]")
+        if occurrences > 1 and not all_:
+            raise RequestError(
+                f"{old!r} occurs {occurrences} times in {request_id}[{index}]; name a unique fragment, or pass "
+                "all_ to translate every occurrence — but do not leave this command to choose which one you meant"
+            )
+        before = criterion.text
+        criterion.amended_from = before
+        criterion.text = before.replace(old, new) if all_ else before.replace(old, new, 1)
+        scope = f"all {occurrences}" if all_ and occurrences > 1 else "1"
+        req.notes.append({
+            "at": _now(),
+            "note": f"{actor}: criterion[{index}] amended {old!r} -> {new!r} ({scope}x) ({why.strip()})",
         })
         return _replace(root, req)
 

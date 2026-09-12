@@ -1757,6 +1757,40 @@ def requests_mark_met_cmd(
     typer.echo(f"{req.id}[{index}] met: {req.criteria[index].text}")
 
 
+@requests_app.command("amend")
+def requests_amend_cmd(
+    request_id: str = REQUEST_ID_ARG,
+    index: int = typer.Argument(..., help="criterion index, 0-based"),
+    old: str = typer.Option(..., "--old", help="the exact fragment to replace; must occur exactly once"),
+    new: str = typer.Option(..., "--new", help="what it becomes"),
+    all_: bool = typer.Option(
+        False, "--all", help="translate every occurrence of the fragment, not only a unique one"
+    ),
+    why: str = REQUEST_WHY_OPT,
+    actor: str = REQUEST_ACTOR_OPT,
+    root: Path = ROOT_OPT,
+) -> None:
+    """Translate a named fragment of a criterion's text, keeping the original and the reason on the record.
+
+    For a criterion that is correctly filed but unactionable because a fragment of it is wrong for the root it
+    lives in — `r-55c7083e` naming `app/frontend/src/...`, Studio's layout, for files the product repository
+    keeps at `frontend/src/...`. `build_paths_for` then reaches nothing, every dispatch falls to proposal mode,
+    and the judge refuses a proposal as evidence hourly and indefinitely.
+
+    It replaces a fragment you name, which must occur exactly once; two occurrences is refused rather than
+    guessed at, because choosing between them would be this command deciding what the operator meant. An ask
+    can be translated between layouts; it cannot be quietly replaced by a different ask.
+    """
+    from pravrudhi.application.requests import RequestError, amend_criterion
+
+    try:
+        req = amend_criterion(root, request_id, index, old=old, new=new, why=why, actor=actor, all_=all_)
+    except RequestError as e:
+        typer.echo(str(e), err=True)
+        raise typer.Exit(code=2) from e
+    typer.echo(f"{req.id}[{index}] amended: {req.criteria[index].text}")
+
+
 @requests_app.command("decline")
 def requests_decline_cmd(
     request_id: str = REQUEST_ID_ARG,
