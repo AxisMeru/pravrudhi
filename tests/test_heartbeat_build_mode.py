@@ -110,6 +110,31 @@ class TestDispatchMode:
         # Returns proposal because protected
         assert heartbeat.dispatch_mode(criterion) == "proposal"
 
+    def test_a_bare_filename_mentioned_in_prose_does_not_force_build_mode(self) -> None:
+        """The product install's 08:10 beat on 2026-09-12 dispatched r-3981d7e0 criterion 3 - explicitly
+        `mode: "proposal"`, and asking for a file under `proposals/`, nowhere near a recognised build prefix -
+        as build anyway, because `build_paths_for` always adds `tests/*` (its own documented behaviour,
+        `test_tests_glob_included` below) even when nothing else was found, which defeats `dispatch_mode`'s
+        `if not paths: return "proposal"` gate, and then the bare (no backtick required) `code_extensions`
+        regex matched `INSTALL.md` sitting in the middle of a sentence. The dispatch was then scoped to
+        `tests/*` (the filler, not a real target) and rejected: "wrote outside its declared scope" naming the
+        very `proposals/requests/<id>/<idx>/` files a proposal is supposed to write."""
+        criterion = requests.Criterion(
+            text=(
+                "Write proposals/prabhasa-nyaya/harness/INSTALL.md: the exact commands to install lm-eval in "
+                "this workspace and to fetch IL-TUR (Exploration-Lab/IL-TUR), with the dataset's actual size "
+                "and licence stated from its Hugging Face page. Do not run them; establishing what the "
+                "install IS takes one dispatch, doing it does not."
+            ),
+            source="operator", mode="proposal",
+        )
+        assert heartbeat.dispatch_mode(criterion) == "proposal"
+
+    def test_a_criterion_naming_nothing_recognisable_is_proposal_even_with_an_extension_in_prose(self) -> None:
+        """The minimal reproduction: no backticks, no recognised prefix, just a bare filename mention."""
+        criterion = requests.Criterion(text="produce a report.md summarising the findings")
+        assert heartbeat.dispatch_mode(criterion) == "proposal"
+
 
 def _git(cwd: Path, *args: str) -> str:
     return subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True).stdout

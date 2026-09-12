@@ -267,6 +267,38 @@ def test_obligations_drive_dispatches_the_oldest_unmet_request_criterion(tmp_pat
     assert (tmp_path / "proposals" / "requests" / "req-1" / "0").exists()
 
 
+def test_a_proposal_naming_a_bare_filename_in_prose_is_still_accepted(tmp_path, monkeypatch):
+    """The product install's 08:10 beat on 2026-09-12 dispatched r-3981d7e0 criterion 3 - `mode: "proposal"`,
+    asking for a file under `proposals/`, nowhere near a recognised build prefix - and it was rejected:
+    "wrote outside its declared scope" naming exactly the `proposals/requests/<id>/<idx>/` files a proposal
+    dispatch is supposed to write. `dispatch_mode` had reclassified it as "build" because the bare (no
+    backtick needed) mention of `INSTALL.md` in the criterion's prose matched `code_extensions`, and because
+    `build_paths_for`'s own `tests/*` filler (always added, even when nothing else was found) defeated
+    `dispatch_mode`'s "nothing found -> proposal" gate - so the dispatch was scoped to `tests/*` instead of
+    the scratch directory the agent (correctly) wrote to."""
+    patch_measure(monkeypatch, seva=0.8)
+    requests.capture(
+        tmp_path, "sort out the IL-TUR install instructions", request_id="req-2",
+        criteria=[Criterion(
+            text=(
+                "Write proposals/prabhasa-nyaya/harness/INSTALL.md: the exact commands to install lm-eval in "
+                "this workspace and to fetch IL-TUR (Exploration-Lab/IL-TUR), with the dataset's actual size "
+                "and licence stated from its Hugging Face page. Do not run them."
+            ),
+            source="operator",
+        )],
+    )
+
+    record = beat(
+        tmp_path, dispatch=dispatch_into("proposals/requests/req-2/0/README.md"),
+        now=datetime(2026, 1, 1, 12, 0, tzinfo=UTC),
+    )
+
+    assert record.result is not None
+    assert record.result["accepted"] is True, record.reason
+    assert "outside its declared scope" not in record.reason
+
+
 def test_obligations_drive_with_no_unmet_request_is_a_recorded_no_op(tmp_path, monkeypatch):
     patch_measure(monkeypatch, seva=0.8)
 

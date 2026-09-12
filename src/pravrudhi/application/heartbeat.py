@@ -961,15 +961,25 @@ def _build_prompt(request_text: str, criterion_text: str, paths: tuple[str, ...]
     )
 
 
+#: `build_paths_for`'s own default-prefix branch always adds `tests/*` (see its docstring and
+#: `TestBuildPathsFor.test_tests_glob_included`) even when nothing else was recognised in the text - a
+#: deliberate filler for a genuine build dispatch's OWN scope (it may always touch its tests), not a signal
+#: that a real path was named. `dispatch_mode` must tell the two apart: r-3981d7e0 criterion 3 named nothing
+#: but `proposals/prabhasa-nyaya/harness/INSTALL.md` (not a recognised prefix) and mentioned "INSTALL.md" in
+#: prose, so `build_paths_for` returned exactly this filler and nothing else - yet `if not paths` never caught
+#: it, because the filler made `paths` non-empty regardless.
+_ONLY_THE_TESTS_FILLER: frozenset[str] = frozenset({"tests/*"})
+
+
 def dispatch_mode(criterion: requests.Criterion, *, root: Path | None = None) -> str:
     """Determine dispatch mode: 'build' or 'proposal' (default).
 
     Returns 'build' when:
     - criterion.mode is explicitly set to "build", OR
-    - criterion.mode is unset (defaults to "proposal") AND build_paths_for returns non-empty
-      AND the text names a code file (.py, .ts, .tsx, .sh, .yaml, .md), or a backticked path under a prefix
-      this root (`root`) may build under - its own declared `allowed_prefixes` when it has one, the engine's
-      own set otherwise
+    - criterion.mode is unset (defaults to "proposal") AND build_paths_for names something beyond its own
+      `tests/*` filler (see `_ONLY_THE_TESTS_FILLER`) AND the text names a code file (.py, .ts, .tsx, .sh,
+      .yaml, .md), or a backticked path under a prefix this root (`root`) may build under - its own declared
+      `allowed_prefixes` when it has one, the engine's own set otherwise
 
     Otherwise returns 'proposal'.
     """
@@ -977,9 +987,9 @@ def dispatch_mode(criterion: requests.Criterion, *, root: Path | None = None) ->
     if criterion.mode == "build":
         return "build"
 
-    # Auto-detect: check if paths are named and file is a code file
+    # Auto-detect: check if a REAL path is named - build_paths_for's own tests/*-only filler is not one.
     paths = build_paths_for(criterion.text, root=root)
-    if not paths:
+    if not paths or set(paths) <= _ONLY_THE_TESTS_FILLER:
         return "proposal"
 
     from pravrudhi.application import build_config
