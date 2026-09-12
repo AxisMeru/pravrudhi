@@ -114,3 +114,17 @@ reprobe_hours: 6
 # little as the question itself costs, not a whole task's worth of tokens.
 reprobe_prompt: "Reply with the single word ok."
 reprobe_timeout_s: 60
+
+# S6: how wide one obligations beat may go. `next_unmet` always names the single oldest open request, so a hard
+# one could monopolise every beat for hours while 500+ other criteria waited (S5's own survey: 13 of 22 beats
+# on 2026-09-12 spent on one request, zero progress, zero others touched). `concurrent_dispatches` lets a beat
+# pick up to this many INDEPENDENT criteria - different requests, path-disjoint - and dispatch them together in
+# one wave (`swarm.run_wave` already parallelises a wave; nothing here invents new isolation).
+#
+# `min_available_gb` is the safety valve, not a suggestion: this box has run under earlyoom pressure all
+# morning, and each concurrent dispatch spawns its own coding-agent process plus its MCP/plugin servers. Read
+# fresh every beat against /proc/meminfo's MemAvailable; below the floor (or if it cannot even be measured) the
+# beat narrows to one dispatch, exactly as it always has.
+heartbeat:
+  concurrent_dispatches: 2
+  min_available_gb: 6

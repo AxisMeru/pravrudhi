@@ -353,7 +353,9 @@ def _parked(root: Path, request_id: str, index: int) -> bool:
     return False
 
 
-def next_unmet(root: Path, *, now: datetime | None = None) -> tuple[Request, Criterion, int] | None:
+def next_unmet(
+    root: Path, *, now: datetime | None = None, exclude: frozenset[str] = frozenset(),
+) -> tuple[Request, Criterion, int] | None:
     """The oldest open request with an unmet criterion, and which criterion to work on.
 
     This is what the heartbeat calls. Ordering by staleness rather than by arrival keeps a request that was
@@ -365,10 +367,14 @@ def next_unmet(root: Path, *, now: datetime | None = None) -> tuple[Request, Cri
     behind it. Declining to pay for a thing and declining to look past it are two decisions, and only the first
     had been made. Returning `None` once everything is parked is what lets the beat fall through to another
     drive instead of re-choosing a dead end.
+
+    `exclude` (S6) is request ids to skip entirely, not just their current head criterion - a beat widening
+    past one dispatch calls this again for a SECOND, DIFFERENT request, and excluding by id (rather than only
+    skipping the one criterion just picked) is what keeps every additional pick on its own request.
     """
     best: tuple[float, Request, Criterion, int] | None = None
     for req in load(root):
-        if not req.open:
+        if not req.open or req.id in exclude:
             continue
         for i, c in enumerate(req.criteria):
             if c.met:

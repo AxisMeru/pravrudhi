@@ -124,6 +124,32 @@ def reprobe_timeout_s() -> int:
         return 60
 
 
+def _heartbeat_limits() -> dict[str, Any]:
+    block = _load_config().get("heartbeat")
+    return block if isinstance(block, dict) else {}
+
+
+def concurrent_dispatches() -> int:
+    """How many independent criteria one obligations beat may dispatch in a single wave
+    (`limits.yaml`'s `heartbeat.concurrent_dispatches`), before `min_available_gb` narrows it further."""
+    value = _heartbeat_limits().get("concurrent_dispatches")
+    try:
+        return int(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return 2
+
+
+def min_available_gb() -> float:
+    """The host `MemAvailable` floor (GB) below which a beat runs a single dispatch regardless of
+    `concurrent_dispatches` (`limits.yaml`'s `heartbeat.min_available_gb`) - each concurrent dispatch spawns its
+    own coding-agent process and its MCP/plugin servers."""
+    value = _heartbeat_limits().get("min_available_gb")
+    try:
+        return float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return 6.0
+
+
 def _cooldown_path(root: Path) -> Path:
     return Path(root) / ".pravrudhi" / "agent_cooldown.json"
 
@@ -341,6 +367,8 @@ def reprobe_cooling(root: Path, probe: ProbeFn, *, now: datetime | None = None) 
 __all__ = [
     "LIMIT_PATTERNS",
     "ProbeFn",
+    "concurrent_dispatches",
+    "min_available_gb",
     "reprobe_hours",
     "reprobe_prompt",
     "reprobe_timeout_s",

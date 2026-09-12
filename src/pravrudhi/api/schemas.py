@@ -112,7 +112,9 @@ class ApplyResultResponse(BaseModel):
 class BeatOut(BaseModel):
     at: str
     looked_at: list[str]
-    chose: dict[str, str] | None
+    # S6: a beat that dispatches more than one independent criterion at once names a list of
+    # {"request": ..., "criterion": ...} dicts here rather than one.
+    chose: dict[str, str] | list[dict[str, str]] | None
     reason: str
     result: dict[str, JsonValue] | None
 

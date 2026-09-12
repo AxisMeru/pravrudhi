@@ -1046,16 +1046,22 @@ def heartbeat_cmd(
             typer.echo(json.dumps(rec.to_dict(), sort_keys=True))
         else:
             # A beat chooses an objective step, a request criterion, or a request awaiting the gate, and each
-            # carries different keys. Assuming the first shape crashed the command on the other two.
-            chose = rec.chose or {}
-            if "objective" in chose:
-                chosen = f"{chose['objective']}/{chose.get('step', '?')}"
-            elif "criterion" in chose:
-                chosen = f"{chose.get('request', '?')} criterion {chose['criterion']}"
-            elif "request" in chose:
-                chosen = str(chose["request"])
+            # carries different keys. Assuming the first shape crashed the command on the other two. Since S6,
+            # a beat that widened past one dispatch names a LIST of such dicts rather than one.
+            def _name_one(chose: dict[str, str]) -> str:
+                if "objective" in chose:
+                    return f"{chose['objective']}/{chose.get('step', '?')}"
+                if "criterion" in chose:
+                    return f"{chose.get('request', '?')} criterion {chose['criterion']}"
+                if "request" in chose:
+                    return str(chose["request"])
+                return "nothing"
+
+            raw_chose = rec.chose
+            if isinstance(raw_chose, list):
+                chosen = f"{len(raw_chose)} criteria: " + ", ".join(_name_one(c) for c in raw_chose) if raw_chose else "nothing"
             else:
-                chosen = "nothing"
+                chosen = _name_one(raw_chose or {})
             # `looked_at` holds objective ids, and a beat that went to the request backlog looked at none of
             # them; saying "looked at 0 objectives" made a beat that did real work read as a beat that did none.
             drive = getattr(rec, "drive", None)

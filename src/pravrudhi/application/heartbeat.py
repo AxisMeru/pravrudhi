@@ -86,6 +86,13 @@ def load_config(root: Path) -> HeartbeatConfig:
     )
 
 
+#: What a beat names as its target: one dispatch's `{"request": ..., "criterion": ...}` (or the equivalent shape
+#: for a non-obligations drive), or - since S6 - a list of such dicts when one beat dispatched more than one
+#: independent criterion. A single-dispatch beat's `chose` is unchanged from before S6: a bare dict, never a
+#: one-element list, so every existing reader keeps working without a change.
+Chose = dict[str, str] | list[dict[str, str]] | None
+
+
 @dataclass(frozen=True)
 class BeatRecord:
     """What one call to `beat` did, or why it did nothing. Appended to `.pravrudhi/heartbeat.jsonl` unconditionally,
@@ -97,7 +104,7 @@ class BeatRecord:
 
     at: str
     looked_at: tuple[str, ...]
-    chose: dict[str, str] | None
+    chose: Chose
     reason: str
     result: dict[str, Any] | None = None
     drive: str | None = None
@@ -134,7 +141,7 @@ def _append(root: Path, record: BeatRecord) -> None:
 
 
 def _finish(
-    root: Path, moment: datetime, looked_at: tuple[str, ...], chose: dict[str, str] | None, reason: str,
+    root: Path, moment: datetime, looked_at: tuple[str, ...], chose: Chose, reason: str,
     result: dict[str, Any] | None, *, drive: str | None, drive_deficit: float | None, sentence: str,
 ) -> BeatRecord:
     record = BeatRecord(
@@ -212,12 +219,12 @@ def _default_probe(root: Path) -> availability.ProbeFn:
     return probe
 
 
-ActionResult = tuple[dict[str, str] | None, str, dict[str, Any] | None]
+ActionResult = tuple[Chose, str, dict[str, Any] | None]
 
 
 def _beat_capability(
     root: Path, config: HeartbeatConfig, dispatch: DispatchFn | None,
-) -> tuple[tuple[str, ...], dict[str, str] | None, str, dict[str, Any] | None]:
+) -> tuple[tuple[str, ...], Chose, str, dict[str, Any] | None]:
     """`samarthya` (capability): the original behaviour — the most-neglected undone step of any declared
     objective, dispatched through the swarm under the proposal sandbox policy."""
     objectives = load_all(root)
@@ -1056,6 +1063,211 @@ def unbuildable(root: Path, criterion: requests.Criterion) -> str | None:
     return None
 
 
+_MEMINFO_PATH = Path("/proc/meminfo")
+
+
+def _available_memory_gb() -> float | None:
+    """`MemAvailable` from `/proc/meminfo`, in GB, or `None` when it cannot be read (not Linux, or the file is
+    missing) - the caller treats that the same as "below the floor", the same fail-closed direction as every
+    other unclear answer in this module."""
+    try:
+        text = _MEMINFO_PATH.read_text()
+    except OSError:
+        return None
+    for line in text.splitlines():
+        if line.startswith("MemAvailable:"):
+            parts = line.split()
+            if len(parts) >= 2 and parts[1].isdigit():
+                return int(parts[1]) / (1024 * 1024)
+    return None
+
+
+def _effective_width(root: Path) -> tuple[int, str]:
+    """How many independent criteria this beat may dispatch at once, and why it was narrowed if it was (S6).
+
+    `limits.yaml`'s `heartbeat.concurrent_dispatches` is the configured width; the same file's
+    `heartbeat.min_available_gb` is a host-RAM floor read fresh every beat, because each concurrent dispatch
+    spawns its own coding-agent process and its MCP/plugin servers, and this box has run under earlyoom pressure.
+    Below the floor - or when it cannot even be measured - the beat runs one dispatch, same as every beat before
+    this existed.
+    """
+    configured = availability.concurrent_dispatches()
+    if configured <= 1:
+        return configured, ""
+    floor = availability.min_available_gb()
+    measured = _available_memory_gb()
+    if measured is None:
+        return 1, f"MemAvailable could not be read; narrowed from {configured} to 1"
+    if measured < floor:
+        return 1, f"MemAvailable {measured:.1f}GB is below the {floor:.1f}GB floor; narrowed from {configured} to 1"
+    return configured, ""
+
+
+def _last_beat_requests(root: Path) -> frozenset[str]:
+    """The request id(s) the immediately previous beat dispatched against, for rotation (S6) to prefer a
+    request that is not one of these when another is eligible. Read from `heartbeat.jsonl` (`history`), not a
+    new state file: `chose` is a single `{"request": ..., "criterion": ...}` dict for one dispatch (every beat
+    before S6, and every single-dispatch beat since) or a list of them for a beat that dispatched more than
+    one; any other shape (triage, parked, a diagnostic drive, no prior beat at all) names no request, and
+    rotation has nothing to prefer against."""
+    prior = history(root, n=1)
+    if not prior:
+        return frozenset()
+    chose = prior[-1].chose
+    if isinstance(chose, dict):
+        rid = chose.get("request")
+        return frozenset({rid}) if rid else frozenset()
+    if isinstance(chose, list):
+        return frozenset(str(c["request"]) for c in chose if isinstance(c, dict) and c.get("request"))
+    return frozenset()
+
+
+def _task_for_criterion(
+    root: Path, request: requests.Request, criterion: requests.Criterion, index: int, mode: str,
+) -> tuple[str, swarm.SwarmTask]:
+    """Build the scoped `SwarmTask` for one criterion. Extracted from what was `_beat_obligations`'s own inline
+    dispatch-building (S6), so a beat that dispatches more than one criterion builds each exactly as the
+    single-dispatch path always has - this function's body is unchanged from that inline code."""
+    task_id = f"request:{request.id}:{index}"
+    if mode == "build":
+        paths = build_paths_for(criterion.text, root=root)
+        build_validate = _resolved_build_validate(root)
+        spec = TaskSpec(
+            task_id=task_id,
+            prompt=_build_prompt(request.text, criterion.text, paths, build_validate,
+                                 prior=_last_judgement(root, request.id, index)),
+            allowed_paths=paths,
+            validate=build_validate,
+        )
+        task = swarm.SwarmTask(spec, _BUILD_TIER, why=f"oldest unmet criterion of request {request.id} (build)")
+        scoped = replace(task, spec=apply_policy(task.spec, _selfbuild_policy(root)))
+    else:
+        scratch = _obligation_scratch(request.id, index)
+        (root / scratch).mkdir(parents=True, exist_ok=True)
+        validate = f'test -n "$(ls -A {scratch})" && uv run python -m compileall -q {scratch}'
+        spec = TaskSpec(
+            task_id=task_id,
+            prompt=_obligation_prompt(request.text, criterion.text, scratch, validate,
+                                      prior=_last_judgement(root, request.id, index)),
+            allowed_paths=(f"{scratch}/*",),
+            validate=validate,
+        )
+        task = swarm.SwarmTask(spec, _OBLIGATION_TIER, why=f"oldest unmet criterion of request {request.id}")
+        scoped = replace(task, spec=apply_policy(task.spec, policy_for("proposal")))
+    return task_id, scoped
+
+
+def _more_candidates(
+    root: Path, count: int, *, exclude_requests: set[str], prior_requests: frozenset[str],
+) -> list[tuple[requests.Request, requests.Criterion, int]]:
+    """Up to `count` more unmet, unparked criteria for this beat's wave (S6), each from a request not already
+    picked this beat (`requests.next_unmet`'s own `exclude`) and not itself unbuildable or stalled - those are
+    left for the ordinary loop above to paper-stall when one becomes the single oldest pick on some future beat,
+    rather than spending that bookkeeping twice.
+
+    Rotation: a request `prior_requests` (the previous beat's own picks, from `_last_beat_requests`) already
+    dispatched against is preferred against only once nothing fresher is eligible - two passes, the first
+    excluding those requests entirely, the second (only run if slots remain) allowing them.
+    """
+    picked: list[tuple[requests.Request, requests.Criterion, int]] = []
+    excluded = set(exclude_requests)
+    for prefer_fresh in (True, False):
+        if len(picked) >= count:
+            break
+        skip = set(excluded) | (set(prior_requests) if prefer_fresh else set())
+        while len(picked) < count:
+            found = requests.next_unmet(root, exclude=frozenset(skip))
+            if found is None:
+                break
+            req, crit, idx = found
+            excluded.add(req.id)
+            skip.add(req.id)
+            if stalled(root, req.id, idx) or unbuildable(root, crit) is not None:
+                continue
+            picked.append((req, crit, idx))
+    return picked
+
+
+def _apply_verdict(
+    root: Path, request: requests.Request, criterion: requests.Criterion, index: int, mode: str, task_id: str,
+    verdict: Any, judge: Any,
+) -> tuple[dict[str, str], str, dict[str, Any]]:
+    """Everything `_beat_obligations` used to do after `swarm.run_wave` returned one verdict for one criterion:
+    dispatch-failure bookkeeping, the judge, the CHARTER §6 backstop, and (on MET) integration or `requests.meet`.
+    Extracted unchanged (S6) so a beat dispatching several criteria at once applies each one's result exactly as
+    the single-dispatch path always has, in the same sequential order, one call per finished task."""
+    chose = {"request": request.id, "criterion": str(index)}
+    result: dict[str, Any] = {
+        "accepted": verdict.accepted, "route": verdict.agent, "files": list(verdict.files),
+        "reasons": list(verdict.reasons),
+    }
+    verb = "accepted" if verdict.accepted else "rejected"
+    if not verdict.accepted:
+        # H4: Dispatch-level failure (accepted=False before judge). Record separately, do not consume
+        # a judged attempt. If dispatch failures are exhausted, park the criterion.
+        dispatch_fails = record_dispatch_failure(root, request.id, index)
+        result["dispatch_failures"] = dispatch_fails
+        if verdict.validation_output:
+            result["validation_output"] = verdict.validation_output[-VALIDATION_OUTPUT_TAIL:]
+        if dispatch_failures_exhausted(root, request.id, index):
+            return (
+                chose,
+                f"dispatched request {request.id} criterion {index} ({verb}, dispatch failed {dispatch_fails} times); "
+                f"parked after {MAX_DISPATCH_FAILURES} dispatch failures",
+                result,
+            )
+        return chose, f"dispatched request {request.id} criterion {index} ({verb})", result
+
+    # Accepted says the diff stayed in scope and the validate command passed. It does not say the criterion is
+    # satisfied, so the beat asks rather than assuming. Fail-closed: an unclear answer is not met.
+    # H4: Now record the judged attempt, only after dispatch accepted and we will run the judge.
+    record_attempt(root, request.id, index)
+    from pravrudhi.agents.base import GitWorktreeMixin
+
+    build_worktree: Path = root / ".worktrees" / f"agent-{GitWorktreeMixin.ref_safe(task_id)}"
+    where = (
+        "the agent's worktree, which is your working directory and holds the change (the repository root does not yet)"
+        if mode == "build" else
+        "the agent's worktree, which is your working directory and holds the proposal (the repository root does not yet)"
+    )
+    answer = (judge or _default_judge(root, workspace=build_worktree))(
+        prompt=_judge_prompt(request.text, criterion.text, list(verdict.files), where=where))
+    met, why = _judged(answer)
+    if met:
+        # A second, deterministic look, independent of whatever the judge said.
+        unbacked = _first_unevidenced_claim(build_worktree, list(verdict.files))
+        if unbacked is not None:
+            met = False
+            why = (
+                f"a produced file admits an unmeasured number ({unbacked!r}); CHARTER §6: no number is stated "
+                "that the ledger does not contain, and being honest about inventing one is not an exception"
+            )
+    result["judged"] = "met" if met else "not met"
+    result["judgement"] = why
+    if met:
+        result["mode"] = mode
+        if mode == "build":
+            from pravrudhi.application import integrate
+
+            worktree = root / ".worktrees" / f"agent-{GitWorktreeMixin.ref_safe(task_id)}"
+            outcome = integrate.integrate_build_criterion(
+                root, {task_id: worktree}, request.id, index,
+                validate=_resolved_build_validate(root),
+            )
+            result["integration"] = outcome.to_dict()
+            if not outcome.ok:
+                return chose, f"request {request.id} criterion {index} judged met but not integrated: {outcome.why}", result
+            clear_attempts(root, request.id, index)
+            return chose, f"request {request.id} criterion {index} is met and integrated as {outcome.commit}: {why}", result
+        requests.meet(root, request.id, index,
+                      [requests.Evidence(kind="file", ref=f, note="produced for this criterion")
+                       for f in verdict.files])
+        clear_attempts(root, request.id, index)
+        return chose, f"request {request.id} criterion {index} is met: {why}", result
+    requests.note(root, request.id, _judgement_note(index, why))
+    return chose, f"dispatched request {request.id} criterion {index} ({verb}, judged not met): {why}", result
+
+
 def _beat_obligations(root: Path, dispatch: DispatchFn | None, *, judge: Any = None) -> ActionResult:
     """`seva` (obligations): the oldest unmet request criterion (`requests.next_unmet`), dispatched through the
     swarm exactly like a capability step, scoped to its own proposal scratch directory under `proposals/requests/`.
@@ -1148,133 +1360,59 @@ def _beat_obligations(root: Path, dispatch: DispatchFn | None, *, judge: Any = N
             {"kind": "stalled", "request": request.id, "criterion": index,
              "attempts": attempts(root, request.id, index), "criterion_text": criterion.text[:300]},
         )
-    mode = dispatch_mode(criterion, root=root)
-    task_id = f"request:{request.id}:{index}"
-    if mode == "build":
-        # The change itself, in the agent's own worktree under selfbuild's write policy, validated by the
-        # engine's own tests, or by this root's OWN declared validate command (r-9c8646fc) when it has one -
-        # a JS/TS product repository's heartbeat must not "validate" a Python test suite it does not have.
-        # Until 2026-09-11 every obligation went the proposal way below, so the swarm could only ever write a
-        # README while the gate judged the operator's actual ask -- the structural reason the gate refused
-        # what the swarm accepted, twelve dispatches running.
-        paths = build_paths_for(criterion.text, root=root)
-        build_validate = _resolved_build_validate(root)
-        spec = TaskSpec(
-            task_id=task_id,
-            prompt=_build_prompt(request.text, criterion.text, paths, build_validate,
-                                 prior=_last_judgement(root, request.id, index)),
-            allowed_paths=paths,
-            validate=build_validate,
-        )
-        task = swarm.SwarmTask(spec, _BUILD_TIER, why=f"oldest unmet criterion of request {request.id} (build)")
-        scoped = replace(task, spec=apply_policy(task.spec, _selfbuild_policy(root)))
-    else:
-        scratch = _obligation_scratch(request.id, index)
-        (root / scratch).mkdir(parents=True, exist_ok=True)
-        validate = f'test -n "$(ls -A {scratch})" && uv run python -m compileall -q {scratch}'
-        spec = TaskSpec(
-            task_id=task_id,
-            prompt=_obligation_prompt(request.text, criterion.text, scratch, validate,
-                                      prior=_last_judgement(root, request.id, index)),
-            allowed_paths=(f"{scratch}/*",),
-            validate=validate,
-        )
-        task = swarm.SwarmTask(spec, _OBLIGATION_TIER, why=f"oldest unmet criterion of request {request.id}")
-        scoped = replace(task, spec=apply_policy(task.spec, policy_for("proposal")))
+    # S6: up to `width` independent criteria dispatched together - different requests, path-disjoint via
+    # `swarm.plan` (the same conflict check a wave of objective steps already uses) - one worktree per dispatch
+    # either way, since `_task_for_criterion` builds each exactly as the single-dispatch path always has.
+    # `width == 1` (the default when the host-RAM floor narrows it, or `concurrent_dispatches` is configured to
+    # 1) takes the identical single-task path this function has always taken: one entry, one wave of one task,
+    # one verdict, one result - nothing about that path's behaviour changes here.
+    width, width_note = _effective_width(root)
+    picks = [(request, criterion, index)]
+    if width > 1:
+        prior_requests = _last_beat_requests(root)
+        picks += _more_candidates(root, width - 1, exclude_requests={request.id}, prior_requests=prior_requests)
+
+    specs: list[swarm.SwarmTask] = []
+    by_task_id: dict[str, tuple[requests.Request, requests.Criterion, int, str]] = {}
+    for req, crit, idx in picks:
+        pick_mode = dispatch_mode(crit, root=root)
+        task_id, scoped = _task_for_criterion(root, req, crit, idx, pick_mode)
+        specs.append(scoped)
+        by_task_id[task_id] = (req, crit, idx, pick_mode)
+
+    waves, _conflicts = swarm.plan(specs)
+    batch = waves[0] if waves else []
+
     build_agent = dispatch or _default_build_agent(root)
     # H4: Do NOT record attempt before dispatch. Dispatch-level failures (validation, workspace race)
     # return before judge runs and must not consume a judged attempt.
-    verdict = swarm.run_wave(build_agent, [scoped], log=lambda _msg: None, root=root)[0]
-    chose = {"request": request.id, "criterion": str(index)}
-    result = {
-        "accepted": verdict.accepted, "route": verdict.agent, "files": list(verdict.files),
-        "reasons": list(verdict.reasons),
-    }
-    verb = "accepted" if verdict.accepted else "rejected"
-    if not verdict.accepted:
-        # H4: Dispatch-level failure (accepted=False before judge). Record separately, do not consume
-        # a judged attempt. If dispatch failures are exhausted, park the criterion.
-        dispatch_fails = record_dispatch_failure(root, request.id, index)
-        result["dispatch_failures"] = dispatch_fails
-        if verdict.validation_output:
-            # Two build dispatches on 2026-09-11 were rejected as "validation failed" and the reason lived only in
-            # a Verdict nobody kept; the tail of the validator's output is the difference between a beat the next
-            # reader can act on and one they must reproduce by hand.
-            result["validation_output"] = verdict.validation_output[-VALIDATION_OUTPUT_TAIL:]
-        if dispatch_failures_exhausted(root, request.id, index):
-            # Too many dispatch-level transients; park this criterion
-            return (
-                chose,
-                f"dispatched request {request.id} criterion {index} ({verb}, dispatch failed {dispatch_fails} times); "
-                f"parked after {MAX_DISPATCH_FAILURES} dispatch failures",
-                result
-            )
-        return chose, f"dispatched request {request.id} criterion {index} ({verb})", result
-
-    # Accepted says the diff stayed in scope and the validate command passed. It does not say the criterion is
-    # satisfied, so the beat asks rather than assuming - and until it did, nothing in the engine ever called
-    # `requests.meet`, which left every criterion a dead end that could only be retried until the budget parked
-    # it. Fail-closed: an unclear answer is not met.
-    # H4: Now record the judged attempt, only after dispatch accepted and we will run the judge.
-    record_attempt(root, request.id, index)
-    # Both modes land in the dispatch's own worktree and nowhere else yet: `delegate.dispatch` always runs the
-    # agent in `agent.create_workspace(task_id)` (a worktree branched from HEAD) and never merges or copies that
-    # worktree back into the main tree on its own - only a MET build criterion gets that step, afterwards, via
-    # `integrate.integrate_build_criterion`. A judge reading the repository root (or, worse, a judge that builds
-    # its OWN fresh worktree of HEAD because it was given no workspace) is reading a tree without the work,
-    # one directory over from where the dispatch actually wrote it. This was fixed for build mode on 2026-09-11
-    # and missed proposal mode, which is why studio's r-4b5cdaf1 and the product's r-3981d7e0 were refused
-    # for an "empty" proposal directory that was never empty - just in the wrong worktree.
-    from pravrudhi.agents.base import GitWorktreeMixin
-
-    build_worktree: Path = root / ".worktrees" / f"agent-{GitWorktreeMixin.ref_safe(task_id)}"
-    where = (
-        "the agent's worktree, which is your working directory and holds the change (the repository root does not yet)"
-        if mode == "build" else
-        "the agent's worktree, which is your working directory and holds the proposal (the repository root does not yet)"
+    verdicts = swarm.run_wave(build_agent, batch, log=lambda _msg: None, root=root)
+    # `run_wave` collects verdicts via `as_completed` - completion order, not submission order - so a wave of
+    # more than one task must match each verdict back to its task by id, never by zipped position. A wave of
+    # exactly one is unambiguous by construction and needs no id at all, which keeps this reading `verdict.task_id`
+    # only when there is more than one to tell apart - unchanged from what the single-dispatch path ever needed.
+    verdicts_by_task_id = (
+        {batch[0].spec.task_id: verdicts[0]} if len(verdicts) == 1 and batch
+        else {v.task_id: v for v in verdicts}
     )
-    answer = (judge or _default_judge(root, workspace=build_worktree))(
-        prompt=_judge_prompt(request.text, criterion.text, list(verdict.files), where=where))
-    met, why = _judged(answer)
-    if met:
-        # A second, deterministic look, independent of whatever the judge said: the judge is an LLM reading
-        # prose and r-3981d7e0 criterion 5 already talked one past this exact rule once. This does not trust
-        # the judge to have caught it.
-        unbacked = _first_unevidenced_claim(build_worktree, list(verdict.files))
-        if unbacked is not None:
-            met = False
-            why = (
-                f"a produced file admits an unmeasured number ({unbacked!r}); CHARTER §6: no number is stated "
-                "that the ledger does not contain, and being honest about inventing one is not an exception"
-            )
-    result["judged"] = "met" if met else "not met"
-    result["judgement"] = why
-    if met:
-        result["mode"] = mode
-        if mode == "build":
-            # Met in the worktree is not met in the tree the operator runs. Integration merges the agent's
-            # branch three-way, validates in the main tree, commits as the house identity and records the
-            # commit as the evidence; a conflict or a failing validate leaves the criterion unmet with a note.
-            from pravrudhi.agents.base import GitWorktreeMixin
-            from pravrudhi.application import integrate
 
-            worktree = root / ".worktrees" / f"agent-{GitWorktreeMixin.ref_safe(task_id)}"
-            outcome = integrate.integrate_build_criterion(
-                root, {task_id: worktree}, request.id, index,
-                validate=_resolved_build_validate(root),
-            )
-            result["integration"] = outcome.to_dict()
-            if not outcome.ok:
-                return chose, f"request {request.id} criterion {index} judged met but not integrated: {outcome.why}", result
-            clear_attempts(root, request.id, index)
-            return chose, f"request {request.id} criterion {index} is met and integrated as {outcome.commit}: {why}", result
-        requests.meet(root, request.id, index,
-                      [requests.Evidence(kind="file", ref=f, note="produced for this criterion")
-                       for f in verdict.files])
-        clear_attempts(root, request.id, index)
-        return chose, f"request {request.id} criterion {index} is met: {why}", result
-    requests.note(root, request.id, _judgement_note(index, why))
-    return chose, f"dispatched request {request.id} criterion {index} ({verb}, judged not met): {why}", result
+    results = []
+    for task in batch:
+        req, crit, idx, pick_mode = by_task_id[task.spec.task_id]
+        verdict = verdicts_by_task_id[task.spec.task_id]
+        results.append(_apply_verdict(root, req, crit, idx, pick_mode, task.spec.task_id, verdict, judge))
+
+    chose: Chose
+    result: dict[str, Any]
+    if len(results) <= 1:
+        chose, reason, result = results[0] if results else (None, "no criterion could be dispatched this beat", {})
+    else:
+        chose = [c for c, _r, _res in results]
+        reason = f"dispatched {len(results)} independent criteria this beat: " + " | ".join(r for _c, r, _res in results)
+        result = {"kind": "batch", "dispatches": [res for _c, _r, res in results]}
+    if width_note:
+        reason = f"{width_note}; {reason}"
+    return chose, reason, result
 
 
 # The cheapest-first order to try a failing doctor check's remedy in: (cost, remedy description). `gpu` is
@@ -1338,7 +1476,7 @@ def _beat_resources(sadhana: kshudha.Drive) -> ActionResult:
 def _dispatch_drive(
     drive_id: str, *, root: Path, config: HeartbeatConfig, dispatch: DispatchFn | None,
     drives_by_id: dict[str, kshudha.Drive],
-) -> tuple[tuple[str, ...], dict[str, str] | None, str, dict[str, Any] | None]:
+) -> tuple[tuple[str, ...], Chose, str, dict[str, Any] | None]:
     """The action wired to one drive (never `sadhana`, which the caller resolves to a fallback drive first)."""
     if drive_id == "samarthya":
         return _beat_capability(root, config, dispatch)
