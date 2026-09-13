@@ -158,3 +158,25 @@ class TestNetworkCapabilityGapParksEarly:
         assert not heartbeat.network_capability_gap(tmp_path, req.id, 1), (
             "a different criterion's own history must not borrow another criterion's gap"
         )
+
+    def test_defers_to_studios_static_check_when_both_would_fire(self, tmp_path: Path) -> None:
+        """cli-lead's layering decision (2026-09-13): Studio's `structural_incapability` (a static fact about
+        mode/policy/criterion text) is primary; this judgement-text heuristic is the fallback, and 'one
+        incapability, one record' means this must not ALSO count a criterion Studio's check would flag -- even
+        though in the ordinary dispatch path her check declines the criterion before a note is ever written for
+        that verdict, this is the explicit, defence-in-depth half of that guarantee."""
+        req = capture(tmp_path, "needs a live Hugging Face lookup, proposal-mode by default")
+        req = add_criteria(
+            tmp_path, req.id,
+            [Criterion(text="State the dataset's actual size and licence from its Hugging Face page", source="operator")],
+        )
+        note(tmp_path, req.id, "criterion 0 not yet met: the sandbox has no network access to fetch the page")
+        note(tmp_path, req.id, "criterion 0 not yet met: there is still no way to fetch live data from the site")
+
+        assert heartbeat.structural_incapability(
+            mode="proposal", policy=heartbeat.policy_for("proposal"),
+            criterion_text=req.criteria[0].text, rejection_text=None,
+        ) is not None, "the fixture must actually trip her check, or this test proves nothing"
+        assert not heartbeat.network_capability_gap(tmp_path, req.id, 0), (
+            "her static check already covers this criterion; ours must defer rather than add a second record"
+        )

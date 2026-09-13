@@ -389,8 +389,30 @@ def _all_judgements(root: Path, request_id: str, index: int) -> list[str]:
 
 def network_capability_gap(root: Path, request_id: str, index: int) -> bool:
     """Whether this criterion's own judgement history names a network-fetch capability no dispatch has, at
-    least `_NETWORK_GAP_MIN_MATCHES` times -- see the module comment above `_NETWORK_GAP_RE`."""
-    matches = sum(1 for text in _all_judgements(root, request_id, index) if _NETWORK_GAP_RE.search(text))
+    least `_NETWORK_GAP_MIN_MATCHES` times -- see the module comment above `_NETWORK_GAP_RE`.
+
+    cli-lead's layering decision (2026-09-13): `structural_incapability` (Studio's static Policy-vs-criterion
+    check, cli-studio) is primary and fires inline at dispatch time on a knowable fact, declining the criterion
+    directly before a judgement note is even written for that verdict (`_beat_obligations`'s own call site
+    returns before reaching `requests.note`) -- so in the ordinary case this heuristic simply never sees a
+    verdict her check already resolved. This call is the explicit, defence-in-depth half of "one incapability,
+    one record": if her check would ALSO fire on this criterion's current mode/policy/text/last-rejection
+    (possible if her check's own conditions became true only after some notes had already accumulated, e.g. a
+    later attempt's rejection text is what first matches her `_PROPOSAL_NOT_EVIDENCE_RE`), this defers to her
+    reason rather than adding a second, redundant one from judgement-text pattern-matching.
+    """
+    judgements = _all_judgements(root, request_id, index)
+    request = requests.get(root, request_id)
+    if request is not None and 0 <= index < len(request.criteria):
+        criterion = request.criteria[index]
+        mode = dispatch_mode(criterion, root=root)
+        policy = _selfbuild_policy(root) if mode == "build" else policy_for("proposal")
+        last_rejection = judgements[-1] if judgements else None
+        if structural_incapability(
+            mode=mode, policy=policy, criterion_text=criterion.text, rejection_text=last_rejection,
+        ) is not None:
+            return False
+    matches = sum(1 for text in judgements if _NETWORK_GAP_RE.search(text))
     return matches >= _NETWORK_GAP_MIN_MATCHES
 
 
