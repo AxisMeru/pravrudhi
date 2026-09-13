@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>rsi_run1e — run report</title>
+<style>:root {
+  color-scheme: light dark;
+  --bg: #ffffff; --fg: #1f2328; --muted: #59636e; --border: #d0d7de; --panel: #f6f8fa;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #0d1117; --fg: #e6edf3; --muted: #9198a1; --border: #3d444d; --panel: #161b22; }
+}
+body {
+  margin: 0; padding: 2rem 1.5rem; background: var(--bg); color: var(--fg);
+  font: 16px/1.5 -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+}
+main { max-width: 60rem; margin: 0 auto; }
+h1 { font-size: 1.6rem; margin: 0 0 .5rem; }
+h2 { font-size: 1.25rem; margin: 2rem 0 .5rem; border-bottom: 1px solid var(--border); padding-bottom: .25rem; }
+h3 { font-size: 1.05rem; margin: 1.25rem 0 .4rem; }
+dl.meta { display: flex; flex-wrap: wrap; gap: 0 1.75rem; margin: .25rem 0 0; padding: 0; }
+dl.meta dt { font-weight: 600; color: var(--muted); font-size: .78rem; text-transform: uppercase; letter-spacing: .03em; }
+dl.meta dd { margin: 0 0 .5rem; }
+table { border-collapse: collapse; margin: .75rem 0; width: 100%; font-size: .92rem; }
+th, td { border: 1px solid var(--border); padding: .4rem .6rem; text-align: left; vertical-align: top; font-variant-numeric: tabular-nums; }
+thead th { background: var(--panel); }
+tbody th { font-weight: 600; }
+ul { margin: .5rem 0; padding-left: 1.4rem; }
+figure.chart { margin: .75rem 0; padding: 0; }
+figure.chart svg { max-width: 100%; height: auto; display: block; }
+figure.chart figcaption { color: var(--muted); font-size: .85rem; margin-bottom: .4rem; }
+.legend { display: flex; flex-wrap: wrap; gap: .4rem 1rem; margin: .4rem 0; font-size: .85rem; }
+.legend .item { display: inline-flex; align-items: center; gap: .35rem; }
+.legend .swatch { width: .85rem; height: .85rem; border-radius: 2px; display: inline-block; }
+svg .axis { stroke: var(--muted); stroke-width: 1; fill: none; }
+svg .grid { stroke: var(--border); stroke-width: 1; stroke-dasharray: 2 3; }
+svg .tick { fill: var(--muted); font-size: 10px; }
+svg .axis-title { fill: var(--muted); font-size: 11px; }
+footer { margin-top: 2.5rem; color: var(--muted); font-size: .8rem; }</style>
+</head>
+<body>
+<main>
+<h1>Run report: rsi_run1e</h1>
+<dl class="meta"><div><dt>Run</dt><dd>rsi_run1e</dd></div><div><dt>Checkpoint</dt><dd>/trackB-local/m7/m7_retry_checkpoint.pt</dd></div><div><dt>Created</dt><dd>2026-09-13</dd></div><div><dt>Held-out queries</dt><dd>690</dd></div></dl>
+<h2>Conditions</h2>
+<table>
+<thead><tr>
+<th>Metric</th>
+<th>A — frozen closed-book (published baseline)</th>
+<th>B&#x27; — grounded compact context + scoring + calibrated abstention (round-1e persistent LoRA)</th>
+<th>C&#x27; — B&#x27; + ephemeral TTT on shown passages, then rescore (gated)</th>
+</tr></thead>
+<tbody>
+<tr>
+<th scope="row">citation_recall</th>
+<td>0.004 (1/227) [0.001–0.025]</td>
+<td>0.145 (33/227) [0.105–0.197]</td>
+<td>0.128 (29/227) [0.090–0.177]</td>
+</tr>
+<tr>
+<th scope="row">citation_precision</th>
+<td>0.004 (1/227) [0.001–0.025]</td>
+<td>0.190 (33/174) [0.138–0.254]</td>
+<td>0.190 (29/153) [0.135–0.259]</td>
+</tr>
+<tr>
+<th scope="row">abstention_correctness</th>
+<td>0.556 (5/9) [0.267–0.811]</td>
+<td>0.889 (8/9) [0.565–0.980]</td>
+<td>0.889 (8/9) [0.565–0.980]</td>
+</tr>
+<tr>
+<th scope="row">law_lookup_prefix_similarity_mean</th>
+<td>0.059</td>
+<td>0.626</td>
+<td>0.617</td>
+</tr>
+<tr>
+<th scope="row">gold_selected</th>
+<td>–</td>
+<td>0.491 (339/690) [0.454–0.529]</td>
+<td>0.467 (322/690) [0.430–0.504]</td>
+</tr>
+<tr>
+<th scope="row">abstain_on_miss</th>
+<td>–</td>
+<td>0.777 (115/148) [0.703–0.837]</td>
+<td>0.770 (114/148) [0.696–0.831]</td>
+</tr>
+<tr>
+<th scope="row">false_abstain_when_shown</th>
+<td>–</td>
+<td>0.116 (62/533) [0.092–0.146]</td>
+<td>0.182 (97/533) [0.152–0.217]</td>
+</tr>
+</tbody>
+</table>
+<h3>Timing</h3>
+<table>
+<thead><tr>
+<th>Condition</th>
+<th>Wall time (s)</th>
+<th>Peak VRAM (GiB)</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>A — frozen closed-book (published baseline)</td>
+<td>189.8</td>
+<td>5.33</td>
+</tr>
+<tr>
+<td>B&#x27; — grounded compact context + scoring + calibrated abstention (round-1e persistent LoRA)</td>
+<td>41.7</td>
+<td>2.98</td>
+</tr>
+<tr>
+<td>C&#x27; — B&#x27; + ephemeral TTT on shown passages, then rescore (gated)</td>
+<td>463.2</td>
+<td>3.55</td>
+</tr>
+</tbody>
+</table>
+<h2>Paired comparisons</h2>
+<table>
+<thead><tr>
+<th>a → b</th>
+<th>Metric</th>
+<th>b only</th>
+<th>c only</th>
+<th>McNemar p</th>
+<th>Bootstrap CI</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>A → B&#x27;</td>
+<td>gold-citation selected</td>
+<td>179</td>
+<td>2</td>
+<td>1.07e-50</td>
+<td>[0.223, 0.288]</td>
+</tr>
+<tr>
+<td>A → B&#x27;</td>
+<td>grounded</td>
+<td>690</td>
+<td>0</td>
+<td>3.89e-208</td>
+<td>[1.000, 1.000]</td>
+</tr>
+<tr>
+<td>B&#x27; → C&#x27;</td>
+<td>gold-citation selected</td>
+<td>11</td>
+<td>17</td>
+<td>0.345</td>
+<td>[-0.023, 0.006]</td>
+</tr>
+<tr>
+<td>B&#x27; → C&#x27;</td>
+<td>grounded</td>
+<td>0</td>
+<td>0</td>
+<td>1</td>
+<td>[0.000, 0.000]</td>
+</tr>
+</tbody>
+</table>
+<h2>Gate</h2>
+<p><strong>Accepted:</strong> 690 · <strong>Rejected:</strong> 0</p>
+<h3>Reasons</h3>
+<ul>
+<li>ok: 690</li>
+</ul>
+<h2>Notes</h2>
+<ul>
+<li>Round history: rsi_run1 (baseline pipeline, 0% grounded -- prompt-format mismatch), rsi_run1b (abstain string memorized, F14), rsi_run1c (titles added, F13, still F14 collapse), rsi_run1d (citation-only, no abstain string, F15 length bias found), rsi_run1e (compact k=4/60B-body/90B-title/950B-budget context, F16; uniform citation targets; calibrated abstention replaces in-band abstain string) -- this run.</li>
+<li>Retrieval recall with titles: recall@1=0.567, recall@3=0.736, recall@4=0.772, recall@5=0.793 (k=4 used here, chance for in-sample sanity = 1/4 = 0.25).</li>
+<li>In-sample scoring-mode sanity (30 train prompts, citation-only candidates): frozen model 0.400 hit rate, round-1e (2 epochs, lr 3e-4, r16) 0.767 (gate: &gt;=0.5). SFT gate probe_delta_rel=0.075 (&lt;0.15 threshold, accepted).</li>
+<li>Abstention calibration (500 train-split dev examples, seed 1, 30% synthetic miss, disjoint from the 2496-example SFT set): round-1e tau=5.284 delta=0.352 balanced_accuracy=0.843; frozen model tau=31.308 delta=0.105 balanced_accuracy=0.580 (same tau/delta from the round-1e calibration were used, unmodified, for both B&#x27; and C&#x27; held-out).</li>
+<li>B&#x27; dropped_passage_rate=0.0014 (1/690) -- rare over-budget-after-truncation fallback fired as expected.</li>
+<li>C&#x27; does NOT beat B&#x27; on gold-citation-selected (0.2507 vs 0.2594, McNemar p=0.345, not significant) -- per the run plan, Phase 4 (a second RSI consolidation round) was skipped.</li>
+<li>A vs B&#x27; is decisive: gold-citation-present 0.0029 -&gt; 0.2594 (McNemar p=1.07e-50); grounded_rate 0.0 -&gt; 1.0 by construction (scoring mode always emits either a shown citation or a calibrated abstention, never free-form hallucinated continuation).</li>
+</ul>
+<footer>Generated by prototypes.nyaya_ttt_rsi.report</footer>
+</main>
+</body>
+</html>

@@ -344,6 +344,46 @@ branch. Each item says what is broken, what fixed it, and what the owning sessio
   kind-specific selection rule (mean for `law_lookup`, total elsewhere) are candidates for a
   next attempt.
 
+## F16. A specified compact-context budget (k=5, uncapped titles, 900 bytes) was arithmetically impossible; the corrected config fixed F15's law_lookup length bias and produced a working round (round-1e)
+
+- **Context:** after F15 (candidates made uniform-length to remove `law_lookup`'s length-selection
+  bias), the follow-up plan specified a compact context: k=5 passages, body truncated to 120 bytes,
+  title uncapped, total prompt budget <=900 bytes. Measured on 100 real held-out items before
+  spending any GPU time: ALL 100 exceeded the budget (948-1622 bytes). Root cause, measured
+  directly: titles are real section headings, not short tags -- mean 54 bytes, median 51, p90 91,
+  max 190 bytes (n=2269, every corpus passage). A single rendered block
+  `"[act, section] title. body[:120]"` averages ~189 bytes; five of those (k=5) alone average
+  ~945 bytes, before the ~154-byte original instruction line, the question, and separators are even
+  added. The originally specified budget and passage count were incompatible with uncapped, real
+  title lengths -- not a bug, an arithmetic mismatch caught before wasting a training run on it.
+- **Corrected config (round-1e, `evaluate.PROMPT_CONFIG`):** a <=40-byte instruction ("Cite the
+  correct provision below.", 33 bytes -- no in-prompt abstention wording, since abstention is now a
+  calibrated harness decision, not something the model is asked to produce, see F14), k=4
+  (recall@4 with titles = 0.772, measured), body capped at 60 bytes AND title capped at 90 bytes
+  (both cut at the last space, never mid-word -- `evaluate.truncate_at_space`), 950-byte total
+  budget. Verified on 200 real held-out items: mean prompt 728 bytes, max 944, zero drops, zero
+  budget-assertion failures.
+- **Last-resort fallback, added because "rare" still needs a defined behavior:**
+  `evaluate.render_prompt` drops the lowest-ranked (last) shown passage and rebuilds if a prompt
+  still exceeds the budget after truncation, repeating until it fits or one passage remains;
+  `evaluate.assert_prompt_budget` hard-asserts afterward (a failure there means even a single
+  passage overflowed, a genuine anomaly). Measured rate on the round-1e held-out run: 1/690
+  (0.14%) -- rare, as expected.
+- **Single shared config, enforced by identity:** `grounded_data.PROMPT_CONFIG is evaluate.PROMPT_CONFIG`
+  (the exact same object, not a copy) is asserted at import time in `grounded_data.py` and checked by
+  a standing test (`tests/test_evaluate.py::test_grounded_data_shares_the_same_prompt_config_object`),
+  so training-time and eval-time prompt construction cannot silently drift apart -- both go through
+  `evaluate.render_prompt`.
+- **Outcome:** round-1e (uniform citation-string targets for every kind, 2 epochs, lr 3e-4, r16)
+  passed every gate this pivot required: SFT regression-probe gate (probe_delta_rel 0.075, under
+  0.15), in-sample scoring-mode sanity (0.767 hit rate vs a 0.5 bar and 0.25 chance; frozen baseline
+  0.400), and abstention calibration (balanced accuracy 0.843 on a 500-example train-split dev
+  slice, vs 0.580 for the frozen model). Held-out (690 items): gold-citation-selected rose from
+  0.0029 (condition A, frozen closed-book) to 0.2594 (condition B', McNemar p=1.07e-50);
+  `law_lookup` prefix-similarity-to-target rose from 0.059 to 0.626; abstention correctness rose
+  from 0.556 to 0.889. Ephemeral TTT (condition C') did NOT beat B' (0.2507 vs 0.2594,
+  McNemar p=0.345, not significant) -- reported plainly rather than treated as a win.
+
 ## F6. `load_megatron_blob`'s default config resolution can silently pick the wrong tree under a two-mount container layout
 
 - **Symptom (found while writing the G0 allocator-fragmentation run plan, not yet hit in a

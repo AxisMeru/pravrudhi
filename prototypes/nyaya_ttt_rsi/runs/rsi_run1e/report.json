@@ -1,0 +1,245 @@
+{
+  "run": "rsi_run1e",
+  "checkpoint": "/trackB-local/m7/m7_retry_checkpoint.pt",
+  "created": "2026-09-13",
+  "n_heldout": 690,
+  "conditions": {
+    "A": {
+      "name": "frozen closed-book (published baseline)",
+      "metrics": {
+        "citation_recall": {
+          "rate": 0.004405286343612335,
+          "k": 1,
+          "n": 227,
+          "wilson": [
+            0.000778044920221474,
+            0.024527619223503053
+          ]
+        },
+        "citation_precision": {
+          "rate": 0.004405286343612335,
+          "k": 1,
+          "n": 227,
+          "wilson": [
+            0.000778044920221474,
+            0.024527619223503053
+          ]
+        },
+        "abstention_correctness": {
+          "rate": 0.5555555555555556,
+          "k": 5,
+          "n": 9,
+          "wilson": [
+            0.2666473457440297,
+            0.811224570528086
+          ]
+        },
+        "law_lookup_prefix_similarity_mean": {
+          "rate": 0.05872605633025834
+        }
+      },
+      "timing": {
+        "wall_s": 189.8,
+        "peak_vram_gib": 5.33
+      }
+    },
+    "B'": {
+      "name": "grounded compact context + scoring + calibrated abstention (round-1e persistent LoRA)",
+      "metrics": {
+        "citation_recall": {
+          "rate": 0.14537444933920704,
+          "k": 33,
+          "n": 227,
+          "wilson": [
+            0.10542401254834738,
+            0.1971280404611621
+          ]
+        },
+        "citation_precision": {
+          "rate": 0.1896551724137931,
+          "k": 33,
+          "n": 174,
+          "wilson": [
+            0.13835252245303012,
+            0.25436549177986023
+          ]
+        },
+        "abstention_correctness": {
+          "rate": 0.8888888888888888,
+          "k": 8,
+          "n": 9,
+          "wilson": [
+            0.5649937852319399,
+            0.9801096286728695
+          ]
+        },
+        "law_lookup_prefix_similarity_mean": {
+          "rate": 0.6259298837526283
+        },
+        "gold_selected": {
+          "rate": 0.49130434782608695,
+          "k": 339,
+          "n": 690,
+          "wilson": [
+            0.45415355145327113,
+            0.528551434814488
+          ]
+        },
+        "abstain_on_miss": {
+          "rate": 0.777027027027027,
+          "k": 115,
+          "n": 148,
+          "wilson": [
+            0.7034411367038269,
+            0.8365953223429692
+          ]
+        },
+        "false_abstain_when_shown": {
+          "rate": 0.11632270168855535,
+          "k": 62,
+          "n": 533,
+          "wilson": [
+            0.0918082543454295,
+            0.14632828350856694
+          ]
+        }
+      },
+      "timing": {
+        "wall_s": 41.7,
+        "peak_vram_gib": 2.98
+      }
+    },
+    "C'": {
+      "name": "B' + ephemeral TTT on shown passages, then rescore (gated)",
+      "metrics": {
+        "citation_recall": {
+          "rate": 0.1277533039647577,
+          "k": 29,
+          "n": 227,
+          "wilson": [
+            0.09044178311428808,
+            0.17745447128699832
+          ]
+        },
+        "citation_precision": {
+          "rate": 0.1895424836601307,
+          "k": 29,
+          "n": 153,
+          "wilson": [
+            0.13533712360185066,
+            0.2589562271418296
+          ]
+        },
+        "abstention_correctness": {
+          "rate": 0.8888888888888888,
+          "k": 8,
+          "n": 9,
+          "wilson": [
+            0.5649937852319399,
+            0.9801096286728695
+          ]
+        },
+        "law_lookup_prefix_similarity_mean": {
+          "rate": 0.6174568196643412
+        },
+        "gold_selected": {
+          "rate": 0.4666666666666667,
+          "k": 322,
+          "n": 690,
+          "wilson": [
+            0.42972899637751305,
+            0.5039734509822301
+          ]
+        },
+        "abstain_on_miss": {
+          "rate": 0.7702702702702703,
+          "k": 114,
+          "n": 148,
+          "wilson": [
+            0.6961739571814423,
+            0.8306908809129931
+          ]
+        },
+        "false_abstain_when_shown": {
+          "rate": 0.18198874296435272,
+          "k": 97,
+          "n": 533,
+          "wilson": [
+            0.1515463188735464,
+            0.21698249856534066
+          ]
+        }
+      },
+      "timing": {
+        "wall_s": 463.2,
+        "peak_vram_gib": 3.55
+      }
+    }
+  },
+  "paired": [
+    {
+      "a": "A",
+      "b": "B'",
+      "metric": "gold-citation selected",
+      "b_only": 179,
+      "c_only": 2,
+      "mcnemar_p": 1.074848151968717e-50,
+      "bootstrap_ci": [
+        0.22318840579710145,
+        0.28840579710144926
+      ]
+    },
+    {
+      "a": "A",
+      "b": "B'",
+      "metric": "grounded",
+      "b_only": 690,
+      "c_only": 0,
+      "mcnemar_p": 3.8934355277724873e-208,
+      "bootstrap_ci": [
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "a": "B'",
+      "b": "C'",
+      "metric": "gold-citation selected",
+      "b_only": 11,
+      "c_only": 17,
+      "mcnemar_p": 0.34492845088243484,
+      "bootstrap_ci": [
+        -0.02318840579710145,
+        0.005797101449275362
+      ]
+    },
+    {
+      "a": "B'",
+      "b": "C'",
+      "metric": "grounded",
+      "b_only": 0,
+      "c_only": 0,
+      "mcnemar_p": 1.0,
+      "bootstrap_ci": [
+        0.0,
+        0.0
+      ]
+    }
+  ],
+  "gate": {
+    "accepted": 690,
+    "rejected": 0,
+    "reasons": {
+      "ok": 690
+    }
+  },
+  "notes": [
+    "Round history: rsi_run1 (baseline pipeline, 0% grounded -- prompt-format mismatch), rsi_run1b (abstain string memorized, F14), rsi_run1c (titles added, F13, still F14 collapse), rsi_run1d (citation-only, no abstain string, F15 length bias found), rsi_run1e (compact k=4/60B-body/90B-title/950B-budget context, F16; uniform citation targets; calibrated abstention replaces in-band abstain string) -- this run.",
+    "Retrieval recall with titles: recall@1=0.567, recall@3=0.736, recall@4=0.772, recall@5=0.793 (k=4 used here, chance for in-sample sanity = 1/4 = 0.25).",
+    "In-sample scoring-mode sanity (30 train prompts, citation-only candidates): frozen model 0.400 hit rate, round-1e (2 epochs, lr 3e-4, r16) 0.767 (gate: >=0.5). SFT gate probe_delta_rel=0.075 (<0.15 threshold, accepted).",
+    "Abstention calibration (500 train-split dev examples, seed 1, 30% synthetic miss, disjoint from the 2496-example SFT set): round-1e tau=5.284 delta=0.352 balanced_accuracy=0.843; frozen model tau=31.308 delta=0.105 balanced_accuracy=0.580 (same tau/delta from the round-1e calibration were used, unmodified, for both B' and C' held-out).",
+    "B' dropped_passage_rate=0.0014 (1/690) -- rare over-budget-after-truncation fallback fired as expected.",
+    "C' does NOT beat B' on gold-citation-selected (0.2507 vs 0.2594, McNemar p=0.345, not significant) -- per the run plan, Phase 4 (a second RSI consolidation round) was skipped.",
+    "A vs B' is decisive: gold-citation-present 0.0029 -> 0.2594 (McNemar p=1.07e-50); grounded_rate 0.0 -> 1.0 by construction (scoring mode always emits either a shown citation or a calibrated abstention, never free-form hallucinated continuation)."
+  ]
+}
