@@ -1,0 +1,164 @@
+{
+  "per_template": {
+    "law_citation_retrieval": {
+      "lambda_prior": 1.0,
+      "lambda_grid": [
+        {
+          "lambda_prior": 0.0,
+          "selection_accuracy": 0.28104575163398693
+        },
+        {
+          "lambda_prior": 0.25,
+          "selection_accuracy": 0.30718954248366015
+        },
+        {
+          "lambda_prior": 0.5,
+          "selection_accuracy": 0.3790849673202614
+        },
+        {
+          "lambda_prior": 1.0,
+          "selection_accuracy": 0.43790849673202614
+        }
+      ],
+      "tau_m": -11.996061772108078,
+      "delta_m": 0.4204874374812597,
+      "balanced_accuracy": 0.6506421381464769,
+      "confusion": {
+        "cite_when_shown": 42,
+        "abstain_when_shown": 25,
+        "cite_when_miss": 28,
+        "abstain_when_miss": 58,
+        "n_shown": 67,
+        "n_miss": 86
+      },
+      "n_examples": 153,
+      "k": 4,
+      "label_mode": "selection_correct",
+      "abstain_on_synthetic_miss": {
+        "successes": 18,
+        "total": 34,
+        "rate": 0.5294117647058824
+      }
+    },
+    "law_cite_to_title": {
+      "lambda_prior": 0.0,
+      "lambda_grid": [
+        {
+          "lambda_prior": 0.0,
+          "selection_accuracy": 0.7674418604651163
+        },
+        {
+          "lambda_prior": 0.25,
+          "selection_accuracy": 0.7674418604651163
+        },
+        {
+          "lambda_prior": 0.5,
+          "selection_accuracy": 0.7674418604651163
+        },
+        {
+          "lambda_prior": 1.0,
+          "selection_accuracy": 0.7674418604651163
+        }
+      ],
+      "tau_m": -13.415060877799988,
+      "delta_m": 0.0,
+      "balanced_accuracy": 1.0,
+      "confusion": {
+        "cite_when_shown": 132,
+        "abstain_when_shown": 0,
+        "cite_when_miss": 0,
+        "abstain_when_miss": 40,
+        "n_shown": 132,
+        "n_miss": 40
+      },
+      "n_examples": 172,
+      "k": 4,
+      "label_mode": "selection_correct",
+      "abstain_on_synthetic_miss": {
+        "successes": 40,
+        "total": 40,
+        "rate": 1.0
+      }
+    },
+    "law_lookup": {
+      "lambda_prior": 0.0,
+      "lambda_grid": [
+        {
+          "lambda_prior": 0.0,
+          "selection_accuracy": 0.8057142857142857
+        },
+        {
+          "lambda_prior": 0.25,
+          "selection_accuracy": 0.8057142857142857
+        },
+        {
+          "lambda_prior": 0.5,
+          "selection_accuracy": 0.8057142857142857
+        },
+        {
+          "lambda_prior": 1.0,
+          "selection_accuracy": 0.8057142857142857
+        }
+      ],
+      "tau_m": -13.788851648569107,
+      "delta_m": 0.0,
+      "balanced_accuracy": 1.0,
+      "confusion": {
+        "cite_when_shown": 141,
+        "abstain_when_shown": 0,
+        "cite_when_miss": 0,
+        "abstain_when_miss": 34,
+        "n_shown": 141,
+        "n_miss": 34
+      },
+      "n_examples": 175,
+      "k": 4,
+      "label_mode": "selection_correct",
+      "abstain_on_synthetic_miss": {
+        "successes": 24,
+        "total": 24,
+        "rate": 1.0
+      }
+    }
+  },
+  "global": {
+    "lambda_prior": 1.0,
+    "lambda_grid": [
+      {
+        "lambda_prior": 0.0,
+        "selection_accuracy": 0.632
+      },
+      {
+        "lambda_prior": 0.25,
+        "selection_accuracy": 0.64
+      },
+      {
+        "lambda_prior": 0.5,
+        "selection_accuracy": 0.662
+      },
+      {
+        "lambda_prior": 1.0,
+        "selection_accuracy": 0.68
+      }
+    ],
+    "tau_m": -14.349104046821594,
+    "delta_m": 3.8135503132796735,
+    "balanced_accuracy": 0.9049632352941177,
+    "confusion": {
+      "cite_when_shown": 286,
+      "abstain_when_shown": 54,
+      "cite_when_miss": 5,
+      "abstain_when_miss": 155,
+      "n_shown": 340,
+      "n_miss": 160
+    },
+    "n_examples": 500,
+    "k": 4,
+    "label_mode": "selection_correct",
+    "abstain_on_synthetic_miss": {
+      "successes": 93,
+      "total": 98,
+      "rate": 0.9489795918367347
+    }
+  }
+}

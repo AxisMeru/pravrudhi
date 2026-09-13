@@ -708,3 +708,45 @@ Paired: P16f vs B′(frozen) p = 1.9e-33, vs B′ p = 0.006, bootstrap CI on the
 **What is running now (round3 agent):** the 1.13B checkpoint through the same harness (does
 scale fix title matching?), then an RSI round 3 on the 370M with the title kind oversampled and
 shuffled-order copies, through the gate, with the absent-gold calibration; round 4 if it compounds.
+
+### 12.4 Result (b): the 1.13B through the same harness — scale is the lever for title matching
+
+`runs/m4_eval_round1/` (report.md has every CI and paired test). Checkpoint: §11's one-epoch SFT
+of the 1.13B on Track B's m7 mix plus the harness-built round-1e grounded set; tuned store;
+scoring mode; abstention calibrated on the train dev slice with the selection-correctness label
+and synthetic absent-gold negatives; λ dev-chosen; **no LoRA, no test-time updates**. M4t uses
+the 370M's prompt budget (k = 4, 60-byte bodies) for comparability; M8t uses the 1.13B's room
+(k = 8, 200-byte bodies, 1,400-byte budget). "forced cite" = abstention disabled, the model's own
+selection ceiling. Wall ≈ 70 s per condition for the 690; peak VRAM 12.6 / 14.5 GiB.
+
+| condition | calibration | title kind: selected | abstained | citation recall | precision | lookup exact-prefix | abstention correct |
+|---|---|---|---|---|---|---|---|
+| 370M S4t_f (§12.3, best 370M at k=4) | global | 0.696 (λ=1, retriever-led) | — | 0.542 | 0.804 | 0.000 | 1.000 |
+| 370M S4t (§12.3) | global | 0.352 | 0.90 | 0.044 | 0.435 | 0.868 | 0.222 |
+| **1.13B M4t forced cite** | none | **0.568** | 0 | 0.577 | 0.577 | 1.000 | 0.000 |
+| 1.13B M4t | global | 0.084 | 0.91 | 0.084 | 0.950 | 0.987 | 1.000 |
+| **1.13B M4t** | **per template** | 0.326 | 0.48 | **0.330** [0.272–0.394] | 0.636 | 0.987 | **1.000** |
+| 1.13B M8t forced cite | none | 0.524 | 0 | 0.533 | 0.533 | 1.000 | 0.000 |
+| **1.13B M8t** | **per template** | 0.366 | 0.39 | **0.374** [0.314–0.439] | 0.612 | 0.987 | **1.000** |
+
+Paired on gold-citation-present over all 690: M4t-per-template vs S4t_f p = 1.2e-23, CI on the
+difference [0.21, 0.30]; M8t-per-template vs M8t-global p = 1.4e-20; M8t vs M4t p = 1.0 (the
+larger context buys nothing at this checkpoint).
+
+**What this establishes.** On the two number kinds the 1.13B selects the gold essentially every
+time it is shown (0.99–1.00), and it abstains on all nine absent-provision items under every
+calibration, so "cite only what is in context, else abstain" now holds with precision above 0.6
+on the hardest kind and near-perfect body reproduction on lookup. On the title kind the model's
+own selection (dev, λ = 0) is 0.28, rising to 0.44 on dev and 0.57 on held-out with the rank
+prior, against 0.02 for the frozen 370M and 0.35 for its LoRA: **scale plus harness-built SFT is
+what produces title matching**, and it appeared after one epoch with no TTT of any kind. The
+gap between forced-cite 0.57 and calibrated 0.33–0.37 is abstention cost, not selection failure;
+the per-template thresholds recovered most of what a single global threshold threw away (0.08),
+and the synthetic absent-gold negatives are what let the rule keep abstention at 9/9 while doing
+so. The remaining lever on this kind is the selector itself (0.57 ceiling), which is what a
+targeted SFT round on the 1.13B would address; that needs the Megatron LoRA path wired into the
+loop (`g0/lora_megatron.py` exists; `evaluate.py`/`loop.py` still target `nn.Linear`).
+
+**Attribution, stated once more.** 370M P16f's 0.76 (§12.3) is a retriever with a veto; 1.13B
+M4t-per-template's 0.33 at precision 0.64 with 9/9 abstention is the model choosing. They are
+not the same kind of number, and the second is the one the MVP claim rests on.

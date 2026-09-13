@@ -1,0 +1,796 @@
+{
+  "run": "m4_eval_round1",
+  "checkpoint": "g0_sft_round1/final.pt (1.13B, Megatron-Core, SFT round 1)",
+  "created": "2026-09-13",
+  "n_heldout": 690,
+  "conditions": {
+    "M4t": {
+      "name": "1.13B Megatron, k=4, PROMPT_CONFIG unchanged, tuned store, global selection-correct calib.",
+      "metrics": {
+        "citation_recall": {
+          "rate": 0.08370044052863436,
+          "k": 19,
+          "n": 227,
+          "wilson": [
+            0.05423707167192475,
+            0.12701968620880388
+          ]
+        },
+        "citation_precision": {
+          "rate": 0.95,
+          "k": 19,
+          "n": 20,
+          "wilson": [
+            0.7638641064874331,
+            0.9911187805671268
+          ]
+        },
+        "abstention_correctness": {
+          "rate": 1.0,
+          "k": 9,
+          "n": 9,
+          "wilson": [
+            0.7008472464490407,
+            1.0
+          ]
+        },
+        "gold_selected": {
+          "rate": 0.6811594202898551,
+          "k": 470,
+          "n": 690,
+          "wilson": [
+            0.6454652439088353,
+            0.7148475421795168
+          ]
+        },
+        "false_abstain_when_shown": {
+          "rate": 0.30633284241531666,
+          "k": 208,
+          "n": 679,
+          "wilson": [
+            0.2728297349331319,
+            0.3420150548394888
+          ]
+        },
+        "law_citation_retrieval_kind_gold_selected": {
+          "rate": 0.08370044052863436,
+          "k": 19,
+          "n": 227,
+          "wilson": [
+            0.05423707167192475,
+            0.12701968620880388
+          ]
+        },
+        "law_cite_to_title_kind_gold_selected": {
+          "rate": 1.0,
+          "k": 227,
+          "n": 227,
+          "wilson": [
+            0.9833582855083312,
+            1.0
+          ]
+        },
+        "law_lookup_kind_gold_selected": {
+          "rate": 0.986784140969163,
+          "k": 224,
+          "n": 227,
+          "wilson": [
+            0.9618709347551736,
+            0.9954955017969903
+          ]
+        },
+        "pre_abstention_selection_accuracy": {
+          "rate": 0.8449275362318841,
+          "k": 583,
+          "n": 690,
+          "wilson": [
+            0.8160160196603463,
+            0.8700195250518763
+          ]
+        },
+        "pre_abstention_law_citation_retrieval_kind": {
+          "rate": 0.5682819383259912,
+          "k": 129,
+          "n": 227,
+          "wilson": [
+            0.5032384181006753,
+            0.6310528015061894
+          ]
+        },
+        "pre_abstention_law_cite_to_title_kind": {
+          "rate": 1.0,
+          "k": 227,
+          "n": 227,
+          "wilson": [
+            0.9833582855083312,
+            1.0
+          ]
+        },
+        "pre_abstention_law_lookup_kind": {
+          "rate": 1.0,
+          "k": 227,
+          "n": 227,
+          "wilson": [
+            0.9833582855083312,
+            1.0
+          ]
+        }
+      },
+      "timing": {
+        "wall_s": 68.0,
+        "peak_vram_gib": 12.61
+      }
+    },
+    "M4t_template": {
+      "name": "1.13B Megatron, k=4, PROMPT_CONFIG unchanged, tuned store, PER-TEMPLATE calib.",
+      "metrics": {
+        "citation_recall": {
+          "rate": 0.3303964757709251,
+          "k": 75,
+          "n": 227,
+          "wilson": [
+            0.2724761485544142,
+            0.3939617898414382
+          ]
+        },
+        "citation_precision": {
+          "rate": 0.635593220338983,
+          "k": 75,
+          "n": 118,
+          "wilson": [
+            0.5457554486715985,
+            0.71688062964648
+          ]
+        },
+        "abstention_correctness": {
+          "rate": 1.0,
+          "k": 9,
+          "n": 9,
+          "wilson": [
+            0.7008472464490407,
+            1.0
+          ]
+        },
+        "gold_selected": {
+          "rate": 0.7579710144927536,
+          "k": 523,
+          "n": 690,
+          "wilson": [
+            0.7246404328471953,
+            0.7884449745426182
+          ]
+        },
+        "false_abstain_when_shown": {
+          "rate": 0.16494845360824742,
+          "k": 112,
+          "n": 679,
+          "wilson": [
+            0.13893239120000844,
+            0.19473445042182597
+          ]
+        },
+        "law_citation_retrieval_kind_gold_selected": {
+          "rate": 0.32599118942731276,
+          "k": 74,
+          "n": 227,
+          "wilson": [
+            0.26834842208004095,
+            0.3894255666637556
+          ]
+        },
+        "law_cite_to_title_kind_gold_selected": {
+          "rate": 0.9911894273127754,
+          "k": 225,
+          "n": 227,
+          "wilson": [
+            0.9684498469960016,
+            0.9975805392082181
+          ]
+        },
+        "law_lookup_kind_gold_selected": {
+          "rate": 0.986784140969163,
+          "k": 224,
+          "n": 227,
+          "wilson": [
+            0.9618709347551736,
+            0.9954955017969903
+          ]
+        }
+      },
+      "timing": {
+        "wall_s": 67.8,
+        "peak_vram_gib": 12.61
+      }
+    },
+    "M8t": {
+      "name": "1.13B Megatron, k=8, body=200B/title=90B/budget=1400B, tuned store, global selection-correct calib.",
+      "metrics": {
+        "citation_recall": {
+          "rate": 0.07929515418502203,
+          "k": 18,
+          "n": 227,
+          "wilson": [
+            0.05074381839310401,
+            0.1218489898355688
+          ]
+        },
+        "citation_precision": {
+          "rate": 0.9473684210526315,
+          "k": 18,
+          "n": 19,
+          "wilson": [
+            0.7536078466345479,
+            0.99064824750947
+          ]
+        },
+        "abstention_correctness": {
+          "rate": 1.0,
+          "k": 9,
+          "n": 9,
+          "wilson": [
+            0.7008472464490407,
+            1.0
+          ]
+        },
+        "gold_selected": {
+          "rate": 0.6782608695652174,
+          "k": 468,
+          "n": 690,
+          "wilson": [
+            0.6425001646775844,
+            0.7120476168333539
+          ]
+        },
+        "false_abstain_when_shown": {
+          "rate": 0.30927835051546393,
+          "k": 210,
+          "n": 679,
+          "wilson": [
+            0.27566724258593245,
+            0.3450354211064963
+          ]
+        },
+        "law_citation_retrieval_kind_gold_selected": {
+          "rate": 0.07929515418502203,
+          "k": 18,
+          "n": 227,
+          "wilson": [
+            0.05074381839310401,
+            0.1218489898355688
+          ]
+        },
+        "law_cite_to_title_kind_gold_selected": {
+          "rate": 0.9955947136563876,
+          "k": 226,
+          "n": 227,
+          "wilson": [
+            0.9754723807764969,
+            0.9992219550797785
+          ]
+        },
+        "law_lookup_kind_gold_selected": {
+          "rate": 0.986784140969163,
+          "k": 224,
+          "n": 227,
+          "wilson": [
+            0.9618709347551736,
+            0.9954955017969903
+          ]
+        },
+        "pre_abstention_selection_accuracy": {
+          "rate": 0.8304347826086956,
+          "k": 573,
+          "n": 690,
+          "wilson": [
+            0.8006233534590318,
+            0.8565871683661225
+          ]
+        },
+        "pre_abstention_law_citation_retrieval_kind": {
+          "rate": 0.5242290748898678,
+          "k": 119,
+          "n": 227,
+          "wilson": [
+            0.45939899046014937,
+            0.5882527326261573
+          ]
+        },
+        "pre_abstention_law_cite_to_title_kind": {
+          "rate": 1.0,
+          "k": 227,
+          "n": 227,
+          "wilson": [
+            0.9833582855083312,
+            1.0
+          ]
+        },
+        "pre_abstention_law_lookup_kind": {
+          "rate": 1.0,
+          "k": 227,
+          "n": 227,
+          "wilson": [
+            0.9833582855083312,
+            1.0
+          ]
+        }
+      },
+      "timing": {
+        "wall_s": 76.7,
+        "peak_vram_gib": 14.53
+      }
+    },
+    "M8t_template": {
+      "name": "1.13B Megatron, k=8, body=200B/title=90B/budget=1400B, tuned store, PER-TEMPLATE calib.",
+      "metrics": {
+        "citation_recall": {
+          "rate": 0.3744493392070485,
+          "k": 85,
+          "n": 227,
+          "wilson": [
+            0.3140689543378406,
+            0.4390084805785696
+          ]
+        },
+        "citation_precision": {
+          "rate": 0.6115107913669064,
+          "k": 85,
+          "n": 139,
+          "wilson": [
+            0.5285236431426338,
+            0.6884999690263701
+          ]
+        },
+        "abstention_correctness": {
+          "rate": 1.0,
+          "k": 9,
+          "n": 9,
+          "wilson": [
+            0.7008472464490407,
+            1.0
+          ]
+        },
+        "gold_selected": {
+          "rate": 0.7710144927536232,
+          "k": 532,
+          "n": 690,
+          "wilson": [
+            0.7382127795920972,
+            0.8008151483960777
+          ]
+        },
+        "false_abstain_when_shown": {
+          "rate": 0.13696612665684832,
+          "k": 93,
+          "n": 679,
+          "wilson": [
+            0.11313983122339005,
+            0.1648772081602679
+          ]
+        },
+        "law_citation_retrieval_kind_gold_selected": {
+          "rate": 0.3656387665198238,
+          "k": 83,
+          "n": 227,
+          "wilson": [
+            0.3057056723183133,
+            0.4300438632939854
+          ]
+        },
+        "law_cite_to_title_kind_gold_selected": {
+          "rate": 0.9911894273127754,
+          "k": 225,
+          "n": 227,
+          "wilson": [
+            0.9684498469960016,
+            0.9975805392082181
+          ]
+        },
+        "law_lookup_kind_gold_selected": {
+          "rate": 0.986784140969163,
+          "k": 224,
+          "n": 227,
+          "wilson": [
+            0.9618709347551736,
+            0.9954955017969903
+          ]
+        }
+      },
+      "timing": {
+        "wall_s": 71.6,
+        "peak_vram_gib": 14.53
+      }
+    },
+    "S4t_f": {
+      "name": "370M frozen, k=4 scoring mode + BM25-rank prior, TUNED retrieval, selection-correct calib. (pointwise_run1)",
+      "metrics": {
+        "citation_recall": {
+          "rate": 0.5418502202643172,
+          "k": 123,
+          "n": 227,
+          "wilson": [
+            0.47687494086254534,
+            0.6054325808319846
+          ]
+        },
+        "citation_precision": {
+          "rate": 0.803921568627451,
+          "k": 123,
+          "n": 153,
+          "wilson": [
+            0.7338965854524807,
+            0.8590583448721271
+          ]
+        },
+        "abstention_correctness": {
+          "rate": 1.0,
+          "k": 9,
+          "n": 9,
+          "wilson": [
+            0.7008472464490407,
+            1.0
+          ]
+        },
+        "gold_selected": {
+          "rate": 0.1782608695652174,
+          "k": 123,
+          "n": 690,
+          "wilson": [
+            0.15150783846509397,
+            0.20857665344199255
+          ]
+        },
+        "false_abstain_when_shown": {
+          "rate": 0.7761413843888071,
+          "k": 527,
+          "n": 679,
+          "wilson": [
+            0.7432846272545661,
+            0.8058910527274386
+          ]
+        },
+        "law_citation_retrieval_kind_gold_selected": {
+          "rate": 0.5418502202643172,
+          "k": 123,
+          "n": 227,
+          "wilson": [
+            0.47687494086254534,
+            0.6054325808319846
+          ]
+        },
+        "law_cite_to_title_kind_gold_selected": {
+          "rate": 0.0,
+          "k": 0,
+          "n": 227,
+          "wilson": [
+            0.0,
+            0.016641714491668746
+          ]
+        },
+        "law_lookup_kind_gold_selected": {
+          "rate": 0.0,
+          "k": 0,
+          "n": 227,
+          "wilson": [
+            0.0,
+            0.016641714491668746
+          ]
+        }
+      },
+      "timing": {
+        "wall_s": 30.9,
+        "peak_vram_gib": 2.94
+      }
+    },
+    "P16f": {
+      "name": "370M frozen, pointwise k=16, plain BM25, selection-correct calib. (pointwise_run1)",
+      "metrics": {
+        "citation_recall": {
+          "rate": 0.762114537444934,
+          "k": 173,
+          "n": 227,
+          "wilson": [
+            0.7026516572291696,
+            0.8128533470681495
+          ]
+        },
+        "citation_precision": {
+          "rate": 0.8009259259259259,
+          "k": 173,
+          "n": 216,
+          "wilson": [
+            0.7426218531411536,
+            0.8487129988613792
+          ]
+        },
+        "abstention_correctness": {
+          "rate": 0.7777777777777778,
+          "k": 7,
+          "n": 9,
+          "wilson": [
+            0.4525833436728054,
+            0.9367762376877727
+          ]
+        },
+        "gold_selected": {
+          "rate": 0.3695652173913043,
+          "k": 255,
+          "n": 690,
+          "wilson": [
+            0.33436384204626424,
+            0.40621095197012214
+          ]
+        },
+        "false_abstain_when_shown": {
+          "rate": 0.3566666666666667,
+          "k": 214,
+          "n": 600,
+          "wilson": [
+            0.3193605837831298,
+            0.3957965037709573
+          ]
+        },
+        "law_citation_retrieval_kind_gold_selected": {
+          "rate": 0.7577092511013216,
+          "k": 172,
+          "n": 227,
+          "wilson": [
+            0.6979806681833763,
+            0.808860386461887
+          ]
+        },
+        "law_cite_to_title_kind_gold_selected": {
+          "rate": 0.19823788546255505,
+          "k": 45,
+          "n": 227,
+          "wilson": [
+            0.15158529410948324,
+            0.25493415472469566
+          ]
+        },
+        "law_lookup_kind_gold_selected": {
+          "rate": 0.16740088105726872,
+          "k": 38,
+          "n": 227,
+          "wilson": [
+            0.12445783931028193,
+            0.22141396195950652
+          ]
+        }
+      },
+      "timing": {
+        "wall_s": 142.8,
+        "peak_vram_gib": 2.0
+      }
+    }
+  },
+  "paired": [
+    {
+      "a": "M4t",
+      "b": "S4t_f",
+      "metric": "gold selected (index-exact, only where both conditions report it)",
+      "b_only": 110,
+      "c_only": 457,
+      "mcnemar_p": 3.2301620451832815e-51,
+      "bootstrap_ci": [
+        -0.5579710144927537,
+        -0.4492391304347828
+      ]
+    },
+    {
+      "a": "M4t",
+      "b": "S4t_f",
+      "metric": "gold-citation present (690, lenient substring match)",
+      "b_only": 110,
+      "c_only": 230,
+      "mcnemar_p": 6.983359828622657e-11,
+      "bootstrap_ci": [
+        -0.2246376811594203,
+        -0.1246376811594203
+      ]
+    },
+    {
+      "a": "M4t",
+      "b": "P16f",
+      "metric": "gold selected (index-exact, only where both conditions report it)",
+      "b_only": 157,
+      "c_only": 372,
+      "mcnemar_p": 3.805326479836983e-21,
+      "bootstrap_ci": [
+        -0.372463768115942,
+        -0.25072463768115943
+      ]
+    },
+    {
+      "a": "M4t",
+      "b": "P16f",
+      "metric": "gold-citation present (690, lenient substring match)",
+      "b_only": 159,
+      "c_only": 178,
+      "mcnemar_p": 0.3268333622992587,
+      "bootstrap_ci": [
+        -0.07971014492753623,
+        0.02318840579710145
+      ]
+    },
+    {
+      "a": "M8t",
+      "b": "S4t_f",
+      "metric": "gold selected (index-exact, only where both conditions report it)",
+      "b_only": 110,
+      "c_only": 455,
+      "mcnemar_p": 8.40160775815773e-51,
+      "bootstrap_ci": [
+        -0.5550724637681159,
+        -0.4449275362318841
+      ]
+    },
+    {
+      "a": "M8t",
+      "b": "S4t_f",
+      "metric": "gold-citation present (690, lenient substring match)",
+      "b_only": 110,
+      "c_only": 229,
+      "mcnemar_p": 9.483842661366671e-11,
+      "bootstrap_ci": [
+        -0.22318840579710145,
+        -0.12318840579710146
+      ]
+    },
+    {
+      "a": "M8t",
+      "b": "P16f",
+      "metric": "gold selected (index-exact, only where both conditions report it)",
+      "b_only": 158,
+      "c_only": 371,
+      "mcnemar_p": 9.01771523995878e-21,
+      "bootstrap_ci": [
+        -0.3695652173913043,
+        -0.2492753623188406
+      ]
+    },
+    {
+      "a": "M8t",
+      "b": "P16f",
+      "metric": "gold-citation present (690, lenient substring match)",
+      "b_only": 160,
+      "c_only": 178,
+      "mcnemar_p": 0.35515105100551436,
+      "bootstrap_ci": [
+        -0.07684782608695652,
+        0.02608695652173913
+      ]
+    },
+    {
+      "a": "M8t",
+      "b": "M4t",
+      "metric": "gold selected (index-exact, only where both conditions report it)",
+      "b_only": 4,
+      "c_only": 2,
+      "mcnemar_p": 0.6875,
+      "bootstrap_ci": [
+        -0.004347826086956522,
+        0.010144927536231883
+      ]
+    },
+    {
+      "a": "M8t",
+      "b": "M4t",
+      "metric": "gold-citation present (690, lenient substring match)",
+      "b_only": 3,
+      "c_only": 2,
+      "mcnemar_p": 1.0,
+      "bootstrap_ci": [
+        -0.004347826086956522,
+        0.0072826086956519764
+      ]
+    },
+    {
+      "a": "M4t_template",
+      "b": "S4t_f",
+      "metric": "gold selected (index-exact, only where both conditions report it)",
+      "b_only": 73,
+      "c_only": 473,
+      "mcnemar_p": 9.688666001236184e-73,
+      "bootstrap_ci": [
+        -0.6289855072463768,
+        -0.527536231884058
+      ]
+    },
+    {
+      "a": "M4t_template",
+      "b": "S4t_f",
+      "metric": "gold-citation present (690, lenient substring match)",
+      "b_only": 73,
+      "c_only": 249,
+      "mcnemar_p": 1.2473836511858981e-23,
+      "bootstrap_ci": [
+        -0.300036231884058,
+        -0.20865942028985526
+      ]
+    },
+    {
+      "a": "M4t_template",
+      "b": "M4t",
+      "metric": "gold selected (index-exact, only where both conditions report it)",
+      "b_only": 10,
+      "c_only": 63,
+      "mcnemar_p": 1.5535957242568204e-10,
+      "bootstrap_ci": [
+        -0.1,
+        -0.05217391304347826
+      ]
+    },
+    {
+      "a": "M4t_template",
+      "b": "M4t",
+      "metric": "gold-citation present (690, lenient substring match)",
+      "b_only": 8,
+      "c_only": 64,
+      "mcnemar_p": 5.765519304519332e-12,
+      "bootstrap_ci": [
+        -0.10438405797101448,
+        -0.057971014492753624
+      ]
+    },
+    {
+      "a": "M8t_template",
+      "b": "S4t_f",
+      "metric": "gold selected (index-exact, only where both conditions report it)",
+      "b_only": 74,
+      "c_only": 483,
+      "mcnemar_p": 1.4711166961160468e-74,
+      "bootstrap_ci": [
+        -0.6405797101449275,
+        -0.5420289855072464
+      ]
+    },
+    {
+      "a": "M8t_template",
+      "b": "S4t_f",
+      "metric": "gold-citation present (690, lenient substring match)",
+      "b_only": 74,
+      "c_only": 260,
+      "mcnemar_p": 2.167328281138281e-25,
+      "bootstrap_ci": [
+        -0.3188405797101449,
+        -0.22318840579710145
+      ]
+    },
+    {
+      "a": "M8t_template",
+      "b": "M8t",
+      "metric": "gold selected (index-exact, only where both conditions report it)",
+      "b_only": 2,
+      "c_only": 66,
+      "mcnemar_p": 1.5903890617646743e-17,
+      "bootstrap_ci": [
+        -0.1144927536231884,
+        -0.07101449275362319
+      ]
+    },
+    {
+      "a": "M8t_template",
+      "b": "M8t",
+      "metric": "gold-citation present (690, lenient substring match)",
+      "b_only": 0,
+      "c_only": 67,
+      "mcnemar_p": 1.3552527156068805e-20,
+      "bootstrap_ci": [
+        -0.11884057971014493,
+        -0.07536231884057971
+      ]
+    }
+  ],
+  "notes": [
+    "lambda=0 (no BM25-rank prior) comparison: {\"M4t\": {\"recall\": {\"successes\": 15, \"total\": 227, \"rate\": 0.06607929515418502, \"ci_low\": 0.040450020461977, \"ci_high\": 0.10615093881052849}, \"gold_selected\": {\"successes\": 465, \"total\": 690, \"rate\": 0.6739130434782609}}, \"M8t\": {\"recall\": {\"successes\": 17, \"total\": 227, \"rate\": 0.07488986784140969, \"ci_low\": 0.04727999054515015, \"ci_high\": 0.11664886803146687}, \"gold_selected\": {\"successes\": 467, \"total\": 690, \"rate\": 0.6768115942028986}}}.",
+    "M4t GLOBAL calibration (dev n=500, k=4): lambda_prior=1.0, tau_m=-14.3491, delta_m=3.8136, balanced_accuracy=0.9050, confusion={'cite_when_shown': 286, 'abstain_when_shown': 54, 'cite_when_miss': 5, 'abstain_when_miss': 155, 'n_shown': 340, 'n_miss': 160}, abstain_on_synthetic_miss={'successes': 93, 'total': 98, 'rate': 0.9489795918367347}.",
+    "M4t PER-TEMPLATE calibration [law_citation_retrieval] (n=153): lambda_prior=1.0, tau_m=-11.9961, delta_m=0.4205, balanced_accuracy=0.6506, confusion={'cite_when_shown': 42, 'abstain_when_shown': 25, 'cite_when_miss': 28, 'abstain_when_miss': 58, 'n_shown': 67, 'n_miss': 86}, abstain_on_synthetic_miss={'successes': 18, 'total': 34, 'rate': 0.5294117647058824}.",
+    "M4t PER-TEMPLATE calibration [law_cite_to_title] (n=172): lambda_prior=0.0, tau_m=-13.4151, delta_m=0.0000, balanced_accuracy=1.0000, confusion={'cite_when_shown': 132, 'abstain_when_shown': 0, 'cite_when_miss': 0, 'abstain_when_miss': 40, 'n_shown': 132, 'n_miss': 40}, abstain_on_synthetic_miss={'successes': 40, 'total': 40, 'rate': 1.0}.",
+    "M4t PER-TEMPLATE calibration [law_lookup] (n=175): lambda_prior=0.0, tau_m=-13.7889, delta_m=0.0000, balanced_accuracy=1.0000, confusion={'cite_when_shown': 141, 'abstain_when_shown': 0, 'cite_when_miss': 0, 'abstain_when_miss': 34, 'n_shown': 141, 'n_miss': 34}, abstain_on_synthetic_miss={'successes': 24, 'total': 24, 'rate': 1.0}.",
+    "M8t GLOBAL calibration (dev n=500, k=8): lambda_prior=1.0, tau_m=-14.9725, delta_m=4.0706, balanced_accuracy=0.9149, confusion={'cite_when_shown': 290, 'abstain_when_shown': 47, 'cite_when_miss': 5, 'abstain_when_miss': 158, 'n_shown': 337, 'n_miss': 163}, abstain_on_synthetic_miss={'successes': 93, 'total': 98, 'rate': 0.9489795918367347}.",
+    "M8t PER-TEMPLATE calibration [law_citation_retrieval] (n=153): lambda_prior=1.0, tau_m=-14.9725, delta_m=0.8161, balanced_accuracy=0.6670, confusion={'cite_when_shown': 52, 'abstain_when_shown': 13, 'cite_when_miss': 41, 'abstain_when_miss': 47, 'n_shown': 65, 'n_miss': 88}, abstain_on_synthetic_miss={'successes': 16, 'total': 34, 'rate': 0.47058823529411764}.",
+    "M8t PER-TEMPLATE calibration [law_cite_to_title] (n=172): lambda_prior=0.0, tau_m=-13.7933, delta_m=0.0000, balanced_accuracy=1.0000, confusion={'cite_when_shown': 132, 'abstain_when_shown': 0, 'cite_when_miss': 0, 'abstain_when_miss': 40, 'n_shown': 132, 'n_miss': 40}, abstain_on_synthetic_miss={'successes': 40, 'total': 40, 'rate': 1.0}.",
+    "M8t PER-TEMPLATE calibration [law_lookup] (n=175): lambda_prior=0.0, tau_m=-14.4437, delta_m=2.4462, balanced_accuracy=1.0000, confusion={'cite_when_shown': 140, 'abstain_when_shown': 0, 'cite_when_miss': 0, 'abstain_when_miss': 35, 'n_shown': 140, 'n_miss': 35}, abstain_on_synthetic_miss={'successes': 24, 'total': 24, 'rate': 1.0}.",
+    "Retrieval recall@k reused from pointwise_run1 (same tuned store): plain {'4': 0.7724637681159421, '8': 0.836231884057971, '16': 0.8695652173913043, '32': 0.908695652173913}; tuned {'4': 0.9840579710144928, '8': 0.9869565217391304, '16': 0.9869565217391304, '32': 0.9869565217391304}."
+  ]
+}

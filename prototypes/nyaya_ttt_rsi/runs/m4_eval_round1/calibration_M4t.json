@@ -1,0 +1,40 @@
+{
+  "lambda_prior": 1.0,
+  "lambda_grid": [
+    {
+      "lambda_prior": 0.0,
+      "selection_accuracy": 0.632
+    },
+    {
+      "lambda_prior": 0.25,
+      "selection_accuracy": 0.64
+    },
+    {
+      "lambda_prior": 0.5,
+      "selection_accuracy": 0.662
+    },
+    {
+      "lambda_prior": 1.0,
+      "selection_accuracy": 0.68
+    }
+  ],
+  "tau_m": -14.349104046821594,
+  "delta_m": 3.8135503132796735,
+  "balanced_accuracy": 0.9049632352941177,
+  "confusion": {
+    "cite_when_shown": 286,
+    "abstain_when_shown": 54,
+    "cite_when_miss": 5,
+    "abstain_when_miss": 155,
+    "n_shown": 340,
+    "n_miss": 160
+  },
+  "n_examples": 500,
+  "k": 4,
+  "label_mode": "selection_correct",
+  "abstain_on_synthetic_miss": {
+    "successes": 93,
+    "total": 98,
+    "rate": 0.9489795918367347
+  }
+}
