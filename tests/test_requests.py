@@ -506,3 +506,24 @@ class TestTheStoreIsLocked:
             waited = time.monotonic() - start
         t.join()
         assert waited >= hold_for * 0.5, "the second lock must wait for the first to release, not run past it"
+
+
+class TestCriterionToolchain:
+    """2026-09-13: every dispatch at r-5795501a criterion 8 was written in Python against `p._electron`, which
+    does not exist in Python's `playwright` package (Electron support has only ever shipped in the Node/
+    TypeScript bindings) — a structurally impossible attempt no sandbox policy could have fixed, and nothing in
+    the criterion said which toolchain the work actually required. `toolchain` is the first-class place a
+    criterion (operator- or engine-authored) can say so, read separately from its own prose."""
+
+    def test_defaults_to_none(self) -> None:
+        assert Criterion(text="do the thing").toolchain is None
+
+    def test_round_trips_through_to_dict_and_from_dict(self) -> None:
+        c = Criterion(text="do the thing", toolchain="Node.js/@playwright/test")
+        assert Criterion.from_dict(c.to_dict()).toolchain == "Node.js/@playwright/test"
+
+    def test_absent_in_a_stored_dict_reads_back_as_none(self) -> None:
+        """An older request written before this field existed must load cleanly, not KeyError."""
+        d = Criterion(text="do the thing").to_dict()
+        del d["toolchain"]
+        assert Criterion.from_dict(d).toolchain is None

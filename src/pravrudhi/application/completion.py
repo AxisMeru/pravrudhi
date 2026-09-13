@@ -384,6 +384,12 @@ def _review_brief(req: Request) -> str:
         "attached, on trust. Find the reason this does not satisfy what was asked.",
         "If, after genuinely checking, you find no such reason, say so explicitly and give the reasoning that led "
         "you there. A bare assertion that it is satisfied, with no reasoning, will be treated as a failed review.",
+        # 2026-09-13: every dispatch at r-5795501a criterion 8 was written in Python against `p._electron`,
+        # which does not exist there - Electron support has only ever shipped in Playwright's Node/TypeScript
+        # bindings. No sandbox policy could have fixed a wrong-toolchain attempt, and nothing in the criterion
+        # this review's own finding produced ever said which one was required.
+        "If the gap you are naming requires a particular runtime or toolchain to demonstrate, say which one, "
+        "on its own line starting with `TOOLCHAIN:` (e.g. `TOOLCHAIN: Node.js/@playwright/test`).",
     ]
     return "\n".join(lines)
 

@@ -704,6 +704,64 @@ def test_review_criterion_carries_the_finding_not_the_reviewer_s_preamble(
     assert "found a real reason" not in added.text, "the criterion announces a finding instead of stating one"
 
 
+def test_a_reviewer_naming_a_required_toolchain_carries_it_onto_the_new_criterion(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`completion._review_brief` asks the reviewer to name a `TOOLCHAIN:` line when the gap it found needs a
+    particular runtime. This is the other half: that line must reach the new criterion's own `toolchain` field,
+    not sit unread in the finding text, and must not itself become the criterion's headline."""
+    from pravrudhi.application import completion, heartbeat, requests
+
+    (tmp_path / "README.md").write_text("there")
+    req = requests.capture(tmp_path, "do the work")
+    requests.add_criteria(tmp_path, req.id, [requests.Criterion(text="works", source="operator")])
+    requests.meet(tmp_path, req.id, 0, [requests.Evidence(kind="file", ref="README.md")])
+    requests.advance(tmp_path, req.id, "in_progress")
+    requests.advance(tmp_path, req.id, "delivered")
+
+    findings = (
+        "## Verdict: does not satisfy the request\n\n"
+        "The proposal drives the Electron shell via Python's playwright package, which has no Electron "
+        "support at all - only the Node/TypeScript bindings ship one.\n\n"
+        "TOOLCHAIN: Node.js/@playwright/test\n"
+    )
+    review = completion.ReviewResult(findings=findings, blocking=True, reason="refused")
+    monkeypatch.setattr(completion, "gate",
+                        lambda root, r, **kw: completion.GateResult(r, False, "review", [], review))
+
+    heartbeat._beat_completion_gate(tmp_path, req.id)
+
+    added = [c for c in requests.get(tmp_path, req.id).criteria
+             if c.text.startswith(heartbeat._REVIEW_CRITERION_PREFIX)][0]
+    assert added.toolchain == "Node.js/@playwright/test"
+    assert "no Electron support" in added.text
+    assert "TOOLCHAIN:" not in added.text, "the toolchain line is a field, not part of the criterion's own text"
+
+
+def test_a_reviewer_naming_no_toolchain_leaves_the_field_unset(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from pravrudhi.application import completion, heartbeat, requests
+
+    (tmp_path / "README.md").write_text("there")
+    req = requests.capture(tmp_path, "do the work")
+    requests.add_criteria(tmp_path, req.id, [requests.Criterion(text="works", source="operator")])
+    requests.meet(tmp_path, req.id, 0, [requests.Evidence(kind="file", ref="README.md")])
+    requests.advance(tmp_path, req.id, "in_progress")
+    requests.advance(tmp_path, req.id, "delivered")
+
+    findings = "## Verdict\n\nThe rival named twice was never assessed anywhere in the product.\n"
+    review = completion.ReviewResult(findings=findings, blocking=True, reason="refused")
+    monkeypatch.setattr(completion, "gate",
+                        lambda root, r, **kw: completion.GateResult(r, False, "review", [], review))
+
+    heartbeat._beat_completion_gate(tmp_path, req.id)
+
+    added = [c for c in requests.get(tmp_path, req.id).criteria
+             if c.text.startswith(heartbeat._REVIEW_CRITERION_PREFIX)][0]
+    assert added.toolchain is None
+
+
 class TestGateAttemptBudget:
     """A completion gate that crashes should not be retried indefinitely.
 
@@ -1856,3 +1914,55 @@ class TestStructuralIncapabilityDeclinesRatherThanReattempts:
         assert criterion.declined is True
         assert not criterion.met
         assert "declined" in reason
+
+
+class TestCriterionToolchainReachesTheDispatchPrompt:
+    """A `toolchain` a criterion carries and nothing ever renders is the same defect as no field at all - it is
+    stored, believed, and inert. These prove the field reaches the actual text a dispatched agent reads, in
+    both dispatch modes, not merely that `Criterion` can hold the value (see test_requests.py for that)."""
+
+    def test_obligation_prompt_states_it_when_given(self) -> None:
+        prompt = heartbeat._obligation_prompt(
+            "the ask", "the criterion", "scratch/dir", "true", toolchain="Node.js/@playwright/test",
+        )
+        assert "Required toolchain: Node.js/@playwright/test" in prompt
+
+    def test_obligation_prompt_omits_the_line_when_unset(self) -> None:
+        prompt = heartbeat._obligation_prompt("the ask", "the criterion", "scratch/dir", "true")
+        assert "Required toolchain" not in prompt
+
+    def test_build_prompt_states_it_when_given(self) -> None:
+        prompt = heartbeat._build_prompt(
+            "the ask", "the criterion", ("src/**",), "true", toolchain="Node.js/@playwright/test",
+        )
+        assert "Required toolchain: Node.js/@playwright/test" in prompt
+
+    def test_build_prompt_omits_the_line_when_unset(self) -> None:
+        prompt = heartbeat._build_prompt("the ask", "the criterion", ("src/**",), "true")
+        assert "Required toolchain" not in prompt
+
+    def test_task_for_criterion_carries_a_proposal_mode_criterion_s_toolchain_into_its_own_prompt(
+        self, tmp_path: Path,
+    ) -> None:
+        """The real call site (`_beat_obligations`'s own dispatch-building), not just the prompt builder in
+        isolation: a criterion read out of `requests.json` with `toolchain` set must produce a `TaskSpec` whose
+        `prompt` states it, exactly as a hand-built call to `_obligation_prompt` would."""
+        req = requests.capture(tmp_path, "do the work")
+        criterion = requests.Criterion(
+            text="drive the Electron shell through an update and record it",
+            source="engine", toolchain="Node.js/@playwright/test",
+        )
+        requests.add_criteria(tmp_path, req.id, [criterion])
+
+        _task_id, task = heartbeat._task_for_criterion(tmp_path, req, criterion, 0, "proposal")
+
+        assert "Required toolchain: Node.js/@playwright/test" in task.spec.prompt
+
+    def test_task_for_criterion_omits_the_line_for_an_ordinary_criterion(self, tmp_path: Path) -> None:
+        req = requests.capture(tmp_path, "do the work")
+        criterion = requests.Criterion(text="write a short design note", source="operator")
+        requests.add_criteria(tmp_path, req.id, [criterion])
+
+        _task_id, task = heartbeat._task_for_criterion(tmp_path, req, criterion, 0, "proposal")
+
+        assert "Required toolchain" not in task.spec.prompt

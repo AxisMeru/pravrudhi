@@ -662,18 +662,25 @@ def _is_genuine_noop(verdict: Any) -> bool:
 
 
 def _obligation_prompt(
-    request_text: str, criterion_text: str, scratch: str, validate: str, *, prior: str = ""
+    request_text: str, criterion_text: str, scratch: str, validate: str, *, prior: str = "",
+    toolchain: str | None = None,
 ) -> str:
     """`prior` is why the last attempt at this criterion was judged short.
 
     Three dispatches at the same criterion each started from nothing and produced twenty-odd files apiece,
     because none of them was told what the previous one had failed to do. A retry that carries the reason is a
     second attempt; one that does not is the first attempt again at full price.
+
+    `toolchain`: 2026-09-13, r-5795501a criterion 8 - every attempt was written in Python against
+    `p._electron`, which does not exist there. Rendered as its own explicit line rather than folded into the
+    criterion's own prose, so an agent cannot miss it the way three of them missed it when it was absent.
     """
     fell_short = f"A previous attempt was judged NOT to meet this criterion because: {prior}\n\n" if prior else ""
+    required = f"Required toolchain: {toolchain}\n\n" if toolchain else ""
     return (
         f"Operator request (verbatim): {request_text}\n\n"
         f"Oldest unmet acceptance criterion: {criterion_text}\n\n"
+        f"{required}"
         f"{fell_short}"
         "Everything you write is a PROPOSAL toward this criterion, not evidence: nothing you produce may write to "
         "the ledger, research/, gates/ or pravrudhi_kernel/, and no number you state may be presented as a result. "
@@ -1185,6 +1192,19 @@ def _names_something(line: str) -> bool:
     return bool(_NAMES_SOMETHING.search(line))
 
 
+# 2026-09-13: `_review_brief` asks a reviewer to name a required runtime/toolchain, when the gap it found needs
+# one, on its own `TOOLCHAIN:` line - exactly this shape, so extracting it is a literal match rather than a
+# guess at free prose. Deliberately excluded from the headline search below: a short "TOOLCHAIN: X" line would
+# otherwise either get swept up as the criterion's whole text (if it happened to clear the length guard) or, at
+# 36 characters for the actual r-5795501a case, be silently treated as a label and dropped either way.
+_TOOLCHAIN_LINE = re.compile(r"(?im)^\s*toolchain:\s*(.+?)\s*$")
+
+
+def _toolchain_from_finding(finding: str) -> str | None:
+    match = _TOOLCHAIN_LINE.search(finding)
+    return match.group(1).strip() or None if match else None
+
+
 def _criterion_from_finding(root: Path, request_id: str, finding: str) -> bool:
     """Turn a blocking review into one unmet criterion, unless its finding is already recorded.
 
@@ -1197,13 +1217,14 @@ def _criterion_from_finding(root: Path, request_id: str, finding: str) -> bool:
         return False
     if any(c.text.startswith(_REVIEW_CRITERION_PREFIX) and not c.met for c in request.criteria):
         return False
+    toolchain = _toolchain_from_finding(finding)
     # The first line that actually says something. A review opens with headings and label lines ("Summary of the
     # strongest reason:"), and taking the first non-heading line produced a criterion reading "…strongest
     # reason:" — a demand with the demand missing, which is worthless to whoever builds against it.
     headline, fallback = "", ""
     for raw in finding.splitlines():
         line = raw.strip().lstrip("#").strip().lstrip("*").strip()
-        if not line or line.startswith(("---", "===")):
+        if not line or line.startswith(("---", "===")) or _TOOLCHAIN_LINE.match(line):
             continue
         if line.endswith(":") or len(line) < 40:
             continue  # a label, not the finding it labels
@@ -1214,7 +1235,9 @@ def _criterion_from_finding(root: Path, request_id: str, finding: str) -> bool:
     headline = headline or fallback or " ".join(finding.split())[:300]
     requests.add_criteria(
         root, request_id,
-        [requests.Criterion(text=f"{_REVIEW_CRITERION_PREFIX}{headline[:300]}", source="engine")],
+        [requests.Criterion(
+            text=f"{_REVIEW_CRITERION_PREFIX}{headline[:300]}", source="engine", toolchain=toolchain,
+        )],
     )
     return True
 
@@ -1506,11 +1529,16 @@ def _selfbuild_policy(root: Path) -> Policy:
     )
 
 
-def _build_prompt(request_text: str, criterion_text: str, paths: tuple[str, ...], validate: str, *, prior: str = "") -> str:
+def _build_prompt(
+    request_text: str, criterion_text: str, paths: tuple[str, ...], validate: str, *, prior: str = "",
+    toolchain: str | None = None,
+) -> str:
     fell_short = f"A previous attempt was judged NOT to meet this criterion because: {prior}\n\n" if prior else ""
+    required = f"Required toolchain: {toolchain}\n\n" if toolchain else ""
     return (
         f"Operator request (verbatim): {request_text}\n\n"
         f"Acceptance criterion to deliver: {criterion_text}\n\n"
+        f"{required}"
         f"{fell_short}"
         "You are MAKING this change in the engine's own source, not proposing it. House rules: a failing test "
         "first, then the change; constants in configs/ or an existing constants module, never magic numbers in "
@@ -1745,7 +1773,7 @@ def _task_for_criterion(
         spec = TaskSpec(
             task_id=task_id,
             prompt=_build_prompt(request.text, criterion.text, paths, build_validate,
-                                 prior=_last_judgement(root, request.id, index)),
+                                 prior=_last_judgement(root, request.id, index), toolchain=criterion.toolchain),
             allowed_paths=paths,
             validate=build_validate,
         )
@@ -1758,7 +1786,7 @@ def _task_for_criterion(
         spec = TaskSpec(
             task_id=task_id,
             prompt=_obligation_prompt(request.text, criterion.text, scratch, validate,
-                                      prior=_last_judgement(root, request.id, index)),
+                                      prior=_last_judgement(root, request.id, index), toolchain=criterion.toolchain),
             allowed_paths=(f"{scratch}/*",),
             validate=validate,
         )
