@@ -35,7 +35,11 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from pravrudhi.application.heartbeat import log_path
+from pravrudhi.application.heartbeat import (
+    MAX_REBASE_CONFLICTS_BEFORE_ALERT,
+    log_path,
+    rebase_conflict_streak,
+)
 
 #: Beats older than this are outside the reported window unless a caller asks for another.
 DEFAULT_WINDOW_HOURS = 24
@@ -98,8 +102,25 @@ def dispatches_of(result: dict[str, Any] | None) -> list[dict[str, Any]]:
     return [result]
 
 
-def _failure_mode(met: int, dispatches: int, accepted: int, not_met: int) -> str | None:
-    """Why a zero is a zero. Returns None when the loop closed something -- a converging loop needs no diagnosis."""
+def _failure_mode(
+    met: int, dispatches: int, accepted: int, not_met: int, *, rebase_streak: int = 0,
+) -> str | None:
+    """Why a zero is a zero. Returns None when the loop closed something -- a converging loop needs no diagnosis.
+
+    `rebase_streak` is checked first and overrides that short-circuit (2026-09-13, cli-lead): the product loop
+    had one MET criterion in its trailing 24h window and had ALSO dispatched nothing for the 8 most recent
+    beats, 7+ hours, on a rebase conflict `_sync_loop_branch` cannot resolve itself -- a live stall that `met >
+    0` alone hid completely, because a past success in the window says nothing about whether the loop can
+    currently dispatch at all. `MAX_REBASE_CONFLICTS_BEFORE_ALERT` (currently 3) is the same threshold
+    `heartbeat._alert_rebase_conflict_streak` already alerts external notifications at, so `pravrudhi
+    convergence` and the notification channel agree on when this is worth naming.
+    """
+    if rebase_streak >= MAX_REBASE_CONFLICTS_BEFORE_ALERT:
+        return (
+            f"stalled on a rebase conflict for {rebase_streak} consecutive beats: dispatching nothing "
+            "regardless of past criteria closed (see .pravrudhi/rebase-conflicts.json and the loop's own "
+            "notifications for the dirty-tree detail)"
+        )
     if met > 0:
         return None
     if dispatches == 0:
@@ -158,6 +179,8 @@ def convergence(
         not_met=not_met,
         batch_beats=batch_beats,
         last_beat=last_beat,
-        failure_mode=_failure_mode(met, len(per), accepted, not_met),
+        failure_mode=_failure_mode(
+            met, len(per), accepted, not_met, rebase_streak=rebase_conflict_streak(Path(root)),
+        ),
         window_hours=hours,
     )
