@@ -38,6 +38,7 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass
 import json
 import math
+import os
 from pathlib import Path
 import re
 
@@ -45,8 +46,10 @@ import numpy as np
 
 
 ABSTAIN_PHRASE = "Not found in the provided corpus"
-DEFAULT_TRAIN = Path.home() / Path("projects/prabhasa-samskrutam/data/sft/law_v3_train.jsonl")
-DEFAULT_HELDOUT = Path.home() / Path("projects/prabhasa-samskrutam/data/eval/law_qa_heldout_v3.jsonl")
+# Track B checkout root. Override with TRACKB_ROOT (e.g. /trackB inside the ttt-lab container).
+TRACKB_ROOT = Path(os.environ.get("TRACKB_ROOT", str(Path.home() / "projects/prabhasa-samskrutam")))
+DEFAULT_TRAIN = TRACKB_ROOT / "data/sft/law_v3_train.jsonl"
+DEFAULT_HELDOUT = TRACKB_ROOT / "data/eval/law_qa_heldout_v3.jsonl"
 
 
 @dataclass(frozen=True)

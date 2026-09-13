@@ -512,5 +512,49 @@ Wilson interval in the report; comparisons are paired McNemar over the same 690 
 - **Revised reading of §5.3:** Phase 0–2 of the plan are effectively done and the answer to "does
   per-query TTT help *this* model on *this* task" is no. The next lever is scale, not test-time
   updates: the 1.13B line, now unblocked, with the same harness. A first real 1.13B SFT using the
-  round-1e data is recorded under `prototypes/nyaya_ttt_rsi/runs/g0_sft_round1/` (see §11 when
-  present).
+  round-1e data is recorded under `prototypes/nyaya_ttt_rsi/runs/g0_sft_round1/` (§11).
+
+## 11. The 1.13B line: first real SFT completes (2026-09-13, 14:00–14:50 BST)
+
+**What ran.** Track B's 1.13B Megatron-Core checkpoint (`m4/final.pt`, 1,129,634,752 params) was
+fine-tuned for one epoch on the union of Track B's own `m7_mix_v1.jsonl` and the harness-built
+round-1e grounded SFT set (14,908 examples, 1.90M tokens) with the new trainer in
+`prototypes/nyaya_ttt_rsi/g0/train_megatron_sft.py`, inside the isolated `ttt-lab` image. No
+Track B file was modified. Raw record: `runs/g0_sft_round1/{train_report.json, docker_stdout.log,
+smoke_stdout.log, smoke2_stdout.log}`; the 4.5 GB `final.pt` stays on disk, untracked
+(sha256 `fe800a55…9e58ae`, recorded in the report).
+
+| | value |
+|---|---|
+| shape | batch 2 × grad-accum 4 (effective 8), seq_len 1536, lr 1e-5, warmup 50, vram-fraction 0.85 |
+| steps | 7,454 micro / 1,864 optimizer |
+| wall | 1,221 s (20.4 min) |
+| peak VRAM / RSS | 26.0 GiB / 6.7 GiB |
+| final loss | 4.9e-05 on the last (round-1e) batch; m7-mix batches stayed 0.1–2.9 throughout |
+| reload check | in-process reload + forward pass OK, logits `[1, 8, 256]` |
+
+**Two findings that change the F17 picture.** (1) F17's "batch 4 completes" was true at
+seq_len 512; at the 1536 the round-1e prompts actually need, batch 4 passes preflight but OOMs on
+the micro-step after the first optimizer step, once AdamW's fp32 state exists, at both 0.85 and
+0.95 of the device. That is a real capacity ceiling. Batch 2 × accum 4 is the shape that works.
+(2) The OOMs that looked like fragmentation earlier were partly a **reference-cycle leak**: the
+Track B wrapper registers a forward hook bound to itself, so `del model; empty_cache()` leaves the
+old 13.5 GB resident through a reload. `gc.collect()` between the two fixes it. Full detail, with
+the silent-NaN-on-fully-masked-rows bug and the Megatron embedding wrapping bug, is **F18** in
+`docs/research-spikes/2026-09-13-ttt-rsi-track-b/FIXES-FOR-MAIN-SESSIONS.md`.
+
+**What the smoke shows, and what it does not.** Generation on three held-out prompts built by the
+harness produced well-formed citation-style completions (two of three named the gold article);
+candidate scoring ran cleanly (five uniform candidates, best margin 3.48 nats); the generic LoRA
+injector wrapped 128 transformer-engine linears with a bit-identical forward at B = 0, so the
+three-tier weight stack of §4 is now mechanically available at 1.13B too. **This is plumbing
+evidence only.** The 1.13B model has *not* been run through the 690-item held-out in scoring mode
+with its own calibration, so no number here is comparable to §10's table. The near-zero final loss
+on round-1e batches says the templated citation targets were memorised in one epoch, which is a
+warning about the SFT set's diversity, not an accuracy claim.
+
+**Next concrete step (for whoever continues):** add a Megatron backend flag to `evaluate.py` (the
+adapter in `g0/generate_megatron.py` already exposes generate + candidate NLL), calibrate τ/δ on the
+train dev slice for this checkpoint, and run B′-frozen and B′ on the 690. If 1.13B + harness does not
+clear 370M + harness (recall 0.145–0.198) by more than the paired CI half-width, the scale lever is
+weaker than §5.3 assumed and the retrieval ceiling (recall@4 = 0.77) becomes the binding constraint.

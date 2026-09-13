@@ -43,6 +43,72 @@
         "peak_vram_gib": 5.33
       }
     },
+    "B'(frozen)": {
+      "name": "grounded compact context + scoring + calibrated abstention, NO consolidation (frozen 370M)",
+      "metrics": {
+        "citation_recall": {
+          "rate": 0.1762114537444934,
+          "k": 40,
+          "n": 227,
+          "wilson": [
+            0.1321553120942869,
+            0.2310443884796131
+          ]
+        },
+        "citation_precision": {
+          "rate": 0.20618556701030927,
+          "k": 40,
+          "n": 194,
+          "wilson": [
+            0.1552278646105189,
+            0.26855358479142694
+          ]
+        },
+        "abstention_correctness": {
+          "rate": 0.4444444444444444,
+          "k": 4,
+          "n": 9,
+          "wilson": [
+            0.188775429471914,
+            0.7333526542559703
+          ]
+        },
+        "law_lookup_prefix_similarity_mean": {
+          "rate": 0.10751702752325955
+        },
+        "gold_selected": {
+          "rate": 0.10434782608695652,
+          "k": 72,
+          "n": 690,
+          "wilson": [
+            0.08368551274979091,
+            0.12939136243324795
+          ]
+        },
+        "abstain_on_miss": {
+          "rate": 0.5135135135135135,
+          "k": 76,
+          "n": 148,
+          "wilson": [
+            0.4336699913960948,
+            0.592673250508627
+          ]
+        },
+        "false_abstain_when_shown": {
+          "rate": 0.42964352720450283,
+          "k": 229,
+          "n": 533,
+          "wilson": [
+            0.3882684368645256,
+            0.47202554929452034
+          ]
+        }
+      },
+      "timing": {
+        "wall_s": 41.4,
+        "peak_vram_gib": 2.98
+      }
+    },
     "B'": {
       "name": "grounded compact context + scoring + calibrated abstention (round-1e persistent LoRA)",
       "metrics": {
@@ -110,7 +176,7 @@
       }
     },
     "C'": {
-      "name": "B' + ephemeral TTT on shown passages, then rescore (gated)",
+      "name": "B' + ephemeral TTT on shown passages, then rescore (gated, untuned settings)",
       "metrics": {
         "citation_recall": {
           "rate": 0.1277533039647577,
@@ -174,6 +240,72 @@
         "wall_s": 463.2,
         "peak_vram_gib": 3.55
       }
+    },
+    "D": {
+      "name": "Phase 4: round-2 consolidation on B'-gate-accepted pseudo-labels (no gold), re-calibrated",
+      "metrics": {
+        "citation_recall": {
+          "rate": 0.19823788546255505,
+          "k": 45,
+          "n": 227,
+          "wilson": [
+            0.15158529410948324,
+            0.25493415472469566
+          ]
+        },
+        "citation_precision": {
+          "rate": 0.23195876288659795,
+          "k": 45,
+          "n": 194,
+          "wilson": [
+            0.17811770724140163,
+            0.2962092290551104
+          ]
+        },
+        "abstention_correctness": {
+          "rate": 0.8888888888888888,
+          "k": 8,
+          "n": 9,
+          "wilson": [
+            0.5649937852319399,
+            0.9801096286728695
+          ]
+        },
+        "law_lookup_prefix_similarity_mean": {
+          "rate": 0.6172690438599614
+        },
+        "gold_selected": {
+          "rate": 0.5014492753623189,
+          "k": 346,
+          "n": 690,
+          "wilson": [
+            0.46423686922335267,
+            0.5386456330653542
+          ]
+        },
+        "abstain_on_miss": {
+          "rate": 0.8513513513513513,
+          "k": 126,
+          "n": 148,
+          "wilson": [
+            0.7851839148018591,
+            0.8997403747209067
+          ]
+        },
+        "false_abstain_when_shown": {
+          "rate": 0.08630393996247655,
+          "k": 46,
+          "n": 533,
+          "wilson": [
+            0.06532588472051522,
+            0.11320275389467409
+          ]
+        }
+      },
+      "timing": {
+        "wall_s": 37.9,
+        "peak_vram_gib": 3.56
+      }
     }
   },
   "paired": [
@@ -224,6 +356,30 @@
         0.0,
         0.0
       ]
+    },
+    {
+      "a": "B'",
+      "b": "D",
+      "metric": "gold-citation selected",
+      "b_only": 24,
+      "c_only": 19,
+      "mcnemar_p": 0.542384011856484,
+      "bootstrap_ci": [
+        -0.011594202898550725,
+        0.02608695652173913
+      ]
+    },
+    {
+      "a": "B'",
+      "b": "D",
+      "metric": "grounded",
+      "b_only": 0,
+      "c_only": 0,
+      "mcnemar_p": 1.0,
+      "bootstrap_ci": [
+        0.0,
+        0.0
+      ]
     }
   ],
   "gate": {
@@ -240,6 +396,10 @@
     "Abstention calibration (500 train-split dev examples, seed 1, 30% synthetic miss, disjoint from the 2496-example SFT set): round-1e tau=5.284 delta=0.352 balanced_accuracy=0.843; frozen model tau=31.308 delta=0.105 balanced_accuracy=0.580 (same tau/delta from the round-1e calibration were used, unmodified, for both B' and C' held-out).",
     "B' dropped_passage_rate=0.0014 (1/690) -- rare over-budget-after-truncation fallback fired as expected.",
     "C' does NOT beat B' on gold-citation-selected (0.2507 vs 0.2594, McNemar p=0.345, not significant) -- per the run plan, Phase 4 (a second RSI consolidation round) was skipped.",
-    "A vs B' is decisive: gold-citation-present 0.0029 -> 0.2594 (McNemar p=1.07e-50); grounded_rate 0.0 -> 1.0 by construction (scoring mode always emits either a shown citation or a calibrated abstention, never free-form hallucinated continuation)."
+    "A vs B' is decisive: gold-citation-present 0.0029 -> 0.2594 (McNemar p=1.07e-50); grounded_rate 0.0 -> 1.0 by construction (scoring mode always emits either a shown citation or a calibrated abstention, never free-form hallucinated continuation).",
+    "B'(frozen) vs B': consolidation alone is responsible for most of the gain -- gold_selected 0.104 (frozen) vs 0.491 (round-1e persistent LoRA); frozen-model calibration is also much weaker (balanced accuracy 0.580 vs 0.843).",
+    "Phase 4 (RSI self-training, no gold): streamed 500 fresh train prompts (seed 2, disjoint from the 2,496 SFT examples and the 500 calibration dev items); 134 gate-rejected on B'-s own tau/delta, 366 accepted as pseudo-labels. For the record only (never used for gating): 0.702 of accepted pseudo-labels matched the train split's own gold citation. Round-2 consolidation (lr=1e-4, 1 epoch, from B''s persistent state) passed its regression-probe gate (probe_delta_rel=0.028 < 0.15). Re-calibrated on the SAME 500-item dev slice: tau=4.460, delta=0.000, balanced_accuracy=0.846 (vs 0.843 for B'). D vs B' on the 690: gold_selected 0.501 vs 0.491 (McNemar p=0.349, bootstrap CI [-0.007246376811594203, 0.028985507246376812]) -- directionally positive on several sub-metrics (law_citation_retrieval hit rate 0.145 -> 0.198, abstain_on_miss 0.777 -> 0.851, false_abstain_when_shown 0.116 -> 0.086) but NOT statistically significant on the headline gold_selected metric at n=690 -- reported plainly as a small, non-significant improvement, not a proven win.",
+    "TTT dev sweep (120 dev items, seed 3, subsampled from the 500-item calibration dev slice, NOT held-out; B''s own tau/delta used throughout, never recalibrated per cell): no-TTT baseline gold_selected_rate=0.492. Best grid cell (steps=2, lr=0.0003, target=attn_only) delta vs baseline = 0.008 (< 0.03 threshold) -- no cell beat the no-TTT baseline by the required margin, so C'' was NOT run. Aggressive settings (lr=3e-3, steps=8, all persistent LoRA modules) were actively destructive (delta=-0.408, false_abstain_rate rose to 0.856). Clean negative finding for per-query ephemeral TTT at 370M, consistent with the untuned C' vs B' result above.",
+    "Note on rank: the TTT sweep's 'attn-only' vs 'all' target dimension reuses subsets of the persistent r=16 LoRA's own modules rather than injecting a genuinely separate r=8 adapter -- F10 (in FIXES-FOR-MAIN-SESSIONS.md) explains why a second LoRA layer cannot be stacked on an already-injected one; disclosed here as a deviation from the literal r=8 spec, not a silent substitution."
   ]
 }

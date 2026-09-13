@@ -100,14 +100,45 @@ class GenericLoRA(nn.Module):
             self.lora_B.zero_()
 
 
+def _is_embedding_like(module: nn.Module) -> bool:
+    """True for `nn.Embedding` AND for Megatron's `VocabParallelEmbedding`
+    (and any similar embedding wrapper), neither of which is caught by
+    `isinstance(module, nn.Embedding)` alone.
+
+    BUG FOUND (see FIXES-FOR-MAIN-SESSIONS.md, F-section) running the first
+    real smoke test: `find_lora_targets(model, ".*")` on the real Megatron
+    model wrapped `core.embedding.word_embeddings` -- confirming this file's
+    own earlier prediction that Megatron's embedding is not an `nn.Embedding`
+    subclass, but for a reason the docstring hadn't anticipated: `isinstance
+    (module, nn.Embedding)` in the original `find_lora_targets` only ever
+    excluded a PLAIN `torch.nn.Embedding`, and Megatron's
+    `megatron.core.tensor_parallel.layers.VocabParallelEmbedding` is not one
+    -- it has its own 2-D `.weight` (vocab_size x hidden), so it passed the
+    "linear-like" test uncaught. Wrapping it with `GenericLoRA` then crashed
+    at the first real forward pass: `GenericLoRA.forward` assumes its input
+    is a float activation tensor and computes `x @ lora_A.T`, but an
+    embedding's `forward(input_ids)` receives integer token-index tensors,
+    not activations -- `RuntimeError: mat1 and mat2 shapes cannot be
+    multiplied (1x8 and 1536x8)` (a length-8 `input_ids` batch against
+    `lora_A`'s `(r, hidden_size)` shape).
+
+    Duck-typed on `num_embeddings` + `embedding_dim` (the attribute pair
+    every embedding-style module in both `torch.nn` and `megatron.core`
+    exposes) rather than a class check, since Megatron's own class hierarchy
+    is exactly what failed to catch this the first time."""
+    return isinstance(module, nn.Embedding) or (
+        hasattr(module, "num_embeddings") and hasattr(module, "embedding_dim")
+    )
+
+
 def _is_linear_like(module: nn.Module) -> bool:
     """True for `nn.Linear` itself and for any module exposing a plain 2-D
-    `.weight` Parameter (the Megatron/TE convention this file targets).
-    Deliberately excludes modules whose `.weight` is not 2-D (e.g.
-    `nn.Embedding`'s weight is 2-D too but embeddings are never LoRA targets
-    here, so callers should scope `target_regex` to exclude embeddings;
-    excluding by shape alone is not sufficient and this function does not
-    try to be)."""
+    `.weight` Parameter (the Megatron/TE convention this file targets), EXCEPT
+    embedding-style modules (see `_is_embedding_like`) -- their `.weight` is
+    2-D too but they are never LoRA targets and, unlike a true `nn.Linear`,
+    receive integer indices rather than activations as input."""
+    if _is_embedding_like(module):
+        return False
     w = getattr(module, "weight", None)
     return isinstance(w, torch.Tensor) and w.dim() == 2
 
@@ -126,15 +157,15 @@ def _set_module_by_dotted_name(root: nn.Module, dotted_name: str, new_module: nn
 
 def find_lora_targets(model: nn.Module, target_regex: str) -> list[str]:
     """Dotted names of every linear-like submodule matching `target_regex`.
-    Excludes `nn.Embedding` explicitly (its `.weight` is 2-D but it is never
-    a LoRA target); everything else with a 2-D `.weight` is a candidate,
-    covering `nn.Linear`, Megatron `ColumnParallelLinear`/`RowParallelLinear`,
-    and transformer-engine `Linear` uniformly."""
+    Excludes embedding-style modules (`_is_embedding_like`: plain
+    `nn.Embedding` AND Megatron's `VocabParallelEmbedding`, neither of which
+    a LoRA delta can be validly applied to -- see `_is_linear_like`);
+    everything else with a 2-D `.weight` is a candidate, covering
+    `nn.Linear`, Megatron `ColumnParallelLinear`/`RowParallelLinear`, and
+    transformer-engine `Linear` uniformly."""
     pattern = re.compile(target_regex)
     targets: list[str] = []
     for name, module in model.named_modules():
-        if isinstance(module, nn.Embedding):
-            continue
         if _is_linear_like(module) and pattern.search(name):
             targets.append(name)
     return targets

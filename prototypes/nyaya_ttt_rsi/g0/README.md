@@ -104,9 +104,9 @@ that permission is given:
 
 ```
 docker run --rm --gpus all --ipc host --memory 12g --memory-swap 12g \
-  -v /home/ss/projects/prabhasa-samskrutam:/trackB:ro \
-  -v /home/ss/fusion-project:/fusion-project:ro \
-  -v /home/ss/projects/pravrudhi/.claude/worktrees/ttt-llm-research-0f1adf:/lab:rw \
+  -v $HOME/projects/prabhasa-samskrutam:/trackB:ro \
+  -v $HOME/fusion-project:/fusion-project:ro \
+  -v $HOME/projects/pravrudhi/.claude/worktrees/ttt-llm-research-0f1adf:/lab:rw \
   -e PYTORCH_ALLOC_CONF=expandable_segments:True \
   prabhasa/nemo-5090:26.02 \
   python3 -c "import sys; sys.path.insert(0, '/lab'); sys.path.insert(0, '/lab/prototypes/nyaya_ttt_rsi/g0'); import collate, lora_megatron; import importlib.util; print('syntax/import OK')"
@@ -117,14 +117,15 @@ docker run --rm --gpus all --ipc host --memory 12g --memory-swap 12g \
 Data: the m7 mix (`/trackB/data/sft/m7_mix_v1.jsonl`, 12,412 rows) + the
 grounded set the loop agent built
 (`/lab/prototypes/nyaya_ttt_rsi/runs/rsi_run1/grounded_sft.jsonl`). 1 epoch,
-batch 4, grad-accum 2 (effective batch 8), save to
+batch 4, grad-accum 2 (effective batch 8) — **superseded: at seq_len 1536 batch 4 OOMs after the
+first optimizer step; the shape that completed is batch 2, grad-accum 4 (F18)** — save to
 `/lab/prototypes/nyaya_ttt_rsi/runs/g0_sft_round1/`:
 
 ```
 docker run --rm --gpus all --ipc host --memory 12g --memory-swap 12g \
-  -v /home/ss/projects/prabhasa-samskrutam:/trackB:ro \
-  -v /home/ss/fusion-project:/fusion-project:ro \
-  -v /home/ss/projects/pravrudhi/.claude/worktrees/ttt-llm-research-0f1adf:/lab:rw \
+  -v $HOME/projects/prabhasa-samskrutam:/trackB:ro \
+  -v $HOME/fusion-project:/fusion-project:ro \
+  -v $HOME/projects/pravrudhi/.claude/worktrees/ttt-llm-research-0f1adf:/lab:rw \
   -e PYTORCH_ALLOC_CONF=expandable_segments:True \
   prabhasa/nemo-5090:26.02 \
   python3 /lab/prototypes/nyaya_ttt_rsi/g0/train_megatron_sft.py \

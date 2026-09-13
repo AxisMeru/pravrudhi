@@ -458,3 +458,74 @@ mounted read-only. Raw outputs: `prototypes/nyaya_ttt_rsi/runs/g0_expandable/`
   and commit messages). The 12 GiB host cap is a fail-fast: measured RSS is 5.45 GiB.
 - **Image note:** torch 2.10 warns `PYTORCH_CUDA_ALLOC_CONF` is deprecated in favour of
   `PYTORCH_ALLOC_CONF`; set both until the scripts are updated.
+
+## F18. G0 real SFT trainer: a preflight->reload GC cycle silently doubled model memory; fixed, real round-1 SFT completed (2026-09-13 ~14:00-14:45 BST)
+
+Built `prototypes/nyaya_ttt_rsi/g0/{train_megatron_sft.py,generate_megatron.py,lora_megatron.py,
+collate.py}` (a real trainer + generation adapter on top of F17's proven dry run, which never
+saved a checkpoint). First GPU run surfaced three bugs, all fixed on this branch; the corrected
+trainer then completed a full round-1 SFT run. Raw outputs:
+`prototypes/nyaya_ttt_rsi/runs/g0_sft_round1/{train_report.json,docker_stdout.log,
+smoke_stdout.log,smoke2_stdout.log,final.pt}`.
+
+- **Bug 1 (the real blocker): `del model; torch.cuda.empty_cache()` does not free the model
+  before a reload.** `StructuredNemotronH.__init__` (`scripts/m4/eval_adapter.py`) registers
+  `self.core.decoder.register_forward_hook(self._capture_hidden)` — a bound method holding a
+  reference to `self` — so the model is part of a reference cycle (model -> decoder -> hook ->
+  model) plain refcounting cannot collect. Any script that mutates the model with the mandatory
+  preflight step and then does `del model; torch.cuda.empty_cache(); model = load_megatron_blob(...)`
+  (the `train_full_sft.py`-style reload pattern) runs `empty_cache()` before Python's cyclic GC has
+  actually broken the cycle, so the OLD model's ~13.5 GB of weights+grad+optimizer-state tensors
+  are still resident when a SECOND full model is constructed on top of them. Measured effect: even
+  the exact shape F17 proved OOM-free for 40/40 steps (batch 4, seq_len 512, grad_accum 1) OOM'd on
+  the very first real training step once routed through this reload pattern, at ~26.7 GiB peak vs.
+  F17's own 23.8 GiB (F17's dry-run script never reloads — it deliberately reuses the one
+  preflight-mutated model instance, exactly to dodge this class of bug, per its own docstring).
+  **Fix:** `import gc; gc.collect()` between `del model` and `torch.cuda.empty_cache()`. Confirmed:
+  the identical batch-4/seq-512/accum-1 shape then ran with peak VRAM 4.36 GiB (see bug 2 below for
+  why so low) instead of OOMing. **Owner action (Track B): any script using this reload idiom on a
+  `StructuredNemotronH` instance needs the same `gc.collect()` — `train_full_sft.py` itself only
+  reloads the 370M `NemotronH`, which has no such hook, so it is not affected, but any future
+  Megatron-line script copying its reload pattern will hit this.**
+- **Bug 2: an all-masked batch produces a silent NaN loss.** Round-1e's compact-context prompts
+  run up to 950 B; at `seq_len=512` (not this trainer's own default of 1536, but reachable via
+  `--seq-len`) the truncated `x_len=511` sequence for many rows never reaches the target span at
+  all, so `build_example`'s `-100` prompt mask covers the entire row and `cross_entropy` over an
+  all-ignored target is `0/0 = NaN`. This would silently poison `.backward()` (NaN grads spreading
+  into every parameter) without ever raising. **Fix:** skip a micro-batch outright when
+  `(y != -100).any()` is false. Confirmed via the diagnostic run above: every one of 624 batches at
+  seq_len=512 on the round1e-only file was skipped this way (0 real steps, 4.36 GiB peak, no
+  poisoned gradients) — strong independent confirmation that round1e genuinely needs `seq_len=1536`,
+  not 512, matching the plan's own reasoning about prompt+target byte budgets.
+- **Bug 3 (lora_megatron.py, new file, not from Track B): `isinstance(module, nn.Embedding)` does
+  not catch Megatron's `VocabParallelEmbedding`.** `find_lora_targets(model, ".*")` on the real
+  1.13B model wrapped `core.embedding.word_embeddings` because its 2-D `.weight` (vocab_size x
+  hidden) passed the "linear-like" test and the embedding-exclusion check only excluded a plain
+  `torch.nn.Embedding`. The wrapped embedding then crashed on the very next forward pass:
+  `GenericLoRA.forward` computes `x @ lora_A.T` assuming `x` is a float activation, but an
+  embedding's `forward(input_ids)` receives integer token indices —
+  `RuntimeError: mat1 and mat2 shapes cannot be multiplied (1x8 and 1536x8)`. **Fix:** exclude by
+  duck-typing on `hasattr(module, "num_embeddings") and hasattr(module, "embedding_dim")` (the
+  attribute pair every embedding-style module exposes, `torch.nn` or `megatron.core`) instead of an
+  `isinstance` class check. Confirmed after the fix: `inject_lora_generic(model, ".*")` wraps 128
+  modules, all `TELayerNormColumnParallelLinear`/`TERowParallelLinear` (transformer-engine layers —
+  confirms the file's own prediction that these are not `nn.Linear` subclasses), and a forward pass
+  before vs. immediately after injection is bit-identical (`max_abs_diff == 0.0`) since `B` starts
+  at zero.
+- **Real capacity finding, batch 4 does NOT sustain past the first optimizer step at seq_len 1536**
+  (batch 4 was fine at F17's seq_len 512). With the GC bug fixed, batch 4 / seq_len 1536 /
+  grad_accum 2 completed its FIRST `opt.step()` (AdamW's fp32 state now materialized) but then
+  OOM'd on the very next micro-batch, at `--vram-fraction 0.85` (26.65 GiB cap) AND again at 0.95
+  (29.79 GiB cap, with the physical device itself down to <1 GiB free at that point — a real
+  capacity ceiling, not a fraction artifact). **What works: batch 2 / grad_accum 4 (same effective
+  batch 8) at seq_len 1536, vram-fraction 0.85** — ran the full 14,908-example epoch (7,454
+  micro-steps, 1,864 optimizer steps) without incident. Peak VRAM 26.0 GiB, peak host RSS 6.7 GiB
+  (well under the 12 GiB container cap), wall 1,221 s (~20.4 min). Final loss 4.86e-05 (round1e's
+  short, templated citation targets are trivially memorizable at 1 epoch — the m7-mix examples in
+  the same run show a much wider loss spread, 0.1-2.9, which is the expected/healthy pattern).
+  Checkpoint saved to `runs/g0_sft_round1/final.pt`
+  (sha256 `fe800a55473764168d9864a64f0cd7e22676a60ae0ef9096bc11f5844c9e58ae`) and verified by an
+  in-process reload + forward pass (`verify_reload.status: "ok"`).
+- **Owner action (Track B):** at seq_len 1536 on this checkpoint, plan future Megatron SFT/TTT runs
+  around batch 2 / grad_accum >= 2, not batch 4 — batch 4's preflight passing is not sufficient
+  evidence it will sustain multiple real optimizer steps once AdamW's state is materialized.

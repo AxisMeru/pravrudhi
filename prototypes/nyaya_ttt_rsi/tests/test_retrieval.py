@@ -10,6 +10,8 @@ from prototypes.nyaya_ttt_rsi.retrieval import (
 
 @pytest.fixture(scope="module")
 def store():
+    if not (DEFAULT_TRAIN.exists() and DEFAULT_HELDOUT.exists()):
+        pytest.skip(f"Track B data not found under {DEFAULT_TRAIN.parent.parent}; set TRACKB_ROOT")
     return PassageStore.from_law_files(DEFAULT_TRAIN, DEFAULT_HELDOUT)
 
 

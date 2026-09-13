@@ -212,56 +212,97 @@ def train(
     micro_step_in_accum = 0
     t0 = time.time()
     opt.zero_grad(set_to_none=True)
+    status = "ok"
+    oom_error: str | None = None
+    oom_at_micro_step: int | None = None
 
-    for epoch in range(epochs):
-        import random
+    # NOTE (F-section candidate, see FIXES-FOR-MAIN-SESSIONS.md): the mandatory
+    # preflight step above uses a SINGLE forward+backward+optimizer.step() at
+    # the seq_len cap and can pass while real training -- which additionally
+    # holds `grad_accum` micro-batches' worth of retained autograd graph
+    # state plus AdamW's own exp_avg/exp_avg_sq buffers (materialized only
+    # after the *first* real opt.step(), not during the preflight's own
+    # throwaway step on a freshly-constructed optimizer) -- OOMs a few steps
+    # in. This loop therefore treats OOM as a possible outcome of ANY step,
+    # not just the preflight's, and aborts cleanly with a written report
+    # instead of an uncaught crash.
+    try:
+        for epoch in range(epochs):
+            import random
 
-        order = list(range(len(rows)))
-        random.Random(seed + epoch).shuffle(order)
+            order = list(range(len(rows)))
+            random.Random(seed + epoch).shuffle(order)
 
-        for mb in range(micro_batches_per_epoch):
-            idx = order[mb * batch_size : (mb + 1) * batch_size]
-            chunk = [rows[i] for i in idx]
-            x, y = collate_batch_tensors(chunk, seq_len, device)
-            zeros = torch.zeros_like(x)
+            for mb in range(micro_batches_per_epoch):
+                idx = order[mb * batch_size : (mb + 1) * batch_size]
+                chunk = [rows[i] for i in idx]
+                x, y = collate_batch_tensors(chunk, seq_len, device)
+                zeros = torch.zeros_like(x)
 
-            for lg in opt.param_groups:
-                lg["lr"] = linear_warmup_lr(opt_step, warmup, lr)
+                # BUG FOUND (see FIXES-FOR-MAIN-SESSIONS.md, F-section): when
+                # every example in a batch has prompt bytes alone already
+                # >= seq_len (round1e's compact-context prompts run up to 950
+                # B; at seq_len=512 -- NOT this trainer's default of 1536,
+                # but reachable via --seq-len -- the truncated sequence never
+                # reaches the target span at all), `build_example` masks the
+                # entire row and `y` ends up all -100. `cross_entropy` over
+                # an all-ignored target is 0/0 = NaN, which would silently
+                # poison `.backward()` (NaN grads) without ever raising.
+                # Skip such a degenerate batch instead of training on it.
+                if not bool((y != -100).any()):
+                    continue
 
-            with autocast_ctx_factory():
-                logits = model(x, zeros, zeros)
-                loss = nn.functional.cross_entropy(
-                    logits.reshape(-1, vocab), y.reshape(-1), ignore_index=-100
-                )
-            (loss / grad_accum).backward()
-            micro_step_in_accum += 1
-            examples_seen += len(chunk)
-            tokens_seen += int((y != -100).sum().item())
+                for lg in opt.param_groups:
+                    lg["lr"] = linear_warmup_lr(opt_step, warmup, lr)
 
-            loss_val = float(loss.detach())
-            global_micro_step = epoch * micro_batches_per_epoch + mb
-            if global_micro_step % 50 == 0:
-                losses_every_50.append(
-                    {
-                        "micro_step": global_micro_step,
-                        "opt_step": opt_step,
-                        "epoch": epoch,
-                        "loss": loss_val,
-                        "lr": opt.param_groups[0]["lr"],
-                        "examples_seen": examples_seen,
-                        "tokens_seen": tokens_seen,
-                        "wall_seconds": time.time() - t0,
-                    }
-                )
+                global_micro_step = epoch * micro_batches_per_epoch + mb
+                try:
+                    with autocast_ctx_factory():
+                        logits = model(x, zeros, zeros)
+                        loss = nn.functional.cross_entropy(
+                            logits.reshape(-1, vocab), y.reshape(-1), ignore_index=-100
+                        )
+                    (loss / grad_accum).backward()
+                except torch.cuda.OutOfMemoryError as e:
+                    status = "training_oom"
+                    oom_error = str(e)
+                    oom_at_micro_step = global_micro_step
+                    raise
+                micro_step_in_accum += 1
+                examples_seen += len(chunk)
+                tokens_seen += int((y != -100).sum().item())
 
-            if micro_step_in_accum == grad_accum or mb == micro_batches_per_epoch - 1:
-                nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-                opt.step()
-                opt.zero_grad(set_to_none=True)
-                opt_step += 1
-                micro_step_in_accum = 0
-                if device == "cuda":
-                    torch.cuda.synchronize()
+                loss_val = float(loss.detach())
+                if global_micro_step % 50 == 0:
+                    losses_every_50.append(
+                        {
+                            "micro_step": global_micro_step,
+                            "opt_step": opt_step,
+                            "epoch": epoch,
+                            "loss": loss_val,
+                            "lr": opt.param_groups[0]["lr"],
+                            "examples_seen": examples_seen,
+                            "tokens_seen": tokens_seen,
+                            "wall_seconds": time.time() - t0,
+                        }
+                    )
+
+                if micro_step_in_accum == grad_accum or mb == micro_batches_per_epoch - 1:
+                    try:
+                        nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                        opt.step()
+                    except torch.cuda.OutOfMemoryError as e:
+                        status = "training_oom"
+                        oom_error = str(e)
+                        oom_at_micro_step = global_micro_step
+                        raise
+                    opt.zero_grad(set_to_none=True)
+                    opt_step += 1
+                    micro_step_in_accum = 0
+                    if device == "cuda":
+                        torch.cuda.synchronize()
+    except torch.cuda.OutOfMemoryError:
+        pass  # status/oom_error/oom_at_micro_step already recorded above
 
     total_seconds = time.time() - t0
     peak_vram_mib = (
@@ -270,6 +311,9 @@ def train(
     peak_rss_gib = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / (1024 * 1024)
 
     return {
+        "status": status,
+        "oom_error": oom_error,
+        "oom_at_micro_step": oom_at_micro_step,
         "losses_every_50_steps": losses_every_50,
         "final_loss": losses_every_50[-1]["loss"] if losses_every_50 else None,
         "n_optimizer_steps": opt_step,
@@ -381,7 +425,31 @@ def main() -> int:
     # Preflight mutated the model's weights with one throwaway step -- reload
     # fresh from checkpoint before any real epoch touches the data, exactly
     # as train_full_sft.py does for the 370M line.
+    #
+    # BUG FOUND during the first real run (see FIXES-FOR-MAIN-SESSIONS.md,
+    # F-section): `del model` alone does NOT free the old model's CUDA
+    # tensors here. `StructuredNemotronH.__init__` registers
+    # `self.core.decoder.register_forward_hook(self._capture_hidden)` -- a
+    # bound method holding a reference to `self` -- so the model participates
+    # in a reference cycle (model -> decoder -> hook -> model) that plain
+    # refcounting cannot collect. `torch.cuda.empty_cache()` only returns
+    # memory the allocator already knows is unused; called immediately after
+    # `del model` it runs before Python's cyclic GC has actually broken the
+    # cycle, so the old model's weights (and its now-detached preflight
+    # optimizer, same problem) are STILL resident when the second
+    # `load_megatron_blob` call constructs a brand-new model on top of them.
+    # Measured effect: batch 4 / seq_len 512 / grad_accum 1 -- the exact
+    # shape the dry run proved OOM-free for 40/40 steps -- OOM'd on the very
+    # first real training step once this trainer's reload path ran, at ~26.7
+    # GiB peak (vs. the dry run's own 23.8 GiB, which never reloads at all:
+    # `sft_megatron_batched.py` deliberately reuses the one preflight-mutated
+    # model instance for its dry-run steps instead of reloading, exactly to
+    # avoid this class of problem -- see that script's own docstring). Fix:
+    # force the cycle collector to run before emptying the cache.
+    import gc
+
     del model
+    gc.collect()
     if device == "cuda":
         torch.cuda.empty_cache()
     model, cfg = load_megatron_blob(args.checkpoint, config_path=args.config, device=device)
@@ -395,6 +463,18 @@ def main() -> int:
         args.batch_size, args.grad_accum, args.epochs, args.seed,
     )
 
+    if result["status"] != "ok":
+        # Training OOM'd mid-run -- the model's weights at this point reflect
+        # a partially-applied (possibly mid-accumulation) step and are not
+        # safe to save as a checkpoint. Report what was measured before the
+        # OOM (loss history, examples/tokens seen, peak VRAM/RSS) and stop
+        # without writing final.pt.
+        report.update({**result, "n_examples": len(rows), "arm": arm})
+        args.out.parent.mkdir(parents=True, exist_ok=True)
+        args.out.write_text(json.dumps(report, indent=2), encoding="utf-8")
+        print(json.dumps(report, indent=2))
+        return 1
+
     save_path = args.save_dir / "final.pt"
     save_checkpoint(
         model, save_path, step=result["n_optimizer_steps"],
@@ -406,6 +486,7 @@ def main() -> int:
 
     report.update(
         {
+            **result,
             "status": "completed" if verify["status"] == "ok" else "completed_verify_failed",
             "n_examples": len(rows),
             "arm": arm,
@@ -413,7 +494,6 @@ def main() -> int:
             "checkpoint_out": str(save_path),
             "checkpoint_sha256": checkpoint_sha256,
             "verify_reload": verify,
-            **result,
         }
     )
     args.out.parent.mkdir(parents=True, exist_ok=True)

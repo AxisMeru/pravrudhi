@@ -49,24 +49,32 @@ footer { margin-top: 2.5rem; color: var(--muted); font-size: .8rem; }</style>
 <th>Metric</th>
 <th>A — frozen closed-book (published baseline)</th>
 <th>B&#x27; — grounded compact context + scoring + calibrated abstention (round-1e persistent LoRA)</th>
-<th>C&#x27; — B&#x27; + ephemeral TTT on shown passages, then rescore (gated)</th>
+<th>B&#x27;(frozen) — grounded compact context + scoring + calibrated abstention, NO consolidation (frozen 370M)</th>
+<th>C&#x27; — B&#x27; + ephemeral TTT on shown passages, then rescore (gated, untuned settings)</th>
+<th>D — Phase 4: round-2 consolidation on B&#x27;-gate-accepted pseudo-labels (no gold), re-calibrated</th>
 </tr></thead>
 <tbody>
 <tr>
 <th scope="row">citation_recall</th>
 <td>0.004 (1/227) [0.001–0.025]</td>
 <td>0.145 (33/227) [0.105–0.197]</td>
+<td>0.176 (40/227) [0.132–0.231]</td>
 <td>0.128 (29/227) [0.090–0.177]</td>
+<td>0.198 (45/227) [0.152–0.255]</td>
 </tr>
 <tr>
 <th scope="row">citation_precision</th>
 <td>0.004 (1/227) [0.001–0.025]</td>
 <td>0.190 (33/174) [0.138–0.254]</td>
+<td>0.206 (40/194) [0.155–0.269]</td>
 <td>0.190 (29/153) [0.135–0.259]</td>
+<td>0.232 (45/194) [0.178–0.296]</td>
 </tr>
 <tr>
 <th scope="row">abstention_correctness</th>
 <td>0.556 (5/9) [0.267–0.811]</td>
+<td>0.889 (8/9) [0.565–0.980]</td>
+<td>0.444 (4/9) [0.189–0.733]</td>
 <td>0.889 (8/9) [0.565–0.980]</td>
 <td>0.889 (8/9) [0.565–0.980]</td>
 </tr>
@@ -74,25 +82,33 @@ footer { margin-top: 2.5rem; color: var(--muted); font-size: .8rem; }</style>
 <th scope="row">law_lookup_prefix_similarity_mean</th>
 <td>0.059</td>
 <td>0.626</td>
+<td>0.108</td>
+<td>0.617</td>
 <td>0.617</td>
 </tr>
 <tr>
 <th scope="row">gold_selected</th>
 <td>–</td>
 <td>0.491 (339/690) [0.454–0.529]</td>
+<td>0.104 (72/690) [0.084–0.129]</td>
 <td>0.467 (322/690) [0.430–0.504]</td>
+<td>0.501 (346/690) [0.464–0.539]</td>
 </tr>
 <tr>
 <th scope="row">abstain_on_miss</th>
 <td>–</td>
 <td>0.777 (115/148) [0.703–0.837]</td>
+<td>0.514 (76/148) [0.434–0.593]</td>
 <td>0.770 (114/148) [0.696–0.831]</td>
+<td>0.851 (126/148) [0.785–0.900]</td>
 </tr>
 <tr>
 <th scope="row">false_abstain_when_shown</th>
 <td>–</td>
 <td>0.116 (62/533) [0.092–0.146]</td>
+<td>0.430 (229/533) [0.388–0.472]</td>
 <td>0.182 (97/533) [0.152–0.217]</td>
+<td>0.086 (46/533) [0.065–0.113]</td>
 </tr>
 </tbody>
 </table>
@@ -115,9 +131,19 @@ footer { margin-top: 2.5rem; color: var(--muted); font-size: .8rem; }</style>
 <td>2.98</td>
 </tr>
 <tr>
-<td>C&#x27; — B&#x27; + ephemeral TTT on shown passages, then rescore (gated)</td>
+<td>B&#x27;(frozen) — grounded compact context + scoring + calibrated abstention, NO consolidation (frozen 370M)</td>
+<td>41.4</td>
+<td>2.98</td>
+</tr>
+<tr>
+<td>C&#x27; — B&#x27; + ephemeral TTT on shown passages, then rescore (gated, untuned settings)</td>
 <td>463.2</td>
 <td>3.55</td>
+</tr>
+<tr>
+<td>D — Phase 4: round-2 consolidation on B&#x27;-gate-accepted pseudo-labels (no gold), re-calibrated</td>
+<td>37.9</td>
+<td>3.56</td>
 </tr>
 </tbody>
 </table>
@@ -164,6 +190,22 @@ footer { margin-top: 2.5rem; color: var(--muted); font-size: .8rem; }</style>
 <td>1</td>
 <td>[0.000, 0.000]</td>
 </tr>
+<tr>
+<td>B&#x27; → D</td>
+<td>gold-citation selected</td>
+<td>24</td>
+<td>19</td>
+<td>0.542</td>
+<td>[-0.012, 0.026]</td>
+</tr>
+<tr>
+<td>B&#x27; → D</td>
+<td>grounded</td>
+<td>0</td>
+<td>0</td>
+<td>1</td>
+<td>[0.000, 0.000]</td>
+</tr>
 </tbody>
 </table>
 <h2>Gate</h2>
@@ -181,6 +223,10 @@ footer { margin-top: 2.5rem; color: var(--muted); font-size: .8rem; }</style>
 <li>B&#x27; dropped_passage_rate=0.0014 (1/690) -- rare over-budget-after-truncation fallback fired as expected.</li>
 <li>C&#x27; does NOT beat B&#x27; on gold-citation-selected (0.2507 vs 0.2594, McNemar p=0.345, not significant) -- per the run plan, Phase 4 (a second RSI consolidation round) was skipped.</li>
 <li>A vs B&#x27; is decisive: gold-citation-present 0.0029 -&gt; 0.2594 (McNemar p=1.07e-50); grounded_rate 0.0 -&gt; 1.0 by construction (scoring mode always emits either a shown citation or a calibrated abstention, never free-form hallucinated continuation).</li>
+<li>B&#x27;(frozen) vs B&#x27;: consolidation alone is responsible for most of the gain -- gold_selected 0.104 (frozen) vs 0.491 (round-1e persistent LoRA); frozen-model calibration is also much weaker (balanced accuracy 0.580 vs 0.843).</li>
+<li>Phase 4 (RSI self-training, no gold): streamed 500 fresh train prompts (seed 2, disjoint from the 2,496 SFT examples and the 500 calibration dev items); 134 gate-rejected on B&#x27;-s own tau/delta, 366 accepted as pseudo-labels. For the record only (never used for gating): 0.702 of accepted pseudo-labels matched the train split&#x27;s own gold citation. Round-2 consolidation (lr=1e-4, 1 epoch, from B&#x27;&#x27;s persistent state) passed its regression-probe gate (probe_delta_rel=0.028 &lt; 0.15). Re-calibrated on the SAME 500-item dev slice: tau=4.460, delta=0.000, balanced_accuracy=0.846 (vs 0.843 for B&#x27;). D vs B&#x27; on the 690: gold_selected 0.501 vs 0.491 (McNemar p=0.349, bootstrap CI [-0.007246376811594203, 0.028985507246376812]) -- directionally positive on several sub-metrics (law_citation_retrieval hit rate 0.145 -&gt; 0.198, abstain_on_miss 0.777 -&gt; 0.851, false_abstain_when_shown 0.116 -&gt; 0.086) but NOT statistically significant on the headline gold_selected metric at n=690 -- reported plainly as a small, non-significant improvement, not a proven win.</li>
+<li>TTT dev sweep (120 dev items, seed 3, subsampled from the 500-item calibration dev slice, NOT held-out; B&#x27;&#x27;s own tau/delta used throughout, never recalibrated per cell): no-TTT baseline gold_selected_rate=0.492. Best grid cell (steps=2, lr=0.0003, target=attn_only) delta vs baseline = 0.008 (&lt; 0.03 threshold) -- no cell beat the no-TTT baseline by the required margin, so C&#x27;&#x27; was NOT run. Aggressive settings (lr=3e-3, steps=8, all persistent LoRA modules) were actively destructive (delta=-0.408, false_abstain_rate rose to 0.856). Clean negative finding for per-query ephemeral TTT at 370M, consistent with the untuned C&#x27; vs B&#x27; result above.</li>
+<li>Note on rank: the TTT sweep&#x27;s &#x27;attn-only&#x27; vs &#x27;all&#x27; target dimension reuses subsets of the persistent r=16 LoRA&#x27;s own modules rather than injecting a genuinely separate r=8 adapter -- F10 (in FIXES-FOR-MAIN-SESSIONS.md) explains why a second LoRA layer cannot be stacked on an already-injected one; disclosed here as a deviation from the literal r=8 spec, not a silent substitution.</li>
 </ul>
 <footer>Generated by prototypes.nyaya_ttt_rsi.report</footer>
 </main>
