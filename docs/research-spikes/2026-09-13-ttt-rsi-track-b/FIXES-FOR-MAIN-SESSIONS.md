@@ -19,7 +19,7 @@ branch. Each item says what is broken, what fixed it, and what the owning sessio
   "Skipping import of cpp extensions due to incompatible torch version" (its CUDA kernels are
   off, which peft's plain LoRA path never needs) and `get_peft_model` succeeds.
 - **Owner action (Track B / whoever maintains the image):** add `torchao==0.16.0` to the
-  image's Dockerfile (`/home/ss/rtx5090setup/docker/Dockerfile`) or run the pin once inside
+  image's Dockerfile (`~/rtx5090setup/docker/Dockerfile`) or run the pin once inside
   `rtx5090-train`. Check first that nothing in that container depends on torchao 0.11's cpp
   kernels (quantized inference would; plain SFT/LoRA does not).
 
@@ -124,7 +124,7 @@ branch. Each item says what is broken, what fixed it, and what the owning sessio
   omits `--config`, resolution depends entirely on where `--checkpoint` happens to sit.
 - **Why this matters for a container run specifically:** the G0 OOM test plan
   (`G0-OOM-RUN-PLAN.md`, this directory) mounts the checkpoint's real location
-  (`/home/ss/fusion-project`, a full separate mirror of the repo, confirmed by `find`/`ls` to
+  (`~/fusion-project`, a full separate mirror of the repo, confirmed by `find`/`ls` to
   contain its own `configs/train/nemotron_h_1b.yaml`) read-only at `/fusion-project`, and the
   actual Track B git checkout (branch `h-ord/phase1`) read-only at `/trackB`. An unset
   `--config` would resolve against `/fusion-project`'s mirrored config, not `/trackB`'s

@@ -16,8 +16,8 @@ import numpy as np
 
 
 ABSTAIN_PHRASE = "Not found in the provided corpus"
-DEFAULT_TRAIN = Path("/home/ss/projects/prabhasa-samskrutam/data/sft/law_v3_train.jsonl")
-DEFAULT_HELDOUT = Path("/home/ss/projects/prabhasa-samskrutam/data/eval/law_qa_heldout_v3.jsonl")
+DEFAULT_TRAIN = Path.home() / Path("projects/prabhasa-samskrutam/data/sft/law_v3_train.jsonl")
+DEFAULT_HELDOUT = Path.home() / Path("projects/prabhasa-samskrutam/data/eval/law_qa_heldout_v3.jsonl")
 
 
 @dataclass(frozen=True)

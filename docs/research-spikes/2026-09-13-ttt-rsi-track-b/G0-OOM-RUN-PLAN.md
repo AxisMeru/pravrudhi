@@ -23,9 +23,9 @@ Adapted to this task's isolation requirements (repo read-only, separate output m
 memory-capped):
 
 ```bash
-REPO=/home/ss/projects/prabhasa-samskrutam            # host path, mounted read-only at /trackB
-FUSION=/home/ss/fusion-project                        # host path, mounted read-only at /fusion-project
-OUT=/home/ss/projects/pravrudhi/.claude/worktrees/ttt-llm-research-0f1adf/prototypes/nyaya_ttt_rsi/runs/g0_expandable
+REPO=$HOME/projects/prabhasa-samskrutam            # host path, mounted read-only at /trackB
+FUSION=$HOME/fusion-project                        # host path, mounted read-only at /fusion-project
+OUT=$HOME/projects/pravrudhi/.claude/worktrees/ttt-llm-research-0f1adf/prototypes/nyaya_ttt_rsi/runs/g0_expandable
 mkdir -p "$OUT"
 
 docker run --rm \
@@ -116,5 +116,5 @@ they stay identical). The command in §1 above avoids this by passing `--config`
 
 ## Files
 
-- Plan: `/home/ss/projects/pravrudhi/.claude/worktrees/ttt-llm-research-0f1adf/docs/research-spikes/2026-09-13-ttt-rsi-track-b/G0-OOM-RUN-PLAN.md`
-- Bug record: `/home/ss/projects/pravrudhi/.claude/worktrees/ttt-llm-research-0f1adf/docs/research-spikes/2026-09-13-ttt-rsi-track-b/FIXES-FOR-MAIN-SESSIONS.md` (F6)
+- Plan: `~/projects/pravrudhi/.claude/worktrees/ttt-llm-research-0f1adf/docs/research-spikes/2026-09-13-ttt-rsi-track-b/G0-OOM-RUN-PLAN.md`
+- Bug record: `~/projects/pravrudhi/.claude/worktrees/ttt-llm-research-0f1adf/docs/research-spikes/2026-09-13-ttt-rsi-track-b/FIXES-FOR-MAIN-SESSIONS.md` (F6)
