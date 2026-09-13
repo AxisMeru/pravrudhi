@@ -1202,6 +1202,79 @@ class TestLoopSyncsBeforeEveryBeat:
         assert not (clone / ".git" / "rebase-apply").exists()
         assert (clone / "file.txt").read_text() == "loop version\n"
 
+    def test_a_dirty_tree_inside_the_declared_build_scope_is_tagged_own_scope(self, tmp_path: Path) -> None:
+        """2026-09-13, cli-lead: a dirty-tree precheck failure is a different problem from a genuine content
+        conflict (nothing has even been compared yet), and should be distinguished so a person reading the
+        streak knows whether it looks like the loop's own uncommitted build output or something it does not
+        recognise. This case: every dirty path is inside the declared `build.allowed_prefixes`."""
+        from pravrudhi.application.heartbeat import _sync_loop_branch
+
+        _origin, seed, clone = self._origin_and_clone(tmp_path)
+        (seed / ".gitignore").write_text(".pravrudhi/\n")
+        (seed / "frontend").mkdir()
+        (seed / "frontend" / "app.txt").write_text("v0\n")
+        self._git("add", ".", cwd=seed)
+        self._git("-c", "user.name=t", "-c", "user.email=t@t.example", "commit", "-m", "team", cwd=seed)
+        self._git("push", "origin", "main", cwd=seed)
+        self._git("fetch", "origin", "main", cwd=clone)
+        self._git("merge", "origin/main", cwd=clone)  # bring frontend/app.txt in before dirtying the tree
+        (clone / ".pravrudhi").mkdir(exist_ok=True)
+        (clone / ".pravrudhi" / "config.yaml").write_text(
+            "build:\n  allowed_prefixes:\n    - frontend/\n  validate: 'true'\n"
+        )
+        (seed / "team2.txt").write_text("more team work\n")
+        self._git("add", ".", cwd=seed)
+        self._git("-c", "user.name=t", "-c", "user.email=t@t.example", "commit", "-m", "team2", cwd=seed)
+        self._git("push", "origin", "main", cwd=seed)
+        # A MODIFICATION to an already-tracked file is what actually triggers git's dirty-tree precheck --
+        # a bare untracked file does not block a rebase at all (confirmed by hand before writing this test).
+        (clone / "frontend" / "app.txt").write_text("uncommitted build output\n")
+
+        detail = _sync_loop_branch(clone)
+
+        assert detail is not None
+        assert detail.startswith("dirty-tree(own-scope):")
+        assert not (clone / ".git" / "rebase-merge").exists()
+        assert (clone / "frontend" / "app.txt").read_text() == "uncommitted build output\n", (
+            "nothing here may be discarded"
+        )
+
+    def test_a_dirty_tree_outside_the_declared_build_scope_is_tagged_unrecognized(self, tmp_path: Path) -> None:
+        """The product loop's actual 2026-09-13 case: `harness/` and `research/` were left dirty from a prior
+        mis-rooted period and are outside every declared prefix (`frontend/`, `desktop/`, `engine/`, `scripts/`,
+        `docs/`). This must be reported distinctly from `own-scope`, and never auto-resolved."""
+        from pravrudhi.application.heartbeat import _sync_loop_branch
+
+        _origin, seed, clone = self._origin_and_clone(tmp_path)
+        (seed / ".gitignore").write_text(".pravrudhi/\n")
+        (seed / "team.txt").write_text("team work\n")
+        self._git("add", ".", cwd=seed)
+        self._git("-c", "user.name=t", "-c", "user.email=t@t.example", "commit", "-m", "team", cwd=seed)
+        self._git("push", "origin", "main", cwd=seed)
+        self._git("fetch", "origin", "main", cwd=clone)
+        self._git("merge", "origin/main", cwd=clone)  # bring .gitignore in before dirtying the tree
+        (clone / ".pravrudhi").mkdir(exist_ok=True)
+        (clone / ".pravrudhi" / "config.yaml").write_text(
+            "build:\n  allowed_prefixes:\n    - frontend/\n  validate: 'true'\n"
+        )
+        (seed / "team2.txt").write_text("more team work\n")
+        self._git("add", ".", cwd=seed)
+        self._git("-c", "user.name=t", "-c", "user.email=t@t.example", "commit", "-m", "team2", cwd=seed)
+        self._git("push", "origin", "main", cwd=seed)
+        # Production's actual shape (2026-09-13, product loop): a modified TRACKED file outside every declared
+        # prefix (there, .gitignore itself) plus untracked stray dirs (harness/, research/). The modification is
+        # what actually blocks the rebase; the untracked dir is included here for realism, not to trigger it.
+        (clone / ".gitignore").write_text(".pravrudhi/\nharness/\n")
+        (clone / "harness").mkdir(exist_ok=True)
+        (clone / "harness" / "stray.json").write_text("{}\n")
+
+        detail = _sync_loop_branch(clone)
+
+        assert detail is not None
+        assert detail.startswith("dirty-tree(unrecognized):")
+        assert (clone / "harness" / "stray.json").exists(), "nothing here may be discarded"
+        assert (clone / ".gitignore").read_text() == ".pravrudhi/\nharness/\n", "nothing here may be discarded"
+
     def test_beat_parks_itself_not_a_criterion_on_a_rebase_conflict(self, tmp_path: Path) -> None:
         from pravrudhi.application import heartbeat
 

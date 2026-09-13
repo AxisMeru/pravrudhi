@@ -144,3 +144,33 @@ class TestConvergenceFailureMode:
         _write(tmp_path, [_beat("2026-09-12T10:00:00Z", {"accepted": True, "judged": "met"})])
         c = convergence(tmp_path, hours=24, now="2026-09-12T12:00:00Z")
         assert c.failure_mode is None
+
+    def test_a_live_rebase_conflict_streak_overrides_a_past_met_criterion(self, tmp_path: Path) -> None:
+        """2026-09-13, cli-lead: the product loop had 1 MET in its trailing window (which alone silences
+        `_failure_mode`, per the check above) AND had been unable to dispatch anything for 8 consecutive beats
+        on a rebase conflict it cannot resolve itself. A past success says nothing about whether the loop can
+        dispatch right now, so a live streak at or past the alert threshold must surface regardless of `met`."""
+        from pravrudhi.application import heartbeat
+        from pravrudhi.application.convergence import convergence
+
+        _write(tmp_path, [_beat("2026-09-12T10:00:00Z", {"accepted": True, "judged": "met"})])
+        for _ in range(heartbeat.MAX_REBASE_CONFLICTS_BEFORE_ALERT):
+            heartbeat.record_rebase_conflict(tmp_path)
+
+        c = convergence(tmp_path, hours=24, now="2026-09-12T12:00:00Z")
+
+        assert c.met == 1, "the past success is still counted"
+        assert c.failure_mode is not None and "rebase conflict" in c.failure_mode
+        assert str(heartbeat.MAX_REBASE_CONFLICTS_BEFORE_ALERT) in c.failure_mode
+
+    def test_a_streak_below_the_alert_threshold_does_not_override_a_met_criterion(self, tmp_path: Path) -> None:
+        from pravrudhi.application import heartbeat
+        from pravrudhi.application.convergence import convergence
+
+        _write(tmp_path, [_beat("2026-09-12T10:00:00Z", {"accepted": True, "judged": "met"})])
+        for _ in range(heartbeat.MAX_REBASE_CONFLICTS_BEFORE_ALERT - 1):
+            heartbeat.record_rebase_conflict(tmp_path)
+
+        c = convergence(tmp_path, hours=24, now="2026-09-12T12:00:00Z")
+
+        assert c.failure_mode is None, "a short streak is ordinary noise, not yet worth reporting"

@@ -350,7 +350,48 @@ def stalled(root: Path, request_id: str, index: int) -> bool:
     every one refused by the completion gate, while the criterion stayed unmet and the Lite Plan seat ran into
     its usage limit. Retrying is right; retrying the identical task hourly for ever is a standing order to spend.
     """
-    return attempts(root, request_id, index) >= MAX_CRITERION_ATTEMPTS
+    if attempts(root, request_id, index) >= MAX_CRITERION_ATTEMPTS:
+        return True
+    return network_capability_gap(root, request_id, index)
+
+
+# 2026-09-13, cli-lead: r-3981d7e0 criterion 3 (a real IL-TUR INSTALL.md needing live-fetched HuggingFace
+# metadata) was re-dispatched 7 times over 2 requests before its budget ran out, and the judge was right every
+# time -- the dispatch sandbox has no path to fetch that data, so no policy declares `network: open` for it, and
+# no number of retries could ever produce the finished file. "Flag such criteria rather than letting the
+# attempt budget drain" (cli-lead): once the judge's own reasoning names the same network-capability gap twice
+# in a row, the criterion is parked early -- before spending the third attempt -- with a distinct reason rather
+# than the generic "budget spent" a person would otherwise have to re-diagnose from scratch.
+_NETWORK_GAP_RE = re.compile(
+    r"\b(no network access|cannot fetch|no way to fetch|network access|live[- ]fetch(ed|ing)?|"
+    r"sandbox has no (access|path)|fetched? from the (huggingface|hugging face|internet|web))\b",
+    re.IGNORECASE,
+)
+
+#: Two independent judged-not-met verdicts naming the same capability gap is enough to believe it, one alone
+#: could be an agent's own excuse rather than a real constraint.
+_NETWORK_GAP_MIN_MATCHES = 2
+
+
+def _all_judgements(root: Path, request_id: str, index: int) -> list[str]:
+    """Every recorded judgement for this criterion, oldest first -- `_last_judgement` keeps only the newest,
+    but detecting a repeated pattern needs the whole history."""
+    request = requests.get(root, request_id)
+    if request is None:
+        return []
+    prefix = _judgement_note(index, "")
+    return [
+        str(entry.get("note", ""))[len(prefix):].strip()
+        for entry in request.notes
+        if isinstance(entry, dict) and str(entry.get("note", "")).startswith(prefix)
+    ]
+
+
+def network_capability_gap(root: Path, request_id: str, index: int) -> bool:
+    """Whether this criterion's own judgement history names a network-fetch capability no dispatch has, at
+    least `_NETWORK_GAP_MIN_MATCHES` times -- see the module comment above `_NETWORK_GAP_RE`."""
+    matches = sum(1 for text in _all_judgements(root, request_id, index) if _NETWORK_GAP_RE.search(text))
+    return matches >= _NETWORK_GAP_MIN_MATCHES
 
 
 _GATE_ATTEMPTS_FILE = ".pravrudhi/gate-attempts.json"
@@ -724,6 +765,8 @@ def _sync_loop_branch(root: Path) -> str | None:
         return None
     detail = (rebased.stderr or rebased.stdout).strip()[:500]
     run("rebase", "--abort")
+    if _is_dirty_tree_precheck_failure(detail):
+        detail = f"dirty-tree({_dirty_tree_scope_tag(root)}): {detail}"
     return detail
 
 
@@ -768,6 +811,52 @@ def _push_loop_branch(root: Path) -> str | None:
     if pushed.returncode == 0:
         return None
     return (pushed.stderr or pushed.stdout).strip()[:500]
+# git refuses to even attempt a rebase, before any content is compared, when the working tree carries
+# uncommitted changes -- "error: cannot rebase: You have unstaged changes." or "...Your index contains
+# uncommitted changes.", both followed by "Please commit or stash them." This is a materially different
+# problem from a genuine content conflict during rebase (which instead names the commit and the file, e.g.
+# "could not apply <sha>... <subject>"): nothing has been compared yet, there is nothing to resolve by hand
+# the way a merge conflict is, and repeating the identical generic message every beat for hours (2026-09-13,
+# the product loop, 8 consecutive beats over 7+ hours) is a different failure than the one this function
+# already reports well.
+_DIRTY_TREE_PRECHECK_RE = re.compile(
+    r"cannot rebase:.*(unstaged changes|uncommitted changes).*please commit or stash",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def _is_dirty_tree_precheck_failure(detail: str) -> bool:
+    return bool(_DIRTY_TREE_PRECHECK_RE.search(detail))
+
+
+def _dirty_tree_scope_tag(root: Path) -> str:
+    """Whether every dirty path is somewhere this loop's own declared build scope says it may write, or whether
+    at least one path is content the loop does not recognise as its own.
+
+    Read-only (`git status --porcelain`) -- this never stages, commits or discards anything. The distinction
+    matters because an auto-recovery that discards or commits blind is the danger cli-lead named (2026-09-13):
+    a dirty tree entirely inside `resolved_allowed_prefixes` is plausibly this loop's own build output that
+    failed to commit; anything outside it (as the product loop's stray `harness/`/`research/` from a prior
+    mis-rooted period were, both outside `frontend/`, `desktop/`, `engine/`, `scripts/`, `docs/`) must not be
+    assumed safe, and is reported as unrecognised rather than silently treated as ours.
+    """
+    from pravrudhi.application import build_config
+
+    try:
+        status = subprocess.run(
+            ["git", "status", "--porcelain"], cwd=root, capture_output=True, text=True, timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return "unrecognized"
+    if status.returncode != 0:
+        return "unrecognized"
+    paths = [line[3:].strip() for line in status.stdout.splitlines() if line.strip()]
+    if not paths:
+        return "unrecognized"
+    prefixes = build_config.resolved_allowed_prefixes(root)
+    if all(any(p.startswith(prefix) for prefix in prefixes) for p in paths):
+        return "own-scope"
+    return "unrecognized"
 
 
 _REBASE_CONFLICT_STREAK_FILE = ".pravrudhi/rebase-conflicts.json"
