@@ -1300,3 +1300,124 @@ class TestLoopSyncsBeforeEveryBeat:
         self._git("reset", "--hard", "origin/main", cwd=clone)  # the person resolves it by hand
         heartbeat.beat(clone)
         assert heartbeat.rebase_conflict_streak(clone) == 0
+
+
+class TestLoopPublishesOnIntegration:
+    """pravrudhi-app ADR-0002: the pull side (`_sync_loop_branch` above) already kept a `loop/*` root current
+    with `origin/main`, but nothing pushed in the other direction - the product loop closed a real criterion
+    and the commit sat unreachable from any remote ref, because nothing ever published it. `_push_loop_branch`
+    is that other direction: after a successful build-mode integration, the branch is pushed to `origin` under
+    its own name, never `main`."""
+
+    @staticmethod
+    def _git(*args: str, cwd: Path, check: bool = True) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            ["git", *args], cwd=cwd, capture_output=True, text=True, timeout=30, check=check,
+        )
+
+    @classmethod
+    def _origin_and_clone(cls, tmp_path: Path, *, branch: str | None = "loop/product") -> tuple[Path, Path]:
+        origin = tmp_path / "origin.git"
+        cls._git("init", "--bare", "-b", "main", str(origin), cwd=tmp_path)
+        seed = tmp_path / "seed"
+        cls._git("clone", str(origin), str(seed), cwd=tmp_path)
+        (seed / "file.txt").write_text("v0\n")
+        cls._git("add", ".", cwd=seed)
+        cls._git("-c", "user.name=t", "-c", "user.email=t@t.example", "commit", "-m", "seed", cwd=seed)
+        cls._git("push", "origin", "main", cwd=seed)
+        clone = tmp_path / "clone"
+        cls._git("clone", str(origin), str(clone), cwd=tmp_path)
+        cls._git("config", "user.name", "t", cwd=clone)
+        cls._git("config", "user.email", "t@t.example", cwd=clone)
+        if branch is not None:
+            cls._git("checkout", "-b", branch, cwd=clone)
+        return origin, clone
+
+    def test_a_plain_non_git_root_is_left_untouched(self, tmp_path: Path) -> None:
+        from pravrudhi.application.heartbeat import _push_loop_branch
+
+        assert _push_loop_branch(tmp_path) is None
+
+    def test_a_git_root_on_main_is_never_pushed(self, tmp_path: Path) -> None:
+        """The lead's own main checkout, or any root not yet re-rooted onto `loop/<name>`, must never be
+        pushed - only a `loop/*` branch is a root this ADR moved deliberately, and this must never become a
+        way to push `main` itself."""
+        from pravrudhi.application.heartbeat import _push_loop_branch
+
+        origin, clone = self._origin_and_clone(tmp_path, branch=None)
+        (clone / "local.txt").write_text("unpushed local work\n")
+        self._git("add", ".", cwd=clone)
+        self._git("-c", "user.name=t", "-c", "user.email=t@t.example", "commit", "-m", "local", cwd=clone)
+
+        assert _push_loop_branch(clone) is None
+        remote_log = self._git("log", "--oneline", "main", cwd=origin).stdout
+        assert "local" not in remote_log, "a root on main must never be pushed, only a loop/* root"
+
+    def test_a_loop_branch_with_a_new_commit_is_pushed_to_origin_under_its_own_name(self, tmp_path: Path) -> None:
+        from pravrudhi.application.heartbeat import _push_loop_branch
+
+        origin, clone = self._origin_and_clone(tmp_path)
+        (clone / "criterion.txt").write_text("closed\n")
+        self._git("add", ".", cwd=clone)
+        self._git("-c", "user.name=t", "-c", "user.email=t@t.example", "commit", "-m", "criterion closed", cwd=clone)
+        local_head = self._git("rev-parse", "HEAD", cwd=clone).stdout.strip()
+
+        result = _push_loop_branch(clone)
+
+        assert result is None
+        remote_heads = self._git("ls-remote", "--heads", str(origin), "loop/product", cwd=clone).stdout
+        assert local_head in remote_heads, "the loop's branch must now exist on origin under its own name"
+        # And never as main - this must not be a backdoor to the branch main deploys and releases from.
+        remote_main = self._git("ls-remote", "--heads", str(origin), "main", cwd=clone).stdout
+        assert local_head not in remote_main
+
+    def test_a_push_failure_is_reported_not_raised(self, tmp_path: Path) -> None:
+        """No origin configured at all (a loop root that was re-rooted but never had a remote set up, or a
+        transient network failure in the real case) must come back as a detail string, never an exception -
+        the same swallow-and-continue discipline `_sync_loop_branch` uses on the pull side."""
+        from pravrudhi.application.heartbeat import _push_loop_branch
+
+        root = tmp_path / "detached"
+        self._git("init", "-q", "-b", "loop/product", str(root), cwd=tmp_path)
+        self._git("config", "user.name", "t", cwd=root)
+        self._git("config", "user.email", "t@t.example", cwd=root)
+        (root / "file.txt").write_text("v0\n")
+        self._git("add", ".", cwd=root)
+        self._git("-c", "user.name=t", "-c", "user.email=t@t.example", "commit", "-m", "seed", cwd=root)
+
+        result = _push_loop_branch(root)
+
+        assert result is not None and result != ""
+
+    def test_a_successful_build_integration_publishes_the_criterion_immediately(self, tmp_path: Path) -> None:
+        """The mechanism end to end: a criterion closes via `integrate.integrate_build_criterion` (exactly as
+        `TestIntegrateBuildCriterion` in test_heartbeat_build_mode.py exercises it) inside a `loop/*` root with
+        a real origin, then `_push_loop_branch` is what stands between that commit and the fate the product
+        loop actually hit - unreachable from any remote ref."""
+        from pravrudhi.agents.base import GitWorktreeMixin
+        from pravrudhi.application import heartbeat, integrate, requests
+
+        origin, clone = self._origin_and_clone(tmp_path)
+        (clone / "src").mkdir()
+        (clone / "src" / "mod.py").write_text("VALUE = 1\n")
+        self._git("add", ".", cwd=clone)
+        self._git("-c", "user.name=t", "-c", "user.email=t@t.example", "commit", "-m", "add mod", cwd=clone)
+        requests.capture(
+            clone, "make VALUE two", request_id="r-1",
+            criteria=[requests.Criterion(text="`src/mod.py` sets VALUE = 2", source="operator", mode="build")],
+        )
+        task_id = "request:r-1:0"
+        wt = clone / ".worktrees" / f"agent-{GitWorktreeMixin.ref_safe(task_id)}"
+        wt.parent.mkdir(exist_ok=True)
+        self._git("worktree", "add", "-q", "-b", f"agent/{GitWorktreeMixin.ref_safe(task_id)}", str(wt), "HEAD", cwd=clone)
+        (wt / "src" / "mod.py").write_text("VALUE = 2\n")
+
+        outcome = integrate.integrate_build_criterion(clone, {task_id: wt}, "r-1", 0, validate="true")
+        assert outcome.ok, outcome.why
+        push_conflict = heartbeat._push_loop_branch(clone)
+
+        assert push_conflict is None
+        remote_heads = self._git("ls-remote", "--heads", str(origin), "loop/product", cwd=clone).stdout
+        assert outcome.commit in remote_heads or self._git(
+            "rev-parse", "HEAD", cwd=clone,
+        ).stdout.strip() in remote_heads
