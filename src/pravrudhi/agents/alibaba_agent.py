@@ -11,6 +11,7 @@ import os
 import shlex
 import shutil
 import stat
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -138,19 +139,34 @@ class AlibabaAgent(GitWorktreeMixin):
         key = None
         try:
             key = credential(self.provider_id)
-            # `--dir`, absolute, is what actually confines the run. OpenCode resolves a relative path against the
-            # project root it detects rather than against its cwd, and an agent worktree sits under `.worktrees/`
-            # inside the repository, so that root is the main checkout: given only `cwd`, a real dispatch wrote its
-            # whole deliverable there and its worktree diff was empty. Absolute because a relative `--dir` is
-            # itself resolved against the same detected root, which is the bug rather than the fix.
-            code, out, err, wall = _run(
-                ["opencode", "run", "--format", "json", "--agent", "build",
-                 "--dir", str(Path(workspace).resolve()),
-                 "-m", f"{PROVIDER}/{self.model}", prompt],
-                workspace, timeout_s,
-                env={KEY_NAME: key.reveal(),
-                     "OPENCODE_CONFIG_CONTENT": json.dumps(configuration(self.model, self.provider_id))},
-            )
+            # OpenCode keeps its session state (sqlite, WAL-mode) at $XDG_DATA_HOME/opencode/opencode.db. Two
+            # concurrent dispatches both inheriting this process's own XDG_DATA_HOME share that one file and the
+            # second write collides ("database is locked") - a real dispatch lost this way on 2026-09-13, beat
+            # 06:54:44Z. A private, disposable XDG state tree per dispatch removes the collision entirely rather
+            # than serializing dispatches to avoid it; torn down unconditionally once the run finishes.
+            with tempfile.TemporaryDirectory(prefix="opencode-state-") as state_dir:
+                xdg = {
+                    "XDG_DATA_HOME": str(Path(state_dir) / "data"),
+                    "XDG_CONFIG_HOME": str(Path(state_dir) / "config"),
+                    "XDG_CACHE_HOME": str(Path(state_dir) / "cache"),
+                }
+                for d in xdg.values():
+                    Path(d).mkdir(parents=True)
+                # `--dir`, absolute, is what actually confines the run. OpenCode resolves a relative path against
+                # the project root it detects rather than against its cwd, and an agent worktree sits under
+                # `.worktrees/` inside the repository, so that root is the main checkout: given only `cwd`, a real
+                # dispatch wrote its whole deliverable there and its worktree diff was empty. Absolute because a
+                # relative `--dir` is itself resolved against the same detected root, which is the bug rather than
+                # the fix.
+                code, out, err, wall = _run(
+                    ["opencode", "run", "--format", "json", "--agent", "build",
+                     "--dir", str(Path(workspace).resolve()),
+                     "-m", f"{PROVIDER}/{self.model}", prompt],
+                    workspace, timeout_s,
+                    env={KEY_NAME: key.reveal(),
+                         "OPENCODE_CONFIG_CONTENT": json.dumps(configuration(self.model, self.provider_id)),
+                         **xdg},
+                )
         except (OSError, ValueError):
             return AgentRun(self.name, False, 1, 0, "Alibaba loop could not start; check CLI and credential permissions",
                             workspace)
