@@ -1,5 +1,21 @@
-"""Model + tokenizer loading, generation, and NLL scoring for the 370M law-tuned
-NemotronH checkpoint (Track B's `m7_retry_checkpoint.pt`).
+"""Model + tokenizer loading, generation, and NLL scoring for both NemotronH
+checkpoint families used by this prototype: the 370M law-tuned custom-loop
+line (Track B's `m7_retry_checkpoint.pt`, loaded directly by this module) and
+the 1.13B Megatron-Core line (`g0/train_megatron_sft.py`'s round-1 SFT
+output, delegated to `g0/generate_megatron.py::load_model`, which itself
+wraps Track B's `scripts/m4/eval_adapter.py::load_megatron_blob`).
+
+`load_model` auto-detects which family a checkpoint belongs to (or takes an
+explicit `backend="megatron"|"370m"` override) and tags the returned model
+with a private `_nyaya_backend` attribute so `attention_block_indices` below
+can dispatch without re-deriving the family from scratch. `generate` and
+`sequence_nll` need NO dispatch at all: both model classes expose the exact
+same `forward(tokens, boundary, roles) -> logits` signature (boundary/roles
+always zeros -- inert structured-channels input on both lines), so the single
+implementation below already works for either family unchanged.
+`g0/generate_megatron.py` re-exports these two functions from here instead of
+keeping its own byte-identical copies, so there is exactly one implementation
+of the batched-greedy-decode / NLL logic in this codebase.
 
 Wraps Track B's own code rather than reimplementing it:
   - `NemotronH` is imported by file path from `/trackB/scripts/m2/train_130m.py`
@@ -71,9 +87,41 @@ def checkpoint_sha256_prefix(ckpt_path: str | Path, n_bytes: int = 1 << 20) -> s
     return h.hexdigest()
 
 
-def load_model(ckpt_path: str | Path, device: str = "cuda:0") -> tuple[Any, Any]:
-    """Load the NemotronH model + a ByteTokenizer instance from a Track-B-format
-    checkpoint blob (`{"model", "config", "arm", ...}`).
+def _detect_backend(ckpt_path: str | Path) -> str:
+    """Peek only the top-level keys of a checkpoint blob -- `mmap=True` +
+    `weights_only=True`, the same technique `g0/train_megatron_sft.py::
+    _peek_arm` uses to read the `arm` field -- to decide which backend can
+    load it, without ever staging the multi-GB tensor storages in host RAM.
+
+    Mirrors the detection rule in Track B's own
+    `scripts/m4/eval_adapter.py::detect_checkpoint_format`
+    (`"override_pattern" in blob and "config" not in blob` => Megatron-Core;
+    `"config" in blob` => the 370M custom-loop format this module was
+    originally written for) rather than reimplementing new rules, but that
+    function omits `mmap=True` -- see F5 in FIXES-FOR-MAIN-SESSIONS.md for
+    why an un-mmap'd `torch.load` on a multi-GB blob is unsafe in this
+    container even with `weights_only=True` (the pickle load still stages
+    the full state dict in host RAM before any device transfer).
+    """
+    import torch  # local: torch is a GPU-container-only dependency
+
+    blob = torch.load(Path(ckpt_path), map_location="cpu", weights_only=True, mmap=True)
+    try:
+        if "override_pattern" in blob and "config" not in blob:
+            return "megatron"
+        if "config" in blob:
+            return "370m"
+        raise ValueError(
+            f"cannot detect checkpoint backend for {ckpt_path}: "
+            f"unrecognized top-level keys {sorted(blob.keys())}"
+        )
+    finally:
+        del blob
+
+
+def _load_370m_model(ckpt_path: Path, device: str) -> tuple[Any, Any]:
+    """Load the 370M custom-loop NemotronH model + a ByteTokenizer instance
+    from a Track-B-format checkpoint blob (`{"model", "config", "arm", ...}`).
 
     Loads storages directly onto `device` with `mmap=True` -- see the module
     docstring for why (`map_location="cpu"` OOM-kills the 8 GiB-capped
@@ -81,7 +129,7 @@ def load_model(ckpt_path: str | Path, device: str = "cuda:0") -> tuple[Any, Any]
     """
     import torch  # local: torch is a GPU-container-only dependency
 
-    blob = torch.load(Path(ckpt_path), map_location=device, weights_only=False, mmap=True)
+    blob = torch.load(ckpt_path, map_location=device, weights_only=False, mmap=True)
     cfg = dict(blob["config"])
     nemotron_cls = _nemotron_class()
     model = nemotron_cls(cfg)
@@ -94,6 +142,83 @@ def load_model(ckpt_path: str | Path, device: str = "cuda:0") -> tuple[Any, Any]
     model.eval()
 
     tok = _byte_tokenizer_class()()
+    return model, tok
+
+
+_DEFAULT_MEGATRON_CONFIG = TRACKB_ROOT / "configs" / "train" / "nemotron_h_1b.yaml"
+
+
+def _load_megatron_model(
+    ckpt_path: Path, device: str, config_path: str | Path | None
+) -> tuple[Any, Any]:
+    """Delegate to `g0/generate_megatron.py::load_model`, which itself wraps
+    Track B's `scripts/m4/eval_adapter.py::load_megatron_blob` (mmap +
+    process-group-init discipline; see F5/F6/F18 in
+    FIXES-FOR-MAIN-SESSIONS.md) -- single source of truth for the 1.13B
+    Megatron-Core line, not reimplemented here. Imported lazily so importing
+    `model_io` never requires `megatron.core` or a GPU.
+
+    `config_path=None` is given a real default here rather than passed
+    straight through: `load_megatron_blob`'s own default walks UP from
+    `ckpt_path` looking for `configs/train/nemotron_h_1b.yaml`
+    (`eval_adapter.py::_find_repo_config`), which only finds it for
+    checkpoints that live inside `/trackB`'s own directory tree at a
+    matching depth. G0's checkpoints (e.g.
+    `runs/g0_sft_round1/final.pt`) live under this prototype's own
+    `/lab` mount instead, so that walk would raise `FileNotFoundError` for
+    every checkpoint this module is actually meant to load. Defaulting to
+    the one config this codebase currently trains the 1.13B line from
+    (`/trackB/configs/train/nemotron_h_1b.yaml`) means `evaluate.py`'s
+    unmodified `model_io.load_model(ckpt_path, device=...)` call (no
+    `config_path` parameter exists on that call site) still works for this
+    checkpoint without a new CLI flag. A future Megatron checkpoint trained
+    from a *different* config would need an explicit `config_path=` --
+    there is no flag on `evaluate.py`/`loop.py` to supply one; see
+    `g0/README.md`."""
+    if config_path is None:
+        config_path = _DEFAULT_MEGATRON_CONFIG
+
+    from .g0 import generate_megatron as megatron_io
+
+    return megatron_io.load_model(ckpt_path, device=device, config_path=config_path)
+
+
+def load_model(
+    ckpt_path: str | Path,
+    device: str = "cuda:0",
+    backend: str | None = None,
+    config_path: str | Path | None = None,
+) -> tuple[Any, Any]:
+    """Load a model + a ByteTokenizer instance from either supported
+    checkpoint family and return `(model, tok)` in the exact shape
+    `evaluate.py`/`loop.py` already call: `load_model(ckpt_path, device=...)`.
+
+    `backend` is `"370m"` (Track B's custom-loop NemotronH,
+    `_load_370m_model`) or `"megatron"` (the 1.13B Megatron-Core line,
+    `_load_megatron_model`); `None` (the default) auto-detects it from the
+    checkpoint's own top-level keys via `_detect_backend`, so existing call
+    sites that only ever pass `(ckpt_path, device=...)` keep working
+    unchanged when pointed at a Megatron checkpoint. `config_path` is
+    Megatron-only (the YAML `eval_adapter.load_megatron_blob` needs to
+    rebuild the transformer config; ignored for `"370m"`).
+
+    The returned model is tagged with a private `_nyaya_backend` attribute
+    (`"370m"` or `"megatron"`) so `attention_block_indices` can dispatch
+    without re-deriving the family. `generate`/`sequence_nll` need no such
+    tag -- see the module docstring for why they already work unchanged for
+    either family.
+    """
+    ckpt_path = Path(ckpt_path)
+    resolved_backend = backend if backend is not None else _detect_backend(ckpt_path)
+
+    if resolved_backend == "megatron":
+        model, tok = _load_megatron_model(ckpt_path, device, config_path)
+    elif resolved_backend == "370m":
+        model, tok = _load_370m_model(ckpt_path, device)
+    else:
+        raise ValueError(f"unknown backend {resolved_backend!r}; expected 'megatron' or '370m'")
+
+    model._nyaya_backend = resolved_backend
     return model, tok
 
 
@@ -229,10 +354,34 @@ def linear_module_names(model: Any) -> list[str]:
     return [name for name, module in model.named_modules() if isinstance(module, nn.Linear)]
 
 
+def _attention_block_indices_megatron(model: Any) -> list[int]:
+    """Indices of the Megatron-Core model's blocks that use attention,
+    parsed straight from the loaded `model.pattern` hybrid override string
+    (`derive_override_pattern` in Track B's `scripts/m4/eval_adapter.py`,
+    e.g. `"M-M-M-M-M-M-M-*-M-...-*-"` for 32 blocks / attention_every=8:
+    seven Mamba2 ('M') blocks then one attention ('*') block, repeated).
+
+    `derive_override_pattern` appends one mixer token immediately followed by
+    its own `"-"` for every block (`out.append(tok); out.append("-")`), so
+    splitting the joined string on `"-"` yields exactly one entry per block,
+    in block order, plus a single trailing empty string from the last
+    block's trailing dash (never `"*"`, so it is naturally excluded below --
+    confirmed against the real `train_report.json` pattern:
+    `"M-M-M-M-M-M-M-*-...-"` .split("-") -> attention indices [7, 15, 23, 31]
+    for n_layers=32, attention_every=8, matching the 370M line's own
+    `(i + 1) % attention_every == 0` rule)."""
+    return [i for i, tok in enumerate(model.pattern.split("-")) if tok == "*"]
+
+
 def attention_block_indices(model: Any) -> list[int]:
-    """Convenience: indices of `model.blocks` that use attention (vs Mamba2),
-    derived from the loaded config the same way `train_130m.py::NemotronH`
-    does (`(i + 1) % attention_every == 0`)."""
+    """Convenience: indices of the model's blocks that use attention (vs
+    Mamba2). Dispatches on the `_nyaya_backend` tag `load_model` sets:
+    Megatron models are parsed from `model.pattern`
+    (`_attention_block_indices_megatron`); the 370M custom-loop model is
+    derived from the reconstructed config the same way
+    `train_130m.py::NemotronH` does (`(i + 1) % attention_every == 0`)."""
+    if getattr(model, "_nyaya_backend", "370m") == "megatron":
+        return _attention_block_indices_megatron(model)
     every = int(model_config(model)["attention_every"])
     n_layers = int(model_config(model)["n_layers"])
     return [i for i in range(n_layers) if (i + 1) % every == 0]

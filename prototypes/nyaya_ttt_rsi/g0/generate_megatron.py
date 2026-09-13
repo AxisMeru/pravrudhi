@@ -104,30 +104,34 @@ def load_model(
     return model, tok
 
 
-def _batched_greedy_decode(
-    model: Any, prompt_ids_batch: list[list[int]], max_new_tokens: int, device: Any
-) -> list[list[int]]:
-    """All prompts must already be the same length -- see module docstring
-    for why padding is not an option here."""
-    import torch
+def _model_io_module() -> Any:
+    """Import `model_io.py` the same "works with or without a package import
+    context" way this file already imports `eval_adapter.py` / `bytelevel.py`
+    (`_load_module_from_path`), rather than a bare `from .. import model_io`
+    -- this file has historically also been imported standalone via a
+    `sys.path` insertion (see `runs/g0_sft_round1/_smoke_driver.py`), where a
+    relative import would raise "attempted relative import with no known
+    parent package". Try the normal package import first (cheap, and shares
+    the already-loaded module when this file *is* imported as part of
+    `prototypes.nyaya_ttt_rsi.g0`); fall back to a path-based load otherwise.
+    """
+    try:
+        from .. import model_io as mio
 
-    lengths = {len(p) for p in prompt_ids_batch}
-    if len(lengths) > 1:
-        raise ValueError(f"_batched_greedy_decode requires equal-length prompts, got {lengths}")
-    ids = torch.tensor(prompt_ids_batch, dtype=torch.long, device=device)
-    generated: list[list[int]] = [[] for _ in prompt_ids_batch]
-    with torch.no_grad():
-        for _ in range(max_new_tokens):
-            zeros = torch.zeros_like(ids)
-            with torch.autocast(
-                ids.device.type, dtype=torch.bfloat16, enabled=(ids.device.type == "cuda")
-            ):
-                logits = model(ids, zeros, zeros)
-            next_ids = logits[:, -1].argmax(dim=-1)
-            ids = torch.cat([ids, next_ids.unsqueeze(1)], dim=1)
-            for b in range(len(prompt_ids_batch)):
-                generated[b].append(int(next_ids[b]))
-    return generated
+        return mio
+    except ImportError:
+        return _load_module_from_path(
+            "prabhasa_nyaya_model_io", Path(__file__).resolve().parent.parent / "model_io.py"
+        )
+
+
+# `generate` / `sequence_nll`: delegate to `model_io.py` rather than keeping
+# byte-identical copies here. Both model families expose the exact same
+# `forward(tokens, boundary, roles) -> logits` signature (see this module's
+# docstring), so `model_io.py`'s batched-greedy-decode / NLL implementation
+# already works unchanged for the Megatron model -- there is exactly one
+# implementation of this logic in the codebase now, not two copies that
+# could silently drift apart.
 
 
 def generate(
@@ -138,72 +142,15 @@ def generate(
     stop: list[str] | None = None,
     max_batch_size: int = 16,
 ) -> list[str]:
-    """Greedy byte-level generation, batched by exact prompt length, never
-    padded. `stop` truncates the decoded text post-hoc at the earliest match
-    (the byte vocab has no EOS, so `max_new_tokens` bytes are always
-    generated; `stop` only affects what is returned) -- identical semantics
-    to `model_io.py::generate`."""
-    device = next(model.parameters()).device
-    prompt_ids_list = [tok.encode(p) for p in prompts]
-
-    groups: dict[int, list[int]] = {}
-    for i, ids in enumerate(prompt_ids_list):
-        groups.setdefault(len(ids), []).append(i)
-
-    out_ids: dict[int, list[int]] = {}
-    for _length, indices in groups.items():
-        for start in range(0, len(indices), max_batch_size):
-            chunk = indices[start : start + max_batch_size]
-            chunk_prompts = [prompt_ids_list[i] for i in chunk]
-            decoded = _batched_greedy_decode(model, chunk_prompts, max_new_tokens, device)
-            for i, ids in zip(chunk, decoded, strict=True):
-                out_ids[i] = ids
-
-    texts = [tok.decode(out_ids[i]) for i in range(len(prompts))]
-    if stop:
-        truncated = []
-        for text in texts:
-            cut = len(text)
-            for s in stop:
-                idx = text.find(s)
-                if idx != -1:
-                    cut = min(cut, idx)
-            truncated.append(text[:cut])
-        texts = truncated
-    return texts
+    """See `model_io.py::generate` -- identical semantics, delegated."""
+    return _model_io_module().generate(
+        model, tok, prompts, max_new_tokens=max_new_tokens, stop=stop, max_batch_size=max_batch_size
+    )
 
 
 def sequence_nll(model: Any, tok: Any, prompt: str, continuation: str) -> float:
-    """Mean NLL (nats) over continuation bytes only -- identical semantics
-    and identical caveats to `model_io.py::sequence_nll` (empty-prompt
-    first-byte exclusion; no `torch.no_grad()`, since `ttt.py::adapt` needs
-    gradients to flow into injected LoRA params during TTT)."""
-    import torch
-
-    device = next(model.parameters()).device
-    prompt_ids = tok.encode(prompt)
-    cont_ids = tok.encode(continuation)
-    all_ids = prompt_ids + cont_ids
-    if len(all_ids) < 2:
-        return 0.0
-
-    n_prompt = len(prompt_ids)
-    tokens = torch.tensor([all_ids], dtype=torch.long, device=device)
-    zeros = torch.zeros_like(tokens)
-    with torch.autocast(device.type, dtype=torch.bfloat16, enabled=(device.type == "cuda")):
-        logits = model(tokens, zeros, zeros)[0]
-
-    targets = tokens[0, 1:]
-    preds = logits[:-1]
-
-    j_start = max(n_prompt - 1, 0)
-    if j_start >= targets.shape[0]:
-        return 0.0
-
-    sel_preds = preds[j_start:].float()
-    sel_targets = targets[j_start:]
-    nll = torch.nn.functional.cross_entropy(sel_preds, sel_targets, reduction="mean")
-    return float(nll.item())
+    """See `model_io.py::sequence_nll` -- identical semantics, delegated."""
+    return _model_io_module().sequence_nll(model, tok, prompt, continuation)
 
 
 def linear_module_names(model: Any) -> list[str]:

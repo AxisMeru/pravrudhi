@@ -112,6 +112,80 @@ docker run --rm --gpus all --ipc host --memory 12g --memory-swap 12g \
   python3 -c "import sys; sys.path.insert(0, '/lab'); sys.path.insert(0, '/lab/prototypes/nyaya_ttt_rsi/g0'); import collate, lora_megatron; import importlib.util; print('syntax/import OK')"
 ```
 
+## Evaluating the round-1 checkpoint through the harness (once the GPU is free)
+
+`model_io.py` (owned by the loader agent, not this directory) now auto-detects
+which of the two checkpoint families `--checkpoint` points at -- by peeking
+the blob's own top-level keys (`model_io._detect_backend`, mmap-based, no
+GPU) -- and dispatches `load_model` to either the 370M custom-loop loader or
+`g0/generate_megatron.py::load_model` accordingly. **`evaluate.py`'s CLI
+needs no new flag to select the backend**: pointing `--checkpoint` at
+`runs/g0_sft_round1/final.pt` is enough.
+
+`generate`/`sequence_nll` need no dispatch either -- both model families
+share the exact `forward(tokens, boundary, roles) -> logits` signature, so
+`model_io.py`'s single implementation already works for both; the copies
+that used to live in `generate_megatron.py` now delegate to `model_io.py`
+instead of duplicating that logic. `attention_block_indices` (used to build
+the LoRA target regex for conditions C/D) is parsed from `model.pattern`
+(the Megatron hybrid override string, e.g. `M-M-M-M-M-M-M-*-...` -- attention
+blocks are `7, 15, 23, 31` for this checkpoint's 32 layers / attention_every
+8) for a Megatron model instead of `NemotronH`'s `attention_every` config
+field.
+
+**Condition B (frozen, retrieval-grounded prompt -- no LoRA injection, so
+this is the one that genuinely needs nothing beyond today's fix) is the
+correct first evaluation for this checkpoint**, run from the repo root
+exactly like the existing 370M evaluations, once `nvidia-smi` is confirmed
+idle:
+
+```
+docker run --rm --gpus all --ipc host --memory 12g --memory-swap 12g \
+  -v $HOME/projects/prabhasa-samskrutam:/trackB:ro \
+  -v $HOME/fusion-project:/fusion-project:ro \
+  -v $HOME/projects/pravrudhi/.claude/worktrees/ttt-llm-research-0f1adf:/lab:rw \
+  -e PYTORCH_ALLOC_CONF=expandable_segments:True \
+  -w /lab \
+  prabhasa/nemo-5090:26.02 \
+  python3 -m prototypes.nyaya_ttt_rsi.evaluate \
+    --condition B \
+    --checkpoint /lab/prototypes/nyaya_ttt_rsi/runs/g0_sft_round1/final.pt \
+    --device cuda:0 \
+    --out /lab/prototypes/nyaya_ttt_rsi/runs/g0_eval_condB/answers_B.jsonl
+```
+
+(`--heldout`/`--train` default to the same 690-item held-out set and training
+split every other condition/checkpoint uses -- `evaluate.DEFAULT_HELDOUT` /
+`DEFAULT_TRAIN` -- so they only need overriding if this run should use a
+different split. Conditions C/D additionally call `_inject_lora`, which
+targets `nn.Linear` submodules by dotted name
+(`ttt.py::inject_lora`/`evaluate.py::persistent_lora_target_regex`) -- those
+names do not exist on the Megatron model (its linear-like layers are
+`TELayerNormColumnParallelLinear`/`TERowParallelLinear`, per F18's bug-3
+finding), so `_inject_lora(model)` will silently wrap zero modules for this
+checkpoint. Making C/D real for the 1.13B line needs `evaluate.py` to call
+`lora_megatron.inject_lora_generic` instead of `ttt.py::inject_lora` for a
+Megatron model -- that is a change to `evaluate.py`, out of scope here since
+another agent owns that file; B is unaffected and safe to run today.)
+
+**The one genuinely missing piece, precisely:** `evaluate.py`'s argparse has
+no `--config`/`--megatron-config` flag, and its
+`model_io.load_model(args.checkpoint, device=args.device)` call site never
+passes a `config_path`. Track B's `eval_adapter.load_megatron_blob` needs a
+config YAML to rebuild `TransformerConfig`, and its own default
+(`config_path=None` -> walk up from the checkpoint looking for
+`configs/train/nemotron_h_1b.yaml`) would raise `FileNotFoundError` for this
+checkpoint, since `runs/g0_sft_round1/final.pt` lives under `/lab`, not under
+`/trackB`'s own tree. **Worked around inside `model_io.py`** (not by adding a
+flag to `evaluate.py`): `model_io._load_megatron_model` defaults a `None`
+`config_path` to `/trackB/configs/train/nemotron_h_1b.yaml` -- the one config
+this checkpoint was actually trained from -- so the command above works
+unmodified. If a future Megatron checkpoint is ever trained from a
+*different* config YAML, evaluating it through `evaluate.py` would need that
+flag added for real (there is currently no way to override
+`model_io.load_model`'s `config_path` from the CLI); until then, this default
+is correct for every Megatron checkpoint this codebase has actually produced.
+
 ## Planned first real run (after "GPU is yours")
 
 Data: the m7 mix (`/trackB/data/sft/m7_mix_v1.jsonl`, 12,412 rows) + the
