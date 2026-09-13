@@ -65,6 +65,55 @@ branch. Each item says what is broken, what fixed it, and what the owning sessio
   host has enough free RAM to stage the full checkpoint (~4.2 GB) plus a CPU-resident model
   copy (~1.4 GB fp32) simultaneously.
 
+## F8. `ttt.LoRALinear` cannot wrap a Mamba2 mixer's `in_proj`/`out_proj` on this model -- `mamba_ssm`'s fused kernel reads `.weight` directly
+
+- **Symptom:** injecting LoRA at `blocks.<i>.mixer.{in_proj,out_proj}` for any of the 21 Mamba2
+  blocks (per `model_io.linear_module_names`'s own listing, which explicitly names these as
+  candidates) and then running a forward pass raises
+  `AttributeError: 'LoRALinear' object has no attribute 'weight'` from
+  `mamba_ssm/modules/mamba2.py:197` (`outproj_weight=self.out_proj.weight`). `mamba_ssm`'s
+  fused CUDA path reads `self.out_proj.weight` as a raw tensor rather than calling
+  `self.out_proj(x)` as an ordinary submodule -- any module-wrapping LoRA approach (not just
+  `ttt.LoRALinear`) is incompatible with these two projections on this architecture, only a
+  weight-merging or hook-based LoRA scheme would work.
+- **What does work:** the 3 attention blocks' `blocks.<i>.mixer.{qkv,out_proj}` --
+  `CausalSelfAttention.forward` (`/trackB/scripts/m2/train_130m.py`) calls
+  `self.qkv(x)` / `self.out_proj(x)` as normal module calls, so `LoRALinear` wraps them fine.
+- **What `prototypes/nyaya_ttt_rsi` does about it:** `evaluate.py`'s
+  `attention_lora_target_regex(model)` builds the injection regex from
+  `model_io.attention_block_indices(model)` and restricts it to `mixer.{qkv,out_proj}` on
+  those indices only (6 Linears total on the 370M checkpoint, not 48) -- conditions C/D's
+  LoRA capacity is therefore attention-projections-only, not "attention q/o and mamba
+  in/out" as the original module contract assumed before this was discovered by running it.
+- **Owner action (ttt-gate / whoever extends `ttt.py`):** either accept that Mamba2 mixer
+  projections are out of scope for this wrapper-based `inject_lora`, or implement a
+  weight-merge-at-forward-time variant (patch `.weight`/`.bias` in place via a context
+  manager around the fused call) if Mamba-mixer LoRA is ever actually needed.
+
+## F9. `ttt.adapt`'s default `loss_fn` cannot train on this model: it detaches gradients and its `model_io` import never resolves
+
+- **Symptom:** with no explicit `loss_fn` passed to `ttt.adapt`, `_default_loss_fn`
+  (`ttt.py`) does `import model_io` (unqualified) inside a package (`prototypes.nyaya_ttt_rsi`)
+  -- this never resolves to the sibling module (it would need `from . import model_io` or the
+  fully-qualified name), so the `try/except ImportError` always takes the fallback branch.
+  That fallback calls `model(input_ids=ids_t, labels=ids_t)`, a HuggingFace-style signature
+  this model's `NemotronH.forward(tokens, boundary, roles)` does not have --
+  `TypeError: NemotronH.forward() got an unexpected keyword argument 'input_ids'`.
+  Separately, even if the `model_io` import were fixed, the primary branch calls
+  `model_io.sequence_nll(...)`, which returns a plain detached `float` (`.item()`), then
+  re-wraps it with `torch.as_tensor(loss_val, ...)` -- a leaf tensor with no `grad_fn`, so
+  `loss.backward()` inside `adapt`'s training loop would raise (no gradient can reach the
+  LoRA parameters) even once the import is fixed.
+- **What `prototypes/nyaya_ttt_rsi` does about it:** `evaluate._tensor_nll_loss(model, tok,
+  prompt, continuation)` duplicates `model_io.sequence_nll`'s exact forward-pass math (same
+  byte-level teacher-forcing, same prompt-byte exclusion) but returns the tensor still
+  attached to the autograd graph. `evaluate._adapt` and `loop.consolidate` always pass this
+  in explicitly as `loss_fn`, never relying on `ttt.adapt`'s default.
+- **Owner action (ttt-gate / loader):** fix `_default_loss_fn`'s import to `from . import
+  model_io` (or accept the caller must always pass `loss_fn` and drop the fragile default
+  entirely), and if the primary branch is kept, have it call a tensor-returning variant of
+  `sequence_nll` rather than re-wrapping the already-`.item()`'d float.
+
 ## F6. `load_megatron_blob`'s default config resolution can silently pick the wrong tree under a two-mount container layout
 
 - **Symptom (found while writing the G0 allocator-fragmentation run plan, not yet hit in a
@@ -91,3 +140,30 @@ branch. Each item says what is broken, what fixed it, and what the owning sessio
   (drop the `default=None` convenience) when `--repo-root` and `--checkpoint` resolve to
   different filesystem trees, or have `load_megatron_blob` prefer a `repo_root`-relative
   config path when one is available instead of always deriving it from the checkpoint path.
+
+## F7. Host RAM was the binding constraint, not the GPU (2026-09-13 ~11:45 BST)
+
+- **Observed:** `free -g` = 30 total / 26 used / 3 available, swap 7/7 full (no active paging yet),
+  with the GPU idle. The RAM was ~30 idle `mcp/server.py` processes (~0.5 GiB each: the
+  `pratyabhijna-creative-engine` plugin server spawned once per desktop session, plus remote
+  plugin servers) and the four `cli-*` team screens (`claude --model sonnet`, ~0.4 GiB each) plus
+  `cli-lead`. This is the same shape as the 2026-09-10 collapse: many idle sessions, then one real job.
+- **Action taken (operator instruction "all main sessions/agents/rsi heartbeat loops stopped for
+  this… recover what is needed"):** quit `cli-watchdog` first (it respawns the team), then the
+  `cli-web`/`cli-trackA`/`cli-trackB`/`cli-studio` screens. `cli-lead` and the desktop sessions were
+  left alone. Result: 10 GiB available. `pravrudhi-heartbeat.service` was already `failed`
+  (not running); `pravrudhi-gateway.service` and the two engine containers were left running.
+- **Owner action:** when the team is restarted (`deploy/agents/cli-watchdog.sh`), budget ~0.5 GiB
+  per session for the plugin MCP servers and consider not loading `pratyabhijna-creative-engine`
+  in the headless CLI seats — it is a creativity tool no build agent uses.
+
+## Cost log for the delegated work (for `pravrudhi-agent-cost-control`)
+
+| worker | route | task | tokens | wall |
+|---|---|---|---|---|
+| retrieval + stats | codex `gpt-6-astra`, effort medium | retrieval.py, stats.py, 16 tests, recall@k | 27,014 | ~6 min |
+| report renderer | opencode `alibaba-plan/qwen3.8-max` | report.py (md + html + inline SVG), 7 tests | 552,066 | 12 min |
+| loader, ttt-gate, loop, g0-prep, surveys | Claude Sonnet subagents | model_io/baseline, ttt/gate, evaluate/loop, G0 plan | ~90–130k each | 2–8 min each |
+
+The Qwen route spent 20× Codex's tokens on a comparable-size task (a tool loop re-reading files
+each step); fine on the Lite Plan's quota for one mechanical file, wrong for anything iterative.
