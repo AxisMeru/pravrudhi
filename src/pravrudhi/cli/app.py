@@ -472,6 +472,12 @@ def watch_cmd(
     root: Path = ROOT_OPT,
     notify: bool = typer.Option(False, "--notify", help="send the findings to the configured chat, if any"),
     json_out: bool = typer.Option(False, "--json", help="machine-readable findings"),
+    systemd_timer: str = typer.Option(
+        "", "--systemd-timer",
+        help="a user-scope systemd timer unit (e.g. pravrudhi-heartbeat.timer) that is supposed to be firing "
+        "this root's own heartbeat; reported immediately if systemd says it is not active, rather than waiting "
+        "for heartbeat.jsonl to go stale",
+    ),
 ) -> None:
     """Look for the shape of a stall: a loop repeating itself, a night that cost nothing, a cheap seat down.
 
@@ -480,7 +486,8 @@ def watch_cmd(
     """
     from pravrudhi.application import watchdog
 
-    findings = watchdog.check(root)
+    timer_active = watchdog.systemd_timer_active(systemd_timer) if systemd_timer else None
+    findings = watchdog.check(root, timer_unit=(systemd_timer or None), timer_active=timer_active)
     if json_out:
         typer.echo(json.dumps({"findings": [f.to_dict() for f in findings]}, indent=1))
     else:

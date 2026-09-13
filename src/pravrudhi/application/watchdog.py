@@ -293,16 +293,62 @@ def _packaged_version() -> str:
         return ""
 
 
-def check(root: Path) -> list[Finding]:
-    """Every check, most serious first. A check that raises is dropped rather than allowed to silence the rest."""
+def check(
+    root: Path, *, timer_unit: str | None = None, timer_active: bool | None = None,
+) -> list[Finding]:
+    """Every check, most serious first. A check that raises is dropped rather than allowed to silence the rest.
+
+    `timer_unit`/`timer_active`: 2026-09-13 -- Studio's own heartbeat timer was stopped for infra work at 11:42
+    and not restarted until 18:26, nearly six hours during which `_silent_loop` alone would not have said
+    anything until `heartbeat.jsonl` had gone stale past `scheduler_max_stale_s` (2 hours). Checking the timer
+    unit's own systemd state is faster and more direct, but it is a real subprocess call this module has no
+    business making on its own (every other probe here reads only files under `root`, which is what keeps them
+    testable and keeps this module usable against a workspace with no systemd at all) -- so the caller resolves
+    `timer_active` (via `systemd_timer_active`, below) and hands both values in. `timer_active=None` (the query
+    itself could not run) is deliberately silent, not a finding: a broken check must not read as a broken timer.
+    """
     findings: list[Finding] = []
     for probe in (_silent_loop, _repeating, _parked_criteria, _empty_night, _cheap_seat_down, _stale_install):
         try:
             findings.extend(probe(Path(root)))
         except Exception:  # noqa: BLE001
             continue
+    if timer_unit is not None and timer_active is False:
+        findings.append(Finding(
+            kind="heartbeat_timer_inactive",
+            severity="high",
+            detail=(
+                f"the systemd user timer {timer_unit!r} is not active -- this loop's heartbeat has stopped "
+                "firing entirely, not merely gone stale; nothing else here will notice for up to two hours"
+            ),
+        ))
     order = {"high": 0, "medium": 1, "low": 2}
     return sorted(findings, key=lambda f: (order.get(f.severity, 3), f.kind))
+
+
+def systemd_timer_active(unit: str) -> bool | None:
+    """Whether this user-scope systemd timer is active right now, or `None` if the query itself could not be
+    answered (no user bus reachable, no `systemctl` binary) -- a failed query is 'cannot tell', never 'inactive':
+    reading it the other way would report every host that cannot run this check at all as having a stopped
+    loop, which is a worse failure than the one this exists to catch.
+
+    `systemctl --user` needs `XDG_RUNTIME_DIR`/`DBUS_SESSION_BUS_ADDRESS` set to reach the user bus in a context
+    that did not inherit a login session's environment (a known trap in this harness); both are filled in here
+    if the caller's environment does not already have them, rather than asking every caller to remember it.
+    """
+    import os
+    import subprocess
+
+    env = dict(os.environ)
+    env.setdefault("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
+    env.setdefault("DBUS_SESSION_BUS_ADDRESS", f"unix:path={env['XDG_RUNTIME_DIR']}/bus")
+    try:
+        result = subprocess.run(
+            ["systemctl", "--user", "is-active", unit], capture_output=True, text=True, env=env, timeout=10,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return result.stdout.strip() == "active"
 
 
 def blind(root: Path) -> bool:
