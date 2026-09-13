@@ -1717,6 +1717,60 @@ class TestStructuralIncapability:
         )
         assert gap is None
 
+    # 2026-09-13T08:24:36Z, verbatim from the live Studio loop's requests.json note for this same criterion,
+    # its third judged-not-met verdict that day: the two earlier categories above (network, no-evidence-in-
+    # proposal-mode) both fired the same day on this criterion's *other* rejections, but neither regex matches
+    # this one, and it kept re-dispatching on the strength of that miss. cli-lead cleared its attempt counter
+    # believing it was "one attribute name from passing" (the `p._electron` bug, fixed by then) - the agent's
+    # own README, quoted in the judge's rejection, says the real reason nothing can ever satisfy this criterion
+    # from here: no display, browser or Electron runtime exists in the dispatch sandbox to produce a real run.
+    _R5795501A_REJECTION_3_NO_SANDBOX_DISPLAY = (
+        "The proposal provides a well-designed, syntactically-correct script and the exact command to run it, "
+        "but lacks the actual evidence the criterion requires. The README explicitly states \"no events.jsonl, "
+        "video, or before/after screenshots from a real Electron run are included here, and none are claimed.\" "
+        "It then details why: Playwright and Electron are not available in the sandbox, and no real engine is "
+        "running. The only checks performed were script compilation, --help parsing, and a fallback error-path "
+        "test—none of which exercise the actual criterion of real clicks driving a desktop update and "
+        "producing recorded evidence (events.jsonl entries, video file, before/after screenshots showing state "
+        "change). The README itself acknowledges this is a proposal explaining what would satisfy the "
+        "criterion, not an actual run satisfying it."
+    )
+
+    def test_no_execution_environment_category_is_not_caught_by_the_other_two(self) -> None:
+        """Documents the gap this test class exists to close: the real 2026-09-13 verdict above does not match
+        either existing regex, which is exactly how `r-5795501a` criterion 8 kept re-consuming beats."""
+        from pravrudhi.application.heartbeat import (
+            _EXECUTED_EVIDENCE_BAR_RE,
+            _PROPOSAL_NOT_EVIDENCE_RE,
+        )
+
+        assert not _PROPOSAL_NOT_EVIDENCE_RE.search(self._R5795501A_REJECTION_3_NO_SANDBOX_DISPLAY)
+        assert not _EXECUTED_EVIDENCE_BAR_RE.search(self._R5795501A_C8_TEXT)
+
+    def test_no_execution_environment_category_fires_on_the_live_case_this_must_catch(self) -> None:
+        """If your detector does not catch this one, it has not done its job - it is the actual verdict text
+        that let this criterion keep re-dispatching for a bar no sandbox in this loop can ever reach."""
+        from pravrudhi.application.heartbeat import structural_incapability
+
+        gap = structural_incapability(
+            mode="proposal", policy=self._policy("none"),
+            criterion_text=self._R5795501A_C8_TEXT,
+            rejection_text=self._R5795501A_REJECTION_3_NO_SANDBOX_DISPLAY,
+        )
+        assert gap is not None and gap.category == "no_execution_environment"
+
+    def test_no_execution_environment_category_does_not_fire_on_an_ordinary_rejection(self) -> None:
+        """A rejection that just says the work is incomplete, with no mention of a missing tool or display,
+        must not be swept into this category - it would hide a real, fixable gap in the delivered work."""
+        from pravrudhi.application.heartbeat import structural_incapability
+
+        gap = structural_incapability(
+            mode="proposal", policy=self._policy("none"),
+            criterion_text="Write a short design note explaining the tradeoffs between option A and option B.",
+            rejection_text="The note covers only option A and never mentions option B.",
+        )
+        assert gap is None
+
 
 class TestStructuralIncapabilityDeclinesRatherThanReattempts:
     @staticmethod
