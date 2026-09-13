@@ -114,6 +114,43 @@ branch. Each item says what is broken, what fixed it, and what the owning sessio
   entirely), and if the primary branch is kept, have it call a tensor-returning variant of
   `sequence_nll` rather than re-wrapping the already-`.item()`'d float.
 
+## F10. A second `ttt.inject_lora` pass cannot "stack" an ephemeral LoRA on top of an already-injected persistent one
+
+- **Context:** the 2026-09-13 pivot plan (main session) asked for conditions B'/C' where
+  "the ephemeral LoRA stacks on the persistent one, reset per query" -- i.e. two independent
+  `LoRALinear` layers at the same target projections, one trained (persistent, Phase 2) and one
+  ephemeral (per-query, reset every time).
+- **Why it does not work as literally specified:** `ttt.inject_lora(model, target_regex, ...)`
+  finds targets via `isinstance(module, nn.Linear) and pattern.search(name)` over
+  `model.named_modules()`. After the FIRST injection, the target dotted names (e.g.
+  `blocks.7.mixer.qkv`) now hold a `LoRALinear`, not an `nn.Linear` -- the wrapped original
+  `nn.Linear` still exists but as `blocks.7.mixer.qkv.base`, a different dotted name. A second
+  `inject_lora` call with the same (or any) target regex therefore matches nothing at those
+  positions; there is no supported way to inject a second LoRA layer on top of a first one
+  without either changing the target regex to explicitly match `\.base$` (untested, and
+  `LoRALinear.forward` calls `self.base(x)` directly, not via a route the outer wrapper's own
+  `x @ A^T @ B^T` term could compose with meaningfully) or modifying `ttt.py` (out of scope --
+  owned by ttt-gate).
+- **What `prototypes/nyaya_ttt_rsi`'s Phase 3 driver
+  (`runs/rsi_run1/_phase3_driver.py`) does instead:** conditions B'/C' reuse the SAME `LoRALinear`
+  set that Phase 2 trained (`evaluate.persistent_lora_target_regex`, r=16/alpha=32, not the r=8
+  attention-only set used by plain conditions C/D) as `evaluate.run_condition`'s `loras` argument.
+  `run_condition`'s own machinery already does exactly the intended thing without a second layer:
+  it snapshots the current (persistent) LoRA state once as `base_snap`, runs `ttt.adapt`'s
+  ephemeral gradient steps FROM there per query, and restores to `base_snap` after every query --
+  functionally identical to "ephemeral TTT stacked on a persistent base", just implemented as
+  continued fine-tuning of one LoRA object rather than two composed ones. The steps/lr instructed
+  for the ephemeral layer (steps=4, lr=1e-3) are used as given; only its LoRA rank is not
+  independently 8 (it inherits Phase 2's r=16, since it is the same object).
+- **Owner action:** if a true two-layer stack is ever required (e.g. to keep the ephemeral
+  adaptation's rank independent of the persistent one's), `ttt.inject_lora` would need either a
+  `target_regex` variant matching `\.base$` with `LoRALinear.forward` updated to route through the
+  wrapped `LoRALinear.base` as if it were the frozen `nn.Linear` (it already is, structurally --
+  `self.base(x)` on a `LoRALinear` works today, so the fix may be as small as allowing
+  `inject_lora` to wrap a `LoRALinear.base` when it is itself an `nn.Linear`, i.e. relaxing its
+  `isinstance` check to look one level through an existing wrapper), or an explicit multi-adapter
+  design.
+
 ## F6. `load_megatron_blob`'s default config resolution can silently pick the wrong tree under a two-mount container layout
 
 - **Symptom (found while writing the G0 allocator-fragmentation run plan, not yet hit in a
@@ -167,3 +204,22 @@ branch. Each item says what is broken, what fixed it, and what the owning sessio
 
 The Qwen route spent 20× Codex's tokens on a comparable-size task (a tool loop re-reading files
 each step); fine on the Lite Plan's quota for one mechanical file, wrong for anything iterative.
+
+## F8. G0 (1.13B SFT) OOM: fragmentation FALSIFIED, batch 4 RUNS — Track B's blocker is closed
+
+Both runs executed 2026-09-13 ~12:20 BST from `G0-OOM-RUN-PLAN.md` §1 in an isolated
+`prabhasa/nemo-5090:26.02` container (`--memory 12g`), GPU otherwise idle, repo and checkpoint
+mounted read-only. Raw outputs: `prototypes/nyaya_ttt_rsi/runs/g0_expandable/`
+(`dry_run_1p13b_expandable.json`, `dry_run_1p13b_batch4.json`, both logs) — committed on this branch.
+
+| run | flags (delta from `ed3f327`) | outcome |
+|---|---|---|
+| expandable | `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` (+ `PYTORCH_ALLOC_CONF`, the torch-2.10 name) | **OOM at step 1** again. Allocator report: 26.14 GiB allocated by PyTorch, only 0.51 GiB reserved-but-unallocated, 26.65 GiB allowed. Peak 26.78 GiB. → the pre-registered *falsify* criterion: the need is real allocation, not fragmentation. |
+| batch 4 | `--batch-size 4` (everything else identical) | **40/40 steps completed.** Peak VRAM 23.77 GiB, host RSS 5.45 GiB, steady state 6.02 steps/s, loss 1.90 → 0.89 over 40 steps. Script's own projection: 3,103 steps/epoch, 9,309 steps for 3 epochs ≈ **26 min**. |
+
+- **Owner action (Track B):** run the real G0 SFT at batch 4 (or batch 4 × grad-accum 2 once
+  `sft_megatron_batched.py` grows a `--grad-accum` flag — it has none today, see the plan §3). Fold
+  this into `research/journal.md` (the G0 saga currently lives only in `docs/plans/2026-09-12-g0-*.md`
+  and commit messages). The 12 GiB host cap is a fail-fast: measured RSS is 5.45 GiB.
+- **Image note:** torch 2.10 warns `PYTORCH_CUDA_ALLOC_CONF` is deprecated in favour of
+  `PYTORCH_ALLOC_CONF`; set both until the scripts are updated.

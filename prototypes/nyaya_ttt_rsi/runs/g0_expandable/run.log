@@ -1,0 +1,85 @@
+
+====================
+== NeMo Framework ==
+====================
+
+NVIDIA Release  (build 284135308)
+Container image Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+Copyright (c) 2014-2024 Facebook Inc.
+Copyright (c) 2011-2014 Idiap Research Institute (Ronan Collobert)
+Copyright (c) 2012-2014 Deepmind Technologies    (Koray Kavukcuoglu)
+Copyright (c) 2011-2012 NEC Laboratories America (Koray Kavukcuoglu)
+Copyright (c) 2011-2013 NYU                      (Clement Farabet)
+Copyright (c) 2006-2010 NEC Laboratories America (Ronan Collobert, Leon Bottou, Iain Melvin, Jason Weston)
+Copyright (c) 2006      Idiap Research Institute (Samy Bengio)
+Copyright (c) 2001-2004 Idiap Research Institute (Ronan Collobert, Samy Bengio, Johnny Mariethoz)
+Copyright (c) 2015      Google Inc.
+Copyright (c) 2015      Yangqing Jia
+Copyright (c) 2013-2016 The Caffe contributors
+All rights reserved.
+
+Various files include modifications (c) NVIDIA CORPORATION & AFFILIATES.  All rights reserved.
+
+GOVERNING TERMS: The software and materials are governed by the NVIDIA Software License Agreement
+(found at https://www.nvidia.com/en-us/agreements/enterprise-software/nvidia-software-license-agreement/)
+and the Product-Specific Terms for NVIDIA AI Products
+(found at https://www.nvidia.com/en-us/agreements/enterprise-software/product-specific-terms-for-ai-products/).
+
+/usr/local/lib/python3.12/dist-packages/torch/cuda/__init__.py:64: FutureWarning: The pynvml package is deprecated. Please install nvidia-ml-py instead. If you did not install pynvml directly, please report this to the maintainers of the package that installed pynvml for you.
+  import pynvml  # type: ignore[import]
+[Gloo] Rank 0 is connected to 0 peer ranks. Expected number of connected peer ranks is : 0
+[Gloo] Rank 0 is connected to 0 peer ranks. Expected number of connected peer ranks is : 0
+[Gloo] Rank 0 is connected to 0 peer ranks. Expected number of connected peer ranks is : 0
+/opt/Megatron-Bridge/3rdparty/Megatron-LM/megatron/core/transformer/transformer_config.py:1705: UserWarning: full scope is deprecated. Use empty cuda_graph_scope to capture the whole layer.
+  warnings.warn(
+{
+  "checkpoint": "/fusion-project/prabhasa-samskrutam/data/checkpoints/m4/final.pt",
+  "n_params": 1129634752,
+  "vram_fraction": 0.85,
+  "pad_to_fixed_len": true,
+  "preflight": {
+    "status": "ok",
+    "batch_size": 8,
+    "seq_len": 512,
+    "peak_vram_mib": 21608.51953125
+  },
+  "status": "dry_run_oom",
+  "dry_run": {
+    "status": "oom",
+    "oom_at_step": 1,
+    "oom_error": "CUDA out of memory. Tried to allocate 24.00 MiB. GPU 0 has a total capacity of 31.36 GiB of which 3.91 GiB is free. Including non-PyTorch memory, this process has 27.42 GiB memory in use. 26.65 GiB allowed; Of the allocated memory 26.14 GiB is allocated by PyTorch, and 512.72 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)",
+    "n_steps_planned": 40,
+    "n_steps_completed": 1,
+    "batch_size": 8,
+    "warmup_steps_excluded": 5,
+    "pad_to_fixed_len": true,
+    "step_seq_lens": [
+      511
+    ],
+    "step_memory_allocated_mib": [
+      17299.279296875
+    ],
+    "step_rss_mib": [
+      4648.94921875
+    ],
+    "first_step_loss": 1.5530332326889038,
+    "last_step_loss": 1.5530332326889038,
+    "all_steps_total_seconds": 0.2548384666442871,
+    "all_steps_steps_per_second": 3.924054375181266,
+    "steady_state_n_steps": 0,
+    "steady_state_total_seconds": 0,
+    "steady_state_steps_per_second": null,
+    "per_step_seconds": [
+      0.2548384666442871
+    ]
+  },
+  "peak_vram_mib_dry_run": 26779.3232421875,
+  "peak_rss_gib": 4.539989471435547,
+  "full_mix_size": 12412,
+  "steps_per_epoch": 1551,
+  "n_steps_for_projection": 4653,
+  "projection_3_epoch": null
+}
+[rank0]:[W913 11:22:12.526682131 ProcessGroupNCCL.cpp:1566] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
+[rank0]:[W913 11:22:13.037972484 AllocatorConfig.cpp:28] Warning: PYTORCH_CUDA_ALLOC_CONF is deprecated, use PYTORCH_ALLOC_CONF instead (function operator())
+exit 1
