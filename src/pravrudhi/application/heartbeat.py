@@ -772,27 +772,52 @@ _EXECUTED_EVIDENCE_BAR_RE = re.compile(
     re.IGNORECASE,
 )
 
+# 2026-09-13, cli-lead (after re-reading r-5795501a criterion 8's full judgement history, not just its latest
+# verdict): the criterion demands a real Electron-shell run, and every rejection after the first correct code
+# review (a `p._electron` bug, fixed) says the same underlying thing in different words - the dispatch sandbox
+# has no display, browser or Electron runtime to actually run anything against, so no script, however correct,
+# can ever produce the run it is judged on. `_PROPOSAL_NOT_EVIDENCE_RE` does not match this wording (it wants
+# "explain[s]"/"describe[s]" or the literal phrase "not evidence"; the real verdict here says "explaining"
+# and "lacks the actual evidence" instead), which is exactly how this criterion kept re-consuming beats after
+# cli-lead read only the earlier, narrower rejection and believed the gap was already closed.
+_NO_EXECUTION_ENV_RE = re.compile(
+    r"\b(?:playwright|electron|xvfb|(?:a |the )?(?:real |working )?display|(?:a |the )?gui|(?:a |the )?browser)\b"
+    r".{0,40}\b(?:not available|unavailable|is not installed|not installed|not present)\b"
+    r"|\bno real (?:engine|display|browser) is running\b"
+    r"|\b(?:cannot|can'?t) (?:launch|open|run) (?:a |the )?(?:browser|display|electron)\b"
+    r"|\bsandbox has no\b.{0,40}\b(?:display|gui|graphical|browser)\b",
+    re.IGNORECASE,
+)
+
 
 def structural_incapability(
     *, mode: str, policy: Policy, criterion_text: str, rejection_text: str | None,
 ) -> StructuralIncapability | None:
     """Whether this criterion's bar is unreachable by any dispatch in `mode`, checked in a fixed order (the
-    first category that applies wins); a third category is a new `elif` here, not a restructuring.
+    first category that applies wins).
 
-    The two categories are not equally static. `network` is a clean two-sided comparison and can fire without
-    ever seeing a rejection - the criterion names a live lookup, the policy's network is 'none', done.
+    The categories are not equally static. `network` is a clean two-sided comparison and can fire without ever
+    seeing a rejection - the criterion names a live lookup, the policy's network is 'none', done.
     `no_evidence_in_proposal_mode` is asymmetric: `mode == "proposal"` alone proves nothing, since proposal is
     the ordinary mode for most criteria and firing on it alone would park most of the backlog. The
     discriminating fact is the CRITERION'S BAR, not the mode - where the criterion's own text already states
     that bar (an executed, recorded run), this fires before any dispatch, same as `network`; where it does not,
-    the first rejection is what reveals it. That is the honest boundary of this detector, not a defeat: it is
-    exactly the gap trackB's judgement-text fallback exists to cover.
+    the first rejection is what reveals it. `no_execution_environment` is learned the same way, from a
+    rejection, but is not mode-scoped - a missing display, browser or runtime is a fact about the route, not
+    about proposal-vs-build, so it applies wherever it is said.
     """
     if policy.network == "none" and _LIVE_FETCH_RE.search(criterion_text):
         return StructuralIncapability(
             "network",
             "the criterion names a live external lookup, and the assigned policy's network is 'none' - no "
             "dispatch in this mode can ever fetch it",
+        )
+    if rejection_text and _NO_EXECUTION_ENV_RE.search(rejection_text):
+        return StructuralIncapability(
+            "no_execution_environment",
+            "the judge's rejection said the dispatch sandbox lacks a display, browser or runtime (Electron, "
+            "Playwright, Xvfb) the criterion needs to produce a real run - no dispatch on this route can ever "
+            "produce that evidence until a route with that capability exists",
         )
     if mode == "proposal":
         if _EXECUTED_EVIDENCE_BAR_RE.search(criterion_text):
