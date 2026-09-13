@@ -727,6 +727,49 @@ def _sync_loop_branch(root: Path) -> str | None:
     return detail
 
 
+def _push_loop_branch(root: Path) -> str | None:
+    """pravrudhi-app ADR-0002: publish a loop root's branch to `origin` right after a successful build-mode
+    integration, so a criterion the loop closes is visible to anyone outside the machine it ran on. Before
+    this, `_sync_loop_branch` above pulled `origin/main` into a `loop/*` root every beat, but nothing pushed
+    in the other direction -- a loop could close criteria indefinitely while `git ls-remote --heads origin
+    loop/product` stayed empty, which is exactly what happened: the product loop's one met criterion sat
+    unreachable from any remote ref, so none of it ever reached `origin/main`, a Vercel deploy, or a release
+    tag (all cut from `main`, which this never touches -- the push is to the branch's own name).
+
+    Same guard as `_sync_loop_branch`: only acts on a git work tree currently on a `loop/*` branch. Returns
+    None on success (including "not a loop root" and "not a git repository") or the push failure detail
+    otherwise. A push failure must never break the beat or undo the integration that already happened -- the
+    next beat's rebase-then-push tries again, the same swallow-and-continue discipline `_sync_loop_branch`
+    and `notifications.emit` already use elsewhere in this file. Promotion of this branch into `main` stays a
+    separate act through the existing `/inbox/sign` path (ADR-0040); this never pushes to `main` itself.
+    """
+    def run(*args: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            ["git", *args], cwd=root, capture_output=True, text=True, timeout=_LOOP_SYNC_TIMEOUT_S,
+        )
+
+    try:
+        probe = run("rev-parse", "--is-inside-work-tree")
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if probe.returncode != 0 or probe.stdout.strip() != "true":
+        return None
+    try:
+        branch = run("rev-parse", "--abbrev-ref", "HEAD")
+    except (OSError, subprocess.SubprocessError):
+        return None
+    name = branch.stdout.strip()
+    if branch.returncode != 0 or not name.startswith("loop/"):
+        return None
+    try:
+        pushed = run("push", "origin", f"HEAD:{name}")
+    except (OSError, subprocess.SubprocessError) as exc:
+        return str(exc)[:500]
+    if pushed.returncode == 0:
+        return None
+    return (pushed.stderr or pushed.stdout).strip()[:500]
+
+
 _REBASE_CONFLICT_STREAK_FILE = ".pravrudhi/rebase-conflicts.json"
 
 # ADR-0053 §3 amendment: quiet hours resolve themselves; a rebase conflict does not. Once the streak reaches
@@ -1542,6 +1585,13 @@ def _apply_verdict(
             if not outcome.ok:
                 return chose, f"request {request.id} criterion {index} judged met but not integrated: {outcome.why}", result
             clear_attempts(root, request.id, index)
+            # ADR-0002 (pravrudhi-app): publish the branch now that this beat's rebase and this criterion's
+            # integration have both already succeeded -- a push failure is recorded but never undoes the
+            # integration or reopens the criterion; the next beat's rebase-then-push tries again.
+            push_conflict = _push_loop_branch(root)
+            result["published"] = push_conflict is None
+            if push_conflict is not None:
+                result["publish_detail"] = push_conflict
             return chose, f"request {request.id} criterion {index} is met and integrated as {outcome.commit}: {why}", result
         requests.meet(root, request.id, index,
                       [requests.Evidence(kind="file", ref=f, note="produced for this criterion")
