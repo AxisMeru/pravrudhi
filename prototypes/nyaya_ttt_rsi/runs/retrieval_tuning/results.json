@@ -1,0 +1,427 @@
+{
+  "configurations_evaluated": 144,
+  "passages": 2269,
+  "abbreviations": {
+    "S.": "Section"
+  },
+  "train_baseline": {
+    "overall": {
+      "n": 6206,
+      "recall@4": 0.7370286819207219,
+      "recall@8": 0.8030937802126974,
+      "recall@16": 0.8625523686754754,
+      "recall@32": 0.9183048662584595,
+      "objective": 0.7997905252980986
+    },
+    "law_abstain": {
+      "n": 80,
+      "recall@4": 0.0,
+      "recall@8": 0.0,
+      "recall@16": 0.0,
+      "recall@32": 0.0,
+      "objective": 0.0
+    },
+    "law_citation_retrieval": {
+      "n": 2042,
+      "recall@4": 0.9407443682664055,
+      "recall@8": 0.9642507345739472,
+      "recall@16": 0.9779627815866797,
+      "recall@32": 0.990205680705191,
+      "objective": 0.9593535749265426
+    },
+    "law_cite_to_title": {
+      "n": 2042,
+      "recall@4": 0.7105778648383937,
+      "recall@8": 0.7904015670910872,
+      "recall@16": 0.8545543584720862,
+      "recall@32": 0.9147894221351616,
+      "objective": 0.7825661116552399
+    },
+    "law_lookup": {
+      "n": 2042,
+      "recall@4": 0.5886385896180215,
+      "recall@8": 0.6860920666013712,
+      "recall@16": 0.7889324191968659,
+      "recall@32": 0.885896180215475,
+      "objective": 0.6887855044074437
+    }
+  },
+  "train_top5": [
+    {
+      "config": {
+        "k1": 1.5,
+        "b": 0.75,
+        "w_title": 6,
+        "w_header": 6,
+        "w_body": 0.25,
+        "expand_abbreviations": false,
+        "exact_boost": 50.0,
+        "lowercase": true,
+        "strip_punctuation": true
+      },
+      "metrics": {
+        "overall": {
+          "n": 6206,
+          "recall@4": 0.9805027392845633,
+          "recall@8": 0.9832420238478892,
+          "recall@16": 0.9861424427972929,
+          "recall@32": 0.9866258459555269,
+          "objective": 0.9833225910409281
+        },
+        "law_abstain": {
+          "n": 80,
+          "recall@4": 0.0,
+          "recall@8": 0.0,
+          "recall@16": 0.0,
+          "recall@32": 0.0,
+          "objective": 0.0
+        },
+        "law_citation_retrieval": {
+          "n": 2042,
+          "recall@4": 0.9799216454456415,
+          "recall@8": 0.9882468168462292,
+          "recall@16": 0.9970617042115573,
+          "recall@32": 0.9985308521057786,
+          "objective": 0.9884916748285995
+        },
+        "law_cite_to_title": {
+          "n": 2042,
+          "recall@4": 1.0,
+          "recall@8": 1.0,
+          "recall@16": 1.0,
+          "recall@32": 1.0,
+          "objective": 1.0
+        },
+        "law_lookup": {
+          "n": 2042,
+          "recall@4": 1.0,
+          "recall@8": 1.0,
+          "recall@16": 1.0,
+          "recall@32": 1.0,
+          "objective": 1.0
+        }
+      }
+    },
+    {
+      "config": {
+        "k1": 1.5,
+        "b": 0.75,
+        "w_title": 6,
+        "w_header": 6,
+        "w_body": 0.25,
+        "expand_abbreviations": true,
+        "exact_boost": 50.0,
+        "lowercase": true,
+        "strip_punctuation": true
+      },
+      "metrics": {
+        "overall": {
+          "n": 6206,
+          "recall@4": 0.9805027392845633,
+          "recall@8": 0.9832420238478892,
+          "recall@16": 0.9861424427972929,
+          "recall@32": 0.9866258459555269,
+          "objective": 0.9833225910409281
+        },
+        "law_abstain": {
+          "n": 80,
+          "recall@4": 0.0,
+          "recall@8": 0.0,
+          "recall@16": 0.0,
+          "recall@32": 0.0,
+          "objective": 0.0
+        },
+        "law_citation_retrieval": {
+          "n": 2042,
+          "recall@4": 0.9799216454456415,
+          "recall@8": 0.9882468168462292,
+          "recall@16": 0.9970617042115573,
+          "recall@32": 0.9985308521057786,
+          "objective": 0.9884916748285995
+        },
+        "law_cite_to_title": {
+          "n": 2042,
+          "recall@4": 1.0,
+          "recall@8": 1.0,
+          "recall@16": 1.0,
+          "recall@32": 1.0,
+          "objective": 1.0
+        },
+        "law_lookup": {
+          "n": 2042,
+          "recall@4": 1.0,
+          "recall@8": 1.0,
+          "recall@16": 1.0,
+          "recall@32": 1.0,
+          "objective": 1.0
+        }
+      }
+    },
+    {
+      "config": {
+        "k1": 1.5,
+        "b": 0.75,
+        "w_title": 3,
+        "w_header": 3,
+        "w_body": 1,
+        "expand_abbreviations": false,
+        "exact_boost": 50.0,
+        "lowercase": true,
+        "strip_punctuation": true
+      },
+      "metrics": {
+        "overall": {
+          "n": 6206,
+          "recall@4": 0.9803416048984853,
+          "recall@8": 0.9834031582339672,
+          "recall@16": 0.984692233322591,
+          "recall@32": 0.985659039639059,
+          "objective": 0.9825169191105382
+        },
+        "law_abstain": {
+          "n": 80,
+          "recall@4": 0.0,
+          "recall@8": 0.0,
+          "recall@16": 0.0,
+          "recall@32": 0.0,
+          "objective": 0.0
+        },
+        "law_citation_retrieval": {
+          "n": 2042,
+          "recall@4": 0.9794319294809011,
+          "recall@8": 0.9887365328109696,
+          "recall@16": 0.9926542605288933,
+          "recall@32": 0.9955925563173359,
+          "objective": 0.9860430950048972
+        },
+        "law_cite_to_title": {
+          "n": 2042,
+          "recall@4": 1.0,
+          "recall@8": 1.0,
+          "recall@16": 1.0,
+          "recall@32": 1.0,
+          "objective": 1.0
+        },
+        "law_lookup": {
+          "n": 2042,
+          "recall@4": 1.0,
+          "recall@8": 1.0,
+          "recall@16": 1.0,
+          "recall@32": 1.0,
+          "objective": 1.0
+        }
+      }
+    },
+    {
+      "config": {
+        "k1": 1.5,
+        "b": 0.75,
+        "w_title": 3,
+        "w_header": 3,
+        "w_body": 1,
+        "expand_abbreviations": true,
+        "exact_boost": 50.0,
+        "lowercase": true,
+        "strip_punctuation": true
+      },
+      "metrics": {
+        "overall": {
+          "n": 6206,
+          "recall@4": 0.9803416048984853,
+          "recall@8": 0.9834031582339672,
+          "recall@16": 0.984692233322591,
+          "recall@32": 0.985659039639059,
+          "objective": 0.9825169191105382
+        },
+        "law_abstain": {
+          "n": 80,
+          "recall@4": 0.0,
+          "recall@8": 0.0,
+          "recall@16": 0.0,
+          "recall@32": 0.0,
+          "objective": 0.0
+        },
+        "law_citation_retrieval": {
+          "n": 2042,
+          "recall@4": 0.9794319294809011,
+          "recall@8": 0.9887365328109696,
+          "recall@16": 0.9926542605288933,
+          "recall@32": 0.9955925563173359,
+          "objective": 0.9860430950048972
+        },
+        "law_cite_to_title": {
+          "n": 2042,
+          "recall@4": 1.0,
+          "recall@8": 1.0,
+          "recall@16": 1.0,
+          "recall@32": 1.0,
+          "objective": 1.0
+        },
+        "law_lookup": {
+          "n": 2042,
+          "recall@4": 1.0,
+          "recall@8": 1.0,
+          "recall@16": 1.0,
+          "recall@32": 1.0,
+          "objective": 1.0
+        }
+      }
+    },
+    {
+      "config": {
+        "k1": 1.5,
+        "b": 0.75,
+        "w_title": 3,
+        "w_header": 1,
+        "w_body": 1,
+        "expand_abbreviations": false,
+        "exact_boost": 50.0,
+        "lowercase": true,
+        "strip_punctuation": true
+      },
+      "metrics": {
+        "overall": {
+          "n": 6206,
+          "recall@4": 0.9782468578794715,
+          "recall@8": 0.9822752175314212,
+          "recall@16": 0.9842088301643571,
+          "recall@32": 0.985497905252981,
+          "objective": 0.9812278440219143
+        },
+        "law_abstain": {
+          "n": 80,
+          "recall@4": 0.0,
+          "recall@8": 0.0,
+          "recall@16": 0.0,
+          "recall@32": 0.0,
+          "objective": 0.0
+        },
+        "law_citation_retrieval": {
+          "n": 2042,
+          "recall@4": 0.9730656219392753,
+          "recall@8": 0.9853085210577864,
+          "recall@16": 0.9911851126346719,
+          "recall@32": 0.9951028403525954,
+          "objective": 0.9821253672869736
+        },
+        "law_cite_to_title": {
+          "n": 2042,
+          "recall@4": 1.0,
+          "recall@8": 1.0,
+          "recall@16": 1.0,
+          "recall@32": 1.0,
+          "objective": 1.0
+        },
+        "law_lookup": {
+          "n": 2042,
+          "recall@4": 1.0,
+          "recall@8": 1.0,
+          "recall@16": 1.0,
+          "recall@32": 1.0,
+          "objective": 1.0
+        }
+      }
+    }
+  ],
+  "best_config": {
+    "k1": 1.5,
+    "b": 0.75,
+    "w_title": 6,
+    "w_header": 6,
+    "w_body": 0.25,
+    "expand_abbreviations": false,
+    "exact_boost": 50.0,
+    "lowercase": true,
+    "strip_punctuation": true
+  },
+  "heldout_baseline": {
+    "overall": {
+      "n": 690,
+      "recall@4": 0.7724637681159421,
+      "recall@8": 0.836231884057971,
+      "recall@16": 0.8695652173913043,
+      "recall@32": 0.908695652173913,
+      "objective": 0.8210144927536231
+    },
+    "law_abstain": {
+      "n": 9,
+      "recall@4": 0.0,
+      "recall@8": 0.0,
+      "recall@16": 0.0,
+      "recall@32": 0.0,
+      "objective": 0.0
+    },
+    "law_citation_retrieval": {
+      "n": 227,
+      "recall@4": 0.9383259911894273,
+      "recall@8": 0.973568281938326,
+      "recall@16": 0.9823788546255506,
+      "recall@32": 0.9911894273127754,
+      "objective": 0.9603524229074889
+    },
+    "law_cite_to_title": {
+      "n": 227,
+      "recall@4": 0.7577092511013216,
+      "recall@8": 0.8281938325991189,
+      "recall@16": 0.8634361233480177,
+      "recall@32": 0.8986784140969163,
+      "objective": 0.8105726872246697
+    },
+    "law_lookup": {
+      "n": 227,
+      "recall@4": 0.6519823788546255,
+      "recall@8": 0.7400881057268722,
+      "recall@16": 0.7973568281938326,
+      "recall@32": 0.8722466960352423,
+      "objective": 0.724669603524229
+    }
+  },
+  "heldout_tuned": {
+    "overall": {
+      "n": 690,
+      "recall@4": 0.9840579710144928,
+      "recall@8": 0.9869565217391304,
+      "recall@16": 0.9869565217391304,
+      "recall@32": 0.9869565217391304,
+      "objective": 0.9855072463768115
+    },
+    "law_abstain": {
+      "n": 9,
+      "recall@4": 0.0,
+      "recall@8": 0.0,
+      "recall@16": 0.0,
+      "recall@32": 0.0,
+      "objective": 0.0
+    },
+    "law_citation_retrieval": {
+      "n": 227,
+      "recall@4": 0.9911894273127754,
+      "recall@8": 1.0,
+      "recall@16": 1.0,
+      "recall@32": 1.0,
+      "objective": 0.9955947136563876
+    },
+    "law_cite_to_title": {
+      "n": 227,
+      "recall@4": 1.0,
+      "recall@8": 1.0,
+      "recall@16": 1.0,
+      "recall@32": 1.0,
+      "objective": 1.0
+    },
+    "law_lookup": {
+      "n": 227,
+      "recall@4": 1.0,
+      "recall@8": 1.0,
+      "recall@16": 1.0,
+      "recall@32": 1.0,
+      "objective": 1.0
+    }
+  },
+  "excluded_full_body_queries": {
+    "train": 0,
+    "heldout": 0
+  },
+  "wall_seconds": 12.017167343001347,
+  "protocol": "144 train-only variants; objective is micro mean of recall@4 and recall@16; stable grid order resolves ties. Single selected variant evaluated once on held-out alongside pooled baseline. Both splits supply corpus bodies and titles. Absent gold/abstention rows count as misses. Case/whitespace-normalized full gold body containment excluded in both splits. No held-out prompt informs aliases or selection."
+}

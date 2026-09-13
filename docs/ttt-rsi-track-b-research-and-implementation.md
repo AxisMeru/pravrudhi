@@ -558,3 +558,62 @@ adapter in `g0/generate_megatron.py` already exposes generate + candidate NLL), 
 train dev slice for this checkpoint, and run B′-frozen and B′ on the 690. If 1.13B + harness does not
 clear 370M + harness (recall 0.145–0.198) by more than the paired CI half-width, the scale lever is
 weaker than §5.3 assumed and the retrieval ceiling (recall@4 = 0.77) becomes the binding constraint.
+
+## 12. Round 2 design: pointwise grounded judgment (2026-09-13, afternoon)
+
+**The contradiction, stated with numbers.** The harness's recall is bounded by what it can show
+the model. BM25 recall@k on the 690 held-out (measured today, same store the harness uses):
+
+| k | all | law_lookup | cite_to_title | citation_retrieval |
+|---|---|---|---|---|
+| 4 | 0.772 | 0.652 | 0.758 | 0.938 |
+| 8 | 0.836 | 0.740 | 0.828 | 0.974 |
+| 16 | 0.870 | 0.797 | 0.863 | 0.982 |
+| 32 | 0.909 | 0.872 | 0.899 | 0.991 |
+| 64 | 0.941 | 0.925 | 0.938 | 0.996 |
+
+But one prompt at 370M is capped at 950 bytes (trained at 512 tokens = 512 bytes), which forces
+k = 4 with 60-byte bodies, and even then the model picks the gold passage only 49% of the time it
+is shown. Improving reliability (TRIZ parameter 27) worsens prompt length (4) and device
+complexity (36). The contradiction matrix returns principles 15, 29, 28, 11 and 27, 35, 10, 34;
+the ones that bite here are **1 segmentation**, **28 replace the mechanism** (a k-way reading
+becomes a pairwise measurement), **27 cheap first stage** (BM25 proposes, the LM disposes),
+**40 composite** (fuse LM margin with the BM25 rank prior) and **10 prior action** (train the
+same judgment the harness makes at test time). Session entry logged in `.triz/session.jsonl`;
+IFR score 2/4 (cheap, no new problems; not yet self-resolving).
+
+**The design.** For each of k retrieved passages build one short prompt (header, title, body up
+to 220 bytes, question) and score two fixed continuations: the passage's own canonical citation
+and the abstain phrase. The margin `NLL(abstain) − NLL(cite)` ranks passages; the best margin,
+optionally fused with `−λ·log(rank)`, is thresholded with the same dev-calibrated τ/δ rule as
+before. Cost is linear in k with no prompt growth, so k = 32 is affordable and the ceiling moves
+from 0.77 to 0.91. Selection becomes a binary judgment a 370M model can plausibly learn, and the
+RSI loop can train exactly that judgment from its own gate-accepted pseudo-labels (positives =
+accepted passage, hard negatives = the other retrieved passages), which is round 3.
+
+**What is being run.** (a) Pointwise mode in `evaluate.py`, frozen weights and round-1 LoRA, k ∈
+{8, 16, 32}, λ chosen on the dev slice; paired against B′ and B′(frozen). (b) A Megatron backend
+in `model_io.py` so the 1.13B checkpoint from §11 goes through the same harness. (c) A CPU-only
+BM25 tuning pass (field weights, abbreviation expansion, exact-header boosts) fitted on train,
+reported once on held-out. Results are appended below as they land; nothing in this section is a
+result yet.
+
+### 12.1 Result (c): the first stage was the cheap half of the ceiling
+
+The BM25 tuning pass (`prototypes/nyaya_ttt_rsi/retrieval_tuning.py`, Codex gpt-6-astra,
+144 configurations searched on the train split only, 12 s of CPU) found that weighting the
+`[act, section]` header and the section title six times the body, with a fixed boost when the
+question names an explicit article/section that matches a header, lifts held-out recall from
+0.772 to **0.984 at k = 4** (0.703 at k = 1, 0.987 at k = 8). I re-ran the winner on the 690
+independently and got the same numbers. Raw: `runs/retrieval_tuning/results.json`.
+
+Why so large, said plainly: Track B's questions are templated ("What does Constitution of India,
+Article 5 provide?", "Which provision of X states: '<title>'?", "What is the subject of X, Article
+5?"), so the header and title fields carry almost all the signal and the body was mostly noise
+in the original score. That is a property of the evaluation set, not of legal retrieval in
+general; the prototype's grounded-by-construction claim is unaffected, but anyone quoting recall
+numbers for this set should say the retrieval half is nearly solved by field weighting alone.
+The consequence for the model is that **gold_selected_when_shown becomes the whole game**: with
+the gold passage on screen 98% of the time, every remaining miss is a selection or abstention
+error, which is exactly what pointwise judgment and the contrastive round target. The pointwise
+agent has been told to add tuned-store conditions so the two effects can be separated.
