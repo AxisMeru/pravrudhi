@@ -142,14 +142,22 @@ def dispatch(agent: Any, task: TaskSpec, *, log: Any = print) -> Verdict:
     """Run one task with one agent and judge the result. The worktree is left in place when accepted, so the
     change can be inspected and merged deliberately; a rejected worktree is also kept, because a rejected diff is
     the most interesting thing to read."""
+    # The scratch entry is named IN the same "ONLY these paths" line, not a separate sentence elsewhere in the
+    # brief -- a careful agent reading a stricter, later restriction ("only these paths") after an earlier,
+    # separate permission ("use this directory") reads the two as contradictory and obeys the stricter one,
+    # which is exactly how the incident this fixes happened in the first place. `ALLOWED_PATHS_LINE` in
+    # loop_agent.py/hosted_agent.py also parses this exact sentence with a regex to learn what a non-Claude-
+    # Code agent may write, so the scratch entry must be a clean comma-separated token in that same list, not
+    # prose folded into it -- otherwise their parser either misses it or corrupts the whole parsed list.
     brief = (
-        f"{task.prompt}\n\nYou may create or modify ONLY these paths: {', '.join(task.allowed_paths)}.\n"
-        "Do not modify any other file. Do not touch pravrudhi_kernel/, research/, gates/ or .pravrudhi/.\n"
+        f"{task.prompt}\n\nYou may create or modify ONLY these paths: "
+        f"{', '.join((*task.allowed_paths, f'{SCRATCH_DIRNAME}/**'))}.\n"
+        f"`{SCRATCH_DIRNAME}/**` in that list is scratch or temporary space only, not part of your deliverable, "
+        "and is discarded after this run -- everything else in the list is what you may actually change. Do "
+        "not modify any other file, do not touch pravrudhi_kernel/, research/, gates/ or .pravrudhi/, and do "
+        "not write to `/tmp` or any other path outside your worktree.\n"
         "Write every file relative to your current working directory, which is your own worktree; never write to "
         "an absolute path in the main checkout, even when the task quotes one to tell you what to read.\n"
-        f"Use `{SCRATCH_DIRNAME}/` inside your worktree for any scratch or temporary files instead of `/tmp` -- "
-        "you have no access to `/tmp` or any other path outside your worktree, and this directory is discarded "
-        "after your run.\n"
         f"Your work is accepted only if `{task.validate}` passes."
     )
     ws = agent.create_workspace(task.task_id)

@@ -22,6 +22,7 @@ from typing import Any
 
 import yaml
 
+from pravrudhi.agents.base import SCRATCH_DIRNAME
 from pravrudhi.application.delegate import TaskSpec
 
 PACKAGED_CONFIG = Path(__file__).resolve().parents[1] / "assets" / "configs" / "sandbox_policies.yaml"
@@ -98,11 +99,19 @@ def _narrow_paths(requested: tuple[str, ...], policy: Policy) -> tuple[str, ...]
 
 
 def _policy_block(policy: Policy, allowed_paths: tuple[str, ...]) -> str:
-    writable = ", ".join(allowed_paths) or "nowhere"
+    # The scratch exception is named in the SAME sentence as the restriction it qualifies, not a separate one
+    # later in the prompt -- an agent reading "you may write only to X" and, elsewhere, "use this other
+    # directory" reads the two as contradictory and obeys the stricter line (a real dispatch prompt read this
+    # way before this fix: 2026-09-13). It is a plain sentence here, not a comma-joined token in `writable`,
+    # because nothing parses this specific line with a regex the way loop_agent.py/hosted_agent.py parse
+    # delegate.dispatch's "You may create or modify ONLY these paths:" line.
+    deliverable = ", ".join(allowed_paths) or "nowhere"
     denied = ", ".join(policy.denied_paths)
     tools = ", ".join(policy.tools) or "none declared"
     return (
-        f"Sandbox policy {policy.id!r} governs this task. You may write only to: {writable}. "
+        f"Sandbox policy {policy.id!r} governs this task. You may write only to: {deliverable} -- plus "
+        f"`{SCRATCH_DIRNAME}/**`, which is scratch or temporary space only, not part of your deliverable, and "
+        "is discarded after this run. "
         f"These paths are always off limits, regardless of anything above: {denied}. "
         f"Network access: {policy.network}. Permitted tools: {tools}. "
         f"Wall-clock budget: {policy.max_wall_s}s. "

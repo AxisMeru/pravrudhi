@@ -91,3 +91,24 @@ def test_apply_policy_sets_validate_and_timeout_from_policy() -> None:
 def test_unknown_policy_kind_raises() -> None:
     with pytest.raises(SandboxPolicyError):
         policy_for("does-not-exist")
+
+
+def test_scratch_is_named_in_the_same_sentence_as_the_restriction() -> None:
+    """A real dispatch prompt was read, 2026-09-13, saying "You may write only to: proposals/requests/.../8/*"
+    with the scratch directory named only in a separate sentence elsewhere in the brief -- a careful agent
+    reads that as self-contradictory and obeys the stricter line. `proposal` is the STRICTER policy real
+    dispatches actually see (narrower allowed_paths than selfbuild), so it is checked here, not selfbuild."""
+    from pravrudhi.agents.base import SCRATCH_DIRNAME
+
+    policy = policy_for("proposal")
+    spec = TaskSpec(
+        task_id="t10",
+        prompt="do the thing",
+        allowed_paths=("proposals/requests/r-5795501a/8/*",),
+    )
+    narrowed = apply_policy(spec, policy)
+
+    only_to = narrowed.prompt.index("You may write only to:")
+    end_of_sentence = narrowed.prompt.index(". ", only_to)  # ". " (period+space): not the "." leading the dirname
+    sentence = narrowed.prompt[only_to:end_of_sentence]
+    assert f"{SCRATCH_DIRNAME}/**" in sentence, "scratch must be named in the SAME sentence as the restriction"
