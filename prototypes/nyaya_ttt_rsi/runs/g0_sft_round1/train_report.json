@@ -1,0 +1,1540 @@
+{
+  "checkpoint": "/fusion-project/prabhasa-samskrutam/data/checkpoints/m4/final.pt",
+  "n_params": 1129634752,
+  "seq_len": 1536,
+  "batch_size": 2,
+  "grad_accum": 4,
+  "vram_fraction": 0.85,
+  "preflight": {
+    "status": "ok",
+    "batch_size": 2,
+    "seq_len": 1536,
+    "peak_vram_mib": 21605.0166015625
+  },
+  "status": "completed",
+  "oom_error": null,
+  "oom_at_micro_step": null,
+  "losses_every_50_steps": [
+    {
+      "micro_step": 0,
+      "opt_step": 0,
+      "epoch": 0,
+      "loss": 2.914137601852417,
+      "lr": 2.0000000000000002e-07,
+      "examples_seen": 2,
+      "tokens_seen": 26,
+      "wall_seconds": 0.16620826721191406
+    },
+    {
+      "micro_step": 50,
+      "opt_step": 12,
+      "epoch": 0,
+      "loss": 0.8213239312171936,
+      "lr": 2.6e-06,
+      "examples_seen": 102,
+      "tokens_seen": 14406,
+      "wall_seconds": 8.272372245788574
+    },
+    {
+      "micro_step": 100,
+      "opt_step": 25,
+      "epoch": 0,
+      "loss": 1.0469136238098145,
+      "lr": 5.2e-06,
+      "examples_seen": 202,
+      "tokens_seen": 26787,
+      "wall_seconds": 16.439926862716675
+    },
+    {
+      "micro_step": 150,
+      "opt_step": 37,
+      "epoch": 0,
+      "loss": 0.17196892201900482,
+      "lr": 7.600000000000001e-06,
+      "examples_seen": 302,
+      "tokens_seen": 38876,
+      "wall_seconds": 24.561069011688232
+    },
+    {
+      "micro_step": 200,
+      "opt_step": 50,
+      "epoch": 0,
+      "loss": 0.9070287942886353,
+      "lr": 1e-05,
+      "examples_seen": 402,
+      "tokens_seen": 49657,
+      "wall_seconds": 32.738943099975586
+    },
+    {
+      "micro_step": 250,
+      "opt_step": 62,
+      "epoch": 0,
+      "loss": 1.0818771123886108,
+      "lr": 1e-05,
+      "examples_seen": 502,
+      "tokens_seen": 63090,
+      "wall_seconds": 40.86162757873535
+    },
+    {
+      "micro_step": 300,
+      "opt_step": 75,
+      "epoch": 0,
+      "loss": 0.09862606972455978,
+      "lr": 1e-05,
+      "examples_seen": 602,
+      "tokens_seen": 75322,
+      "wall_seconds": 49.04054045677185
+    },
+    {
+      "micro_step": 350,
+      "opt_step": 87,
+      "epoch": 0,
+      "loss": 0.08592633903026581,
+      "lr": 1e-05,
+      "examples_seen": 702,
+      "tokens_seen": 86996,
+      "wall_seconds": 57.1627562046051
+    },
+    {
+      "micro_step": 400,
+      "opt_step": 100,
+      "epoch": 0,
+      "loss": 0.8809611797332764,
+      "lr": 1e-05,
+      "examples_seen": 802,
+      "tokens_seen": 101500,
+      "wall_seconds": 65.34439754486084
+    },
+    {
+      "micro_step": 450,
+      "opt_step": 112,
+      "epoch": 0,
+      "loss": 0.14655375480651855,
+      "lr": 1e-05,
+      "examples_seen": 902,
+      "tokens_seen": 109461,
+      "wall_seconds": 73.46742057800293
+    },
+    {
+      "micro_step": 500,
+      "opt_step": 125,
+      "epoch": 0,
+      "loss": 0.11206148564815521,
+      "lr": 1e-05,
+      "examples_seen": 1002,
+      "tokens_seen": 129151,
+      "wall_seconds": 81.65300750732422
+    },
+    {
+      "micro_step": 550,
+      "opt_step": 137,
+      "epoch": 0,
+      "loss": 0.3356126546859741,
+      "lr": 1e-05,
+      "examples_seen": 1102,
+      "tokens_seen": 140566,
+      "wall_seconds": 89.78243517875671
+    },
+    {
+      "micro_step": 600,
+      "opt_step": 150,
+      "epoch": 0,
+      "loss": 0.6148836016654968,
+      "lr": 1e-05,
+      "examples_seen": 1202,
+      "tokens_seen": 150342,
+      "wall_seconds": 97.97013306617737
+    },
+    {
+      "micro_step": 650,
+      "opt_step": 162,
+      "epoch": 0,
+      "loss": 0.00034686693106777966,
+      "lr": 1e-05,
+      "examples_seen": 1302,
+      "tokens_seen": 157802,
+      "wall_seconds": 106.10170531272888
+    },
+    {
+      "micro_step": 700,
+      "opt_step": 175,
+      "epoch": 0,
+      "loss": 0.0067321802489459515,
+      "lr": 1e-05,
+      "examples_seen": 1402,
+      "tokens_seen": 165888,
+      "wall_seconds": 114.47244477272034
+    },
+    {
+      "micro_step": 750,
+      "opt_step": 187,
+      "epoch": 0,
+      "loss": 0.9329863786697388,
+      "lr": 1e-05,
+      "examples_seen": 1502,
+      "tokens_seen": 177205,
+      "wall_seconds": 122.62360882759094
+    },
+    {
+      "micro_step": 800,
+      "opt_step": 200,
+      "epoch": 0,
+      "loss": 0.05064394325017929,
+      "lr": 1e-05,
+      "examples_seen": 1602,
+      "tokens_seen": 189684,
+      "wall_seconds": 130.83085989952087
+    },
+    {
+      "micro_step": 850,
+      "opt_step": 212,
+      "epoch": 0,
+      "loss": 0.4556676745414734,
+      "lr": 1e-05,
+      "examples_seen": 1702,
+      "tokens_seen": 201069,
+      "wall_seconds": 138.983154296875
+    },
+    {
+      "micro_step": 900,
+      "opt_step": 225,
+      "epoch": 0,
+      "loss": 0.00043984822696074843,
+      "lr": 1e-05,
+      "examples_seen": 1802,
+      "tokens_seen": 210487,
+      "wall_seconds": 147.1930446624756
+    },
+    {
+      "micro_step": 950,
+      "opt_step": 237,
+      "epoch": 0,
+      "loss": 0.0004994869232177734,
+      "lr": 1e-05,
+      "examples_seen": 1902,
+      "tokens_seen": 222195,
+      "wall_seconds": 155.3452751636505
+    },
+    {
+      "micro_step": 1000,
+      "opt_step": 250,
+      "epoch": 0,
+      "loss": 0.9430787563323975,
+      "lr": 1e-05,
+      "examples_seen": 2002,
+      "tokens_seen": 240295,
+      "wall_seconds": 163.55634474754333
+    },
+    {
+      "micro_step": 1050,
+      "opt_step": 262,
+      "epoch": 0,
+      "loss": 0.06118796765804291,
+      "lr": 1e-05,
+      "examples_seen": 2102,
+      "tokens_seen": 252136,
+      "wall_seconds": 171.7108826637268
+    },
+    {
+      "micro_step": 1100,
+      "opt_step": 275,
+      "epoch": 0,
+      "loss": 0.015427450649440289,
+      "lr": 1e-05,
+      "examples_seen": 2202,
+      "tokens_seen": 265035,
+      "wall_seconds": 179.91997957229614
+    },
+    {
+      "micro_step": 1150,
+      "opt_step": 287,
+      "epoch": 0,
+      "loss": 1.070945382118225,
+      "lr": 1e-05,
+      "examples_seen": 2302,
+      "tokens_seen": 279175,
+      "wall_seconds": 188.07435750961304
+    },
+    {
+      "micro_step": 1200,
+      "opt_step": 300,
+      "epoch": 0,
+      "loss": 0.14437197148799896,
+      "lr": 1e-05,
+      "examples_seen": 2402,
+      "tokens_seen": 291455,
+      "wall_seconds": 196.28595995903015
+    },
+    {
+      "micro_step": 1250,
+      "opt_step": 312,
+      "epoch": 0,
+      "loss": 0.528558611869812,
+      "lr": 1e-05,
+      "examples_seen": 2502,
+      "tokens_seen": 307366,
+      "wall_seconds": 204.44148325920105
+    },
+    {
+      "micro_step": 1300,
+      "opt_step": 325,
+      "epoch": 0,
+      "loss": 0.055674564093351364,
+      "lr": 1e-05,
+      "examples_seen": 2602,
+      "tokens_seen": 316283,
+      "wall_seconds": 212.65248942375183
+    },
+    {
+      "micro_step": 1350,
+      "opt_step": 337,
+      "epoch": 0,
+      "loss": 0.08483649790287018,
+      "lr": 1e-05,
+      "examples_seen": 2702,
+      "tokens_seen": 326702,
+      "wall_seconds": 220.8073217868805
+    },
+    {
+      "micro_step": 1400,
+      "opt_step": 350,
+      "epoch": 0,
+      "loss": 0.412382036447525,
+      "lr": 1e-05,
+      "examples_seen": 2802,
+      "tokens_seen": 338300,
+      "wall_seconds": 229.02052092552185
+    },
+    {
+      "micro_step": 1450,
+      "opt_step": 362,
+      "epoch": 0,
+      "loss": 0.102866992354393,
+      "lr": 1e-05,
+      "examples_seen": 2902,
+      "tokens_seen": 348346,
+      "wall_seconds": 237.17599177360535
+    },
+    {
+      "micro_step": 1500,
+      "opt_step": 375,
+      "epoch": 0,
+      "loss": 0.8420630097389221,
+      "lr": 1e-05,
+      "examples_seen": 3002,
+      "tokens_seen": 360611,
+      "wall_seconds": 245.56519746780396
+    },
+    {
+      "micro_step": 1550,
+      "opt_step": 387,
+      "epoch": 0,
+      "loss": 0.00028934364672750235,
+      "lr": 1e-05,
+      "examples_seen": 3102,
+      "tokens_seen": 371998,
+      "wall_seconds": 253.71994066238403
+    },
+    {
+      "micro_step": 1600,
+      "opt_step": 400,
+      "epoch": 0,
+      "loss": 0.9038389325141907,
+      "lr": 1e-05,
+      "examples_seen": 3202,
+      "tokens_seen": 382687,
+      "wall_seconds": 261.93289518356323
+    },
+    {
+      "micro_step": 1650,
+      "opt_step": 412,
+      "epoch": 0,
+      "loss": 0.712709367275238,
+      "lr": 1e-05,
+      "examples_seen": 3302,
+      "tokens_seen": 396741,
+      "wall_seconds": 270.0899498462677
+    },
+    {
+      "micro_step": 1700,
+      "opt_step": 425,
+      "epoch": 0,
+      "loss": 1.0038427114486694,
+      "lr": 1e-05,
+      "examples_seen": 3402,
+      "tokens_seen": 406567,
+      "wall_seconds": 278.30262446403503
+    },
+    {
+      "micro_step": 1750,
+      "opt_step": 437,
+      "epoch": 0,
+      "loss": 0.03556612506508827,
+      "lr": 1e-05,
+      "examples_seen": 3502,
+      "tokens_seen": 419930,
+      "wall_seconds": 286.4591977596283
+    },
+    {
+      "micro_step": 1800,
+      "opt_step": 450,
+      "epoch": 0,
+      "loss": 5.6221371778519824e-05,
+      "lr": 1e-05,
+      "examples_seen": 3602,
+      "tokens_seen": 432581,
+      "wall_seconds": 294.6732566356659
+    },
+    {
+      "micro_step": 1850,
+      "opt_step": 462,
+      "epoch": 0,
+      "loss": 0.13563399016857147,
+      "lr": 1e-05,
+      "examples_seen": 3702,
+      "tokens_seen": 442659,
+      "wall_seconds": 302.8292112350464
+    },
+    {
+      "micro_step": 1900,
+      "opt_step": 475,
+      "epoch": 0,
+      "loss": 0.14687231183052063,
+      "lr": 1e-05,
+      "examples_seen": 3802,
+      "tokens_seen": 457014,
+      "wall_seconds": 311.0441429615021
+    },
+    {
+      "micro_step": 1950,
+      "opt_step": 487,
+      "epoch": 0,
+      "loss": 0.9371021389961243,
+      "lr": 1e-05,
+      "examples_seen": 3902,
+      "tokens_seen": 471315,
+      "wall_seconds": 319.20131731033325
+    },
+    {
+      "micro_step": 2000,
+      "opt_step": 500,
+      "epoch": 0,
+      "loss": 0.9226866960525513,
+      "lr": 1e-05,
+      "examples_seen": 4002,
+      "tokens_seen": 486100,
+      "wall_seconds": 327.41582584381104
+    },
+    {
+      "micro_step": 2050,
+      "opt_step": 512,
+      "epoch": 0,
+      "loss": 0.5469675660133362,
+      "lr": 1e-05,
+      "examples_seen": 4102,
+      "tokens_seen": 494136,
+      "wall_seconds": 335.5708360671997
+    },
+    {
+      "micro_step": 2100,
+      "opt_step": 525,
+      "epoch": 0,
+      "loss": 0.1174120157957077,
+      "lr": 1e-05,
+      "examples_seen": 4202,
+      "tokens_seen": 507586,
+      "wall_seconds": 343.78439235687256
+    },
+    {
+      "micro_step": 2150,
+      "opt_step": 537,
+      "epoch": 0,
+      "loss": 0.8039779663085938,
+      "lr": 1e-05,
+      "examples_seen": 4302,
+      "tokens_seen": 515212,
+      "wall_seconds": 351.9377074241638
+    },
+    {
+      "micro_step": 2200,
+      "opt_step": 550,
+      "epoch": 0,
+      "loss": 0.1309838742017746,
+      "lr": 1e-05,
+      "examples_seen": 4402,
+      "tokens_seen": 527869,
+      "wall_seconds": 360.15410804748535
+    },
+    {
+      "micro_step": 2250,
+      "opt_step": 562,
+      "epoch": 0,
+      "loss": 0.023620115593075752,
+      "lr": 1e-05,
+      "examples_seen": 4502,
+      "tokens_seen": 539196,
+      "wall_seconds": 368.3107805252075
+    },
+    {
+      "micro_step": 2300,
+      "opt_step": 575,
+      "epoch": 0,
+      "loss": 0.8256226778030396,
+      "lr": 1e-05,
+      "examples_seen": 4602,
+      "tokens_seen": 550605,
+      "wall_seconds": 376.69268012046814
+    },
+    {
+      "micro_step": 2350,
+      "opt_step": 587,
+      "epoch": 0,
+      "loss": 0.0465921051800251,
+      "lr": 1e-05,
+      "examples_seen": 4702,
+      "tokens_seen": 561022,
+      "wall_seconds": 384.8484191894531
+    },
+    {
+      "micro_step": 2400,
+      "opt_step": 600,
+      "epoch": 0,
+      "loss": 0.00010350772208767012,
+      "lr": 1e-05,
+      "examples_seen": 4802,
+      "tokens_seen": 571760,
+      "wall_seconds": 393.0627727508545
+    },
+    {
+      "micro_step": 2450,
+      "opt_step": 612,
+      "epoch": 0,
+      "loss": 0.6424896121025085,
+      "lr": 1e-05,
+      "examples_seen": 4902,
+      "tokens_seen": 588463,
+      "wall_seconds": 401.22035121917725
+    },
+    {
+      "micro_step": 2500,
+      "opt_step": 625,
+      "epoch": 0,
+      "loss": 0.00014435499906539917,
+      "lr": 1e-05,
+      "examples_seen": 5002,
+      "tokens_seen": 599670,
+      "wall_seconds": 409.43341636657715
+    },
+    {
+      "micro_step": 2550,
+      "opt_step": 637,
+      "epoch": 0,
+      "loss": 3.8949343434069306e-05,
+      "lr": 1e-05,
+      "examples_seen": 5102,
+      "tokens_seen": 606257,
+      "wall_seconds": 417.58785462379456
+    },
+    {
+      "micro_step": 2600,
+      "opt_step": 650,
+      "epoch": 0,
+      "loss": 0.7760241627693176,
+      "lr": 1e-05,
+      "examples_seen": 5202,
+      "tokens_seen": 615787,
+      "wall_seconds": 425.8031361103058
+    },
+    {
+      "micro_step": 2650,
+      "opt_step": 662,
+      "epoch": 0,
+      "loss": 0.6443864107131958,
+      "lr": 1e-05,
+      "examples_seen": 5302,
+      "tokens_seen": 624389,
+      "wall_seconds": 433.95742177963257
+    },
+    {
+      "micro_step": 2700,
+      "opt_step": 675,
+      "epoch": 0,
+      "loss": 0.5716719031333923,
+      "lr": 1e-05,
+      "examples_seen": 5402,
+      "tokens_seen": 636443,
+      "wall_seconds": 442.17226362228394
+    },
+    {
+      "micro_step": 2750,
+      "opt_step": 687,
+      "epoch": 0,
+      "loss": 0.21153023838996887,
+      "lr": 1e-05,
+      "examples_seen": 5502,
+      "tokens_seen": 648893,
+      "wall_seconds": 450.329687833786
+    },
+    {
+      "micro_step": 2800,
+      "opt_step": 700,
+      "epoch": 0,
+      "loss": 0.5122826099395752,
+      "lr": 1e-05,
+      "examples_seen": 5602,
+      "tokens_seen": 666074,
+      "wall_seconds": 458.5440323352814
+    },
+    {
+      "micro_step": 2850,
+      "opt_step": 712,
+      "epoch": 0,
+      "loss": 0.0011585262836888433,
+      "lr": 1e-05,
+      "examples_seen": 5702,
+      "tokens_seen": 684872,
+      "wall_seconds": 466.7016599178314
+    },
+    {
+      "micro_step": 2900,
+      "opt_step": 725,
+      "epoch": 0,
+      "loss": 0.0002153483364963904,
+      "lr": 1e-05,
+      "examples_seen": 5802,
+      "tokens_seen": 701402,
+      "wall_seconds": 474.91717886924744
+    },
+    {
+      "micro_step": 2950,
+      "opt_step": 737,
+      "epoch": 0,
+      "loss": 4.894960511592217e-05,
+      "lr": 1e-05,
+      "examples_seen": 5902,
+      "tokens_seen": 718534,
+      "wall_seconds": 483.0761721134186
+    },
+    {
+      "micro_step": 3000,
+      "opt_step": 750,
+      "epoch": 0,
+      "loss": 0.014582918025553226,
+      "lr": 1e-05,
+      "examples_seen": 6002,
+      "tokens_seen": 730063,
+      "wall_seconds": 491.29128432273865
+    },
+    {
+      "micro_step": 3050,
+      "opt_step": 762,
+      "epoch": 0,
+      "loss": 0.10514799505472183,
+      "lr": 1e-05,
+      "examples_seen": 6102,
+      "tokens_seen": 743759,
+      "wall_seconds": 499.4485695362091
+    },
+    {
+      "micro_step": 3100,
+      "opt_step": 775,
+      "epoch": 0,
+      "loss": 0.0026626118924468756,
+      "lr": 1e-05,
+      "examples_seen": 6202,
+      "tokens_seen": 755223,
+      "wall_seconds": 507.8476221561432
+    },
+    {
+      "micro_step": 3150,
+      "opt_step": 787,
+      "epoch": 0,
+      "loss": 0.6211569309234619,
+      "lr": 1e-05,
+      "examples_seen": 6302,
+      "tokens_seen": 771628,
+      "wall_seconds": 516.0054032802582
+    },
+    {
+      "micro_step": 3200,
+      "opt_step": 800,
+      "epoch": 0,
+      "loss": 0.05882660672068596,
+      "lr": 1e-05,
+      "examples_seen": 6402,
+      "tokens_seen": 789438,
+      "wall_seconds": 524.2234220504761
+    },
+    {
+      "micro_step": 3250,
+      "opt_step": 812,
+      "epoch": 0,
+      "loss": 0.23187841475009918,
+      "lr": 1e-05,
+      "examples_seen": 6502,
+      "tokens_seen": 797650,
+      "wall_seconds": 532.3796000480652
+    },
+    {
+      "micro_step": 3300,
+      "opt_step": 825,
+      "epoch": 0,
+      "loss": 0.04498492553830147,
+      "lr": 1e-05,
+      "examples_seen": 6602,
+      "tokens_seen": 810709,
+      "wall_seconds": 540.5938153266907
+    },
+    {
+      "micro_step": 3350,
+      "opt_step": 837,
+      "epoch": 0,
+      "loss": 0.018841087818145752,
+      "lr": 1e-05,
+      "examples_seen": 6702,
+      "tokens_seen": 820899,
+      "wall_seconds": 548.7508375644684
+    },
+    {
+      "micro_step": 3400,
+      "opt_step": 850,
+      "epoch": 0,
+      "loss": 0.962556004524231,
+      "lr": 1e-05,
+      "examples_seen": 6802,
+      "tokens_seen": 831725,
+      "wall_seconds": 556.9635770320892
+    },
+    {
+      "micro_step": 3450,
+      "opt_step": 862,
+      "epoch": 0,
+      "loss": 0.8430641889572144,
+      "lr": 1e-05,
+      "examples_seen": 6902,
+      "tokens_seen": 843754,
+      "wall_seconds": 565.1187410354614
+    },
+    {
+      "micro_step": 3500,
+      "opt_step": 875,
+      "epoch": 0,
+      "loss": 0.12227322906255722,
+      "lr": 1e-05,
+      "examples_seen": 7002,
+      "tokens_seen": 852305,
+      "wall_seconds": 573.3323881626129
+    },
+    {
+      "micro_step": 3550,
+      "opt_step": 887,
+      "epoch": 0,
+      "loss": 0.034540824592113495,
+      "lr": 1e-05,
+      "examples_seen": 7102,
+      "tokens_seen": 866089,
+      "wall_seconds": 581.4894254207611
+    },
+    {
+      "micro_step": 3600,
+      "opt_step": 900,
+      "epoch": 0,
+      "loss": 0.14191152155399323,
+      "lr": 1e-05,
+      "examples_seen": 7202,
+      "tokens_seen": 882780,
+      "wall_seconds": 589.7051885128021
+    },
+    {
+      "micro_step": 3650,
+      "opt_step": 912,
+      "epoch": 0,
+      "loss": 0.020483363419771194,
+      "lr": 1e-05,
+      "examples_seen": 7302,
+      "tokens_seen": 891922,
+      "wall_seconds": 597.8628392219543
+    },
+    {
+      "micro_step": 3700,
+      "opt_step": 925,
+      "epoch": 0,
+      "loss": 0.01290605217218399,
+      "lr": 1e-05,
+      "examples_seen": 7402,
+      "tokens_seen": 908497,
+      "wall_seconds": 606.0772795677185
+    },
+    {
+      "micro_step": 3750,
+      "opt_step": 937,
+      "epoch": 0,
+      "loss": 0.6907538175582886,
+      "lr": 1e-05,
+      "examples_seen": 7502,
+      "tokens_seen": 922139,
+      "wall_seconds": 614.233199596405
+    },
+    {
+      "micro_step": 3800,
+      "opt_step": 950,
+      "epoch": 0,
+      "loss": 0.29774630069732666,
+      "lr": 1e-05,
+      "examples_seen": 7602,
+      "tokens_seen": 939061,
+      "wall_seconds": 622.4498312473297
+    },
+    {
+      "micro_step": 3850,
+      "opt_step": 962,
+      "epoch": 0,
+      "loss": 0.09015214443206787,
+      "lr": 1e-05,
+      "examples_seen": 7702,
+      "tokens_seen": 949125,
+      "wall_seconds": 630.6099190711975
+    },
+    {
+      "micro_step": 3900,
+      "opt_step": 975,
+      "epoch": 0,
+      "loss": 0.09973420202732086,
+      "lr": 1e-05,
+      "examples_seen": 7802,
+      "tokens_seen": 957418,
+      "wall_seconds": 639.0068426132202
+    },
+    {
+      "micro_step": 3950,
+      "opt_step": 987,
+      "epoch": 0,
+      "loss": 0.9313514232635498,
+      "lr": 1e-05,
+      "examples_seen": 7902,
+      "tokens_seen": 973156,
+      "wall_seconds": 647.1650097370148
+    },
+    {
+      "micro_step": 4000,
+      "opt_step": 1000,
+      "epoch": 0,
+      "loss": 0.7236427068710327,
+      "lr": 1e-05,
+      "examples_seen": 8002,
+      "tokens_seen": 985813,
+      "wall_seconds": 655.3779463768005
+    },
+    {
+      "micro_step": 4050,
+      "opt_step": 1012,
+      "epoch": 0,
+      "loss": 0.9165174961090088,
+      "lr": 1e-05,
+      "examples_seen": 8102,
+      "tokens_seen": 1001612,
+      "wall_seconds": 663.5351147651672
+    },
+    {
+      "micro_step": 4100,
+      "opt_step": 1025,
+      "epoch": 0,
+      "loss": 0.055918168276548386,
+      "lr": 1e-05,
+      "examples_seen": 8202,
+      "tokens_seen": 1018323,
+      "wall_seconds": 671.7498643398285
+    },
+    {
+      "micro_step": 4150,
+      "opt_step": 1037,
+      "epoch": 0,
+      "loss": 0.7732843160629272,
+      "lr": 1e-05,
+      "examples_seen": 8302,
+      "tokens_seen": 1035332,
+      "wall_seconds": 679.9070348739624
+    },
+    {
+      "micro_step": 4200,
+      "opt_step": 1050,
+      "epoch": 0,
+      "loss": 0.4628756642341614,
+      "lr": 1e-05,
+      "examples_seen": 8402,
+      "tokens_seen": 1043910,
+      "wall_seconds": 688.1203322410583
+    },
+    {
+      "micro_step": 4250,
+      "opt_step": 1062,
+      "epoch": 0,
+      "loss": 0.24094003438949585,
+      "lr": 1e-05,
+      "examples_seen": 8502,
+      "tokens_seen": 1054051,
+      "wall_seconds": 696.2768330574036
+    },
+    {
+      "micro_step": 4300,
+      "opt_step": 1075,
+      "epoch": 0,
+      "loss": 0.00032360738259740174,
+      "lr": 1e-05,
+      "examples_seen": 8602,
+      "tokens_seen": 1070135,
+      "wall_seconds": 704.4919943809509
+    },
+    {
+      "micro_step": 4350,
+      "opt_step": 1087,
+      "epoch": 0,
+      "loss": 0.9144853949546814,
+      "lr": 1e-05,
+      "examples_seen": 8702,
+      "tokens_seen": 1082379,
+      "wall_seconds": 712.6495044231415
+    },
+    {
+      "micro_step": 4400,
+      "opt_step": 1100,
+      "epoch": 0,
+      "loss": 0.8746907711029053,
+      "lr": 1e-05,
+      "examples_seen": 8802,
+      "tokens_seen": 1091855,
+      "wall_seconds": 720.8628869056702
+    },
+    {
+      "micro_step": 4450,
+      "opt_step": 1112,
+      "epoch": 0,
+      "loss": 2.8979211492696777e-05,
+      "lr": 1e-05,
+      "examples_seen": 8902,
+      "tokens_seen": 1104465,
+      "wall_seconds": 729.0191848278046
+    },
+    {
+      "micro_step": 4500,
+      "opt_step": 1125,
+      "epoch": 0,
+      "loss": 0.7179103493690491,
+      "lr": 1e-05,
+      "examples_seen": 9002,
+      "tokens_seen": 1116912,
+      "wall_seconds": 737.233137845993
+    },
+    {
+      "micro_step": 4550,
+      "opt_step": 1137,
+      "epoch": 0,
+      "loss": 0.7414950132369995,
+      "lr": 1e-05,
+      "examples_seen": 9102,
+      "tokens_seen": 1126727,
+      "wall_seconds": 745.3886189460754
+    },
+    {
+      "micro_step": 4600,
+      "opt_step": 1150,
+      "epoch": 0,
+      "loss": 0.17815203964710236,
+      "lr": 1e-05,
+      "examples_seen": 9202,
+      "tokens_seen": 1138289,
+      "wall_seconds": 753.6024241447449
+    },
+    {
+      "micro_step": 4650,
+      "opt_step": 1162,
+      "epoch": 0,
+      "loss": 0.047620560973882675,
+      "lr": 1e-05,
+      "examples_seen": 9302,
+      "tokens_seen": 1152448,
+      "wall_seconds": 761.759553194046
+    },
+    {
+      "micro_step": 4700,
+      "opt_step": 1175,
+      "epoch": 0,
+      "loss": 0.00010267129255225882,
+      "lr": 1e-05,
+      "examples_seen": 9402,
+      "tokens_seen": 1160774,
+      "wall_seconds": 770.1420502662659
+    },
+    {
+      "micro_step": 4750,
+      "opt_step": 1187,
+      "epoch": 0,
+      "loss": 0.3260961174964905,
+      "lr": 1e-05,
+      "examples_seen": 9502,
+      "tokens_seen": 1169647,
+      "wall_seconds": 778.2976002693176
+    },
+    {
+      "micro_step": 4800,
+      "opt_step": 1200,
+      "epoch": 0,
+      "loss": 0.1334739625453949,
+      "lr": 1e-05,
+      "examples_seen": 9602,
+      "tokens_seen": 1178331,
+      "wall_seconds": 786.513617515564
+    },
+    {
+      "micro_step": 4850,
+      "opt_step": 1212,
+      "epoch": 0,
+      "loss": 5.74191399209667e-05,
+      "lr": 1e-05,
+      "examples_seen": 9702,
+      "tokens_seen": 1193750,
+      "wall_seconds": 794.6721868515015
+    },
+    {
+      "micro_step": 4900,
+      "opt_step": 1225,
+      "epoch": 0,
+      "loss": 4.757586066261865e-05,
+      "lr": 1e-05,
+      "examples_seen": 9802,
+      "tokens_seen": 1211486,
+      "wall_seconds": 802.887378692627
+    },
+    {
+      "micro_step": 4950,
+      "opt_step": 1237,
+      "epoch": 0,
+      "loss": 0.06027556583285332,
+      "lr": 1e-05,
+      "examples_seen": 9902,
+      "tokens_seen": 1221381,
+      "wall_seconds": 811.0471415519714
+    },
+    {
+      "micro_step": 5000,
+      "opt_step": 1250,
+      "epoch": 0,
+      "loss": 0.1455525904893875,
+      "lr": 1e-05,
+      "examples_seen": 10002,
+      "tokens_seen": 1230571,
+      "wall_seconds": 819.2603976726532
+    },
+    {
+      "micro_step": 5050,
+      "opt_step": 1262,
+      "epoch": 0,
+      "loss": 0.07831762731075287,
+      "lr": 1e-05,
+      "examples_seen": 10102,
+      "tokens_seen": 1243683,
+      "wall_seconds": 827.4193518161774
+    },
+    {
+      "micro_step": 5100,
+      "opt_step": 1275,
+      "epoch": 0,
+      "loss": 0.06654224544763565,
+      "lr": 1e-05,
+      "examples_seen": 10202,
+      "tokens_seen": 1251068,
+      "wall_seconds": 835.6318850517273
+    },
+    {
+      "micro_step": 5150,
+      "opt_step": 1287,
+      "epoch": 0,
+      "loss": 0.9499870538711548,
+      "lr": 1e-05,
+      "examples_seen": 10302,
+      "tokens_seen": 1263107,
+      "wall_seconds": 843.7886953353882
+    },
+    {
+      "micro_step": 5200,
+      "opt_step": 1300,
+      "epoch": 0,
+      "loss": 0.022080203518271446,
+      "lr": 1e-05,
+      "examples_seen": 10402,
+      "tokens_seen": 1278329,
+      "wall_seconds": 852.0029273033142
+    },
+    {
+      "micro_step": 5250,
+      "opt_step": 1312,
+      "epoch": 0,
+      "loss": 6.276652857195586e-05,
+      "lr": 1e-05,
+      "examples_seen": 10502,
+      "tokens_seen": 1291191,
+      "wall_seconds": 860.1588845252991
+    },
+    {
+      "micro_step": 5300,
+      "opt_step": 1325,
+      "epoch": 0,
+      "loss": 0.1127290353178978,
+      "lr": 1e-05,
+      "examples_seen": 10602,
+      "tokens_seen": 1305231,
+      "wall_seconds": 868.3725898265839
+    },
+    {
+      "micro_step": 5350,
+      "opt_step": 1337,
+      "epoch": 0,
+      "loss": 0.5388908982276917,
+      "lr": 1e-05,
+      "examples_seen": 10702,
+      "tokens_seen": 1317944,
+      "wall_seconds": 876.5277149677277
+    },
+    {
+      "micro_step": 5400,
+      "opt_step": 1350,
+      "epoch": 0,
+      "loss": 0.8507220149040222,
+      "lr": 1e-05,
+      "examples_seen": 10802,
+      "tokens_seen": 1333498,
+      "wall_seconds": 884.7431666851044
+    },
+    {
+      "micro_step": 5450,
+      "opt_step": 1362,
+      "epoch": 0,
+      "loss": 1.9323259039083496e-05,
+      "lr": 1e-05,
+      "examples_seen": 10902,
+      "tokens_seen": 1350322,
+      "wall_seconds": 892.9016053676605
+    },
+    {
+      "micro_step": 5500,
+      "opt_step": 1375,
+      "epoch": 0,
+      "loss": 0.000357603479642421,
+      "lr": 1e-05,
+      "examples_seen": 11002,
+      "tokens_seen": 1361111,
+      "wall_seconds": 901.2949028015137
+    },
+    {
+      "micro_step": 5550,
+      "opt_step": 1387,
+      "epoch": 0,
+      "loss": 0.4235706627368927,
+      "lr": 1e-05,
+      "examples_seen": 11102,
+      "tokens_seen": 1374740,
+      "wall_seconds": 909.453367471695
+    },
+    {
+      "micro_step": 5600,
+      "opt_step": 1400,
+      "epoch": 0,
+      "loss": 0.3653302788734436,
+      "lr": 1e-05,
+      "examples_seen": 11202,
+      "tokens_seen": 1392455,
+      "wall_seconds": 917.6687541007996
+    },
+    {
+      "micro_step": 5650,
+      "opt_step": 1412,
+      "epoch": 0,
+      "loss": 0.8719578981399536,
+      "lr": 1e-05,
+      "examples_seen": 11302,
+      "tokens_seen": 1407090,
+      "wall_seconds": 925.8255686759949
+    },
+    {
+      "micro_step": 5700,
+      "opt_step": 1425,
+      "epoch": 0,
+      "loss": 0.01366441324353218,
+      "lr": 1e-05,
+      "examples_seen": 11402,
+      "tokens_seen": 1417744,
+      "wall_seconds": 934.0414798259735
+    },
+    {
+      "micro_step": 5750,
+      "opt_step": 1437,
+      "epoch": 0,
+      "loss": 3.368120815139264e-05,
+      "lr": 1e-05,
+      "examples_seen": 11502,
+      "tokens_seen": 1431906,
+      "wall_seconds": 942.197701215744
+    },
+    {
+      "micro_step": 5800,
+      "opt_step": 1450,
+      "epoch": 0,
+      "loss": 6.921016029082239e-05,
+      "lr": 1e-05,
+      "examples_seen": 11602,
+      "tokens_seen": 1445272,
+      "wall_seconds": 950.4134819507599
+    },
+    {
+      "micro_step": 5850,
+      "opt_step": 1462,
+      "epoch": 0,
+      "loss": 0.5990698337554932,
+      "lr": 1e-05,
+      "examples_seen": 11702,
+      "tokens_seen": 1457676,
+      "wall_seconds": 958.5711669921875
+    },
+    {
+      "micro_step": 5900,
+      "opt_step": 1475,
+      "epoch": 0,
+      "loss": 0.08563777804374695,
+      "lr": 1e-05,
+      "examples_seen": 11802,
+      "tokens_seen": 1473223,
+      "wall_seconds": 966.78644490242
+    },
+    {
+      "micro_step": 5950,
+      "opt_step": 1487,
+      "epoch": 0,
+      "loss": 0.667111337184906,
+      "lr": 1e-05,
+      "examples_seen": 11902,
+      "tokens_seen": 1487380,
+      "wall_seconds": 974.9455533027649
+    },
+    {
+      "micro_step": 6000,
+      "opt_step": 1500,
+      "epoch": 0,
+      "loss": 0.3586824834346771,
+      "lr": 1e-05,
+      "examples_seen": 12002,
+      "tokens_seen": 1501972,
+      "wall_seconds": 983.1590514183044
+    },
+    {
+      "micro_step": 6050,
+      "opt_step": 1512,
+      "epoch": 0,
+      "loss": 0.7051814794540405,
+      "lr": 1e-05,
+      "examples_seen": 12102,
+      "tokens_seen": 1515196,
+      "wall_seconds": 991.3158376216888
+    },
+    {
+      "micro_step": 6100,
+      "opt_step": 1525,
+      "epoch": 0,
+      "loss": 0.017869580537080765,
+      "lr": 1e-05,
+      "examples_seen": 12202,
+      "tokens_seen": 1531545,
+      "wall_seconds": 999.5318260192871
+    },
+    {
+      "micro_step": 6150,
+      "opt_step": 1537,
+      "epoch": 0,
+      "loss": 0.5695877075195312,
+      "lr": 1e-05,
+      "examples_seen": 12302,
+      "tokens_seen": 1544579,
+      "wall_seconds": 1007.6895501613617
+    },
+    {
+      "micro_step": 6200,
+      "opt_step": 1550,
+      "epoch": 0,
+      "loss": 0.011957858689129353,
+      "lr": 1e-05,
+      "examples_seen": 12402,
+      "tokens_seen": 1558375,
+      "wall_seconds": 1015.9040203094482
+    },
+    {
+      "micro_step": 6250,
+      "opt_step": 1562,
+      "epoch": 0,
+      "loss": 0.29984188079833984,
+      "lr": 1e-05,
+      "examples_seen": 12502,
+      "tokens_seen": 1572045,
+      "wall_seconds": 1024.0649557113647
+    },
+    {
+      "micro_step": 6300,
+      "opt_step": 1575,
+      "epoch": 0,
+      "loss": 0.6237142086029053,
+      "lr": 1e-05,
+      "examples_seen": 12602,
+      "tokens_seen": 1589479,
+      "wall_seconds": 1032.4666483402252
+    },
+    {
+      "micro_step": 6350,
+      "opt_step": 1587,
+      "epoch": 0,
+      "loss": 0.12035282701253891,
+      "lr": 1e-05,
+      "examples_seen": 12702,
+      "tokens_seen": 1603247,
+      "wall_seconds": 1040.6242578029633
+    },
+    {
+      "micro_step": 6400,
+      "opt_step": 1600,
+      "epoch": 0,
+      "loss": 0.7908522486686707,
+      "lr": 1e-05,
+      "examples_seen": 12802,
+      "tokens_seen": 1614434,
+      "wall_seconds": 1048.839602947235
+    },
+    {
+      "micro_step": 6450,
+      "opt_step": 1612,
+      "epoch": 0,
+      "loss": 0.1687694638967514,
+      "lr": 1e-05,
+      "examples_seen": 12902,
+      "tokens_seen": 1629723,
+      "wall_seconds": 1056.9981021881104
+    },
+    {
+      "micro_step": 6500,
+      "opt_step": 1625,
+      "epoch": 0,
+      "loss": 0.09631369262933731,
+      "lr": 1e-05,
+      "examples_seen": 13002,
+      "tokens_seen": 1640238,
+      "wall_seconds": 1065.211272239685
+    },
+    {
+      "micro_step": 6550,
+      "opt_step": 1637,
+      "epoch": 0,
+      "loss": 0.04852249100804329,
+      "lr": 1e-05,
+      "examples_seen": 13102,
+      "tokens_seen": 1654385,
+      "wall_seconds": 1073.3684387207031
+    },
+    {
+      "micro_step": 6600,
+      "opt_step": 1650,
+      "epoch": 0,
+      "loss": 0.8019742965698242,
+      "lr": 1e-05,
+      "examples_seen": 13202,
+      "tokens_seen": 1674996,
+      "wall_seconds": 1081.5863313674927
+    },
+    {
+      "micro_step": 6650,
+      "opt_step": 1662,
+      "epoch": 0,
+      "loss": 0.7953734397888184,
+      "lr": 1e-05,
+      "examples_seen": 13302,
+      "tokens_seen": 1683474,
+      "wall_seconds": 1089.7428393363953
+    },
+    {
+      "micro_step": 6700,
+      "opt_step": 1675,
+      "epoch": 0,
+      "loss": 0.8857805132865906,
+      "lr": 1e-05,
+      "examples_seen": 13402,
+      "tokens_seen": 1693691,
+      "wall_seconds": 1097.9572749137878
+    },
+    {
+      "micro_step": 6750,
+      "opt_step": 1687,
+      "epoch": 0,
+      "loss": 0.17631998658180237,
+      "lr": 1e-05,
+      "examples_seen": 13502,
+      "tokens_seen": 1710198,
+      "wall_seconds": 1106.1156663894653
+    },
+    {
+      "micro_step": 6800,
+      "opt_step": 1700,
+      "epoch": 0,
+      "loss": 0.41485562920570374,
+      "lr": 1e-05,
+      "examples_seen": 13602,
+      "tokens_seen": 1730963,
+      "wall_seconds": 1114.333856344223
+    },
+    {
+      "micro_step": 6850,
+      "opt_step": 1712,
+      "epoch": 0,
+      "loss": 0.520960807800293,
+      "lr": 1e-05,
+      "examples_seen": 13702,
+      "tokens_seen": 1744134,
+      "wall_seconds": 1122.491315126419
+    },
+    {
+      "micro_step": 6900,
+      "opt_step": 1725,
+      "epoch": 0,
+      "loss": 0.7813618779182434,
+      "lr": 1e-05,
+      "examples_seen": 13802,
+      "tokens_seen": 1758376,
+      "wall_seconds": 1130.707815170288
+    },
+    {
+      "micro_step": 6950,
+      "opt_step": 1737,
+      "epoch": 0,
+      "loss": 0.12245392054319382,
+      "lr": 1e-05,
+      "examples_seen": 13902,
+      "tokens_seen": 1769326,
+      "wall_seconds": 1138.8659517765045
+    },
+    {
+      "micro_step": 7000,
+      "opt_step": 1750,
+      "epoch": 0,
+      "loss": 0.4184931814670563,
+      "lr": 1e-05,
+      "examples_seen": 14002,
+      "tokens_seen": 1789925,
+      "wall_seconds": 1147.0836582183838
+    },
+    {
+      "micro_step": 7050,
+      "opt_step": 1762,
+      "epoch": 0,
+      "loss": 0.9757623672485352,
+      "lr": 1e-05,
+      "examples_seen": 14102,
+      "tokens_seen": 1800157,
+      "wall_seconds": 1155.4153776168823
+    },
+    {
+      "micro_step": 7100,
+      "opt_step": 1775,
+      "epoch": 0,
+      "loss": 0.27420639991760254,
+      "lr": 1e-05,
+      "examples_seen": 14202,
+      "tokens_seen": 1813911,
+      "wall_seconds": 1163.6306099891663
+    },
+    {
+      "micro_step": 7150,
+      "opt_step": 1787,
+      "epoch": 0,
+      "loss": 0.9031548500061035,
+      "lr": 1e-05,
+      "examples_seen": 14302,
+      "tokens_seen": 1829260,
+      "wall_seconds": 1171.7899916172028
+    },
+    {
+      "micro_step": 7200,
+      "opt_step": 1800,
+      "epoch": 0,
+      "loss": 0.63653165102005,
+      "lr": 1e-05,
+      "examples_seen": 14402,
+      "tokens_seen": 1843580,
+      "wall_seconds": 1180.0056626796722
+    },
+    {
+      "micro_step": 7250,
+      "opt_step": 1812,
+      "epoch": 0,
+      "loss": 2.2860673198010772e-05,
+      "lr": 1e-05,
+      "examples_seen": 14502,
+      "tokens_seen": 1854322,
+      "wall_seconds": 1188.1619334220886
+    },
+    {
+      "micro_step": 7300,
+      "opt_step": 1825,
+      "epoch": 0,
+      "loss": 0.30233603715896606,
+      "lr": 1e-05,
+      "examples_seen": 14602,
+      "tokens_seen": 1867005,
+      "wall_seconds": 1196.3780465126038
+    },
+    {
+      "micro_step": 7350,
+      "opt_step": 1837,
+      "epoch": 0,
+      "loss": 0.376301109790802,
+      "lr": 1e-05,
+      "examples_seen": 14702,
+      "tokens_seen": 1876447,
+      "wall_seconds": 1204.5347201824188
+    },
+    {
+      "micro_step": 7400,
+      "opt_step": 1850,
+      "epoch": 0,
+      "loss": 1.3925135135650635e-05,
+      "lr": 1e-05,
+      "examples_seen": 14802,
+      "tokens_seen": 1891917,
+      "wall_seconds": 1212.750095129013
+    },
+    {
+      "micro_step": 7450,
+      "opt_step": 1862,
+      "epoch": 0,
+      "loss": 4.855791848967783e-05,
+      "lr": 1e-05,
+      "examples_seen": 14902,
+      "tokens_seen": 1903507,
+      "wall_seconds": 1220.9063923358917
+    }
+  ],
+  "final_loss": 4.855791848967783e-05,
+  "n_optimizer_steps": 1864,
+  "n_micro_steps": 7454,
+  "examples_seen": 14908,
+  "tokens_seen": 1903635,
+  "total_seconds": 1221.4750220775604,
+  "peak_vram_mib": 26013.32421875,
+  "peak_rss_gib": 6.703662872314453,
+  "n_examples": 14908,
+  "arm": "baseline",
+  "override_pattern": "M-M-M-M-M-M-M-*-M-M-M-M-M-M-M-*-M-M-M-M-M-M-M-*-M-M-M-M-M-M-M-*-",
+  "checkpoint_out": "/lab/prototypes/nyaya_ttt_rsi/runs/g0_sft_round1/final.pt",
+  "checkpoint_sha256": "fe800a55473764168d9864a64f0cd7e22676a60ae0ef9096bc11f5844c9e58ae",
+  "verify_reload": {
+    "status": "ok",
+    "logits_shape": [
+      1,
+      8,
+      256
+    ]
+  }
+}

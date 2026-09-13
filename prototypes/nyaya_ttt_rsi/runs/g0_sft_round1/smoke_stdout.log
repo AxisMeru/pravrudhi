@@ -1,0 +1,132 @@
+
+====================
+== NeMo Framework ==
+====================
+
+NVIDIA Release  (build 284135308)
+Container image Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+Copyright (c) 2014-2024 Facebook Inc.
+Copyright (c) 2011-2014 Idiap Research Institute (Ronan Collobert)
+Copyright (c) 2012-2014 Deepmind Technologies    (Koray Kavukcuoglu)
+Copyright (c) 2011-2012 NEC Laboratories America (Koray Kavukcuoglu)
+Copyright (c) 2011-2013 NYU                      (Clement Farabet)
+Copyright (c) 2006-2010 NEC Laboratories America (Ronan Collobert, Leon Bottou, Iain Melvin, Jason Weston)
+Copyright (c) 2006      Idiap Research Institute (Samy Bengio)
+Copyright (c) 2001-2004 Idiap Research Institute (Ronan Collobert, Samy Bengio, Johnny Mariethoz)
+Copyright (c) 2015      Google Inc.
+Copyright (c) 2015      Yangqing Jia
+Copyright (c) 2013-2016 The Caffe contributors
+All rights reserved.
+
+Various files include modifications (c) NVIDIA CORPORATION & AFFILIATES.  All rights reserved.
+
+GOVERNING TERMS: The software and materials are governed by the NVIDIA Software License Agreement
+(found at https://www.nvidia.com/en-us/agreements/enterprise-software/nvidia-software-license-agreement/)
+and the Product-Specific Terms for NVIDIA AI Products
+(found at https://www.nvidia.com/en-us/agreements/enterprise-software/product-specific-terms-for-ai-products/).
+
+/usr/local/lib/python3.12/dist-packages/torch/cuda/__init__.py:64: FutureWarning: The pynvml package is deprecated. Please install nvidia-ml-py instead. If you did not install pynvml directly, please report this to the maintainers of the package that installed pynvml for you.
+  import pynvml  # type: ignore[import]
+[Gloo] Rank 0 is connected to 0 peer ranks. Expected number of connected peer ranks is : 0
+[Gloo] Rank 0 is connected to 0 peer ranks. Expected number of connected peer ranks is : 0
+[Gloo] Rank 0 is connected to 0 peer ranks. Expected number of connected peer ranks is : 0
+/opt/Megatron-Bridge/3rdparty/Megatron-LM/megatron/core/transformer/transformer_config.py:1705: UserWarning: full scope is deprecated. Use empty cuda_graph_scope to capture the whole layer.
+  warnings.warn(
+{"load_wall_seconds": 15.277051454002503}
+{
+  "generate_smoke": [
+    {
+      "id": "law_lookup:Constitution of India:Article 5",
+      "kind": "law_lookup",
+      "prompt_bytes": 661,
+      "dropped_a_passage": false,
+      "generated": " Article 5 (Constitution of India)."
+    },
+    {
+      "id": "law_citation_retrieval:Constitution of India:Article 5",
+      "kind": "law_citation_retrieval",
+      "prompt_bytes": 785,
+      "dropped_a_passage": false,
+      "generated": " Article 11 (Constitution of India)."
+    },
+    {
+      "id": "law_cite_to_title:Constitution of India:Article 5",
+      "kind": "law_cite_to_title",
+      "prompt_bytes": 738,
+      "dropped_a_passage": false,
+      "generated": " Article 5 (Constitution of India)."
+    }
+  ]
+}
+{
+  "candidate_nll_smoke": {
+    "id": "law_lookup:Constitution of India:Article 5",
+    "kind": "law_lookup",
+    "candidates": [
+      "Article 247 (Constitution of India).",
+      "Article 371E (Constitution of India).",
+      "Article 243A (Constitution of India).",
+      "Article 21A (Constitution of India).",
+      "Not found in the provided corpus"
+    ],
+    "mean_nlls": [
+      1.012209415435791,
+      0.7916499376296997,
+      1.056901216506958,
+      0.7168910503387451,
+      1.2061879634857178
+    ],
+    "total_nlls": [
+      36.43953895568848,
+      29.29104769229889,
+      39.105345010757446,
+      25.808077812194824,
+      38.59801483154297
+    ],
+    "best_idx": 3,
+    "best_candidate": "Article 21A (Constitution of India).",
+    "margin": 3.482969880104065
+  }
+}
+[rank0]: Traceback (most recent call last):
+[rank0]:   File "/lab/prototypes/nyaya_ttt_rsi/runs/g0_sft_round1/_smoke_driver.py", line 86, in <module>
+[rank0]:     logits_after = model(x, zeros, zeros).clone()
+[rank0]:                    ^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py", line 1777, in _wrapped_call_impl
+[rank0]:     return self._call_impl(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py", line 1788, in _call_impl
+[rank0]:     return forward_call(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/trackB/scripts/m4/eval_adapter.py", line 213, in forward
+[rank0]:     return self.core(
+[rank0]:            ^^^^^^^^^^
+[rank0]:   File "/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py", line 1777, in _wrapped_call_impl
+[rank0]:     return self._call_impl(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py", line 1788, in _call_impl
+[rank0]:     return forward_call(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/opt/Megatron-Bridge/3rdparty/Megatron-LM/megatron/core/models/mamba/mamba_model.py", line 210, in forward
+[rank0]:     decoder_input = self.embedding(input_ids=input_ids, position_ids=position_ids)
+[rank0]:                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py", line 1777, in _wrapped_call_impl
+[rank0]:     return self._call_impl(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py", line 1788, in _call_impl
+[rank0]:     return forward_call(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/opt/Megatron-Bridge/3rdparty/Megatron-LM/megatron/core/models/common/embeddings/language_model_embedding.py", line 111, in forward
+[rank0]:     word_embeddings = self.word_embeddings(input_ids)
+[rank0]:                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py", line 1777, in _wrapped_call_impl
+[rank0]:     return self._call_impl(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py", line 1788, in _call_impl
+[rank0]:     return forward_call(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/lab/prototypes/nyaya_ttt_rsi/g0/lora_megatron.py", line 91, in forward
+[rank0]:     delta = (x @ self.lora_A.T @ self.lora_B.T) * self.scaling
+[rank0]:              ~~^~~~~~~~~~~~~~~
+[rank0]: RuntimeError: mat1 and mat2 shapes cannot be multiplied (1x8 and 1536x8)
+[rank0]:[W913 13:48:34.491881991 ProcessGroupNCCL.cpp:1566] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
