@@ -11,7 +11,7 @@ import json
 import pytest
 
 from prototypes.nyaya_ttt_rsi import evaluate, loop
-from prototypes.nyaya_ttt_rsi.retrieval import Passage, PassageStore
+from prototypes.nyaya_ttt_rsi.retrieval import ABSTAIN_PHRASE, Passage, PassageStore
 
 
 def make_store() -> PassageStore:
@@ -155,3 +155,127 @@ def test_consolidate_with_accepted_pairs_trains_and_restores_first(monkeypatch):
     loop.consolidate(model=None, tok=None, loras=["fake"], accepted_pairs=[], probe=probe,
                       persistent_snap="OLD_SNAP")
     assert restore_calls[0] == "OLD_SNAP"
+
+
+def test_consolidate_from_dataset_accepts_and_saves_new_snapshot(tmp_path, monkeypatch):
+    dataset = tmp_path / "grounded_sft.jsonl"
+    with open(dataset, "w") as f:
+        for i in range(3):
+            f.write(json.dumps({"prompt": f"p{i}", "target": f"t{i}"}) + "\n")
+
+    monkeypatch.setattr(evaluate, "_restore", lambda loras, snap: None)
+    monkeypatch.setattr(evaluate, "_snapshot", lambda loras: "NEW_SNAP")
+    trained_pairs = []
+    monkeypatch.setattr(loop, "sft_train",
+                         lambda model, tok, loras, pairs, **k: trained_pairs.extend(pairs) or [])
+
+    probe = FakeProbe([1.0, 1.02])  # small rise, under threshold
+    accepted, stats, new_snap = loop.consolidate_from_dataset(
+        model=None, tok=None, loras=["fake"], dataset_path=dataset, probe=probe,
+        persistent_snap="OLD_SNAP", lr=3e-4, epochs=1, threshold=0.15,
+    )
+
+    assert accepted is True
+    assert new_snap == "NEW_SNAP"
+    assert stats["n_examples"] == 3
+    assert stats["retried_at_half_lr"] is False
+    assert trained_pairs == [("p0", "t0"), ("p1", "t1"), ("p2", "t2")]
+
+
+def test_consolidate_from_dataset_retries_at_half_lr_then_gives_up(tmp_path, monkeypatch):
+    dataset = tmp_path / "grounded_sft.jsonl"
+    dataset.write_text(json.dumps({"prompt": "p", "target": "t"}) + "\n")
+
+    monkeypatch.setattr(evaluate, "_restore", lambda loras, snap: None)
+    monkeypatch.setattr(evaluate, "_snapshot", lambda loras: "NEW_SNAP")
+    monkeypatch.setattr(loop, "sft_train", lambda *a, **k: [])
+
+    # Both the first attempt and the halved-lr retry regress -- both rejected.
+    probe = FakeProbe([1.0, 2.0, 1.0, 2.0])
+    accepted, stats, new_snap = loop.consolidate_from_dataset(
+        model=None, tok=None, loras=["fake"], dataset_path=dataset, probe=probe,
+        persistent_snap="OLD_SNAP", lr=3e-4, epochs=1, threshold=0.15, retry_halved_lr=True,
+    )
+
+    assert accepted is False
+    assert stats["retried_at_half_lr"] is True
+    assert stats["lr"] == 1.5e-4
+    assert new_snap == "OLD_SNAP"
+
+
+def test_sft_train_runs_one_shared_optimizer_across_all_pairs_and_epochs(monkeypatch):
+    """Uses a tiny real torch model (skipped if torch is unavailable, e.g. on
+    the host) to check `sft_train` actually reduces loss and logs at the
+    requested cadence -- the closest thing to an integration test we can run
+    without the real 370M checkpoint."""
+    torch = __import__("pytest").importorskip("torch")
+    from torch import nn
+
+    class TinyModel(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.embed = nn.Embedding(256, 8)
+            self.proj = nn.Linear(8, 256)
+
+        def forward(self, tokens, boundary, roles):
+            return self.proj(self.embed(tokens))
+
+    model = TinyModel()
+
+    class ByteTok:
+        def encode(self, s):
+            return list(s.encode("utf-8"))
+
+    tok = ByteTok()
+
+    class FakeLora:
+        def __init__(self):
+            self.lora_A = nn.Parameter(torch.zeros(1))
+            self.lora_B = nn.Parameter(torch.zeros(1))
+
+    loras = [FakeLora()]
+    # Route the tensor loss straight at the tiny model instead of the real
+    # evaluate._tensor_nll_loss (which assumes a NemotronH-shaped forward).
+    from prototypes.nyaya_ttt_rsi import evaluate as evaluate_mod
+
+    def fake_tensor_nll_loss(m, t, prompt, continuation):
+        ids = torch.tensor(t.encode(prompt + continuation), dtype=torch.long).unsqueeze(0)
+        logits = m(ids, None, None)
+        target = ids[:, 1:].reshape(-1)
+        pred = logits[:, :-1].reshape(-1, 256)
+        return torch.nn.functional.cross_entropy(pred, target) + loras[0].lora_A.sum() * 0
+
+    monkeypatch.setattr(evaluate_mod, "_tensor_nll_loss", fake_tensor_nll_loss)
+
+    from prototypes.nyaya_ttt_rsi import loop as loop_mod
+
+    logged = loop_mod.sft_train(model, tok, loras, [("ab", "cd"), ("ef", "gh")], lr=1e-2, epochs=1, log_every=1)
+    assert len(logged) == 2
+    assert model.training is False
+
+
+def test_in_sample_sanity_check_computes_hit_and_spurious_rates(tmp_path, monkeypatch):
+    dataset = tmp_path / "grounded_sft.jsonl"
+    rows = [
+        {"id": "c1", "kind": "law_citation_retrieval", "act": "Indian Penal Code", "section": "Section 302",
+         "prompt": "p1", "target": "t1", "synthetic_abstain": False},
+        {"id": "c2", "kind": "law_lookup", "act": "Constitution of India", "section": "Article 17",
+         "prompt": "p2", "target": "t2", "synthetic_abstain": False},
+        {"id": "a1", "kind": "law_abstain", "act": "X", "section": "Y", "prompt": "p3", "target": "abstain"},
+    ]
+    with open(dataset, "w") as f:
+        for r in rows:
+            f.write(json.dumps(r) + "\n")
+
+    answers = {"p1": "Indian Penal Code, Section 302.", "p2": ABSTAIN_PHRASE, "p3": ABSTAIN_PHRASE}
+    monkeypatch.setattr(evaluate, "_generate", lambda model, tok, prompts, mnt, stop: [answers[prompts[0]]])
+    monkeypatch.setattr(evaluate, "_citation_correct", lambda text, act, section: text == "Indian Penal Code, Section 302.")
+
+    result = loop.in_sample_sanity_check(model=None, tok=None, dataset_path=dataset, n_citation=2, n_abstain=1, seed=0)
+
+    assert result["n_citation"] == 2
+    assert result["citation_hit_rate"] == 0.5  # c1 hit, c2 spuriously abstained
+    assert result["spurious_abstain_rate"] == 0.5
+    assert result["n_abstain"] == 1
+    assert result["abstain_correct_rate"] == 1.0
+    assert result["passed"] is False  # 0.5 >= 0.5 hit-rate OK, but spurious 0.5 > 0.2 fails

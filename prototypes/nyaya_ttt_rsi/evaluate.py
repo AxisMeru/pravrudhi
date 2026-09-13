@@ -170,6 +170,20 @@ def attention_lora_target_regex(model) -> str:
     return LORA_TARGET_REGEX_TEMPLATE.format(idx="|".join(str(i) for i in indices))
 
 
+def persistent_lora_target_regex(model) -> str:
+    """Targets for the PERSISTENT consolidation LoRA (loop.py Phase 2/4):
+    attention q/o projections (safe, see F8) PLUS every block's MLP
+    (`mlp.1`/`mlp.3` -- ordinary `nn.Sequential`-called `nn.Linear`s, never
+    routed through `mamba_ssm`'s fused kernel, so LoRA-wrapping them is
+    safe). Mamba2 mixer `in_proj`/`out_proj` stay excluded for every LoRA
+    injected by this module -- see F8 in FIXES-FOR-MAIN-SESSIONS.md."""
+    from . import model_io
+
+    indices = model_io.attention_block_indices(model)
+    attn_part = LORA_TARGET_REGEX_TEMPLATE.format(idx="|".join(str(i) for i in indices))
+    return rf"(?:{attn_part}|blocks\.\d+\.mlp\.[13]$)"
+
+
 def _inject_lora(model, target_regex=None, r=LORA_R, alpha=LORA_ALPHA):
     from . import ttt as ttt_mod
 
@@ -311,6 +325,7 @@ def run_condition(
     max_new_tokens: int = MAX_NEW_TOKENS_GROUNDED,
     stop: list[str] | None = None,
     heldout_path=DEFAULT_HELDOUT,
+    label: str | None = None,
 ) -> dict:
     if cond not in ("B", "C", "D"):
         raise ValueError(f"unknown condition: {cond!r}")
@@ -327,6 +342,7 @@ def run_condition(
     prompt_byte_lengths: list[int] = []
     over_budget = 0
     answers: list[dict] = []
+    retrieval_hit: dict[str, bool] = {}
 
     base_snap = None
     probe_before = None
@@ -341,6 +357,10 @@ def run_condition(
         prompt_byte_lengths.append(pb)
         if pb > MAX_PROMPT_BYTES:
             over_budget += 1
+        if "act" in rec and "section" in rec:
+            retrieval_hit[qid] = any(
+                (p.act, p.section) == (rec["act"], rec["section"]) for p in passages
+            )
 
         if cond == "B":
             text = _generate(model, tok, [prompt], max_new_tokens, stop)[0]
@@ -371,10 +391,10 @@ def run_condition(
     peak_vram_mib = _peak_vram(peak_vram_before)
 
     score = _score_law_qa(heldout_path, out_dir / "answers.jsonl")
-    extra = _extra_metrics(items, answers)
+    extra = _extra_metrics(items, answers, retrieval_hit=retrieval_hit)
 
     report = {
-        "condition": cond,
+        "condition": label or cond,
         "n_items": len(items),
         "wall_clock_seconds": {"total": t1 - t0, "per_item": (t1 - t0) / len(items) if items else 0.0},
         "peak_vram_mib": peak_vram_mib,
@@ -421,9 +441,14 @@ def _peak_vram(_before):
     return None
 
 
-def _extra_metrics(items: list[dict], answers: list[dict]) -> dict:
+def _extra_metrics(items: list[dict], answers: list[dict], retrieval_hit: dict[str, bool] | None = None) -> dict:
     """grounded_rate, hallucinated_citation_rate, abstention_correct (on the
-    abstain items), and per-kind gold-citation hit rate with Wilson intervals."""
+    abstain items), per-kind gold-citation hit rate with Wilson intervals,
+    and (if `retrieval_hit` is given) `abstain_on_miss`: among held-out
+    items whose gold (act, section) was NOT among the top-k retrieved
+    passages, the fraction where the model correctly abstained instead of
+    citing something ungrounded -- the MVP-relevant behaviour under a known
+    retrieval ceiling (recall@3 = 0.66)."""
     by_id = {a["id"]: a for a in answers}
     n = len(answers)
     grounded_n = sum(1 for a in answers if a["grounded"])
@@ -451,7 +476,7 @@ def _extra_metrics(items: list[dict], answers: list[dict]) -> dict:
         per_kind[kind] = {"successes": hits, "total": total, "rate": hits / total if total else 0.0,
                           "ci_low": lo, "ci_high": hi}
 
-    return {
+    result = {
         "grounded_rate": grounded_n / n if n else 0.0,
         "hallucinated_citation_rate": hallucinated_n / n if n else 0.0,
         "abstention_correct": {
@@ -460,6 +485,21 @@ def _extra_metrics(items: list[dict], answers: list[dict]) -> dict:
         },
         "per_kind_citation_hit_rate": per_kind,
     }
+
+    if retrieval_hit:
+        # Only citation-kind items are eligible (an abstain item's gold is a
+        # decoy, not something retrieval should have surfaced).
+        miss_ids = [r["id"] for r in items if r["kind"] != _ABSTAIN_KIND
+                    and retrieval_hit.get(r["id"]) is False]
+        abstain_on_miss = sum(1 for i in miss_ids if by_id.get(i, {}).get("abstained"))
+        lo, hi = stats.wilson(abstain_on_miss, len(miss_ids)) if miss_ids else (0.0, 1.0)
+        result["abstain_on_miss"] = {
+            "successes": abstain_on_miss, "total": len(miss_ids),
+            "rate": abstain_on_miss / len(miss_ids) if miss_ids else 0.0,
+            "ci_low": lo, "ci_high": hi,
+        }
+
+    return result
 
 
 # ---------------------------------------------------------------------------

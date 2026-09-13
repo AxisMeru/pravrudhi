@@ -167,6 +167,141 @@ def consolidate(model, tok, loras, accepted_pairs: list[tuple[str, str]], probe,
     return False, consolidate_stats, persistent_snap
 
 
+def in_sample_sanity_check(model, tok, dataset_path, *, n_citation: int = 30, n_abstain: int = 10,
+                            seed: int = 0, min_citation_hit_rate: float = 0.5,
+                            max_spurious_abstain_rate: float = 0.2) -> dict:
+    """Round-1b mandatory gate (2026-09-13 pivot, after round 1's mode
+    collapse): before spending ~13 minutes on a held-out eval, generate on a
+    deterministic sample of the model's OWN TRAINING prompts (gold is fine
+    here -- these are training examples, not held-out) and require the
+    consolidated state to actually reproduce citations it was just trained
+    on, and not abstain when the gold passage IS in its own prompt. Failing
+    this means the SFT run itself is broken (wrong target, mode collapse,
+    undertraining, ...) and a held-out run would just reproduce round 1's
+    failure at 13x the cost."""
+    from . import retrieval as retrieval_mod
+
+    examples = evaluate.load_jsonl(dataset_path)
+    citation_pool = [e for e in examples if e["kind"] != "law_abstain" and not e.get("synthetic_abstain")]
+    abstain_pool = [e for e in examples if e["kind"] == "law_abstain" or e.get("synthetic_abstain")]
+
+    rng = random.Random(seed)
+    citation_sample = rng.sample(citation_pool, min(n_citation, len(citation_pool)))
+    abstain_sample = rng.sample(abstain_pool, min(n_abstain, len(abstain_pool)))
+
+    citation_results = []
+    for e in citation_sample:
+        text = evaluate._generate(model, tok, [e["prompt"]], evaluate.MAX_NEW_TOKENS_GROUNDED, evaluate.STOP_STRINGS)[0]
+        hit = evaluate._citation_correct(text, e["act"], e["section"])
+        spurious_abstain = retrieval_mod.parse_answer(text).abstained
+        citation_results.append({"id": e["id"], "answer": text, "hit": hit, "spurious_abstain": spurious_abstain})
+
+    abstain_results = []
+    for e in abstain_sample:
+        text = evaluate._generate(model, tok, [e["prompt"]], evaluate.MAX_NEW_TOKENS_GROUNDED, evaluate.STOP_STRINGS)[0]
+        correct = retrieval_mod.parse_answer(text).abstained
+        abstain_results.append({"id": e["id"], "answer": text, "correct": correct})
+
+    n_cite = len(citation_results)
+    citation_hit_rate = sum(1 for r in citation_results if r["hit"]) / n_cite if n_cite else 0.0
+    spurious_abstain_rate = sum(1 for r in citation_results if r["spurious_abstain"]) / n_cite if n_cite else 0.0
+    n_abst = len(abstain_results)
+    abstain_correct_rate = sum(1 for r in abstain_results if r["correct"]) / n_abst if n_abst else 0.0
+
+    passed = citation_hit_rate >= min_citation_hit_rate and spurious_abstain_rate <= max_spurious_abstain_rate
+    return {
+        "passed": passed,
+        "n_citation": n_cite, "citation_hit_rate": citation_hit_rate,
+        "spurious_abstain_rate": spurious_abstain_rate,
+        "n_abstain": n_abst, "abstain_correct_rate": abstain_correct_rate,
+        "min_citation_hit_rate": min_citation_hit_rate, "max_spurious_abstain_rate": max_spurious_abstain_rate,
+        "citation_examples": citation_results, "abstain_examples": abstain_results,
+    }
+
+
+def sft_train(model, tok, loras, pairs: list[tuple[str, str]], *, lr: float, epochs: int = 1,
+              max_grad_norm: float = 1.0, log_every: int = 100) -> list[float]:
+    """Prompt-masked next-byte CE SFT over `pairs` (each `(prompt, target)`),
+    ONE shared AdamW optimizer across every step of every epoch, batch size 1
+    (see evaluate._tensor_nll_loss / F9 in FIXES-FOR-MAIN-SESSIONS.md for why
+    a hand-rolled tensor-returning loss is used instead of `ttt.adapt`'s
+    broken default). Returns the loss logged every `log_every` steps."""
+    import torch
+
+    params = [p for m in loras for p in (m.lora_A, m.lora_B)]
+    opt = torch.optim.AdamW(params, lr=lr)
+    model.train()
+    logged: list[float] = []
+    step = 0
+    try:
+        for _epoch in range(epochs):
+            for prompt, target in pairs:
+                loss_t = evaluate._tensor_nll_loss(model, tok, prompt, target)
+                opt.zero_grad()
+                loss_t.backward()
+                torch.nn.utils.clip_grad_norm_(params, max_grad_norm)
+                opt.step()
+                step += 1
+                if step % log_every == 0:
+                    loss_val = float(loss_t.detach().item())
+                    logged.append(loss_val)
+                    print(f"[sft_train] step {step}/{epochs * len(pairs)} loss={loss_val:.4f}", flush=True)
+    finally:
+        model.eval()
+    return logged
+
+
+def consolidate_from_dataset(
+    model, tok, loras, dataset_path, probe, persistent_snap, *,
+    lr: float = 3e-4, epochs: int = 2, max_grad_norm: float = 1.0,
+    threshold: float = CONSOLIDATE_THRESHOLD, log_every: int = 100,
+    retry_halved_lr: bool = True,
+) -> tuple[bool, dict, list]:
+    """Phase 2: SFT a fresh persistent LoRA on the harness-built grounded-SFT
+    set (`grounded_data.py`'s output). Gated exactly like `consolidate()`
+    (regression probe must not regress beyond `threshold`); on rejection,
+    retries once at half the learning rate before giving up (per the
+    2026-09-13 pivot instructions) -- a second failure is reported, not
+    silently swallowed, and the LoRA is left at `persistent_snap`."""
+    examples = evaluate.load_jsonl(dataset_path)
+    pairs = [(e["prompt"], e["target"]) for e in examples]
+
+    def attempt(lr_value: float):
+        evaluate._restore(loras, persistent_snap)
+        probe_before = probe.nll(model, tok, evaluate._sequence_nll)
+        losses = sft_train(model, tok, loras, pairs, lr=lr_value, epochs=epochs,
+                            max_grad_norm=max_grad_norm, log_every=log_every)
+        probe_after = probe.nll(model, tok, evaluate._sequence_nll)
+        decision = evaluate._decide(probe_before, probe_after, True, threshold=threshold, delta_norm=None)
+        decision.reason = "ok" if decision.accepted else "consolidation_probe_regression"
+        return decision, losses, probe_before, probe_after
+
+    decision, losses, probe_before, probe_after = attempt(lr)
+    retried = False
+    if not decision.accepted and retry_halved_lr:
+        retried = True
+        decision, losses, probe_before, probe_after = attempt(lr / 2)
+
+    consolidate_stats = {
+        "n_examples": len(pairs),
+        "lr": lr if not retried else lr / 2,
+        "epochs": epochs,
+        "retried_at_half_lr": retried,
+        "probe_before": probe_before,
+        "probe_after": probe_after,
+        "probe_delta_rel": decision.probe_delta_rel,
+        "accepted": decision.accepted,
+        "reason": decision.reason,
+        "logged_losses": losses,
+    }
+
+    if decision.accepted:
+        new_snap = evaluate._snapshot(loras)
+        return True, consolidate_stats, new_snap
+    evaluate._restore(loras, persistent_snap)
+    return False, consolidate_stats, persistent_snap
+
+
 def run_loop(
     model, tok, store, run_dir, *,
     heldout_items: list[dict],
@@ -176,7 +311,18 @@ def run_loop(
     seed: int = DEFAULT_SEED,
     ttt_cfg: dict | None = None,
     heldout_path=evaluate.DEFAULT_HELDOUT,
+    initial_persistent_lora=None,
+    persistent_target_regex: str | None = None,
+    persistent_r: int = evaluate.LORA_R,
+    persistent_alpha: int = evaluate.LORA_ALPHA,
 ) -> dict:
+    """`initial_persistent_lora`, if given, is a snapshot file saved by
+    Phase 2's `consolidate_from_dataset` (loop.py `sft` CLI) or an earlier
+    round of this same loop -- its `persistent_target_regex`/`_r`/`_alpha`
+    MUST match what produced that file (LoRA shapes must agree for
+    `torch.load` + `restore` to work); by default this uses
+    `evaluate.persistent_lora_target_regex` (attention q/o + all-block MLP,
+    Phase 2's target set) so a Phase 2 checkpoint loads directly."""
     run_dir = Path(run_dir)
     run_dir.mkdir(parents=True, exist_ok=True)
     ttt_cfg = evaluate.DEFAULT_TTT_CFG if ttt_cfg is None else ttt_cfg
@@ -184,8 +330,12 @@ def run_loop(
     from . import gate as gate_mod
 
     probe = gate_mod.RegressionProbe.from_files(str(evaluate.DEFAULT_PROBE_GENERAL), n_general=16, seed=seed)
-    loras = evaluate._inject_lora(model)
+    target_regex = persistent_target_regex or evaluate.persistent_lora_target_regex(model)
+    loras = evaluate._inject_lora(model, target_regex=target_regex, r=persistent_r, alpha=persistent_alpha)
     persistent_snap = evaluate._snapshot(loras)  # round-0 persistent state: zero-init (no adaptation)
+    if initial_persistent_lora is not None:
+        evaluate._load_lora_state(loras, initial_persistent_lora)
+        persistent_snap = evaluate._snapshot(loras)
 
     stream_chunks = sample_stream(train_path, n_stream, rounds, seed=seed)
 
@@ -260,6 +410,60 @@ def write_report_md(report: dict, path) -> None:
     Path(path).write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+def main_sft(argv: list[str] | None = None) -> int:
+    """Phase 2 CLI: SFT a fresh persistent LoRA on grounded_data.py's output
+    (no query stream, no per-query ephemeral TTT/gate -- that is `main`'s
+    `loop` subcommand, Phase 4)."""
+    import argparse
+
+    from . import gate as gate_mod
+    from . import model_io
+
+    parser = argparse.ArgumentParser(description=main_sft.__doc__)
+    parser.add_argument("--checkpoint", type=Path, default=evaluate.DEFAULT_CHECKPOINT)
+    parser.add_argument("--dataset", type=Path, required=True, help="grounded_data.py's grounded_sft.jsonl")
+    parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--device", type=str, default="cuda:0")
+    parser.add_argument("--lr", type=float, default=CONSOLIDATE_LR)
+    parser.add_argument("--epochs", type=int, default=2)
+    parser.add_argument("--threshold", type=float, default=CONSOLIDATE_THRESHOLD)
+    parser.add_argument("--log-every", type=int, default=100)
+    parser.add_argument("--round", type=int, default=1)
+    parser.add_argument("--seed", type=int, default=0)
+    args = parser.parse_args(argv)
+
+    args.out.mkdir(parents=True, exist_ok=True)
+    model, tok = model_io.load_model(args.checkpoint, device=args.device)
+    loras = evaluate._inject_lora(model, target_regex=evaluate.persistent_lora_target_regex(model),
+                                   r=16, alpha=32)
+    persistent_snap = evaluate._snapshot(loras)
+    probe = gate_mod.RegressionProbe.from_files(str(evaluate.DEFAULT_PROBE_GENERAL), n_general=16, seed=0)
+
+    t0 = time.perf_counter()
+    accepted, stats_out, new_snap = consolidate_from_dataset(
+        model, tok, loras, args.dataset, probe, persistent_snap,
+        lr=args.lr, epochs=args.epochs, threshold=args.threshold, log_every=args.log_every,
+    )
+    t1 = time.perf_counter()
+
+    sanity = None
+    if accepted:
+        evaluate._restore(loras, new_snap)
+        evaluate._save_lora_state(loras, args.out / f"persistent_lora_round{args.round}.pt")
+        sanity = in_sample_sanity_check(model, tok, args.dataset, seed=args.seed)
+        (args.out / f"sanity_check_round{args.round}.json").write_text(json.dumps(sanity, indent=2), encoding="utf-8")
+
+    report = {"phase": "2_sft_consolidation", "accepted": accepted, "wall_clock_seconds": t1 - t0,
+              "sanity_check_passed": sanity["passed"] if sanity else None, **stats_out}
+    (args.out / f"sft_round{args.round}_report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
+    print(json.dumps({k: v for k, v in report.items() if k != "logged_losses"}, indent=2))
+    if sanity is not None:
+        print(json.dumps({k: v for k, v in sanity.items() if not k.endswith("_examples")}, indent=2))
+    if not accepted:
+        return 1
+    return 0 if sanity["passed"] else 2
+
+
 def main(argv: list[str] | None = None) -> int:
     import argparse
 
@@ -277,6 +481,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--steps", type=int, default=evaluate.DEFAULT_TTT_CFG["steps"])
     parser.add_argument("--lr", type=float, default=evaluate.DEFAULT_TTT_CFG["lr"])
     parser.add_argument("--threshold", type=float, default=evaluate.DEFAULT_TTT_CFG["threshold"])
+    parser.add_argument("--persistent-lora", type=Path, default=None,
+                         help="start from this saved persistent LoRA state (e.g. Phase 2's output) instead of zero-init")
     args = parser.parse_args(argv)
 
     model, tok = model_io.load_model(args.checkpoint, device=args.device)
@@ -289,6 +495,7 @@ def main(argv: list[str] | None = None) -> int:
         heldout_items=heldout_items, train_path=args.train,
         n_stream=args.stream, rounds=args.rounds, seed=args.seed,
         ttt_cfg=ttt_cfg, heldout_path=args.heldout,
+        initial_persistent_lora=args.persistent_lora,
     )
 
     try:
