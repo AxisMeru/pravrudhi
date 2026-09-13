@@ -221,12 +221,83 @@ def test_build_candidates_citation_kind():
     assert candidates[2] == (ABSTAIN_PHRASE, None)
 
 
-def test_build_candidates_law_lookup_includes_full_text_and_citation():
+def test_build_candidates_uniform_across_kinds():
+    """F15 fix: every kind scores the same canonical citation candidate --
+    `law_lookup` no longer gets a full-body candidate (that was the
+    length-biased one)."""
     passages = make_store().passages[:1]
-    candidates = evaluate.build_candidates(passages, "law_lookup")
-    text, source = candidates[0]
-    assert text == "Untouchability is abolished.\n\nCitation: Constitution of India, Article 17."
-    assert source is passages[0]
+    for kind in ("law_lookup", "law_citation_retrieval", "law_cite_to_title"):
+        candidates = evaluate.build_candidates(passages, kind)
+        text, source = candidates[0]
+        assert text == "Article 17 (Constitution of India)."
+        assert source is passages[0]
+
+
+def test_compose_answer_law_lookup_uses_full_untruncated_body_from_store():
+    from prototypes.nyaya_ttt_rsi.retrieval import Passage, PassageStore
+
+    full = Passage("Constitution of India", "Article 17", "Untouchability is abolished " * 20,
+                   "Constitution of India, Article 17", "COI/17")
+    store = PassageStore([full])
+    truncated_copy = evaluate.truncate_passages([full], max_bytes=30)[0]
+
+    answer = evaluate.compose_answer("law_lookup", truncated_copy, store)
+    assert answer == f"{full.text}\n\nCitation: Constitution of India, Article 17."
+    assert len(answer) > 30  # composed from the FULL body, not the truncated in-context copy
+
+
+def test_compose_answer_cite_to_title_uses_title():
+    from prototypes.nyaya_ttt_rsi.retrieval import Passage, PassageStore
+
+    p = Passage("Act", "Section 1", "body", "Act, Section 1", None, title="A Fine Title")
+    store = PassageStore([p])
+    assert evaluate.compose_answer("law_cite_to_title", p, store) == "A Fine Title"
+
+
+def test_grounded_data_shares_the_same_prompt_config_object():
+    """F16: training (grounded_data.py) and eval (evaluate.py) must go
+    through the exact same PromptConfig object, not merely an equal copy,
+    so the two paths cannot silently drift apart."""
+    from prototypes.nyaya_ttt_rsi import grounded_data
+
+    assert grounded_data.PROMPT_CONFIG is evaluate.PROMPT_CONFIG
+
+
+def test_render_prompt_drops_lowest_ranked_passage_when_over_budget(monkeypatch):
+    from prototypes.nyaya_ttt_rsi.retrieval import Passage
+
+    tiny_config = evaluate.PromptConfig(k=4, body_max_bytes=60, title_max_bytes=90,
+                                        max_prompt_bytes=250, instruction="Cite the correct provision below.")
+    passages = [Passage("Act", f"Section {i}", "body text " * 10, f"Act, Section {i}", None,
+                        title=f"Title {i}") for i in range(4)]
+    prompt, used, pb, dropped = evaluate.render_prompt("q?", passages, tiny_config)
+    assert dropped is True
+    assert len(used) < 4
+    assert pb <= tiny_config.max_prompt_bytes
+
+
+def test_render_prompt_no_drop_when_within_budget():
+    from prototypes.nyaya_ttt_rsi.retrieval import Passage
+
+    passages = [Passage("Act", "Section 1", "short body", "Act, Section 1", None, title="Title")]
+    prompt, used, pb, dropped = evaluate.render_prompt("q?", passages)
+    assert dropped is False
+    assert len(used) == 1
+
+
+def test_truncate_at_space_never_cuts_mid_word():
+    text = "one two three four five"
+    out = evaluate.truncate_at_space(text, max_bytes=10)
+    assert out == "one two"
+    assert len(out.encode("utf-8")) <= 10
+
+
+def test_compose_answer_citation_kind_uses_canonical_format():
+    from prototypes.nyaya_ttt_rsi.retrieval import Passage, PassageStore
+
+    p = Passage("Act", "Section 1", "body", "Act, Section 1", None)
+    store = PassageStore([p])
+    assert evaluate.compose_answer("law_citation_retrieval", p, store) == "Section 1 (Act)."
 
 
 def test_score_candidates_picks_lowest_nll(monkeypatch):

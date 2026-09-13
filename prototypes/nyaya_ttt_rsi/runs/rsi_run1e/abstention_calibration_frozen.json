@@ -1,0 +1,14 @@
+{
+  "tau": 31.30822241306305,
+  "delta": 0.10510754585266113,
+  "balanced_accuracy": 0.5804761904761905,
+  "confusion": {
+    "cite_when_shown": 194,
+    "abstain_when_shown": 156,
+    "cite_when_miss": 59,
+    "abstain_when_miss": 91,
+    "n_shown": 350,
+    "n_miss": 150
+  },
+  "n_examples": 500
+}

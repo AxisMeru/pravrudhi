@@ -80,7 +80,7 @@ def run_round(model, tok, store, stream_items: list[dict], loras, probe, ledger,
     n_accepted = n_rejected = 0
     for rec in stream_items:
         qid, question = rec["id"], rec["prompt"]
-        prompt, passages, _pb = evaluate.retrieve_and_build_prompt(store, question, k)
+        prompt, passages, _pb, _dropped = evaluate.retrieve_and_build_prompt(store, question, k)
 
         adapt_text = evaluate.adapt_text_from_passages(passages)
         evaluate._adapt(model, tok, adapt_text, loras, ttt_cfg.get("steps", 4), ttt_cfg.get("lr", 1e-3))
@@ -167,6 +167,120 @@ def consolidate(model, tok, loras, accepted_pairs: list[tuple[str, str]], probe,
     return False, consolidate_stats, persistent_snap
 
 
+def build_calibration_examples(train_path, store, *, n: int = 500, seed: int = 1,
+                                frac_miss: float = 0.3, exclude_ids: set | None = None,
+                                k: int = evaluate.K_PASSAGES) -> list[dict]:
+    """A dev slice from the TRAIN split (disjoint from the SFT sample when
+    `exclude_ids` is given) for calibrating the abstention threshold:
+    `frac_miss` of the sample has its gold passage EXCLUDED from the shown
+    top-k (synthetic miss, desired decision = abstain); the rest show the
+    gold passage (desired decision = cite). Mirrors `grounded_data`'s own
+    gold-forcing/excluding logic (`grounded_data._select_passages`) so the
+    calibration set is built the same way training and eval data are."""
+    from . import grounded_data
+    from . import retrieval as retrieval_mod
+
+    records = evaluate.load_jsonl(train_path)
+    pool = [r for r in records if r["kind"] in grounded_data.CITATION_KINDS]
+    if exclude_ids:
+        pool = [r for r in pool if r["id"] not in exclude_ids]
+
+    rng = random.Random(seed)
+    rng.shuffle(pool)
+    sampled = pool[:n]
+    n_miss = int(round(len(sampled) * frac_miss))
+    miss_ids = set(id(r) for r in rng.sample(sampled, n_miss)) if n_miss else set()
+
+    examples = []
+    for rec in sampled:
+        gold = store.lookup(rec["act"], rec["section"])
+        if gold is None:
+            continue
+        gold_shown = id(rec) not in miss_ids
+        passages = grounded_data._select_passages(store, rec["prompt"], gold, k, exclude_gold=not gold_shown)
+        rng.shuffle(passages)
+        trunc = evaluate.truncate_passages(passages, evaluate.MAX_PASSAGE_BYTES)
+        prompt = retrieval_mod.build_grounded_prompt(rec["prompt"], trunc)
+        examples.append({"id": rec["id"], "kind": rec["kind"], "act": rec["act"], "section": rec["section"],
+                          "prompt": prompt, "passages": trunc, "gold_shown": gold_shown})
+    return examples
+
+
+def score_calibration_examples(model, tok, examples: list[dict]) -> list[dict]:
+    """Scores each calibration example's shown-passages-only candidate set
+    (`evaluate.build_candidates(..., include_abstain=False)`) and records
+    the winning candidate's total NLL and the margin over the runner-up."""
+    scored = []
+    for e in examples:
+        candidates = evaluate.build_candidates(e["passages"], e["kind"], include_abstain=False)
+        if not candidates:
+            continue
+        result = evaluate.score_candidates(model, tok, e["prompt"], candidates)
+        scored.append({
+            "id": e["id"], "gold_shown": e["gold_shown"],
+            "best_total_nll": result["total_nlls"][result["best_idx"]],
+            "margin": result["margin"],
+        })
+    return scored
+
+
+def choose_calibration_thresholds(scored: list[dict]) -> dict:
+    """Grid search over (tau, delta) -- "abstain if best_total_nll > tau or
+    margin < delta" -- maximizing balanced accuracy of {gold shown -> cite,
+    gold absent -> abstain} on the scored calibration examples. Candidate
+    thresholds are the observed best_total_nll / margin values themselves
+    (standard finite-threshold-set search), so the grid is exactly as fine
+    as the data supports."""
+    import numpy as np
+
+    nlls = np.array([s["best_total_nll"] for s in scored])
+    margins = np.array([m if (m := s["margin"]) != float("inf") else nlls.max() + 1 for s in scored])
+    gold_shown = np.array([s["gold_shown"] for s in scored])
+
+    tau_candidates = np.unique(np.concatenate([nlls, [nlls.max() + 1]]))
+    delta_candidates = np.unique(np.concatenate([margins, [0.0]]))
+
+    best = {"balanced_accuracy": -1.0, "tau": float(tau_candidates[-1]), "delta": 0.0}
+    n_shown = int(gold_shown.sum())
+    n_miss = int((~gold_shown).sum())
+    for tau in tau_candidates:
+        for delta in delta_candidates:
+            predicted_abstain = (nlls > tau) | (margins < delta)
+            cite_correct = int(np.sum(gold_shown & ~predicted_abstain))
+            abstain_correct = int(np.sum(~gold_shown & predicted_abstain))
+            tpr_cite = cite_correct / n_shown if n_shown else 0.0
+            tpr_abstain = abstain_correct / n_miss if n_miss else 0.0
+            balanced_accuracy = 0.5 * (tpr_cite + tpr_abstain)
+            if balanced_accuracy > best["balanced_accuracy"]:
+                best = {"balanced_accuracy": balanced_accuracy, "tau": float(tau), "delta": float(delta)}
+
+    tau, delta = best["tau"], best["delta"]
+    predicted_abstain = (nlls > tau) | (margins < delta)
+    confusion = {
+        "cite_when_shown": int(np.sum(gold_shown & ~predicted_abstain)),
+        "abstain_when_shown": int(np.sum(gold_shown & predicted_abstain)),
+        "cite_when_miss": int(np.sum(~gold_shown & ~predicted_abstain)),
+        "abstain_when_miss": int(np.sum(~gold_shown & predicted_abstain)),
+        "n_shown": n_shown, "n_miss": n_miss,
+    }
+    return {"tau": tau, "delta": delta, "balanced_accuracy": best["balanced_accuracy"], "confusion": confusion}
+
+
+def calibrate_abstention(model, tok, store, train_path, out_path=None, *, n: int = 500, seed: int = 1,
+                          frac_miss: float = 0.3, exclude_ids: set | None = None,
+                          k: int = evaluate.K_PASSAGES) -> dict:
+    """End-to-end: build the dev slice, score it, choose (tau, delta), and
+    (optionally) write the result to `out_path`."""
+    examples = build_calibration_examples(train_path, store, n=n, seed=seed, frac_miss=frac_miss,
+                                           exclude_ids=exclude_ids, k=k)
+    scored = score_calibration_examples(model, tok, examples)
+    result = choose_calibration_thresholds(scored)
+    result["n_examples"] = len(scored)
+    if out_path is not None:
+        Path(out_path).write_text(json.dumps(result, indent=2), encoding="utf-8")
+    return result
+
+
 def in_sample_sanity_check(model, tok, dataset_path, *, n_citation: int = 30, n_abstain: int = 10,
                             seed: int = 0, min_citation_hit_rate: float = 0.5,
                             max_spurious_abstain_rate: float = 0.2) -> dict:
@@ -221,7 +335,8 @@ def in_sample_sanity_check(model, tok, dataset_path, *, n_citation: int = 30, n_
 
 def in_sample_sanity_check_scoring(model, tok, dataset_path, *, n_citation: int = 30, n_abstain: int = 10,
                                     seed: int = 0, min_citation_hit_rate: float = 0.5,
-                                    max_spurious_abstain_rate: float = 0.2) -> dict:
+                                    max_spurious_abstain_rate: float = 0.2,
+                                    include_abstain: bool = True, by: str = "total") -> dict:
     """Scoring-mode counterpart of `in_sample_sanity_check` (F12
     greedy-decoding-trap fix, 2026-09-13 round 2): instead of free-generating
     and pattern-matching the result, reconstruct the exact passages/question
@@ -240,8 +355,8 @@ def in_sample_sanity_check_scoring(model, tok, dataset_path, *, n_citation: int 
 
     def score_one(e):
         passages = evaluate.parse_passages_from_prompt(e["prompt"])
-        candidates = evaluate.build_candidates(passages, e["kind"])
-        result = evaluate.score_candidates(model, tok, e["prompt"], candidates)
+        candidates = evaluate.build_candidates(passages, e["kind"], include_abstain=include_abstain)
+        result = evaluate.score_candidates(model, tok, e["prompt"], candidates, by=by)
         text, source = candidates[result["best_idx"]]
         return text, source, result["margin"]
 

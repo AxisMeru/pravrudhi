@@ -53,6 +53,7 @@ dropped.
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import random
 import re
@@ -67,9 +68,18 @@ CITATION_KINDS = ("law_citation_retrieval", "law_cite_to_title", "law_lookup")
 ABSTAIN_KIND = "law_abstain"
 DEFAULT_N = 3000
 DEFAULT_ABSTAIN_FRAC = 0.2
-DEFAULT_K = 3
-DEFAULT_MAX_PASSAGE_BYTES = 300
-DEFAULT_LOOKUP_TEXT_BYTES = 160
+# 2026-09-13 pivot, round 3 (compact context, F15/F16's fixes): prompt
+# construction (retrieval width, body/title truncation, instruction,
+# max-prompt-byte budget) goes entirely through `evaluate.render_prompt`,
+# which always reads `evaluate.PROMPT_CONFIG` -- the SAME object
+# `evaluate.retrieve_and_build_prompt` (held-out eval) uses. `PROMPT_CONFIG`
+# is referenced here by identity (see the module-level assert below and
+# tests/test_evaluate.py), never copied, so training and eval cannot drift.
+PROMPT_CONFIG = evaluate.PROMPT_CONFIG
+assert PROMPT_CONFIG is evaluate.PROMPT_CONFIG
+DEFAULT_K = PROMPT_CONFIG.k
+DEFAULT_MAX_PASSAGE_BYTES = PROMPT_CONFIG.body_max_bytes
+DEFAULT_LOOKUP_TEXT_BYTES = 160  # only used when citation_target=False (rounds 1-1d)
 
 # 2026-09-13 pivot fix (round-1b, see FIXES-FOR-MAIN-SESSIONS.md F11): every
 # training target gets this suffix appended (AFTER the groundedness gate
@@ -124,9 +134,16 @@ def _select_passages(store, query: str, gold, k: int, exclude_gold: bool):
 def build_example(rec: dict, store, rng: random.Random, *, k: int = DEFAULT_K,
                    max_passage_bytes: int = DEFAULT_MAX_PASSAGE_BYTES,
                    lookup_text_bytes: int = DEFAULT_LOOKUP_TEXT_BYTES,
-                   force_abstain: bool = False):
+                   force_abstain: bool = False, citation_target: bool = False):
     """Returns (prompt, target, passages) or None if no gold passage exists
-    in the corpus for this record (cannot build a grounded example)."""
+    in the corpus for this record (cannot build a grounded example).
+
+    `citation_target=True` (round-1e, F15's fix): the target is the SAME
+    canonical citation string for every kind -- training becomes exactly the
+    passage-selection task `evaluate.score_candidates` performs, rather than
+    each kind having its own native answer shape (a body for `law_lookup`, a
+    title for `law_cite_to_title`). The harness composes the actual emitted
+    answer from the selected passage at eval time (`evaluate.compose_answer`)."""
     act, section = rec["act"], rec["section"]
     gold = store.lookup(act, section)
     if gold is None:
@@ -134,11 +151,13 @@ def build_example(rec: dict, store, rng: random.Random, *, k: int = DEFAULT_K,
 
     passages = _select_passages(store, rec["prompt"], gold, k, exclude_gold=force_abstain)
     rng.shuffle(passages)
-    trunc_passages = evaluate.truncate_passages(passages, max_passage_bytes)
-    prompt = retrieval_mod.build_grounded_prompt(rec["prompt"], trunc_passages)
+    config = dataclasses.replace(PROMPT_CONFIG, body_max_bytes=max_passage_bytes)
+    prompt, trunc_passages, _pb, _dropped = evaluate.render_prompt(rec["prompt"], passages, config)
 
     if force_abstain:
         target = retrieval_mod.ABSTAIN_PHRASE
+    elif citation_target:
+        target = evaluate.CANONICAL_CITATION_FORMAT.format(section=section, act=act)
     elif rec["kind"] == "law_lookup":
         target = build_lookup_target(rec["target"], act, section, lookup_text_bytes)
     else:
@@ -154,8 +173,8 @@ def build_real_abstain_example(rec: dict, store, rng: random.Random, *, k: int =
     exclude)."""
     passages = store.search(rec["prompt"], k)
     rng.shuffle(passages)
-    trunc_passages = evaluate.truncate_passages(passages, max_passage_bytes)
-    prompt = retrieval_mod.build_grounded_prompt(rec["prompt"], trunc_passages)
+    config = dataclasses.replace(PROMPT_CONFIG, body_max_bytes=max_passage_bytes)
+    prompt, trunc_passages, _pb, _dropped = evaluate.render_prompt(rec["prompt"], passages, config)
     return prompt, retrieval_mod.ABSTAIN_PHRASE, trunc_passages
 
 
@@ -170,6 +189,8 @@ def build_dataset(
     lookup_text_bytes: int = DEFAULT_LOOKUP_TEXT_BYTES,
     seed: int = 0,
     store=None,
+    include_real_abstain: bool = True,
+    citation_target: bool = False,
 ) -> tuple[list[dict], dict]:
     records = evaluate.load_jsonl(train_path)
     by_kind: dict[str, list[dict]] = {}
@@ -219,16 +240,31 @@ def build_dataset(
     n_rejected_ungrounded = 0
     n_synthetic_abstain = 0
     n_real_abstain = 0
+    n_title_missing_in_context = 0
 
     for rec in sampled:
         force_abstain = id(rec) in abstain_ids
         built = build_example(rec, store, rng, k=k, max_passage_bytes=max_passage_bytes,
-                               lookup_text_bytes=lookup_text_bytes, force_abstain=force_abstain)
+                               lookup_text_bytes=lookup_text_bytes, force_abstain=force_abstain,
+                               citation_target=citation_target)
         if built is None:
             n_rejected_no_gold += 1
             continue
         prompt, target, passages = built
-        needs_grounded_check = force_abstain or rec["kind"] != "law_cite_to_title"
+
+        # F13 harness-gate check: for a non-abstain example, the gold
+        # passage's title -- truncated to PROMPT_CONFIG.title_max_bytes, same
+        # as what actually went into the prompt (F16: titles are capped, not
+        # unbounded, since round 2) -- must appear verbatim in the built
+        # context, or the "gold passage is shown" premise this example
+        # relies on is false.
+        if not force_abstain:
+            gold = store.lookup(rec["act"], rec["section"])
+            if gold is not None and gold.title:
+                expected_title = evaluate.truncate_at_space(gold.title, PROMPT_CONFIG.title_max_bytes)
+                if expected_title not in prompt:
+                    n_title_missing_in_context += 1
+        needs_grounded_check = force_abstain or citation_target or rec["kind"] != "law_cite_to_title"
         if needs_grounded_check:
             if not retrieval_mod.grounded(retrieval_mod.parse_answer(target), passages):
                 n_rejected_ungrounded += 1
@@ -243,7 +279,7 @@ def build_dataset(
             "prompt": prompt, "target": target + TARGET_STOP_SUFFIX, "synthetic_abstain": force_abstain,
         })
 
-    for rec in by_kind.get(ABSTAIN_KIND, []):
+    for rec in (by_kind.get(ABSTAIN_KIND, []) if include_real_abstain else []):
         built = build_real_abstain_example(rec, store, rng, k=k, max_passage_bytes=max_passage_bytes)
         prompt, target, passages = built
         if not retrieval_mod.grounded(retrieval_mod.parse_answer(target), passages):
@@ -272,6 +308,7 @@ def build_dataset(
         "n_real_abstain": n_real_abstain,
         "abstain_share": (n_synthetic_abstain + n_real_abstain) / len(examples) if examples else 0.0,
         "target_ends_with_stop_suffix_rate": n_with_suffix / len(examples) if examples else 1.0,
+        "n_title_missing_in_context": n_title_missing_in_context,
         "by_kind": {kind: sum(1 for e in examples if e["kind"] == kind) for kind in (*CITATION_KINDS, ABSTAIN_KIND)},
         "prompt_bytes": {"mean": sum(prompt_bytes) / len(prompt_bytes) if prompt_bytes else 0.0,
                          "max": max(prompt_bytes) if prompt_bytes else 0},
@@ -281,6 +318,10 @@ def build_dataset(
     assert stats["target_ends_with_stop_suffix_rate"] == 1.0, (
         "harness gate: every training target must end with TARGET_STOP_SUFFIX "
         f"(F11) -- got rate {stats['target_ends_with_stop_suffix_rate']}"
+    )
+    assert n_title_missing_in_context == 0, (
+        "harness gate (F13): every non-abstain example's gold passage title must appear "
+        f"verbatim in its own context -- {n_title_missing_in_context} did not"
     )
     return examples, stats
 
@@ -295,10 +336,19 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--n", type=int, default=DEFAULT_N)
     parser.add_argument("--abstain-frac", type=float, default=DEFAULT_ABSTAIN_FRAC)
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--no-real-abstain", action="store_true",
+                         help="exclude the train split's own law_abstain records (round-1d+: citation-only data)")
+    parser.add_argument("--citation-target", action="store_true",
+                         help="round-1e: every kind's target is the canonical citation string (F15's fix)")
+    parser.add_argument("--k", type=int, default=DEFAULT_K)
+    parser.add_argument("--max-passage-bytes", type=int, default=DEFAULT_MAX_PASSAGE_BYTES)
     args = parser.parse_args(argv)
 
     examples, stats = build_dataset(args.train, args.heldout, n=args.n,
-                                     abstain_frac=args.abstain_frac, seed=args.seed)
+                                     abstain_frac=args.abstain_frac, seed=args.seed,
+                                     include_real_abstain=not args.no_real_abstain,
+                                     citation_target=args.citation_target,
+                                     k=args.k, max_passage_bytes=args.max_passage_bytes)
     args.out.mkdir(parents=True, exist_ok=True)
     evaluate.write_jsonl(args.out / "grounded_sft.jsonl", examples)
     (args.out / "grounded_sft_stats.json").write_text(json.dumps(stats, indent=2), encoding="utf-8")

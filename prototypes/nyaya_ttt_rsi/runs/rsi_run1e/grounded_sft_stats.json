@@ -1,0 +1,24 @@
+{
+  "n_examples": 2496,
+  "n_rejected_no_gold_passage": 0,
+  "n_rejected_ungrounded": 3,
+  "n_synthetic_abstain": 0,
+  "n_real_abstain": 0,
+  "abstain_share": 0.0,
+  "target_ends_with_stop_suffix_rate": 1.0,
+  "n_title_missing_in_context": 0,
+  "by_kind": {
+    "law_citation_retrieval": 830,
+    "law_cite_to_title": 833,
+    "law_lookup": 833,
+    "law_abstain": 0
+  },
+  "prompt_bytes": {
+    "mean": 736.3293269230769,
+    "max": 950
+  },
+  "target_bytes": {
+    "mean": 39.872996794871796,
+    "max": 51
+  }
+}

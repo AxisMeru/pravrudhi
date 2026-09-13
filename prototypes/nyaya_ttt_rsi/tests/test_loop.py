@@ -315,3 +315,65 @@ def test_in_sample_sanity_check_scoring_uses_reconstructed_passages(tmp_path, mo
     assert result["spurious_abstain_rate"] == 0.0
     assert result["abstain_correct_rate"] == 1.0
     assert result["passed"] is True
+
+
+# ---------------------------------------------------------------------------
+# Calibrated abstention (F14 fix)
+# ---------------------------------------------------------------------------
+
+
+def test_choose_calibration_thresholds_separates_shown_from_miss():
+    # Shown examples: low NLL, wide margin (clearly the right pick).
+    # Miss examples: high NLL, narrow margin (nothing really fits).
+    scored = (
+        [{"id": f"s{i}", "gold_shown": True, "best_total_nll": 1.0, "margin": 2.0} for i in range(10)]
+        + [{"id": f"m{i}", "gold_shown": False, "best_total_nll": 5.0, "margin": 0.1} for i in range(10)]
+    )
+    result = loop.choose_calibration_thresholds(scored)
+    assert result["balanced_accuracy"] == 1.0
+    assert 1.0 <= result["tau"] <= 5.0
+    assert 0.0 <= result["delta"] < 2.0
+    assert result["confusion"]["cite_when_shown"] == 10
+    assert result["confusion"]["abstain_when_miss"] == 10
+    assert result["confusion"]["abstain_when_shown"] == 0
+    assert result["confusion"]["cite_when_miss"] == 0
+
+
+def test_choose_calibration_thresholds_handles_infinite_margin():
+    # A single-candidate example has margin == inf (no runner-up) --
+    # must not crash and must not be spuriously treated as low-margin.
+    scored = [
+        {"id": "s0", "gold_shown": True, "best_total_nll": 1.0, "margin": float("inf")},
+        {"id": "m0", "gold_shown": False, "best_total_nll": 5.0, "margin": 0.1},
+    ]
+    result = loop.choose_calibration_thresholds(scored)
+    assert result["confusion"]["n_shown"] == 1
+    assert result["confusion"]["n_miss"] == 1
+
+
+def test_build_calibration_examples_respects_exclude_ids_and_gold_shown_ratio(tmp_path):
+    from prototypes.nyaya_ttt_rsi.retrieval import Passage, PassageStore
+
+    rows = []
+    for i in range(20):
+        rows.append({"id": f"c{i}", "kind": "law_citation_retrieval", "act": "Act",
+                     "section": f"Section {i}", "prompt": f"question {i}", "target": "t",
+                     "source_id": f"c{i}"})
+    train = tmp_path / "train.jsonl"
+    with open(train, "w") as f:
+        for r in rows:
+            f.write(json.dumps(r) + "\n")
+
+    store = PassageStore([Passage("Act", f"Section {i}", f"body {i}", f"Act, Section {i}", None)
+                          for i in range(20)])
+
+    examples = loop.build_calibration_examples(train, store, n=10, seed=1, frac_miss=0.3,
+                                                 exclude_ids={"c0", "c1", "c2"})
+    assert all(e["id"] not in {"c0", "c1", "c2"} for e in examples)
+    assert len(examples) == 10
+    n_shown = sum(1 for e in examples if e["gold_shown"])
+    assert n_shown == 7  # 10 * (1 - 0.3)
+    for e in examples:
+        gold_key = ("Act", next(iter([e["section"]])))
+        shown_keys = {(p.act, p.section) for p in e["passages"]}
+        assert (e["gold_shown"]) == (("Act", e["section"]) in shown_keys)

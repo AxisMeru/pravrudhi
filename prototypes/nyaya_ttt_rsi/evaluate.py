@@ -67,9 +67,46 @@ LORA_TARGET_REGEX_TEMPLATE = r"blocks\.({idx})\.mixer\.(qkv|out_proj)$"
 LORA_R = 8
 LORA_ALPHA = 16
 
-K_PASSAGES = 3
-MAX_PASSAGE_BYTES = 350
-MAX_PROMPT_BYTES = 1400
+# 2026-09-13 pivot, round 3 (compact context, F15/F16's fixes): the
+# original k=3/350-byte/1400-byte-prompt budget produced prompts 2.5x the
+# model's trained 512-byte context; law_lookup candidates were also full
+# passage bodies of wildly different lengths (F15's length-selection bias).
+# A first attempt at a compact context (k=5, 120-byte bodies, uncapped
+# titles, 900-byte budget) turned out to be arithmetically impossible --
+# titles average 54 bytes (real section headings, not short tags) and
+# k=5 uncapped-title blocks alone average ~945 bytes before the
+# instruction/question/answer overhead (F16). PROMPT_CONFIG below is the
+# corrected, measured-to-fit budget: a <=40-byte instruction, k=4
+# (recall@4 with titles ~0.77), body capped at 60 bytes, title capped at 90
+# bytes (both cut at a space, never mid-word), 950-byte total prompt
+# budget, with a last-resort "drop the lowest-ranked passage and rebuild"
+# fallback (see `render_prompt`) if a rare item still overflows.
+#
+# `PROMPT_CONFIG` is the SINGLE shared source of truth for both training
+# data generation (`grounded_data.py`) and held-out evaluation
+# (`evaluate.py`) -- both go through `render_prompt`/`retrieve_and_build_prompt`
+# below, which always reference this one object (never a copy), so the two
+# paths cannot silently drift apart. `tests/test_evaluate.py` asserts
+# `grounded_data.PROMPT_CONFIG is evaluate.PROMPT_CONFIG` (identity, not just
+# equality) as a standing invariant.
+INSTRUCTION = "Cite the correct provision below."  # 33 bytes
+
+
+@dataclasses.dataclass(frozen=True)
+class PromptConfig:
+    k: int
+    body_max_bytes: int
+    title_max_bytes: int
+    max_prompt_bytes: int
+    instruction: str
+
+
+PROMPT_CONFIG = PromptConfig(k=4, body_max_bytes=60, title_max_bytes=90,
+                              max_prompt_bytes=950, instruction=INSTRUCTION)
+
+K_PASSAGES = PROMPT_CONFIG.k
+MAX_PASSAGE_BYTES = PROMPT_CONFIG.body_max_bytes
+MAX_PROMPT_BYTES = PROMPT_CONFIG.max_prompt_bytes
 ADAPT_MAX_BYTES = 480  # concatenated retrieved-passage text fed to ttt.adapt
 MAX_NEW_TOKENS_GROUNDED = 96
 STOP_STRINGS = ["\n\n", "\nQuestion:"]
@@ -265,6 +302,58 @@ def truncate_passages(passages: list, max_bytes: int = MAX_PASSAGE_BYTES) -> lis
     return [dataclasses.replace(p, text=truncate_passage_text(p.text, max_bytes)) for p in passages]
 
 
+def truncate_at_space(text: str, max_bytes: int) -> str:
+    """Truncate `text` to at most `max_bytes` UTF-8 bytes, cutting at the
+    last space within the window (never mid-word) -- no sentence-boundary
+    preference, per the compact-context spec's "cut at a space" wording.
+    Used for both passage bodies and titles under `PROMPT_CONFIG`."""
+    if not text:
+        return text
+    raw = text.encode("utf-8")
+    if len(raw) <= max_bytes:
+        return text
+    window = raw[:max_bytes]
+    idx = window.rfind(b" ")
+    if idx > 0:
+        window = window[:idx]
+    return window.decode("utf-8", errors="ignore").rstrip()
+
+
+def apply_prompt_config(passages: list, config: PromptConfig = PROMPT_CONFIG) -> list:
+    """Truncates every passage's body and title to `config`'s byte budgets
+    (space-cut, never mid-word) -- the shared truncation step both
+    `render_prompt` (eval) and `grounded_data.build_example`/
+    `build_real_abstain_example` (training) go through."""
+    return [
+        dataclasses.replace(
+            p,
+            text=truncate_at_space(p.text, config.body_max_bytes),
+            title=truncate_at_space(p.title, config.title_max_bytes) if p.title else p.title,
+        )
+        for p in passages
+    ]
+
+
+def render_prompt(question: str, passages: list, config: PromptConfig = PROMPT_CONFIG) -> tuple[str, list, int, bool]:
+    """Builds a compact-context prompt from an already-selected passage list
+    (used directly by `grounded_data.py`, which selects/forces passages
+    itself) or via `retrieve_and_build_prompt` (which retrieves first).
+    Truncates bodies/titles per `config`, then -- if the built prompt still
+    exceeds `config.max_prompt_bytes` (should be rare; F16) -- drops the
+    LOWEST-RANKED (last) passage and rebuilds, repeating until it fits or
+    only one passage remains. Returns (prompt, passages_used, prompt_bytes,
+    dropped_a_passage)."""
+    trunc = apply_prompt_config(passages, config)
+    prompt = retrieval_mod.build_grounded_prompt(question, trunc, instruction=config.instruction)
+    dropped = False
+    while len(prompt.encode("utf-8")) > config.max_prompt_bytes and len(trunc) > 1:
+        trunc = trunc[:-1]
+        prompt = retrieval_mod.build_grounded_prompt(question, trunc, instruction=config.instruction)
+        dropped = True
+    pb = assert_prompt_budget(prompt, config.max_prompt_bytes)
+    return prompt, trunc, pb, dropped
+
+
 def adapt_text_from_passages(passages: list, max_bytes: int = ADAPT_MAX_BYTES) -> str:
     """Self-supervised TTT text: the retrieved passages' text ONLY -- never the
     question or any answer -- concatenated and hard-capped to fit the model's
@@ -276,12 +365,27 @@ def adapt_text_from_passages(passages: list, max_bytes: int = ADAPT_MAX_BYTES) -
     return raw[:max_bytes].decode("utf-8", errors="ignore")
 
 
-def retrieve_and_build_prompt(store, question: str, k: int = K_PASSAGES):
-    """Returns (prompt, truncated_passages, prompt_bytes)."""
+def assert_prompt_budget(prompt: str, max_bytes: int = MAX_PROMPT_BYTES) -> int:
+    """Hard-asserts a built prompt fits the compact-context budget (F15/F16
+    -- the model was trained at a 512-byte sequence length). `render_prompt`
+    already drops passages to try to fit before calling this, so a failure
+    here means even a single passage's (already-truncated) body+title plus
+    the instruction/question overflowed -- a genuine anomaly worth
+    investigating, not something to silently truncate further. Returns the
+    byte length so callers can log stats without a second encode."""
+    pb = len(prompt.encode("utf-8"))
+    assert pb <= max_bytes, (
+        f"prompt exceeds the {max_bytes}-byte compact-context budget ({pb} bytes) "
+        "even after dropping passages to fit -- investigate rather than truncating further"
+    )
+    return pb
+
+
+def retrieve_and_build_prompt(store, question: str, k: int = K_PASSAGES, config: PromptConfig = PROMPT_CONFIG):
+    """Returns (prompt, truncated_passages, prompt_bytes, dropped_a_passage)
+    -- see `render_prompt` for the truncation/drop-on-overflow behavior."""
     passages = store.search(question, k)
-    trunc = truncate_passages(passages)
-    prompt = retrieval_mod.build_grounded_prompt(question, trunc)
-    return prompt, trunc, len(prompt.encode("utf-8"))
+    return render_prompt(question, passages, config)
 
 
 # ---------------------------------------------------------------------------
@@ -301,34 +405,81 @@ def retrieve_and_build_prompt(store, question: str, k: int = K_PASSAGES):
 CANONICAL_CITATION_FORMAT = "{section} ({act})."
 
 
-def build_candidates(passages: list, kind: str) -> list[tuple[str, Any]]:
+def build_candidates(passages: list, kind: str, include_abstain: bool = True) -> list[tuple[str, Any]]:
     """One candidate per shown passage (source = the Passage), plus the
-    abstain phrase last (source = None). `kind == "law_lookup"` uses the
-    passage's own truncated text plus a trailing citation line (grounded by
-    construction: copied verbatim from the shown context); every other kind
-    uses the canonical citation format matching what `score_law_qa.py`
+    abstain phrase last (source = None) when `include_abstain`. Every kind
+    uses the SAME canonical citation format matching what `score_law_qa.py`
     substring-matches (normalized act + normalized section), which is also
-    the format `grounded_data.py` writes its own citation-kind targets in."""
-    candidates: list[tuple[str, Any]] = []
-    for p in passages:
-        if kind == "law_lookup":
-            text = f"{p.text}\n\nCitation: {p.act}, {p.section}."
-        else:
-            text = CANONICAL_CITATION_FORMAT.format(section=p.section, act=p.act)
-        candidates.append((text, p))
-    candidates.append((retrieval_mod.ABSTAIN_PHRASE, None))
+    the format `grounded_data.py`'s round-1e training targets use.
+
+    2026-09-13 pivot, round 3 (F15 -- see FIXES-FOR-MAIN-SESSIONS.md):
+    `law_lookup` candidates used to be full passage bodies of wildly
+    different lengths, which made length-sensitive selection statistics
+    (TOTAL NLL) pick the wrong, shorter passage even when the model was
+    genuinely more confident (lower mean NLL) in the longer, correct one.
+    Uniform candidates make selection a pure passage-choice task, near
+    length-invariant across every kind; the harness composes the actual
+    emitted answer text from whichever passage is selected (see
+    `compose_answer`) -- `law_lookup`'s emitted answer is still the full
+    body + citation, just no longer part of the SCORED candidate. `kind` is
+    accepted but currently unused for candidate text (kept for interface
+    stability and because a future kind-specific candidate scheme may need
+    it again).
+
+    2026-09-13 pivot, round 2 (F14): `include_abstain=False` is used for
+    citation-only training data and for calibrated abstention
+    (`run_condition_calibrated`): letting a single, byte-identical fixed
+    abstain STRING compete inside the likelihood-argmin let the model's
+    overfit-by-repetition preference for that string decide abstention,
+    rather than an actual calibrated decision rule over candidate scores."""
+    candidates: list[tuple[str, Any]] = [
+        (CANONICAL_CITATION_FORMAT.format(section=p.section, act=p.act), p) for p in passages
+    ]
+    if include_abstain:
+        candidates.append((retrieval_mod.ABSTAIN_PHRASE, None))
     return candidates
 
 
-def score_candidates(model, tok, prompt: str, candidates: list[tuple[str, Any]]) -> dict:
-    """Scores every candidate's mean per-byte NLL (prompt excluded) and
-    returns the argmin plus every score, so the choice and the margin
-    between best and second-best are both inspectable."""
-    nlls = [_sequence_nll(model, tok, prompt, text) for text, _source in candidates]
-    order = sorted(range(len(nlls)), key=lambda i: nlls[i])
+def compose_answer(kind: str, passage, store) -> str:
+    """The harness composes the final emitted answer text from whichever
+    passage was SELECTED (scoring only ever compares canonical citation
+    strings now -- see `build_candidates`): citation kinds emit the
+    canonical citation string itself; `law_cite_to_title` emits the
+    passage's own title; `law_lookup` emits the FULL (untruncated) body --
+    looked up fresh from `store`, since the in-context copy may have had its
+    body truncated to fit the compact prompt budget -- plus a trailing
+    citation line, so `score_law_qa`'s prefix-similarity and substring
+    checks see real, complete text."""
+    if kind == "law_lookup":
+        full = store.lookup(passage.act, passage.section) or passage
+        return f"{full.text}\n\nCitation: {full.act}, {full.section}."
+    if kind == "law_cite_to_title" and passage.title:
+        return passage.title
+    return CANONICAL_CITATION_FORMAT.format(section=passage.section, act=passage.act)
+
+
+def score_candidates(model, tok, prompt: str, candidates: list[tuple[str, Any]], by: str = "total") -> dict:
+    """Scores every candidate by TOTAL NLL (sum over its own continuation
+    bytes -- the 2026-09-13 pivot's chosen selection statistic, to stop a
+    short fixed string from winning purely on being short) or MEAN per-byte
+    NLL (`by="mean"`), and reports BOTH regardless of which one selects.
+
+    Caution (found empirically, round-1d): TOTAL is itself length-biased in
+    the other direction once the abstain string is removed from the
+    candidate set -- among `law_lookup` candidates (whose bodies vary
+    wildly in length), a SHORTER wrong passage can beat a LONGER correct one
+    on total NLL even when the correct one has the better (lower) mean
+    per-byte NLL. Neither statistic is bias-free; `by` lets a caller pick,
+    and both are always reported so the trade-off is inspectable rather than
+    silently baked in."""
+    mean_nlls = [_sequence_nll(model, tok, prompt, text) for text, _source in candidates]
+    total_nlls = [mean * len(text.encode("utf-8")) for mean, (text, _source) in zip(mean_nlls, candidates)]
+    key = total_nlls if by == "total" else mean_nlls
+    order = sorted(range(len(key)), key=lambda i: key[i])
     best_idx = order[0]
-    margin = (nlls[order[1]] - nlls[order[0]]) if len(order) > 1 else float("inf")
-    return {"best_idx": best_idx, "nlls": nlls, "margin": margin}
+    margin = (key[order[1]] - key[order[0]]) if len(order) > 1 else float("inf")
+    return {"best_idx": best_idx, "mean_nlls": mean_nlls, "total_nlls": total_nlls,
+            "nlls": mean_nlls, "margin": margin, "by": by}
 
 
 _QUESTION_RE = re.compile(r"Question:\s*(.*?)\nAnswer:\s*\Z", re.S)
@@ -425,6 +576,7 @@ def run_condition(
 
     prompt_byte_lengths: list[int] = []
     over_budget = 0
+    n_dropped_passage = 0
     answers: list[dict] = []
     retrieval_hit: dict[str, bool] = {}
 
@@ -437,10 +589,12 @@ def run_condition(
     t0 = time.perf_counter()
     for rec in items:
         qid, question = rec["id"], rec["prompt"]
-        prompt, passages, pb = retrieve_and_build_prompt(store, question, k)
+        prompt, passages, pb, dropped = retrieve_and_build_prompt(store, question, k)
         prompt_byte_lengths.append(pb)
         if pb > MAX_PROMPT_BYTES:
             over_budget += 1
+        if dropped:
+            n_dropped_passage += 1
         if "act" in rec and "section" in rec:
             retrieval_hit[qid] = any(
                 (p.act, p.section) == (rec["act"], rec["section"]) for p in passages
@@ -487,6 +641,8 @@ def run_condition(
             "max": max(prompt_byte_lengths) if prompt_byte_lengths else 0,
             "over_budget_count": over_budget,
             "budget": MAX_PROMPT_BYTES,
+            "dropped_passage_count": n_dropped_passage,
+            "dropped_passage_rate": n_dropped_passage / len(items) if items else 0.0,
         },
         "score": score,
         **extra,
@@ -621,6 +777,7 @@ def run_condition_scoring(
 
     answers: list[dict] = []
     retrieval_hit: dict[str, bool] = {}
+    n_dropped_passage = 0
     base_snap = None
     probe_before = None
     if cond in ("C", "D"):
@@ -630,7 +787,8 @@ def run_condition_scoring(
     t0 = time.perf_counter()
     for rec in items:
         qid, question, kind = rec["id"], rec["prompt"], rec["kind"]
-        prompt, passages, pb = retrieve_and_build_prompt(store, question, k)
+        prompt, passages, pb, dropped = retrieve_and_build_prompt(store, question, k)
+        n_dropped_passage += int(dropped)
         if "act" in rec and "section" in rec:
             retrieval_hit[qid] = any(
                 (p.act, p.section) == (rec["act"], rec["section"]) for p in passages
@@ -655,8 +813,9 @@ def run_condition_scoring(
             gate_info = dataclasses.asdict(decision)
 
         best_idx = chosen["best_idx"]
-        text, source = candidates[best_idx]
+        _cand_text, source = candidates[best_idx]
         is_abstain = source is None
+        text = retrieval_mod.ABSTAIN_PHRASE if is_abstain else compose_answer(kind, source, store)
         gold_selected = (not is_abstain) and (source.act, source.section) == (rec.get("act"), rec.get("section"))
         record = {
             "id": qid, "kind": kind, "prompt_bytes": pb, "chosen_idx": best_idx, "answer": text,
@@ -672,7 +831,23 @@ def run_condition_scoring(
     write_jsonl(out_dir / "answers.jsonl", answers)
     peak_vram_mib = _peak_vram(peak_vram_before)
     score = _score_law_qa(heldout_path, out_dir / "answers.jsonl")
+    report = _scoring_report(cond, label, items, answers, retrieval_hit, t1 - t0, peak_vram_mib, score)
+    report["dropped_passage_count"] = n_dropped_passage
+    report["dropped_passage_rate"] = n_dropped_passage / len(items) if items else 0.0
+    if cond in ("C", "D") and ledger is not None:
+        report["gate_summary"] = ledger.summary()
+    (out_dir / "report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
+    return report
 
+
+def _scoring_report(cond: str, label: str | None, items: list[dict], answers: list[dict],
+                     retrieval_hit: dict[str, bool], wall_seconds: float, peak_vram_mib,
+                     score: dict) -> dict:
+    """Shared report assembly for both `run_condition_scoring` (candidates
+    include an abstain option, picked by argmin) and
+    `run_condition_calibrated` (candidates are citations only; abstention is
+    a separate calibrated threshold decision) -- both produce `answers`
+    records shaped alike (id/kind/answer/abstained/cited/grounded/gold_selected/margin)."""
     by_id = {a["id"]: a for a in answers}
     n = len(answers)
     gold_n = sum(1 for a in answers if a["gold_selected"])
@@ -711,10 +886,10 @@ def run_condition_scoring(
                                              "rate": false_abstain_when_shown / len(shown_ids) if shown_ids else 0.0,
                                              "ci_low": lo2, "ci_high": hi2}
 
-    margins = [a["margin"] for a in answers if a["margin"] != float("inf")]
-    report = {
+    margins = [a["margin"] for a in answers if a.get("margin") not in (None, float("inf"))]
+    return {
         "condition": label or cond, "mode": "scoring", "n_items": len(items),
-        "wall_clock_seconds": {"total": t1 - t0, "per_item": (t1 - t0) / len(items) if items else 0.0},
+        "wall_clock_seconds": {"total": wall_seconds, "per_item": wall_seconds / len(items) if items else 0.0},
         "peak_vram_mib": peak_vram_mib,
         "score": score,
         "gold_selected_overall": {"successes": gold_n, "total": n, "rate": gold_n / n if n else 0.0},
@@ -722,6 +897,120 @@ def run_condition_scoring(
                          "min": min(margins) if margins else 0.0},
         **extra,
     }
+
+
+# ---------------------------------------------------------------------------
+# Calibrated abstention (F14 fix, round 2 of the 2026-09-13 pivot): the
+# model no longer "decides" abstention by competing an abstain STRING inside
+# the likelihood argmin (that let training-set repetition of one fixed
+# string dominate); instead the harness picks the best-supported citation
+# among the SHOWN passages only, then abstains via an external, calibrated
+# threshold rule on that choice's own score (best_total_nll) and its margin
+# over the runner-up -- see loop.calibrate_abstention for how (tau, delta)
+# are chosen.
+# ---------------------------------------------------------------------------
+
+
+def run_condition_calibrated(
+    cond: str,
+    model,
+    tok,
+    store,
+    items: list[dict],
+    out_dir,
+    *,
+    tau: float,
+    delta: float,
+    loras: list | None = None,
+    ttt_cfg: dict | None = None,
+    probe=None,
+    ledger=None,
+    k: int = K_PASSAGES,
+    heldout_path=DEFAULT_HELDOUT,
+    label: str | None = None,
+) -> dict:
+    if cond not in ("B", "C", "D"):
+        raise ValueError(f"unknown condition: {cond!r}")
+    if cond in ("C", "D") and (loras is None or probe is None):
+        raise ValueError(f"condition {cond} requires loras and probe")
+
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    ttt_cfg = DEFAULT_TTT_CFG if ttt_cfg is None else ttt_cfg
+    peak_vram_before = _peak_vram_reset()
+
+    answers: list[dict] = []
+    retrieval_hit: dict[str, bool] = {}
+    n_dropped_passage = 0
+    base_snap = None
+    probe_before = None
+    if cond in ("C", "D"):
+        base_snap = _snapshot(loras)
+        probe_before = probe.nll(model, tok, _sequence_nll)
+
+    t0 = time.perf_counter()
+    for rec in items:
+        qid, question, kind = rec["id"], rec["prompt"], rec["kind"]
+        prompt, passages, pb, dropped = retrieve_and_build_prompt(store, question, k)
+        n_dropped_passage += int(dropped)
+        if "act" in rec and "section" in rec:
+            retrieval_hit[qid] = any(
+                (p.act, p.section) == (rec["act"], rec["section"]) for p in passages
+            )
+        candidates = build_candidates(passages, kind, include_abstain=False)
+
+        gate_info = None
+        chosen = None
+        if candidates:
+            pre_score = score_candidates(model, tok, prompt, candidates)
+            if cond == "B":
+                chosen = pre_score
+            else:
+                adapt_text = adapt_text_from_passages(passages)
+                _adapt(model, tok, adapt_text, loras, ttt_cfg.get("steps", 4), ttt_cfg.get("lr", 1e-3))
+                post_score = score_candidates(model, tok, prompt, candidates)
+                probe_after = probe.nll(model, tok, _sequence_nll)
+                decision = _decide(probe_before, probe_after, True,
+                                   threshold=ttt_cfg.get("threshold", 0.15), delta_norm=_merged_delta_norm(loras))
+                if ledger is not None:
+                    ledger.append(qid, decision)
+                _restore(loras, base_snap)
+                chosen = post_score if decision.accepted else pre_score
+                gate_info = dataclasses.asdict(decision)
+
+        if not candidates:
+            # Nothing retrieved at all: nothing to cite, must abstain.
+            text, is_abstain, gold_selected = retrieval_mod.ABSTAIN_PHRASE, True, False
+            best_total_nll = margin = None
+        else:
+            best_idx = chosen["best_idx"]
+            best_total_nll = chosen["total_nlls"][best_idx]
+            margin = chosen["margin"]
+            should_abstain = (best_total_nll > tau) or (margin < delta)
+            if should_abstain:
+                text, is_abstain, gold_selected = retrieval_mod.ABSTAIN_PHRASE, True, False
+            else:
+                _cand_text, source = candidates[best_idx]
+                text, is_abstain = compose_answer(kind, source, store), False
+                gold_selected = (source.act, source.section) == (rec.get("act"), rec.get("section"))
+
+        record = {
+            "id": qid, "kind": kind, "prompt_bytes": pb, "answer": text,
+            "abstained": is_abstain, "cited": not is_abstain, "grounded": True,
+            "gold_selected": gold_selected, "best_total_nll": best_total_nll, "margin": margin,
+        }
+        if gate_info is not None:
+            record["gate"] = gate_info
+        answers.append(record)
+    t1 = time.perf_counter()
+
+    write_jsonl(out_dir / "answers.jsonl", answers)
+    peak_vram_mib = _peak_vram(peak_vram_before)
+    score = _score_law_qa(heldout_path, out_dir / "answers.jsonl")
+    report = _scoring_report(cond, label, items, answers, retrieval_hit, t1 - t0, peak_vram_mib, score)
+    report["calibration"] = {"tau": tau, "delta": delta}
+    report["dropped_passage_count"] = n_dropped_passage
+    report["dropped_passage_rate"] = n_dropped_passage / len(items) if items else 0.0
     if cond in ("C", "D") and ledger is not None:
         report["gate_summary"] = ledger.summary()
     (out_dir / "report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")

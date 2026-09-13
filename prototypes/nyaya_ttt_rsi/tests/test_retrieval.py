@@ -69,7 +69,9 @@ def test_grounded_and_prompt(store):
     assert not grounded(parse_answer(ABSTAIN_PHRASE + "; Indian Penal Code, Section 302"), passages)
     prompt = build_grounded_prompt("What is abolished?", passages)
     assert ABSTAIN_PHRASE in prompt.splitlines()[0]
-    assert f"[Constitution of India, Article 17] {passages[0].text}" in prompt
+    # Title (never truncated) is rendered ahead of the body -- F13.
+    assert passages[0].title
+    assert f"[Constitution of India, Article 17] {passages[0].title}. {passages[0].text}" in prompt
     assert prompt.endswith("Question: What is abolished?\nAnswer:")
 
 
@@ -94,3 +96,36 @@ def test_bm25_prefers_rare_term():
         Passage("Act", "Section 2", "common distinctive", "Act, Section 2", "2"),
     ])
     assert store.search("common distinctive", 1)[0].section == "Section 2"
+
+
+def test_from_law_files_attaches_title_from_cite_to_title_records(store):
+    passage = store.lookup("Constitution of India", "Article 17")
+    assert passage.title  # F13: every law_lookup passage gets a title
+    assert passage.title != passage.text
+
+
+def test_title_is_indexed_for_retrieval(tmp_path):
+    """A query matching ONLY the title (not the body) must still retrieve
+    the passage -- F13's whole point."""
+    row_lookup = dict(kind="law_lookup", act="Act", section="Section 1", source_id="1",
+                       target="Body text with no matching words.\n\nCitation: Act, Section 1.",
+                       prompt="p")
+    row_title = dict(kind="law_cite_to_title", act="Act", section="Section 1", source_id="1t",
+                      target="Zephyr commencement heading", prompt="p2")
+    train = tmp_path / "train.jsonl"
+    heldout = tmp_path / "heldout.jsonl"
+    train.write_text(json.dumps(row_lookup) + "\n" + json.dumps(row_title) + "\n")
+    heldout.write_text("")
+    store = PassageStore.from_law_files(train, heldout)
+    hits = store.search("zephyr commencement", 1)
+    assert hits and hits[0].section == "Section 1"
+
+
+def test_title_never_truncated(tmp_path):
+    from prototypes.nyaya_ttt_rsi import evaluate
+
+    long_title = "A very long section heading " * 20  # far over any truncation budget
+    p = Passage("Act", "Section 1", "short body", "Act, Section 1", None, title=long_title)
+    truncated = evaluate.truncate_passages([p], max_bytes=50)
+    assert truncated[0].title == long_title
+    assert len(truncated[0].text.encode("utf-8")) <= 50

@@ -1,8 +1,37 @@
 """Local provision retrieval and citation checks; no model dependencies.
 
 The index includes lookup provisions from both files, not abstention examples.
-BM25 indexes citation metadata as well as the provision text. Grounding checks
-citation membership only; it does not establish semantic entailment.
+BM25 indexes citation metadata, the provision TITLE, and the provision text.
+Grounding checks citation membership only; it does not establish semantic
+entailment.
+
+2026-09-13 pivot fix (F13 in
+docs/research-spikes/2026-09-13-ttt-rsi-track-b/FIXES-FOR-MAIN-SESSIONS.md,
+diagnosed by the main session): `Passage.text` used to be the `law_lookup`
+body ONLY. But `law_citation_retrieval` asks "Which provision states:
+'<TITLE>'?" and `law_cite_to_title` asks for the title outright -- and the
+section TITLE is a separate field (the `law_cite_to_title` record's own
+`target` for the same (act, section)), not part of the body text. A passage
+therefore carried no information a citation-kind question could actually
+match against: a forced-in gold passage and a random one were observationally
+identical for those two kinds, the training label was uncorrelated with
+anything visible in context, and (as the round-1/1b SFT runs demonstrated)
+the model rationally learned to prefer the one thing that WAS a reliable,
+low-loss signal -- abstaining. `Passage` now carries a `title` field (looked
+up from the `law_cite_to_title` record sharing the same (act, section)); it
+is rendered into both the BM25 index and every built prompt, and is never
+truncated (`evaluate.truncate_passages` only ever shortens `.text`).
+
+Disclosure: `law_cite_to_title` records exist for both the train AND
+held-out splits, so a held-out item's own title is now part of the shared
+corpus (available for retrieval on ANY query, not just its own). This is the
+same decision already made for `law_lookup` bodies (`from_law_files` already
+pooled passages from both splits) -- section headings, like section bodies,
+are part of the statute text itself, not a training-set-only construct, so
+including a held-out section's heading in the corpus is not different in
+kind from including its body. It does mean a `law_cite_to_title` held-out
+item's own gold answer is now retrievable verbatim as a title match; this is
+disclosed here and in the report rather than left implicit.
 """
 
 from collections import Counter, defaultdict
@@ -27,6 +56,7 @@ class Passage:
     text: str
     citation: str
     source_id: str | None
+    title: str = ""
 
 
 @dataclass
@@ -59,7 +89,7 @@ class PassageStore:
         postings = defaultdict(list)
         lengths = []
         for i, passage in enumerate(passages):
-            counts = Counter(_tokens(f"{passage.citation} {passage.text}"))
+            counts = Counter(_tokens(f"{passage.citation} {passage.title} {passage.text}"))
             lengths.append(sum(counts.values()))
             for term, frequency in counts.items():
                 postings[term].append((i, frequency))
@@ -78,6 +108,16 @@ class PassageStore:
 
     @classmethod
     def from_law_files(cls, train_jsonl, heldout_jsonl):
+        # Titles come from law_cite_to_title records (both splits -- see the
+        # module docstring's disclosure) sharing the same (act, section) as a
+        # law_lookup body; a passage's title is a property of the statute
+        # section, not of the split it happened to be sampled into.
+        titles: dict[tuple[str, str], str] = {}
+        for path in (train_jsonl, heldout_jsonl):
+            for row in _records(path):
+                if row["kind"] == "law_cite_to_title":
+                    titles.setdefault(_key(row["act"], row["section"]), row["target"].strip())
+
         passages = {}
         for path in (train_jsonl, heldout_jsonl):
             for row in _records(path):
@@ -85,8 +125,9 @@ class PassageStore:
                     continue
                 act, section = row["act"], row["section"]
                 text = re.sub(r"(?:\r?\n)+Citation:[^\r\n]*\s*\Z", "", row["target"]).strip()
+                title = titles.get(_key(act, section), "")
                 passages.setdefault(_key(act, section), Passage(
-                    act, section, text, f"{act}, {section}", row["source_id"]
+                    act, section, text, f"{act}, {section}", row["source_id"], title
                 ))
         return cls(list(passages.values()))
 
@@ -106,10 +147,25 @@ class PassageStore:
         return [self.passages[i] for i in order[:k] if scores[i] > 0]
 
 
-def build_grounded_prompt(question: str, passages: list[Passage]) -> str:
-    instruction = ("Answer only from the provisions below, cite as '<act>, <section>', "
-                   f"or reply exactly '{ABSTAIN_PHRASE}' if they do not answer the question.")
-    blocks = [instruction, *(f"[{p.act}, {p.section}] {p.text}" for p in passages),
+def _passage_body(p: Passage) -> str:
+    """Title + body, title never truncated (truncation only ever shortens
+    `.text` -- see `evaluate.truncate_passages`). Backward compatible with a
+    title-less `Passage` (title="" default): renders as before."""
+    return f"{p.title}. {p.text}" if p.title else p.text
+
+
+_DEFAULT_INSTRUCTION = ("Answer only from the provisions below, cite as '<act>, <section>', "
+                        f"or reply exactly '{ABSTAIN_PHRASE}' if they do not answer the question.")
+
+
+def build_grounded_prompt(question: str, passages: list[Passage], instruction: str | None = None) -> str:
+    """`instruction` defaults to the original long form (mentions abstention
+    in the prompt text itself); the compact-context pivot
+    (`evaluate.PROMPT_CONFIG`) passes a short instruction instead, since
+    abstention is now a calibrated harness decision (F14) rather than
+    something the model is asked to produce in free text."""
+    instruction = _DEFAULT_INSTRUCTION if instruction is None else instruction
+    blocks = [instruction, *(f"[{p.act}, {p.section}] {_passage_body(p)}" for p in passages),
               f"Question: {question}\nAnswer:"]
     return "\n\n".join(blocks)
 

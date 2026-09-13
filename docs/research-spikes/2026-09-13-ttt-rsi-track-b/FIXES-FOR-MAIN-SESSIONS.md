@@ -247,6 +247,103 @@ branch. Each item says what is broken, what fixed it, and what the owning sessio
   a single fixed phrasing -- greedy decoding's byte-by-byte argmax is not equivalent to "the
   model's most likely answer" whenever candidate classes differ this much in string diversity.
 
+## F13. `Passage` carried no section TITLE, so a forced-in gold passage was observationally identical to a random one for 2 of 3 citation kinds
+
+- **Context:** round-1/1b's SFT runs both collapsed to near-universal abstention even under
+  scoring mode (F12's fix). Diagnosed by the main session: `law_citation_retrieval` asks
+  `'Which provision states: "<TITLE>"?'` and `law_cite_to_title` asks for the title outright, but
+  `retrieval.PassageStore` built `Passage.text` from the `law_lookup` record's BODY only -- the
+  section TITLE (a separate field, present as its own `law_cite_to_title` record for the same
+  (act, section)) was never part of a passage's rendered text. Verified directly: the string
+  "Citizenship at the commencement of the Constitution" (Article 5's title) appears nowhere in
+  Article 5's body text. A forced-in gold passage was therefore observationally IDENTICAL to an
+  irrelevant one for those two kinds -- the training label was uncorrelated with anything visible
+  in context, and the one thing that WAS a reliable, low-loss training signal (the fixed abstain
+  string) won.
+- **Fix (`retrieval.py`):** `Passage` gained a `title` field, populated from the matching
+  `law_cite_to_title` record (present for all 2,269 corpus passages, across both splits); BM25
+  now indexes citation + title + body; `build_grounded_prompt` renders `[<act>, <section>]
+  <title>. <body>`; truncation (`evaluate.truncate_passages`) only ever shortens `.text`, so the
+  title is never cut. Recall jumped: recall@1 unmeasured-before -> 0.567, recall@3 0.66 -> 0.736,
+  recall@5 0.73 -> 0.793 (measured on the real 690-item held-out set).
+  `grounded_data.py`'s `build_dataset` now hard-asserts `n_title_missing_in_context == 0`
+  (every non-abstain training example's gold title must appear verbatim in its own context).
+- **Disclosure:** a held-out item's `law_cite_to_title` title is now part of the shared corpus
+  (retrievable for ANY query, not just its own) -- the same decision already made for
+  `law_lookup` bodies (the store already pooled both splits' bodies before this fix); section
+  headings, like section bodies, are part of the statute text itself. Recorded here rather than
+  left implicit.
+- **Still not sufficient on its own** -- see F14: round-1c (title fix + 1 epoch, matching
+  round 1's epoch count) still failed the scoring-mode sanity check identically to round-1b.
+
+## F14. Single-epoch SFT with one exact-duplicate low-entropy target repeated many times out-memorizes many distinct once-seen targets, independent of context support
+
+- **Context:** after F12 (scoring mode) and F13 (titles) were both fixed and verified, round-1c's
+  in-sample scoring-mode sanity check STILL failed identically to round-1b: citation_hit_rate
+  0/30, spurious_abstain_rate 30/30, on a model whose regression probe barely moved
+  (probe_delta_rel 0.0004). This is not a decoding artifact (F12) or a missing-signal artifact
+  (F13) -- both were independently confirmed fixed on this exact run.
+- **Diagnosis, from the raw per-candidate NLLs on one training example** (id
+  `law_citation_retrieval:Bharatiya Nyaya Sanhita:Section 330`, title
+  "House-trespass and house-breaking.." CONFIRMED present in its own context): the correct
+  citation candidate scored NLL 0.218, a wrong shown passage's citation scored 0.216/0.537, and
+  the abstain candidate scored NLL 0.0037 -- roughly 60x lower (higher likelihood) than the
+  correct answer, not a close call. Root cause: the abstain target is the exact SAME 35-byte
+  string (`"Not found in the provided corpus\n\n"`) repeated byte-for-byte identically across
+  330/2,578 training examples (12.8%), while each citation target is a DISTINCT string appearing
+  exactly ONCE. A single epoch of AdamW over single-example steps drives a many-times-repeated
+  identical short target toward near-zero loss (rote memorization via repetition) far faster than
+  any individual once-seen diverse target can be learned to a comparable degree -- this is a
+  structural property of the TRAINING DATA'S SHAPE (repetition count x target diversity), not of
+  decoding, grounding signal, or model capacity. It would recur with any fixed abstention phrase
+  used across many examples in a single-epoch, per-example SFT regime, regardless of how well
+  each individual citation example's context supports its own answer.
+- **Not yet fixed --standing by for direction** (options recorded for whoever picks this up:
+  diversify the abstain target text per example so it is not one exact repeated string;
+  replicate/upweight citation targets so they receive comparable repetition exposure; more
+  epochs specifically for citation targets while holding abstain exposure fixed; or a much
+  lower abstain_frac for a single-epoch regime).
+- **Applies beyond this harness:** any SFT recipe (Track B's own `law_v3`-style data included)
+  that mixes one exact-duplicate low-entropy answer class against many high-entropy,
+  seen-once answer classes should expect the duplicate class to become disproportionately
+  likely under the trained model's own likelihood, independent of context -- this is a general
+  property of cross-entropy training on an imbalanced-by-diversity (not just imbalanced-by-count)
+  target distribution, not specific to abstention or to this checkpoint.
+
+## F15. TOTAL-NLL candidate selection is itself length-biased once the abstain string is removed -- it favors SHORTER wrong passages over LONGER correct ones for `law_lookup`
+
+- **Context:** round-1d removed the abstain string from training and from the candidate set
+  entirely (F14's fix), selecting the shown passage with the lowest TOTAL (sum-over-bytes) NLL
+  as coordinator-specified (to stop a short fixed string from winning purely on being short --
+  see F14). In-sample scoring-mode citation_hit_rate still capped at 0.40 (1 epoch) / 0.433
+  (2 epochs), both below the 0.5 gate.
+- **Diagnosis, from raw per-candidate scores** (id
+  `law_lookup:Indian Penal Code:Section 367`, round-1d 2-epoch state): the GOLD passage's
+  candidate had mean-per-byte NLL 0.4582 -- the LOWEST (best) of all three shown passages --
+  yet lost selection because its TOTAL NLL (195.6, from a longer body) exceeded a wrong,
+  shorter passage's TOTAL NLL (127.3). `law_lookup` candidates are full passage bodies whose
+  lengths vary widely (unlike the citation-format candidates for the other two kinds, which are
+  all near-uniform ~30-40 byte strings); TOTAL NLL, being length-weighted, systematically favors
+  the shorter candidate regardless of which one the model is actually more confident in
+  per-byte. Confirmed at scale: switching the same round-1d 2-epoch state's selection statistic
+  from TOTAL to MEAN raised overall citation_hit_rate 0.433 -> 0.467, entirely from
+  `law_lookup` (0.25 -> 0.375); `law_citation_retrieval` (0.556) and `law_cite_to_title` (0.462)
+  were unchanged by the switch, exactly as expected since their candidates don't vary much in
+  length.
+- **Neither statistic is bias-free on its own:** TOTAL is biased toward short candidates (this
+  finding); MEAN is biased toward a candidate that is easy to memorize as an exact repeated
+  string regardless of context (F14's finding, when an abstain-like candidate is present).
+  Removing the pathological candidate (F14) does not remove the general length-normalization
+  problem -- it just changes which bias is active.
+- **Status:** neither 1 nor 2 epochs of round-1d cleared the 0.5 in-sample gate under either
+  statistic (best observed: 0.467 mean-based, 2 epochs). `evaluate.score_candidates` now takes
+  a `by` parameter (`"total"` default, `"mean"` available) and always reports both regardless of
+  which one selects, so this trade-off is inspectable rather than silently baked into one
+  hard-coded statistic. Not resolved further without direction -- a length-normalized statistic
+  (e.g. per-byte NLL is already that, but calibrated against candidate-specific priors) or a
+  kind-specific selection rule (mean for `law_lookup`, total elsewhere) are candidates for a
+  next attempt.
+
 ## F6. `load_megatron_blob`'s default config resolution can silently pick the wrong tree under a two-mount container layout
 
 - **Symptom (found while writing the G0 allocator-fragmentation run plan, not yet hit in a

@@ -1,0 +1,193 @@
+{
+  "passed": true,
+  "n_citation": 30,
+  "citation_hit_rate": 0.7,
+  "spurious_abstain_rate": 0.0,
+  "n_abstain": 0,
+  "abstain_correct_rate": 0.0,
+  "min_citation_hit_rate": 0.5,
+  "max_spurious_abstain_rate": 0.2,
+  "citation_examples": [
+    {
+      "id": "law_lookup:Indian Penal Code:Section 367",
+      "answer": "Section 367 (Indian Penal Code).",
+      "hit": true,
+      "spurious_abstain": false
+    },
+    {
+      "id": "law_citation_retrieval:Indian Evidence Act, 1872:Section 145",
+      "answer": "Section 137 (Indian Evidence Act, 1872).",
+      "hit": false,
+      "spurious_abstain": false
+    },
+    {
+      "id": "law_lookup:Constitution of India:Article 297",
+      "answer": "Article 297 (Constitution of India).",
+      "hit": true,
+      "spurious_abstain": false
+    },
+    {
+      "id": "law_cite_to_title:Bharatiya Nyaya Sanhita:Section 123",
+      "answer": "Section 123 (Bharatiya Nyaya Sanhita).",
+      "hit": true,
+      "spurious_abstain": false
+    },
+    {
+      "id": "law_cite_to_title:Indian Evidence Act, 1872:Section 149",
+      "answer": "Section 149 (Indian Evidence Act, 1872).",
+      "hit": true,
+      "spurious_abstain": false
+    },
+    {
+      "id": "law_lookup:Constitution of India:Article 243T",
+      "answer": "Article 243D (Constitution of India).",
+      "hit": false,
+      "spurious_abstain": false
+    },
+    {
+      "id": "law_citation_retrieval:Indian Evidence Act, 1872:Section 103",
+      "answer": "Section 101 (Indian Evidence Act, 1872).",
+      "hit": false,
+      "spurious_abstain": false
+    },
+    {
+      "id": "law_citation_retrieval:Indian Contract Act:Section 4",
+      "answer": "Section 5 (Indian Contract Act).",
+      "hit": false,
+      "spurious_abstain": false
+    },
+    {
+      "id": "law_lookup:Constitution of India:Article 64",
+      "answer": "Article 64 (Constitution of India).",
+      "hit": true,
+      "spurious_abstain": false
+    },
+    {
+      "id": "law_cite_to_title:Indian Contract Act:Section 208",
+      "answer": "Section 208 (Indian Contract Act).",
+      "hit": true,
+      "spurious_abstain": false
+    },
+    {
+      "id": "law_lookup:Bharatiya Nagarik Suraksha Sanhita:Section 83",
+      "answer": "Section 93 (Bharatiya Nagarik Suraksha Sanhita).",
+      "hit": false,
+      "spurious_abstain": false
+    },
+    {
+      "id": "law_citation_retrieval:Indian Contract Act:Section 136",
+      "answer": "Section 137 (Indian Contract Act).",
+      "hit": false,
+      "spurious_abstain": false
+    },
+    {
+      "id": "law_citation_retrieval:Bharatiya Nyaya Sanhita:Section 347",
+      "answer": "Section 347 (Bharatiya Nyaya Sanhita).",
+      "hit": true,
+      "spurious_abstain": false
+    },
+    {
+      "id": "law_lookup:Indian Penal Code:Section 187",
+      "answer": "Section 187 (Indian Penal Code).",
+      "hit": true,
+      "spurious_abstain": false
+    },
+    {
+      "id": "law_lookup:Bharatiya Nyaya Sanhita:Section 252",
+      "answer": "Section 252 (Bharatiya Nyaya Sanhita).",
+      "hit": true,
+      "spurious_abstain": false
+    },
+    {
+      "id": "law_cite_to_title:Bharatiya Nagarik Suraksha Sanhita:Section 503",
+      "answer": "Section 503 (Bharatiya Nagarik Suraksha Sanhita).",
+      "hit": true,
+      "spurious_abstain": false
+    },
+    {
+      "id": "law_citation_retrieval:Indian Evidence Act, 1872:Section 49",
+      "answer": "Section 50 (Indian Evidence Act, 1872).",
+      "hit": false,
+      "spurious_abstain": false
+    },
+    {
+      "id": "law_lookup:Bharatiya Nagarik Suraksha Sanhita:Section 157",
+      "answer": "Section 157 (Bharatiya Nagarik Suraksha Sanhita).",
+      "hit": true,
+      "spurious_abstain": false
+    },
+    {
+      "id": "law_cite_to_title:Bharatiya Nyaya Sanhita:Section 191",
+      "answer": "Section 191 (Bharatiya Nyaya Sanhita).",
+      "hit": true,
+      "spurious_abstain": false
+    },
+    {
+      "id": "law_lookup:Indian Contract Act:Section 130",
+      "answer": "Section 130 (Indian Contract Act).",
+      "hit": true,
+      "spurious_abstain": false
+    },
+    {
+      "id": "law_lookup:Bharatiya Nagarik Suraksha Sanhita:Section 65",
+      "answer": "Section 65 (Bharatiya Nagarik Suraksha Sanhita).",
+      "hit": true,
+      "spurious_abstain": false
+    },
+    {
+      "id": "law_lookup:Constitution of India:Article 3",
+      "answer": "Article 32 (Constitution of India).",
+      "hit": true,
+      "spurious_abstain": false
+    },
+    {
+      "id": "law_citation_retrieval:Indian Contract Act:Section 212",
+      "answer": "Section 200 (Indian Contract Act).",
+      "hit": false,
+      "spurious_abstain": false
+    },
+    {
+      "id": "law_lookup:Indian Penal Code:Section 353",
+      "answer": "Section 353 (Indian Penal Code).",
+      "hit": true,
+      "spurious_abstain": false
+    },
+    {
+      "id": "law_cite_to_title:Indian Penal Code:Section 171H",
+      "answer": "Section 171H (Indian Penal Code).",
+      "hit": true,
+      "spurious_abstain": false
+    },
+    {
+      "id": "law_cite_to_title:Indian Penal Code:Section 207",
+      "answer": "Section 207 (Indian Penal Code).",
+      "hit": true,
+      "spurious_abstain": false
+    },
+    {
+      "id": "law_citation_retrieval:Bharatiya Nyaya Sanhita:Section 162",
+      "answer": "Section 161 (Bharatiya Nyaya Sanhita).",
+      "hit": false,
+      "spurious_abstain": false
+    },
+    {
+      "id": "law_cite_to_title:Bharatiya Nyaya Sanhita:Section 198",
+      "answer": "Section 198 (Bharatiya Nyaya Sanhita).",
+      "hit": true,
+      "spurious_abstain": false
+    },
+    {
+      "id": "law_cite_to_title:Bharatiya Nyaya Sanhita:Section 276",
+      "answer": "Section 276 (Bharatiya Nyaya Sanhita).",
+      "hit": true,
+      "spurious_abstain": false
+    },
+    {
+      "id": "law_cite_to_title:Bharatiya Nyaya Sanhita:Section 28",
+      "answer": "Section 28 (Bharatiya Nyaya Sanhita).",
+      "hit": true,
+      "spurious_abstain": false
+    }
+  ],
+  "abstain_examples": []
+}
