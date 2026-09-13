@@ -638,13 +638,34 @@ def _obligation_for(ready: Request, root: Path) -> dict[str, Any]:
         # that took both loops down on 2026-09-10: this function said advance, `advance` refused because the
         # criteria are unmet, and the unhandled RequestError killed the beat every hour. Two definitions of
         # done disagreed; there is now one, and it is `unmet()`, the same one the guard uses.
+        #
+        # 2026-09-13, cli-lead: "every attempt budget is spent" is also what a criterion that structurally
+        # cannot be finished in this sandbox looks like (r-3981d7e0 criterion 3 -- a real network fetch no
+        # policy grants), and the two need different remedies: raise the budget/retry vs. grant network access
+        # or hand it to a different track entirely. Naming the gap here, not only in `stalled()`'s early park,
+        # is what lets a person reading this message tell them apart without re-reading the judgement history.
+        network_gap_indexes: list[int] = []
+        with contextlib.suppress(Exception):
+            from pravrudhi.application.heartbeat import network_capability_gap
+
+            network_gap_indexes = [
+                i for i, c in enumerate(ready.criteria)
+                if not c.met and not c.declined and network_capability_gap(root, ready.id, i)
+            ]
+        description = (
+            f"{len(still_unmet)} parked criterion(s) on {ready.id}: every attempt budget is spent, so "
+            "this is owed to a person rather than to another dispatch"
+        )
+        if network_gap_indexes:
+            description += (
+                f"; criterion {', '.join(str(i) for i in network_gap_indexes)} appears to require network "
+                "access no dispatch policy grants -- retrying will not help, this needs either a policy "
+                "change or a different track"
+            )
         return {
             "kind": "parked_request", "request": ready.id, "criterion": None,
             "text": "; ".join(c.text for c in still_unmet[:3]),
-            "description": (
-                f"{len(still_unmet)} parked criterion(s) on {ready.id}: every attempt budget is spent, so "
-                "this is owed to a person rather than to another dispatch"
-            ),
+            "description": description,
         }
     return {
         "kind": "advance_request", "request": ready.id, "criterion": None, "text": "",

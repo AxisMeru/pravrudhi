@@ -18,7 +18,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from pravrudhi.application import heartbeat
-from pravrudhi.application.requests import Criterion, add_criteria, capture, next_unmet
+from pravrudhi.application.requests import Criterion, add_criteria, capture, next_unmet, note
 
 
 def test_attempts_are_counted_per_criterion(tmp_path: Path) -> None:
@@ -100,3 +100,61 @@ class TestTheBudgetMovesTheLoopOn:
         heartbeat.clear_attempts(tmp_path, parked.id, 0)
         picked = next_unmet(tmp_path)
         assert picked is not None and picked[0].id == parked.id
+
+
+class TestNetworkCapabilityGapParksEarly:
+    """2026-09-13, cli-lead: r-3981d7e0 criterion 3 needed a real IL-TUR INSTALL.md with live-fetched
+    HuggingFace metadata. No dispatch policy grants network access, so no number of retries could ever produce
+    it, and the judge said so -- in different words -- on every attempt. 'Flag such criteria rather than
+    letting the attempt budget drain' (cli-lead): once the judge's own reasoning names the same capability gap
+    twice, the criterion parks before the third, full-price attempt, same as an exhausted budget."""
+
+    def test_a_single_network_flavoured_judgement_is_not_enough(self, tmp_path: Path) -> None:
+        req = capture(tmp_path, "an ask needing fetched data")
+        add_criteria(tmp_path, req.id, [Criterion(text="produce the real file", source="operator")])
+        note(tmp_path, req.id, "criterion 0 not yet met: the sandbox has no network access to fetch the page")
+
+        assert not heartbeat.network_capability_gap(tmp_path, req.id, 0), (
+            "one mention could be an agent's own excuse, not a confirmed constraint"
+        )
+        assert not heartbeat.stalled(tmp_path, req.id, 0)
+
+    def test_two_independent_network_flavoured_judgements_park_the_criterion_early(self, tmp_path: Path) -> None:
+        req = capture(tmp_path, "an ask needing fetched data")
+        add_criteria(tmp_path, req.id, [Criterion(text="produce the real file", source="operator")])
+        note(tmp_path, req.id, "criterion 0 not yet met: the sandbox has no network access to fetch the page")
+        heartbeat.record_attempt(tmp_path, req.id, 0)
+        note(tmp_path, req.id, "criterion 0 not yet met: there is still no way to fetch live data from Hugging Face")
+        heartbeat.record_attempt(tmp_path, req.id, 0)
+
+        assert heartbeat.network_capability_gap(tmp_path, req.id, 0)
+        assert heartbeat.stalled(tmp_path, req.id, 0), "parked before MAX_CRITERION_ATTEMPTS, not after"
+        assert heartbeat.attempts(tmp_path, req.id, 0) < heartbeat.MAX_CRITERION_ATTEMPTS
+
+    def test_unrelated_repeated_judgements_do_not_trigger_the_network_gap(self, tmp_path: Path) -> None:
+        """A criterion parked twice for an ordinary reason (wrong file, missing test) must not be misread as a
+        capability gap - only judgements that actually name a network/fetch constraint count."""
+        req = capture(tmp_path, "an ordinary ask")
+        add_criteria(tmp_path, req.id, [Criterion(text="fix the bug", source="operator")])
+        note(tmp_path, req.id, "criterion 0 not yet met: the function still returns the wrong value")
+        note(tmp_path, req.id, "criterion 0 not yet met: the test still fails on the same assertion")
+
+        assert not heartbeat.network_capability_gap(tmp_path, req.id, 0)
+        assert not heartbeat.stalled(tmp_path, req.id, 0)
+
+    def test_the_gap_is_scoped_to_its_own_criterion(self, tmp_path: Path) -> None:
+        req = capture(tmp_path, "two different criteria on one request")
+        add_criteria(
+            tmp_path, req.id,
+            [
+                Criterion(text="needs fetched data", source="operator"),
+                Criterion(text="an ordinary criterion", source="operator"),
+            ],
+        )
+        note(tmp_path, req.id, "criterion 0 not yet met: no network access to fetch the page")
+        note(tmp_path, req.id, "criterion 0 not yet met: still no way to fetch the live values")
+
+        assert heartbeat.network_capability_gap(tmp_path, req.id, 0)
+        assert not heartbeat.network_capability_gap(tmp_path, req.id, 1), (
+            "a different criterion's own history must not borrow another criterion's gap"
+        )

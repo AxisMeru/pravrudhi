@@ -26,6 +26,7 @@ from pravrudhi.application.requests import (
     meet,
     next_obligation,
     next_unmet,
+    note,
     staleness,
 )
 
@@ -309,6 +310,26 @@ class TestAParkedRequestDoesNotStarveTheRest:
 
         owed = next_obligation(tmp_path)
         assert owed is not None and owed["kind"] == "parked_request" and owed["request"] == only.id
+
+    def test_a_network_capability_gap_is_named_distinctly_in_the_parked_description(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        """2026-09-13, cli-lead: 'every attempt budget is spent' reads the same whether the loop just needs
+        another try or is retrying something no policy could ever let it finish. When the judgement history
+        shows the latter, the parked description must say so, not just repeat the generic budget line."""
+        from pravrudhi.application import heartbeat
+
+        only = capture(tmp_path, "needs fetched data", asked_at="2026-09-01T00:00:00Z")
+        add_criteria(tmp_path, only.id, [Criterion(text="produce the real file", source="operator")])
+        note(tmp_path, only.id, "criterion 0 not yet met: the sandbox has no network access to fetch the page")
+        note(tmp_path, only.id, "criterion 0 not yet met: there is still no way to fetch the live values")
+        monkeypatch.setattr(requests, "_parked", lambda root, rid, i: True)
+
+        owed = next_obligation(tmp_path)
+
+        assert owed is not None and owed["kind"] == "parked_request"
+        assert "network access" in owed["description"]
+        assert heartbeat.network_capability_gap(tmp_path, only.id, 0)
 
 
 class TestSetMode:
