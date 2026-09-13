@@ -1128,6 +1128,10 @@ WRITE_ROOT_OPT = typer.Option(
     None, "--write-root",
     help="Where the snapshot/build/commit/push land (ADR-0053 §2); defaults to --root, unchanged.",
 )
+EXTRA_LEDGER_ROOT_OPT = typer.Option(
+    [], "--extra-ledger-root",
+    help="Another root whose research/ledger.jsonl is composed, read-only, into observations (ADR-0055); repeatable.",
+)
 
 
 @app.command("appetite")
@@ -1190,6 +1194,7 @@ def integrate_cmd(
 def publish_cmd(
     root: Path = ROOT_OPT,
     write_root: Path | None = WRITE_ROOT_OPT,
+    extra_ledger_root: list[Path] = EXTRA_LEDGER_ROOT_OPT,
     message: str = PUBLISH_MSG_OPT,
     no_push: bool = typer.Option(False, "--no-push", help="build and commit, but do not push"),
     as_json: bool = typer.Option(False, "--json"),
@@ -1200,7 +1205,10 @@ def publish_cmd(
     """
     from pravrudhi.application.publish import publish
 
-    result = publish(root, write_root=write_root, message=message, do_push=not no_push)
+    result = publish(
+        root, write_root=write_root, extra_ledger_roots=extra_ledger_root or None,
+        message=message, do_push=not no_push,
+    )
     if as_json:
         typer.echo(json.dumps(result.to_dict(), sort_keys=True))
     else:
@@ -1215,11 +1223,12 @@ def publish_cmd(
 def demo_export_cmd(
     root: Path = ROOT_OPT,
     dest: Path = DEMO_DEST_OPT,
+    extra_ledger_root: list[Path] = EXTRA_LEDGER_ROOT_OPT,
 ) -> None:
     """Record this engine's results and capabilities as the snapshot the public site and dashboard render."""
     from pravrudhi.application.demo_export import write_demo
 
-    out = write_demo(root, dest)
+    out = write_demo(root, dest, extra_ledger_roots=extra_ledger_root or None)
     typer.echo(f"wrote {out}")
 
 

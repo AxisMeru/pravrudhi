@@ -79,15 +79,24 @@ def _default_runner(cmd: list[str], cwd: Path) -> subprocess.CompletedProcess[st
     return subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=1800)
 
 
-def export_snapshot(root: Path, runner: RunnerFn, *, write_root: Path | None = None) -> Step:
+def export_snapshot(
+    root: Path, runner: RunnerFn, *, write_root: Path | None = None, extra_ledger_roots: list[Path] | None = None,
+) -> Step:
     """Record what the engine has done. Always first: the build bakes this file into the bundle.
 
     `write_root` is where the exported `demo.json` lands; it defaults to `root` (today's single-root
     behaviour, unchanged). `root` is always where the ledger is read from - the two differ only when the
     publisher runs from its own clone (ADR-0053 §2) while reading the loop root's actual results.
+
+    `extra_ledger_roots` (ADR-0055) composes each given root's own `research/ledger.jsonl` into the exported
+    `observations` alongside `root`'s, read-only - for when a loop re-root has split one project's evidence
+    across roots that must never be merged on disk.
     """
     dest = (write_root if write_root is not None else root) / "app" / "frontend" / "public" / "demo.json"
-    result = runner(["uv", "run", "pravrudhi", "demo-export", "--root", str(root), "--dest", str(dest)], root)
+    cmd = ["uv", "run", "pravrudhi", "demo-export", "--root", str(root), "--dest", str(dest)]
+    for extra in extra_ledger_roots or []:
+        cmd += ["--extra-ledger-root", str(extra)]
+    result = runner(cmd, root)
     if result.returncode != 0:
         return Step("export", False, (result.stderr or result.stdout).strip()[:400])
     try:
@@ -224,6 +233,7 @@ def publish(
     root: Path,
     *,
     write_root: Path | None = None,
+    extra_ledger_roots: list[Path] | None = None,
     message: str = "Refresh the recorded snapshot so the published pages show what the engine has done",
     runner: RunnerFn | None = None,
     fetch: Callable[[str], str] | None = None,
@@ -235,6 +245,11 @@ def publish(
     `root` so every existing call site is unchanged) is where the exported snapshot, the built interface and
     the commit/push all land. The two differ when the publisher runs from its own clone while the loop root
     holds the actual results - the main checkout the lead merges into must have exactly one writer.
+
+    `extra_ledger_roots` (ADR-0055) composes each given root's own `research/ledger.jsonl` into the exported
+    `observations` alongside `root`'s, read-only, tagged with which root each event came from and ordered by
+    timestamp - for when a re-root under ADR-0053 has split one project's evidence across roots that must
+    never be merged on disk or renumbered into one sequence.
 
     `research/` is gitignored, so a clone that has never run the engine has no ledger at all. That is a
     legitimate empty bundle for a single fresh install (`demo_export.build_demo`'s own deliberate design), but
@@ -252,7 +267,7 @@ def publish(
     steps: list[Step] = []
 
     for step in (
-        export_snapshot(root, runner, write_root=effective_write_root),
+        export_snapshot(root, runner, write_root=effective_write_root, extra_ledger_roots=extra_ledger_roots),
         generate_paper(root, runner, write_root=effective_write_root),
         build_interface(effective_write_root, runner),
         verify_pages(effective_write_root, fetch=fetch),

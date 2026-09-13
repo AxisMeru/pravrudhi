@@ -5,6 +5,23 @@ from pathlib import Path
 from pravrudhi.application.demo_export import PAGES, build_demo
 from pravrudhi.application.init import init_project
 from pravrudhi.application.policies import POLICIES
+from pravrudhi_kernel.schema import LedgerEvent
+from pravrudhi_kernel.schema.common import Pramana
+
+
+def _observe_event(seq: int, t: str, candidate_id: str, delta_in: float) -> str:
+    ev = LedgerEvent(
+        seq=seq, t=t, epoch=0, night=0, cycle=None, kind="observe",  # type: ignore[arg-type]
+        actor="kernel", candidate_id=candidate_id, surface=None, bucket=None, provenance=Pramana.pratyaksha,
+        kernel_release="0.1.0", payload={"delta_in": delta_in}, prev_hash="0" * 64, this_hash="0" * 64,
+    )
+    return ev.model_dump_json()
+
+
+def _write_ledger(root: Path, lines: list[str]) -> None:
+    ledger = root / "research" / "ledger.jsonl"
+    ledger.parent.mkdir(parents=True, exist_ok=True)
+    ledger.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 SECRET_PATTERN = re.compile(
     r"sk-[A-Za-z0-9]{10,}|ghp_[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}|xox[baprs]-[A-Za-z0-9-]{10,}"
@@ -110,3 +127,66 @@ def test_no_field_carries_a_token_secret_or_key_pattern(tmp_path: Path) -> None:
 
 def test_snapshot_carries_the_heartbeat(tmp_path):
     assert _demo(tmp_path)["heartbeat"] == []
+
+
+class TestObservationsComposeAcrossLoopRoots:
+    """ADR-0055: a re-root under ADR-0053 splits one project's ledger across two roots that must never be
+    merged on disk. `build_demo`'s `extra_ledger_roots` composes their `observe` events read-only, at export
+    time only, tagged with which root each came from and ordered by timestamp rather than by `seq` -- `seq`
+    only orders events within one chain, and treating the two chains as one continuous sequence would
+    fabricate provenance (CHARTER §6)."""
+
+    def test_composes_both_roots_tagged_and_ordered_by_timestamp_not_seq(self, tmp_path: Path) -> None:
+        old_root, new_root = tmp_path / "old", tmp_path / "new"
+        init_project(old_root)
+        init_project(new_root)
+        # The new root's single event has a LOWER seq (it started its own chain from 0) but a LATER timestamp
+        # than the old root's - exactly the re-root shape. If composition ordered by seq, the new root's event
+        # would sort first; ordering by timestamp is what this test actually proves.
+        _write_ledger(old_root, [_observe_event(3679, "2026-09-12T11:00:00.000Z", "c-0001", 0.01)])
+        _write_ledger(new_root, [_observe_event(0, "2026-09-12T20:44:00.000Z", "c-0002", 0.02)])
+
+        demo = build_demo(old_root, extra_ledger_roots=[new_root])
+
+        rows = demo["observations"]
+        assert [r["candidate_id"] for r in rows] == ["c-0001", "c-0002"], "must be timestamp order, not seq order"
+        assert rows[0]["seq"] == 3679, "the old root's own seq must survive unchanged, never renumbered"
+        assert rows[1]["seq"] == 0, "the new root's own seq must survive unchanged, never renumbered"
+        assert rows[0]["source_root"] == str(old_root)
+        assert rows[1]["source_root"] == str(new_root)
+
+    def test_never_writes_to_either_ledger(self, tmp_path: Path) -> None:
+        old_root, new_root = tmp_path / "old", tmp_path / "new"
+        init_project(old_root)
+        init_project(new_root)
+        _write_ledger(old_root, [_observe_event(3679, "2026-09-12T11:00:00.000Z", "c-0001", 0.01)])
+        _write_ledger(new_root, [_observe_event(0, "2026-09-12T20:44:00.000Z", "c-0002", 0.02)])
+        old_bytes = (old_root / "research" / "ledger.jsonl").read_bytes()
+        new_bytes = (new_root / "research" / "ledger.jsonl").read_bytes()
+
+        build_demo(old_root, extra_ledger_roots=[new_root])
+
+        assert (old_root / "research" / "ledger.jsonl").read_bytes() == old_bytes
+        assert (new_root / "research" / "ledger.jsonl").read_bytes() == new_bytes
+
+    def test_a_missing_extra_root_ledger_is_skipped_not_an_error(self, tmp_path: Path) -> None:
+        old_root, missing_root = tmp_path / "old", tmp_path / "never-run"
+        init_project(old_root)
+        missing_root.mkdir()
+        _write_ledger(old_root, [_observe_event(0, "2026-09-12T11:00:00.000Z", "c-0001", 0.01)])
+
+        demo = build_demo(old_root, extra_ledger_roots=[missing_root])
+
+        assert [r["candidate_id"] for r in demo["observations"]] == ["c-0001"]
+
+    def test_a_single_root_publish_is_unaffected(self, tmp_path: Path) -> None:
+        """No extra_ledger_roots given (every call site before ADR-0055) must behave exactly as before."""
+        root = tmp_path / "solo"
+        init_project(root)
+        _write_ledger(root, [_observe_event(0, "2026-09-12T11:00:00.000Z", "c-0001", 0.01)])
+
+        demo = build_demo(root)
+
+        assert demo["observations"] == [{
+            "seq": 0, "night": 0, "candidate_id": "c-0001", "payload": {"delta_in": 0.01}, "source_root": str(root),
+        }]

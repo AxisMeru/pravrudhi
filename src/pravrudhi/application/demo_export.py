@@ -214,13 +214,30 @@ def _candidates(root: Path, st: Any) -> list[dict[str, Any]]:
     return [{"id": cid, "badge": st.badges[cid], **c.model_dump()} for cid, c in st.candidates.items()]
 
 
-def _observations(ledger: Path) -> list[dict[str, Any]]:
-    """The `observe` rows the candidates page places on a night axis. Capped, newest kept."""
-    rows = [
-        {"seq": ev.seq, "night": ev.night, "candidate_id": ev.candidate_id,
-         "payload": {"delta_in": (ev.payload or {}).get("delta_in")}}
-        for ev in iter_events(ledger) if ev.kind == "observe"
-    ]
+def _observations(roots: list[Path]) -> list[dict[str, Any]]:
+    """The `observe` rows the candidates page places on a night axis, composed read-only across every given
+    root's own ledger (ADR-0055 - a loop root's ledger is not copied or rewritten when a re-root under ADR-0053
+    splits the published history across two roots). Each ledger is read on its own, exactly as `pravrudhi
+    doctor` verifies it independently as its own hash chain; nothing here merges the two files on disk or
+    renumbers a composed event into a shared `seq` - `seq` stays whatever the source chain gave it, and
+    `source_root` says which chain that was, so which root an event came from is never lost. Ordered by
+    timestamp across roots, not by `seq` (`seq` only orders events within one chain). Capped, newest kept.
+    """
+    rows: list[dict[str, Any]] = []
+    for root in roots:
+        ledger = root / "research" / "ledger.jsonl"
+        if not ledger.exists():
+            continue
+        for ev in iter_events(ledger):
+            if ev.kind == "observe":
+                rows.append({
+                    "seq": ev.seq, "night": ev.night, "candidate_id": ev.candidate_id,
+                    "payload": {"delta_in": (ev.payload or {}).get("delta_in")},
+                    "source_root": str(root), "_t": ev.t,
+                })
+    rows.sort(key=lambda r: r["_t"])
+    for r in rows:
+        del r["_t"]
     return rows[-2000:]
 
 
@@ -388,7 +405,13 @@ def _product(root: Path | None) -> dict[str, Any] | None:
     return out
 
 
-def build_demo(root: Path, *, product_root: Path | None = DEFAULT_PRODUCT_ROOT) -> dict[str, Any]:
+def build_demo(
+    root: Path, *, product_root: Path | None = DEFAULT_PRODUCT_ROOT, extra_ledger_roots: list[Path] | None = None,
+) -> dict[str, Any]:
+    """`extra_ledger_roots` (ADR-0055): additional roots whose `research/ledger.jsonl` is composed, read-only,
+    into the `observations` section alongside `root`'s own - for when a loop re-root (ADR-0053) has split one
+    project's evidence across roots that must never be merged on disk. Every other section still reads `root`
+    alone, unchanged; composing is scoped to `observations` only, not the whole export."""
     root = Path(root)
     ledger = root / "research" / "ledger.jsonl"
 
@@ -455,7 +478,7 @@ def build_demo(root: Path, *, product_root: Path | None = DEFAULT_PRODUCT_ROOT) 
         "update": _update(root),
         "inbox": _inbox(root),
         "candidates": _candidates(root, st),
-        "observations": _observations(ledger),
+        "observations": _observations([root, *(extra_ledger_roots or [])]),
         "plans": {
             o.id: {
                 "objective": o.id,
@@ -534,8 +557,10 @@ def still_carries(text: str) -> list[str]:
     return left
 
 
-def write_demo(root: Path, dest: Path) -> Path:
-    text = redact_secrets(json.dumps(build_demo(root), indent=2, sort_keys=True, default=str) + "\n")
+def write_demo(root: Path, dest: Path, *, extra_ledger_roots: list[Path] | None = None) -> Path:
+    text = redact_secrets(
+        json.dumps(build_demo(root, extra_ledger_roots=extra_ledger_roots), indent=2, sort_keys=True, default=str) + "\n"
+    )
     left = still_carries(text)
     if left:
         raise SecretInSnapshot(f"snapshot still carries {', '.join(left)} after redaction; refusing to write it")
