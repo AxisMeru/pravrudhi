@@ -16,10 +16,22 @@ from typing import Any
 from pravrudhi.application.publish import (
     CHECK_PAGES,
     build_interface,
+    commit,
     export_snapshot,
     publish,
+    push,
     verify_pages,
 )
+
+_REAL_PRE_COMMIT_HOOK = Path(__file__).resolve().parents[1] / ".githooks" / "pre-commit"
+
+
+def _real_runner(cmd: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=30)
+
+
+def _git(cwd: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, timeout=30, check=check)
 
 
 def _ok(cmd: list[str], out: str = "") -> subprocess.CompletedProcess[str]:
@@ -235,3 +247,72 @@ class TestTheReadRootAndWriteRootCanDiffer:
 
         result = publish(root, runner=runner)
         assert result.published, result.reason
+
+
+class TestThePublisherIsNeverPointedAtAGuardedTree:
+    """The publisher ran from the lead's own main checkout and was refused, 20 beats in a row, by
+    `.githooks/pre-commit` -- a guard written to stop agents committing on `main` in a primary checkout, never
+    considering the publisher was another writer there. ADR-0053 §2's fix is a clone of its own
+    (`~/pravrudhi-publish`), checked out on a branch that is deliberately not named `main`. These tests use the
+    real hook file, not a description of it: if anyone ever points `write_root` back at a `main`-checked-out
+    primary tree, this must fail for the same reason production did, and if the branch-name workaround is ever
+    undone, the second test catches that too."""
+
+    @staticmethod
+    def _hooked_repo(tmp_path: Path, name: str, *, branch: str) -> Path:
+        """The seed commit lands before the hook is installed - installing it first would refuse the very
+        commit that creates the repo's history, which is not what either test is checking."""
+        repo = tmp_path / name
+        _git(tmp_path, "init", "-q", "-b", branch, str(repo))
+        _git(repo, "config", "user.name", "t")
+        _git(repo, "config", "user.email", "t@t.example")
+        (repo / "app" / "frontend" / "public").mkdir(parents=True)
+        (repo / "app" / "frontend" / "public" / "demo.json").write_text("{}")
+        _git(repo, "add", ".")
+        _git(repo, "commit", "-q", "-m", "seed")
+        _git(repo, "config", "core.hooksPath", ".githooks")
+        (repo / ".githooks").mkdir()
+        hook = repo / ".githooks" / "pre-commit"
+        hook.write_bytes(_REAL_PRE_COMMIT_HOOK.read_bytes())
+        hook.chmod(0o755)
+        return repo
+
+    def test_a_write_root_checked_out_on_main_is_refused_by_the_real_hook(self, tmp_path: Path) -> None:
+        repo = self._hooked_repo(tmp_path, "guarded", branch="main")
+        (repo / "app" / "frontend" / "public" / "demo.json").write_text('{"v": 1}')
+
+        step, sha = commit(repo, _real_runner, "refresh snapshot", ["app/frontend/public/demo.json"])
+
+        assert not step.ok
+        assert "refusing a commit on `main`" in step.detail
+        assert sha is None
+
+    def test_a_write_root_on_a_differently_named_branch_commits_and_pushes_to_origin_main(self, tmp_path: Path) -> None:
+        # A bare origin, and the publish clone on branch `publish` -- never `main` -- tracking it.
+        origin = tmp_path / "origin.git"
+        _git(tmp_path, "init", "-q", "--bare", "-b", "main", str(origin))
+        seed = self._hooked_repo(tmp_path, "seed", branch="main")
+        _git(seed, "remote", "add", "origin", str(origin))
+        _git(seed, "push", "-q", "origin", "main")
+
+        clone = tmp_path / "publish-clone"
+        _git(tmp_path, "clone", "-q", str(origin), str(clone))
+        _git(clone, "checkout", "-q", "-b", "publish")
+        _git(clone, "config", "user.name", "t")
+        _git(clone, "config", "user.email", "t@t.example")
+        _git(clone, "config", "core.hooksPath", ".githooks")
+        (clone / ".githooks").mkdir()
+        hook = clone / ".githooks" / "pre-commit"
+        hook.write_bytes(_REAL_PRE_COMMIT_HOOK.read_bytes())
+        hook.chmod(0o755)
+        (clone / "app" / "frontend" / "public" / "demo.json").write_text('{"v": 2}')
+
+        step, sha = commit(clone, _real_runner, "refresh snapshot", ["app/frontend/public/demo.json"])
+        assert step.ok, step.detail
+        assert sha is not None
+
+        push_step = push(clone, _real_runner)
+        assert push_step.ok, push_step.detail
+
+        remote_main = _git(clone, "ls-remote", "--heads", str(origin), "main").stdout
+        assert sha in remote_main, "HEAD:main must land the commit on origin's main even though the local branch is not main"

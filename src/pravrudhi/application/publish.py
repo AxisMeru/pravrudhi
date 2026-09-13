@@ -208,7 +208,13 @@ def commit(root: Path, runner: RunnerFn, message: str, paths: list[str]) -> tupl
 
 
 def push(root: Path, runner: RunnerFn, *, remote: str = "origin", branch: str = "main") -> Step:
-    result = runner(["git", "push", remote, branch], root)
+    """Push `HEAD` to `remote`'s `branch`, not the local ref literally named `branch` (ADR-0053 §2). The
+    publisher's own clone (`~/pravrudhi-publish`) commits on a local branch that is deliberately not named
+    `main` -- checking out `main` there would trip `.githooks/pre-commit`'s guard against committing on `main`
+    in a primary checkout, the same guard that blocked this publisher when it ran from the lead's own tree.
+    `HEAD:{branch}` pushes what was actually just committed regardless of the local branch's name, and is
+    exactly what a plain `git push origin main` already did when `root` was checked out on `main` itself."""
+    result = runner(["git", "push", remote, f"HEAD:{branch}"], root)
     if result.returncode != 0:
         return Step("push", False, (result.stderr or result.stdout).strip()[:300])
     return Step("push", True, f"{remote} {branch}")
