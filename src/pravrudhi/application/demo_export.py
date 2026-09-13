@@ -492,24 +492,54 @@ _SECRET_SHAPES: tuple[tuple[str, re.Pattern[str], bool], ...] = (
 )
 
 
+# Personal data is not a credential, so none of the shapes above ever caught it, and on 2026-09-13 the
+# committed `demo.json` was found holding 120 absolute paths under the operator's home directory and three
+# of their personal email addresses - published hourly to a public repository for as long as the exporter
+# has existed. A home path discloses the account name and the local layout of the machine; a personal
+# address is the operator's, not the project's. Each entry is (name, pattern, replacement): unlike the
+# credential shapes these substitute something readable, because a path with its home prefix removed is
+# still useful to a reader and a marker in its place would not be.
+_PII_SHAPES: tuple[tuple[str, re.Pattern[str], str], ...] = (
+    # `/home/ss/projects/...` -> `~/projects/...`. Both layouts appear: the RTX host is Linux, the Mac mini
+    # is macOS, and the fleet's records carry paths from both.
+    ("home-path", re.compile(r"/(?:home|Users)/[A-Za-z0-9._-]+"), "~"),
+    # Every address EXCEPT the project's own git identity, which is the published authorship of every commit
+    # in this repository - redacting it would hide nothing and would make the snapshot harder to read.
+    (
+        "personal-email",
+        re.compile(r"\b(?!admin@axismeru\.com\b)[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b"),
+        "<redacted:personal-email>",
+    ),
+)
+
+
 class SecretInSnapshot(RuntimeError):
-    """The snapshot still carried a credential after redaction; it must not be written."""
+    """The snapshot still carried a credential or personal data after redaction; it must not be written."""
 
 
 def redact_secrets(text: str) -> str:
-    """Replace every credential-shaped substring with a marker naming what was removed."""
+    """Replace every credential- or personal-data-shaped substring with what was removed, or a marker."""
     for name, shape, keep_prefix in _SECRET_SHAPES:
         marker = f"<redacted:{name}>"
         text = shape.sub((lambda m, mk=marker: m.group(1) + mk) if keep_prefix else marker, text)
+    for _name, shape, replacement in _PII_SHAPES:
+        text = shape.sub(replacement, text)
     return text
 
 
-def write_demo(root: Path, dest: Path) -> Path:
-    dest = Path(dest)
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    text = redact_secrets(json.dumps(build_demo(root), indent=2, sort_keys=True, default=str) + "\n")
+def still_carries(text: str) -> list[str]:
+    """Name every shape the text still matches, so a refusal can say what was left rather than just that it was."""
     left = [name for name, shape, keep in _SECRET_SHAPES if not keep and shape.search(text)]
+    left += [name for name, shape, _r in _PII_SHAPES if shape.search(text)]
+    return left
+
+
+def write_demo(root: Path, dest: Path) -> Path:
+    text = redact_secrets(json.dumps(build_demo(root), indent=2, sort_keys=True, default=str) + "\n")
+    left = still_carries(text)
     if left:
         raise SecretInSnapshot(f"snapshot still carries {', '.join(left)} after redaction; refusing to write it")
+    dest = Path(dest)
+    dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_text(text)
     return dest
