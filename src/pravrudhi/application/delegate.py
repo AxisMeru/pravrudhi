@@ -18,12 +18,13 @@ protected-path-clean diff is eligible. Nothing reaches the working tree because 
 from __future__ import annotations
 
 import fnmatch
+import shutil
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from pravrudhi.agents.base import Diff
+from pravrudhi.agents.base import SCRATCH_DIRNAME, Diff
 from pravrudhi.application import availability
 
 
@@ -146,13 +147,19 @@ def dispatch(agent: Any, task: TaskSpec, *, log: Any = print) -> Verdict:
         "Do not modify any other file. Do not touch pravrudhi_kernel/, research/, gates/ or .pravrudhi/.\n"
         "Write every file relative to your current working directory, which is your own worktree; never write to "
         "an absolute path in the main checkout, even when the task quotes one to tell you what to read.\n"
+        f"Use `{SCRATCH_DIRNAME}/` inside your worktree for any scratch or temporary files instead of `/tmp` -- "
+        "you have no access to `/tmp` or any other path outside your worktree, and this directory is discarded "
+        "after your run.\n"
         f"Your work is accepted only if `{task.validate}` passes."
     )
     ws = agent.create_workspace(task.task_id)
     root = Path(getattr(agent, "root", ws))
     before = _tree_state(root) if root != ws else set()
+    scratch_dir = ws / SCRATCH_DIRNAME
+    scratch_dir.mkdir(parents=True, exist_ok=True)
     log(f"{task.task_id}: {agent.name} working in {ws}")
     run = agent.run(brief, ws, timeout_s=task.timeout_s)
+    shutil.rmtree(scratch_dir, ignore_errors=True)
     diff = agent.collect_changes(ws)
     reasons: list[str] = []
     appeared = sorted(_tree_state(root) - before) if root != ws else []

@@ -20,7 +20,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from pravrudhi.agents.base import AgentRun, Diff, GitWorktreeMixin
+from pravrudhi.agents.base import SCRATCH_DIRNAME, AgentRun, Diff, GitWorktreeMixin
 
 
 def _reap(proc: subprocess.Popen[str]) -> None:
@@ -59,7 +59,11 @@ def _run(cmd: list[str], cwd: Path, timeout_s: int, env: dict[str, str] | None =
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
-        env={**os.environ, **(env or {})},
+        # TMPDIR points a shell tool's own default temp location at the worktree's scratch dir rather than
+        # /tmp -- belt-and-suspenders alongside the prompt telling the agent the same thing directly (delegate
+        # .dispatch), for whatever a tool picks on its own without being told (mktemp, tempfile.mkdtemp).
+        # `**(env or {})` still wins on conflict, though nothing currently sets TMPDIR explicitly.
+        env={**os.environ, "TMPDIR": str(Path(cwd) / SCRATCH_DIRNAME), **(env or {})},
         start_new_session=True,  # its own process group, so the whole tree can be reaped together
     )
     try:
