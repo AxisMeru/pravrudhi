@@ -1031,19 +1031,35 @@ def compare(cond_a_dir, cond_b_dir, heldout_path=DEFAULT_HELDOUT, out_path=None)
     b_by_id = {r["id"]: r for r in load_jsonl(Path(cond_b_dir) / "answers.jsonl")}
     common_ids = [i for i in heldout_by_id if i in a_by_id and i in b_by_id]
 
+    has_gold_selected = all("gold_selected" in a_by_id[i] for i in common_ids) and \
+        all("gold_selected" in b_by_id[i] for i in common_ids) and common_ids
+
     cite_a, cite_b, grounded_a, grounded_b = [], [], [], []
+    gold_sel_a, gold_sel_b = [], []
     for qid in common_ids:
         rec = heldout_by_id[qid]
         cite_a.append(_citation_correct(a_by_id[qid]["answer"], rec["act"], rec["section"]))
         cite_b.append(_citation_correct(b_by_id[qid]["answer"], rec["act"], rec["section"]))
         grounded_a.append(bool(a_by_id[qid].get("grounded")))
         grounded_b.append(bool(b_by_id[qid].get("grounded")))
+        if has_gold_selected:
+            gold_sel_a.append(bool(a_by_id[qid]["gold_selected"]))
+            gold_sel_b.append(bool(b_by_id[qid]["gold_selected"]))
 
-    result: dict[str, Any] = {"n": len(common_ids)}
-    for name, (aa, bb) in {
+    metrics = {
         "gold_citation_present": (cite_a, cite_b),
         "grounded": (grounded_a, grounded_b),
-    }.items():
+    }
+    if has_gold_selected:
+        # The precise, index-based ground truth from scoring-mode conditions
+        # (which passage was actually selected) -- stronger than the
+        # substring-matched `gold_citation_present` above, available only
+        # when both answers.jsonl files carry it (run_condition_scoring /
+        # run_condition_calibrated).
+        metrics["gold_selected"] = (gold_sel_a, gold_sel_b)
+
+    result: dict[str, Any] = {"n": len(common_ids)}
+    for name, (aa, bb) in metrics.items():
         if not aa:
             result[name] = {"n": 0}
             continue
