@@ -1,0 +1,276 @@
+{
+  "condition": "P8t",
+  "mode": "pointwise",
+  "n_items": 690,
+  "wall_clock_seconds": {
+    "total": 104.8670640210039,
+    "per_item": 0.15198125220435346
+  },
+  "peak_vram_mib": 1669.1044921875,
+  "score": {
+    "overall": {
+      "citation_recall": {
+        "successes": 6,
+        "total": 227,
+        "rate": 0.02643171806167401,
+        "ci_low": 0.012168799965886646,
+        "ci_high": 0.056456612438116796
+      },
+      "citation_precision": {
+        "successes": 6,
+        "total": 22,
+        "rate": 0.2727272727272727,
+        "ci_low": 0.1315058201581444,
+        "ci_high": 0.4815212369900198
+      },
+      "abstention_correctness": {
+        "successes": 7,
+        "total": 9,
+        "rate": 0.7777777777777778,
+        "ci_low": 0.4525833436728054,
+        "ci_high": 0.9367762376877727
+      }
+    },
+    "by_act": {
+      "Constitution of India": {
+        "citation_recall": {
+          "successes": 0,
+          "total": 45,
+          "rate": 0.0,
+          "ci_low": 0.0,
+          "ci_high": 0.07865426194064076
+        },
+        "citation_precision": {
+          "successes": 0,
+          "total": 6,
+          "rate": 0.0,
+          "ci_low": 0.0,
+          "ci_high": 0.3903430336530645
+        },
+        "abstention_correctness": {
+          "successes": 2,
+          "total": 2,
+          "rate": 1.0,
+          "ci_low": 0.34237195288961925,
+          "ci_high": 1.0
+        }
+      },
+      "Indian Evidence Act, 1872": {
+        "citation_recall": {
+          "successes": 0,
+          "total": 18,
+          "rate": 0.0,
+          "ci_low": 0.0,
+          "ci_high": 0.1758845505823749
+        },
+        "citation_precision": {
+          "successes": 0,
+          "total": 0,
+          "rate": 0.0,
+          "ci_low": 0.0,
+          "ci_high": 0.0
+        },
+        "abstention_correctness": {
+          "successes": 0,
+          "total": 0,
+          "rate": 0.0,
+          "ci_low": 0.0,
+          "ci_high": 0.0
+        }
+      },
+      "Indian Penal Code": {
+        "citation_recall": {
+          "successes": 0,
+          "total": 56,
+          "rate": 0.0,
+          "ci_low": 0.0,
+          "ci_high": 0.06419614448811528
+        },
+        "citation_precision": {
+          "successes": 0,
+          "total": 0,
+          "rate": 0.0,
+          "ci_low": 0.0,
+          "ci_high": 0.0
+        },
+        "abstention_correctness": {
+          "successes": 0,
+          "total": 2,
+          "rate": 0.0,
+          "ci_low": 0.0,
+          "ci_high": 0.6576280471103807
+        }
+      },
+      "Indian Contract Act": {
+        "citation_recall": {
+          "successes": 0,
+          "total": 19,
+          "rate": 0.0,
+          "ci_low": 0.0,
+          "ci_high": 0.16818436536845052
+        },
+        "citation_precision": {
+          "successes": 0,
+          "total": 0,
+          "rate": 0.0,
+          "ci_low": 0.0,
+          "ci_high": 0.0
+        },
+        "abstention_correctness": {
+          "successes": 5,
+          "total": 5,
+          "rate": 1.0,
+          "ci_low": 0.5655085052479191,
+          "ci_high": 1.0
+        }
+      },
+      "Bharatiya Nyaya Sanhita": {
+        "citation_recall": {
+          "successes": 3,
+          "total": 36,
+          "rate": 0.08333333333333333,
+          "ci_low": 0.0287480892712918,
+          "ci_high": 0.21827010276918848
+        },
+        "citation_precision": {
+          "successes": 3,
+          "total": 7,
+          "rate": 0.42857142857142855,
+          "ci_low": 0.15821692226262685,
+          "ci_high": 0.7495457695909742
+        },
+        "abstention_correctness": {
+          "successes": 0,
+          "total": 0,
+          "rate": 0.0,
+          "ci_low": 0.0,
+          "ci_high": 0.0
+        }
+      },
+      "Bharatiya Nagarik Suraksha Sanhita": {
+        "citation_recall": {
+          "successes": 3,
+          "total": 53,
+          "rate": 0.05660377358490566,
+          "ci_low": 0.019436308927314183,
+          "ci_high": 0.15370448936126319
+        },
+        "citation_precision": {
+          "successes": 3,
+          "total": 9,
+          "rate": 0.3333333333333333,
+          "ci_low": 0.12058159868274293,
+          "ci_high": 0.6458026525009102
+        },
+        "abstention_correctness": {
+          "successes": 0,
+          "total": 0,
+          "rate": 0.0,
+          "ci_low": 0.0,
+          "ci_high": 0.0
+        }
+      }
+    },
+    "not_scored": {
+      "law_cite_to_title": 227
+    },
+    "law_lookup": {
+      "prefix_similarity_mean": 0.8248406652691976,
+      "prefix_similarity_n": 227,
+      "exact_prefix_32": {
+        "successes": 186,
+        "total": 227,
+        "rate": 0.8193832599118943,
+        "ci_low": 0.7641569580135954,
+        "ci_high": 0.8639793917604488
+      },
+      "exact_prefix_128": {
+        "successes": 186,
+        "total": 227,
+        "rate": 0.8193832599118943,
+        "ci_low": 0.7641569580135954,
+        "ci_high": 0.8639793917604488
+      },
+      "citation_reached": {
+        "successes": 25,
+        "total": 227,
+        "rate": 0.11013215859030837,
+        "ci_low": 0.0757174884906459,
+        "ci_high": 0.15752296730241738
+      }
+    }
+  },
+  "gold_selected_overall": {
+    "successes": 381,
+    "total": 690,
+    "rate": 0.5521739130434783
+  },
+  "margin_stats": {
+    "mean": 0.17478590086878587,
+    "min": 6.51925802230835e-07
+  },
+  "grounded_rate": 1.0,
+  "hallucinated_citation_rate": 0.0,
+  "abstention_correct": {
+    "successes": 7,
+    "total": 9,
+    "rate": 0.7777777777777778
+  },
+  "per_kind_gold_selected_rate": {
+    "law_lookup": {
+      "successes": 186,
+      "total": 227,
+      "rate": 0.8193832599118943,
+      "ci_low": 0.7641569580135954,
+      "ci_high": 0.8639793917604488
+    },
+    "law_citation_retrieval": {
+      "successes": 6,
+      "total": 227,
+      "rate": 0.02643171806167401,
+      "ci_low": 0.012168799965886646,
+      "ci_high": 0.056456612438116796
+    },
+    "law_cite_to_title": {
+      "successes": 189,
+      "total": 227,
+      "rate": 0.8325991189427313,
+      "ci_low": 0.7785860380404935,
+      "ci_high": 0.8755421606897181
+    },
+    "law_abstain": {
+      "successes": 0,
+      "total": 9,
+      "rate": 0.0,
+      "ci_low": 0.0,
+      "ci_high": 0.2991527535509594
+    }
+  },
+  "abstain_on_miss": {
+    "successes": 0,
+    "total": 0,
+    "rate": 0.0,
+    "ci_low": 0.0,
+    "ci_high": 1.0
+  },
+  "false_abstain_when_shown": {
+    "successes": 281,
+    "total": 681,
+    "rate": 0.41262848751835535,
+    "ci_low": 0.3762433084538706,
+    "ci_high": 0.44999388274479474
+  },
+  "pointwise_config": {
+    "k": 8,
+    "body_max_bytes": 110,
+    "title_max_bytes": 45,
+    "max_prompt_bytes": 500,
+    "lambda_prior": 0.0,
+    "instruction": "Cite the correct provision below."
+  },
+  "calibration": {
+    "tau_m": 0.869080375880003,
+    "delta_m": 0.10572541621513665,
+    "lambda_prior": 0.0
+  }
+}

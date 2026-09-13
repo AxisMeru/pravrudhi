@@ -1,0 +1,39 @@
+{
+  "n": 690,
+  "gold_citation_present": {
+    "n": 690,
+    "a_rate": 0.19855072463768117,
+    "b_rate": 0.2594202898550725,
+    "mcnemar_b": 81,
+    "mcnemar_c": 39,
+    "mcnemar_p": 0.0001580340306025685,
+    "bootstrap_diff_95ci": [
+      0.03188405797101449,
+      0.09130434782608696
+    ]
+  },
+  "grounded": {
+    "n": 690,
+    "a_rate": 1.0,
+    "b_rate": 1.0,
+    "mcnemar_b": 0,
+    "mcnemar_c": 0,
+    "mcnemar_p": 1.0,
+    "bootstrap_diff_95ci": [
+      0.0,
+      0.0
+    ]
+  },
+  "gold_selected": {
+    "n": 690,
+    "a_rate": 0.3536231884057971,
+    "b_rate": 0.49130434782608695,
+    "mcnemar_b": 150,
+    "mcnemar_c": 55,
+    "mcnemar_p": 2.27506933138681e-11,
+    "bootstrap_diff_95ci": [
+      0.1,
+      0.1753623188405797
+    ]
+  }
+}

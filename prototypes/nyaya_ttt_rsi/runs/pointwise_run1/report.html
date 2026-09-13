@@ -1,0 +1,524 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>pointwise_run1 — run report</title>
+<style>:root {
+  color-scheme: light dark;
+  --bg: #ffffff; --fg: #1f2328; --muted: #59636e; --border: #d0d7de; --panel: #f6f8fa;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #0d1117; --fg: #e6edf3; --muted: #9198a1; --border: #3d444d; --panel: #161b22; }
+}
+body {
+  margin: 0; padding: 2rem 1.5rem; background: var(--bg); color: var(--fg);
+  font: 16px/1.5 -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+}
+main { max-width: 60rem; margin: 0 auto; }
+h1 { font-size: 1.6rem; margin: 0 0 .5rem; }
+h2 { font-size: 1.25rem; margin: 2rem 0 .5rem; border-bottom: 1px solid var(--border); padding-bottom: .25rem; }
+h3 { font-size: 1.05rem; margin: 1.25rem 0 .4rem; }
+dl.meta { display: flex; flex-wrap: wrap; gap: 0 1.75rem; margin: .25rem 0 0; padding: 0; }
+dl.meta dt { font-weight: 600; color: var(--muted); font-size: .78rem; text-transform: uppercase; letter-spacing: .03em; }
+dl.meta dd { margin: 0 0 .5rem; }
+table { border-collapse: collapse; margin: .75rem 0; width: 100%; font-size: .92rem; }
+th, td { border: 1px solid var(--border); padding: .4rem .6rem; text-align: left; vertical-align: top; font-variant-numeric: tabular-nums; }
+thead th { background: var(--panel); }
+tbody th { font-weight: 600; }
+ul { margin: .5rem 0; padding-left: 1.4rem; }
+figure.chart { margin: .75rem 0; padding: 0; }
+figure.chart svg { max-width: 100%; height: auto; display: block; }
+figure.chart figcaption { color: var(--muted); font-size: .85rem; margin-bottom: .4rem; }
+.legend { display: flex; flex-wrap: wrap; gap: .4rem 1rem; margin: .4rem 0; font-size: .85rem; }
+.legend .item { display: inline-flex; align-items: center; gap: .35rem; }
+.legend .swatch { width: .85rem; height: .85rem; border-radius: 2px; display: inline-block; }
+svg .axis { stroke: var(--muted); stroke-width: 1; fill: none; }
+svg .grid { stroke: var(--border); stroke-width: 1; stroke-dasharray: 2 3; }
+svg .tick { fill: var(--muted); font-size: 10px; }
+svg .axis-title { fill: var(--muted); font-size: 11px; }
+footer { margin-top: 2.5rem; color: var(--muted); font-size: .8rem; }</style>
+</head>
+<body>
+<main>
+<h1>Run report: pointwise_run1</h1>
+<dl class="meta"><div><dt>Run</dt><dd>pointwise_run1</dd></div><div><dt>Checkpoint</dt><dd>m7/m7_retry_checkpoint.pt (370M, law-tuned)</dd></div><div><dt>Created</dt><dd>2026-09-13</dd></div><div><dt>Held-out queries</dt><dd>690</dd></div></dl>
+<h2>Conditions</h2>
+<table>
+<thead><tr>
+<th>Metric</th>
+<th>B&#x27; — k=4 scoring mode, plain BM25, round-1 consolidated LoRA (rsi_run1e baseline)</th>
+<th>B&#x27;(frozen) — k=4 scoring mode, plain BM25, frozen 370M (rsi_run1e baseline)</th>
+<th>P16f — pointwise k=16, plain BM25, frozen 370M, selection-correct calib.</th>
+<th>P32 — pointwise k=32, plain BM25, round-1 consolidated LoRA, selection-correct calib.</th>
+<th>P32f — pointwise k=32, plain BM25, frozen 370M, selection-correct calib.</th>
+<th>P8f — pointwise (1 passage/prompt) k=8, plain BM25, frozen 370M, selection-correct calib.</th>
+<th>P8t — pointwise k=8, TUNED retrieval, round-1 consolidated LoRA, selection-correct calib.</th>
+<th>P8t_f — pointwise k=8, TUNED retrieval, frozen 370M, selection-correct calib.</th>
+<th>S4t — k=4 scoring mode + BM25-rank prior, TUNED retrieval, round-1 LoRA, selection-correct calib.</th>
+<th>S4t_f — k=4 scoring mode + BM25-rank prior, TUNED retrieval, frozen 370M, selection-correct calib.</th>
+</tr></thead>
+<tbody>
+<tr>
+<th scope="row">citation_recall</th>
+<td>0.145 (33/227) [0.105–0.197]</td>
+<td>0.176 (40/227) [0.132–0.231]</td>
+<td>0.762 (173/227) [0.703–0.813]</td>
+<td>0.004 (1/227) [0.001–0.025]</td>
+<td>0.736 (167/227) [0.675–0.789]</td>
+<td>0.079 (18/227) [0.051–0.122]</td>
+<td>0.040 (9/227) [0.021–0.074]</td>
+<td>0.026 (6/227) [0.012–0.056]</td>
+<td>0.044 (10/227) [0.024–0.079]</td>
+<td>0.542 (123/227) [0.477–0.605]</td>
+</tr>
+<tr>
+<th scope="row">citation_precision</th>
+<td>0.190 (33/174) [0.138–0.254]</td>
+<td>0.206 (40/194) [0.155–0.269]</td>
+<td>0.801 (173/216) [0.743–0.849]</td>
+<td>0.036 (1/28) [0.006–0.177]</td>
+<td>0.803 (167/208) [0.744–0.851]</td>
+<td>0.083 (18/217) [0.053–0.127]</td>
+<td>0.290 (9/31) [0.161–0.466]</td>
+<td>0.286 (6/21) [0.138–0.500]</td>
+<td>0.435 (10/23) [0.256–0.632]</td>
+<td>0.804 (123/153) [0.734–0.859]</td>
+</tr>
+<tr>
+<th scope="row">abstention_correctness</th>
+<td>0.889 (8/9) [0.565–0.980]</td>
+<td>0.444 (4/9) [0.189–0.733]</td>
+<td>0.778 (7/9) [0.453–0.937]</td>
+<td>0.667 (6/9) [0.354–0.879]</td>
+<td>0.889 (8/9) [0.565–0.980]</td>
+<td>0.222 (2/9) [0.063–0.547]</td>
+<td>0.778 (7/9) [0.453–0.937]</td>
+<td>1.000 (9/9) [0.701–1.000]</td>
+<td>0.222 (2/9) [0.063–0.547]</td>
+<td>1.000 (9/9) [0.701–1.000]</td>
+</tr>
+<tr>
+<th scope="row">law_lookup_prefix_similarity_mean</th>
+<td>0.626</td>
+<td>0.108</td>
+<td>0.201</td>
+<td>0.608</td>
+<td>0.192</td>
+<td>0.101</td>
+<td>0.872</td>
+<td>0.032</td>
+<td>0.872</td>
+<td>0.032</td>
+</tr>
+<tr>
+<th scope="row">gold_selected</th>
+<td>0.491 (339/690) [0.454–0.529]</td>
+<td>0.104 (72/690) [0.084–0.129]</td>
+<td>0.370 (255/690) [0.334–0.406]</td>
+<td>0.354 (244/690) [0.319–0.390]</td>
+<td>0.355 (245/690) [0.320–0.391]</td>
+<td>0.070 (48/690) [0.053–0.091]</td>
+<td>0.587 (405/690) [0.550–0.623]</td>
+<td>0.009 (6/690) [0.004–0.019]</td>
+<td>0.593 (409/690) [0.556–0.629]</td>
+<td>0.178 (123/690) [0.152–0.209]</td>
+</tr>
+<tr>
+<th scope="row">abstain_on_miss</th>
+<td>0.777 (115/148) [0.703–0.837]</td>
+<td>0.514 (76/148) [0.434–0.593]</td>
+<td>0.420 (34/81) [0.318–0.528]</td>
+<td>0.537 (29/54) [0.406–0.663]</td>
+<td>0.444 (24/54) [0.320–0.576]</td>
+<td>0.288 (30/104) [0.210–0.382]</td>
+<td>0.000 (0/0) [0.000–1.000]</td>
+<td>0.000 (0/0) [0.000–1.000]</td>
+<td>1.000 (2/2) [0.342–1.000]</td>
+<td>0.500 (1/2) [0.095–0.905]</td>
+</tr>
+<tr>
+<th scope="row">false_abstain_when_shown</th>
+<td>0.116 (62/533) [0.092–0.146]</td>
+<td>0.430 (229/533) [0.388–0.472]</td>
+<td>0.357 (214/600) [0.319–0.396]</td>
+<td>0.533 (334/627) [0.494–0.571]</td>
+<td>0.396 (248/627) [0.358–0.434]</td>
+<td>0.250 (144/577) [0.216–0.286]</td>
+<td>0.366 (249/681) [0.330–0.402]</td>
+<td>0.969 (660/681) [0.953–0.980]</td>
+<td>0.376 (255/679) [0.340–0.413]</td>
+<td>0.776 (527/679) [0.743–0.806]</td>
+</tr>
+<tr>
+<th scope="row">law_citation_retrieval_kind_gold_selected</th>
+<td>0.145 (33/227) [0.105–0.197]</td>
+<td>0.176 (40/227) [0.132–0.231]</td>
+<td>0.758 (172/227) [0.698–0.809]</td>
+<td>0.004 (1/227) [0.001–0.025]</td>
+<td>0.731 (166/227) [0.670–0.785]</td>
+<td>0.079 (18/227) [0.051–0.122]</td>
+<td>0.040 (9/227) [0.021–0.074]</td>
+<td>0.026 (6/227) [0.012–0.056]</td>
+<td>0.044 (10/227) [0.024–0.079]</td>
+<td>0.542 (123/227) [0.477–0.605]</td>
+</tr>
+<tr>
+<th scope="row">pre_abstention_selection_accuracy</th>
+<td>–</td>
+<td>–</td>
+<td>0.564 (389/690) [0.527–0.600]</td>
+<td>0.459 (317/690) [0.423–0.497]</td>
+<td>0.564 (389/690) [0.527–0.600]</td>
+<td>0.083 (57/690) [0.064–0.106]</td>
+<td>0.680 (469/690) [0.644–0.713]</td>
+<td>0.104 (72/690) [0.084–0.129]</td>
+<td>0.745 (514/690) [0.711–0.776]</td>
+<td>0.346 (239/690) [0.312–0.383]</td>
+</tr>
+<tr>
+<th scope="row">pre_abstention_law_citation_retrieval_kind</th>
+<td>–</td>
+<td>–</td>
+<td>0.780 (177/227) [0.721–0.829]</td>
+<td>0.022 (5/227) [0.009–0.051]</td>
+<td>0.780 (177/227) [0.721–0.829]</td>
+<td>0.084 (19/227) [0.054–0.127]</td>
+<td>0.154 (35/227) [0.113–0.207]</td>
+<td>0.154 (35/227) [0.113–0.207]</td>
+<td>0.352 (80/227) [0.293–0.417]</td>
+<td>0.696 (158/227) [0.633–0.752]</td>
+</tr>
+</tbody>
+</table>
+<h3>Timing</h3>
+<table>
+<thead><tr>
+<th>Condition</th>
+<th>Wall time (s)</th>
+<th>Peak VRAM (GiB)</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>B&#x27; — k=4 scoring mode, plain BM25, round-1 consolidated LoRA (rsi_run1e baseline)</td>
+<td>41.7</td>
+<td>2.98</td>
+</tr>
+<tr>
+<td>B&#x27;(frozen) — k=4 scoring mode, plain BM25, frozen 370M (rsi_run1e baseline)</td>
+<td>41.4</td>
+<td>2.98</td>
+</tr>
+<tr>
+<td>P16f — pointwise k=16, plain BM25, frozen 370M, selection-correct calib.</td>
+<td>142.8</td>
+<td>2.0</td>
+</tr>
+<tr>
+<td>P32 — pointwise k=32, plain BM25, round-1 consolidated LoRA, selection-correct calib.</td>
+<td>255.6</td>
+<td>1.75</td>
+</tr>
+<tr>
+<td>P32f — pointwise k=32, plain BM25, frozen 370M, selection-correct calib.</td>
+<td>212.6</td>
+<td>2.07</td>
+</tr>
+<tr>
+<td>P8f — pointwise (1 passage/prompt) k=8, plain BM25, frozen 370M, selection-correct calib.</td>
+<td>85.3</td>
+<td>1.98</td>
+</tr>
+<tr>
+<td>P8t — pointwise k=8, TUNED retrieval, round-1 consolidated LoRA, selection-correct calib.</td>
+<td>104.9</td>
+<td>1.63</td>
+</tr>
+<tr>
+<td>P8t_f — pointwise k=8, TUNED retrieval, frozen 370M, selection-correct calib.</td>
+<td>87.0</td>
+<td>1.98</td>
+</tr>
+<tr>
+<td>S4t — k=4 scoring mode + BM25-rank prior, TUNED retrieval, round-1 LoRA, selection-correct calib.</td>
+<td>37.6</td>
+<td>2.97</td>
+</tr>
+<tr>
+<td>S4t_f — k=4 scoring mode + BM25-rank prior, TUNED retrieval, frozen 370M, selection-correct calib.</td>
+<td>30.9</td>
+<td>2.94</td>
+</tr>
+</tbody>
+</table>
+<h2>Paired comparisons</h2>
+<table>
+<thead><tr>
+<th>a → b</th>
+<th>Metric</th>
+<th>b only</th>
+<th>c only</th>
+<th>McNemar p</th>
+<th>Bootstrap CI</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>P16f → B&#x27;(frozen)</td>
+<td>gold-citation present (690, lenient substring match)</td>
+<td>21</td>
+<td>183</td>
+<td>1.88e-33</td>
+<td>[-0.271, -0.200]</td>
+</tr>
+<tr>
+<td>P16f → B&#x27;(frozen)</td>
+<td>gold selected (index-exact, only where both conditions report it)</td>
+<td>25</td>
+<td>208</td>
+<td>4.26e-37</td>
+<td>[-0.303, -0.228]</td>
+</tr>
+<tr>
+<td>P16f → B&#x27;</td>
+<td>gold-citation present (690, lenient substring match)</td>
+<td>108</td>
+<td>153</td>
+<td>0.00635</td>
+<td>[-0.110, -0.019]</td>
+</tr>
+<tr>
+<td>P16f → B&#x27;</td>
+<td>gold selected (index-exact, only where both conditions report it)</td>
+<td>233</td>
+<td>149</td>
+<td>2.02e-05</td>
+<td>[0.068, 0.177]</td>
+</tr>
+<tr>
+<td>P16f → P32f</td>
+<td>gold-citation present (690, lenient substring match)</td>
+<td>0</td>
+<td>8</td>
+<td>0.00781</td>
+<td>[-0.020, -0.004]</td>
+</tr>
+<tr>
+<td>P16f → P32f</td>
+<td>gold selected (index-exact, only where both conditions report it)</td>
+<td>0</td>
+<td>10</td>
+<td>0.00195</td>
+<td>[-0.025, -0.006]</td>
+</tr>
+<tr>
+<td>P32f → B&#x27;(frozen)</td>
+<td>gold-citation present (690, lenient substring match)</td>
+<td>21</td>
+<td>175</td>
+<td>2e-31</td>
+<td>[-0.259, -0.188]</td>
+</tr>
+<tr>
+<td>P32f → B&#x27;(frozen)</td>
+<td>gold selected (index-exact, only where both conditions report it)</td>
+<td>26</td>
+<td>199</td>
+<td>3.37e-34</td>
+<td>[-0.288, -0.213]</td>
+</tr>
+<tr>
+<td>P32f → B&#x27;</td>
+<td>gold-citation present (690, lenient substring match)</td>
+<td>111</td>
+<td>148</td>
+<td>0.0251</td>
+<td>[-0.100, -0.007]</td>
+</tr>
+<tr>
+<td>P32f → B&#x27;</td>
+<td>gold selected (index-exact, only where both conditions report it)</td>
+<td>237</td>
+<td>143</td>
+<td>1.63e-06</td>
+<td>[0.083, 0.190]</td>
+</tr>
+<tr>
+<td>P32 → B&#x27;(frozen)</td>
+<td>gold-citation present (690, lenient substring match)</td>
+<td>45</td>
+<td>120</td>
+<td>4.57e-09</td>
+<td>[-0.143, -0.072]</td>
+</tr>
+<tr>
+<td>P32 → B&#x27;(frozen)</td>
+<td>gold selected (index-exact, only where both conditions report it)</td>
+<td>49</td>
+<td>221</td>
+<td>2.93e-27</td>
+<td>[-0.291, -0.207]</td>
+</tr>
+<tr>
+<td>P32 → B&#x27;</td>
+<td>gold-citation present (690, lenient substring match)</td>
+<td>81</td>
+<td>39</td>
+<td>0.000158</td>
+<td>[0.032, 0.091]</td>
+</tr>
+<tr>
+<td>P32 → B&#x27;</td>
+<td>gold selected (index-exact, only where both conditions report it)</td>
+<td>150</td>
+<td>55</td>
+<td>2.28e-11</td>
+<td>[0.100, 0.175]</td>
+</tr>
+<tr>
+<td>S4t_f → B&#x27;(frozen)</td>
+<td>gold-citation present (690, lenient substring match)</td>
+<td>30</td>
+<td>91</td>
+<td>2.5e-08</td>
+<td>[-0.119, -0.059]</td>
+</tr>
+<tr>
+<td>S4t_f → B&#x27;(frozen)</td>
+<td>gold selected (index-exact, only where both conditions report it)</td>
+<td>40</td>
+<td>91</td>
+<td>9.8e-06</td>
+<td>[-0.106, -0.043]</td>
+</tr>
+<tr>
+<td>P8t_f → B&#x27;(frozen)</td>
+<td>gold-citation present (690, lenient substring match)</td>
+<td>58</td>
+<td>2</td>
+<td>3.18e-15</td>
+<td>[0.061, 0.103]</td>
+</tr>
+<tr>
+<td>P8t_f → B&#x27;(frozen)</td>
+<td>gold selected (index-exact, only where both conditions report it)</td>
+<td>68</td>
+<td>2</td>
+<td>4.21e-18</td>
+<td>[0.074, 0.119]</td>
+</tr>
+<tr>
+<td>P8t_f → P32f</td>
+<td>gold-citation present (690, lenient substring match)</td>
+<td>211</td>
+<td>1</td>
+<td>6.47e-62</td>
+<td>[0.271, 0.338]</td>
+</tr>
+<tr>
+<td>P8t_f → P32f</td>
+<td>gold selected (index-exact, only where both conditions report it)</td>
+<td>240</td>
+<td>1</td>
+<td>1.37e-70</td>
+<td>[0.312, 0.383]</td>
+</tr>
+<tr>
+<td>S4t → B&#x27;</td>
+<td>gold-citation present (690, lenient substring match)</td>
+<td>45</td>
+<td>73</td>
+<td>0.0126</td>
+<td>[-0.071, -0.009]</td>
+</tr>
+<tr>
+<td>S4t → B&#x27;</td>
+<td>gold selected (index-exact, only where both conditions report it)</td>
+<td>57</td>
+<td>127</td>
+<td>2.64e-07</td>
+<td>[-0.138, -0.065]</td>
+</tr>
+<tr>
+<td>P8t → B&#x27;</td>
+<td>gold-citation present (690, lenient substring match)</td>
+<td>48</td>
+<td>75</td>
+<td>0.0187</td>
+<td>[-0.071, -0.007]</td>
+</tr>
+<tr>
+<td>P8t → B&#x27;</td>
+<td>gold selected (index-exact, only where both conditions report it)</td>
+<td>60</td>
+<td>126</td>
+<td>1.48e-06</td>
+<td>[-0.133, -0.058]</td>
+</tr>
+<tr>
+<td>P8t → P32</td>
+<td>gold-citation present (690, lenient substring match)</td>
+<td>7</td>
+<td>76</td>
+<td>9.43e-16</td>
+<td>[-0.125, -0.077]</td>
+</tr>
+<tr>
+<td>P8t → P32</td>
+<td>gold selected (index-exact, only where both conditions report it)</td>
+<td>10</td>
+<td>171</td>
+<td>5.59e-39</td>
+<td>[-0.267, -0.200]</td>
+</tr>
+<tr>
+<td>S4t_f → P8t_f</td>
+<td>gold-citation present (690, lenient substring match)</td>
+<td>0</td>
+<td>117</td>
+<td>1.2e-35</td>
+<td>[-0.197, -0.142]</td>
+</tr>
+<tr>
+<td>S4t_f → P8t_f</td>
+<td>gold selected (index-exact, only where both conditions report it)</td>
+<td>0</td>
+<td>117</td>
+<td>1.2e-35</td>
+<td>[-0.197, -0.142]</td>
+</tr>
+<tr>
+<td>S4t → P8t</td>
+<td>gold-citation present (690, lenient substring match)</td>
+<td>22</td>
+<td>23</td>
+<td>1</td>
+<td>[-0.020, 0.019]</td>
+</tr>
+<tr>
+<td>S4t → P8t</td>
+<td>gold selected (index-exact, only where both conditions report it)</td>
+<td>37</td>
+<td>41</td>
+<td>0.734</td>
+<td>[-0.030, 0.019]</td>
+</tr>
+</tbody>
+</table>
+<h2>Notes</h2>
+<ul>
+<li>Own-run BM25 retrieval recall@k (690 held-out): plain {&#x27;4&#x27;: 0.7724637681159421, &#x27;8&#x27;: 0.836231884057971, &#x27;16&#x27;: 0.8695652173913043, &#x27;32&#x27;: 0.908695652173913}; tuned (retrieval_tuning.TunedStore, best_config) {&#x27;4&#x27;: 0.9840579710144928, &#x27;8&#x27;: 0.9869565217391304, &#x27;16&#x27;: 0.9869565217391304, &#x27;32&#x27;: 0.9869565217391304}.</li>
+<li>2026-09-13 calibration correction: the FIRST calibration pass (kept on disk as *_by_gold_shown for the record) labeled a dev example positive whenever the gold passage was merely SHOWN among the retrieved top-k, regardless of whether the model&#x27;s own arg-max actually picked it. With the tuned store&#x27;s recall@4=0.98 this made the dev negative class nearly empty, and the resulting thresholds abstained on 72-82% of items where gold WAS shown (false_abstain_when_shown), collapsing citation_recall to ~0.02-0.06 across the board even though the underlying selector was fine. All numbers in this report&#x27;s `conditions` and `paired` sections use the corrected label instead: positive iff the fused-score arg-max equals the item&#x27;s own gold passage (see evaluate.calibrate_pointwise&#x27;s and evaluate.calibrate_scoring_with_rank_prior&#x27;s label_mode=&#x27;selection_correct&#x27;, the new default). `pre_abstention_selection_accuracy` (from a forced-always-cite rerun, tau=delta=-inf) is reported per condition as the selector&#x27;s OWN ceiling, independent of the abstention rule.</li>
+<li>P8f calibration (dev n=500, k=8, label_mode=selection_correct): lambda_prior=0.0, tau_m=-0.1263, delta_m=0.0005, balanced_accuracy=0.5729, confusion={&#x27;cite_when_shown&#x27;: 44, &#x27;abstain_when_shown&#x27;: 3, &#x27;cite_when_miss&#x27;: 358, &#x27;abstain_when_miss&#x27;: 95, &#x27;n_shown&#x27;: 47, &#x27;n_miss&#x27;: 453}, lambda_grid=[(0.0, 0.5729), (0.25, 0.55), (0.5, 0.5482), (1.0, 0.5565)].</li>
+<li>P16f calibration (dev n=500, k=16, label_mode=selection_correct): lambda_prior=0.5, tau_m=-0.1463, delta_m=0.2148, balanced_accuracy=0.6411, confusion={&#x27;cite_when_shown&#x27;: 23, &#x27;abstain_when_shown&#x27;: 2, &#x27;cite_when_miss&#x27;: 303, &#x27;abstain_when_miss&#x27;: 172, &#x27;n_shown&#x27;: 25, &#x27;n_miss&#x27;: 475}, lambda_grid=[(0.0, 0.5586), (0.25, 0.61), (0.5, 0.6411), (1.0, 0.6411)].</li>
+<li>P32f calibration (dev n=500, k=32, label_mode=selection_correct): lambda_prior=0.5, tau_m=-0.1111, delta_m=0.2433, balanced_accuracy=0.6071, confusion={&#x27;cite_when_shown&#x27;: 8, &#x27;abstain_when_shown&#x27;: 2, &#x27;cite_when_miss&#x27;: 287, &#x27;abstain_when_miss&#x27;: 203, &#x27;n_shown&#x27;: 10, &#x27;n_miss&#x27;: 490}, lambda_grid=[(0.0, 0.6029), (0.25, 0.5969), (0.5, 0.6071), (1.0, 0.6071)].</li>
+<li>P32 calibration (dev n=500, k=32, label_mode=selection_correct): lambda_prior=0.0, tau_m=0.8182, delta_m=0.0635, balanced_accuracy=0.8166, confusion={&#x27;cite_when_shown&#x27;: 165, &#x27;abstain_when_shown&#x27;: 46, &#x27;cite_when_miss&#x27;: 43, &#x27;abstain_when_miss&#x27;: 246, &#x27;n_shown&#x27;: 211, &#x27;n_miss&#x27;: 289}, lambda_grid=[(0.0, 0.8166), (0.25, 0.6034), (0.5, 0.6715), (1.0, 0.7569)].</li>
+<li>S4t_f calibration (dev n=500, k=4, label_mode=selection_correct): lambda_prior=1.0, tau_m=-24.3277, delta_m=0.1536, balanced_accuracy=0.7693, confusion={&#x27;cite_when_shown&#x27;: 169, &#x27;abstain_when_shown&#x27;: 70, &#x27;cite_when_miss&#x27;: 44, &#x27;abstain_when_miss&#x27;: 217, &#x27;n_shown&#x27;: 239, &#x27;n_miss&#x27;: 261}, lambda_grid=[(0.0, 0.298), (0.25, 0.342), (0.5, 0.404), (1.0, 0.478)].</li>
+<li>S4t calibration (dev n=500, k=4, label_mode=selection_correct): lambda_prior=1.0, tau_m=-17.3940, delta_m=4.1158, balanced_accuracy=0.8891, confusion={&#x27;cite_when_shown&#x27;: 350, &#x27;abstain_when_shown&#x27;: 72, &#x27;cite_when_miss&#x27;: 4, &#x27;abstain_when_miss&#x27;: 74, &#x27;n_shown&#x27;: 422, &#x27;n_miss&#x27;: 78}, lambda_grid=[(0.0, 0.768), (0.25, 0.788), (0.5, 0.81), (1.0, 0.844)].</li>
+<li>P8t_f calibration (dev n=500, k=8, label_mode=selection_correct): lambda_prior=0.0, tau_m=0.4349, delta_m=0.0018, balanced_accuracy=0.5874, confusion={&#x27;cite_when_shown&#x27;: 8, &#x27;abstain_when_shown&#x27;: 31, &#x27;cite_when_miss&#x27;: 14, &#x27;abstain_when_miss&#x27;: 447, &#x27;n_shown&#x27;: 39, &#x27;n_miss&#x27;: 461}, lambda_grid=[(0.0, 0.5874), (0.25, 0.5729), (0.5, 0.5278), (1.0, 0.5332)].</li>
+<li>P8t calibration (dev n=500, k=8, label_mode=selection_correct): lambda_prior=0.0, tau_m=0.7716, delta_m=0.0895, balanced_accuracy=0.8355, confusion={&#x27;cite_when_shown&#x27;: 220, &#x27;abstain_when_shown&#x27;: 34, &#x27;cite_when_miss&#x27;: 48, &#x27;abstain_when_miss&#x27;: 198, &#x27;n_shown&#x27;: 254, &#x27;n_miss&#x27;: 246}, lambda_grid=[(0.0, 0.8355), (0.25, 0.6128), (0.5, 0.6519), (1.0, 0.7704)].</li>
+<li>Consistent finding across every condition that loads the round-1 consolidated LoRA (P32, S4t, P8t) vs its own frozen counterpart (P32f, S4t_f, P8t_f): the LoRA substantially HURTS the law_citation_retrieval-kind-specific citation_recall/gold_selected rate specifically (see law_citation_retrieval_kind_gold_selected per condition above), even though it improves or does not change gold_selected on the easier law_lookup/law_cite_to_title kinds and on overall selection accuracy. This mirrors the ALREADY-KNOWN rsi_run1e result that B&#x27;(frozen)=0.176 citation_recall beats B&#x27;(consolidated)=0.145 -- the round-1 LoRA was consolidated to help abstention/lookup/title behavior, at a real cost to hard-kind citation selection, and that cost transfers to every retrieval/prompt configuration tested here, not just the original k=4 plain-BM25 format it was trained under.</li>
+</ul>
+<footer>Generated by prototypes.nyaya_ttt_rsi.report</footer>
+</main>
+</body>
+</html>

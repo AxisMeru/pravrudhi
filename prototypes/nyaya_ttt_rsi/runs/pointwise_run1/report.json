@@ -1,0 +1,1277 @@
+{
+  "run": "pointwise_run1",
+  "checkpoint": "m7/m7_retry_checkpoint.pt (370M, law-tuned)",
+  "created": "2026-09-13",
+  "n_heldout": 690,
+  "conditions": {
+    "B'(frozen)": {
+      "name": "k=4 scoring mode, plain BM25, frozen 370M (rsi_run1e baseline)",
+      "metrics": {
+        "citation_recall": {
+          "rate": 0.1762114537444934,
+          "k": 40,
+          "n": 227,
+          "wilson": [
+            0.1321553120942869,
+            0.2310443884796131
+          ]
+        },
+        "citation_precision": {
+          "rate": 0.20618556701030927,
+          "k": 40,
+          "n": 194,
+          "wilson": [
+            0.1552278646105189,
+            0.26855358479142694
+          ]
+        },
+        "abstention_correctness": {
+          "rate": 0.4444444444444444,
+          "k": 4,
+          "n": 9,
+          "wilson": [
+            0.188775429471914,
+            0.7333526542559703
+          ]
+        },
+        "law_lookup_prefix_similarity_mean": {
+          "rate": 0.10751702752325955
+        },
+        "gold_selected": {
+          "rate": 0.10434782608695652,
+          "k": 72,
+          "n": 690,
+          "wilson": [
+            0.08368551274979091,
+            0.12939136243324795
+          ]
+        },
+        "abstain_on_miss": {
+          "rate": 0.5135135135135135,
+          "k": 76,
+          "n": 148,
+          "wilson": [
+            0.4336699913960948,
+            0.592673250508627
+          ]
+        },
+        "false_abstain_when_shown": {
+          "rate": 0.42964352720450283,
+          "k": 229,
+          "n": 533,
+          "wilson": [
+            0.3882684368645256,
+            0.47202554929452034
+          ]
+        },
+        "law_citation_retrieval_kind_gold_selected": {
+          "rate": 0.1762114537444934,
+          "k": 40,
+          "n": 227,
+          "wilson": [
+            0.1321553120942869,
+            0.2310443884796131
+          ]
+        }
+      },
+      "timing": {
+        "wall_s": 41.4,
+        "peak_vram_gib": 2.98
+      }
+    },
+    "B'": {
+      "name": "k=4 scoring mode, plain BM25, round-1 consolidated LoRA (rsi_run1e baseline)",
+      "metrics": {
+        "citation_recall": {
+          "rate": 0.14537444933920704,
+          "k": 33,
+          "n": 227,
+          "wilson": [
+            0.10542401254834738,
+            0.1971280404611621
+          ]
+        },
+        "citation_precision": {
+          "rate": 0.1896551724137931,
+          "k": 33,
+          "n": 174,
+          "wilson": [
+            0.13835252245303012,
+            0.25436549177986023
+          ]
+        },
+        "abstention_correctness": {
+          "rate": 0.8888888888888888,
+          "k": 8,
+          "n": 9,
+          "wilson": [
+            0.5649937852319399,
+            0.9801096286728695
+          ]
+        },
+        "law_lookup_prefix_similarity_mean": {
+          "rate": 0.6259298837526283
+        },
+        "gold_selected": {
+          "rate": 0.49130434782608695,
+          "k": 339,
+          "n": 690,
+          "wilson": [
+            0.45415355145327113,
+            0.528551434814488
+          ]
+        },
+        "abstain_on_miss": {
+          "rate": 0.777027027027027,
+          "k": 115,
+          "n": 148,
+          "wilson": [
+            0.7034411367038269,
+            0.8365953223429692
+          ]
+        },
+        "false_abstain_when_shown": {
+          "rate": 0.11632270168855535,
+          "k": 62,
+          "n": 533,
+          "wilson": [
+            0.0918082543454295,
+            0.14632828350856694
+          ]
+        },
+        "law_citation_retrieval_kind_gold_selected": {
+          "rate": 0.14537444933920704,
+          "k": 33,
+          "n": 227,
+          "wilson": [
+            0.10542401254834738,
+            0.1971280404611621
+          ]
+        }
+      },
+      "timing": {
+        "wall_s": 41.7,
+        "peak_vram_gib": 2.98
+      }
+    },
+    "P8f": {
+      "name": "pointwise (1 passage/prompt) k=8, plain BM25, frozen 370M, selection-correct calib.",
+      "metrics": {
+        "citation_recall": {
+          "rate": 0.07929515418502203,
+          "k": 18,
+          "n": 227,
+          "wilson": [
+            0.05074381839310401,
+            0.1218489898355688
+          ]
+        },
+        "citation_precision": {
+          "rate": 0.08294930875576037,
+          "k": 18,
+          "n": 217,
+          "wilson": [
+            0.05311133800653018,
+            0.12729670105857352
+          ]
+        },
+        "abstention_correctness": {
+          "rate": 0.2222222222222222,
+          "k": 2,
+          "n": 9,
+          "wilson": [
+            0.06322376231222723,
+            0.5474166563271946
+          ]
+        },
+        "law_lookup_prefix_similarity_mean": {
+          "rate": 0.10146944988958484
+        },
+        "gold_selected": {
+          "rate": 0.06956521739130435,
+          "k": 48,
+          "n": 690,
+          "wilson": [
+            0.05286836401774631,
+            0.09102845623632896
+          ]
+        },
+        "abstain_on_miss": {
+          "rate": 0.28846153846153844,
+          "k": 30,
+          "n": 104,
+          "wilson": [
+            0.21015782725460308,
+            0.3818363568079479
+          ]
+        },
+        "false_abstain_when_shown": {
+          "rate": 0.24956672443674177,
+          "k": 144,
+          "n": 577,
+          "wilson": [
+            0.21598945386862164,
+            0.2864566519199444
+          ]
+        },
+        "law_citation_retrieval_kind_gold_selected": {
+          "rate": 0.07929515418502203,
+          "k": 18,
+          "n": 227,
+          "wilson": [
+            0.05074381839310401,
+            0.1218489898355688
+          ]
+        },
+        "pre_abstention_selection_accuracy": {
+          "rate": 0.08260869565217391,
+          "k": 57,
+          "n": 690,
+          "wilson": [
+            0.06430565994329757,
+            0.10553368090913903
+          ]
+        },
+        "pre_abstention_law_citation_retrieval_kind": {
+          "rate": 0.08370044052863436,
+          "k": 19,
+          "n": 227,
+          "wilson": [
+            0.05423707167192475,
+            0.12701968620880388
+          ]
+        }
+      },
+      "timing": {
+        "wall_s": 85.3,
+        "peak_vram_gib": 1.98
+      }
+    },
+    "P16f": {
+      "name": "pointwise k=16, plain BM25, frozen 370M, selection-correct calib.",
+      "metrics": {
+        "citation_recall": {
+          "rate": 0.762114537444934,
+          "k": 173,
+          "n": 227,
+          "wilson": [
+            0.7026516572291696,
+            0.8128533470681495
+          ]
+        },
+        "citation_precision": {
+          "rate": 0.8009259259259259,
+          "k": 173,
+          "n": 216,
+          "wilson": [
+            0.7426218531411536,
+            0.8487129988613792
+          ]
+        },
+        "abstention_correctness": {
+          "rate": 0.7777777777777778,
+          "k": 7,
+          "n": 9,
+          "wilson": [
+            0.4525833436728054,
+            0.9367762376877727
+          ]
+        },
+        "law_lookup_prefix_similarity_mean": {
+          "rate": 0.20098119412912566
+        },
+        "gold_selected": {
+          "rate": 0.3695652173913043,
+          "k": 255,
+          "n": 690,
+          "wilson": [
+            0.33436384204626424,
+            0.40621095197012214
+          ]
+        },
+        "abstain_on_miss": {
+          "rate": 0.41975308641975306,
+          "k": 34,
+          "n": 81,
+          "wilson": [
+            0.3183079093457035,
+            0.528465371686243
+          ]
+        },
+        "false_abstain_when_shown": {
+          "rate": 0.3566666666666667,
+          "k": 214,
+          "n": 600,
+          "wilson": [
+            0.3193605837831298,
+            0.3957965037709573
+          ]
+        },
+        "law_citation_retrieval_kind_gold_selected": {
+          "rate": 0.7577092511013216,
+          "k": 172,
+          "n": 227,
+          "wilson": [
+            0.6979806681833763,
+            0.808860386461887
+          ]
+        },
+        "pre_abstention_selection_accuracy": {
+          "rate": 0.563768115942029,
+          "k": 389,
+          "n": 690,
+          "wilson": [
+            0.5265126394975234,
+            0.6003174612055767
+          ]
+        },
+        "pre_abstention_law_citation_retrieval_kind": {
+          "rate": 0.7797356828193832,
+          "k": 177,
+          "n": 227,
+          "wilson": [
+            0.7214161493316997,
+            0.8287446535738423
+          ]
+        }
+      },
+      "timing": {
+        "wall_s": 142.8,
+        "peak_vram_gib": 2.0
+      }
+    },
+    "P32f": {
+      "name": "pointwise k=32, plain BM25, frozen 370M, selection-correct calib.",
+      "metrics": {
+        "citation_recall": {
+          "rate": 0.73568281938326,
+          "k": 167,
+          "n": 227,
+          "wilson": [
+            0.6747393867683295,
+            0.7887819196166549
+          ]
+        },
+        "citation_precision": {
+          "rate": 0.8028846153846154,
+          "k": 167,
+          "n": 208,
+          "wilson": [
+            0.7435392501056075,
+            0.8512447772053646
+          ]
+        },
+        "abstention_correctness": {
+          "rate": 0.8888888888888888,
+          "k": 8,
+          "n": 9,
+          "wilson": [
+            0.5649937852319399,
+            0.9801096286728695
+          ]
+        },
+        "law_lookup_prefix_similarity_mean": {
+          "rate": 0.19232271234463622
+        },
+        "gold_selected": {
+          "rate": 0.35507246376811596,
+          "k": 245,
+          "n": 690,
+          "wilson": [
+            0.3202584783092268,
+            0.39149129282009154
+          ]
+        },
+        "abstain_on_miss": {
+          "rate": 0.4444444444444444,
+          "k": 24,
+          "n": 54,
+          "wilson": [
+            0.3200225687559781,
+            0.5762458608863554
+          ]
+        },
+        "false_abstain_when_shown": {
+          "rate": 0.39553429027113235,
+          "k": 248,
+          "n": 627,
+          "wilson": [
+            0.35800818230772957,
+            0.4343327159462853
+          ]
+        },
+        "law_citation_retrieval_kind_gold_selected": {
+          "rate": 0.7312775330396476,
+          "k": 166,
+          "n": 227,
+          "wilson": [
+            0.6701129851283073,
+            0.7847443716046213
+          ]
+        },
+        "pre_abstention_selection_accuracy": {
+          "rate": 0.563768115942029,
+          "k": 389,
+          "n": 690,
+          "wilson": [
+            0.5265126394975234,
+            0.6003174612055767
+          ]
+        },
+        "pre_abstention_law_citation_retrieval_kind": {
+          "rate": 0.7797356828193832,
+          "k": 177,
+          "n": 227,
+          "wilson": [
+            0.7214161493316997,
+            0.8287446535738423
+          ]
+        }
+      },
+      "timing": {
+        "wall_s": 212.6,
+        "peak_vram_gib": 2.07
+      }
+    },
+    "P32": {
+      "name": "pointwise k=32, plain BM25, round-1 consolidated LoRA, selection-correct calib.",
+      "metrics": {
+        "citation_recall": {
+          "rate": 0.004405286343612335,
+          "k": 1,
+          "n": 227,
+          "wilson": [
+            0.000778044920221474,
+            0.024527619223503053
+          ]
+        },
+        "citation_precision": {
+          "rate": 0.03571428571428571,
+          "k": 1,
+          "n": 28,
+          "wilson": [
+            0.00633235649754188,
+            0.17712576118498663
+          ]
+        },
+        "abstention_correctness": {
+          "rate": 0.6666666666666666,
+          "k": 6,
+          "n": 9,
+          "wilson": [
+            0.35419734749908977,
+            0.879418401317257
+          ]
+        },
+        "law_lookup_prefix_similarity_mean": {
+          "rate": 0.607955642110624
+        },
+        "gold_selected": {
+          "rate": 0.3536231884057971,
+          "k": 244,
+          "n": 690,
+          "wilson": [
+            0.31884987522869634,
+            0.3900173936119151
+          ]
+        },
+        "abstain_on_miss": {
+          "rate": 0.5370370370370371,
+          "k": 29,
+          "n": 54,
+          "wilson": [
+            0.4060512701625496,
+            0.6631031100758948
+          ]
+        },
+        "false_abstain_when_shown": {
+          "rate": 0.532695374800638,
+          "k": 334,
+          "n": 627,
+          "wilson": [
+            0.49356118994814735,
+            0.5714313533463977
+          ]
+        },
+        "law_citation_retrieval_kind_gold_selected": {
+          "rate": 0.004405286343612335,
+          "k": 1,
+          "n": 227,
+          "wilson": [
+            0.000778044920221474,
+            0.024527619223503053
+          ]
+        },
+        "pre_abstention_selection_accuracy": {
+          "rate": 0.45942028985507244,
+          "k": 317,
+          "n": 690,
+          "wilson": [
+            0.4225624827799232,
+            0.4967274531362859
+          ]
+        },
+        "pre_abstention_law_citation_retrieval_kind": {
+          "rate": 0.022026431718061675,
+          "k": 5,
+          "n": 227,
+          "wilson": [
+            0.009444068665373201,
+            0.050517394086574456
+          ]
+        }
+      },
+      "timing": {
+        "wall_s": 255.6,
+        "peak_vram_gib": 1.75
+      }
+    },
+    "S4t_f": {
+      "name": "k=4 scoring mode + BM25-rank prior, TUNED retrieval, frozen 370M, selection-correct calib.",
+      "metrics": {
+        "citation_recall": {
+          "rate": 0.5418502202643172,
+          "k": 123,
+          "n": 227,
+          "wilson": [
+            0.47687494086254534,
+            0.6054325808319846
+          ]
+        },
+        "citation_precision": {
+          "rate": 0.803921568627451,
+          "k": 123,
+          "n": 153,
+          "wilson": [
+            0.7338965854524807,
+            0.8590583448721271
+          ]
+        },
+        "abstention_correctness": {
+          "rate": 1.0,
+          "k": 9,
+          "n": 9,
+          "wilson": [
+            0.7008472464490407,
+            1.0
+          ]
+        },
+        "law_lookup_prefix_similarity_mean": {
+          "rate": 0.0324184633658493
+        },
+        "gold_selected": {
+          "rate": 0.1782608695652174,
+          "k": 123,
+          "n": 690,
+          "wilson": [
+            0.15150783846509397,
+            0.20857665344199255
+          ]
+        },
+        "abstain_on_miss": {
+          "rate": 0.5,
+          "k": 1,
+          "n": 2,
+          "wilson": [
+            0.09452865480086614,
+            0.9054713451991339
+          ]
+        },
+        "false_abstain_when_shown": {
+          "rate": 0.7761413843888071,
+          "k": 527,
+          "n": 679,
+          "wilson": [
+            0.7432846272545661,
+            0.8058910527274386
+          ]
+        },
+        "law_citation_retrieval_kind_gold_selected": {
+          "rate": 0.5418502202643172,
+          "k": 123,
+          "n": 227,
+          "wilson": [
+            0.47687494086254534,
+            0.6054325808319846
+          ]
+        },
+        "pre_abstention_selection_accuracy": {
+          "rate": 0.3463768115942029,
+          "k": 239,
+          "n": 690,
+          "wilson": [
+            0.3118122091674629,
+            0.3826425482296145
+          ]
+        },
+        "pre_abstention_law_citation_retrieval_kind": {
+          "rate": 0.6960352422907489,
+          "k": 158,
+          "n": 227,
+          "wilson": [
+            0.6333461719349881,
+            0.7521995875814941
+          ]
+        }
+      },
+      "timing": {
+        "wall_s": 30.9,
+        "peak_vram_gib": 2.94
+      }
+    },
+    "S4t": {
+      "name": "k=4 scoring mode + BM25-rank prior, TUNED retrieval, round-1 LoRA, selection-correct calib.",
+      "metrics": {
+        "citation_recall": {
+          "rate": 0.04405286343612335,
+          "k": 10,
+          "n": 227,
+          "wilson": [
+            0.02410166611403232,
+            0.07917954489819425
+          ]
+        },
+        "citation_precision": {
+          "rate": 0.43478260869565216,
+          "k": 10,
+          "n": 23,
+          "wilson": [
+            0.25634368332198654,
+            0.6318895069498304
+          ]
+        },
+        "abstention_correctness": {
+          "rate": 0.2222222222222222,
+          "k": 2,
+          "n": 9,
+          "wilson": [
+            0.06322376231222723,
+            0.5474166563271946
+          ]
+        },
+        "law_lookup_prefix_similarity_mean": {
+          "rate": 0.8719484214390602
+        },
+        "gold_selected": {
+          "rate": 0.5927536231884057,
+          "k": 409,
+          "n": 690,
+          "wilson": [
+            0.555677692106409,
+            0.628802454370827
+          ]
+        },
+        "abstain_on_miss": {
+          "rate": 1.0,
+          "k": 2,
+          "n": 2,
+          "wilson": [
+            0.34237195288961925,
+            1.0
+          ]
+        },
+        "false_abstain_when_shown": {
+          "rate": 0.3755522827687776,
+          "k": 255,
+          "n": 679,
+          "wilson": [
+            0.33992286559651685,
+            0.41258196129159297
+          ]
+        },
+        "law_citation_retrieval_kind_gold_selected": {
+          "rate": 0.04405286343612335,
+          "k": 10,
+          "n": 227,
+          "wilson": [
+            0.02410166611403232,
+            0.07917954489819425
+          ]
+        },
+        "pre_abstention_selection_accuracy": {
+          "rate": 0.744927536231884,
+          "k": 514,
+          "n": 690,
+          "wilson": [
+            0.7111080469382478,
+            0.7760348398532042
+          ]
+        },
+        "pre_abstention_law_citation_retrieval_kind": {
+          "rate": 0.3524229074889868,
+          "k": 80,
+          "n": 227,
+          "wilson": [
+            0.29320210238597305,
+            0.4165555842701583
+          ]
+        }
+      },
+      "timing": {
+        "wall_s": 37.6,
+        "peak_vram_gib": 2.97
+      }
+    },
+    "P8t_f": {
+      "name": "pointwise k=8, TUNED retrieval, frozen 370M, selection-correct calib.",
+      "metrics": {
+        "citation_recall": {
+          "rate": 0.02643171806167401,
+          "k": 6,
+          "n": 227,
+          "wilson": [
+            0.012168799965886646,
+            0.056456612438116796
+          ]
+        },
+        "citation_precision": {
+          "rate": 0.2857142857142857,
+          "k": 6,
+          "n": 21,
+          "wilson": [
+            0.13813675745628204,
+            0.49956773822837586
+          ]
+        },
+        "abstention_correctness": {
+          "rate": 1.0,
+          "k": 9,
+          "n": 9,
+          "wilson": [
+            0.7008472464490407,
+            1.0
+          ]
+        },
+        "law_lookup_prefix_similarity_mean": {
+          "rate": 0.0324184633658493
+        },
+        "gold_selected": {
+          "rate": 0.008695652173913044,
+          "k": 6,
+          "n": 690,
+          "wilson": [
+            0.003991160400867773,
+            0.018840563727521183
+          ]
+        },
+        "abstain_on_miss": {
+          "rate": 0.0,
+          "k": 0,
+          "n": 0,
+          "wilson": [
+            0.0,
+            1.0
+          ]
+        },
+        "false_abstain_when_shown": {
+          "rate": 0.9691629955947136,
+          "k": 660,
+          "n": 681,
+          "wilson": [
+            0.9533186953746765,
+            0.9797437821383715
+          ]
+        },
+        "law_citation_retrieval_kind_gold_selected": {
+          "rate": 0.02643171806167401,
+          "k": 6,
+          "n": 227,
+          "wilson": [
+            0.012168799965886646,
+            0.056456612438116796
+          ]
+        },
+        "pre_abstention_selection_accuracy": {
+          "rate": 0.10434782608695652,
+          "k": 72,
+          "n": 690,
+          "wilson": [
+            0.08368551274979091,
+            0.12939136243324795
+          ]
+        },
+        "pre_abstention_law_citation_retrieval_kind": {
+          "rate": 0.15418502202643172,
+          "k": 35,
+          "n": 227,
+          "wilson": [
+            0.11299960138067464,
+            0.20688035093294646
+          ]
+        }
+      },
+      "timing": {
+        "wall_s": 87.0,
+        "peak_vram_gib": 1.98
+      }
+    },
+    "P8t": {
+      "name": "pointwise k=8, TUNED retrieval, round-1 consolidated LoRA, selection-correct calib.",
+      "metrics": {
+        "citation_recall": {
+          "rate": 0.039647577092511016,
+          "k": 9,
+          "n": 227,
+          "wilson": [
+            0.020996356283429815,
+            0.07362090507674098
+          ]
+        },
+        "citation_precision": {
+          "rate": 0.2903225806451613,
+          "k": 9,
+          "n": 31,
+          "wilson": [
+            0.1609562071843287,
+            0.4659265995754067
+          ]
+        },
+        "abstention_correctness": {
+          "rate": 0.7777777777777778,
+          "k": 7,
+          "n": 9,
+          "wilson": [
+            0.4525833436728054,
+            0.9367762376877727
+          ]
+        },
+        "law_lookup_prefix_similarity_mean": {
+          "rate": 0.8720580287197173
+        },
+        "gold_selected": {
+          "rate": 0.5869565217391305,
+          "k": 405,
+          "n": 690,
+          "wilson": [
+            0.5498343275242377,
+            0.6231158097981715
+          ]
+        },
+        "abstain_on_miss": {
+          "rate": 0.0,
+          "k": 0,
+          "n": 0,
+          "wilson": [
+            0.0,
+            1.0
+          ]
+        },
+        "false_abstain_when_shown": {
+          "rate": 0.3656387665198238,
+          "k": 249,
+          "n": 681,
+          "wilson": [
+            0.3303138165957826,
+            0.40247110768451805
+          ]
+        },
+        "law_citation_retrieval_kind_gold_selected": {
+          "rate": 0.039647577092511016,
+          "k": 9,
+          "n": 227,
+          "wilson": [
+            0.020996356283429815,
+            0.07362090507674098
+          ]
+        },
+        "pre_abstention_selection_accuracy": {
+          "rate": 0.6797101449275362,
+          "k": 469,
+          "n": 690,
+          "wilson": [
+            0.6439825132669588,
+            0.7134477705326865
+          ]
+        },
+        "pre_abstention_law_citation_retrieval_kind": {
+          "rate": 0.15418502202643172,
+          "k": 35,
+          "n": 227,
+          "wilson": [
+            0.11299960138067464,
+            0.20688035093294646
+          ]
+        }
+      },
+      "timing": {
+        "wall_s": 104.9,
+        "peak_vram_gib": 1.63
+      }
+    }
+  },
+  "paired": [
+    {
+      "a": "P16f",
+      "b": "B'(frozen)",
+      "metric": "gold-citation present (690, lenient substring match)",
+      "b_only": 21,
+      "c_only": 183,
+      "mcnemar_p": 1.8802384693871435e-33,
+      "bootstrap_ci": [
+        -0.2710144927536232,
+        -0.2
+      ]
+    },
+    {
+      "a": "P16f",
+      "b": "B'(frozen)",
+      "metric": "gold selected (index-exact, only where both conditions report it)",
+      "b_only": 25,
+      "c_only": 208,
+      "mcnemar_p": 4.259840288004642e-37,
+      "bootstrap_ci": [
+        -0.30289855072463767,
+        -0.2275000000000002
+      ]
+    },
+    {
+      "a": "P16f",
+      "b": "B'",
+      "metric": "gold-citation present (690, lenient substring match)",
+      "b_only": 108,
+      "c_only": 153,
+      "mcnemar_p": 0.006349430811276433,
+      "bootstrap_ci": [
+        -0.11014492753623188,
+        -0.01884057971014493
+      ]
+    },
+    {
+      "a": "P16f",
+      "b": "B'",
+      "metric": "gold selected (index-exact, only where both conditions report it)",
+      "b_only": 233,
+      "c_only": 149,
+      "mcnemar_p": 2.0196662129980674e-05,
+      "bootstrap_ci": [
+        0.06811594202898551,
+        0.17681159420289855
+      ]
+    },
+    {
+      "a": "P16f",
+      "b": "P32f",
+      "metric": "gold-citation present (690, lenient substring match)",
+      "b_only": 0,
+      "c_only": 8,
+      "mcnemar_p": 0.0078125,
+      "bootstrap_ci": [
+        -0.020289855072463767,
+        -0.004347826086956522
+      ]
+    },
+    {
+      "a": "P16f",
+      "b": "P32f",
+      "metric": "gold selected (index-exact, only where both conditions report it)",
+      "b_only": 0,
+      "c_only": 10,
+      "mcnemar_p": 0.001953125,
+      "bootstrap_ci": [
+        -0.02463768115942029,
+        -0.005797101449275362
+      ]
+    },
+    {
+      "a": "P32f",
+      "b": "B'(frozen)",
+      "metric": "gold-citation present (690, lenient substring match)",
+      "b_only": 21,
+      "c_only": 175,
+      "mcnemar_p": 1.99759331532401e-31,
+      "bootstrap_ci": [
+        -0.2594202898550725,
+        -0.18840579710144928
+      ]
+    },
+    {
+      "a": "P32f",
+      "b": "B'(frozen)",
+      "metric": "gold selected (index-exact, only where both conditions report it)",
+      "b_only": 26,
+      "c_only": 199,
+      "mcnemar_p": 3.3730418326424563e-34,
+      "bootstrap_ci": [
+        -0.28840579710144926,
+        -0.21304347826086956
+      ]
+    },
+    {
+      "a": "P32f",
+      "b": "B'",
+      "metric": "gold-citation present (690, lenient substring match)",
+      "b_only": 111,
+      "c_only": 148,
+      "mcnemar_p": 0.025101913488224062,
+      "bootstrap_ci": [
+        -0.1,
+        -0.007246376811594203
+      ]
+    },
+    {
+      "a": "P32f",
+      "b": "B'",
+      "metric": "gold selected (index-exact, only where both conditions report it)",
+      "b_only": 237,
+      "c_only": 143,
+      "mcnemar_p": 1.6342793886618723e-06,
+      "bootstrap_ci": [
+        0.08260869565217391,
+        0.18985507246376812
+      ]
+    },
+    {
+      "a": "P32",
+      "b": "B'(frozen)",
+      "metric": "gold-citation present (690, lenient substring match)",
+      "b_only": 45,
+      "c_only": 120,
+      "mcnemar_p": 4.5692952094527786e-09,
+      "bootstrap_ci": [
+        -0.14347826086956522,
+        -0.07246376811594203
+      ]
+    },
+    {
+      "a": "P32",
+      "b": "B'(frozen)",
+      "metric": "gold selected (index-exact, only where both conditions report it)",
+      "b_only": 49,
+      "c_only": 221,
+      "mcnemar_p": 2.9297951186893868e-27,
+      "bootstrap_ci": [
+        -0.29130434782608694,
+        -0.2072463768115942
+      ]
+    },
+    {
+      "a": "P32",
+      "b": "B'",
+      "metric": "gold-citation present (690, lenient substring match)",
+      "b_only": 81,
+      "c_only": 39,
+      "mcnemar_p": 0.0001580340306025685,
+      "bootstrap_ci": [
+        0.03188405797101449,
+        0.09130434782608696
+      ]
+    },
+    {
+      "a": "P32",
+      "b": "B'",
+      "metric": "gold selected (index-exact, only where both conditions report it)",
+      "b_only": 150,
+      "c_only": 55,
+      "mcnemar_p": 2.27506933138681e-11,
+      "bootstrap_ci": [
+        0.1,
+        0.1753623188405797
+      ]
+    },
+    {
+      "a": "S4t_f",
+      "b": "B'(frozen)",
+      "metric": "gold-citation present (690, lenient substring match)",
+      "b_only": 30,
+      "c_only": 91,
+      "mcnemar_p": 2.495730943402904e-08,
+      "bootstrap_ci": [
+        -0.11884057971014493,
+        -0.059420289855072465
+      ]
+    },
+    {
+      "a": "S4t_f",
+      "b": "B'(frozen)",
+      "metric": "gold selected (index-exact, only where both conditions report it)",
+      "b_only": 40,
+      "c_only": 91,
+      "mcnemar_p": 9.795729150815383e-06,
+      "bootstrap_ci": [
+        -0.10579710144927536,
+        -0.043478260869565216
+      ]
+    },
+    {
+      "a": "P8t_f",
+      "b": "B'(frozen)",
+      "metric": "gold-citation present (690, lenient substring match)",
+      "b_only": 58,
+      "c_only": 2,
+      "mcnemar_p": 3.1762786845135338e-15,
+      "bootstrap_ci": [
+        0.06086956521739131,
+        0.10289855072463767
+      ]
+    },
+    {
+      "a": "P8t_f",
+      "b": "B'(frozen)",
+      "metric": "gold selected (index-exact, only where both conditions report it)",
+      "b_only": 68,
+      "c_only": 2,
+      "mcnemar_p": 4.211447813748381e-18,
+      "bootstrap_ci": [
+        0.07391304347826087,
+        0.11884057971014493
+      ]
+    },
+    {
+      "a": "P8t_f",
+      "b": "P32f",
+      "metric": "gold-citation present (690, lenient substring match)",
+      "b_only": 211,
+      "c_only": 1,
+      "mcnemar_p": 6.472178975509879e-62,
+      "bootstrap_ci": [
+        0.2709782608695652,
+        0.33768115942028987
+      ]
+    },
+    {
+      "a": "P8t_f",
+      "b": "P32f",
+      "metric": "gold selected (index-exact, only where both conditions report it)",
+      "b_only": 240,
+      "c_only": 1,
+      "mcnemar_p": 1.3696714606725402e-70,
+      "bootstrap_ci": [
+        0.3115942028985507,
+        0.3826086956521739
+      ]
+    },
+    {
+      "a": "S4t",
+      "b": "B'",
+      "metric": "gold-citation present (690, lenient substring match)",
+      "b_only": 45,
+      "c_only": 73,
+      "mcnemar_p": 0.012602628706921444,
+      "bootstrap_ci": [
+        -0.07101449275362319,
+        -0.008695652173913044
+      ]
+    },
+    {
+      "a": "S4t",
+      "b": "B'",
+      "metric": "gold selected (index-exact, only where both conditions report it)",
+      "b_only": 57,
+      "c_only": 127,
+      "mcnemar_p": 2.6441208582084736e-07,
+      "bootstrap_ci": [
+        -0.13768115942028986,
+        -0.06521739130434782
+      ]
+    },
+    {
+      "a": "P8t",
+      "b": "B'",
+      "metric": "gold-citation present (690, lenient substring match)",
+      "b_only": 48,
+      "c_only": 75,
+      "mcnemar_p": 0.018693425409254057,
+      "bootstrap_ci": [
+        -0.07101449275362319,
+        -0.007246376811594203
+      ]
+    },
+    {
+      "a": "P8t",
+      "b": "B'",
+      "metric": "gold selected (index-exact, only where both conditions report it)",
+      "b_only": 60,
+      "c_only": 126,
+      "mcnemar_p": 1.4750743923316449e-06,
+      "bootstrap_ci": [
+        -0.13333333333333333,
+        -0.057971014492753624
+      ]
+    },
+    {
+      "a": "P8t",
+      "b": "P32",
+      "metric": "gold-citation present (690, lenient substring match)",
+      "b_only": 7,
+      "c_only": 76,
+      "mcnemar_p": 9.43054794183671e-16,
+      "bootstrap_ci": [
+        -0.1246376811594203,
+        -0.07681159420289856
+      ]
+    },
+    {
+      "a": "P8t",
+      "b": "P32",
+      "metric": "gold selected (index-exact, only where both conditions report it)",
+      "b_only": 10,
+      "c_only": 171,
+      "mcnemar_p": 5.59179795063455e-39,
+      "bootstrap_ci": [
+        -0.26670289855072465,
+        -0.2
+      ]
+    },
+    {
+      "a": "S4t_f",
+      "b": "P8t_f",
+      "metric": "gold-citation present (690, lenient substring match)",
+      "b_only": 0,
+      "c_only": 117,
+      "mcnemar_p": 1.2037062152420224e-35,
+      "bootstrap_ci": [
+        -0.19710144927536233,
+        -0.14202898550724638
+      ]
+    },
+    {
+      "a": "S4t_f",
+      "b": "P8t_f",
+      "metric": "gold selected (index-exact, only where both conditions report it)",
+      "b_only": 0,
+      "c_only": 117,
+      "mcnemar_p": 1.2037062152420224e-35,
+      "bootstrap_ci": [
+        -0.19710144927536233,
+        -0.14202898550724638
+      ]
+    },
+    {
+      "a": "S4t",
+      "b": "P8t",
+      "metric": "gold-citation present (690, lenient substring match)",
+      "b_only": 22,
+      "c_only": 23,
+      "mcnemar_p": 1.0,
+      "bootstrap_ci": [
+        -0.020289855072463767,
+        0.01884057971014493
+      ]
+    },
+    {
+      "a": "S4t",
+      "b": "P8t",
+      "metric": "gold selected (index-exact, only where both conditions report it)",
+      "b_only": 37,
+      "c_only": 41,
+      "mcnemar_p": 0.7343420330298468,
+      "bootstrap_ci": [
+        -0.030434782608695653,
+        0.01884057971014493
+      ]
+    }
+  ],
+  "notes": [
+    "Own-run BM25 retrieval recall@k (690 held-out): plain {'4': 0.7724637681159421, '8': 0.836231884057971, '16': 0.8695652173913043, '32': 0.908695652173913}; tuned (retrieval_tuning.TunedStore, best_config) {'4': 0.9840579710144928, '8': 0.9869565217391304, '16': 0.9869565217391304, '32': 0.9869565217391304}.",
+    "2026-09-13 calibration correction: the FIRST calibration pass (kept on disk as *_by_gold_shown for the record) labeled a dev example positive whenever the gold passage was merely SHOWN among the retrieved top-k, regardless of whether the model's own arg-max actually picked it. With the tuned store's recall@4=0.98 this made the dev negative class nearly empty, and the resulting thresholds abstained on 72-82% of items where gold WAS shown (false_abstain_when_shown), collapsing citation_recall to ~0.02-0.06 across the board even though the underlying selector was fine. All numbers in this report's `conditions` and `paired` sections use the corrected label instead: positive iff the fused-score arg-max equals the item's own gold passage (see evaluate.calibrate_pointwise's and evaluate.calibrate_scoring_with_rank_prior's label_mode='selection_correct', the new default). `pre_abstention_selection_accuracy` (from a forced-always-cite rerun, tau=delta=-inf) is reported per condition as the selector's OWN ceiling, independent of the abstention rule.",
+    "P8f calibration (dev n=500, k=8, label_mode=selection_correct): lambda_prior=0.0, tau_m=-0.1263, delta_m=0.0005, balanced_accuracy=0.5729, confusion={'cite_when_shown': 44, 'abstain_when_shown': 3, 'cite_when_miss': 358, 'abstain_when_miss': 95, 'n_shown': 47, 'n_miss': 453}, lambda_grid=[(0.0, 0.5729), (0.25, 0.55), (0.5, 0.5482), (1.0, 0.5565)].",
+    "P16f calibration (dev n=500, k=16, label_mode=selection_correct): lambda_prior=0.5, tau_m=-0.1463, delta_m=0.2148, balanced_accuracy=0.6411, confusion={'cite_when_shown': 23, 'abstain_when_shown': 2, 'cite_when_miss': 303, 'abstain_when_miss': 172, 'n_shown': 25, 'n_miss': 475}, lambda_grid=[(0.0, 0.5586), (0.25, 0.61), (0.5, 0.6411), (1.0, 0.6411)].",
+    "P32f calibration (dev n=500, k=32, label_mode=selection_correct): lambda_prior=0.5, tau_m=-0.1111, delta_m=0.2433, balanced_accuracy=0.6071, confusion={'cite_when_shown': 8, 'abstain_when_shown': 2, 'cite_when_miss': 287, 'abstain_when_miss': 203, 'n_shown': 10, 'n_miss': 490}, lambda_grid=[(0.0, 0.6029), (0.25, 0.5969), (0.5, 0.6071), (1.0, 0.6071)].",
+    "P32 calibration (dev n=500, k=32, label_mode=selection_correct): lambda_prior=0.0, tau_m=0.8182, delta_m=0.0635, balanced_accuracy=0.8166, confusion={'cite_when_shown': 165, 'abstain_when_shown': 46, 'cite_when_miss': 43, 'abstain_when_miss': 246, 'n_shown': 211, 'n_miss': 289}, lambda_grid=[(0.0, 0.8166), (0.25, 0.6034), (0.5, 0.6715), (1.0, 0.7569)].",
+    "S4t_f calibration (dev n=500, k=4, label_mode=selection_correct): lambda_prior=1.0, tau_m=-24.3277, delta_m=0.1536, balanced_accuracy=0.7693, confusion={'cite_when_shown': 169, 'abstain_when_shown': 70, 'cite_when_miss': 44, 'abstain_when_miss': 217, 'n_shown': 239, 'n_miss': 261}, lambda_grid=[(0.0, 0.298), (0.25, 0.342), (0.5, 0.404), (1.0, 0.478)].",
+    "S4t calibration (dev n=500, k=4, label_mode=selection_correct): lambda_prior=1.0, tau_m=-17.3940, delta_m=4.1158, balanced_accuracy=0.8891, confusion={'cite_when_shown': 350, 'abstain_when_shown': 72, 'cite_when_miss': 4, 'abstain_when_miss': 74, 'n_shown': 422, 'n_miss': 78}, lambda_grid=[(0.0, 0.768), (0.25, 0.788), (0.5, 0.81), (1.0, 0.844)].",
+    "P8t_f calibration (dev n=500, k=8, label_mode=selection_correct): lambda_prior=0.0, tau_m=0.4349, delta_m=0.0018, balanced_accuracy=0.5874, confusion={'cite_when_shown': 8, 'abstain_when_shown': 31, 'cite_when_miss': 14, 'abstain_when_miss': 447, 'n_shown': 39, 'n_miss': 461}, lambda_grid=[(0.0, 0.5874), (0.25, 0.5729), (0.5, 0.5278), (1.0, 0.5332)].",
+    "P8t calibration (dev n=500, k=8, label_mode=selection_correct): lambda_prior=0.0, tau_m=0.7716, delta_m=0.0895, balanced_accuracy=0.8355, confusion={'cite_when_shown': 220, 'abstain_when_shown': 34, 'cite_when_miss': 48, 'abstain_when_miss': 198, 'n_shown': 254, 'n_miss': 246}, lambda_grid=[(0.0, 0.8355), (0.25, 0.6128), (0.5, 0.6519), (1.0, 0.7704)].",
+    "Consistent finding across every condition that loads the round-1 consolidated LoRA (P32, S4t, P8t) vs its own frozen counterpart (P32f, S4t_f, P8t_f): the LoRA substantially HURTS the law_citation_retrieval-kind-specific citation_recall/gold_selected rate specifically (see law_citation_retrieval_kind_gold_selected per condition above), even though it improves or does not change gold_selected on the easier law_lookup/law_cite_to_title kinds and on overall selection accuracy. This mirrors the ALREADY-KNOWN rsi_run1e result that B'(frozen)=0.176 citation_recall beats B'(consolidated)=0.145 -- the round-1 LoRA was consolidated to help abstention/lookup/title behavior, at a real cost to hard-kind citation selection, and that cost transfers to every retrieval/prompt configuration tested here, not just the original k=4 plain-BM25 format it was trained under."
+  ]
+}
