@@ -17,6 +17,7 @@ from pravrudhi.application.heartbeat import beat, history, load_config, log_path
 from pravrudhi.application.objectives import Benchmark, Objective
 from pravrudhi.application.objectives import write as write_objective
 from pravrudhi.application.requests import Criterion
+from pravrudhi.application.sandbox_policy import Policy
 from pravrudhi.application.subagents import SubagentRun, record_run, runs
 from pravrudhi_kernel.schema import LedgerEvent
 
@@ -1494,3 +1495,172 @@ class TestLoopPublishesOnIntegration:
         assert outcome.commit in remote_heads or self._git(
             "rev-parse", "HEAD", cwd=clone,
         ).stdout.strip() in remote_heads
+
+
+class TestStructuralIncapability:
+    """cli-lead, 2026-09-13: 'a fact about the dispatch mode or policy, knowable before the first attempt, that
+    makes the criterion's acceptance bar unreachable.' Two categories, checked in order; a third is a new
+    branch in `structural_incapability`, not a restructuring. Real motivating case:
+    `r-5795501a` criterion 8 on the live Studio loop - proposal mode, brief stating nothing written counts as
+    evidence, criterion asking for a recorded Electron-shell run. The two real judged-not-met notes quoted below
+    are pulled verbatim from `/home/ss/pravrudhi-loop/.pravrudhi/requests.json`'s notes for that request/index
+    (timestamps 2026-09-09T18:49:06.824Z and 2026-09-09T19:23:49.128Z, both stored truncated at 325 chars by
+    whatever wrote them - reproduced here exactly as recorded, not retyped from memory)."""
+
+    _R5795501A_C8_TEXT = (
+        "Answer the completion review's finding that the demo's 'real clicks' holds for the web app but not the "
+        "desktop one, which is a single screenshot captured before anyone clicked. Produce, under this "
+        "criterion's proposal directory, a runnable script that drives the Electron shell through an update and "
+        "records it, plus the exact command to run it."
+    )
+    # 2026-09-09T18:49:06.824Z - does not mention what the bar actually is, only that the script isn't finished.
+    _R5795501A_REJECTION_1 = (
+        "The proposal provides a well-structured Python script framework and clear command examples, but the "
+        "script is not ready to actually drive the desktop app through an update as written. The command shown "
+        "uses placeholder values (`<path-to-electron-main.js-or-packaged-binary>` and example selectors lik"
+    )
+    # 2026-09-09T19:23:49.128Z - the one that actually reveals the bar is executed evidence, not a proposal.
+    _R5795501A_REJECTION_2 = (
+        'The proposal provides well-designed scripts and exact commands, but the README explicitly frames this '
+        'as "not that evidence" — it is "a runnable script plus a definition of what output from running it '
+        'would count as evidence." The criterion forbids proposals that explain what would meet it; it requi'
+    )
+
+    @staticmethod
+    def _policy(network: str) -> Policy:
+        return Policy(
+            id="test", allowed_paths=("proposals/**",), denied_paths=(), network=network,
+            tools=(), max_wall_s=1800, validate="true",
+        )
+
+    def test_network_category_fires_on_criterion_text_alone_no_rejection_needed(self) -> None:
+        from pravrudhi.application.heartbeat import structural_incapability
+
+        gap = structural_incapability(
+            mode="proposal", policy=self._policy("none"),
+            criterion_text="State the dataset's actual size and licence from its own Hugging Face page.",
+            rejection_text=None,
+        )
+        assert gap is not None and gap.category == "network"
+
+    def test_network_category_does_not_fire_when_network_is_not_none(self) -> None:
+        from pravrudhi.application.heartbeat import structural_incapability
+
+        gap = structural_incapability(
+            mode="proposal", policy=self._policy("provider-only"),
+            criterion_text="State the dataset's actual size and licence from its own Hugging Face page.",
+            rejection_text=None,
+        )
+        assert gap is None
+
+    def test_no_evidence_category_fires_on_criterion_text_alone_when_the_bar_is_explicit(self) -> None:
+        from pravrudhi.application.heartbeat import structural_incapability
+
+        gap = structural_incapability(
+            mode="proposal", policy=self._policy("none"),
+            criterion_text="Produce a script and a recording of an actual run demonstrating the update.",
+            rejection_text=None,
+        )
+        assert gap is not None and gap.category == "no_evidence_in_proposal_mode"
+
+    def test_r5795501a_criterion_8_is_not_caught_by_criterion_text_alone(self) -> None:
+        """The live case's own criterion text ('a runnable script ... and records it') does not unambiguously
+        state the bar is executed evidence rather than a capable script - this is the asymmetry cli-lead named:
+        the mode fact alone proves nothing, and here even the criterion text alone is not enough."""
+        from pravrudhi.application.heartbeat import structural_incapability
+
+        gap = structural_incapability(
+            mode="proposal", policy=self._policy("none"),
+            criterion_text=self._R5795501A_C8_TEXT, rejection_text=None,
+        )
+        assert gap is None
+
+    def test_r5795501a_criterion_8_first_rejection_does_not_reveal_the_bar_either(self) -> None:
+        from pravrudhi.application.heartbeat import structural_incapability
+
+        gap = structural_incapability(
+            mode="proposal", policy=self._policy("none"),
+            criterion_text=self._R5795501A_C8_TEXT, rejection_text=self._R5795501A_REJECTION_1,
+        )
+        assert gap is None
+
+    def test_r5795501a_criterion_8_second_rejection_reveals_the_bar_the_live_case_this_must_catch(self) -> None:
+        """This is the test cli-lead asked for by name: 'if your detector does not catch that one, it has not
+        done its job.'"""
+        from pravrudhi.application.heartbeat import structural_incapability
+
+        gap = structural_incapability(
+            mode="proposal", policy=self._policy("none"),
+            criterion_text=self._R5795501A_C8_TEXT, rejection_text=self._R5795501A_REJECTION_2,
+        )
+        assert gap is not None and gap.category == "no_evidence_in_proposal_mode"
+
+    def test_ordinary_proposal_mode_criteria_are_not_flagged_by_mode_alone(self) -> None:
+        """The asymmetry that matters most: most criteria run in proposal mode and are perfectly satisfiable
+        there. A detector that fired on `mode == "proposal"` alone would park nearly the whole backlog."""
+        from pravrudhi.application.heartbeat import structural_incapability
+
+        gap = structural_incapability(
+            mode="proposal", policy=self._policy("none"),
+            criterion_text="Write a short design note explaining the tradeoffs between option A and option B.",
+            rejection_text="The note covers only option A and never mentions option B.",
+        )
+        assert gap is None
+
+    def test_build_mode_is_unaffected(self) -> None:
+        from pravrudhi.application.heartbeat import structural_incapability
+
+        gap = structural_incapability(
+            mode="build", policy=self._policy("none"),
+            criterion_text=self._R5795501A_C8_TEXT, rejection_text=self._R5795501A_REJECTION_2,
+        )
+        assert gap is None
+
+
+class TestStructuralIncapabilityDeclinesRatherThanReattempts:
+    @staticmethod
+    def _setup_criterion(tmp_path: Path, request_id: str = "r-test") -> str:
+        req = requests.capture(tmp_path, "do the work", request_id=request_id)
+        requests.add_criteria(tmp_path, req.id, [requests.Criterion(
+            text=(
+                "Produce, under this criterion's proposal directory, a runnable script that drives the "
+                "Electron shell through an update and records it, plus the exact command to run it."
+            ),
+            source="operator",
+        )])
+        return req.id
+
+    def test_a_dispatch_matching_the_live_r5795501a_case_is_declined_not_reattempted(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from pravrudhi.application import heartbeat, swarm
+
+        req_id = self._setup_criterion(tmp_path)
+
+        def accepting_wave(build_agent: object, wave: object, **kw: object) -> list[object]:
+            return [swarm.Verdict(
+                task_id="req:test:0", agent="test", accepted=True, reasons=[],
+                files=["proposals/requests/r-test/0/script.py"],
+            )]
+
+        def judge(prompt: str) -> str:
+            return (
+                "VERDICT: not met\n"
+                'The proposal provides well-designed scripts and exact commands, but the README explicitly '
+                'frames this as "not that evidence" — it is "a runnable script plus a definition of what output '
+                'from running it would count as evidence." The criterion forbids proposals that explain what '
+                "would meet it."
+            )
+
+        monkeypatch.setattr(swarm, "run_wave", accepting_wave)
+
+        def dispatch_fn(name: str, model: str | None) -> object:
+            return object()
+
+        _chose, reason, result = heartbeat._beat_obligations(tmp_path, dispatch_fn, judge=judge)
+
+        assert result is not None and result.get("structural_incapability") == "no_evidence_in_proposal_mode"
+        criterion = requests.get(tmp_path, req_id).criteria[0]
+        assert criterion.declined is True
+        assert not criterion.met
+        assert "declined" in reason

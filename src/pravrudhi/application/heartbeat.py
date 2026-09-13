@@ -608,6 +608,91 @@ def _judged(text: str) -> tuple[bool, str]:
     return False, (" ".join(lines)[:_JUDGEMENT_CHARS] or "the judge said nothing")
 
 
+@dataclass(frozen=True)
+class StructuralIncapability:
+    """A fact about the dispatch mode or policy, knowable independent of repeated observation, that makes a
+    criterion's acceptance bar unreachable by any dispatch in that mode - the loop's own doing, not the agent's.
+    cli-lead, 2026-09-13: 'a fact about the dispatch mode or policy, knowable before the first attempt, that
+    makes the criterion's acceptance bar unreachable.' Distinct from trackB's judgement-text fallback
+    (`heartbeat.network_capability_gap`), which exists for the incapability neither category here can see in
+    advance - a nominally-capable dispatch failing for a real-world reason no policy field encodes."""
+
+    category: str
+    reason: str
+
+
+# A live external lookup the criterion names, matched against a policy whose network is "none": a clean
+# two-sided comparison (a policy field on one side, a criterion demanding a fetch on the other) that needs no
+# rejection to learn, since it is true before any dispatch happens at all.
+_LIVE_FETCH_RE = re.compile(
+    r"\b(fetch|download|retrieve|look ?up)\b.{0,40}\b(live|current|actual|real[- ]time|online)\b"
+    r"|hugging ?face|its own (?:web )?page|the (?:dataset|package)'s (?:actual )?(?:size|licen[cs]e)",
+    re.IGNORECASE,
+)
+
+# The judge's own fixed template sentence (_judge_prompt, below): "A proposal that explains what would meet the
+# criterion does not meet it." A rejection built from that frame reliably echoes its own vocabulary - this is
+# anchored to language the prompt itself trains into the judge, not arbitrary free prose trackB's fallback has
+# to key on instead.
+_PROPOSAL_NOT_EVIDENCE_RE = re.compile(
+    r"(explains?|describes?) what would (meet|satisfy)"
+    r"|not (the )?evidence"
+    r"|a proposal\b.{0,60}\bnot (the )?evidence",
+    re.IGNORECASE,
+)
+
+# When the criterion's OWN text already states its bar is evidence that executing something produced (a real
+# run, a recording, a demonstrated execution), that bar is knowable before any dispatch, same as the network
+# case - no rejection needed to learn it. Anchored to an explicit "actual"/"real" qualifier deliberately: a bare
+# "records it" or "drives ... through an update" (r-5795501a c8's own words) does not by itself rule out a
+# capable, not-yet-executed script satisfying the bar - that ambiguity is real, not a regex gap, which is why
+# this criterion needs its first rejection to learn the bar rather than being caught here.
+_EXECUTED_EVIDENCE_BAR_RE = re.compile(
+    r"\b(?:a |the )?recording of an? (?:actual|real) (?:run|execution)\b"
+    r"|\bactual(?:ly)? run\b"
+    r"|\breal[- ]time run\b"
+    r"|\bdemonstrat(?:e|ed|ing)\b.{0,20}\bexecut",
+    re.IGNORECASE,
+)
+
+
+def structural_incapability(
+    *, mode: str, policy: Policy, criterion_text: str, rejection_text: str | None,
+) -> StructuralIncapability | None:
+    """Whether this criterion's bar is unreachable by any dispatch in `mode`, checked in a fixed order (the
+    first category that applies wins); a third category is a new `elif` here, not a restructuring.
+
+    The two categories are not equally static. `network` is a clean two-sided comparison and can fire without
+    ever seeing a rejection - the criterion names a live lookup, the policy's network is 'none', done.
+    `no_evidence_in_proposal_mode` is asymmetric: `mode == "proposal"` alone proves nothing, since proposal is
+    the ordinary mode for most criteria and firing on it alone would park most of the backlog. The
+    discriminating fact is the CRITERION'S BAR, not the mode - where the criterion's own text already states
+    that bar (an executed, recorded run), this fires before any dispatch, same as `network`; where it does not,
+    the first rejection is what reveals it. That is the honest boundary of this detector, not a defeat: it is
+    exactly the gap trackB's judgement-text fallback exists to cover.
+    """
+    if policy.network == "none" and _LIVE_FETCH_RE.search(criterion_text):
+        return StructuralIncapability(
+            "network",
+            "the criterion names a live external lookup, and the assigned policy's network is 'none' - no "
+            "dispatch in this mode can ever fetch it",
+        )
+    if mode == "proposal":
+        if _EXECUTED_EVIDENCE_BAR_RE.search(criterion_text):
+            return StructuralIncapability(
+                "no_evidence_in_proposal_mode",
+                "the criterion's own text demands evidence that executing something produced, and proposal "
+                "mode's brief states outright that nothing it writes counts as evidence",
+            )
+        if rejection_text and _PROPOSAL_NOT_EVIDENCE_RE.search(rejection_text):
+            return StructuralIncapability(
+                "no_evidence_in_proposal_mode",
+                "the judge's rejection said this was a proposal describing what would satisfy the criterion "
+                "rather than being the evidence itself - proposal mode can never be anything else",
+            )
+    return None
+
+
 # r-3981d7e0 criterion 5 was judged met with a README that stated, in its own words, that its numbers were
 # "fabricated to exercise the scripts" - honest about breaking CHARTER §6, and accepted anyway, because nothing
 # told the judge that a self-declared fabrication is still a fabrication. Asking the judge more clearly (see
@@ -1687,6 +1772,22 @@ def _apply_verdict(
                        for f in verdict.files])
         clear_attempts(root, request.id, index)
         return chose, f"request {request.id} criterion {index} is met: {why}", result
+
+    # cli-lead, 2026-09-13: "nothing is learned by watching it fail twice at full price" when the incapability
+    # is a fact about mode/policy knowable now, so this checks every not-met verdict rather than waiting for a
+    # budget to exhaust - it may fire on the very first attempt.
+    policy = _selfbuild_policy(root) if mode == "build" else policy_for("proposal")
+    gap = structural_incapability(mode=mode, policy=policy, criterion_text=criterion.text, rejection_text=why)
+    if gap is not None:
+        requests.decline_criterion(
+            root, request.id, index, why=f"structurally unreachable ({gap.category}): {gap.reason}",
+        )
+        result["structural_incapability"] = gap.category
+        return (
+            chose,
+            f"request {request.id} criterion {index} declined ({gap.category}): {gap.reason}",
+            result,
+        )
     requests.note(root, request.id, _judgement_note(index, why))
     return chose, f"dispatched request {request.id} criterion {index} ({verb}, judged not met): {why}", result
 
