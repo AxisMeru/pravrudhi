@@ -160,44 +160,33 @@ def test_a_transcript_without_usage_is_unmeasured_not_free(tmp_path, monkeypatch
     assert alibaba.AlibabaAgent(tmp_path).run("x", tmp_path).tokens is None
 
 
-def test_concurrent_dispatches_get_their_own_opencode_state_dir(tmp_path, monkeypatch, key):
-    """Two dispatches in the same beat both spawn `opencode`, which keeps its session sqlite database at
-    $XDG_DATA_HOME/opencode/opencode.db. Without a per-dispatch override, both processes inherit this parent's
-    real XDG_DATA_HOME and share one database file - the second dispatch of beat 2026-09-13T06:54:44Z on the
-    live Studio loop failed with "database is locked", losing real dispatch throughput. Each call to run() must
-    get its own private XDG_DATA_HOME (and CONFIG/CACHE, for the same reason) so two concurrent dispatches can
-    never collide on shared opencode state, regardless of how close together they actually run."""
-    seen: list[dict[str, str]] = []
-    existed_during_run: list[bool] = []
+def test_opencode_xdg_dirs_live_under_the_dispatchs_own_scratch_dir(tmp_path, monkeypatch, key):
+    """OpenCode keeps its session sqlite database at $XDG_DATA_HOME/opencode/opencode.db. Without a per-dispatch
+    override, two concurrent dispatches both inheriting this process's own XDG_DATA_HOME shared one database
+    file - the second dispatch of beat 2026-09-13T06:54:44Z on the live Studio loop failed with "database is
+    locked", losing real dispatch throughput.
+
+    `delegate.dispatch` creates `workspace/SCRATCH_DIRNAME` before calling `run()` and removes it after (shared
+    with cli-trackA's scratch-dir fix for the same dispatch path, rather than a second parallel tempdir
+    mechanism) - this agent only has to point XDG_DATA_HOME/CONFIG/CACHE at subdirectories of it. Since every
+    dispatch gets its own `workspace` (a real per-dispatch worktree), two dispatches can never collide: each
+    one's XDG dirs live under its own workspace's own scratch dir, not a directory shared across dispatches."""
+    (tmp_path / alibaba.SCRATCH_DIRNAME).mkdir()  # what delegate.dispatch does before calling run()
+    existed_during_run: dict[str, bool] = {}
 
     def transport(cmd, cwd, timeout_s, env):
-        seen.append(dict(env))
-        existed_during_run.append("XDG_DATA_HOME" in env and Path(env["XDG_DATA_HOME"]).is_dir())
-        return 0, event("step_finish", reason="stop"), "", 0.5
-
-    monkeypatch.setattr(alibaba, "_run", transport)
-    agent = alibaba.AlibabaAgent(tmp_path)
-    agent.run("first", tmp_path)
-    agent.run("second", tmp_path)
-
-    assert len(seen) == 2
-    assert all("XDG_DATA_HOME" in env for env in seen), "opencode must not fall back to this process's shared dir"
-    assert all(existed_during_run), "the directory must actually exist while opencode runs"
-    first, second = seen[0]["XDG_DATA_HOME"], seen[1]["XDG_DATA_HOME"]
-    assert first != second, "two dispatches sharing one XDG_DATA_HOME is exactly the collision this prevents"
-
-
-def test_the_opencode_state_dir_is_torn_down_after_the_run(tmp_path, monkeypatch, key):
-    captured: dict[str, str] = {}
-
-    def transport(cmd, cwd, timeout_s, env):
-        captured["dir"] = env["XDG_DATA_HOME"]
-        assert Path(captured["dir"]).is_dir()
+        for name in ("XDG_DATA_HOME", "XDG_CONFIG_HOME", "XDG_CACHE_HOME"):
+            path = Path(env[name])
+            existed_during_run[name] = path.is_dir()
+            assert alibaba.SCRATCH_DIRNAME in path.parts, f"{name} must live under the dispatch's own scratch dir"
+            assert path.is_relative_to(tmp_path / alibaba.SCRATCH_DIRNAME)
         return 0, event("step_finish", reason="stop"), "", 0.5
 
     monkeypatch.setattr(alibaba, "_run", transport)
     alibaba.AlibabaAgent(tmp_path).run("go", tmp_path)
-    assert not Path(captured["dir"]).exists(), "a per-dispatch state dir must not outlive the dispatch"
+
+    assert existed_during_run, "the transport was never called"
+    assert all(existed_during_run.values()), "each XDG dir must actually exist while opencode runs"
 
 
 def test_a_turns_cost_is_every_steps_cost_added_up(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
