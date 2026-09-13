@@ -12,6 +12,7 @@ gates/
 research/
 .triz/
 .pravrudhi/
+.pravrudhi-scratch/
 .claude/
 .env
 .env.*

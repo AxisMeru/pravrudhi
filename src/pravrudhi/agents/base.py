@@ -34,6 +34,19 @@ PROTECTED = (
     "gates/",
 )
 
+#: Where a dispatched agent's own scratch/temp state goes -- inside its worktree, never `/tmp`. r-5795501a c8
+#: (2026-09-13): an agent tried `mkdir -p /tmp/pdws` for exactly this purpose and was auto-rejected for
+#: touching a directory outside its sandbox, then scored as a dispatch failure for a want the sandbox was
+#: right to refuse. A path under the worktree needs no extra grant at all -- it is already inside the one
+#: directory the agent's own sandbox treats as home.
+#:
+#: Deliberately NOT `.pravrudhi/scratch/...` (the shape first suggested): `.pravrudhi/` is already
+#: `ALWAYS_DENIED` by every `sandbox_policy.Policy` and named in every dispatch prompt as always off limits,
+#: so telling an agent to use a subdirectory of it would contradict the same prompt in the same breath.
+#: `.pravrudhi-scratch/` is a sibling name, outside that denial, and gets its own `.gitignore` entry so it
+#: never appears in `GitWorktreeMixin.collect_changes`'s diff regardless of whether it is cleaned up in time.
+SCRATCH_DIRNAME = ".pravrudhi-scratch"
+
 
 @dataclass(frozen=True)
 class AgentRun:

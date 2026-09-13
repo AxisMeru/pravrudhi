@@ -108,3 +108,29 @@ def test_owns_treats_trailing_slash_as_directory() -> None:
     assert spec.owns("app/frontend/src/app/progress/page.tsx")
     assert spec.owns("src/x.py")
     assert not spec.owns("app/frontend/src/app/progressive.tsx")
+
+
+def test_dispatch_gives_the_agent_a_scratch_dir_and_cleans_it_up(tmp_path):
+    """r-5795501a c8 (2026-09-13): a dispatched agent tried `mkdir -p /tmp/pdws` for a scratch workspace and was
+    auto-rejected for touching an external directory, then scored as a dispatch failure ("no change produced")
+    for a want the sandbox was right to refuse. The defect was that the agent had no legal place to put scratch
+    state at all -- so `dispatch` must give it one inside its own worktree, tell it where, and clean it up after."""
+    from pravrudhi.agents.base import SCRATCH_DIRNAME
+
+    seen: dict = {}
+
+    class ScratchCheckingAgent(FakeAgent):
+        def run(self, prompt, workspace, timeout_s=60):
+            seen["prompt"] = prompt
+            seen["scratch_existed_during_run"] = (workspace / SCRATCH_DIRNAME).is_dir()
+            return super().run(prompt, workspace, timeout_s)
+
+    task = TaskSpec(task_id="t9", prompt="p", allowed_paths=("a.py",), validate="true")
+    agent = ScratchCheckingAgent(tmp_path, ["a.py"])
+    v = dispatch(agent, task, log=lambda s: None)
+
+    assert v.accepted
+    assert seen["scratch_existed_during_run"], "the agent's own worktree had no writable scratch dir during the run"
+    assert SCRATCH_DIRNAME in seen["prompt"], "the brief never told the agent where its scratch dir is"
+    ws = tmp_path / "t9"
+    assert not (ws / SCRATCH_DIRNAME).exists(), "the scratch dir must be discarded after the dispatch, not left behind"
