@@ -44,7 +44,7 @@ export function StepCreate({ draft }: Props) {
     setError(null);
     try {
       const result = await dispatchSubagents(created.id);
-      setStarted(result.runs.length);
+      setStarted(result.started);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {

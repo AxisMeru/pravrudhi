@@ -180,13 +180,11 @@ export function PlanSteps({ id }: { id: string }) {
     setDispatching(true);
     setError(null);
     try {
-      const started = data?.preview.length ?? 0;
       const baseline = data?.runs.length ?? 0;
       const result = await dispatchSubagents(id);
-      setData(result);
-      const target = baseline + started;
-      if (started > 0 && result.runs.length < target) {
-        setPoll({ started, target, deadline: Date.now() + POLL_TIMEOUT_MS });
+      const target = baseline + result.started;
+      if (result.started > 0) {
+        setPoll({ started: result.started, target, deadline: Date.now() + POLL_TIMEOUT_MS });
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));

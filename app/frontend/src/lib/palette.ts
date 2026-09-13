@@ -263,7 +263,7 @@ function objectiveResults(items: Objective[], isDemo: boolean): PaletteResult[] 
       disabledReason: isDemo ? DEMO_REASON : undefined,
       run: async () => {
         const res = await dispatchSubagents(o.id);
-        const n = res.runs.length;
+        const n = res.started;
         return { ok: true, message: `Dispatched ${n} step${n === 1 ? "" : "s"}` };
       },
     };

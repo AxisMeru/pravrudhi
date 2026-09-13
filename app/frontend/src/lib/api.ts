@@ -740,6 +740,13 @@ export interface SubagentsResponse {
   runs: SubagentRunRow[];
 }
 
+// What POST /subagents answers with: dispatch fires the plan's tasks in the background and returns
+// immediately, before any of them have run. Callers must poll objectiveSubagents() to see the runs land.
+export interface DispatchResponse {
+  objective: string;
+  started: number;
+}
+
 export async function objectiveSubagents(id: string): Promise<SubagentsResponse> {
   if (IS_DEMO) {
     const d = await (await import("./demo")).demo();
@@ -748,9 +755,9 @@ export async function objectiveSubagents(id: string): Promise<SubagentsResponse>
   return getJSON<SubagentsResponse>(`/api/objectives/${encodeURIComponent(id)}/subagents`);
 }
 
-export async function dispatchSubagents(id: string): Promise<SubagentsResponse> {
-  if (IS_DEMO) throw new ApiError(501, `/api/objectives/${id}/subagents/dispatch`);
-  return postJSON<SubagentsResponse>(`/api/objectives/${encodeURIComponent(id)}/subagents/dispatch`, {});
+export async function dispatchSubagents(id: string): Promise<DispatchResponse> {
+  if (IS_DEMO) throw new ApiError(501, `/api/objectives/${id}/subagents`);
+  return postJSON<DispatchResponse>(`/api/objectives/${encodeURIComponent(id)}/subagents`, {});
 }
 
 // ---------------------------------------------------------------------------
