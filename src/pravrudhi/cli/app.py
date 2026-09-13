@@ -1086,7 +1086,23 @@ def heartbeat_cmd(
     loop: bool = typer.Option(False, "--loop", help="keep beating at the configured interval"),
     as_json: bool = typer.Option(False, "--json"),
 ) -> None:
-    """One heartbeat: find the most neglected undone objective step and dispatch it; with --loop, keep going."""
+    """One heartbeat: find the most neglected undone objective step and dispatch it; with --loop, keep going.
+
+    2026-09-13, cli-lead: a session moving between several repositories hand-ran a beat twice today without
+    thinking about which was the current directory -- exactly the failure a stray-repo dispatch that same
+    evening turned out to trace to. `--root` defaults to `.` (every caller that passes it explicitly is
+    unaffected), so a bare `pravrudhi heartbeat` from the wrong directory would otherwise dispatch into
+    whatever tree the shell happened to be sitting in. Both systemd units pin an absolute `--root`, so nothing
+    unattended is exposed; this guard is only for the human running it by hand.
+    """
+    if root == Path(".") and not (root / ".pravrudhi" / "config.yaml").is_file():
+        typer.echo(
+            f"refusing: {root.resolve()} does not look like a loop root (no .pravrudhi/config.yaml here) and "
+            "--root was not given. Pass --root explicitly, or run this from an initialised root.",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+
     import time as _time
 
     from pravrudhi.agents.registry import build_agent
