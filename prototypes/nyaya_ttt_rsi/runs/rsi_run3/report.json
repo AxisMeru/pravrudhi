@@ -1,0 +1,410 @@
+{
+  "run": "rsi_run3",
+  "checkpoint": "m7/m7_retry_checkpoint.pt (370M, law-tuned) + round-3 LoRA continued from round-1",
+  "created": "2026-09-13",
+  "n_heldout": 690,
+  "conditions": {
+    "S4t_round3": {
+      "name": "370M + round-3 LoRA (continued from round-1), k=4, GLOBAL selection-correct calib.",
+      "metrics": {
+        "citation_recall": {
+          "rate": 0.09251101321585903,
+          "k": 21,
+          "n": 227,
+          "wilson": [
+            0.06130412609091981,
+            0.13728053109392033
+          ]
+        },
+        "citation_precision": {
+          "rate": 0.8076923076923077,
+          "k": 21,
+          "n": 26,
+          "wilson": [
+            0.6212336384535001,
+            0.9149306422821174
+          ]
+        },
+        "abstention_correctness": {
+          "rate": 1.0,
+          "k": 9,
+          "n": 9,
+          "wilson": [
+            0.7008472464490407,
+            1.0
+          ]
+        },
+        "gold_selected": {
+          "rate": 0.5449275362318841,
+          "k": 376,
+          "n": 690,
+          "wilson": [
+            0.5076239110677812,
+            0.5817336598821301
+          ]
+        },
+        "false_abstain_when_shown": {
+          "rate": 0.4329896907216495,
+          "k": 294,
+          "n": 679,
+          "wilson": [
+            0.39620009694793906,
+            0.4705332713764277
+          ]
+        },
+        "law_citation_retrieval_kind_gold_selected": {
+          "rate": 0.09251101321585903,
+          "k": 21,
+          "n": 227,
+          "wilson": [
+            0.06130412609091981,
+            0.13728053109392033
+          ]
+        },
+        "law_cite_to_title_kind_gold_selected": {
+          "rate": 0.788546255506608,
+          "k": 179,
+          "n": 227,
+          "wilson": [
+            0.7308490264119355,
+            0.8366396757977183
+          ]
+        },
+        "law_lookup_kind_gold_selected": {
+          "rate": 0.775330396475771,
+          "k": 176,
+          "n": 227,
+          "wilson": [
+            0.716712628349659,
+            0.8247842249038275
+          ]
+        },
+        "pre_abstention_selection_accuracy": {
+          "rate": 0.8043478260869565,
+          "k": 555,
+          "n": 690,
+          "wilson": [
+            0.7730964601728992,
+            0.8322290204555324
+          ]
+        }
+      },
+      "timing": {
+        "wall_s": 38.0,
+        "peak_vram_gib": 3.56
+      }
+    },
+    "S4t_round3_template": {
+      "name": "370M + round-3 LoRA, k=4, PER-TEMPLATE selection-correct calib.",
+      "metrics": {
+        "citation_recall": {
+          "rate": 0.11013215859030837,
+          "k": 25,
+          "n": 227,
+          "wilson": [
+            0.0757174884906459,
+            0.15752296730241738
+          ]
+        },
+        "citation_precision": {
+          "rate": 0.8064516129032258,
+          "k": 25,
+          "n": 31,
+          "wilson": [
+            0.6371939644454013,
+            0.9081311641365236
+          ]
+        },
+        "abstention_correctness": {
+          "rate": 1.0,
+          "k": 9,
+          "n": 9,
+          "wilson": [
+            0.7008472464490407,
+            1.0
+          ]
+        },
+        "gold_selected": {
+          "rate": 0.6130434782608696,
+          "k": 423,
+          "n": 690,
+          "wilson": [
+            0.5761709802269077,
+            0.6486641982922241
+          ]
+        },
+        "false_abstain_when_shown": {
+          "rate": 0.35787923416789397,
+          "k": 243,
+          "n": 679,
+          "wilson": [
+            0.3227137935091404,
+            0.39464378986012116
+          ]
+        },
+        "law_citation_retrieval_kind_gold_selected": {
+          "rate": 0.11013215859030837,
+          "k": 25,
+          "n": 227,
+          "wilson": [
+            0.0757174884906459,
+            0.15752296730241738
+          ]
+        },
+        "law_cite_to_title_kind_gold_selected": {
+          "rate": 0.8281938325991189,
+          "k": 188,
+          "n": 227,
+          "wilson": [
+            0.7737651971585701,
+            0.8716990519195856
+          ]
+        },
+        "law_lookup_kind_gold_selected": {
+          "rate": 0.9251101321585903,
+          "k": 210,
+          "n": 227,
+          "wilson": [
+            0.883351131968533,
+            0.9527200094548498
+          ]
+        }
+      },
+      "timing": {
+        "wall_s": 37.8,
+        "peak_vram_gib": 3.56
+      }
+    },
+    "S4t": {
+      "name": "370M + round-1 consolidated LoRA, k=4, GLOBAL selection-correct calib. (pointwise_run1)",
+      "metrics": {
+        "citation_recall": {
+          "rate": 0.04405286343612335,
+          "k": 10,
+          "n": 227,
+          "wilson": [
+            0.02410166611403232,
+            0.07917954489819425
+          ]
+        },
+        "citation_precision": {
+          "rate": 0.43478260869565216,
+          "k": 10,
+          "n": 23,
+          "wilson": [
+            0.25634368332198654,
+            0.6318895069498304
+          ]
+        },
+        "abstention_correctness": {
+          "rate": 0.2222222222222222,
+          "k": 2,
+          "n": 9,
+          "wilson": [
+            0.06322376231222723,
+            0.5474166563271946
+          ]
+        },
+        "gold_selected": {
+          "rate": 0.5927536231884057,
+          "k": 409,
+          "n": 690,
+          "wilson": [
+            0.555677692106409,
+            0.628802454370827
+          ]
+        },
+        "false_abstain_when_shown": {
+          "rate": 0.3755522827687776,
+          "k": 255,
+          "n": 679,
+          "wilson": [
+            0.33992286559651685,
+            0.41258196129159297
+          ]
+        },
+        "law_citation_retrieval_kind_gold_selected": {
+          "rate": 0.04405286343612335,
+          "k": 10,
+          "n": 227,
+          "wilson": [
+            0.02410166611403232,
+            0.07917954489819425
+          ]
+        },
+        "law_cite_to_title_kind_gold_selected": {
+          "rate": 0.8898678414096917,
+          "k": 202,
+          "n": 227,
+          "wilson": [
+            0.8424770326975827,
+            0.9242825115093541
+          ]
+        },
+        "law_lookup_kind_gold_selected": {
+          "rate": 0.8678414096916299,
+          "k": 197,
+          "n": 227,
+          "wilson": [
+            0.8176046395162961,
+            0.9058351564303615
+          ]
+        }
+      },
+      "timing": {
+        "wall_s": 37.6,
+        "peak_vram_gib": 2.97
+      }
+    },
+    "S4t_f": {
+      "name": "370M frozen, k=4, GLOBAL selection-correct calib. (pointwise_run1)",
+      "metrics": {
+        "citation_recall": {
+          "rate": 0.5418502202643172,
+          "k": 123,
+          "n": 227,
+          "wilson": [
+            0.47687494086254534,
+            0.6054325808319846
+          ]
+        },
+        "citation_precision": {
+          "rate": 0.803921568627451,
+          "k": 123,
+          "n": 153,
+          "wilson": [
+            0.7338965854524807,
+            0.8590583448721271
+          ]
+        },
+        "abstention_correctness": {
+          "rate": 1.0,
+          "k": 9,
+          "n": 9,
+          "wilson": [
+            0.7008472464490407,
+            1.0
+          ]
+        },
+        "gold_selected": {
+          "rate": 0.1782608695652174,
+          "k": 123,
+          "n": 690,
+          "wilson": [
+            0.15150783846509397,
+            0.20857665344199255
+          ]
+        },
+        "false_abstain_when_shown": {
+          "rate": 0.7761413843888071,
+          "k": 527,
+          "n": 679,
+          "wilson": [
+            0.7432846272545661,
+            0.8058910527274386
+          ]
+        },
+        "law_citation_retrieval_kind_gold_selected": {
+          "rate": 0.5418502202643172,
+          "k": 123,
+          "n": 227,
+          "wilson": [
+            0.47687494086254534,
+            0.6054325808319846
+          ]
+        },
+        "law_cite_to_title_kind_gold_selected": {
+          "rate": 0.0,
+          "k": 0,
+          "n": 227,
+          "wilson": [
+            0.0,
+            0.016641714491668746
+          ]
+        },
+        "law_lookup_kind_gold_selected": {
+          "rate": 0.0,
+          "k": 0,
+          "n": 227,
+          "wilson": [
+            0.0,
+            0.016641714491668746
+          ]
+        }
+      },
+      "timing": {
+        "wall_s": 30.9,
+        "peak_vram_gib": 2.94
+      }
+    }
+  },
+  "paired": [
+    {
+      "a": "S4t_round3",
+      "b": "S4t",
+      "metric": "gold selected (index-exact, only where both conditions report it)",
+      "b_only": 77,
+      "c_only": 44,
+      "mcnemar_p": 0.0034509399701825563,
+      "bootstrap_ci": [
+        0.017391304347826087,
+        0.07681159420289856
+      ]
+    },
+    {
+      "a": "S4t_round3",
+      "b": "S4t_f",
+      "metric": "gold selected (index-exact, only where both conditions report it)",
+      "b_only": 109,
+      "c_only": 362,
+      "mcnemar_p": 9.330273635769491e-33,
+      "bootstrap_ci": [
+        -0.42028985507246375,
+        -0.3115942028985507
+      ]
+    },
+    {
+      "a": "S4t_round3_template",
+      "b": "S4t",
+      "metric": "gold selected (index-exact, only where both conditions report it)",
+      "b_only": 48,
+      "c_only": 62,
+      "mcnemar_p": 0.21497653774329686,
+      "bootstrap_ci": [
+        -0.04927536231884058,
+        0.010144927536231883
+      ]
+    },
+    {
+      "a": "S4t_round3_template",
+      "b": "S4t_f",
+      "metric": "gold selected (index-exact, only where both conditions report it)",
+      "b_only": 107,
+      "c_only": 407,
+      "mcnemar_p": 3.354817849318977e-42,
+      "bootstrap_ci": [
+        -0.48985507246376814,
+        -0.38115942028985506
+      ]
+    },
+    {
+      "a": "S4t_round3_template",
+      "b": "S4t_round3",
+      "metric": "gold selected (index-exact, only where both conditions report it)",
+      "b_only": 1,
+      "c_only": 48,
+      "mcnemar_p": 1.7763568394002505e-13,
+      "bootstrap_ci": [
+        -0.08695652173913043,
+        -0.04927536231884058
+      ]
+    }
+  ],
+  "notes": [
+    "Round-3 pseudo-labeled data: {\"n_sampled\": 1200, \"exclude_ids_source\": \"/lab/prototypes/nyaya_ttt_rsi/runs/rsi_run1e/grounded_sft.jsonl\", \"n_excluded_available\": 2496, \"n_forced_abstain\": 240, \"n_pseudo_accepted\": 655, \"n_pseudo_rejected_abstained\": 305, \"n_rejected_ungrounded\": 0, \"purity\": 0.8106870229007633, \"n_shuffle_copies_added\": 224, \"by_kind_accepted\": {\"law_lookup\": 218, \"law_citation_retrieval\": 213, \"law_cite_to_title\": 224}, \"n_examples_total\": 1119}.",
+    "Round-3 gate decision: accepted=True, reason=ok, probe_delta_rel=0.0471, dev_before={'law_citation_retrieval': 0.45098039215686275, 'law_cite_to_title': 1.0, 'law_lookup': 0.9716981132075472}, dev_after={'law_citation_retrieval': 0.47058823529411764, 'law_cite_to_title': 0.9775280898876404, 'law_lookup': 0.9811320754716981}.",
+    "lambda=0 (no BM25-rank prior), global calib: recall={'successes': 8, 'total': 227, 'rate': 0.03524229074889868, 'ci_low': 0.017963794807951294, 'ci_high': 0.06798951690016371}, gold_selected={'successes': 355, 'total': 690, 'rate': 0.5144927536231884}.",
+    "STEP 2 (round 4) was NOT run: round 3's TRAIN-dev per-kind selection accuracy for its own targeted kind (law_cite_to_title) went from 1.000 before training to 0.978 after (a small decline, inside the gate's 5-point tolerance but not an improvement), and law_lookup only rose 0.972->0.981; only law_citation_retrieval rose meaningfully on dev (0.451->0.471). The gate ACCEPTED (probe regression 4.7% < 15%, no kind fell >5 points), but the task's round-4 trigger is gate acceptance AND a clear dev improvement -- since round 3 did not deliver the latter for its own target kind, running a compounding round 4 on top of a flat/ambiguous round 3 would have risked amplifying noise rather than signal, so round 4 was skipped per 'never loosen the gate.'",
+    "Global-calibration comparison (as S4t/S4t_f were originally reported): S4t_round3 (0.545 gold_selected) is WORSE than S4t (0.593, p=0.0035) -- the global threshold trades law_cite_to_title/law_lookup accuracy for a small law_citation_retrieval gain (0.044->0.093). Under PER-TEMPLATE calibration (2026-09-13 fix, applied identically to round 3's own pseudo-labeling and its held-out eval), S4t_round3_template's overall gold_selected (0.613) is not significantly different from S4t's global number (0.593, p=0.215) -- i.e. round 3 plus per-template calibration roughly matches round 1's overall selection rate while modestly improving law_citation_retrieval recall (0.044->0.110), but did not clearly improve the title kind it targeted (0.828 on held-out; no directly comparable round-1 or frozen per-template title number was run in this budget, since M4t/M8t's per-template runs were on the 1.13B, not the 370M -- this is a real gap, disclosed rather than papered over: no 370M per-template FROZEN or round-1 baseline exists to confirm round 3 actually helped title selection specifically."
+  ]
+}

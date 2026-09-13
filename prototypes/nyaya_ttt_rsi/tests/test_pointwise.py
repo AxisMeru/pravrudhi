@@ -437,17 +437,23 @@ def test_calibrate_pointwise_selection_correct_vs_legacy_gold_shown_label(monkey
 
 
 def test_calibrate_scoring_with_rank_prior_end_to_end(tmp_path, monkeypatch):
+    # "codeword" is shared by every passage body and every question (same
+    # trick as test_calibrate_pointwise_selection_correct_vs_legacy_gold_shown_label
+    # above) so plain BM25 still retrieves a full k=4 non-gold set once the
+    # gold passage is excluded for a synthetic-miss row -- otherwise, with no
+    # shared vocabulary beyond a row's own number, excluding gold would leave
+    # zero lexical matches at all (nothing else to show).
     rows = []
     for i in range(15):
         rows.append({
             "id": f"c{i}", "kind": "law_citation_retrieval", "act": "Indian Penal Code",
-            "section": f"Section {100 + i}", "prompt": f"question about offence {i}",
+            "section": f"Section {100 + i}", "prompt": f"question codeword about offence {i}",
             "target": "t", "source_id": f"c{i}",
         })
     train = tmp_path / "train.jsonl"
     _write_train_jsonl(train, rows)
     passages = [
-        Passage("Indian Penal Code", f"Section {100 + i}", f"Provision body number {i}.",
+        Passage("Indian Penal Code", f"Section {100 + i}", f"Provision codeword body number {i}.",
                 f"Indian Penal Code, Section {100 + i}", f"c{i}", title=f"Heading {i}")
         for i in range(15)
     ]
@@ -471,3 +477,141 @@ def test_calibrate_scoring_with_rank_prior_end_to_end(tmp_path, monkeypatch):
     assert 0.0 <= result["balanced_accuracy"] <= 1.0
     assert len(result["lambda_grid"]) == 2
     assert result["n_examples"] > 0
+    # 2026-09-13 synthetic-absent-gold fix: with frac_miss>0 (the default),
+    # some dev rows must have had their gold excluded, and the report must
+    # say how often the calibrated rule abstains on exactly those rows.
+    assert "abstain_on_synthetic_miss" in result
+    assert result["abstain_on_synthetic_miss"]["total"] > 0
+    assert 0.0 <= result["abstain_on_synthetic_miss"]["rate"] <= 1.0
+
+
+def test_build_natural_dev_examples_frac_miss_excludes_gold_and_flags_it(tmp_path):
+    # frac_miss=1.0: every citation-kind row's gold must be excluded from
+    # its own shown passages, and flagged synthetic_miss=True; law_abstain
+    # rows are never touched by frac_miss (no gold to exclude).
+    rows = []
+    for i in range(10):
+        rows.append({
+            "id": f"c{i}", "kind": "law_citation_retrieval", "act": "Indian Penal Code",
+            "section": f"Section {100 + i}", "prompt": f"question codeword about offence {i}",
+            "target": "t", "source_id": f"c{i}",
+        })
+    rows.append({
+        "id": "abst0", "kind": "law_abstain", "act": "Nonexistent Act", "section": "Section 1",
+        "prompt": "question codeword about a made-up offence", "target": ABSTAIN_PHRASE, "source_id": "abst0",
+    })
+    train = tmp_path / "train.jsonl"
+    _write_train_jsonl(train, rows)
+    passages = [
+        Passage("Indian Penal Code", f"Section {100 + i}", f"Provision codeword body number {i}.",
+                f"Indian Penal Code, Section {100 + i}", f"c{i}", title=f"Heading {i}")
+        for i in range(10)
+    ]
+    store = PassageStore(passages)
+
+    examples = evaluate.build_natural_dev_examples(train, store, k=4, n=11, seed=1, frac_miss=1.0)
+    citation_examples = [e for e in examples if e["kind"] == "law_citation_retrieval"]
+    abstain_examples = [e for e in examples if e["kind"] == "law_abstain"]
+
+    assert citation_examples  # sanity: the fixture actually produced some
+    for e in citation_examples:
+        assert e["synthetic_miss"] is True
+        shown_keys = {(p.act, p.section) for p in e["passages"]}
+        assert (e["act"], e["section"]) not in shown_keys
+    for e in abstain_examples:
+        assert e["synthetic_miss"] is False
+
+
+# ---------------------------------------------------------------------------
+# Per-template calibration (2026-09-13 fix: one global tau/delta/lambda
+# cannot serve every question kind -- see evaluate.classify_question_template
+# and evaluate.calibrate_scoring_with_rank_prior_per_template).
+# ---------------------------------------------------------------------------
+
+
+def test_classify_question_template_matches_the_three_real_templates():
+    assert evaluate.classify_question_template(
+        'Which provision of the Constitution of India states: "Name and territory of the Union"?'
+    ) == "law_citation_retrieval"
+    assert evaluate.classify_question_template(
+        "What is the subject of Constitution of India, Article 1?"
+    ) == "law_cite_to_title"
+    assert evaluate.classify_question_template(
+        "What does Constitution of India, Article 1 provide?"
+    ) == "law_lookup"
+    assert evaluate.classify_question_template("Something else entirely.") == "unknown"
+
+
+def test_classify_question_template_is_rule_based_not_fitted_on_real_corpus_sample():
+    # A representative real-shaped sample per kind (no fitting, no model) --
+    # every citation-kind question must classify to its own kind, and every
+    # law_abstain-shaped question ("What does ... provide?" for a
+    # non-existent section) must classify as law_lookup (same surface form).
+    cases = [
+        ("law_citation_retrieval", 'Which provision of the Indian Penal Code states: "Punishment for murder"?'),
+        ("law_cite_to_title", "What is the subject of Indian Penal Code, Section 302?"),
+        ("law_lookup", "What does Indian Penal Code, Section 302 provide?"),
+        ("law_lookup", "What does Constitution of India, Article 999 provide?"),  # abstain-shaped
+    ]
+    correct = sum(1 for expected, q in cases if evaluate.classify_question_template(q) == expected)
+    assert correct == len(cases)
+
+
+def test_calibrate_scoring_with_rank_prior_per_template_fits_separate_thresholds(tmp_path, monkeypatch):
+    # Two templates with DELIBERATELY different NLL scales: law_lookup rows
+    # are easy (gold always cheap to pick), law_cite_to_title rows are hard
+    # (gold and distractor score nearly identically) -- a single global tau
+    # would either abstain too much on lookup or too little on title; the
+    # per-template fit must diverge accordingly.
+    rows = []
+    for i in range(15):
+        rows.append({
+            "id": f"lu{i}", "kind": "law_lookup", "act": "Indian Penal Code",
+            "section": f"Section {100 + i}", "prompt": f"What does codeword Indian Penal Code, Section {100 + i} provide?",
+            "target": "t", "source_id": f"lu{i}",
+        })
+    for i in range(15):
+        rows.append({
+            "id": f"ct{i}", "kind": "law_cite_to_title", "act": "Indian Penal Code",
+            "section": f"Section {200 + i}", "prompt": f"What is the subject of codeword Indian Penal Code, Section {200 + i}?",
+            "target": "t", "source_id": f"ct{i}",
+        })
+    train = tmp_path / "train.jsonl"
+    _write_train_jsonl(train, rows)
+    passages = [
+        Passage("Indian Penal Code", f"Section {100 + i}", f"Provision codeword body number {100 + i}.",
+                f"Indian Penal Code, Section {100 + i}", f"lu{i}", title=f"Heading {100 + i}")
+        for i in range(15)
+    ] + [
+        Passage("Indian Penal Code", f"Section {200 + i}", f"Provision codeword body number {200 + i}.",
+                f"Indian Penal Code, Section {200 + i}", f"ct{i}", title=f"Heading {200 + i}")
+        for i in range(15)
+    ]
+    store = PassageStore(passages)
+
+    def fake_nll(model, tok, prompt, text):
+        # law_lookup candidates: huge, unambiguous gap. law_cite_to_title
+        # candidates: tiny gap (hard to discriminate).
+        import re
+        m = re.search(r"Section (\d+)", text)
+        c_idx = m.group(1) if m else None
+        gold_match = re.search(r"Section (\d+)\?", prompt.split("\n\n")[-1]) if False else None
+        is_lookup = "What does" in prompt
+        if is_lookup:
+            return 0.1 if c_idx and c_idx in prompt else 5.0
+        return 1.0 if c_idx and c_idx in prompt else 1.05
+
+    monkeypatch.setattr(evaluate, "_sequence_nll", fake_nll)
+
+    result = evaluate.calibrate_scoring_with_rank_prior_per_template(
+        model=None, tok=None, store=store, train_path=train, k=4, n=30, seed=1, lambda_grid=(0.0,), frac_miss=0.2,
+    )
+    assert "law_lookup" in result["per_template"]
+    assert "law_cite_to_title" in result["per_template"]
+    # The two templates' fitted tau_m must differ (they were fit on
+    # different score distributions) -- the whole point of per-template
+    # calibration.
+    assert result["per_template"]["law_lookup"]["tau_m"] != result["per_template"]["law_cite_to_title"]["tau_m"]
+    assert "abstain_on_synthetic_miss" in result["global"]
+    for tmpl_result in result["per_template"].values():
+        assert "abstain_on_synthetic_miss" in tmpl_result

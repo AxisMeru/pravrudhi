@@ -326,6 +326,110 @@ def build_dataset(
     return examples, stats
 
 
+# ---------------------------------------------------------------------------
+# RSI round 3+ (2026-09-13, targeted at law_cite_to_title): pure-Python data
+# construction helpers for a self-labeled (harness-pseudo-labeled, not
+# gold-labeled) training stream, kept here since grounded_data.py already
+# owns "build training examples the same way training and eval data are
+# built" and these reuse `_select_passages`/`render_prompt`/`TARGET_STOP_SUFFIX`
+# exactly. GPU-dependent pseudo-labeling itself (scoring with the round-1
+# LoRA, calibrated abstention) lives in the round-3 run driver
+# (runs/rsi_run3/_driver.py), not here -- these functions are the parts of
+# that pipeline that need no model at all, so they are host-testable
+# (tests/test_round3.py).
+# ---------------------------------------------------------------------------
+
+
+def sample_round_stream(records: list[dict], n: int, *, oversample_kind: str = "law_citation_retrieval",
+                         oversample_factor: float = 2.0, exclude_ids: set | None = None,
+                         seed: int = 0) -> list[dict]:
+    """Deterministic sample of `n` distinct CITATION_KINDS records from
+    `records`, excluding any whose `id` is in `exclude_ids` (e.g. an earlier
+    round's own training-set ids, so a fresh round never re-sees them), with
+    `oversample_kind` sampled at `oversample_factor` times the weight of
+    every other eligible kind (weighted sampling without replacement:
+    duplicate each `oversample_kind` record `round(oversample_factor)` times
+    in the draw pool before a single seeded shuffle-and-take, so its
+    per-record selection probability is proportionally higher without ever
+    returning the same record twice)."""
+    if n < 0:
+        raise ValueError("n must be nonnegative")
+    exclude_ids = exclude_ids or set()
+    pool = [r for r in records if r["kind"] in CITATION_KINDS and r["id"] not in exclude_ids]
+
+    weight = max(1, round(oversample_factor))
+    draw_pool: list[dict] = []
+    seen_ids = set()
+    for r in pool:
+        reps = weight if r["kind"] == oversample_kind else 1
+        for _ in range(reps):
+            draw_pool.append(r)
+
+    rng = random.Random(seed)
+    rng.shuffle(draw_pool)
+
+    chosen: list[dict] = []
+    for r in draw_pool:
+        if len(chosen) >= n:
+            break
+        if r["id"] in seen_ids:
+            continue
+        seen_ids.add(r["id"])
+        chosen.append(r)
+    return chosen
+
+
+def shuffle_passages_copy(prompt: str, target: str, passages: list, rng: random.Random,
+                          config=None) -> dict | None:
+    """Given an already-built (prompt, target, passages) training example,
+    rebuilds the SAME prompt/target from the SAME passage set in a freshly
+    shuffled order (`render_prompt`, never `build_example`, since the target
+    is fixed and must not be re-derived) -- the round-3 "no positional
+    shortcut" copy for `law_cite_to_title` items (task spec: "for each
+    accepted title-kind item add a second copy with the four passages
+    shuffled (same target)"). Returns None if there are fewer than 2
+    passages (nothing to reorder) or if 20 shuffle attempts all reproduce
+    the original order (vanishingly unlikely for k>=2 with real content,
+    but never silently returns a no-op copy)."""
+    from . import evaluate as evaluate_mod
+
+    cfg = config or evaluate_mod.PROMPT_CONFIG
+    if len(passages) < 2:
+        return None
+    question = evaluate_mod.parse_question_from_prompt(prompt)
+    original_order = [(p.act, p.section) for p in passages]
+    for _ in range(20):
+        shuffled = list(passages)
+        rng.shuffle(shuffled)
+        if [(p.act, p.section) for p in shuffled] != original_order:
+            new_prompt, trunc, _pb, _dropped = evaluate_mod.render_prompt(question, shuffled, cfg)
+            return {"prompt": new_prompt, "target": target, "passages": trunc}
+    return None
+
+
+def gate_round_accepts(probe_delta_rel: float, dev_before: dict, dev_after: dict, *,
+                       probe_threshold: float = 0.15, max_kind_drop: float = 0.05) -> tuple[bool, str]:
+    """Round-3+ consolidation gate criterion (pure, no torch): accepts iff
+    (a) the regression probe's relative rise stays within `probe_threshold`
+    (loop.py's own consolidation gate, reused unmodified elsewhere -- this
+    function only adds the SECOND clause the task spec requires) AND (b) no
+    kind's dev pre-abstention selection accuracy (`dev_before`/`dev_after`,
+    each `{kind: rate}`) falls by more than `max_kind_drop` (absolute).
+    Returns `(accepted, reason)`; `reason` names the first failing kind on
+    rejection, or the probe, so a rejected round's report is actionable
+    rather than a bare boolean."""
+    if probe_delta_rel > probe_threshold:
+        return False, f"probe_regression: {probe_delta_rel:.4f} > {probe_threshold:.4f}"
+    for kind, before_rate in dev_before.items():
+        after_rate = dev_after.get(kind)
+        if after_rate is None:
+            continue
+        drop = before_rate - after_rate
+        if drop > max_kind_drop:
+            return False, f"kind_regression:{kind}: dropped {drop:.4f} > {max_kind_drop:.4f}"
+    return True, "ok"
+
+
 def main(argv: list[str] | None = None) -> int:
     import argparse
 

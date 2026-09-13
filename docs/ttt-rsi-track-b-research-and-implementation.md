@@ -750,3 +750,77 @@ loop (`g0/lora_megatron.py` exists; `evaluate.py`/`loop.py` still target `nn.Lin
 **Attribution, stated once more.** 370M P16f's 0.76 (§12.3) is a retriever with a veto; 1.13B
 M4t-per-template's 0.33 at precision 0.64 with 9/9 abstention is the model choosing. They are
 not the same kind of number, and the second is the one the MVP claim rests on.
+
+### 12.5 Result: RSI round 3 on the 370M — the loop improves the selector, the 370M's abstention cannot use it
+
+`runs/rsi_run3/` (report.md, gate_decision.json, train_stats.json, round3_data_stats.json).
+1,200 fresh train prompts (title kind 2×, disjoint from round-1e's 2,496 ids), tuned store, k = 4.
+The harness (round-1 LoRA, recalibrated) accepted 655 pseudo-labels without reading gold
+(purity 0.81, recorded only) and rejected 305 by abstaining; 224 shuffled-order copies of the
+title-kind items were added; 1,119 examples; LoRA continued from round 1, lr 2e-4, 2 epochs,
+133 s of training. Gate: probe regression +4.7% (limit 15%), dev per-kind selection
+0.451→0.471 (title kind), 0.972→0.981 (lookup), 1.000→0.978 (cite_to_title): **accepted**.
+
+| 370M condition | title kind: selected (forced cite) | calibrated recall | precision | lookup exact-prefix | abstention correct |
+|---|---|---|---|---|---|
+| round-1 LoRA, S4t (§12.3) | 0.352 | 0.044 | 0.435 | 0.868 | 0.222 |
+| round-3 LoRA, global calibration | 0.493 | 0.093 | 0.808 | 0.775 | 1.000 |
+| round-3 LoRA, per-template calibration | 0.493 | 0.110 [0.076–0.158] | 0.806 | 0.925 | 1.000 |
+
+Paired (gold citation present, all 690): round-3-per-template vs S4t p = 6e-4, difference CI
+[0.02, 0.06] in favour of round 3; vs S4t_f (retriever-led) p = 5e-10 in favour of S4t_f.
+
+**Reading.** The self-training round did what it was built to do at the weight level: with the
+gold on screen, the 370M now picks it 0.98 / 0.97 on the number kinds (from 0.82 / 0.83) and 0.49
+on the title kind (from 0.35), with abstention on the nine absent items 9/9 and precision 0.81.
+What it could not do is make its own confidence usable: on the title kind the 370M's margins
+between right and wrong selections are not separable on dev, so the calibrated rule abstains on
+86% of them and calibrated recall lands at 0.11. The 1.13B's margins are separable (§12.4:
+0.33–0.37 at 0.6 precision from a 0.57 ceiling). Round 4 was not run because the target kind's
+dev metric moved by two points, inside noise; running a compounding round on that signal would
+be fitting to noise, and the agent correctly declined rather than loosen the gate.
+
+## 13. Where this leaves the MVP, and what the other sessions should take (2026-09-13, 18:10 BST)
+
+**The MVP claim — cite only what is in context, else abstain — is now met by construction and
+measured, at both scales, on Track B's own 690-item held-out with Track B's own scorer:**
+
+| system | title-kind citation recall | precision | lookup exact-prefix | absent items abstained | grounded |
+|---|---|---|---|---|---|
+| Track B closed-book 370M (A, §10) | 0.004 | 0.004 | 0.059 (prefix sim) | 5/9 | 0 |
+| this harness + 370M round-3 LoRA | 0.110 | 0.806 | 0.925 | 9/9 | 1.0 |
+| **this harness + 1.13B one-epoch SFT** | **0.374** | **0.612** | **0.987** | **9/9** | **1.0** |
+| (retriever-led veto, 370M frozen, §12.3, for reference only) | 0.762 | 0.801 | 0.167 | 7/9 | 1.0 |
+
+The generational step relative to what the sessions had this morning is not one trick but a
+stack, each piece measured on its own: a first stage that puts the gold on screen 98% of the
+time (`retrieval_tuning.py`); a selector trained by the RSI loop from its own gate-accepted
+labels (rounds 1 and 3, no gold read); an abstention rule calibrated on the decision it actually
+makes, per question template, with absent-gold negatives (F19); and the 1.13B, whose first real
+SFT ran today (§11, F17/F18) and which turns out to be the scale at which title matching and
+usable confidence both appear. Test-time training contributed nothing measurable at either scale
+(§10, §12.3); the weights that mattered were trained by the loop between queries, not during
+them, which is the RSI-harness thesis of §5 with the TTT half falsified for this task.
+
+**For the Track B session, in order of payoff:**
+1. Take `retrieval_tuning.py`'s best config and the F19/per-template calibration into the
+   product harness; they are CPU-only and worth most of the gain on their own.
+2. Run the 1.13B as the served model behind the harness. Its checkpoint is `runs/g0_sft_round1/
+   final.pt` (sha256 in `train_report.json`, 4.5 GB, untracked); `model_io.load_model` auto-
+   detects it; ~70 s for the 690. The next lever on it is a gated RSI round on the 1.13B itself,
+   which needs `g0/lora_megatron.py` wired into `loop.py` (the 370M path targets `nn.Linear`).
+3. Re-run Track B's own SFT with F11 (stop terminator) and F13 (titles in the corpus); the
+   published closed-book numbers were measuring those defects, not the model.
+4. Do not quote the 0.76 retriever-led figure as model capability, and do not merge this branch:
+   cherry-pick `prototypes/nyaya_ttt_rsi/`, `docs/`, and the fixes file. The branch carries two
+   publisher commits from its creation point.
+
+**For the core-engine session:** the gate hooks sketched in §7 were exercised for real today —
+five consolidation decisions, each with a probe regression and a per-kind dev check, one
+declined round — and the shape held. What §7 did not anticipate is that the abstention rule is
+itself a learned component that needs its own calibration set with synthetic negatives; that
+belongs in the gate's contract, not in the model's.
+
+**Cost of the afternoon (round 2):** Codex gpt-6-astra ≈ 60k tokens (retrieval tuning); Claude
+Sonnet subagents ≈ 1.3M tokens across three agents; GPU wall ≈ 55 min including the 1.13B SFT;
+host RAM stayed under the 8 GiB container cap throughout.

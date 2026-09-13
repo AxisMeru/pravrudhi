@@ -1,0 +1,16 @@
+{
+  "accepted": true,
+  "reason": "ok",
+  "dev_before": {
+    "law_citation_retrieval": 0.45098039215686275,
+    "law_cite_to_title": 1.0,
+    "law_lookup": 0.9716981132075472
+  },
+  "dev_after": {
+    "law_citation_retrieval": 0.47058823529411764,
+    "law_cite_to_title": 0.9775280898876404,
+    "law_lookup": 0.9811320754716981
+  },
+  "probe_delta_rel": 0.04714405630272732,
+  "accepted_probe_only": true
+}

@@ -1,0 +1,17 @@
+{
+  "n_sampled": 1200,
+  "exclude_ids_source": "/lab/prototypes/nyaya_ttt_rsi/runs/rsi_run1e/grounded_sft.jsonl",
+  "n_excluded_available": 2496,
+  "n_forced_abstain": 240,
+  "n_pseudo_accepted": 655,
+  "n_pseudo_rejected_abstained": 305,
+  "n_rejected_ungrounded": 0,
+  "purity": 0.8106870229007633,
+  "n_shuffle_copies_added": 224,
+  "by_kind_accepted": {
+    "law_lookup": 218,
+    "law_citation_retrieval": 213,
+    "law_cite_to_title": 224
+  },
+  "n_examples_total": 1119
+}

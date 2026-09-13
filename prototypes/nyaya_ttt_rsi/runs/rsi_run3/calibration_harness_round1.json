@@ -1,0 +1,164 @@
+{
+  "per_template": {
+    "law_citation_retrieval": {
+      "lambda_prior": 1.0,
+      "lambda_grid": [
+        {
+          "lambda_prior": 0.0,
+          "selection_accuracy": 0.26143790849673204
+        },
+        {
+          "lambda_prior": 0.25,
+          "selection_accuracy": 0.3006535947712418
+        },
+        {
+          "lambda_prior": 0.5,
+          "selection_accuracy": 0.32679738562091504
+        },
+        {
+          "lambda_prior": 1.0,
+          "selection_accuracy": 0.35947712418300654
+        }
+      ],
+      "tau_m": -6.5879848301410675,
+      "delta_m": 0.9915449283176905,
+      "balanced_accuracy": 0.6799628942486086,
+      "confusion": {
+        "cite_when_shown": 40,
+        "abstain_when_shown": 15,
+        "cite_when_miss": 36,
+        "abstain_when_miss": 62,
+        "n_shown": 55,
+        "n_miss": 98
+      },
+      "n_examples": 153,
+      "k": 4,
+      "label_mode": "selection_correct",
+      "abstain_on_synthetic_miss": {
+        "successes": 17,
+        "total": 34,
+        "rate": 0.5
+      }
+    },
+    "law_cite_to_title": {
+      "lambda_prior": 0.0,
+      "lambda_grid": [
+        {
+          "lambda_prior": 0.0,
+          "selection_accuracy": 0.7674418604651163
+        },
+        {
+          "lambda_prior": 0.25,
+          "selection_accuracy": 0.7674418604651163
+        },
+        {
+          "lambda_prior": 0.5,
+          "selection_accuracy": 0.7674418604651163
+        },
+        {
+          "lambda_prior": 1.0,
+          "selection_accuracy": 0.7674418604651163
+        }
+      ],
+      "tau_m": -4.081655144691467,
+      "delta_m": 0.0,
+      "balanced_accuracy": 0.9571969696969698,
+      "confusion": {
+        "cite_when_shown": 124,
+        "abstain_when_shown": 8,
+        "cite_when_miss": 1,
+        "abstain_when_miss": 39,
+        "n_shown": 132,
+        "n_miss": 40
+      },
+      "n_examples": 172,
+      "k": 4,
+      "label_mode": "selection_correct",
+      "abstain_on_synthetic_miss": {
+        "successes": 39,
+        "total": 40,
+        "rate": 0.975
+      }
+    },
+    "law_lookup": {
+      "lambda_prior": 1.0,
+      "lambda_grid": [
+        {
+          "lambda_prior": 0.0,
+          "selection_accuracy": 0.7771428571428571
+        },
+        {
+          "lambda_prior": 0.25,
+          "selection_accuracy": 0.7771428571428571
+        },
+        {
+          "lambda_prior": 0.5,
+          "selection_accuracy": 0.7771428571428571
+        },
+        {
+          "lambda_prior": 1.0,
+          "selection_accuracy": 0.7885714285714286
+        }
+      ],
+      "tau_m": -2.9252589866518974,
+      "delta_m": 0.0,
+      "balanced_accuracy": 0.9565217391304348,
+      "confusion": {
+        "cite_when_shown": 126,
+        "abstain_when_shown": 12,
+        "cite_when_miss": 0,
+        "abstain_when_miss": 37,
+        "n_shown": 138,
+        "n_miss": 37
+      },
+      "n_examples": 175,
+      "k": 4,
+      "label_mode": "selection_correct",
+      "abstain_on_synthetic_miss": {
+        "successes": 24,
+        "total": 24,
+        "rate": 1.0
+      }
+    }
+  },
+  "global": {
+    "lambda_prior": 1.0,
+    "lambda_grid": [
+      {
+        "lambda_prior": 0.0,
+        "selection_accuracy": 0.616
+      },
+      {
+        "lambda_prior": 0.25,
+        "selection_accuracy": 0.628
+      },
+      {
+        "lambda_prior": 0.5,
+        "selection_accuracy": 0.636
+      },
+      {
+        "lambda_prior": 1.0,
+        "selection_accuracy": 0.65
+      }
+    ],
+    "tau_m": -4.09336581081152,
+    "delta_m": 2.4969765108139033,
+    "balanced_accuracy": 0.8670329670329671,
+    "confusion": {
+      "cite_when_shown": 259,
+      "abstain_when_shown": 66,
+      "cite_when_miss": 11,
+      "abstain_when_miss": 164,
+      "n_shown": 325,
+      "n_miss": 175
+    },
+    "n_examples": 500,
+    "k": 4,
+    "label_mode": "selection_correct",
+    "abstain_on_synthetic_miss": {
+      "successes": 89,
+      "total": 98,
+      "rate": 0.9081632653061225
+    }
+  }
+}

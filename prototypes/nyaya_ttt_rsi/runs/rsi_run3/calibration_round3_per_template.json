@@ -1,0 +1,164 @@
+{
+  "per_template": {
+    "law_citation_retrieval": {
+      "lambda_prior": 1.0,
+      "lambda_grid": [
+        {
+          "lambda_prior": 0.0,
+          "selection_accuracy": 0.38562091503267976
+        },
+        {
+          "lambda_prior": 0.25,
+          "selection_accuracy": 0.39215686274509803
+        },
+        {
+          "lambda_prior": 0.5,
+          "selection_accuracy": 0.4117647058823529
+        },
+        {
+          "lambda_prior": 1.0,
+          "selection_accuracy": 0.45751633986928103
+        }
+      ],
+      "tau_m": -1.84629463031888,
+      "delta_m": 1.879799960139108,
+      "balanced_accuracy": 0.5995697074010327,
+      "confusion": {
+        "cite_when_shown": 19,
+        "abstain_when_shown": 51,
+        "cite_when_miss": 6,
+        "abstain_when_miss": 77,
+        "n_shown": 70,
+        "n_miss": 83
+      },
+      "n_examples": 153,
+      "k": 4,
+      "label_mode": "selection_correct",
+      "abstain_on_synthetic_miss": {
+        "successes": 32,
+        "total": 34,
+        "rate": 0.9411764705882353
+      }
+    },
+    "law_cite_to_title": {
+      "lambda_prior": 0.5,
+      "lambda_grid": [
+        {
+          "lambda_prior": 0.0,
+          "selection_accuracy": 0.7616279069767442
+        },
+        {
+          "lambda_prior": 0.25,
+          "selection_accuracy": 0.7616279069767442
+        },
+        {
+          "lambda_prior": 0.5,
+          "selection_accuracy": 0.7674418604651163
+        },
+        {
+          "lambda_prior": 1.0,
+          "selection_accuracy": 0.7674418604651163
+        }
+      ],
+      "tau_m": -1.8147571198642254,
+      "delta_m": 0.0,
+      "balanced_accuracy": 0.9015151515151515,
+      "confusion": {
+        "cite_when_shown": 106,
+        "abstain_when_shown": 26,
+        "cite_when_miss": 0,
+        "abstain_when_miss": 40,
+        "n_shown": 132,
+        "n_miss": 40
+      },
+      "n_examples": 172,
+      "k": 4,
+      "label_mode": "selection_correct",
+      "abstain_on_synthetic_miss": {
+        "successes": 40,
+        "total": 40,
+        "rate": 1.0
+      }
+    },
+    "law_lookup": {
+      "lambda_prior": 1.0,
+      "lambda_grid": [
+        {
+          "lambda_prior": 0.0,
+          "selection_accuracy": 0.7771428571428571
+        },
+        {
+          "lambda_prior": 0.25,
+          "selection_accuracy": 0.7771428571428571
+        },
+        {
+          "lambda_prior": 0.5,
+          "selection_accuracy": 0.7771428571428571
+        },
+        {
+          "lambda_prior": 1.0,
+          "selection_accuracy": 0.7942857142857143
+        }
+      ],
+      "tau_m": -4.473336607217789,
+      "delta_m": 0.0,
+      "balanced_accuracy": 0.9228617106314948,
+      "confusion": {
+        "cite_when_shown": 133,
+        "abstain_when_shown": 6,
+        "cite_when_miss": 4,
+        "abstain_when_miss": 32,
+        "n_shown": 139,
+        "n_miss": 36
+      },
+      "n_examples": 175,
+      "k": 4,
+      "label_mode": "selection_correct",
+      "abstain_on_synthetic_miss": {
+        "successes": 21,
+        "total": 24,
+        "rate": 0.875
+      }
+    }
+  },
+  "global": {
+    "lambda_prior": 1.0,
+    "lambda_grid": [
+      {
+        "lambda_prior": 0.0,
+        "selection_accuracy": 0.652
+      },
+      {
+        "lambda_prior": 0.25,
+        "selection_accuracy": 0.654
+      },
+      {
+        "lambda_prior": 0.5,
+        "selection_accuracy": 0.662
+      },
+      {
+        "lambda_prior": 1.0,
+        "selection_accuracy": 0.682
+      }
+    ],
+    "tau_m": -1.8962693630748528,
+    "delta_m": 2.753799406769586,
+    "balanced_accuracy": 0.8236042715653185,
+    "confusion": {
+      "cite_when_shown": 240,
+      "abstain_when_shown": 101,
+      "cite_when_miss": 9,
+      "abstain_when_miss": 150,
+      "n_shown": 341,
+      "n_miss": 159
+    },
+    "n_examples": 500,
+    "k": 4,
+    "label_mode": "selection_correct",
+    "abstain_on_synthetic_miss": {
+      "successes": 93,
+      "total": 98,
+      "rate": 0.9489795918367347
+    }
+  }
+}

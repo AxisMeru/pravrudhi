@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>rsi_run3 — run report</title>
+<style>:root {
+  color-scheme: light dark;
+  --bg: #ffffff; --fg: #1f2328; --muted: #59636e; --border: #d0d7de; --panel: #f6f8fa;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #0d1117; --fg: #e6edf3; --muted: #9198a1; --border: #3d444d; --panel: #161b22; }
+}
+body {
+  margin: 0; padding: 2rem 1.5rem; background: var(--bg); color: var(--fg);
+  font: 16px/1.5 -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+}
+main { max-width: 60rem; margin: 0 auto; }
+h1 { font-size: 1.6rem; margin: 0 0 .5rem; }
+h2 { font-size: 1.25rem; margin: 2rem 0 .5rem; border-bottom: 1px solid var(--border); padding-bottom: .25rem; }
+h3 { font-size: 1.05rem; margin: 1.25rem 0 .4rem; }
+dl.meta { display: flex; flex-wrap: wrap; gap: 0 1.75rem; margin: .25rem 0 0; padding: 0; }
+dl.meta dt { font-weight: 600; color: var(--muted); font-size: .78rem; text-transform: uppercase; letter-spacing: .03em; }
+dl.meta dd { margin: 0 0 .5rem; }
+table { border-collapse: collapse; margin: .75rem 0; width: 100%; font-size: .92rem; }
+th, td { border: 1px solid var(--border); padding: .4rem .6rem; text-align: left; vertical-align: top; font-variant-numeric: tabular-nums; }
+thead th { background: var(--panel); }
+tbody th { font-weight: 600; }
+ul { margin: .5rem 0; padding-left: 1.4rem; }
+figure.chart { margin: .75rem 0; padding: 0; }
+figure.chart svg { max-width: 100%; height: auto; display: block; }
+figure.chart figcaption { color: var(--muted); font-size: .85rem; margin-bottom: .4rem; }
+.legend { display: flex; flex-wrap: wrap; gap: .4rem 1rem; margin: .4rem 0; font-size: .85rem; }
+.legend .item { display: inline-flex; align-items: center; gap: .35rem; }
+.legend .swatch { width: .85rem; height: .85rem; border-radius: 2px; display: inline-block; }
+svg .axis { stroke: var(--muted); stroke-width: 1; fill: none; }
+svg .grid { stroke: var(--border); stroke-width: 1; stroke-dasharray: 2 3; }
+svg .tick { fill: var(--muted); font-size: 10px; }
+svg .axis-title { fill: var(--muted); font-size: 11px; }
+footer { margin-top: 2.5rem; color: var(--muted); font-size: .8rem; }</style>
+</head>
+<body>
+<main>
+<h1>Run report: rsi_run3</h1>
+<dl class="meta"><div><dt>Run</dt><dd>rsi_run3</dd></div><div><dt>Checkpoint</dt><dd>m7/m7_retry_checkpoint.pt (370M, law-tuned) + round-3 LoRA continued from round-1</dd></div><div><dt>Created</dt><dd>2026-09-13</dd></div><div><dt>Held-out queries</dt><dd>690</dd></div></dl>
+<h2>Conditions</h2>
+<table>
+<thead><tr>
+<th>Metric</th>
+<th>S4t — 370M + round-1 consolidated LoRA, k=4, GLOBAL selection-correct calib. (pointwise_run1)</th>
+<th>S4t_f — 370M frozen, k=4, GLOBAL selection-correct calib. (pointwise_run1)</th>
+<th>S4t_round3 — 370M + round-3 LoRA (continued from round-1), k=4, GLOBAL selection-correct calib.</th>
+<th>S4t_round3_template — 370M + round-3 LoRA, k=4, PER-TEMPLATE selection-correct calib.</th>
+</tr></thead>
+<tbody>
+<tr>
+<th scope="row">citation_recall</th>
+<td>0.044 (10/227) [0.024–0.079]</td>
+<td>0.542 (123/227) [0.477–0.605]</td>
+<td>0.093 (21/227) [0.061–0.137]</td>
+<td>0.110 (25/227) [0.076–0.158]</td>
+</tr>
+<tr>
+<th scope="row">citation_precision</th>
+<td>0.435 (10/23) [0.256–0.632]</td>
+<td>0.804 (123/153) [0.734–0.859]</td>
+<td>0.808 (21/26) [0.621–0.915]</td>
+<td>0.806 (25/31) [0.637–0.908]</td>
+</tr>
+<tr>
+<th scope="row">abstention_correctness</th>
+<td>0.222 (2/9) [0.063–0.547]</td>
+<td>1.000 (9/9) [0.701–1.000]</td>
+<td>1.000 (9/9) [0.701–1.000]</td>
+<td>1.000 (9/9) [0.701–1.000]</td>
+</tr>
+<tr>
+<th scope="row">gold_selected</th>
+<td>0.593 (409/690) [0.556–0.629]</td>
+<td>0.178 (123/690) [0.152–0.209]</td>
+<td>0.545 (376/690) [0.508–0.582]</td>
+<td>0.613 (423/690) [0.576–0.649]</td>
+</tr>
+<tr>
+<th scope="row">false_abstain_when_shown</th>
+<td>0.376 (255/679) [0.340–0.413]</td>
+<td>0.776 (527/679) [0.743–0.806]</td>
+<td>0.433 (294/679) [0.396–0.471]</td>
+<td>0.358 (243/679) [0.323–0.395]</td>
+</tr>
+<tr>
+<th scope="row">law_citation_retrieval_kind_gold_selected</th>
+<td>0.044 (10/227) [0.024–0.079]</td>
+<td>0.542 (123/227) [0.477–0.605]</td>
+<td>0.093 (21/227) [0.061–0.137]</td>
+<td>0.110 (25/227) [0.076–0.158]</td>
+</tr>
+<tr>
+<th scope="row">law_cite_to_title_kind_gold_selected</th>
+<td>0.890 (202/227) [0.842–0.924]</td>
+<td>0.000 (0/227) [0.000–0.017]</td>
+<td>0.789 (179/227) [0.731–0.837]</td>
+<td>0.828 (188/227) [0.774–0.872]</td>
+</tr>
+<tr>
+<th scope="row">law_lookup_kind_gold_selected</th>
+<td>0.868 (197/227) [0.818–0.906]</td>
+<td>0.000 (0/227) [0.000–0.017]</td>
+<td>0.775 (176/227) [0.717–0.825]</td>
+<td>0.925 (210/227) [0.883–0.953]</td>
+</tr>
+<tr>
+<th scope="row">pre_abstention_selection_accuracy</th>
+<td>–</td>
+<td>–</td>
+<td>0.804 (555/690) [0.773–0.832]</td>
+<td>–</td>
+</tr>
+</tbody>
+</table>
+<h3>Timing</h3>
+<table>
+<thead><tr>
+<th>Condition</th>
+<th>Wall time (s)</th>
+<th>Peak VRAM (GiB)</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>S4t — 370M + round-1 consolidated LoRA, k=4, GLOBAL selection-correct calib. (pointwise_run1)</td>
+<td>37.6</td>
+<td>2.97</td>
+</tr>
+<tr>
+<td>S4t_f — 370M frozen, k=4, GLOBAL selection-correct calib. (pointwise_run1)</td>
+<td>30.9</td>
+<td>2.94</td>
+</tr>
+<tr>
+<td>S4t_round3 — 370M + round-3 LoRA (continued from round-1), k=4, GLOBAL selection-correct calib.</td>
+<td>38.0</td>
+<td>3.56</td>
+</tr>
+<tr>
+<td>S4t_round3_template — 370M + round-3 LoRA, k=4, PER-TEMPLATE selection-correct calib.</td>
+<td>37.8</td>
+<td>3.56</td>
+</tr>
+</tbody>
+</table>
+<h2>Paired comparisons</h2>
+<table>
+<thead><tr>
+<th>a → b</th>
+<th>Metric</th>
+<th>b only</th>
+<th>c only</th>
+<th>McNemar p</th>
+<th>Bootstrap CI</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>S4t_round3 → S4t</td>
+<td>gold selected (index-exact, only where both conditions report it)</td>
+<td>77</td>
+<td>44</td>
+<td>0.00345</td>
+<td>[0.017, 0.077]</td>
+</tr>
+<tr>
+<td>S4t_round3 → S4t_f</td>
+<td>gold selected (index-exact, only where both conditions report it)</td>
+<td>109</td>
+<td>362</td>
+<td>9.33e-33</td>
+<td>[-0.420, -0.312]</td>
+</tr>
+<tr>
+<td>S4t_round3_template → S4t</td>
+<td>gold selected (index-exact, only where both conditions report it)</td>
+<td>48</td>
+<td>62</td>
+<td>0.215</td>
+<td>[-0.049, 0.010]</td>
+</tr>
+<tr>
+<td>S4t_round3_template → S4t_f</td>
+<td>gold selected (index-exact, only where both conditions report it)</td>
+<td>107</td>
+<td>407</td>
+<td>3.35e-42</td>
+<td>[-0.490, -0.381]</td>
+</tr>
+<tr>
+<td>S4t_round3_template → S4t_round3</td>
+<td>gold selected (index-exact, only where both conditions report it)</td>
+<td>1</td>
+<td>48</td>
+<td>1.78e-13</td>
+<td>[-0.087, -0.049]</td>
+</tr>
+</tbody>
+</table>
+<h2>Notes</h2>
+<ul>
+<li>Round-3 pseudo-labeled data: {&quot;n_sampled&quot;: 1200, &quot;exclude_ids_source&quot;: &quot;/lab/prototypes/nyaya_ttt_rsi/runs/rsi_run1e/grounded_sft.jsonl&quot;, &quot;n_excluded_available&quot;: 2496, &quot;n_forced_abstain&quot;: 240, &quot;n_pseudo_accepted&quot;: 655, &quot;n_pseudo_rejected_abstained&quot;: 305, &quot;n_rejected_ungrounded&quot;: 0, &quot;purity&quot;: 0.8106870229007633, &quot;n_shuffle_copies_added&quot;: 224, &quot;by_kind_accepted&quot;: {&quot;law_lookup&quot;: 218, &quot;law_citation_retrieval&quot;: 213, &quot;law_cite_to_title&quot;: 224}, &quot;n_examples_total&quot;: 1119}.</li>
+<li>Round-3 gate decision: accepted=True, reason=ok, probe_delta_rel=0.0471, dev_before={&#x27;law_citation_retrieval&#x27;: 0.45098039215686275, &#x27;law_cite_to_title&#x27;: 1.0, &#x27;law_lookup&#x27;: 0.9716981132075472}, dev_after={&#x27;law_citation_retrieval&#x27;: 0.47058823529411764, &#x27;law_cite_to_title&#x27;: 0.9775280898876404, &#x27;law_lookup&#x27;: 0.9811320754716981}.</li>
+<li>lambda=0 (no BM25-rank prior), global calib: recall={&#x27;successes&#x27;: 8, &#x27;total&#x27;: 227, &#x27;rate&#x27;: 0.03524229074889868, &#x27;ci_low&#x27;: 0.017963794807951294, &#x27;ci_high&#x27;: 0.06798951690016371}, gold_selected={&#x27;successes&#x27;: 355, &#x27;total&#x27;: 690, &#x27;rate&#x27;: 0.5144927536231884}.</li>
+<li>STEP 2 (round 4) was NOT run: round 3&#x27;s TRAIN-dev per-kind selection accuracy for its own targeted kind (law_cite_to_title) went from 1.000 before training to 0.978 after (a small decline, inside the gate&#x27;s 5-point tolerance but not an improvement), and law_lookup only rose 0.972-&gt;0.981; only law_citation_retrieval rose meaningfully on dev (0.451-&gt;0.471). The gate ACCEPTED (probe regression 4.7% &lt; 15%, no kind fell &gt;5 points), but the task&#x27;s round-4 trigger is gate acceptance AND a clear dev improvement -- since round 3 did not deliver the latter for its own target kind, running a compounding round 4 on top of a flat/ambiguous round 3 would have risked amplifying noise rather than signal, so round 4 was skipped per &#x27;never loosen the gate.&#x27;</li>
+<li>Global-calibration comparison (as S4t/S4t_f were originally reported): S4t_round3 (0.545 gold_selected) is WORSE than S4t (0.593, p=0.0035) -- the global threshold trades law_cite_to_title/law_lookup accuracy for a small law_citation_retrieval gain (0.044-&gt;0.093). Under PER-TEMPLATE calibration (2026-09-13 fix, applied identically to round 3&#x27;s own pseudo-labeling and its held-out eval), S4t_round3_template&#x27;s overall gold_selected (0.613) is not significantly different from S4t&#x27;s global number (0.593, p=0.215) -- i.e. round 3 plus per-template calibration roughly matches round 1&#x27;s overall selection rate while modestly improving law_citation_retrieval recall (0.044-&gt;0.110), but did not clearly improve the title kind it targeted (0.828 on held-out; no directly comparable round-1 or frozen per-template title number was run in this budget, since M4t/M8t&#x27;s per-template runs were on the 1.13B, not the 370M -- this is a real gap, disclosed rather than papered over: no 370M per-template FROZEN or round-1 baseline exists to confirm round 3 actually helped title selection specifically.</li>
+</ul>
+<footer>Generated by prototypes.nyaya_ttt_rsi.report</footer>
+</main>
+</body>
+</html>

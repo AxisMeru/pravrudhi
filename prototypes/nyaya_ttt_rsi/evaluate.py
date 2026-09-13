@@ -1323,6 +1323,230 @@ def calibrate_pointwise(model, tok, store, train_path, *, k: int, n: int = 500, 
 
 
 # ---------------------------------------------------------------------------
+# Per-template calibration (2026-09-13 correction, this run): a single
+# global (tau_m, delta_m, lambda_prior) cannot serve every question kind --
+# the M4t run found the title kind's (law_cite_to_title) NLL/margin
+# distribution is different enough from law_lookup/law_citation_retrieval
+# that one global threshold abstains on ~91% of title-kind items while
+# abstaining on ~0% of the other two. Fix: identify the question's surface
+# TEMPLATE with a small deterministic (never fitted) regex classifier --
+# the three citation-kind question templates in this corpus are fixed,
+# distinct natural-language patterns by construction (grounded_data.py never
+# generates law_cite_to_title from any string but "What is the subject of
+# ...?", etc.) -- and calibrate (and select lambda for) each template
+# SEPARATELY on the same natural dev slice, then apply the matching
+# template's thresholds at held-out time. The classifier reads the prompt's
+# own surface form, never the record's `kind` field, so it would work
+# identically on a real query whose kind is not already known.
+# ---------------------------------------------------------------------------
+
+_TEMPLATE_PATTERNS: list[tuple[str, re.Pattern]] = [
+    ("law_citation_retrieval", re.compile(r"^Which provision of .+ states: \".*\"\?$", re.S)),
+    ("law_cite_to_title", re.compile(r"^What is the subject of .+\?$")),
+    ("law_lookup", re.compile(r"^What does .+ provide\?$")),
+]
+
+
+def classify_question_template(question: str) -> str:
+    """Rule-based (never fitted) classification of a question's surface
+    template into one of the three citation-kind question forms this
+    corpus uses, or `"unknown"` if none match. Measured 100% agreement with
+    the record's own `kind` field (for citation kinds) and 0 `"unknown"` on
+    both the TRAIN and the full 690-item held-out set (`law_abstain`
+    records always use the `law_lookup` template, "What does X, Section N
+    provide?", for an X/N pair that does not exist in the corpus -- this
+    classifier correctly buckets them with `law_lookup`'s own threshold
+    group, which is the right calibration reference class since an abstain
+    item's surface form is indistinguishable from a real lookup question)."""
+    q = question.strip()
+    for kind, pattern in _TEMPLATE_PATTERNS:
+        if pattern.match(q):
+            return kind
+    return "unknown"
+
+
+def calibrate_scoring_with_rank_prior_per_template(
+    model, tok, store, train_path, *, k: int, n: int = 500, seed: int = 1,
+    lambda_grid: tuple = (0.0, 0.25, 0.5, 1.0), frac_miss: float = 0.2,
+    config: PromptConfig = PROMPT_CONFIG,
+) -> dict:
+    """Runs the SAME dev-slice construction and scoring as
+    `calibrate_scoring_with_rank_prior` (one `score_scoring_mode_dev_examples`
+    pass -- no extra forward passes), but partitions the dev examples by
+    `classify_question_template` (read off each example's own question, via
+    `parse_question_from_prompt` on the already-built dev prompt) and fits
+    (lambda_prior, tau_m, delta_m) SEPARATELY within each template group
+    (`loop.choose_calibration_thresholds`, unmodified, per group). An
+    `"unknown"`-template group (should not occur on this corpus, but never
+    silently mixed into another group's fit) uses the pooled/global fit as
+    its fallback. Returns `{"per_template": {tmpl: {...}}, "global": {...}}`
+    -- `"global"` is the ordinary `calibrate_scoring_with_rank_prior` result
+    computed on the SAME `examples`/`scored` (not a second dev draw), so the
+    two are directly comparable."""
+    from . import loop as loop_mod
+
+    examples = build_natural_dev_examples(train_path, store, k=k, n=n, seed=seed, frac_miss=frac_miss, config=config)
+    scored = score_scoring_mode_dev_examples(model, tok, examples)
+    # `score_scoring_mode_dev_examples` drops examples with no candidates
+    # (e.g. a `law_abstain` row retrieval returned zero passages for) --
+    # re-derive the template per SCORED example by re-zipping against the
+    # same filter it applies (candidates non-empty), so template and score
+    # stay aligned by position.
+    templates = []
+    for e in examples:
+        if not build_candidates(e["passages"], e["kind"], include_abstain=False):
+            continue
+        templates.append(classify_question_template(parse_question_from_prompt(e["prompt"])))
+
+    def is_correct(se: dict, idx: int | None) -> bool:
+        if idx is None:
+            return False
+        source = se["sources"][idx]
+        return source is not None and (source.act, source.section) == (se["act"], se["section"])
+
+    def fit_group(group_scored: list[dict]) -> dict:
+        lambda_grid_results = []
+        for lam in lambda_grid:
+            n_correct = sum(int(is_correct(se, select_scoring_with_rank_prior(se["nlls"], lam)["best_idx"]))
+                            for se in group_scored)
+            lambda_grid_results.append({"lambda_prior": lam,
+                                        "selection_accuracy": n_correct / len(group_scored) if group_scored else 0.0})
+        best_lambda = max(lambda_grid_results, key=lambda g: g["selection_accuracy"])["lambda_prior"]
+
+        rows = []
+        for se in group_scored:
+            sel = select_scoring_with_rank_prior(se["nlls"], best_lambda)
+            rows.append({"gold_shown": is_correct(se, sel["best_idx"]),
+                         "best_total_nll": -sel["best_score"] if sel["best_score"] is not None else float("inf"),
+                         "margin": sel["gap"]})
+        result = loop_mod.choose_calibration_thresholds(rows)
+        tau_m, delta_m = -result["tau"], result["delta"]
+
+        return {
+            "lambda_prior": best_lambda, "lambda_grid": lambda_grid_results,
+            "tau_m": tau_m, "delta_m": delta_m,
+            "balanced_accuracy": result["balanced_accuracy"], "confusion": result["confusion"],
+            "n_examples": len(group_scored), "k": k, "label_mode": "selection_correct",
+        }
+
+    global_result = fit_group(scored)
+    # abstain_on_synthetic_miss for the global fit, mirroring
+    # calibrate_scoring_with_rank_prior's own report field.
+    miss_scored_all = [se for se in scored if se.get("synthetic_miss")]
+    n_abstain_miss = sum(
+        int((sel := select_scoring_with_rank_prior(se["nlls"], global_result["lambda_prior"]))["best_score"] is None
+            or sel["best_score"] < global_result["tau_m"] or sel["gap"] < global_result["delta_m"])
+        for se in miss_scored_all
+    )
+    global_result["abstain_on_synthetic_miss"] = {
+        "successes": n_abstain_miss, "total": len(miss_scored_all),
+        "rate": n_abstain_miss / len(miss_scored_all) if miss_scored_all else 0.0,
+    }
+
+    per_template: dict[str, dict] = {}
+    for tmpl in sorted(set(templates)):
+        group_scored = [se for se, t in zip(scored, templates) if t == tmpl]
+        if not group_scored:
+            continue
+        fit = fit_group(group_scored)
+        miss_group = [se for se, t in zip(scored, templates) if t == tmpl and se.get("synthetic_miss")]
+        n_abstain_miss_t = sum(
+            int((sel := select_scoring_with_rank_prior(se["nlls"], fit["lambda_prior"]))["best_score"] is None
+                or sel["best_score"] < fit["tau_m"] or sel["gap"] < fit["delta_m"])
+            for se in miss_group
+        )
+        fit["abstain_on_synthetic_miss"] = {
+            "successes": n_abstain_miss_t, "total": len(miss_group),
+            "rate": n_abstain_miss_t / len(miss_group) if miss_group else 0.0,
+        }
+        per_template[tmpl] = fit
+
+    return {"per_template": per_template, "global": global_result}
+
+
+def run_condition_scoring_with_rank_prior_per_template(
+    model, tok, store, items: list[dict], out_dir, *,
+    k: int, template_calibration: dict, heldout_path=DEFAULT_HELDOUT, label: str | None = None,
+    config: PromptConfig = PROMPT_CONFIG,
+) -> dict:
+    """Held-out evaluation with a PER-TEMPLATE calibrated threshold: each
+    item's own question is classified by `classify_question_template`
+    (surface form only, never `rec["kind"]`) and scored/abstained using that
+    template's own `(tau_m, delta_m, lambda_prior)` from
+    `template_calibration["per_template"]` (falling back to
+    `template_calibration["global"]` for an unrecognized template, which
+    should not occur on this corpus -- see `classify_question_template`).
+    Otherwise identical to `run_condition_scoring_with_rank_prior` (same
+    retrieval, candidate-building, `compose_answer`, `_scoring_report`)."""
+    per_template = template_calibration.get("per_template", {})
+    global_cal = template_calibration.get("global", {})
+
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    peak_vram_before = _peak_vram_reset()
+
+    answers: list[dict] = []
+    retrieval_hit: dict[str, bool] = {}
+    n_dropped_passage = 0
+    template_used: dict[str, str] = {}
+
+    t0 = time.perf_counter()
+    for rec in items:
+        qid, question, kind = rec["id"], rec["prompt"], rec["kind"]
+        tmpl = classify_question_template(question)
+        template_used[qid] = tmpl
+        cal = per_template.get(tmpl, global_cal)
+        tau_m, delta_m, lambda_prior = cal.get("tau_m", float("-inf")), cal.get("delta_m", float("-inf")), cal.get("lambda_prior", 0.0)
+
+        prompt, passages, pb, dropped = retrieve_and_build_prompt(store, question, k, config)
+        n_dropped_passage += int(dropped)
+        if "act" in rec and "section" in rec:
+            retrieval_hit[qid] = any(
+                (p.act, p.section) == (rec["act"], rec["section"]) for p in passages
+            )
+        candidates = build_candidates(passages, kind, include_abstain=False)
+
+        if not candidates:
+            text, is_abstain, gold_selected = retrieval_mod.ABSTAIN_PHRASE, True, False
+            best_score = margin = None
+        else:
+            result = score_candidates(model, tok, prompt, candidates)
+            sel = select_scoring_with_rank_prior(result["total_nlls"], lambda_prior)
+            best_score, margin = sel["best_score"], sel["gap"]
+            should_abstain = (best_score < tau_m) or (margin < delta_m)
+            if should_abstain:
+                text, is_abstain, gold_selected = retrieval_mod.ABSTAIN_PHRASE, True, False
+            else:
+                _cand_text, source = candidates[sel["best_idx"]]
+                text, is_abstain = compose_answer(kind, source, store), False
+                gold_selected = (source.act, source.section) == (rec.get("act"), rec.get("section"))
+
+        record = {
+            "id": qid, "kind": kind, "template": tmpl, "prompt_bytes": pb, "answer": text,
+            "abstained": is_abstain, "cited": not is_abstain, "grounded": True,
+            "gold_selected": gold_selected, "best_score": best_score, "margin": margin,
+        }
+        answers.append(record)
+    t1 = time.perf_counter()
+
+    write_jsonl(out_dir / "answers.jsonl", answers)
+    peak_vram_mib = _peak_vram(peak_vram_before)
+    score = _score_law_qa(heldout_path, out_dir / "answers.jsonl")
+    report = _scoring_report(label or "scoring_with_rank_prior_per_template", label, items, answers, retrieval_hit,
+                             t1 - t0, peak_vram_mib, score)
+    report["mode"] = "scoring_with_rank_prior_per_template"
+    report["template_calibration"] = {tmpl: {"tau_m": c["tau_m"], "delta_m": c["delta_m"],
+                                             "lambda_prior": c["lambda_prior"]}
+                                      for tmpl, c in per_template.items()}
+    report["template_distribution"] = {t: sum(1 for v in template_used.values() if v == t)
+                                       for t in set(template_used.values())}
+    report["dropped_passage_count"] = n_dropped_passage
+    report["dropped_passage_rate"] = n_dropped_passage / len(items) if items else 0.0
+    (out_dir / "report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
+    return report
+
+
+# ---------------------------------------------------------------------------
 # Scoring mode + BM25-rank prior + selection-correctness calibration
 # (2026-09-13 correction): applies the same two ideas -- a `-log(rank)`
 # fusion prior and a selection-correctness (not gold-shown) calibration
@@ -1337,14 +1561,41 @@ def calibrate_pointwise(model, tok, store, train_path, *, k: int, n: int = 500, 
 # ---------------------------------------------------------------------------
 
 
-def build_natural_dev_examples(train_path, store, *, k: int, n: int = 500, seed: int = 1) -> list[dict]:
+def build_natural_dev_examples(train_path, store, *, k: int, n: int = 500, seed: int = 1,
+                               frac_miss: float = 0.2, config: PromptConfig = PROMPT_CONFIG) -> list[dict]:
     """Samples `n` TRAIN rows (citation kinds AND `law_abstain`, in their
     natural proportion) and retrieves each one's real top-k via
     `store.search` -- no shuffling, no forced gold inclusion/exclusion.
     `law_abstain` rows carry a real `(act, section)` for a document that
     does not exist in the corpus, so no candidate can ever match it: they
     contribute honestly-negative examples (should always abstain) without
-    any special-casing in the scoring/labeling code that consumes this."""
+    any special-casing in the scoring/labeling code that consumes this.
+
+    2026-09-13 correction (this run): the pointwise_run1 report found that
+    S4t/S4t_f's calibration -- built from this function -- never saw a
+    genuine "gold provision absent from the shown context" case for the
+    citation kinds (only `law_abstain`'s 9 real records, and only if they
+    happened to land in the `n`-sized sample), so the tau/delta grid was
+    never actually tested against the MVP's core claim ("cite only what is
+    in context, else abstain") for the common case. Fix, mirroring
+    `grounded_data`'s own synthetic-abstain construction (never inventing a
+    new mechanism): `frac_miss` of the sampled CITATION-kind rows (never
+    `law_abstain`, which has no gold to exclude in the first place) have
+    their gold passage excluded from the shown top-k via
+    `grounded_data._select_passages(..., exclude_gold=True)` -- the exact
+    same call `build_calibration_examples` already uses for the pointwise
+    calibration path. Each example's `prompt` is now the FULL rendered
+    grounded prompt (`render_prompt`, embedding the shown passages) rather
+    than the bare question -- matching exactly what
+    `run_condition_scoring_with_rank_prior` scores candidates against at
+    held-out time (the previous bare-question prompt meant calibration
+    scored candidates in a different context than eval ever does).
+    `examples[i]["synthetic_miss"]` flags a gold-excluded row for
+    `calibrate_scoring_with_rank_prior`'s `abstain_on_synthetic_miss` metric.
+    `config` lets a caller (e.g. a wider-budget condition like M8t) supply a
+    non-default `PromptConfig`; the shown passages are truncated to it via
+    `render_prompt`, exactly as `retrieve_and_build_prompt` does at eval
+    time."""
     import random
 
     from . import grounded_data
@@ -1355,11 +1606,22 @@ def build_natural_dev_examples(train_path, store, *, k: int, n: int = 500, seed:
     rng.shuffle(pool)
     sampled = pool[:n]
 
+    miss_eligible = [r for r in sampled if r["kind"] in grounded_data.CITATION_KINDS]
+    n_miss = int(round(len(miss_eligible) * frac_miss))
+    miss_ids = set(id(r) for r in rng.sample(miss_eligible, n_miss)) if n_miss else set()
+
     examples = []
     for rec in sampled:
-        passages = store.search(rec["prompt"], k)
+        is_miss = id(rec) in miss_ids
+        if is_miss:
+            gold = store.lookup(rec["act"], rec["section"])
+            passages = (grounded_data._select_passages(store, rec["prompt"], gold, k, exclude_gold=True)
+                        if gold is not None else store.search(rec["prompt"], k))
+        else:
+            passages = store.search(rec["prompt"], k)
+        prompt, trunc_passages, _pb, _dropped = render_prompt(rec["prompt"], passages, config)
         examples.append({"id": rec["id"], "kind": rec["kind"], "act": rec["act"], "section": rec["section"],
-                         "prompt": rec["prompt"], "passages": passages})
+                         "prompt": prompt, "passages": trunc_passages, "synthetic_miss": is_miss})
     return examples
 
 
@@ -1378,7 +1640,8 @@ def score_scoring_mode_dev_examples(model, tok, examples: list[dict], by: str = 
         result = score_candidates(model, tok, e["prompt"], candidates, by=by)
         nlls = result["total_nlls"] if by == "total" else result["mean_nlls"]
         scored.append({"act": e["act"], "section": e["section"],
-                       "sources": [source for _text, source in candidates], "nlls": nlls})
+                       "sources": [source for _text, source in candidates], "nlls": nlls,
+                       "synthetic_miss": e.get("synthetic_miss", False)})
     return scored
 
 
@@ -1402,18 +1665,28 @@ def select_scoring_with_rank_prior(nlls: list[float], lambda_prior: float) -> di
 
 
 def calibrate_scoring_with_rank_prior(model, tok, store, train_path, *, k: int, n: int = 500, seed: int = 1,
-                                      lambda_grid: tuple = (0.0, 0.25, 0.5, 1.0)) -> dict:
-    """Two-stage calibration on ONE natural dev slice (`build_natural_dev_examples`):
+                                      lambda_grid: tuple = (0.0, 0.25, 0.5, 1.0),
+                                      frac_miss: float = 0.2,
+                                      config: PromptConfig = PROMPT_CONFIG) -> dict:
+    """Two-stage calibration on ONE natural dev slice (`build_natural_dev_examples`,
+    now with `frac_miss` synthetic-absent-gold rows -- see that function's
+    2026-09-13 docstring addendum):
     (1) choose `lambda_prior` from `lambda_grid` by PRE-ABSTENTION selection
     accuracy (fused-score argmax == gold, ignoring abstention entirely --
     the question "does the rank prior make the model pick the right
     passage more often", not a balanced-accuracy abstention objective); (2)
     at that lambda, calibrate (tau_m, delta_m) by the SAME selection-
     correctness balanced-accuracy grid search `calibrate_pointwise` uses
-    (`loop.choose_calibration_thresholds`, reused unmodified)."""
+    (`loop.choose_calibration_thresholds`, reused unmodified). Also reports
+    `abstain_on_synthetic_miss`: at the chosen (lambda, tau_m, delta_m), the
+    fraction of the dev slice's synthetic-gold-excluded rows the calibrated
+    rule actually abstains on -- the number the selection-correct balanced-
+    accuracy objective is silently trading off against
+    `false_abstain_when_shown` (see `_scoring_report`), reported explicitly
+    here so that trade-off is visible rather than implicit in one scalar."""
     from . import loop as loop_mod
 
-    examples = build_natural_dev_examples(train_path, store, k=k, n=n, seed=seed)
+    examples = build_natural_dev_examples(train_path, store, k=k, n=n, seed=seed, frac_miss=frac_miss, config=config)
     scored = score_scoring_mode_dev_examples(model, tok, examples)
 
     def is_correct(se: dict, idx: int | None) -> bool:
@@ -1437,12 +1710,25 @@ def calibrate_scoring_with_rank_prior(model, tok, store, train_path, *, k: int, 
                      "best_total_nll": -sel["best_score"] if sel["best_score"] is not None else float("inf"),
                      "margin": sel["gap"]})
     result = loop_mod.choose_calibration_thresholds(rows)
+    tau_m, delta_m = -result["tau"], result["delta"]
+
+    miss_scored = [se for se in scored if se.get("synthetic_miss")]
+    n_abstain_miss = 0
+    for se in miss_scored:
+        sel = select_scoring_with_rank_prior(se["nlls"], best_lambda)
+        should_abstain = (sel["best_score"] is None) or (sel["best_score"] < tau_m) or (sel["gap"] < delta_m)
+        n_abstain_miss += int(should_abstain)
+    abstain_on_synthetic_miss = {
+        "successes": n_abstain_miss, "total": len(miss_scored),
+        "rate": n_abstain_miss / len(miss_scored) if miss_scored else 0.0,
+    }
 
     return {
         "lambda_prior": best_lambda, "lambda_grid": lambda_grid_results,
-        "tau_m": -result["tau"], "delta_m": result["delta"],
+        "tau_m": tau_m, "delta_m": delta_m,
         "balanced_accuracy": result["balanced_accuracy"], "confusion": result["confusion"],
         "n_examples": len(scored), "k": k, "label_mode": "selection_correct",
+        "abstain_on_synthetic_miss": abstain_on_synthetic_miss,
     }
 
 
@@ -1450,6 +1736,7 @@ def run_condition_scoring_with_rank_prior(
     model, tok, store, items: list[dict], out_dir, *,
     k: int, tau_m: float, delta_m: float, lambda_prior: float,
     heldout_path=DEFAULT_HELDOUT, label: str | None = None,
+    config: PromptConfig = PROMPT_CONFIG,
 ) -> dict:
     """Held-out scoring-mode evaluation with the BM25-rank-prior fusion:
     like `run_condition_calibrated`, but selects by `fuse_scoring_with_rank_prior`
@@ -1470,7 +1757,7 @@ def run_condition_scoring_with_rank_prior(
     t0 = time.perf_counter()
     for rec in items:
         qid, question, kind = rec["id"], rec["prompt"], rec["kind"]
-        prompt, passages, pb, dropped = retrieve_and_build_prompt(store, question, k)
+        prompt, passages, pb, dropped = retrieve_and_build_prompt(store, question, k, config)
         n_dropped_passage += int(dropped)
         if "act" in rec and "section" in rec:
             retrieval_hit[qid] = any(
