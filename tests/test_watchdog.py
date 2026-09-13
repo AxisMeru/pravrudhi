@@ -173,3 +173,83 @@ def test_an_install_level_with_the_source_is_not_reported(
 def test_a_source_checkout_has_no_install_to_be_behind(tmp_path: Path) -> None:
     """The development checkout runs from source and has no `releases/current`; it is never stale."""
     assert watchdog._stale_install(tmp_path) == []
+
+
+# 2026-09-13: Studio's own heartbeat timer was stopped for infra work at 11:42 and not restarted until 18:26 --
+# nearly six hours during which `pravrudhi-watch.service` (pointed, separately, at the wrong roots entirely)
+# would still have found nothing even if it had been aimed correctly, because `_silent_loop` only fires once
+# `heartbeat.jsonl` has gone stale past `scheduler_max_stale_s` (2 hours) -- a real gap, but a slower one than
+# checking whether the timer unit itself is active. This is that faster, more direct check: a caller who already
+# knows a root's timer unit and has already asked systemd whether it is active passes both in, and `check()`
+# reports it immediately rather than waiting for staleness to accumulate.
+def test_an_inactive_timer_is_a_high_severity_finding(tmp_path: Path) -> None:
+    found = watchdog.check(tmp_path, timer_unit="pravrudhi-heartbeat.timer", timer_active=False)
+
+    matches = [f for f in found if f.kind == "heartbeat_timer_inactive"]
+    assert len(matches) == 1 and matches[0].severity == "high"
+    assert "pravrudhi-heartbeat.timer" in matches[0].detail
+
+
+def test_an_active_timer_is_not_a_finding(tmp_path: Path) -> None:
+    found = watchdog.check(tmp_path, timer_unit="pravrudhi-heartbeat.timer", timer_active=True)
+
+    assert not any(f.kind == "heartbeat_timer_inactive" for f in found)
+
+
+def test_no_timer_unit_given_means_no_opinion(tmp_path: Path) -> None:
+    """A caller that does not know its timer's unit name (or is checking a root with no systemd timer at all,
+    e.g. a fresh clone) must not be told anything is wrong -- an inconclusive check is not a finding."""
+    found = watchdog.check(tmp_path)
+
+    assert not any(f.kind == "heartbeat_timer_inactive" for f in found)
+
+
+def test_timer_active_none_means_the_check_itself_could_not_run_and_says_nothing(tmp_path: Path) -> None:
+    """`timer_active=None` is the honest result of a query that failed on its own terms (no systemd user bus
+    reachable, `systemctl` missing) -- reading that as 'inactive' would cry wolf on every host that cannot run
+    the check at all, which is worse than not running it."""
+    found = watchdog.check(tmp_path, timer_unit="pravrudhi-heartbeat.timer", timer_active=None)
+
+    assert not any(f.kind == "heartbeat_timer_inactive" for f in found)
+
+
+class TestSystemdTimerActive:
+    """`systemd_timer_active` is the one impure edge of this feature -- everything else in this module reads
+    only files under `root`. Kept separate and tiny so `check()` itself stays a pure function of its inputs."""
+
+    def test_reports_active(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import subprocess
+
+        from pravrudhi.application.watchdog import systemd_timer_active
+
+        def fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+            assert cmd[-2:] == ["is-active", "pravrudhi-heartbeat.timer"]
+            return subprocess.CompletedProcess(cmd, 0, stdout="active\n", stderr="")
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        assert systemd_timer_active("pravrudhi-heartbeat.timer") is True
+
+    def test_reports_inactive(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import subprocess
+
+        from pravrudhi.application.watchdog import systemd_timer_active
+
+        def fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+            return subprocess.CompletedProcess(cmd, 3, stdout="inactive\n", stderr="")
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        assert systemd_timer_active("pravrudhi-heartbeat.timer") is False
+
+    def test_a_failed_query_is_none_not_inactive(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """No user bus reachable (this harness's own known failure mode without XDG_RUNTIME_DIR/
+        DBUS_SESSION_BUS_ADDRESS exported) or no `systemctl` binary at all -- both are 'cannot tell', not
+        'the timer stopped'."""
+        import subprocess
+
+        from pravrudhi.application.watchdog import systemd_timer_active
+
+        def fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+            raise OSError("systemctl not found")
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        assert systemd_timer_active("pravrudhi-heartbeat.timer") is None
