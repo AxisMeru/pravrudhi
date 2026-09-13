@@ -543,15 +543,27 @@ def _unstamp_dispatch_failure(root: Path, key: str) -> None:
     _dispatch_failure_times_path(root).write_text(json.dumps(data, indent=1, sort_keys=True))
 
 
-# What a vendor's account-quota or session-limit message looks like, plus the host's own memory-floor refusal
-# (heartbeat.py's own `_narrow_for_memory` message uses "below the ... GB floor"). Anchored on phrases the
-# actual incident text used ("You've hit your session limit · resets 11:40am") rather than a precise vendor
-# format, the same loose-substring trade-off `availability.classify` makes: a wrong call only mis-counts one
-# dispatch failure, it never crashes a beat.
-_EXTERNAL_WALL_RE = re.compile(
-    r"\b(usage limit|session limit|rate limit(?:ed)?|quota exhausted|out of memory|\boom\b|"
-    r"insufficient memory|below the [\d.]+\s*gb floor)\b",
+# The host's own memory-floor refusal (heartbeat.py's own `_narrow_for_memory` message uses "below the ... GB
+# floor") is inherently a refusal and cannot occur as incidental prose in an agent's own output - unlike the
+# phrases below, it needs no corroborating context.
+_UNAMBIGUOUS_WALL_RE = re.compile(
+    r"\b(quota exhausted|out of memory|\boom\b|insufficient memory|below the [\d.]+\s*gb floor)\b",
     re.IGNORECASE,
+)
+
+# A vendor's account-quota or session-limit message looks like this, but so does an agent's own prose about a
+# task that happens to be *about* rate limiting ("The script should rate limit its requests to the API") - a
+# dispatch failure carries the agent's output, not just the vendor's, and cli-lead caught that exact false
+# positive on 2026-09-13 before it shipped: it would have let a genuinely failing criterion burn its dispatch
+# budget forever, the opposite failure from the one this module exists to fix. So these phrases alone are not
+# enough; `external_wall_reason` also requires `_WALL_CONTEXT_RE` to appear in the same reason.
+_LIMIT_PHRASE_RE = re.compile(r"\b(usage limit|session limit|rate limit(?:ed)?)\b", re.IGNORECASE)
+
+# What a vendor's own refusal reads like around one of the phrases above ("You've hit your session limit ·
+# resets 11:40am (Europe/London)" is the literal incident text) - a task's prose about rate limiting has no
+# reason to say any of these.
+_WALL_CONTEXT_RE = re.compile(
+    r"\b(you'?ve hit|hit (?:its|your|a|the) |exceeded|resets?\b|try again|\b429\b)", re.IGNORECASE,
 )
 
 
@@ -559,10 +571,16 @@ def external_wall_reason(reasons: list[str]) -> str | None:
     """The external-wall phrase these dispatch-failure reasons name (a vendor's usage/session limit, or a
     memory-floor refusal), or `None`. A dispatch that failed for one of these reasons says nothing about
     whether the criterion is buildable, the same distinction ADR-0053 §5 draws for a genuine no-op - it must
-    never count towards `MAX_DISPATCH_FAILURES`."""
+    never count towards `MAX_DISPATCH_FAILURES`. Anchored on phrases the actual incidents used rather than a
+    precise vendor format, the same loose-substring trade-off `availability.classify` makes: a wrong call only
+    mis-counts one dispatch failure, it never crashes a beat."""
     for reason in reasons:
-        match = _EXTERNAL_WALL_RE.search(reason)
+        match = _UNAMBIGUOUS_WALL_RE.search(reason)
         if match:
+            return match.group(1).lower()
+    for reason in reasons:
+        match = _LIMIT_PHRASE_RE.search(reason)
+        if match and _WALL_CONTEXT_RE.search(reason):
             return match.group(1).lower()
     return None
 

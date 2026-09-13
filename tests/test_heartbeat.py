@@ -1068,6 +1068,30 @@ class TestExternalWallDispatchFailuresDoNotCountTowardsTheBudget:
         assert heartbeat.external_wall_reason(self._SESSION_LIMIT_REASONS) == "session limit"
         assert heartbeat.external_wall_reason(["agent exited non-zero: no detail"]) is None
 
+    def test_a_memory_floor_refusal_is_recognised_unambiguously(self) -> None:
+        assert heartbeat.external_wall_reason(
+            ["MemAvailable 4.8GB is below the 6.0GB floor"]
+        ) == "below the 6.0gb floor"
+
+    def test_a_genuine_failure_naming_permissions_is_not_a_wall(self) -> None:
+        assert heartbeat.external_wall_reason(
+            ["permission requested: external_directory (/tmp/*); auto-rejecting"]
+        ) is None
+
+    def test_prose_about_rate_limiting_is_not_mistaken_for_a_wall(self) -> None:
+        """cli-lead, 2026-09-13: a criterion whose own text is about rate limiting can put the bare phrase
+        into an agent's dispatch-failure reason for a dispatch that genuinely failed. Without wall-context the
+        phrase alone would exempt it from MAX_DISPATCH_FAILURES forever - the opposite failure from the one
+        this module exists to fix."""
+        assert heartbeat.external_wall_reason(
+            ["The script should rate limit its requests to the API, but the diff left that unimplemented."]
+        ) is None
+
+    def test_rate_limited_with_wall_context_is_still_recognised(self) -> None:
+        assert heartbeat.external_wall_reason(
+            ["agent exited non-zero: rate limited (429), try again later"]
+        ) == "rate limited"
+
     def test_a_session_limit_dispatch_failure_is_not_recorded(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -1770,6 +1794,19 @@ class TestStructuralIncapability:
             rejection_text="The note covers only option A and never mentions option B.",
         )
         assert gap is None
+
+    def test_no_execution_environment_fires_in_build_mode_too(self) -> None:
+        """Unlike `no_evidence_in_proposal_mode`, a missing display/browser/runtime is missing regardless of
+        dispatch mode - the remedy is a capable environment, not a mode change, so this category must not be
+        scoped to `mode == "proposal"`."""
+        from pravrudhi.application.heartbeat import structural_incapability
+
+        gap = structural_incapability(
+            mode="build", policy=self._policy("none"),
+            criterion_text=self._R5795501A_C8_TEXT,
+            rejection_text=self._R5795501A_REJECTION_3_NO_SANDBOX_DISPLAY,
+        )
+        assert gap is not None and gap.category == "no_execution_environment"
 
 
 class TestStructuralIncapabilityDeclinesRatherThanReattempts:
