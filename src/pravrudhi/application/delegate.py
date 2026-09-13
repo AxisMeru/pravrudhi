@@ -186,6 +186,12 @@ def dispatch(agent: Any, task: TaskSpec, *, log: Any = print) -> Verdict:
         # The end of the tail, not the beginning: a run that fails ends with its reason and starts with an echo
         # of the prompt it was given.
         tail = (run.stderr_tail or "").strip()
+        if not tail:
+            # ClaudeCodeAgent reports its own errors via a JSON envelope on stdout (`is_error:
+            # true`), which forces ok=False while the real explanation lands in `envelope.get(
+            # "result", out)` -> run.text, not stderr_tail (raw process stderr, legitimately
+            # empty for this failure mode -- claude's CLI doesn't write its own errors there).
+            tail = (run.text or "").strip()
         reasons.append(f"agent exited non-zero: {tail[-200:] or 'no detail'}")
         whole = f"{tail}\n{run.text or ''}"
         limited = availability.classify(agent.name, whole, 1) == "limited"

@@ -93,6 +93,21 @@ def test_an_empty_diff_with_no_explanation_still_gets_the_plain_reason(tmp_path)
     assert not v.accepted and "no change produced" in v.reasons
 
 
+def test_a_nonzero_exit_falls_back_to_run_text_when_stderr_tail_is_empty(tmp_path):
+    """ClaudeCodeAgent._attempt reports its own errors via a JSON envelope on stdout
+    (`is_error: true`), landing the real explanation in `run.text`, not `run.stderr_tail`
+    (the raw process stderr, legitimately empty for this failure mode -- claude's CLI
+    doesn't write its own errors there). Before this fix, `dispatch` only ever read
+    `stderr_tail`, so this exact failure mode always produced the useless literal
+    "no detail" even though the real reason was sitting in `run.text` the whole time."""
+    task = TaskSpec(task_id="t9", prompt="p", allowed_paths=("a.py",), validate="true")
+    real_error = "Error: No messages returned from query"
+    v = dispatch(FakeAgent(tmp_path, [], ok=False, text=real_error), task, log=lambda s: None)
+    assert not v.accepted
+    assert any(real_error in r for r in v.reasons)
+    assert not any("no detail" in r for r in v.reasons)
+
+
 def test_validation_really_runs_in_the_worktree(tmp_path):
     (tmp_path / "marker.txt").write_text("here")
     ok, out = validate_in(tmp_path, "test -f marker.txt && echo FOUND")
