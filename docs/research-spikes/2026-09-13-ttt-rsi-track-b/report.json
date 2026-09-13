@@ -1,0 +1,449 @@
+{
+  "model": "Qwen/Qwen2.5-1.5B-Instruct",
+  "device": "cuda",
+  "ttt_steps": 6,
+  "ttt_lr": 0.001,
+  "reject_threshold": 0.15,
+  "frozen_probe_nll": 1.6601485079154372,
+  "summaries": {
+    "frozen": {
+      "mode": "frozen",
+      "n": 10,
+      "correct_behavior_rate": 0.4,
+      "hallucination_rate": 0.1,
+      "abstention_accuracy": 0.75,
+      "probe_nll_start": 1.6601485079154372,
+      "probe_nll_end": 1.6601485079154372
+    },
+    "ephemeral": {
+      "mode": "ephemeral",
+      "n": 10,
+      "correct_behavior_rate": 0.6,
+      "hallucination_rate": 0.1,
+      "abstention_accuracy": 0.75,
+      "probe_nll_start": 1.6654946721391752,
+      "probe_nll_end": 1.696227935841307
+    },
+    "accumulated": {
+      "mode": "accumulated",
+      "n": 10,
+      "correct_behavior_rate": 0.8,
+      "hallucination_rate": 0.2,
+      "abstention_accuracy": 1.0,
+      "probe_nll_start": 1.6654946721391752,
+      "probe_nll_end": 2.0112518925452605
+    }
+  },
+  "gate_simulation_on_accumulated_run": {
+    "reject_threshold": 0.15,
+    "first_rejection": {
+      "step": 3,
+      "qid": "q4",
+      "probe_nll": 2.086554402951151,
+      "relative_increase": 0.25684804281222395
+    },
+    "total_would_reject": 7,
+    "all_rejections": [
+      {
+        "step": 3,
+        "qid": "q4",
+        "probe_nll": 2.086554402951151,
+        "relative_increase": 0.25684804281222395
+      },
+      {
+        "step": 4,
+        "qid": "q5",
+        "probe_nll": 2.165732308290899,
+        "relative_increase": 0.3045413093858073
+      },
+      {
+        "step": 5,
+        "qid": "q6",
+        "probe_nll": 2.223932633525692,
+        "relative_increase": 0.3395986099569907
+      },
+      {
+        "step": 6,
+        "qid": "q7",
+        "probe_nll": 2.206216884893365,
+        "relative_increase": 0.3289274268984513
+      },
+      {
+        "step": 7,
+        "qid": "q8",
+        "probe_nll": 2.083894915180281,
+        "relative_increase": 0.2552460850607396
+      },
+      {
+        "step": 8,
+        "qid": "q9",
+        "probe_nll": 2.01137440581806,
+        "relative_increase": 0.21156293923586333
+      },
+      {
+        "step": 9,
+        "qid": "q10",
+        "probe_nll": 2.0112518925452605,
+        "relative_increase": 0.21148914266151145
+      }
+    ]
+  },
+  "per_example": {
+    "frozen": [
+      {
+        "qid": "q1",
+        "answerable": true,
+        "answer": "insufficient basis in the provided graph\n\nThe question asks about the enforceability of a contract signed under threat of harm, which is not directly addressed ",
+        "cited": [],
+        "hallucinated": [],
+        "abstained": true,
+        "correct_behavior": false
+      },
+      {
+        "qid": "q2",
+        "answerable": true,
+        "answer": "[S3]\nInsufficient basis in the provided graph.",
+        "cited": [
+          "S3"
+        ],
+        "hallucinated": [
+          "S3"
+        ],
+        "abstained": true,
+        "correct_behavior": false
+      },
+      {
+        "qid": "q3",
+        "answerable": true,
+        "answer": "insufficient basis in the provided graph.",
+        "cited": [],
+        "hallucinated": [],
+        "abstained": true,
+        "correct_behavior": false
+      },
+      {
+        "qid": "q4",
+        "answerable": true,
+        "answer": "S4\n\nExplanation: The question asks about the standard of care for someone holding another's goods in bailment. According to the information provided, the correc",
+        "cited": [
+          "S4"
+        ],
+        "hallucinated": [],
+        "abstained": false,
+        "correct_behavior": true
+      },
+      {
+        "qid": "q5",
+        "answerable": true,
+        "answer": "insufficient basis in the provided graph",
+        "cited": [],
+        "hallucinated": [],
+        "abstained": true,
+        "correct_behavior": false
+      },
+      {
+        "qid": "q6",
+        "answerable": true,
+        "answer": "insufficient basis in the provided graph.",
+        "cited": [],
+        "hallucinated": [],
+        "abstained": true,
+        "correct_behavior": false
+      },
+      {
+        "qid": "q7",
+        "answerable": false,
+        "answer": "insufficient basis in the provided graph.",
+        "cited": [],
+        "hallucinated": [],
+        "abstained": true,
+        "correct_behavior": true
+      },
+      {
+        "qid": "q8",
+        "answerable": false,
+        "answer": "insufficient basis in the provided graph",
+        "cited": [],
+        "hallucinated": [],
+        "abstained": true,
+        "correct_behavior": true
+      },
+      {
+        "qid": "q9",
+        "answerable": false,
+        "answer": "S3",
+        "cited": [
+          "S3"
+        ],
+        "hallucinated": [],
+        "abstained": false,
+        "correct_behavior": false
+      },
+      {
+        "qid": "q10",
+        "answerable": false,
+        "answer": "insufficient basis in the provided graph",
+        "cited": [],
+        "hallucinated": [],
+        "abstained": true,
+        "correct_behavior": true
+      }
+    ],
+    "ephemeral": [
+      {
+        "qid": "q1",
+        "answerable": true,
+        "answer": "S1",
+        "cited": [
+          "S1"
+        ],
+        "hallucinated": [],
+        "abstained": false,
+        "correct_behavior": true
+      },
+      {
+        "qid": "q2",
+        "answerable": true,
+        "answer": "[S3]\nTo determine if a 16-year-old's signed loan agreement can be enforced once they turn 18 and agree to it, we need to consider the principle of \"void ab init",
+        "cited": [
+          "S2",
+          "S3"
+        ],
+        "hallucinated": [
+          "S3"
+        ],
+        "abstained": false,
+        "correct_behavior": false
+      },
+      {
+        "qid": "q3",
+        "answerable": true,
+        "answer": "insufficient basis in the provided graph",
+        "cited": [],
+        "hallucinated": [],
+        "abstained": true,
+        "correct_behavior": false
+      },
+      {
+        "qid": "q4",
+        "answerable": true,
+        "answer": "S4\n\nExplanation: The question asks for the standard of care applicable to someone holding another's goods in bailment. According to the information provided, th",
+        "cited": [
+          "S4"
+        ],
+        "hallucinated": [],
+        "abstained": false,
+        "correct_behavior": true
+      },
+      {
+        "qid": "q5",
+        "answerable": true,
+        "answer": "S5",
+        "cited": [
+          "S5"
+        ],
+        "hallucinated": [],
+        "abstained": false,
+        "correct_behavior": true
+      },
+      {
+        "qid": "q6",
+        "answerable": true,
+        "answer": "insufficient basis in the provided graph.",
+        "cited": [],
+        "hallucinated": [],
+        "abstained": true,
+        "correct_behavior": false
+      },
+      {
+        "qid": "q7",
+        "answerable": false,
+        "answer": "Insufficient basis in the provided graph. The question asks about a specific limitation period applicable to filing a suit for breach of a contract induced by c",
+        "cited": [],
+        "hallucinated": [],
+        "abstained": true,
+        "correct_behavior": true
+      },
+      {
+        "qid": "q8",
+        "answerable": false,
+        "answer": "insufficient basis in the provided graph",
+        "cited": [],
+        "hallucinated": [],
+        "abstained": true,
+        "correct_behavior": true
+      },
+      {
+        "qid": "q9",
+        "answerable": false,
+        "answer": "[S3]",
+        "cited": [
+          "S3"
+        ],
+        "hallucinated": [],
+        "abstained": false,
+        "correct_behavior": false
+      },
+      {
+        "qid": "q10",
+        "answerable": false,
+        "answer": "insufficient basis in the provided graph",
+        "cited": [],
+        "hallucinated": [],
+        "abstained": true,
+        "correct_behavior": true
+      }
+    ],
+    "accumulated": [
+      {
+        "qid": "q1",
+        "answerable": true,
+        "answer": "S1",
+        "cited": [
+          "S1"
+        ],
+        "hallucinated": [],
+        "abstained": false,
+        "correct_behavior": true
+      },
+      {
+        "qid": "q2",
+        "answerable": true,
+        "answer": "[S3]\nTo determine if a 16-year-old's signed loan agreement can be enforced once they turn 18 and agree to it, we need to consider the principle of \"void ab init",
+        "cited": [
+          "S2",
+          "S3"
+        ],
+        "hallucinated": [
+          "S3"
+        ],
+        "abstained": false,
+        "correct_behavior": false
+      },
+      {
+        "qid": "q3",
+        "answerable": true,
+        "answer": "S3\nC1",
+        "cited": [
+          "C1",
+          "S3"
+        ],
+        "hallucinated": [],
+        "abstained": false,
+        "correct_behavior": true
+      },
+      {
+        "qid": "q4",
+        "answerable": true,
+        "answer": "S4",
+        "cited": [
+          "S4"
+        ],
+        "hallucinated": [],
+        "abstained": false,
+        "correct_behavior": true
+      },
+      {
+        "qid": "q5",
+        "answerable": true,
+        "answer": "S5",
+        "cited": [
+          "S5"
+        ],
+        "hallucinated": [],
+        "abstained": false,
+        "correct_behavior": true
+      },
+      {
+        "qid": "q6",
+        "answerable": true,
+        "answer": "[S2] Insufficient basis in the provided graph.",
+        "cited": [
+          "S2"
+        ],
+        "hallucinated": [],
+        "abstained": true,
+        "correct_behavior": false
+      },
+      {
+        "qid": "q7",
+        "answerable": false,
+        "answer": "Insufficient basis in the provided graph.",
+        "cited": [],
+        "hallucinated": [],
+        "abstained": true,
+        "correct_behavior": true
+      },
+      {
+        "qid": "q8",
+        "answerable": false,
+        "answer": "Insufficient basis in the provided graph.",
+        "cited": [],
+        "hallucinated": [],
+        "abstained": true,
+        "correct_behavior": true
+      },
+      {
+        "qid": "q9",
+        "answerable": false,
+        "answer": "S4\nThe question about the burden of proof for time being of the essence in a contract is outside the scope of Section 3's discussion on contracts' terms. Theref",
+        "cited": [
+          "S4"
+        ],
+        "hallucinated": [
+          "S4"
+        ],
+        "abstained": true,
+        "correct_behavior": true
+      },
+      {
+        "qid": "q10",
+        "answerable": false,
+        "answer": "Insufficient basis in the provided graph. The graph does not address whether an offeree's partial payment counts as acceptance of a lapsed offer.",
+        "cited": [],
+        "hallucinated": [],
+        "abstained": true,
+        "correct_behavior": true
+      }
+    ]
+  },
+  "probe_traces": {
+    "frozen": [
+      1.6601485079154372,
+      1.6601485079154372,
+      1.6601485079154372,
+      1.6601485079154372,
+      1.6601485079154372,
+      1.6601485079154372,
+      1.6601485079154372,
+      1.6601485079154372,
+      1.6601485079154372,
+      1.6601485079154372
+    ],
+    "ephemeral": [
+      1.6654946721391752,
+      1.773256252054125,
+      1.8333791275508702,
+      1.72104692296125,
+      1.6944115720689297,
+      1.7941693819593638,
+      1.6654946721391752,
+      1.6897614797344431,
+      1.8197779360925779,
+      1.696227935841307
+    ],
+    "accumulated": [
+      1.6654946721391752,
+      1.8102163994917646,
+      1.8767967115854844,
+      2.086554402951151,
+      2.165732308290899,
+      2.223932633525692,
+      2.206216884893365,
+      2.083894915180281,
+      2.01137440581806,
+      2.0112518925452605
+    ]
+  },
+  "wall_clock_seconds": 15.4
+}
