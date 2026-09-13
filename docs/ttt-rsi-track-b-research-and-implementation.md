@@ -459,3 +459,58 @@ operator directly), not as something this session is asking to be approved.
   in this document can wait; nothing here is time-sensitive. Reply through the same channel Track B
   normally uses (per `pravrudhi-team-lead` memory: push a branch, the team-lead line reviews and merges)
   rather than treating this document itself as authoritative — it's a research proposal, not a decision.
+
+## 10. What the prototype found (2026-09-13, same day, Track B's real model and real held-out set)
+
+Everything below was measured on Track B's actual 370M law-tuned checkpoint
+(`m7_retry_checkpoint.pt`) against Track B's own 690-item held-out set and its own scorer
+(`scripts/eval/score_law_qa.py`), by the prototype in `prototypes/nyaya_ttt_rsi/`
+(run `rsi_run1e`; `report.md`/`report.json`/`report.html` committed there). Every number has a
+Wilson interval in the report; comparisons are paired McNemar over the same 690 items.
+
+| metric (690 held-out) | A: published closed-book | B′ frozen + harness | B′ consolidated | C′ = B′ + per-query TTT | D = one RSI self-training round |
+|---|---|---|---|---|---|
+| citation recall (score_law_qa) | 0.004 | 0.176 | 0.145 | 0.128 | **0.198** |
+| citation precision | 0.004 | 0.206 | 0.190 | 0.190 | **0.232** |
+| abstention correctness (9 items) | 0.556 | 0.444 | **0.889** | 0.889 | 0.889 |
+| law_lookup prefix similarity | 0.059 | 0.108 | **0.626** | 0.617 | 0.617 |
+| gold passage selected | – | 0.104 | 0.491 | 0.467 | **0.501** |
+| abstain when gold not retrieved | – | 0.514 | 0.777 | 0.770 | **0.851** |
+| false abstain when gold shown | – | 0.430 | 0.116 | 0.182 | **0.086** |
+| emitted citation grounded in context | 0.0 | 1.0 | 1.0 | 1.0 | 1.0 |
+
+- **A → B′: p = 1.1e-50** (gold-citation-present 0.003 → 0.259, bootstrap CI [0.22, 0.29]). The MVP
+  claim — *cites only what is in context, or abstains* — holds by construction (grounded rate 1.0)
+  and the accuracy behind it is no longer zero. Retrieval ceiling: recall@4 = 0.77 with section
+  titles in the corpus, so gold-selected 0.49–0.50 is ~65% of what retrieval allows.
+- **What did the work:** the RSI *harness* — a title-bearing retrieval layer, a compact node context
+  that fits the model's 512-byte training regime, likelihood *selection* over uniform candidates
+  instead of free generation, a harness-calibrated abstention rule (τ on best NLL, δ on margin,
+  fitted on a train-split dev slice, balanced accuracy 0.84 vs 0.58 for the frozen model), and one
+  gated consolidation SFT on 2,496 harness-built examples (regression probe Δ +7.5%, under the 15%
+  gate). B′-frozen shows the harness alone already lifts recall 0.004 → 0.176; consolidation is what
+  fixes abstention (0.44 → 0.89), selection (0.10 → 0.49) and lookup text (0.11 → 0.63).
+- **Per-query ephemeral TTT (the C′ column and a 8-cell dev sweep over steps × lr × targets): a
+  clean negative at 370M.** Best sweep cell +0.008 gold-selected on dev (below the 0.03 bar); the
+  aggressive cell (8 steps, lr 3e-3, all projections) was destructive (−0.41, false-abstain 0.86).
+  §3's thesis survives only in its first half at this scale: TTT gave the loop a new kind of
+  proposal, and the gate did its job (690/690 per-query decisions checked) — but the proposals were
+  not worth keeping. The design's containment worked; the capability did not appear.
+- **One RSI self-training round (D):** 500 fresh train-split prompts, no gold read; the harness's own
+  τ/δ accepted 366 pseudo-labels (for the record only, 70% matched gold); consolidation passed the
+  probe gate; re-calibrated. Directionally better on every sub-metric, **not significant** on the
+  headline (p = 0.54 at n = 690). One round is not evidence of compounding; it is evidence the loop
+  closes without a human in it and does not degrade.
+- **Six data/decoding defects in Track B's own pipeline were found and fixed on the way** (F11–F16
+  in `docs/research-spikes/2026-09-13-ttt-rsi-track-b/FIXES-FOR-MAIN-SESSIONS.md`): no stop
+  terminator in any SFT target (why its `citation_reached` was 25/227), a greedy-decoding trap toward
+  any fixed short string, section titles absent from the corpus (why "which provision states
+  '<title>'" was unlearnable from context), abstain-string memorisation from exact repetition, a
+  length bias in total-NLL selection, and the context-budget arithmetic. Plus the environment fixes
+  F1/F2/F5–F7 and **F17: Track B's 1.13B SFT OOM is closed** (fragmentation falsified with the
+  pre-registered test; batch 4 completes 40/40 at 23.8 GiB, 3 epochs ≈ 26 min).
+- **Revised reading of §5.3:** Phase 0–2 of the plan are effectively done and the answer to "does
+  per-query TTT help *this* model on *this* task" is no. The next lever is scale, not test-time
+  updates: the 1.13B line, now unblocked, with the same harness. A first real 1.13B SFT using the
+  round-1e data is recorded under `prototypes/nyaya_ttt_rsi/runs/g0_sft_round1/` (see §11 when
+  present).

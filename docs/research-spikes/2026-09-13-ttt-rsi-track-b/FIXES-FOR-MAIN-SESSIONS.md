@@ -6,6 +6,8 @@ Everything below was done in an isolated container (`ttt-lab`, started from the 
 touched the running `rtx5090-train`, the two engine containers, or any repo other than this
 branch. Each item says what is broken, what fixed it, and what the owning session should do.
 
+> Numbering note: sections were appended by several agents in parallel; F3/F4 were never used and the order below is by appending agent, not by number. The G0 result is F17.
+
 ## F1. `peft` is unusable in the `rtx5090-train:latest` image (`torchao` version pairing)
 
 - **Symptom:** `from peft import get_peft_model; get_peft_model(model, LoraConfig(...))` raises
@@ -438,7 +440,7 @@ branch. Each item says what is broken, what fixed it, and what the owning sessio
 The Qwen route spent 20× Codex's tokens on a comparable-size task (a tool loop re-reading files
 each step); fine on the Lite Plan's quota for one mechanical file, wrong for anything iterative.
 
-## F8. G0 (1.13B SFT) OOM: fragmentation FALSIFIED, batch 4 RUNS — Track B's blocker is closed
+## F17. G0 (1.13B SFT) OOM: fragmentation FALSIFIED, batch 4 RUNS — Track B's blocker is closed
 
 Both runs executed 2026-09-13 ~12:20 BST from `G0-OOM-RUN-PLAN.md` §1 in an isolated
 `prabhasa/nemo-5090:26.02` container (`--memory 12g`), GPU otherwise idle, repo and checkpoint
