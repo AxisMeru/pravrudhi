@@ -45,6 +45,6 @@ def test_write_demo_refuses_a_snapshot_that_still_carries_personal_data(monkeypa
     from pravrudhi.application import demo_export
 
     monkeypatch.setattr(demo_export, "redact_secrets", lambda text: text)
-    monkeypatch.setattr(demo_export, "build_demo", lambda root: {"note": "/home/ss/leak"})
+    monkeypatch.setattr(demo_export, "build_demo", lambda root, extra_ledger_roots=None: {"note": "/home/ss/leak"})
     with pytest.raises(SecretInSnapshot, match="home-path"):
         demo_export.write_demo(root=None, dest=None)  # type: ignore[arg-type]
