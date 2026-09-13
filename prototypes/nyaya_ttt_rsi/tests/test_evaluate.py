@@ -205,3 +205,105 @@ def test_compare_writes_paired_json(tmp_path, monkeypatch):
     assert result["grounded"]["b_rate"] == pytest.approx(2 / 3)
     assert out_path.exists()
     assert json.loads(out_path.read_text()) == result
+
+
+# ---------------------------------------------------------------------------
+# Scoring mode (F12 greedy-decoding-trap fix)
+# ---------------------------------------------------------------------------
+
+
+def test_build_candidates_citation_kind():
+    passages = make_store().passages
+    candidates = evaluate.build_candidates(passages, "law_citation_retrieval")
+    assert len(candidates) == 3  # 2 passages + abstain
+    assert candidates[0] == ("Article 17 (Constitution of India).", passages[0])
+    assert candidates[1] == ("Section 302 (Indian Penal Code).", passages[1])
+    assert candidates[2] == (ABSTAIN_PHRASE, None)
+
+
+def test_build_candidates_law_lookup_includes_full_text_and_citation():
+    passages = make_store().passages[:1]
+    candidates = evaluate.build_candidates(passages, "law_lookup")
+    text, source = candidates[0]
+    assert text == "Untouchability is abolished.\n\nCitation: Constitution of India, Article 17."
+    assert source is passages[0]
+
+
+def test_score_candidates_picks_lowest_nll(monkeypatch):
+    nlls_by_text = {"a": 2.0, "b": 0.5, "c": 3.0}
+    monkeypatch.setattr(evaluate, "_sequence_nll", lambda model, tok, prompt, text: nlls_by_text[text])
+    candidates = [("a", "src_a"), ("b", "src_b"), ("c", "src_c")]
+    result = evaluate.score_candidates(model=None, tok=None, prompt="p", candidates=candidates)
+    assert result["best_idx"] == 1
+    assert result["nlls"] == [2.0, 0.5, 3.0]
+    assert result["margin"] == pytest.approx(1.5)  # 2.0 - 0.5
+
+
+def test_parse_question_and_passages_round_trip():
+    from prototypes.nyaya_ttt_rsi.retrieval import build_grounded_prompt
+
+    passages = make_store().passages
+    prompt = build_grounded_prompt("What is abolished?", passages)
+    assert evaluate.parse_question_from_prompt(prompt) == "What is abolished?"
+    recovered = evaluate.parse_passages_from_prompt(prompt)
+    assert [(p.act, p.section) for p in recovered] == [(p.act, p.section) for p in passages]
+
+
+def test_run_condition_scoring_B_picks_gold_and_reports_grounded_1(tmp_path, monkeypatch):
+    fake_score_law_qa(monkeypatch)
+    passages = make_store().passages
+
+    def fake_nll(model, tok, prompt, text):
+        # Lowest NLL for the correct citation of whichever passage is asked about.
+        if "Article 17" in text:
+            return 0.1
+        if "Section 302" in text:
+            return 0.2
+        return 5.0  # abstain (and any wrong candidate) scores worst
+
+    monkeypatch.setattr(evaluate, "_sequence_nll", fake_nll)
+    items = make_items()  # q1 -> Article 17, q2 -> Section 302, q3 -> abstain kind
+    report = evaluate.run_condition_scoring("B", model=None, tok=None, store=make_store(),
+                                             items=items, out_dir=tmp_path / "Bscore")
+
+    answers = {a["id"]: a for a in evaluate.load_jsonl(tmp_path / "Bscore" / "answers.jsonl")}
+    assert answers["q1"]["gold_selected"] is True
+    assert answers["q2"]["gold_selected"] is True
+    assert report["grounded_rate"] == 1.0
+    assert report["gold_selected_overall"]["rate"] == pytest.approx(2 / 3)
+
+
+def test_run_condition_scoring_C_gate_rejection_falls_back_to_pre_score(tmp_path, monkeypatch):
+    fake_score_law_qa(monkeypatch)
+    # Pre-adapt scoring always prefers the correct passage; post-adapt scoring
+    # is corrupted (prefers abstain) -- the gate must reject on probe
+    # regression and fall back to the pre-adapt (correct) choice.
+    calls = {"n": 0}
+
+    def fake_nll(model, tok, prompt, text):
+        calls["n"] += 1
+        # First 3 calls = pre-adapt scoring of [passage_candidate, abstain]
+        # for the single q1 item; subsequent 3 = post-adapt.
+        pre = calls["n"] <= 3
+        if pre:
+            return 0.1 if "Article 17" in text else 5.0
+        return 5.0 if "Article 17" in text else 0.1  # post-adapt now prefers abstain
+
+    monkeypatch.setattr(evaluate, "_sequence_nll", fake_nll)
+    monkeypatch.setattr(evaluate, "_adapt", lambda *a, **k: 0.0)
+    monkeypatch.setattr(evaluate, "_snapshot", lambda loras: "SNAP")
+    monkeypatch.setattr(evaluate, "_restore", lambda loras, snap: None)
+    monkeypatch.setattr(evaluate, "_merged_delta_norm", lambda loras: 0.01)
+
+    probe = FakeProbe([1.0, 2.0])  # probe_before, probe_after -- 100% relative rise, rejected
+    ledger = GateLedger(str(tmp_path / "ledger"))
+    items = [make_items()[0]]  # q1 only
+    report = evaluate.run_condition_scoring(
+        "C", model=None, tok=None, store=make_store(), items=items, out_dir=tmp_path / "Cscore",
+        loras=["fake-lora"], probe=probe, ledger=ledger,
+    )
+
+    answers = {a["id"]: a for a in evaluate.load_jsonl(tmp_path / "Cscore" / "answers.jsonl")}
+    assert answers["q1"]["gold_selected"] is True  # fell back to the correct pre-adapt choice
+    assert answers["q1"]["gate"]["accepted"] is False
+    assert report["gate_summary"]["accepted"] == 0

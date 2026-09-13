@@ -257,6 +257,13 @@ def build_dataset(
 
     prompt_bytes = [len(e["prompt"].encode("utf-8")) for e in examples]
     target_bytes = [len(e["target"].encode("utf-8")) for e in examples]
+    # Cheap harness-gate check (2026-09-13 round-1 mode-collapse postmortem,
+    # F11 in FIXES-FOR-MAIN-SESSIONS.md): every target MUST end with
+    # TARGET_STOP_SUFFIX, or the model is never taught to self-terminate and
+    # generation runs the full max_new_tokens budget into a hallucinated
+    # continuation, exactly as round 1 did. This must always read 1.0; a
+    # value below 1.0 means the stop-suffix append step regressed.
+    n_with_suffix = sum(1 for e in examples if e["target"].endswith(TARGET_STOP_SUFFIX))
     stats = {
         "n_examples": len(examples),
         "n_rejected_no_gold_passage": n_rejected_no_gold,
@@ -264,12 +271,17 @@ def build_dataset(
         "n_synthetic_abstain": n_synthetic_abstain,
         "n_real_abstain": n_real_abstain,
         "abstain_share": (n_synthetic_abstain + n_real_abstain) / len(examples) if examples else 0.0,
+        "target_ends_with_stop_suffix_rate": n_with_suffix / len(examples) if examples else 1.0,
         "by_kind": {kind: sum(1 for e in examples if e["kind"] == kind) for kind in (*CITATION_KINDS, ABSTAIN_KIND)},
         "prompt_bytes": {"mean": sum(prompt_bytes) / len(prompt_bytes) if prompt_bytes else 0.0,
                          "max": max(prompt_bytes) if prompt_bytes else 0},
         "target_bytes": {"mean": sum(target_bytes) / len(target_bytes) if target_bytes else 0.0,
                          "max": max(target_bytes) if target_bytes else 0},
     }
+    assert stats["target_ends_with_stop_suffix_rate"] == 1.0, (
+        "harness gate: every training target must end with TARGET_STOP_SUFFIX "
+        f"(F11) -- got rate {stats['target_ends_with_stop_suffix_rate']}"
+    )
     return examples, stats
 
 

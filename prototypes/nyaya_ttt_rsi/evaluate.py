@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import re
 import sys
 import time
 from pathlib import Path
@@ -284,6 +285,89 @@ def retrieve_and_build_prompt(store, question: str, k: int = K_PASSAGES):
 
 
 # ---------------------------------------------------------------------------
+# Scoring mode (2026-09-13 pivot, round 2): greedy free generation hit a
+# "greedy-decoding trap" -- see F12 in FIXES-FOR-MAIN-SESSIONS.md -- where a
+# single fixed, short, low-entropy abstain string wins byte-1 argmax over
+# diverse, longer citation continuations even when a citation continuation
+# has higher TOTAL sequence likelihood. Scoring mode sidesteps free
+# generation entirely: build one candidate answer per shown passage (plus
+# the abstain string), score each candidate's mean per-byte NLL with
+# `model_io.sequence_nll` (never argmax-per-byte), and pick the argmin. This
+# is grounded BY CONSTRUCTION -- every candidate is either a shown passage's
+# citation or the abstain phrase -- so `grounded_rate` is always 1.0 in this
+# mode and the interesting metrics become which candidate was picked.
+# ---------------------------------------------------------------------------
+
+CANONICAL_CITATION_FORMAT = "{section} ({act})."
+
+
+def build_candidates(passages: list, kind: str) -> list[tuple[str, Any]]:
+    """One candidate per shown passage (source = the Passage), plus the
+    abstain phrase last (source = None). `kind == "law_lookup"` uses the
+    passage's own truncated text plus a trailing citation line (grounded by
+    construction: copied verbatim from the shown context); every other kind
+    uses the canonical citation format matching what `score_law_qa.py`
+    substring-matches (normalized act + normalized section), which is also
+    the format `grounded_data.py` writes its own citation-kind targets in."""
+    candidates: list[tuple[str, Any]] = []
+    for p in passages:
+        if kind == "law_lookup":
+            text = f"{p.text}\n\nCitation: {p.act}, {p.section}."
+        else:
+            text = CANONICAL_CITATION_FORMAT.format(section=p.section, act=p.act)
+        candidates.append((text, p))
+    candidates.append((retrieval_mod.ABSTAIN_PHRASE, None))
+    return candidates
+
+
+def score_candidates(model, tok, prompt: str, candidates: list[tuple[str, Any]]) -> dict:
+    """Scores every candidate's mean per-byte NLL (prompt excluded) and
+    returns the argmin plus every score, so the choice and the margin
+    between best and second-best are both inspectable."""
+    nlls = [_sequence_nll(model, tok, prompt, text) for text, _source in candidates]
+    order = sorted(range(len(nlls)), key=lambda i: nlls[i])
+    best_idx = order[0]
+    margin = (nlls[order[1]] - nlls[order[0]]) if len(order) > 1 else float("inf")
+    return {"best_idx": best_idx, "nlls": nlls, "margin": margin}
+
+
+_QUESTION_RE = re.compile(r"Question:\s*(.*?)\nAnswer:\s*\Z", re.S)
+# Bracket content is "{act}, {section}" -- act names can themselves contain a
+# comma (e.g. "Indian Evidence Act, 1872"), so split on the LAST ", " inside
+# the brackets, never the first (a section string never contains a comma).
+_PASSAGE_BLOCK_RE = re.compile(r"^\[(.+)\] (.*)\Z", re.S)
+
+
+def parse_question_from_prompt(prompt: str) -> str:
+    """Recovers the natural-language question from a `build_grounded_prompt`
+    output -- used by the in-sample sanity check, which only has the
+    already-built training prompt on disk, not the original question
+    string."""
+    match = _QUESTION_RE.search(prompt)
+    return match.group(1) if match else ""
+
+
+def parse_passages_from_prompt(prompt: str) -> list:
+    """Recovers the exact (already-truncated) passages a `build_grounded_prompt`
+    output was built from, by re-parsing its own `"[act, section] text"`
+    blocks -- exact by construction, unlike re-retrieving from the store
+    (which could return a different top-k than what training actually saw,
+    e.g. for a forced-gold-inclusion training example)."""
+    blocks = prompt.split("\n\n")
+    passages = []
+    for block in blocks[1:-1]:  # skip the instruction line and the Question/Answer tail
+        match = _PASSAGE_BLOCK_RE.match(block)
+        if not match:
+            continue
+        bracket_content, text = match.groups()
+        if ", " not in bracket_content:
+            continue
+        act, section = bracket_content.rsplit(", ", 1)
+        passages.append(retrieval_mod.Passage(act, section, text, f"{act}, {section}", None))
+    return passages
+
+
+# ---------------------------------------------------------------------------
 # Answer-record construction (used by both B and C/D paths).
 # ---------------------------------------------------------------------------
 
@@ -500,6 +584,148 @@ def _extra_metrics(items: list[dict], answers: list[dict], retrieval_hit: dict[s
         }
 
     return result
+
+
+def run_condition_scoring(
+    cond: str,
+    model,
+    tok,
+    store,
+    items: list[dict],
+    out_dir,
+    *,
+    loras: list | None = None,
+    ttt_cfg: dict | None = None,
+    probe=None,
+    ledger=None,
+    k: int = K_PASSAGES,
+    heldout_path=DEFAULT_HELDOUT,
+    label: str | None = None,
+) -> dict:
+    """Scoring-mode counterpart of `run_condition` -- see the "Scoring mode"
+    module comment above `build_candidates` for why this exists (the
+    greedy-decoding trap, F12). `cond` in {"B","C","D"} means the same thing
+    as in `run_condition`: B is frozen (score only, no adapt), C/D adapt
+    ephemerally per query (gated on probe regression only -- grounding is
+    guaranteed by construction in this mode) before rescoring, falling back
+    to the pre-adapt scoring on gate rejection."""
+    if cond not in ("B", "C", "D"):
+        raise ValueError(f"unknown condition: {cond!r}")
+    if cond in ("C", "D") and (loras is None or probe is None):
+        raise ValueError(f"condition {cond} requires loras and probe")
+
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    ttt_cfg = DEFAULT_TTT_CFG if ttt_cfg is None else ttt_cfg
+    peak_vram_before = _peak_vram_reset()
+
+    answers: list[dict] = []
+    retrieval_hit: dict[str, bool] = {}
+    base_snap = None
+    probe_before = None
+    if cond in ("C", "D"):
+        base_snap = _snapshot(loras)
+        probe_before = probe.nll(model, tok, _sequence_nll)
+
+    t0 = time.perf_counter()
+    for rec in items:
+        qid, question, kind = rec["id"], rec["prompt"], rec["kind"]
+        prompt, passages, pb = retrieve_and_build_prompt(store, question, k)
+        if "act" in rec and "section" in rec:
+            retrieval_hit[qid] = any(
+                (p.act, p.section) == (rec["act"], rec["section"]) for p in passages
+            )
+        candidates = build_candidates(passages, kind)
+        pre_score = score_candidates(model, tok, prompt, candidates)
+
+        gate_info = None
+        if cond == "B":
+            chosen = pre_score
+        else:
+            adapt_text = adapt_text_from_passages(passages)
+            _adapt(model, tok, adapt_text, loras, ttt_cfg.get("steps", 4), ttt_cfg.get("lr", 1e-3))
+            post_score = score_candidates(model, tok, prompt, candidates)
+            probe_after = probe.nll(model, tok, _sequence_nll)
+            decision = _decide(probe_before, probe_after, True,
+                               threshold=ttt_cfg.get("threshold", 0.15), delta_norm=_merged_delta_norm(loras))
+            if ledger is not None:
+                ledger.append(qid, decision)
+            _restore(loras, base_snap)
+            chosen = post_score if decision.accepted else pre_score
+            gate_info = dataclasses.asdict(decision)
+
+        best_idx = chosen["best_idx"]
+        text, source = candidates[best_idx]
+        is_abstain = source is None
+        gold_selected = (not is_abstain) and (source.act, source.section) == (rec.get("act"), rec.get("section"))
+        record = {
+            "id": qid, "kind": kind, "prompt_bytes": pb, "chosen_idx": best_idx, "answer": text,
+            "abstained": is_abstain, "cited": not is_abstain, "grounded": True,
+            "gold_selected": gold_selected, "nlls": chosen["nlls"], "margin": chosen["margin"],
+            "n_candidates": len(candidates),
+        }
+        if gate_info is not None:
+            record["gate"] = gate_info
+        answers.append(record)
+    t1 = time.perf_counter()
+
+    write_jsonl(out_dir / "answers.jsonl", answers)
+    peak_vram_mib = _peak_vram(peak_vram_before)
+    score = _score_law_qa(heldout_path, out_dir / "answers.jsonl")
+
+    by_id = {a["id"]: a for a in answers}
+    n = len(answers)
+    gold_n = sum(1 for a in answers if a["gold_selected"])
+    abstain_items = [r for r in items if r["kind"] == _ABSTAIN_KIND]
+    abstain_correct = sum(1 for r in abstain_items if by_id.get(r["id"], {}).get("abstained"))
+
+    per_kind: dict[str, dict] = {}
+    kinds: dict[str, list[dict]] = {}
+    for r in items:
+        kinds.setdefault(r["kind"], []).append(r)
+    for kind, recs in kinds.items():
+        hits = sum(1 for r in recs if by_id.get(r["id"], {}).get("gold_selected"))
+        total = len(recs)
+        lo, hi = stats.wilson(hits, total) if total else (0.0, 1.0)
+        per_kind[kind] = {"successes": hits, "total": total, "rate": hits / total if total else 0.0,
+                          "ci_low": lo, "ci_high": hi}
+
+    extra: dict[str, Any] = {
+        "grounded_rate": 1.0,
+        "hallucinated_citation_rate": 0.0,
+        "abstention_correct": {"successes": abstain_correct, "total": len(abstain_items),
+                               "rate": abstain_correct / len(abstain_items) if abstain_items else 0.0},
+        "per_kind_gold_selected_rate": per_kind,
+    }
+    if retrieval_hit:
+        miss_ids = [r["id"] for r in items if r["kind"] != _ABSTAIN_KIND and retrieval_hit.get(r["id"]) is False]
+        shown_ids = [r["id"] for r in items if r["kind"] != _ABSTAIN_KIND and retrieval_hit.get(r["id"]) is True]
+        abstain_on_miss = sum(1 for i in miss_ids if by_id.get(i, {}).get("abstained"))
+        false_abstain_when_shown = sum(1 for i in shown_ids if by_id.get(i, {}).get("abstained"))
+        lo, hi = stats.wilson(abstain_on_miss, len(miss_ids)) if miss_ids else (0.0, 1.0)
+        lo2, hi2 = stats.wilson(false_abstain_when_shown, len(shown_ids)) if shown_ids else (0.0, 1.0)
+        extra["abstain_on_miss"] = {"successes": abstain_on_miss, "total": len(miss_ids),
+                                    "rate": abstain_on_miss / len(miss_ids) if miss_ids else 0.0,
+                                    "ci_low": lo, "ci_high": hi}
+        extra["false_abstain_when_shown"] = {"successes": false_abstain_when_shown, "total": len(shown_ids),
+                                             "rate": false_abstain_when_shown / len(shown_ids) if shown_ids else 0.0,
+                                             "ci_low": lo2, "ci_high": hi2}
+
+    margins = [a["margin"] for a in answers if a["margin"] != float("inf")]
+    report = {
+        "condition": label or cond, "mode": "scoring", "n_items": len(items),
+        "wall_clock_seconds": {"total": t1 - t0, "per_item": (t1 - t0) / len(items) if items else 0.0},
+        "peak_vram_mib": peak_vram_mib,
+        "score": score,
+        "gold_selected_overall": {"successes": gold_n, "total": n, "rate": gold_n / n if n else 0.0},
+        "margin_stats": {"mean": sum(margins) / len(margins) if margins else 0.0,
+                         "min": min(margins) if margins else 0.0},
+        **extra,
+    }
+    if cond in ("C", "D") and ledger is not None:
+        report["gate_summary"] = ledger.summary()
+    (out_dir / "report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
+    return report
 
 
 # ---------------------------------------------------------------------------

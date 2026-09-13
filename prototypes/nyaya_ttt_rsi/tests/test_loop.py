@@ -279,3 +279,39 @@ def test_in_sample_sanity_check_computes_hit_and_spurious_rates(tmp_path, monkey
     assert result["n_abstain"] == 1
     assert result["abstain_correct_rate"] == 1.0
     assert result["passed"] is False  # 0.5 >= 0.5 hit-rate OK, but spurious 0.5 > 0.2 fails
+
+
+def test_in_sample_sanity_check_scoring_uses_reconstructed_passages(tmp_path, monkeypatch):
+    from prototypes.nyaya_ttt_rsi.retrieval import Passage, build_grounded_prompt
+
+    passages = [Passage("Indian Penal Code", "Section 302", "Punishment for murder.", "x", None)]
+    citation_prompt = build_grounded_prompt("murder", passages)
+    abstain_prompt = build_grounded_prompt("something else", passages)
+
+    dataset = tmp_path / "grounded_sft.jsonl"
+    rows = [
+        {"id": "c1", "kind": "law_citation_retrieval", "act": "Indian Penal Code", "section": "Section 302",
+         "prompt": citation_prompt, "target": "t", "synthetic_abstain": False},
+        {"id": "a1", "kind": "law_abstain", "act": "X", "section": "Y", "prompt": abstain_prompt, "target": "abstain"},
+    ]
+    with open(dataset, "w") as f:
+        for r in rows:
+            f.write(json.dumps(r) + "\n")
+
+    def fake_nll(model, tok, prompt, text):
+        # Correct citation wins for c1 (question "murder"); abstain wins for
+        # a1 (question "something else") -- discriminate on the QUESTION,
+        # not the shared passage text (both prompts' passage block mentions
+        # "murder" regardless of which question was asked).
+        if "Question: murder" in prompt:
+            return 0.1 if "Section 302" in text else 5.0
+        return 5.0 if "Section 302" in text else 0.1
+
+    monkeypatch.setattr(evaluate, "_sequence_nll", fake_nll)
+
+    result = loop.in_sample_sanity_check_scoring(model=None, tok=None, dataset_path=dataset,
+                                                  n_citation=1, n_abstain=1, seed=0)
+    assert result["citation_hit_rate"] == 1.0
+    assert result["spurious_abstain_rate"] == 0.0
+    assert result["abstain_correct_rate"] == 1.0
+    assert result["passed"] is True

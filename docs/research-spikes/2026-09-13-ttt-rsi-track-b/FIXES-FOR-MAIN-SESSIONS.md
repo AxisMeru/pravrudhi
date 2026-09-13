@@ -151,6 +151,102 @@ branch. Each item says what is broken, what fixed it, and what the owning sessio
   `isinstance` check to look one level through an existing wrapper), or an explicit multi-adapter
   design.
 
+## F11. No training target had a stop terminator -- byte model with no EOS never learns to self-terminate; Track B's own SFT data has the same property
+
+- **Symptom (round 1's mode collapse, 2026-09-13 pivot):** grounded conditions B'/C' -- the
+  first ones served from a persistent LoRA actually fine-tuned to answer in the grounded-prompt
+  format -- looked internally contradictory: abstention 9/9 "correct" AND `abstain_on_miss`
+  227/227 (both apparently perfect) alongside `hallucinated_citation_rate` 0.74 and
+  `grounded_rate` only 0.26. Raw generations explained it directly, e.g.
+  `'Not found in the provided corpus: no "Article 324 (Constitution of India).'` -- the model
+  correctly abstains, then keeps generating (nothing stopped it) and fabricates a
+  citation-shaped continuation that `retrieval.parse_answer` correctly detects as a citation.
+  `retrieval.grounded()` requires EVERY citation in an answer to be among the shown passages,
+  so that one fabricated tail alone flips an otherwise-correct or correctly-abstained answer to
+  `grounded=False`.
+- **Root cause:** round 1's `grounded_data.py` built every training target (citation AND
+  abstain) with no trailing terminator at all. This model's byte tokenizer has no EOS token and
+  `evaluate.generate`/`model_io.generate` always runs the full `max_new_tokens` budget
+  regardless (`evaluate.STOP_STRINGS` truncation is applied POST-HOC, after generation
+  completes -- it can only cut a stop string the model actually produced). Since training never
+  showed the model any token sequence that comes right after a correct answer, there was
+  nothing to teach it to emit `"\n\n"` (or any of `STOP_STRINGS`) there, so generation
+  continues unconstrained into the base model's pretrained continuation habits after every
+  single answer, citation or abstain alike.
+- **This is not specific to the harness's synthetic data.** Track B's own `law_v3` SFT targets
+  (`/trackB/data/sft/law_v3_train.jsonl`, `law_qa_heldout_v3.jsonl`) have the identical
+  property -- no terminator appended, and `scripts/m7/generate.py`'s own batched greedy decode
+  (mirrored by `model_io.generate`) has no stop-string or EOS handling either, just a fixed
+  per-kind `max_new_tokens` cap. This is very likely why Track B's own M7 eval report's
+  `law_lookup.citation_reached` was only 25/227 in the reproduced condition-A baseline
+  (`runs/baseline_A/report.json`) even on CLOSED-BOOK generation where the model has nothing
+  to hallucinate FROM except its own training distribution: with `max_new_tokens=256` fixed and
+  no terminator ever trained, generation for `law_lookup` almost always overruns or underruns
+  the actual citation's position in the target text, landing on an arbitrary cut point that
+  usually is not the citation line -- a property of the training recipe's lack of an explicit
+  stop signal, not of retrieval or model capacity.
+- **What `prototypes/nyaya_ttt_rsi` does about it (round 1b):** `grounded_data.py` now appends
+  `TARGET_STOP_SUFFIX = "\n\n"` to every training target (after the harness's own groundedness
+  gate checks the raw, unsuffixed target, so gate semantics are unaffected), and
+  `build_dataset`'s stats block now asserts
+  `target_ends_with_stop_suffix_rate == 1.0` as a hard harness-gate check on its own output, so
+  this specific regression cannot silently recur.
+- **Owner action (Track B):** consider appending an explicit, consistent terminator (e.g. a
+  literal `"\n\n"` or a dedicated sentinel byte) to every SFT target in future `law_v3`-style
+  data generation, and have `scripts/m7/generate.py` (and any caller of
+  `model_io.generate`/its own `batched_greedy_decode`) apply a matching stop-string truncation
+  post-generation -- the same two-sided fix (train the terminator, then look for it at eval
+  time) applied here. Without it, any fixed `max_new_tokens` cap is measuring "where generation
+  happened to be cut off", not "what the model considers its answer".
+
+## F12. Greedy free generation is structurally biased toward a single short, fixed answer string -- the "greedy-decoding trap"
+
+- **Context:** round 1b (after F11's terminator fix) passed its regression-probe gate
+  (probe_delta_rel 5.3%, under the 15% threshold) but FAILED the in-sample sanity check:
+  citation_hit_rate 0.0/30, spurious_abstain_rate 29/30 -- the consolidated model abstained on
+  almost every training prompt, including ones whose gold passage was shown in context.
+- **Diagnosis (main session, confirmed by the in-sample loss curve showing no training
+  instability -- epoch means 0.292/0.335/0.253, nothing runaway):** greedy decoding picks the
+  argmax byte at EVERY position independently, one byte at a time, with no lookahead to total
+  sequence likelihood. The abstain target is a single fixed string ("Not found in the provided
+  corpus") shared by 100% of the ~330 abstain examples (12.8% of training); its first byte 'N'
+  therefore accumulates a large, concentrated probability mass at position 1. The ~2,250
+  citation targets are structurally diverse (different acts, different section numbers, being
+  drawn from ~2,000+ distinct provisions), so their combined first-byte mass is spread thin
+  across many different starting bytes ('A', 'S', arbitrary `law_lookup` provision-text starts,
+  etc.). At byte 1, argmax can therefore favor 'N' (abstain) even for a prompt whose correct
+  citation continuation has strictly higher TOTAL sequence likelihood than the abstain
+  continuation -- greedy decoding never compares total sequence probability, only the
+  per-position conditional. This is a structural property of any single fixed low-entropy
+  target string competing against diverse alternatives under greedy decoding, independent of
+  how well the model was actually trained; it was masked in round 1 only because the missing
+  terminator (F11) produced a different, also-broken symptom (hallucinated continuations) before
+  this failure mode could even be observed cleanly.
+- **This applies to Track B's own inference path too.** `scripts/m7/generate.py` /
+  `model_io.generate`'s batched greedy decode has the exact same one-byte-at-a-time argmax
+  structure, and Track B's own `law_v3` training data has a real, non-synthetic `law_abstain`
+  class (80 train / 9 heldout records) using a fixed abstention phrasing -- any Track B eval or
+  downstream use of closed-book or grounded generation on this model inherits the same
+  structural risk of the model over-abstaining (or under-abstaining, depending on which
+  candidate happens to have the shorter/more probable prefix) whenever answer classes have very
+  different target-string entropy.
+- **What `prototypes/nyaya_ttt_rsi` does about it:** `evaluate.py` adds a "scoring mode"
+  (`build_candidates`, `score_candidates`, `run_condition_scoring`) that sidesteps greedy
+  decoding entirely for the grounded conditions: build one full candidate answer per shown
+  passage (canonical citation format matching what `score_law_qa.py` substring-matches, or the
+  passage text + citation line for `law_lookup`) plus the abstain phrase, score each candidate's
+  MEAN PER-BYTE NLL over its own full continuation with `model_io.sequence_nll`, and pick the
+  argmin -- this compares whole-sequence likelihood, not per-position argmax, so it cannot fall
+  into the greedy trap. It is also grounded by construction (every candidate is either a shown
+  passage's citation or the abstain phrase), so `grounded_rate` is always 1.0 in this mode and
+  the informative metrics become which candidate wins and by what margin.
+- **Owner action (Track B):** if closed-book or grounded generation ever needs to choose between
+  answering and abstaining (or between semantically distinct answer classes with very different
+  target-string entropy), consider scoring full candidate continuations by sequence likelihood
+  rather than relying on greedy free generation, especially when one class (like abstention) uses
+  a single fixed phrasing -- greedy decoding's byte-by-byte argmax is not equivalent to "the
+  model's most likely answer" whenever candidate classes differ this much in string diversity.
+
 ## F6. `load_megatron_blob`'s default config resolution can silently pick the wrong tree under a two-mount container layout
 
 - **Symptom (found while writing the G0 allocator-fragmentation run plan, not yet hit in a

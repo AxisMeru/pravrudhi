@@ -219,6 +219,61 @@ def in_sample_sanity_check(model, tok, dataset_path, *, n_citation: int = 30, n_
     }
 
 
+def in_sample_sanity_check_scoring(model, tok, dataset_path, *, n_citation: int = 30, n_abstain: int = 10,
+                                    seed: int = 0, min_citation_hit_rate: float = 0.5,
+                                    max_spurious_abstain_rate: float = 0.2) -> dict:
+    """Scoring-mode counterpart of `in_sample_sanity_check` (F12
+    greedy-decoding-trap fix, 2026-09-13 round 2): instead of free-generating
+    and pattern-matching the result, reconstruct the exact passages/question
+    each sampled training prompt was built from (`evaluate.parse_passages_from_prompt`
+    / `parse_question_from_prompt` -- exact, since they re-parse the prompt
+    the model actually saw, not a fresh retrieval call) and use
+    `evaluate.build_candidates` + `score_candidates` exactly as
+    `evaluate.run_condition_scoring` does at held-out time."""
+    examples = evaluate.load_jsonl(dataset_path)
+    citation_pool = [e for e in examples if e["kind"] != "law_abstain" and not e.get("synthetic_abstain")]
+    abstain_pool = [e for e in examples if e["kind"] == "law_abstain" or e.get("synthetic_abstain")]
+
+    rng = random.Random(seed)
+    citation_sample = rng.sample(citation_pool, min(n_citation, len(citation_pool)))
+    abstain_sample = rng.sample(abstain_pool, min(n_abstain, len(abstain_pool)))
+
+    def score_one(e):
+        passages = evaluate.parse_passages_from_prompt(e["prompt"])
+        candidates = evaluate.build_candidates(passages, e["kind"])
+        result = evaluate.score_candidates(model, tok, e["prompt"], candidates)
+        text, source = candidates[result["best_idx"]]
+        return text, source, result["margin"]
+
+    citation_results = []
+    for e in citation_sample:
+        text, source, margin = score_one(e)
+        hit = source is not None and (source.act, source.section) == (e["act"], e["section"])
+        citation_results.append({"id": e["id"], "answer": text, "hit": hit,
+                                  "spurious_abstain": source is None, "margin": margin})
+
+    abstain_results = []
+    for e in abstain_sample:
+        text, source, margin = score_one(e)
+        abstain_results.append({"id": e["id"], "answer": text, "correct": source is None, "margin": margin})
+
+    n_cite = len(citation_results)
+    citation_hit_rate = sum(1 for r in citation_results if r["hit"]) / n_cite if n_cite else 0.0
+    spurious_abstain_rate = sum(1 for r in citation_results if r["spurious_abstain"]) / n_cite if n_cite else 0.0
+    n_abst = len(abstain_results)
+    abstain_correct_rate = sum(1 for r in abstain_results if r["correct"]) / n_abst if n_abst else 0.0
+
+    passed = citation_hit_rate >= min_citation_hit_rate and spurious_abstain_rate <= max_spurious_abstain_rate
+    return {
+        "passed": passed,
+        "n_citation": n_cite, "citation_hit_rate": citation_hit_rate,
+        "spurious_abstain_rate": spurious_abstain_rate,
+        "n_abstain": n_abst, "abstain_correct_rate": abstain_correct_rate,
+        "min_citation_hit_rate": min_citation_hit_rate, "max_spurious_abstain_rate": max_spurious_abstain_rate,
+        "citation_examples": citation_results, "abstain_examples": abstain_results,
+    }
+
+
 def sft_train(model, tok, loras, pairs: list[tuple[str, str]], *, lr: float, epochs: int = 1,
               max_grad_norm: float = 1.0, log_every: int = 100) -> list[float]:
     """Prompt-masked next-byte CE SFT over `pairs` (each `(prompt, target)`),
