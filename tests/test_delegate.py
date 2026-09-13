@@ -134,3 +134,16 @@ def test_dispatch_gives_the_agent_a_scratch_dir_and_cleans_it_up(tmp_path):
     assert SCRATCH_DIRNAME in seen["prompt"], "the brief never told the agent where its scratch dir is"
     ws = tmp_path / "t9"
     assert not (ws / SCRATCH_DIRNAME).exists(), "the scratch dir must be discarded after the dispatch, not left behind"
+
+    # Named in the SAME sentence as the restriction, not a separate one elsewhere in the brief (a real dispatch
+    # prompt read exactly this way as self-contradictory before this was fixed, 2026-09-13): the scratch entry
+    # must sit inside the "ONLY these paths" list itself, no period between the restriction and the exception.
+    only_line = next(ln for ln in seen["prompt"].splitlines() if "ONLY these paths" in ln)
+    assert f"{SCRATCH_DIRNAME}/**" in only_line, "scratch must be IN the allow-list line, not a later sentence"
+
+    # loop_agent.py/hosted_agent.py's ALLOWED_PATHS_LINE regex parses this exact sentence to learn what a
+    # non-Claude-Code agent may write -- the scratch entry must survive as a clean, separate token, not prose
+    # that corrupts the comma-split.
+    from pravrudhi.agents.loop_agent import _allowed_patterns
+
+    assert _allowed_patterns(seen["prompt"]) == ("a.py", f"{SCRATCH_DIRNAME}/**")
