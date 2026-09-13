@@ -38,3 +38,56 @@ branch. Each item says what is broken, what fixed it, and what the owning sessio
   `/lab`, Track B repo at `/trackB` (ro), `~/.local/share/prabhasa-samskrutam` at `/trackB-local`
   (ro), `--memory 8g --memory-swap 8g` (measured 370M/1.13B RSS is ≈3–5 GiB per Track B's own G0
   notes, so 8 GiB is a cap that fails fast instead of thrashing the host).
+
+## F5. Loading `m7_retry_checkpoint.pt` with `map_location="cpu"` OOM-kills in an 8 GiB container
+
+- **Symptom:** `torch.load(ckpt_path, map_location="cpu", weights_only=False)` on the 4.2 GB
+  `m7_retry_checkpoint.pt` blob — the exact pattern used by both
+  `prabhasa.infrastructure.ml.inference.NemotronHRunner` (which loads to `self.device`, so it
+  is only at risk when that device is `"cpu"`) and `scripts/m7/dry_run_sft.py::load_source_model`
+  (which always hardcodes `map_location="cpu"`) — gets killed (exit 137) inside the `ttt-lab`
+  container (`--memory 8g --memory-swap 8g`). The unpickle stages the full state dict as host
+  RAM tensors before any device transfer; building a second, CPU-resident `NemotronH` (353M
+  params) alongside that staged copy pushes past the cap even before `.to(device)` runs.
+- **What works (verified in `ttt-lab`, used in `prototypes/nyaya_ttt_rsi/model_io.py::load_model`):**
+  `torch.load(ckpt_path, map_location="cuda:0", weights_only=False, mmap=True)` — loading
+  straight to the CUDA device skips the CPU staging buffer for tensor storages, and `mmap=True`
+  (torch ≥ 2.1; confirmed present in `prabhasa/nemo-5090:26.02`'s torch 2.10) maps the file's
+  storages instead of reading them fully into memory up front. Verified end-to-end: loads,
+  generates the full 690-item `law_qa_heldout_v3.jsonl` set, and reproduces Track B's own
+  published M7 "after" numbers (citation recall/precision 1/227, abstention 5/9,
+  `law_lookup.prefix_similarity_mean` 0.0587 vs the recorded 0.0584) inside the 8 GiB cap
+  (peak VRAM 5.46 GiB, host RAM never spiked).
+- **Owner action (Track B):** `scripts/m7/dry_run_sft.py::load_source_model` always loads to
+  `"cpu"` regardless of the caller's target device — anyone re-running it (or copying its
+  pattern) inside a RAM-capped container should switch that call to
+  `map_location=<target_device>, mmap=True` when the target is CUDA, or otherwise ensure the
+  host has enough free RAM to stage the full checkpoint (~4.2 GB) plus a CPU-resident model
+  copy (~1.4 GB fp32) simultaneously.
+
+## F6. `load_megatron_blob`'s default config resolution can silently pick the wrong tree under a two-mount container layout
+
+- **Symptom (found while writing the G0 allocator-fragmentation run plan, not yet hit in a
+  real run):** `scripts/m4/eval_adapter.py::load_megatron_blob`'s `config_path=None` default
+  calls `_find_repo_config(blob_path)`, which walks up from the **checkpoint's own path**
+  looking for `configs/train/nemotron_h_1b.yaml` — it never looks relative to `--repo-root`.
+  `scripts/g0/sft_megatron_batched.py` passes `args.config` straight through, so if a caller
+  omits `--config`, resolution depends entirely on where `--checkpoint` happens to sit.
+- **Why this matters for a container run specifically:** the G0 OOM test plan
+  (`G0-OOM-RUN-PLAN.md`, this directory) mounts the checkpoint's real location
+  (`/home/ss/fusion-project`, a full separate mirror of the repo, confirmed by `find`/`ls` to
+  contain its own `configs/train/nemotron_h_1b.yaml`) read-only at `/fusion-project`, and the
+  actual Track B git checkout (branch `h-ord/phase1`) read-only at `/trackB`. An unset
+  `--config` would resolve against `/fusion-project`'s mirrored config, not `/trackB`'s
+  checked-out one — silently, no error, no log line naming which tree was used. Verified by
+  `diff` that the two `nemotron_h_1b.yaml` files are byte-identical right now, so this has not
+  caused a wrong-config load yet, but nothing enforces that they stay in sync (the mirror is
+  a separate, unversioned copy), and a future edit to `/trackB`'s config on `h-ord/phase1`
+  would silently not apply to any run that omits `--config`.
+- **What works:** always pass `--config` explicitly (e.g.
+  `--config /trackB/configs/train/nemotron_h_1b.yaml`) in any container invocation that
+  mounts the checkpoint's real (fusion-project) location separately from the repo checkout.
+- **Owner action (Track B):** either make `sft_megatron_batched.py` require `--config`
+  (drop the `default=None` convenience) when `--repo-root` and `--checkpoint` resolve to
+  different filesystem trees, or have `load_megatron_blob` prefer a `repo_root`-relative
+  config path when one is available instead of always deriving it from the checkpoint path.
