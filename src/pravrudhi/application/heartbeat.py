@@ -33,7 +33,7 @@ import re
 import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass, replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -486,20 +486,115 @@ def dispatch_failures(root: Path, request_id: str, index: int) -> int:
     return _dispatch_failures_all(root).get(key, 0)
 
 
-def record_dispatch_failure(root: Path, request_id: str, index: int) -> int:
-    """Count one dispatch-level failure (accepted=False). Separate from judged attempts."""
+def record_dispatch_failure(root: Path, request_id: str, index: int, *, now: datetime | None = None) -> int:
+    """Count one dispatch-level failure (accepted=False). Separate from judged attempts.
+
+    `now` is a test-only escape hatch for `DISPATCH_FAILURE_EXPIRY_HOURS`; production callers never pass it.
+    """
     data = _dispatch_failures_all(root)
     key = f"{request_id}:{index}"
     data[key] = data.get(key, 0) + 1
     path = _dispatch_failures_path(root)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, indent=1, sort_keys=True))
+    _stamp_dispatch_failure(root, key, now=now)
     return data[key]
 
 
-def dispatch_failures_exhausted(root: Path, request_id: str, index: int) -> bool:
-    """Whether this criterion has spent its dispatch failure budget."""
-    return dispatch_failures(root, request_id, index) >= MAX_DISPATCH_FAILURES
+_DISPATCH_FAILURE_TIMES_FILE = ".pravrudhi/dispatch-failure-times.json"
+
+# The fallback for a wall `external_wall_reason` does not recognise (2026-09-13, cli-lead): Studio's
+# r-cad91781:13 and product's r-55c7083e:1 were both parked on the exact same vendor session-limit message,
+# and stayed parked with no way back until a lead hand-edited the JSON, because nothing reversed
+# `record_dispatch_failure`. The primary fix is that this text is now recognised and never recorded at all
+# (see `external_wall_reason`); this is the safety net for a phrasing that is not, so an unnamed external cause
+# still cannot wedge a criterion shut forever. Six hours is long enough that a session-limit or memory-floor
+# wall (both measured in minutes to a few hours) has certainly passed, short enough that a criterion genuinely
+# re-failing keeps counting well within the same working day.
+DISPATCH_FAILURE_EXPIRY_HOURS = 6.0
+
+_TIME_STAMP = "%Y-%m-%dT%H:%M:%SZ"
+
+
+def _dispatch_failure_times_path(root: Path) -> Path:
+    return Path(root) / _DISPATCH_FAILURE_TIMES_FILE
+
+
+def _dispatch_failure_times_all(root: Path) -> dict[str, str]:
+    try:
+        data = json.loads(_dispatch_failure_times_path(root).read_text())
+        return {str(k): str(v) for k, v in data.items()} if isinstance(data, dict) else {}
+    except (OSError, ValueError, TypeError):
+        return {}
+
+
+def _stamp_dispatch_failure(root: Path, key: str, *, now: datetime | None = None) -> None:
+    data = _dispatch_failure_times_all(root)
+    data[key] = (now or datetime.now(UTC)).strftime(_TIME_STAMP)
+    path = _dispatch_failure_times_path(root)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, indent=1, sort_keys=True))
+
+
+def _unstamp_dispatch_failure(root: Path, key: str) -> None:
+    data = _dispatch_failure_times_all(root)
+    if data.pop(key, None) is None:
+        return
+    _dispatch_failure_times_path(root).write_text(json.dumps(data, indent=1, sort_keys=True))
+
+
+# What a vendor's account-quota or session-limit message looks like, plus the host's own memory-floor refusal
+# (heartbeat.py's own `_narrow_for_memory` message uses "below the ... GB floor"). Anchored on phrases the
+# actual incident text used ("You've hit your session limit · resets 11:40am") rather than a precise vendor
+# format, the same loose-substring trade-off `availability.classify` makes: a wrong call only mis-counts one
+# dispatch failure, it never crashes a beat.
+_EXTERNAL_WALL_RE = re.compile(
+    r"\b(usage limit|session limit|rate limit(?:ed)?|quota exhausted|out of memory|\boom\b|"
+    r"insufficient memory|below the [\d.]+\s*gb floor)\b",
+    re.IGNORECASE,
+)
+
+
+def external_wall_reason(reasons: list[str]) -> str | None:
+    """The external-wall phrase these dispatch-failure reasons name (a vendor's usage/session limit, or a
+    memory-floor refusal), or `None`. A dispatch that failed for one of these reasons says nothing about
+    whether the criterion is buildable, the same distinction ADR-0053 §5 draws for a genuine no-op - it must
+    never count towards `MAX_DISPATCH_FAILURES`."""
+    for reason in reasons:
+        match = _EXTERNAL_WALL_RE.search(reason)
+        if match:
+            return match.group(1).lower()
+    return None
+
+
+def clear_dispatch_failures(root: Path, request_id: str, index: int) -> None:
+    """Manually forget a criterion's dispatch-failure count and its timestamp - the `clear_attempts` of dispatch
+    failures, for the case an external wall's phrasing was not one `external_wall_reason` recognises."""
+    data = _dispatch_failures_all(root)
+    key = f"{request_id}:{index}"
+    if data.pop(key, None) is not None:
+        _dispatch_failures_path(root).write_text(json.dumps(data, indent=1, sort_keys=True))
+    _unstamp_dispatch_failure(root, key)
+
+
+def dispatch_failures_exhausted(root: Path, request_id: str, index: int, *, now: datetime | None = None) -> bool:
+    """Whether this criterion has spent its dispatch failure budget.
+
+    A budget that was spent `DISPATCH_FAILURE_EXPIRY_HOURS` or more ago is presumed spent against a wall that
+    has since passed (see `DISPATCH_FAILURE_EXPIRY_HOURS`), not against this criterion, so it no longer parks
+    the criterion; the raw count from `dispatch_failures` is left alone as a historical fact."""
+    if dispatch_failures(root, request_id, index) < MAX_DISPATCH_FAILURES:
+        return False
+    key = f"{request_id}:{index}"
+    stamped = _dispatch_failure_times_all(root).get(key)
+    if stamped is None:
+        return True  # no timestamp recorded (predates this feature, or a manual edit): behave as before
+    try:
+        last = datetime.strptime(stamped, _TIME_STAMP).replace(tzinfo=UTC)
+    except ValueError:
+        return True
+    moment = now if (now is not None and now.tzinfo) else (now.replace(tzinfo=UTC) if now else datetime.now(UTC))
+    return moment - last < timedelta(hours=DISPATCH_FAILURE_EXPIRY_HOURS)
 
 
 def _noop_streak_path(root: Path) -> Path:
@@ -1724,6 +1819,18 @@ def _apply_verdict(
             return (
                 chose,
                 f"request {request.id} criterion {index} is already-met after {streak} consecutive no-ops: {why}",
+                result,
+            )
+        wall = external_wall_reason(verdict.reasons)
+        if wall is not None:
+            # ADR-0053 §5 drew this line for a genuine no-op; the same line applies to a wall outside the
+            # criterion's own reach (see `external_wall_reason`'s docstring). Never touches
+            # MAX_DISPATCH_FAILURES, so the criterion is exactly as far from parked as it was before this beat.
+            result["external_wall"] = wall
+            return (
+                chose,
+                f"dispatched request {request.id} criterion {index} ({verb}, external wall: {wall}); "
+                "not counted towards dispatch failures",
                 result,
             )
         # H4: Dispatch-level failure (accepted=False before judge). Record separately, do not consume

@@ -57,6 +57,7 @@ class Convergence:
     rejected: int
     met: int
     not_met: int
+    external_wall: int
     batch_beats: int
     last_beat: str | None
     failure_mode: str | None
@@ -103,7 +104,7 @@ def dispatches_of(result: dict[str, Any] | None) -> list[dict[str, Any]]:
 
 
 def _failure_mode(
-    met: int, dispatches: int, accepted: int, not_met: int, *, rebase_streak: int = 0,
+    met: int, dispatches: int, accepted: int, not_met: int, *, rebase_streak: int = 0, external_wall: int = 0,
 ) -> str | None:
     """Why a zero is a zero. Returns None when the loop closed something -- a converging loop needs no diagnosis.
 
@@ -126,6 +127,12 @@ def _failure_mode(
     if dispatches == 0:
         return "closed nothing and dispatched nothing: the loop is ticking but not selecting work"
     if accepted == 0:
+        if external_wall == dispatches:
+            return (
+                f"closed nothing; all {dispatches} dispatches blocked by an external wall (a vendor usage/"
+                "session limit, or a host memory floor) rather than by the work or the judge - see "
+                "heartbeat.external_wall_reason, not a criterion or route problem"
+            )
         return f"closed nothing; {dispatches} dispatches, none accepted (the work never reached the judge)"
     if not_met > 0:
         return f"closed nothing; {accepted} accepted but {not_met} judged not met (the judge is refusing the work)"
@@ -170,6 +177,7 @@ def convergence(
     accepted = sum(1 for d in per if d.get("accepted") is True)
     met = sum(1 for d in per if d.get("judged") == "met")
     not_met = sum(1 for d in per if d.get("judged") == "not met")
+    external_wall = sum(1 for d in per if d.get("external_wall"))
     return Convergence(
         beats=beats,
         dispatches=len(per),
@@ -177,10 +185,12 @@ def convergence(
         rejected=len(per) - accepted,
         met=met,
         not_met=not_met,
+        external_wall=external_wall,
         batch_beats=batch_beats,
         last_beat=last_beat,
         failure_mode=_failure_mode(
-            met, len(per), accepted, not_met, rebase_streak=rebase_conflict_streak(Path(root)),
+            met, len(per), accepted, not_met,
+            rebase_streak=rebase_conflict_streak(Path(root)), external_wall=external_wall,
         ),
         window_hours=hours,
     )
