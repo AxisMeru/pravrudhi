@@ -529,3 +529,21 @@ smoke_stdout.log,smoke2_stdout.log,final.pt}`.
 - **Owner action (Track B):** at seq_len 1536 on this checkpoint, plan future Megatron SFT/TTT runs
   around batch 2 / grad_accum >= 2, not batch 4 — batch 4's preflight passing is not sufficient
   evidence it will sustain multiple real optimizer steps once AdamW's state is materialized.
+
+## F19. Abstention calibration must target selection correctness, not "gold retrieved" (2026-09-13 ~17:00 BST)
+
+- **Symptom:** after the tuned BM25 first stage (`retrieval_tuning.py`, recall@4 0.98) the
+  calibrated harness abstained on 72–82% of items where the gold passage was on screen
+  (`runs/pointwise_run1/{S4t_f,S4t,P8t_f,P8t}/report.json`, `false_abstain_when_shown`), and
+  citation recall fell to 0.06 although pre-abstention selection accuracy was 0.57.
+- **Cause:** the τ/δ grid was fitted for balanced accuracy on the label "gold shown vs not
+  shown". Once retrieval is near-perfect that label's negative class has ~2 dev items, so the
+  objective is flat and the grid picks thresholds that abstain almost everywhere.
+- **Fix:** fit the same grid on the label "selected passage == gold" (negative = wrong
+  selection, gold not retrieved, or a law_abstain item). Well-posed at any retrieval quality
+  and is the decision the rule actually has to make. Track B's own pipeline has no calibrated
+  abstention today, but anything built from this harness's loop.py should copy the corrected
+  objective, not the original.
+- **Side finding worth knowing:** the frozen 370M selects the gold 2% of the time with four
+  candidates on screen (chance = 25%), i.e. it has a fixed positional/string preference and is
+  not reading the passages; only after the gated LoRA round does it become a selector (57%).

@@ -617,3 +617,38 @@ The consequence for the model is that **gold_selected_when_shown becomes the who
 the gold passage on screen 98% of the time, every remaining miss is a selection or abstention
 error, which is exactly what pointwise judgment and the contrastive round target. The pointwise
 agent has been told to add tuned-store conditions so the two effects can be separated.
+
+### 12.2 Interim result (a): selection accuracy with the gold on screen
+
+Pointwise and scoring-mode runs on the 690 (`runs/pointwise_run1/`, per-item answers saved).
+The number to read first is **pre-abstention selection accuracy** (selected passage == gold over
+the 681 non-abstain items), because it does not depend on the abstention rule:
+
+| condition | store | weights | k | selected == gold | law_lookup | cite_to_title | citation_retrieval |
+|---|---|---|---|---|---|---|---|
+| S4t_f | tuned | frozen | 4 | 0.021 | 0.000 | 0.000 | 0.062 |
+| **S4t** | tuned | round-1 LoRA | 4 | **0.570** | 0.819 | 0.833 | 0.057 |
+| P8t_f | tuned | frozen | 8, pointwise | 0.023 | 0.022 | 0.026 | 0.022 |
+| P8t | tuned | round-1 LoRA | 8, pointwise | 0.559 | 0.819 | 0.833 | 0.026 |
+| P32 | plain | round-1 LoRA | 32, pointwise | 0.361 | 0.586 | 0.493 | 0.004 |
+| P8f / P16f / P32f | plain | frozen | pointwise | 0.022 / — / 0.004 | | | |
+
+Three things follow. **First**, the round-1 LoRA is what makes the model a selector at all: the
+frozen 370M picks the gold 2% of the time with four candidates on screen, far below chance,
+which means it has a fixed positional or string preference rather than reading the passages.
+**Second**, with the tuned first stage and the round-1 weights, selection is right 57% of the
+time overall and 82–83% on two of the three kinds; the harness's ceiling has moved from
+"retrieval" to one kind, `law_citation_retrieval` ("which provision states '<title>'"), where
+the selector is at 6% even though the title is now in the prompt. That kind is the round-3
+target. **Third**, pointwise scoring with an untrained judge does not beat multi-passage
+scoring (P8t ≈ S4t), confirming §12's "prior action" point: the judgment has to be trained
+before segmentation pays off, and the trained multi-passage selector already reaches the same
+place at a quarter of the cost.
+
+**A harness bug found on the way (F19).** The abstention calibration was fitted on "gold shown
+vs not shown". With recall@4 at 0.98 the negative class on the dev slice has two items, the
+balanced-accuracy grid degenerates, and the rule abstained on 72–82% of items where the gold
+was on screen, collapsing post-abstention recall to 0.06 while the selector was right 57% of
+the time. The fix, now being applied, calibrates on selection correctness (abstain when the
+selected passage would be wrong), which is the decision the rule was always meant to make.
+Post-abstention numbers for this round are reported in §12.3 once recalibrated.
