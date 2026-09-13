@@ -340,3 +340,20 @@ class TestAReviewJudgesTheCodeAsItStands:
 
         assert len(seen) == 2
         assert seen[0] != seen[1], "a new commit must get a new review workspace, not the first one again"
+
+
+def test_review_brief_asks_the_reviewer_to_name_a_required_toolchain(tmp_path: Path) -> None:
+    """2026-09-13: every dispatch at r-5795501a criterion 8 attempted Python against `p._electron`, which does
+    not exist there — the reviewer that had originally drafted this criterion never said the work needed a
+    particular runtime, and nothing prompted it to. This is the instruction that closes that gap at the source,
+    before a wrong-toolchain attempt is ever made rather than after three of them have failed."""
+    from pravrudhi.application import completion
+
+    rid = capture(tmp_path, "make the thing work").id
+    add_criteria(tmp_path, rid, [Criterion(text="it works", source="operator")])
+    req = completion.get(tmp_path, rid)
+
+    brief = completion._review_brief(req)
+
+    assert "TOOLCHAIN:" in brief
+    assert "runtime or toolchain" in brief

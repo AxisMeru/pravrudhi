@@ -93,12 +93,19 @@ class Criterion:
     #: CHARTER §6 calls an update a sublation with reasons, and a sublation preserves what it supersedes - so
     #: the superseded wording stays on the record beside the reason, rather than being overwritten by it.
     amended_from: str | None = None
+    #: 2026-09-13: every dispatch at r-5795501a criterion 8 was written in Python against `p._electron`, which
+    #: does not exist there - Electron support has only ever shipped in Playwright's Node/TypeScript bindings.
+    #: No sandbox policy or path grant could ever have fixed a Python attempt, and nothing in the criterion's
+    #: own prose said which toolchain the work required. `toolchain`, when a criterion's author knows one is
+    #: required, is rendered into the dispatch prompt as its own explicit line rather than left to be noticed
+    #: (or missed) inside the criterion's flowing text.
+    toolchain: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "text": self.text, "source": self.source, "met": self.met, "declined": self.declined,
             "evidence": [e.to_dict() for e in self.evidence], "mode": self.mode,
-            "amended_from": self.amended_from,
+            "amended_from": self.amended_from, "toolchain": self.toolchain,
         }
 
     @staticmethod
@@ -113,6 +120,7 @@ class Criterion:
                       for e in (d.get("evidence") or [])],
             mode="build" if mode == "build" else "proposal",
             amended_from=(str(d["amended_from"]) if d.get("amended_from") is not None else None),
+            toolchain=(str(d["toolchain"]) if d.get("toolchain") is not None else None),
         )
 
 
