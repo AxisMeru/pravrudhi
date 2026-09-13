@@ -652,3 +652,59 @@ was on screen, collapsing post-abstention recall to 0.06 while the selector was 
 the time. The fix, now being applied, calibrates on selection correctness (abstain when the
 selected passage would be wrong), which is the decision the rule was always meant to make.
 Post-abstention numbers for this round are reported in §12.3 once recalibrated.
+
+### 12.3 Result (a), recalibrated: what the 370M can and cannot select
+
+All numbers: 690 held-out, Track B's scorer, abstention calibrated on the train dev slice with
+the corrected selection-correctness label (F19), rank-prior λ chosen on dev. Full table with
+CIs and every paired test: `runs/pointwise_run1/report.md`. The scorer's headline
+`citation_recall` counts only the 227 `law_citation_retrieval` items (the title kind);
+`law_lookup` is scored by prefix match of the emitted body; `law_cite_to_title` is not scored.
+
+| condition | store | weights | λ | pre-abst. selection, title kind | citation recall | precision | lookup exact-prefix | abstention correct | false abstain when shown |
+|---|---|---|---|---|---|---|---|---|---|
+| A (Track B closed-book, §10) | — | frozen | — | — | 0.004 | 0.004 | 0.059 | 0.556 | — |
+| B′ (§10) | plain, k=4 | round-1 LoRA | 0 | 0.145 | 0.145 | 0.190 | 0.626 | 0.889 | 0.116 |
+| B′(frozen) | plain, k=4 | frozen | 0 | 0.176 | 0.176 | 0.206 | 0.108 | 0.444 | 0.430 |
+| **P16f** | plain, k=16 pointwise | frozen | 0.5 | 0.780 | **0.762** [0.703–0.813] | 0.801 | 0.167 | 0.778 | 0.357 |
+| P32f | plain, k=32 pointwise | frozen | 0.5 | 0.780 | 0.736 | 0.803 | 0.192 | 0.889 | 0.396 |
+| S4t_f | tuned, k=4 | frozen | 1.0 | 0.696 | 0.542 | 0.804 | 0.000 | 1.000 | 0.776 |
+| **S4t** | tuned, k=4 | round-1 LoRA | 1.0 | 0.352 | 0.044 | 0.435 | **0.868** | 0.222 | 0.376 |
+| P8t / P8t_f | tuned, k=8 pointwise | LoRA / frozen | 0 | 0.154 / 0.154 | 0.040 / 0.026 | — | 0.872 / 0.032 | 0.778 / 1.000 | 0.366 / 0.969 |
+
+Paired: P16f vs B′(frozen) p = 1.9e-33, vs B′ p = 0.006, bootstrap CI on the difference
+[0.20, 0.27] and [0.02, 0.11]; S4t vs B′ on lookup is a different metric and was not paired.
+
+**Reading it honestly.**
+- **The 0.76 on the title kind is the retriever answering.** P16f's dev-chosen λ = 0.5 makes the
+  rank prior dominate margins of ~0.1 nats; the frozen model's own pointwise judgment selects at
+  8% (P8f, λ = 0). Plain BM25 recall@1 on that kind is 0.780, identical to P16f's pre-abstention
+  selection. The model contributes an abstention veto (cited 95%, precision 0.80), nothing more.
+  It is grounded by construction and a real improvement in what the system emits, but it is not
+  evidence of model capability, and the agent's summary overstated it.
+- **The round-1 LoRA turned the model into a selector on the number kinds and broke it on the
+  title kind.** With the tuned store, S4t selects the gold pre-abstention at 0.82 (lookup) and
+  0.83 (cite_to_title) versus 0.35 on the title kind, and the lookup exact-prefix score moves
+  0.626 → 0.868. The plausible mechanism is string-matching the section number that appears
+  verbatim in those two question templates; title matching is the capability the 370M does not
+  have after one LoRA epoch, and the LoRA made it worse than frozen everywhere it was measured.
+- **Post-hoc composition, flagged as such.** Routing by question template (title kind → P16f,
+  everything else → S4t; the abstain items look like lookups and therefore go to S4t) and
+  re-scoring the saved per-item answers gives citation recall 0.762, precision 0.801, lookup
+  exact-prefix 0.868, grounded 1.0, but abstention correctness 0.222. The routing rule was
+  chosen after seeing held-out per-kind results, so this is an upper bound to be validated on
+  dev, not a result (`runs/pointwise_run1/routed_S4t_P16f_answers.jsonl`).
+- **Abstention is now the weakest link, and it is the MVP's core claim.** With near-perfect
+  retrieval, an absent provision still yields four header-similar passages, and the LoRA model
+  confidently cites one (7 of 9). The dev slice used for calibration contains no genuine
+  absent-gold items, so the rule was never fitted on the case that matters. Fix in flight for
+  round 3: synthetic absent-gold dev negatives (gold removed from the candidate list), mirroring
+  `grounded_data.py`'s synthetic-abstain construction.
+- **Pointwise scoring did not pay off on its own** (P8t ≈ S4t, p = 1.0). Segmentation only
+  helps once the judgment is trained; with the tuned store the multi-passage selector reaches the
+  same place at a quarter of the cost. Round 3 trains the judgment; §12's design stands but its
+  order was wrong: first stage, then selector training, then segmentation.
+
+**What is running now (round3 agent):** the 1.13B checkpoint through the same harness (does
+scale fix title matching?), then an RSI round 3 on the 370M with the title kind oversampled and
+shuffled-order copies, through the gate, with the absent-gold calibration; round 4 if it compounds.
