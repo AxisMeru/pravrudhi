@@ -174,3 +174,45 @@ class TestConvergenceFailureMode:
         c = convergence(tmp_path, hours=24, now="2026-09-12T12:00:00Z")
 
         assert c.failure_mode is None, "a short streak is ordinary noise, not yet worth reporting"
+
+
+class TestConvergenceSurfacesExternalWallDispatchFailures:
+    """2026-09-13, cli-lead: `heartbeat._apply_verdict` now tags a dispatch failure caused by a vendor usage
+    limit or a memory-floor refusal with `result["external_wall"]` rather than recording it towards
+    `MAX_DISPATCH_FAILURES`. A report that only ever says "none accepted" for a loop stalled entirely by its
+    own account's quota would send a lead investigating the judge or the work, not the account - the count
+    must be visible and the failure mode must not conflate it with an ordinary rejection."""
+
+    def test_external_wall_dispatches_are_counted_separately(self, tmp_path: Path) -> None:
+        from pravrudhi.application.convergence import convergence
+
+        _write(tmp_path, [
+            _beat("2026-09-12T10:00:00Z", {"accepted": False, "external_wall": "session limit"}),
+        ])
+        c = convergence(tmp_path, hours=24, now="2026-09-12T12:00:00Z")
+        assert c.external_wall == 1
+        assert c.dispatches == 1
+
+    def test_failure_mode_names_the_wall_when_every_rejection_is_one(self, tmp_path: Path) -> None:
+        from pravrudhi.application.convergence import convergence
+
+        _write(tmp_path, [
+            _beat("2026-09-12T10:00:00Z", {"accepted": False, "external_wall": "session limit"}),
+            _beat("2026-09-12T10:30:00Z", {"accepted": False, "external_wall": "session limit"}),
+        ])
+        c = convergence(tmp_path, hours=24, now="2026-09-12T12:00:00Z")
+        assert c.failure_mode is not None
+        assert "external wall" in c.failure_mode
+
+    def test_a_mixed_cause_still_reports_the_ordinary_failure_mode(self, tmp_path: Path) -> None:
+        """One external-wall dispatch among others is not the loop's whole story, so the generic diagnosis
+        (which the lead already knows how to read) still applies."""
+        from pravrudhi.application.convergence import convergence
+
+        _write(tmp_path, [
+            _beat("2026-09-12T10:00:00Z", {"accepted": False, "external_wall": "session limit"}),
+            _beat("2026-09-12T10:30:00Z", {"accepted": False, "reasons": ["workspace race"]}),
+        ])
+        c = convergence(tmp_path, hours=24, now="2026-09-12T12:00:00Z")
+        assert c.external_wall == 1
+        assert c.failure_mode is not None and "none accepted" in c.failure_mode

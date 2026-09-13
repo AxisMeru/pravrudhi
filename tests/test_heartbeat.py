@@ -1038,6 +1038,107 @@ class TestNoOpDispatchIsAResultNotAFailure:
         assert heartbeat.dispatch_failures(tmp_path, req_id, 0) == 0
 
 
+class TestExternalWallDispatchFailuresDoNotCountTowardsTheBudget:
+    """A dispatch that failed because of a vendor usage limit or a host memory floor says nothing about whether
+    the criterion is buildable - the same distinction ADR-0053 §5 already draws for a genuine no-op, drawn here
+    for a wall outside the criterion's own reach.
+
+    2026-09-13: Studio's r-cad91781 criterion 13 and product's r-55c7083e criterion 1 were both parked (5 and 3
+    dispatch failures) with the exact same second reason - `"no change produced: You've hit your session limit
+    · resets 11:40am (Europe/London)"` - recorded while the account was mid-quota, on both loops, at the
+    same time. cli-lead had to hand-edit `.pravrudhi/dispatch-failures.json` to clear them because nothing else
+    would. These tests use that literal text, not an invented string."""
+
+    _SESSION_LIMIT_REASONS = [
+        "agent exited non-zero: no detail",
+        "no change produced: You've hit your session limit · resets 11:40am (Europe/London)",
+    ]
+
+    @staticmethod
+    def _setup_criterion(tmp_path: Path, request_id: str = "r-test") -> str:
+        req = requests.capture(tmp_path, "do the work", request_id=request_id)
+        requests.add_criteria(tmp_path, req.id, [requests.Criterion(text="build it", source="operator")])
+        return req.id
+
+    @staticmethod
+    def _dispatch_fn(name: str, model: str | None) -> object:
+        return object()
+
+    def test_external_wall_reason_recognises_the_real_recorded_text(self) -> None:
+        assert heartbeat.external_wall_reason(self._SESSION_LIMIT_REASONS) == "session limit"
+        assert heartbeat.external_wall_reason(["agent exited non-zero: no detail"]) is None
+
+    def test_a_session_limit_dispatch_failure_is_not_recorded(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from pravrudhi.application import swarm
+
+        req_id = self._setup_criterion(tmp_path)
+
+        def limited_wave(build_agent: object, wave: object, **kw: object) -> list[object]:
+            return [swarm.Verdict(
+                task_id="req:test:0", agent="test", accepted=False,
+                reasons=list(self._SESSION_LIMIT_REASONS), files=[],
+            )]
+
+        monkeypatch.setattr(swarm, "run_wave", limited_wave)
+
+        for _ in range(5):
+            _chose, _reason, result = heartbeat._beat_obligations(tmp_path, self._dispatch_fn)
+            assert result is not None and result.get("external_wall") == "session limit"
+
+        assert heartbeat.dispatch_failures(tmp_path, req_id, 0) == 0, \
+            "an external wall must never be counted towards MAX_DISPATCH_FAILURES"
+        assert requests.get(tmp_path, req_id).criteria[0].met is False
+
+    def test_an_unrecognised_dispatch_failure_still_counts(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from pravrudhi.application import swarm
+
+        req_id = self._setup_criterion(tmp_path)
+
+        def ordinary_failure(build_agent: object, wave: object, **kw: object) -> list[object]:
+            return [swarm.Verdict(task_id="req:test:0", agent="test", accepted=False,
+                                   reasons=["workspace race"], files=[])]
+
+        monkeypatch.setattr(swarm, "run_wave", ordinary_failure)
+        heartbeat._beat_obligations(tmp_path, self._dispatch_fn)
+
+        assert heartbeat.dispatch_failures(tmp_path, req_id, 0) == 1
+
+    def test_clear_dispatch_failures_forgets_the_count_and_its_timestamp(self, tmp_path: Path) -> None:
+        req_id = self._setup_criterion(tmp_path)
+        heartbeat.record_dispatch_failure(tmp_path, req_id, 0)
+        heartbeat.record_dispatch_failure(tmp_path, req_id, 0)
+        assert heartbeat.dispatch_failures(tmp_path, req_id, 0) == 2
+
+        heartbeat.clear_dispatch_failures(tmp_path, req_id, 0)
+
+        assert heartbeat.dispatch_failures(tmp_path, req_id, 0) == 0
+        # Clearing a criterion with nothing recorded must not raise.
+        heartbeat.clear_dispatch_failures(tmp_path, "r-nothing-here", 0)
+
+    def test_an_unrecognised_wall_still_expires_after_the_configured_hours(self, tmp_path: Path) -> None:
+        """The fallback for a phrasing `external_wall_reason` does not know: a dispatch failure this old is
+        presumed to have been caused by something that has since passed, rather than left parked forever."""
+        req_id = self._setup_criterion(tmp_path)
+        stale = datetime(2020, 1, 1, tzinfo=UTC)
+        for _ in range(heartbeat.MAX_DISPATCH_FAILURES):
+            heartbeat.record_dispatch_failure(tmp_path, req_id, 0, now=stale)
+
+        assert heartbeat.dispatch_failures(tmp_path, req_id, 0) == heartbeat.MAX_DISPATCH_FAILURES
+        assert heartbeat.dispatch_failures_exhausted(tmp_path, req_id, 0) is False, \
+            "a dispatch-failure record older than the expiry window must not keep a criterion parked"
+
+    def test_a_recent_unrecognised_failure_still_exhausts_normally(self, tmp_path: Path) -> None:
+        req_id = self._setup_criterion(tmp_path)
+        for _ in range(heartbeat.MAX_DISPATCH_FAILURES):
+            heartbeat.record_dispatch_failure(tmp_path, req_id, 0)
+
+        assert heartbeat.dispatch_failures_exhausted(tmp_path, req_id, 0) is True
+
+
 def test_is_genuine_noop_recognises_what_delegate_dispatch_actually_produces(tmp_path: Path) -> None:
     """`_is_genuine_noop` matches a literal built at delegate.py's own `reasons.append(f"no change produced:
     ...")` call - a string-prefix coupling between two modules that a reword of that one line would break
