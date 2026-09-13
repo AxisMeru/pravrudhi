@@ -109,6 +109,48 @@ class TestNetworkCapabilityGapParksEarly:
     letting the attempt budget drain' (cli-lead): once the judge's own reasoning names the same capability gap
     twice, the criterion parks before the third, full-price attempt, same as an exhausted budget."""
 
+    def test_matches_real_recorded_verdicts_not_only_invented_ones(self, tmp_path: Path) -> None:
+        """cli-lead, 2026-09-13 (relayed via cli-studio): a regex keyed on judge prose nobody controls drifts
+        every time the judge prompt changes, and a regex tested only against strings invented to make it fire
+        will pass and then match nothing real -- a false park (silently removing real work from the loop's
+        reach) is worse than a burned attempt (costs money). These two judgements are copied VERBATIM, not
+        paraphrased, from `/home/ss/pravrudhi-product-loop/.pravrudhi/heartbeat.jsonl`'s actual
+        `result["dispatches"][i]["judgement"]` field for request r-3981d7e0 criterion 3 -- the real beats at
+        2026-09-12T11:16:44Z and 2026-09-12T19:58:25Z, both judged "not met". Checked by hand (2026-09-13)
+        against all 8 real recorded not-met verdicts for this criterion: 4 of 8 matched, these two among them.
+        """
+        req = capture(tmp_path, "the real product-loop ask")
+        add_criteria(tmp_path, req.id, [Criterion(text="produce the real INSTALL.md", source="operator")])
+        note(
+            tmp_path, req.id,
+            "criterion 0 not yet met: The proposal provides scripts and explicit instructions for how the "
+            "INSTALL.md file *should* be generated in a future dispatch with network access, but it does not "
+            "produce the file itself. The file `proposals/prabhasa-nyaya/harness/INSTALL.md` does not exist "
+            "in the working directory. The README explicitly states \"Neither script is run as part of this "
+            "dispatch\" and \"this proposal is not authorised to write there.\" While the proposal is "
+            "methodologically sound and CHARTER §6-compliant (it scrupulously avoids inventing numbers), "
+            "it explains what would meet the criterion rather than meeting it. The criterion requires the "
+            "actual file to exist with exact commands to install lm-eval and fetch IL-TUR, along with the "
+            "dataset's stated size and licence from HuggingFace—not a plan for how to produce it.",
+        )
+        note(
+            tmp_path, req.id,
+            "criterion 0 not yet met: The criterion requires the finished file "
+            "`proposals/prabhasa-nyaya/harness/INSTALL.md` with actual commands to install lm-eval, actual "
+            "commands to fetch IL-TUR, and the dataset's actual size and licence transcribed from its "
+            "Hugging Face page. What exists is a proposal with tooling (a template and rendering script) "
+            "explaining how that file should be created by a future dispatch with network access. The file "
+            "`proposals/prabhasa-nyaya/harness/INSTALL.md` does not exist; the deliverables are instead in "
+            "`proposals/requests/r-3981d7e0/3/`. The template marks size and licence as `PLACEHOLDER`, and "
+            "the README explicitly states this dispatch was not permitted to access the Hugging Face page or "
+            "write to `proposals/prabhasa-nyaya/**`. A proposal that explains what would satisfy the "
+            "criterion is not the same as the criterion being satisfied.",
+        )
+
+        assert heartbeat.network_capability_gap(tmp_path, req.id, 0), (
+            "both real verdicts name 'network access', which the regex must still catch outside a lab string"
+        )
+
     def test_a_single_network_flavoured_judgement_is_not_enough(self, tmp_path: Path) -> None:
         req = capture(tmp_path, "an ask needing fetched data")
         add_criteria(tmp_path, req.id, [Criterion(text="produce the real file", source="operator")])

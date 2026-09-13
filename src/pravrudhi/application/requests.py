@@ -644,6 +644,17 @@ def _obligation_for(ready: Request, root: Path) -> dict[str, Any]:
         # policy grants), and the two need different remedies: raise the budget/retry vs. grant network access
         # or hand it to a different track entirely. Naming the gap here, not only in `stalled()`'s early park,
         # is what lets a person reading this message tell them apart without re-reading the judgement history.
+        #
+        # cli-lead's layering decision (2026-09-13, via cli-studio): Studio's static Policy-vs-criterion check
+        # (attempt 1, a knowable fact) is primary; this judgement-TEXT heuristic (needs >=2 judged-not-met
+        # verdicts naming the gap) is the fallback for a nominally-capable dispatch that fails for a real-world
+        # reason no policy field encodes. Two conditions on the combined shape, both his wording: (1) the
+        # parked reason must name WHICH detector fired -- done below, this clause is explicitly attributed to
+        # "the judge's own verdicts", never phrased so it could be mistaken for a static policy fact; (2) when
+        # Studio's check fires first, this one must not also count that criterion -- NOT YET WIRED, because
+        # Studio's function does not exist in this codebase yet (in progress, cli-studio, same day). Whoever
+        # lands second must call the other's function here (or in `network_capability_gap` itself) and skip
+        # this clause when the static check already fired, so one incapability produces one record.
         network_gap_indexes: list[int] = []
         with contextlib.suppress(Exception):
             from pravrudhi.application.heartbeat import network_capability_gap
@@ -659,8 +670,9 @@ def _obligation_for(ready: Request, root: Path) -> dict[str, Any]:
         if network_gap_indexes:
             description += (
                 f"; criterion {', '.join(str(i) for i in network_gap_indexes)} appears to require network "
-                "access no dispatch policy grants -- retrying will not help, this needs either a policy "
-                "change or a different track"
+                "access no dispatch policy grants (detected: the judge's own verdicts named this capability "
+                "gap at least twice) -- retrying will not help, this needs either a policy change or a "
+                "different track"
             )
         return {
             "kind": "parked_request", "request": ready.id, "criterion": None,
