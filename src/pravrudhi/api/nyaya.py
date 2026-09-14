@@ -75,6 +75,11 @@ class NyayaAudit(BaseModel):
     raw: str | None = None
     wall_s: float | None = None
     provenance: str | None = None
+    #: `checker="lean"` only (Track A P1, ADR-0003): the specific claim(s) prabhasa-nyaya's compiled Lean
+    #: scorer found the contract does not license, named rather than left as a bare "unlicensed" verdict.
+    unlicensed_claims: list[str] | None = None
+    #: `checker="lean"` only: how many `notFormalisable` entries the checked contract itself declares.
+    not_formalisable_count: int | None = None
 
     model_config = {"populate_by_name": True}
 

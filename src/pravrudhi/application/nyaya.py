@@ -38,7 +38,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from pravrudhi.application import panel
+from pravrudhi.application import nyaya_lean, panel
 
 if TYPE_CHECKING:
     from pravrudhi.application.credentials import CredentialStore
@@ -348,7 +348,15 @@ def ask(
     with ThreadPoolExecutor(max_workers=max(1, len(chosen))) as pool:
         answers = list(pool.map(one, chosen))
 
-    if checker:
+    if checker == "lean":
+        for ans in answers:
+            if ans.verdict in ("error", "abstained"):
+                continue
+            try:
+                ans.audit = {"checker": "lean", **nyaya_lean.check_ipc378(ans.text, root=Path(root))}
+            except Exception as e:
+                ans.audit = {"checker": "lean", "verdict": "UNAVAILABLE", "why": str(e)[-200:]}
+    elif checker:
         cv = panel.load_vendors((checker,))[0]
         sources = "\n".join(d.as_source() for d in hits)
         for ans in answers:
@@ -385,15 +393,22 @@ def audit(
     """The auditor on its own: a user's answer and sources, one checker, one structured verdict.
 
     `store` reaches the checker vendor's own key resolution the same way `ask` threads it through.
+
+    `checker="lean"` bypasses vendor resolution entirely: no LLM is called, the answer text goes straight to
+    prabhasa-nyaya's compiled Lean scorer via `nyaya_lean.check_ipc378` (Track A P1, ADR-0003 -- the IPC 378
+    fixture only, see that module's own scope note).
     """
-    cv = panel.load_vendors((checker,))[0]
+    if checker == "lean":
+        rec = {"checker": "lean", **nyaya_lean.check_ipc378(answer.strip(), root=Path(root)), "provenance": "agama"}
+    else:
+        cv = panel.load_vendors((checker,))[0]
 
-    def _default_ask(v: panel.Vendor, p: str) -> panel.Answer:
-        return panel.ask_vendor(v, p, root=Path(root), store=store)
+        def _default_ask(v: panel.Vendor, p: str) -> panel.Answer:
+            return panel.ask_vendor(v, p, root=Path(root), store=store)
 
-    fn = ask_fn or _default_ask
-    res = fn(cv, AUDIT_PROMPT.format(sources=sources.strip(), answer=answer.strip()))
-    rec = {"checker": cv.id, **parse_audit(res.text), "wall_s": round(res.wall_s, 2), "provenance": "agama"}
+        fn = ask_fn or _default_ask
+        res = fn(cv, AUDIT_PROMPT.format(sources=sources.strip(), answer=answer.strip()))
+        rec = {"checker": cv.id, **parse_audit(res.text), "wall_s": round(res.wall_s, 2), "provenance": "agama"}
     out = Path(root) / "research" / "nyaya" / "audits"
     out.mkdir(parents=True, exist_ok=True)
     digest = hashlib.sha256((sources + answer).encode()).hexdigest()[:10]
