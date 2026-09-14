@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field
 
 from pravrudhi.api.identity import CurrentUserDep, User
 from pravrudhi.api.workspace_root import RootError, root_for
-from pravrudhi.application import nyaya, panel
+from pravrudhi.application import nyaya, nyaya_lean, panel
 from pravrudhi.application.credentials import CredentialStore, store_for_session
 
 
@@ -25,12 +25,17 @@ class AskRequest(BaseModel):
     vendors: list[str] = Field(default_factory=lambda: ["claude-cli"])
     k: int = 8
     checker: str | None = None
+    #: Required when checker="lean" (Track A P1b, ADR-0003): which contract nyaya_lean.check scores every
+    #: answer against. An unknown or missing id is refused (422), never silently defaulted.
+    contract_id: str | None = None
 
 
 class AuditRequest(BaseModel):
     sources: str
     answer: str
     checker: str = "claude-cli"
+    #: Required when checker="lean"; see AskRequest's own field doc.
+    contract_id: str | None = None
 
 
 class NyayaVendor(BaseModel):
@@ -171,9 +176,10 @@ def build_nyaya_router(root: Path, ask_fn: panel.AskFn | None = None) -> APIRout
         project, store = _session(user, workspace)
         try:
             rec = nyaya.ask(
-                project, req.question, tuple(req.vendors), k=req.k, checker=req.checker, ask_fn=ask_fn, store=store
+                project, req.question, tuple(req.vendors), k=req.k, checker=req.checker,
+                contract_id=req.contract_id, ask_fn=ask_fn, store=store,
             )
-        except KeyError as e:
+        except (KeyError, ValueError) as e:
             raise HTTPException(422, str(e)) from e
         return rec.to_dict()
 
@@ -185,8 +191,11 @@ def build_nyaya_router(root: Path, ask_fn: panel.AskFn | None = None) -> APIRout
             raise HTTPException(422, "nothing to audit")
         project, store = _session(user, workspace)
         try:
-            return nyaya.audit(project, req.sources, req.answer, req.checker, ask_fn=ask_fn, store=store)
-        except KeyError as e:
+            return nyaya.audit(
+                project, req.sources, req.answer, req.checker, contract_id=req.contract_id,
+                ask_fn=ask_fn, store=store,
+            )
+        except (KeyError, ValueError) as e:
             raise HTTPException(422, str(e)) from e
         except RuntimeError as e:
             raise HTTPException(503, f"checker unavailable: {e}") from e
