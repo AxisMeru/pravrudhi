@@ -780,6 +780,28 @@ def inbox_sign_cmd(
     )
 
 
+@app.command("inbox-sweep")
+def inbox_sweep_cmd(root: Path = ROOT_OPT) -> None:
+    """Decide every unsigned promotion pack under the recorded delegation (ADR-0040): approve a green badge,
+    defer anything else with the standing equivocal-evidence reason.
+
+    The driver `inbox-sign` never had: the delegation and the per-pack decision it makes were both correct
+    since 2026-09-10, but nothing called either on a schedule, so packs sat unsigned until someone opened the
+    inbox and noticed. Run this on a timer (see `deploy/gateway/`) rather than by hand.
+    """
+    from pravrudhi.application.inbox_sign import sweep
+
+    results = sweep(root)
+    if not results:
+        typer.echo("nothing unsigned")
+        return
+    for r in results:
+        if "skipped" in r:
+            typer.echo(f"skipped {r['pack']}: {r['skipped']}")
+        else:
+            typer.echo(f"{r['decision']} {r['pack']} by {r['by']}; ledger seq {r['seq']}")
+
+
 @app.command("init")
 def init_cmd(root: Path = ROOT_OPT, model: str | None = typer.Option(None, "--model")) -> None:
     """Make this project ready for a night: kernel state dir, config, pre-registrations, prompts, genesis ledger."""

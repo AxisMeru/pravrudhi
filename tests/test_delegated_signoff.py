@@ -13,13 +13,14 @@ from pathlib import Path
 import pytest
 import yaml
 
+from pravrudhi.application import inbox_sign
 from pravrudhi.application.delegation import (
     AGENT_IDENTITIES,
     Delegation,
     load_delegation,
     unmet_conditions,
 )
-from pravrudhi.application.inbox_sign import record_decision
+from pravrudhi.application.inbox_sign import record_decision, sweep
 from pravrudhi_kernel.schema.ledger_event import LedgerEvent
 
 LIVE = Path("configs/delegation.yaml")
@@ -100,6 +101,86 @@ def test_amber_is_refused_with_the_next_step_not_just_a_no(tmp_path: Path) -> No
     (reason,) = unmet_conditions(d, act="promote_t2", badge="amber")
     assert "equivocal" in reason
     assert "run the experiment" in reason
+
+
+class TestSweep:
+    """2026-09-14: eight promotion packs on the hosted Studio engine sat unsigned, some for days, because
+    ADR-0040's delegation and `/inbox/sign`/`inbox-sign` were both correct but nothing ever called either on
+    a schedule -- the operator had to open the inbox and notice them, which is what the delegation exists to
+    make unnecessary. `sweep` is that missing driver: the same per-pack decision, applied to every unsigned
+    pack at once. `record_decision` is monkeypatched here so these tests check `sweep`'s own orchestration
+    (which pack gets which decision, signed packs skipped, one failure does not stop the rest) without
+    needing a real ledger-derived badge for each case; the wiring into a real ledger is `record_decision`'s
+    own, already-tested contract."""
+
+    def test_approves_green_and_defers_everything_else(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        rows = [
+            {"pack": str(tmp_path / "a"), "badge": "green", "signed": False},
+            {"pack": str(tmp_path / "b"), "badge": "amber", "signed": False},
+        ]
+        monkeypatch.setattr(inbox_sign, "inbox_listing", lambda root: rows)
+        calls: list[tuple[str, str, str]] = []
+
+        def fake_record(root: Path, *, pack: Path, decision: str, note: str = "", by: str = "") -> dict[str, str]:
+            calls.append((str(pack), decision, note))
+            return {"decision": decision}
+
+        monkeypatch.setattr(inbox_sign, "record_decision", fake_record)
+
+        out = sweep(tmp_path)
+
+        assert calls[0] == (str(tmp_path / "a"), "approve", "")
+        assert calls[1][1] == "defer"
+        assert "amber" in calls[1][2] and "equivocal" in calls[1][2]
+        assert len(out) == 2
+
+    def test_an_already_signed_pack_is_never_touched(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        rows = [{"pack": str(tmp_path / "a"), "badge": "green", "signed": True}]
+        monkeypatch.setattr(inbox_sign, "inbox_listing", lambda root: rows)
+
+        def fail(*a: object, **kw: object) -> None:
+            raise AssertionError("a signed pack must never reach record_decision")
+
+        monkeypatch.setattr(inbox_sign, "record_decision", fail)
+
+        assert sweep(tmp_path) == []
+
+    def test_one_pack_erroring_does_not_stop_the_rest(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        rows = [
+            {"pack": str(tmp_path / "a"), "badge": "green", "signed": False},
+            {"pack": str(tmp_path / "b"), "badge": "green", "signed": False},
+        ]
+        monkeypatch.setattr(inbox_sign, "inbox_listing", lambda root: rows)
+
+        def fake_record(root: Path, *, pack: Path, decision: str, note: str = "", by: str = "") -> dict[str, str]:
+            if str(pack).endswith("a"):
+                raise PermissionError("autonomous approval refused: no delegation recorded")
+            return {"decision": decision}
+
+        monkeypatch.setattr(inbox_sign, "record_decision", fake_record)
+
+        out = sweep(tmp_path)
+
+        assert out[0]["skipped"] == "autonomous approval refused: no delegation recorded"
+        assert out[1]["decision"] == "approve"
+
+    def test_end_to_end_against_a_real_ledger_and_delegation(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """No mocking of `record_decision` here -- a real pack on disk, a real delegation file, a real
+        ledger write, exercised through `sweep` exactly as the systemd timer will call it."""
+        _delegation(tmp_path)  # writes tmp_path/configs/delegation.yaml
+        pack_dir = tmp_path / "research" / "inbox" / "night1" / "c-01"
+        pack_dir.mkdir(parents=True)
+        (pack_dir / "README.md").write_text("# c-01\n")
+        rows = [{"pack": str(pack_dir), "badge": "green", "signed": False}]
+        monkeypatch.setattr(inbox_sign, "inbox_listing", lambda root: rows)
+
+        out = sweep(tmp_path)
+
+        assert len(out) == 1 and out[0]["decision"] == "approve" and out[0]["by"] == "agent-for-operator"
+        ledger_lines = (tmp_path / "research" / "ledger.jsonl").read_text().splitlines()
+        assert any('"signoff"' in line and str(pack_dir) in line for line in ledger_lines)
 
 
 def test_the_ledger_can_record_an_agent_actor_without_impersonating_a_person() -> None:

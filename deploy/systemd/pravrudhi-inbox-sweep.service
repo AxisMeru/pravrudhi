@@ -1,0 +1,14 @@
+# 2026-09-14: ADR-0040's delegation (configs/delegation.yaml) and the per-pack decision `inbox-sign`/
+# `/inbox/sign` already make were both correct since 2026-09-10, but nothing ever called either on a
+# schedule -- eight promotion packs on the hosted Studio engine sat unsigned, some for days, until the
+# operator opened the inbox and noticed them, which the delegation exists to make unnecessary. This is
+# the missing driver.
+[Unit]
+Description=Pravrudhi inbox sweep: sign or defer every unsigned promotion pack
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=@ROOT@
+ExecStart=@ROOT@/.venv/bin/python -m pravrudhi inbox-sweep --root @ROOT@
+TimeoutStartSec=300
