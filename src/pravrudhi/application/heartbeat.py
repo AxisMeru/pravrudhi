@@ -1031,6 +1031,7 @@ def _sync_loop_branch(root: Path) -> str | None:
         return None
     if run("fetch", "origin", "main").returncode != 0:
         return None
+    _reset_regenerable_lockfiles(run)
     rebased = run("rebase", "origin/main")
     if rebased.returncode == 0:
         return None
@@ -1039,6 +1040,32 @@ def _sync_loop_branch(root: Path) -> str | None:
     if _is_dirty_tree_precheck_failure(detail):
         detail = f"dirty-tree({_dirty_tree_scope_tag(root)}): {detail}"
     return detail
+
+
+# 2026-09-14: `pyproject.toml`'s version can be bumped at release without regenerating `uv.lock` in the same
+# commit (v0.5.20 shipped this way). Every `uv sync`/`uv run` a loop root does after that then re-derives the
+# newer version into `uv.lock` locally, dirtying a tracked file the precheck above treats exactly like a real
+# uncommitted change - and unlike genuine work, nothing the loop does ever commits that drift, so it parks the
+# beat forever rather than for one cycle. `loop/studio` sat on this for three consecutive beats (all also
+# masked behind an unrelated `external_wall: session limit` that resolved on its own reset) before it was
+# unblocked by hand. Nobody hand-authors these files and the tool reproduces the same content from source on
+# every invocation, so resetting one to its committed state here discards nothing a person wrote - if
+# `origin/main`'s own copy has changed, the reset version is what the rebase should replay onto anyway.
+_REGENERABLE_LOCKFILES = ("uv.lock",)
+
+
+def _reset_regenerable_lockfiles(run: Callable[..., subprocess.CompletedProcess[str]]) -> None:
+    """Reset any dirty entry in `_REGENERABLE_LOCKFILES` to its committed state, so lockfile churn never blocks
+    the rebase precheck. Never touches anything else - a genuine conflict elsewhere in the tree still reports
+    exactly as before `_sync_loop_branch` calls this."""
+    for name in _REGENERABLE_LOCKFILES:
+        try:
+            clean = run("diff", "--quiet", "HEAD", "--", name)
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if clean.returncode == 0:
+            continue  # not dirty (or not tracked) - nothing to reset
+        run("checkout", "HEAD", "--", name)
 
 
 def _push_loop_branch(root: Path) -> str | None:

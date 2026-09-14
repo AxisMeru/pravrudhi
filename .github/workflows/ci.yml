@@ -96,6 +96,14 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with: { python-version: "3.13" }
       - run: uv sync --all-groups --frozen
+      # 2026-09-14: v0.5.20 shipped with pyproject.toml bumped but uv.lock never regenerated in the same
+      # commit, so every uv sync/uv run against main re-derived the newer version locally and dirtied
+      # uv.lock for anyone syncing this repo - including the studio loop's rebase-before-beat, which parked
+      # for hours on a wall that only `uv lock` could clear. `--frozen` above is what let this land in the
+      # first place: it trusts the lockfile as-is and never checks it against pyproject.toml, so CI stayed
+      # green through the drift. `--check` is the opposite: it fails loudly if the two disagree, without
+      # writing anything, so this catches the exact mismatch before it merges rather than after every clone.
+      - run: uv lock --check
       - run: uv run pytest tests/governance -q
       - name: no attribution trailers in history
         run: |

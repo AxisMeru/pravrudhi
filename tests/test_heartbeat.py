@@ -1533,6 +1533,77 @@ class TestLoopSyncsBeforeEveryBeat:
         assert (clone / "harness" / "stray.json").exists(), "nothing here may be discarded"
         assert (clone / ".gitignore").read_text() == ".pravrudhi/\nharness/\n", "nothing here may be discarded"
 
+    def test_a_dirty_regenerable_lockfile_is_reset_before_rebase_not_reported_as_dirty_tree(
+        self, tmp_path: Path
+    ) -> None:
+        """2026-09-14: `pyproject.toml` was bumped to a new version at release without regenerating `uv.lock`
+        in the same commit, so every `uv sync`/`uv run` against `origin/main` re-derives the newer version
+        locally and dirties `uv.lock` - a loop root hits this on its very next tool invocation after every
+        rebase, forever, since nothing it does ever commits the drift. The dirty-tree precheck above then
+        parks the beat on a wall no rebase could ever clear: `loop/studio` sat on this for hours (three
+        consecutive beats, `external_wall` notwithstanding) until unblocked by hand.
+
+        `uv.lock` is unlike the `own-scope`/`unrecognized` cases above: nobody hand-authors it, and the tool
+        reproduces the identical content from `pyproject.toml` on every invocation, so resetting it to its
+        committed state before the rebase discards nothing a person wrote - the very next `uv run` regenerates
+        the same drift if it is still going to occur, and if `origin/main`'s own `uv.lock` changed, the reset
+        version is what the rebase should start from anyway."""
+        from pravrudhi.application.heartbeat import _sync_loop_branch
+
+        _origin, seed, clone = self._origin_and_clone(tmp_path)
+        (seed / "uv.lock").write_text('version = "0.5.19"\n')
+        self._git("add", ".", cwd=seed)
+        self._git("-c", "user.name=t", "-c", "user.email=t@t.example", "commit", "-m", "seed uv.lock", cwd=seed)
+        self._git("push", "origin", "main", cwd=seed)
+        self._git("fetch", "origin", "main", cwd=clone)
+        self._git("merge", "origin/main", cwd=clone)  # bring uv.lock in before dirtying the tree
+
+        (seed / "team.txt").write_text("team work\n")
+        self._git("add", ".", cwd=seed)
+        self._git("-c", "user.name=t", "-c", "user.email=t@t.example", "commit", "-m", "team", cwd=seed)
+        self._git("push", "origin", "main", cwd=seed)
+
+        # Simulates a local `uv run` re-deriving the newer version into uv.lock - a modification to an
+        # already-tracked file, which is what actually triggers git's dirty-tree precheck.
+        (clone / "uv.lock").write_text('version = "0.5.20"\n')
+
+        result = _sync_loop_branch(clone)
+
+        assert result is None, f"a dirty uv.lock alone must never park the beat: {result}"
+        assert (clone / "team.txt").exists(), "the rebase must have proceeded, not merely been skipped"
+        assert (clone / "uv.lock").read_text() == 'version = "0.5.19"\n', (
+            "uv.lock must be reset to its committed state, since it is regenerable and nobody hand-authors it"
+        )
+
+    def test_a_dirty_lockfile_alongside_a_genuine_conflict_still_reports_the_conflict(
+        self, tmp_path: Path
+    ) -> None:
+        """Resetting a regenerable lockfile must never mask a real content conflict elsewhere in the tree -
+        the precheck reset only removes the lockfile noise; any other dirty path still parks the beat exactly
+        as before."""
+        from pravrudhi.application.heartbeat import _sync_loop_branch
+
+        _origin, seed, clone = self._origin_and_clone(tmp_path)
+        (seed / "uv.lock").write_text('version = "0.5.19"\n')
+        self._git("add", ".", cwd=seed)
+        self._git("-c", "user.name=t", "-c", "user.email=t@t.example", "commit", "-m", "seed uv.lock", cwd=seed)
+        self._git("push", "origin", "main", cwd=seed)
+        self._git("fetch", "origin", "main", cwd=clone)
+        self._git("merge", "origin/main", cwd=clone)
+
+        (seed / "team.txt").write_text("team work\n")
+        self._git("add", ".", cwd=seed)
+        self._git("-c", "user.name=t", "-c", "user.email=t@t.example", "commit", "-m", "team", cwd=seed)
+        self._git("push", "origin", "main", cwd=seed)
+
+        (clone / "uv.lock").write_text('version = "0.5.20"\n')
+        (clone / "file.txt").write_text("unrelated dirty file\n")  # file.txt is tracked from the initial seed
+
+        detail = _sync_loop_branch(clone)
+
+        assert detail is not None and detail.startswith("dirty-tree(unrecognized):")
+        assert (clone / "file.txt").read_text() == "unrelated dirty file\n", "nothing outside the lockfile is discarded"
+
     def test_beat_parks_itself_not_a_criterion_on_a_rebase_conflict(self, tmp_path: Path) -> None:
         from pravrudhi.application import heartbeat
 
