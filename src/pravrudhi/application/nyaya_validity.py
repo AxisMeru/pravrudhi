@@ -32,7 +32,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from pravrudhi.application.external import TIER_KERNEL, TOOL_NYAYA_VALIDITY
+from pravrudhi.application.external import TIER_EXTERNAL, TIER_KERNEL, TOOL_NYAYA_VALIDITY
 from pravrudhi.application.nyaya_gold import build_gold_set
 from pravrudhi.application.nyaya_gold_score import score_bin_path, score_gold_set
 from pravrudhi_kernel.ledger import LedgerWriter
@@ -143,6 +143,12 @@ def record_constructed(
     genuine min over six now, not four), never a pooled average, so one easy class filling up cannot hide a
     hard one still broken. The row also records `lean_source_commit`: which prabhasa-nyaya commit the
     `score` binary that produced these numbers was built from.
+
+    Tier is `external` (`pravrudhi.application.external.TIER_EXTERNAL`), NOT `kernel` like `record` above --
+    unlike `record`'s in-process `derive_verdict`, this result comes from prabhasa-nyaya's compiled `score`
+    binary, a third-party file whose sha256 (via `lean_source_commit`) is what makes the row's provenance
+    honest. `record`'s own `kernel` tier is correct for what it computes; conflating the two here was the bug
+    (fixed 2026-09-14, ADR-0001 section 5: "Lean verdicts enter the ledger by the external tier").
     """
     root = Path(root)
     items = build_gold_set(per_class, seed)
@@ -157,7 +163,7 @@ def record_constructed(
     payload = {
         "kind": "external_eval",
         "severity": "info",
-        "tier": TIER_KERNEL,
+        "tier": TIER_EXTERNAL,
         "track": TRACK,
         "condition": condition,
         "model": "pravrudhi-kernel+prabhasa-nyaya-lean",

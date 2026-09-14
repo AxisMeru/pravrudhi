@@ -23,7 +23,9 @@ TIER_EXTERNAL = "external"
 #: `pravrudhi.application.nyaya_validity.record`.
 TIER_KERNEL = "kernel"
 TOOL_PRABHASA = "prabhasa"
-#: The kernel's own classical-Nyaya validity check (`nyaya_validity.py`); tier `kernel`, not `external`.
+#: The classical-Nyaya validity check (`nyaya_validity.py`). `record`'s in-process `derive_verdict` is tier
+#: `kernel`; `record_constructed`'s run against prabhasa-nyaya's compiled Lean `score` binary is tier
+#: `external` -- same tool name, different tier per which function actually computed the result.
 TOOL_NYAYA_VALIDITY = "pravrudhi-nyaya-validity"
 
 

@@ -121,7 +121,10 @@ class TestTheConstructedGoldSet:
         row = nv.record_constructed(tmp_path, night=0, condition="base", per_class=15, seed=0)
 
         assert row["track"] == "nyaya"
-        assert row["tier"] == "kernel"
+        # external, not kernel: this result comes from prabhasa-nyaya's compiled Lean `score` binary (a
+        # third-party file, per lean_source_commit below), unlike `record`'s in-process derive_verdict.
+        # ADR-0001 section 5 in prabhasa-nyaya: Lean verdicts enter the ledger by the external tier.
+        assert row["tier"] == "external"
         assert row["n_samples"]["nyaya_validity"] >= 15 * 6
         assert row["metrics"]["nyaya_validity"]["pass_rate"] == 1.0  # all six classes agree
         assert set(row["decided_classes"]) == {
@@ -146,4 +149,4 @@ class TestTheConstructedGoldSet:
         )
 
         assert result.exit_code == 0, result.stdout
-        assert '"tier": "kernel"' in result.stdout
+        assert '"tier": "external"' in result.stdout
