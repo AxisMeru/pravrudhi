@@ -1966,3 +1966,17 @@ class TestCriterionToolchainReachesTheDispatchPrompt:
         _task_id, task = heartbeat._task_for_criterion(tmp_path, req, criterion, 0, "proposal")
 
         assert "Required toolchain" not in task.spec.prompt
+
+
+class TestBuildPromptForbidsTheXfailEscape:
+    """2026-09-13/14, cli-lead: r-1977143a criterion 2 (wiring `pravrudhi routes`/`agents` and an endpoint to
+    real seat state) was judged not-met 10 times in 24h, every time because the dispatched agent wrote a test
+    file where every case was `@pytest.mark.xfail(strict=True)` - a specification, not an implementation. The
+    prompt's own "a failing test first, then the change" line reads as license to stop after the first half:
+    `BUILD_VALIDATE`'s plain `pytest -q tests` treats a strict-xfail suite as passing, so nothing mechanical
+    caught it and every attempt burned a full judged round-trip before being told the same thing again."""
+
+    def test_the_prompt_forbids_stopping_at_an_xfail_marked_test(self) -> None:
+        prompt = heartbeat._build_prompt("the ask", "the criterion", ("src/**",), "true")
+        assert "xfail" in prompt.lower()
+        assert "specification" in prompt.lower()
