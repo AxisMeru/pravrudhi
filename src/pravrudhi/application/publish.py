@@ -207,6 +207,25 @@ def commit(root: Path, runner: RunnerFn, message: str, paths: list[str]) -> tupl
     return Step("commit", True, sha or "committed"), sha
 
 
+def sync_write_root(root: Path, runner: RunnerFn, *, remote: str = "origin", branch: str = "main") -> Step:
+    """Bring `root`'s branch to `remote`/`branch`'s current tip before anything is exported, built or committed
+    on it.
+
+    A write root (ADR-0053 §2) only ever carries auto-generated snapshot/paper commits -- nothing on it is
+    unique work worth preserving across a run -- so a hard reset to the remote's tip, not a rebase, is the
+    right operation: it is what makes the run's own push a fast-forward regardless of how many other things
+    merged to `branch` since this clone last ran. Skipping this step is exactly how one `pravrudhi-publish`
+    clone was found stuck: thirteen of its own unpushable snapshot commits ahead of a base ten commits stale,
+    rejected on every run, twice an hour, for hours, because nothing ever moved its tip forward again."""
+    fetched = runner(["git", "fetch", remote, branch], root)
+    if fetched.returncode != 0:
+        return Step("sync", False, (fetched.stderr or fetched.stdout).strip()[:300])
+    reset = runner(["git", "reset", "--hard", f"{remote}/{branch}"], root)
+    if reset.returncode != 0:
+        return Step("sync", False, (reset.stderr or reset.stdout).strip()[:300])
+    return Step("sync", True, f"synced to {remote}/{branch}")
+
+
 def push(root: Path, runner: RunnerFn, *, remote: str = "origin", branch: str = "main") -> Step:
     """Push `HEAD` to `remote`'s `branch`, not the local ref literally named `branch` (ADR-0053 §2). The
     publisher's own clone (`~/pravrudhi-publish`) commits on a local branch that is deliberately not named
@@ -251,6 +270,15 @@ def publish(
     runner = runner or _default_runner
     steps: list[Step] = []
 
+    if write_root is not None:
+        # Only when the write root is its own clone (ADR-0053 §2): resetting a shared primary checkout to a
+        # remote tip would discard whatever the lead or an assistant has in progress there. The disposable
+        # publish clone carries nothing worth preserving across a run, so it is always safe to bring forward.
+        sync_step = sync_write_root(effective_write_root, runner)
+        steps.append(sync_step)
+        if not sync_step.ok:
+            return PublishResult(False, f"sync failed: {sync_step.detail}", steps)
+
     for step in (
         export_snapshot(root, runner, write_root=effective_write_root),
         generate_paper(root, runner, write_root=effective_write_root),
@@ -279,5 +307,6 @@ def publish(
 
 __all__ = [
     "BROKEN_MARKERS", "CHECK_PAGES", "PublishResult", "Step",
-    "build_interface", "commit", "export_snapshot", "generate_paper", "publish", "push", "verify_pages",
+    "build_interface", "commit", "export_snapshot", "generate_paper", "publish", "push", "sync_write_root",
+    "verify_pages",
 ]
