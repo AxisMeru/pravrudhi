@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field
 
 from pravrudhi.api.identity import CurrentUserDep, User
 from pravrudhi.api.workspace_root import RootError, root_for
-from pravrudhi.application import nyaya, nyaya_lean, panel
+from pravrudhi.application import nyaya, panel
 from pravrudhi.application.credentials import CredentialStore, store_for_session
 
 
