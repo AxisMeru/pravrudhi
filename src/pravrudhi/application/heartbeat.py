@@ -349,8 +349,17 @@ def stalled(root: Path, request_id: str, index: int) -> bool:
     Requests r-5795501a criterion 7 was dispatched nine times in one day, five of them accepted by the swarm and
     every one refused by the completion gate, while the criterion stayed unmet and the Lite Plan seat ran into
     its usage limit. Retrying is right; retrying the identical task hourly for ever is a standing order to spend.
+
+    cli-web/cli-lead, 2026-09-14: `dispatch_failures_exhausted` existed and was already used to LABEL a beat's
+    result "parked after N dispatch failures" (`_apply_verdict`), but `stalled` itself never consulted it - only
+    judged attempts (which a dispatch failure never consumes) and the network-gap heuristic did. A criterion
+    that only ever dispatch-fails, never reaching the judge (the product loop's `.pravrudhi-scratch` escape
+    above was exactly this shape), was therefore never actually stalled: the label said "parked" and the
+    selection logic kept re-selecting it anyway, hourly, regardless of the label.
     """
     if attempts(root, request_id, index) >= MAX_CRITERION_ATTEMPTS:
+        return True
+    if dispatch_failures_exhausted(root, request_id, index):
         return True
     return network_capability_gap(root, request_id, index)
 

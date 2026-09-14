@@ -1221,6 +1221,39 @@ class TestExternalWallDispatchFailuresDoNotCountTowardsTheBudget:
         assert heartbeat.dispatch_failures_exhausted(tmp_path, req_id, 0) is True
 
 
+class TestStalledAlsoRespectsDispatchFailureExhaustion:
+    """cli-web/cli-lead, 2026-09-14: `_apply_verdict` already labels a beat's result "parked after N dispatch
+    failures" once `dispatch_failures_exhausted` is true, but `stalled()` - the function that actually gates
+    re-selection - never consulted it, only `attempts()` (never incremented by a dispatch failure) and
+    `network_capability_gap()`. A criterion that only ever dispatch-fails (r-55c7083e:3's scratch-scope
+    rejection, fixed alongside this) was therefore never actually stalled: the label said "parked" and the
+    loop re-selected it every beat regardless."""
+
+    def test_stalled_is_true_once_dispatch_failures_are_exhausted_even_with_zero_judged_attempts(
+        self, tmp_path: Path,
+    ) -> None:
+        req_id = "r-test"
+        for _ in range(heartbeat.MAX_DISPATCH_FAILURES):
+            heartbeat.record_dispatch_failure(tmp_path, req_id, 0)
+
+        assert heartbeat.attempts(tmp_path, req_id, 0) == 0
+        assert heartbeat.stalled(tmp_path, req_id, 0) is True
+
+    def test_stalled_is_false_below_the_dispatch_failure_budget(self, tmp_path: Path) -> None:
+        req_id = "r-test"
+        heartbeat.record_dispatch_failure(tmp_path, req_id, 0)
+
+        assert heartbeat.stalled(tmp_path, req_id, 0) is False
+
+    def test_an_expired_dispatch_failure_record_does_not_stall_via_this_path_either(self, tmp_path: Path) -> None:
+        req_id = "r-test"
+        stale = datetime(2020, 1, 1, tzinfo=UTC)
+        for _ in range(heartbeat.MAX_DISPATCH_FAILURES):
+            heartbeat.record_dispatch_failure(tmp_path, req_id, 0, now=stale)
+
+        assert heartbeat.stalled(tmp_path, req_id, 0) is False
+
+
 def test_is_genuine_noop_recognises_what_delegate_dispatch_actually_produces(tmp_path: Path) -> None:
     """`_is_genuine_noop` matches a literal built at delegate.py's own `reasons.append(f"no change produced:
     ...")` call - a string-prefix coupling between two modules that a reword of that one line would break

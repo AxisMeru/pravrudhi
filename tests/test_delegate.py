@@ -116,6 +116,60 @@ def test_validation_really_runs_in_the_worktree(tmp_path):
     assert not bad
 
 
+def test_scratch_files_are_never_out_of_scope() -> None:
+    """cli-web/cli-lead, 2026-09-14: the product loop's root (pravrudhi-app) has no `.pravrudhi-scratch/`
+    .gitignore entry (unlike this engine's own repo, where it is), so a tool the agent ran there - `uv`
+    writing a lock file into `.pravrudhi-scratch/uv-*.lock` - can end up committed and then show up in the
+    diff, even though `dispatch`'s own brief told the agent this exact path was writable scratch. r-55c7083e:3
+    was rejected whole this way 8 times in one morning on the product loop."""
+    from pravrudhi.agents.base import SCRATCH_DIRNAME
+
+    task = TaskSpec(task_id="t", prompt="p", allowed_paths=("a.py",))
+    assert task.out_of_scope(Diff(files=["a.py", f"{SCRATCH_DIRNAME}/uv-1234.lock"])) == []
+    assert task.out_of_scope(Diff(files=[f"{SCRATCH_DIRNAME}/nested/dir/file.txt"])) == []
+    # A real out-of-scope file is still caught; the carve-out is scratch-only, not a general amnesty.
+    assert task.out_of_scope(Diff(files=["a.py", "b.py", f"{SCRATCH_DIRNAME}/uv.lock"])) == ["b.py"]
+
+
+def test_a_scratch_lockfile_committed_by_the_agent_no_longer_rejects_the_whole_dispatch(tmp_path) -> None:
+    """The end-to-end path `test_scratch_files_are_never_out_of_scope` proves in isolation: a diff that
+    includes a scratch file alongside real, in-scope work must still be accepted."""
+    from pravrudhi.agents.base import SCRATCH_DIRNAME
+
+    task = TaskSpec(task_id="t11", prompt="p", allowed_paths=("a.py",), validate="true")
+    v = dispatch(FakeAgent(tmp_path, ["a.py", f"{SCRATCH_DIRNAME}/uv-1234.lock"]), task, log=lambda s: None)
+    assert v.accepted, v.reasons
+
+
+def test_escape_into_the_main_checkout_is_still_caught_after_the_scratch_carve_out(tmp_path) -> None:
+    """The scratch carve-out lives in `out_of_scope()`, not `owns()` - `owns()` also drives `dispatch`'s
+    separate main-checkout escape detector (line ~177), and this proves that detector is untouched: a file
+    written straight into the main root under a declared path is still flagged as an escape, scratch or not."""
+    import subprocess
+
+    root = tmp_path
+    subprocess.run(["git", "init"], cwd=root, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.email", "t@t"], cwd=root, capture_output=True)
+    subprocess.run(["git", "config", "user.name", "t"], cwd=root, capture_output=True)
+    (root / "README.md").write_text("x")
+    subprocess.run(["git", "add", "-A"], cwd=root, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=root, capture_output=True)
+
+    class EscapingAgent(FakeAgent):
+        def run(self, prompt, workspace, timeout_s=60):
+            (self.root / "a.py").write_text("x = 1\n")  # writes into root, not its own worktree
+            return super().run(prompt, workspace, timeout_s)
+
+        def collect_changes(self, workspace):
+            return Diff(files=[])
+
+    task = TaskSpec(task_id="t12", prompt="p", allowed_paths=("a.py",), validate="true")
+    v = dispatch(EscapingAgent(root, []), task, log=lambda s: None)
+
+    assert not v.accepted
+    assert any("into the main checkout" in r for r in v.reasons)
+
+
 def test_owns_treats_trailing_slash_as_directory() -> None:
     from pravrudhi.application.delegate import TaskSpec
 

@@ -53,7 +53,19 @@ class TaskSpec:
         return False
 
     def out_of_scope(self, diff: Diff) -> list[str]:
-        return sorted(f for f in diff.files if not self.owns(f))
+        """Every file the diff touches that this task did not declare - except `SCRATCH_DIRNAME`, which is
+        never in `allowed_paths` yet is exactly what `dispatch`'s own brief tells the agent it may write to
+        (see the `SCRATCH_DIRNAME/**` entry in its "ONLY these paths" line). A tool the agent ran there (`uv`
+        writing a lock file into `.pravrudhi-scratch/`, say) can end up committed before `dispatch` deletes the
+        directory from disk, and a diff taken against that commit still shows it - rejecting an otherwise
+        correct deliverable for exactly the scratch use the prompt promised. This is deliberately narrower than
+        widening `owns()`: `owns()` also drives `dispatch`'s own main-checkout escape detector, which must keep
+        treating a file outside the worktree as an escape regardless of its name.
+        """
+        def in_scratch(path: str) -> bool:
+            return path == SCRATCH_DIRNAME or path.startswith(f"{SCRATCH_DIRNAME}/")
+
+        return sorted(f for f in diff.files if not self.owns(f) and not in_scratch(f))
 
 
 @dataclass(frozen=True)
