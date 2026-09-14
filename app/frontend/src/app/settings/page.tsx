@@ -67,12 +67,11 @@ function ProvidersSection() {
     setRowState(id, { pending: true, error: null });
     try {
       const result = await putProviderKey(id, key);
-      if (result.ok) {
-        setConfigured(id, true);
-        setRowState(id, { pending: false, error: null });
-      } else {
-        setRowState(id, { pending: false, error: result.reason || "key rejected" });
-      }
+      // The engine stores the key regardless of whether the probe validated it (it may be a self-hosted or
+      // offline provider this host cannot reach right now) -- `configured` reflects that storage, `validated`
+      // is a separate, honest signal shown alongside it rather than as the gate for whether the row updates.
+      setConfigured(id, true);
+      setRowState(id, { pending: false, error: result.validated ? null : result.reason });
     } catch {
       setRowState(id, { pending: false, error: "could not reach the engine" });
     }
@@ -81,9 +80,11 @@ function ProvidersSection() {
   async function handleRemove(id: string) {
     setRowState(id, { pending: true, error: null });
     try {
-      const result = await deleteProviderKey(id);
+      await deleteProviderKey(id);
+      // Removal has no rejection path of its own once the request resolves at all -- a non-2xx response
+      // already threw via the catch below.
       setConfigured(id, false);
-      setRowState(id, { pending: false, error: result.ok ? null : result.reason || "remove failed" });
+      setRowState(id, { pending: false, error: null });
     } catch {
       setRowState(id, { pending: false, error: "could not reach the engine" });
     }
