@@ -77,7 +77,7 @@ export default defineConfig({
     },
     ...acrossEngines({
       name: "local-engine",
-      testMatch: "local-engine.spec.ts",
+      testMatch: ["local-engine.spec.ts", "settings-byok.spec.ts"],
       use: { baseURL: localEngineURL },
       metadata: { localEngineObservationMs },
     }),

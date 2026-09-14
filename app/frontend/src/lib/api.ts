@@ -342,10 +342,24 @@ export interface ProviderInfo {
   configured: boolean;
 }
 
-// `reason` explains a rejected key (from the provider's own probe) and is empty on success.
-export interface ProviderKeyResult {
-  ok: boolean;
+// The engine stores a key regardless of whether the probe below validated it (server.py's set_provider_key:
+// "store.put runs unconditionally") -- `validated` says whether the provider's own models endpoint accepted
+// it, `reason` is that probe's own explanation either way ("ok" on success, never empty). There is no `ok`
+// field: a stale, never-matching client type here previously made every successful save render as a failure
+// (`reason: "ok"` shown as the error message) because it checked a field the server never sent.
+export interface ProviderKeySaveResult {
+  provider: string;
+  configured: true;
+  validated: boolean;
   reason: string;
+}
+
+// Removal has no rejection path of its own -- store.delete is called unconditionally and a non-2xx response
+// (the provider id itself is unknown, or the request fails outright) already throws via postJSON/deleteJSON's
+// own ApiError, so a resolved result here is always success.
+export interface ProviderKeyRemovedResult {
+  provider: string;
+  configured: false;
 }
 
 export async function providers(): Promise<ProviderInfo[]> {
@@ -353,14 +367,14 @@ export async function providers(): Promise<ProviderInfo[]> {
   return getJSON<ProviderInfo[]>("/api/providers");
 }
 
-export async function putProviderKey(id: string, key: string): Promise<ProviderKeyResult> {
+export async function putProviderKey(id: string, key: string): Promise<ProviderKeySaveResult> {
   if (IS_DEMO) throw new ApiError(501, `/api/providers/${id}/key`);
-  return postJSON<ProviderKeyResult>(`/api/providers/${encodeURIComponent(id)}/key`, { key });
+  return postJSON<ProviderKeySaveResult>(`/api/providers/${encodeURIComponent(id)}/key`, { key });
 }
 
-export async function deleteProviderKey(id: string): Promise<ProviderKeyResult> {
+export async function deleteProviderKey(id: string): Promise<ProviderKeyRemovedResult> {
   if (IS_DEMO) throw new ApiError(501, `/api/providers/${id}/key`);
-  return deleteJSON<ProviderKeyResult>(`/api/providers/${encodeURIComponent(id)}/key`);
+  return deleteJSON<ProviderKeyRemovedResult>(`/api/providers/${encodeURIComponent(id)}/key`);
 }
 
 // A workspace's own Telegram bot. The engine's credential belongs to the operator and a workspace cannot reach
