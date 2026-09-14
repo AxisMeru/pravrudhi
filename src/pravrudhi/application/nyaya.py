@@ -310,6 +310,7 @@ def ask(
     *,
     k: int = 8,
     checker: str | None = None,
+    contract_id: str | None = None,
     ask_fn: panel.AskFn | None = None,
     corpus: Corpus | None = None,
     store: CredentialStore | None = None,
@@ -320,6 +321,10 @@ def ask(
     calls the OpenAI-compatible client (`panel.ask_vendor`) so a BYOK key reaches the request it was stored
     for, admin desktop session or ordinary product user alike. Ignored when `ask_fn` is supplied, since a
     test double takes no store.
+
+    `contract_id` is required when `checker="lean"` (Track A P1b, ADR-0003): which contract
+    `nyaya_lean.check` should score every answer against. Raises `ValueError` if missing or unknown when
+    `checker="lean"` -- never silently defaults to any one contract.
     """
     question = question.strip()
     if not question:
@@ -349,11 +354,15 @@ def ask(
         answers = list(pool.map(one, chosen))
 
     if checker == "lean":
+        if contract_id is None:
+            raise ValueError("checker=\"lean\" requires contract_id")
+        if contract_id not in nyaya_lean.KNOWN_CONTRACT_IDS:
+            raise nyaya_lean.UnknownContractError(f"unknown contract_id {contract_id!r}")
         for ans in answers:
             if ans.verdict in ("error", "abstained"):
                 continue
             try:
-                ans.audit = {"checker": "lean", **nyaya_lean.check_ipc378(ans.text, root=Path(root))}
+                ans.audit = {"checker": "lean", **nyaya_lean.check(ans.text, contract_id, root=Path(root))}
             except Exception as e:
                 ans.audit = {"checker": "lean", "verdict": "UNAVAILABLE", "why": str(e)[-200:]}
     elif checker:
@@ -387,6 +396,7 @@ def audit(
     answer: str,
     checker: str = "claude-cli",
     *,
+    contract_id: str | None = None,
     ask_fn: panel.AskFn | None = None,
     store: CredentialStore | None = None,
 ) -> dict[str, Any]:
@@ -395,11 +405,18 @@ def audit(
     `store` reaches the checker vendor's own key resolution the same way `ask` threads it through.
 
     `checker="lean"` bypasses vendor resolution entirely: no LLM is called, the answer text goes straight to
-    prabhasa-nyaya's compiled Lean scorer via `nyaya_lean.check_ipc378` (Track A P1, ADR-0003 -- the IPC 378
-    fixture only, see that module's own scope note).
+    prabhasa-nyaya's compiled Lean scorer via `nyaya_lean.check` (Track A P1b, ADR-0003 -- generalized to
+    any contract that module knows, see its own scope note). `contract_id` is required when
+    `checker="lean"`; raises if missing or unknown -- never silently defaults to any one contract.
     """
     if checker == "lean":
-        rec = {"checker": "lean", **nyaya_lean.check_ipc378(answer.strip(), root=Path(root)), "provenance": "agama"}
+        if contract_id is None:
+            raise ValueError("checker=\"lean\" requires contract_id")
+        rec = {
+            "checker": "lean",
+            **nyaya_lean.check(answer.strip(), contract_id, root=Path(root)),
+            "provenance": "agama",
+        }
     else:
         cv = panel.load_vendors((checker,))[0]
 
