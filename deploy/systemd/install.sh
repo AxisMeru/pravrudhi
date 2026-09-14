@@ -6,7 +6,8 @@ UNITS="$HOME/.config/systemd/user"
 mkdir -p "$UNITS"
 for f in pravrudhi-app.service pravrudhi-update.service pravrudhi-update.timer \
          pravrudhi-heartbeat.service pravrudhi-heartbeat.timer \
-         pravrudhi-publish.service pravrudhi-publish.timer; do
+         pravrudhi-publish.service pravrudhi-publish.timer \
+         pravrudhi-inbox-sweep.service pravrudhi-inbox-sweep.timer; do
   sed "s#@ROOT@#$ROOT#g" "$ROOT/deploy/systemd/$f" > "$UNITS/$f"
 done
 chmod +x "$ROOT/deploy/systemd/dev-update.sh"
@@ -15,5 +16,6 @@ chmod +x "$ROOT/deploy/systemd/dev-update.sh"
 mkdir -p "$UNITS/pravrudhi-app.service.d"
 printf '[Service]\nEnvironment="PATH=%s"\n' "$PATH" > "$UNITS/pravrudhi-app.service.d/path.conf"
 systemctl --user daemon-reload
-systemctl --user enable --now pravrudhi-app.service pravrudhi-update.timer pravrudhi-heartbeat.timer pravrudhi-publish.timer
+systemctl --user enable --now pravrudhi-app.service pravrudhi-update.timer pravrudhi-heartbeat.timer \
+  pravrudhi-publish.timer pravrudhi-inbox-sweep.timer
 systemctl --user list-timers "pravrudhi-*" --no-pager

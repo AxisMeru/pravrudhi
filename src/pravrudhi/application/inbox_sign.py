@@ -88,3 +88,38 @@ def record_decision(
         "autonomous": autonomous,
         "badge": row.get("badge"),
     }
+
+
+# 2026-09-14: ADR-0040's delegation and the conditions above have existed since 2026-09-10, and `/inbox/sign`
+# already applies them correctly -- but nothing calls it on a schedule. Eight promotion packs sat unsigned on
+# the hosted Studio engine (some for days) for no reason other than that the operator had to open the inbox
+# and notice them, which is exactly what the delegation was granted to stop. This is the missing driver: the
+# same decision a person or `inbox-sign` would make for one pack, applied to every unsigned one, on a timer.
+_EQUIVOCAL_NOTE = (
+    "badge is {badge!r}, not green: the evidence is equivocal, so the autonomous action is to run the "
+    "experiment that resolves it, not to approve it or leave it silently parked (CHARTER §6)."
+)
+
+
+def sweep(root: Path) -> list[dict[str, Any]]:
+    """Decide every unsigned promotion pack once, under the recorded delegation: approve a green badge,
+    defer anything else with the standing equivocal-evidence reason. One bad pack (no delegation recorded, an
+    unreadable README, a badge the delegation's conditions still refuse) is skipped and reported rather than
+    raised, so it does not stop the rest of the sweep -- the same fail-soft discipline `_beat_obligations`
+    already applies to a batch of independent dispatches.
+    """
+    root = Path(root)
+    results: list[dict[str, Any]] = []
+    for row in inbox_listing(root):
+        if row["signed"]:
+            continue
+        pack = Path(row["pack"])
+        badge = row.get("badge")
+        decision = "approve" if badge == "green" else "defer"
+        note = "" if decision == "approve" else _EQUIVOCAL_NOTE.format(badge=badge)
+        try:
+            out = record_decision(root, pack=pack, decision=decision, note=note)
+            results.append({"pack": str(pack), **out})
+        except (PermissionError, ValueError, FileNotFoundError, OSError) as e:
+            results.append({"pack": str(pack), "skipped": str(e)})
+    return results
