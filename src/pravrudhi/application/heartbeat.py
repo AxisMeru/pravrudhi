@@ -1001,10 +1001,20 @@ def _sync_loop_branch(root: Path) -> str | None:
     A fetch failure (network hiccup, no remote configured) is treated the same as nothing-to-sync rather than a
     conflict - that distinction matters only for a genuine content conflict a person must resolve; nothing to
     resolve here, the next beat tries again.
+
+    2026-09-14: a loop root with any local commit ahead of `origin/main` (one the loop's own `_push_loop_branch`
+    never reached, or one recovered by hand from a stuck dispatch) needs `git rebase` to recreate that commit's
+    object every single time this runs, which needs a committer identity - and a bare clone with no local
+    `user.name`/`user.email` and no `~/.gitconfig` has none. Studio's own `loop/studio` checkout hit exactly
+    this for over an hour, every beat, on one such commit: "Committer identity unknown", the rebase aborted,
+    and the loop silently stopped picking up anything from `main` at all while its label kept saying only
+    "rebase-conflict". `COMMIT_IDENTITY` (already used by `integrate.py` for the loop's OWN build-mode commits)
+    is passed the same way here, so this never depends on ambient git config existing in the checkout.
     """
     def run(*args: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
             ["git", *args], cwd=root, capture_output=True, text=True, timeout=_LOOP_SYNC_TIMEOUT_S,
+            env={**os.environ, **COMMIT_IDENTITY},
         )
 
     try:
@@ -1500,7 +1510,7 @@ def build_paths_for(text: str, *, root: Path | None = None) -> tuple[str, ...]:
 _BUILD_TIER = "design"
 """Real code is design-tier work: the routing table names the seats that may write it."""
 
-from pravrudhi.application.integrate import BUILD_VALIDATE  # noqa: E402  one command for worktree and main tree
+from pravrudhi.application.integrate import BUILD_VALIDATE, COMMIT_IDENTITY  # noqa: E402  one command for worktree and main tree
 
 
 def _resolved_build_validate(root: Path) -> str:

@@ -1396,6 +1396,47 @@ class TestLoopSyncsBeforeEveryBeat:
         log = self._git("log", "--oneline", cwd=clone).stdout
         assert "team" in log and "loop" in log
 
+    def test_a_rebase_that_must_recreate_a_commit_works_with_no_ambient_git_identity(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """2026-09-14: Studio's own `loop/studio` checkout had one local commit ahead of `origin/main` (real,
+        valid content recovered from a stuck dispatch) and no local `user.name`/`user.email` in that checkout,
+        nor any `~/.gitconfig` on the machine at all. Every beat's rebase has to recreate that commit's object
+        to replay it on the new `origin/main`, which needs a committer identity - and failed with "Committer
+        identity unknown" every single time for over an hour, silently stopping the loop from picking up
+        anything from `main` while the label just said "rebase-conflict". `COMMIT_IDENTITY` must be supplied
+        by `_sync_loop_branch` itself, not assumed to already be configured in the checkout or the environment
+        - this test deliberately configures neither, pointing HOME at an empty directory so no ambient global
+        gitconfig on the machine running the test can mask the bug either."""
+        from pravrudhi.application.heartbeat import _sync_loop_branch
+
+        _origin, seed, clone = self._origin_and_clone(tmp_path)
+        # Unset the identity `_origin_and_clone` configured locally, and point HOME somewhere with no
+        # `.gitconfig` at all, so nothing ambient can supply an identity except the fix under test.
+        self._git("config", "--unset", "user.name", cwd=clone)
+        self._git("config", "--unset", "user.email", cwd=clone)
+        empty_home = tmp_path / "empty_home"
+        empty_home.mkdir()
+        monkeypatch.setenv("HOME", str(empty_home))
+        monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(empty_home / "does-not-exist"))
+
+        (seed / "team.txt").write_text("team work\n")
+        self._git("add", ".", cwd=seed)
+        self._git("-c", "user.name=t", "-c", "user.email=t@t.example", "commit", "-m", "team", cwd=seed)
+        self._git("push", "origin", "main", cwd=seed)
+
+        # The loop's own unpushed commit, made with an explicit identity (as `integrate.py`'s real commits
+        # are) so only the REBASE's need for an identity is under test here, not the original commit.
+        (clone / "loop.txt").write_text("loop work\n")
+        self._git("add", ".", cwd=clone)
+        self._git("-c", "user.name=t", "-c", "user.email=t@t.example", "commit", "-m", "loop", cwd=clone)
+
+        result = _sync_loop_branch(clone)
+
+        assert result is None, f"the rebase must succeed using COMMIT_IDENTITY alone: {result}"
+        assert (clone / "team.txt").exists()
+        assert (clone / "loop.txt").exists()
+
     def test_a_conflicting_rebase_aborts_and_reports_rather_than_resolving_itself(self, tmp_path: Path) -> None:
         from pravrudhi.application.heartbeat import _sync_loop_branch
 
