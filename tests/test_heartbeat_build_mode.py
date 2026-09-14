@@ -76,6 +76,54 @@ class TestBuildPathsFor:
         assert len(paths) >= 2
 
 
+class TestBuildPathsForCliCommandsAndApiEndpoints:
+    """cli-lead, 2026-09-14: r-1977143a criterion 2 asks for `pravrudhi routes`/`pravrudhi agents` to print
+    seat state and "the same information is served by an endpoint", but names no file path for either - only
+    `configs/seats.yaml` is backticked, so the dispatch got write access to `configs/*` and `tests/*` alone
+    and could never touch the CLI or API code the criterion actually needs. Two narrow, bounded rules, not a
+    general "infer any mentioned identifier's file": a backticked `pravrudhi <subcommand>` invocation names
+    the one module every CLI command lives in; the word "endpoint" names the one module every API route lives
+    in."""
+
+    def test_a_backticked_cli_invocation_grants_cli_app_py(self) -> None:
+        paths = heartbeat.build_paths_for("`pravrudhi routes` must print every seat's state")
+        assert "src/pravrudhi/cli/app.py" in paths
+
+    def test_the_word_endpoint_grants_api_server_py(self) -> None:
+        paths = heartbeat.build_paths_for("the same information is served by an endpoint")
+        assert "src/pravrudhi/api/server.py" in paths
+
+    def test_the_real_r1977143a_criterion_2_text_gets_both(self) -> None:
+        text = (
+            "Model and agent management is a surface a user can see and act on, not only internal state: "
+            "`pravrudhi routes` and `pravrudhi agents` print every route and seat with its current state "
+            "(usable, cooling, reset moment, seat precedence from `configs/seats.yaml`), the same "
+            "information is served by an endpoint"
+        )
+        paths = heartbeat.build_paths_for(text)
+        assert "src/pravrudhi/cli/app.py" in paths
+        assert "src/pravrudhi/api/server.py" in paths
+        assert "configs/*" in paths
+
+    def test_bare_pravrudhi_mentioned_in_prose_grants_neither(self) -> None:
+        """The negative case cli-lead asked for: "pravrudhi" bare in prose (the project's own name) is common
+        and must not widen scope - only a backticked, command-shaped invocation counts."""
+        paths = heartbeat.build_paths_for(
+            "Pravrudhi improves whatever its user is building; write a short design note about that."
+        )
+        assert "src/pravrudhi/cli/app.py" not in paths
+        assert "src/pravrudhi/api/server.py" not in paths
+
+    def test_a_backticked_pravrudhi_mention_that_is_not_a_subcommand_grants_nothing(self) -> None:
+        """`pravrudhi` alone, or a prose phrase, backticked - not a `pravrudhi <subcommand>` shape."""
+        paths = heartbeat.build_paths_for("upgrade `pravrudhi` to the next release")
+        assert "src/pravrudhi/cli/app.py" not in paths
+
+    def test_an_ordinary_criterion_with_no_command_or_endpoint_is_unaffected(self) -> None:
+        paths = heartbeat.build_paths_for("Write a short design note explaining the tradeoffs.")
+        assert paths == ("tests/*",)
+
+
 class TestDispatchMode:
     """Test heartbeat.dispatch_mode() mode determination."""
 

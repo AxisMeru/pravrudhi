@@ -1430,6 +1430,16 @@ def _beat_triage(root: Path, *, complete: Callable[[str], str] | None = None) ->
     )
 
 
+#: A backticked, bare `pravrudhi <subcommand>` invocation (`pravrudhi routes`, `pravrudhi agents`) - not a
+#: general identifier match, just the one shape a CLI command name takes in a criterion's own text.
+_CLI_COMMAND_RE = re.compile(r"^pravrudhi\s+[a-z][\w-]*$")
+
+#: Deliberately just the bare word - specific enough on its own that a criterion mentioning it almost always
+#: means a real API route, unlike "pravrudhi" (the project's own name), which needs the backtick+shape guard
+#: above to avoid firing on ordinary prose.
+_ENDPOINT_RE = re.compile(r"\bendpoint\b", re.IGNORECASE)
+
+
 def build_paths_for(text: str, *, root: Path | None = None) -> tuple[str, ...]:
     """Extract repository paths from criterion text and widen to directory globs.
 
@@ -1500,6 +1510,24 @@ def build_paths_for(text: str, *, root: Path | None = None) -> tuple[str, ...]:
                 widened.add("src/*")
             elif path.startswith("test"):
                 widened.add("tests/*")
+
+    # cli-lead, 2026-09-14: r-1977143a criterion 2 asks for `pravrudhi routes`/`pravrudhi agents` output and
+    # "an endpoint" serving the same data, but names no file path for either - only `configs/seats.yaml` is
+    # backticked, so build_paths_for gave the dispatch write access to `configs/*` and `tests/*` alone. A
+    # build-mode dispatch could then never touch the CLI or API code the criterion actually needs, and every
+    # attempt could only write a spec-shaped test in the one place it *could* write - which the xfail-escape
+    # fix (87495d3) correctly stopped disguising as progress, surfacing this as the real blocker instead.
+    #
+    # Two narrow, bounded rules, not a general "infer any mentioned identifier's file" (that IS the can of
+    # worms a heuristic deciding a dispatch's write scope must not open): a backticked `pravrudhi <subcommand>`
+    # invocation names the one module every CLI command lives in; the word "endpoint" anywhere in the text
+    # names the one module every API route lives in. Restricted to backticked spans for the CLI rule
+    # specifically, because "pravrudhi" bare in prose (the project's own name) is common and would falsely
+    # widen scope on criteria that never asked for it; "endpoint" is specific enough not to need that guard.
+    if any(_CLI_COMMAND_RE.fullmatch(p.strip()) for p in backticked):
+        widened.add("src/pravrudhi/cli/app.py")
+    if _ENDPOINT_RE.search(text):
+        widened.add("src/pravrudhi/api/server.py")
 
     # Always include tests
     widened.add("tests/*")
