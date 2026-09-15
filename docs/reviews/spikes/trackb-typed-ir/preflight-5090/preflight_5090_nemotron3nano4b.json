@@ -1,0 +1,27 @@
+{
+ "model": "nvidia/NVIDIA-Nemotron-3-Nano-4B-BF16",
+ "device": "NVIDIA GeForce RTX 5090",
+ "seq": 2048,
+ "load_s": 11.6,
+ "vram_after_load_gib": 7.4,
+ "n_params": 3973556832,
+ "nll_items": 48,
+ "nll_select_gold_at_4": 0.4375,
+ "nll_tokens_per_s": 1260.5,
+ "vram_peak_inference_gib": 7.75,
+ "lora_trainable_params": 82753536,
+ "lora_steps": 4,
+ "lora_step_s": 7.85,
+ "lora_peak_vram_gib": 17.38,
+ "lora_losses": [
+  12.5368,
+  12.2029,
+  11.8838,
+  11.6515
+ ],
+ "ckpt_restore_nll_before_after": [
+  1.307888,
+  1.307888
+ ],
+ "ckpt_restore_ok": true
+}
