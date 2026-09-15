@@ -11,3 +11,7 @@ dl{display:grid;grid-template-columns:max-content 1fr;gap:8px 24px}dt{color:#92a
 .progress-row:first-child{border-top:none}
 .progress-row small{color:#8c9ba8;font-size:11px}
 .band{margin-top:10px;display:flex;flex-direction:column;gap:6px}
+#chat-log{max-height:260px;overflow-y:auto;display:flex;flex-direction:column;gap:8px;margin:10px 0}
+.chat-entry{margin:0;padding:8px 12px;border-radius:8px;white-space:pre-wrap;overflow-wrap:anywhere;max-width:80%}
+.chat-operator{align-self:flex-end;background:#25312b;color:#dcefc9}
+.chat-pravrudhi{align-self:flex-start;background:#20262e;color:#e1e7ed}

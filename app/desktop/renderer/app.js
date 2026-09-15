@@ -9,6 +9,31 @@ async function action(name) {
   finally { pending = false; await refresh(); }
 }
 for (const [id,name] of Object.entries({'open-engine':'openEngine','updates':'checkForUpdates','locate':'locateEngine','restart':'restart','stop':'stop','doctor':'doctor','open-workspace':'openWorkspace'})) $(id).addEventListener('click', () => action(name));
+// Studio only: window.desktop.sendChatMessage exists in every build (preload.js exposes it unconditionally),
+// but main.js registers its handler only for Studio, so refresh() below hides this panel unless the connected
+// engine's edition says otherwise - a product build never submits this form because it never shows it.
+let chatBusy = false, chatThreadId = null;
+$('chat-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  if (chatBusy) return;
+  const input = $('chat-input');
+  const text = input.value.trim();
+  if (!text) return;
+  chatBusy = true; $('chat-error').textContent = ''; input.value = '';
+  appendChatEntry('operator', text);
+  try {
+    const turn = await window.desktop.sendChatMessage(text, chatThreadId);
+    chatThreadId = turn.thread_id;
+    appendChatEntry('pravrudhi', turn.reply);
+  } catch (e) { $('chat-error').textContent = e.message; }
+  finally { chatBusy = false; }
+});
+function appendChatEntry(role, text) {
+  const entry = document.createElement('p');
+  entry.className = `chat-entry chat-${role}`;
+  entry.textContent = text;
+  $('chat-log').append(entry);
+}
 function copyButton(text,label) {
   const button = document.createElement('button'); button.className = 'secondary'; button.textContent = label;
   button.addEventListener('click', async () => {
@@ -41,6 +66,7 @@ async function refresh() {
       refreshActivity(s.origin);
     }
     $('stop').disabled = !['starting','running'].includes(s.phase);
+    $('chat-panel').hidden = s.edition !== 'studio';
     $('doctor-state').textContent = s.doctorBusy ? 'Running pravrudhi doctor --json…' : s.doctorError || (s.checks.length ? 'Checks reported by your installed engine. Recovery commands are copied, never executed by the shell.' : 'Doctor runs when the engine connects.');
     const key = JSON.stringify(s.checks);
     if (key !== previousChecks) {

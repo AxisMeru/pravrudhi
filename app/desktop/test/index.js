@@ -14,3 +14,4 @@ require('./shell-updater.test.js');
 require('./integration.test.js');
 require('./updates.test.js');
 require('./product.test.js');
+require('./chat.test.js');

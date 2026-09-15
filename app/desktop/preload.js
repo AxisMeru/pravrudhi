@@ -16,5 +16,9 @@ contextBridge.exposeInMainWorld('desktop', Object.freeze({
   providers: () => ipcRenderer.invoke('providers:list'),
   validateProvider: (id) => ipcRenderer.invoke('providers:validate', id),
   setProviderKey: (id, key, baseUrl) => ipcRenderer.invoke('providers:key:set', id, key, baseUrl),
-  deleteProviderKey: (id) => ipcRenderer.invoke('providers:key:delete', id)
+  deleteProviderKey: (id) => ipcRenderer.invoke('providers:key:delete', id),
+  // Studio only: the operator's own message, forwarded the same way as the provider surface above. main.js
+  // registers 'chat:send' only when the edition is Studio's own build, so this channel exists in every build
+  // but answers with "no handler registered" in the product rather than ever reaching the engine's chat route.
+  sendChatMessage: (message, threadId) => ipcRenderer.invoke('chat:send', message, threadId)
 }));

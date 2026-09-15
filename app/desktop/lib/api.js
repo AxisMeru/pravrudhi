@@ -25,9 +25,18 @@ const ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 // A workspace decides whose project a request is about. Sent as a query parameter because that is what the
 // engine reads, and omitted entirely when absent, since an operator with none named gets the engine's own.
 const SLUG = /^[a-z0-9][a-z0-9-]{1,62}$/;
-function createApiClient(getOrigin, {fetchFn = fetch, timeout = 30000, getToken = async()=>null} = {}) {
+
+// The engine's conversational turn (src/pravrudhi/api/chat.py). Left out of `ROUTES` itself, on purpose:
+// test/edition.test.js proves the product's shared route budget carries no path that could run model work
+// before a user has stored a key of their own. Studio's own client merges this in (see lib/chat.js and
+// main.js), because Studio is the operator's edition and reaches the engine's core credentials without a
+// bring-your-own step (docs/DESKTOP.md, tests/test_byok_boundary.py) - a caller decision the engine makes by
+// identity, not one this shell has to encode.
+const CHAT_ROUTE = Object.freeze({chat: ['POST', '/api/chat']});
+
+function createApiClient(getOrigin, {fetchFn = fetch, timeout = 30000, getToken = async()=>null, routes = ROUTES} = {}) {
   async function request(name, {id, workspace, body} = {}) {
-    const [method, template] = ROUTES[name];
+    const [method, template] = routes[name];
     const origin = getOrigin();
     if (!origin) throw new Error('Engine is not connected.');
     if (template.includes(':id')) {
@@ -58,6 +67,6 @@ function createApiClient(getOrigin, {fetchFn = fetch, timeout = 30000, getToken 
     } catch { throw new Error(`${endpoint}: request failed. Check the connection and sign-in.`); }
   }
   return Object.freeze(Object.fromEntries(
-    Object.keys(ROUTES).filter(n=>n !== 'appToken').map(n=>[n,(options)=>request(n,options)])));
+    Object.keys(routes).filter(n=>n !== 'appToken').map(n=>[n,(options)=>request(n,options)])));
 }
-module.exports = {createApiClient, ROUTES};
+module.exports = {createApiClient, ROUTES, CHAT_ROUTE};

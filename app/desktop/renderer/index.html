@@ -18,6 +18,12 @@
 <dl><dt>Health</dt><dd id="health-value">Waiting for engine connection</dd><dt>Version and updates</dt><dd id="update-value">Waiting for engine connection</dd><dt>Request backlog</dt><dd id="backlog-value">Waiting for engine connection</dd><dt>Pending inbox</dt><dd id="inbox-value">Waiting for engine connection</dd></dl>
 </section>
 <section class="diagnostics"><div class="section-heading"><h2>Readiness checks</h2><button id="doctor" class="quiet">Run doctor</button></div><p id="doctor-state">Checks appear here if the engine cannot start.</p><div id="checks"></div></section>
+<section class="diagnostics" id="chat-panel" aria-label="Operator conversation" hidden>
+<div class="section-heading"><h2>Talk to Pravrudhi</h2></div>
+<div id="chat-log" role="log" aria-live="polite"></div>
+<form id="chat-form" class="row"><input id="chat-input" type="text" placeholder="Ask Pravrudhi…" autocomplete="off"><button type="submit">Send</button></form>
+<p id="chat-error" role="alert"></p>
+</section>
 <p id="action-error" role="alert"></p>
 
 

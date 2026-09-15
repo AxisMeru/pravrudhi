@@ -4,11 +4,12 @@ const path = require('node:path');
 const {pathToFileURL} = require('node:url');
 const {discoverEngine, pollHealth, parseDoctor, linkPolicy, readState, writeState, validBounds} = require('./lib/core');
 const {recovery} = require('./lib/recovery');
-const {createApiClient} = require('./lib/api');
+const {createApiClient, ROUTES, CHAT_ROUTE} = require('./lib/api');
 const {createProviderSurface} = require('./renderer/product');
+const {createChatSurface} = require('./lib/chat');
 const {selectConnection, defaultWorkspace} = require('./lib/connection');
 const {createProcessOwner, singleInstance, focusWindow} = require('./lib/lifecycle');
-const {engineEnv, readEdition, userDataName} = require('./lib/edition');
+const {engineEnv, readEdition, userDataName, STUDIO} = require('./lib/edition');
 const edition = readEdition(process.resourcesPath);
 const {engineMenu, trayState} = require('./lib/menu');
 const {createSmokeReporter} = require('./lib/smoke');
@@ -69,6 +70,10 @@ const api = createApiClient(()=>status.origin);
 // own, it only relays a signed-in user's own key to the three routes the engine already classifies as the
 // product's, so the boundary in tests/test_byok_boundary.py is the engine's to keep, not this shell's.
 const providerSurface = createProviderSurface(api);
+// Studio only: the operator's own conversation with the engine, reached with its core credentials by the same
+// local-caller resolution documented in docs/DESKTOP.md (`roles.role_of`), never assembled for the product -
+// see lib/api.js::CHAT_ROUTE for why this route is merged in here rather than living in the shared budget.
+const chatSurface = edition === STUDIO ? createChatSurface(createApiClient(()=>status.origin, {routes:{...ROUTES, ...CHAT_ROUTE}})) : null;
 const engineController = {restart:()=>serialize(start),stop:()=>serialize(stop),checkForUpdates:updates,openWorkspace:async()=>{ const error = await shell.openPath(workspace); if (error) throw new Error(error); }};
 function persist() { writeState(stateFile, settings); }
 function publish(patch) { status = {...status, ...patch}; refreshTray(); }
@@ -294,9 +299,12 @@ if (instanceReady) {
   app.whenReady().then(async () => {
     stateFile = path.join(app.getPath('userData'), 'desktop-state.json'); settings = readState(stateFile);
     workspace = defaultWorkspace({env:process.env.PRAVRUDHI_WORKSPACE,saved:settings.workspace,binary:await discoverEngine({saved:settings.enginePath}),home:app.getPath('home')}); settings.workspace = workspace;
-    const handlers = {'engine:status':() => ({...status,workspace,shellVersion:app.getVersion(),shellStale:shellIsStale(app.getVersion(),latestTag)}), 'engine:locate':locate,'engine:restart':() => serialize(start),'engine:stop':() => serialize(stop),'engine:doctor':doctor,'engine:updates':updates,'engine:workspace':engineController.openWorkspace, 'engine:health':api.health, 'engine:update-state':api.update, 'engine:open':async()=>{ if (!status.origin) throw new Error('Engine is not connected.'); for (const w of windows) await w.loadURL(status.origin); },
+    const handlers = {'engine:status':() => ({...status,workspace,shellVersion:app.getVersion(),shellStale:shellIsStale(app.getVersion(),latestTag),edition}), 'engine:locate':locate,'engine:restart':() => serialize(start),'engine:stop':() => serialize(stop),'engine:doctor':doctor,'engine:updates':updates,'engine:workspace':engineController.openWorkspace, 'engine:health':api.health, 'engine:update-state':api.update, 'engine:open':async()=>{ if (!status.origin) throw new Error('Engine is not connected.'); for (const w of windows) await w.loadURL(status.origin); },
       'providers:list':() => providerSurface.list(), 'providers:validate':(id) => providerSurface.validate(id),
-      'providers:key:set':(id, key, baseUrl) => providerSurface.add(id, key, baseUrl), 'providers:key:delete':(id) => providerSurface.remove(id)};
+      'providers:key:set':(id, key, baseUrl) => providerSurface.add(id, key, baseUrl), 'providers:key:delete':(id) => providerSurface.remove(id),
+      // Registered only for Studio: the product build never has a `chat:send` handler to invoke, so a request
+      // for one fails on "no handler registered" rather than reaching an engine route it must never call.
+      ...(chatSurface ? {'chat:send':(message, threadId) => chatSurface.send(message, threadId)} : {})};
     for (const [channel, handler] of Object.entries(handlers)) ipcMain.handle(channel, (event, ...args) => {
       const url = event.senderFrame?.url;
       if (!windows.has(BrowserWindow.fromWebContents(event.sender)) || event.senderFrame !== event.sender.mainFrame || !(url === statusURL || linkPolicy(url,status.origin) === 'internal')) throw new Error('Untrusted desktop request');

@@ -142,16 +142,20 @@ test('sandbox preload provides an enumerated invoke-only API, forwarding rendere
   for(const fn of Object.values(exposed)) await fn('untrusted arbitrary command');
   // engine:backlog and engine:inbox are gone with the operator surfaces they fed. They were still wired in
   // main.js and preload.js after the client dropped them, so every launch died on "handler is not a function".
-  assert.deepEqual(calls.map(c=>c[0]),['engine:health','engine:update-state','engine:open','engine:status','engine:locate','engine:restart','engine:stop','engine:doctor','engine:updates','engine:workspace','providers:list','providers:validate','providers:key:set','providers:key:delete']);
+  assert.deepEqual(calls.map(c=>c[0]),['engine:health','engine:update-state','engine:open','engine:status','engine:locate','engine:restart','engine:stop','engine:doctor','engine:updates','engine:workspace','providers:list','providers:validate','providers:key:set','providers:key:delete','chat:send']);
   // Every channel above ignores whatever the renderer passes it — none of them takes an argument at all. The
-  // provider channels are the one deliberate exception: a provider id and key are a user's own, typed by hand,
-  // and the engine's own boundary (tests/test_byok_boundary.py) resolves them by caller identity, not by
-  // trusting this shell to have kept them secret from the renderer that collected them.
+  // provider channels and the chat channel are the deliberate exceptions: a provider id and key are a user's
+  // own, typed by hand, and a chat message is the operator's own, and the engine's own boundary
+  // (tests/test_byok_boundary.py) resolves each by caller identity, not by trusting this shell to have kept
+  // them secret from the renderer that collected them.
   assert.deepEqual(calls.slice(0,10).every(c=>c.length===1),true);
   assert.deepEqual(calls.find(c=>c[0]==='providers:list'),['providers:list']);
   assert.deepEqual(calls.find(c=>c[0]==='providers:validate'),['providers:validate','untrusted arbitrary command']);
   assert.deepEqual(calls.find(c=>c[0]==='providers:key:set'),['providers:key:set','untrusted arbitrary command',undefined,undefined]);
   assert.deepEqual(calls.find(c=>c[0]==='providers:key:delete'),['providers:key:delete','untrusted arbitrary command']);
+  // chat:send exists as a channel in every build (preload.js is identical bytes in both editions), but main.js
+  // registers its handler only for Studio - see the wiring test below for the product build's absence of it.
+  assert.deepEqual(calls.find(c=>c[0]==='chat:send'),['chat:send','untrusted arbitrary command',undefined]);
 });
 test('first-run renderer displays API data and named failed doctor reasons with copyable commands',async()=>{
   const fs=require('node:fs');const vm=require('node:vm');const elements=new Map();
@@ -166,6 +170,46 @@ test('first-run renderer displays API data and named failed doctor reasons with 
 
   const check=elements.get('checks').children[0];assert.match(check.children[0].textContent,/docker/);assert.match(check.children[1].textContent,/daemon is not running/);
   assert.equal(check.children[2].children[0].textContent,'systemctl start docker');assert.equal(body.dataset.apiReady,'true');
+});
+
+test('the operator conversation surface is hidden for the product, shown and usable for Studio',async()=>{
+  const fs=require('node:fs');const vm=require('node:vm');const elements=new Map();
+  const element=()=>({textContent:'',value:'',hidden:false,dataset:{},children:[],handlers:{},
+    addEventListener(type,fn){this.handlers[type]=fn;},replaceChildren(){this.children=[];},append(...children){this.children.push(...children);}});
+  const body=element();
+  const document={body,getElementById:id=>{if(!elements.has(id))elements.set(id,element());return elements.get(id);},createElement:element};
+  let edition='product';
+  const sent=[];
+  const desktop={
+    engineStatus:async()=>({phase:'running',origin:'http://127.0.0.1:8008',binary:'engine',workspace:'workspace',checks:[],edition}),
+    health:async()=>({ok:true,version:'test-installed'}),
+    updateState:async()=>({current:{version:'test-installed'},latest:null,update_available:false}),
+    sendChatMessage:async(message,threadId)=>{sent.push([message,threadId]);return {thread_id:'th1',reply:`echo: ${message}`};},
+  };
+  const context={document,window:{desktop},setTimeout:()=>{}};
+  vm.runInNewContext(fs.readFileSync(require.resolve('../renderer/app'),'utf8'),context);
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(elements.get('chat-panel').hidden,true,'the product build must not show the conversation surface');
+
+  edition='studio';
+  await context.refresh();
+  assert.equal(elements.get('chat-panel').hidden,false,'Studio must show the conversation surface once connected');
+
+  document.getElementById('chat-input').value='hello there';
+  await elements.get('chat-form').handlers.submit({preventDefault(){}});
+  assert.deepEqual(sent[0],['hello there',null]);
+  assert.equal(document.getElementById('chat-input').value,'','the input clears once sent');
+  const [operatorEntry,replyEntry]=elements.get('chat-log').children;
+  assert.equal(operatorEntry.textContent,'hello there');assert.equal(operatorEntry.className,'chat-entry chat-operator');
+  assert.equal(replyEntry.textContent,'echo: hello there');assert.equal(replyEntry.className,'chat-entry chat-pravrudhi');
+
+  document.getElementById('chat-input').value='and again';
+  await elements.get('chat-form').handlers.submit({preventDefault(){}});
+  assert.deepEqual(sent[1],['and again','th1'],'the thread id from the first reply carries the second turn');
+
+  document.getElementById('chat-input').value='   ';
+  await elements.get('chat-form').handlers.submit({preventDefault(){}});
+  assert.equal(sent.length,2,'a blank message is never sent');
 });
 test('process ownership spawns detached without a shell and tears down only its own groups once',async()=>{
   const {createProcessOwner}=require('../lib/lifecycle');const signalled=[];let options;
@@ -292,6 +336,67 @@ test('main wires the provider surface to the IPC channels preload exposes, gated
   // The trust check runs before the handler returns a promise at all, so it throws synchronously rather than
   // rejecting one — the same shape every other channel's gate already has, unchanged by this wiring.
   assert.throws(() => registered['providers:list'](untrusted), /Untrusted desktop request/);
+});
+
+test('main registers the chat channel only for a Studio build, and forwards its arguments to the engine', async () => {
+  const fs=require('node:fs');const vm=require('node:vm');const path=require('node:path');const {pathToFileURL}=require('node:url');
+  const desktopDir=path.dirname(require.resolve('../main'));
+  const {STUDIO}=require('../lib/edition');
+  const statusURL = pathToFileURL(path.join(desktopDir,'renderer/index.html')).href;
+
+  async function boot(edition) {
+    const app=new EventEmitter();let exited;
+    const exit=new Promise(resolve=>{exited=resolve;});
+    Object.assign(app,{requestSingleInstanceLock:()=>true,setPath(){},getPath:()=>desktopDir,getVersion:()=> 'test-shell',whenReady:async()=>{},quit:()=>app.emit('before-quit',{preventDefault(){}}),exit:code=>exited(code)});
+    let windowInstance;
+    class Window extends EventEmitter {
+      constructor() {
+        super();windowInstance=this;this.webContents=new EventEmitter();
+        Object.assign(this.webContents,{mainFrame:{},session:{setPermissionRequestHandler(){}},setWindowOpenHandler(){},executeJavaScript:async()=>{},getTitle:()=>this.title});
+      }
+      async loadFile(){this.title='Desktop fixture';this.webContents.emit('did-finish-load');}
+      async loadURL(){this.title='Engine fixture';this.webContents.emit('did-finish-load');}
+      static fromWebContents(wc){ return wc === windowInstance?.webContents ? windowInstance : undefined; }
+    }
+    class Tray { on(){} setToolTip(){} setContextMenu(){} }
+    const registered = {}, chatCalls = [];
+    const core=require('../lib/core');const lifecycle=require('../lib/lifecycle');const {createSmokeReporter}=require('../lib/smoke');
+    const modules={
+      electron:{app,BrowserWindow:Window,Menu:{buildFromTemplate:items=>items,setApplicationMenu(){}},Tray,nativeImage:{createFromBitmap(){}},ipcMain:{handle:(channel,fn)=>{registered[channel]=fn;}},dialog:{showErrorBox:(_title,message)=>assert.fail(message)},shell:{},screen:{getAllDisplays:()=>[]}},
+      './lib/core':{...core,discoverEngine:async()=> 'fixture-engine',pollHealth:async()=>({ok:true}),readState:()=>({}),writeState(){}},
+      './lib/connection':{selectConnection:async()=>({attached:true,binary:'fixture-engine',origin:'http://127.0.0.1:8008'}),defaultWorkspace:()=>desktopDir},
+      './lib/edition':{...require('../lib/edition'),readEdition:()=>edition},
+      './lib/api':{createApiClient:(_getOrigin,opts)=>({
+        health:async()=>({ok:true,version:'fixture'}),
+        ...(opts && opts.routes && opts.routes.chat ? {chat:async(args)=>{chatCalls.push(args);return {thread_id:'th1',reply:'hi there',citations:[],tool_calls:[],refusals:[]};}} : {}),
+      }),ROUTES:require('../lib/api').ROUTES,CHAT_ROUTE:require('../lib/api').CHAT_ROUTE},
+      './lib/smoke':{createSmokeReporter:file=>createSmokeReporter(file,{write(){}})},
+      './lib/lifecycle':{...lifecycle,createProcessOwner:()=>({launch:()=>{
+        const child=new EventEmitter();child.stdout=new EventEmitter();child.stderr=new EventEmitter();
+        queueMicrotask(()=>{child.stdout.emit('data',JSON.stringify({checks:[]}));child.emit('close',1);});return child;
+      },stop:async()=>{},shutdown:async()=>{}})}
+    };
+    vm.runInNewContext(fs.readFileSync(require.resolve('../main'),'utf8'),{
+      require:name=>modules[name] || (name.startsWith('./') ? require(path.join(desktopDir,name)) : require(name)),
+      __dirname:desktopDir,process:{env:{PRAVRUDHI_DESKTOP_SMOKE:'1'},on(){}},console,Buffer,AbortController,AbortSignal,URL,setTimeout,clearTimeout,
+      fetch:async()=>({ok:true,headers:{get:()=> 'text/html'}})
+    });
+    await exit;
+    windowInstance.webContents.mainFrame.url = statusURL;
+    const trusted = {senderFrame:windowInstance.webContents.mainFrame, sender:windowInstance.webContents};
+    return {registered, chatCalls, trusted};
+  }
+
+  const studio = await boot(STUDIO);
+  assert.ok(studio.registered['chat:send'], 'Studio must register a handler for chat:send');
+  const reply = await studio.registered['chat:send'](studio.trusted, 'hello engine', null);
+  assert.equal(reply.reply, 'hi there');
+  assert.deepEqual(studio.chatCalls[0], {body:{message:'hello engine'}});
+  await studio.registered['chat:send'](studio.trusted, 'again', 'th1');
+  assert.deepEqual(studio.chatCalls[1], {body:{message:'again', thread_id:'th1'}});
+
+  const product = await boot('product');
+  assert.equal(product.registered['chat:send'], undefined, 'the product build must never register chat:send');
 });
 
 test('the product never reaches an operator surface', async () => {
