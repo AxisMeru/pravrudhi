@@ -1,4 +1,4 @@
-# P2a deterministic full-IR batch-01 — Track B content read, 2026-09-15 15:22 BST
+# P2a deterministic full-IR batch-01 — Track B content read, 2026-09-15 15:16 BST
 
 `prabhasa-nyaya` `trackB/t5b-deterministic-records` @ `3adf566`: `scripts/p2a_deterministic_records.py`, `research/gates/P2a/deterministic_records/batch-01/{records,provenance}.jsonl` (31 records: 14 control, 14 omission, 3 denial).
 
