@@ -106,6 +106,26 @@ class TestCheckRegistry:
         with pytest.raises(reg.UnknownContractError):
             reg.check_registry({"x": True}, "not_a_real_id", score_bin=_SCORE_BIN)
 
+    def test_a_bns46_route_scores_grounded(self) -> None:
+        """Reachability for the three ids folded in by the T5b atomic wire pass (BNS 46's
+        instigation/conspiracy/intentional-aid routes) -- proves they score through `check_registry`
+        exactly like the original eleven, not just that `--list-contracts` names them."""
+        result = reg.check_registry(
+            {
+                "instigates any person to do the thing (urges, incites or provokes it), including, "
+                "per s.45 Explanation 1, wilfully misrepresenting or wilfully concealing a material "
+                "fact one is bound to disclose so as to cause, procure, or attempt to cause or "
+                "procure it": True,
+                "the thing abetted is itself an offence, or is an act which would be an offence if "
+                "committed by a person capable by law of committing an offence with the same "
+                "intention or knowledge as the abettor's own": True,
+            },
+            "bns46_instigation",
+            score_bin=_SCORE_BIN,
+        )
+        assert result["verdict"] == "grounded"
+        assert result["omitted_claims"] == []
+
     def test_hostile_characters_in_an_element_name_round_trip(self) -> None:
         """The percent-escaping this module re-derives from Score.lean's escField must match exactly, or a
         real element name containing a comma/paren/percent would corrupt the wire line's field boundaries

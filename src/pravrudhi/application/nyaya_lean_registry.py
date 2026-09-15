@@ -1,6 +1,6 @@
 """T5b atomic wire (Track A's own input-format call, per `contractForId`'s own doc comment on the
 prabhasa-nyaya side): the Python consumer for the `REG` wire tag, which scores an answer's element
-assertions against one of the eleven BNS/IPC registry Contracts (`contractForId` in `lean/Score.lean`).
+assertions against one of the fourteen BNS/IPC registry Contracts (`contractForId` in `lean/Score.lean`).
 
 Distinct from `nyaya_lean.py`'s citation-checking path (`A3N` tag, `_CONTRACTS`): these Contracts' required
 lists are element-satisfaction claims, not case citations, so `nyaya_lean.check` does not fit them --
@@ -26,8 +26,10 @@ from typing import Any
 
 from pravrudhi.application.nyaya_gold_score import score_bin_path
 
-#: The eleven registry Contract ids `contractForId` in `lean/Score.lean` knows, per the T5b exit criterion.
-#: Hand-listed here for fast validation before a subprocess call -- kept honest by
+#: The fourteen registry Contract ids `contractForId` in `lean/Score.lean` knows -- eleven from the
+#: original T5b exit criterion plus BNS 46's three routes (bns46_instigation, bns46_conspiracy,
+#: bns46_intentional_aid), wired in the T5b atomic wire pass once the Lean branch rebased onto
+#: tranche 3 main. Hand-listed here for fast validation before a subprocess call -- kept honest by
 #: `tests/test_nyaya_lean_registry.py`'s drift test, which reads the binary's OWN `--list-contracts` output
 #: and asserts it equals this set exactly, rather than trusting this list on its own (the lead's explicit
 #: no-drift requirement: the test reads from the binary, this constant is not the source of truth).
@@ -37,6 +39,7 @@ KNOWN_CONTRACT_IDS: frozenset[str] = frozenset(
         "ipc415_property", "ipc415_damaging_act", "ipc416",
         "ipc182_misdirected_act", "ipc182_abuse_of_power",
         "bns69", "bns47", "bns85",
+        "bns46_instigation", "bns46_conspiracy", "bns46_intentional_aid",
     }
 )
 
