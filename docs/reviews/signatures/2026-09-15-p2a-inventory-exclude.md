@@ -16,3 +16,9 @@ Independent recount by spikeC-inventory-verify (Sonnet, seat 2; `wc`/`jq`/`comm`
 - **`law_v3_train_refit.jsonl`** (6,206 rows, sibling of the inventoried file) must be inventoried as a source or declared out of scope with the reason; unlisted files beside a listed one are a leakage path.
 
 Signature: **HELD** pending items 1–4 (numbers need no rework). Re-check: regenerate at the revised SHA; I diff against my scratch run and sign.
+
+## SIGNED — 2026-09-15 15:05 BST, code `413bf55`, evidence `d7ce664`
+
+Re-check by the reviewer from a throwaway worktree at `d7ce664`: both subcommands re-run with the root flags; `exclusions.json` identical to the committed file apart from timestamp; `inventory.json` identical apart from timestamp and the checker-id count (None in my unbuilt checkout). All four held items are in: (1) `code_revision` = `413bf55`, the commit of the code that produced the evidence (two-commit pattern accepted); (2) per-field hashing (`_hash_fields_jsonl` for id/source_id/prompt-or-facts/target on held-out, IL-TUR, law_apply, instruct_v1; per-column per task file for LegalBench and CaseHOLD); (3) `instruct_v1` family present, 25,240 + 515 val rows, absent id/source_id fields reported as count 0 with a note; (4) `lineage_groups` for held-out (228 source_id / 24 provenance / 236 act-section) and law_v3 (2,043 / 30), `template_family_exclusion` recorded as DEFERRED TO replay with reason. Amendment (b) in: `law_v3_raw_refit` inventoried as a distinct source (6,206 rows, distinct sha256). Amendment (a) (version = corpus sha) stands as recorded above.
+
+**Content signature: SIGNED at `d7ce664`.** Lead merges on Track A's shape signature at the same SHA. Next in the gate: trackB's deterministic full-IR batch (D_min 300) and the teacher batch (T ≥ 200, F = 5 per id); `replay` and `decide` remain to be built.
