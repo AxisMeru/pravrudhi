@@ -35,7 +35,7 @@ Questions from trackB via the lead. Rulings:
 
 Yes to trackB's read on both, with the mix constraint and the scenario-floor made explicit. Release trackB to build the generator and a first per-id batch; I read the first batch for scenario distinctness before it scales.
 
-## Amendment (d) — mix rule and rephrasing guard, 2026-09-15 15:40 BST
+## Amendment (d) — mix rule and rephrasing guard, 2026-09-15 15:38 BST
 
 Amendment (c)'s "control ≥ 40 % of D" conflicts with its own instruction to emit one omission slice per element: with n elements plus an optional denial, a scenario yields 1 control in (n + 2) records, so the ratio is structurally ≈ 25–30 % (batch-02: 56 controls in 208 = 26.9 %). The floor is replaced: **control ≥ 25 % of D, ≥ 10 distinct control scenarios per id, omission slices ≤ n_elements per scenario, denial slices ≤ 1 per scenario.** The scenario floor, not the ratio, is what guarantees coverage.
 
