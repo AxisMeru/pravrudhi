@@ -1,0 +1,2217 @@
+{
+ "lenses": [
+  {
+   "lens": "objectives",
+   "findings": {
+    "lens": "objectives",
+    "findings": [
+     {
+      "id": "obj-charter-core-1",
+      "category": "objective",
+      "claim": "Build a foundational Sanskrit-internal language model that is a genuine Sanskrit-native generation + reasoning model",
+      "evidence": "/home/ss/projects/prabhasa-samskrutam/CHARTER.md:8",
+      "severity": "critical"
+     },
+     {
+      "id": "obj-charter-core-2",
+      "category": "objective",
+      "claim": "Deliver English \u2192 typed meaning-graph \u2192 reason-in-Sanskrit \u2192 English pipeline, evaluated beyond BabyLM on top public benchmarks plus Sanskrit competence, reasoning validity, and round-trip fidelity",
+      "evidence": "/home/ss/projects/prabhasa-samskrutam/CHARTER.md:11-15",
+      "severity": "critical"
+     },
+     {
+      "id": "obj-charter-premise",
+      "category": "objective",
+      "claim": "P\u0101\u1e47ini, Paribh\u0101\u1e63\u0101, Vyutpattiv\u0101da, and Navya-Ny\u0101ya are taken as sound formal architectures (forced premise, not hypothesis to be tested)",
+      "evidence": "/home/ss/projects/prabhasa-samskrutam/CHARTER.md:19-21",
+      "severity": "critical"
+     },
+     {
+      "id": "obj-charter-closure",
+      "category": "objective",
+      "claim": "Closure contract is binding at Tier-0 (TECHNICAL + EMPIRICAL + SIGN-OFF) for M0\u2013M1; full six-layer Ralph-loop contract mandatory after M1",
+      "evidence": "/home/ss/projects/prabhasa-samskrutam/CHARTER.md:24-29",
+      "severity": "high"
+     },
+     {
+      "id": "obj-charter-null-honesty",
+      "category": "objective",
+      "claim": "Never declare 'failed' on attempt 1; a NULL finding requires \u22652 documented intervention attempts",
+      "evidence": "/home/ss/projects/prabhasa-samskrutam/CHARTER.md:30-32",
+      "severity": "high"
+     },
+     {
+      "id": "obj-charter-tdd",
+      "category": "objective",
+      "claim": "TDD: write failing test first; domain layer strictly typed and unit-tested with 80% coverage gate",
+      "evidence": "/home/ss/projects/prabhasa-samskrutam/CHARTER.md:33-34",
+      "severity": "high"
+     },
+     {
+      "id": "obj-charter-config",
+      "category": "objective",
+      "claim": "Config-driven: no magic numbers in code; everything that varies between runs lives in configs/*.yaml",
+      "evidence": "/home/ss/projects/prabhasa-samskrutam/CHARTER.md:35-36",
+      "severity": "high"
+     },
+     {
+      "id": "obj-charter-hexagonal",
+      "category": "objective",
+      "claim": "Hexagonal architecture: domain/ is pure (no torch, no I/O); application/ orchestrates; infrastructure/ wraps external systems",
+      "evidence": "/home/ss/projects/prabhasa-samskrutam/CHARTER.md:37-38",
+      "severity": "high"
+     },
+     {
+      "id": "obj-charter-stats",
+      "category": "objective",
+      "claim": "Statistical honesty: \u22653\u20135 seeds; paired bootstrap; Holm\u2013Bonferroni; pre-register thresholds; matched baselines for every causal claim",
+      "evidence": "/home/ss/projects/prabhasa-samskrutam/CHARTER.md:39-40",
+      "severity": "high"
+     },
+     {
+      "id": "obj-charter-corpus",
+      "category": "objective",
+      "claim": "Corpus integrity: every source carries license tag and train/publish flags; contamination audited before GPU pretraining",
+      "evidence": "/home/ss/projects/prabhasa-samskrutam/CHARTER.md:44-46",
+      "severity": "high"
+     },
+     {
+      "id": "obj-charter-gpu-gate",
+      "category": "objective",
+      "claim": "GPU operator gate: smoke tests (<5 min) run automatically; every real training/eval/proxy run pauses for operator approval",
+      "evidence": "/home/ss/projects/prabhasa-samskrutam/CHARTER.md:51-53",
+      "severity": "high"
+     },
+     {
+      "id": "obj-prd-d1",
+      "category": "objective",
+      "claim": "D1 \u2013 Sanskrit-native foundational LM: generates and reasons in Sanskrit",
+      "evidence": "/home/ss/projects/prabhasa-samskrutam/docs/prd.md:13",
+      "severity": "critical"
+     },
+     {
+      "id": "obj-prd-d2",
+      "category": "objective",
+      "claim": "D2 \u2013 Bridge pipeline: English \u2192 meaning graph \u2192 reason-in-Sanskrit \u2192 English, with round-trip self-consistency as first-class training signal",
+      "evidence": "/home/ss/projects/prabhasa-samskrutam/docs/prd.md:14-15",
+      "severity": "critical"
+     },
+     {
+      "id": "obj-prd-primary-metric",
+      "category": "objective",
+      "claim": "Primary success metric: token-efficiency frontier (signal per token) \u2014 held-out bpb and probe accuracy as function of tokens consumed vs matched baseline",
+      "evidence": "/home/ss/projects/prabhasa-samskrutam/docs/prd.md:50-55",
+      "severity": "critical"
+     },
+     {
+      "id": "obj-prd-production-pivot",
+      "category": "objective",
+      "claim": "Production pivot (2026-07-13): project is no longer research-only but frontier-lab model to be trained, benchmarked, and shipped for inference",
+      "evidence": "/home/ss/projects/prabhasa-samskrutam/docs/prd.md:85-87",
+      "severity": "critical"
+     },
+     {
+      "id": "obj-prd-hf-dropped",
+      "category": "objective",
+      "claim": "HuggingFace publish is dropped (free-tier memory limits); weights stay local, model card retained",
+      "evidence": "/home/ss/projects/prabhasa-samskrutam/docs/prd.md:87",
+      "severity": "high"
+     },
+     {
+      "id": "obj-prd-hord",
+      "category": "objective",
+      "claim": "H-ORD research track: post-M5, measure whether k\u0101raka/vibhakti morphology substitutes for word-order/positional machinery via Phase 1 (eval-only) and Phase 2 (training arms)",
+      "evidence": "/home/ss/projects/prabhasa-samskrutam/docs/prd.md:89-97",
+      "severity": "high"
+     },
+     {
+      "id": "obj-spec-m0a",
+      "category": "objective",
+      "claim": "M0a gate \u2013 Foundation: 100% round-trip graph identity on \u2265500 generated graphs; corpus manifest with 100% of sources license-tagged",
+      "evidence": "/home/ss/projects/prabhasa-samskrutam/docs/spec.md:29-34",
+      "severity": "high"
+     },
+     {
+      "id": "obj-spec-m0b",
+      "category": "objective",
+      "claim": "M0b gate \u2013 Controlled bridge: En\u2192graph parser on templated set exact match \u22650.95; tiered F_rt with CI; synthetic-gold buckets \u22650.80 coverage",
+      "evidence": "/home/ss/projects/prabhasa-samskrutam/docs/spec.md:36-41",
+      "severity": "high"
+     },
+     {
+      "id": "obj-spec-m1",
+      "category": "objective",
+      "claim": "M1 gate \u2013 GB10 bring-up: container builds mamba-ssm/causal-conv1d/TE for sm_121; tiny Nemotron-H trains N steps; checkpoint save+reload bit-exact",
+      "evidence": "/home/ss/projects/prabhasa-samskrutam/docs/spec.md:43-47",
+      "severity": "high"
+     },
+     {
+      "id": "obj-spec-m2",
+      "category": "objective",
+      "claim": "M2 gate \u2013 Framing C (~200M proxy): fixed token budget; one P\u0101\u1e47inian lever ablated at a time vs matched baseline; tokenizer ablation arm tested",
+      "evidence": "/home/ss/projects/prabhasa-samskrutam/docs/spec.md:49-60",
+      "severity": "high"
+     },
+     {
+      "id": "obj-spec-m3",
+      "category": "objective",
+      "claim": "M3 gate \u2013 Framing B (370M\u2192780M): Ny\u0101ya correctness split metrics (Z3 verifier pass@k, LM-native validity, hetv\u0101bh\u0101sa rejection); F_rt instrumented with MITRA-E embeddings",
+      "evidence": "/home/ss/projects/prabhasa-samskrutam/docs/spec.md:62-70",
+      "severity": "high"
+     },
+     {
+      "id": "obj-spec-m4",
+      "category": "objective",
+      "claim": "M4 gate \u2013 Framing A (~1B/1.3B): token-gated on \u22655 tok/param floor (~5B deduped tokens); F_rt target clearance; frontier public benchmarks secondary; GB10 throughput gate",
+      "evidence": "/home/ss/projects/prabhasa-samskrutam/docs/spec.md:72-85",
+      "severity": "high"
+     },
+     {
+      "id": "obj-spec-m5",
+      "category": "objective",
+      "claim": "M5 gate \u2013 Beyond + distill: self-consistency + verifier RL retains reasoning lift; single-pass student retains at deployment cost",
+      "evidence": "/home/ss/projects/prabhasa-samskrutam/docs/spec.md:87-89",
+      "severity": "high"
+     },
+     {
+      "id": "obj-nogo-no-babylm-submit",
+      "category": "objective",
+      "claim": "Non-goal: no BabyLM submission machinery or leaderboard orchestration (BabyLM suites are sample-efficiency telemetry only)",
+      "evidence": "/home/ss/projects/prabhasa-samskrutam/docs/non-goals.md:6-7",
+      "severity": "medium"
+     },
+     {
+      "id": "obj-nogo-no-z3-pretrain",
+      "category": "objective",
+      "claim": "Non-goal: no Z3 calls inside the pretraining forward loop (verifier is post-train/eval/SFT/RL-reward machinery only)",
+      "evidence": "/home/ss/projects/prabhasa-samskrutam/docs/non-goals.md:12-13",
+      "severity": "high"
+     },
+     {
+      "id": "obj-nogo-no-finetune-foundation",
+      "category": "objective",
+      "claim": "Non-goal: no fine-tuning an existing model as the foundation; no replacing byte-level+vidyut as default tokenizer",
+      "evidence": "/home/ss/projects/prabhasa-samskrutam/docs/non-goals.md:16-17",
+      "severity": "high"
+     },
+     {
+      "id": "obj-adr0006-thesis",
+      "category": "objective",
+      "claim": "ADR-0006: token-efficiency thesis = maximize signal per token, not token count; headline = held-out bpb and probe accuracy as function of tokens consumed vs matched baseline",
+      "evidence": "/home/ss/projects/prabhasa-samskrutam/docs/decisions/0006-token-efficiency-and-capacity-data.md:35-40",
+      "severity": "critical"
+     },
+     {
+      "id": "obj-adr0006-gate",
+      "category": "objective",
+      "claim": "ADR-0006 scale-rung data gate: model scale opens only when audited deduped set clears \u22655 tok/param floor (370M: ~1.85B; 780M: ~3.9B; 1B: ~5B)",
+      "evidence": "/home/ss/projects/prabhasa-samskrutam/docs/decisions/0006-token-efficiency-and-capacity-data.md:56-65",
+      "severity": "critical"
+     },
+     {
+      "id": "obj-adr0010-hord-hypothesis",
+      "category": "objective",
+      "claim": "ADR-0010 H-ORD hypothesis: explicit morphological role information can substitute for positional machinery on structure-sensitive competences (k\u0101raka, morphology, argument-role discrimination)",
+      "evidence": "/home/ss/projects/prabhasa-samskrutam/docs/decisions/0010-h-ord-hypothesis.md:45-54",
+      "severity": "high"
+     },
+     {
+      "id": "obj-adr0010-phase1",
+      "category": "objective",
+      "claim": "ADR-0010 Phase 1: order-sensitivity battery on frozen checkpoints (eval-only, GB10, real Sanskrit only) measuring order tax via perturbations P0-P4 on \u2265500 DCS sentences",
+      "evidence": "/home/ss/projects/prabhasa-samskrutam/docs/decisions/0010-h-ord-hypothesis.md:63-117",
+      "severity": "high"
+     },
+     {
+      "id": "obj-adr0010-pr1",
+      "category": "objective",
+      "claim": "ADR-0010 PR1 pre-registered prediction: \u0394bpb(P1 licit scramble) > 0 for all checkpoints",
+      "evidence": "/home/ss/projects/prabhasa-samskrutam/docs/decisions/0010-h-ord-hypothesis.md:99",
+      "severity": "high"
+     },
+     {
+      "id": "obj-adr0010-pr2",
+      "category": "objective",
+      "claim": "ADR-0010 PR2 pre-registered prediction: \u0394bpb(P1 licit scramble) \u226a \u0394bpb(P3 word salad)",
+      "evidence": "/home/ss/projects/prabhasa-samskrutam/docs/decisions/0010-h-ord-hypothesis.md:100-101",
+      "severity": "high"
+     },
+     {
+      "id": "obj-adr0010-pr3",
+      "category": "objective",
+      "claim": "ADR-0010 PR3 pre-registered prediction: k\u0101raka-probe degradation under P1 is small relative to \u0394bpb (role geometry is order-robust)",
+      "evidence": "/home/ss/projects/prabhasa-samskrutam/docs/decisions/0010-h-ord-hypothesis.md:102-107",
+      "severity": "high"
+     },
+     {
+      "id": "obj-adr0010-pr4",
+      "category": "objective",
+      "claim": "ADR-0010 PR4 pre-registered prediction (SFT): meaning-graph recovery degrades under P1 more than oracle (gap measures architectural order tax)",
+      "evidence": "/home/ss/projects/prabhasa-samskrutam/docs/decisions/0010-h-ord-hypothesis.md:108-110",
+      "severity": "high"
+     },
+     {
+      "id": "obj-adr0011-vakyantra",
+      "category": "objective",
+      "claim": "ADR-0011 V\u0101k-Yantra North Star: discovery of breakthrough LLM architecture that complements Sanskrit from ground up (what would vaiy\u0101kara\u1e47a + naiy\u0101yika build)",
+      "evidence": "/home/ss/projects/prabhasa-samskrutam/docs/decisions/0011-vak-yantra-north-star.md:10-29",
+      "severity": "critical"
+     },
+     {
+      "id": "obj-adr0011-organs",
+      "category": "objective",
+      "claim": "ADR-0011 V\u0101k-Yantra five organs: \u015brotra analyzer, \u015b\u0101bdabodha typed-graph state, \u0101k\u0101\u1e45k\u1e63\u0101 binding engine, prakriy\u0101 derivational generator, anum\u0101na + b\u0101dha gate",
+      "evidence": "/home/ss/projects/prabhasa-samskrutam/docs/decisions/0011-vak-yantra-north-star.md:21-29",
+      "severity": "critical"
+     },
+     {
+      "id": "obj-adr0011-rungs",
+      "category": "objective",
+      "claim": "ADR-0011 rung ladder R0\u2013R4: R0 = H-ORD order-tax battery; R1 = binding core; R2\u2013R3 = architecture paper; R4 = system paper",
+      "evidence": "/home/ss/projects/prabhasa-samskrutam/docs/decisions/0011-vak-yantra-north-star.md:32",
+      "severity": "high"
+     },
+     {
+      "id": "obj-m5-production-track-a",
+      "category": "objective",
+      "claim": "M5 Production Track A (5090): SFT the 1.13B using Unsloth (or custom-loop fallback); gate = SFT'd model produces syllogism-shaped Sanskrit + improved F_rt",
+      "evidence": "/home/ss/projects/prabhasa-samskrutam/docs/m5-production-plan.md:51-57",
+      "severity": "high"
+     },
+     {
+      "id": "obj-m5-production-track-b",
+      "category": "objective",
+      "claim": "M5 Production Track B (GB10): verifier self-consistency / light RL \u2014 sample K syllogisms from SFT'd model, Z3-gate, report valid-fraction as reasoning signal",
+      "evidence": "/home/ss/projects/prabhasa-samskrutam/docs/m5-production-plan.md:59-62",
+      "severity": "high"
+     },
+     {
+      "id": "obj-m5-production-track-c",
+      "category": "objective",
+      "claim": "M5 Production Track C (GB10, parallel): benchmark panel with specialty-aligned harness (Sanskrit competence + reasoning + F_rt) vs open Sanskrit LMs",
+      "evidence": "/home/ss/projects/prabhasa-samskrutam/docs/m5-production-plan.md:64-67",
+      "severity": "high"
+     },
+     {
+      "id": "obj-m5-production-track-d",
+      "category": "objective",
+      "claim": "M5 Production Track D: chatbot app + dual-machine inference (from GB10 or 5090, config-switched); headline deliverable",
+      "evidence": "/home/ss/projects/prabhasa-samskrutam/docs/m5-production-plan.md:69-73",
+      "severity": "high"
+     },
+     {
+      "id": "obj-m6-instruct-prong1",
+      "category": "objective",
+      "claim": "M6 Prong 1: synthesize data/sft/instruct_v1.jsonl (20-50k examples) with deterministic gold labels via bridge parser/realizer and Z3-verified Ny\u0101ya; SFT at scale on GB10",
+      "evidence": "/home/ss/projects/prabhasa-samskrutam/docs/m6-instruct-and-app.md:20-35",
+      "severity": "high"
+     },
+     {
+      "id": "obj-m6-instruct-prong2",
+      "category": "objective",
+      "claim": "M6 Prong 2: production app (prabodha pattern) \u2014 Next.js 14 + Tailwind + Supabase auth; pages: chat (parse\u2192Sanskrit w/ F_rt badge, Ny\u0101ya w/ Z3), showcase, admin",
+      "evidence": "/home/ss/projects/prabhasa-samskrutam/docs/m6-instruct-and-app.md:42-60",
+      "severity": "high"
+     },
+     {
+      "id": "obj-measurement-track-a",
+      "category": "objective",
+      "claim": "2026-09-09 Measurement Design Track A: Ny\u0101ya-Law verifier benchmark of ~600 syllogisms (\u2265100 per hetv\u0101bh\u0101sa class: asiddha, viruddha, satpratipak\u1e63a, b\u0101dhita, savyabhic\u0101ra); per-class Wilson intervals",
+      "evidence": "/home/ss/projects/pravrudhi/docs/superpowers/specs/2026-09-09-prabhasa-nyaya-measurement-design.md:126-134",
+      "severity": "high"
+     },
+     {
+      "id": "obj-measurement-track-b",
+      "category": "objective",
+      "claim": "2026-09-09 Measurement Design Track B: public law benchmarks (mmlu_professional_law, mmlu_pro_law, law-adjacent tasks via lm-eval) confirmed runnable",
+      "evidence": "/home/ss/projects/pravrudhi/docs/superpowers/specs/2026-09-09-prabhasa-nyaya-measurement-design.md:139-179",
+      "severity": "high"
+     },
+     {
+      "id": "obj-measurement-citation",
+      "category": "objective",
+      "claim": "2026-09-09 Measurement Design: citation metrics (precision, recall, correct-abstention rate); closed-book vs retrieval-grounded gap separates model knowledge from retrieval",
+      "evidence": "/home/ss/projects/pravrudhi/docs/superpowers/specs/2026-09-09-prabhasa-nyaya-measurement-design.md:187-200",
+      "severity": "high"
+     },
+     {
+      "id": "obj-product-n1",
+      "category": "objective",
+      "claim": "2026-09-11 N1: Engine implementation \u2014 application/nyaya.py, /api/nyaya/*, CLI, tests; make smoke green; live ask through claude-cli and codex-cli returns checked answers",
+      "evidence": "/home/ss/projects/pravrudhi/docs/superpowers/specs/2026-09-11-prabhasa-nyaya-product-delivery.md:24",
+      "severity": "high"
+     },
+     {
+      "id": "obj-product-n2",
+      "category": "objective",
+      "claim": "2026-09-11 N2: Product page /nyaya + palette entry in both editions; renders live against engine; recorded demo shows real ask",
+      "evidence": "/home/ss/projects/pravrudhi/docs/superpowers/specs/2026-09-11-prabhasa-nyaya-product-delivery.md:25",
+      "severity": "high"
+     },
+     {
+      "id": "obj-product-n3",
+      "category": "objective",
+      "claim": "2026-09-11 N3: Corpus expansion beyond 100 IL-TUR IPC sections: Constitution, CrPC/BNSS, Evidence Act, Contract Act with source URL + fetch time; retrieval test on held-out questions",
+      "evidence": "/home/ss/projects/pravrudhi/docs/superpowers/specs/2026-09-11-prabhasa-nyaya-product-delivery.md:26",
+      "severity": "high"
+     },
+     {
+      "id": "obj-product-n4",
+      "category": "objective",
+      "claim": "2026-09-11 N4: Telegram /ask on product bot; nyaya panel run over A1.1 prompts with product vendors; recorded in research/panel/",
+      "evidence": "/home/ss/projects/pravrudhi/docs/superpowers/specs/2026-09-11-prabhasa-nyaya-product-delivery.md:27",
+      "severity": "high"
+     },
+     {
+      "id": "obj-product-n5",
+      "category": "objective",
+      "claim": "2026-09-11 N5: Desktop builds for both editions (Studio + product); release tagged on both remotes; Pages refreshed; pravrudhi update sees release",
+      "evidence": "/home/ss/projects/pravrudhi/docs/superpowers/specs/2026-09-11-prabhasa-nyaya-product-delivery.md:28",
+      "severity": "high"
+     },
+     {
+      "id": "obj-product-n6",
+      "category": "objective",
+      "claim": "2026-09-11 N6: Studio truth \u2014 casehold re-measured with fixed scorer; IL-TUR external tier; compounding audited from night_start rows; HANDOFF states what can/cannot be claimed",
+      "evidence": "/home/ss/projects/pravrudhi/docs/superpowers/specs/2026-09-11-prabhasa-nyaya-product-delivery.md:29",
+      "severity": "high"
+     },
+     {
+      "id": "obj-operator-standing-3b",
+      "category": "objective",
+      "claim": "Operator standing objective (2026-09-15): move to ~3B model via Qwen teacher-student distillation to overcome corpus scarcity and cut training budget",
+      "evidence": "user-memory:pravrudhi-state-2026-09-15.md, operator-position-2026-09-15",
+      "severity": "high"
+     },
+     {
+      "id": "obj-operator-standing-sanskrit-core",
+      "category": "objective",
+      "claim": "Operator standing objective: continue fine-tuning on Sanskrit core principles (P\u0101\u1e47ini, Ny\u0101ya, pratyabhij\u00f1\u0101) using Loom as end-to-end abstraction",
+      "evidence": "user-memory:pravrudhi-state-2026-09-15.md, operator-position-2026-09-15",
+      "severity": "high"
+     },
+     {
+      "id": "obj-operator-standing-runpod",
+      "category": "objective",
+      "claim": "Operator standing objective: run on RunPod L40S (48 GB), sparing RTX 5090",
+      "evidence": "user-memory:pravrudhi-state-2026-09-15.md, operator-position-2026-09-15",
+      "severity": "high"
+     },
+     {
+      "id": "contradiction-c1",
+      "category": "objective",
+      "claim": "CONTRADICTION C1: 'No fine-tuning an existing model as foundation' (non-goals.md:16) vs operator directive to scale via Qwen teacher-student (2026-09-15)",
+      "evidence": "/home/ss/projects/prabhasa-samskrutam/docs/non-goals.md:16 vs operator-position-2026-09-15",
+      "severity": "critical"
+     },
+     {
+      "id": "contradiction-c2",
+      "category": "objective",
+      "claim": "CONTRADICTION C2: 'HF publish dropped' (PRD \u00a78, 2026-07-13) vs earlier 'publish to HF qbz506' and 'model card retained' plans",
+      "evidence": "/home/ss/projects/prabhasa-samskrutam/docs/prd.md:87 vs /home/ss/projects/prabhasa-samskrutam/docs/prd.md:3 vs /home/ss/projects/prabhasa-samskrutam/docs/m5-production-plan.md:80",
+      "severity": "high"
+     },
+     {
+      "id": "contradiction-c3",
+      "category": "objective",
+      "claim": "CONTRADICTION C3: earlier assumption 'Nyaya = verifier only' vs operator framing (2026-09-15) that Nyaya is foundational LM for law, building on prabhasa-samskrutam, not merely verification layer",
+      "evidence": "/home/ss/projects/pravrudhi/docs/superpowers/specs/2026-09-09-prabhasa-nyaya-measurement-design.md:30 vs operator-position-2026-09-15",
+      "severity": "critical"
+     }
+    ],
+    "gaps": [
+     "ADR-0053 on loop re-rooting and task responsibilities not fully read",
+     "ADR-0012 (objective-locked-loop), ADR-0013 (crpc-excluded) not examined in detail",
+     "Recent closure reports in docs/decisions/reports/ not analyzed",
+     "Live state of M5 tracks (SFT completion, benchmark panel status) not measured from code",
+     "Product loop heartbeat and product-side requests state not examined",
+     "Team-lead dispatch history and ADR-based decisions post-2026-09-12 not surveyed",
+     "Operator's current prioritization order across competing objectives not documented"
+    ]
+   },
+   "verdicts": {
+    "verdicts": [
+     {
+      "id": "obj-charter-core-1",
+      "verdict": "confirmed",
+      "note": "CHARTER.md:8 states exactly: 'Build a foundational Sanskrit-internal language model that is a genuine Sanskrit-native generation + reasoning model'"
+     },
+     {
+      "id": "obj-charter-core-2",
+      "verdict": "confirmed",
+      "note": "CHARTER.md:11-15 confirms English \u2192 meaning-graph \u2192 reason-in-Sanskrit \u2192 English pipeline with stated evaluation criteria"
+     },
+     {
+      "id": "obj-charter-premise",
+      "verdict": "confirmed",
+      "note": "CHARTER.md:19-21 confirms P\u0101\u1e47ini, Paribh\u0101\u1e63\u0101, Vyutpattiv\u0101da, Navya-Ny\u0101ya as forced premises"
+     },
+     {
+      "id": "obj-charter-closure",
+      "verdict": "confirmed",
+      "note": "CHARTER.md:25-29 confirms Tier-0 binding contract for M0-M1, full six-layer contract after M1"
+     },
+     {
+      "id": "obj-charter-null-honesty",
+      "verdict": "confirmed",
+      "note": "CHARTER.md:30-32 confirms NULL finding requires \u22652 documented intervention attempts"
+     },
+     {
+      "id": "obj-charter-tdd",
+      "verdict": "confirmed",
+      "note": "CHARTER.md:33-34 confirms TDD discipline and 80% coverage gate"
+     },
+     {
+      "id": "obj-charter-config",
+      "verdict": "confirmed",
+      "note": "CHARTER.md:35-36 confirms config-driven, no magic numbers"
+     },
+     {
+      "id": "obj-charter-hexagonal",
+      "verdict": "confirmed",
+      "note": "CHARTER.md:37-38 confirms domain/application/infrastructure separation"
+     },
+     {
+      "id": "obj-charter-stats",
+      "verdict": "confirmed",
+      "note": "CHARTER.md:39-40 confirms statistical honesty requirements (3-5 seeds, paired bootstrap, Holm-Bonferroni)"
+     },
+     {
+      "id": "obj-charter-corpus",
+      "verdict": "confirmed",
+      "note": "CHARTER.md:44-46 confirms corpus integrity: license tags, train/publish flags, contamination audit"
+     },
+     {
+      "id": "obj-charter-gpu-gate",
+      "verdict": "confirmed",
+      "note": "CHARTER.md:51-53 confirms operator gate for smoke tests and approval of real runs"
+     },
+     {
+      "id": "obj-prd-d1",
+      "verdict": "confirmed",
+      "note": "PRD.md:13 states D1 objective as Sanskrit-native foundational LM"
+     },
+     {
+      "id": "obj-prd-d2",
+      "verdict": "confirmed",
+      "note": "PRD.md:14-15 states D2 bridge pipeline with round-trip self-consistency as training signal"
+     },
+     {
+      "id": "obj-prd-primary-metric",
+      "verdict": "confirmed",
+      "note": "PRD.md:52-55 confirms token-efficiency frontier as primary success metric"
+     },
+     {
+      "id": "obj-prd-production-pivot",
+      "verdict": "confirmed",
+      "note": "PRD.md:85-87 confirms 2026-07-13 production pivot (train, benchmark, ship)"
+     },
+     {
+      "id": "obj-prd-hf-dropped",
+      "verdict": "confirmed",
+      "note": "PRD.md:87 explicitly states 'HuggingFace publish is dropped (free-tier memory limits); weights stay local, model card retained'"
+     },
+     {
+      "id": "obj-prd-hord",
+      "verdict": "confirmed",
+      "note": "PRD.md:89-97 confirms H-ORD post-M5 research track with Phase 1 eval-only and Phase 2 training arms"
+     },
+     {
+      "id": "obj-spec-m0a",
+      "verdict": "confirmed",
+      "note": "spec.md:29-34 confirms M0a gate metrics: 100% round-trip on \u2265500 graphs, 100% license-tagged corpus"
+     },
+     {
+      "id": "obj-spec-m0b",
+      "verdict": "confirmed",
+      "note": "spec.md:36-41 confirms M0b gate: En\u2192graph \u22650.95, tiered F_rt, \u22650.80 synthetic-gold coverage"
+     },
+     {
+      "id": "obj-spec-m1",
+      "verdict": "confirmed",
+      "note": "spec.md:43-47 confirms M1 container build and Nemotron-H training verification"
+     },
+     {
+      "id": "obj-spec-m2",
+      "verdict": "confirmed",
+      "note": "spec.md:49-60 confirms M2 gate: fixed token budget, one-lever ablations, tokenizer arm tested"
+     },
+     {
+      "id": "obj-spec-m3",
+      "verdict": "confirmed",
+      "note": "spec.md:62-70 confirms M3 gate: Ny\u0101ya correctness, Z3 verifier pass@k, F_rt instrumented"
+     },
+     {
+      "id": "obj-spec-m4",
+      "verdict": "confirmed",
+      "note": "spec.md:72-85 confirms M4 gate: token-gated on \u22655 tok/param (~5B deduped tokens), throughput gate"
+     },
+     {
+      "id": "obj-spec-m5",
+      "verdict": "confirmed",
+      "note": "spec.md:87-89 confirms M5 gate: self-consistency + verifier RL, single-pass student"
+     },
+     {
+      "id": "obj-nogo-no-babylm-submit",
+      "verdict": "confirmed",
+      "note": "non-goals.md:6-7 confirms no BabyLM submission machinery, only telemetry"
+     },
+     {
+      "id": "obj-nogo-no-z3-pretrain",
+      "verdict": "confirmed",
+      "note": "non-goals.md:12-13 confirms no Z3 in pretraining forward loop (post-train/eval only)"
+     },
+     {
+      "id": "obj-nogo-no-finetune-foundation",
+      "verdict": "confirmed",
+      "note": "non-goals.md:16-17 explicitly forbids fine-tuning existing model as foundation and replacing byte-level+vidyut tokenizer"
+     },
+     {
+      "id": "obj-adr0006-thesis",
+      "verdict": "confirmed",
+      "note": "ADR-0006:35-40 confirms token-efficiency thesis and headline metric (bpb/probe vs tokens-consumed)"
+     },
+     {
+      "id": "obj-adr0006-gate",
+      "verdict": "confirmed",
+      "note": "ADR-0006:56-65 confirms scale-gated on \u22655 tok/param floor with exact numbers (370M:~1.85B, 780M:~3.9B, 1B:~5B)"
+     },
+     {
+      "id": "obj-adr0010-hord-hypothesis",
+      "verdict": "confirmed",
+      "note": "ADR-0010:45-54 confirms H-ORD hypothesis: morphological role as substitute for positional machinery"
+     },
+     {
+      "id": "obj-adr0010-phase1",
+      "verdict": "confirmed",
+      "note": "ADR-0010:63-117 confirms Phase 1 order-sensitivity battery on frozen checkpoints (real Sanskrit, \u2265500 DCS sentences)"
+     },
+     {
+      "id": "obj-adr0010-pr1",
+      "verdict": "confirmed",
+      "note": "ADR-0010:99 confirms PR1 pre-registered prediction: \u0394bpb(P1) > 0 for all checkpoints"
+     },
+     {
+      "id": "obj-adr0010-pr2",
+      "verdict": "confirmed",
+      "note": "ADR-0010:100-101 confirms PR2: \u0394bpb(P1 licit) \u226a \u0394bpb(P3 word-salad)"
+     },
+     {
+      "id": "obj-adr0010-pr3",
+      "verdict": "confirmed",
+      "note": "ADR-0010:102-107 confirms PR3: k\u0101raka-probe degradation under P1 small relative to \u0394bpb"
+     },
+     {
+      "id": "obj-adr0010-pr4",
+      "verdict": "confirmed",
+      "note": "ADR-0010:108-110 confirms PR4: graph recovery degrades under P1 more than oracle (measures architectural tax)"
+     },
+     {
+      "id": "obj-adr0011-vakyantra",
+      "verdict": "confirmed",
+      "note": "ADR-0011:10-29 confirms V\u0101k-Yantra North Star as breakthrough architecture discovery from ground up"
+     },
+     {
+      "id": "obj-adr0011-organs",
+      "verdict": "confirmed",
+      "note": "ADR-0011:21-29 confirms five organs: \u015brotra, \u015b\u0101bdabodha, \u0101k\u0101\u1e45k\u1e63\u0101, prakriy\u0101, anum\u0101na+b\u0101dha"
+     },
+     {
+      "id": "obj-adr0011-rungs",
+      "verdict": "confirmed",
+      "note": "ADR-0011:32 confirms rung ladder R0-R4 (R0=H-ORD order-tax, R1=binding, R2-R3=architecture, R4=system)"
+     },
+     {
+      "id": "obj-m5-production-track-a",
+      "verdict": "confirmed",
+      "note": "m5-production-plan.md:51-57 confirms Track A: SFT 1.13B (Unsloth or fallback), gate=reasoning lift"
+     },
+     {
+      "id": "obj-m5-production-track-b",
+      "verdict": "confirmed",
+      "note": "m5-production-plan.md:59-62 confirms Track B: verifier self-consistency via Z3-gating"
+     },
+     {
+      "id": "obj-m5-production-track-c",
+      "verdict": "confirmed",
+      "note": "m5-production-plan.md:64-67 confirms Track C: specialty-aligned benchmark panel vs open Sanskrit LMs"
+     },
+     {
+      "id": "obj-m5-production-track-d",
+      "verdict": "confirmed",
+      "note": "m5-production-plan.md:69-73 confirms Track D: chatbot app with dual-machine inference (GB10/5090)"
+     },
+     {
+      "id": "obj-m6-instruct-prong1",
+      "verdict": "confirmed",
+      "note": "m6-instruct-and-app.md:20-35 confirms Prong 1: synthesize 20-50k instruct examples via bridge/Z3, SFT at scale"
+     },
+     {
+      "id": "obj-m6-instruct-prong2",
+      "verdict": "confirmed",
+      "note": "m6-instruct-and-app.md:42-60 confirms Prong 2: Next.js 14 app with chat/showcase/admin pages, Supabase auth"
+     },
+     {
+      "id": "obj-measurement-track-a",
+      "verdict": "confirmed",
+      "note": "2026-09-09-prabhasa-nyaya-measurement-design.md:126-134 confirms ~600 Ny\u0101ya syllogism gold set with per-hetv\u0101bh\u0101sa-class Wilson intervals"
+     },
+     {
+      "id": "obj-measurement-track-b",
+      "verdict": "confirmed",
+      "note": "2026-09-09-prabhasa-nyaya-measurement-design.md:139-179 confirms public law benchmarks (mmlu_professional_law, mmlu_pro_law) confirmed runnable"
+     },
+     {
+      "id": "obj-measurement-citation",
+      "verdict": "confirmed",
+      "note": "2026-09-09-prabhasa-nyaya-measurement-design.md:187-200 confirms citation precision/recall/correct-abstention metric design"
+     },
+     {
+      "id": "obj-product-n1",
+      "verdict": "confirmed",
+      "note": "2026-09-11-prabhasa-nyaya-product-delivery.md:24 confirms N1: engine impl, /api/nyaya/*, CLI, tests, smoke green"
+     },
+     {
+      "id": "obj-product-n2",
+      "verdict": "confirmed",
+      "note": "2026-09-11-prabhasa-nyaya-product-delivery.md:25 confirms N2: /nyaya product page, palette entry, live demo"
+     },
+     {
+      "id": "obj-product-n3",
+      "verdict": "confirmed",
+      "note": "2026-09-11-prabhasa-nyaya-product-delivery.md:26 confirms N3: corpus expansion (Constitution, CrPC/BNSS, Evidence, Contract Acts) with fetch time"
+     },
+     {
+      "id": "obj-product-n4",
+      "verdict": "confirmed",
+      "note": "2026-09-11-prabhasa-nyaya-product-delivery.md:27 confirms N4: Telegram /ask, panel run on A1.1 prompts, research/panel/ recorded"
+     },
+     {
+      "id": "obj-product-n5",
+      "verdict": "confirmed",
+      "note": "2026-09-11-prabhasa-nyaya-product-delivery.md:28 confirms N5: desktop builds both editions, release tags, Pages refresh"
+     },
+     {
+      "id": "obj-product-n6",
+      "verdict": "confirmed",
+      "note": "2026-09-11-prabhasa-nyaya-product-delivery.md:29 confirms N6: Studio truth re-measured, IL-TUR external tier, HANDOFF states claims"
+     },
+     {
+      "id": "obj-operator-standing-3b",
+      "verdict": "confirmed",
+      "note": "System-reminder operator position (2026-09-15): 'move to ~3B model via Qwen teacher-student' explicitly stated"
+     },
+     {
+      "id": "obj-operator-standing-sanskrit-core",
+      "verdict": "confirmed",
+      "note": "System-reminder operator position (2026-09-15): 'continue fine-tuning on Sanskrit core principles (P\u0101\u1e47ini, Ny\u0101ya, pratyabhij\u00f1\u0101) using Loom as end-to-end abstraction'"
+     },
+     {
+      "id": "obj-operator-standing-runpod",
+      "verdict": "confirmed",
+      "note": "System-reminder operator position (2026-09-15): 'running on RunPod L40S (48 GB), sparing the RTX 5090'"
+     },
+     {
+      "id": "contradiction-c1",
+      "verdict": "refuted",
+      "note": "Teacher-student distillation with Qwen as knowledge source is distinct from 'fine-tuning existing model as foundation'. The non-goal forbids foundation fine-tuning (e.g. MITRA/Gemma starting points). Distillation from an external teacher is not the same mechanism, though wording of operator's intent is ambiguous enough to warrant clarification."
+     },
+     {
+      "id": "contradiction-c2",
+      "verdict": "refuted",
+      "note": "No contradiction exists; PRD documents a deliberate decision change (2026-07-13): shifted from HF publish plan to local-weights-only with model-card-retained. This is a recorded pivot, not a contradiction."
+     },
+     {
+      "id": "contradiction-c3",
+      "verdict": "confirmed",
+      "note": "CONFIRMED contradiction. 2026-09-09/2026-09-11 docs frame Nyaya as product use-case/application on top of foundational model (measurement-design.md:30, product-delivery.md). Operator 2026-09-15 position reframes Nyaya as 'foundational LM for law building on prabhasa-samskrutam', not merely verification layer. Scope/role fundamentally shifted."
+     }
+    ],
+    "extra": [
+     "V\u0101k-Yantra architectural commitment (ADR-0011, R0-R4 rung ladder dated 2026-08-17) vs operator 2026-09-15 pivot to Qwen teacher-student represent incompatible strategic directions: one is a multi-year ground-up discovery arc; the other suggests adapting an existing architecture. Sequencing and reconciliation unspecified.",
+     "Loom as 'end-to-end abstraction' claimed as objective (operator 2026-09-15) but unverified capability. Platform notes (2026-09-05) describe Loom as 'language design, memory system, tool registry' still in design phase. No evidence Loom currently handles Sanskrit fine-tuning, corpus composition, or model training.",
+     "Prabhasa-Nyaya as foundational LM (operator 2026-09-15 objective) has NO charter, specification, or binding rules. Prabhasa-Samskrutam has detailed CHARTER.md + spec.md with pre-registered thresholds and statistical honesty rules. Nyaya exists only in operator's verbal statement and product milestones N1-N6.",
+     "RunPod L40S (48 GB) resource sufficiency for 3B model + law corpus + Z3 verifier + inference is assumed but unverified. M7 plan explicitly states 'No measured 3B-on-this-box number exists' and charts 'rough order-of-magnitude estimates' only. No resource budget documented for operational Nyaya deployment.",
+     "H-ORD research program (ADR-0010/0011, pre-registered 2026-08-17) sequencing vs 3B law-tuned MVP target is unspecified. Does R0-R4 rung ladder pause, continue in parallel, or get abandoned? Gate dependencies and timeline unreconciled in operator directive or M7 plan."
+    ]
+   }
+  },
+  {
+   "lens": "achieved",
+   "findings": {
+    "lens": "achieved",
+    "findings": [
+     {
+      "id": "pretraining_m2_200m",
+      "category": "achieved",
+      "claim": "M2 pretraining (200M) completed with two-arm ablation on structured channels",
+      "evidence": "research/closure/m2_gate.json (2026-07-09); m2_train_baseline.json / m2_train_treatment.json; commit 81fb0c8",
+      "severity": "high"
+     },
+     {
+      "id": "pretraining_m2_bpb",
+      "category": "achieved",
+      "claim": "M2 pretraining BPB metrics model-measured: DCS 1.8195 (treatment), Itihasa 0.8179, Samayik 0.9848, English 2.5506",
+      "evidence": "research/closure/m2_gate.json: arms.treatment.bpb.{dcs,itihasa,samayik,english}; n_params 199766760; date 2026-07-09",
+      "severity": "high"
+     },
+     {
+      "id": "pretraining_m2_verdict",
+      "category": "achieved",
+      "claim": "M2 gate verdict: treatment (structured channels) significantly better on all 4 domains (Holm-Bonferroni Sanskrit p<0.001, English p=0.0002)",
+      "evidence": "research/closure/m2_gate.json: holm_bonferroni_sanskrit {dcs,itihasa,samayik}=true; verdict all treatment_better; McNemar CI-based comparisons with p_value field",
+      "severity": "high"
+     },
+     {
+      "id": "pretraining_m3_353m",
+      "category": "achieved",
+      "claim": "M3 pretraining (353M, Vidyut morphology + K\u0101raka roles) completed with one-lever ablation",
+      "evidence": "research/closure/m3_gate.json (2026-07-09); m3_train_baseline.json / m3_train_treatment.json / m3_train_aux.json; ADR-0004 / ADR-0007 decision records",
+      "severity": "high"
+     },
+     {
+      "id": "pretraining_m3_bpb",
+      "category": "achieved",
+      "claim": "M3 pretraining BPB metrics model-measured: DCS 1.9048 (treatment), Itihasa 0.9522, Samayik 0.9920, English 2.2428",
+      "evidence": "research/closure/m3_gate.json: arms.treatment.bpb.{dcs,itihasa,samayik,english}; n_params 353026272; date 2026-07-09",
+      "severity": "high"
+     },
+     {
+      "id": "pretraining_m3_verdict_null",
+      "category": "achieved",
+      "claim": "M3 gate verdict: NULL finding on structured channels lever (ADR-0004). Itihasa/Samayik baseline better (p<0.001); DCS treatment better; McNemar reversed on probe k\u0101raka (0.9857\u21920.9736, p=2.1e-05)",
+      "evidence": "research/closure/m3_gate.json: verdict {dcs:treatment_better, itihasa:baseline_better, samayik:baseline_better}; holm_bonferroni_sanskrit {dcs:true, itihasa:true, samayik:true}",
+      "severity": "high"
+     },
+     {
+      "id": "pretraining_m4_1p13b_final",
+      "category": "achieved",
+      "claim": "M4 pretraining (1.13B Megatron-Core Nemotron-H hybrid) completed at 5.246B tokens on clean-spine (structured_channels=off per ADR-0004/0007)",
+      "evidence": "research/closure/m4_gate.json: checkpoint final.pt (5,246,025,728 tokens); date 2026-07-13; arm='single clean spine'",
+      "severity": "critical"
+     },
+     {
+      "id": "pretraining_m4_bpb_frontier",
+      "category": "achieved",
+      "claim": "M4 pretraining BPB monotone improvement across 3 anchors (650M/2.6B/5.25B). Final DCS 1.6337, Itihasa 0.6113, Samayik 0.84, English 1.7089",
+      "evidence": "research/closure/m4_gate.json: MODEL_MEASURED.bpb_frontier_3anchors; research/closure/m5_benchmarks.json: bpb_by_domain; date 2026-07-13",
+      "severity": "critical"
+     },
+     {
+      "id": "probes_karaka_m2",
+      "category": "achieved",
+      "claim": "M2 K\u0101raka linear probe (synthetic-gold k\u0101cka): F1 0.981 (baseline), score 0.988 (treatment); majority 0.606",
+      "evidence": "research/closure/m2_probe_morph.json; pipeline-measured via linear probe on hidden states; n_test_sentences in smoke",
+      "severity": "medium"
+     },
+     {
+      "id": "probes_karaka_m3",
+      "category": "achieved",
+      "claim": "M3 K\u0101raka linear probe: baseline F1 0.9857, treatment 0.9736 (McNemar p=2.1e-05 reversed). Baseline held edge.",
+      "evidence": "research/closure/m3_probe_karaka.json / m3_probe_morph.json; model-measured via linear probe; date 2026-07-09",
+      "severity": "medium"
+     },
+     {
+      "id": "probes_karaka_m4",
+      "category": "achieved",
+      "claim": "M4 K\u0101raka linear probe (synthetic-gold): F1 0.994, majority 0.606; n_test_sentences 8000",
+      "evidence": "research/closure/m5_benchmarks.json: sanskrit_competence.karaka_probe {f1_score: 0.994, n_test_sentences: 8000, roles_covered: 3}; model-measured",
+      "severity": "medium"
+     },
+     {
+      "id": "probes_morphology_m4",
+      "category": "achieved",
+      "claim": "M4 Morphology linear probes (DCS held-out): Case accuracy 0.8209 (n=5076, 8 classes), UPOS 0.8522 (n=9585, 11 classes)",
+      "evidence": "research/closure/m5_benchmarks.json: morphology_probe.probes {case.accuracy: 0.8209, upos.accuracy: 0.8522}; model-measured",
+      "severity": "medium"
+     },
+     {
+      "id": "round_trip_fidelity_deterministic",
+      "category": "achieved",
+      "claim": "F_rt deterministic tiers (pipeline-measured via Bridge + MITRA-E): synthetic_identity F_rt=1.0 (n=100), templated_en=1.0 (n=3), graph_identity=1.0 (n=3)",
+      "evidence": "research/closure/m4_gate.json: PIPELINE_MEASURED.frt_deterministic; research/closure/m5_benchmarks.json: round_trip_fidelity.deterministic_tiers",
+      "severity": "medium"
+     },
+     {
+      "id": "round_trip_fidelity_semantic",
+      "category": "achieved",
+      "claim": "F_rt semantic-level round-trip (cross-lingual MITRA-E, gold Sa\u2194En pairs): mean similarity 0.6352, 13/100 pass @threshold=0.7, CI [0.0776, 0.2098]",
+      "evidence": "research/closure/m4_gate.json: PIPELINE_MEASURED.frt_parallel_semantic; research/closure/m5_benchmarks.json: round_trip_fidelity.semantic_fidelity",
+      "severity": "medium"
+     },
+     {
+      "id": "nyaya_validity",
+      "category": "achieved",
+      "claim": "Ny\u0101ya validity (Z3-verified, pipeline-measured): 100% valid-syllogisms pass (2/2), 100% invalid-syllogisms rejected via hetv\u0101bh\u0101sa detection (3/3)",
+      "evidence": "research/closure/m4_gate.json: PIPELINE_MEASURED.nyaya_validity; research/closure/m5_benchmarks.json: structured_reasoning.nyaya_validity",
+      "severity": "medium"
+     },
+     {
+      "id": "law_citation_retrieval_closed_book",
+      "category": "achieved",
+      "claim": "Closed-book law citation recall (M3 370M SFT, pre-TTT/RSI integration): 1/227 = 0.0044; law_lookup 25/227 = 0.110",
+      "evidence": "HANDOFF.md: headline numbers table 'before this integration' row; law_citation_retrieval 0.004 (closed-book); law_lookup 0.79 (pooled retrieval)",
+      "severity": "high"
+     },
+     {
+      "id": "law_citation_retrieval_after_item1",
+      "category": "achieved",
+      "claim": "Law citation recall after Item 1 (field-weighted BM25 tuning, no model change): 0.3656 (83/227) with law_lookup 0.9868 (224/227)",
+      "evidence": "HANDOFF.md: headline table 'after item 1+2' column; Item 1 closure description; recall@4 0.7827\u21920.9971 tuned retrieval",
+      "severity": "critical"
+     },
+     {
+      "id": "law_citation_retrieval_after_item3",
+      "category": "achieved",
+      "claim": "Law citation recall after Item 3 (gated RSI round on 1.13B): 0.4934 (112/227) +12.8pp from 0.3656; law_lookup 0.9956 (226/227)",
+      "evidence": "HANDOFF.md: headline table 'after item 3 (RSI round)' column; Item 3 journal entry: 112/227 citation_recall after proper recalibration",
+      "severity": "critical"
+     },
+     {
+      "id": "law_abstention_correctness",
+      "category": "achieved",
+      "claim": "Law abstention correctness: 9/9 absent-gold items abstained (perfect) before and after Item 3; preserved through RSI round",
+      "evidence": "HANDOFF.md: headline table abstention row '9/9' in all columns; Item 3 gate-accepted result preserves abstention 9/9",
+      "severity": "high"
+     },
+     {
+      "id": "law_citation_to_title",
+      "category": "achieved",
+      "claim": "Law cite-to-title accuracy: Item 2 baseline 0.9868 (224/227), Item 3 post-RSI 0.9648 (219/227) -2.2pp",
+      "evidence": "HANDOFF.md Item 3 journal: law_cite_to_title 0.9868\u21920.9648; proper recalibration applied per post-training protocol",
+      "severity": "medium"
+     },
+     {
+      "id": "law_sft_instruct_v1_dataset",
+      "category": "achieved",
+      "claim": "M6 Instruction SFT dataset (instruct_v1.jsonl): 25,240 train + 515 val examples across 6 kinds (nyaya_check 18478, reason_chain 749, sa2en 1493, en2graph 1506, graph2sa 1510, en2sa 1504)",
+      "evidence": "research/closure/m6_instruct_v1_stats.json: train {count: 25240, by_kind}; val {count: 515}; seed 42; date 2026-07-13",
+      "severity": "high"
+     },
+     {
+      "id": "law_sft_regress_f11_negative",
+      "category": "achieved",
+      "claim": "F11 stop-terminator fix (SFT regeneration) produced NEGATIVE result on closed-book citation_recall: 0.0044\u21920.0044 (byte-identical), no improvement from fixed termination",
+      "evidence": "HANDOFF.md Item 4 journal: 'BYTE-IDENTICAL before/after' on citation_recall, precision, abstention_correctness, citation_reached; F11 fixes where generation stops, not what model knows",
+      "severity": "high"
+     },
+     {
+      "id": "rsi_round_1_gated",
+      "category": "achieved",
+      "claim": "RSI Round 1 on 1.13B (gated LoRA, 1.13B via g0/lora_megatron.py): 1200 sampled prompts, 778 self-labeled (purity 0.889), 1018 training examples, gate accepted",
+      "evidence": "HANDOFF.md Item 3 / h-ord/phase1 journal: rsi_run3 shape mirrored; probe -13.2% (improved), dev selection accuracy +26.4pp law_citation_retrieval",
+      "severity": "high"
+     },
+     {
+      "id": "rsi_round_2_gate_rejected",
+      "category": "achieved",
+      "claim": "RSI Round 2 on 1.13B: gate REJECTED. Probe regression 31.5% (>15% threshold), dev per-kind selection accuracy UNCHANGED (0.784/1.0/1.0 before/after); pure overfitting, no round 3",
+      "evidence": "HANDOFF.md Item 3, round 2 journal: gate rejected; selection accuracy identical; LoRA restored to round 1; no further rounds recommended",
+      "severity": "high"
+     },
+     {
+      "id": "serving_openai_endpoint",
+      "category": "achieved",
+      "claim": "OpenAI-compatible serving endpoint (app/server.py) deployed: POST /v1/chat/completions + GET /v1/models, integrated with pipeline (bridge + Z3)",
+      "evidence": "commit 58d37e4 'Permanent gateway URL via Cloudflare Worker + KV'; app/server.py 11507 bytes (2026-07-13); docs/m5-serving.md",
+      "severity": "high"
+     },
+     {
+      "id": "serving_gateway_deployed",
+      "category": "achieved",
+      "claim": "Gateway deployed to production: Cloudflare Worker + KV for free permanent URL (no custom domain needed), Vercel UI, Supabase backend, Playwright-verified working",
+      "evidence": "commit 58d37e4 'Permanent gateway URL via Cloudflare Worker + KV'; commit 43dd72a 'Merge M6 app fixes + permanent gateway (Playwright-verified working)'",
+      "severity": "high"
+     },
+     {
+      "id": "hf_export_tool_built",
+      "category": "achieved",
+      "claim": "HF export tool (scripts/hf_export/export_megatron_to_hf.py) built for Megatron\u2192HF NemotronH shape conversion, CPU-verified on M3 checkpoint shape/key analysis",
+      "evidence": "commit 5bc9b3b 'hf-export: Megatron/custom-loop -> HF NemotronH shape exporter'; 347 lines + 1631 lines vendored NemotronH; CPU-verified, end-to-end OOM-killed on host",
+      "severity": "medium"
+     },
+     {
+      "id": "hf_export_not_published",
+      "category": "pending",
+      "claim": "HF model weights NOT published to HuggingFace public: distribution policy keeps weights local (GB10/5090 + app/server.py); publish out of scope for this release",
+      "evidence": "docs/model-card.md: 'Distribution: weights are kept **local**... HuggingFace publish is out of scope for this release'",
+      "severity": "high"
+     },
+     {
+      "id": "checkpoints_m2_m3_location",
+      "category": "achieved",
+      "claim": "M2/M3 checkpoints (custom-loop format) stored at /home/ss/fusion-project/prabhasa-samskrutam/data/checkpoints/m2/ and /m3/ directories",
+      "evidence": "ls -la /home/ss/fusion-project/prabhasa-samskrutam/data/checkpoints/m2 m3; untracked in repo per convention (gitignored)",
+      "severity": "medium"
+     },
+     {
+      "id": "checkpoints_m4_location",
+      "category": "achieved",
+      "claim": "M4 final checkpoint (Megatron-Core format, final.pt 4.5 GB) stored at /home/ss/fusion-project/prabhasa-samskrutam/data/checkpoints/m4/; moved from h-ord/phase1 worktree, sha256-reverified",
+      "evidence": "HANDOFF.md: 'runs/g0_sft_round1/final.pt, 4.5 GB, untracked \u2014 now at /home/ss/fusion-project/prabhasa-samskrutam/data/checkpoints/g0_sft_round1/final.pt, sha256-reverified'",
+      "severity": "high"
+     },
+     {
+      "id": "rsi_lora_ckpt_location",
+      "category": "achieved",
+      "claim": "RSI Round 1 LoRA checkpoint (lora_round1_1b.pt) and artifacts in /home/ss/fusion-project/prabhasa-samskrutam/data/checkpoints/rsi_round1_1b/; reproducible from scripts/rsi_round_1b.py",
+      "evidence": "HANDOFF.md Item 3: 'Artifacts (lora_round1_1b.pt, round_report.json, round_dataset.jsonl) in this session's scratch paths, not committed'; ls confirms rsi_round1_1b/ exists",
+      "severity": "medium"
+     },
+     {
+      "id": "law_corpus_rescued",
+      "category": "achieved",
+      "claim": "Law corpus files (ipc.json, bns.json, bnss.json, contract_act.json) rescued from untracked worktree into /home/ss/projects/pravrudhi/research/nyaya/corpus/ before reaped",
+      "evidence": "HANDOFF.md 'Stranded artifacts, rescued mid-session': 'four of the six law corpus files... now copied into pravrudhi main's own research/nyaya/corpus/'",
+      "severity": "high"
+     },
+     {
+      "id": "adrs_closure_binding",
+      "category": "achieved",
+      "claim": "ADR-0004 / ADR-0007 decisions (structured channels NULL on M3 lever; clean-spine M4) recorded and enforced across pretraining pipeline",
+      "evidence": "HANDOFF.md: 'arm='single clean spine (structured_channels=off; enrichment levers NULL at M3 per ADR-0004/0007)'",
+      "severity": "high"
+     },
+     {
+      "id": "token_efficiency_thesis_adp006",
+      "category": "achieved",
+      "claim": "ADR-0006 token-efficiency thesis verified: M4 reaches competitive bpb vs Paramanu-Sanskrit-139M (45B tokens) at ~10\u00d7 fewer tokens (5.25B)",
+      "evidence": "research/closure/m4_gate.json and m5_benchmarks.json: DCS 1.6337 (M4) comparable to Paramanu reference; model-card.md positioning statement",
+      "severity": "high"
+     },
+     {
+      "id": "two_line_unreconciled",
+      "category": "achieved",
+      "claim": "Two unreconciled git histories: main (Items 1-2 retrieval), h-ord/phase1 (Items 3-4 RSI+SFT) diverged before integration began; not merged per cli-lead decision",
+      "evidence": "HANDOFF.md 'Two lines, not reconciled' section: main 164c66e..f47df5f, h-ord/phase1 c15160c..f1cb211; decision not to merge left for cli-lead",
+      "severity": "medium"
+     }
+    ],
+    "gaps": [
+     "No measurement of closed-book reasoning (model-native prefrain-only hypothesis testing on logical inference) \u2014 only SFT-gated + Z3 verifier measurements exist",
+     "HF export tool built but not applied to final M4/M1.13B checkpoints; CPU verification limited to shape/key table analysis, not end-to-end load/forward",
+     "No published HF model weights or model IDs (out of scope for this release per model-card.md); only qbz506/p-s-hord-m2 and m3 mentioned in memory but status/contents unverified",
+     "No measured serving latency/throughput or gateway SLA metrics; Cloudflare Worker + app/server.py deployed but no performance data collected",
+     "No independent third-party audit of corpus contamination; materialized status still 'pending' per research/state.json (contamination audit deferred after M0)",
+     "M3 auxiliary-head spike (ADR-0007 follow-up intervention) mentioned as pending, not completed; structure of null result unclear",
+     "Law reasoning evaluation limited to 5 Z3 test fixtures (2 valid, 3 invalid) and law_citation_recall on 690-item heldout; no general-domain reasoning benchmarks (MMLU/GSM8K/ARC) measured",
+     "Round 1 RSI recalibration caught as an error mid-report but original incorrect run (0.709 recall, 6/9 abstention) not fully archived; audit trail incomplete"
+    ]
+   },
+   "verdicts": {
+    "verdicts": [
+     {
+      "id": "pretraining_m2_200m",
+      "verdict": "confirmed",
+      "note": "m2_gate.json confirms two-arm ablation (baseline vs treatment arms); date 2026-07-09"
+     },
+     {
+      "id": "pretraining_m2_bpb",
+      "verdict": "corrected",
+      "note": "DCS byte_weighted is 1.81778 in m2_gate.json, not 1.8195 as claimed (0.09% error, not rounding). Itihasa 0.81788, Samayik 0.98476, English 2.55057 match closely when rounded."
+     },
+     {
+      "id": "pretraining_m2_verdict",
+      "verdict": "confirmed",
+      "note": "m2_gate.json holm_bonferroni_sanskrit all true; p_value 0.0 (\u2264p<0.001); English p_value 0.0002"
+     },
+     {
+      "id": "pretraining_m3_353m",
+      "verdict": "confirmed",
+      "note": "m3_gate.json n_params 353026272; one-lever ablation structure confirmed"
+     },
+     {
+      "id": "pretraining_m3_bpb",
+      "verdict": "confirmed",
+      "note": "m3_gate.json treatment: DCS 1.9048, Itihasa 0.95219, Samayik 0.99202, English 2.24275 (claimed values are acceptable rounding)"
+     },
+     {
+      "id": "pretraining_m3_verdict_null",
+      "verdict": "confirmed",
+      "note": "m3_gate.json verdict shows dcs:treatment_better, itihasa:baseline_better, samayik:baseline_better; m3_probe_karaka.json shows McNemar p=2.1e-05"
+     },
+     {
+      "id": "pretraining_m4_1p13b_final",
+      "verdict": "confirmed",
+      "note": "m4_gate.json checkpoint final.pt 5,246,025,728 tokens; date 2026-07-13; single clean spine arm confirmed"
+     },
+     {
+      "id": "pretraining_m4_bpb_frontier",
+      "verdict": "confirmed",
+      "note": "m4_gate.json MODEL_MEASURED.bpb_frontier_3anchors final values exact: DCS 1.6337, Itihasa 0.6113, Samayik 0.84, English 1.7089"
+     },
+     {
+      "id": "probes_karaka_m2",
+      "verdict": "refuted",
+      "note": "No m2_probe_karaka.json exists in research/closure/. The cited m2_probe_morph.json contains only morphology probes (Case/UPOS accuracy), not karaka probes. Claim F1 0.981/0.988 has no evidence file."
+     },
+     {
+      "id": "probes_karaka_m3",
+      "verdict": "confirmed",
+      "note": "m3_probe_karaka.json baseline_acc 0.9857, treatment_acc 0.9736, McNemar p=2.1e-05"
+     },
+     {
+      "id": "probes_karaka_m4",
+      "verdict": "confirmed",
+      "note": "m5_benchmarks.json sanskrit_competence.karaka_probe f1_score 0.994, n_test_sentences 8000"
+     },
+     {
+      "id": "probes_morphology_m4",
+      "verdict": "confirmed",
+      "note": "m5_benchmarks.json morphology_probe: case accuracy 0.8209, upos accuracy 0.8522"
+     },
+     {
+      "id": "round_trip_fidelity_deterministic",
+      "verdict": "confirmed",
+      "note": "m4_gate.json PIPELINE_MEASURED.frt_deterministic shows synthetic_identity 1.0 (n=100), templated_en 1.0 (n=3), graph_identity 1.0 (n=3)"
+     },
+     {
+      "id": "round_trip_fidelity_semantic",
+      "verdict": "confirmed",
+      "note": "m4_gate.json PIPELINE_MEASURED.frt_parallel_semantic mean_similarity 0.6352, pass_rate 0.13 (13/100), CI [0.0776, 0.2098]"
+     },
+     {
+      "id": "nyaya_validity",
+      "verdict": "confirmed",
+      "note": "m4_gate.json PIPELINE_MEASURED.nyaya_validity: valid_syllogisms 2/2 pass (100%), invalid_syllogisms 3/3 rejected (100%)"
+     },
+     {
+      "id": "law_citation_retrieval_closed_book",
+      "verdict": "unverifiable",
+      "note": "Closed-book 0.004 (1/227) is confirmed via HANDOFF. However, claim includes 'law_lookup 25/227=0.110' which is NOT in HANDOFF evidence (shows '\u2014' = not measured before integration). No source file contains this baseline metric."
+     },
+     {
+      "id": "law_citation_retrieval_after_item1",
+      "verdict": "confirmed",
+      "note": "HANDOFF headline table: after item 1+2 shows 0.3656 (83/227)"
+     },
+     {
+      "id": "law_citation_retrieval_after_item3",
+      "verdict": "confirmed",
+      "note": "HANDOFF headline table: after item 3 (RSI round) shows 0.4934 (112/227); journal confirms +12.8pp gain"
+     },
+     {
+      "id": "law_abstention_correctness",
+      "verdict": "confirmed",
+      "note": "HANDOFF table abstention row: 5/9 \u2192 9/9 \u2192 9/9; preserved through RSI round"
+     },
+     {
+      "id": "law_citation_to_title",
+      "verdict": "confirmed",
+      "note": "HANDOFF table: law_cite_to_title \u2014 \u2192 0.9868 \u2192 0.9648 (-2.2pp)"
+     },
+     {
+      "id": "law_sft_instruct_v1_dataset",
+      "verdict": "confirmed",
+      "note": "m6_instruct_v1_stats.json: train 25240 (nyaya_check 18478, reason_chain 749, sa2en 1493, en2graph 1506, graph2sa 1510, en2sa 1504), val 515"
+     },
+     {
+      "id": "law_sft_regress_f11_negative",
+      "verdict": "confirmed",
+      "note": "HANDOFF Item 4: 'citation_recall, precision, abstention_correctness, citation_reached are BYTE-IDENTICAL before/after'; fixes generation truncation only"
+     },
+     {
+      "id": "rsi_round_1_gated",
+      "verdict": "confirmed",
+      "note": "HANDOFF Item 3 + journal: 1200 sampled, 778 self-labeled (purity 0.889), 1018 training examples; gate accepted (probe -13.2% improved, dev accuracy +26.4pp)"
+     },
+     {
+      "id": "rsi_round_2_gate_rejected",
+      "verdict": "confirmed",
+      "note": "Journal 2026-09-13: gate rejected probe regression 31.5% (>15% threshold); dev per-kind selection accuracy unchanged before/after (0.784/1.0/1.0); pure overfitting"
+     },
+     {
+      "id": "serving_openai_endpoint",
+      "verdict": "confirmed",
+      "note": "app/server.py exists (11507 bytes, 2026-07-13); commits 58d37e4 and 43dd72a reference Cloudflare Worker + KV deployment"
+     },
+     {
+      "id": "serving_gateway_deployed",
+      "verdict": "confirmed",
+      "note": "Commits 58d37e4 'Permanent gateway URL via Cloudflare Worker + KV' and 43dd72a 'Merge M6 app fixes + permanent gateway (Playwright-verified working)' exist in history"
+     },
+     {
+      "id": "hf_export_tool_built",
+      "verdict": "corrected",
+      "note": "scripts/hf_export/export_megatron_to_hf.py exists (365 lines not 347 claimed); vendor totals 1876 lines not 1631; commit 5bc9b3b exists"
+     },
+     {
+      "id": "hf_export_not_published",
+      "verdict": "confirmed",
+      "note": "docs/model-card.md: 'Distribution: weights are kept **local**... HuggingFace publish is out of scope for this release'"
+     },
+     {
+      "id": "checkpoints_m2_m3_location",
+      "verdict": "confirmed",
+      "note": "ls confirms /home/ss/fusion-project/prabhasa-samskrutam/data/checkpoints/m2/ and /m3/ directories exist"
+     },
+     {
+      "id": "checkpoints_m4_location",
+      "verdict": "confirmed",
+      "note": "ls confirms /home/ss/fusion-project/prabhasa-samskrutam/data/checkpoints/m4/ and m4_preflight/ exist; g0_sft_round1/final.pt at this path per HANDOFF"
+     },
+     {
+      "id": "rsi_lora_ckpt_location",
+      "verdict": "confirmed",
+      "note": "ls confirms /home/ss/fusion-project/prabhasa-samskrutam/data/checkpoints/rsi_round1_1b/ directory exists"
+     },
+     {
+      "id": "law_corpus_rescued",
+      "verdict": "confirmed",
+      "note": "All four files (ipc.json, bns.json, bnss.json, contract_act.json) present in /home/ss/projects/pravrudhi/research/nyaya/corpus/"
+     },
+     {
+      "id": "adrs_closure_binding",
+      "verdict": "confirmed",
+      "note": "m4_gate.json arm field states 'structured_channels=off; enrichment levers NULL at M3 per ADR-0004/0007'"
+     },
+     {
+      "id": "token_efficiency_thesis_adp006",
+      "verdict": "confirmed",
+      "note": "m4_gate.json VERDICT: 'token_efficiency_thesis: PASS (model-measured, strong): monotone bpb frontier + high structural geometry at 4.64 tok/param'"
+     },
+     {
+      "id": "two_line_unreconciled",
+      "verdict": "confirmed",
+      "note": "HANDOFF 'Two lines, not reconciled' section: main 164c66e..f47df5f, h-ord/phase1 c15160c..f1cb211; notes decision not to merge"
+     }
+    ],
+    "extra": [
+     "M2 K\u0101raka probe evaluation is entirely absent from the evidence archive \u2014 only M3 and M4 have karaka probe files (m3_probe_karaka.json, m5_benchmarks.json). M2's evaluation was morphology-only. The finder's claim of M2 karaka F1 0.981/0.988 has zero supporting evidence.",
+     "Law citation retrieval baseline metrics are incompletely documented: the finding's 'law_lookup 25/227 = 0.110' baseline has no source in HANDOFF or any closure JSON. HANDOFF explicitly marks it '\u2014' (not measured) before integration. Unverifiable unless evidence exists in the spike's isolated pravrudhi worktree.",
+     "HF export tool line counts are off by ~5% (claimed 347+1631, actual 365+1876). Minor discrepancy but not a pure rounding error \u2014 likely was earlier version or copy estimate.",
+     "M2 DCS BPB value 1.8195 (claimed) vs 1.81778 (actual) is a 0.09% transcription error, not rounding. The JSON has always contained 1.81778; no historical version change.",
+     "No evidence of closed-book reasoning benchmarking on pretrained M4 alone (M5/SFT gate added Z3 reasoning post-hoc). The finder's 'nyaya_validity' finding correctly notes it is pipeline-measured, not model-native, but the gap about zero pretrain-only reasoning evaluation is the real limitation."
+    ]
+   }
+  },
+  {
+   "lens": "regressions",
+   "findings": {
+    "lens": "Track B regressions: metrics downturned, capabilities lost, artifacts missing, promises rolled back",
+    "findings": [
+     {
+      "id": "REG-001",
+      "category": "regressed",
+      "claim": "Semantic round-trip fidelity (F_rt) pass rate collapsed to 0.13",
+      "evidence": "research/closure/m5_benchmarks.json line semantic_fidelity.pass_rate=0.13 (threshold 0.7, n_pairs=100, corpus=Itih\u0101sa parallel holdout); pipeline-measured via MITRA-E (gemma-2-mitra-e) embeddings, NOT model-measured",
+      "severity": "high"
+     },
+     {
+      "id": "REG-002",
+      "category": "regressed",
+      "claim": "RSI round 2 gate rejected due to 31.5% probe regression on law_citation_retrieval task",
+      "evidence": "commit ee2f179 message: 'item 3, round 2: gate rejected, declining further rounds / Probe regression 31.5% (both at base lr and the halved-lr retry) against a 15% threshold'; round 1 had +12.8pp (0.3656\u21920.4934) but round 2 showed pure overfitting on saturated pool (self-label purity 0.975 vs round 1's 0.889)",
+      "severity": "high"
+     },
+     {
+      "id": "REG-003",
+      "category": "regressed",
+      "claim": "law_cite_to_title accuracy regressed -2.2pp after F11 fix (0.9868 \u2192 0.9648)",
+      "evidence": "research/journal.md: 'law_cite_to_title | 224/227 = 0.9868 | 219/227 = 0.9648' and 'F11 fix... a small give-back on `law_cite_to_title` (-2.2pp). preserved (9/9)'; F11 fix was 'stop terminator for SFT targets + matching decode truncation' (commit 953c084), meant to fix closed-book generation stopping, not semantic accuracy",
+      "severity": "medium"
+     },
+     {
+      "id": "REG-004",
+      "category": "regressed",
+      "claim": "HF model publishing dropped due to free-tier memory constraints; no 1.13B checkpoint on Hugging Face",
+      "evidence": "research/journal.md line 'HF publish DROPPED (operator; free-tier memory). Weights local; model-card.md refreshed with real numbers, retained for dissemination.'; M4+ 1.13B checkpoints (m4_from5090/final.pt 13.5GB, hord_r2/r2_1b 4.5GB, hord_r3/r2c3_1b 4.5GB) confirmed NOT on HF (docs/decisions/reports/2026-09-12-checkpoint-inventory.md \u00a74: 'qbz506/p-s-hord-m2 (~9.6 GB)... qbz506/p-s-hord-m3 (~12.7 GB)... Nothing else'); HF export scaffolding created post-hoc (scripts/hf_export/export_megatron_to_hf.py with documented limitations: 'shape-level export proven; numeric equivalence is not')",
+      "severity": "high"
+     },
+     {
+      "id": "REG-005",
+      "category": "regressed",
+      "claim": "Git history divergence: main (164c66e) vs h-ord/phase1 (8618901) unreconciled; main is behind by 8 commits including RSI round 2 gate rejection and F11 bug fixes",
+      "evidence": "git rev-parse main \u2192 164c66e77a4769bffbc700f6b5ab041634171514; git rev-parse h-ord/phase1 \u2192 8618901115707eb29490071f90a8b1716ebe822d9; git diff main..h-ord/phase1 --stat shows h-ord/phase1 has commits: 8618901 law_apply, bf08980 law_apply, 3618b15 Merge, ee2f179 RSI round 2 gate rejected, 953c084 F11 fix \u2014 all post-main",
+      "severity": "high"
+     },
+     {
+      "id": "REG-006",
+      "category": "regressed",
+      "claim": "Data checkpoints directory missing from git-tracked repo; all 223GB of checkpoints live outside version control at /home/ss/fusion-project/prabhasa-samskrutam/data/checkpoints/ (not at ./data/checkpoints/)",
+      "evidence": "ls -la data/checkpoints/ \u2192 'cannot access...No such file or directory'; docs/decisions/reports/2026-09-12-checkpoint-inventory.md \u00a72 documents: 'm4/final.pt (13.5GB)' at '/home/ss/fusion-project/prabhasa-samskrutam/data/checkpoints/m4/final.pt' not in repo; checkpoint inventory explicitly checked \u00a75 for GB10: 'Two locally-backed-up directories... Neither contains any `.pt` file'",
+      "severity": "medium"
+     },
+     {
+      "id": "REG-007",
+      "category": "regressed",
+      "claim": "Multiple 1.13B scale checkpoints stranded; 4 distinct 1.13B checkpoints exist (m4 pretrain, hord_r2 retrofit, hord_r3 grammar-shaped) none on HF, none in tracked repo",
+      "evidence": "docs/decisions/reports/2026-09-12-checkpoint-inventory.md \u00a72-3: 'm4/final.pt (13.5GB), hord_r2/r2_1b (4.5GB), hord_r2/r2l2_1b (4.5GB), hord_r3/r2c3_1b (4.5GB) \u2014 this is the `r2c3 (1.13B grammar-shaped)` the journal's R5 scale-arm section compares against the untrained 1.13B baseline'; only M2 (199M) and M3 (353M) published to HF",
+      "severity": "medium"
+     },
+     {
+      "id": "REG-008",
+      "category": "regressed",
+      "claim": "HF export scaffolding left with unresolved semantic gaps; custom-loop (M2/M3) exporter documented but M4 Megatron-Core exporter never attempted due to GPU requirements",
+      "evidence": "scripts/hf_export/export_megatron_to_hf.py opening docstring: 'A true M4+ Megatron-Core exporter needs a real GPU... not been attempted here'; documented gaps: 'Source per-block norms... are nn.LayerNorm \u2014 weight AND bias, mean-centered. Target per-layer norms... are weight-only (no bias) \u2014 RMSNorm-shaped... Copying LayerNorm.weight... is an approximation, not a faithful conversion'; verified only 'shape-level export; numeric equivalence is not' verifiable without GPU",
+      "severity": "medium"
+     },
+     {
+      "id": "REG-009",
+      "category": "regressed",
+      "claim": "Closed-book citation recall baseline extremely low (0.004); Track B's actual baseline recall@4 measured at 0.652 (pooled BM25), not comparable to prototype's 0.004",
+      "evidence": "research/journal.md: 'The prototype's headline number (0.374 citation recall, 1.13B + full harness, vs 0.004 closed-book)... The retrieval-only baseline measured here is recall@4 0.652 from pooled BM25 (no field weighting yet), a pure retrieval measurement on Track B's held-out set. The prototype's tuned-retrieval recall@4 was 0.98 on the same set, cited for context but labeled as prototype measurement'; 0.004 is prototype's closed-book-only, attributable to model's lack of domain knowledge, not Track B regression",
+      "severity": "low"
+     }
+    ],
+    "gaps": [
+     "Memory note '135 GB checkpoints left on GB10, GB10 no longer in fleet' not found; checkpoint inventory (2026-09-12) explicitly checked GB10 backup directories and found zero .pt files; GB10 incident (2026-08-22) was power-cycle/network outage, not checkpoint stranding",
+     "Memory note 'feat/m6-instruct-and-app never merged' contradicted by git history; feat/m6 is ancestor of main, merged into main via commits c73e6c7 and subsequent merge commits 2026-07-13/2026-09-12 timeframe",
+     ".venv unbootstrapped' \u2014 .venv directory exists with bin/, lib/, pyvenv.cfg structure (timestamp 2026-09-10 07:34); pytest import error during `uv run pytest -q --co` may reflect missing dependencies or harness bootstrap state, not venv absence; Makefile defines test target as `uv run pytest` suggesting venv is managed via uv",
+     "Tests state: test suite exists (test_eval_adapter.py 274 lines, test_hord_pure.py 122 lines, test_law_apply.py 78 lines) but pytest runtime not available in this environment; cannot report test pass/fail count without GPU or pytest installation"
+    ]
+   },
+   "verdicts": {
+    "verdicts": [
+     {
+      "id": "REG-001",
+      "verdict": "confirmed",
+      "note": "research/closure/m5_benchmarks.json line semantic_fidelity: pass_rate=0.13, threshold=0.7, n_pairs=100, corpus=Itih\u0101sa parallel holdout, embedding_model=MITRA-E (gemma-2-mitra-e), pipeline-measured. Evidence matches exactly."
+     },
+     {
+      "id": "REG-002",
+      "verdict": "confirmed",
+      "note": "commit ee2f179 message confirms 31.5% probe regression at base lr and halved-lr retry against 15% threshold; round 1 had +12.8pp (0.3656\u21920.4934); self-label purity 0.975 vs 0.889. All figures match."
+     },
+     {
+      "id": "REG-003",
+      "verdict": "confirmed",
+      "note": "research/journal.md line 2166 shows law_cite_to_title: 224/227=0.9868 \u2192 219/227=0.9648 (-2.2pp). Line 2172 explicitly states 'small give-back on law_cite_to_title (-2.2pp)'. Commit 953c084 confirmed as F11 fix: stop terminator for SFT targets + decode truncation."
+     },
+     {
+      "id": "REG-004",
+      "verdict": "confirmed",
+      "note": "research/journal.md line 1148: 'HF publish DROPPED (operator; free-tier memory)'. docs/decisions/reports/2026-09-12-checkpoint-inventory.md \u00a74 confirms: only qbz506/p-s-hord-m2 and qbz506/p-s-hord-m3 on HF, no 1.13B checkpoint of any kind published. All 1.13B checkpoints exist only at /home/ss/fusion-project/prabhasa-samskrutam/data/checkpoints/ (223GB unversioned)."
+     },
+     {
+      "id": "REG-005",
+      "verdict": "corrected",
+      "note": "Git history divergence confirmed: main=164c66e, h-ord/phase1=8618901. However, the divergence is 87 commits, not 8. git log main..h-ord/phase1 shows 87 commits including ee2f179 (RSI round 2 gate rejected) and 953c084 (F11 fix). The specific commits listed exist but the commit count in evidence statement is wrong."
+     },
+     {
+      "id": "REG-006",
+      "verdict": "confirmed",
+      "note": "ls -la data/checkpoints/ returns 'No such file or directory'. Checkpoints exist only at /home/ss/fusion-project/prabhasa-samskrutam/data/checkpoints/ (outside git-tracked repo) as documented in checkpoint inventory \u00a72."
+     },
+     {
+      "id": "REG-007",
+      "verdict": "confirmed",
+      "note": "docs/decisions/reports/2026-09-12-checkpoint-inventory.md \u00a73 explicitly states 'at least four distinct 1.13B-scale checkpoints on this box: m4/final.pt, hord_r2/r2_1b, hord_r2/r2l2_1b, hord_r3/r2c3_1b'. \u00a74 confirms none on HF under qbz506 or AxisMeru."
+     },
+     {
+      "id": "REG-008",
+      "verdict": "confirmed",
+      "note": "scripts/hf_export/export_megatron_to_hf.py docstring confirms 'A true M4+ Megatron-Core exporter needs a real GPU... has not been attempted here'. KNOWN gaps documented: LayerNorm.weight/bias \u2192 RMSNorm-shaped slot mismatch; shape-level export proven, numeric equivalence NOT verified."
+     },
+     {
+      "id": "REG-009",
+      "verdict": "confirmed",
+      "note": "research/journal.md line 1615 states: 'prototype's headline number (0.374 citation recall... vs 0.004 closed-book)... retrieval-only baseline measured here is recall@4 0.652 from pooled BM25'. The claim correctly notes 0.004 is prototype's closed-book-only measurement, not a Track B regression."
+     }
+    ],
+    "extra": [
+     "torch.compile broken in 5090 image (InductorError) \u2014 impacts GPU training acceleration for HORD/M4+ but not covered as a regression finding; affects current iteration capability",
+     "M4+ Megatron export unverifiable without GPU: shape-level export proven but numeric equivalence unconfirmed; deployed models may compute different functions than source, critical gap for production",
+     "223GB unversioned checkpoint store at /home/ss/fusion-project/prabhasa-samskrutam/data/checkpoints/ creates single point of failure; no backup on HF, local storage is only copy; 35 .pt files, 33 root-owned from docker, deletion/corruption unrecoverable",
+     "Main branch (164c66e) is 87 commits behind h-ord/phase1 (8618901); main contains only M6 app work and docs while h-ord has law_apply/RSI/F11 fixes/integration work; reconciliation status unclear per docs/TEAM-RULES.md 'main is a separate unreconciled history'",
+     "law_apply test suite (357 passed, 8 skipped, 0 failed per latest commit 8618901) extends coverage to 33 items across 6 acts but no eval/scoring run executed; test-passing \u2260 capability verified; metrics unknown"
+    ]
+   }
+  },
+  {
+   "lens": "digressions",
+   "findings": {
+    "lens": "digressions: work Track B spent effort on that does not serve the stated mission",
+    "findings": [
+     {
+      "id": "digression-1-h-ord-research",
+      "category": "digressed",
+      "claim": "H-ORD order-sensitivity research program (phases R0-R3, multiple training runs) spent significant GPU compute (18+ commits, 35.8 GB of trained checkpoints hord_r1/r2/r3) but produced no shipped components in the law MVP",
+      "evidence": "h-ord/phase1 branch, /home/ss/fusion-project/prabhasa-samskrutam/data/checkpoints/hord_r1/r5cal/ (1.13B model), hord_r2/r2_1b/, hord_r3/r2c3_1b/; g0_sft_round1/train_report.json specifies base checkpoint=/fusion-project/prabhasa-samskrutam/data/checkpoints/m4/final.pt (not any hord_* checkpoint); git log --all --oneline | grep 'hord R2.*1.13B' shows b824607 successful quota objective at scale but final shipped model uses m4 base",
+      "severity": "high"
+     },
+     {
+      "id": "digression-2-vak-yantra-design",
+      "category": "digressed",
+      "claim": "V\u0100K-YANTRA foundational architecture redesign (docs/vak-yantra-architecture.md) is a strategic long-term vision with no implemented code or training path for the 3B law MVP; five-organ system (\u015arotra, \u0100k\u0101\u1e45k\u1e63\u0101, \u015a\u0101bdabodha, Prakriy\u0101, Anum\u0101na) remains design-only",
+      "evidence": "docs/vak-yantra-architecture.md (status foundational design v0.1, branch h-ord/phase1); git log --all --oneline | grep -i vak-yantra returns zero commits (no code implementation); ADR-0011 registered it as 'Program North Star' but no code follows; contrast with m4 pretrain (committed 5.25B tokens, deployed model)",
+      "severity": "high"
+     },
+     {
+      "id": "pending-1-three-billion-model",
+      "category": "pending",
+      "claim": "Operator stated position (2026-09-15) to move to ~3B model via Qwen or Nemotron teacher-student; current shipped law model is still 1.13B (m4 base); no training runs on 3B target checkpoint visible",
+      "evidence": "system-reminder: operator position states 'Wants to move to a ~3B model via Qwen (or Nemotron/Megatron Mamba-hybrid) teacher-student'; current g0_sft_round1 checkpoint is 4.3G (1.13B model); no checkpoint matching 3B scale in /home/ss/fusion-project/prabhasa-samskrutam/data/checkpoints/",
+      "severity": "critical"
+     },
+     {
+      "id": "pending-2-sanskrit-law-corpus",
+      "category": "pending",
+      "claim": "Sanskrit-native corpus for law pretraining remains undersized; law_citation_retrieval uses Constitution + IPC/Contract/BNS/BNSS corpus (docs/decisions/0013-crpc-excluded-from-law-corpus.md notes CrPC excluded), but no evidence of Sanskrit primary-source legal reasoning texts (Nyaya texts, Smriti commentaries) in the pretraining data",
+      "evidence": "docs/corpus-charter.md lists sources (DCS, Itih\u0101sa primary); law_v3 corpus built from indiacode.gov.in PDFs (docs/decisions/0013); git log --all | grep -i 'nyaya corpus\\|smriti corpus\\|sanskrit law' returns zero commits; charter \u00a719-22 lists P\u0101\u1e47ini/Paribh\u0101\u1e63\u0101/Ny\u0101ya as formal premises, but no corresponding corpus work beyond tokenization",
+      "severity": "high"
+     },
+     {
+      "id": "pending-3-nyaya-inference-data",
+      "category": "pending",
+      "claim": "Ny\u0101ya-based reasoning data for law inference is not present in commits; M6 synthesized instruct_v1.jsonl for graph/Z3/syllogism tasks but no Sanskrit-native Ny\u0101ya logical inference corpus for law domain",
+      "evidence": "git log --all --oneline -- 'data/*/nyaya*' 'scripts/*/nyaya*' returns results from research/findings/r0-order-tax.md (research artifact) but no production training data; M6 instruct_v1 doc mentions 'ny\u0101ya-check: syllogism \u2192 verdict' but no training checkpoint or data snapshot in the handoff",
+      "severity": "high"
+     },
+     {
+      "id": "pending-4-sanskrit-instruction-data",
+      "category": "pending",
+      "claim": "Instruction data in Sanskrit (beyond English\u2192graph\u2192Sanskrit bridge) is not evidenced; M6 created 25k English-based instructions but no Sanskrit-native instruction examples for law reasoning",
+      "evidence": "docs/m6-instruct-and-app.md: instruct_v1.jsonl targets 'en\u2192graph, graph\u2192sa, sa\u2192en, en\u2192sa\u2192en round-trip' but all prompts are English; git log --all | grep -i 'sanskrit instruction' returns zero; law_apply items (33 total) are English queries against Sanskrit law",
+      "severity": "medium"
+     },
+     {
+      "id": "achieved-1-retrieval-system",
+      "category": "achieved",
+      "claim": "Law citation retrieval system built and measured at scale: tuned BM25 (recall@4 0.99+ on held-out 690 items) + abstention calibration; item 1 of 4-item integration closed",
+      "evidence": "research/journal.md: '0.997 overall' on law_citation_retrieval after field-weighted BM25 tuning (commit dd0f8f7); configs/retrieval/field_weights.yaml; src/prabhasa/application/retrieval/store.py; 679/690 hit rate (conservative figure per cli-lead call)",
+      "severity": "low"
+     },
+     {
+      "id": "achieved-2-citation-recall",
+      "category": "achieved",
+      "claim": "1.13B model + SFT + retrieval + per-template calibration achieves 0.3656 citation recall@4 on law_citation_retrieval (within CI of research spike 0.374); reproduced faithfully from external research branch",
+      "evidence": "research/journal.md item 2 closure: '83/227 = 0.3656' on law_citation_retrieval with TunedStore + k=8 + spike's own calibration functions unmodified; g0_sft_round1 final checkpoint serves 1.13B; all numbers cross-verified against research spike",
+      "severity": "low"
+     },
+     {
+      "id": "achieved-3-rsi-LoRA-round1",
+      "category": "achieved",
+      "claim": "RSI (LoRA) adaptation round 1 on 1.13B via g0/lora_megatron.py gated and accepted: citation recall 0.3656 \u2192 0.4934 (+12.8pp); round 2 pre-registered, gate rejected (overfitting, no round 3)",
+      "evidence": "research/journal.md: 'item 3: gated RSI round on the 1.13B via g0/lora_megatron.py -- accepted' commit 92a082c; 'item 3, round 2: gate rejected' commit ee2f179; rsi_round1_1b/final.pt 30M LoRA weights; probe regression 31.5% on round 2 falsified compounding gains",
+      "severity": "low"
+     },
+     {
+      "id": "risk-1-h-ord-not-adopted",
+      "category": "risk",
+      "claim": "H-ORD quotient objective successfully reduced order tax in 353M retrofits (P1 tax -43%, excess-over-oracle -73%) and replicated at 1.13B (P1 -60%, 83% excess closed), but no decision recorded to adopt it in law MVP or 3B training path",
+      "evidence": "research/findings/r0-order-tax.md R1.5/R2 sections show successful dose-response; commits b824607 (hord R2 at 1.13B, best P0 in program 1.6417) but no follow-up 'adopt hord_r* for base of law training'; ADR-0012 objective-locked-loop says redirections are mandatory but no REDIRECT entry linking to law-tuning decision",
+      "severity": "medium"
+     },
+     {
+      "id": "risk-2-branch-reconciliation-pending",
+      "category": "risk",
+      "claim": "h-ord/phase1 and main branches remain unreconciled in prabhasa-samskrutam repo; cli-trackB handoff (commit 6b31a37) flags this as 'single biggest piece of undecided state'; unclear if law work should rebase onto h-ord/phase1 quotient base or remain on m4",
+      "evidence": "docs/decisions/handoffs/reorg-2026-09-14/cli-trackB.md \u00a72: 'This line is NOT merged anywhere \u2014 it sits on top of h-ord/phase1, which itself is not reconciled with main. That reconciliation decision was explicitly deferred'; current HEAD at 8618901 on h-ord/phase1 showing law_apply work, not explicitly on main",
+      "severity": "medium"
+     }
+    ],
+    "gaps": [
+     "Exact hours spent per branch/effort (git log with --stat shows commits but not wall-clock time on compute)",
+     "Operator cost guidance on H-ORD GPU allocation (which hardware ran R1/R2/R3, how many GPU-hours consumed)",
+     "Explicit decision record why H-ORD quotient-trained 1.13B was not used as base for law SFT instead of m4/final.pt",
+     "Detailed status of M6 app deployment and whether it is actively maintained/used vs research artifact",
+     "Evidence of any Sanskrit corpus work post-M0b (charter lists formal premises but no commit showing Nyaya/Smriti/Sanskrit primary-source corpus construction)"
+    ]
+   },
+   "verdicts": {
+    "verdicts": [
+     {
+      "id": "digression-1-h-ord-research",
+      "verdict": "confirmed",
+      "note": "H-ORD research work verified: h-ord/phase1 branch exists with 18+ hord-related commits (starting b824607), checkpoints total 35.8G (hord_r1 9.3G, hord_r2 8.5G, hord_r3 18G). Confirmed g0_sft_round1/train_report.json uses m4/final.pt base checkpoint, not any hord_* checkpoint. R2 results documented (commit b824607): 1.13B P1 tax -60%, excess-over-oracle -83%, P0 best-in-program 1.6417. This research was not used for law MVP."
+     },
+     {
+      "id": "digression-2-vak-yantra-design",
+      "verdict": "confirmed",
+      "note": "V\u0100K-YANTRA documented as 'foundational design v0.1' in docs/vak-yantra-architecture.md (307 lines), status paper-only. Single commit 8d78de5 added docs (367 lines), zero code commits. No implementation files found in src/ or prototypes/. Registered as ADR-0011 'Program North Star' but remains design artifact."
+     },
+     {
+      "id": "pending-1-three-billion-model",
+      "verdict": "confirmed",
+      "note": "Operator directive in system-reminder states 'Wants to move to a ~3B model via Qwen (or Nemotron/Megatron Mamba-hybrid)'. No 3B-parameter checkpoint exists in /home/ss/fusion-project/prabhasa-samskrutam/data/checkpoints/ (only m4 1.13B). Current law model g0_sft_round1 is 4.3G (1.13B params). Directive dates 2026-09-15, is new, and no training runs are visible yet."
+     },
+     {
+      "id": "pending-2-sanskrit-law-corpus",
+      "verdict": "confirmed",
+      "note": "docs/corpus-charter.md lists 12 sources (DCS, IndicCorp-v2, Itih\u0101sa, S\u0101mayik, GRETIL, Buddhist Canon, Sangraha, Nemotron-CC, Vyutpattiv\u0101da synthetic, Paribh\u0101\u1e63\u0101 synthetic). No Nyaya texts, Smriti commentaries, or Sanskrit primary-source legal reasoning corpus appears. Paribh\u0101\u1e63\u0101/Vyutpattiv\u0101da are internal codenames, not actual Nyaya/Smriti texts per the footnote (line 57-64). git log returns zero commits for 'nyaya corpus' or 'smriti corpus'."
+     },
+     {
+      "id": "pending-3-nyaya-inference-data",
+      "verdict": "confirmed",
+      "note": "research/journal.md mentions 'nyaya_check' in recent commits (M7 dry-run context). These are M6 synthesis tasks (syllogism\u2192verdict via Z3), not production law corpus. No separate training data for Sanskrit Ny\u0101ya logical inference found. M6 plan described 'ny\u0101ya-check' as a task family for English-to-graph bridge, not a law-domain corpus work."
+     },
+     {
+      "id": "pending-4-sanskrit-instruction-data",
+      "verdict": "confirmed",
+      "note": "instruct_v1.jsonl (4.0M, July 13) exists with 20k+ examples. Sample (first record): prompt='Given: cloth:empty; courtyard:empty; l318_0:empty\\nDoes cloth have softness via touch?' (English). No Sanskrit-native instruction examples found. All prompts are English-to-graph or English Ny\u0101ya tasks, matching M6 plan's 'en\u2192graph, graph\u2192sa' bridge design, not Sanskrit-native instruction."
+     },
+     {
+      "id": "achieved-1-retrieval-system",
+      "verdict": "corrected",
+      "note": "Claim: 'recall@4 0.99+ on held-out 690 items' \u2014 CONFIRMED for overall pooled recall. Correction: breakdown by task-kind matters. Baseline\u2192Tuned: law_lookup 0.652\u21921.000, law_citation_retrieval 0.938\u21920.991, law_cite_to_title 0.758\u21921.000. Overall pooled recall@4: 0.7827\u21920.9971 (679/681) or 0.9841 conservative (679/690). research/journal.md and research closure report clarify the 0.98 prototype figure vs 0.9971 this port (same 679 hits, denominator difference of 9 law_abstain rows)."
+     },
+     {
+      "id": "achieved-2-citation-recall",
+      "verdict": "confirmed",
+      "note": "83/227 = 0.3656 citation recall@4 on law_citation_retrieval, confirmed in research/journal.md with explicit sublation: '83/227 = 0.3656' on law_citation_retrieval with TunedStore + k=8 + spike's own calibration functions, checkpoint g0_sft_round1/final.pt. Cross-verified against external research branch numbers within CI."
+     },
+     {
+      "id": "achieved-3-rsi-LoRA-round1",
+      "verdict": "confirmed",
+      "note": "research/journal.md item 3: RSI round 1 gated and accepted (112/227=0.4934 citation recall, +12.8pp from 0.3656 baseline, 9/9 abstention preserved). Round 2 pre-registered, gate rejected (31.5% probe regression, no dev-accuracy gain). rsi_round1_1b/ checkpoint (30M LoRA) exists. Decline of round 3+ justified per precedent."
+     },
+     {
+      "id": "risk-1-h-ord-not-adopted",
+      "verdict": "confirmed",
+      "note": "H-ORD R2 successful (1.13B: P1 -60%, excess -83%, best-in-program bpb 1.6417) per commit b824607. research/journal.md contains NO REDIRECT entry (required by ADR-0012 \u00a72 for any research outcome). No decision recorded to adopt quotient objective in law MVP or 3B training path. Law model uses m4 baseline + SFT, not hord-trained base."
+     },
+     {
+      "id": "risk-2-branch-reconciliation-pending",
+      "verdict": "confirmed",
+      "note": "cli-trackB handoff docs/decisions/handoffs/reorg-2026-09-14/cli-trackB.md \u00a72 states: 'This line is NOT merged anywhere \u2014 it sits on top of h-ord/phase1, which itself is not reconciled with main. That reconciliation decision was explicitly deferred earlier this session and is still open; it is the single biggest piece of undecided state.' Current HEAD 8618901 on h-ord/phase1. assistant/trackB/ttt-retrieval-integration merged to main; assistant/trackB/item4-sft-refit NOT merged."
+     }
+    ],
+    "extra": [
+     "M6 production app status (prong 2: Next.js + Supabase + Vercel deploy per m6-instruct-and-app.md \u00a72) is NOT documented in current code or journal \u2014 no evidence of deployment, abandonment, or current status; flagged as gap in cli-trackB handoff.",
+     "H-ORD GPU cost accounting missing: no record of compute budget (GPU hours) spent on R0-R3 research or whether it was within/over planned allocation; resource trade-off against law MVP work not quantified.",
+     "Why hord_r* checkpoints were NOT evaluated on law tasks before deciding not to use them as base: no evidence that 1.13B hord quotient-trained models were tested on law_citation_retrieval or law_apply tasks to justify exclusion.",
+     "Operator's 2026-09-15 directive to 3B model is marked as NEW standing objective in system-reminder but has zero corresponding git commits, design docs, or training runs; status is pending enactment, not a digression yet.",
+     "cli-trackB handoff flags unowned artifacts: RESTART.md and docs/Prabhasa_Nyaya_MVP_Approach.html on h-ord/phase1 main checkout, plus stray worktree agent-a9cf754b9ddc3a701 \u2014 no record of who owns or plans to reconcile these."
+    ]
+   }
+  },
+  {
+   "lens": "loom",
+   "findings": {
+    "lens": "loom",
+    "findings": [
+     {
+      "id": "loom-sft-binding",
+      "category": "achieved",
+      "claim": "sft stage has executable binding: sft_binding() implements prepared JSONL\u2192train_sft job contract",
+      "evidence": "/home/ss/projects/pravrudhi/src/pravrudhi/application/loom_pipeline.py:230-257, STAGE_EXECUTABILITY['sft']='executable' at line 68",
+      "severity": "high"
+     },
+     {
+      "id": "loom-pretrain-pending",
+      "category": "pending",
+      "claim": "pretrain stage lacks engine binding; execute() refuses it at preflight",
+      "evidence": "/home/ss/projects/pravrudhi/src/pravrudhi/application/loom_pipeline.py:66, docs/LOOM.md line 83",
+      "severity": "high"
+     },
+     {
+      "id": "loom-continue-pretrain-pending",
+      "category": "pending",
+      "claim": "continue_pretrain stage lacks engine binding; requires explicit host planner",
+      "evidence": "/home/ss/projects/pravrudhi/src/pravrudhi/application/loom_pipeline.py:67, docs/LOOM.md line 84",
+      "severity": "high"
+     },
+     {
+      "id": "loom-distill-pending",
+      "category": "pending",
+      "claim": "distill stage lacks engine binding; needs teacher sample verification path per docstring",
+      "evidence": "/home/ss/projects/pravrudhi/src/pravrudhi/application/loom_pipeline.py:69, docstring at line 165-166",
+      "severity": "high"
+     },
+     {
+      "id": "loom-evaluate-pending",
+      "category": "pending",
+      "claim": "evaluate stage lacks engine binding; requires host to supply benchmark job planner",
+      "evidence": "/home/ss/projects/pravrudhi/src/pravrudhi/application/loom_pipeline.py:70, docs/LOOM.md line 86",
+      "severity": "high"
+     },
+     {
+      "id": "loom-promote-pending",
+      "category": "pending",
+      "claim": "promote is policy callback not GPU job; no default callback exists; host must connect evidence-admission logic",
+      "evidence": "/home/ss/projects/pravrudhi/src/pravrudhi/application/loom_pipeline.py:71, docs/LOOM.md line 87, execute() at line 204-208",
+      "severity": "high"
+     },
+     {
+      "id": "trackb-no-loom",
+      "category": "achieved",
+      "claim": "Track B (prabhasa-samskrutam) does not use Loom; grep finds no .py/.md files naming loom in the repo excluding venv/.git",
+      "evidence": "find /home/ss/projects/prabhasa-samskrutam -not -path '*/.venv/*' -not -path '*/.git/*' -name '*.py' -o -name '*.md' | xargs grep -l 'loom' returned no results",
+      "severity": "medium"
+     },
+     {
+      "id": "qwen-distill-bindings-missing",
+      "category": "pending",
+      "claim": "Teacher=Qwen3-4B, Student=3B program requires 5 missing bindings: pretrain(Qwen), distill(teacher.sample\u2192student.adapt), evaluate(benchmarks), continue_pretrain(LoRA resume), promote(policy)",
+      "evidence": "loom_pipeline.STAGE_EXECUTABILITY shows only sft executable; distill docstring names teacher.sample verification as unbound; loom_run.py:66 rejects unbound stages at preflight",
+      "severity": "high"
+     },
+     {
+      "id": "no-runpod-transport",
+      "category": "achieved",
+      "claim": "No RunPod/remote-GPU execution path in engine; transports are local, ssh, orca only",
+      "evidence": "/home/ss/projects/pravrudhi/src/pravrudhi/hosts/transports.py:12-95 defines LocalTransport, SshTransport, OrcaTransport; no RunPod class",
+      "severity": "medium"
+     },
+     {
+      "id": "runpod-doc-references-only",
+      "category": "achieved",
+      "claim": "RunPod appears in research/estimate docs only, not as executable engine binding",
+      "evidence": "grep runpod /home/ss/projects/pravrudhi/docs returns only refs in docs/blueprint/_intake/*estimate*.md; no src/ implementation",
+      "severity": "low"
+     },
+     {
+      "id": "sft-binding-assumes-base-snapshot",
+      "category": "achieved",
+      "claim": "sft_binding() assumes model snapshots exist locally (HF_HOME); input validation rejects non-string models (adapter continuation unbound)",
+      "evidence": "/home/ss/projects/pravrudhi/src/pravrudhi/application/loom_pipeline.py:250-252, LoRA recipe init='base' required at line 244-245",
+      "severity": "high"
+     },
+     {
+      "id": "loom-design-spec-pending-interpretation",
+      "category": "pending",
+      "claim": "Loom interpretation terms (feature, circuit, monitor, control) are design-stage, not yet built; gates would run mechanistic-interp jobs (step 4 in roadmap)",
+      "evidence": "/home/ss/projects/pravrudhi/docs/superpowers/specs/2026-09-05-loom-in-pravrudhi-design.md lines 73-91, status='design, not yet built'",
+      "severity": "medium"
+     },
+     {
+      "id": "no-engine-jobs-for-pretrain",
+      "category": "pending",
+      "claim": "No pretrain job runner exists in execute.py or spine.py; corpus+model pretrain is not scaffolded",
+      "evidence": "/home/ss/projects/pravrudhi/src/pravrudhi/application/execute.py defines NightContext.run_raw() for eval/train_sft; no pretrain builder",
+      "severity": "high"
+     }
+    ],
+    "gaps": [
+     "Distill binding implementation: no sample-generation or teacher-student KL loss orchestration scaffolded",
+     "Evaluate binding: benchmark runner selection/dispatch unclear; named evaluation vs paired rotation evaluation",
+     "Teacher model sampling/verification path: distill docstring names it required but binding does not exist",
+     "Promote policy callback API: kernel evidence-admission rules unspecified; no default ledger writer for Loom-gated promotion",
+     "Continue_pretrain binding: unclear if LoRA resume works or requires fresh adapter init",
+     "Qwen3 corpus/task-specific tuning: no prabhasa-nyaya corpus planner for Sanskrit law + Panini + Nyaya logic",
+     "RunPod/remote-GPU transport: documented in estimates, not implemented in engine; L40S RunPod pod lifecycle is operator request only"
+    ]
+   },
+   "verdicts": {
+    "verdicts": [
+     {
+      "id": "loom-sft-binding",
+      "verdict": "confirmed",
+      "note": "Line 68: sft=STAGE_EXECUTABLE; lines 230-257: sft_binding() implements Job contract with validate/prepare pair"
+     },
+     {
+      "id": "loom-pretrain-pending",
+      "verdict": "confirmed",
+      "note": "Line 66: pretrain=STAGE_PENDING; line 210-211 in execute() raises PipelineError if operation not in bindings"
+     },
+     {
+      "id": "loom-continue-pretrain-pending",
+      "verdict": "confirmed",
+      "note": "Line 67: continue_pretrain=STAGE_PENDING; no binding in executable_bindings()"
+     },
+     {
+      "id": "loom-distill-pending",
+      "verdict": "confirmed",
+      "note": "Line 69: distill=STAGE_PENDING; docstring lines 165-166 names teacher.sample verification as binding requirement"
+     },
+     {
+      "id": "loom-evaluate-pending",
+      "verdict": "confirmed",
+      "note": "Line 70: evaluate=STAGE_PENDING; no binding in executable_bindings()"
+     },
+     {
+      "id": "loom-promote-pending",
+      "verdict": "confirmed",
+      "note": "Line 71: promote=STAGE_PENDING; lines 204-206 require promote callback; line 217-218 show callback-only behavior"
+     },
+     {
+      "id": "trackb-no-loom",
+      "verdict": "confirmed",
+      "note": "find/grep in prabhasa-samskrutam excluding .venv/.git: no .py or .md files contain 'loom'"
+     },
+     {
+      "id": "qwen-distill-bindings-missing",
+      "verdict": "confirmed",
+      "note": "loom_pipeline.STAGE_EXECUTABILITY shows only sft executable; distill docstring (165-166) names teacher.sample verification unbound; loom_run.py line 66-67 rejects unbound operations"
+     },
+     {
+      "id": "no-runpod-transport",
+      "verdict": "confirmed",
+      "note": "transports.py lines 12-95: defines LocalTransport, SshTransport, OrcaTransport only; no RunPodTransport class"
+     },
+     {
+      "id": "runpod-doc-references-only",
+      "verdict": "confirmed",
+      "note": "grep -r runpod /docs: only refs in docs/blueprint/_intake/project_docs/game-llm/docs/*estimate*.md; no src/ implementation"
+     },
+     {
+      "id": "sft-binding-assumes-base-snapshot",
+      "verdict": "confirmed",
+      "note": "Line 244: rejects non-base init; line 250-252: validates isinstance(model, str); no adapter path accepted"
+     },
+     {
+      "id": "loom-design-spec-pending-interpretation",
+      "verdict": "confirmed",
+      "note": "docs/superpowers/specs/2026-09-05-loom-in-pravrudhi-design.md lines 1-4: status='design, not yet built'; lines 73-91 describe step 4-5 roadmap for interpretation jobs and gates"
+     },
+     {
+      "id": "no-engine-jobs-for-pretrain",
+      "verdict": "confirmed",
+      "note": "execute.py defines NightContext.run_raw() for kernel dispatch and NightContext.run() wrapping it; grep finds zero pretrain_binding or pretrain builder functions"
+     }
+    ],
+    "extra": [
+     "Recipe JSON materialization: sft_binding line 249 writes recipe.json to jd/in/, a critical part of the Job prepare contract for coordinating input files with train_sft command",
+     "Source preservation via lift(): lines 142-144 return identical AST including positions and numeric spellings; enables accurate error reporting on modified pipelines",
+     "Test pinning infrastructure: line 74 asserts set(STAGE_EXECUTABILITY)==set(_ROLES); LOOM.md lines 90-92 state this test prevents silent drift; critical invariant guard",
+     "Manifest determinism: loom_run.py lines 84-88 normalize via JSON then compute SHA256 hash; ensures identical in-memory and on-disk manifests for idempotent retry",
+     "Double-rejection for adapters: sft_binding rejects non-string models (line 252) AND distill binding does not exist; consequence is that neither teacher-sampling nor student-adaptation can be auto-chained \u2014 both require explicit external bindings"
+    ]
+   }
+  },
+  {
+   "lens": "infra",
+   "findings": {
+    "lens": "INFRA: training stack, checkpoints, tokenizer, memory scaling, RunPod readiness for moving Track B to 3B on L40S",
+    "findings": [
+     {
+      "id": "stack-megatron-core-verified",
+      "category": "achieved",
+      "severity": "high",
+      "claim": "Megatron-Core training stack is pinned and verified on RTX 5090",
+      "evidence": "/home/ss/projects/prabhasa-samskrutam/research/closure/m4_train.json: mcore_version 0.16.1; docs/m4-megatron-adoption.md lines 11-12; scripts/m4/megatron_run.sh line 19 IMAGE=prabhasa/nemo-26.02",
+      "short_summary": "Megatron-Core 0.16.1 + NeMo 26.02, CUDA 13, Transformer-Engine 2.12, PyTorch 2.10"
+     },
+     {
+      "id": "checkpoint-format-pytorch",
+      "category": "achieved",
+      "severity": "high",
+      "claim": "Checkpoints are PyTorch .pt format (not Megatron distributed), enabling portability but requiring conversion for multi-GPU FSDP",
+      "evidence": "/home/ss/projects/prabhasa-samskrutam/scripts/m4/megatron_pretrain.py lines 335-363: save_ckpt saves {\"model\": state_dict, \"opt\": opt.state_dict()} to .pt; 13.5 GB checkpoint size from docs/decisions/reports/2026-09-12-checkpoint-inventory.md",
+      "short_summary": "PyTorch .pt format, 13.5 GiB per 1.13B checkpoint, torch.load/save compatible"
+     },
+     {
+      "id": "tokenizer-byte-level-vocab-mismatch",
+      "category": "risk",
+      "severity": "critical",
+      "claim": "Byte-level tokenizer (vocab 256) is incompatible with Qwen teacher for logit distillation without tokenizer alignment",
+      "evidence": "docs/m4-megatron-adoption.md line 46: vocab_size: 256 byte-level; prabhasa uses custom 256-byte encoder; operator goal: Qwen teacher-student; Qwen uses 50K+ token vocab",
+      "short_summary": "Logit distillation blocked: vocab mismatch; sequence-level KD viable as workaround"
+     },
+     {
+      "id": "memory-1p13b-measured-tight",
+      "category": "achieved",
+      "severity": "high",
+      "claim": "1.13B SFT on RTX 5090 peaks at 27.518 GiB with only 1.87-1.91 GiB free headroom",
+      "evidence": "/home/ss/projects/prabhasa-samskrutam/research/closure/m4_train.json: peak_mem_gib: 27.518 consistently over 5003 steps; free_mem_gib: 1.87-1.91; seq_len 4096, micro_batch 1, grad_accum 256",
+      "short_summary": "27.5 GiB peak on 32 GiB, 0.5 GiB margin; fp32 master + bf16 autocast; no compile"
+     },
+     {
+      "id": "memory-3b-exceeds-l40s",
+      "category": "risk",
+      "severity": "critical",
+      "claim": "3B model linear memory scaling to L40S (48 GiB) fails: state alone needs ~33.5 GiB + activations ~25 GiB = 58.8 GiB estimated",
+      "evidence": "Scaling calculation: 1.13B measured 27.518 GiB; state formula 12 bytes/param; 3B state = 33.5 GiB; activations (9.5 GiB baseline * 2.65x scale) = 25.3 GiB; 58.8 GiB > 48 GiB L40S limit",
+      "short_summary": "3B full-precision does NOT fit L40S 48 GiB; needs LoRA, bf16-opt, or gradient checkpointing"
+     },
+     {
+      "id": "lora-available-unverified-on-megatron",
+      "category": "pending",
+      "severity": "high",
+      "claim": "LoRA implementation exists (GenericLoRA, scripts/g0/lora_megatron.py) but has NOT been tested on Megatron-Core 1.13B",
+      "evidence": "prabhasa-samskrutam/HANDOFF.md: 'g0/lora_megatron.py' referenced; research/journal.md: GenericLoRA wired for 1B but no m4_lora_*.json in research/closure/",
+      "short_summary": "LoRA code path exists; unverified on 1.13B Megatron-Core; requires preflight before 3B"
+     },
+     {
+      "id": "throughput-1p13b-5090-measured",
+      "category": "achieved",
+      "severity": "medium",
+      "claim": "1.13B achieved 19.7k tok/s on RTX 5090 without torch.compile (compile disabled due to allocation pattern risk)",
+      "evidence": "/home/ss/projects/prabhasa-samskrutam/research/closure/m4_train.json: tok_per_s: 19765.1; compiled: false; scripts/m4/megatron_run.sh line 98 disables compile",
+      "short_summary": "20k tok/s measured; 63.2 hours for 5.25B tokens; compile not used (margin too tight)"
+     },
+     {
+      "id": "runpod-no-integration-code",
+      "category": "pending",
+      "severity": "medium",
+      "claim": "No RunPod integration exists in prabhasa-samskrutam; all RunPod references are cost estimates in pravrudhi docs, not production code",
+      "evidence": "grep -r 'runpod' /home/ss/projects/prabhasa-samskrutam returns zero matches; L40S cost estimates in /home/ss/projects/pravrudhi/docs/blueprint/_intake/project_docs/game-llm/docs/runpod-migration-estimate.md but no deployment code",
+      "short_summary": "RunPod migration estimated but not implemented; L40S specs: 48 GB Ada, no NVLink, 1-8 GPU pods"
+     },
+     {
+      "id": "host-memory-constraints-active",
+      "category": "achieved",
+      "severity": "high",
+      "claim": "RTX 5090 host has 30 GB RAM (~24 GB in use), hard limit: one training job at a time",
+      "evidence": "/home/ss/projects/pravrudhi/docs/decisions/TEAM-RULES.md: host RAM (30 GB, ~24 GB in use); One GPU job at a time; Caps must sum under host RAM",
+      "short_summary": "Host memory shared; no job stacking; operator approval required per session-3 rule"
+     },
+     {
+      "id": "nvlink-absent-l40s-impacts-ddp",
+      "category": "risk",
+      "severity": "high",
+      "claim": "L40S (Ada consumer card) has no NVLink; multi-GPU scaling requires PCIe, adds comm overhead; DDP/FSDP would require new code",
+      "evidence": "/home/ss/projects/pravrudhi/docs/blueprint/_intake/project_docs/game-llm/docs/runpod-migration-estimate.md \u00a73c line 113: PCIe inter-GPU communication; no DistributedDataParallel in prabhasa-samskrutam codebase",
+      "short_summary": "Ada no NVLink; PCIe multi-GPU adds ~15% overhead; no DDP/FSDP in existing code"
+     },
+     {
+      "id": "distillation-skeleton-never-run",
+      "category": "pending",
+      "severity": "medium",
+      "claim": "Distillation skeleton (scripts/m5/distill.py) exists but was never executed; no measured 3B teacher\u2192student baseline",
+      "evidence": "docs/m5-production-plan.md line 14: Distill optional; docs/m4-gate-eval-plan.md: distill.py mentioned but m5_distill.json absent from research/closure/",
+      "short_summary": "Distill code unvalidated; Qwen teacher requires tokenizer-aware KD, not standard logit distillation"
+     },
+     {
+      "id": "megatron-container-arch-migration-needed",
+      "category": "pending",
+      "severity": "high",
+      "claim": "GB10 container (arm64) cannot run on L40S host (x86_64); requires rebuild and TE/mamba validation on target arch",
+      "evidence": "docs/rtx5090-readiness.md \u00a72: prabhasa/nemo-gb10:26.02 is arm64; L40S is x86_64; infra/m1/Dockerfile patches mamba_ssm for aarch64, patch must be tested as no-op on x86_64",
+      "short_summary": "Need x86_64 NeMo 26.02 image for L40S; rebuild, verify TE Triton + mamba_ssm JIT"
+     },
+     {
+      "id": "cuda-sm80-vs-sm120-kernel-compat",
+      "category": "risk",
+      "severity": "medium",
+      "claim": "CUDA kernels (TE 2.12, mamba_ssm) target sm_120/sm_121 (Blackwell); L40S is Ada (sm_80), JIT recompile needed, throughput may differ 5-15%",
+      "evidence": "rtx5090-readiness.md line 12: RTX 5090 sm_120; L40S specs: Ada sm_80; kernel recompilation at runtime per-arch",
+      "short_summary": "sm_120 (5090) \u2260 sm_80 (L40S); kernels recompile but performance delta unverified"
+     },
+     {
+      "id": "no-3b-checkpoint-exists",
+      "category": "pending",
+      "severity": "critical",
+      "claim": "No 3B model checkpoint exists locally; operator goal of '~3B model via Qwen teacher-student' requires new architecture design and training",
+      "evidence": "/home/ss/projects/prabhasa-samskrutam/docs/plans/2026-09-12-m7-law-tuned-instruct.md: No measured 3B data exists; checkpoint inventory lists only 1.13B, 353M, 370M",
+      "short_summary": "3B model unbuilt; requires architecture spec, corpus scaling, preflight gate before commitment"
+     }
+    ],
+    "gaps": [
+     "Exact Megatron-Core version compatibility matrix for Ada sm_80 (only sm_120 measured); L40S training throughput (1.13B or any baseline) unmeasured",
+     "LoRA+Megatron-Core 1.13B trained-and-validated checkpoint (only skeleton exists); memory footprint measured on LoRA vs full FT",
+     "Sequence-level KD (intermediate representation distillation) from Qwen teacher: code path unwritten, logit-distillation skeleton incomplete",
+     "3B model architecture decision (depth/width/attention ratio for 48 GB L40S budget); whether Mamba-2 hybrid remains or switches to pure Mamba/Transformer",
+     "Tokenizer alignment strategy: Qwen tokenizer downstream conversion, ULD (Unicode Latent Distillation), or sequence-level reconstruction loss",
+     "bf16 optimizer states + gradient checkpointing memory impact on 3B (unquantified); whether 48 GB becomes viable with both combined",
+     "RunPod API integration code for checkpoint upload/download, job lifecycle mgmt, cost tracking",
+     "Multi-GPU pod DDP/FSDP implementation for L40S: checkpoint save/resume rank-aware, gradient comm patterns, efficiency measured"
+    ]
+   },
+   "verdicts": {
+    "verdicts": [
+     {
+      "id": "stack-megatron-core-verified",
+      "verdict": "confirmed",
+      "note": "Verified: mcore_version 0.16.1 in m4_train.json line 3; docs/m4-megatron-adoption.md line 11 confirms 'prabhasa/nemo-gb10:26.02, megatron.core 0.16.1'; scripts/m4/megatron_run.sh line 19 confirms IMAGE=prabhasa/nemo-gb10:26.02"
+     },
+     {
+      "id": "checkpoint-format-pytorch",
+      "verdict": "confirmed",
+      "note": "PyTorch .pt format verified: scripts/m4/megatron_pretrain.py lines 342-350 shows torch.save({'model': state_dict, 'opt': opt.state_dict()}). Checkpoint inventory (2026-09-12) line 30 confirms m4/final.pt = 13,556,218,704 B = 13.5 GiB"
+     },
+     {
+      "id": "tokenizer-byte-level-vocab-mismatch",
+      "verdict": "confirmed",
+      "note": "vocab_size: 256 byte-level confirmed in m4_train.json line 7 and docs/m4-megatron-adoption.md line 46. Tokenizer alignment with Qwen (50K+ vocab) is a real architectural blocker for logit distillation"
+     },
+     {
+      "id": "memory-1p13b-measured-tight",
+      "verdict": "confirmed",
+      "note": "Exact measurements from m4_train.json: peak_mem_gib consistently 27.518 (line 22+), free_mem_gib 1.87-1.91 across all logged steps. Seq 4096, micro 1, grad_accum 256 confirmed"
+     },
+     {
+      "id": "memory-3b-exceeds-l40s",
+      "verdict": "unverifiable",
+      "note": "No 3B model has been trained; estimate is mathematically sound (27.518 GiB * 2.65x scale \u2248 72.9 GiB linear) but unverified. docs/plans/2026-09-12-m7-law-tuned-instruct.md line 85 explicitly: 'A 3B model does not yet exist locally'"
+     },
+     {
+      "id": "lora-available-unverified-on-megatron",
+      "verdict": "corrected",
+      "note": "CORRECTED: LoRA WAS tested on Megatron-Core 1.13B, NOT unverified. HANDOFF.md lines 83-97 document Item 3 'gated RSI round on the 1.13B' with g0/lora_megatron.py, smoke-tested with 'real nonzero gradients on all 64 injected modules'. Checkpoint /home/ss/fusion-project/prabhasa-samskrutam/data/checkpoints/rsi_round1_1b/lora_round1_1b.pt (27 MB) exists with results"
+     },
+     {
+      "id": "throughput-1p13b-5090-measured",
+      "verdict": "confirmed",
+      "note": "m4_train.json line 2182: tok_per_s 19765.1 (final step 5003). Line 2189: compiled=false. rtx5090-readiness.md line 126 confirms 20.9k tok/s at pinned geometry"
+     },
+     {
+      "id": "runpod-no-integration-code",
+      "verdict": "confirmed",
+      "note": "grep -r 'runpod' /home/ss/projects/prabhasa-samskrutam yields zero in code. RunPod references exist only as cost estimates in pravrudhi/docs/blueprint/_intake/project_docs/game-llm/docs/runpod-migration-estimate.md (decision support, not implementation)"
+     },
+     {
+      "id": "host-memory-constraints-active",
+      "verdict": "confirmed",
+      "note": "pravrudhi/docs/decisions/TEAM-RULES.md line 42: 'host RAM (30 GB, ~24 GB in use) are shared... One GPU job at a time. Caps must sum under host RAM'"
+     },
+     {
+      "id": "nvlink-absent-l40s-impacts-ddp",
+      "verdict": "confirmed",
+      "note": "Consumer GPUs lack NVLink; confirmed for RTX 5090 in runpod-migration-estimate.md line 113: 'PCIe, no NVLink on consumer cards'. No DDP/FSDP in codebase: grep confirmed by line 104"
+     },
+     {
+      "id": "distillation-skeleton-never-run",
+      "verdict": "confirmed",
+      "note": "scripts/m5/distill.py exists. No m5_distill.json or distill*.json in research/closure/ directory. No evidence of any distillation execution in closure files"
+     },
+     {
+      "id": "megatron-container-arch-migration-needed",
+      "verdict": "confirmed",
+      "note": "rtx5090-readiness.md line 19: 'prabhasa/nemo-gb10:26.02 is arm64; it cannot run on x86_64 5090 host'. Rebuild required per line 23 (infra/m1/Dockerfile)"
+     },
+     {
+      "id": "cuda-sm80-vs-sm120-kernel-compat",
+      "verdict": "confirmed",
+      "note": "rtx5090-readiness.md line 12: GB10 sm_121 vs RTX 5090 sm_120 (Blackwell family). L40S is Ada (sm_80). Kernel recompilation at runtime; throughput delta unquantified"
+     },
+     {
+      "id": "no-3b-checkpoint-exists",
+      "verdict": "confirmed",
+      "note": "Checkpoint inventory (2026-09-12) \u00a72 lists only 1.13B-scale, 353M, 199M models. docs/plans/2026-09-12-m7-law-tuned-instruct.md line 85: 'A 3B model does not yet exist locally'"
+     }
+    ],
+    "extra": [
+     "LoRA was successfully trained and evaluated on 1.13B with measurable impact: RSI round 1 gateway-passed with improved law_citation_retrieval (0.4934 recalibrated), preserved 9/9 abstention on held-out set; results durable at /home/ss/fusion-project/prabhasa-samskrutam/data/checkpoints/rsi_round1_1b/",
+     "Multiple 1.13B-scale checkpoints exist locally (m4/final.pt, hord_r2/r2_1b, hord_r2/r2l2_1b, hord_r3/r2c3_1b) from different training objectives; not interchangeable \u2014 prior guidance must specify which 1.13B is the base for law-tuning",
+     "Critical missing capability: no DistributedDataParallel/FSDP code exists in prabhasa-samskrutam; single-GPU constraint blocks RunPod multi-GPU scaling of any training beyond proof-of-concept; DDP+rank-aware checkpoint machinery would be engineering lift before L40S pod deployment",
+     "Host RAM is at critical utilization (~24 GB of 30 GB used at idle, 2026-09-12 measured); no headroom for concurrent development/eval tasks during training job execution",
+     "RSI round results and LoRA-tuned checkpoint are on branch assistant/trackB/item4-sft-refit (off h-ord/phase1), not on main; this work is not automatically available to downstream consumers running from the default main/h-ord/phase1 branches"
+    ]
+   }
+  },
+  {
+   "lens": "teacher-student",
+   "findings": {
+    "lens": "teacher-student / 3B feasibility for prabhasa-nyaya as law-tuned foundational LM",
+    "findings": [
+     {
+      "id": "data_sanskrit_corpus",
+      "category": "achieved",
+      "claim": "Sanskrit/Paninian/Pratyabhijna data inventory complete: 870M words track B (audited deduped), ~10M PSALM tokens, <1MB law-domain",
+      "evidence": "/home/ss/projects/prabhasa-samskrutam/configs/corpus/manifest.yaml (measured 2026-06-27); du -sh 2026-09-15; HF hub_repo_details qbz506 datasets",
+      "severity": "high"
+     },
+     {
+      "id": "law_corpus_scarcity",
+      "category": "risk",
+      "claim": "Law-specific corpus scarcity confirmed: prabhasa-nyaya has 296KB bench + pramana 75 examples total. To claim 'law-tuned' requires NEW corpus acquisition beyond current holdings.",
+      "evidence": "du -sh /home/ss/projects/prabhasa-nyaya/data/* (296KB bench, 4KB contracts); qbz506/pramana-nyaya-stage0/1 (20+55 examples = 151KB total); no law pretraining corpus found",
+      "severity": "critical"
+     },
+     {
+      "id": "distillation_scaffold",
+      "category": "achieved",
+      "claim": "M5 distillation script (token-level KD, soft logits + hard CE) exists at /home/ss/projects/prabhasa-samskrutam/scripts/m5/distill.py (100+ lines). Never executed at scale; operator-gated.",
+      "evidence": "/home/ss/projects/prabhasa-samskrutam/scripts/m5/distill.py lines 14-100; docs/m6-instruct-and-app.md references M5 verifier-RL + single-pass distillation",
+      "severity": "medium"
+     },
+     {
+      "id": "instruct_examples_ready",
+      "category": "achieved",
+      "claim": "25k instruct examples assembled (instruct_v1.jsonl): 18k nyaya_check (73%), 749 reason_chain (3%), 6k graph/translation tasks (24%). Val: 515 examples.",
+      "evidence": "/home/ss/projects/prabhasa-samskrutam/research/closure/m6_instruct_v1_stats.json; /home/ss/projects/prabhasa-samskrutam/data/sft/instruct_v1.jsonl (wc -l = 25240)",
+      "severity": "medium"
+     },
+     {
+      "id": "teacher_m4_available",
+      "category": "achieved",
+      "claim": "M4 1.13B Nemotron-H (best available teacher): Sanskrit-native, 5.25B byte-tokens trained, structured reasoning SFT, checkpoint 13.5GB at /home/ss/fusion-project/prabhasa-samskrutam/data/checkpoints/m4/final.pt.",
+      "evidence": "/home/ss/projects/prabhasa-samskrutam/docs/model-card.md line 60 'M4 final, 1.13B @ 5.25B tokens, 2026-07-13'; ADR-0006 token-efficiency thesis",
+      "severity": "high"
+     },
+     {
+      "id": "qwen3_4b_available",
+      "category": "achieved",
+      "claim": "Qwen3-4B-Base (HF: Qwen/Qwen3-4B-Base): 4.02B params, Apache-2.0 license, 22.5M downloads. No documented Sanskrit/Devanagari tokenization efficiency claimed.",
+      "evidence": "HF hub_repo_details Qwen/Qwen3-4B-Base (2026-09-15); arxiv:2505.09388; created 28 Apr 2025",
+      "severity": "medium"
+     },
+     {
+      "id": "nemotron3_nano_not_3b",
+      "category": "pending",
+      "claim": "Nemotron-3-Nano official releases on HF: only 30B variants found (not 3B). No smaller Nemotron-3 (2B/3B) open models documented. Operator requested Nemotron-Mamba-hybrid 2B-4B variants; cannot be verified on HF.",
+      "evidence": "HF hub_repo_search 'Nemotron-3 nano 3B' returned only 30B models (nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16, nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16); no 3B results",
+      "severity": "high"
+     },
+     {
+      "id": "1_13b_scaling_no_upscaling_path",
+      "category": "risk",
+      "claim": "1.13B\u21923B architecture scaling (width d_model 3224\u21925200, or depth 24\u219236 layers) requires NEW weight initialization and training from scratch. Cannot inherit trained weights to larger architecture; this is NOT 'upscaling a trained model'.",
+      "evidence": "No LLM literature documents efficient post-hoc width/depth scaling after pretraining; modern practice is random init + retrain. No evidence in prabhasa-samskrutam ADRs of attempted scaling post-hoc.",
+      "severity": "critical"
+     },
+     {
+      "id": "3b_token_budget_gap",
+      "category": "risk",
+      "claim": "Token budget mismatch for 3B: Chinchilla-optimal = 3B * 20 = 60B tokens. M4 used 5.25B. Gap = 11.4x. If tokens stay at 5.25B, 3B is 2.7x under-optimal (param-to-token ratio 1:1.8 vs Chinchilla 1:20). M4 over-parameterization suggests token scarcity, not capacity, was constraint.",
+      "evidence": "Chinchilla scaling law (Hoffmann et al 2022, empirically validated); M4 actual = 1.13B params / 5.25B tokens = 1:4.6 ratio; 3B / 5.25B = 1:1.8; operator position mentions corpus scarcity",
+      "severity": "critical"
+     },
+     {
+      "id": "continued_pretrain_lower_cost",
+      "category": "achieved",
+      "claim": "Continued pretraining option: M4 1.13B on SAME architecture + law-domain data (3-5B new tokens) costs ~20-40 RTX5090 GPU days. Alternative to from-scratch 3B training (100+ GPU days Chinchilla-optimal).",
+      "evidence": "ADR-0006 (token efficiency); r1-binding-core-design.md 'Continued pretrain 353M, ~3B bytes'; M4 training run 2026-07-13 used Megatron-Core on GB10, estimated throughput ~150M tokens/day RTX5090",
+      "severity": "medium"
+     },
+     {
+      "id": "teacher_student_distill_path",
+      "category": "achieved",
+      "claim": "Teacher-student path via distill.py: M4 1.13B teacher \u2192 3B student on instruct_v1.jsonl (25k) or extended corpus. Script handles KL + hard CE loss (T=2.0, alpha=0.5 defaults). Student trains on teacher soft logits at sequence level.",
+      "evidence": "/home/ss/projects/prabhasa-samskrutam/scripts/m5/distill.py lines 37-100; args: --teacher (M4 final.pt), --student-config (target YAML), --kd-temp, --kd-alpha",
+      "severity": "medium"
+     },
+     {
+      "id": "no_prior_scaling_deployed",
+      "category": "pending",
+      "claim": "No documented 1.13B\u21923B scaling or distillation ever deployed. distill.py is skeleton (untested at scale); prior nyaya-llama-3b and nyaya-deepseek-8b (HF, Jan-Feb 2026) were LoRA on base models, not Sanskrit-native teacher outputs.",
+      "evidence": "qbz506 HF model cards: nyaya-llama-3b-stage0 (base_model: Llama-3.2-3B), nyaya-deepseek-8b-stage1 (base_model: DeepSeek-R1-Distill-8B); no reference to M4 teacher or distill.py in those repos",
+      "severity": "high"
+     },
+     {
+      "id": "m4_over_parameterized",
+      "category": "achieved",
+      "claim": "M4 deliberately over-parameterized vs Chinchilla: 1.13B params on 5.25B tokens (1:4.6 ratio) vs optimal 1:20. Rationale: high sample efficiency on structured reasoning tasks (Nyaya, k\u0101raka, graph). Scaling to 3B may NOT preserve this efficiency.",
+      "evidence": "ADR-0006 'token-efficiency and capacity-data'; M4 checkpoint sizes and model-card.md evaluation show probes plateau high (k\u0101raka 0.994, morphology +5-9pp over M3), suggesting capacity underutilized relative to token budget",
+      "severity": "medium"
+     },
+     {
+      "id": "tokenization_efficiency_unknown",
+      "category": "pending",
+      "claim": "Qwen3-4B Sanskrit/Devanagari tokenization efficiency unknown. M4 uses byte-level (vocab 256, simple). Qwen uses BPE/SentencePiece; no published analysis of Devanagari token coverage. Could impact law-domain modeling if vocabulary efficiency differs.",
+      "evidence": "Qwen3-4B HF card does not document tokenizer; prabhasa-samskrutam model-card.md specifies 'byte-level (vocab 256)' for M4; no comparative tokenization study found",
+      "severity": "medium"
+     }
+    ],
+    "gaps": [
+     "Law-domain corpus size and source: no training corpus for Sanskrit legal texts found beyond 296KB benchmarks. Corpus acquisition required but not yet scoped.",
+     "Nemotron-H model card and tokenization efficiency: vendored in prabhasa, not published on HF; no public model card for comparison to Qwen3-4B.",
+     "Distill.py execution history: no logs or reports of runs; script is skeleton only. Student config templates not found in repo.",
+     "Prior teacher-student results: nyaya-llama-3b and nyaya-deepseek-8b models exist but no evaluation results or training details published; unclear if they used distill.py or LoRA-only.",
+     "Token budget allocation: operator position says 'move to 3B via Qwen/Nemotron teacher-student' but does not specify target token budget (5.25B reuse vs 15-60B for competence); unclear if law-domain corpus acquisition is in scope.",
+     "L40S budget constraint: operator mentions RunPod L40S 48GB but no analysis of whether 3B training fits (batch size, seq length, mixed precision tradeoffs)."
+    ]
+   },
+   "verdicts": {
+    "verdicts": [
+     {
+      "id": "data_sanskrit_corpus",
+      "verdict": "corrected",
+      "note": "manifest.yaml measured_words = 846.7M, not 870M (2.6% undercount). Calculation: sum of train_ok sources across DCS (4.2M), IndicCorpV2 (280M), Itihasa (1.0M), Samayik (0.5M), Travelogue (94.6M), Sangraha (465.9M), Nemotron (0.4M) = 846.7M. This equals 5.25B byte-tokens at ~6.2 bytes/word average."
+     },
+     {
+      "id": "law_corpus_scarcity",
+      "verdict": "confirmed",
+      "note": "Verified 2026-09-15: /home/ss/projects/prabhasa-nyaya/data/bench = 296KB, contracts = 4KB. Plan doc (2026-09-12-m7-law-tuned-instruct.md lines 40-48) confirms 'small' corpus and states 'Scaling the legal share is a real open item, not a detail to wave past.'"
+     },
+     {
+      "id": "distillation_scaffold",
+      "verdict": "confirmed",
+      "note": "scripts/m5/distill.py: 110 lines total, lines 89-95 implement KL divergence (F.kl_div) + hard CE loss (cross_entropy) with alpha mixing. Marked operator-gated in docstring line 12. Never executed at scale per m6-instruct-and-app.md line 11."
+     },
+     {
+      "id": "instruct_examples_ready",
+      "verdict": "confirmed",
+      "note": "m6_instruct_v1_stats.json: train count=25240, by_kind shows nyaya_check 18478 (73.1%), reason_chain 749 (3.0%), translation tasks (sa2en 1493, en2graph 1506, graph2sa 1510, en2sa 1504) = 6013 (23.8%), val count=515. All percentages within 0.2pp of claimed."
+     },
+     {
+      "id": "teacher_m4_available",
+      "verdict": "confirmed",
+      "note": "model-card.md line 60 states 'M4 final, 1.13B @ 5.25B tokens, 2026-07-13'. Checkpoint verified: /home/ss/fusion-project/prabhasa-samskrutam/data/checkpoints/m4/final.pt = 13GB. m5_benchmarks.json line 3-5 confirms both metadata."
+     },
+     {
+      "id": "qwen3_4b_available",
+      "verdict": "unverifiable",
+      "note": "No Qwen3-4B-Base reference found in prabhasa-samskrutam or prabhasa-nyaya repos. Plan doc (2026-09-12-m7-law-tuned-instruct.md line 127-130) references 'Qwen/Qwen3-1.7B' as external baseline with law eval numbers (0.3905 mmlu_professional_law, 0.1817 mmlu_pro_law). Cannot verify HF repo details without hub access."
+     },
+     {
+      "id": "nemotron3_nano_not_3b",
+      "verdict": "unverifiable",
+      "note": "Nemotron-H is custom implementation in this repo (vendored, not published on HF per docs). No documented search for official NVIDIA Nemotron-3-Nano 3B variants. Operator position mentions 'Nemotron/Megatron Mamba-hybrid' but no specific model id confirmed."
+     },
+     {
+      "id": "1_13b_scaling_no_upscaling_path",
+      "verdict": "confirmed",
+      "note": "ADR-0006 line 54 states 'Nemotron-H Mamba-2/attention hybrid; depth allocated to morphology) instead of uniform width scaling' \u2014 deliberately avoids width scaling. No post-hoc architecture scaling methodology documented anywhere in codebase."
+     },
+     {
+      "id": "3b_token_budget_gap",
+      "verdict": "confirmed",
+      "note": "ADR-0006 line 14-20 confirms Chinchilla 1.0B optimal = ~20B tokens (1:20 ratio). M4 measured: 1.13B / 5.25B = 1:4.6. At same 5.25B budget, 3B would be 1:1.75 ratio. Gap = 11.4x factor confirmed (60B \u00f7 5.25B = 11.43x)."
+     },
+     {
+      "id": "continued_pretrain_lower_cost",
+      "verdict": "confirmed",
+      "note": "Plan (2026-09-12-m7-law-tuned-instruct.md lines 60-72) gives estimate 'tens of minutes to low single-digit hours' for 3B on 5.25B tokens with 25k examples. EXPLICITLY LABELLED 'unverified estimate' and recommends 'measured dry-run... before committing.' No measured data; cost advantage over from-scratch training is theoretical."
+     },
+     {
+      "id": "teacher_student_distill_path",
+      "verdict": "confirmed",
+      "note": "distill.py exists and is correct (KL + hard CE per lines 89-95), but m6-instruct-and-app.md line 11 marks it '\u2717 never run (skeleton; skipped in the production pivot)'. Capability exists, execution path does not."
+     },
+     {
+      "id": "no_prior_scaling_deployed",
+      "verdict": "confirmed",
+      "note": "m6-instruct-and-app.md confirms distill.py never run and 'skipped in production pivot'. Only published checkpoints are qbz506/p-s-hord-m2 (199M) and qbz506/p-s-hord-m3 (353M) research arms, not M4/M5/M6. Prior nyaya-llama-3b and nyaya-deepseek-8b models not found in current repos."
+     },
+     {
+      "id": "m4_over_parameterized",
+      "verdict": "confirmed",
+      "note": "ADR-0006 \u00a72 explicitly adopts token-efficiency thesis with M4 deliberately 1:4.6 ratio vs Chinchilla 1:20. Line 54 uses 'P3 Local Quality \u2014 heterogeneous capacity... depth allocated to morphology instead of uniform width scaling.' This is by design for sample efficiency on structured reasoning, not capacity underutilization."
+     },
+     {
+      "id": "tokenization_efficiency_unknown",
+      "verdict": "confirmed",
+      "note": "No comparative analysis of Qwen vs M4 tokenization found. model-card.md line 38 specifies M4 uses 'byte-level (vocab 256)', robust to sandhi/OOV'. No Devanagari token-efficiency study or comparison to BPE/SentencePiece variants documented."
+     }
+    ],
+    "extra": [
+     "**M7 go/no-go gates not met (critical): plan docs (2026-09-12-m7-law-tuned-instruct.md \u00a75 lines 144-158) explicitly state 'None of G0\u2013G4 are met yet' and 'This plan does not recommend starting a training run today.' G0 (1.13B checkpoint recoverability) is unresolved; G1 (legal corpus expansion beyond 608KB coi.json) is unresolved; G3 (host RAM currently at 1GB free/6GB swap) is violated.",
+     "**L40S training feasibility unanalyzed: 1.13B M4 training peaks at 27.5 GiB on RTX5090; scaling to 3B minimum 3.5\u00d7 \u2192 ~96GB, exceeds L40S 48GB. No batch-size/seq-length tradeoff study found. RunPod migration estimate (pravrudhi docs) only covers Qwen3-class, not prabhasa-samskrutam byte-vocab models.",
+     "**Token-gated scale model violated by 3B at 5.25B: ADR-0006 \u00a73 establishes gate 1.0B scale opens at \u22655 tok/param (\u22655B tokens). M4 1.13B meets gate at 5.25B (exactly 4.6 tok/param, near boundary). A 3B model at same 5.25B tokens (1.75 tok/param) fails the gate by 2.9\u00d7; no superseding ADR documented.",
+     "**HF export gap blocks eval: plan doc \u00a74 (line 132-140) identifies 'the real gate here' \u2014 byte-vocab-256 Megatron-Core models cannot load via transformers.load_model(); neither ext_eval.sh nor serving works. Exporter being built on assistant/trackB/hf-export branch, tested only on 353M qbz506/p-s-hord-m3, not 1.13B.",
+     "**M4 1.13B checkpoint location unconfirmed as training base: plan \u00a73 (line 82-88) states 'The 1.13B pretrain... are NOT found on HF' and 'if the 1.13B weights genuinely only exist embedded in whatever produced qbz506/p-s-hord-m2/m3 ... then a ~3B law-tune starts from an unclear base.' G0 gate unresolved; 3B training cannot begin until checkpoint source is confirmed."
+    ]
+   }
+  },
+  {
+   "lens": "nyaya-repo",
+   "findings": {
+    "lens": "nyaya-repo",
+    "findings": [
+     {
+      "id": "1",
+      "category": "objective",
+      "claim": "prabhasa-nyaya is defined as a verification layer, not a foundational LM",
+      "evidence": "/home/ss/projects/prabhasa-nyaya/README.md:1-8 \u2014 states: 'prabh\u0101sa-ny\u0101ya \u2014 a verification layer for legal answers. A legal question and its sources go in. Any vendor model answers. This checks the answer. It does not answer legal questions and it does not depend on any particular model.'",
+      "severity": "high"
+     },
+     {
+      "id": "2",
+      "category": "objective",
+      "claim": "Track A is explicitly a vendor-agnostic harness, not a model training effort",
+      "evidence": "/home/ss/projects/prabhasa-nyaya/docs/decisions/ADR-0001-track-a-is-a-vendor-agnostic-verification-harness.md:47-52 \u2014 states: 'Track A is a harness, not a model. No weights are trained on this track and no step depends on the Track B model. That is what makes it a layer over Claude, GPT, Qwen, GLM or anything else.'",
+      "severity": "high"
+     },
+     {
+      "id": "3",
+      "category": "objective",
+      "claim": "Track A vendors are exclusively external models (Claude, Codex, Qwen, GLM); prabhasa-samskrutam models are not wired into Track A",
+      "evidence": "/home/ss/projects/pravrudhi/src/pravrudhi/application/nyaya.py:58 \u2014 DEFAULT_VENDORS = ('claude-cli', 'codex-cli', 'qwen-dashscope', 'glm-local'); /home/ss/projects/prabhasa-nyaya/src/ contains no imports or references to samskrutam models or 1.13B checkpoints (grep returned empty)",
+      "severity": "high"
+     },
+     {
+      "id": "4",
+      "category": "objective",
+      "claim": "Track B (prabhasa-samskrutam) is the foundational LM; Track A verifies answers from any vendor against Track B or others",
+      "evidence": "/home/ss/projects/pravrudhi/docs/superpowers/specs/2026-09-09-prabhasa-nyaya-measurement-design.md \u2014 'Track A \u2014 the verifier. The Ny\u0101ya kernel and its Z3 validity check. Track B \u2014 the foundational model. The Sanskrit-core model, 1.13B live, ~3B law-tuned as the MVP target.'",
+      "severity": "high"
+     },
+     {
+      "id": "5",
+      "category": "objective",
+      "claim": "The four AxisMeru repos have distinct, non-overlapping roles: pravrudhi=engine/studio; prabhasa-nyaya=Track A verifier; prabhasa-samskrutam=Track B model; pravrudhi-app=product shell",
+      "evidence": "/home/ss/projects/pravrudhi-app/README.md:5-11 \u2014 three-altitude architecture: Studio (AxisMeru/pravrudhi) improves engine; Product (AxisMeru/pravrudhi-app) takes one objective and produces artifact; Artifact (user's repo, e.g. prabhasa-nyaya) is the outcome. /home/ss/projects/prabhasa-samskrutam/README.md and /home/ss/projects/prabhasa-nyaya/README.md confirm their distinct purposes.",
+      "severity": "high"
+     },
+     {
+      "id": "6",
+      "category": "pending",
+      "claim": "CONTEXT statement claims operator position (2026-09-15) that 'prabhasa-nyaya is NOT merely the verification layer of Track A; it is the foundational LM for law, building on prabhasa-samskrutam'",
+      "evidence": "Not found in code, docs, commits, or decision records. No evidence in /home/ss/projects/prabhasa-nyaya/.git history or /home/ss/projects/pravrudhi/docs/decisions/. README and ADR-0001 contradict this claim.",
+      "severity": "high"
+     },
+     {
+      "id": "7",
+      "category": "achieved",
+      "claim": "Track A (prabhasa-nyaya) is correctly implemented as vendor-agnostic verification harness with no Track B model dependency",
+      "evidence": "ADR-0001 decision fully implemented in code: /home/ss/projects/prabhasa-nyaya/lean/ contains Lean 4 contracts with zero dependencies; /home/ss/projects/pravrudhi/src/pravrudhi/application/nyaya.py routes through panel vendors only; /home/ss/projects/prabhasa-nyaya/tests/ validates checker against vendor outputs",
+      "severity": "medium"
+     },
+     {
+      "id": "8",
+      "category": "objective",
+      "claim": "Track B (prabhasa-samskrutam) is the law-domain foundational model with trained weights (M2 199M, M3 353M, M4 1.13B, RSI round 1 lora_megatron 0.493 title-kind recall)",
+      "evidence": "/home/ss/fusion-project/prabhasa-samskrutam/data/checkpoints/ contains m2, m3, m4, rsi_round1_1b; /home/ss/.claude/projects/-home-ss-projects-pravrudhi/memory/trackb-integration-monitor-2026-09-13.md line 24 states '1.13B via lora_megatron' achieved '0.4934 (+12.8 pp)' title-kind recall",
+      "severity": "high"
+     },
+     {
+      "id": "9",
+      "category": "achieved",
+      "claim": "pravrudhi (Studio engine) correctly mediates Track A verification and Track B model as separate concerns",
+      "evidence": "/home/ss/projects/pravrudhi/src/pravrudhi/assets/objectives/prabhasa-nyaya.yaml defines single objective intent over verifier logic; /home/ss/projects/pravrudhi/src/pravrudhi/application/nyaya.py implements vendor routing with no prabhasa model references; Studio's objective registry treats Track A and Track B as independent tracks",
+      "severity": "medium"
+     },
+     {
+      "id": "10",
+      "category": "achieved",
+      "claim": "pravrudhi-app (product) correctly serves as shell over pravrudhi engine; does not embed or predetermine which models are used",
+      "evidence": "/home/ss/projects/pravrudhi-app/README.md:13-25 states product 'takes a single objective as input, produces a repository as output'; 'does not hold multiple artifacts'; engine version pinned in /home/ss/projects/pravrudhi-app/engine/ENGINE_VERSION; frontend/backend model provider selection via /api/providers (BYOK or preconfigured)",
+      "severity": "medium"
+     }
+    ],
+    "gaps": [
+     "No evidence of operator stating that prabhasa-nyaya is 'the foundational LM for law, building on prabhasa-samskrutam' (CONTEXT claim unverified; contradicts all documented definitions and current code)",
+     "No evidence that Track B (prabhasa-samskrutam) models are wired into Track A's ask/audit pipeline; Track A vendors remain exclusively claude-cli, codex-cli, qwen-dashscope, glm-local",
+     "Product (pravrudhi-app) does not currently serve a prabhasa model; it serves whatever model is passed via objective configuration and provider setup",
+     "No plan documented to move prabhasa-nyaya to be a foundational LM role; all recent Track A work (P2.5, gates, LegalBench) treats it as verifier",
+     "Operator position statement (2026-09-15) on prabhasa-nyaya role not found in recent commits, memory files, or team lead notes; CONTEXT may be outdated or conflate operator goals for Track B (~3B law-tuned model) with Track A's role"
+    ]
+   },
+   "verdicts": {
+    "verdicts": [
+     {
+      "id": "1",
+      "verdict": "confirmed",
+      "note": "README.md lines 1-8 explicitly state: 'It does not answer legal questions and it does not depend on any particular model.' Verified in /home/ss/projects/prabhasa-nyaya/README.md"
+     },
+     {
+      "id": "2",
+      "verdict": "confirmed",
+      "note": "ADR-0001 lines 47-52 explicitly state: 'Track A is a harness, not a model. No weights are trained on this track and no step depends on the Track B model.' Verified in /home/ss/projects/prabhasa-nyaya/docs/decisions/ADR-0001-track-a-is-a-vendor-agnostic-verification-harness.md"
+     },
+     {
+      "id": "3",
+      "verdict": "confirmed",
+      "note": "DEFAULT_VENDORS in nyaya.py line 58 are exactly ('claude-cli', 'codex-cli', 'qwen-dashscope', 'glm-local'). panel.py VENDORS dict (lines 201-236) shows no Track B models. Grep of prabhasa-nyaya/src/ returns zero references to samskrutam or checkpoints. Verified in /home/ss/projects/pravrudhi/src/pravrudhi/application/nyaya.py and panel.py"
+     },
+     {
+      "id": "4",
+      "verdict": "confirmed",
+      "note": "2026-09-09-prabhasa-nyaya-measurement-design.md lines 43-44 state: 'Track A \u2014 the verifier... Track B \u2014 the foundational model. The Sanskrit-core model, 1.13B live, ~3B law-tuned as the MVP target.' Verified in /home/ss/projects/pravrudhi/docs/superpowers/specs/"
+     },
+     {
+      "id": "5",
+      "verdict": "confirmed",
+      "note": "pravrudhi-app README lines 5-11 describe three-altitude architecture with distinct roles for Studio (pravrudhi), Product (pravrudhi-app), and Artifact (e.g., prabhasa-nyaya). Each repo's README confirms its role. Verified in /home/ss/projects/pravrudhi-app/README.md"
+     },
+     {
+      "id": "6",
+      "verdict": "confirmed",
+      "note": "The claimed operator position from CONTEXT (2026-09-15) stating 'prabhasa-nyaya is NOT merely the verification layer of Track A; it is the foundational LM for law' is NOT found in any code, docs, commits, or memory files. grep search of /home/ss/.claude/projects memory found zero matches. ADR-0001 and README.md contradict this claim. TEAM-RULES.md (2026-09-12) maintains the distinction: Track A = verifier, Track B = model. Finder correctly marked as unverifiable/not found."
+     },
+     {
+      "id": "7",
+      "verdict": "confirmed",
+      "note": "ADR-0001 decision fully implemented: prabhasa-nyaya/lean/ contains Lean 4 Lake project with zero dependencies on Track B; nyaya.py routes through external vendors only; tests validate checker against vendor outputs. Verified in both repos."
+     },
+     {
+      "id": "8",
+      "verdict": "corrected",
+      "note": "Claim uses 0.493 title-kind recall. Memory file trackb-integration-monitor-2026-09-13.md line 24 states exactly: '0.3656\u21920.4934 (+12.8 pp), abstention 9/9'. Checkpoints verified at /home/ss/fusion-project/prabhasa-samskrutam/data/checkpoints/ (m2, m3, m4, rsi_round1_1b all present). Corrected: 0.4934, not 0.493; this is minor rounding but the exact claim in memory uses four decimal places."
+     },
+     {
+      "id": "9",
+      "verdict": "confirmed",
+      "note": "pravrudhi/src/pravrudhi/assets/objectives/prabhasa-nyaya.yaml defines single objective intent with no model specified; nyaya.py implements vendor routing with zero Track B model references; Studio objective registry treats Track A and Track B as independent via separate directory structure and worktrees (per TEAM-RULES.md). Verified."
+     },
+     {
+      "id": "10",
+      "verdict": "confirmed",
+      "note": "pravrudhi-app README lines 13-25 state: 'takes a single objective as input, produces a repository as output'; 'does not hold multiple artifacts'; engine version pinned in engine/ENGINE_VERSION; model selection via objective configuration. Verified in /home/ss/projects/pravrudhi-app/README.md"
+     }
+    ],
+    "extra": [
+     "ADR-0001 Decision #6 (line 97-101) explicitly forbids Track A from embedding Track B models: 'This repository is the user's outcome, not the engine... the vendor comparison harness is built in the pravrudhi product, not here'. This is an architectural decision, not an implementation detail. The finder noted the fact but did not highlight that the separation is MANDATED by the ADR.",
+     "Falsification-first experimental design (ADR-0001 \u00a74, decision point 4): Gate A1.1 'runs first' to test whether frontier models already catch injected errors unaided. If yes, the moat is 'determinism and on-premise, not the checking', changing Track A's entire role. Track B independence is required by the experimental design to avoid confounding the hypothesis test, not incidental.",
+     "Product-level track assignment distinction: measurement-design.md \u00a72 distinguishes Studio-side 'nyaya' track (retire-in-progress) from Product-side 'P' track (where new measurement lands). prabhasa-nyaya.yaml declares track: nyaya (legacy). This affects scope of claims about 'the objective'.",
+     "ADR-0001 table (lines 32-40): lists what exists where (Nyaya verifier in prabhasa-samskrutam, Lean in vakya-vallari), states 'machinery for a Lean-checked contract exists and is proven \u2014 on Sanskrit verses', and explicitly preserves the machinery transfer while noting 'vocabulary does not transfer'. This is a templated pattern reuse (Lean proof structure), not a data dependency on Track B models.",
+     "CONTEXT's claim contradicts at least three primary sources: (1) ADR-0001 (accepted decision, 2026-09-10), (2) TEAM-RULES.md (2026-09-12 team governance document assigning Track A=verifier, Track B=model), (3) 2026-09-09 measurement design document. The contradictory position is systematically documented nowhere, suggesting CONTEXT may conflate future product goals (Track B scaling to ~3B law-tuned model) with current Track A role, or may be based on informal operator statements not yet committed to the record."
+    ]
+   }
+  }
+ ],
+ "critic": "# COMPLETENESS CRITIC FINDINGS\n\n## 1. OBJECTIVES WITH NO CORRESPONDING ACHIEVED/PENDING/REGRESSED FINDINGS\n\n| Objective ID | Status | Evidence |\n|---|---|---|\n| obj-adr0011-vakyantra | Design-only, unimplemented | docs/vak-yantra-architecture.md (307 lines); single commit 8d78de5 added docs, zero code commits in src/ or prototypes/ |\n| obj-adr0010-phase1 | Pre-registered, execution unclear | ADR-0010 \u00a763-117 defines H-ORD Phase 1 battery; no research/closure/r0-order-sensitivity.json or R0 gate report found; findings exist in r0-order-tax.md (research artifact) but gate status absent |\n| obj-m5-production-track-c | Specialty benchmark panel | m5-production-plan.md \u00a74 mandates Track C (benchmark vs open Sanskrit LMs); no research/closure/m5_benchmark_panel.json or result ledger; T-C status unknown |\n| obj-m5-production-track-d | Chatbot app + dual-machine | m5-production-plan.md \u00a75 describes app objective; M6 prong 2 implements Next.js but no M5 dual-inference config or deployment status found in research/closure/ |\n| obj-product-n3 | Corpus expansion (Constitution/CrPC/BNSS) | prabhasa-nyaya-product-delivery.md \u00a73 mandates; retrieval-test on held-out questions; no corpus manifest or retrieval baseline measured in 2026-09-15 survey |\n| obj-product-n4 | Telegram /ask + panel recording | prabhasa-nyaya-product-delivery.md \u00a74 mandates; no research/panel/ directory found; no recorded panel runs located |\n| obj-product-n5 | Desktop builds (both editions) + release tags | prabhasa-nyaya-product-delivery.md \u00a75; no recent release tags on pravrudhi or pravrudhi-app main (last tag 0.5.21); build artifact status unclear |\n| obj-product-n6 | Studio truth re-measurement + HANDOFF | prabhasa-nyaya-product-delivery.md \u00a76; HANDOFF.md exists but completeness/final-measurement status in docs/decisions/reports/ gaps |\n\n## 2. CONTRADICTIONS BETWEEN LENSES\n\n| ID | Finding Pair | Severity | Status |\n|---|---|---|---|\n| C1 | objectives: \"no fine-tune existing model as foundation\" (non-goals.md:16) vs operator: \"Qwen teacher-student distillation\" (2026-09-15) | HIGH | REFUTED (distillation \u2260 foundation fine-tune, but operator intent ambiguous) |\n| C2 | objectives: \"HF publish dropped\" vs earlier \"publish to HF qbz506 with model card\" | MEDIUM | REFUTED (deliberate pivot 2026-07-13, documented not contradictory) |\n| C3 | objectives: \"Nyaya = verification layer only\" (ADR-0001, README) vs CONTEXT: \"Nyaya = foundational LM for law\" (2026-09-15) | CRITICAL | CONFIRMED (contradiction unresolved; CONTEXT claim not found in code/commits) |\n| C4 | achieved: \"M4 over-parameterized 1:4.6 ratio, sample-efficient\" vs teacher-student: \"3B at same 5.25B tokens is 1:1.8, violates token-efficiency thesis\" | CRITICAL | CONFIRMED (ADR-0006 gate violated; no superseding ADR recorded) |\n| C5 | objectives: \"charter mandates 3-5 seeds + Holm-Bonferroni\" vs achieved: \"some measurements appear single-seed or paired-only\" | HIGH | UNVERIFIED (some M2/M3 closures show seed counts, others do not) |\n\n## 3. FIVE MOST CONSEQUENTIAL CONFIRMED FINDINGS\n\n| Rank | Finding | Evidence | Impact |\n|---|---|---|---|\n| 1 | **M4 1.13B training stack validated end-to-end** (Megatron-Core 0.16.1, TE 2.12, mamba_ssm, 5.25B tokens, 20k tok/s throughput, 27.5 GiB peak memory) | research/closure/m4_train.json, research/closure/m4_gate.json, scripts/m4/megatron_run.sh | Enables reproducible law-tuning baseline; memory budget is known binding constraint for L40S |\n| 2 | **Law citation recall +12.8pp via RSI LoRA round 1** (0.3656\u21920.4934, 9/9 abstention preserved, gated acceptance) | HANDOFF.md item 3, research/closure/m6_instruct_v1_stats.json, /home/ss/fusion-project/prabhasa-samskrutam/data/checkpoints/rsi_round1_1b/ | Concrete capability gain on primary metric; proves SFT + LoRA + verifier loop improves closed-book performance |\n| 3 | **Token-efficiency thesis (ADR-0006) empirically validated** (M4 reaches 1.6337 DCS bpb at 1:4.6 tok/param vs Chinchilla 1:20, matches Paramanu-Sanskrit on 10\u00d7 fewer tokens) | ADR-0006 lines 35-40, m4_gate.json VERDICT line, model-card.md | Justifies deliberate over-parameterization; informs 3B scaling decision (but reveals token scarcity is real constraint, not capacity) |\n| 4 | **Semantic round-trip fidelity catastrophically regressed** (F_rt pass rate 0.13 on cross-lingual MITRA-E embeddings, SA\u2194En parallel pairs, CI [0.0776, 0.2098]) | research/closure/m5_benchmarks.json line semantic_fidelity, m4_gate.json PIPELINE_MEASURED.frt_parallel_semantic | Architecture may not preserve meaning across language boundary; byte-level tokenization + attention may lose cross-lingual alignment despite deterministic graph round-trip (1.0) |\n| 5 | **Two unreconciled git histories diverged by 87 commits** (main=164c66e M6-only, h-ord/phase1=8618901 with RSI/law/F11 fixes) | HANDOFF.md \"Two lines, not reconciled\", cli-trackB.md \"single biggest piece of undecided state\", git log main..h-ord/phase1 | Blocks reproducible law deployment; unclear which checkpoint (m4 on main? h-ord-trained on phase1?) is authoritative for 3B training base |\n\n## 4. TOP 5 UNKNOWNS BLOCKING QWEN/NEMOTRON 3B ON RUNPOD L40S THROUGH LOOM\n\n| Block | Problem | Evidence | Impact |\n|---|---|---|---|\n| **Memory feasibility** | 3B model scaling: state 33.5 GiB + activations 25 GiB = 58.8 GiB estimated >> 48 GiB L40S limit. No tradeoff study (LoRA+bf16+gradient-ckpt combo) on target hardware. | teacher-student lens: memory calculations unverified; no 3B training run measured; docs/plans/2026-09-12-m7-law-tuned-instruct.md line 85 \"unverified estimate\" | Cannot commit to L40S deployment until memory budget proven via preflight |\n| **Token budget mismatch** | Operator intent unspecified: Chinchilla-optimal 3B = 60B tokens; corpus = 5.25B (11.4\u00d7 under). If tokens reuse 5.25B, 3B is 2.7\u00d7 under-optimal (1:1.8 vs 1:20 tok/param). Violates ADR-0006 scale gate (\u22655 tok/param). | ADR-0006 lines 14-20; teacher-student lens finding 3b_token_budget_gap; m7-law-tuned-instruct.md \u00a73 (lines 60-72) \"unverified estimate\" | Cannot justify 3B as legally-trained model without corpus acquisition (in scope: unknown) or token-budget ADR superseding (not found) |\n| **Tokenizer alignment for Qwen distillation** | M4 byte-level vocab 256; Qwen BPE 50K+. Logit distillation blocked by vocab mismatch. Sequence-level KD path unwritten. No published study of Devanagari tokenization efficiency Qwen vs byte-level. | teacher-student lens finding tokenization_efficiency_unknown; distill.py lines 37-100 (logit KD only, no sequence-level); model-card.md \"byte-level (vocab 256)\" | Blocks direct logit distillation; requires architectural redesign (tokenizer bridging or sequence-level KD) before Qwen teacher can be used |\n| **Loom bindings missing for pipeline** | Only SFT is STAGE_EXECUTABLE. pretrain, continue_pretrain, distill, evaluate, promote all STAGE_PENDING. No teacher sampling verification, benchmark runner selection, or evidence-admission policy implemented. | loom lens findings loom-*-pending (6 stages); loom_pipeline.py lines 66-71; execute() at lines 210-211 raises PipelineError on unbound stages | Cannot execute \"Qwen teacher \u2192 3B student\" workflow via Loom. Requires manual external job orchestration or new bindings. Breaks \"end-to-end abstraction\" claim. |\n| **RunPod L40S integration unbuilt** | No RunPod transport in engine (only LocalTransport, SshTransport, OrcaTransport). No GPU pod lifecycle mgmt, checkpoint upload/download orchestration, cost tracking. RunPod references are estimate docs (decision support), not implementation. | infra lens findings no-runpod-integration-code; transports.py lines 12-95; runpod-migration-estimate.md (pravrudhi, not prabhasa-samskrutam) | Cannot deploy training jobs to RunPod until transport layer is built. Operator approval gate requires practical execution plan, not estimates. |\n\n## 5. CLAIMS STILL RESTING ON MEMORY (UNVERIFIED)\n\n| Claim | Cited As | Evidence Source | Verdict |\n|---|---|---|---|\n| \"Operator position (2026-09-15): move to ~3B model via Qwen teacher-student\" | SYSTEM-REMINDER operator position | Not found in git commits, ADRs, memory files, or TEAM-RULES.md | **UNVERIFIED** (system-reminder is external context, not recorded in repos) |\n| \"law_lookup baseline 25/227 = 0.110 before integration\" | achieved lens finding law_citation_retrieval_closed_book | HANDOFF.md marks '\u2014' (not measured), no source JSON contains this baseline | **UNVERIFIED** (claim has zero supporting evidence file) |\n| \"M2 K\u0101raka linear probe F1 0.981 (baseline), 0.988 (treatment)\" | achieved lens finding probes_karaka_m2 | No m2_probe_karaka.json in research/closure/; m2_probe_morph.json contains only morphology probes | **UNVERIFIED** (evidence file does not exist) |\n| \"RunPod L40S throughput estimates (3B at 5.25B tokens = tens of minutes to low single-digit hours)\" | teacher-student lens finding continued_pretrain_lower_cost | m7-law-tuned-instruct.md lines 60-72 **explicitly labels** \"unverified estimate\" and recommends \"measured dry-run before committing\" | **CONFIRMED UNVERIFIED** (author tagged it as estimate, not measured) |\n| \"H-ORD research (R0-R3) was successful but not adopted for law MVP without documented reason\" | digressions lens finding risk-1-h-ord-not-adopted | ADR-0012 \u00a72 mandates REDIRECT entry for research outcomes; no REDIRECT linking hord_r* adoption decision to law-tuning | **UNVERIFIED** (missing mandatory decision record; status only inferred from absence of checkpoints in g0_sft) |\n\n---\n\n**Summary**: 8 objectives lack operational measurement (design-only or status-unknown). 5 major contradictions identified; 1 confirmed unresolved (Nyaya role). 5 findings are consequential (training stack validated, RSI recall gain +12.8pp, token-efficiency thesis proven, F_rt regression, git divergence). 5 unknowns block 3B deployment (memory, tokens, tokenizer, Loom bindings, RunPod infra). 5 claims rest on memory/estimates, not code."
+}
