@@ -71,3 +71,26 @@ not evidence.
 14. This file is the canonical statement. It is mirrored in `~/.claude/CLAUDE.md` (loaded by every session on
     this box) as a five-line summary pointing here, and the lead appends the same summary to
     `docs/decisions/TEAM-RULES.md`. A session that cannot find this file must ask the lead before touching RunPod.
+
+## 5. Seat-stall backstop (operator, 2026-09-15 09:55 BST)
+
+19. **Two seats drive RunPod (the colab/personal seat and the admin team seat); both can hit the 5-hour usage
+    limit at once.** A pod must never be left with nobody able to act on it. The **second team seat** (`team2`,
+    see memory `pravrudhi-claude-seats`) is the stand-by: it does no development; its only job is to manage a
+    running pod to a graceful end.
+20. **Every pod run ships a watchdog that does not depend on any Claude seat**: the job script itself (a) writes
+    a heartbeat file every 5 min, (b) checkpoints on rule 15's cadence, (c) exits and syncs on completion, on a
+    pre-registered kill condition, or when a `STOP` file appears on the volume, and (d) the pod has a
+    hard wall-clock via the transport (`--max-hours`, pre-registered) after which the transport stops the pod
+    whether or not a seat is awake. An idle GPU (utilisation < 5% for 15 min, no active checkpoint sync) is a
+    kill condition.
+21. **Hand-off protocol:** the seat that starts a pod records in `docs/decisions/runpod-ledger.md` the pod id,
+    the STOP-file path, the expected end time and the resume command; when a core seat receives a usage-limit
+    notice it posts "RUNPOD STAND-BY: <pod id> <expected end>" to the lead *before* stopping work; the stand-by
+    seat, started from a screen CLI on the second team account, checks `list-pods` + the heartbeat every 30 min,
+    lets a healthy run finish, triggers STOP + sync + `delete-pod` on rule 20's conditions, and never starts a
+    new run.
+22. **Pacing.** Reviewer and lead sessions do not burn their own seat on long spikes: delegate long-running
+    inspection, data rendering and test runs to a second-seat CLI agent (`screen -dmS cli-<role> … claude --model
+    sonnet`, memory `pravrudhi-team-lead` gives the exact spawn) or to Codex astra, and keep the interactive
+    session for decisions, reviews and messages. Report seat usage-limit hits in the next status message.
