@@ -2111,7 +2111,20 @@ def _beat_obligations(root: Path, dispatch: DispatchFn | None, *, judge: Any = N
         # Guarded even though `next_obligation` now agrees with the guard. A beat that raises kills the unit
         # for an hour, and the two disagreed silently for a day before anyone read the journal; a refusal here
         # is a thing to report, never a thing to crash on.
+        #
+        # 2026-09-14/15, web's diagnosis: TRANSITIONS has no direct captured/clarified/planned -> delivered
+        # hop (only in_progress -> delivered), but nothing anywhere in this pipeline ever calls
+        # advance(..., "in_progress") on its own -- every request sits at "captured" until something
+        # deliberately moves it. So the instant every criterion on a still-captured request resolved, this
+        # branch's one-hop "delivered" call was refused every single beat, and the loop re-selected the
+        # same finished request forever instead of finding new work. The fix walks the same TRANSITIONS
+        # table `advance` already enforces rather than adding a new edge to it: advancing to "in_progress"
+        # first is a no-op if the request is already there (`advance` returns early when state == req.state)
+        # and is a legal single hop from every other state `_obligation_for` can hand this branch (captured,
+        # clarified, planned - `delivered` and `verified` never reach here, see the branches above and
+        # Request.open).
         try:
+            requests.advance(root, str(owed["request"]), "in_progress", note="ready to deliver")
             requests.advance(root, str(owed["request"]), "delivered", note="every criterion carries evidence")
         except requests.RequestError as e:
             return (

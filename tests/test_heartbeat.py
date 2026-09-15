@@ -615,6 +615,49 @@ class TestTheLoopDoesNotOscillate:
         assert result is not None and result.get("kind") == "advance", "the beat described the move again"
         assert requests.get(tmp_path, req.id).state == "delivered"
 
+    def test_a_request_still_captured_when_every_criterion_resolves_still_advances(
+        self, tmp_path: Path
+    ) -> None:
+        """2026-09-14/15, web's diagnosis: `TRANSITIONS` has no direct `captured -> delivered` hop (only
+        `in_progress -> delivered`), but `captured` is where every request in the store sits until something
+        deliberately moves it - nothing in the whole heartbeat pipeline ever calls `advance(..., "in_progress")`
+        on its own. So the moment every criterion on a `captured` request resolves, `_obligation_for` correctly
+        says `advance_request`, `requests.advance(..., "delivered")` refuses the one-hop jump the state machine
+        never permits, and the loop re-selects the same finished request every beat instead of finding new
+        work. Every existing test above this one pre-advances to `in_progress` by hand before reaching this
+        branch, which is exactly why nothing caught it. `clarified`/`planned` are the same shape and are not
+        separately covered here since the fix is state-generic (walk the existing `TRANSITIONS` path,
+        introduce no new one)."""
+        from pravrudhi.application import heartbeat, requests
+
+        req = requests.capture(tmp_path, "something owed, never explicitly advanced")
+        requests.add_criteria(tmp_path, req.id, [requests.Criterion(text="done", source="operator")])
+        requests.meet(tmp_path, req.id, 0, [requests.Evidence(kind="file", ref="README.md")])
+        assert requests.get(tmp_path, req.id).state == "captured", "the fixture must exercise the real defect"
+
+        _chose, reason, result = heartbeat._beat_obligations(tmp_path, lambda _t: "")
+
+        assert result is not None and result.get("kind") == "advance", (
+            f"the state machine refused the move instead of the loop walking TRANSITIONS: {reason}"
+        )
+        assert requests.get(tmp_path, req.id).state == "delivered"
+
+    def test_an_unmet_criterion_never_reaches_the_transition_walk(self, tmp_path: Path) -> None:
+        """The existing still_unmet guard must keep working once the walk is added - this is not a new path
+        around it, only a new way to reach the same final `advance(..., "delivered")` call. A request with an
+        unmet criterion is owed `meet_criterion`, never `advance_request`, so the walk is never attempted and
+        the request cannot be delivered out from under its own unmet work."""
+        from pravrudhi.application import requests
+
+        req = requests.capture(tmp_path, "something not actually done yet")
+        requests.add_criteria(tmp_path, req.id, [requests.Criterion(text="done", source="operator")])
+        assert requests.get(tmp_path, req.id).state == "captured"
+
+        owed = requests.next_obligation(tmp_path)
+
+        assert owed is not None and owed["kind"] == "meet_criterion"
+        assert requests.get(tmp_path, req.id).state == "captured", "an unmet criterion must never be delivered"
+
 
 def test_the_criterion_from_a_finding_carries_the_finding_not_its_label(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
