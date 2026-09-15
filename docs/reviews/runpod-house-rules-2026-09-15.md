@@ -10,7 +10,7 @@ not evidence.
 1. **Balance: $200 loaded, meant to last ~10 days at 24×7 on one ~$1/h GPU.** There is no top-up to assume.
 2. **One pod at a time, account-wide.** Before `create-pod`, run `list-pods`; if anything is listed (running
    *or* stopped), do not create another. Stopped pods still bill disk.
-3. **GPU class: L40S (48 GB) or cheaper, and — operator amendment 2026-09-15 10:50 BST — 24 GB cards are
+3. **GPU class: L40S (48 GB) or cheaper, and — operator amendment 2026-09-15 09:45 BST — 24 GB cards are
    allowed when in stock and the job fits.** Principle: *do well and do more with the least spend.* Pick the
    cheapest card whose measured peak VRAM (preflight file) is ≤ 80% of the card and whose CUDA version fits;
    24 GB candidates seen on 2026-09-15: RTX 4090 community $0.34/h / secure $0.74/h, L4 secure $0.49/h,

@@ -25,7 +25,7 @@ Measured and written to `research/preflight/<date>-<arm>-<card>.json`:
 4. resumable checkpoint written at step 25 and restored at step 26 (loss continuity ± 1e-3) — house rule 15;
 5. rsync of that checkpoint to the network volume and to the 5090, sha256 identical — house rules 16/18.
 
-**Decision rule P0:** an arm passes if peak VRAM ≤ 80% of the chosen card's VRAM and steps 4/5 succeed. (Operator 2026-09-15 10:50: 24 GB cards allowed when in stock; the 5090 spike measured 17.85 GiB for Q and 17.38 GiB for N at this shape, `spikes/trackb-typed-ir/preflight-5090/`, so a 24 GB card is in scope at micro-batch 2 only if a 24 GB preflight confirms ≤ 19.2 GiB; otherwise micro-batch 1 or a 48 GB card.) A failing arm is
+**Decision rule P0:** an arm passes if peak VRAM ≤ 80% of the chosen card's VRAM and steps 4/5 succeed. (Operator 2026-09-15 09:45: 24 GB cards allowed when in stock; the 5090 spike measured 17.85 GiB for Q and 17.38 GiB for N at this shape, `spikes/trackb-typed-ir/preflight-5090/`, so a 24 GB card is in scope at micro-batch 2 only if a 24 GB preflight confirms ≤ 19.2 GiB; otherwise micro-batch 1 or a 48 GB card.) A failing arm is
 retried once at micro-batch 1; a second failure drops the arm (recorded, not silently).
 
 ## P1 — bake-off (per arm, base weights, no fine-tuning; ≈ 2 h)
