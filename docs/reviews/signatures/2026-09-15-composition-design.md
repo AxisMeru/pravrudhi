@@ -51,3 +51,17 @@ Verified by me from a throwaway worktree: `lake build` 137 jobs, 0 errors; `--li
 **§9 (composed scoring wire tag) deferred: accepted**, on two conditions recorded here: (a) no composed id is scorable through any `check()`/REG path until §9 lands, so a consumer cannot mistake `--list-compositions` for a scorable registry; (b) the P2a yield gate stays single-contract (the 14 ids), which is what the frozen prereg says anyway.
 
 **Content signature: SIGNED at `38b9eb5` + the row-6 guard.** Lead merges on Track A's shape signature at the resulting SHA.
+
+## §9 composed scoring wire design @ `bfbe855` — CLEARED with one amendment, 2026-09-15 15:08 BST
+
+Design only (no code on the branch; the implementation is proposed inline). Content points:
+- `ungrounded` filtered against the outer's denials and every inner route's denials: correct generalisation of the `54af698` fix; a denied claim appears once, in `refuted`, under its route or `outer` label. Accepted.
+- `verdict` grounded with a non-empty `refuted` field is legitimate (an unneeded route was refuted while another grounded the bridge); the label prefix distinguishes it from a composition refutation. Accepted.
+- `refuted` = `outer:` entries plus per-route entries; `omitted` = the three-way labels. Accepted.
+- Python `check_composition` takes Met/Not-Met assertions only; no free text. Accepted.
+
+**Amendment (required):** `selectedRoute` is derived only from `omitted`'s `.inner` entries, so in the satisfied case (exactly one route available, `omitted` has no inner entry) it reads `"none"`, contradicting the signed v3 §9 ("the SELECTED route's contract_id, or none when fully satisfied via multiple / silence"). The consumer must know which limb grounded the offence. Rule: if exactly one route is available → its `contract_id`; if more than one is available → `"multi"` (not `"none"`, so satisfied-by-several is distinguishable from silence); else the `omitted`-derived inner id; else `"none"`. Add a `#guard` for c1/b1 (`selectedRoute` = `ipc415_property` / `bns46_instigation`) and for c2/b2 (`"multi"`).
+
+Acceptance additions: a1/ba1 through `scoreCOMPLine` (`omitted` = `bridge:` entry, `selectedRoute` `"none"`); row 1 no-double-count guard as proposed.
+
+**Content signature on the design: SIGNED at `bfbe855` with the amendment.** Implementation read follows on the code push; both halves (Lean COMP + Python drift test) land in one merge per the guard-rail.
