@@ -1,0 +1,267 @@
+{
+  "records": [
+    {
+      "attempt_id": "t_ipc405_use_or_disposal_0023",
+      "contract_id": "ipc405_use_or_disposal",
+      "shape": "control",
+      "fact_fit": "FAIL",
+      "narrative_neutral": "PASS",
+      "omission_real": "N/A",
+      "denial_real": "N/A",
+      "coherent": "FAIL",
+      "english_law_register": "PASS",
+      "duplicate_of": null,
+      "notes": "F_el0 says Mehta 'transferred ownership' of the units to Sethi 'under a written bailment agreement' -- self-contradictory: a bailment by definition leaves ownership with the bailor and gives the bailee only custody/possession. As worded, Sethi already owns the goods, which defeats the entrustment-of-another's-property premise el0 is supposed to establish and undermines the whole s.405 theory (you cannot breach trust over your own property). fact_fit and coherent both FAIL on this internal contradiction; F_el1 and F_el2 are each clean on their own."
+    },
+    {
+      "attempt_id": "t_ipc405_use_or_disposal_0025",
+      "contract_id": "ipc405_use_or_disposal",
+      "shape": "omit:1",
+      "fact_fit": "PASS",
+      "narrative_neutral": "PASS",
+      "omission_real": "PASS",
+      "denial_real": "N/A",
+      "coherent": "PASS",
+      "english_law_register": "PASS",
+      "duplicate_of": null,
+      "notes": "Minor structural oddity (not a content failure): the elements array carries an el3 'unknown' entry with no corresponding fact, though required_elements for this contract lists only 3 elements (0-2). Answer's abstain_reason phrasing ('misappropriation or conversion to own use') is generic s.405 language rather than this contract's specific 'uses or disposes' wording, but it still correctly conveys that the use/disposal element is unestablished."
+    },
+    {
+      "attempt_id": "t_ipc405_wilfully_suffers_0023",
+      "contract_id": "ipc405_wilfully_suffers",
+      "shape": "control",
+      "fact_fit": "PASS",
+      "narrative_neutral": "PASS",
+      "omission_real": "N/A",
+      "denial_real": "N/A",
+      "coherent": "PASS",
+      "english_law_register": "PASS",
+      "duplicate_of": null,
+      "notes": "Clean pair of facts: entrustment of the logbooks (el0) and Thorne's wilful non-intervention while Kovic removed pages (el1) are independently stated and each stays within its own element."
+    },
+    {
+      "attempt_id": "t_ipc405_wilfully_suffers_0024",
+      "contract_id": "ipc405_wilfully_suffers",
+      "shape": "omit:1",
+      "fact_fit": "PASS",
+      "narrative_neutral": "PASS",
+      "omission_real": "PASS",
+      "denial_real": "N/A",
+      "coherent": "PASS",
+      "english_law_register": "PASS",
+      "duplicate_of": null,
+      "notes": "Narrative gives Rohan only an innocuous 'assists with logistics' role; nothing anywhere hints at misappropriation or suffered wrongdoing, so the el1 omission is genuine."
+    },
+    {
+      "attempt_id": "t_ipc415_property_0023",
+      "contract_id": "ipc415_property",
+      "shape": "control",
+      "fact_fit": "PASS",
+      "narrative_neutral": "PASS",
+      "omission_real": "N/A",
+      "denial_real": "N/A",
+      "coherent": "FAIL",
+      "english_law_register": "PASS",
+      "duplicate_of": null,
+      "notes": "F_el1 ('Suresh Patel agreed to purchase ... solely because he was fraudulently induced by Vikram Mehta's false representation') is a near-verbatim restatement of the statutory inducement language rather than an independent factual mechanism (e.g. what Patel actually did/relied on) -- reads as provision paraphrase, failing the coherent test even though it does not bleed into other elements."
+    },
+    {
+      "attempt_id": "t_ipc415_property_0024",
+      "contract_id": "ipc415_property",
+      "shape": "control",
+      "fact_fit": "PASS",
+      "narrative_neutral": "PASS",
+      "omission_real": "N/A",
+      "denial_real": "N/A",
+      "coherent": "FAIL",
+      "english_law_register": "PASS",
+      "duplicate_of": null,
+      "notes": "Same template flaw as t_ipc415_property_0023: F_el1 ('Thorne was fraudulently induced by this misrepresentation ... to proceed ... he would have otherwise rejected') restates the legal inducement conclusion rather than describing a concrete inducement fact. Both records follow an identical 3-fact scaffold (false claim / conclusory-inducement sentence / payment), suggesting a formulaic template rather than independently authored scenarios."
+    },
+    {
+      "attempt_id": "t_ipc415_damaging_act_0020",
+      "contract_id": "ipc415_damaging_act",
+      "shape": "omit:0",
+      "fact_fit": "FAIL",
+      "narrative_neutral": "PASS",
+      "omission_real": "FAIL",
+      "denial_real": "N/A",
+      "coherent": "FAIL",
+      "english_law_register": "PASS",
+      "duplicate_of": null,
+      "notes": "el0 (deception) is supposed to be omitted, but F_el1 itself states the act was one 'she would not have taken had she known the true status of the hull inspection' -- this necessarily implies Thorne gave Kovic a false account of the hull inspection status, i.e. it establishes the very deception el0 is meant to be missing. So F_el1 fails fact_fit (leaks el0) and the omission is not real (el0 is established, just not under its own F_el0 key); the abstention answer is therefore wrong to say deception is unestablished. F_el1's wording is also a near-paraphrase of the statutory 'intentionally induces ... to do ... they would not otherwise have done' language, failing coherent as well."
+    },
+    {
+      "attempt_id": "t_ipc416_0020",
+      "contract_id": "ipc416",
+      "shape": "omit:0",
+      "fact_fit": "PASS",
+      "narrative_neutral": "PASS",
+      "omission_real": "PASS",
+      "denial_real": "N/A",
+      "coherent": "PASS",
+      "english_law_register": "PASS",
+      "duplicate_of": null,
+      "notes": "F_el1 establishes only personation (presenting Sethi's ID, claiming to be Sethi); nothing in the record shows property/advantage obtained by that personation, so the el0 (cheats) omission and abstention are genuine. Shares protagonist 'Rohan Mehta' and referenced person 'Vikram Sethi' with its contract-mate t_ipc416_0022 -- not a scenario duplicate (different setting/conduct/object) but reduces cast diversity across this contract's pair."
+    },
+    {
+      "attempt_id": "t_ipc416_0022",
+      "contract_id": "ipc416",
+      "shape": "control",
+      "fact_fit": "FAIL",
+      "narrative_neutral": "PASS",
+      "omission_real": "N/A",
+      "denial_real": "N/A",
+      "coherent": "FAIL",
+      "english_law_register": "PASS",
+      "duplicate_of": null,
+      "notes": "F_el0 ('falsely claimed to be the authorized agent of collector Vikram Sethi and thereby dishonestly induced the ... manager to release [the] watch') already contains the personation claim that el1 is supposed to independently establish, so it does not stay confined to el0. Substantively, claiming to be someone's 'agent'/'representative' is a misrepresentation of authority, not 'pretending to be, substituting for, or misrepresenting the identity of' that person as s.416 personation requires (contrast t_ipc416_0020, where Mehta literally presents Sethi's ID and says 'I am Vikram Sethi') -- this fact pattern reads more like ordinary cheating (s.415) than cheating by personation, so both fact_fit and coherent FAIL."
+    },
+    {
+      "attempt_id": "t_ipc182_abuse_of_power_0021",
+      "contract_id": "ipc182_abuse_of_power",
+      "shape": "omit:1",
+      "fact_fit": "FAIL",
+      "narrative_neutral": "PASS",
+      "omission_real": "FAIL",
+      "denial_real": "N/A",
+      "coherent": "PASS",
+      "english_law_register": "PASS",
+      "duplicate_of": null,
+      "notes": "el1 (intends/knows the false info will cause the consequence) is supposed to be omitted, but F_el2 states Mehta gave the tip 'with the specific purpose of triggering a police raid ... to harass his former business partner ... knowing such official action would cause significant distress and reputational harm' -- that is el1's content (intent/knowledge as to the consequence) verbatim, not just el2's consequence. So F_el2 fails fact_fit (establishes el1 as well as el2), and the omission is not real: el1 is in fact established in the record, contradicting its 'unknown' status and the abstention answer."
+    },
+    {
+      "attempt_id": "t_bns69_0021",
+      "contract_id": "bns69",
+      "shape": "omit:1",
+      "fact_fit": "PASS",
+      "narrative_neutral": "PASS",
+      "omission_real": "PASS",
+      "denial_real": "N/A",
+      "coherent": "PASS",
+      "english_law_register": "PASS",
+      "duplicate_of": "t_bns69_0022",
+      "notes": "F_el0 establishes only the deceitful-promotion-promise inducement; intercourse is never mentioned, so the omission is genuine. Flagged as a near-duplicate of t_bns69_0022: identical two-person cast (Rohan Mehta / Priya Sharma), same Pune logistics-firm employer relationship, and an almost identically worded opening narrative sentence ('were colleagues at Apex Logistics in Pune' vs 'were colleagues at a logistics firm in Pune'). The two records differ only in which deceit route is used (false promotion vs false marriage promise) and whether intercourse occurred -- a legitimate minimal control/omit pair in principle, but the shared cast and near-identical scene-setting sentence reduce scenario diversity."
+    },
+    {
+      "attempt_id": "t_bns69_0022",
+      "contract_id": "bns69",
+      "shape": "control",
+      "fact_fit": "PASS",
+      "narrative_neutral": "PASS",
+      "omission_real": "N/A",
+      "denial_real": "N/A",
+      "coherent": "PASS",
+      "english_law_register": "PASS",
+      "duplicate_of": "t_bns69_0021",
+      "notes": "F_el0 (false marriage promise, no intention to fulfil) and F_el1 (intercourse occurred) are each independently stated and confined to their own element. See duplicate note on t_bns69_0021 for the near-identical cast/narrative concern."
+    },
+    {
+      "attempt_id": "t_bns47_0022",
+      "contract_id": "bns47",
+      "shape": "control",
+      "fact_fit": "FAIL",
+      "narrative_neutral": "PASS",
+      "omission_real": "N/A",
+      "denial_real": "N/A",
+      "coherent": "PASS",
+      "english_law_register": "PASS",
+      "duplicate_of": null,
+      "notes": "F_el0 ('While attending a conference in Bengaluru, Vikram Sethi intentionally instigated Elena Rostova to ... exfiltrate ... code from a server located in Singapore') already fully states both el1 (abetting conduct done in India -- 'attending a conference in Bengaluru') and el2 (act abetted located outside India -- 'server located in Singapore') within the same sentence, so it does not establish 'only' el0; F_el1 and F_el2 then just restate content already given in F_el0. Separately, F_el3 characterizes unauthorized outside access and data exfiltration as 'the offence of criminal breach of trust' -- but criminal breach of trust requires an entrustment/fiduciary relationship over the property, which is absent here (Rostova has no entrustment relation to the Singapore server/code); the described conduct is legally closer to theft or unauthorized computer access, so F_el3's legal characterization is a factual/legal-accuracy error, not merely a stylistic one."
+    },
+    {
+      "attempt_id": "t_bns85_0021",
+      "contract_id": "bns85",
+      "shape": "omit:1",
+      "fact_fit": "PASS",
+      "narrative_neutral": "PASS",
+      "omission_real": "PASS",
+      "denial_real": "N/A",
+      "coherent": "PASS",
+      "english_law_register": "PASS",
+      "duplicate_of": null,
+      "notes": "F_el0 establishes only the husband relationship; no cruelty is mentioned anywhere, so the el1 omission is genuine."
+    },
+    {
+      "attempt_id": "t_bns85_0022",
+      "contract_id": "bns85",
+      "shape": "control",
+      "fact_fit": "PASS",
+      "narrative_neutral": "PASS",
+      "omission_real": "N/A",
+      "denial_real": "N/A",
+      "coherent": "PASS",
+      "english_law_register": "PASS",
+      "duplicate_of": null,
+      "notes": "F_el0 (husband/relative status) and F_el1 (Sunita's harassment/property-demand cruelty) are independently stated and each confined to its own element; a plausible dowry-harassment fact pattern."
+    }
+  ],
+  "summary": {
+    "total_records": 15,
+    "fail_counts_overall": {
+      "fact_fit": 5,
+      "narrative_neutral": 0,
+      "omission_real": 2,
+      "denial_real": 0,
+      "coherent": 5,
+      "english_law_register": 0
+    },
+    "applicable_denominators": {
+      "omission_real": 7,
+      "denial_real": 0
+    },
+    "fail_counts_by_contract_id": {
+      "ipc405_use_or_disposal": { "fact_fit": 1, "coherent": 1 },
+      "ipc405_wilfully_suffers": {},
+      "ipc415_property": { "coherent": 2 },
+      "ipc415_damaging_act": { "fact_fit": 1, "omission_real": 1, "coherent": 1 },
+      "ipc416": { "fact_fit": 1, "coherent": 1 },
+      "ipc182_abuse_of_power": { "fact_fit": 1, "omission_real": 1 },
+      "bns69": {},
+      "bns47": { "fact_fit": 1 },
+      "bns85": {}
+    },
+    "worst_records": [
+      {
+        "attempt_id": "t_ipc405_use_or_disposal_0023",
+        "reason": "F_el0 has Mehta 'transfer ownership' to Sethi under a 'bailment' -- self-contradictory and undermines the entrustment premise the entire s.405 theory depends on."
+      },
+      {
+        "attempt_id": "t_ipc182_abuse_of_power_0021",
+        "reason": "The 'omitted' intent element (el1) is actually established verbatim inside F_el2 ('with the specific purpose of ... knowing ... would cause'), so the omission is fake and the abstention answer is wrong."
+      },
+      {
+        "attempt_id": "t_ipc415_damaging_act_0020",
+        "reason": "F_el1 ('had she known the true status of the hull inspection') itself implies the deception that el0 is supposed to be omitting, so the omission is fake, plus the sentence paraphrases the statute."
+      },
+      {
+        "attempt_id": "t_bns47_0022",
+        "reason": "F_el0 already states the India-situs and abroad-situs facts that F_el1/F_el2 merely repeat, and F_el3 mislabels unauthorized outside computer access as 'criminal breach of trust' with no entrustment relationship present."
+      },
+      {
+        "attempt_id": "t_ipc416_0022",
+        "reason": "Claiming to be someone's 'agent'/'representative' is misrepresentation of authority, not personation of that person's identity -- a poor fit for the cheating-by-personation contract, and F_el0/F_el1 overlap."
+      },
+      {
+        "attempt_id": "t_ipc415_property_0023",
+        "reason": "F_el1 restates the statutory 'fraudulently induces' language as the fact itself rather than describing an independent inducement mechanism."
+      },
+      {
+        "attempt_id": "t_ipc415_property_0024",
+        "reason": "Same templated paraphrase flaw as t_ipc415_property_0023, indicating a repeated formulaic construction rather than independently authored facts."
+      },
+      {
+        "attempt_id": "t_bns69_0021",
+        "reason": "Near-duplicate of t_bns69_0022: same two-person cast, same employer/city, near-identical opening narrative sentence, differing only in deceit route and the intercourse element."
+      },
+      {
+        "attempt_id": "t_bns69_0022",
+        "reason": "Counterpart of the t_bns69_0021 near-duplicate pair (see above)."
+      },
+      {
+        "attempt_id": "t_ipc416_0020",
+        "reason": "Not independently defective, but shares its full two-name cast (Rohan Mehta / Vikram Sethi) with its contract-mate t_ipc416_0022, reducing cast diversity across the pair."
+      }
+    ]
+  }
+}
