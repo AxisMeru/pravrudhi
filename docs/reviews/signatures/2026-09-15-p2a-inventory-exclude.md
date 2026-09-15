@@ -23,7 +23,7 @@ Re-check by the reviewer from a throwaway worktree at `d7ce664`: both subcommand
 
 **Content signature: SIGNED at `d7ce664`.** Lead merges on Track A's shape signature at the same SHA. Next in the gate: trackB's deterministic full-IR batch (D_min 300) and the teacher batch (T ≥ 200, F = 5 per id); `replay` and `decide` remain to be built.
 
-## D_min methodology ruling (prereg amendment (c)), 2026-09-15 15:08 BST
+## D_min methodology ruling (prereg amendment (c)), 2026-09-15 15:05 BST
 
 Questions from trackB via the lead. Rulings:
 
