@@ -55,6 +55,7 @@ def main() -> None:
     ap.add_argument("--seq", type=int, default=2048)
     ap.add_argument("--out", default="preflight_5090.json")
     ap.add_argument("--skip-train", action="store_true")
+    ap.add_argument("--ckpt-dir", default="/home/ss/fusion-project/prabhasa-nyaya/checkpoints/spike-preflight-5090/ckpt_step")
     args = ap.parse_args()
     random.seed(7)
     rep: dict = {"model": args.model, "device": torch.cuda.get_device_name(0), "seq": args.seq}
@@ -144,7 +145,7 @@ def main() -> None:
     rep["lora_losses"] = [round(v, 4) for v in losses]
 
     # 4. resumable checkpoint continuity
-    ck = Path("ckpt_step")
+    ck = Path(args.ckpt_dir)  # /tmp is a small tmpfs; house rule 16 names the 5090 store
     pm.save_pretrained(str(ck))
     torch.save(opt.state_dict(), ck / "opt.pt")
     pm.eval()  # dropout off: the first run measured 'before' in train mode (LoRA dropout 0.05) and failed the ±1e-3 check

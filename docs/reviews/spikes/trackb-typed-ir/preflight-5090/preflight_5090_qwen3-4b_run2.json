@@ -1,0 +1,27 @@
+{
+ "model": "Qwen/Qwen3-4B",
+ "device": "NVIDIA GeForce RTX 5090",
+ "seq": 2048,
+ "load_s": 2.0,
+ "vram_after_load_gib": 7.49,
+ "n_params": 4022468096,
+ "nll_items": 48,
+ "nll_select_gold_at_4": 0.4583,
+ "nll_tokens_per_s": 7810.6,
+ "vram_peak_inference_gib": 7.99,
+ "lora_trainable_params": 132120576,
+ "lora_steps": 4,
+ "lora_step_s": 1.08,
+ "lora_peak_vram_gib": 17.85,
+ "lora_losses": [
+  11.898,
+  11.555,
+  11.3537,
+  11.2062
+ ],
+ "ckpt_restore_nll_before_after": [
+  1.389632,
+  1.389632
+ ],
+ "ckpt_restore_ok": true
+}
