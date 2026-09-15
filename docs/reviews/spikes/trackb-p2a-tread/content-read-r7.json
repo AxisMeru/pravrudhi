@@ -1,0 +1,133 @@
+{
+  "records": [
+    {
+      "attempt_id": "t_ipc405_misappropriation_0023_r7",
+      "contract_id": "ipc405_misappropriation",
+      "shape": "control",
+      "fact_fit": "FAIL",
+      "narrative_neutral": "PASS",
+      "omission_real": "N/A",
+      "denial_real": "N/A",
+      "coherent": "PASS",
+      "english_law_register": "PASS",
+      "duplicate_of": ["t_ipc405_misappropriation_0027_r7", "t_ipc405_misappropriation_0028_r7"],
+      "notes": "fact_fit FAIL: F_el1 reads 'Instead of placing the envelope in the safe as instructed, Sameer Joshi opened it...' — the clause 'as instructed' independently conveys that property was handed over under instructions for safekeeping, i.e. it re-asserts el0 (entrustment) inside the el1 fact, not just el1 alone. Also flagged as one of a template cluster (0023/0027/0028): sealed envelope/bag of cash handed over 'to hold securely until [event]', then diverted to pay the recipient's personal debt — same conduct/object pattern with only names/amounts swapped."
+    },
+    {
+      "attempt_id": "t_ipc405_misappropriation_0025_r7",
+      "contract_id": "ipc405_misappropriation",
+      "shape": "omit:0",
+      "fact_fit": "PASS",
+      "narrative_neutral": "PASS",
+      "omission_real": "PASS",
+      "denial_real": "N/A",
+      "coherent": "FAIL",
+      "english_law_register": "PASS",
+      "duplicate_of": null,
+      "notes": "coherent FAIL: F_narrative ('were both present at the annual trade fair... interaction occurred near the exhibition hall's central registration desk') describes no actual conduct or connection between the two named parties — it is vacuous scene-filler, not a fact pattern. Compounding this, F_el1 ('dishonestly converted the property to his own use by transferring the funds...') refers to 'the property'/'the funds' with a definite article and no antecedent anywhere in the record — since el0 is the omitted element, nothing ever establishes what property this is or how Vikram came to hold it, so the scenario does not cohere as a standalone narrative. omission_real itself is technically satisfied (el0 is never textually established and the abstention is correctly reasoned), but the underlying scenario quality is weak enough to fail coherence."
+    },
+    {
+      "attempt_id": "t_ipc405_misappropriation_0027_r7",
+      "contract_id": "ipc405_misappropriation",
+      "shape": "control",
+      "fact_fit": "FAIL",
+      "narrative_neutral": "PASS",
+      "omission_real": "N/A",
+      "denial_real": "N/A",
+      "coherent": "PASS",
+      "english_law_register": "PASS",
+      "duplicate_of": ["t_ipc405_misappropriation_0023_r7", "t_ipc405_misappropriation_0028_r7"],
+      "notes": "fact_fit FAIL (clear-cut): F_el1 states 'Suresh Nair dishonestly converted the entrusted ₹50,000 to his own use...' — the word 'entrusted' is the operative legal term for el0 and is asserted directly inside the el1 fact, so this fact establishes both el0 and el1, not el1 only. Same cash-in-container-for-safekeeping-then-personal-debt template as 0023/0028."
+    },
+    {
+      "attempt_id": "t_ipc405_misappropriation_0028_r7",
+      "contract_id": "ipc405_misappropriation",
+      "shape": "control",
+      "fact_fit": "PASS",
+      "narrative_neutral": "PASS",
+      "omission_real": "N/A",
+      "denial_real": "N/A",
+      "coherent": "PASS",
+      "english_law_register": "PASS",
+      "duplicate_of": ["t_ipc405_misappropriation_0023_r7", "t_ipc405_misappropriation_0027_r7"],
+      "notes": "Same underlying template as 0023/0027 (sealed container of cash handed over to hold until a specified event, then diverted to pay the recipient's own debt), but unlike those two, F_el1 here ('transferred the entire ₹8,50,000 from the sealed bag into his personal savings account... without Vikram's knowledge or consent') stays confined to the conversion act and does not restate entrustment/instruction language, so fact_fit passes cleanly. Flagged only for template duplication, not for element leakage."
+    },
+    {
+      "attempt_id": "t_ipc405_wilfully_suffers_0023_r7",
+      "contract_id": "ipc405_wilfully_suffers",
+      "shape": "control",
+      "fact_fit": "PASS",
+      "narrative_neutral": "PASS",
+      "omission_real": "N/A",
+      "denial_real": "N/A",
+      "coherent": "PASS",
+      "english_law_register": "PASS",
+      "duplicate_of": null,
+      "notes": "F_el0 (board-assigned dominion over fuel reserves) and F_el1 (knowing, intentional non-intervention in a subordinate's ongoing fuel theft) each cleanly establish only their own element."
+    },
+    {
+      "attempt_id": "t_ipc405_wilfully_suffers_0024_r7",
+      "contract_id": "ipc405_wilfully_suffers",
+      "shape": "omit:1",
+      "fact_fit": "PASS",
+      "narrative_neutral": "PASS",
+      "omission_real": "PASS",
+      "denial_real": "N/A",
+      "coherent": "PASS",
+      "english_law_register": "PASS",
+      "duplicate_of": null,
+      "notes": "el1 (wilfully suffers) is not established anywhere in F_narrative or F_el0, and the abstention/answer correctly identifies that gap. Mild naming overlap with 0023_r7 (both use a 'Zenith ...' Nagpur company) but conduct, protagonist, and object (reserve fund vs. fuel reserves) differ enough that this is not a true duplicate — noted only as a weak template-reuse signal, not flagged."
+    }
+  ],
+  "summary": {
+    "total_records": 6,
+    "fail_counts_overall": {
+      "fact_fit": 2,
+      "narrative_neutral": 0,
+      "omission_real": 0,
+      "denial_real": 0,
+      "coherent": 1,
+      "english_law_register": 0
+    },
+    "fail_counts_by_contract": {
+      "ipc405_misappropriation": {
+        "n_records": 4,
+        "fact_fit": 2,
+        "narrative_neutral": 0,
+        "omission_real": 0,
+        "denial_real": 0,
+        "coherent": 1,
+        "english_law_register": 0
+      },
+      "ipc405_wilfully_suffers": {
+        "n_records": 2,
+        "fact_fit": 0,
+        "narrative_neutral": 0,
+        "omission_real": 0,
+        "denial_real": 0,
+        "coherent": 0,
+        "english_law_register": 0
+      }
+    },
+    "duplicate_clusters": [
+      {
+        "members": ["t_ipc405_misappropriation_0023_r7", "t_ipc405_misappropriation_0027_r7", "t_ipc405_misappropriation_0028_r7"],
+        "reason": "Identical conduct/object template: a sealed container of cash is handed over with instructions to hold it securely until a stated future event, then the recipient diverts the full amount to pay off their own personal debt. Only names and amounts vary."
+      }
+    ],
+    "worst_10": [
+      {
+        "attempt_id": "t_ipc405_misappropriation_0027_r7",
+        "reason": "fact_fit FAIL — F_el1 literally uses the word 'entrusted' ('converted the entrusted ₹50,000'), so the el1 fact re-establishes el0 verbatim rather than standing on its own; also part of a 3-record duplicate template cluster."
+      },
+      {
+        "attempt_id": "t_ipc405_misappropriation_0023_r7",
+        "reason": "fact_fit FAIL — F_el1's 'as instructed' clause independently conveys that property was handed over under safekeeping instructions, re-asserting el0 inside the el1 fact; also part of the duplicate template cluster."
+      },
+      {
+        "attempt_id": "t_ipc405_misappropriation_0025_r7",
+        "reason": "coherent FAIL — F_narrative is vacuous ('were both present... interaction occurred near the registration desk') and F_el1 refers to 'the property'/'the funds' with no antecedent anywhere in the record, so the scenario does not hang together as a real fact pattern even though the omission itself is structurally correct."
+      }
+    ]
+  }
+}
