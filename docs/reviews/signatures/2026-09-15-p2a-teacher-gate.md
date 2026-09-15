@@ -1,4 +1,4 @@
-# P2a teacher gate — Track B reads and rulings, 2026-09-15 16:44 BST
+# P2a teacher gate — Track B reads and rulings, 2026-09-15 16:42 BST
 
 ## 1. Inventory D-count @ `assistant/trackA/p2a-inventory-d-count` `07606c0` (code `0e548f8`, an ancestor): CLEARED
 D = 480 with records/provenance hashes; cross-check records == non-skipped provenance rows; 140 control / 30 deny / 310 omit; 40 skips excluded; 10 control scenarios per id; every verdict matched. **Ruling on the floor: 25 % is authoritative** (amendment (d), 2026-09-15 15:38 BST, superseded amendment (c)'s 40 %, which was structurally unreachable with one omission slice per element). 29.2 % passes. The inventory note may cite amendment (d) and drop the discrepancy text at the next regeneration; no other change.
