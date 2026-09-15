@@ -1,0 +1,281 @@
+{
+  "record": {
+    "schema_version": "nyaya-law-v1",
+    "id": "operator_provides",
+    "kind": "law_apply",
+    "prompt": {
+      "question": "What provides claim does the stipulated source license?",
+      "facts": [
+        {
+          "id": "F1",
+          "text": "The supplied provision says: Section 416 requires cheating through personation."
+        },
+        {
+          "id": "F2",
+          "text": "The supplied provision says: Section 416 requires cheating through personation."
+        }
+      ],
+      "jurisdiction": "IN",
+      "legal_scope": {
+        "act": "IPC",
+        "version": "fixture-v1",
+        "mode": "stipulated_statute",
+        "incident_date": null
+      },
+      "passages": [
+        {
+          "id": "P1",
+          "act": "IPC",
+          "section": "416",
+          "version": "fixture-v1",
+          "source_uri": "fixture:P1",
+          "sha256": "951d97397c9e518087134fa0172cddf3b6a8ce4cf8391a8e917714f1eb6f8874",
+          "text": "Section 416 requires cheating through personation."
+        }
+      ]
+    },
+    "target": {
+      "graph": {
+        "nodes": [
+          {
+            "id": "a",
+            "category": "DRAVYA",
+            "legal_sort": "party",
+            "spans": [
+              {
+                "source_id": "F1",
+                "start": 0,
+                "end": 79
+              }
+            ]
+          },
+          {
+            "id": "b",
+            "category": "DRAVYA",
+            "legal_sort": "party",
+            "spans": [
+              {
+                "source_id": "F1",
+                "start": 0,
+                "end": 79
+              }
+            ]
+          },
+          {
+            "id": "e",
+            "category": "KRIYA",
+            "legal_sort": "act",
+            "spans": [
+              {
+                "source_id": "F1",
+                "start": 0,
+                "end": 79
+              }
+            ]
+          },
+          {
+            "id": "s416",
+            "category": "SAMANYA",
+            "legal_sort": "provision",
+            "spans": [
+              {
+                "source_id": "P1",
+                "start": 0,
+                "end": 50
+              }
+            ]
+          },
+          {
+            "id": "personation",
+            "category": "GUNA",
+            "legal_sort": "element",
+            "spans": [
+              {
+                "source_id": "P1",
+                "start": 0,
+                "end": 50
+              }
+            ]
+          },
+          {
+            "id": "authority",
+            "category": "DRAVYA",
+            "legal_sort": "authority",
+            "spans": [
+              {
+                "source_id": "F1",
+                "start": 0,
+                "end": 79
+              }
+            ]
+          },
+          {
+            "id": "holding",
+            "category": "SAMANYA",
+            "legal_sort": "holding",
+            "spans": [
+              {
+                "source_id": "F1",
+                "start": 0,
+                "end": 79
+              }
+            ]
+          },
+          {
+            "id": "court1",
+            "category": "DRAVYA",
+            "legal_sort": "court",
+            "spans": [
+              {
+                "source_id": "F1",
+                "start": 0,
+                "end": 79
+              }
+            ]
+          },
+          {
+            "id": "court2",
+            "category": "DRAVYA",
+            "legal_sort": "court",
+            "spans": [
+              {
+                "source_id": "F1",
+                "start": 0,
+                "end": 79
+              }
+            ]
+          },
+          {
+            "id": "remedy",
+            "category": "SAMANYA",
+            "legal_sort": "remedy",
+            "spans": [
+              {
+                "source_id": "F1",
+                "start": 0,
+                "end": 79
+              }
+            ]
+          }
+        ],
+        "bindings": [
+          {
+            "event": "e",
+            "role": "KARTR",
+            "filler": "a"
+          },
+          {
+            "event": "e",
+            "role": "KARMAN",
+            "filler": "b"
+          }
+        ],
+        "claims": [
+          {
+            "id": "result",
+            "op": "provides",
+            "args": [
+              "s416",
+              "provision_text"
+            ],
+            "evidence": [
+              {
+                "source_id": "F1",
+                "start": 0,
+                "end": 79
+              }
+            ],
+            "rule_id": null,
+            "premise_ids": []
+          }
+        ]
+      },
+      "elements": [
+        {
+          "id": "personation",
+          "event": "e",
+          "status": "unknown",
+          "evidence": [
+            {
+              "source_id": "F1",
+              "start": 0,
+              "end": 79
+            }
+          ]
+        }
+      ],
+      "trace": {
+        "pratijna": {
+          "subject": "e",
+          "predicate": "applies_s416",
+          "polarity": true
+        },
+        "hetu": {
+          "element_ids": [
+            "personation"
+          ]
+        },
+        "udaharana": {
+          "rule_id": "R416_NEG",
+          "passage_ids": [
+            "P1"
+          ],
+          "example_id": null
+        },
+        "upanaya": {
+          "substitution": {
+            "x": "e"
+          },
+          "premise_ids": [
+            "personation"
+          ]
+        },
+        "nigamana": {
+          "status": "proved",
+          "claim_ids": [
+            "result"
+          ]
+        }
+      },
+      "hetvabhasa": {
+        "profile": "legal-rules-v1",
+        "verdict": null,
+        "satpratipaksa": null,
+        "badhita": null
+      },
+      "cited_sections": [
+        {
+          "passage_id": "P1",
+          "act": "IPC",
+          "section": "416"
+        }
+      ],
+      "abstain": false,
+      "abstain_reason": null,
+      "answer": "The supplied provision says: Section 416 requires cheating through personation."
+    },
+    "audit": {
+      "contract_id": "fixture_contract",
+      "contract_hash": "fixture-only",
+      "rule_registry_hash": "fixture-only",
+      "split_group": "synthetic",
+      "checker_report": {
+        "structurally_valid": true,
+        "certified": false
+      }
+    }
+  },
+  "wire": "RECORD {\"schema_version\":\"nyaya-law-v1\",\"id\":\"operator_provides\",\"kind\":\"law_apply\",\"prompt_sha256\":\"9ee3531ef5a8b71bfe73c6842c88dc32714a09950bd719c3f77b242906fb7496\"}\nNODE a DRAVYA party @F1:0:79\nNODE b DRAVYA party @F1:0:79\nNODE e KRIYA act @F1:0:79\nNODE s416 SAMANYA provision @P1:0:50\nNODE personation GUNA element @P1:0:50\nNODE authority DRAVYA authority @F1:0:79\nNODE holding SAMANYA holding @F1:0:79\nNODE court1 DRAVYA court @F1:0:79\nNODE court2 DRAVYA court @F1:0:79\nNODE remedy SAMANYA remedy @F1:0:79\nROLE e KARTR a\nROLE e KARMAN b\nELEMENT personation e unknown @F1:0:79\nCLAIM result provides s416 provision_text @F1:0:79\nPRATIJNA e applies_s416 true\nHETU personation\nUDAHARANA R416_NEG @P1 example=null\nUPANAYA x=e premises=personation\nNIGAMANA proved result\nHETVABHASA legal-rules-v1 null satpratipaksa=null badhita=null\nCITE P1 \"IPC\" \"416\"\nABSTAIN false\nANSWER \"The supplied provision says: Section 416 requires cheating through personation.\"\nAUDIT {\"contract_id\":\"fixture_contract\",\"contract_hash\":\"fixture-only\",\"rule_registry_hash\":\"fixture-only\",\"split_group\":\"synthetic\",\"checker_report\":{\"structurally_valid\":true,\"certified\":false}}\n",
+  "registry": {
+    "texts": {
+      "provision_text": "Section 416 requires cheating through personation."
+    },
+    "citations": {
+      "case_cite": {
+        "volume": 470,
+        "reporter": "F.2d",
+        "page": 798
+      }
+    }
+  }
+}

@@ -1,0 +1,187 @@
+{
+  "record": {
+    "schema_version": "nyaya-law-v1",
+    "id": "example_b",
+    "kind": "law_abstain",
+    "prompt": {
+      "question": "Does section 416 apply to event E?",
+      "facts": [
+        {
+          "id": "F1",
+          "text": "A deceives B into paying money."
+        },
+        {
+          "id": "F2",
+          "text": "The account gives no information about any identity representation."
+        }
+      ],
+      "jurisdiction": "IN",
+      "legal_scope": {
+        "act": "IPC",
+        "version": "fixture-v1",
+        "mode": "stipulated_statute",
+        "incident_date": null
+      },
+      "passages": [
+        {
+          "id": "P1",
+          "act": "IPC",
+          "section": "416",
+          "version": "fixture-v1",
+          "source_uri": "fixture:P1",
+          "sha256": "951d97397c9e518087134fa0172cddf3b6a8ce4cf8391a8e917714f1eb6f8874",
+          "text": "Section 416 requires cheating through personation."
+        }
+      ]
+    },
+    "target": {
+      "graph": {
+        "nodes": [
+          {
+            "id": "a",
+            "category": "DRAVYA",
+            "legal_sort": "party",
+            "spans": [
+              {
+                "source_id": "F1",
+                "start": 0,
+                "end": 31
+              }
+            ]
+          },
+          {
+            "id": "b",
+            "category": "DRAVYA",
+            "legal_sort": "party",
+            "spans": [
+              {
+                "source_id": "F1",
+                "start": 0,
+                "end": 31
+              }
+            ]
+          },
+          {
+            "id": "e",
+            "category": "KRIYA",
+            "legal_sort": "act",
+            "spans": [
+              {
+                "source_id": "F1",
+                "start": 0,
+                "end": 31
+              }
+            ]
+          },
+          {
+            "id": "s416",
+            "category": "SAMANYA",
+            "legal_sort": "provision",
+            "spans": [
+              {
+                "source_id": "P1",
+                "start": 0,
+                "end": 50
+              }
+            ]
+          },
+          {
+            "id": "personation",
+            "category": "GUNA",
+            "legal_sort": "element",
+            "spans": [
+              {
+                "source_id": "P1",
+                "start": 0,
+                "end": 50
+              }
+            ]
+          }
+        ],
+        "bindings": [
+          {
+            "event": "e",
+            "role": "KARTR",
+            "filler": "a"
+          },
+          {
+            "event": "e",
+            "role": "KARMAN",
+            "filler": "b"
+          }
+        ],
+        "claims": []
+      },
+      "elements": [
+        {
+          "id": "personation",
+          "event": "e",
+          "status": "unknown",
+          "evidence": [
+            {
+              "source_id": "F2",
+              "start": 0,
+              "end": 67
+            }
+          ]
+        }
+      ],
+      "trace": {
+        "pratijna": {
+          "subject": "e",
+          "predicate": "applies_s416",
+          "polarity": true
+        },
+        "hetu": {
+          "element_ids": [
+            "personation"
+          ]
+        },
+        "udaharana": {
+          "rule_id": "R416_POS",
+          "passage_ids": [
+            "P1"
+          ],
+          "example_id": null
+        },
+        "upanaya": {
+          "substitution": {
+            "x": "e"
+          },
+          "premise_ids": []
+        },
+        "nigamana": {
+          "status": "not_proved",
+          "claim_ids": []
+        }
+      },
+      "hetvabhasa": {
+        "profile": "legal-rules-v1",
+        "verdict": null,
+        "satpratipaksa": null,
+        "badhita": null
+      },
+      "cited_sections": [
+        {
+          "passage_id": "P1",
+          "act": "IPC",
+          "section": "416"
+        }
+      ],
+      "abstain": true,
+      "abstain_reason": "missing_fact",
+      "answer": "I cannot determine whether section 416 applies: the account does not establish or negate personation."
+    },
+    "audit": {
+      "contract_id": "fixture_contract",
+      "contract_hash": "fixture-only",
+      "rule_registry_hash": "fixture-only",
+      "split_group": "synthetic",
+      "checker_report": {
+        "structurally_valid": true,
+        "certified": false
+      }
+    }
+  },
+  "wire": "RECORD {\"schema_version\":\"nyaya-law-v1\",\"id\":\"example_b\",\"kind\":\"law_abstain\",\"prompt_sha256\":\"eb431477c3e30642e3a4f51b592581cd115cb0b07b4ac0b83747ce2889c29cb3\"}\nNODE a DRAVYA party @F1:0:31\nNODE b DRAVYA party @F1:0:31\nNODE e KRIYA act @F1:0:31\nNODE s416 SAMANYA provision @P1:0:50\nNODE personation GUNA element @P1:0:50\nROLE e KARTR a\nROLE e KARMAN b\nELEMENT personation e unknown @F2:0:67\nPRATIJNA e applies_s416 true\nHETU personation\nUDAHARANA R416_POS @P1 example=null\nUPANAYA x=e premises=[]\nNIGAMANA not_proved\nHETVABHASA legal-rules-v1 null satpratipaksa=null badhita=null\nCITE P1 \"IPC\" \"416\"\nABSTAIN true missing_fact\nANSWER \"I cannot determine whether section 416 applies: the account does not establish or negate personation.\"\nAUDIT {\"contract_id\":\"fixture_contract\",\"contract_hash\":\"fixture-only\",\"rule_registry_hash\":\"fixture-only\",\"split_group\":\"synthetic\",\"checker_report\":{\"structurally_valid\":true,\"certified\":false}}\n"
+}

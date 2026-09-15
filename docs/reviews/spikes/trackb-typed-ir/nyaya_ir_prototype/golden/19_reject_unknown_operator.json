@@ -1,0 +1,35 @@
+{
+  "prompt": {
+    "question": "Does section 416 apply to event E?",
+    "facts": [
+      {
+        "id": "F1",
+        "text": "A deceives B into paying money."
+      },
+      {
+        "id": "F2",
+        "text": "A uses only A's true identity and makes no false identity representation about anyone."
+      }
+    ],
+    "jurisdiction": "IN",
+    "legal_scope": {
+      "act": "IPC",
+      "version": "fixture-v1",
+      "mode": "stipulated_statute",
+      "incident_date": null
+    },
+    "passages": [
+      {
+        "id": "P1",
+        "act": "IPC",
+        "section": "416",
+        "version": "fixture-v1",
+        "source_uri": "fixture:P1",
+        "sha256": "951d97397c9e518087134fa0172cddf3b6a8ce4cf8391a8e917714f1eb6f8874",
+        "text": "Section 416 requires cheating through personation."
+      }
+    ]
+  },
+  "wire": "RECORD {\"schema_version\":\"nyaya-law-v1\",\"id\":\"example_a\",\"kind\":\"law_apply\",\"prompt_sha256\":\"adc47c4174bb91d3c3a83659bf265c8f4d37881942609e4789a01991fa767e77\"}\nNODE a DRAVYA party @F1:0:31\nNODE b DRAVYA party @F1:0:31\nNODE e KRIYA act @F1:0:31\nNODE s416 SAMANYA provision @P1:0:50\nNODE personation GUNA element @P1:0:50\nROLE e KARTR a\nROLE e KARMAN b\nELEMENT personation e negated @F2:0:86\nCLAIM c1 invent personation e @F2:0:86\nCLAIM c2 absent s416 e BY R416_NEG c1\nPRATIJNA e applies_s416 false\nHETU personation\nUDAHARANA R416_NEG @P1 example=null\nUPANAYA x=e premises=personation\nNIGAMANA proved c2\nHETVABHASA legal-rules-v1 valid satpratipaksa=null badhita=null\nCITE P1 \"IPC\" \"416\"\nABSTAIN false\nANSWER \"Section 416 does not apply on these facts: personation is explicitly absent.\"\nAUDIT {\"contract_id\":\"fixture_contract\",\"contract_hash\":\"fixture-only\",\"rule_registry_hash\":\"fixture-only\",\"split_group\":\"synthetic\",\"checker_report\":{\"structurally_valid\":true,\"certified\":false}}\n",
+  "reject": "ClaimOp"
+}

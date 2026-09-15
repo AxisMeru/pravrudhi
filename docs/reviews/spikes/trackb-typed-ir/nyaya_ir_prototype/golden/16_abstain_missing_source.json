@@ -1,0 +1,157 @@
+{
+  "record": {
+    "schema_version": "nyaya-law-v1",
+    "id": "abstain_16",
+    "kind": "law_abstain",
+    "prompt": {
+      "question": "Does section 416 apply to event E?",
+      "facts": [
+        {
+          "id": "F1",
+          "text": "A deceives B into paying money."
+        },
+        {
+          "id": "F2",
+          "text": "No provision text is supplied, so applicability cannot be assessed."
+        }
+      ],
+      "jurisdiction": "IN",
+      "legal_scope": {
+        "act": "IPC",
+        "version": "fixture-v1",
+        "mode": "stipulated_statute",
+        "incident_date": null
+      },
+      "passages": []
+    },
+    "target": {
+      "graph": {
+        "nodes": [
+          {
+            "id": "a",
+            "category": "DRAVYA",
+            "legal_sort": "party",
+            "spans": [
+              {
+                "source_id": "F1",
+                "start": 0,
+                "end": 31
+              }
+            ]
+          },
+          {
+            "id": "b",
+            "category": "DRAVYA",
+            "legal_sort": "party",
+            "spans": [
+              {
+                "source_id": "F1",
+                "start": 0,
+                "end": 31
+              }
+            ]
+          },
+          {
+            "id": "e",
+            "category": "KRIYA",
+            "legal_sort": "act",
+            "spans": [
+              {
+                "source_id": "F1",
+                "start": 0,
+                "end": 31
+              }
+            ]
+          },
+          {
+            "id": "s416",
+            "category": "SAMANYA",
+            "legal_sort": "provision",
+            "spans": []
+          },
+          {
+            "id": "personation",
+            "category": "GUNA",
+            "legal_sort": "element",
+            "spans": []
+          }
+        ],
+        "bindings": [
+          {
+            "event": "e",
+            "role": "KARTR",
+            "filler": "a"
+          },
+          {
+            "event": "e",
+            "role": "KARMAN",
+            "filler": "b"
+          }
+        ],
+        "claims": []
+      },
+      "elements": [
+        {
+          "id": "personation",
+          "event": "e",
+          "status": "unknown",
+          "evidence": [
+            {
+              "source_id": "F2",
+              "start": 0,
+              "end": 67
+            }
+          ]
+        }
+      ],
+      "trace": {
+        "pratijna": {
+          "subject": "e",
+          "predicate": "applies_s416",
+          "polarity": true
+        },
+        "hetu": {
+          "element_ids": [
+            "personation"
+          ]
+        },
+        "udaharana": {
+          "rule_id": "R416_POS",
+          "passage_ids": [],
+          "example_id": null
+        },
+        "upanaya": {
+          "substitution": {
+            "x": "e"
+          },
+          "premise_ids": []
+        },
+        "nigamana": {
+          "status": "not_proved",
+          "claim_ids": []
+        }
+      },
+      "hetvabhasa": {
+        "profile": "legal-rules-v1",
+        "verdict": null,
+        "satpratipaksa": null,
+        "badhita": null
+      },
+      "cited_sections": [],
+      "abstain": true,
+      "abstain_reason": "missing_source",
+      "answer": "No provision text is supplied, so applicability cannot be assessed."
+    },
+    "audit": {
+      "contract_id": "fixture_contract",
+      "contract_hash": "fixture-only",
+      "rule_registry_hash": "fixture-only",
+      "split_group": "synthetic",
+      "checker_report": {
+        "structurally_valid": true,
+        "certified": false
+      }
+    }
+  },
+  "wire": "RECORD {\"schema_version\":\"nyaya-law-v1\",\"id\":\"abstain_16\",\"kind\":\"law_abstain\",\"prompt_sha256\":\"1f871d6efcff65b367196ab5e9a3188f98363fa6d2c94be9a41883b5648660b7\"}\nNODE a DRAVYA party @F1:0:31\nNODE b DRAVYA party @F1:0:31\nNODE e KRIYA act @F1:0:31\nNODE s416 SAMANYA provision\nNODE personation GUNA element\nROLE e KARTR a\nROLE e KARMAN b\nELEMENT personation e unknown @F2:0:67\nPRATIJNA e applies_s416 true\nHETU personation\nUDAHARANA R416_POS example=null\nUPANAYA x=e premises=[]\nNIGAMANA not_proved\nHETVABHASA legal-rules-v1 null satpratipaksa=null badhita=null\nABSTAIN true missing_source\nANSWER \"No provision text is supplied, so applicability cannot be assessed.\"\nAUDIT {\"contract_id\":\"fixture_contract\",\"contract_hash\":\"fixture-only\",\"rule_registry_hash\":\"fixture-only\",\"split_group\":\"synthetic\",\"checker_report\":{\"structurally_valid\":true,\"certified\":false}}\n"
+}
