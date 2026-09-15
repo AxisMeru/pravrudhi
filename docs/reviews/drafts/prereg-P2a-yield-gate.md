@@ -130,7 +130,7 @@ generalisation, set SFT hyperparameters/cost caps, prove a distillation lift, or
 P2b/P3 need their own preregs and model-measured gates. Operator kick-off, written per-job go, measured preflight,
 one-pod guard, checkpoint durability and spend/kill conditions remain independently binding house rules.
 
-## Reviewer amendment — thresholds set (Track B reviewer, 2026-09-15 12:05 BST)
+## Reviewer amendment — thresholds set (Track B reviewer, 2026-09-15 11:44 BST)
 
 Draft authored by the spikeB-yieldgate Codex agent; read and amended by the reviewer. The TBD thresholds above are
 resolved here as reviewer decisions (source: this section, under the operator's delegation of 2026-09-15). They are
