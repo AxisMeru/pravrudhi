@@ -12,6 +12,7 @@ from pravrudhi.application.loom_pipeline import (
     Job,
     PipelineError,
     distill_binding,
+    evaluate_binding,
     executable_bindings,
     execute,
     harness_recipe,
@@ -165,7 +166,7 @@ def test_stage_executability_declares_every_loom_stage():
     assert set(STAGE_EXECUTABILITY) == {
         'pretrain', 'continue_pretrain', 'sft', 'distill', 'evaluate', 'promote',
     }
-    executable = {'sft', 'distill'}
+    executable = {'sft', 'distill', 'evaluate'}
     for op, status in STAGE_EXECUTABILITY.items():
         expected = STAGE_EXECUTABLE if op in executable else STAGE_PENDING
         assert status == expected, f'{op}: expected {expected!r}, got {status!r}'
@@ -261,6 +262,72 @@ class TestDistillBinding:
         execute(p, ctx, executable_bindings())
 
         assert ctx.calls[0][0] == "distill"
+
+
+class TestEvaluateBinding:
+    """ext_eval.sh / lm-eval on an HF snapshot (T6, docs/reviews/track-b-directive-2026-09-15.md §10).
+    Reuses harness_recipe -- the same validation `lora_recipe` gets for sft -- so an evaluate stage's
+    options are checked by the existing grammar, not a second copy of the same rules."""
+
+    SOURCE = (
+        'model m = load("/snapshots/m"); evalset b = load("/benchmarks/law_apply"); '
+        'e = evaluate(model=m, benchmark=b) '
+        '{ strategy = "prompt_only"; execution_family = "template"; };'
+    )
+
+    def test_validate_accepts_a_well_formed_harness_recipe(self) -> None:
+        binding = evaluate_binding()
+        p = lower(self.SOURCE)
+        binding.validate(p.stages[0])  # must not raise
+
+    def test_validate_rejects_an_invalid_recipe_as_a_pipeline_error(self) -> None:
+        """A pydantic ValidationError from harness_recipe must surface as PipelineError - the one exception
+        type every caller of validate() already expects, not a second exception type to catch."""
+        binding = evaluate_binding()
+        p = lower(
+            'model m = load("/snapshots/m"); evalset b = load("/benchmarks/law_apply"); '
+            'e = evaluate(model=m, benchmark=b) '
+            '{ strategy = "prompt_only"; execution_family = "template"; retries = 2; };'
+        )  # prompt_only forbids retries - see HarnessRecipe's own validator
+        with pytest.raises(PipelineError, match="invalid harness recipe"):
+            binding.validate(p.stages[0])
+
+    def test_prepare_maps_to_the_evaluate_job_command_with_model_and_benchmark_mounted(
+        self, tmp_path: Path
+    ) -> None:
+        binding = evaluate_binding()
+        p = lower(self.SOURCE)
+        stage = p.stages[0]
+        inputs = {"model": "/snapshots/m", "benchmark": "/benchmarks/law_apply"}
+        (tmp_path / "in").mkdir()
+        (tmp_path / "out").mkdir()
+
+        job = binding.prepare(stage, inputs, tmp_path)
+
+        assert job.command == "evaluate"
+        mounts = dict(job.mounts)
+        assert mounts[str(Path("/snapshots/m"))] == "/model"
+        assert mounts[str(Path("/benchmarks/law_apply"))] == "/benchmark"
+        assert job.output == "results.json"
+        assert (tmp_path / "in" / "recipe.json").exists()
+
+    def test_prepare_refuses_an_unresolved_model_role(self, tmp_path: Path) -> None:
+        binding = evaluate_binding()
+        p = lower(self.SOURCE)
+        stage = p.stages[0]
+        inputs = {"model": {"path": tmp_path / "adapter"}, "benchmark": "/benchmarks/law_apply"}
+        (tmp_path / "in").mkdir()
+
+        with pytest.raises(PipelineError, match="resolved model snapshot"):
+            binding.prepare(stage, inputs, tmp_path)
+
+    def test_end_to_end_through_execute_with_executable_bindings(self, tmp_path: Path) -> None:
+        ctx = Context(tmp_path)
+        p = lower(self.SOURCE)
+
+        execute(p, ctx, executable_bindings())
+
+        assert ctx.calls[0][0] == "evaluate"
 
 
 def test_pending_stage_fails_preflight_without_host_binding(tmp_path):

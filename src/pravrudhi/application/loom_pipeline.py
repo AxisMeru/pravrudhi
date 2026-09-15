@@ -70,7 +70,7 @@ STAGE_EXECUTABILITY: Mapping[str, str] = {
     # deterministically to full IR, so supervision must be teacher-authored-then-checker-filtered before any
     # SFT run consumes it -- distill unblocks P2, ahead of sft in practice even though sft bound first.
     "distill": STAGE_EXECUTABLE,
-    "evaluate": STAGE_PENDING,
+    "evaluate": STAGE_EXECUTABLE,
     "promote": STAGE_PENDING,
 }
 
@@ -315,6 +315,41 @@ def distill_binding() -> Binding:
     return Binding(validate, prepare)
 
 
+def evaluate_binding() -> Binding:
+    """Bind evaluate to `ext_eval.sh`/lm-eval on an HF snapshot (T6,
+    docs/reviews/track-b-directive-2026-09-15.md §10). `harness_recipe` already validates an evaluate
+    stage's options against the existing grammar (sampling/retry/system-prompt policy) -- this binding
+    reuses that validation rather than duplicating it, exactly as `lora_recipe` is reused for `sft`."""
+    import json
+    from pathlib import Path
+
+    from pydantic import ValidationError
+
+    def validate(stage: Stage) -> None:
+        if stage.operation != "evaluate":
+            raise PipelineError("the evaluate binding supports evaluate only")
+        try:
+            harness_recipe(stage)
+        except ValidationError as e:
+            raise PipelineError(f"evaluate: invalid harness recipe: {e}") from e
+
+    def prepare(stage: Stage, inputs: Mapping[str, Any], jd: Any) -> Job:
+        recipe = harness_recipe(stage)
+        (jd / "in" / "recipe.json").write_text(json.dumps(recipe.model_dump(), sort_keys=True))
+        model, benchmark = inputs["model"], inputs["benchmark"]
+        if not isinstance(model, str):
+            raise PipelineError("evaluate requires a resolved model snapshot; bind adapter continuation explicitly")
+        if not isinstance(benchmark, str):
+            raise PipelineError("evaluate requires a resolved benchmark/evalset path")
+        return Job(
+            "evaluate", ("--model-dir", "/model", "--benchmark-dir", "/benchmark"),
+            ((str(Path(model)), "/model"), (str(Path(benchmark)), "/benchmark")),
+            output="results.json",
+        )
+
+    return Binding(validate, prepare)
+
+
 def executable_bindings() -> dict[str, Binding]:
     """The complete registry of concrete engine bindings this module ships.
 
@@ -325,4 +360,4 @@ def executable_bindings() -> dict[str, Binding]:
     Stages marked `STAGE_PENDING` are deliberately absent: `execute` must still refuse
     them at preflight rather than have a host binding silently stand in for one.
     """
-    return {"sft": sft_binding(), "distill": distill_binding()}
+    return {"sft": sft_binding(), "distill": distill_binding(), "evaluate": evaluate_binding()}
