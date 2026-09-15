@@ -94,3 +94,7 @@ not evidence.
     inspection, data rendering and test runs to a second-seat CLI agent (`screen -dmS cli-<role> … claude --model
     sonnet`, memory `pravrudhi-team-lead` gives the exact spawn) or to Codex astra, and keep the interactive
     session for decisions, reviews and messages. Report seat usage-limit hits in the next status message.
+
+## Amendment to rule 6 — 2026-09-15 14:42 BST (operator, confirmed directly to the Track B reviewer)
+
+Rule 6 now reads: **the lead has standing authority to kick off a pod/training when ready and needed**; the operator no longer initiates. Still required before any launch: the lead's written per-job go (card, image, volume, hours, $, kill condition), the P0 preflight file, one pod account-wide, ≤ L40S class (24 GB allowed when preflight fits), the $24/day cap, checkpoint/rsync/HF rules, the seat-independent watchdog and team-2 stand-by. Reviewer/spike sessions still never create pods. The lead edited `docs/decisions/RUNPOD-HOUSE-RULES.md` and `~/.claude/CLAUDE.md` at 11:33; the operator confirmed the authorisation to the reviewer at 14:41 via AskUserQuestion. Nothing in the P2a yield-gate build exercises this authority; the first candidate launch is P2b (structure SFT) behind its own prereg and preflight.
