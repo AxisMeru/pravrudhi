@@ -42,7 +42,7 @@ One precision item, binding for the implementation, not a redesign: §8 prose (i
 
 **Content signature: SIGNED at `754ba38`** with that clarification carried into the implementation. Acceptance unchanged: the 14 readings as `#guard`s in `Seeds/CompositionKit.lean`, plus Track A's shape signature.
 
-## Implementation @ `38b9eb5` — SIGNED with one guard to add before merge, 2026-09-15 12:16 BST
+## Implementation @ `38b9eb5` — SIGNED with one guard to add before merge, 2026-09-15 12:22 BST
 
 Verified by me from a throwaway worktree: `lake build` 137 jobs, 0 errors; `--list-compositions` prints `ipc416_composed`, `bns47_composed` and `--list-contracts` still prints exactly 14. `Composition.omitted` (Adequacy.lean) selects among engaged routes with refuted routes filtered out first, falling back to all engaged only when all are refuted, exactly as ruled. Kit readings c1, c2, c3, c5, a1, a2, b1, b2, b3, b5, ba1, ba2 are `#guard`s with the expected provenance labels (a1/ba1 `.bridge`; c3 `.inner "ipc415_property"`; b3 `.inner "bns46_instigation"`). c4/b4 (untestable on real Contracts) are covered by synthetic rows: route refuted but another available (satisfied, refutation reported under its route id); partial with the other route denied; both refuted (composition refuted); offence-level `outer.denials` overriding an available route (refuted); silence with and without the bridge asserted.
 
