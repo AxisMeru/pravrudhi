@@ -1,0 +1,424 @@
+{
+ "records": [
+  {
+   "attempt_id": "t_ipc405_misappropriation_r1_0000",
+   "contract_id": "ipc405_misappropriation",
+   "shape": "omit:0",
+   "fact_fit": "PASS",
+   "narrative_neutral": "PASS",
+   "omission_real": "PASS",
+   "denial_real": "N/A",
+   "coherent": "PASS",
+   "english_law_register": "PASS",
+   "duplicate_of": null,
+   "notes": "Narrative stays generic (unnamed 'individual', no entrustment stated); F_el1 establishes misappropriation only. El0 genuinely absent everywhere; abstention is correct."
+  },
+  {
+   "attempt_id": "t_ipc405_misappropriation_r1_0002",
+   "contract_id": "ipc405_misappropriation",
+   "shape": "control",
+   "fact_fit": "PASS",
+   "narrative_neutral": "FAIL",
+   "omission_real": "N/A",
+   "denial_real": "N/A",
+   "coherent": "PASS",
+   "english_law_register": "PASS",
+   "duplicate_of": "t_ipc405_misappropriation_r1_0012 (same informal-entrustment-at-a-village-event / pawned-for-personal-gain template)",
+   "notes": "F_narrative already narrates both el0 ('asked her nephew to safeguard ... instruction to keep them safe') and el1 ('admitted to pawning the jewelry ... to pay off personal gambling debts') before the element facts restate them; scene-setting is not neutral."
+  },
+  {
+   "attempt_id": "t_ipc405_misappropriation_r1_0003",
+   "contract_id": "ipc405_misappropriation",
+   "shape": "control",
+   "fact_fit": "PASS",
+   "narrative_neutral": "FAIL",
+   "omission_real": "N/A",
+   "denial_real": "N/A",
+   "coherent": "PASS",
+   "english_law_register": "PASS",
+   "duplicate_of": null,
+   "notes": "'the village cooperative appointed its treasurer to manage donated grain reserves' already establishes el0 (dominion) before F_el0 restates it with specifics; el1 correctly left to F_el1."
+  },
+  {
+   "attempt_id": "t_ipc405_misappropriation_r1_0005",
+   "contract_id": "ipc405_misappropriation",
+   "shape": "omit:0",
+   "fact_fit": "PASS",
+   "narrative_neutral": "PASS",
+   "omission_real": "PASS",
+   "denial_real": "N/A",
+   "coherent": "PASS",
+   "english_law_register": "PASS",
+   "duplicate_of": null,
+   "notes": "Narrative describes an audit with unnamed 'staff members with access', not a specific entrustment; F_el1 names Elias Vance and states only the misappropriation. El0 genuinely absent; abstention correct."
+  },
+  {
+   "attempt_id": "t_ipc405_misappropriation_r1_0006",
+   "contract_id": "ipc405_misappropriation",
+   "shape": "omit:1",
+   "fact_fit": "PASS",
+   "narrative_neutral": "FAIL",
+   "omission_real": "PASS",
+   "denial_real": "N/A",
+   "coherent": "PASS",
+   "english_law_register": "PASS",
+   "duplicate_of": null,
+   "notes": "Narrative states 'Meera Nair was assigned custody ... signature acknowledging receipt and exclusive responsibility for the crate's contents', which is el0 in substance, duplicating F_el0. El1 (the omitted element) is correctly absent everywhere, so the abstention itself is sound."
+  },
+  {
+   "attempt_id": "t_ipc405_misappropriation_r1_0007",
+   "contract_id": "ipc405_misappropriation",
+   "shape": "control",
+   "fact_fit": "PASS",
+   "narrative_neutral": "FAIL",
+   "omission_real": "N/A",
+   "denial_real": "N/A",
+   "coherent": "PASS",
+   "english_law_register": "PASS",
+   "duplicate_of": null,
+   "notes": "'took custody of his personal effects stored in a bank vault' in the narrative already establishes el0 before F_el0 restates it. El1 (novel discovery/removal) correctly left to the fact."
+  },
+  {
+   "attempt_id": "t_ipc405_misappropriation_r1_0010",
+   "contract_id": "ipc405_misappropriation",
+   "shape": "omit:0",
+   "fact_fit": "PASS",
+   "narrative_neutral": "PASS",
+   "omission_real": "PASS",
+   "denial_real": "N/A",
+   "coherent": "PASS",
+   "english_law_register": "PASS",
+   "duplicate_of": null,
+   "notes": "'managed inventory transfers' is generic operational language, not a specific entrustment; F_el1 supplies only the misappropriation. El0 genuinely unestablished; abstention correct."
+  },
+  {
+   "attempt_id": "t_ipc405_misappropriation_r1_0011",
+   "contract_id": "ipc405_misappropriation",
+   "shape": "omit:1",
+   "fact_fit": "PASS",
+   "narrative_neutral": "FAIL",
+   "omission_real": "PASS",
+   "denial_real": "N/A",
+   "coherent": "PASS",
+   "english_law_register": "PASS",
+   "duplicate_of": null,
+   "notes": "'appointed a local logistics coordinator to manage incoming donations. The coordinator received sealed containers ...' already establishes el0 in the narrative, duplicating F_el0. El1 (the omitted element) is genuinely absent everywhere, so omission_real holds."
+  },
+  {
+   "attempt_id": "t_ipc405_misappropriation_r1_0012",
+   "contract_id": "ipc405_misappropriation",
+   "shape": "control",
+   "fact_fit": "PASS",
+   "narrative_neutral": "FAIL",
+   "omission_real": "N/A",
+   "denial_real": "N/A",
+   "coherent": "PASS",
+   "english_law_register": "PASS",
+   "duplicate_of": "t_ipc405_misappropriation_r1_0002 (same template)",
+   "notes": "'Amara agreed to safeguard her neighbor's antique brass urn' already establishes el0 in the narrative. Near-identical skeleton to record 0002 (informal witnessed entrustment during a village event, later sold for personal cash)."
+  },
+  {
+   "attempt_id": "t_ipc405_misappropriation_r1_0013",
+   "contract_id": "ipc405_misappropriation",
+   "shape": "control",
+   "fact_fit": "PASS",
+   "narrative_neutral": "FAIL",
+   "omission_real": "N/A",
+   "denial_real": "N/A",
+   "coherent": "PASS",
+   "english_law_register": "PASS",
+   "duplicate_of": "t_ipc405_wilfully_suffers_r1_0002 (same character 'Elias Thorne' / Halloway Historical Society / archival-custodian-audit template)",
+   "notes": "'appointed as the sole custodian of the archival silver collection' establishes el0 in the narrative. Shares protagonist name, institution, and setup almost verbatim with the wilfully_suffers record 0002."
+  },
+  {
+   "attempt_id": "t_ipc405_misappropriation_r1_0015",
+   "contract_id": "ipc405_misappropriation",
+   "shape": "omit:0",
+   "fact_fit": "PASS",
+   "narrative_neutral": "PASS",
+   "omission_real": "PASS",
+   "denial_real": "N/A",
+   "coherent": "PASS",
+   "english_law_register": "PASS",
+   "duplicate_of": null,
+   "notes": "Narrative stays at the level of an unresolved audit ('discrepancies ... chain of custody'); F_el1 supplies only the misappropriation. El0 genuinely absent; abstention correct."
+  },
+  {
+   "attempt_id": "t_ipc405_misappropriation_r1_0016",
+   "contract_id": "ipc405_misappropriation",
+   "shape": "omit:1",
+   "fact_fit": "PASS",
+   "narrative_neutral": "FAIL",
+   "omission_real": "PASS",
+   "denial_real": "N/A",
+   "coherent": "PASS",
+   "english_law_register": "PASS",
+   "duplicate_of": null,
+   "notes": "'The museum's board formally transferred physical possession and administrative control of the artifacts to Thorne via a signed bailment agreement' is essentially F_el0 restated in the narrative. El1 (the omitted element) is genuinely absent everywhere, so the abstention is sound."
+  },
+  {
+   "attempt_id": "t_ipc405_use_or_disposal_r1_0000",
+   "contract_id": "ipc405_use_or_disposal",
+   "shape": "omit:1",
+   "fact_fit": "PASS",
+   "narrative_neutral": "FAIL",
+   "omission_real": "PASS",
+   "denial_real": "N/A",
+   "coherent": "PASS",
+   "english_law_register": "PASS",
+   "duplicate_of": null,
+   "notes": "'appointed a logistics coordinator to manage the seasonal distribution ... received formal instructions regarding storage protocols' establishes el0 and previews el2's contractual-direction content. El1 (disposal, the omitted element) is genuinely absent everywhere; abstention correct."
+  },
+  {
+   "attempt_id": "t_ipc405_use_or_disposal_r1_0003",
+   "contract_id": "ipc405_use_or_disposal",
+   "shape": "control",
+   "fact_fit": "FAIL",
+   "narrative_neutral": "FAIL",
+   "omission_real": "N/A",
+   "denial_real": "N/A",
+   "coherent": "PASS",
+   "english_law_register": "PASS",
+   "duplicate_of": "t_ipc405_use_or_disposal_r1_0007 (same character 'Priya Sharma, estate executor' template)",
+   "notes": "Narrative recites el0 (appointed executor with dominion) and el2 (the will's specific direction) in full, leaving only el1 for the fact tier. F_el1 ('rather than preserving the capital for the beneficiary') is doubtful: it also does el2's violation-work rather than stating only the disposal, so it is not clean to el1 alone."
+  },
+  {
+   "attempt_id": "t_ipc405_use_or_disposal_r1_0005",
+   "contract_id": "ipc405_use_or_disposal",
+   "shape": "omit:1",
+   "fact_fit": "PASS",
+   "narrative_neutral": "FAIL",
+   "omission_real": "PASS",
+   "denial_real": "N/A",
+   "coherent": "PASS",
+   "english_law_register": "PASS",
+   "duplicate_of": null,
+   "notes": "Narrative states el0 ('full authority to manage her residential property') and el2 ('the will explicitly directed that the house be maintained solely for the benefit of...') almost verbatim to F_el0/F_el2. El1 (disposal, the omitted element) is genuinely absent everywhere; abstention correct."
+  },
+  {
+   "attempt_id": "t_ipc405_use_or_disposal_r1_0007",
+   "contract_id": "ipc405_use_or_disposal",
+   "shape": "control",
+   "fact_fit": "PASS",
+   "narrative_neutral": "FAIL",
+   "omission_real": "N/A",
+   "denial_real": "N/A",
+   "coherent": "PASS",
+   "english_law_register": "PASS",
+   "duplicate_of": "t_ipc405_use_or_disposal_r1_0003 (same template)",
+   "notes": "Most severe narrative leak in the set: the narrative alone already states el0 (took custody), el2 (will mandated liquidation within sixty days into a trust account) and el1 (Priya transferred the shares into her personal account instead) — the entire offence is narrated before any F_el<k>."
+  },
+  {
+   "attempt_id": "t_ipc405_use_or_disposal_r1_0008",
+   "contract_id": "ipc405_use_or_disposal",
+   "shape": "control",
+   "fact_fit": "FAIL",
+   "narrative_neutral": "FAIL",
+   "omission_real": "N/A",
+   "denial_real": "N/A",
+   "coherent": "PASS",
+   "english_law_register": "PASS",
+   "duplicate_of": null,
+   "notes": "Narrative already states el0 (responsible for managing the materials), el2 (mandated disposal vendor agreement) and el1 (diverted materials to a private scrap dealer) in full. F_el1 ('selling them to an unauthorized private scrap dealer') is doubtful for fact_fit since 'unauthorized' is doing el2's violation-work rather than describing only the disposal."
+  },
+  {
+   "attempt_id": "t_ipc405_use_or_disposal_r1_0010",
+   "contract_id": "ipc405_use_or_disposal",
+   "shape": "omit:1",
+   "fact_fit": "PASS",
+   "narrative_neutral": "FAIL",
+   "omission_real": "PASS",
+   "denial_real": "N/A",
+   "coherent": "PASS",
+   "english_law_register": "PASS",
+   "duplicate_of": null,
+   "notes": "'appointed Mr. Kaelen Thorne as a bonded warehouse custodian ... formalized through a written bailment agreement specifying strict storage and handling protocols' establishes el0 and previews el2's contractual-existence content. El1 (disposal, the omitted element) is genuinely absent everywhere; abstention correct."
+  },
+  {
+   "attempt_id": "t_ipc405_use_or_disposal_r1_0012",
+   "contract_id": "ipc405_use_or_disposal",
+   "shape": "control",
+   "fact_fit": "PASS",
+   "narrative_neutral": "FAIL",
+   "omission_real": "N/A",
+   "denial_real": "N/A",
+   "coherent": "PASS",
+   "english_law_register": "PASS",
+   "duplicate_of": null,
+   "notes": "'appointed Arjun Mehta as the designated custodian ... trust deed explicitly prohibited the diversion of these funds' establishes both el0 and el2 in the narrative, nearly identical wording to F_el0/F_el2. Only el1 (the actual diversion) is left to the fact tier."
+  },
+  {
+   "attempt_id": "t_ipc405_use_or_disposal_r1_0013",
+   "contract_id": "ipc405_use_or_disposal",
+   "shape": "control",
+   "fact_fit": "PASS",
+   "narrative_neutral": "FAIL",
+   "omission_real": "N/A",
+   "denial_real": "N/A",
+   "coherent": "PASS",
+   "english_law_register": "PASS",
+   "duplicate_of": null,
+   "notes": "'given exclusive access and authority over the inventory' establishes el0 in the narrative. El1 and el2 are correctly left to the fact tier only, so this is the mildest narrative leak among the use_or_disposal controls."
+  },
+  {
+   "attempt_id": "t_ipc405_use_or_disposal_r1_0015",
+   "contract_id": "ipc405_use_or_disposal",
+   "shape": "omit:1",
+   "fact_fit": "PASS",
+   "narrative_neutral": "FAIL",
+   "omission_real": "PASS",
+   "denial_real": "N/A",
+   "coherent": "PASS",
+   "english_law_register": "PASS",
+   "duplicate_of": null,
+   "notes": "'appointed Elias Thorne to manage the ceremonial grain reserves ... council's written charter specified that these reserves were to be distributed solely among registered households' establishes both el0 and el2 in the narrative, duplicating F_el0/F_el2. El1 (disposal, the omitted element) is genuinely absent everywhere; abstention correct."
+  },
+  {
+   "attempt_id": "t_ipc405_use_or_disposal_r1_0018",
+   "contract_id": "ipc405_use_or_disposal",
+   "shape": "control",
+   "fact_fit": "PASS",
+   "narrative_neutral": "FAIL",
+   "omission_real": "N/A",
+   "denial_real": "N/A",
+   "coherent": "PASS",
+   "english_law_register": "PASS",
+   "duplicate_of": null,
+   "notes": "'managed the decedent's investment portfolio under a court-supervised trust arrangement that specified strict preservation protocols' establishes el0 and previews el2's contractual content in the narrative before the fact tier states the specifics."
+  },
+  {
+   "attempt_id": "t_ipc405_wilfully_suffers_r1_0000",
+   "contract_id": "ipc405_wilfully_suffers",
+   "shape": "omit:1",
+   "fact_fit": "PASS",
+   "narrative_neutral": "FAIL",
+   "omission_real": "PASS",
+   "denial_real": "N/A",
+   "coherent": "PASS",
+   "english_law_register": "PASS",
+   "duplicate_of": null,
+   "notes": "'The warehouse manager had exclusive access to the secure storage unit and maintained the digital ledger' establishes el0 in the narrative, duplicating F_el0. El1 (wilful suffering, the omitted element) is genuinely absent everywhere; abstention correct."
+  },
+  {
+   "attempt_id": "t_ipc405_wilfully_suffers_r1_0001",
+   "contract_id": "ipc405_wilfully_suffers",
+   "shape": "control",
+   "fact_fit": "PASS",
+   "narrative_neutral": "FAIL",
+   "omission_real": "N/A",
+   "denial_real": "N/A",
+   "coherent": "PASS",
+   "english_law_register": "PASS",
+   "duplicate_of": null,
+   "notes": "'was assigned sole custody of a warehouse containing high-value medical equipment' establishes el0 in the narrative. El1 (the coordinator's knowing tolerance of the subordinate) is correctly left to F_el1 only, with no named actor for the removal in the narrative."
+  },
+  {
+   "attempt_id": "t_ipc405_wilfully_suffers_r1_0002",
+   "contract_id": "ipc405_wilfully_suffers",
+   "shape": "control",
+   "fact_fit": "PASS",
+   "narrative_neutral": "FAIL",
+   "omission_real": "N/A",
+   "denial_real": "N/A",
+   "coherent": "PASS",
+   "english_law_register": "PASS",
+   "duplicate_of": "t_ipc405_misappropriation_r1_0013 (same character 'Elias Thorne' / Halloway Historical Society / archival-custodian-audit template)",
+   "notes": "'Elias Thorne served as the sole custodian of the archival manuscript collection' establishes el0 in the narrative. Shares protagonist name, institution, and setup almost verbatim with the misappropriation record 0013 (only the artifact type and culpable actor differ)."
+  },
+  {
+   "attempt_id": "t_ipc405_wilfully_suffers_r1_0003",
+   "contract_id": "ipc405_wilfully_suffers",
+   "shape": "omit:1",
+   "fact_fit": "PASS",
+   "narrative_neutral": "FAIL",
+   "omission_real": "PASS",
+   "denial_real": "N/A",
+   "coherent": "PASS",
+   "english_law_register": "PASS",
+   "duplicate_of": null,
+   "notes": "'managed a bonded warehouse containing imported electronic components' establishes el0 (custody/dominion) in the narrative, duplicating F_el0. El1 (wilful suffering, the omitted element) is genuinely absent everywhere; abstention correct."
+  }
+ ],
+ "summary": {
+  "total_records": 26,
+  "fail_counts_overall": {
+   "fact_fit": 2,
+   "narrative_neutral": 22,
+   "omission_real_fail": 0,
+   "denial_real_fail": 0,
+   "coherent": 0,
+   "english_law_register": 0
+  },
+  "pass_counts_overall": {
+   "fact_fit": 24,
+   "narrative_neutral": 4,
+   "omission_real_pass": 12,
+   "denial_real_na": 26,
+   "coherent": 26,
+   "english_law_register": 26
+  },
+  "fail_counts_by_contract": {
+   "ipc405_misappropriation": {
+    "n": 12,
+    "fact_fit_fail": 0,
+    "narrative_neutral_fail": 8,
+    "omission_real_fail": 0
+   },
+   "ipc405_use_or_disposal": {
+    "n": 10,
+    "fact_fit_fail": 2,
+    "narrative_neutral_fail": 10,
+    "omission_real_fail": 0
+   },
+   "ipc405_wilfully_suffers": {
+    "n": 4,
+    "fact_fit_fail": 0,
+    "narrative_neutral_fail": 4,
+    "omission_real_fail": 0
+   }
+  },
+  "systemic_finding": "narrative_neutral is the dominant failure mode: 22/26 F_narrative fields state the entrustment relationship (el0) and, for ipc405_use_or_disposal, frequently also the governing contract/direction (el2) as scene-setting, before the element facts restate the same content. Only records that keep the narrative anonymous ('an individual', 'staff members', 'the coordinator' with no stated custodial relationship) pass — these are exactly the omit:0 misappropriation records (0000, 0005, 0010, 0015), where the teacher evidently was careful not to leak the specific omitted element but did not apply the same care to keeping narratives neutral generally. Every ipc405_use_or_disposal record fails narrative_neutral, and two of its control records (0007, 0008) have the narrative reciting all three required elements in full, making the element facts almost redundant restatements. Separately, character-name and setting templates repeat closely across contracts ('Elias Thorne' custodian-of-an-archive-with-audit-discrepancies in both t_ipc405_misappropriation_r1_0013 and t_ipc405_wilfully_suffers_r1_0002; 'Priya Sharma, estate executor' in both t_ipc405_use_or_disposal_r1_0003 and 0007; the informal village-festival entrustment template in t_ipc405_misappropriation_r1_0002 and 0012), and a generic 'logistics coordinator manages a warehouse' skeleton recurs across at least five records spanning all three contracts.",
+  "worst_10": [
+   {
+    "attempt_id": "t_ipc405_use_or_disposal_r1_0007",
+    "reason": "Narrative alone fully recites el0, el1 and el2 (custody, the will's 60-day liquidation mandate, and Priya diverting the shares) — the entire offence is stated before any element fact; fact tier is largely redundant restatement."
+   },
+   {
+    "attempt_id": "t_ipc405_use_or_disposal_r1_0008",
+    "reason": "Narrative alone fully recites el0, el1 and el2 (managing role, the mandated vendor agreement, and diversion to a private scrap dealer); additionally F_el1 ('unauthorized') doubtfully bleeds into el2's violation content."
+   },
+   {
+    "attempt_id": "t_ipc405_misappropriation_r1_0002",
+    "reason": "Narrative fully recites both el0 ('asked her nephew to safeguard ... keep them safe') and el1 ('admitted to pawning the jewelry ... to pay off gambling debts') ahead of the element facts; also a near-duplicate of record 0012's template."
+   },
+   {
+    "attempt_id": "t_ipc405_use_or_disposal_r1_0003",
+    "reason": "Narrative recites el0 and el2 (will's specific liquidation-and-trust-account direction) in full; F_el1 is doubtful for fact_fit because it also does el2's violation-work; near-duplicate of record 0007's 'Priya Sharma, estate executor' template."
+   },
+   {
+    "attempt_id": "t_ipc405_use_or_disposal_r1_0005",
+    "reason": "Narrative recites el0 ('full authority to manage') and el2 (the will's maintenance-only direction) almost verbatim to the element facts, leaving only a thin margin for F_el0/F_el2 to add."
+   },
+   {
+    "attempt_id": "t_ipc405_use_or_disposal_r1_0012",
+    "reason": "Narrative recites el0 (designated custodian) and el2 (trust deed's express prohibition on diversion) nearly verbatim to F_el0/F_el2, leaving only el1 for the fact tier."
+   },
+   {
+    "attempt_id": "t_ipc405_use_or_disposal_r1_0015",
+    "reason": "Narrative recites el0 (appointed to manage the granary) and el2 (charter's distribution-only rule) in full, duplicating F_el0/F_el2; the only thing correctly held back is the omitted el1."
+   },
+   {
+    "attempt_id": "t_ipc405_misappropriation_r1_0016",
+    "reason": "Narrative states the bailment deed granting exclusive custody and dominion almost word-for-word what F_el0 later states, making the fact tier redundant for el0."
+   },
+   {
+    "attempt_id": "t_ipc405_use_or_disposal_r1_0018",
+    "reason": "Narrative establishes el0 (managed the portfolio under a trust arrangement) and previews el2's 'strict preservation protocols' content before the element facts state the specifics."
+   },
+   {
+    "attempt_id": "t_ipc405_misappropriation_r1_0013",
+    "reason": "Narrative establishes el0 ('appointed as the sole custodian of the archival silver collection') in full; also a close near-duplicate of wilfully_suffers record 0002 (same protagonist name and institution)."
+   }
+  ]
+ }
+}
