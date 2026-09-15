@@ -170,6 +170,32 @@ Stages — each a Loom program (`sft` executes today; `evaluate`/`distill`/`prom
 Total ≈ **$35–60 of the $200**, leaving headroom for reruns and the second arm. FLOP arithmetic, not measurement: the
 house rules require every full run's hours and dollars to come from the P0 file.
 
+### 9a. Amendment after the data-feasibility spike (2026-09-15 10:05 BST)
+
+The Codex spike (`spikes/trackb-typed-ir/codex-gpt6-astra-data-feasibility-2026-09-15.md`) found that **no source on
+the box converts deterministically into a full `nyaya-law-v1` record**: current verified yield is 0 of the 25k
+target; at most 36 LegalBench diversity rows could be adapted with a human-authored rule contract (0.14%). What the
+data does give: 915 statute lookups (IPC 557, BNS 358), 6,206 `law_v3` citation rows (provision-level overlap with
+the 690 held-out set unaudited), CaseHOLD 5,314 holding selections (reserve as validation), LegalBench 75 train /
+3,397 test rows across 15 tasks, IL-TUR 13,019 eval rows (4,699 truncated, entities redacted). The `nyaya_check` and
+`reason_chain` slices of instruct_v1 are finite-world Sanskrit-pipeline artefacts and do not convert to legal proofs.
+
+Consequences for §9 (the lead is told the same):
+
+1. **P2 splits in two.** P2a = *supervision authoring*: a trusted rule registry (typed premises, exceptions, source
+   spans — the spike lists the entries needed for IPC 405/416/182 and BNS 85/69/47), controlled fact generators, and
+   a reviewed contract per rule family; P2b = the structure SFT as before, but its data is (i) mechanical auxiliaries
+   (lookup, citation, holding selection, abstain-on-missing-source) as a lower tier and (ii) checker-accepted
+   teacher-converted records. Teacher conversion therefore moves *ahead* of SFT: the verifier-filtered distillation of
+   P3 is how P2b's data is made, not a later stage.
+2. **Yield is a gate, not an assumption.** Before any GPU run, a prereg states the record count per tier with the
+   checker's acceptance rate measured on ≥ 200 teacher proposals; "25k" is retired as a target until that number
+   exists.
+3. **Leakage rules** (spike §5) are binding: all 33 `law_apply`, all LegalBench test, all IL-TUR test, all CaseHOLD
+   validation excluded from SFT with group-level dedup; `law_v3` joined against the 690 by provision id before use.
+4. The line grammar needs two additions the spike found missing: a rule-free abstention spelling and native task
+   kinds for holding selection and multi-label statute identification.
+
 ### 10. Scaffolding the team must build before kick-off (Studio RSI work, not hand-work)
 
 | Item | Where | Owner |
