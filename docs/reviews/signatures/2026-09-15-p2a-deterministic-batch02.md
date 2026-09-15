@@ -25,7 +25,7 @@ Ratio and floors: with amendment (d) (control ≥ 25 %, ≥ 10 control scenarios
 
 **Status: HELD** pending the Class A rewrites, the 416 re-authoring, and the dependency-skip in the generator; regenerate batch-02 at the same scenarios. Then scale to ≥ 10 per id under the pace ruling (author provenance, narrative-only rephrasing guard ≥ 0.40 reject / 0.30–0.39 flag, ≤ 12 per id). I re-read the regenerated batch-02 leak table before scale-up.
 
-## Re-read @ `0447992` / `ecb3595` — CLEARED for scale-up with 10 wording fixes, 2026-09-15 15:58 BST
+## Re-read @ `0447992` / `ecb3595` — CLEARED for scale-up with 10 wording fixes, 2026-09-15 16:01 BST
 
 `ecb3595` differs from `0447992` only in the generator (dependency-table name assertion); records byte-identical (verified). Re-read by spikeD2 (report `batch02b-read.md`) over all 128 emitted omission slices plus my own check: Class A rewrites applied; the 12 dependency skips are the three ruled directions and are logged; 416 re-authored so both omission directions are coherent; distinctness unchanged (56 scenarios, 0 rephrasings); bns69 jobpromo/scholarship pair read by me: distinct (different inducement and parties).
 
