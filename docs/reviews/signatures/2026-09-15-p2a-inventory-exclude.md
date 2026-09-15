@@ -34,3 +34,9 @@ Questions from trackB via the lead. Rulings:
 3. **Provenance per record**: `scenario_id`, `contract_id`, `slice` (`control` | `omit:<element>` | `deny:<denial>`), `assertions` (element → Met), `expected_verdict`, the REG raw output and the binary sha256; the batch file is immutable and replayed by `replay`.
 
 Yes to trackB's read on both, with the mix constraint and the scenario-floor made explicit. Release trackB to build the generator and a first per-id batch; I read the first batch for scenario distinctness before it scales.
+
+## Amendment (d) — mix rule and rephrasing guard, 2026-09-15 15:40 BST
+
+Amendment (c)'s "control ≥ 40 % of D" conflicts with its own instruction to emit one omission slice per element: with n elements plus an optional denial, a scenario yields 1 control in (n + 2) records, so the ratio is structurally ≈ 25–30 % (batch-02: 56 controls in 208 = 26.9 %). The floor is replaced: **control ≥ 25 % of D, ≥ 10 distinct control scenarios per id, omission slices ≤ n_elements per scenario, denial slices ≤ 1 per scenario.** The scenario floor, not the ratio, is what guarantees coverage.
+
+Rephrasing guard (from the pace ruling): measured on batch-02, Jaccard over content tokens of narrative + element facts runs 0.45–0.59 between distinct scenarios because element facts share the element wording, so that variant is unusable. The guard is **narrative-only** Jaccard (content tokens, stop-words removed) against every existing scenario of the same contract_id: **≥ 0.40 rejected as a rephrasing; 0.30–0.39 flagged for the reviewer's read; < 0.30 accepted.** Batch-02's maximum is 0.35 (4 pairs in the flagged band, 0 rejected). The generator records the maximum overlap and the nearest scenario_id in provenance.
