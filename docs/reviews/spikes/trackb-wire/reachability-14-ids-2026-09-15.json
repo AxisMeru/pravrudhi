@@ -1,0 +1,353 @@
+{
+ "lean_sha": "45c4bdf",
+ "python_sha": "467fce4",
+ "score_bin_sha256": "46a78c1f7555ccd71f3a02c3e0ea9553ecff855e0e03c57b80bb1f9afa8c65b8",
+ "drift_ok": true,
+ "n_ids": 14,
+ "runs": {
+  "ipc405_misappropriation": {
+   "elements": [
+    "entrusted with property, or with dominion over property",
+    "dishonestly misappropriates or converts the property to his own use"
+   ],
+   "control": {
+    "verdict": "grounded",
+    "denied_claims": [],
+    "unlicensed_claims": [],
+    "omitted_claims": []
+   },
+   "omit_first": {
+    "verdict": "flagged",
+    "denied_claims": [],
+    "unlicensed_claims": [],
+    "omitted_claims": [
+     "G_SATISFIES(E(the conduct in the facts,AC),E(entrusted with property%2C or with dominion over property,EL))"
+    ]
+   },
+   "ok": true
+  },
+  "ipc405_use_or_disposal": {
+   "elements": [
+    "entrusted with property, or with dominion over property",
+    "dishonestly uses or disposes of the property",
+    "in violation of a legal direction or a contract (express or implied) governing how the trust is to be discharged"
+   ],
+   "control": {
+    "verdict": "grounded",
+    "denied_claims": [],
+    "unlicensed_claims": [],
+    "omitted_claims": []
+   },
+   "omit_first": {
+    "verdict": "flagged",
+    "denied_claims": [],
+    "unlicensed_claims": [],
+    "omitted_claims": [
+     "G_SATISFIES(E(the conduct in the facts,AC),E(entrusted with property%2C or with dominion over property,EL))"
+    ]
+   },
+   "ok": true
+  },
+  "ipc405_wilfully_suffers": {
+   "elements": [
+    "entrusted with property, or with dominion over property",
+    "wilfully suffers another person to do the misappropriation/conversion or the use/disposal described above"
+   ],
+   "control": {
+    "verdict": "grounded",
+    "denied_claims": [],
+    "unlicensed_claims": [],
+    "omitted_claims": []
+   },
+   "omit_first": {
+    "verdict": "flagged",
+    "denied_claims": [],
+    "unlicensed_claims": [],
+    "omitted_claims": [
+     "G_SATISFIES(E(the conduct in the facts,AC),E(entrusted with property%2C or with dominion over property,EL))"
+    ]
+   },
+   "ok": true
+  },
+  "ipc415_property": {
+   "elements": [
+    "deceives another person, whether by affirmative misrepresentation or by dishonest concealment of facts",
+    "the deception fraudulently or dishonestly induces the deceived person",
+    "the inducement causes delivery of property to any person, or consent that any person shall retain property"
+   ],
+   "control": {
+    "verdict": "grounded",
+    "denied_claims": [],
+    "unlicensed_claims": [],
+    "omitted_claims": []
+   },
+   "omit_first": {
+    "verdict": "flagged",
+    "denied_claims": [],
+    "unlicensed_claims": [],
+    "omitted_claims": [
+     "G_SATISFIES(E(the conduct in the facts,AC),E(deceives another person%2C whether by affirmative misrepresentation or by dishonest concealment of facts,EL))"
+    ]
+   },
+   "ok": true
+  },
+  "ipc415_damaging_act": {
+   "elements": [
+    "deceives another person, whether by affirmative misrepresentation or by dishonest concealment of facts",
+    "the deception intentionally induces the deceived person to do or omit to do something they would not otherwise have done or omitted",
+    "the induced act or omission causes, or is likely to cause, damage or harm to the deceived person in body, mind, reputation, or property"
+   ],
+   "control": {
+    "verdict": "grounded",
+    "denied_claims": [],
+    "unlicensed_claims": [],
+    "omitted_claims": []
+   },
+   "omit_first": {
+    "verdict": "flagged",
+    "denied_claims": [],
+    "unlicensed_claims": [],
+    "omitted_claims": [
+     "G_SATISFIES(E(the conduct in the facts,AC),E(deceives another person%2C whether by affirmative misrepresentation or by dishonest concealment of facts,EL))"
+    ]
+   },
+   "ok": true
+  },
+  "ipc416": {
+   "elements": [
+    "cheats (s.415: either the property-inducement limb or the damaging-act limb)",
+    "pretending to be, substituting for, or misrepresenting the identity of, another person (real or imaginary)"
+   ],
+   "control": {
+    "verdict": "grounded",
+    "denied_claims": [],
+    "unlicensed_claims": [],
+    "omitted_claims": []
+   },
+   "omit_first": {
+    "verdict": "flagged",
+    "denied_claims": [],
+    "unlicensed_claims": [],
+    "omitted_claims": [
+     "G_SATISFIES(E(the conduct in the facts,AC),E(cheats %28s.415: either the property-inducement limb or the damaging-act limb%29,EL))"
+    ]
+   },
+   "ok": true
+  },
+  "ipc182_misdirected_act": {
+   "elements": [
+    "gives a public servant information the giver knows or believes to be false",
+    "the giver intends, or knows it likely, that the false information will cause the consequence named by the limb",
+    "the consequence intended, or known to be likely, is that the public servant do or omit something they ought not to do or omit if the true facts were known"
+   ],
+   "control": {
+    "verdict": "grounded",
+    "denied_claims": [],
+    "unlicensed_claims": [],
+    "omitted_claims": []
+   },
+   "omit_first": {
+    "verdict": "flagged",
+    "denied_claims": [],
+    "unlicensed_claims": [],
+    "omitted_claims": [
+     "G_SATISFIES(E(the conduct in the facts,AC),E(gives a public servant information the giver knows or believes to be false,EL))"
+    ]
+   },
+   "ok": true
+  },
+  "ipc182_abuse_of_power": {
+   "elements": [
+    "gives a public servant information the giver knows or believes to be false",
+    "the giver intends, or knows it likely, that the false information will cause the consequence named by the limb",
+    "the consequence intended, or known to be likely, is the use of the public servant's lawful power to the injury or annoyance of any person"
+   ],
+   "control": {
+    "verdict": "grounded",
+    "denied_claims": [],
+    "unlicensed_claims": [],
+    "omitted_claims": []
+   },
+   "omit_first": {
+    "verdict": "flagged",
+    "denied_claims": [],
+    "unlicensed_claims": [],
+    "omitted_claims": [
+     "G_SATISFIES(E(the conduct in the facts,AC),E(gives a public servant information the giver knows or believes to be false,EL))"
+    ]
+   },
+   "ok": true
+  },
+  "bns69": {
+   "elements": [
+    "induces the woman by deceitful means (inducement for, or false promise of, employment or promotion, or marrying by suppressing identity), or by a promise to marry made without any intention of fulfilling it",
+    "sexual intercourse with the woman actually occurs"
+   ],
+   "control": {
+    "verdict": "grounded",
+    "denied_claims": [],
+    "unlicensed_claims": [],
+    "omitted_claims": []
+   },
+   "omit_first": {
+    "verdict": "flagged",
+    "denied_claims": [],
+    "unlicensed_claims": [],
+    "omitted_claims": [
+     "G_SATISFIES(E(the conduct in the facts,AC),E(induces the woman by deceitful means %28inducement for%2C or false promise of%2C employment or promotion%2C or marrying by suppressing identity%29%2C or by a promise to marry made without any intention of fulfilling it,EL))"
+    ]
+   },
+   "ok": true
+  },
+  "bns47": {
+   "elements": [
+    "abets the commission of an act -- BNS s.45 (routes: instigation, conspiracy, intentional aid) as extended to offences by s.46",
+    "the abetting conduct is done in India",
+    "the act abetted is located without and beyond India",
+    "the abetted act would constitute an offence if committed in India"
+   ],
+   "control": {
+    "verdict": "grounded",
+    "denied_claims": [],
+    "unlicensed_claims": [],
+    "omitted_claims": []
+   },
+   "omit_first": {
+    "verdict": "flagged",
+    "denied_claims": [],
+    "unlicensed_claims": [],
+    "omitted_claims": [
+     "G_SATISFIES(E(the conduct in the facts,AC),E(abets the commission of an act -- BNS s.45 %28routes: instigation%2C conspiracy%2C intentional aid%29 as extended to offences by s.46,EL))"
+    ]
+   },
+   "ok": true
+  },
+  "bns85": {
+   "elements": [
+    "the accused is the husband, or a relative of the husband, of the woman",
+    "subjects the woman to cruelty (s.86(a) or (b))"
+   ],
+   "control": {
+    "verdict": "grounded",
+    "denied_claims": [],
+    "unlicensed_claims": [],
+    "omitted_claims": []
+   },
+   "omit_first": {
+    "verdict": "flagged",
+    "denied_claims": [],
+    "unlicensed_claims": [],
+    "omitted_claims": [
+     "G_SATISFIES(E(the conduct in the facts,AC),E(the accused is the husband%2C or a relative of the husband%2C of the woman,EL))"
+    ]
+   },
+   "ok": true
+  },
+  "bns46_instigation": {
+   "elements": [
+    "instigates any person to do the thing (urges, incites or provokes it), including, per s.45 Explanation 1, wilfully misrepresenting or wilfully concealing a material fact one is bound to disclose so as to cause, procure, or attempt to cause or procure it",
+    "the thing abetted is itself an offence, or is an act which would be an offence if committed by a person capable by law of committing an offence with the same intention or knowledge as the abettor's own"
+   ],
+   "control": {
+    "verdict": "grounded",
+    "denied_claims": [],
+    "unlicensed_claims": [],
+    "omitted_claims": []
+   },
+   "omit_first": {
+    "verdict": "flagged",
+    "denied_claims": [],
+    "unlicensed_claims": [],
+    "omitted_claims": [
+     "G_SATISFIES(E(the conduct in the facts,AC),E(instigates any person to do the thing %28urges%2C incites or provokes it%29%2C including%2C per s.45 Explanation 1%2C wilfully misrepresenting or wilfully concealing a material fact one is bound to disclose so as to cause%2C procure%2C or attempt to cause or procure it,EL))"
+    ]
+   },
+   "ok": true
+  },
+  "bns46_conspiracy": {
+   "elements": [
+    "engages with one or more other persons in a conspiracy for the doing of the thing, and an act or illegal omission takes place in pursuance of that conspiracy and in order to the doing of the thing (no concert with the person who actually does it is required -- s.46 Explanation 5)",
+    "the thing abetted is itself an offence, or is an act which would be an offence if committed by a person capable by law of committing an offence with the same intention or knowledge as the abettor's own"
+   ],
+   "control": {
+    "verdict": "grounded",
+    "denied_claims": [],
+    "unlicensed_claims": [],
+    "omitted_claims": []
+   },
+   "omit_first": {
+    "verdict": "flagged",
+    "denied_claims": [],
+    "unlicensed_claims": [],
+    "omitted_claims": [
+     "G_SATISFIES(E(the conduct in the facts,AC),E(engages with one or more other persons in a conspiracy for the doing of the thing%2C and an act or illegal omission takes place in pursuance of that conspiracy and in order to the doing of the thing %28no concert with the person who actually does it is required -- s.46 Explanation 5%29,EL))"
+    ]
+   },
+   "ok": true
+  },
+  "bns46_intentional_aid": {
+   "elements": [
+    "intentionally aids, by any act or illegal omission, the doing of the thing, including, per s.45 Explanation 2, doing anything prior to or at the time of the act in order to facilitate it and thereby facilitating it",
+    "the thing abetted is itself an offence, or is an act which would be an offence if committed by a person capable by law of committing an offence with the same intention or knowledge as the abettor's own"
+   ],
+   "control": {
+    "verdict": "grounded",
+    "denied_claims": [],
+    "unlicensed_claims": [],
+    "omitted_claims": []
+   },
+   "omit_first": {
+    "verdict": "flagged",
+    "denied_claims": [],
+    "unlicensed_claims": [],
+    "omitted_claims": [
+     "G_SATISFIES(E(the conduct in the facts,AC),E(intentionally aids%2C by any act or illegal omission%2C the doing of the thing%2C including%2C per s.45 Explanation 2%2C doing anything prior to or at the time of the act in order to facilitate it and thereby facilitating it,EL))"
+    ]
+   },
+   "ok": true
+  }
+ },
+ "denials": {
+  "bns69": {
+   "result": {
+    "verdict": "flagged",
+    "denied_claims": [
+     "G_SATISFIES(E(the conduct in the facts,AC),E(the sexual intercourse amounts to the offence of rape,EL))"
+    ],
+    "unlicensed_claims": [
+     "G_SATISFIES(E(the conduct in the facts,AC),E(the sexual intercourse amounts to the offence of rape,EL))"
+    ],
+    "omitted_claims": []
+   },
+   "ok": false
+  },
+  "ipc405_misappropriation": {
+   "result": {
+    "verdict": "flagged",
+    "denied_claims": [
+     "G_SATISFIES(E(the conduct in the facts,AC),E(acted in good faith%2C believing the disobedience served the entrusting party's advantage%2C not dishonestly,EL))"
+    ],
+    "unlicensed_claims": [
+     "G_SATISFIES(E(the conduct in the facts,AC),E(acted in good faith%2C believing the disobedience served the entrusting party's advantage%2C not dishonestly,EL))"
+    ],
+    "omitted_claims": []
+   },
+   "ok": false
+  },
+  "ipc405_use_or_disposal": {
+   "result": {
+    "verdict": "flagged",
+    "denied_claims": [
+     "G_SATISFIES(E(the conduct in the facts,AC),E(acted in good faith%2C believing the disobedience served the entrusting party's advantage%2C not dishonestly,EL))"
+    ],
+    "unlicensed_claims": [
+     "G_SATISFIES(E(the conduct in the facts,AC),E(acted in good faith%2C believing the disobedience served the entrusting party's advantage%2C not dishonestly,EL))"
+    ],
+    "omitted_claims": []
+   },
+   "ok": false
+  }
+ },
+ "unknown_refused": true,
+ "all_ok": false
+}
