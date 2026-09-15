@@ -80,6 +80,6 @@ Verified from origin (`assistant/trackA/p2a-teacher-sampling` @ `7d7f6cb`): teac
 
 On (1) resolved and Track A's shape-sign, merge. Resume still waits on the operator's teacher decision and on (2).
 
-## Sha rule reconciled; T coverage shape given to d0 — 2026-09-15 18:52 BST
+## Sha rule reconciled; T coverage shape given to d0 — 2026-09-15 18:48 BST
 
 Track A's shape-sign is in; it independently found condition 1 (status embeds its own hash). Lead reconciled the content-sha rule to mine (exclude `status`, `signatures`, amendment sha fields; sort_keys; ensure_ascii=False; `--manifest-sha` flag); both reviewers recompute the pin on d0's next tip before merge. Resume bucket additions: Track A's deny comparison against `DENIAL_ELEMENT_BY_ID`; my condition 2. Correction sent: the four never-omitted elements are the dependency-dropped side of the frozen definitional dependencies and must stay unsampled by rule; the labelling bug is what zeroes the other indices. Coverage shape given: omission directions = every index except the dependency-dropped one; deny for 405m/405u/bns69 only; control ≥ 25 % per id; yield reports accepted per direction and per deny. Advisory (not a frozen conjunct): ≥ 1 accepted per allowed direction and ≥ 1 deny per denial-bearing id on top of A_i ≥ 5, applied as a signing check on the T read.
