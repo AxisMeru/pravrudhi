@@ -4,6 +4,7 @@ nothing touches the real RunPod API or spends real money."""
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -22,7 +23,12 @@ from pravrudhi.hosts.transports import (
     RunpodPodManager,
     append_ledger_entry,
     choose_gpu_type,
+    heartbeat_is_stale,
+    is_idle,
+    max_hours_exceeded,
     rsync_checkpoint_command,
+    should_stop,
+    write_stop_file_command,
 )
 
 
@@ -299,3 +305,125 @@ class TestCheckpointRsyncCommand:
                 pod_ssh_target="root@1.2.3.4", pod_ssh_port=22222,
                 remote_checkpoint_dir="/workspace/checkpoints/latest", run_id="../escape",
             )
+
+
+class TestMaxHoursEnforcement:
+    """House rule 20(d): the transport's own hard wall-clock, enforced independent of any seat being awake."""
+
+    def test_within_max_hours_is_not_exceeded(self) -> None:
+        started = datetime(2026, 9, 15, 10, 0, tzinfo=UTC)
+        now = started + timedelta(hours=3)
+        assert max_hours_exceeded(started, 6.0, now=now) is False
+
+    def test_at_or_past_max_hours_is_exceeded(self) -> None:
+        started = datetime(2026, 9, 15, 10, 0, tzinfo=UTC)
+        now = started + timedelta(hours=6)
+        assert max_hours_exceeded(started, 6.0, now=now) is True
+
+
+class TestHeartbeatStaleness:
+    """House rule 20(a): the job script writes a heartbeat every 5 min - two missed beats (>=10 min) means
+    the pod's own watchdog may have died, independent of seat availability."""
+
+    def test_a_fresh_heartbeat_is_not_stale(self) -> None:
+        last = datetime(2026, 9, 15, 10, 0, tzinfo=UTC)
+        now = last + timedelta(minutes=3)
+        assert heartbeat_is_stale(last, now=now) is False
+
+    def test_a_heartbeat_older_than_the_threshold_is_stale(self) -> None:
+        last = datetime(2026, 9, 15, 10, 0, tzinfo=UTC)
+        now = last + timedelta(minutes=11)
+        assert heartbeat_is_stale(last, now=now) is True
+
+    def test_no_heartbeat_at_all_is_stale(self) -> None:
+        assert heartbeat_is_stale(None) is True
+
+
+class TestIdleGpuKillCondition:
+    """House rule 20: idle GPU (<5% utilisation for 15 min, no active checkpoint sync) is a kill condition."""
+
+    def test_low_util_below_the_time_threshold_is_not_yet_idle(self) -> None:
+        assert is_idle(gpu_util_pct=2.0, minutes_at_this_util=10.0, has_active_sync=False) is False
+
+    def test_low_util_past_the_time_threshold_is_idle(self) -> None:
+        assert is_idle(gpu_util_pct=2.0, minutes_at_this_util=16.0, has_active_sync=False) is True
+
+    def test_an_active_sync_is_never_idle_regardless_of_util(self) -> None:
+        assert is_idle(gpu_util_pct=0.0, minutes_at_this_util=60.0, has_active_sync=True) is False
+
+    def test_high_util_is_not_idle(self) -> None:
+        assert is_idle(gpu_util_pct=60.0, minutes_at_this_util=30.0, has_active_sync=False) is False
+
+
+class TestShouldStop:
+    """Combines every rule-20 kill condition into one check the stand-by seat's poll loop (rule 21) calls
+    once per cycle. A STOP file always wins regardless of what else is true - it is the explicit,
+    deliberate override every other condition defers to."""
+
+    def _base_kwargs(self, now: datetime) -> dict[str, Any]:
+        return dict(
+            started_at=now - timedelta(hours=1), max_hours=6.0, last_heartbeat_at=now - timedelta(minutes=1),
+            gpu_util_pct=50.0, minutes_at_util=1.0, has_active_sync=False, stop_file_exists=False, now=now,
+        )
+
+    def test_nothing_wrong_does_not_stop(self) -> None:
+        now = datetime(2026, 9, 15, 12, 0, tzinfo=UTC)
+        stop, reason = should_stop(**self._base_kwargs(now))
+        assert stop is False and reason == ""
+
+    def test_a_stop_file_wins_over_every_other_condition(self) -> None:
+        now = datetime(2026, 9, 15, 12, 0, tzinfo=UTC)
+        kwargs = self._base_kwargs(now)
+        kwargs["stop_file_exists"] = True
+        stop, reason = should_stop(**kwargs)
+        assert stop is True and "STOP file" in reason
+
+    def test_max_hours_exceeded_stops(self) -> None:
+        now = datetime(2026, 9, 15, 12, 0, tzinfo=UTC)
+        kwargs = self._base_kwargs(now)
+        kwargs["started_at"] = now - timedelta(hours=7)
+        stop, reason = should_stop(**kwargs)
+        assert stop is True and "max-hours" in reason
+
+    def test_stale_heartbeat_stops(self) -> None:
+        now = datetime(2026, 9, 15, 12, 0, tzinfo=UTC)
+        kwargs = self._base_kwargs(now)
+        kwargs["last_heartbeat_at"] = now - timedelta(minutes=20)
+        stop, reason = should_stop(**kwargs)
+        assert stop is True and "heartbeat" in reason
+
+    def test_idle_gpu_stops(self) -> None:
+        now = datetime(2026, 9, 15, 12, 0, tzinfo=UTC)
+        kwargs = self._base_kwargs(now)
+        kwargs["gpu_util_pct"] = 1.0
+        kwargs["minutes_at_util"] = 20.0
+        stop, reason = should_stop(**kwargs)
+        assert stop is True and "idle" in reason
+
+
+class TestStopFilePath:
+    """House rule 21: the seat that starts a pod and the stand-by seat that hands off from it must agree on
+    the exact STOP-file path - a fixed, deterministic location per run, not something either seat invents."""
+
+    def test_the_path_is_deterministic_per_run(self) -> None:
+        mgr = RunpodPodManager("fake-key", http_call=FakeCall({}))
+        assert mgr.stop_file_path("p2-a40-run1") == "/runpod-volume/p2-a40-run1/STOP"
+
+    def test_a_run_id_with_a_path_separator_is_refused(self) -> None:
+        mgr = RunpodPodManager("fake-key", http_call=FakeCall({}))
+        with pytest.raises(RunpodError, match="run_id"):
+            mgr.stop_file_path("../escape")
+
+
+class TestWriteStopFileCommand:
+    """The argv to touch the STOP file remotely over SSH - built, never run, by this module (the same
+    pattern rsync_checkpoint_command already uses); a caller executes it, a test asserts on it."""
+
+    def test_the_command_touches_the_fixed_stop_path(self) -> None:
+        cmd = write_stop_file_command(
+            pod_ssh_target="root@1.2.3.4", pod_ssh_port=22222, stop_file_path="/runpod-volume/run1/STOP",
+        )
+        assert cmd[0] == "ssh"
+        assert any("22222" in part for part in cmd)
+        assert any("root@1.2.3.4" in part for part in cmd)
+        assert any("/runpod-volume/run1/STOP" in part for part in cmd)

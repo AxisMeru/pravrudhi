@@ -349,6 +349,15 @@ class RunpodPodManager:
             "remaining_usd": max(0.0, MAX_TOTAL_SPEND_USD - spent),
         }
 
+    def stop_file_path(self, run_id: str) -> str:
+        """Rule 21: the seat that starts a pod and the stand-by seat that hands off from it must agree on the
+        exact STOP-file location - a fixed, deterministic path per run on the network volume, never something
+        either seat invents by hand. Rejects the same malformed `run_id` shapes `rsync_checkpoint_command`
+        does, for the identical reason: a run id is a directory component, not a path."""
+        if not _RUN_ID.match(run_id):
+            raise RunpodError(f"run_id {run_id!r} must be a plain directory-name component (no '/', no '..')")
+        return f"/runpod-volume/{run_id}/STOP"
+
 
 def append_ledger_entry(
     path: Path, *, event: str, pod_id: str, gpu_type_id: str, cost_per_hour_usd: float, spent_usd: float,
@@ -367,6 +376,83 @@ def append_ledger_entry(
     existing = path.read_text() if path.exists() else ""
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(existing + (header if not existing else "") + row)
+
+
+# --------------------------------------------------------------------------------------------------------------
+# Rule 20/21 watchdog: a pod must never be left running with nobody able to act on it, because two seats
+# (colab/personal and the admin team seat) share the 5-hour usage limit and can both hit it at once (rule 19).
+# So every kill condition here is checked from measurements a caller supplies -- this module holds no clock of
+# its own and starts no background thread -- so a stand-by poll loop (rule 21, every 30 min from the second
+# team seat) can call `should_stop` once per cycle with whatever it just measured, with no dependency on any
+# Claude session being awake to do it.
+# --------------------------------------------------------------------------------------------------------------
+
+#: Rule 20(a): the job script writes a heartbeat every 5 min. Missing two consecutive beats (>=10 min stale)
+#: means the pod's own watchdog may have died, not merely that a beat is running late.
+HEARTBEAT_STALE_AFTER_MINUTES = 10.0
+
+#: Rule 20: idle GPU (<5% utilisation for 15 min, no active checkpoint sync) is a kill condition.
+IDLE_UTIL_PCT_THRESHOLD = 5.0
+IDLE_MINUTES_THRESHOLD = 15.0
+
+
+def max_hours_exceeded(started_at: datetime, max_hours: float, *, now: datetime | None = None) -> bool:
+    """Rule 20(d): the transport's own hard wall-clock, enforced independent of any seat being awake."""
+    now = now or datetime.now(UTC)
+    return (now - started_at).total_seconds() >= max_hours * 3600
+
+
+def heartbeat_is_stale(
+    last_heartbeat_at: datetime | None, *, now: datetime | None = None,
+    stale_after_minutes: float = HEARTBEAT_STALE_AFTER_MINUTES,
+) -> bool:
+    """Rule 20(a): no heartbeat at all, or one older than `stale_after_minutes`, means the job's own watchdog
+    may have stopped functioning -- checked independent of whether a seat happens to be watching."""
+    if last_heartbeat_at is None:
+        return True
+    now = now or datetime.now(UTC)
+    return (now - last_heartbeat_at).total_seconds() >= stale_after_minutes * 60
+
+
+def is_idle(gpu_util_pct: float, minutes_at_this_util: float, *, has_active_sync: bool) -> bool:
+    """Rule 20: idle GPU (<5% utilisation for 15 min, no active checkpoint sync) is a kill condition. An
+    active sync always wins, regardless of how long or how low utilisation has been -- a checkpoint write
+    can genuinely leave the GPU idle without the run being stuck."""
+    if has_active_sync:
+        return False
+    return gpu_util_pct < IDLE_UTIL_PCT_THRESHOLD and minutes_at_this_util >= IDLE_MINUTES_THRESHOLD
+
+
+def should_stop(
+    *, started_at: datetime, max_hours: float, last_heartbeat_at: datetime | None, gpu_util_pct: float,
+    minutes_at_util: float, has_active_sync: bool, stop_file_exists: bool, now: datetime | None = None,
+) -> tuple[bool, str]:
+    """Every rule-20 kill condition, combined into the one check a stand-by poll loop calls per cycle.
+    Returns `(should_stop, reason)` so the caller logs and acts on exactly why, rather than a bare bool.
+
+    A `STOP` file always wins first: it is a deliberate, explicit act (rule 21's hand-off protocol writes
+    one to end a run cleanly) and must never be second-guessed by a measurement that happens to look fine.
+    """
+    now = now or datetime.now(UTC)
+    if stop_file_exists:
+        return True, "STOP file present on the network volume"
+    if max_hours_exceeded(started_at, max_hours, now=now):
+        return True, f"exceeded the pre-registered --max-hours ({max_hours}h)"
+    if heartbeat_is_stale(last_heartbeat_at, now=now):
+        return True, "heartbeat stale (the job's own watchdog may have died)"
+    if is_idle(gpu_util_pct, minutes_at_util, has_active_sync=has_active_sync):
+        return True, f"idle GPU ({gpu_util_pct}% for {minutes_at_util}min, no active checkpoint sync)"
+    return False, ""
+
+
+def write_stop_file_command(*, pod_ssh_target: str, pod_ssh_port: int, stop_file_path: str) -> list[str]:
+    """The argv to write the STOP file over SSH (rule 21's hand-off protocol). Built, never run, by this
+    module -- the same pattern `rsync_checkpoint_command` already uses -- so a caller decides when to
+    execute it and a test can assert on the command alone."""
+    return [
+        "ssh", "-p", str(pod_ssh_port), "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new",
+        pod_ssh_target, f"touch {shlex.quote(stop_file_path)}",
+    ]
 
 
 def rsync_checkpoint_command(
