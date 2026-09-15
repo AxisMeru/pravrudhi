@@ -120,6 +120,7 @@ ADMIN_ONLY: frozenset[str] = frozenset({
     "/api/jobs", "/api/jobs/{job_id}/cancel",
     "/api/nights",
     "/api/observations",
+    "/api/operator/chat",
     "/api/parity",
     "/api/routes",
     "/api/requests", "/api/requests/{rid}", "/api/requests/{rid}/advance",

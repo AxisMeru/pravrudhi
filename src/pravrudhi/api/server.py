@@ -35,6 +35,7 @@ from pravrudhi.api.schemas import (
     BenchmarksResponse,
     CandidateDetailResponse,
     CandidatesResponse,
+    ChatResponse,
     DiffResponse,
     DiffsResponse,
     DispatchResponse,
@@ -185,6 +186,13 @@ class RememberRequest(BaseModel):
     source: str = ""
 
 
+class OperatorChatRequest(BaseModel):
+    """One thing the operator said to the model network, and which conversation it continues."""
+
+    message: str
+    thread_id: str | None = None
+
+
 class WorkspaceRequest(BaseModel):
     slug: str
 
@@ -217,7 +225,7 @@ class UpdateApplyRequest(BaseModel):
     channel: Literal["dev", "release"] | None = None
 
 
-def create_app(root: Path, *, nyaya_ask_fn: Any | None = None) -> FastAPI:
+def create_app(root: Path, *, nyaya_ask_fn: Any | None = None, operator_complete: Any | None = None) -> FastAPI:
     root = Path(root)
     app = FastAPI(title="pravrudhi", version=__version__)
     # Every JSON route lives under /api. The interface is a static export mounted at the root, and the two
@@ -1251,6 +1259,25 @@ def create_app(root: Path, *, nyaya_ask_fn: Any | None = None) -> FastAPI:
         return SignResponse.model_validate(
             {"seq": ev.seq, "this_hash": ev.this_hash, "decision": req.decision, "by": who}
         )
+
+    @api.post("/operator/chat", response_model=ChatResponse)
+    def operator_chat_ep(req: OperatorChatRequest, user: User | None = CurrentUserDep) -> dict[str, Any]:
+        """Super Pravrudhi's own line into the model network the swarm already routes through (r-799f8dfb):
+        the one surface that keeps answering the operator if the session driving a piece of work hits its
+        limit. `network_chat.network_complete` walks the same routing table `application/routing.py` gives the
+        swarm, trying the next permitted route when one is cooling or unconfigured, rather than pointing at a
+        single endpoint that may not be running."""
+        from pravrudhi.application.chat import ChatEndpointUnreachable, converse
+        from pravrudhi.application.network_chat import network_complete
+
+        if not req.message.strip():
+            raise HTTPException(422, "a chat turn with no message asks nothing")
+        complete = operator_complete if operator_complete is not None else network_complete(root)
+        try:
+            outcome = converse(root, req.message, thread_id=req.thread_id, user=user, complete=complete)
+        except ChatEndpointUnreachable as e:
+            raise HTTPException(503, str(e)) from e
+        return outcome.to_dict()
 
     app.include_router(api)
     app.include_router(build_chat_router(root))
