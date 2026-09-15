@@ -1,4 +1,4 @@
-# P2a deterministic full-IR tier — merge-gate read (Track B content), 2026-09-15 16:26 BST
+# P2a deterministic full-IR tier — merge-gate read (Track B content), 2026-09-15 16:24 BST
 
 `prabhasa-nyaya` `trackB/t5b-deterministic-records` @ `e8a996f`, `research/gates/P2a/deterministic_records/batch-03/` (490 records, 140 scenarios, 520 provenance rows incl. 30 dependency skips).
 
