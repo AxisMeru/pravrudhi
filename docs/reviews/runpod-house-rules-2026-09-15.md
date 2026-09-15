@@ -10,10 +10,15 @@ not evidence.
 1. **Balance: $200 loaded, meant to last ~10 days at 24×7 on one ~$1/h GPU.** There is no top-up to assume.
 2. **One pod at a time, account-wide.** Before `create-pod`, run `list-pods`; if anything is listed (running
    *or* stopped), do not create another. Stopped pods still bill disk.
-3. **GPU class: L40S (48 GB) or cheaper.** Cheaper 48 GB cards seen on 2026-09-15 that satisfy the same job
-   shape (LoRA / SFT of a 3–4B model): A40 secure $0.49/h, RTX A6000 secure $0.53/h, L40 secure $0.82/h,
-   RTX 6000 Ada secure $0.84/h, L40S community $0.79/h / secure $1.09/h. Pick the cheapest card whose VRAM and
-   CUDA version fit the job; never an 80 GB or Hopper/Blackwell card for this line.
+3. **GPU class: L40S (48 GB) or cheaper, and — operator amendment 2026-09-15 10:50 BST — 24 GB cards are
+   allowed when in stock and the job fits.** Principle: *do well and do more with the least spend.* Pick the
+   cheapest card whose measured peak VRAM (preflight file) is ≤ 80% of the card and whose CUDA version fits;
+   24 GB candidates seen on 2026-09-15: RTX 4090 community $0.34/h / secure $0.74/h, L4 secure $0.49/h,
+   RTX 3090 secure $0.50/h; 48 GB: A40 secure $0.49/h, RTX A6000 secure $0.53/h, L40 $0.82/h, L40S $0.79–1.09/h.
+   Community cards are reclaimable, so rule 15's ≤30-minute checkpoints are what make them acceptable.
+   Never an 80 GB or Hopper/Blackwell card for this line.
+3a. **Daily cap = one L40S running 24 h ≈ $24/day (≈ $1.01/h).** Spending faster than that on any day, on any
+   mix of cards, needs the lead's written go and the operator's knowledge.
 4. **Spend ledger.** Every pod creation, stop and delete is recorded (who, why, gpuTypeId, $/h, start, stop,
    measured cost from `get-billing`) in `docs/decisions/runpod-ledger.md` of the repo that owns the run.
    Report cumulative spend against the $200 in every status message that mentions a pod.
