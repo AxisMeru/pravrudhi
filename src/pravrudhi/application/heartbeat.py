@@ -110,6 +110,11 @@ class BeatRecord:
     drive: str | None = None
     drive_deficit: float | None = None
     sentence: str = ""
+    signals: tuple[str, ...] = ()
+    """ADR-0056: non-blocking design-revisit signals from `maturity_signals.maturity_signals`, computed fresh
+    every beat regardless of what the beat itself did. Empty for almost every beat on almost every root - it is
+    populated only once this root's own real ledger/routing log has crossed one of the thresholds those
+    functions detect. Never affects `chose`, `result`, or whether anything is dispatched or integrated."""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -121,6 +126,7 @@ class BeatRecord:
             "drive": self.drive,
             "drive_deficit": self.drive_deficit,
             "sentence": self.sentence,
+            "signals": list(self.signals),
         }
 
 
@@ -144,9 +150,17 @@ def _finish(
     root: Path, moment: datetime, looked_at: tuple[str, ...], chose: Chose, reason: str,
     result: dict[str, Any] | None, *, drive: str | None, drive_deficit: float | None, sentence: str,
 ) -> BeatRecord:
+    # ADR-0056: computed on every beat, whatever else it did - a non-blocking report, not a gate. Swallowed
+    # rather than allowed to fail a beat: a signal that cannot be read is not worth losing the heartbeat over.
+    signals: tuple[str, ...] = ()
+    try:
+        from pravrudhi.application.maturity_signals import maturity_signals as _maturity_signals
+        signals = _maturity_signals(root)
+    except Exception:
+        signals = ()
     record = BeatRecord(
         at=_at(moment), looked_at=looked_at, chose=chose, reason=reason, result=result,
-        drive=drive, drive_deficit=drive_deficit, sentence=sentence,
+        drive=drive, drive_deficit=drive_deficit, sentence=sentence, signals=signals,
     )
     _append(root, record)
     return record
@@ -174,6 +188,7 @@ def history(root: Path, n: int = 20) -> list[BeatRecord]:
                     drive=d.get("drive"),
                     drive_deficit=float(deficit) if deficit is not None else None,
                     sentence=str(d.get("sentence") or ""),
+                    signals=tuple(d.get("signals") or ()),
                 )
             )
         except (json.JSONDecodeError, KeyError, TypeError):
@@ -1587,14 +1602,24 @@ def _selfbuild_policy(root: Path) -> Policy:
     so a build task correctly scoped to `frontend/*` by `build_paths_for` would still be narrowed to nothing by
     a policy that has never heard of `frontend/`, and its own hardcoded validate would still run the engine's
     test suite regardless of what `TaskSpec.validate` said. A declaring root gets the same preset with its
-    `allowed_paths` and `validate` replaced by its own declaration; a root that has not declared one is unaffected.
+    `allowed_paths` and `validate` replaced by its own declaration; a root that has not declared one gets the
+    preset's `allowed_paths` but `_resolved_build_validate(root)` for its `validate` (below), not the YAML
+    preset's own literal.
+
+    2026-09-15, ADR-0056: the preset's own `validate:` string is a second, hand-maintained copy of
+    `integrate.BUILD_VALIDATE` (its comment says as much), and it had already drifted - `BUILD_VALIDATE` grew
+    the `--deselect` flags this ADR added, and this file's copy did not, so every build-mode dispatch went on
+    running the three tripwire tests this ADR moved off the integration gate, unaffected by the fix that was
+    meant to reach exactly this path. Routing through `_resolved_build_validate` instead of the preset's own
+    string removes the second copy rather than editing it to match once more, which is the failure mode a
+    literal string in a YAML file cannot be relied on not to repeat.
     """
     from pravrudhi.application import build_config
 
     policy = policy_for("selfbuild")
     declared = build_config.load_build_config(root)
     if not declared.allowed_prefixes and not declared.validate:
-        return policy
+        return replace(policy, validate=_resolved_build_validate(root))
     prefixes = declared.allowed_prefixes or build_config.DEFAULT_PREFIXES
     return replace(
         policy,

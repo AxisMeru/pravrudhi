@@ -27,7 +27,11 @@ policies:
     network: provider-only
     tools: ["agent-claude-code", "runtime-uv", "mcp-git"]
     max_wall_s: 3600
-    # The same command integrate.BUILD_VALIDATE runs in the main tree after a build-mode merge.
+    # 2026-09-15, ADR-0056: this literal is a fallback only. `heartbeat._selfbuild_policy` overrides it with
+    # the live `_resolved_build_validate(root)` (which resolves to `integrate.BUILD_VALIDATE` absent a root's
+    # own declaration) whenever a root has not declared its own build.validate - this string is never what a
+    # Studio build-mode dispatch actually runs. It stays here only for a direct `policy_for("selfbuild")`
+    # caller that reads `.validate` without going through that override (none currently does).
     validate: "uv run ruff check src tests && uv run mypy src && uv run pytest -q tests"
 
   review:

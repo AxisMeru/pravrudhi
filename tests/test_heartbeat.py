@@ -2168,3 +2168,58 @@ class TestBuildPromptForbidsTheXfailEscape:
         prompt = heartbeat._build_prompt("the ask", "the criterion", ("src/**",), "true")
         assert "xfail" in prompt.lower()
         assert "specification" in prompt.lower()
+
+
+class TestADR0056MaturitySignalsSurfaceOnTheBeatRecordNotAsAGate:
+    """2026-09-15: three tripwires against this machine's own real ledger/routing log used to run inside
+    BUILD_VALIDATE, so a long-running loop's own maturing history could refuse an unrelated, correctly-built
+    criterion's integration (r-dfff1a3d criterion 5, judged met, blocked on exactly this). ADR-0056 moves them
+    off that gate into `BeatRecord.signals` - a report, never a reason a beat's own dispatch/integration
+    fails."""
+
+    def test_a_matured_real_ledger_raises_a_signal_on_the_beat_record(self, tmp_path: Path) -> None:
+        import json
+
+        ledger = tmp_path / "research" / "ledger.jsonl"
+        ledger.parent.mkdir(parents=True)
+        rows = [
+            {"kind": "propose", "candidate_id": "c-root-1", "payload": {"lineage": []}},
+            {"kind": "propose", "candidate_id": "c-root-2", "payload": {"lineage": []}},
+            {"kind": "propose", "candidate_id": "c-root-3", "payload": {"lineage": []}},
+            {"kind": "propose", "candidate_id": "c-child-1", "payload": {"lineage": ["c-root-1"]}},
+            {"kind": "propose", "candidate_id": "c-child-2", "payload": {"lineage": ["c-root-2"]}},
+            {"kind": "propose", "candidate_id": "c-child-3", "payload": {"lineage": ["c-root-3"]}},
+        ]
+        ledger.write_text("\n".join(json.dumps(r) for r in rows) + "\n")
+
+        record = beat(tmp_path)
+
+        assert any("no longer folds to two parents" in s for s in record.signals)
+
+    def test_an_immature_root_raises_no_signal_and_a_signal_never_blocks_the_beat(self, tmp_path: Path) -> None:
+        record = beat(tmp_path)
+
+        assert record.signals == ()
+        # The beat still ran and reported normally - a signal (present or absent) is orthogonal to whether
+        # the beat itself did anything.
+        assert record.reason != ""
+
+    def test_selfbuild_policy_carries_the_live_build_validate_not_the_yaml_presets_own_stale_copy(
+        self, tmp_path: Path
+    ) -> None:
+        """The actual latent defect this ADR work surfaced: `sandbox_policies.yaml`'s `selfbuild.validate` is a
+        second, hand-maintained copy of `integrate.BUILD_VALIDATE`, and it had already drifted before this ADR
+        - every build-mode dispatch's real validate command came from THIS policy (`apply_policy` prefers the
+        policy's `validate` over the task's own), never from `_resolved_build_validate` directly, so the
+        `--deselect` flags this ADR adds to `BUILD_VALIDATE` would otherwise never have reached a real
+        dispatch. `_selfbuild_policy` must resolve to the live command, not the preset's own literal, for a
+        root with no build declaration of its own."""
+        policy = heartbeat._selfbuild_policy(tmp_path)
+
+        assert policy.validate == heartbeat.BUILD_VALIDATE
+        for node_id in [
+            "test_the_committed_ledger_folds_to_two_parents",
+            "test_the_real_ledger_shows_the_budget_rarely_bound",
+            "test_the_live_routing_log_is_not_yet_ready_to_tie_break",
+        ]:
+            assert node_id in policy.validate
