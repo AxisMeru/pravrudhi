@@ -66,7 +66,10 @@ STAGE_EXECUTABILITY: Mapping[str, str] = {
     "pretrain": STAGE_PENDING,
     "continue_pretrain": STAGE_PENDING,
     "sft": STAGE_EXECUTABLE,
-    "distill": STAGE_PENDING,
+    # 2026-09-15, Track B T6 priority shift: the data-feasibility spike found 0/25k sources convert
+    # deterministically to full IR, so supervision must be teacher-authored-then-checker-filtered before any
+    # SFT run consumes it -- distill unblocks P2, ahead of sft in practice even though sft bound first.
+    "distill": STAGE_EXECUTABLE,
     "evaluate": STAGE_PENDING,
     "promote": STAGE_PENDING,
 }
@@ -257,11 +260,69 @@ def sft_binding() -> Binding:
     return Binding(validate, prepare)
 
 
+def distill_binding() -> Binding:
+    """Bind distill to the engine's teacher-sampling-and-verify job command.
+
+    2026-09-15, Track B T6 priority shift (data-feasibility spike: 0/25k sources convert deterministically
+    to full IR): P2 needs teacher-authored traces, filtered through Track A's checker (Lean/Z3), before any
+    SFT run can consume them. This binding is at the same abstraction level as `sft_binding`'s own binding to
+    `train_sft`: it compiles and validates the stage and prepares the job's contract (which snapshots, which
+    Track A contract to filter through, how many accepted traces are wanted); the "distill" job command
+    itself performs the sampling and the checker-filtering, inside the sandbox, exactly as `train_sft`
+    performs training -- Loom never filters or scores teacher output itself (see `sft_binding`'s own
+    docstring), and this binding does not change that.
+    """
+    from pathlib import Path
+
+    def validate(stage: Stage) -> None:
+        if stage.operation != "distill":
+            raise PipelineError("the distill binding supports distill only")
+        options = dict(stage.options)
+        contract_id = options.get("checker_contract_id")
+        if not isinstance(contract_id, str) or not contract_id.strip():
+            raise PipelineError(
+                "distill requires a checker_contract_id option: the Track A contract "
+                "(nyaya_lean.check) every teacher trace is filtered through before acceptance"
+            )
+        min_accepted = options.get("min_accepted_traces")
+        if min_accepted is not None and (
+            not isinstance(min_accepted, (int, float)) or isinstance(min_accepted, bool) or min_accepted <= 0
+        ):
+            raise PipelineError("distill's min_accepted_traces, if given, must be a positive number")
+
+    def prepare(stage: Stage, inputs: Mapping[str, Any], jd: Any) -> Job:
+        options = dict(stage.options)
+        teacher, student = inputs["teacher"], inputs["student"]
+        if not isinstance(teacher, str) or not isinstance(student, str):
+            raise PipelineError(
+                "distill requires resolved teacher/student model snapshots (plain paths); a prior stage's "
+                "unresolved job-result dict cannot be mounted directly -- bind adapter continuation explicitly"
+            )
+        args: list[str] = ["--checker-contract-id", str(options["checker_contract_id"])]
+        if "min_accepted_traces" in options:
+            n = options["min_accepted_traces"]
+            args += ["--min-accepted-traces", str(int(n) if isinstance(n, float) and n.is_integer() else n)]
+        return Job(
+            "distill", tuple(args),
+            (
+                (str(Path(teacher)), "/teacher"),
+                (str(Path(student)), "/student"),
+                (str(Path(inputs["corpus"])), "/in/prompts.jsonl"),
+            ),
+            output="accepted.jsonl",
+        )
+
+    return Binding(validate, prepare)
+
+
 def executable_bindings() -> dict[str, Binding]:
     """The complete registry of concrete engine bindings this module ships.
 
-    Its keys are exactly the stages marked `STAGE_EXECUTABLE` in `STAGE_EXECUTABILITY`.
+    Its keys are exactly the stages marked `STAGE_EXECUTABLE` in `STAGE_EXECUTABILITY`, with one deliberate
+    exception: `promote` is never a key here even if marked executable, because `execute()` never looks it
+    up in `bindings` at all -- promotion is a policy callback (`execute`'s own `promote=` parameter), not a
+    prepared `Job`, so there is no `Binding` shape for it to take.
     Stages marked `STAGE_PENDING` are deliberately absent: `execute` must still refuse
     them at preflight rather than have a host binding silently stand in for one.
     """
-    return {"sft": sft_binding()}
+    return {"sft": sft_binding(), "distill": distill_binding()}

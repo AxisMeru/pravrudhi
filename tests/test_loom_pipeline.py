@@ -1,3 +1,4 @@
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -10,6 +11,7 @@ from pravrudhi.application.loom_pipeline import (
     Binding,
     Job,
     PipelineError,
+    distill_binding,
     executable_bindings,
     execute,
     harness_recipe,
@@ -163,8 +165,10 @@ def test_stage_executability_declares_every_loom_stage():
     assert set(STAGE_EXECUTABILITY) == {
         'pretrain', 'continue_pretrain', 'sft', 'distill', 'evaluate', 'promote',
     }
-    assert STAGE_EXECUTABILITY['sft'] == STAGE_EXECUTABLE
-    assert all(status == STAGE_PENDING for op, status in STAGE_EXECUTABILITY.items() if op != 'sft')
+    executable = {'sft', 'distill'}
+    for op, status in STAGE_EXECUTABILITY.items():
+        expected = STAGE_EXECUTABLE if op in executable else STAGE_PENDING
+        assert status == expected, f'{op}: expected {expected!r}, got {status!r}'
 
 
 def test_executable_bindings_matches_executability_table():
@@ -180,6 +184,83 @@ def test_executable_bindings_runs_prepared_sft(tmp_path):
               'n = sft(model=m, corpus=c) { lora_r = 16; };')
     execute(p, ctx, executable_bindings())
     assert ctx.calls[0][0] == 'train_sft'
+
+
+class TestDistillBinding:
+    """2026-09-15 priority shift: the data-feasibility spike found 0/25k sources convert deterministically
+    to full IR, so supervision must be teacher-authored-then-checker-filtered before any SFT run - distill
+    unblocks P2, not evaluate/promote. Bound the same way sft_binding binds train_sft: this module compiles
+    and validates the stage, the container-side job command does the actual sampling and Track A
+    checker-filtering (Loom itself never scores or filters teacher output, per sft_binding's own docstring)."""
+
+    SOURCE = (
+        'model teacher = load("/snapshots/teacher"); model tuned = load("/snapshots/tuned"); '
+        'corpus lessons = load("/data/lessons.jsonl"); '
+        'n = distill(teacher=teacher, student=tuned, corpus=lessons) '
+        '{ checker_contract_id = "law_v3"; min_accepted_traces = 100; };'
+    )
+
+    def test_validate_requires_a_checker_contract_id(self) -> None:
+        binding = distill_binding()
+        p = lower(
+            'model teacher = load("/t"); model tuned = load("/s"); corpus c = load("/c.jsonl"); '
+            'n = distill(teacher=teacher, student=tuned, corpus=c);'
+        )
+        with pytest.raises(PipelineError, match='checker_contract_id'):
+            binding.validate(p.stages[0])
+
+    def test_validate_accepts_a_declared_contract(self) -> None:
+        binding = distill_binding()
+        p = lower(self.SOURCE)
+        binding.validate(p.stages[0])  # must not raise
+
+    def test_validate_rejects_a_non_positive_min_accepted_traces(self) -> None:
+        binding = distill_binding()
+        p = lower(
+            'model teacher = load("/t"); model tuned = load("/s"); corpus c = load("/c.jsonl"); '
+            'n = distill(teacher=teacher, student=tuned, corpus=c) '
+            '{ checker_contract_id = "law_v3"; min_accepted_traces = 0; };'
+        )
+        with pytest.raises(PipelineError, match='min_accepted_traces'):
+            binding.validate(p.stages[0])
+
+    def test_prepare_maps_to_the_distill_job_command_with_teacher_student_and_contract(
+        self, tmp_path: Path
+    ) -> None:
+        binding = distill_binding()
+        p = lower(self.SOURCE)
+        stage = p.stages[0]
+        inputs = {"teacher": "/snapshots/teacher", "student": "/snapshots/tuned", "corpus": "/data/lessons.jsonl"}
+
+        job = binding.prepare(stage, inputs, tmp_path)
+
+        assert job.command == "distill"
+        assert "--checker-contract-id" in job.args and "law_v3" in job.args
+        assert "--min-accepted-traces" in job.args and "100" in job.args
+        mounts = dict(job.mounts)
+        assert mounts[str(Path("/snapshots/teacher"))] == "/teacher"
+        assert mounts[str(Path("/snapshots/tuned"))] == "/student"
+        assert mounts[str(Path("/data/lessons.jsonl"))] == "/in/prompts.jsonl"
+        assert job.output == "accepted.jsonl"
+
+    def test_prepare_refuses_an_unresolved_student_role(self, tmp_path: Path) -> None:
+        """A student role that is still a job-result dict (a prior stage's output), not a plain snapshot
+        path, must be refused explicitly rather than silently stringified into a broken mount."""
+        binding = distill_binding()
+        p = lower(self.SOURCE)
+        stage = p.stages[0]
+        inputs = {"teacher": "/snapshots/teacher", "student": {"path": tmp_path / "adapter"}, "corpus": "/c.jsonl"}
+
+        with pytest.raises(PipelineError, match="resolved teacher/student"):
+            binding.prepare(stage, inputs, tmp_path)
+
+    def test_end_to_end_through_execute_with_executable_bindings(self, tmp_path: Path) -> None:
+        ctx = Context(tmp_path)
+        p = lower(self.SOURCE)
+
+        execute(p, ctx, executable_bindings())
+
+        assert ctx.calls[0][0] == "distill"
 
 
 def test_pending_stage_fails_preflight_without_host_binding(tmp_path):
