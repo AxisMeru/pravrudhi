@@ -72,7 +72,7 @@ not evidence.
     this box) as a five-line summary pointing here, and the lead appends the same summary to
     `docs/decisions/TEAM-RULES.md`. A session that cannot find this file must ask the lead before touching RunPod.
 
-## 5. Seat-stall backstop (operator, 2026-09-15 09:55 BST)
+## 5. Seat-stall backstop (operator, 2026-09-15 09:52 BST)
 
 19. **Two seats drive RunPod (the colab/personal seat and the admin team seat); both can hit the 5-hour usage
     limit at once.** A pod must never be left with nobody able to act on it. The **second team seat** (`team2`,
