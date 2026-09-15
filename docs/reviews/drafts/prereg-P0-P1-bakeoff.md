@@ -13,7 +13,7 @@ House rules apply (`docs/decisions/RUNPOD-HOUSE-RULES.md`): one pod, ≤ L40S cl
 Both loaded with `AutoModelForCausalLM`, bf16, `trust_remote_code` only for N at the pinned revision; N needs
 `mamba_ssm` + `causal_conv1d` for `use_mamba_kernels=true`, otherwise the slow path (record which).
 
-## P0 — preflight (per arm, ≤ 30 min, on the cheapest 48 GB card in stock)
+## P0 — preflight (per arm, ≤ 30 min, on the cheapest 24–48 GB card in stock)
 
 Measured and written to `research/preflight/<date>-<arm>-<card>.json`:
 
@@ -25,7 +25,7 @@ Measured and written to `research/preflight/<date>-<arm>-<card>.json`:
 4. resumable checkpoint written at step 25 and restored at step 26 (loss continuity ± 1e-3) — house rule 15;
 5. rsync of that checkpoint to the network volume and to the 5090, sha256 identical — house rules 16/18.
 
-**Decision rule P0:** an arm passes if peak VRAM ≤ 40 GiB on the 48 GB card and step 4/5 succeed. A failing arm is
+**Decision rule P0:** an arm passes if peak VRAM ≤ 80% of the chosen card's VRAM (a 5090 spike measured 17.85 GiB for this shape on Qwen3-4B, `spikes/trackb-typed-ir/preflight-5090/preflight_5090_qwen3-4b_run2.json`, so 24 GB cards are in scope: cheapest of RTX 4090 / A40 / RTX A6000 / L40S in stock) and steps 4/5 succeed. A failing arm is
 retried once at micro-batch 1; a second failure drops the arm (recorded, not silently).
 
 ## P1 — bake-off (per arm, base weights, no fine-tuning; ≈ 2 h)
