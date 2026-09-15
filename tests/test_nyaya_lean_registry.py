@@ -149,3 +149,84 @@ class TestCheckRegistry:
             "G_SATISFIES(E(the conduct in the facts,AC),"
             "E(a%28hostile%29%2C element%25with%2Ceverything,EL))"
         )
+
+
+@requires_registry_scorer
+class TestReachabilityForEveryKnownContractId:
+    """The exit criterion (the lead, 2026-09-15): a recorded end-to-end run for every one of the
+    fourteen ids, not just a sample -- reads each contract's own required elements live via
+    `describe_contract` (never hand-copied) and drives one grounded run and one omission run
+    through `check_registry` for each."""
+
+    @pytest.mark.parametrize("contract_id", sorted(reg.KNOWN_CONTRACT_IDS))
+    def test_all_required_elements_met_is_grounded(self, contract_id: str) -> None:
+        names = reg.describe_contract(contract_id, score_bin=_SCORE_BIN)
+        assert names, f"{contract_id} reported zero required elements -- describe_contract itself is broken"
+        result = reg.check_registry(dict.fromkeys(names, True), contract_id, score_bin=_SCORE_BIN)
+        assert result["verdict"] == "grounded", (contract_id, result)
+        assert result["omitted_claims"] == []
+        assert result["unlicensed_claims"] == []
+
+    @pytest.mark.parametrize("contract_id", sorted(reg.KNOWN_CONTRACT_IDS))
+    def test_dropping_the_first_required_element_is_flagged_naming_it_omitted(self, contract_id: str) -> None:
+        names = reg.describe_contract(contract_id, score_bin=_SCORE_BIN)
+        dropped, kept = names[0], names[1:]
+        result = reg.check_registry(dict.fromkeys(kept, True), contract_id, score_bin=_SCORE_BIN)
+        assert result["verdict"] == "flagged", (contract_id, result)
+        assert len(result["omitted_claims"]) == 1, (contract_id, result)
+        # omitted_claims carries the wire-encoded G_SATISFIES(...) string (nyaya_lean.py's own
+        # claim-list convention, same as unlicensed_claims) -- compare against the escaped name,
+        # not the bare one, since a dropped element containing a reserved character (e.g. bns47's
+        # own "cheats (s.415: ...)") would otherwise never be found as a plain substring.
+        assert reg._esc(dropped) in result["omitted_claims"][0], (contract_id, dropped, result["omitted_claims"])
+
+
+@requires_registry_scorer
+class TestRefutation:
+    def test_a_denial_bearing_element_asserted_is_refuted(self) -> None:
+        """`ipc405_misappropriation` carries the good-faith defeater (illustration (d)) IN its own
+        `denials` -- asserting it (alongside the otherwise-complete required elements) must flag as
+        a denial, distinct from an omission or an unlicensed claim, per `Adequacy.lean`'s own
+        `Contract.Refuted` doc: refuted is stronger than merely unlicensed."""
+        result = reg.check_registry(
+            {
+                "entrusted with property, or with dominion over property": True,
+                "dishonestly misappropriates or converts the property to his own use": True,
+                "acted in good faith, believing the disobedience served the entrusting party's "
+                "advantage, not dishonestly": True,
+            },
+            "ipc405_misappropriation",
+            score_bin=_SCORE_BIN,
+        )
+        assert result["verdict"] == "flagged"
+        assert len(result["denied_claims"]) == 1
+        assert "acted in good faith" in result["denied_claims"][0]
+        assert result["omitted_claims"] == []
+        # No double-encoding across buckets (Track B reviewer's finding and fix, 2026-09-15,
+        # scoreREGLine): a denial-bearing claim is not in the Contract's own `axioms` (only in
+        # `denials`), so it must land in `denied` exactly once and NEVER also in `unlicensed` --
+        # that overlap was the exact bug this test was written to catch, reproduced against the
+        # pre-fix binary before this assertion was corrected to match the actual fix.
+        assert result["unlicensed_claims"] == []
+
+    def test_a_second_denial_bearing_contract_mirrors_the_fix(self) -> None:
+        """Track B reviewer's mirroring test (2026-09-15): the same denial/unlicensed
+        double-encoding was reproduced on `bns69`'s `amountsToRape` denial, not only ipc405's --
+        a second, independently-authored Contract proves the fix in `scoreREGLine` is general, not
+        an artefact of one Contract's particular claim shape."""
+        result = reg.check_registry(
+            {
+                "induces the woman by deceitful means (inducement for, or false promise of, "
+                "employment or promotion, or marrying by suppressing identity), or by a promise "
+                "to marry made without any intention of fulfilling it": True,
+                "sexual intercourse with the woman actually occurs": True,
+                "the sexual intercourse amounts to the offence of rape": True,
+            },
+            "bns69",
+            score_bin=_SCORE_BIN,
+        )
+        assert result["verdict"] == "flagged"
+        assert len(result["denied_claims"]) == 1
+        assert "amounts to the offence of rape" in result["denied_claims"][0]
+        assert result["omitted_claims"] == []
+        assert result["unlicensed_claims"] == []
