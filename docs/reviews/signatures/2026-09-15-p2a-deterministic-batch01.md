@@ -15,3 +15,13 @@
 Registry follow-up, not a hold: in the three denial slices the element "dishonestly misappropriates/converts" is `established` alongside the good-faith defeater. That is how the signed IPC 405 Contract encodes it (the mental word sits inside the element string), so the record follows the registry; when Phase 2b's typed verdict lands, the element wording and the denial should be reconciled so a record never asserts "dishonestly" and "not dishonestly" together. Minor: double full stop in the 405 denial answer text.
 
 Status: **HELD** pending items 1–2; item 3 applies from batch-02. Scale-up (≈10 scenarios/id) may proceed in parallel with the fix as long as the generator change lands before batch-02 is emitted; I read batch-02 for distinctness and the fixed omission prompts.
+
+## Re-read @ `45599cb` — CLEARED for scale-up, 2026-09-15 15:25 BST
+
+Verified from the committed records (52: 14 control, 35 omission, 3 denial): no omission slice's prompt carries the dropped element's fact any more; the narrative is a neutral scene-setter for omission slices; every element is dropped in turn (`omit_0…omit_{n-1}`); `audit.checker_report` now records the REG certification (`certified: true`, `checker: "reg"`, contract_id, binary sha256); denial targets are coherent (negative conclusion, `not_proved`, no abstention). Items 1–3 of the hold are met.
+
+**Ruling on the chained-element case (405 use/disposal):** accepted as authored for control and deny; for the omission slices the rule is: *a fact authored for element k must not entail another element*. In `s_405u…__omit_1` (drop "uses or disposes"), the retained `F_el2` says the refrigeration requirement "was not met", which entails that a use/disposal occurred. Where the statute chains a conduct element to a governing-term element, the term fact states the term only ("the written contract expressly required continuous refrigeration") and the violation is stated only when both elements are present (control/deny). Apply from batch-02's generator; `omit_1` of that scenario is regenerated then. Same rule for any future chained pair (e.g. 182's mental element vs. consequence, 46 conspiracy's pursuance act).
+
+Control ratio 26.9 % in this batch is below amendment (c)'s 40 % floor; it is a batch-01 artefact of one scenario per id and must be met by the full set (more scenarios, omission slices per scenario capped at n_elements as ruled), so it is checked at the D-tier merge, not here.
+
+**Status: batch-01 content CLEARED as the format and pipeline reference; trackB scales to ≈10 scenarios per id.** The full D-tier set comes for content + shape merge, where I re-check distinctness by scenario, the 40 % control floor, ≥ 10 control scenarios per id, and the chained-element rule.
