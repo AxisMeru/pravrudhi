@@ -65,3 +65,5 @@ Design only (no code on the branch; the implementation is proposed inline). Cont
 Acceptance additions: a1/ba1 through `scoreCOMPLine` (`omitted` = `bridge:` entry, `selectedRoute` `"none"`); row 1 no-double-count guard as proposed.
 
 **Content signature on the design: SIGNED at `bfbe855` with the amendment.** Implementation read follows on the code push; both halves (Lean COMP + Python drift test) land in one merge per the guard-rail.
+
+Addendum (via lead, reconciled with Track A): in the multi-route case `selectedRoute` carries the available route ids comma-joined in declared order (no precedence meaning; ids contain no comma), not the literal `"multi"`. Distinguishability from a single id and from `"none"` is preserved; c2/b2 guards assert the joined ids.
