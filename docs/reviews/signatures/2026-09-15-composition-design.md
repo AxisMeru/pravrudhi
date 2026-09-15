@@ -25,3 +25,11 @@
 6. New wire tag for composed scoring, `REG` untouched: accepted. The composed omitted field carries `source:claim` pairs; the `bridge` label from amendment A is part of that format.
 
 **Status: CLEARED for implementation conditional on amendments A and B**, with the kit's 14 readings (a1/ba1 updated per A) as the acceptance `#guard`s. Track A's shape gate applies alongside.
+
+## Ruling 4 revised — route precedence (reconciled with Track A's R2), 2026-09-15
+
+Question: does a source-quoted defeater asserted on a route the reading does not rely on refute an offence made out cleanly via another route?
+
+**No. My earlier "any inner denial refutes the whole composition" is withdrawn; Track A's R2 (route precedence) is confirmed with the legal reason.** A disjunctive offence is made out if any one limb is made out. A defeater is a denial of a *particular* limb's element (IPC 405's good-faith illustration negates "dishonestly" on the limb it is asserted against); it says nothing about a different limb whose elements are all present and undenied. So: limb A fully grounded and undenied plus a limb-B defeater asserted is an offence under limb A, and the limb-B defeater is reported as that route's refutation, not as a refutation of the composition. A defeater that the text attaches to every limb (IPC 405 A and B both carry "dishonestly") is simply present in each of those routes' `denials`, and refutes each of them individually.
+
+Rule: (i) a route is *available* iff fully grounded and not refuted; (ii) if any route is available, the bridge is satisfied and refuted routes are reported in the `refuted` bucket with their contract_id, not as a composition refutation; (iii) in the partial case, the composition is refuted iff the selected (closest) route is refuted; (iv) the composition is refuted iff no route is available and every route the reading attempted is refuted, or the selected route is refuted. Route selection must therefore exclude refuted routes when an unrefuted grounded route exists. Vacuous today (no inner denials), binding for the spec.
