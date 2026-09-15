@@ -25,7 +25,7 @@ Few-shot policy (fixed cross-id batch-03 examples) stands. The two deferred live
 
 Rulings (via lead, 17:02 BST): live values accepted (`qwen3.8-max-0902`; `enable_thinking:false` recorded as `reasoning_budget_control`; enabling thinking later is a manifest amendment with a new sha). Elements shape: one canonical positional form, dict-by-name rejected as `non_canonical_elements` (reconciled with Track A). P/R scope: `P_min`/`R_min` remain conjuncts; with no P/R data, `decide` emits **PARTIAL**, never PASS, citing the prereg lines; D and T reported in full; the teacher batch runs on the frozen manifest; P and R inventories are the next work item; P2b opens only on a six-conjunct PASS.
 
-## Two-stage branch @ `ce9968c` — manifest content READ OK; replay HELD; freeze deferred — 2026-09-15 17:16 BST
+## Two-stage branch @ `ce9968c` — manifest content READ OK; replay HELD; freeze deferred — 2026-09-15 17:13 BST
 
 Verified by me from a throwaway worktree at `ce9968c`: build 137/0; binary sha256 `9bff8f30…` equals the manifest's pin; `--describe-source bns69` returns the s.69 text; `decide` fails closed when `checks.jsonl`/`accepted.jsonl` are missing (correct). Manifest content: the two-stage teacher (stage-1 authoring with the ≥ 0.40 Jaccard guard before stage 2; stage-2 rendering with cross-id few-shot; provenance incl. `stage1_prompt_sha256`), live values (`qwen3.8-max-0902`, `enable_thinking:false` with the amendment-path fallback), rounds of 20, verdict mapping and self-report agreement, fallback teacher not pre-authorised: all as ruled. Nothing in the manifest content changes; the binary pin re-points to the post-`#guard` build per the lead, and the freeze names that SHA.
 
