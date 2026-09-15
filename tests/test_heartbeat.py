@@ -2178,8 +2178,13 @@ class TestADR0056MaturitySignalsSurfaceOnTheBeatRecordNotAsAGate:
     fails."""
 
     def test_a_matured_real_ledger_raises_a_signal_on_the_beat_record(self, tmp_path: Path) -> None:
+        """ADR-0057: the fold signal now reads a root's own declared baseline
+        (`.pravrudhi/config.yaml`'s `maturity:` block) rather than a hardcoded "2", so this ledger's actual
+        three parents are compared against a baseline declared here as two."""
         import json
 
+        (tmp_path / ".pravrudhi").mkdir(parents=True)
+        (tmp_path / ".pravrudhi" / "config.yaml").write_text("maturity:\n  expected_parents: 2\n")
         ledger = tmp_path / "research" / "ledger.jsonl"
         ledger.parent.mkdir(parents=True)
         rows = [
@@ -2194,7 +2199,7 @@ class TestADR0056MaturitySignalsSurfaceOnTheBeatRecordNotAsAGate:
 
         record = beat(tmp_path)
 
-        assert any("no longer folds to two parents" in s for s in record.signals)
+        assert any("no longer matches this root's declared maturity baseline" in s for s in record.signals)
 
     def test_an_immature_root_raises_no_signal_and_a_signal_never_blocks_the_beat(self, tmp_path: Path) -> None:
         record = beat(tmp_path)

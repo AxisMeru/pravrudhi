@@ -8,11 +8,21 @@ def _propose(cid: str, lineage: list[str]) -> str:
     return json.dumps({"kind": "propose", "candidate_id": cid, "payload": {"lineage": lineage}})
 
 
+def _declare_baseline(root: Path, **fields: object) -> None:
+    (root / ".pravrudhi").mkdir(parents=True, exist_ok=True)
+    body = "maturity:\n" + "".join(
+        f"  {k}: {json.dumps(v)}\n" for k, v in fields.items()
+    )
+    (root / ".pravrudhi" / "config.yaml").write_text(body)
+
+
 def test_a_fresh_root_with_no_real_ledger_or_routing_log_raises_no_signal(tmp_path: Path) -> None:
     assert maturity_signals(tmp_path) == ()
 
 
-def test_an_immature_ledger_with_two_parents_raises_no_fold_signal(tmp_path: Path) -> None:
+def test_an_undeclared_baseline_with_a_small_ledger_raises_no_signal_at_all(tmp_path: Path) -> None:
+    """ADR-0057: no declared baseline AND too few nodes for the forgotten-baseline nudge to be worth
+    raising - the common case for a young root that has not been assessed and should not need to be yet."""
     ledger = tmp_path / "research" / "ledger.jsonl"
     ledger.parent.mkdir(parents=True)
     ledger.write_text(
@@ -27,10 +37,45 @@ def test_an_immature_ledger_with_two_parents_raises_no_fold_signal(tmp_path: Pat
     assert maturity_signals(tmp_path) == ()
 
 
-def test_a_ledger_that_no_longer_folds_to_two_parents_raises_the_signal(tmp_path: Path) -> None:
+def test_an_undeclared_baseline_with_a_mature_ledger_raises_the_forgotten_baseline_nudge_not_the_fold_signal(
+    tmp_path: Path,
+) -> None:
+    """The refinement ADR-0057 asks for: a root that has genuinely matured (real ledger activity) but never
+    had a baseline set must not go silently un-assessed - it gets a DISTINCT nudge, not the fold-revisit
+    signal (which requires a declared expectation to compare against)."""
+    ledger = tmp_path / "research" / "ledger.jsonl"
+    ledger.parent.mkdir(parents=True)
+    rows = [_propose(f"c-{i}", []) for i in range(12)]
+    ledger.write_text("\n".join(rows) + "\n")
+
+    signals = maturity_signals(tmp_path)
+
+    assert any("matured enough" in s and "none is declared" in s for s in signals)
+    assert not any("no longer matches" in s for s in signals)
+
+
+def test_a_declared_baseline_matching_the_real_ledger_raises_no_fold_signal(tmp_path: Path) -> None:
+    _declare_baseline(tmp_path, expected_parents=2)
+    ledger = tmp_path / "research" / "ledger.jsonl"
+    ledger.parent.mkdir(parents=True)
+    ledger.write_text(
+        "\n".join([
+            _propose("c-root-1", []),
+            _propose("c-root-2", []),
+            _propose("c-child-1", ["c-root-1"]),
+            _propose("c-child-2", ["c-root-2"]),
+        ]) + "\n"
+    )
+
+    assert maturity_signals(tmp_path) == ()
+
+
+def test_a_declared_baseline_the_real_ledger_no_longer_matches_raises_the_signal(tmp_path: Path) -> None:
     """The exact shape the real ledger tripped on: a third distinct root appears. Mirrors
     `tests/test_archive.py::TestAgainstTheRealLedger::test_the_committed_ledger_folds_to_two_parents` -
-    same underlying `ancestry_report`/`parent_map` call, reported instead of asserted."""
+    same underlying `ancestry_report`/`parent_map` call, reported instead of asserted, now compared against
+    a declared baseline instead of a hardcoded "2"."""
+    _declare_baseline(tmp_path, expected_parents=2)
     ledger = tmp_path / "research" / "ledger.jsonl"
     ledger.parent.mkdir(parents=True)
     ledger.write_text(
@@ -46,8 +91,28 @@ def test_a_ledger_that_no_longer_folds_to_two_parents_raises_the_signal(tmp_path
 
     signals = maturity_signals(tmp_path)
 
-    assert any("no longer folds to two parents" in s for s in signals)
-    assert any("distinct_parents=3" in s for s in signals)
+    assert any("no longer matches this root's declared maturity baseline" in s for s in signals)
+    assert any("distinct_parents=3 vs expected 2" in s for s in signals)
+
+
+def test_a_declared_baseline_for_a_different_expected_parent_count_is_honoured(tmp_path: Path) -> None:
+    """A root whose real ancestry genuinely folds to three parents (not two) must not raise the fold
+    signal once it has declared that as its own baseline - the whole point of ADR-0057."""
+    _declare_baseline(tmp_path, expected_parents=3)
+    ledger = tmp_path / "research" / "ledger.jsonl"
+    ledger.parent.mkdir(parents=True)
+    ledger.write_text(
+        "\n".join([
+            _propose("c-root-1", []),
+            _propose("c-root-2", []),
+            _propose("c-root-3", []),
+            _propose("c-child-1", ["c-root-1"]),
+            _propose("c-child-2", ["c-root-2"]),
+            _propose("c-child-3", ["c-root-3"]),
+        ]) + "\n"
+    )
+
+    assert maturity_signals(tmp_path) == ()
 
 
 def test_an_empty_ledger_file_is_treated_as_no_ledger_not_a_fold_defect(tmp_path: Path) -> None:

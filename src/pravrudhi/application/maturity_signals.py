@@ -10,6 +10,17 @@ nothing to do with it. ADR-0056 moves them off that gate. This module is the oth
 computation the three tests use (`ancestry_report`, `parent_map`, `selection_pressure`, `build_graph`,
 `tiebreak_readiness` -- nothing here is a re-derivation), reported through `heartbeat.beat`'s own record
 instead of asserted through pytest, so the signal still surfaces without blocking anything.
+
+ADR-0057: the ancestry-fold and selection-pressure bounds below were tuned to STUDIO's own historical
+ledger (189 proposals, exactly two distinct parents) -- a second loop's ledger is not wrong for reading
+differently, it is simply a different ledger. The first cross-loop beat exposed why a single global bound
+cannot work: `distinct_parents=0` (a young ledger with no lineage yet) and `distinct_parents=5` (a ledger
+that has genuinely outgrown the fold) are opposite conditions, and `!= 2` fires identically on both. So
+these two checks now read a root's own declared `MaturityBaseline` (`.pravrudhi/config.yaml`'s `maturity:`
+block, `build_config.load_maturity_baseline`) instead of a hardcoded "2" -- undeclared means "not yet
+assessed", not "assumed to be Studio's number". The tie-break readiness check is NOT part of this: its
+`TIEBREAK_MIN_COUNT` is a statistical threshold (how many observations a Wilson interval needs to separate
+itself from a baseline rate), not an empirical constant read off one loop's history, so it stays global.
 """
 
 from __future__ import annotations
@@ -17,13 +28,14 @@ from __future__ import annotations
 from pathlib import Path
 
 from pravrudhi.application.archive import ancestry_report, parent_map, selection_pressure
+from pravrudhi.application.build_config import load_maturity_baseline
 from pravrudhi.application.procedure_graph import build_graph, tiebreak_readiness
 
-#: Nights 19 and 20 bound for a reason unrelated to selection getting harder (a bench filter added
-#: 2026-09-10 fixed retroactively-inflated pools on those two nights only) -- see
-#: `tests/test_archive.py::TestSelectionPressure::test_the_real_ledger_shows_the_budget_rarely_bound`,
-#: whose exact bound this mirrors, byte for byte, so the signal and the pinned test never drift apart.
-_KNOWN_INFLATED_NIGHTS = {19, 20}
+#: ADR-0057: below this many ledger nodes, a root's ancestry is too sparse for a baseline to mean anything --
+#: no fold/pressure signal, and no forgotten-baseline nudge either, the same "too early to judge" silence an
+#: undeclared baseline already gets. Not derived from a fitted curve; a deliberately low bar chosen so a
+#: genuinely matured, un-baselined root is not missed for long, not a claim that this exact count is special.
+_MIN_NODES_FOR_BASELINE_NUDGE = 10
 
 
 def _real_ledger(root: Path) -> Path | None:
@@ -43,18 +55,31 @@ def maturity_signals(root: Path) -> tuple[str, ...]:
     ledger = _real_ledger(root)
     if ledger is not None:
         report = ancestry_report(parent_map(ledger))
-        if report.distinct_parents != 2 or report.max_depth > 2:
-            signals.append(
-                "ADR-0056: the real ledger no longer folds to two parents "
-                f"(distinct_parents={report.distinct_parents}, max_depth={report.max_depth}) -- "
-                "the ancestry-fold assumption is due for a revisit"
+        baseline = load_maturity_baseline(root)
+        if baseline.declared:
+            if report.distinct_parents != baseline.expected_parents or report.max_depth > baseline.max_depth:
+                signals.append(
+                    "ADR-0057: the real ledger no longer matches this root's declared maturity baseline "
+                    f"(distinct_parents={report.distinct_parents} vs expected {baseline.expected_parents}, "
+                    f"max_depth={report.max_depth} vs {baseline.max_depth}) -- the ancestry-fold assumption "
+                    "is due for a revisit"
+                )
+            recent = [p for p in selection_pressure(ledger) if p.night >= 7]
+            binding = sum(
+                1 for p in recent if p.binding and p.night not in baseline.known_inflated_nights
             )
-        recent = [p for p in selection_pressure(ledger) if p.night >= 7]
-        binding = sum(1 for p in recent if p.binding and p.night not in _KNOWN_INFLATED_NIGHTS)
-        if binding > 2:
+            if binding > baseline.max_binding_beyond_known:
+                signals.append(
+                    f"ADR-0057: selection has started binding regularly ({binding} nights beyond this "
+                    "root's known-inflated ones) -- the measurement and the plan built on it are due for "
+                    "a revisit"
+                )
+        elif report.nodes >= _MIN_NODES_FOR_BASELINE_NUDGE:
             signals.append(
-                f"ADR-0056: selection has started binding regularly ({binding} nights beyond the two known "
-                "inflated ones) -- the measurement and the plan built on it are due for a revisit"
+                f"ADR-0057: this root's real ledger has matured enough ({report.nodes} nodes) to warrant a "
+                "maturity baseline (.pravrudhi/config.yaml's maturity: block); none is declared, so no "
+                "fold/pressure signal can be read against it -- a real fold-outgrowth would otherwise go "
+                "unnoticed simply because nobody set the baseline"
             )
     readiness = tiebreak_readiness(build_graph(Path(root)))
     if readiness.get("ready"):

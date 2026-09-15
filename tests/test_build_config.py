@@ -129,3 +129,60 @@ class TestInferBuildConfig:
         (nm / "package.json").write_text("{}")
 
         assert build_config.infer_build_config(tmp_path) is None
+
+
+class TestLoadMaturityBaseline:
+    """ADR-0057: a root's own declared expectation for its real ledger's ancestry fold, so
+    `maturity_signals.py` never assumes Studio's own historical "2" as an implicit default for a root that
+    never earned it."""
+
+    def test_no_config_file_is_undeclared(self, tmp_path: Path) -> None:
+        baseline = build_config.load_maturity_baseline(tmp_path)
+        assert not baseline.declared
+        assert baseline.expected_parents is None
+
+    def test_a_config_with_no_maturity_block_is_undeclared(self, tmp_path: Path) -> None:
+        _write_config(tmp_path, "version: 1\n")
+        baseline = build_config.load_maturity_baseline(tmp_path)
+        assert not baseline.declared
+
+    def test_a_declared_baseline_is_read_verbatim(self, tmp_path: Path) -> None:
+        _write_config(
+            tmp_path,
+            "maturity:\n"
+            "  expected_parents: 3\n"
+            "  max_depth: 4\n"
+            "  max_binding_beyond_known: 1\n"
+            "  known_inflated_nights: [5, 6]\n",
+        )
+        baseline = build_config.load_maturity_baseline(tmp_path)
+        assert baseline.declared
+        assert baseline.expected_parents == 3
+        assert baseline.max_depth == 4
+        assert baseline.max_binding_beyond_known == 1
+        assert baseline.known_inflated_nights == (5, 6)
+
+    def test_a_maturity_block_missing_expected_parents_is_undeclared(self, tmp_path: Path) -> None:
+        """`expected_parents` is what turns the signal on at all - a block present without it is a typo or a
+        work in progress, not a baseline, so it must not silently activate with an unset comparison."""
+        _write_config(tmp_path, "maturity:\n  max_depth: 4\n")
+        baseline = build_config.load_maturity_baseline(tmp_path)
+        assert not baseline.declared
+
+    def test_a_declared_baseline_with_only_expected_parents_gets_the_original_defaults(
+        self, tmp_path: Path
+    ) -> None:
+        """A minimal declaration must behave like the pre-ADR-0057 global constants for everything it did
+        not itself set - declaring a baseline is opting into per-root tracking, not silently loosening the
+        other bounds."""
+        _write_config(tmp_path, "maturity:\n  expected_parents: 2\n")
+        baseline = build_config.load_maturity_baseline(tmp_path)
+        assert baseline.declared
+        assert baseline.max_depth == 2
+        assert baseline.max_binding_beyond_known == 2
+        assert baseline.known_inflated_nights == ()
+
+    def test_a_malformed_maturity_block_is_undeclared_not_a_crash(self, tmp_path: Path) -> None:
+        _write_config(tmp_path, "maturity: [this, is, not, a, mapping]\n")
+        baseline = build_config.load_maturity_baseline(tmp_path)
+        assert not baseline.declared

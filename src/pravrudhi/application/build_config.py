@@ -43,6 +43,25 @@ class BuildConfig:
     allowed_prefixes: tuple[str, ...] = ()
 
 
+@dataclass(frozen=True)
+class MaturityBaseline:
+    """ADR-0057: a root's own declared expectation for its real ledger's ancestry fold and selection
+    pressure, once known. `expected_parents=None` (the default) means "not yet assessed" - a root that has
+    never stated one gets no fold/pressure signal from `maturity_signals.py`, never Studio's own historical
+    "2" inherited as an implicit default it was never measured against. Setting one is a deliberate act
+    (`agent-for-operator` under ADR-0040, the same authority that signs a gate), not something the engine
+    assumes on a root's behalf."""
+
+    expected_parents: int | None = None
+    max_depth: int = 2
+    max_binding_beyond_known: int = 2
+    known_inflated_nights: tuple[int, ...] = ()
+
+    @property
+    def declared(self) -> bool:
+        return self.expected_parents is not None
+
+
 def config_path(root: Path) -> Path:
     return Path(root) / ".pravrudhi" / "config.yaml"
 
@@ -68,6 +87,28 @@ def load_build_config(root: Path) -> BuildConfig:
     return BuildConfig(
         validate=str(validate).strip() or None if validate not in (None, "") else None,
         allowed_prefixes=tuple(str(p) for p in prefixes if str(p).strip()) if isinstance(prefixes, list) else (),
+    )
+
+
+def load_maturity_baseline(root: Path) -> MaturityBaseline:
+    """This root's own `maturity:` block (ADR-0057), or the empty (undeclared) `MaturityBaseline` when it has
+    none. A block present but missing `expected_parents` is treated as undeclared too - `expected_parents` is
+    the field that turns the fold/pressure signal on at all, so a block that never sets it is not a baseline,
+    it is a typo or a work in progress."""
+    block = _read_yaml(Path(root)).get("maturity")
+    if not isinstance(block, dict):
+        return MaturityBaseline()
+    expected_parents = block.get("expected_parents")
+    if not isinstance(expected_parents, int):
+        return MaturityBaseline()
+    max_depth = block.get("max_depth")
+    max_binding = block.get("max_binding_beyond_known")
+    nights = block.get("known_inflated_nights")
+    return MaturityBaseline(
+        expected_parents=expected_parents,
+        max_depth=int(max_depth) if isinstance(max_depth, int) else 2,
+        max_binding_beyond_known=int(max_binding) if isinstance(max_binding, int) else 2,
+        known_inflated_nights=tuple(int(n) for n in nights) if isinstance(nights, list) else (),
     )
 
 
@@ -142,6 +183,6 @@ def infer_build_config(root: Path) -> dict[str, Any] | None:
 
 
 __all__ = [
-    "BuildConfig", "DEFAULT_PREFIXES", "config_path", "infer_build_config", "load_build_config",
-    "resolved_allowed_prefixes", "resolved_build_validate",
+    "BuildConfig", "DEFAULT_PREFIXES", "MaturityBaseline", "config_path", "infer_build_config",
+    "load_build_config", "load_maturity_baseline", "resolved_allowed_prefixes", "resolved_build_validate",
 ]
