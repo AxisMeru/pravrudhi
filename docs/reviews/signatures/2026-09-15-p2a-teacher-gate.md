@@ -63,7 +63,7 @@ Read against the pushed artifacts (sha256 `proposals.jsonl` `cdec04a0…`, `samp
 
 Lead reports the operator has directed the teacher to change from `qwen3.8-max-0902` (DashScope quota exhausted) to `claude-haiku-4-5-20251001` run headless on seat 2, riding in the same amendment sha as fix 3. No objection in principle. Signature conditions sent to the lead: (1) sandbox as a binding manifest field — all tools disabled, empty cwd outside any checkout, no `--add-dir`, `--output-format json`, argv logged per row (the checker does not catch a teacher that reads the held-out sets); (2) sampling fields stated honestly — no seed/temperature/top_p claims, non-seeded, attempt_id the identity, thinking off, malformed output stays in the denominator; (3) per-record `teacher_model`, the 66 qwen controls stay as qwen records, yield split by teacher; (4) a content read of accepted records for fact–element fit is a non-optional part of the T read, since the checker validates the IR layer only. Flagged, not ruled: seat-2 load versus its pod stand-by role.
 
-## Harness fixes 1/2/4/5 @ `efc65d9` — pre-read, one gap — 2026-09-15 18:40 BST
+## Harness fixes 1/2/4/5 @ `efc65d9` — pre-read, one gap — 2026-09-15 18:38 BST
 
 Scope change noted from the lead: the amendment sha will be fix 3 only; the teacher stays `qwen3.8-max-0902`; the Haiku swap and my four conditions are deferred to a possible follow-on amendment. Fine — my read said qwen was not what broke.
 
