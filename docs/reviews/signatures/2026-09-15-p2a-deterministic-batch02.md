@@ -1,4 +1,4 @@
-# P2a deterministic batch-02 — Track B content read, 2026-09-15 15:47 BST
+# P2a deterministic batch-02 — Track B content read, 2026-09-15 15:45 BST
 
 `prabhasa-nyaya` `trackB/t5b-deterministic-records` @ `6d1d163`: 208 records, 56 scenarios (4 per id), 140 omission, 12 denial, 56 control; 208/208 REG. Read by spikeD-batch02-read (Sonnet, seat 2; report `docs/reviews/spikes/trackb-p2a-inventory/batch02-read.md`) plus my mechanical overlap check; ruling mine.
 
