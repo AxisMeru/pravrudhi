@@ -43,6 +43,24 @@ not evidence.
 13. Every job is a Loom program (`*.loom`) or, until the bindings exist, a single script under `scripts/runpod/`
     whose manifest (image, command, mounts, env, expected cost) is committed before the run.
 
+## 3a. Checkpoint durability (operator, 2026-09-15 08:50 BST)
+
+15. **Checkpoint often.** Every training job saves a resumable checkpoint (weights + optimizer + step + data cursor)
+    at least every 30 minutes of wall-clock or every 200 steps, whichever is sooner, and at every gate boundary.
+    A RunPod pod can break, disconnect, be stopped or be paused at any time; a run that cannot resume from its last
+    checkpoint within one pod restart is a house-rule violation, not bad luck.
+16. **Ship each checkpoint off the pod as it is written.** Target order: (1) the attached network volume (same
+    datacentre), then (2) **the RTX 5090 box** via `rsync` over SSH into `/home/ss/fusion-project/prabhasa-nyaya/checkpoints/<run>/`
+    (the 5090 is the durable local store; training there is still forbidden by rule 8). Keep the last 3 resumable
+    checkpoints on the volume and on the 5090; prune older ones on the pod first.
+17. **Milestones go to Hugging Face, public.** At every pre-registered gate pass and at run completion, the
+    checkpoint (LoRA adapter or merged weights, plus the preflight/gate JSONs and a model card stating tier and n)
+    is pushed to a **public** repo under `AxisMeru` (HF private storage is near its limit and is not to be used).
+    Publish only what a public model card can honestly describe; interim/rejected checkpoints stay on the volume and
+    the 5090, never on HF. The lead decides the milestone list per run; when unspecified, the reviewer decides.
+18. **Before `delete-pod`:** confirm the final checkpoint's sha256 matches on the volume, on the 5090 and (for
+    milestones) on HF. Then delete. A pod is never the last copy of anything.
+
 ## 4. Discovery
 
 14. This file is the canonical statement. It is mirrored in `~/.claude/CLAUDE.md` (loaded by every session on
