@@ -799,3 +799,14 @@ Off main 13a90e5. THE fix for the OOM: `chunked_cross_entropy_backward` replaces
 3. **YES, essential -- and recommend REMOVING the `registry=None` default entirely** from the real-data-facing signatures (structural_validity, structural_validity_rate, checker __init__, default_full_ir_correctness) rather than adding a runtime check alone: a missing-required-argument error is a stronger guard than a skippable runtime assertion. Keep registry=None only where it stays genuinely toy/unit-test-only. Mirrors assert_score_binary_ready's existing fail-loud pattern in this codebase.
 
 Good catch by studio+lead -- exactly the class of silent-wrong-default this whole review discipline is built to catch before it corrupts a real gate result. Reported to lead, design ruling given; will content-verify the actual implementation (registry threading + pin + fail-loud guard) when studio's code lands, same rigor as the chunked-CE verify.
+
+## registry=None finding — abstain-sentinel exposure subtlety + SIGN (a)+(b) — (timestamp above)
+
+New fact from studio's call-site inventory: the toy-registry bug is masked ONLY for ABSTAINING items (the UDAHARANA UNSUPPORTED sentinel skips the registry.rules lookup) — non-abstaining near-miss/negatives items that assert a real rule_id WOULD be silently mis-scored under registry=None. Verified the mechanism myself: `src/nyaya_ir/validators.py:123-127` confirms `tr.udaharana.rule_id == UNSUPPORTED_RULE` requires `t.abstain and t.hetvabhasa.verdict is None` -- structurally corroborates the bypass is abstain-only, not universal.
+
+**This makes my Q3 ruling MORE load-bearing, not less**: a partial/silent exposure (only SOME items affected, depending on assert-vs-abstain, with no enumeration yet of how many of the 164 r_eval / 225 negatives assert) is exactly the failure shape a runtime-only check can miss in practice if a future caller happens to construct a mostly-abstaining test batch and never notices the asserting subset is wrong. Reinforces: remove the `registry=None` default entirely (Q3) rather than relying on per-call-site runtime discipline -- the signature itself must force every real caller through `build_registry()`.
+
+**SIGN (a) + (b), per lead's ask (no re-verify-from-scratch needed, the 377/377 + 225/225 byte-exact reproduction is now confirmed on BOTH families -- gold AND negatives):**
+- (a) build_registry canonical + threading it is RESTORATIVE (reproduces the frozen wire on both full_ir_gold and negatives), not a semantics change. SIGNED.
+- (b) PIN the registry rule-set hash in the P0, fail-closed, same pattern as the score-bin/eval-set pins already established. SIGNED.
+Fix scope must explicitly cover the asserting subset of r_eval/negatives (not just abstaining items) -- the fail-loud default-removal (Q3) is what guarantees this without needing the assert/abstain split enumerated first.
