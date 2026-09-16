@@ -677,3 +677,23 @@ Branch assistant/trackA/p2b-eval-p-r-build @ 510e892, gold.jsonl 377 (405→377,
 **RE-CERT #1 RULING: CERTIFIED (clean).** The corrected 377 full-IR gold is content-certified: read-covered, checker-proved, T-train-leak-free. Only open item is the optional within-gold dedup (d0's call). **Count: 377 is content-sufficient — NO top-up needed** (above the Wilson floor 200, 94% of the ≈400 target, every record read-clean + proved + leak-free). If the lead/Track A want the count nearer 400 for power margin, I support it ONLY if the fresh records get the SAME full read + cert cycle (no shortcut); from a content standpoint it isn't required.
 
 **R twin finding (cert #2): report-only route (Track A ruling A) is exactly my recommendation** — metric-4 recount on the 124 discriminable items, R set unchanged/certified. I will spot-confirm the 40 twin-ids when studio commits the recount. Cert status: negatives certified (ce70b9c), re-cert #1 CERTIFIED (this), cert #2 certified-with-report-only-metric-handling (9e92e31). No create-pod until eval-set assembled/hashed/dual-signed + preflights.
+
+## Eval-SET ASSEMBLY — CONTENT-SIGN — 2026-09-16 12:14 BST
+
+Branch p2b-eval-set-assembly @ 4ba7bef, manifest research/gates/P2b/eval_set/eval_set_manifest.json, TOP_HASH `3b6313085f5bfd33f384f7e324c68ceefcdb10d5b6ee1f5eb7e6936452e7325f`. Ran all four (a)-(d) checks myself against the assembled branch, not the lead's report.
+
+**(a) Component shas == certified shas — PASS.** Re-hashed all 5 artifacts as committed on 4ba7bef:
+- full_ir_gold (377): `2c8c3dd1...5650879` == my re-cert#1 f6481d0 sha.
+- negatives (225): `2d7a25d2...196f003` == my ce70b9c sha.
+- r_eval (164): `3916fbc4...28606e5` == my cert#2 9e92e31 sha.
+- r_train (1156): `d250910b...5197e4ce` == my cert#2 9e92e31 sha.
+- twin_exclusion (40): `b4f98e91...df479d` == my dual-confirmed sha.
+All five byte-identical to what I certified — no drift.
+
+**(b) Re-hash + id-set diff — PASS, no record added/removed/edited.** Compared id-sets between the assembled artifacts and my own certified in-memory sets: full_ir_gold 377/377 exact match; negatives 225/225 exact match; r_train 1156/1156 exact match. r_eval: the manifest's `eval_target.jsonl` keys records by top-level `id` while my cert#2 verification used `provenance.jsonl`'s `record_id` — different files, same 164 records; cross-checked the actual id strings (not just counts) and all 164 match exactly, confirming this was a file/key-naming difference in my diff tooling, not a content discrepancy.
+
+**(c) Metric-4 exclusion wires from the pinned twin list — PASS.** Landed `twin_unanswerable_ids.json` on 4ba7bef diffed against my own independently-generated 40-record list (docs/reviews/spikes/trackb-p2a-tread/twin-unanswerable-ids-trackb.json): **record_id sets are IDENTICAL, 0 diff either direction.** Confirms the earlier byte-identical reconciliation (Track A's 40 == mine) survived the merge into the assembly unchanged.
+
+**(d) top_hash reproduces — PASS.** Recomputed sha256 over sorted `"name\tsha256\tcount"` lines for the 5 components independently: `3b6313085f5bfd33f384f7e324c68ceefcdb10d5b6ee1f5eb7e6936452e7325f` — exact match to the manifest's pinned top_hash.
+
+**CONTENT-SIGN: the P2b eval-SET (gold 377 + negatives 225 + R 164/1156 + twin-exclusion 40, TOP_HASH 3b631308…) is CONTENT-SIGNED.** Every component is byte-identical to what I content-certified across cert #1 (re-cert f6481d0), cert #2 (9e92e31), and negatives (ce70b9c); no record added, removed, or edited during assembly; the metric-4 twin exclusion is correctly wired from the dual-confirmed 40-id pinned list; the manifest's integrity hash is independently reproducible. Freeze on my sign + Track A's shape-sign. No `create-pod` until dual-sign lands + both P0 preflights are signed.
