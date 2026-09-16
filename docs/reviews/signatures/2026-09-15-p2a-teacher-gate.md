@@ -828,3 +828,16 @@ Off 5ec3061, 13 files. Verified every claim against the actual diff/tests/indepe
 **BONUS beyond my ask:** `TestNoRegistryDefaultRegressionInTheP2bScoringPath` — an AST-based static-analysis test scanning `p2b_preflight.py`/`p2b_eval.py` source for ANY direct `nyaya_ir` scoring call (`serialize`/`parse`/`validate_record`/etc.) missing an explicit `registry=` kwarg, failing CI on any future regression. Stronger than what I asked for — catches a future mistake at test-collection time, not just at the specific 4 signatures fixed today.
 
 **SIGN on all five dimensions, no flags.** Reported to lead per instruction, not Track A. This was the critical gate-integrity fix of the whole P2b effort; verified rigorously.
+
+## max_new_tokens truncation finding — gate-validity ruling — (timestamp above)
+
+5090 full run surfaced: --max-new-tokens 128 (CLI default 256) truncates generation well before the gold wires' ANSWER line (median ~294 tokens deep, wire median ~483/max ~613 tokens) -- so metrics 1/2/2b/3 would read a plausible-looking structural 0 on every real item, indistinguishable from "base can't emit IR." Same failure class as the registry bug (silently wrong, not crashing).
+
+Verified independently before ruling: (1) sampled one real gold wire (7b5f578, gold.jsonl row 1) -- ANSWER at line 21/24, 1808 chars total; ANSWER genuinely sits near the tail, and 1808 chars is roughly consistent (char/token ~4-4.5) with the claimed ~483-token median -- a light plausibility check, not a full independent recompute of all 377 (no tokenizer access here). (2) grepped the prereg for max_new_tokens/max-new-tokens: ZERO occurrences -- genuinely unpinned, confirmed.
+
+**Ruling:**
+(a) CONFIRMED -- 128/256 invalidate metrics 1/2/2b/3: a truncated wire is incomplete (missing NIGAMANA/ANSWER/AUDIT), so structural validity fails and checker_pass/correctness can't reach a verdict (no ANSWER to score) -- a budget artifact masquerading as a capability measurement.
+(b) LOGIC SOUND: budget=1024 (>613 max) + fail-loud guard (refuse unless budget >= 1.1x REAL computed max_target_tokens) makes grounded=False a genuine non-emission signal, not truncation -- conditioned on the standard assumption that an SFT-trained model's generation length tracks its gold's length; a genuinely degenerate/looping generation could still hit the cap, but that IS a legitimate model failure, not a false negative, so it doesn't undermine the fix.
+(c) RECORD BOTH VALUES (budget + computed max_target_tokens) in the P0 for reproducibility/auditability -- analogous to N/achieved-MDE already recorded as derived measurements. Recommend pinning the ADEQUACY RELATIONSHIP (budget >= 1.1x max_target_tokens, recomputed + fail-closed-checked against the real frozen eval-set every run), NOT a hardcoded "1024" constant -- a fixed integer pin (like the score-binary sha) is for bit-identical artifact content; a token budget should stay a checked, derived, re-verified relationship so it doesn't go stale if the eval-set or base model's tokenizer ever changes.
+
+Reported to lead per instruction, not Track A.
