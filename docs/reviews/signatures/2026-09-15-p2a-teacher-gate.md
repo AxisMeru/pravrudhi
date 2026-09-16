@@ -723,3 +723,17 @@ Branch assistant/studio/p2b-cli @ 6ee876b, `select_few_shot_examples` in p2b_qwe
 2. Empirically confirmed anyway (defense-in-depth, since I don't rely on the docstring alone): re-verified from my own certified artifacts — T-tier ids (210) ∩ negatives ids (225) = **0**; T-tier ids ∩ R-eval ids (164) = **0**. Even if a future change widened where few_shot_examples gets used, there is currently no id-level overlap to exploit.
 
 **CONTENT-SIGN: `select_few_shot_examples`'s disjointness guard is CERTIFIED** — enforces exactly my meta-overfitting condition (fail-loud, deterministic, `full_ir_gold`-disjoint by construction and by explicit runtime check), and `full_ir_gold` is the complete correct exclusion set given the guard's actual (and only) use site. No widening to negatives/R needed — not a real risk, would be dead code. Track A verifies the non-swallow (leak-check-before-scoring, sha-enforcement) in parallel. This closes my last flagged item before the pod.
+
+## GPU portability + checkpoint/resume (assistant/studio/p2b-gpu-portability @ 745d99a) — adversarial content-sign — 2026-09-16 (see commit timestamp)
+
+Off main b772691, 6 files +944/-14. Verified the actual diff + tests myself, not the report.
+
+**(1) No silent resume failure — PASS.** `test_resume_continues_from_the_saved_step_not_from_zero`: genuine crash (STOP-file injected mid-run) then resume reaches `global_step==6` (target) from a `crashed_step>0` (real partial progress, not a no-op). `test_resumed_run_adapter_is_close_to_an_uninterrupted_run`: uninterrupted-reference vs crash+resume run, same seed/config/data, `torch.allclose(atol=1e-4)` on every LoRA param — genuine numeric assertion, not a docstring claim. Optimizer+RNG restored (`weights_only=False`, own trusted checkpoint files only); resume resumes at saved `pair_index` (the NEXT unprocessed pair, no off-by-one verified by trace).
+
+**(2) Fail-closed hashing — PASS.** `compute_config_hash` covers ALL 7 `LoraSftConfig` fields (r/alpha/dropout/target_modules/learning_rate/num_epochs/seed — checked against the dataclass, no gap). `find_resumable_checkpoint` returns a state only when BOTH config-hash and dataset-hash match; any mismatch raises `CheckpointRefused` fail-closed — no silent-accept path. `pytest.raises` assertions confirm both mismatch directions.
+
+**(3) Gate/parse-rate untouched — PASS.** `p2b_eval.py`/`p2b_preflight.py`: zero diff. Entrypoint diff only wires `checkpoint_config` + a pre-training `configure_for_device` call; `select_few_shot_examples`, eval-set loading, `ShaEnforcingChecker` path unchanged.
+
+**(4) Durability — FLAG, non-blocking.** `rsync_checkpoint` calls `subprocess.run(["rsync",...])` with default `check=False`, never inspects the return code; the caller in `train_lora_sft` has no try/except around it. A genuine rsync failure (network/permission/bad dest) is COMPLETELY SILENT — no exception, no log. Best-effort (not blocking a step on network egress) is the right design choice, but silent best-effort means the house rule's "off-RunPod copy before delete" could go unmet for a whole run with zero visibility in pod logs. Recommend (cheap, non-blocking): log a warning with returncode+stderr on rsync failure.
+
+**RULING: SIGN on dimensions 1-3 (clean); FLAG dimension 4 (durability visibility gap, recommend cheap logging fix, does not block dual-sign or the pod's current run).** Reported to lead per instruction, not Track A.
