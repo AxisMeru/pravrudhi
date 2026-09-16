@@ -737,3 +737,9 @@ Off main b772691, 6 files +944/-14. Verified the actual diff + tests myself, not
 **(4) Durability — FLAG, non-blocking.** `rsync_checkpoint` calls `subprocess.run(["rsync",...])` with default `check=False`, never inspects the return code; the caller in `train_lora_sft` has no try/except around it. A genuine rsync failure (network/permission/bad dest) is COMPLETELY SILENT — no exception, no log. Best-effort (not blocking a step on network egress) is the right design choice, but silent best-effort means the house rule's "off-RunPod copy before delete" could go unmet for a whole run with zero visibility in pod logs. Recommend (cheap, non-blocking): log a warning with returncode+stderr on rsync failure.
 
 **RULING: SIGN on dimensions 1-3 (clean); FLAG dimension 4 (durability visibility gap, recommend cheap logging fix, does not block dual-sign or the pod's current run).** Reported to lead per instruction, not Track A.
+
+## Dim-4 fix (rsync-failure visibility) — scoped-delta confirm — MERGE OK — (timestamp above)
+
+Verified 745d99a..13a90e5 myself (2 files, +81/-3 total). p2b_sft.py delta confined exactly to `rsync_checkpoint` + new `_default_rsync_runner`: OSError from the runner -> `logger.warning` + return; non-zero returncode -> `logger.warning` (returncode+stderr) + return; both paths `return` normally, never raise -- never blocks training, no longer silent. Grepped: no other function touched (save_checkpoint/load_checkpoint/find_resumable_checkpoint/train_lora_sft/hash functions/device-fit all absent from this diff) -- confirms the signed logic (dims 1-3) is untouched. tests/test_p2b_sft.py: 3 new tests, all real caplog-based assertions (nonzero-returncode warns with the right returncode+stderr text; runner-raising warns; success path asserts `not caplog.records` -- no false-positive warnings). Exactly closes my dim-4 flag.
+
+**Scope confirmed. MERGE OK.** My dims-1-3 sign (46ef544) carries; this delta is additive-only on the flagged path.
