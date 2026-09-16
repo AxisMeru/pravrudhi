@@ -1,0 +1,312 @@
+{
+ "records": [
+  {
+   "attempt_id": "t_ipc405_misappropriation_6daee122_0035",
+   "contract_id": "ipc405_misappropriation",
+   "shape": "omit:0",
+   "fact_fit": "PASS",
+   "narrative_neutral": "FAIL",
+   "omission_real": "FAIL",
+   "denial_real": "N/A",
+   "coherent": "PASS",
+   "english_law_register": "PASS",
+   "duplicate_of": ["t_ipc405_misappropriation_6daee122_0040"],
+   "notes": "F_narrative states the pottery was displayed 'at a stall managed by event coordinator Nikhil Rao' -- 'managed by' arguably confers the accused some access/control over the displayed goods, which blurs into the very el0 (dominion over property) the record is supposed to omit. Contrast with the cleaner omit-shape narratives elsewhere in this set (e.g. use_or_disposal_0035, misappropriation_0036) that explicitly disclaim any custodial framing. Doubtful, flagged as FAIL per strict instruction."
+  },
+  {
+   "attempt_id": "t_ipc405_misappropriation_6daee122_0036",
+   "contract_id": "ipc405_misappropriation",
+   "shape": "omit:1",
+   "fact_fit": "PASS",
+   "narrative_neutral": "PASS",
+   "omission_real": "PASS",
+   "denial_real": "N/A",
+   "coherent": "PASS",
+   "english_law_register": "PASS",
+   "duplicate_of": [],
+   "notes": "Narrative explicitly disclaims prior agreements/custodial arrangements; F_el0 establishes entrustment only, el1 genuinely unestablished."
+  },
+  {
+   "attempt_id": "t_ipc405_misappropriation_6daee122_0037",
+   "contract_id": "ipc405_misappropriation",
+   "shape": "control",
+   "fact_fit": "PASS",
+   "narrative_neutral": "PASS",
+   "omission_real": "N/A",
+   "denial_real": "N/A",
+   "coherent": "PASS",
+   "english_law_register": "PASS",
+   "duplicate_of": [],
+   "notes": "Clean control record; each fact establishes only its own element."
+  },
+  {
+   "attempt_id": "t_ipc405_misappropriation_6daee122_0038",
+   "contract_id": "ipc405_misappropriation",
+   "shape": "control",
+   "fact_fit": "PASS",
+   "narrative_neutral": "PASS",
+   "omission_real": "N/A",
+   "denial_real": "N/A",
+   "coherent": "PASS",
+   "english_law_register": "PASS",
+   "duplicate_of": [],
+   "notes": "Clean control record; F_el1's reference to 'held in his custody' is redundant with already-established el0 but does not introduce a new/independent establishment problem."
+  },
+  {
+   "attempt_id": "t_ipc405_misappropriation_6daee122_0039",
+   "contract_id": "ipc405_misappropriation",
+   "shape": "deny",
+   "fact_fit": "PASS",
+   "narrative_neutral": "PASS",
+   "omission_real": "N/A",
+   "denial_real": "FAIL",
+   "coherent": "FAIL",
+   "english_law_register": "PASS",
+   "duplicate_of": ["t_ipc405_use_or_disposal_6daee122_0037"],
+   "notes": "Self-contradictory: F_el1 explicitly states Liora Vance transferred the funds 'intending to keep the money for her personal benefit rather than holding it for the society' -- an outright assertion of self-serving dishonest intent -- yet the denial fact (F_el2) then claims she acted in good faith believing the diversion would serve the entrusting party's advantage 'rather than acting dishonestly'. The two facts cannot both be true; the denial does not genuinely negate dishonesty already pleaded, and the answer's conclusion (405 does not apply) rests on this contradiction. Also near-duplicate in template/entity naming ('Oakhaven Historical Society' archival restoration fund) with use_or_disposal_0037 (Lorcan Vane vs Liora Vance)."
+  },
+  {
+   "attempt_id": "t_ipc405_misappropriation_6daee122_0040",
+   "contract_id": "ipc405_misappropriation",
+   "shape": "omit:0",
+   "fact_fit": "PASS",
+   "narrative_neutral": "PASS",
+   "omission_real": "PASS",
+   "denial_real": "N/A",
+   "coherent": "PASS",
+   "english_law_register": "PASS",
+   "duplicate_of": ["t_ipc405_misappropriation_6daee122_0035"],
+   "notes": "Near-duplicate of 0035: same 'annual [X] festival' + market-stall/warehouse setup + 'secretly transported ... to his private residence for resale' template, only names/objects swapped (pottery/Coorg vs saffron/Alibaug)."
+  },
+  {
+   "attempt_id": "t_ipc405_use_or_disposal_6daee122_0035",
+   "contract_id": "ipc405_use_or_disposal",
+   "shape": "omit:1",
+   "fact_fit": "PASS",
+   "narrative_neutral": "PASS",
+   "omission_real": "PASS",
+   "denial_real": "N/A",
+   "coherent": "PASS",
+   "english_law_register": "PASS",
+   "duplicate_of": [],
+   "notes": "F_el2 describes only the contract's storage/no-transfer terms, no actual use/disposal act is stated anywhere; el1 genuinely unestablished."
+  },
+  {
+   "attempt_id": "t_ipc405_use_or_disposal_6daee122_0037",
+   "contract_id": "ipc405_use_or_disposal",
+   "shape": "control",
+   "fact_fit": "PASS",
+   "narrative_neutral": "PASS",
+   "omission_real": "N/A",
+   "denial_real": "N/A",
+   "coherent": "PASS",
+   "english_law_register": "PASS",
+   "duplicate_of": ["t_ipc405_misappropriation_6daee122_0039"],
+   "notes": "Template/entity near-duplicate: 'Oakhaven Historical Society' archival restoration fund, custodian named Lorcan Vane here vs Liora Vance in misappropriation_0039, same fact pattern of diverting the fund. Individually this record is internally coherent, unlike its counterpart."
+  },
+  {
+   "attempt_id": "t_ipc405_use_or_disposal_6daee122_0038",
+   "contract_id": "ipc405_use_or_disposal",
+   "shape": "control",
+   "fact_fit": "PASS",
+   "narrative_neutral": "PASS",
+   "omission_real": "N/A",
+   "denial_real": "N/A",
+   "coherent": "PASS",
+   "english_law_register": "PASS",
+   "duplicate_of": [],
+   "notes": "Facts are individually clean. Minor non-scored observation: the answer's closing sentence borrows misappropriation-limb phrasing ('converted entrusted property to his own use') rather than the use_or_disposal contract's own 'uses or disposes of ... in violation of' wording; does not affect any of the six graded questions."
+  },
+  {
+   "attempt_id": "t_ipc405_use_or_disposal_6daee122_0039",
+   "contract_id": "ipc405_use_or_disposal",
+   "shape": "deny",
+   "fact_fit": "PASS",
+   "narrative_neutral": "PASS",
+   "omission_real": "N/A",
+   "denial_real": "PASS",
+   "coherent": "PASS",
+   "english_law_register": "PASS",
+   "duplicate_of": [],
+   "notes": "Unlike misappropriation_0039, el1's fact ('disposing of the property contrary to her mandate') does not assert a personal-benefit motive, so the good-faith denial (F_el3) does not contradict it -- a genuine, coherent denial. Minor doubt: 'contrary to her mandate' in F_el1 lightly foreshadows el2's contract-violation content, but does not specify contract terms itself, so left PASS."
+  },
+  {
+   "attempt_id": "t_ipc405_wilfully_suffers_6daee122_0034",
+   "contract_id": "ipc405_wilfully_suffers",
+   "shape": "control",
+   "fact_fit": "PASS",
+   "narrative_neutral": "PASS",
+   "omission_real": "N/A",
+   "denial_real": "N/A",
+   "coherent": "PASS",
+   "english_law_register": "PASS",
+   "duplicate_of": ["t_ipc405_wilfully_suffers_6daee122_0035", "t_ipc405_wilfully_suffers_6daee122_0037", "t_ipc405_wilfully_suffers_6daee122_0038"],
+   "notes": "Part of a 4-record duplicate cluster: custodian entrusted with valuable historical/maritime items witnesses a subordinate/associate remove them for personal sale/use and deliberately declines to intervene despite having authority and duty to. Only names/objects/settings differ across 0034, 0035, 0037, 0038."
+  },
+  {
+   "attempt_id": "t_ipc405_wilfully_suffers_6daee122_0035",
+   "contract_id": "ipc405_wilfully_suffers",
+   "shape": "control",
+   "fact_fit": "PASS",
+   "narrative_neutral": "PASS",
+   "omission_real": "N/A",
+   "denial_real": "N/A",
+   "coherent": "PASS",
+   "english_law_register": "PASS",
+   "duplicate_of": ["t_ipc405_wilfully_suffers_6daee122_0034", "t_ipc405_wilfully_suffers_6daee122_0037", "t_ipc405_wilfully_suffers_6daee122_0038"],
+   "notes": "Same duplicate cluster as 0034 (manuscripts/archival trust variant)."
+  },
+  {
+   "attempt_id": "t_ipc405_wilfully_suffers_6daee122_0037",
+   "contract_id": "ipc405_wilfully_suffers",
+   "shape": "control",
+   "fact_fit": "PASS",
+   "narrative_neutral": "PASS",
+   "omission_real": "N/A",
+   "denial_real": "N/A",
+   "coherent": "PASS",
+   "english_law_register": "PASS",
+   "duplicate_of": ["t_ipc405_wilfully_suffers_6daee122_0034", "t_ipc405_wilfully_suffers_6daee122_0035", "t_ipc405_wilfully_suffers_6daee122_0038"],
+   "notes": "Same duplicate cluster as 0034 (chronometers variant)."
+  },
+  {
+   "attempt_id": "t_ipc405_wilfully_suffers_6daee122_0038",
+   "contract_id": "ipc405_wilfully_suffers",
+   "shape": "control",
+   "fact_fit": "PASS",
+   "narrative_neutral": "PASS",
+   "omission_real": "N/A",
+   "denial_real": "N/A",
+   "coherent": "PASS",
+   "english_law_register": "PASS",
+   "duplicate_of": ["t_ipc405_wilfully_suffers_6daee122_0034", "t_ipc405_wilfully_suffers_6daee122_0035", "t_ipc405_wilfully_suffers_6daee122_0037"],
+   "notes": "Same duplicate cluster as 0034 (astrolabes/salvage-yard variant)."
+  },
+  {
+   "attempt_id": "t_ipc405_wilfully_suffers_6daee122_0039",
+   "contract_id": "ipc405_wilfully_suffers",
+   "shape": "omit:1",
+   "fact_fit": "PASS",
+   "narrative_neutral": "PASS",
+   "omission_real": "PASS",
+   "denial_real": "N/A",
+   "coherent": "PASS",
+   "english_law_register": "PASS",
+   "duplicate_of": [],
+   "notes": "el1 (wilfully suffers) genuinely unestablished; no act of another party or acquiescence is described anywhere. Loosely echoes the manuscripts/historical-trust setting of wilfully_suffers_0035 but not close enough (different shape, no parallel act) to count as a full duplicate."
+  },
+  {
+   "attempt_id": "t_ipc415_property_6daee122_0029",
+   "contract_id": "ipc415_property",
+   "shape": "control",
+   "fact_fit": "PASS",
+   "narrative_neutral": "PASS",
+   "omission_real": "N/A",
+   "denial_real": "N/A",
+   "coherent": "PASS",
+   "english_law_register": "PASS",
+   "duplicate_of": [],
+   "notes": "Clean control record; deception, fraudulent inducement, and delivery each independently established."
+  },
+  {
+   "attempt_id": "t_ipc415_property_6daee122_0030",
+   "contract_id": "ipc415_property",
+   "shape": "omit:0",
+   "fact_fit": "FAIL",
+   "narrative_neutral": "PASS",
+   "omission_real": "FAIL",
+   "denial_real": "N/A",
+   "coherent": "PASS",
+   "english_law_register": "PASS",
+   "duplicate_of": [],
+   "notes": "F_el1 reads 'Kaelen Thorne was fraudulently induced to agree to the transfer based on representations made during the meeting' -- 'representations made' IS the deceptive act (el0), so this single fact both asserts inducement (el1) and presupposes deception occurred, failing the 'establishes ONLY element k' test. Consequently the omission is not real: el0 is effectively implied by the record's own el1 fact, undermining the abstain rationale ('the account does not establish that Jorin Vane deceived Kaelen Thorne')."
+  }
+ ],
+ "summary": {
+  "total_records": 17,
+  "fail_counts_overall": {
+   "fact_fit": 1,
+   "narrative_neutral": 1,
+   "omission_real": 2,
+   "denial_real": 1,
+   "coherent": 1,
+   "english_law_register": 0
+  },
+  "fail_counts_by_contract": {
+   "ipc405_misappropriation": {
+    "fact_fit": 0,
+    "narrative_neutral": 1,
+    "omission_real": 1,
+    "denial_real": 1,
+    "coherent": 1,
+    "english_law_register": 0
+   },
+   "ipc405_use_or_disposal": {
+    "fact_fit": 0,
+    "narrative_neutral": 0,
+    "omission_real": 0,
+    "denial_real": 0,
+    "coherent": 0,
+    "english_law_register": 0
+   },
+   "ipc405_wilfully_suffers": {
+    "fact_fit": 0,
+    "narrative_neutral": 0,
+    "omission_real": 0,
+    "denial_real": 0,
+    "coherent": 0,
+    "english_law_register": 0
+   },
+   "ipc415_property": {
+    "fact_fit": 1,
+    "narrative_neutral": 0,
+    "omission_real": 1,
+    "denial_real": 0,
+    "coherent": 0,
+    "english_law_register": 0
+   }
+  },
+  "worst_10": [
+   {
+    "attempt_id": "t_ipc405_misappropriation_6daee122_0039",
+    "reason": "Self-contradictory deny record: el1's fact asserts explicit personal-benefit intent (dishonesty), then the denial fact asserts good-faith intent to benefit the trust; the two cannot coexist. denial_real FAIL, coherent FAIL."
+   },
+   {
+    "attempt_id": "t_ipc415_property_6daee122_0030",
+    "reason": "el1's fact ('based on representations made during the meeting') presupposes the deception (el0) it is supposed to omit; fact_fit FAIL and omission_real FAIL -- the abstain rationale is contradicted by the record's own facts."
+   },
+   {
+    "attempt_id": "t_ipc405_misappropriation_6daee122_0035",
+    "reason": "Narrative's 'stall managed by' framing arguably hints at the accused's control over the goods, undermining the omit:0 (entrustment) design; narrative_neutral and omission_real both doubtful/FAIL."
+   },
+   {
+    "attempt_id": "t_ipc405_wilfully_suffers_6daee122_0034",
+    "reason": "One of a 4-record duplicate cluster (with 0035, 0037, 0038): identical 'custodian watches associate remove valuable items and deliberately fails to intervene' template, only cosmetic swaps."
+   },
+   {
+    "attempt_id": "t_ipc405_wilfully_suffers_6daee122_0035",
+    "reason": "Duplicate-cluster member, see 0034."
+   },
+   {
+    "attempt_id": "t_ipc405_wilfully_suffers_6daee122_0037",
+    "reason": "Duplicate-cluster member, see 0034."
+   },
+   {
+    "attempt_id": "t_ipc405_wilfully_suffers_6daee122_0038",
+    "reason": "Duplicate-cluster member, see 0034."
+   },
+   {
+    "attempt_id": "t_ipc405_misappropriation_6daee122_0040",
+    "reason": "Near-duplicate of misappropriation_0035 (festival/stall/warehouse + secret transport-to-residence-for-resale template)."
+   },
+   {
+    "attempt_id": "t_ipc405_use_or_disposal_6daee122_0037",
+    "reason": "Near-duplicate entity/template with misappropriation_0039 ('Oakhaven Historical Society' archival restoration fund; Lorcan Vane vs Liora Vance), compounding that record's incoherence risk."
+   },
+   {
+    "attempt_id": "t_ipc405_wilfully_suffers_6daee122_0039",
+    "reason": "Weakest of the flagged set: individually passes all six questions, included only for a soft thematic overlap (manuscripts/historical-trust custody) with wilfully_suffers_0035."
+   }
+  ]
+ }
+}
