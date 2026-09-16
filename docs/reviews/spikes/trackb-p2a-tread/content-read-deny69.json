@@ -1,0 +1,44 @@
+{
+  "records": [
+    {
+      "attempt_id": "t_ipc405_use_or_disposal_670350a9_0069",
+      "contract_id": "ipc405_use_or_disposal",
+      "shape": "deny",
+      "fact_fit": "FAIL",
+      "narrative_neutral": "PASS",
+      "omission_real": "N/A",
+      "denial_real": "PASS",
+      "coherent": "PASS",
+      "english_law_register": "PASS",
+      "duplicate_of": null,
+      "notes": "fact_fit FAIL on el1: required element 1 is 'dishonestly uses or disposes of the property', but F_el1 ('transferred the forty drums ... to Apex Waste Management for immediate processing') establishes only the disposal act, not dishonesty -- a bare transfer for 'processing' reads as facially innocuous and the dishonest mental state is never affirmatively shown anywhere except being simultaneously negated by the denial fact F_el3, so element 1 as labeled is never actually established on its stated terms; flagging as a doubtful fact_fit per strict instruction even though the design (leaving intent open for the denial to contest) is arguably intentional. el0 (F_el0: physical custody received) and el2 (F_el2: written storage-condition term) each cleanly establish only their own element with no bleed into the others -- PASS individually, but the overall fact_fit question is scored FAIL because of el1. narrative_neutral PASS: F_narrative only sets the scene (parties, depot, subject matter) without establishing any element. denial_real PASS: F_el3 genuinely raises absence of dishonest intention (good-faith belief the diversion served the entrustor's interest), and the answer correctly concludes s.405 does not apply on that basis; minor loose thread is that 'facility failure' is introduced only inside the denial's statement of Dorne's belief with no antecedent in the narrative or F_el2, but as an assertion of subjective belief this does not by itself defeat the denial's genuineness. coherent PASS: named parties, concrete conduct (custody of solvent drums, contractual storage term, diversion to a waste processor), plausible commercial setting -- not a paraphrase of statutory text. english_law_register PASS: plain-English fact pattern, no Sanskrit/BNS terminology, no role-token leakage (no literal 'el0'/'eldeny' strings in prose)."
+    }
+  ],
+  "summary": {
+    "total_records": 1,
+    "fail_counts_overall": {
+      "fact_fit": 1,
+      "narrative_neutral": 0,
+      "omission_real": 0,
+      "denial_real": 0,
+      "coherent": 0,
+      "english_law_register": 0
+    },
+    "fail_counts_by_contract_id": {
+      "ipc405_use_or_disposal": {
+        "fact_fit": 1,
+        "narrative_neutral": 0,
+        "omission_real": 0,
+        "denial_real": 0,
+        "coherent": 0,
+        "english_law_register": 0
+      }
+    },
+    "worst_records": [
+      {
+        "attempt_id": "t_ipc405_use_or_disposal_670350a9_0069",
+        "reason": "fact_fit FAIL: F_el1 shows only the disposal act (transfer of drums to a waste processor 'for immediate processing') and does not on its own establish the 'dishonestly' component of required element 1; the dishonest mental state is never affirmatively shown and is instead contemporaneously negated by the denial fact, so element 1 is not actually established as stated."
+      }
+    ]
+  }
+}
