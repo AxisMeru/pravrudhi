@@ -1,0 +1,448 @@
+{
+ "method": "per-RECORD: any distractor with TF-IDF operative-segment cosine sim >= 0.999 in P2a similarity_graph.json (retrieval_only_records/batch-01). A record counts ONCE even with multiple twin distractors. Rationale: TF-IDF>=0.999 = operative text functionally identical => framing-c (which shows only the operative segment) cannot distinguish gold from that distractor on text; on a HELD-OUT provision the model also can't know the dataset label => unanswerable-by-text.",
+ "threshold": 0.999,
+ "count": 40,
+ "note_30_vs_40": "If studio's 30 uses BYTE-identity (exact text equality), it under-counts vs TF-IDF>=0.999 by missing ~10 near-identical-but-not-byte-equal twins (same term-frequency vector, minor punctuation/word-order differences) that are STILL functionally unanswerable for text-discrimination. Recommend the metric-4 exclusion use TF-IDF>=0.999 (this list of 40), the more complete/conservative set. Track A owns the metric-validity call.",
+ "twin_records": [
+  {
+   "record_id": "statute_identification_c_eval_Bharatiya_Nyaya_Sanhita_Section_100",
+   "source_provision_id": "Bharatiya Nyaya Sanhita/Section 100",
+   "candidate_count": 5,
+   "twin_distractors": [
+    {
+     "provision_id": "Indian Penal Code/Section 299",
+     "tfidf_sim": 1.0
+    }
+   ]
+  },
+  {
+   "record_id": "statute_identification_c_eval_Bharatiya_Nyaya_Sanhita_Section_102",
+   "source_provision_id": "Bharatiya Nyaya Sanhita/Section 102",
+   "candidate_count": 5,
+   "twin_distractors": [
+    {
+     "provision_id": "Indian Penal Code/Section 301",
+     "tfidf_sim": 1.0
+    }
+   ]
+  },
+  {
+   "record_id": "statute_identification_c_eval_Bharatiya_Nyaya_Sanhita_Section_108",
+   "source_provision_id": "Bharatiya Nyaya Sanhita/Section 108",
+   "candidate_count": 5,
+   "twin_distractors": [
+    {
+     "provision_id": "Indian Penal Code/Section 306",
+     "tfidf_sim": 1.0
+    }
+   ]
+  },
+  {
+   "record_id": "statute_identification_c_eval_Bharatiya_Nyaya_Sanhita_Section_120",
+   "source_provision_id": "Bharatiya Nyaya Sanhita/Section 120",
+   "candidate_count": 5,
+   "twin_distractors": [
+    {
+     "provision_id": "Indian Penal Code/Section 330",
+     "tfidf_sim": 1.0
+    }
+   ]
+  },
+  {
+   "record_id": "statute_identification_c_eval_Bharatiya_Nyaya_Sanhita_Section_156",
+   "source_provision_id": "Bharatiya Nyaya Sanhita/Section 156",
+   "candidate_count": 5,
+   "twin_distractors": [
+    {
+     "provision_id": "Indian Penal Code/Section 128",
+     "tfidf_sim": 1.0
+    }
+   ]
+  },
+  {
+   "record_id": "statute_identification_c_eval_Bharatiya_Nyaya_Sanhita_Section_157",
+   "source_provision_id": "Bharatiya Nyaya Sanhita/Section 157",
+   "candidate_count": 5,
+   "twin_distractors": [
+    {
+     "provision_id": "Indian Penal Code/Section 129",
+     "tfidf_sim": 1.0
+    }
+   ]
+  },
+  {
+   "record_id": "statute_identification_c_eval_Bharatiya_Nyaya_Sanhita_Section_160",
+   "source_provision_id": "Bharatiya Nyaya Sanhita/Section 160",
+   "candidate_count": 5,
+   "twin_distractors": [
+    {
+     "provision_id": "Indian Penal Code/Section 132",
+     "tfidf_sim": 1.0
+    }
+   ]
+  },
+  {
+   "record_id": "statute_identification_c_eval_Bharatiya_Nyaya_Sanhita_Section_161",
+   "source_provision_id": "Bharatiya Nyaya Sanhita/Section 161",
+   "candidate_count": 5,
+   "twin_distractors": [
+    {
+     "provision_id": "Indian Penal Code/Section 133",
+     "tfidf_sim": 1.0
+    }
+   ]
+  },
+  {
+   "record_id": "statute_identification_c_eval_Bharatiya_Nyaya_Sanhita_Section_162",
+   "source_provision_id": "Bharatiya Nyaya Sanhita/Section 162",
+   "candidate_count": 5,
+   "twin_distractors": [
+    {
+     "provision_id": "Indian Penal Code/Section 134",
+     "tfidf_sim": 1.0
+    }
+   ]
+  },
+  {
+   "record_id": "statute_identification_c_eval_Bharatiya_Nyaya_Sanhita_Section_163",
+   "source_provision_id": "Bharatiya Nyaya Sanhita/Section 163",
+   "candidate_count": 5,
+   "twin_distractors": [
+    {
+     "provision_id": "Indian Penal Code/Section 135",
+     "tfidf_sim": 1.0
+    }
+   ]
+  },
+  {
+   "record_id": "statute_identification_c_eval_Bharatiya_Nyaya_Sanhita_Section_19",
+   "source_provision_id": "Bharatiya Nyaya Sanhita/Section 19",
+   "candidate_count": 4,
+   "twin_distractors": [
+    {
+     "provision_id": "Indian Penal Code/Section 81",
+     "tfidf_sim": 1.0
+    }
+   ]
+  },
+  {
+   "record_id": "statute_identification_c_eval_Bharatiya_Nyaya_Sanhita_Section_22",
+   "source_provision_id": "Bharatiya Nyaya Sanhita/Section 22",
+   "candidate_count": 4,
+   "twin_distractors": [
+    {
+     "provision_id": "Indian Penal Code/Section 84",
+     "tfidf_sim": 1.0
+    }
+   ]
+  },
+  {
+   "record_id": "statute_identification_c_eval_Bharatiya_Nyaya_Sanhita_Section_23",
+   "source_provision_id": "Bharatiya Nyaya Sanhita/Section 23",
+   "candidate_count": 5,
+   "twin_distractors": [
+    {
+     "provision_id": "Indian Penal Code/Section 85",
+     "tfidf_sim": 1.0
+    }
+   ]
+  },
+  {
+   "record_id": "statute_identification_c_eval_Bharatiya_Nyaya_Sanhita_Section_231",
+   "source_provision_id": "Bharatiya Nyaya Sanhita/Section 231",
+   "candidate_count": 4,
+   "twin_distractors": [
+    {
+     "provision_id": "Indian Penal Code/Section 195",
+     "tfidf_sim": 1.0
+    }
+   ]
+  },
+  {
+   "record_id": "statute_identification_c_eval_Bharatiya_Nyaya_Sanhita_Section_24",
+   "source_provision_id": "Bharatiya Nyaya Sanhita/Section 24",
+   "candidate_count": 4,
+   "twin_distractors": [
+    {
+     "provision_id": "Indian Penal Code/Section 86",
+     "tfidf_sim": 1.0
+    }
+   ]
+  },
+  {
+   "record_id": "statute_identification_c_eval_Bharatiya_Nyaya_Sanhita_Section_25",
+   "source_provision_id": "Bharatiya Nyaya Sanhita/Section 25",
+   "candidate_count": 5,
+   "twin_distractors": [
+    {
+     "provision_id": "Indian Penal Code/Section 87",
+     "tfidf_sim": 1.0
+    }
+   ]
+  },
+  {
+   "record_id": "statute_identification_c_eval_Bharatiya_Nyaya_Sanhita_Section_33",
+   "source_provision_id": "Bharatiya Nyaya Sanhita/Section 33",
+   "candidate_count": 3,
+   "twin_distractors": [
+    {
+     "provision_id": "Indian Penal Code/Section 95",
+     "tfidf_sim": 0.999091
+    }
+   ]
+  },
+  {
+   "record_id": "statute_identification_c_eval_Bharatiya_Nyaya_Sanhita_Section_34",
+   "source_provision_id": "Bharatiya Nyaya Sanhita/Section 34",
+   "candidate_count": 5,
+   "twin_distractors": [
+    {
+     "provision_id": "Indian Penal Code/Section 96",
+     "tfidf_sim": 1.0
+    }
+   ]
+  },
+  {
+   "record_id": "statute_identification_c_eval_Bharatiya_Nyaya_Sanhita_Section_348",
+   "source_provision_id": "Bharatiya Nyaya Sanhita/Section 348",
+   "candidate_count": 3,
+   "twin_distractors": [
+    {
+     "provision_id": "Indian Penal Code/Section 485",
+     "tfidf_sim": 1.0
+    }
+   ]
+  },
+  {
+   "record_id": "statute_identification_c_eval_Bharatiya_Nyaya_Sanhita_Section_44",
+   "source_provision_id": "Bharatiya Nyaya Sanhita/Section 44",
+   "candidate_count": 4,
+   "twin_distractors": [
+    {
+     "provision_id": "Indian Penal Code/Section 106",
+     "tfidf_sim": 1.0
+    }
+   ]
+  },
+  {
+   "record_id": "statute_identification_c_eval_Indian_Penal_Code_Section_106",
+   "source_provision_id": "Indian Penal Code/Section 106",
+   "candidate_count": 4,
+   "twin_distractors": [
+    {
+     "provision_id": "Bharatiya Nyaya Sanhita/Section 44",
+     "tfidf_sim": 1.0
+    }
+   ]
+  },
+  {
+   "record_id": "statute_identification_c_eval_Indian_Penal_Code_Section_128",
+   "source_provision_id": "Indian Penal Code/Section 128",
+   "candidate_count": 5,
+   "twin_distractors": [
+    {
+     "provision_id": "Bharatiya Nyaya Sanhita/Section 156",
+     "tfidf_sim": 1.0
+    }
+   ]
+  },
+  {
+   "record_id": "statute_identification_c_eval_Indian_Penal_Code_Section_129",
+   "source_provision_id": "Indian Penal Code/Section 129",
+   "candidate_count": 5,
+   "twin_distractors": [
+    {
+     "provision_id": "Bharatiya Nyaya Sanhita/Section 157",
+     "tfidf_sim": 1.0
+    }
+   ]
+  },
+  {
+   "record_id": "statute_identification_c_eval_Indian_Penal_Code_Section_132",
+   "source_provision_id": "Indian Penal Code/Section 132",
+   "candidate_count": 5,
+   "twin_distractors": [
+    {
+     "provision_id": "Bharatiya Nyaya Sanhita/Section 160",
+     "tfidf_sim": 1.0
+    }
+   ]
+  },
+  {
+   "record_id": "statute_identification_c_eval_Indian_Penal_Code_Section_133",
+   "source_provision_id": "Indian Penal Code/Section 133",
+   "candidate_count": 5,
+   "twin_distractors": [
+    {
+     "provision_id": "Bharatiya Nyaya Sanhita/Section 161",
+     "tfidf_sim": 1.0
+    }
+   ]
+  },
+  {
+   "record_id": "statute_identification_c_eval_Indian_Penal_Code_Section_134",
+   "source_provision_id": "Indian Penal Code/Section 134",
+   "candidate_count": 5,
+   "twin_distractors": [
+    {
+     "provision_id": "Bharatiya Nyaya Sanhita/Section 162",
+     "tfidf_sim": 1.0
+    }
+   ]
+  },
+  {
+   "record_id": "statute_identification_c_eval_Indian_Penal_Code_Section_135",
+   "source_provision_id": "Indian Penal Code/Section 135",
+   "candidate_count": 5,
+   "twin_distractors": [
+    {
+     "provision_id": "Bharatiya Nyaya Sanhita/Section 163",
+     "tfidf_sim": 1.0
+    }
+   ]
+  },
+  {
+   "record_id": "statute_identification_c_eval_Indian_Penal_Code_Section_195",
+   "source_provision_id": "Indian Penal Code/Section 195",
+   "candidate_count": 4,
+   "twin_distractors": [
+    {
+     "provision_id": "Bharatiya Nyaya Sanhita/Section 231",
+     "tfidf_sim": 1.0
+    }
+   ]
+  },
+  {
+   "record_id": "statute_identification_c_eval_Indian_Penal_Code_Section_299",
+   "source_provision_id": "Indian Penal Code/Section 299",
+   "candidate_count": 5,
+   "twin_distractors": [
+    {
+     "provision_id": "Bharatiya Nyaya Sanhita/Section 100",
+     "tfidf_sim": 1.0
+    }
+   ]
+  },
+  {
+   "record_id": "statute_identification_c_eval_Indian_Penal_Code_Section_301",
+   "source_provision_id": "Indian Penal Code/Section 301",
+   "candidate_count": 5,
+   "twin_distractors": [
+    {
+     "provision_id": "Bharatiya Nyaya Sanhita/Section 102",
+     "tfidf_sim": 1.0
+    }
+   ]
+  },
+  {
+   "record_id": "statute_identification_c_eval_Indian_Penal_Code_Section_306",
+   "source_provision_id": "Indian Penal Code/Section 306",
+   "candidate_count": 5,
+   "twin_distractors": [
+    {
+     "provision_id": "Bharatiya Nyaya Sanhita/Section 108",
+     "tfidf_sim": 1.0
+    }
+   ]
+  },
+  {
+   "record_id": "statute_identification_c_eval_Indian_Penal_Code_Section_330",
+   "source_provision_id": "Indian Penal Code/Section 330",
+   "candidate_count": 5,
+   "twin_distractors": [
+    {
+     "provision_id": "Bharatiya Nyaya Sanhita/Section 120",
+     "tfidf_sim": 1.0
+    }
+   ]
+  },
+  {
+   "record_id": "statute_identification_c_eval_Indian_Penal_Code_Section_485",
+   "source_provision_id": "Indian Penal Code/Section 485",
+   "candidate_count": 3,
+   "twin_distractors": [
+    {
+     "provision_id": "Bharatiya Nyaya Sanhita/Section 348",
+     "tfidf_sim": 1.0
+    }
+   ]
+  },
+  {
+   "record_id": "statute_identification_c_eval_Indian_Penal_Code_Section_81",
+   "source_provision_id": "Indian Penal Code/Section 81",
+   "candidate_count": 4,
+   "twin_distractors": [
+    {
+     "provision_id": "Bharatiya Nyaya Sanhita/Section 19",
+     "tfidf_sim": 1.0
+    }
+   ]
+  },
+  {
+   "record_id": "statute_identification_c_eval_Indian_Penal_Code_Section_84",
+   "source_provision_id": "Indian Penal Code/Section 84",
+   "candidate_count": 4,
+   "twin_distractors": [
+    {
+     "provision_id": "Bharatiya Nyaya Sanhita/Section 22",
+     "tfidf_sim": 1.0
+    }
+   ]
+  },
+  {
+   "record_id": "statute_identification_c_eval_Indian_Penal_Code_Section_85",
+   "source_provision_id": "Indian Penal Code/Section 85",
+   "candidate_count": 5,
+   "twin_distractors": [
+    {
+     "provision_id": "Bharatiya Nyaya Sanhita/Section 23",
+     "tfidf_sim": 1.0
+    }
+   ]
+  },
+  {
+   "record_id": "statute_identification_c_eval_Indian_Penal_Code_Section_86",
+   "source_provision_id": "Indian Penal Code/Section 86",
+   "candidate_count": 4,
+   "twin_distractors": [
+    {
+     "provision_id": "Bharatiya Nyaya Sanhita/Section 24",
+     "tfidf_sim": 1.0
+    }
+   ]
+  },
+  {
+   "record_id": "statute_identification_c_eval_Indian_Penal_Code_Section_87",
+   "source_provision_id": "Indian Penal Code/Section 87",
+   "candidate_count": 5,
+   "twin_distractors": [
+    {
+     "provision_id": "Bharatiya Nyaya Sanhita/Section 25",
+     "tfidf_sim": 1.0
+    }
+   ]
+  },
+  {
+   "record_id": "statute_identification_c_eval_Indian_Penal_Code_Section_95",
+   "source_provision_id": "Indian Penal Code/Section 95",
+   "candidate_count": 3,
+   "twin_distractors": [
+    {
+     "provision_id": "Bharatiya Nyaya Sanhita/Section 33",
+     "tfidf_sim": 0.999091
+    }
+   ]
+  },
+  {
+   "record_id": "statute_identification_c_eval_Indian_Penal_Code_Section_96",
+   "source_provision_id": "Indian Penal Code/Section 96",
+   "candidate_count": 5,
+   "twin_distractors": [
+    {
+     "provision_id": "Bharatiya Nyaya Sanhita/Section 34",
+     "tfidf_sim": 1.0
+    }
+   ]
+  }
+ ]
+}
