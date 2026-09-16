@@ -550,3 +550,24 @@ Lead adopted Condition 1 (CLUSTER-DISJOINT wins over Track A's target-only disjo
 2. R-eval cluster-disjoint split: Condition 1 per-record (gold + all distractors same-side/all-unseen); Condition 2 (held-out ∩ (T∪P) computed, label factually complete).
 3. Negatives N≈250: composition across the two classes per my standard above.
 I re-sign only after these verify against the built artifacts. No new objections.
+
+## P2b prereg AMENDED SPEC blob `34802e477ced` @ main `ab444bc` — content RE-SIGN (spec-level; artifact verifications still pending) — 2026-09-16 10:52 BST
+
+The R-eval cluster-disjoint + negatives amendment. I verified the blob myself (`rev-parse ab444bc:...prereg` = `34802e477ced59e7ebf165ccd22ae76af4db5fd1`) and diffed vs my last-signed spec blob `3b223133a5f8` — not on the lead's word.
+
+**The diff faithfully captures every one of my conditions:**
+- **§3 R-eval — cluster-disjoint component holdout:** "hold out whole [tau=0.5] components so each held-out gold's tau≥0.5 neighbors — hence its top-4 framing-c distractors — are all in-component and all held-out (Condition 1: gold AND all distractors same-side/unseen, closing the familiarity shortcut; Condition 2a: no trained record uses a held-out provision as a candidate — both satisfied by construction)." ✓ Exactly my Condition 1 + 2a.
+- **§3 honest label — Condition 2b:** "gold + all distractors unseen AS RETRIEVAL TASKS; T/P may have shown a held-out provision's text non-retrievally — valid as *unseen-as-retrieval*, not *unseen-entirely*. Framing-a … NOT separately evaluable …; framing-b dropped. Metric 4 directional/non-primary-gate." ✓ Exactly my Condition 2b T/P scope.
+- **§3 negatives N≈250 — my composition standard:** balanced element-short-by-one + plausible-but-wrong confusable-contract, every one a genuine near-miss (checker not-provable ∧ my read plausible-but-wrong, never gibberish), leakage-disjoint on the gold's carve, Track B certifies each label. ✓ Matches 85048dd.
+- **§4 metric-4 directional/non-primary-gate** (counts only toward "exceeds", thin N acceptable because non-gating). ✓
+- **Metrics/ceilings/gold BYTE-UNCHANGED** (verified in the signed blob): 1 ≥0.98, 3 ≤0.02 HARD, 3b ≥0.90 HARD, 4 ≥0.493 Wilson-lower-bound, noise-band excludes-zero, full-IR gold = checker ∧ full read. §1/§2/§5–§8 untouched; the only §4 change is the additive metric-4 directional clarification I concurred with.
+
+**CONTENT RE-SIGN of the amended SPEC blob `34802e477ced`.** This attests the spec faithfully captures my conditions and freezes the spec for d0 to build against.
+
+**EXPLICIT SCOPE — this spec sign is NOT the artifact verification.** Per the lead's framing and §3's "dual-signed as its own step before use," my THREE verifications remain PENDING at the separate **eval-SET dual-sign** against d0's ACTUAL BUILT artifacts (§9's Track-B re-sign line bundles them; I separate them here so no one reads this spec sign as artifact-verified):
+1. Full-IR ~400 gold: my full clean content read (checker ∧ my read) + near-miss ± split certification + val∩test overlap ={47821}.
+2. R cluster-disjoint split: Condition 1 per-record (gold + all distractors same-component/all-unseen) + Condition 2 (held-out ∩ (T∪P) computed, label factually complete) — I re-run Track A's component math against the built records.
+3. Negatives N≈250: composition across the two near-miss classes per my standard.
+The sizing numbers (164 provisions / 20 small ≥5-member components / giant 361-comp excluded / framing-c N≈101, 53 IPC + 48 BNS / R-train ~1552) are Track A's component computation over the tau=0.5 graph — I verify these against the built split at the eval-set sign, not now.
+
+**One flag (not blocking my content sign):** Track A's shape-sign commit `3838e59` is NOT resolvable in this repo (unknown object, absent from `--all`) — the amendment commit ab444bc IS present, but TA's separate sign commit isn't fetched here. I sign content independently of TA's shape sign; the lead must confirm Track A's sign binds the SAME blob `34802e477ced` before freezing. No `create-pod` until frozen + eval-SET built/read-certified/hashed/dual-signed + both preflights signed.
