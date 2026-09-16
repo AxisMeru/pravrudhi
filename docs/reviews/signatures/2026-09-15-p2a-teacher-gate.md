@@ -756,3 +756,14 @@ Operator-routed review of the studio smoke-test flags + launch checklist for the
 5. $25/day enforcement needs to be a LIVE re-check against RunPod's actual billing state, not a one-time pre-flight estimate (this session's own ETA already slipped once); also confirm the cumulative caps ($100/$180/$200) are checked, not just today's $25.
 
 No sign/block posture here (design review, pre-code) — findings are recommendations for studio's implementation to address before the full relaxed run launches.
+
+## Launch+smoke findings — dispositions confirmed — 2026-09-16 (see timestamp above)
+
+All 5 findings from the design review actioned:
+1+2 (memory-bound/multi-GPU) -> STRATEGY: single-card path chosen (no multi-GPU build), efficiency-first (chunked/fused CE primary to fit a moderate card, escalate only if it can't).
+1 detail (optimizer.step + eval-longest-first) -> folded into studio's PR: --eval-longest-first, optimizer.step() + save_every_steps=1 in smoke.
+3 (PARTIAL-P0 naming) -> folded into studio's PR: structurally-distinct output path + report_kind field, n=4 labeled memory-check-only.
+4 (monitor false-positive) -> lead-owned build: multiple consecutive checks before terminate, process-written heartbeat file, check recent successful rsync-to-5090 BEFORE deleting any pod.
+5 (billing) -> lead-owned build: LIVE get-billing recheck for $25/day + cumulative $100/$180/$200.
+
+PENDING when studio's code lands: shape-verify the critical invariant -- chunked-CE == current CE within tolerance (gate math must not move). No action now.
