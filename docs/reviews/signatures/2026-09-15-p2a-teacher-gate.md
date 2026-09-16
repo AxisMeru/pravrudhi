@@ -534,3 +534,19 @@ Track A retracted the whole empty-cell R-eval. **The catch is correct and I own 
 - **Label (Track A's proposed shift, acceptable with Condition-2 scoping):** "provision-generalization within trained framings b/c; framing-a fact-snippet-id NOT separately evaluable (all 153 illustrated provisions needed for any framing-a record); framing-b/c real-spec distractors, tau=0.5" — plus the honest T/P-exposure scope from Condition 2.
 
 Full-IR N≈400 headline build with d0 is GO/running, unaffected. I re-sign the amended §3/§4 when the lead routes it WITH the sizing + the actual split, after I verify Conditions 1-2 against the built split.
+
+## R-eval Conditions 1-2 resolved (lead) + negatives N≈250 composition ownership — 2026-09-16 10:36 BST
+
+Lead adopted Condition 1 (CLUSTER-DISJOINT wins over Track A's target-only disjoint, which had exactly the familiarity confound I named — honest thinner N beats confounded larger N for a non-gating metric). framing-b likely drops (914/915 trained → no unseen cross-act distractors). Condition 2 resolved to the honest-label option: eval provisions NOT held out of the thin 212 T; label scoped "held out from all retrieval-framing training; T/P may have shown the text non-retrievally." Both match my asks. R-eval → framing-c cluster-disjoint, small N, directional.
+
+**New work item I own: near-miss NEGATIVES composition, N≈250** (for the metric-3 ≤0.02 false-prove ceiling and metric-3b ≥0.90 abstention ceiling — Track A's Wilson math needs N≥200 to certify). My content standard for the composition, on record before I build/certify it:
+- Two near-miss classes, both present and roughly balanced (neither dominates): (i) **element-short-by-one** — a proof missing exactly one required element (tests fabricating the missing element → must abstain/not-prove); (ii) **confusable-contract** — right structure, wrong contract_id (tests mis-certifying under the wrong contract → must not certify). These exercise the two distinct false-prove/abstention failure modes.
+- Every negative is a GENUINE near-miss: checker-verified NOT-provable AND my full read confirms it's plausible-but-wrong (not a trivial/obvious reject) — the addendum discipline (76f93ad): trivial negatives don't test the ceiling.
+- Negatives leakage-disjoint on the same carve as the gold.
+- N≈250 sizing check: at N=250 with 0-4 false-proves the Wilson 95% upper bound stays <0.02 (certifies the ceiling); ≥5 fails — so the ceiling is real, not decorative.
+
+**Pending verifications when the lead routes the amended §3/§4 + the ACTUAL built artifacts:**
+1. Full-IR N≈400 gold (d0 running): my full clean content read (checker ∧ my read) + near-miss +/- split certification + val∩test overlap (={47821}).
+2. R-eval cluster-disjoint split: Condition 1 per-record (gold + all distractors same-side/all-unseen); Condition 2 (held-out ∩ (T∪P) computed, label factually complete).
+3. Negatives N≈250: composition across the two classes per my standard above.
+I re-sign only after these verify against the built artifacts. No new objections.
