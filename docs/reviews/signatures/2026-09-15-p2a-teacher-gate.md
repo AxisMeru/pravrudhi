@@ -1014,3 +1014,15 @@ Off merged `1d03be0`, FF-clean, 7 files (+1093/-4). Confirmed the certified scor
 **Label drift-proofing — CONFIRMED, covered by the same test.** `format_dose_response_report` hardcodes the literal strings `"dev-holdout[in-distribution]"` and `"377-gold[cluster-disjoint]"` per line, each with its own `n=`/lift/CI — `test_never_produces_a_blended_field_and_labels_each_read` asserts both literal label substrings appear in the rendered text, alongside distinct `n=34`/`n=377` values, directly exercising that the two reads can't merge into one line or lose their labels.
 
 **RULING: SIGN.** Honest presentation holds on all three requested checks — structural (not conventional) separation, correct data source for the headline lift, and tested label integrity. Reported to lead per instruction, not Track A.
+
+## Enriched dataset v3 (assistant/trackB/p2b-corpus-enrichment @ a590a3a) — composition+sha CERTIFY
+
+Off `d73602b`, 3 files (+680/-0): `scripts/p2b_build_enriched_t_dataset.py`, `sft_dataset_v3_enriched/{t.jsonl,manifest.json}`. Verified sha256 of the shipped `t.jsonl` matches the claimed `21f9ec1d...` exactly. Went further than checking the shipped artifact — re-ran the actual build script myself from scratch in a pinned-commit worktree and got the IDENTICAL sha256, meaning the script's own internal assertions (136 new, 132 certified after exclusion, 344 total, no id collisions, self-check round-trip) all held on a fresh, independent run, not just on whatever produced the committed file.
+
+**(1) 132 byte-identical to the certified-leak-clean set — CONFIRMED, three independent checks.** Recomputed the 132-id set from scratch using my own logic (proposal-line ≥407 minus the 4 lead-ordered exclusions) — matches the manifest's `new_row_ids` exactly, set-equality. Diffed a 20-row sample's `prompt` field between `accepted.jsonl` (the file I already TF-IDF-certified) and the shipped `t.jsonl` — byte-identical, zero mismatches (not a re-sample, not re-generated). Diffed all 212 v2 rows against their v3 counterparts — zero rows changed, confirming v2's `t.jsonl` bytes are genuinely untouched/immutable as designed.
+
+**(2) Conversion preserves scored content — CONFIRMED independently, not by trusting the self-check.** Parsed all 344 rows' `target` wires via `nyaya_ir.parse_target` under the pinned `build_p2b_scoring_registry()` myself — 344/344 parse cleanly, zero failures. Verified every row's `target_sha256` matches `sha256(target)` computed fresh — zero mismatches. This directly confirms no schema/registry drift between the new 132's conversion and the frozen 212's own already-scored content, using the same registry object both this script and the certified scoring path use.
+
+**(3) v2 stays byte-untouched — CONFIRMED** (folded into (1)'s all-212-rows diff above — zero changes).
+
+**RULING: CERTIFY sft_dataset_v3_enriched by composition+sha.** All three conditions independently verified against real files and a real from-scratch script run, not narrated. This is the last gate on my side before the enriched arm trains. Reported to lead per instruction, not Track A.
