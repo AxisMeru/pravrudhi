@@ -1089,6 +1089,14 @@ Read `docs/decisions/ADR-0007-step2-sft-post-training-rung.md` (bb81211) and `re
 
 **RULING: Items (1)/(2) CLOSED, SIGN. Item (3) still needs one edit before full close: update the prereg §8 "Pre-run result" text to cite `3c88e78` (not `84b288c`) and state the corrected 3B-clean/14B-and-7B-confounded framing, matching what the JSON artifact and ADR-0007 addendum already say.** Not re-opening the entrypoint or epoch fixes — those are genuinely done. This is a documentation-propagation gap on the one item still open, not a new substantive finding. Reported to lead per instruction, not Track A.
 
+## Step-2 honesty/lineage-leg — FINAL SIGN (prereg @ c7495a4)
+
+`git diff d659089 c7495a4 --stat` — exactly one file, `research/prereg/prereg-Step2-SFT-post-training-eval-gate.md`, +9/-4, merge-base confirmed on current main (`6256379`). Read the actual §8 diff: now cites `3c88e78` (the corrected artifact) and states, verbatim, the honest framing — "3B floor CLEAN" at the real derived budget (872 tokens, 8.2% truncation, non-binding) as the decision basis; "7B/14B floors CONFOUNDED" (14B: 58.1%/219-377 hit the 512 cap; 7B: truncation unknown, cache not retained); explicit contingency to re-probe at 872 before concluding scale isn't the answer. Cross-checked every number against the JSON artifact I already read directly (872, 8.2%, 58.1%, 219/377) — all match exactly, nothing rounded or softened in translation.
+
+All three items from the original CHANGES verdict are now genuinely closed: (1) entrypoint rebased onto current main, tests run myself (22/22 + 164/174 broader suite); (2) epoch-reference inconsistency fixed, zero stale "3 epoch(s)" text remains; (3) floor-disclosure correction now present in the actual signed document, not just the underlying evidence file.
+
+**RULING: SIGN.** Step-2 honesty/lineage leg closes clean — amendment structure, ADR-0005→0006→0007 lineage, and the pivot/decision-table framing all hold no overclaim under independent verification. Combined with the already-standing §7 leak-safety sign (`fe8a8c0`), my full leg on the Step-2 package is complete. Reported to lead per instruction, not Track A.
+
 ## Fallback-demote delta (assistant/studio/p2b-fallback-demote @ 0f04426) — dual-sign, LAST gate before the re-run
 
 Off main `c161694`, FF-clean, scope confirmed exactly as claimed (`p2b_dose_response.py`/`p2b_preflight.py` + 3 test files, no eval-set/registry/codec). Empty-diff confirmed against the certified scoring path. Read the real diff in full and independently verified all 4 of lead's asks, with active negative-control testing, not just reading.
