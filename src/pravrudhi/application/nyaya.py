@@ -55,7 +55,18 @@ ABSTAIN = re.compile(
 
 #: Vendors the product offers for an ask, in the order the page lists them. All are `panel.VENDORS`; a vendor
 #: whose credential or binary is missing is reported as unavailable rather than dropped.
-DEFAULT_VENDORS = ("claude-cli", "codex-cli", "qwen-dashscope", "glm-local")
+#:
+#: A CURATED, ORDERED subset of `panel.VENDORS` (confirmed via that dict's own definition -- it also
+#: carries anthropic-api/openai-api/google-api, deliberately NOT offered in the public /nyaya demo), not a
+#: mirror of it -- so this list can genuinely drift from `panel.VENDORS` when a new vendor is added there
+#: without a matching update here (2026-09-21: `nyaya-p2b-local` was added to `panel.VENDORS` for the arm_c
+#: demo but never added here, so `/api/nyaya/vendors` never listed it and the /nyaya UI couldn't offer it --
+#: the wiring itself was sound, `vendors: ["nyaya-p2b-local"]` worked when requested explicitly; only the
+#: listing/discovery path was missing it). Adding a vendor to the demo set means adding it BOTH places;
+#: enumerating `panel.VENDORS` directly here was considered and rejected for now, since it would also
+#: surface the paid frontier-API vendors in the public demo without a separate decision to do that -- a
+#: real design tension, not merely a list to unify, flagged as a follow-up rather than silently resolved.
+DEFAULT_VENDORS = ("claude-cli", "codex-cli", "qwen-dashscope", "glm-local", "nyaya-p2b-local")
 
 _TOKEN = re.compile(r"[a-z0-9]+")
 
