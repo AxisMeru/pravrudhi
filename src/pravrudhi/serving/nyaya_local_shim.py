@@ -136,6 +136,10 @@ def health() -> dict[str, str]:
 
 
 @app.post("/chat/completions")
+@app.post("/v1/chat/completions")  # ChatClient appends "/chat/completions" to base_url; the VENDORS
+# entry's base_url ends in "/v1" (matching every other openai_compat vendor's convention), so this
+# route must exist at that path too. Root-level route kept for direct testing against base_url
+# with no "/v1" suffix.
 async def chat_completions(request: Request) -> JSONResponse:
     body = await request.json()
     messages = body.get("messages", [])
