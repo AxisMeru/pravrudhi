@@ -233,6 +233,11 @@ VENDORS: dict[str, Vendor] = {
         params={"temperature": 0.0, "max_tokens": 2048, "seed": 0},
         note="local weights: deterministic, no network, no marginal cost",
     ),
+    "nyaya-p2b-local": Vendor(
+        id="nyaya-p2b-local", interface="openai_compat", model="nyaya-p2b-arm_c",
+        base_url="http://172.17.0.1:8099/v1", params={"temperature": 0.0, "max_tokens": 300},
+        note="local arm_c via host shim (on-demand), reached over the docker bridge gateway",
+    ),
 }
 
 
