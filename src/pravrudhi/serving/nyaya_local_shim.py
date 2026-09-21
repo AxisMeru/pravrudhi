@@ -22,10 +22,6 @@ BACKEND MODES (env NYAYA_SHIM_BACKEND):
 
 Run:  NYAYA_SHIM_BACKEND=stub uv run --project /home/ss/projects/pravrudhi uvicorn \
         --app-dir <this dir> nyaya_local_shim:app --port 8099
-
-Not a duplicate of `pravrudhi.models.llama_server.LlamaServer`: that class manages a llama.cpp/Docker
-server for a GGUF-quantized model. The P2b checkpoint is HF safetensors (+ PEFT LoRA), not GGUF, so this
-module serves it directly via `transformers` in-process instead of adding a GGUF-conversion step.
 """
 
 from __future__ import annotations
@@ -68,24 +64,67 @@ def _generate_stub(messages: list[dict[str, str]], max_tokens: int) -> tuple[str
     return reply, prompt_tokens, completion_tokens
 
 
+#: Decoding config copied verbatim from prabhasa_nyaya.p2b_sft.HfPredictor (Track A's real eval
+#: predictor, 2026-09-17 chat-template+decoding fix) -- NOT reinvented here. Values and the reasons
+#: for them are documented in that module; repeated here only enough to point back at the source.
+_CHAT_END_OF_TURN_TOKEN = "<|im_end|>"
+_REPETITION_PENALTY = 1.15  # soft defense-in-depth; chat-template EOS stop is primary
+_NO_REPEAT_NGRAM_SIZE = 0  # MUST stay 0 -- a nonzero value corrupts legitimate repeated structure
+
+
+def _end_of_turn_token_id(tokenizer: Any) -> int:
+    """Same lookup as prabhasa_nyaya.p2b_sft._end_of_turn_token_id: explicit, never assumed to
+    coincide with tokenizer.eos_token_id by chance."""
+    token_id = tokenizer.convert_tokens_to_ids(_CHAT_END_OF_TURN_TOKEN)
+    unk_id = getattr(tokenizer, "unk_token_id", None)
+    if token_id is None or (unk_id is not None and token_id == unk_id):
+        raise ValueError(
+            f"tokenizer has no single-token {_CHAT_END_OF_TURN_TOKEN!r} -- this shim's HF backend "
+            f"is ChatML-specific, matching HfPredictor's own requirement"
+        )
+    return token_id
+
+
 def _generate_hf(messages: list[dict[str, str]], max_tokens: int, temperature: float, seed: int | None) -> tuple[str, int, int]:
     import torch
+    from transformers import StoppingCriteria, StoppingCriteriaList
 
     _load_hf()
     tok = _hf_state["tok"]
     model = _hf_state["model"]
     if seed is not None:
         torch.manual_seed(seed)
+    # Same rendering point as HfPredictor._render_chat_prompt (tokenizer's own chat template,
+    # add_generation_prompt=True) -- `messages` here already carries just the one user turn the
+    # nyaya panel sends, so this is the direct equivalent, not a reimplementation.
     chat_text = tok.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
     inputs = tok(chat_text, return_tensors="pt", add_special_tokens=False).to(next(model.parameters()).device)
     n_prompt = inputs["input_ids"].shape[1]
-    out = model.generate(
-        **inputs,
-        max_new_tokens=max_tokens,
-        do_sample=temperature > 0,
-        temperature=max(temperature, 1e-5),
-        pad_token_id=tok.pad_token_id or tok.eos_token_id,
-    )
+    pad_token_id = tok.pad_token_id
+    if pad_token_id is None:
+        pad_token_id = tok.eos_token_id
+    eot_id = _end_of_turn_token_id(tok)
+
+    class _EndOfTurnStoppingCriteria(StoppingCriteria):
+        def __call__(self, input_ids, scores, **kwargs) -> bool:
+            return bool((input_ids[:, -1] == eot_id).all())
+
+    # Greedy whenever temperature==0 (the panel's default and this demo's setting), matching
+    # HfPredictor's do_sample=False/num_beams=1 -- sampling only if a caller explicitly asks for it.
+    do_sample = temperature > 0
+    with torch.no_grad():
+        out = model.generate(
+            **inputs,
+            max_new_tokens=max_tokens,
+            do_sample=do_sample,
+            **({"temperature": temperature} if do_sample else {}),
+            num_beams=1,
+            pad_token_id=pad_token_id,
+            eos_token_id=eot_id,
+            stopping_criteria=StoppingCriteriaList([_EndOfTurnStoppingCriteria()]),
+            repetition_penalty=_REPETITION_PENALTY,
+            no_repeat_ngram_size=_NO_REPEAT_NGRAM_SIZE,
+        )
     completion_ids = out[0][n_prompt:]
     text = tok.decode(completion_ids, skip_special_tokens=True)
     return text, n_prompt, len(completion_ids)
