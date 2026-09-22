@@ -6,15 +6,20 @@ against the REAL compiled Lean binary -- no stub, no fake scorer (house rule).
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
 
 from pravrudhi.application import nyaya, nyaya_lean_registry
 
-_SCORE_BIN = Path("/home/ss/projects/prabhasa-nyaya/lean/.lake/build/bin/score")
+#: No hard-coded absolute path (this repo is public) -- set PRABHASA_NYAYA_SCORE_BIN to a real, built
+#: `score` binary to run the tests below for real; skipped otherwise, same as this file's own env-var
+#: convention (`nyaya_gold_score.score_bin_path`'s `SCORE_BIN_ENV`).
+_SCORE_BIN = os.environ.get("PRABHASA_NYAYA_SCORE_BIN")
 requires_registry_scorer = pytest.mark.skipif(
-    not _SCORE_BIN.exists(), reason="prabhasa-nyaya's score binary is not built on this host"
+    not _SCORE_BIN or not Path(_SCORE_BIN).exists(),
+    reason="set PRABHASA_NYAYA_SCORE_BIN to a built prabhasa-nyaya score binary to run these",
 )
 
 
@@ -23,8 +28,8 @@ def _point_at_real_binary(monkeypatch: pytest.MonkeyPatch) -> None:
     """Every test in this file resolves the Lean binary via the env override, not relative-path
     resolution from `root` -- correct in the real deployed engine (sibling checkout), but this test
     file may run from a worktree where the relative path does not land on a built binary."""
-    if _SCORE_BIN.exists():
-        monkeypatch.setenv("PRABHASA_NYAYA_SCORE_BIN", str(_SCORE_BIN))
+    if _SCORE_BIN:
+        monkeypatch.setenv("PRABHASA_NYAYA_SCORE_BIN", _SCORE_BIN)
 
 
 class TestRegistryContractIds:

@@ -20,8 +20,8 @@ BACKEND MODES (env NYAYA_SHIM_BACKEND):
         until that job finishes. Code path is written and left for the next session to exercise
         once the GPU is free, or once a real checkpoint needs testing.
 
-Run:  NYAYA_SHIM_BACKEND=stub uv run --project /home/ss/projects/pravrudhi uvicorn \
-        --app-dir <this dir> nyaya_local_shim:app --port 8099
+Run (from a checkout of this repo):  NYAYA_SHIM_BACKEND=stub uv run --project . uvicorn \
+        --app-dir src/pravrudhi/serving nyaya_local_shim:app --port 8099
 """
 
 from __future__ import annotations

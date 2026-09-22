@@ -4,6 +4,7 @@ Real compiled Lean binary, real FastAPI app -- no stub, no fake scorer (house ru
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -15,16 +16,19 @@ from pravrudhi.application.init import init_project
 
 H = {"host": "127.0.0.1:8008"}
 
-_SCORE_BIN = Path("/home/ss/projects/prabhasa-nyaya/lean/.lake/build/bin/score")
+#: No hard-coded absolute path (this repo is public) -- set PRABHASA_NYAYA_SCORE_BIN to a real, built
+#: `score` binary to run the tests below for real; skipped otherwise.
+_SCORE_BIN = os.environ.get("PRABHASA_NYAYA_SCORE_BIN")
 requires_registry_scorer = pytest.mark.skipif(
-    not _SCORE_BIN.exists(), reason="prabhasa-nyaya's score binary is not built on this host"
+    not _SCORE_BIN or not Path(_SCORE_BIN).exists(),
+    reason="set PRABHASA_NYAYA_SCORE_BIN to a built prabhasa-nyaya score binary to run these",
 )
 
 
 @pytest.fixture(autouse=True)
 def _point_at_real_binary(monkeypatch: pytest.MonkeyPatch) -> None:
-    if _SCORE_BIN.exists():
-        monkeypatch.setenv("PRABHASA_NYAYA_SCORE_BIN", str(_SCORE_BIN))
+    if _SCORE_BIN:
+        monkeypatch.setenv("PRABHASA_NYAYA_SCORE_BIN", _SCORE_BIN)
 
 
 def _client(tmp_path: Path) -> TestClient:
