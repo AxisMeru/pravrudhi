@@ -122,6 +122,44 @@ class NyayaAsksResponse(BaseModel):
     asks: list[NyayaAskResponse]
 
 
+class NyayaRegistryContractsResponse(BaseModel):
+    #: The fourteen BNS/IPC registry contract ids (`nyaya_lean_registry.KNOWN_CONTRACT_IDS`) -- a
+    #: DIFFERENT family from `AskRequest.contract_id`/`AuditRequest.contract_id` above (those are the
+    #: citation-shaped "0"/"5" ids `checker="lean"` uses). Deliberately not folded into `AskRequest` or
+    #: `AuditRequest`: these contracts score explicit per-element assertions, never free text, so they
+    #: cannot be a `checker` value on the existing ask/audit path (see `registry_check` below).
+    contracts: list[str]
+
+
+class NyayaRegistryElementsResponse(BaseModel):
+    contract_id: str
+    elements: list[str]
+
+
+class NyayaRegistryCheckRequest(BaseModel):
+    contract_id: str
+    #: Element name -> Met (`True`) / Not-Met-or-unaddressed (`False`). Supplied directly by the caller --
+    #: today, a person using the manual element-audit UI; the element-first harness's Stage 1 judge is
+    #: meant to supply the same shape once it exists. This route never derives assertions from free text
+    #: itself.
+    assertions: dict[str, bool]
+    #: Optional per-element source-text spans, for display only -- never sent to the Lean binary and never
+    #: itself verified (see `application.nyaya.registry_check`'s own doc).
+    evidence: dict[str, str] | None = None
+
+
+class NyayaRegistryCheckResponse(BaseModel):
+    checker: str
+    contract_id: str
+    verdict: str
+    denied_claims: list[str]
+    unlicensed_claims: list[str]
+    omitted_claims: list[str]
+    elements: dict[str, bool]
+    evidence: dict[str, str]
+    provenance: str
+
+
 def build_nyaya_router(root: Path, ask_fn: panel.AskFn | None = None) -> APIRouter:
     engine_root = Path(root)
     router = APIRouter(prefix="/api/nyaya")
@@ -199,5 +237,37 @@ def build_nyaya_router(root: Path, ask_fn: panel.AskFn | None = None) -> APIRout
             raise HTTPException(422, str(e)) from e
         except RuntimeError as e:
             raise HTTPException(503, f"checker unavailable: {e}") from e
+
+    @router.get("/registry/contracts", response_model=NyayaRegistryContractsResponse)
+    def registry_contracts_ep(user: User | None = CurrentUserDep) -> dict[str, Any]:
+        del user  # auth-gated like every other route below; the id list itself carries nothing per-user
+        return {"contracts": nyaya.registry_contract_ids()}
+
+    @router.get("/registry/{contract_id}/elements", response_model=NyayaRegistryElementsResponse)
+    def registry_elements_ep(
+        contract_id: str, workspace: str | None = None, user: User | None = CurrentUserDep
+    ) -> dict[str, Any]:
+        project, _store = _session(user, workspace)
+        try:
+            elements = nyaya.registry_elements(project, contract_id)
+        except (KeyError, ValueError) as e:
+            raise HTTPException(422, str(e)) from e
+        return {"contract_id": contract_id, "elements": elements}
+
+    @router.post("/registry/check", response_model=NyayaRegistryCheckResponse)
+    def registry_check_ep(
+        req: NyayaRegistryCheckRequest, workspace: str | None = None, user: User | None = CurrentUserDep
+    ) -> dict[str, Any]:
+        if not req.assertions:
+            raise HTTPException(422, "at least one element assertion is required")
+        project, _store = _session(user, workspace)
+        try:
+            return nyaya.registry_check(
+                project, req.contract_id, req.assertions, evidence=req.evidence,
+            )
+        except (KeyError, ValueError) as e:
+            raise HTTPException(422, str(e)) from e
+        except RuntimeError as e:
+            raise HTTPException(503, f"registry checker unavailable: {e}") from e
 
     return router

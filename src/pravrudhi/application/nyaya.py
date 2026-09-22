@@ -38,7 +38,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from pravrudhi.application import nyaya_lean, panel
+from pravrudhi.application import nyaya_lean, nyaya_lean_registry, panel
 
 if TYPE_CHECKING:
     from pravrudhi.application.credentials import CredentialStore
@@ -450,3 +450,48 @@ def recent_asks(root: Path, limit: int = 20) -> list[dict[str, Any]]:
         return []
     files = sorted(d.glob("ask-*.json"), key=lambda p: p.stat().st_mtime, reverse=True)[:limit]
     return [json.loads(p.read_text()) for p in files]
+
+
+def registry_contract_ids() -> list[str]:
+    """The fourteen BNS/IPC registry contract ids the Lean binary knows
+    (`nyaya_lean_registry.KNOWN_CONTRACT_IDS`), sorted for a stable UI listing. A DIFFERENT family from
+    `nyaya_lean.KNOWN_CONTRACT_IDS` (the citation-shaped "0"/"5" ids `checker="lean"` uses) -- disjoint id
+    spaces, disjoint input shapes; see `nyaya_lean_registry`'s own module doc for why."""
+    return sorted(nyaya_lean_registry.KNOWN_CONTRACT_IDS)
+
+
+def registry_elements(root: Path, contract_id: str) -> list[str]:
+    """The required element names `contract_id` names, read live from the Lean binary (never hand-copied) --
+    `nyaya_lean_registry.describe_contract`'s own no-drift discipline. Raises `UnknownContractError` for an
+    id outside `registry_contract_ids()`."""
+    return nyaya_lean_registry.describe_contract(contract_id, root=Path(root))
+
+
+def registry_check(
+    root: Path, contract_id: str, assertions: dict[str, bool], *, evidence: dict[str, str] | None = None
+) -> dict[str, Any]:
+    """Score a caller-supplied per-element Met/Not-Met judgment against `contract_id`'s registry Contract.
+
+    `assertions` is never derived from free text here -- the caller (today, a person using the manual
+    element-audit UI; eventually, the element-first harness's Stage 1 judge) supplies it directly, matching
+    `nyaya_lean_registry.check_registry`'s own designed contract: this function must not become a second
+    place that silently extracts "Met"/"Not Met" from prose behind a "Lean-checked" label.
+
+    `evidence` is optional per-element source-text spans the caller may attach for display -- NOT sent to
+    the Lean binary (`check_registry` only ever scores `assertions`) and NOT itself verified; it is recorded
+    verbatim in the result so a UI can show what evidence backed each Met/Not-Met call. Raises
+    `UnknownContractError` for an id outside `registry_contract_ids()`.
+    """
+    result = {
+        "checker": "lean-registry",
+        "contract_id": contract_id,
+        **nyaya_lean_registry.check_registry(assertions, contract_id, root=Path(root)),
+        "elements": dict(assertions),
+        "evidence": dict(evidence) if evidence else {},
+        "provenance": "agama",
+    }
+    out = Path(root) / "research" / "nyaya" / "audits"
+    out.mkdir(parents=True, exist_ok=True)
+    digest = hashlib.sha256((contract_id + json.dumps(assertions, sort_keys=True)).encode()).hexdigest()[:10]
+    (out / f"registry-{digest}.json").write_text(json.dumps(result, indent=1, ensure_ascii=False) + "\n")
+    return result
