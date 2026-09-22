@@ -7,6 +7,22 @@ RESTART.md
 docs/blueprint/
 docs/superpowers/
 docs/decisions/
+# This repository is PUBLIC. The entries below are internal strategy documents,
+# unpublished results and handover notes that have been sitting untracked in
+# docs/ — one `git add docs/` away from being published. The rules above cover
+# the three docs subdirectories but not loose files at the top of docs/, so
+# these are named explicitly (2026-09-22). Patterns are deliberately specific
+# rather than docs/*.html or docs/*.pdf, which would also shadow the two
+# research PDFs this repo publishes on purpose.
+docs/Meru_Prabhasa_MVP_Pitch-*.html
+docs/thomson-technical-report.pdf
+docs/pitch-*.md
+docs/rev*.md
+docs/LEAD-HANDOVER-*.md
+docs/STOP-POINT-*.md
+docs/mvp-review-*/
+docs/research-spikes/
+deploy/agents/
 contracts/
 gates/
 research/
