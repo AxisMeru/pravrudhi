@@ -24,6 +24,23 @@ class TestConfidenceLineComplete:
         assert _confidence_line_complete("ANSWER: x\nCONFIDENCE: high\n") is True
         assert _confidence_line_complete("ANSWER: x\nCONFIDENCE: high ") is True
 
+    def test_false_when_confidence_appears_mid_line_not_at_a_line_start(self) -> None:
+        """Review fix (pre-merge, nyaya-shim-night): the ORIGINAL unanchored pattern matched
+        "CONFIDENCE:" anywhere in the text, including embedded mid-sentence in the model's own
+        reasoning -- e.g. reasoning that mentions "my CONFIDENCE: high here" before reaching the
+        actual final CONFIDENCE field -- which would truncate a real, still-in-progress answer.
+        Anchored to a line start, this case must NOT match; only the real dedicated CONFIDENCE line,
+        at the start of its own line, may."""
+        mid_line_mention_only = "ANSWER: my CONFIDENCE: high assessment is that this section applies"
+        assert _confidence_line_complete(mid_line_mention_only) is False
+
+        real_answer_with_that_phrase_in_reasoning = (
+            "ANSWER: my CONFIDENCE: high assessment is that this section applies.\n"
+            "CITATIONS: [IPC/Section 308].\n"
+            "CONFIDENCE: high\n"
+        )
+        assert _confidence_line_complete(real_answer_with_that_phrase_in_reasoning) is True
+
     def test_true_even_when_a_run_on_already_started(self) -> None:
         """The actual bug this fixes: a real run-on continuation observed in the 2026-09-21/22 demo.
         The predicate must say True as soon as the CONFIDENCE line itself completed, regardless of

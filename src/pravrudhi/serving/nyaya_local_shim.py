@@ -75,14 +75,18 @@ _NO_REPEAT_NGRAM_SIZE = 0  # MUST stay 0 -- a nonzero value corrupts legitimate 
 
 #: The wire format's own last field (`p2b_preflight.WIRE_FORMAT_INSTRUCTION`-adjacent prompts end every
 #: answer "CONFIDENCE: high/medium/low"), used here as a CONTENT-based stop signal independent of whether
-#: the model ever emits <|im_end|>.
-_CONFIDENCE_LINE = re.compile(r"CONFIDENCE:\s*\S+\s")
+#: the model ever emits <|im_end|>. Anchored to a line start (`(?m)^`, review fix) -- unanchored, this
+#: would false-match "confidence:" appearing anywhere in the model's REASONING before its real final
+#: line (e.g. "...I have high confidence: the section applies..."), truncating a real answer early.
+_CONFIDENCE_LINE = re.compile(r"(?m)^CONFIDENCE:\s*\S+\s")
 
 
 def _confidence_line_complete(text: str) -> bool:
-    """True once a `CONFIDENCE: <word>` line has been fully emitted -- the trailing `\\s` in the pattern
-    requires something (a newline, a space) AFTER the word, so a still-growing partial word ("CONFIDENCE:
-    hig") never matches; only a word already followed by whitespace counts as complete.
+    """True once a `CONFIDENCE: <word>` line has been fully emitted AT THE START OF A LINE -- the
+    trailing `\\s` in the pattern requires something (a newline, a space) AFTER the word, so a still-
+    growing partial word ("CONFIDENCE: hig") never matches; only a word already followed by whitespace
+    counts as complete. The `(?m)^` anchor means text mentioning "confidence:" mid-sentence, not at a
+    line's start, never matches -- only the wire format's own dedicated CONFIDENCE line does.
 
     Root cause this exists to work around (2026-09-21/22 live demo): the token-id `StoppingCriteria`
     below only fires if the model actually emits `<|im_end|>`, and on this shim's free-text legal-QA
