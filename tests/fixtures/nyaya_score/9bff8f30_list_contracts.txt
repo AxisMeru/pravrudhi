@@ -1,0 +1,14 @@
+ipc405_misappropriation
+ipc405_use_or_disposal
+ipc405_wilfully_suffers
+ipc415_property
+ipc415_damaging_act
+ipc416
+ipc182_misdirected_act
+ipc182_abuse_of_power
+bns69
+bns47
+bns85
+bns46_instigation
+bns46_conspiracy
+bns46_intentional_aid

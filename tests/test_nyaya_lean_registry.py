@@ -22,6 +22,83 @@ requires_registry_scorer = pytest.mark.skipif(
 )
 
 
+#: Real `score` output, captured verbatim (statute element text only -- public law). `cff3bee2_*` is
+#: prabhasa-nyaya main @33dc40b's binary (sha256 cff3bee2...), which prints `DENY: ` lines under
+#: `--describe-contract` and a tab-separated source column under `--list-contracts`; `9bff8f30_*` is
+#: the older binary still pinned in the hosted image, kept so the parser never regresses on it.
+_FIXTURES = Path(__file__).parent / "fixtures" / "nyaya_score"
+
+
+def _fixture(name: str) -> str:
+    return (_FIXTURES / name).read_text()
+
+
+class TestParseDescribeOutput:
+    def test_new_format_splits_denials_from_required_elements(self) -> None:
+        described = reg.parse_describe_output(
+            "bns316_misappropriation", _fixture("cff3bee2_describe_bns316_misappropriation.txt")
+        )
+        assert described.contract_id == "bns316_misappropriation"
+        assert described.elements == [
+            "entrusted with property, or with dominion over property",
+            "dishonestly misappropriates or converts the property to his own use",
+        ]
+        assert described.denials == [
+            "acted in good faith, believing the disobedience served the entrusting party's advantage, "
+            "not dishonestly",
+        ]
+
+    def test_new_format_contract_without_a_deny_line_has_no_denials(self) -> None:
+        described = reg.parse_describe_output(
+            "bns316_wilfully_suffers", _fixture("cff3bee2_describe_bns316_wilfully_suffers.txt")
+        )
+        assert described.denials == []
+        assert described.elements == [
+            "entrusted with property, or with dominion over property",
+            "wilfully suffers another person to do the misappropriation/conversion or the use/disposal "
+            "described above",
+        ]
+
+    def test_old_format_still_parses_with_no_denials(self) -> None:
+        described = reg.parse_describe_output(
+            "ipc405_misappropriation", _fixture("9bff8f30_describe_ipc405_misappropriation.txt")
+        )
+        assert described.elements == [
+            "entrusted with property, or with dominion over property",
+            "dishonestly misappropriates or converts the property to his own use",
+        ]
+        assert described.denials == []
+
+    def test_unknown_contract_output_raises(self) -> None:
+        with pytest.raises(reg.UnknownContractError):
+            reg.parse_describe_output("not_a_real_id", _fixture("cff3bee2_describe_unknown.txt"))
+
+    def test_empty_output_is_refused_not_read_as_zero_elements(self) -> None:
+        with pytest.raises(RuntimeError):
+            reg.parse_describe_output("ipc405_misappropriation", "")
+
+
+class TestParseListContracts:
+    def test_new_format_reads_ids_and_sources(self) -> None:
+        listed = reg.parse_list_contracts(_fixture("cff3bee2_list_contracts.txt"))
+        assert len(listed) == 17
+        assert listed["ipc405_misappropriation"] == ["Indian Penal Code \u00a7405"]
+        assert listed["bns85"] == ["Bharatiya Nyaya Sanhita \u00a785", "Bharatiya Nyaya Sanhita \u00a786"]
+        assert listed["bns316_wilfully_suffers"] == ["Bharatiya Nyaya Sanhita \u00a7316"]
+        # The source column never leaks into an id (the pre-parser drift test compared whole lines).
+        assert all("\t" not in cid and " " not in cid for cid in listed)
+
+    def test_old_format_reads_ids_with_no_sources(self) -> None:
+        listed = reg.parse_list_contracts(_fixture("9bff8f30_list_contracts.txt"))
+        assert frozenset(listed) == reg.KNOWN_CONTRACT_IDS
+        assert all(sources == [] for sources in listed.values())
+
+    def test_new_format_ids_are_a_superset_of_the_old(self) -> None:
+        old = reg.parse_list_contracts(_fixture("9bff8f30_list_contracts.txt"))
+        new = reg.parse_list_contracts(_fixture("cff3bee2_list_contracts.txt"))
+        assert set(old) <= set(new)
+
+
 class TestKnownContractIdsMatchesTheBinary:
     @requires_registry_scorer
     def test_drift_test_against_list_contracts(self) -> None:
@@ -31,7 +108,7 @@ class TestKnownContractIdsMatchesTheBinary:
         import subprocess
 
         proc = subprocess.run([str(_SCORE_BIN), "--list-contracts"], capture_output=True, text=True, check=True)
-        ids_from_binary = frozenset(line for line in proc.stdout.strip().split("\n") if line)
+        ids_from_binary = frozenset(reg.parse_list_contracts(proc.stdout))
         assert ids_from_binary == reg.KNOWN_CONTRACT_IDS
 
 
