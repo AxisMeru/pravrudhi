@@ -14,10 +14,14 @@ RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends git cur
     && rm -rf /var/lib/apt/lists/*
 
 # The two wheels every AxisMeru/pravrudhi release publishes. The kernel's own version is read from the release
-# assets rather than assumed, so a kernel release does not need this file changed.
+# assets rather than assumed, so a kernel release does not need this file changed. The asset list comes from
+# the release's own assets_url: the by-tag view has been seen listing no assets long after they were published.
 RUN set -eu; \
     api="https://api.github.com/repos/AxisMeru/pravrudhi/releases/tags/v${PRAVRUDHI_VERSION}"; \
-    data="$(curl -sSf ${GITHUB_TOKEN:+-H "Authorization: Bearer $GITHUB_TOKEN"} "$api")"; \
+    release="$(curl -sSf ${GITHUB_TOKEN:+-H "Authorization: Bearer $GITHUB_TOKEN"} "$api")"; \
+    assets_url="$(printf '%s' "$release" | grep -o '"assets_url": *"[^"]*"' | head -1 | sed 's/.*"\(https[^"]*\)"/\1/')"; \
+    [ -n "$assets_url" ] || { echo "FATAL: release v${PRAVRUDHI_VERSION} not found" >&2; exit 1; }; \
+    data="$(curl -sSf ${GITHUB_TOKEN:+-H "Authorization: Bearer $GITHUB_TOKEN"} "${assets_url}?per_page=100")"; \
     kernel="$(printf '%s' "$data" | grep -o '"browser_download_url": *"[^"]*pravrudhi_kernel[^"]*\.whl"' | head -1 | sed 's/.*"\(https[^"]*\)"/\1/')"; \
     engine="$(printf '%s' "$data" | grep -o '"browser_download_url": *"[^"]*pravrudhi-[0-9][^"]*\.whl"' | head -1 | sed 's/.*"\(https[^"]*\)"/\1/')"; \
     [ -n "$kernel" ] || { echo "FATAL: no pravrudhi_kernel wheel in release v${PRAVRUDHI_VERSION} (assets not published yet?)" >&2; exit 1; }; \
