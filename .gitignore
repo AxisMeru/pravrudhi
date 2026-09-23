@@ -67,3 +67,6 @@ paper/*.toc
 .DS_Store
 paper/*.pdf
 .playwright-mcp/
+
+# --- deploy/docker/nyaya: never the real Lean binary in the repo, only the .keep placeholder ---
+deploy/docker/nyaya/score

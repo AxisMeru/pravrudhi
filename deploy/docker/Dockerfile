@@ -23,10 +23,36 @@ RUN set -eu; \
     test -n "$kernel" && test -n "$engine"; \
     pip install --no-cache-dir --quiet "$kernel" "$engine"
 
+# prabhasa-nyaya's compiled Lean `score` binary (2026-09-23: found missing from every prior image --
+# every Lean-checker route 500'd in production). Optional at build time: `nyaya/` in the build context
+# always exists (ensure_image places either the real binary or just `.keep` there, see run_gateway.sh),
+# so this COPY never fails the build either way. A build WITHOUT the real binary must still succeed --
+# the engine's own registry_elements/registry_check (pravrudhi/application/nyaya.py) already convert a
+# missing binary into a clean 503, not a crash, so a real-binary-less image is a degraded-but-honest
+# image, never a broken build.
+ARG NYAYA_SCORE_SHA256=9bff8f30b3c7a1bc9f1ea29d71f319ea08a10b6230729a89c2e4f5b041f4f500
+COPY nyaya/ /opt/nyaya/
+RUN set -eu; \
+    if [ -f /opt/nyaya/score ]; then \
+        echo "nyaya score binary present -- verifying sha256 against NYAYA_SCORE_SHA256=$NYAYA_SCORE_SHA256"; \
+        actual="$(sha256sum /opt/nyaya/score | cut -d' ' -f1)"; \
+        if [ "$actual" != "$NYAYA_SCORE_SHA256" ]; then \
+            echo "FATAL: nyaya score binary sha256 mismatch: got $actual, expected $NYAYA_SCORE_SHA256" >&2; \
+            exit 1; \
+        fi; \
+        chmod +x /opt/nyaya/score; \
+        echo "nyaya score binary verified and installed at /opt/nyaya/score"; \
+    else \
+        echo "WARNING: no nyaya score binary in the build context (nyaya/score) -- image built WITHOUT it;" >&2; \
+        echo "         every Lean-checker route (checker=lean, /api/nyaya/registry/*) will answer 503 until" >&2; \
+        echo "         a redeploy includes it. See deploy/docker/README.md." >&2; \
+    fi
+
 VOLUME /data
 ENV PRAVRUDHI_DISABLE_LOCAL_GUARD=1 \
     PRAVRUDHI_AUTH=required \
-    PORT=8765
+    PORT=8765 \
+    PRABHASA_NYAYA_SCORE_BIN=/opt/nyaya/score
 EXPOSE 8765
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh

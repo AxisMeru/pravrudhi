@@ -5,6 +5,10 @@
 #   run_gateway.sh            serve: ensure each edition's engine container is up, open a cloudflared quick tunnel
 #                             to it, register the tunnel URL in KV, and hold; on exit the tunnels close and the
 #                             containers stay (they hold state and cost nothing idle).
+#   run_gateway.sh --rebuild  serve, but force a fresh `docker build` even if an image tagged
+#                             pravrudhi-engine:$PRAVRUDHI_VERSION already exists -- an ordinary version
+#                             bump doesn't need this (the tag changes), but picking up a nyaya score
+#                             binary that was added/changed without a version bump does.
 #
 # Everything secret lives in ~/.config/pravrudhi/*.env, never in this file or in the repository:
 #   cloudflare.env  CLOUDFLARE_API_TOKEN (Workers Scripts:Edit, Workers KV Storage:Edit), CLOUDFLARE_ACCOUNT_ID,
@@ -15,6 +19,11 @@
 #   supabase.env    SUPABASE_URL (token verification)
 #   chat.env        the vendor key the engine routes to (a cost the operator has accepted)
 #   github.env      GITHUB_TOKEN, only to fetch release wheels past the anonymous rate limit when building
+#
+# NYAYA_SCORE_BIN_SRC (plain env, not a *.env file -- not a secret): where ensure_image() looks for the
+# compiled prabhasa-nyaya `score` binary to bake into the image, default $HOME/projects/prabhasa-nyaya/
+# lean/.lake/build/bin/score (this host's sibling checkout). Absent -> the image builds without it and
+# every Lean-checker route answers 503 (deploy/docker/README.md).
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONF="${PRAVRUDHI_CONF:-$HOME/.config/pravrudhi}"
@@ -58,11 +67,35 @@ setup() {
 }
 
 ensure_image() {
-  docker image inspect "pravrudhi-engine:$PRAVRUDHI_VERSION" >/dev/null 2>&1 && return
+  # An image tag that already exists is skipped -- correct for an ordinary version bump, wrong for
+  # "the same version but the nyaya binary just got added/changed" (2026-09-23 incident: every prior
+  # image silently ran without it). REBUILD_IMAGE (set by the --rebuild flag) forces past that skip.
+  if [ -z "${REBUILD_IMAGE:-}" ] && docker image inspect "pravrudhi-engine:$PRAVRUDHI_VERSION" >/dev/null 2>&1; then
+    return
+  fi
   [ -f "$CONF/github-axismeru.env" ] && { set -a; . "$CONF/github-axismeru.env"; set +a; }
   GITHUB_TOKEN="${GITHUB_TOKEN:-${PRAVRUDHI_GITHUB_TOKEN_AXISMERU:-}}"
+
+  # prabhasa-nyaya's compiled Lean score binary: a temp copy of deploy/docker (never the real
+  # directory -- this must never leave stray build state behind in the repo), with the binary copied
+  # in if the source exists. NYAYA_SCORE_BIN_SRC overrides the default sibling-checkout path.
+  local score_src="${NYAYA_SCORE_BIN_SRC:-$HOME/projects/prabhasa-nyaya/lean/.lake/build/bin/score}"
+  local build_ctx; build_ctx="$(mktemp -d)"
+  cp -r "$HERE/../docker/." "$build_ctx/"
+  local sha_arg=()
+  if [ -f "$score_src" ]; then
+    local sha; sha="$(sha256sum "$score_src" | cut -d' ' -f1)"
+    cp "$score_src" "$build_ctx/nyaya/score"
+    sha_arg=(--build-arg "NYAYA_SCORE_SHA256=$sha")
+    echo "nyaya score binary: $score_src (sha256 $sha) -- including in the image"
+  else
+    echo "nyaya score binary NOT FOUND at $score_src -- building WITHOUT it; every Lean-checker" >&2
+    echo "route will answer 503 in this image until a redeploy includes it (see deploy/docker/README.md)" >&2
+  fi
+
   docker build --build-arg "PRAVRUDHI_VERSION=$PRAVRUDHI_VERSION" ${GITHUB_TOKEN:+--build-arg GITHUB_TOKEN=$GITHUB_TOKEN} \
-    -t "pravrudhi-engine:$PRAVRUDHI_VERSION" "$HERE/../docker"
+    "${sha_arg[@]}" -t "pravrudhi-engine:$PRAVRUDHI_VERSION" "$build_ctx"
+  rm -rf "$build_ctx"
 }
 
 ensure_engine() {
@@ -101,10 +134,12 @@ tunnel() {
   echo "$edition: $url -> KV engine_url_$edition"
 }
 
+REBUILD_IMAGE=""
 case "${1:-}" in
   --setup) setup; exit 0;;
+  --rebuild) REBUILD_IMAGE=1 ;;
   "") ;;
-  *) echo "usage: $0 [--setup]" >&2; exit 2;;
+  *) echo "usage: $0 [--setup|--rebuild]" >&2; exit 2;;
 esac
 : "${CF_KV_ID:?run --setup first}"
 trap 'kill "${PIDS[@]}" 2>/dev/null || true' EXIT INT TERM
