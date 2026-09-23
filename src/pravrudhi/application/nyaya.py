@@ -463,8 +463,16 @@ def registry_contract_ids() -> list[str]:
 def registry_elements(root: Path, contract_id: str) -> list[str]:
     """The required element names `contract_id` names, read live from the Lean binary (never hand-copied) --
     `nyaya_lean_registry.describe_contract`'s own no-drift discipline. Raises `UnknownContractError` for an
-    id outside `registry_contract_ids()`."""
-    return nyaya_lean_registry.describe_contract(contract_id, root=Path(root))
+    id outside `registry_contract_ids()`, or `RuntimeError` if the Lean binary itself cannot be run (real
+    2026-09-23 incident: the deployed container ships no compiled `score` binary at all -- that raised a bare
+    `FileNotFoundError` from the subprocess call, an uncaught 500 with no CORS headers at the API layer,
+    which browsers misreport as a CORS failure rather than the real cause. `api/nyaya.py` already maps
+    `RuntimeError` to a clean 503; the missing-binary condition itself is a deployment/packaging gap, not
+    fixed here)."""
+    try:
+        return nyaya_lean_registry.describe_contract(contract_id, root=Path(root))
+    except OSError as e:
+        raise RuntimeError(f"Lean registry checker unavailable: {e}") from e
 
 
 def registry_check(
@@ -480,12 +488,17 @@ def registry_check(
     `evidence` is optional per-element source-text spans the caller may attach for display -- NOT sent to
     the Lean binary (`check_registry` only ever scores `assertions`) and NOT itself verified; it is recorded
     verbatim in the result so a UI can show what evidence backed each Met/Not-Met call. Raises
-    `UnknownContractError` for an id outside `registry_contract_ids()`.
+    `UnknownContractError` for an id outside `registry_contract_ids()`, or `RuntimeError` if the Lean binary
+    itself cannot be run -- see `registry_elements`'s own doc for why this conversion exists.
     """
+    try:
+        scored = nyaya_lean_registry.check_registry(assertions, contract_id, root=Path(root))
+    except OSError as e:
+        raise RuntimeError(f"Lean registry checker unavailable: {e}") from e
     result = {
         "checker": "lean-registry",
         "contract_id": contract_id,
-        **nyaya_lean_registry.check_registry(assertions, contract_id, root=Path(root)),
+        **scored,
         "elements": dict(assertions),
         "evidence": dict(evidence) if evidence else {},
         "provenance": "agama",

@@ -116,3 +116,28 @@ class TestRegistryCheck:
         with pytest.raises(nyaya_lean_registry.UnknownContractError):
             nyaya.registry_check(tmp_path, "not_a_real_id", {"x": True})
         assert not (tmp_path / "research" / "nyaya" / "audits").exists()
+
+
+class TestMissingBinaryFailsClean:
+    """Reproduces a real production incident (2026-09-23): the deployed container ships no compiled
+    Lean `score` binary at all (root cause: not built into the Docker image -- a separate, larger
+    infra gap flagged to the lead, not fixed here). The application-layer bug THIS class covers: that
+    condition reached the API as an uncaught FileNotFoundError -> a raw, unhandled 500 with no CORS
+    headers (browsers report it as a CORS failure, which is misleading -- the real cause is a server
+    crash, not a CORS misconfiguration). registry_elements/registry_check must convert it to a
+    RuntimeError, which api/nyaya.py already maps to a clean 503."""
+
+    def test_registry_elements_raises_runtimeerror_not_filenotfounderror(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("PRABHASA_NYAYA_SCORE_BIN", str(tmp_path / "no-such-binary"))
+        with pytest.raises(RuntimeError):
+            nyaya.registry_elements(tmp_path, "ipc405_misappropriation")
+
+    def test_registry_check_raises_runtimeerror_not_filenotfounderror(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("PRABHASA_NYAYA_SCORE_BIN", str(tmp_path / "no-such-binary"))
+        with pytest.raises(RuntimeError):
+            nyaya.registry_check(tmp_path, "ipc405_misappropriation", {"x": True})
+        assert not (tmp_path / "research" / "nyaya" / "audits").exists()

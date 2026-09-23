@@ -252,6 +252,8 @@ def build_nyaya_router(root: Path, ask_fn: panel.AskFn | None = None) -> APIRout
             elements = nyaya.registry_elements(project, contract_id)
         except (KeyError, ValueError) as e:
             raise HTTPException(422, str(e)) from e
+        except RuntimeError as e:
+            raise HTTPException(503, f"registry checker unavailable: {e}") from e
         return {"contract_id": contract_id, "elements": elements}
 
     @router.post("/registry/check", response_model=NyayaRegistryCheckResponse)
