@@ -20,8 +20,10 @@ RUN set -eu; \
     data="$(curl -sSf ${GITHUB_TOKEN:+-H "Authorization: Bearer $GITHUB_TOKEN"} "$api")"; \
     kernel="$(printf '%s' "$data" | grep -o '"browser_download_url": *"[^"]*pravrudhi_kernel[^"]*\.whl"' | head -1 | sed 's/.*"\(https[^"]*\)"/\1/')"; \
     engine="$(printf '%s' "$data" | grep -o '"browser_download_url": *"[^"]*pravrudhi-[0-9][^"]*\.whl"' | head -1 | sed 's/.*"\(https[^"]*\)"/\1/')"; \
-    test -n "$kernel" && test -n "$engine"; \
-    pip install --no-cache-dir --quiet "$kernel" "$engine"
+    [ -n "$kernel" ] || { echo "FATAL: no pravrudhi_kernel wheel in release v${PRAVRUDHI_VERSION} (assets not published yet?)" >&2; exit 1; }; \
+    [ -n "$engine" ] || { echo "FATAL: no pravrudhi wheel in release v${PRAVRUDHI_VERSION} (assets not published yet?)" >&2; exit 1; }; \
+    pip install --no-cache-dir --quiet "$kernel" "$engine"; \
+    command -v pravrudhi >/dev/null || { echo "FATAL: pravrudhi not on PATH after install" >&2; exit 1; }
 
 # prabhasa-nyaya's compiled Lean `score` binary (2026-09-23: found missing from every prior image --
 # every Lean-checker route 500'd in production). Optional at build time: `nyaya/` in the build context
