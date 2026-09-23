@@ -142,3 +142,23 @@ def test_check_carries_evidence_through_without_affecting_the_verdict(tmp_path: 
     assert body["evidence"] == {
         "entrusted with property, or with dominion over property": "para 3 of the facts"
     }
+
+
+def test_elements_503s_cleanly_when_the_lean_binary_is_unreachable(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Real production incident (2026-09-23): a missing score binary reached the browser as an
+    uncaught 500 with no CORS headers (misreported as a CORS failure). Must be a clean 503 now."""
+    monkeypatch.setenv("PRABHASA_NYAYA_SCORE_BIN", str(tmp_path / "no-such-binary"))
+    c = _client(tmp_path)
+    resp = c.get("/api/nyaya/registry/ipc405_misappropriation/elements")
+    assert resp.status_code == 503
+
+
+def test_check_503s_cleanly_when_the_lean_binary_is_unreachable(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PRABHASA_NYAYA_SCORE_BIN", str(tmp_path / "no-such-binary"))
+    c = _client(tmp_path)
+    resp = c.post(
+        "/api/nyaya/registry/check",
+        json={"contract_id": "ipc405_misappropriation", "assertions": {"x": True}},
+        headers=_token_header(tmp_path),
+    )
+    assert resp.status_code == 503
