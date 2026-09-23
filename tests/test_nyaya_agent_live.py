@@ -118,12 +118,15 @@ def test_house_judge_loop_end_to_end(tmp_path: Path, served_model: str) -> None:
             "outcome": c.outcome,
             "reason": c.reason,
             "lean_outcome": c.lean_outcome,
+            "statute_text_mismatch": c.statute_text_mismatch,
             "elements": [
                 {
                     "p": round(e.p_established or 0.0, 4),
                     "claimed": e.claimed,
                     "status": e.status,
                     "span": f"{e.fact_id}:{e.start}:{e.end}",
+                    "offsets_source": e.offsets_source,
+                    "occurrences": e.occurrences,
                     "quote_check": e.quote_check,
                     "attempts": e.attempts,
                 }

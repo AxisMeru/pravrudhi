@@ -1,12 +1,13 @@
-"""The mechanical span check between every Nyaya element judge and the Lean wire.
+"""The mechanical quote check between every Nyaya element judge and the Lean wire.
 
-A judge that calls an element *established* must name the fact that establishes it and an exact span of that
-fact: `{status, fact_id, quote, start, end}`. The span is valid only when `facts[fact_id][start:end] == quote`,
-compared byte for byte -- no case folding, no whitespace normalisation, and no reliance on Python's forgiving
-slice semantics (`text[0:999]` of a 30-character fact is the whole fact; here it is an out-of-bounds offset).
+A judge that calls an element *established* names the fact that establishes it and quotes it:
+`{status, fact_id, quote}`. The judge never supplies character offsets -- a model is not asked to count
+characters. The SYSTEM locates the quote with an exact `str.find` in `facts[fact_id]` and computes `start`/
+`end` itself (`offsets_source: "system"`); on several occurrences it takes the first and records the count.
 
-Anything else is invalid and says why. The caller (`nyaya_agent`) then treats the element as not established;
-this module never repairs a span to make it fit, because a repaired span is a quote the judge did not give.
+Verification stays strictly verbatim: no case folding, no whitespace trimming or collapsing, no fuzzy match.
+A quote that is not a verbatim substring of the named fact is rejected and says why. The caller
+(`nyaya_agent`) then treats the element as not established; this module never repairs a quote to make it fit.
 """
 
 from __future__ import annotations
@@ -15,45 +16,50 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Literal
 
-Reason = Literal["ok", "not_established", "no_span", "unknown_fact", "bad_offsets", "quote_mismatch"]
+Reason = Literal["ok", "not_established", "no_quote", "unknown_fact", "empty_quote", "quote_not_found"]
 
 
 @dataclass(frozen=True)
-class QuoteCheck:
+class QuoteLocation:
     valid: bool
     reason: Reason
+    start: int | None = None
+    end: int | None = None
+    occurrences: int = 0
+    offsets_source: Literal["system"] = "system"
 
 
-def _is_int(x: object) -> bool:
-    # `bool` is an `int` subclass; `True`/`False` are not offsets a judge meant.
-    return isinstance(x, int) and not isinstance(x, bool)
+def _count_occurrences(text: str, quote: str) -> int:
+    """Every start position the quote matches at, overlapping ones included."""
+    n, i = 0, text.find(quote)
+    while i != -1:
+        n += 1
+        i = text.find(quote, i + 1)
+    return n
 
 
-def check_quote(
-    facts: Mapping[str, str], *, fact_id: str | None, quote: str | None, start: int | None, end: int | None
-) -> QuoteCheck:
-    """Valid iff `fact_id` is a known fact, `0 <= start < end <= len(fact)`, and the slice equals `quote`."""
-    if fact_id is None or start is None or end is None:
-        return QuoteCheck(False, "no_span")
+def locate_quote(facts: Mapping[str, str], *, fact_id: str | None, quote: str | None) -> QuoteLocation:
+    """Valid iff `fact_id` is a known fact and `quote` is a non-empty verbatim substring of it; `start`/`end`
+    are then the first occurrence's offsets, computed here."""
+    if fact_id is None:
+        return QuoteLocation(False, "no_quote")
     if fact_id not in facts:
-        return QuoteCheck(False, "unknown_fact")
+        return QuoteLocation(False, "unknown_fact")
+    if quote is None:
+        return QuoteLocation(False, "no_quote")
+    if quote == "":
+        # `str.find("")` is 0: an empty quote would otherwise "match" every fact.
+        return QuoteLocation(False, "empty_quote")
     text = facts[fact_id]
-    if not (_is_int(start) and _is_int(end)) or not (0 <= start < end <= len(text)):
-        return QuoteCheck(False, "bad_offsets")
-    if quote is None or text[start:end] != quote:
-        return QuoteCheck(False, "quote_mismatch")
-    return QuoteCheck(True, "ok")
+    start = text.find(quote)
+    if start == -1:
+        return QuoteLocation(False, "quote_not_found")
+    return QuoteLocation(True, "ok", start, start + len(quote), _count_occurrences(text, quote))
 
 
-def check_judgment(facts: Mapping[str, str], judgment: Mapping[str, Any]) -> QuoteCheck:
-    """`check_quote` over a judgment mapping. A `not_established` judgment carries no span to accept, so it is
-    never valid here -- the check answers "does this judgment establish the element?", nothing weaker."""
+def check_judgment(facts: Mapping[str, str], judgment: Mapping[str, Any]) -> QuoteLocation:
+    """`locate_quote` over a judgment mapping. Any `start`/`end` a judgment carries is ignored -- offsets are
+    the system's. A `not_established` judgment carries no quote to accept, so it is never valid here."""
     if judgment.get("status") != "established":
-        return QuoteCheck(False, "not_established")
-    return check_quote(
-        facts,
-        fact_id=judgment.get("fact_id"),
-        quote=judgment.get("quote"),
-        start=judgment.get("start"),
-        end=judgment.get("end"),
-    )
+        return QuoteLocation(False, "not_established")
+    return locate_quote(facts, fact_id=judgment.get("fact_id"), quote=judgment.get("quote"))

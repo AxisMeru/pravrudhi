@@ -1,20 +1,24 @@
 """Element judges for the Nyaya agentic loop (`nyaya_agent`): one required element of one registry Contract,
-judged against the user's facts, as `{status, p_established, fact_id, quote, start, end}`.
+judged against the user's facts, as `{status, p_established, fact_id, quote}`. A judge never supplies
+character offsets: `nyaya_quote` locates the quote in the named fact itself (`offsets_source: "system"`).
 
-A judge only *proposes*. Every judgment it returns goes through `nyaya_quote`'s mechanical span check before
-the agent lets it near the Lean wire, whichever judge produced it -- so neither judge below is trusted with
-its own quote.
+A judge only *proposes*. Every judgment it returns goes through `nyaya_quote`'s mechanical verbatim check
+before the agent lets it near the Lean wire, whichever judge produced it -- so neither judge below is trusted
+with its own quote.
 
 * `HouseJudge` -- the fine-tuned element judge served by an OpenAI-compatible vLLM server (the 5090's is
   `http://127.0.0.1:8110/v1`). Mirrors prabhasa-nyaya's element-judge harness exactly: the raw-text training
   prompt (`Statute:` truncated to 600 characters / `Scenario:` / `Element to judge:` / `Available facts:` /
   `Answer:`, no chat template), and `p_established` = the two-way softmax of the FIRST generated token's
   `max(" established", "established")` vs `max(" not", "not")` logprobs, a token absent from the top-k read
-  as -inf. The status is `p >= tau`, never the greedy text; the span comes from the same greedy completion
-  (`established F1:0:120`), and the judge reports the offsets it was given without clipping them into range.
-* `FrontierJudge` -- any `panel` vendor, asked for a JSON judgment. It has no calibrated probability, so it
-  reports `p_established` as exactly 1.0 or 0.0 (never inside a refer band), and its quote is passed through
-  verbatim for the quote check to accept or refuse.
+  as -inf. The status is `p >= tau`, never the greedy text. The model was trained to answer
+  `established <fact_id>:<start>:<end>` and never to emit quote text, so its evidential claim is taken at FACT
+  granularity: the fact id from the greedy completion, the quote = that fact's whole text
+  (`quote_source: "whole_fact"`). Its offsets are ignored (they were often past the fact's end: live
+  `F1:0:103` for an 87-character fact). A fact id that is not among the facts has no quote, and is rejected.
+* `FrontierJudge` -- any `panel` vendor, asked for `{status, fact_id, quote}` as JSON (never offsets). It has
+  no calibrated probability, so it reports `p_established` as exactly 1.0 or 0.0 (never inside a refer
+  band), and its quote is passed through verbatim (`quote_source: "model"`) for the check to accept or refuse.
 """
 
 from __future__ import annotations
@@ -60,8 +64,8 @@ class ElementJudgment:
     p_established: float
     fact_id: str | None = None
     quote: str | None = None
-    start: int | None = None
-    end: int | None = None
+    #: "model" -- words the judge wrote; "whole_fact" -- the named fact's full text (house judge, see module doc).
+    quote_source: Literal["model", "whole_fact"] | None = None
     raw: str = ""
 
     def as_dict(self) -> dict[str, Any]:
@@ -78,7 +82,8 @@ class Judge(Protocol):
 
 _EST_TOKENS = (" established", "established")
 _NOT_TOKENS = (" not", "not")
-_HOUSE_SPAN = re.compile(r"^\s*established\s+(\S+?):(\d+):(\d+)")
+#: `established <fact_id>[:<start>:<end>]` -- only the fact id is read; the offsets are the model's and unused.
+_HOUSE_FACT = re.compile(r"^\s*established\s+([^\s:]+)")
 
 
 def build_house_prompt(request: JudgeRequest, *, statute_chars: int) -> str:
@@ -107,10 +112,10 @@ def p_established_from_top_logprobs(top: Mapping[str, float]) -> float:
     return 1.0 / (1.0 + math.exp(neg - est))
 
 
-def parse_house_span(text: str) -> tuple[str, int, int] | None:
-    """`established <fact_id>:<start>:<end>` -> `(fact_id, start, end)`; anything else -> `None`."""
-    m = _HOUSE_SPAN.match(text)
-    return (m.group(1), int(m.group(2)), int(m.group(3))) if m else None
+def parse_house_fact_id(text: str) -> str | None:
+    """`established <fact_id>[:<start>:<end>]` -> `fact_id`; anything else -> `None`. Offsets are ignored."""
+    m = _HOUSE_FACT.match(text)
+    return m.group(1) if m else None
 
 
 class HouseJudge:
@@ -172,15 +177,15 @@ class HouseJudge:
         p = p_established_from_top_logprobs(res.top_logprobs[0])
         if p < self.tau:
             return ElementJudgment("not_established", p, raw=res.text)
-        span = parse_house_span(res.text)
-        if span is None:
+        fact_id = parse_house_fact_id(res.text)
+        if fact_id is None:
             return ElementJudgment("established", p, raw=res.text)
-        fact_id, start, end = span
+        # Fact granularity (module doc): the claim is "this fact, whole". A fact id not among the facts gets no
+        # quote -- never a nearest-match fact -- so the quote check rejects it as unknown.
         text = dict(request.facts).get(fact_id)
-        # The quote is the slice ONLY when the offsets are really inside the fact; otherwise no quote, so the
-        # quote check refuses it -- Python's clipping slice would otherwise turn 0:63 into "the whole fact".
-        quote = text[start:end] if text is not None and 0 <= start < end <= len(text) else None
-        return ElementJudgment("established", p, fact_id, quote, start, end, raw=res.text)
+        return ElementJudgment(
+            "established", p, fact_id, text, "whole_fact" if text is not None else None, raw=res.text
+        )
 
 
 # -- frontier judge ----------------------------------------------------------------------------------------
@@ -190,21 +195,12 @@ FRONTIER_PROMPT = (
     "STATUTE:\n{statute}\n\nSCENARIO:\n{narrative}\n\nELEMENT TO JUDGE:\n{element}\n\nFACTS:\n{facts}\n\n"
     "Reply with ONE JSON object and nothing else.\n"
     'If a single fact establishes the element: {{"status": "established", "fact_id": "<id>", '
-    '"quote": "<exact words copied from that fact>", "start": <character offset where the quote starts in that '
-    'fact>, "end": <offset one past its last character>}}\n'
+    '"quote": "<exact words copied from that fact>"}}\n'
     'Otherwise: {{"status": "not_established"}}\n'
     "The quote must be copied character for character; it will be checked mechanically against the fact."
 )
 
 _JSON_OBJECT = re.compile(r"\{.*\}", re.DOTALL)
-
-
-def _opt_int(v: object) -> int | None:
-    if v is None:
-        return None
-    if isinstance(v, bool) or not isinstance(v, int):
-        raise JudgeOutputError(f"offset {v!r} is not an integer")
-    return v
 
 
 def parse_frontier_reply(text: str) -> ElementJudgment:
@@ -223,14 +219,11 @@ def parse_frontier_reply(text: str) -> ElementJudgment:
     if status != "established":
         raise JudgeOutputError(f"status {status!r} is neither established nor not_established")
     fid, quote = obj.get("fact_id"), obj.get("quote")
+    if quote is not None and not isinstance(quote, str):
+        raise JudgeOutputError(f"quote {quote!r} is not a string")
+    # Any `start`/`end` a model volunteers is ignored: offsets are the system's (nyaya_quote).
     return ElementJudgment(
-        "established",
-        1.0,
-        str(fid) if fid is not None else None,
-        str(quote) if quote is not None else None,
-        _opt_int(obj.get("start")),
-        _opt_int(obj.get("end")),
-        raw=text,
+        "established", 1.0, str(fid) if fid is not None else None, quote, "model" if quote is not None else None, raw=text
     )
 
 

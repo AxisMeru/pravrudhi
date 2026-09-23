@@ -1,8 +1,10 @@
-"""The mechanical span check the Nyaya agent puts between every judge and the Lean wire.
+"""The mechanical quote check the Nyaya agent puts between every judge and the Lean wire.
 
-A judgment that says an element is established must name a fact and an exact span of it; the span is valid
-only when `facts[fact_id][start:end] == quote` exactly. Everything else is invalid and says why -- the agent
-then treats the element as not established, and nothing here ever repairs a span to make it fit.
+A judge that calls an element established names a fact and quotes it: `{status, fact_id, quote}`. The judge
+never supplies character offsets -- the SYSTEM locates the quote with an exact `str.find` in
+`facts[fact_id]` and computes `start`/`end` itself (first occurrence; the occurrence count is recorded).
+Verification stays strictly verbatim: no normalisation, no trimming, no fuzzy match. A quote that is not a
+verbatim substring of the named fact is rejected, and nothing here repairs it.
 
 Facts below are hand-written toy text, not drawn from any evaluation set.
 """
@@ -11,93 +13,84 @@ from __future__ import annotations
 
 from typing import Any
 
-import pytest
-
-from pravrudhi.application.nyaya_quote import check_judgment, check_quote
+from pravrudhi.application.nyaya_quote import check_judgment, locate_quote
 
 FACTS = {
     "F1": "TOY: Arun married Bela in 2019.",
     "F2": "TOY: Arun struck Bela every time she refused to ask her father for money.",
+    "F3": "TOY: Arun shouted at Bela; later Arun shouted at her mother.",
 }
 
 
-def _judgment(**over: Any) -> dict[str, Any]:
-    base: dict[str, Any] = {"status": "established", "fact_id": "F1", "quote": "Arun married Bela", "start": 5, "end": 22}
-    base.update(over)
-    return base
+class TestLocateQuote:
+    def test_verbatim_substring_is_located_by_the_system(self) -> None:
+        loc = locate_quote(FACTS, fact_id="F1", quote="Arun married Bela")
+        assert (loc.valid, loc.reason) == (True, "ok")
+        assert (loc.start, loc.end) == (5, 22)
+        assert FACTS["F1"][loc.start : loc.end] == "Arun married Bela"
+        assert loc.occurrences == 1
+        assert loc.offsets_source == "system"
 
-
-class TestCheckQuote:
-    def test_exact_span_is_valid(self) -> None:
-        res = check_quote(FACTS, fact_id="F1", quote="Arun married Bela", start=5, end=22)
-        assert res.valid
-        assert res.reason == "ok"
-
-    def test_whole_fact_span_is_valid(self) -> None:
+    def test_whole_fact_quote_is_valid(self) -> None:
         text = FACTS["F2"]
-        assert check_quote(FACTS, fact_id="F2", quote=text, start=0, end=len(text)).valid
+        loc = locate_quote(FACTS, fact_id="F2", quote=text)
+        assert loc.valid and (loc.start, loc.end) == (0, len(text))
 
-    def test_unknown_fact_is_invalid(self) -> None:
-        res = check_quote(FACTS, fact_id="F9", quote="Arun", start=0, end=4)
-        assert not res.valid
-        assert res.reason == "unknown_fact"
+    def test_multiple_occurrences_take_the_first_and_record_the_count(self) -> None:
+        loc = locate_quote(FACTS, fact_id="F3", quote="Arun shouted at")
+        assert loc.valid
+        assert (loc.start, loc.end) == (5, 20)
+        assert loc.occurrences == 2
 
-    def test_missing_span_is_invalid(self) -> None:
-        res = check_quote(FACTS, fact_id=None, quote=None, start=None, end=None)
-        assert not res.valid
-        assert res.reason == "no_span"
+    def test_occurrences_count_overlapping_matches(self) -> None:
+        loc = locate_quote({"F1": "aaaa"}, fact_id="F1", quote="aa")
+        assert (loc.start, loc.occurrences) == (0, 3)
 
-    @pytest.mark.parametrize(("start", "end"), [(-1, 4), (4, 4), (10, 5), (0, 999)])
-    def test_out_of_bounds_or_empty_offsets_are_invalid(self, start: int, end: int) -> None:
-        """`text[0:999]` would silently truncate to the whole fact in Python -- the check refuses it rather
-        than letting slicing semantics accept an offset the text does not have."""
-        text = FACTS["F1"]
-        res = check_quote(FACTS, fact_id="F1", quote=text[max(start, 0) : end], start=start, end=end)
-        assert not res.valid
-        assert res.reason == "bad_offsets"
+    def test_non_verbatim_quote_is_rejected(self) -> None:
+        loc = locate_quote(FACTS, fact_id="F1", quote="Arun wed Bela")
+        assert (loc.valid, loc.reason) == (False, "quote_not_found")
+        assert loc.start is None and loc.end is None and loc.occurrences == 0
 
-    def test_offsets_without_a_quote_are_judged_on_the_offsets_first(self) -> None:
-        """The house judge names offsets but no quote when they fall outside the fact (live: `F1:0:103` of an
-        87-character fact) -- that is reported as the bad offsets it is, not as a missing span."""
-        res = check_quote(FACTS, fact_id="F1", quote=None, start=0, end=103)
-        assert (res.valid, res.reason) == (False, "bad_offsets")
+    def test_case_is_not_normalised(self) -> None:
+        assert locate_quote(FACTS, fact_id="F1", quote="arun married bela").reason == "quote_not_found"
 
-    def test_in_bounds_offsets_without_a_quote_are_a_mismatch(self) -> None:
-        res = check_quote(FACTS, fact_id="F1", quote=None, start=0, end=3)
-        assert (res.valid, res.reason) == (False, "quote_mismatch")
+    def test_whitespace_is_not_trimmed(self) -> None:
+        # The fact ends "in 2019." -- a quote with a trailing space the fact does not have is not in it.
+        assert locate_quote(FACTS, fact_id="F1", quote="Arun married Bela in 2019. ").reason == "quote_not_found"
+        assert locate_quote(FACTS, fact_id="F1", quote="Arun  married Bela").reason == "quote_not_found"
 
-    def test_bool_offsets_are_not_integers(self) -> None:
-        res = check_quote(FACTS, fact_id="F1", quote="T", start=False, end=True)
-        assert not res.valid
-        assert res.reason == "bad_offsets"
+    def test_quote_from_a_different_fact_is_rejected(self) -> None:
+        assert locate_quote(FACTS, fact_id="F1", quote="Arun struck Bela").reason == "quote_not_found"
 
-    def test_non_integer_offsets_are_invalid(self) -> None:
-        res = check_quote(FACTS, fact_id="F1", quote="TOY", start="0", end="3")  # type: ignore[arg-type]
-        assert not res.valid
-        assert res.reason == "bad_offsets"
+    def test_unknown_fact_is_rejected(self) -> None:
+        assert locate_quote(FACTS, fact_id="F9", quote="Arun").reason == "unknown_fact"
 
-    def test_quote_that_differs_by_one_character_is_invalid(self) -> None:
-        res = check_quote(FACTS, fact_id="F1", quote="Arun married Bela ", start=5, end=22)
-        assert not res.valid
-        assert res.reason == "quote_mismatch"
+    def test_missing_fact_or_quote_is_rejected(self) -> None:
+        assert locate_quote(FACTS, fact_id=None, quote="Arun").reason == "no_quote"
+        assert locate_quote(FACTS, fact_id="F1", quote=None).reason == "no_quote"
 
-    def test_case_and_whitespace_are_not_normalised(self) -> None:
-        assert not check_quote(FACTS, fact_id="F1", quote="arun married bela", start=5, end=22).valid
-
-    def test_right_words_at_the_wrong_offsets_are_invalid(self) -> None:
-        assert not check_quote(FACTS, fact_id="F1", quote="Arun married Bela", start=4, end=21).valid
+    def test_empty_quote_is_rejected_not_found_at_zero(self) -> None:
+        """`str.find("")` is 0 -- an empty quote would otherwise 'match' every fact."""
+        assert locate_quote(FACTS, fact_id="F1", quote="").reason == "empty_quote"
 
 
 class TestCheckJudgment:
-    def test_established_with_exact_span_is_valid(self) -> None:
-        assert check_judgment(FACTS, _judgment()).valid
+    def _judgment(self, **over: Any) -> dict[str, Any]:
+        base: dict[str, Any] = {"status": "established", "fact_id": "F1", "quote": "Arun married Bela"}
+        base.update(over)
+        return base
 
-    def test_not_established_is_never_a_valid_span(self) -> None:
-        res = check_judgment(FACTS, _judgment(status="not_established"))
-        assert not res.valid
-        assert res.reason == "not_established"
+    def test_established_with_verbatim_quote_is_valid(self) -> None:
+        assert check_judgment(FACTS, self._judgment()).valid
+
+    def test_model_offsets_are_ignored_even_when_they_overshoot(self) -> None:
+        """A model's own offsets no longer matter: `start`/`end` in the judgment are never read."""
+        loc = check_judgment(FACTS, self._judgment(start=0, end=999))
+        assert loc.valid and (loc.start, loc.end) == (5, 22)
+
+    def test_not_established_is_never_a_valid_quote(self) -> None:
+        loc = check_judgment(FACTS, self._judgment(status="not_established"))
+        assert (loc.valid, loc.reason) == (False, "not_established")
 
     def test_missing_keys_are_invalid_not_a_crash(self) -> None:
-        res = check_judgment(FACTS, {"status": "established"})
-        assert not res.valid
-        assert res.reason == "no_span"
+        assert check_judgment(FACTS, {"status": "established"}).reason == "no_quote"

@@ -22,7 +22,7 @@ from pravrudhi.application.nyaya_judges import (
     JudgeRequest,
     build_house_prompt,
     p_established_from_top_logprobs,
-    parse_house_span,
+    parse_house_fact_id,
 )
 from pravrudhi.models.openai_compat import ChatClient, CompletionResult
 
@@ -73,16 +73,19 @@ class TestFirstTokenScore:
             p_established_from_top_logprobs({" F": -0.1, " R": -2.0})
 
 
-class TestParseHouseSpan:
-    def test_reads_fact_and_offsets(self) -> None:
-        assert parse_house_span(" established F2:5:30") == ("F2", 5, 30)
+class TestParseHouseFactId:
+    def test_reads_the_fact_id_and_ignores_the_offsets(self) -> None:
+        assert parse_house_fact_id(" established F2:5:30") == "F2"
 
     def test_underscored_fact_ids_parse(self) -> None:
-        assert parse_house_span("established F_el0:0:333\n") == ("F_el0", 0, 333)
+        assert parse_house_fact_id("established F_el0:0:333\n") == "F_el0"
 
-    @pytest.mark.parametrize("text", [" not_established", " established", " established F2", "garbage"])
-    def test_no_span_is_none(self, text: str) -> None:
-        assert parse_house_span(text) is None
+    def test_a_fact_id_with_no_offsets_parses(self) -> None:
+        assert parse_house_fact_id(" established F2") == "F2"
+
+    @pytest.mark.parametrize("text", [" not_established", " established", "garbage"])
+    def test_no_fact_is_none(self, text: str) -> None:
+        assert parse_house_fact_id(text) is None
 
 
 def _completion(text: str, top: dict[str, float]) -> CompletionResult:
@@ -100,14 +103,20 @@ class _FakeComplete:
 
 
 class TestHouseJudge:
-    def test_established_above_tau_carries_the_span_and_its_slice(self) -> None:
+    def test_established_above_tau_quotes_the_whole_named_fact(self) -> None:
+        """The house model was trained to name a fact and offsets, never quote text. With model offsets no
+        longer used, its verbatim claim is the fact it named, whole -- recorded as `quote_source`."""
         fake = _FakeComplete(_completion(" established F1:5:22", {" established": -0.05, " not": -3.0}))
         j = HouseJudge(complete=fake, tau=0.74, statute_chars=600).judge(REQ)
         assert j.status == "established"
         assert j.p_established > 0.74
-        assert (j.fact_id, j.start, j.end) == ("F1", 5, 22)
-        assert j.quote == "Arun married Bela"
+        assert (j.fact_id, j.quote, j.quote_source) == ("F1", "TOY: Arun married Bela in 2019.", "whole_fact")
         assert fake.prompts == [build_house_prompt(REQ, statute_chars=600)]
+
+    def test_unknown_fact_id_is_reported_with_no_quote(self) -> None:
+        fake = _FakeComplete(_completion(" established F_el0:0:40", {" established": -0.05, " not": -3.0}))
+        j = HouseJudge(complete=fake, tau=0.74, statute_chars=600).judge(REQ)
+        assert (j.status, j.fact_id, j.quote) == ("established", "F_el0", None)
 
     def test_below_tau_is_not_established_even_when_argmax_says_established(self) -> None:
         # p = sigmoid(0.5) ~ 0.62: the model's own argmax is " established", tau is not met.
@@ -117,19 +126,17 @@ class TestHouseJudge:
         assert 0.5 < j.p_established < 0.74
         assert j.fact_id is None and j.quote is None
 
-    def test_out_of_bounds_span_is_reported_as_given_with_no_quote(self) -> None:
-        """The model named F1:0:63 of a 32-character fact (seen live on the 5090 server). The judge reports the
-        offsets it was given and NO quote -- it never clips them into range; the quote check then rejects."""
+    def test_overshooting_model_offsets_no_longer_matter(self) -> None:
+        """Seen live: `F1:0:103` for an 87-character fact. The offsets are ignored; the fact id carries the claim."""
         fake = _FakeComplete(_completion(" established F1:0:63", {" established": -0.05, " not": -3.0}))
         j = HouseJudge(complete=fake, tau=0.74, statute_chars=600).judge(REQ)
-        assert j.status == "established"
-        assert (j.fact_id, j.start, j.end, j.quote) == ("F1", 0, 63, None)
+        assert (j.status, j.fact_id, j.quote) == ("established", "F1", "TOY: Arun married Bela in 2019.")
 
-    def test_established_without_a_span_keeps_status_and_no_span(self) -> None:
+    def test_established_without_a_fact_keeps_status_and_no_quote(self) -> None:
         fake = _FakeComplete(_completion(" established", {" established": -0.01, " not": -5.0}))
         j = HouseJudge(complete=fake, tau=0.74, statute_chars=600).judge(REQ)
         assert j.status == "established"
-        assert j.fact_id is None
+        assert j.fact_id is None and j.quote is None
 
     def test_no_logprobs_is_a_judge_output_error(self) -> None:
         fake = _FakeComplete(CompletionResult(text=" not", model="m", top_logprobs=[], wall_s=0.0, finish_reason="stop"))
@@ -195,8 +202,8 @@ def _answer(text: str) -> panel.Answer:
 class TestFrontierJudge:
     VENDOR = panel.VENDORS["claude-cli"]
 
-    def test_parses_json_and_reports_a_hard_probability(self) -> None:
-        reply = json.dumps({"status": "established", "fact_id": "F1", "quote": "Arun married Bela", "start": 5, "end": 22})
+    def test_parses_status_fact_and_quote_and_reports_a_hard_probability(self) -> None:
+        reply = json.dumps({"status": "established", "fact_id": "F1", "quote": "Arun married Bela"})
         prompts: list[str] = []
 
         def ask(v: panel.Vendor, p: str) -> panel.Answer:
@@ -204,26 +211,40 @@ class TestFrontierJudge:
             return _answer(f"Here you go:\n```json\n{reply}\n```")
 
         j = FrontierJudge(self.VENDOR, ask_fn=ask).judge(REQ)
-        assert (j.status, j.p_established, j.fact_id, j.quote, j.start, j.end) == (
+        assert (j.status, j.p_established, j.fact_id, j.quote, j.quote_source) == (
             "established",
             1.0,
             "F1",
             "Arun married Bela",
-            5,
-            22,
+            "model",
         )
         assert REQ.element in prompts[0] and "[F2]" in prompts[0] and STATUTE in prompts[0]
 
-    def test_not_established_has_zero_probability_and_no_span(self) -> None:
+    def test_prompt_never_asks_for_offsets(self) -> None:
+        prompts: list[str] = []
+
+        def ask(v: panel.Vendor, p: str) -> panel.Answer:
+            prompts.append(p)
+            return _answer('{"status": "not_established"}')
+
+        FrontierJudge(self.VENDOR, ask_fn=ask).judge(REQ)
+        assert "offset" not in prompts[0] and '"start"' not in prompts[0]
+
+    def test_offsets_a_model_volunteers_are_ignored(self) -> None:
+        reply = json.dumps({"status": "established", "fact_id": "F1", "quote": "Arun married Bela", "start": "x", "end": 999})
+        j = FrontierJudge(self.VENDOR, ask_fn=lambda v, p: _answer(reply)).judge(REQ)
+        assert (j.fact_id, j.quote) == ("F1", "Arun married Bela")
+
+    def test_not_established_has_zero_probability_and_no_quote(self) -> None:
         j = FrontierJudge(self.VENDOR, ask_fn=lambda v, p: _answer('{"status": "not_established"}')).judge(REQ)
-        assert (j.status, j.p_established, j.fact_id) == ("not_established", 0.0, None)
+        assert (j.status, j.p_established, j.fact_id, j.quote) == ("not_established", 0.0, None, None)
 
     def test_quote_is_passed_through_verbatim_never_recomputed(self) -> None:
-        reply = json.dumps({"status": "established", "fact_id": "F1", "quote": "Arun wed Bela", "start": 5, "end": 22})
+        reply = json.dumps({"status": "established", "fact_id": "F1", "quote": "Arun wed Bela"})
         j = FrontierJudge(self.VENDOR, ask_fn=lambda v, p: _answer(reply)).judge(REQ)
         assert j.quote == "Arun wed Bela"
 
-    @pytest.mark.parametrize("text", ["no json here", '{"status": "maybe"}', "[1, 2]", '{"status": "established", "start": "x"}'])
+    @pytest.mark.parametrize("text", ["no json here", '{"status": "maybe"}', "[1, 2]", '{"status": "established", "quote": 5}'])
     def test_unusable_reply_is_a_judge_output_error(self, text: str) -> None:
         with pytest.raises(JudgeOutputError):
             FrontierJudge(self.VENDOR, ask_fn=lambda v, p: _answer(text)).judge(REQ)

@@ -4,9 +4,13 @@ out; every step on a JSONL audit trail.
     ingest facts -> F1..Fn (sha256 each)
     select contracts (deterministic, from the binary's own --list-contracts)
     for each contract: describe it (--describe-contract: required elements + DENY defeaters)
-        judge every element (Judge protocol, nyaya_judges) -> mechanical quote check (nyaya_quote)
-            bounded retry: <= max_retries re-judgements, each with the statute text retrieved live from the
-            binary (--describe-source) and nothing else changed
+        record whether the judge's training statute text differs from the binary's official text
+            (--describe-source): `statute_text_mismatch`, for the audit and M2 -- the official text is never
+            fed to the judge
+        judge every element (Judge protocol, nyaya_judges) -> {status, fact_id, quote}; the SYSTEM locates
+            the quote verbatim in the fact and computes the offsets (nyaya_quote, `offsets_source: "system"`)
+            bounded retry: <= max_retries re-asks with the SAME request (same training statute text), used
+            only for the quote -- attempt 1's status and p_established stand
         assemble the REG wire deterministically (assertions in the Contract's own order)
         Lean check (nyaya_lean_registry.check_registry, pinned binary sha256)
         decide the outcome
@@ -20,12 +24,15 @@ checked against the local mirror (`expected_outcome`) -- a disagreement is recor
 
 Rules enforced here rather than asked of a judge:
 
-* **A span is checked, never repaired.** An element whose judgment fails the quote check after the retries is
-  not established. A DENY defeater the judge calls present but cannot quote is the one exception to "treat
+* **A quote is checked, never repaired.** An element whose quote is not a verbatim substring of the named fact
+  after the retries is not established. A DENY defeater the judge calls present but cannot quote is the one exception to "treat
   as absent": treating it as absent would let the contract PROVE on the strength of a failed quote, so the
   contract is referred instead (`denial_unquotable`).
 * **Uncertainty is referred, not rounded.** Any judged element whose `p_established` falls in the configured
-  `refer_band` [low, high) makes the contract REFER_TO_LAWYER; the Lean check still runs and is recorded.
+  `refer_band` [low, high) makes the contract REFER_TO_LAWYER; the Lean check still runs and is recorded. The
+  shipped band [0.5, 0.74) is an UNVALIDATED DEFAULT, CALIBRATION PENDING M3 -- not pre-registered, not fitted.
+* **The judge sees one statute text.** Its training text (config `judge_statute_text`) on every attempt; a
+  contract with none is not judged (ABSTAIN, `no_training_statute_text`).
 * **A judge that cannot answer is a gap.** An element whose judge raised on every attempt makes the contract
   ABSTAIN (`judge_error`) with no Lean call -- no outcome is decided over an element nobody judged.
 * **Nothing here is evidence.** A run is a check of a judge's reading of the user's facts against the Lean
@@ -47,7 +54,7 @@ from typing import Any, Literal, Protocol
 
 from pravrudhi.application import nyaya_lean_registry as reg
 from pravrudhi.application.nyaya_judges import ElementJudgment, Judge, JudgeRequest
-from pravrudhi.application.nyaya_quote import check_quote
+from pravrudhi.application.nyaya_quote import QuoteLocation, locate_quote
 
 Outcome = Literal["PROOF", "DENIAL", "ABSTAIN", "REFER_TO_LAWYER"]
 CONFIG_PATH = Path("configs") / "nyaya_agent.yaml"
@@ -297,14 +304,17 @@ class ElementResult:
     element: str
     is_denial: bool
     status: Literal["established", "not_established"]
-    claimed: bool  # the judge's own final status was "established", before the quote check
-    p_established: float | None
+    claimed: bool  # attempt 1's own status was "established", before any quote check
+    p_established: float | None  # always attempt 1's -- a retry never changes it
     fact_id: str | None
     quote: str | None
-    start: int | None
+    start: int | None  # system-computed (nyaya_quote.locate_quote), never a model's
     end: int | None
     quote_check: str | None
     attempts: int
+    occurrences: int = 0
+    offsets_source: Literal["system"] | None = None
+    quote_source: str | None = None
     error: str | None = None
 
 
@@ -318,6 +328,9 @@ class ContractResult:
     lean: dict[str, Any] | None
     lean_outcome: Outcome | None
     uncertain: list[str] = field(default_factory=list)
+    #: The judge's training statute text differs from the binary's official --describe-source text (None: no
+    #: training text to compare). An M2 retraining-on-official-texts target list, not an outcome input.
+    statute_text_mismatch: bool | None = None
 
 
 @dataclass
@@ -356,79 +369,103 @@ class NyayaAgent:
         registry = BinaryRegistry(cfg.score_bin, pinned_sha256=cfg.pinned_score_sha256)
         return cls(HouseJudge.from_config(cfg.house_judge, tau=cfg.tau), registry, cfg)
 
-    def _statute(self, contract_id: str, attempt: int) -> tuple[str, str]:
-        """(text, source) for this attempt: the judge's training-distribution text from config on attempt 1
-        when there is one, else -- and on every retry -- the text retrieved live from the binary."""
-        if attempt == 1 and contract_id in self.config.judge_statute_text:
-            return self.config.judge_statute_text[contract_id], "config"
-        return self.registry.source_text(contract_id), "retrieved"
-
     def _judge_element(
         self,
         audit: AuditTrail,
         contract_id: str,
         element: str,
         is_denial: bool,
+        statute: str,
         facts: tuple[Fact, ...],
         narrative: str,
     ) -> ElementResult:
+        """Attempt 1 decides the element's status and p_established. If it says established but its quote is
+        not verbatim in the named fact, up to `max_retries` re-asks follow -- the SAME request, same training
+        statute -- and each is used ONLY for its quote; its status and p are recorded and ignored."""
         fact_map = {f.id: f.text for f in facts}
-        last: ElementJudgment | None = None
-        last_check: str | None = None
+        request = JudgeRequest(contract_id, element, is_denial, statute, narrative, tuple((f.id, f.text) for f in facts))
+        anchor: ElementJudgment | None = None
+        fact_id: str | None = None
+        quote: str | None = None
+        quote_source: str | None = None
+        loc: QuoteLocation | None = None
         error: str | None = None
         attempts = 0
         for attempt in range(1, self.config.max_retries + 2):
             attempts = attempt
-            statute, statute_source = self._statute(contract_id, attempt)
-            request = JudgeRequest(contract_id, element, is_denial, statute, narrative, tuple((f.id, f.text) for f in facts))
+            uses = "status_and_quote" if anchor is None else "quote_only"
+            head = {"contract_id": contract_id, "element": element, "attempt": attempt, "statute_source": "config",
+                    "uses": uses}
             t0 = time.monotonic()
             try:
                 judgment = self.judge.judge(request)
             except Exception as e:  # recorded and retried; a judge failure never becomes a status
-                error = f"{type(e).__name__}: {e}"[-400:]
-                audit.step("judge", asdict(request), {"contract_id": contract_id, "element": element, "attempt": attempt,
-                                                      "statute_source": statute_source, "error": error}, _ms(t0))
+                if anchor is None:
+                    error = f"{type(e).__name__}: {e}"[-400:]
+                audit.step("judge", asdict(request), {**head, "error": f"{type(e).__name__}: {e}"[-400:]}, _ms(t0))
                 continue
-            error = None
-            last = judgment
-            audit.step("judge", asdict(request), {"contract_id": contract_id, "element": element, "attempt": attempt,
-                                                  "statute_source": statute_source, "judge": self.judge.name,
-                                                  "judgment": judgment.as_dict()}, _ms(t0))
-            if judgment.status != "established":
-                last_check = None
-                break
+            audit.step("judge", asdict(request), {**head, "judge": self.judge.name, "judgment": judgment.as_dict()},
+                       _ms(t0))
+            if anchor is None:
+                anchor, error = judgment, None
+                if judgment.status != "established":
+                    break
+            established = judgment.status == "established"
+            fact_id = judgment.fact_id if established else None
+            quote = judgment.quote if established else None
+            quote_source = judgment.quote_source if established else None
             t0 = time.monotonic()
-            qc = check_quote(fact_map, fact_id=judgment.fact_id, quote=judgment.quote, start=judgment.start, end=judgment.end)
-            last_check = qc.reason
-            audit.step("quote_check", {"judgment": judgment.as_dict(), "facts": [f.sha256 for f in facts]},
-                       {"contract_id": contract_id, "element": element, "attempt": attempt, "valid": qc.valid,
-                        "reason": qc.reason}, _ms(t0))
-            if qc.valid:
+            loc = locate_quote(fact_map, fact_id=fact_id, quote=quote)
+            audit.step("quote_check", {"fact_id": fact_id, "quote": quote, "facts": [f.sha256 for f in facts]},
+                       {"contract_id": contract_id, "element": element, "attempt": attempt, "valid": loc.valid,
+                        "reason": loc.reason, "start": loc.start, "end": loc.end, "occurrences": loc.occurrences,
+                        "offsets_source": loc.offsets_source, "quote_source": quote_source}, _ms(t0))
+            if loc.valid:
                 break
-        if last is None:
+        if anchor is None:
             return ElementResult(element, is_denial, "not_established", False, None, None, None, None, None, None,
                                  attempts, error=error)
-        claimed = last.status == "established"
-        valid = claimed and last_check == "ok"
+        claimed = anchor.status == "established"
+        valid = claimed and loc is not None and loc.valid
         return ElementResult(
-            element, is_denial, "established" if valid else "not_established", claimed, last.p_established,
-            last.fact_id, last.quote, last.start, last.end, last_check, attempts,
+            element, is_denial, "established" if valid else "not_established", claimed, anchor.p_established,
+            fact_id, quote, loc.start if loc else None, loc.end if loc else None, loc.reason if loc else None, attempts,
+            occurrences=loc.occurrences if loc else 0, offsets_source=loc.offsets_source if loc and loc.valid else None,
+            quote_source=quote_source,
         )
 
     def _run_contract(self, audit: AuditTrail, contract_id: str, facts: tuple[Fact, ...], narrative: str) -> ContractResult:
         t0 = time.monotonic()
         contract = self.registry.describe(contract_id)
         audit.step("describe", {"contract_id": contract_id}, asdict(contract), _ms(t0))
-        results = [self._judge_element(audit, contract_id, e, False, facts, narrative) for e in contract.elements]
-        results += [self._judge_element(audit, contract_id, d, True, facts, narrative) for d in contract.denials]
+
+        # The judge sees ONLY its training statute text; the binary's official text is read for the audit
+        # record (and the Lean side), never fed to the judge.
+        t0 = time.monotonic()
+        training = self.config.judge_statute_text.get(contract_id)
+        official = self.registry.source_text(contract_id)
+        mismatch = None if training is None else training != official
+        audit.step("statute", {"contract_id": contract_id},
+                   {"contract_id": contract_id, "judge_statute_source": "config" if training is not None else None,
+                    "judge_statute_sha256": _sha(training) if training is not None else None,
+                    "official_statute_sha256": _sha(official), "statute_text_mismatch": mismatch}, _ms(t0))
+
+        results: list[ElementResult] = []
 
         def finish(outcome: Outcome, reason: str, **kw: Any) -> ContractResult:
             res = ContractResult(contract_id, outcome, reason, results, kw.get("assertions"), kw.get("lean"),
-                                 kw.get("lean_outcome"), kw.get("uncertain", []))
+                                 kw.get("lean_outcome"), kw.get("uncertain", []), mismatch)
             audit.step("outcome", {"contract_id": contract_id, "elements": [asdict(r) for r in results]},
                        {"contract_id": contract_id, "outcome": outcome, "reason": reason,
-                        "lean_outcome": res.lean_outcome, "uncertain": res.uncertain}, 0.0)
+                        "lean_outcome": res.lean_outcome, "uncertain": res.uncertain,
+                        "statute_text_mismatch": mismatch}, 0.0)
             return res
+
+        if training is None:
+            return finish("ABSTAIN", "no_training_statute_text")
+
+        results += [self._judge_element(audit, contract_id, e, False, training, facts, narrative) for e in contract.elements]
+        results += [self._judge_element(audit, contract_id, d, True, training, facts, narrative) for d in contract.denials]
 
         if any(r.error is not None for r in results):
             return finish("ABSTAIN", "judge_error")

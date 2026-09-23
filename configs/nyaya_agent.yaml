@@ -24,22 +24,26 @@ house_judge:
 # (element-judge 4B v0, val-split false-prove sweep, 2026-09-22).
 tau: 0.74
 
-# REFER_TO_LAWYER when any judged element's p_established falls in [low, high). NOT pre-registered and
-# not validated on any split: [0.5, tau) is the region where the model's own argmax says "established"
-# but tau says not -- exactly where the threshold choice, not the evidence, decides. Revisit with data.
+# REFER_TO_LAWYER when any judged element's p_established falls in [low, high).
+# UNVALIDATED DEFAULT, CALIBRATION PENDING M3: not pre-registered, not fitted on any split. [0.5, tau) is
+# the region where the model's own argmax says "established" but tau says not -- where the threshold
+# choice, not the evidence, decides.
 refer_band: [0.5, 0.74]
 
-# Re-judge an element at most this many times (first attempt excluded) when its judge output is malformed
-# or its span fails the mechanical quote check; a retry uses the statute text retrieved live from the
-# binary's own --describe-source, nothing else.
+# Re-ask an element at most this many times (first attempt excluded) when its judge output is malformed or
+# its quote is not a verbatim substring of the named fact. A retry sends the SAME request (same training
+# statute text below) and is used ONLY for its quote: attempt 1's status and p_established stand.
 max_retries: 2
 
 # Where each run's JSONL audit trail is written, relative to the repo root.
 audit_dir: research/nyaya/agent_runs
 
 # The statute text the house judge was trained with (public statute text: IPC 1860 / BNS 2023), keyed by
-# registry contract id. Used for the first attempt so the judge sees its training distribution; a contract
-# with no entry here uses the binary's --describe-source text on every attempt.
+# registry contract id. The ONLY statute text the judge ever sees, on every attempt, so it stays in its
+# training distribution. The binary's official --describe-source text is for the Lean side and the audit
+# record only; each run records `statute_text_mismatch` per contract (9 of 14 differ from the official
+# text, 2026-09-24) as the target list for M2 retraining on official texts. A contract with no entry here
+# is not judged (ABSTAIN, no_training_statute_text).
 judge_statute_text:
   ipc405_misappropriation: Whoever, being in any manner entrusted with property, or with any dominion over property, dishonestly misappropriates or converts to his own use that property, or dishonestly uses or disposes of that property in violation of any direction of law prescribing the mode in which such trust is to be discharged, or of any legal contract, express or implied, which he has made touching the discharge of such trust, or wilfully suffers any other person so to do, commits "criminal breach of trust".
   ipc405_use_or_disposal: Whoever, being in any manner entrusted with property, or with any dominion over property, dishonestly misappropriates or converts to his own use that property, or dishonestly uses or disposes of that property in violation of any direction of law prescribing the mode in which such trust is to be discharged, or of any legal contract, express or implied, which he has made touching the discharge of such trust, or wilfully suffers any other person so to do, commits "criminal breach of trust".
