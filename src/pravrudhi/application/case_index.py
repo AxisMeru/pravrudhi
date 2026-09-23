@@ -92,8 +92,22 @@ def title_and_year_from_filename(path: Path) -> tuple[str, int | None]:
 
 # "X v. Y, (yyyy) N SCC P" or "X v. Y (yyyy) N SCC P" -- MINED from InJudgements shard0 (see
 # tests/test_case_index.py for the exact strings this pattern was built and checked against).
+#
+# Each party name is a run of Title-Case-starting tokens only (v1 allowed any letters/spaces and grabbed
+# leading filler like "This Court in Narandas Karsondas" or trailing filler like "Asha Goel reported in" --
+# both real mined bugs, see tests/test_verify.py and tests/test_case_index.py). A lowercase connector word
+# ("in", "and", "reported") is never itself Title-Case, so it can't extend the run and the match naturally
+# stops at (or starts after) it instead.
+# A real party name can itself contain a lowercase connector ("Union of India", "X and Anr."), so those are
+# whitelisted inside the token run; anything else lowercase (a sentence verb like "in"/"reported"/"held")
+# is not, and simply can't extend the run -- see the module docstring above.
+_CONNECTOR = r"(?:of|and|for|&|de|van|der)"
+_NAME = rf"[A-Z][\w.&']*(?:\s+(?:[A-Z][\w.&']*|{_CONNECTOR})){{0,6}}"
+# Between the party names and the citation, real text sometimes has a lead-in verb ("reported in",
+# "reported at", "cited in") -- MINED (see test_case_index.py's "Asha Goel reported in (2001) 2 SCC 160").
+_LEAD_IN = r"(?:,?\s*(?:reported|cited)\s+(?:in|at)\s+)?"
 _ALIAS = re.compile(
-    r"(?P<p1>[A-Z][A-Za-z.&\s]{2,60}?)\s+v\.?\s+(?P<p2>[A-Z][A-Za-z.&\s]{2,60}?),?\s*"
+    rf"(?P<p1>{_NAME})\s+v\.?\s+(?P<p2>{_NAME}),?\s*{_LEAD_IN}"
     r"\((?P<year>\d{4})\)\s*(?P<volume>\d+)\s*SCC\s*(?P<page>\d+)"
 )
 

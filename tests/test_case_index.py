@@ -82,7 +82,7 @@ def test_mine_aliases_real_text() -> None:
     assert "(2014) 3 SCC 183" in citations
     first = aliases[0]
     assert first.party_1 == "Life Insurance Corporation of India"
-    assert first.party_2 == "Asha Goel reported in"  # trailing "reported in" -- see known-limitations note below
+    assert first.party_2 == "Asha Goel"
 
 
 def test_mine_aliases_no_match_on_plain_text() -> None:
@@ -130,7 +130,7 @@ def test_insert_populates_alias_table(db: sqlite3.Connection) -> None:
         ),
     )
     db.commit()
-    rows = lookup_alias(db, "Life Insurance Corporation of India", "Asha Goel reported in")
+    rows = lookup_alias(db, "Life Insurance Corporation of India", "Asha Goel")
     assert len(rows) == 1
     assert rows[0]["citation"] == "(2001) 2 SCC 160"
     assert rows[0]["case_id"] == "xyz789"
