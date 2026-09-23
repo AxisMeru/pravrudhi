@@ -307,3 +307,18 @@ class TestRefutation:
         assert "amounts to the offence of rape" in result["denied_claims"][0]
         assert result["omitted_claims"] == []
         assert result["unlicensed_claims"] == []
+
+
+class TestDescribeSource:
+    def test_parse_splits_one_text_per_line(self) -> None:
+        assert reg.parse_describe_source("bns85", "Section 85 text.\nSection 86 text.\n") == [
+            "Section 85 text.", "Section 86 text.",
+        ]
+
+    def test_parse_unknown_is_refused(self) -> None:
+        with pytest.raises(reg.UnknownContractError):
+            reg.parse_describe_source("nope", "UNKNOWN_CONTRACT_ID\tnope\n")
+
+    def test_parse_empty_is_refused(self) -> None:
+        with pytest.raises(RuntimeError):
+            reg.parse_describe_source("bns85", "\n")

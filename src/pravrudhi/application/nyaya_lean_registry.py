@@ -140,6 +140,34 @@ def describe_contract_detail(
     return parse_describe_output(contract_id, proc.stdout)
 
 
+def list_contracts(*, root: Path | None = None, score_bin: Path | None = None) -> dict[str, list[str]]:
+    """`{contract_id: [source, ...]}` read live from the binary's own `--list-contracts`, in its order."""
+    bin_path = score_bin or score_bin_path(root or Path.cwd())
+    proc = subprocess.run([str(bin_path), "--list-contracts"], capture_output=True, text=True, check=True, timeout=30)
+    return parse_list_contracts(proc.stdout)
+
+
+def parse_describe_source(contract_id: str, stdout: str) -> list[str]:
+    """`score --describe-source <contract_id>` stdout -> the Contract's cited source texts, one per line.
+    Raises `UnknownContractError` when the binary reported the id unknown, `RuntimeError` on no text at all."""
+    lines = [line for line in stdout.split("\n") if line.strip()]
+    if lines and lines[0].startswith(_UNKNOWN_PREFIX):
+        raise UnknownContractError(f"binary refused contract_id {contract_id!r}: {lines[0]}")
+    if not lines:
+        raise RuntimeError(f"score --describe-source {contract_id!r} reported no source text")
+    return lines
+
+
+def describe_source(contract_id: str, *, root: Path | None = None, score_bin: Path | None = None) -> list[str]:
+    """The statute text(s) `contract_id` cites, read live from the binary's own `--describe-source` (the same
+    no-drift principle as `describe_contract_detail`: never a second hand-copied corpus)."""
+    bin_path = score_bin or score_bin_path(root or Path.cwd())
+    proc = subprocess.run(
+        [str(bin_path), "--describe-source", contract_id], capture_output=True, text=True, check=True, timeout=30,
+    )
+    return parse_describe_source(contract_id, proc.stdout)
+
+
 def describe_contract(contract_id: str, *, root: Path | None = None, score_bin: Path | None = None) -> list[str]:
     """The element names `contract_id`'s `required` list names -- `describe_contract_detail(...).elements`.
     `DENY: ` lines are excluded: sending a denial as a Met assertion would be scored as a refutation, not

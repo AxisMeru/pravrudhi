@@ -21,6 +21,18 @@ class ChatResult(BaseModel):
     finish_reason: str | None = None
 
 
+class CompletionResult(BaseModel):
+    """A raw-text `/completions` answer. `top_logprobs[i]` is the server's top-k `{token: logprob}` at generated
+    position `i` -- position 0 is what a first-token classifier (the Nyaya element judge) reads."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+    text: str
+    model: str
+    top_logprobs: list[dict[str, float]]
+    wall_s: float
+    finish_reason: str | None = None
+
+
 class ChatClient:
     def __init__(
         self,
@@ -83,6 +95,45 @@ class ChatClient:
             wall_s=time.monotonic() - t0,
             finish_reason=data["choices"][0].get("finish_reason"),
         )
+
+    def _call(self, path: str, body: dict[str, Any] | None = None) -> dict[str, Any]:
+        """POST `body` (or GET when `None`) to `base_url + path`; an HTTP error surfaces the server's own body."""
+        data = json.dumps(body).encode() if body is not None else None
+        req = urllib.request.Request(self.base_url + path, data=data, method="POST" if body is not None else "GET")
+        req.add_header("Content-Type", "application/json")
+        if self.api_key:
+            req.add_header("Authorization", f"Bearer {self.api_key}")
+        try:
+            with urllib.request.urlopen(req, timeout=self.timeout_s) as resp:
+                out: dict[str, Any] = json.loads(resp.read().decode())
+                return out
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode(errors="replace")[:600] if exc.fp else ""
+            raise RuntimeError(f"{self.base_url}{path} answered {exc.code}: {detail or exc.reason}") from exc
+
+    def complete(
+        self, prompt: str, *, max_tokens: int = 16, temperature: float = 0.0, logprobs: int | None = None
+    ) -> CompletionResult:
+        """Raw-text completion (no chat template) -- the shape a model fine-tuned on `prompt + completion` text
+        was trained on. `logprobs=k` asks for the top-k alternatives at every generated position."""
+        body: dict[str, Any] = {"model": self.model, "prompt": prompt, "max_tokens": max_tokens, "temperature": temperature}
+        if logprobs is not None:
+            body["logprobs"] = logprobs
+        t0 = time.monotonic()
+        data = self._call("/completions", body)
+        choice = data["choices"][0]
+        top = (choice.get("logprobs") or {}).get("top_logprobs") or []
+        return CompletionResult(
+            text=choice["text"],
+            model=str(data.get("model", self.model)),
+            top_logprobs=[{str(k): float(v) for k, v in (pos or {}).items()} for pos in top],
+            wall_s=time.monotonic() - t0,
+            finish_reason=choice.get("finish_reason"),
+        )
+
+    def list_models(self) -> list[str]:
+        """The model ids the server's own `/models` lists, in its order."""
+        return [str(m["id"]) for m in self._call("/models").get("data", [])]
 
     def healthy(self) -> bool:
         try:

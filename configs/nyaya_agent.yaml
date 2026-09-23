@@ -1,0 +1,57 @@
+# The Nyaya agentic loop (pravrudhi.application.nyaya_agent): facts in, per-contract PROOF / DENIAL /
+# ABSTAIN / REFER_TO_LAWYER out, every step on a JSONL audit trail. Constants live here, never in code.
+
+# The Lean `score` binary the loop checks every assembled wire with, and the FULL sha256 it must have.
+# A binary whose hash differs is refused before any call (never "close enough"). Relative to the repo root;
+# the PRABHASA_NYAYA_SCORE_BIN environment variable wins, same as configs/nyaya_gold.yaml.
+score_bin: ../prabhasa-nyaya/lean/.lake/build/bin/score
+pinned_score_sha256: cff3bee2b296e6dcca6016ad985c8524fdc7f1711f707d0194435abad619c1ba
+
+# The house element judge: an OpenAI-compatible vLLM server serving the fine-tuned element judge.
+# `model: null` means "the first id the server's own /v1/models lists".
+house_judge:
+  base_url: http://127.0.0.1:8110/v1
+  model: null
+  timeout_s: 60
+  # First-token top-k logprobs read for P(" established") vs P(" not"); the span comes from the same
+  # greedy completion, which needs room for `established F1:0:123`.
+  top_logprobs: 20
+  max_tokens: 30
+  # The training prompt truncated the statute to its first 600 characters; the judge sees the same.
+  statute_chars: 600
+
+# Decision threshold on p_established: established iff p >= tau. 0.74 is the dual-signed v0 value
+# (element-judge 4B v0, val-split false-prove sweep, 2026-09-22).
+tau: 0.74
+
+# REFER_TO_LAWYER when any judged element's p_established falls in [low, high). NOT pre-registered and
+# not validated on any split: [0.5, tau) is the region where the model's own argmax says "established"
+# but tau says not -- exactly where the threshold choice, not the evidence, decides. Revisit with data.
+refer_band: [0.5, 0.74]
+
+# Re-judge an element at most this many times (first attempt excluded) when its judge output is malformed
+# or its span fails the mechanical quote check; a retry uses the statute text retrieved live from the
+# binary's own --describe-source, nothing else.
+max_retries: 2
+
+# Where each run's JSONL audit trail is written, relative to the repo root.
+audit_dir: research/nyaya/agent_runs
+
+# The statute text the house judge was trained with (public statute text: IPC 1860 / BNS 2023), keyed by
+# registry contract id. Used for the first attempt so the judge sees its training distribution; a contract
+# with no entry here uses the binary's --describe-source text on every attempt.
+judge_statute_text:
+  ipc405_misappropriation: Whoever, being in any manner entrusted with property, or with any dominion over property, dishonestly misappropriates or converts to his own use that property, or dishonestly uses or disposes of that property in violation of any direction of law prescribing the mode in which such trust is to be discharged, or of any legal contract, express or implied, which he has made touching the discharge of such trust, or wilfully suffers any other person so to do, commits "criminal breach of trust".
+  ipc405_use_or_disposal: Whoever, being in any manner entrusted with property, or with any dominion over property, dishonestly misappropriates or converts to his own use that property, or dishonestly uses or disposes of that property in violation of any direction of law prescribing the mode in which such trust is to be discharged, or of any legal contract, express or implied, which he has made touching the discharge of such trust, or wilfully suffers any other person so to do, commits "criminal breach of trust".
+  ipc405_wilfully_suffers: Whoever, being in any manner entrusted with property, or with any dominion over property, dishonestly misappropriates or converts to his own use that property, or dishonestly uses or disposes of that property in violation of any direction of law prescribing the mode in which such trust is to be discharged, or of any legal contract, express or implied, which he has made touching the discharge of such trust, or wilfully suffers any other person so to do, commits "criminal breach of trust".
+  ipc415_property: Whoever, by deceiving any person, fraudulently or dishonestly induces the person so deceived to deliver any property to any person, or to consent that any person shall retain any property, or intentionally induces the person so deceived to do or omit to do anything which he would not do or omit if he were not so deceived, and which act or omission causes or is likely to cause damage or harm to that person in body, mind, reputation or property, is said to "cheat".
+  ipc415_damaging_act: Whoever, by deceiving any person, fraudulently or dishonestly induces the person so deceived to deliver any property to any person, or to consent that any person shall retain any property, or intentionally induces the person so deceived to do or omit to do anything which he would not do or omit if he were not so deceived, and which act or omission causes or is likely to cause damage or harm to that person in body, mind, reputation or property, is said to "cheat".
+  ipc416: A person is said to "cheat by personation" if he cheats by pretending to be some other person, or by knowingly substituting one person for or another, or representing that he or any other person is a person other than he or such other person really is.
+  ipc182_misdirected_act: Whoever gives to any public servant any information which he knows or believes to be false, intending thereby to cause, or knowing it to be likely that he will thereby cause, such public servant to do or omit anything which such public servant ought not to do or omit if the true state of facts respecting which such information is given were known by him, shall be punished.
+  ipc182_abuse_of_power: Whoever gives to any public servant any information which he knows or believes to be false, intending thereby to cause, or knowing it to be likely that he will thereby cause, such public servant to use the lawful power of such public servant to the injury or annoyance of any person, shall be punished.
+  bns69: Whoever, by deceitful means or by making promise to marry to a woman without any intention of fulfilling the same, has sexual intercourse with her, such sexual intercourse not amounting to the offence of rape, shall be punished.
+  bns47: A person abets an offence within the meaning of this Sanhita who, in India, abets the commission of any act without and beyond India which would constitute an offence if committed in India.
+  bns85: Whoever, being the husband or the relative of the husband of a woman, subjects such woman to cruelty shall be punished.
+  bns46_instigation: A person abets an offence, who abets either the commission of an offence, or the commission of an act which would be an offence, if committed by a person capable by law of committing an offence with the same intention or knowledge as that of the abettor.
+  bns46_conspiracy: A person abets an offence, who abets either the commission of an offence, or the commission of an act which would be an offence, if committed by a person capable by law of committing an offence with the same intention or knowledge as that of the abettor.
+  bns46_intentional_aid: A person abets an offence, who abets either the commission of an offence, or the commission of an act which would be an offence, if committed by a person capable by law of committing an offence with the same intention or knowledge as that of the abettor.
