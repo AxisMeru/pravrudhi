@@ -82,12 +82,14 @@ ensure_image() {
   local score_src="${NYAYA_SCORE_BIN_SRC:-$HOME/projects/prabhasa-nyaya/lean/.lake/build/bin/score}"
   local build_ctx; build_ctx="$(mktemp -d)"
   cp -r "$HERE/../docker/." "$build_ctx/"
+  # The pin is the Dockerfile's NYAYA_SCORE_SHA256 default (or an explicit NYAYA_SCORE_SHA256 env override);
+  # never the source file's own sha, which would make the build-time check vacuous.
   local sha_arg=()
+  [ -n "${NYAYA_SCORE_SHA256:-}" ] && sha_arg=(--build-arg "NYAYA_SCORE_SHA256=$NYAYA_SCORE_SHA256")
   if [ -f "$score_src" ]; then
     local sha; sha="$(sha256sum "$score_src" | cut -d' ' -f1)"
     cp "$score_src" "$build_ctx/nyaya/score"
-    sha_arg=(--build-arg "NYAYA_SCORE_SHA256=$sha")
-    echo "nyaya score binary: $score_src (sha256 $sha) -- including in the image"
+    echo "nyaya score binary: $score_src (sha256 $sha) -- including in the image; the build verifies it against the pin"
   else
     echo "nyaya score binary NOT FOUND at $score_src -- building WITHOUT it; every Lean-checker" >&2
     echo "route will answer 503 in this image until a redeploy includes it (see deploy/docker/README.md)" >&2
