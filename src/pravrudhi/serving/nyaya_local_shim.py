@@ -110,7 +110,7 @@ def _end_of_turn_token_id(tokenizer: Any) -> int:
             f"tokenizer has no single-token {_CHAT_END_OF_TURN_TOKEN!r} -- this shim's HF backend "
             f"is ChatML-specific, matching HfPredictor's own requirement"
         )
-    return token_id
+    return int(token_id)
 
 
 def _generate_hf(messages: list[dict[str, str]], max_tokens: int, temperature: float, seed: int | None) -> tuple[str, int, int]:
@@ -133,17 +133,17 @@ def _generate_hf(messages: list[dict[str, str]], max_tokens: int, temperature: f
         pad_token_id = tok.eos_token_id
     eot_id = _end_of_turn_token_id(tok)
 
-    class _EndOfTurnStoppingCriteria(StoppingCriteria):
-        def __call__(self, input_ids, scores, **kwargs) -> bool:
+    class _EndOfTurnStoppingCriteria(StoppingCriteria):  # type: ignore[misc]  # untyped optional dep
+        def __call__(self, input_ids: Any, scores: Any, **kwargs: Any) -> bool:
             return bool((input_ids[:, -1] == eot_id).all())
 
-    class _ContentBoundaryStoppingCriteria(StoppingCriteria):
+    class _ContentBoundaryStoppingCriteria(StoppingCriteria):  # type: ignore[misc]  # untyped optional dep
         """Batch-size-1 only (this shim never batches, matching its single-request contract): re-decodes
         the full generated span each call and stops once `_confidence_line_complete` says the answer's
         last field is done. O(n) redecode per step is negligible at demo scale (max_tokens in the low
         hundreds); not worth the complexity of an incremental decode for this shim."""
 
-        def __call__(self, input_ids, scores, **kwargs) -> bool:
+        def __call__(self, input_ids: Any, scores: Any, **kwargs: Any) -> bool:
             generated = input_ids[0, n_prompt:]
             text = tok.decode(generated, skip_special_tokens=True)
             return _confidence_line_complete(text)
