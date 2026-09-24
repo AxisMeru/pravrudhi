@@ -25,6 +25,10 @@ house_judge:
   max_tokens: 30
   # The training prompt truncated the statute to its first 600 characters; the judge sees the same.
   statute_chars: 600
+  # How many (contract, element/denial) judge requests one `NyayaAgent.run` call judges at once, bounded by a
+  # ThreadPoolExecutor (docs/decisions 2026-09-24). 1 is today's serial behaviour, byte-identical results and
+  # audit ordering -- unchanged unless this is raised. NYAYA_JUDGE_MAX_CONCURRENCY overrides.
+  max_concurrency: 1
 
 # Decision threshold on p_established: established iff p >= tau. 0.74 is the dual-signed v0 value
 # (element-judge 4B v0, val-split false-prove sweep, 2026-09-22).

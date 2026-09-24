@@ -474,6 +474,24 @@ class TestSecondJudgeReferBand:
         assert c.uncertain_second == [BNS69_EL[0]]
         assert c.uncertain == []  # the primary's own band never fired
 
+    def test_refer_band_still_fires_under_concurrency(self, tmp_path: Path) -> None:
+        """The second-judge REFER band is computed from `ElementResult` fields `_judge_element` fills in
+        regardless of which code path judged the element (nyaya_agent.py's concurrent branch calls the exact
+        same `_judge_element`, just with a different `judge`/`audit` pair per task) -- so it must fire
+        identically at `max_concurrency > 1`. `bns69` has 3 tasks (2 elements + 1 denial); `max_concurrency=4`
+        exercises the concurrent branch (`workers = min(4, 3) = 3`) with every task judged at once."""
+        p2 = 0.975
+        script = _proof_script(TOY_FACTS)
+        c = self._run(
+            tmp_path, script,
+            {BNS69_EL[0]: [_second("established", p2)], BNS69_EL[1]: [_second("established", 0.999)]},
+            delta=0.2, max_concurrency=4,
+        )
+        assert c.outcome == "REFER_TO_LAWYER"
+        assert c.reason == "uncertain_second_judge"
+        assert c.uncertain_second == [BNS69_EL[0]]
+        assert c.elements[0].second_refer_band_fired is True
+
     def test_boundary_distance_equal_delta_is_not_in_band(self, tmp_path: Path) -> None:
         """Strict `<`, never `<=` -- mirrors the primary band's own half-open convention."""
         p2 = 0.965
