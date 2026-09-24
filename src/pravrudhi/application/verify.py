@@ -12,10 +12,74 @@ correctly comes back NOT_IN_INDEX -- an honest "no alias evidence", not a false 
 
 from __future__ import annotations
 
+import re
 import sqlite3
 from enum import StrEnum
 
 from pravrudhi.application.citations import Citation, parse_citations
+
+# Leading words that can precede a real party name in running prose ("This Court in X v. Y...", "In X v.
+# Y..."), stripped repeatedly from the front before comparing two mentions of "the same" party. Found by
+# hand measuring resolution precision on 100 real citations (LEG-PLAN P3): mine_aliases's own regex (a run
+# of Title-Case tokens) cannot tell "In" the filler word from "In" a genuine name, since both are
+# Title-Case; this list is the disambiguation `citations.py`'s stricter regex didn't fully cover either.
+_LEADING_FILLER = re.compile(r"^(?:this|that|in|the|court|held|observed|noted)\s+", re.IGNORECASE)
+# Trailing honorific/plural variants that name the same party ("Anr." vs "Ors." vs the bare name) --
+# stripped for comparison only, never for the stored/displayed party name.
+_TRAILING_HONORIFIC = re.compile(r"\s+(?:and\s+)?(?:anr\.?|ors\.?|others?|etc\.?)\s*$", re.IGNORECASE)
+
+# A word broken across a PDF line wrap with a hyphen at the break point ("specific" -> "specific-\nmance"
+# for "performance") -- real `pypdf`/`pdftotext` output, seen building this corpus's own index. Only a
+# hyphen immediately followed by a newline is treated as a wrap artefact; a real hyphenated word ("time-
+# barred") keeps its hyphen because the char right after it is not a newline.
+_LINE_WRAP_HYPHEN = re.compile(r"-\n")
+_LIGATURES = {"ﬀ": "ff", "ﬁ": "fi", "ﬂ": "fl", "ﬃ": "ffi", "ﬄ": "ffl"}
+
+
+def normalize_text_for_match(text: str) -> str:
+    """The comparison-only normalization for the quote/proposition substring check: undo a PDF line-wrap
+    hyphen, expand ligature glyphs to their plain letters, collapse whitespace. Applied identically to both
+    the proposition and the indexed document text, so a real quote copied verbatim from the ORIGINAL source
+    (not from this index's own extracted copy) still matches; never applied to what gets stored or shown."""
+    s = _LINE_WRAP_HYPHEN.sub("", text)
+    for lig, plain in _LIGATURES.items():
+        s = s.replace(lig, plain)
+    return " ".join(s.split())
+
+
+def _strip_filler(name: str) -> str:
+    """Whitespace-collapse and drop a leading filler phrase (repeatedly -- "This Court in In X" happens
+    when two prose patterns overlap). Light-touch: keeps periods and internal spacing, so the result is
+    still a fair token to search the FTS5 `cases.title` index with."""
+    s = " ".join(name.split())
+    while True:
+        stripped = _LEADING_FILLER.sub("", s)
+        if stripped == s:
+            return s
+        s = stripped
+
+
+def normalize_party_name(name: str) -> str:
+    """Fold two mentions of the same real party into the same CONFLICT-grouping key: `_strip_filler` plus
+    drop a trailing honorific, drop every period (initials vary in exactly how much whitespace surrounds
+    each one -- "S.A. Kamtam" vs "S. A.  Kamtam" -- real OCR/PDF-extraction noise, not a different person),
+    lowercase. Deliberately more aggressive than `_strip_filler` alone, and NOT used for the FTS5 lookup
+    below: collapsing "S.A." to "sa" would stop matching a corpus title that keeps initials space-separated
+    ("S A Kamtam", from the SC PDF filename convention) -- a real bug this function's own tests caught."""
+    s = _strip_filler(name)
+    s = _TRAILING_HONORIFIC.sub("", s)
+    s = s.replace(".", "")
+    s = " ".join(s.split()).lower()
+    # A run of single-letter initials also varies in whether OCR/PDF extraction left a space between them
+    # ("s a kamtam" vs "sa kamtam" -- both from "S.A. Kamtam", just with the source PDF's own internal
+    # spacing around the period differing). Merge adjacent single-letter tokens into one, repeatedly (three
+    # or more initials in a row need more than one pass).
+    while True:
+        merged = re.sub(r"\b([a-z])\s+(?=[a-z]\b)", r"\1", s)
+        if merged == s:
+            break
+        s = merged
+    return s.strip(" ,")
 
 
 class VerifyResult(StrEnum):
@@ -48,26 +112,39 @@ def verify(conn: sqlite3.Connection, citation_text: str, quote_or_proposition: s
     ).fetchall()
     if not alias_rows:
         return VerifyResult.NOT_IN_INDEX
-    if len(alias_rows) > 1:
+
+    # Group by NORMALIZED party pair, not raw string equality -- two mentions of the same real case
+    # (OCR line-break noise, a residual leading-filler word) must not count as a real conflict. Only a
+    # citation string genuinely attributed to two DIFFERENT parties after normalization is a real CONFLICT.
+    groups: dict[tuple[str, str], sqlite3.Row] = {}
+    for row in alias_rows:
+        gkey = (normalize_party_name(row["party_1"]), normalize_party_name(row["party_2"]))
+        groups.setdefault(gkey, row)
+    if len(groups) > 1:
         return VerifyResult.CONFLICT
 
-    party_1, party_2 = alias_rows[0]["party_1"], alias_rows[0]["party_2"]
+    row = next(iter(groups.values()))
+    party_1, party_2 = row["party_1"], row["party_2"]
     # Corpus documents are titled from party names (SC PDF filenames, InJudgements `Titles`) -- an FTS5
     # match on both party names' first significant token finds the resolved case's own document, not the
-    # citing one. A short/common-word first token (e.g. "The") is not filtered here; a real corpus mostly
-    # avoids that shape ("The State v. X" is common in the OTHER direction, party_1 first) -- not proven
-    # bulletproof at full-corpus scale, flagged as a known simplification rather than silently assumed safe.
-    t1 = party_1.split()[0]
-    t2 = party_2.split()[0]
+    # citing one. `_strip_filler`'s output is used (not the raw alias text, and not `normalize_party_name`'s
+    # more aggressive period-stripping -- that would collapse "S.A." to "sa" and stop matching a title that
+    # keeps initials space-separated, e.g. "S A Kamtam"), so a leading filler word that survived mining
+    # ("In Narandas Karsondas") doesn't send the lookup hunting for a document titled "In ...". A
+    # short/common-word first token (e.g. "the") is not filtered here; a real corpus mostly avoids that
+    # shape ("The State v. X" is common in the OTHER direction, party_1 first) -- not proven bulletproof at
+    # full-corpus scale, flagged as a known simplification rather than silently assumed safe.
+    t1 = _strip_filler(party_1).split()[0]
+    t2 = _strip_filler(party_2).split()[0]
     case_rows = conn.execute(
         "SELECT case_id, text FROM cases WHERE title MATCH ?", (f'"{t1}" AND "{t2}"',)
     ).fetchall()
     if not case_rows:
         return VerifyResult.NOT_IN_INDEX
 
-    normalized_quote = " ".join(quote_or_proposition.split())
+    normalized_quote = normalize_text_for_match(quote_or_proposition)
     for row in case_rows:
-        normalized_text = " ".join(row["text"].split())
+        normalized_text = normalize_text_for_match(row["text"])
         if normalized_quote in normalized_text:
             return VerifyResult.VERIFIED
     return VerifyResult.EXISTS_QUOTE_NOT_FOUND

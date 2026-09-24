@@ -74,6 +74,31 @@ def test_verified_when_case_resolves_and_quote_matches(db: sqlite3.Connection) -
     assert result == VerifyResult.VERIFIED
 
 
+def test_verified_despite_pdf_line_wrap_hyphenation_in_the_indexed_text(db: sqlite3.Connection) -> None:
+    # Real noise seen extracting the SC PDF corpus (P3 measurement): pdftotext/pypdf breaks a word across a
+    # line with a hyphen at the wrap point. The quote is checked against the SAME text either way -- this
+    # pins that a hyphen-broken word in the indexed document doesn't defeat a real match.
+    db.execute(
+        "UPDATE cases SET text = ? WHERE case_id = 'resolved1'",
+        (
+            "In a suit for specific perfor-\nmance, time is not ordinarily of the es-\nsence of the "
+            "contract for sale of immovable property unless the parties expressly intend it to be so.",
+        ),
+    )
+    db.commit()
+    result = verify(db, "(1977) 3 SCC 247", "time is not ordinarily of the essence of the contract")
+    assert result == VerifyResult.VERIFIED
+
+
+def test_verified_despite_a_ligature_in_the_indexed_text(db: sqlite3.Connection) -> None:
+    # pypdf sometimes extracts the "fi"/"fl" ligature glyph as a single unicode codepoint rather than two
+    # ASCII letters -- real behaviour, not a hypothetical.
+    db.execute("UPDATE cases SET text = ? WHERE case_id = 'resolved1'", ("A suit for speciﬁc performance.",))
+    db.commit()
+    result = verify(db, "(1977) 3 SCC 247", "A suit for specific performance.")
+    assert result == VerifyResult.VERIFIED
+
+
 def test_exists_quote_not_found_when_case_resolves_but_quote_absent(db: sqlite3.Connection) -> None:
     result = verify(db, "(1977) 3 SCC 247", "this sentence never appears in that judgment at all")
     assert result == VerifyResult.EXISTS_QUOTE_NOT_FOUND
@@ -100,6 +125,29 @@ def test_malformed_when_multiple_citations_in_one_string(db: sqlite3.Connection)
     # verify() takes exactly one citation -- an input carrying two is a caller error, not a NOT_IN_INDEX.
     result = verify(db, "AIR 1958 SC 398 and (1977) 3 SCC 247", "any proposition")
     assert result == VerifyResult.MALFORMED
+
+
+def test_near_duplicate_party_names_are_not_a_false_conflict(db: sqlite3.Connection) -> None:
+    # Real bug found measuring resolution precision on 100 real citations (LEG-PLAN P3): two citing
+    # documents naming the SAME real case with trivially different text -- OCR line-break noise or a
+    # leading filler word the citations.py fix didn't fully catch -- inflated CONFLICT far past real
+    # ambiguity. "Narandas Karsondas" vs "In Narandas  Karsondas" (leading filler + double space) is the
+    # same party, not a second case.
+    insert_case(
+        db,
+        CaseRecord(
+            case_id="citer2",
+            title="A Different Later Case",
+            court="Supreme Court",
+            year=2010,
+            source="sc_pdf",
+            path_or_url="/fake/citer2.pdf",
+            text="This Court in In Narandas  Karsondas v. S. A.  Kamtam (1977) 3 SCC 247 held that",
+        ),
+    )
+    db.commit()
+    result = verify(db, "(1977) 3 SCC 247", "time is not ordinarily of the essence of the contract")
+    assert result == VerifyResult.VERIFIED
 
 
 def test_conflict_when_alias_maps_citation_to_two_different_party_pairs(db: sqlite3.Connection) -> None:
