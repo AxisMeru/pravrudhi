@@ -29,7 +29,7 @@ import os
 import re
 import urllib.error
 from collections.abc import Callable, Mapping
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Protocol
 
@@ -71,6 +71,29 @@ class ElementJudgment:
     raw: str = ""
     #: Which backend answered: primary URL (index 0) or fallback (index 1+), or None if not tracked
     backend_used: int | None = None
+
+    # -- AND-gate fields (AndGateJudge, below). All None/False when no second judge ran (single-judge config,
+    # or the primary already rejected so the second was never asked): reading them costs nothing when there
+    # is nothing to read.
+    #: The second judge's `name` (e.g. "house" for a 32B HouseJudge instance), else None.
+    second_judge: str | None = None
+    second_status: Status | None = None
+    p_established_second: float | None = None
+    tau_primary: float | None = None
+    tau_second: float | None = None
+    backend_used_second: int | None = None
+    #: The second was never asked because the primary already said not_established (cost saved).
+    second_skipped: bool = False
+    #: Why the AND gate did not run both judges to a clean AND: "primary_not_established", or
+    #: "second_unavailable: <exception>" when a configured second judge errored (fail closed, never a 4xx).
+    second_skip_reason: str | None = None
+    #: The second judge's own fact_id, kept for the record even though the primary's span is what is used.
+    second_fact_id: str | None = None
+    fact_id_disagreement: bool = False
+    #: Which judge is why the element is not established: "primary" (it rejected outright), "second" (the
+    #: primary accepted but the second rejected, or the second was configured and unavailable), or None when
+    #: established (or when there is no second judge and the primary alone decided).
+    vetoed_by: Literal["primary", "second"] | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -202,14 +225,15 @@ class HouseJudge:
         self._complete = complete
 
     @classmethod
-    def from_config(cls, cfg: Mapping[str, Any], *, tau: float) -> HouseJudge:
+    def from_config(cls, cfg: Mapping[str, Any], *, tau: float, api_key_env: str = "NYAYA_HOUSE_JUDGE_API_KEY") -> HouseJudge:
         """Load config with optional fallback URLs and API key.
 
         Supports same config keys as from_config_with_fallback, with graceful fallback
-        to None for optional fields. Reads NYAYA_HOUSE_JUDGE_API_KEY env var.
+        to None for optional fields. Reads the `api_key_env` env var (default NYAYA_HOUSE_JUDGE_API_KEY; the
+        AND-gate's second judge passes NYAYA_SECOND_JUDGE_API_KEY here so the two keys are never confused).
         """
         # Read api_key from env var first, then config
-        api_key = os.environ.get("NYAYA_HOUSE_JUDGE_API_KEY") or cfg.get("api_key") or None
+        api_key = os.environ.get(api_key_env) or cfg.get("api_key") or None
 
         return cls(
             tau=tau,
@@ -224,7 +248,9 @@ class HouseJudge:
         )
 
     @classmethod
-    def from_config_with_fallback(cls, cfg: Mapping[str, Any], *, tau: float) -> HouseJudge:
+    def from_config_with_fallback(
+        cls, cfg: Mapping[str, Any], *, tau: float, api_key_env: str = "NYAYA_HOUSE_JUDGE_API_KEY"
+    ) -> HouseJudge:
         """Load config with optional fallback URLs and API key.
 
         Config keys:
@@ -234,10 +260,10 @@ class HouseJudge:
         - Other keys as in from_config: statute_chars, model, max_tokens, top_logprobs, timeout_s
 
         Environment variables (override config):
-        - NYAYA_HOUSE_JUDGE_API_KEY: Bearer token for serverless endpoints
+        - `api_key_env` (default NYAYA_HOUSE_JUDGE_API_KEY): Bearer token for serverless endpoints
         """
         # Read api_key from config or env var (env var takes precedence)
-        api_key = os.environ.get("NYAYA_HOUSE_JUDGE_API_KEY") or cfg.get("api_key") or None
+        api_key = os.environ.get(api_key_env) or cfg.get("api_key") or None
 
         return cls(
             tau=tau,
@@ -337,3 +363,121 @@ class FrontierJudge:
             facts="\n".join(f"[{fid}] {text}" for fid, text in request.facts),
         )
         return parse_frontier_reply(self._ask(self.vendor, prompt).text)
+
+
+# -- AND-gate judge ------------------------------------------------------------------------------------------
+
+
+def _config_fault_status(e: BaseException) -> int | None:
+    """The HTTP status of a 4xx (other than 429) anywhere in `e`'s cause chain, else None. Mirrors
+    `nyaya_agent._judge_config_fault` exactly; duplicated rather than imported because judges never import the
+    agent (the dependency runs the other way -- nyaya_agent imports nyaya_judges)."""
+    seen: BaseException | None = e
+    while seen is not None:
+        if isinstance(seen, HTTPStatusError) and 400 <= seen.status < 500 and seen.status != 429:
+            return seen.status
+        seen = seen.__cause__
+    return None
+
+
+class AndGateJudge:
+    """Config C: AND(primary @ its own tau, second @ its own tau) -- e.g. the 4B house judge @ 0.74 AND the
+    32B QLoRA judge @ 0.97. Both slots are ordinary `Judge`s (in production, two `HouseJudge`s: same prompt
+    template, same first-token logprob code, module doc above -- this class never re-derives either).
+
+    The second is asked ONLY when the primary already says established: the majority of elements the primary
+    already rejects never reach the (expensive) second judge, and that skip is recorded rather than silently
+    saving the call. An element is established iff BOTH say established -- each already applying its OWN tau
+    inside its own `judge()`, so this class only ANDs the two `status` fields, never recomputes a threshold.
+
+    fact_id / quote / quote_source always come from the PRIMARY: the Lean check and the mechanical quote check
+    (`nyaya_quote`) decide on that span, never on the second's. A second-reported fact_id that disagrees is
+    recorded (`second_fact_id`, `fact_id_disagreement`), never silently dropped and never substituted in.
+
+    A second judge that errors after being asked (all its own transient/fallback retries exhausted, see
+    `HouseJudge`'s own primary/fallback rules) never falls back to scoring the primary alone: the element is
+    NOT established (fail closed), and `second_skip_reason` / `vetoed_by="second"` record why. The one
+    exception is a 4xx from the second (its OWN configuration fault -- bad key, unknown model): that surfaces
+    exactly as the primary's would, via `RuntimeError`, so `nyaya_agent`'s `_judge_config_fault` stops the run
+    instead of reading a broken second judge as an ordinary veto."""
+
+    def __init__(
+        self,
+        primary: Judge,
+        second: Judge,
+        *,
+        tau_primary: float | None = None,
+        tau_second: float | None = None,
+        name: str = "and_gate",
+    ) -> None:
+        self.primary = primary
+        self.second = second
+        #: Recorded on every judgment for the audit trail; defaults to the wrapped judge's own `.tau` when it
+        #: has one (a real HouseJudge does), else None (an injected test double need not have one).
+        self.tau_primary = tau_primary if tau_primary is not None else getattr(primary, "tau", None)
+        self.tau_second = tau_second if tau_second is not None else getattr(second, "tau", None)
+        self.name = name
+
+    @classmethod
+    def from_config(
+        cls,
+        house_cfg: Mapping[str, Any],
+        second_cfg: Mapping[str, Any],
+        *,
+        tau: float,
+        second_api_key_env: str = "NYAYA_SECOND_JUDGE_API_KEY",
+        name: str = "and_gate",
+    ) -> AndGateJudge:
+        """Both slots as `HouseJudge`s: the primary from `house_cfg` at `tau` (the existing `tau:` key), the
+        second from `second_cfg` at ITS OWN `tau` (a distinct threshold, e.g. 0.97 for the 32B)."""
+        primary = HouseJudge.from_config(house_cfg, tau=tau)
+        second_tau = float(second_cfg["tau"])
+        second = HouseJudge.from_config(second_cfg, tau=second_tau, api_key_env=second_api_key_env)
+        return cls(primary, second, tau_primary=tau, tau_second=second_tau, name=name)
+
+    def judge(self, request: JudgeRequest) -> ElementJudgment:
+        p = self.primary.judge(request)
+        if p.status != "established":
+            # Cost saved: the second is never asked once the primary has already rejected the element.
+            return replace(
+                p,
+                tau_primary=self.tau_primary,
+                tau_second=self.tau_second,
+                second_skipped=True,
+                second_skip_reason="primary_not_established",
+                vetoed_by="primary",
+            )
+        try:
+            s = self.second.judge(request)
+        except Exception as e:  # noqa: BLE001 -- classified just below, re-raised unless it should fail closed
+            if _config_fault_status(e) is not None:
+                raise  # a second-judge configuration fault surfaces like the primary's would (never fail closed)
+            return replace(
+                p,
+                status="not_established",
+                tau_primary=self.tau_primary,
+                tau_second=self.tau_second,
+                second_judge=getattr(self.second, "name", None),
+                vetoed_by="second",
+                second_skip_reason=f"second_unavailable: {type(e).__name__}: {e}"[:400],
+            )
+        established = s.status == "established"  # p.status == "established" already, checked above
+        disagreement = bool(p.fact_id and s.fact_id and p.fact_id != s.fact_id)
+        return ElementJudgment(
+            status="established" if established else "not_established",
+            p_established=p.p_established,
+            fact_id=p.fact_id,
+            quote=p.quote,
+            quote_source=p.quote_source,
+            raw=p.raw,
+            backend_used=p.backend_used,
+            second_judge=getattr(self.second, "name", None),
+            second_status=s.status,
+            p_established_second=s.p_established,
+            tau_primary=self.tau_primary,
+            tau_second=self.tau_second,
+            backend_used_second=s.backend_used,
+            second_fact_id=s.fact_id,
+            fact_id_disagreement=disagreement,
+            vetoed_by=None if established else "second",
+        )

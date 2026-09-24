@@ -499,6 +499,76 @@ class TestConfig:
         with pytest.raises(ValueError):
             _config(tmp_path, refer_band=(0.8, 0.5))
 
+    def test_repo_config_has_no_second_judge_by_default(self) -> None:
+        """The shipped config has no `second_judge:` block: config C is opt-in, never the default."""
+        assert load_agent_config(REPO).second_judge is None
+
+    def test_second_judge_env_vars_are_absent_by_default_too(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        for var in ("NYAYA_SECOND_JUDGE_BASE_URL", "NYAYA_SECOND_JUDGE_MODEL", "NYAYA_SECOND_JUDGE_TAU",
+                    "NYAYA_SECOND_JUDGE_TIMEOUT_S"):
+            monkeypatch.delenv(var, raising=False)
+        assert load_agent_config(REPO).second_judge is None
+
+    def test_second_judge_env_vars_introduce_the_block(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("NYAYA_SECOND_JUDGE_BASE_URL", "http://127.0.0.1:8111/v1")
+        monkeypatch.setenv("NYAYA_SECOND_JUDGE_MODEL", "nyaya-judge-32b")
+        monkeypatch.setenv("NYAYA_SECOND_JUDGE_TAU", "0.97")
+        monkeypatch.setenv("NYAYA_SECOND_JUDGE_TIMEOUT_S", "120")
+        sj = load_agent_config(REPO).second_judge
+        assert sj is not None
+        assert sj["base_url"] == "http://127.0.0.1:8111/v1"
+        assert sj["model"] == "nyaya-judge-32b"
+        assert sj["tau"] == 0.97
+        assert sj["timeout_s"] == 120
+
+    def test_second_judge_env_vars_override_a_configured_block(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        import yaml
+
+        cfg_dir = tmp_path / "configs"
+        cfg_dir.mkdir()
+        body = yaml.safe_load((REPO / "configs" / "nyaya_agent.yaml").read_text())
+        body["second_judge"] = {"base_url": "http://from-yaml/v1", "tau": 0.9, "statute_chars": 600,
+                                 "max_tokens": 30, "top_logprobs": 20, "timeout_s": 60}
+        (cfg_dir / "nyaya_agent.yaml").write_text(yaml.safe_dump(body))
+        monkeypatch.setenv("NYAYA_SECOND_JUDGE_TAU", "0.97")
+        sj = load_agent_config(tmp_path).second_judge
+        assert sj is not None
+        assert sj["base_url"] == "http://from-yaml/v1"  # untouched: no env var for it
+        assert sj["tau"] == 0.97  # env override wins
+
+
+class TestHouseFactory:
+    """`NyayaAgent.house` wires config C (AndGateJudge) only when `second_judge` is configured; absent is
+    exactly today's plain HouseJudge -- no network call happens in either case (both configs name their
+    model, so no `/models` round-trip)."""
+
+    _HOUSE_JUDGE_CFG = {"base_url": "http://h/v1", "model": "m", "statute_chars": 600, "max_tokens": 30,
+                         "top_logprobs": 20, "timeout_s": 5}
+
+    def _score_bin(self, tmp_path: Path) -> Path:
+        p = tmp_path / "score"
+        p.write_bytes(b"fake binary, sha256 unpinned for this test")
+        return p
+
+    def test_without_second_judge_uses_plain_house_judge(self, tmp_path: Path) -> None:
+        from pravrudhi.application.nyaya_judges import HouseJudge
+
+        cfg = _config(tmp_path, house_judge=self._HOUSE_JUDGE_CFG, score_bin=self._score_bin(tmp_path),
+                      pinned_score_sha256=None)
+        agent = NyayaAgent.house(tmp_path, config=cfg)
+        assert isinstance(agent.judge, HouseJudge)
+
+    def test_with_second_judge_uses_and_gate(self, tmp_path: Path) -> None:
+        from pravrudhi.application.nyaya_judges import AndGateJudge
+
+        second_cfg = {**self._HOUSE_JUDGE_CFG, "base_url": "http://s/v1", "model": "m2", "tau": 0.97}
+        cfg = _config(tmp_path, house_judge=self._HOUSE_JUDGE_CFG, second_judge=second_cfg,
+                      score_bin=self._score_bin(tmp_path), pinned_score_sha256=None)
+        agent = NyayaAgent.house(tmp_path, config=cfg)
+        assert isinstance(agent.judge, AndGateJudge)
+        assert agent.judge.tau_primary == 0.74 and agent.judge.tau_second == 0.97
+        assert agent.judge.primary.model == "m" and agent.judge.second.model == "m2"
+
 
 class TestRealBinary:
     @requires_score_bin

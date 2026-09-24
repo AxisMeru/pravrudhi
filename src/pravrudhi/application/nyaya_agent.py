@@ -99,6 +99,12 @@ class AgentConfig:
     #: of `nyaya_judges.HouseJudge`. Default False -- today's production behaviour is unchanged unless a
     #: caller opts in.
     typed_layer: bool = False
+    #: Optional config C second judge (AND-gate, `nyaya_judges.AndGateJudge`). None -- the default, and every
+    #: existing deployment's config -- means exactly today's single-judge behaviour (HouseJudge, or
+    #: TypedHouseJudge when `typed_layer` is set); only a `second_judge:` block in the yaml (or an
+    #: NYAYA_SECOND_JUDGE_* env var) turns the gate on. Composes with `typed_layer` independently -- see
+    #: `NyayaAgent.house`.
+    second_judge: Mapping[str, Any] | None = None
 
     def __post_init__(self) -> None:
         low, high = self.refer_band
@@ -152,6 +158,27 @@ def load_agent_config(root: Path) -> AgentConfig:
     # visit hit ABSTAIN/judge_error every time until this was raised.
     if os.environ.get("NYAYA_HOUSE_JUDGE_TIMEOUT_S"):
         house_judge["timeout_s"] = int(os.environ["NYAYA_HOUSE_JUDGE_TIMEOUT_S"])
+
+    # The optional config-C second judge (AndGateJudge): absent block + no env var = None = today's single
+    # HouseJudge, unchanged. An NYAYA_SECOND_JUDGE_* var can also introduce the block on a host with no yaml
+    # entry for it (container deployments), mirroring the house_judge env overrides above; its api_key is
+    # read directly by HouseJudge.from_config(api_key_env=...) in NyayaAgent.house, never merged in here, so
+    # it is never written into a run's config_view audit record.
+    second_body = body.get("second_judge")
+    second_judge: dict[str, Any] | None = dict(second_body) if second_body else None
+
+    def _second_override(env_var: str, key: str, cast: Any = str) -> None:
+        nonlocal second_judge
+        raw = os.environ.get(env_var)
+        if raw:
+            second_judge = dict(second_judge or {})
+            second_judge[key] = cast(raw)
+
+    _second_override("NYAYA_SECOND_JUDGE_BASE_URL", "base_url")
+    _second_override("NYAYA_SECOND_JUDGE_MODEL", "model")
+    _second_override("NYAYA_SECOND_JUDGE_TAU", "tau", float)
+    _second_override("NYAYA_SECOND_JUDGE_TIMEOUT_S", "timeout_s", int)
+
     return AgentConfig(
         tau=float(body["tau"]),
         refer_band=(float(low), float(high)),
@@ -162,6 +189,7 @@ def load_agent_config(root: Path) -> AgentConfig:
         score_bin=score_bin,
         house_judge=house_judge,
         typed_layer=bool(body.get("typed_layer", False)),
+        second_judge=second_judge,
     )
 
 
@@ -393,6 +421,35 @@ class AgentRun:
         return d
 
 
+def _build_house_judge(hj_cfg: Mapping[str, Any], *, tau: float, typed: bool, api_key_env: str) -> Judge:
+    """One judge slot (primary or, for config C, second) from a `house_judge`-shaped config: `HouseJudge` by
+    default, or `pravrudhi.application.typed.house_judge.TypedHouseJudge` over a `VLLMDecoder` when `typed`
+    is set (T1) -- shared by `NyayaAgent.house` for BOTH slots, so the typed-layer flag and config C's second
+    judge compose instead of the flag silently applying to only one of them."""
+    if typed:
+        from pravrudhi.application.typed.decoder import VLLMDecoder
+        from pravrudhi.application.typed.house_judge import TypedHouseJudge
+
+        api_key = os.environ.get(api_key_env) or hj_cfg.get("api_key") or None
+        decoder = VLLMDecoder(
+            base_url=str(hj_cfg["base_url"]),
+            model=hj_cfg.get("model") or None,
+            timeout_s=int(hj_cfg.get("timeout_s", 60)),
+            api_key=api_key,
+            fallback_urls=hj_cfg.get("base_urls_fallback") or [],
+        )
+        return TypedHouseJudge(
+            tau=tau,
+            statute_chars=int(hj_cfg["statute_chars"]),
+            decoder=decoder,
+            max_tokens=int(hj_cfg.get("max_tokens", 30)),
+            top_logprobs=int(hj_cfg.get("top_logprobs", 20)),
+        )
+    from pravrudhi.application.nyaya_judges import HouseJudge
+
+    return HouseJudge.from_config(hj_cfg, tau=tau, api_key_env=api_key_env)
+
+
 # -- the loop ----------------------------------------------------------------------------------------------
 
 
@@ -406,40 +463,37 @@ class NyayaAgent:
     def house(cls, root: Path, *, config: AgentConfig | None = None) -> NyayaAgent:
         """The configured loop: the house judge from `house_judge`, the pinned binary from `score_bin`.
 
-        When `config.typed_layer` is set (T1, docs/decisions/TYPED-LAYER-PLAN-2026-09-24.md), the SAME
-        `house_judge` config instead builds `pravrudhi.application.typed.house_judge.TypedHouseJudge` over a
-        `VLLMDecoder` -- default False, so this branch changes nothing about today's production path unless
-        a caller opts in.
+        Two independent flags compose:
+
+        * `config.typed_layer` (T1, docs/decisions/TYPED-LAYER-PLAN-2026-09-24.md) -- each judge SLOT builds
+          `pravrudhi.application.typed.house_judge.TypedHouseJudge` over a `VLLMDecoder` instead of
+          `nyaya_judges.HouseJudge`, from the same config. Default False, unchanged production path.
+        * `config.second_judge` (config C) -- when configured, the judge is `AndGateJudge(primary, second)`
+          instead of the single judge alone: an element only reaches PROOF when BOTH clear their own tau.
+          Default None, unchanged production path.
+
+        `typed_layer` governs BOTH the primary and the second slot when config C is on: mixing a typed
+        primary with an untyped second (or vice versa) would leave the flag's meaning ambiguous per element,
+        for no benefit -- HouseJudge and TypedHouseJudge are independently verified at parity (0 flips over
+        the live 279-prompt set, `scripts/typed_layer_parity*.py`), so building both slots the same way
+        changes nothing about either judge's DECISION, only which construction path they share.
         """
         cfg = config or load_agent_config(root)
         if cfg.score_bin is None:
             raise ValueError("no score_bin configured")
         registry = BinaryRegistry(cfg.score_bin, pinned_sha256=cfg.pinned_score_sha256)
+        from pravrudhi.application.nyaya_judges import AndGateJudge
+
+        primary = _build_house_judge(cfg.house_judge, tau=cfg.tau, typed=cfg.typed_layer,
+                                     api_key_env="NYAYA_HOUSE_JUDGE_API_KEY")
         judge: Judge
-        if cfg.typed_layer:
-            from pravrudhi.application.typed.decoder import VLLMDecoder
-            from pravrudhi.application.typed.house_judge import TypedHouseJudge
-
-            hj = cfg.house_judge
-            api_key = os.environ.get("NYAYA_HOUSE_JUDGE_API_KEY") or hj.get("api_key") or None
-            decoder = VLLMDecoder(
-                base_url=str(hj["base_url"]),
-                model=hj.get("model") or None,
-                timeout_s=int(hj.get("timeout_s", 60)),
-                api_key=api_key,
-                fallback_urls=hj.get("base_urls_fallback") or [],
-            )
-            judge = TypedHouseJudge(
-                tau=cfg.tau,
-                statute_chars=int(hj["statute_chars"]),
-                decoder=decoder,
-                max_tokens=int(hj.get("max_tokens", 30)),
-                top_logprobs=int(hj.get("top_logprobs", 20)),
-            )
+        if cfg.second_judge:
+            second_tau = float(cfg.second_judge["tau"])
+            second = _build_house_judge(cfg.second_judge, tau=second_tau, typed=cfg.typed_layer,
+                                        api_key_env="NYAYA_SECOND_JUDGE_API_KEY")
+            judge = AndGateJudge(primary, second, tau_primary=cfg.tau, tau_second=second_tau)
         else:
-            from pravrudhi.application.nyaya_judges import HouseJudge
-
-            judge = HouseJudge.from_config(cfg.house_judge, tau=cfg.tau)
+            judge = primary
         return cls(judge, registry, cfg)
 
     def _judge_element(
