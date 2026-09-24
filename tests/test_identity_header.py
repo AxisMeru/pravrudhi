@@ -41,8 +41,9 @@ def test_identity_header_reads_from_custom_header_when_set(monkeypatch: pytest.M
     monkeypatch.setenv("PRAVRUDHI_IDENTITY_HEADER", "X-Pravrudhi-Authorization")
 
     # Create a valid token
-    import jwt as pyjwt
     import time
+
+    import jwt as pyjwt
     now = time.time()
     claims = {
         "sub": "user-custom-header",
@@ -80,8 +81,9 @@ def test_identity_header_default_behavior_unchanged_when_not_set(monkeypatch: py
     monkeypatch.setenv("SUPABASE_JWT_SECRET", secret)
     monkeypatch.delenv("PRAVRUDHI_IDENTITY_HEADER", raising=False)
 
-    import jwt as pyjwt
     import time
+
+    import jwt as pyjwt
     now = time.time()
     claims = {
         "sub": "user-default",
@@ -114,8 +116,9 @@ def test_query_token_still_works_with_custom_header(monkeypatch: pytest.MonkeyPa
     monkeypatch.setenv("SUPABASE_JWT_SECRET", secret)
     monkeypatch.setenv("PRAVRUDHI_IDENTITY_HEADER", "X-Pravrudhi-Authorization")
 
-    import jwt as pyjwt
     import time
+
+    import jwt as pyjwt
     now = time.time()
     claims = {
         "sub": "user-query-token",
