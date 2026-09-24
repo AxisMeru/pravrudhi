@@ -16,6 +16,10 @@
 #   gateway.env     PRAVRUDHI_ADMINS (the operator's Supabase account, Studio admits only this),
 #                   PRAVRUDHI_VERSION (the release both containers run), STUDIO_ROOT (the real Studio root the
 #                   hosted Studio engine serves; default a fresh root), optional STUDIO_ORIGIN / PRODUCT_ORIGIN
+#                   optional NYAYA_HOUSE_JUDGE_BASE_URL + NYAYA_JUDGE_NETWORK: the element-judge server the
+#                   /api/v1/analyse-facts agent calls, reached by container name on a shared docker network
+#                   (e.g. http://vllm-judge:8000/v1 on network nyaya-judge) -- the host's 127.0.0.1 is not
+#                   reachable from an engine container, and docker0 -> host is firewalled on this box
 #   supabase.env    SUPABASE_URL (token verification)
 #   chat.env        the vendor key the engine routes to (a cost the operator has accepted)
 #   github.env      GITHUB_TOKEN, only to fetch release wheels past the anonymous rate limit when building
@@ -120,6 +124,7 @@ ensure_engine() {
     -e PRAVRUDHI_EDITION="$edition" -e SUPABASE_URL="$SUPABASE_URL" \
     -e PRAVRUDHI_ALLOWED_ORIGINS="$(origin_of "$edition")" \
     ${NYAYA_HOUSE_JUDGE_BASE_URL:+-e "NYAYA_HOUSE_JUDGE_BASE_URL=$NYAYA_HOUSE_JUDGE_BASE_URL"} \
+    ${NYAYA_JUDGE_NETWORK:+--network "$NYAYA_JUDGE_NETWORK"} \
     "${extra[@]}" \
     "pravrudhi-engine:$PRAVRUDHI_VERSION" >/dev/null
   for _ in $(seq 1 60); do curl -sf "http://127.0.0.1:$port/api/health" >/dev/null 2>&1 && return; sleep 1; done
