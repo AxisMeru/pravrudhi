@@ -23,7 +23,8 @@ class ChatResult(BaseModel):
 
 class CompletionResult(BaseModel):
     """A raw-text `/completions` answer. `top_logprobs[i]` is the server's top-k `{token: logprob}` at generated
-    position `i` -- position 0 is what a first-token classifier (the Nyaya element judge) reads."""
+    position `i` -- position 0 is what a first-token classifier (the Nyaya element judge) reads.
+    `backend_index` records which backend answered (0=primary, 1+=fallback, None if not tracked)."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
     text: str
@@ -31,6 +32,7 @@ class CompletionResult(BaseModel):
     top_logprobs: list[dict[str, float]]
     wall_s: float
     finish_reason: str | None = None
+    backend_index: int | None = None
 
 
 class ChatClient:

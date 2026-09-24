@@ -113,6 +113,59 @@ class TestHouseJudge:
         assert (j.fact_id, j.quote, j.quote_source) == ("F1", "TOY: Arun married Bela in 2019.", "whole_fact")
         assert fake.prompts == [build_house_prompt(REQ, statute_chars=600)]
 
+    def test_bearer_key_added_to_authorization_header(self) -> None:
+        """Bearer API key support for serverless endpoints."""
+        captured: dict[str, Any] = {}
+        result = _completion(" established F1:5:22", {" established": -0.05, " not": -3.0})
+
+        def fake_open(req: Any, timeout: float | None = None) -> _Resp:
+            captured["auth_header"] = req.get_header("Authorization")
+            return _Resp({
+                "model": "judge",
+                "choices": [{
+                    "text": result.text,
+                    "finish_reason": "stop",
+                    "logprobs": {"top_logprobs": result.top_logprobs}
+                }]
+            })
+
+        with mock.patch("urllib.request.urlopen", fake_open):
+            client = ChatClient("http://h/v1", model="judge", api_key="test_bearer_key_12345")
+            client.complete("test prompt", max_tokens=30, logprobs=20)
+
+        assert captured["auth_header"] == "Bearer test_bearer_key_12345"
+
+    def test_fallback_list_from_config(self) -> None:
+        """Load judge base_urls with fallback from config."""
+        # Mock clients to avoid real network calls
+        def make_fake_complete(idx: int) -> Callable[[str], CompletionResult]:
+            def fake(prompt: str) -> CompletionResult:
+                result = _completion(" established F1:0:5", {" established": -0.1, " not": -2.0})
+                object.__setattr__(result, "backend_index", idx)
+                return result
+            return fake
+
+        # Test config loading
+        config = {
+            "statute_chars": 600,
+            "base_url": "https://api.runpod.io/v2/endpoint1/openai/v1",
+            "model": "judge-model",
+            "max_tokens": 30,
+            "top_logprobs": 20,
+            "timeout_s": 60,
+            "base_urls_fallback": [
+                "http://127.0.0.1:8110/v1",
+            ],
+            "api_key": "test_key"
+        }
+
+        # This should load with fallback URLs
+        j = HouseJudge.from_config_with_fallback(config, tau=0.5)
+        assert j.primary_base_url == config["base_url"]
+        assert j.fallback_urls == config.get("base_urls_fallback", [])
+        assert j.api_key == config["api_key"]
+        assert len(j.clients) == 2  # primary + one fallback
+
     def test_unknown_fact_id_is_reported_with_no_quote(self) -> None:
         fake = _FakeComplete(_completion(" established F_el0:0:40", {" established": -0.05, " not": -3.0}))
         j = HouseJudge(complete=fake, tau=0.74, statute_chars=600).judge(REQ)
