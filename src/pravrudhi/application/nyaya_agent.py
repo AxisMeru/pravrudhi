@@ -94,6 +94,11 @@ class AgentConfig:
     pinned_score_sha256: str | None = None
     score_bin: Path | None = None
     house_judge: Mapping[str, Any] = field(default_factory=dict)
+    #: T1 (docs/decisions/TYPED-LAYER-PLAN-2026-09-24.md): when set, `NyayaAgent.house` builds
+    #: `pravrudhi.application.typed.house_judge.TypedHouseJudge` from the same `house_judge` config instead
+    #: of `nyaya_judges.HouseJudge`. Default False -- today's production behaviour is unchanged unless a
+    #: caller opts in.
+    typed_layer: bool = False
 
     def __post_init__(self) -> None:
         low, high = self.refer_band
@@ -156,6 +161,7 @@ def load_agent_config(root: Path) -> AgentConfig:
         pinned_score_sha256=body.get("pinned_score_sha256"),
         score_bin=score_bin,
         house_judge=house_judge,
+        typed_layer=bool(body.get("typed_layer", False)),
     )
 
 
@@ -398,14 +404,43 @@ class NyayaAgent:
 
     @classmethod
     def house(cls, root: Path, *, config: AgentConfig | None = None) -> NyayaAgent:
-        """The configured loop: the house judge from `house_judge`, the pinned binary from `score_bin`."""
-        from pravrudhi.application.nyaya_judges import HouseJudge
+        """The configured loop: the house judge from `house_judge`, the pinned binary from `score_bin`.
 
+        When `config.typed_layer` is set (T1, docs/decisions/TYPED-LAYER-PLAN-2026-09-24.md), the SAME
+        `house_judge` config instead builds `pravrudhi.application.typed.house_judge.TypedHouseJudge` over a
+        `VLLMDecoder` -- default False, so this branch changes nothing about today's production path unless
+        a caller opts in.
+        """
         cfg = config or load_agent_config(root)
         if cfg.score_bin is None:
             raise ValueError("no score_bin configured")
         registry = BinaryRegistry(cfg.score_bin, pinned_sha256=cfg.pinned_score_sha256)
-        return cls(HouseJudge.from_config(cfg.house_judge, tau=cfg.tau), registry, cfg)
+        judge: Judge
+        if cfg.typed_layer:
+            from pravrudhi.application.typed.decoder import VLLMDecoder
+            from pravrudhi.application.typed.house_judge import TypedHouseJudge
+
+            hj = cfg.house_judge
+            api_key = os.environ.get("NYAYA_HOUSE_JUDGE_API_KEY") or hj.get("api_key") or None
+            decoder = VLLMDecoder(
+                base_url=str(hj["base_url"]),
+                model=hj.get("model") or None,
+                timeout_s=int(hj.get("timeout_s", 60)),
+                api_key=api_key,
+                fallback_urls=hj.get("base_urls_fallback") or [],
+            )
+            judge = TypedHouseJudge(
+                tau=cfg.tau,
+                statute_chars=int(hj["statute_chars"]),
+                decoder=decoder,
+                max_tokens=int(hj.get("max_tokens", 30)),
+                top_logprobs=int(hj.get("top_logprobs", 20)),
+            )
+        else:
+            from pravrudhi.application.nyaya_judges import HouseJudge
+
+            judge = HouseJudge.from_config(cfg.house_judge, tau=cfg.tau)
+        return cls(judge, registry, cfg)
 
     def _judge_element(
         self,
