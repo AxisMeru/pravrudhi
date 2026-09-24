@@ -23,3 +23,9 @@ rate_limit_max_keys: 10000
 # tunnel in front of the hosted engine). False (the default) reads the raw socket peer address instead,
 # which is correct for a direct connection and cannot be spoofed by the caller.
 trust_proxy_header: false
+
+# Which direct socket peers are trusted to set X-Forwarded-For truthfully -- the header itself is entirely
+# client-controlled, so trust_proxy_header with an empty list here is refused at startup (a free rate-limit
+# bypass otherwise: spoof a fresh header value per request). Only consulted when trust_proxy_header is
+# true; e.g. ["127.0.0.1"] for a same-host reverse proxy, or the tunnel daemon's fixed local address.
+trusted_proxies: []

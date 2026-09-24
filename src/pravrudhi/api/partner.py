@@ -61,6 +61,18 @@ class PartnerApiConfig:
     #: rotation must not grow the table without bound. Defaults to 10,000 when the config file predates
     #: this field, so an already-deployed config doesn't need a same-day edit to keep working.
     rate_limit_max_keys: int = 10_000
+    #: Reviewer 2: X-Forwarded-For is entirely client-controlled, so trusting it with no allowlist makes
+    #: the IP-keyed rate limit free for any caller to bypass (spoof a fresh header value per request).
+    #: Required, non-empty, whenever trust_proxy_header is True -- see __post_init__.
+    trusted_proxies: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if self.trust_proxy_header and not self.trusted_proxies:
+            raise ValueError(
+                "trust_proxy_header is set but trusted_proxies is empty -- refusing to start: an "
+                "X-Forwarded-For header trusted with no allowlist of who may set it is a free rate-limit "
+                "bypass for any caller"
+            )
 
 
 def load_partner_api_config(root: Path) -> PartnerApiConfig:
@@ -70,6 +82,7 @@ def load_partner_api_config(root: Path) -> PartnerApiConfig:
         max_concurrent=int(body["max_concurrent"]),
         trust_proxy_header=bool(body["trust_proxy_header"]),
         rate_limit_max_keys=int(body.get("rate_limit_max_keys", 10_000)),
+        trusted_proxies=tuple(body.get("trusted_proxies") or ()),
     )
 
 
@@ -80,11 +93,15 @@ class RateLimiter:
     time. Thread-safe: `allow` is called from FastAPI's threadpool, concurrently, by design.
 
     Bounded (reviewer 1, fix-before-merge on the first version of this class): unbounded IP rotation would
-    otherwise mean an unbounded table. Two mechanisms, both real, neither alone sufficient on its own:
-    every `allow()` call sweeps stale (window-expired) entries off the LRU end first; if the table is still
-    over `max_keys` after that, the oldest-accessed entries are evicted regardless of staleness. A key is
-    moved to the most-recently-used end on every access, so eviction only ever removes truly cold entries,
-    never one that's actively being rate-limited right now.
+    otherwise mean an unbounded table. The eviction rule is deliberately asymmetric, after reviewer 2
+    caught a real bypass in the first attempt at this: evicting an existing, still-current-window key to
+    make room for a NEW one lets an attacker fill a target's quota, then flood fresh keys past the cap to
+    evict the target's entry and reset their throttle for free. So: every `allow()` call always sweeps
+    stale (window-expired) entries off the LRU end first (unconditionally, not just when over budget); an
+    EXISTING key is then updated in place regardless of table size (it costs no new slot); a genuinely NEW
+    key is admitted only if the table has room after the stale sweep -- if the table is still at `max_keys`
+    with nothing stale to reclaim, the new key is refused outright (429/503 to that caller), never admitted
+    by evicting a live entry. A key is moved to the most-recently-used end on every access.
     """
 
     def __init__(
@@ -96,30 +113,33 @@ class RateLimiter:
         self._lock = threading.Lock()
         self._windows: OrderedDict[str, tuple[int, int]] = OrderedDict()  # key -> (window_start_minute, count)
 
-    def _evict_locked(self, current_window: int) -> None:
-        # Stale-window sweep, oldest-accessed first (that's where staleness concentrates in practice).
+    def _evict_stale_locked(self, current_window: int) -> None:
+        # Oldest-accessed first (that's where staleness concentrates in practice) -- NEVER evicts a
+        # current-window entry, staleness is the only eviction criterion here.
         while self._windows:
             oldest_key, (start, _count) = next(iter(self._windows.items()))
             if start == current_window:
                 break
             del self._windows[oldest_key]
-        # Hard cap on top: still over budget (all-fresh flood) -> evict by recency regardless of window.
-        while len(self._windows) > self._max_keys:
-            self._windows.popitem(last=False)
 
     def allow(self, key: str) -> bool:
         window = int(self._now() // 60)
         with self._lock:
-            self._evict_locked(window)
-            start, count = self._windows.pop(key, (window, 0))
-            if start != window:
+            self._evict_stale_locked(window)
+            if key in self._windows:
+                start, count = self._windows.pop(key)
+                if start != window:
+                    start, count = window, 0
+            elif len(self._windows) >= self._max_keys:
+                # A genuinely new key with no room and nothing stale to reclaim: refused, never admitted
+                # by evicting someone else's live entry.
+                return False
+            else:
                 start, count = window, 0
             if count >= self._per_minute:
                 self._windows[key] = (start, count)  # re-insert at MRU end even when refusing
-                self._evict_locked(window)  # the insert above can itself push the table past max_keys
                 return False
             self._windows[key] = (start, count + 1)
-            self._evict_locked(window)  # the insert above can itself push the table past max_keys
             return True
 
     def retry_after_seconds(self) -> int:
@@ -210,13 +230,20 @@ class AnalyseFactsResponse(BaseModel):
 AgentFactory = Callable[[Path], AgentLike]
 
 
-def _client_ip(request: Request, *, trust_proxy_header: bool) -> str:
-    if trust_proxy_header:
+def _client_ip(request: Request, *, trust_proxy_header: bool, trusted_proxies: tuple[str, ...]) -> str:
+    client = request.client
+    socket_peer = client.host if client is not None else "unknown"
+    # The header is only trusted when the DIRECT socket peer -- who actually opened this TCP connection,
+    # not anything the connection itself claims -- is one of the configured trusted proxies. A caller
+    # connecting straight to this process (skipping the real proxy) cannot set X-Forwarded-For and have it
+    # believed just because trust_proxy_header is on; PartnerApiConfig already refuses to construct at all
+    # if trust_proxy_header is set with an empty allowlist, so trusted_proxies here is never empty when
+    # trust_proxy_header is True.
+    if trust_proxy_header and socket_peer in trusted_proxies:
         forwarded = request.headers.get("x-forwarded-for")
         if forwarded:
             return forwarded.split(",")[0].strip()
-    client = request.client
-    return client.host if client is not None else "unknown"
+    return socket_peer
 
 
 def build_partner_router(
@@ -256,7 +283,7 @@ def build_partner_router(
     ) -> dict[str, Any] | JSONResponse:
         del user  # optional session identity today; see module docstring on tenancy/API-key auth
         cfg, rate_limiter, concurrency = _get_state()
-        ip = _client_ip(request, trust_proxy_header=cfg.trust_proxy_header)
+        ip = _client_ip(request, trust_proxy_header=cfg.trust_proxy_header, trusted_proxies=cfg.trusted_proxies)
         if not rate_limiter.allow(ip):
             return JSONResponse(
                 status_code=429,

@@ -14,6 +14,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -291,6 +292,14 @@ def test_trusted_proxy_header_used_only_when_configured(tmp_path: Path) -> None:
     assert r2.status_code == 429  # same underlying peer, budget of 1 already spent
 
 
+def test_trust_proxy_header_without_a_trusted_proxy_allowlist_is_refused() -> None:
+    # Reviewer 2: X-Forwarded-For is entirely client-controlled, so trust_proxy_header=true makes the rate
+    # limit (and IP-keyed anything else) free to bypass unless the deployment also names which peers are
+    # actually allowed to set that header truthfully.
+    with pytest.raises(ValueError, match="trusted_proxies"):
+        PartnerApiConfig(rate_limit_per_minute=1, max_concurrent=1, trust_proxy_header=True, trusted_proxies=())
+
+
 def _blocking_agent_factory(release: threading.Event, entered: threading.Event) -> Any:
     class _BlockingAgent:
         def run(self, *_a: Any, **_kw: Any) -> Any:
@@ -345,7 +354,9 @@ def test_third_concurrent_request_is_503_when_max_concurrent_is_two(tmp_path: Pa
 
 def test_rate_limiter_table_is_bounded_under_ip_rotation() -> None:
     # Reviewer 1's fix-before-merge finding: unbounded memory under real IP rotation (100k distinct callers
-    # would otherwise mean 100k table entries forever).
+    # would otherwise mean 100k table entries forever). With no stale entries ever appearing in this test
+    # (one fixed window throughout), the table caps out at max_keys and new keys past that are refused --
+    # not evicted-and-replaced, which is exactly the bug reviewer 2 caught below.
     from pravrudhi.api.partner import RateLimiter
 
     limiter = RateLimiter(per_minute=6, max_keys=1000)
@@ -355,8 +366,11 @@ def test_rate_limiter_table_is_bounded_under_ip_rotation() -> None:
 
 
 def test_eviction_never_resets_a_still_current_over_limit_key() -> None:
-    # Evicting for SPACE must never let a caller who is still inside their own current window (and already
-    # over their limit) back in early just because their entry got swept.
+    # Reviewer 2's rejection of a50c3c1: the first version of this test asserted
+    # `limiter.allow("victim") in (True, False)`, which is true of any bool and can never fail -- a
+    # vacuous test that let a real exploit ship. Fixed to assert the actual guarantee: a target filled to
+    # their limit, then a flood of new keys past the cap, must STILL be throttled afterward -- the hard
+    # cap may never evict a key whose window is still current to make room for a new one.
     from pravrudhi.api.partner import RateLimiter
 
     limiter = RateLimiter(per_minute=2, max_keys=3)
@@ -364,17 +378,42 @@ def test_eviction_never_resets_a_still_current_over_limit_key() -> None:
     assert limiter.allow("victim") is True
     assert limiter.allow("victim") is False  # over limit, same window
 
-    # Flood with new keys well past the cap -- "victim" may or may not survive eviction, but IF it is
-    # evicted and then seen again inside the SAME window, it must not silently get a fresh budget.
     for i in range(10_000):
         limiter.allow(f"flood-{i}")
 
-    # A caller who was genuinely evicted for space is indistinguishable from a first-time caller by design
-    # (no separate persistent ledger) -- the real guarantee this test pins is narrower and load-bearing:
-    # eviction only removes entries whose window has already rolled over, never a still-current one, so a
-    # request arriving a moment later in the SAME window is refused if it does.
-    assert limiter.allow("victim") in (True, False)  # doesn't crash / doesn't except
+    assert limiter.allow("victim") is False  # still throttled -- eviction never let the attack reset it
     assert len(limiter._windows) <= 3
+
+
+def test_reviewer_2s_exact_reproduction() -> None:
+    # per_minute=5, max_keys=10: 5 allows + 1 denied for "attacker", then 50 flood keys in the same
+    # window, then "attacker" must still be denied -- the exact scenario from reviewer 2's rejection of
+    # a50c3c1.
+    from pravrudhi.api.partner import RateLimiter
+
+    limiter = RateLimiter(per_minute=5, max_keys=10)
+    for _ in range(5):
+        assert limiter.allow("attacker") is True
+    assert limiter.allow("attacker") is False
+
+    for i in range(50):
+        limiter.allow(f"flood-{i}")
+
+    assert limiter.allow("attacker") is False
+
+
+def test_a_new_key_is_refused_outright_when_the_table_is_full_of_current_windows() -> None:
+    # A brand-new caller arriving when the table is already at capacity, with every existing entry still
+    # inside its current window (nothing stale to reclaim), must be refused -- never admitted by evicting
+    # someone else's live entry.
+    from pravrudhi.api.partner import RateLimiter
+
+    limiter = RateLimiter(per_minute=10, max_keys=3)
+    assert limiter.allow("a") is True
+    assert limiter.allow("b") is True
+    assert limiter.allow("c") is True
+    assert limiter.allow("new-caller") is False
+    assert set(limiter._windows.keys()) == {"a", "b", "c"}
 
 
 def test_time_based_eviction_removes_only_stale_windows() -> None:
