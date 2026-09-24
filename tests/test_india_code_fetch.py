@@ -191,3 +191,54 @@ def test_download_bitstream_other_http_errors_propagate_unwrapped(monkeypatch):
         assert e.code == 503
     else:
         raise AssertionError("expected the underlying HTTPError to propagate for non-403/429")
+
+
+def test_default_out_dir_is_persistent_corpus_raw():
+    """Default --out-dir must NOT be the gitignored research/ path that is discarded
+    each run; it must be the persistent corpus-raw store so PDFs survive."""
+    import argparse
+    import india_code_fetch as icf
+
+    # Re-parse with empty argv to exercise the default
+    p = argparse.ArgumentParser()
+    p.add_argument("--out-dir", type=Path, default=icf.main.__globals__["__builtins__"])
+    # Instead, probe the parser definition directly:
+    src = Path(icf.__file__).read_text(encoding="utf-8")
+    # The default must be the persistent path, not the old research tree.
+    assert "/home/ss/fusion-project/corpus-raw/india_code" in src
+    assert 'default=Path("research/nyaya/pdf_indiacode")' not in src
+
+
+def test_fetch_all_retains_all_pdfs_on_disk_with_sha_in_manifest(tmp_path):
+    """After a complete run, every PDF file must exist on disk AND each manifest
+    entry must contain the matching sha256, byte-for-byte (PDF retention invariant)."""
+    payloads = [f"PDF-content-{i}".encode() for i in range(len(ACTS))]
+    payload_map = {bitstream_url(a["bitstream_id"]): payloads[i] for i, a in enumerate(ACTS)}
+
+    def fake_fetch_bytes(url: str) -> bytes:
+        return payload_map[url]
+
+    manifest_path = tmp_path / "manifest.json"
+    records = fetch_all(
+        ACTS,
+        tmp_path,
+        manifest_path,
+        fetch_bytes=fake_fetch_bytes,
+        sleep_fn=lambda s: None,
+        pause_range=(0.0, 0.0),
+    )
+
+    assert len(records) == len(ACTS)
+    manifest = json.loads(manifest_path.read_text())
+    assert len(manifest) == len(ACTS)
+
+    for record, act, payload in zip(records, ACTS, payloads):
+        pdf_path = tmp_path / act["filename"]
+        # PDF is retained on disk
+        assert pdf_path.exists(), f"{act['filename']} not written to disk"
+        assert pdf_path.read_bytes() == payload
+        # sha256 is recorded in manifest and matches the actual file
+        expected_sha = hashlib.sha256(payload).hexdigest()
+        assert record["sha256"] == expected_sha
+        manifest_entry = next(m for m in manifest if m["act"] == act["act"])
+        assert manifest_entry["sha256"] == expected_sha
