@@ -1,4 +1,4 @@
-"""The registry (14-contract) HTTP surface: /api/nyaya/registry/contracts, /{id}/elements, /check.
+"""The registry (23-contract) HTTP surface: /api/nyaya/registry/contracts, /{id}/elements, /check.
 Real compiled Lean binary, real FastAPI app -- no stub, no fake scorer (house rule).
 """
 
@@ -40,10 +40,10 @@ def _token_header(tmp_path: Path) -> dict[str, str]:
     return {TOKEN_HEADER: app_token(tmp_path)}
 
 
-def test_lists_all_fourteen_contracts(tmp_path: Path) -> None:
+def test_lists_all_twenty_three_contracts(tmp_path: Path) -> None:
     c = _client(tmp_path)
     body = c.get("/api/nyaya/registry/contracts").json()
-    assert len(body["contracts"]) == 14
+    assert len(body["contracts"]) == 23
     assert "ipc405_misappropriation" in body["contracts"]
 
 

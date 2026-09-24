@@ -179,12 +179,13 @@ class TestIngest:
 
 
 class TestSelectContracts:
-    LISTED = reg.parse_list_contracts((_FIXTURES / "cff3bee2_list_contracts.txt").read_text())
+    LISTED = reg.parse_list_contracts((_FIXTURES / "499a39ed_list_contracts.txt").read_text())
 
     def test_default_is_every_listed_contract_the_checker_knows_in_binary_order(self) -> None:
         chosen = select_contracts(self.LISTED)
         assert chosen == [c for c in self.LISTED if c in reg.KNOWN_CONTRACT_IDS]
-        assert "bns316_misappropriation" not in chosen  # listed by the binary, not yet known to check_registry
+        # All listed contracts are now known to check_registry (23-contract update)
+        assert set(chosen) == set(self.LISTED)
 
     def test_named_ids_keep_the_binary_order_not_the_callers(self) -> None:
         assert select_contracts(self.LISTED, contract_ids=["bns85", "ipc416"]) == ["ipc416", "bns85"]

@@ -123,7 +123,7 @@ class NyayaAsksResponse(BaseModel):
 
 
 class NyayaRegistryContractsResponse(BaseModel):
-    #: The fourteen BNS/IPC registry contract ids (`nyaya_lean_registry.KNOWN_CONTRACT_IDS`) -- a
+    #: The twenty-three BNS/IPC registry contract ids (`nyaya_lean_registry.KNOWN_CONTRACT_IDS`) -- a
     #: DIFFERENT family from `AskRequest.contract_id`/`AuditRequest.contract_id` above (those are the
     #: citation-shaped "0"/"5" ids `checker="lean"` uses). Deliberately not folded into `AskRequest` or
     #: `AuditRequest`: these contracts score explicit per-element assertions, never free text, so they
