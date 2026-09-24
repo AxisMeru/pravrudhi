@@ -42,6 +42,56 @@ def _admins_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("PRAVRUDHI_ADMINS", ADMIN_USER.id)
 
 
+class TestProvisioningRateLimit:
+    """Reviewer 1 (post-signoff hardening): the provisioning routes must throttle guesses at
+    `X-Pravrudhi-Tenancy-Secret` the same way `analyse-facts` throttles anonymous GPU calls -- a per-client-
+    IP fixed window, distinct from and much lower than analyse-facts's own limit."""
+
+    def _low_limit_app(self, tmp_path: Path, *, provision_rate_limit_per_minute: int = 10) -> FastAPI:
+        cfg = PartnerApiConfig(
+            rate_limit_per_minute=1000,
+            max_concurrent=100,
+            trust_proxy_header=False,
+            provision_rate_limit_per_minute=provision_rate_limit_per_minute,
+        )
+        app = FastAPI()
+        app.include_router(build_partner_router(tmp_path, config=cfg))
+        return app
+
+    def test_the_11th_request_inside_the_window_is_429(self, tmp_path: Path) -> None:
+        client = _client_as(self._low_limit_app(tmp_path, provision_rate_limit_per_minute=10), ADMIN_USER)
+        for i in range(10):
+            r = client.post("/api/v1/orgs", json={"org_id": f"org-{i}", "name": f"Org {i}"})
+            assert r.status_code == 200, r.text
+        eleventh = client.post("/api/v1/orgs", json={"org_id": "org-10", "name": "Org 10"})
+        assert eleventh.status_code == 429
+        assert "Retry-After" in eleventh.headers
+
+    def test_the_budget_is_shared_across_all_four_provisioning_routes(self, tmp_path: Path) -> None:
+        """Same client IP, same limiter instance -- create_org, create_key, list_keys and revoke_key must
+        not each get their own separate 10, or the effective limit on a single caller is 40, not 10."""
+        client = _client_as(self._low_limit_app(tmp_path, provision_rate_limit_per_minute=3), ADMIN_USER)
+        assert client.post("/api/v1/orgs", json={"org_id": "acme", "name": "Acme"}).status_code == 200
+        assert client.get("/api/v1/orgs/acme/keys").status_code == 200
+        assert client.get("/api/v1/orgs/acme/keys").status_code == 200
+        # That is 3 provisioning calls already (1 create_org + 2 list_keys) -- the 4th, on yet another
+        # route, must still be refused.
+        fourth = client.post("/api/v1/orgs/acme/keys", json={"label": "x"})
+        assert fourth.status_code == 429
+
+    def test_analyse_facts_has_its_own_budget_unaffected_by_provisioning_calls(self, tmp_path: Path) -> None:
+        """The provisioning limiter and analyse-facts's own limiter must be genuinely separate instances --
+        exhausting one must not touch the other's count."""
+        app = self._low_limit_app(tmp_path, provision_rate_limit_per_minute=1)
+        client = _client_as(app, ADMIN_USER)
+        assert client.post("/api/v1/orgs", json={"org_id": "acme", "name": "Acme"}).status_code == 200
+        assert client.post("/api/v1/orgs", json={"org_id": "globex", "name": "Globex"}).status_code == 429
+        # analyse-facts is configured with rate_limit_per_minute=1000 in this same app/config -- a call
+        # there must not be refused just because the provisioning limiter is already exhausted.
+        r = client.post("/api/v1/analyse-facts", json={})
+        assert r.status_code != 429
+
+
 class TestOrgCreationIsAdminOnly:
     def test_admin_can_create_an_org(self, tmp_path: Path) -> None:
         client = _client_as(_app(tmp_path), ADMIN_USER)
@@ -217,18 +267,18 @@ class TestProvisioningFailsClosedOnRealIdentityResolution:
 
     def test_the_provisioning_secret_unlocks_it(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         _clear_auth_env(monkeypatch)
-        monkeypatch.setenv(tenancy.TENANCY_PROVISION_SECRET_ENV, "correct-horse-battery-staple")
+        monkeypatch.setenv(tenancy.TENANCY_PROVISION_SECRET_ENV, "correct-horse-battery-staple-32-chars-long")
         client = _real_client(tmp_path)
         r = client.post(
             "/api/v1/orgs",
             json={"org_id": "acme", "name": "Acme"},
-            headers={tenancy.TENANCY_PROVISION_HEADER: "correct-horse-battery-staple"},
+            headers={tenancy.TENANCY_PROVISION_HEADER: "correct-horse-battery-staple-32-chars-long"},
         )
         assert r.status_code == 200, r.text
 
     def test_a_wrong_secret_is_403(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         _clear_auth_env(monkeypatch)
-        monkeypatch.setenv(tenancy.TENANCY_PROVISION_SECRET_ENV, "correct-horse-battery-staple")
+        monkeypatch.setenv(tenancy.TENANCY_PROVISION_SECRET_ENV, "correct-horse-battery-staple-32-chars-long")
         client = _real_client(tmp_path)
         r = client.post(
             "/api/v1/orgs",

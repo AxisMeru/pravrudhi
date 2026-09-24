@@ -266,16 +266,20 @@ class TestTenancyProvisioningAuthorization:
         user = User(id="u-2", email=None, role="authenticated")
         assert tenancy.is_tenancy_admin(user, {}) is False
 
+    #: One character over the floor -- exercises the "long enough" branch without hard-coding some other
+    #: arbitrary length that might drift from `MIN_PROVISION_SECRET_LENGTH` if that constant ever changes.
+    _LONG_ENOUGH_SECRET = "x" * tenancy.MIN_PROVISION_SECRET_LENGTH
+
     def test_the_provisioning_secret_passes_with_no_identity_at_all(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.delenv("PRAVRUDHI_ADMINS", raising=False)
-        monkeypatch.setenv(tenancy.TENANCY_PROVISION_SECRET_ENV, "s3cr3t")
-        assert tenancy.is_tenancy_admin(None, {tenancy.TENANCY_PROVISION_HEADER: "s3cr3t"}) is True
+        monkeypatch.setenv(tenancy.TENANCY_PROVISION_SECRET_ENV, self._LONG_ENOUGH_SECRET)
+        assert tenancy.is_tenancy_admin(None, {tenancy.TENANCY_PROVISION_HEADER: self._LONG_ENOUGH_SECRET}) is True
 
     def test_a_wrong_secret_is_refused(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("PRAVRUDHI_ADMINS", raising=False)
-        monkeypatch.setenv(tenancy.TENANCY_PROVISION_SECRET_ENV, "s3cr3t")
+        monkeypatch.setenv(tenancy.TENANCY_PROVISION_SECRET_ENV, self._LONG_ENOUGH_SECRET)
         assert tenancy.is_tenancy_admin(None, {tenancy.TENANCY_PROVISION_HEADER: "nope"}) is False
 
     def test_require_tenancy_admin_raises_403(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -286,3 +290,31 @@ class TestTenancyProvisioningAuthorization:
         with pytest.raises(HTTPException) as exc:
             tenancy.require_tenancy_admin(None, {})
         assert exc.value.status_code == 403
+
+    def test_a_too_short_secret_is_treated_as_unconfigured(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("PRAVRUDHI_ADMINS", raising=False)
+        short = "x" * (tenancy.MIN_PROVISION_SECRET_LENGTH - 1)
+        monkeypatch.setenv(tenancy.TENANCY_PROVISION_SECRET_ENV, short)
+        # Presenting the short secret verbatim still fails -- the whole path is disabled, not merely
+        # "requires a longer guess".
+        assert tenancy.is_tenancy_admin(None, {tenancy.TENANCY_PROVISION_HEADER: short}) is False
+
+    def test_a_too_short_secret_warns_exactly_once_and_never_logs_the_value(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        monkeypatch.delenv("PRAVRUDHI_ADMINS", raising=False)
+        short = "short-secret-under-the-floor"
+        monkeypatch.setenv(tenancy.TENANCY_PROVISION_SECRET_ENV, short)
+        # The module-level "warned already" flag is process-global and sticky across tests -- reset it so
+        # this test observes its own first warning rather than a previous test's.
+        monkeypatch.setattr(tenancy, "_short_secret_warned", False)
+
+        with caplog.at_level("WARNING", logger="pravrudhi.application.tenancy"):
+            tenancy.is_tenancy_admin(None, {tenancy.TENANCY_PROVISION_HEADER: short})
+            tenancy.is_tenancy_admin(None, {tenancy.TENANCY_PROVISION_HEADER: short})
+            tenancy.is_tenancy_admin(None, {tenancy.TENANCY_PROVISION_HEADER: short})
+
+        warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+        assert len(warnings) == 1
+        assert short not in warnings[0].getMessage()
+        assert "PRAVRUDHI_TENANCY_PROVISION_SECRET" in warnings[0].getMessage()

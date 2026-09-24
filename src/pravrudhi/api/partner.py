@@ -77,6 +77,11 @@ class PartnerApiConfig:
     #: the IP-keyed rate limit free for any caller to bypass (spoof a fresh header value per request).
     #: Required, non-empty, whenever trust_proxy_header is True -- see __post_init__.
     trusted_proxies: tuple[str, ...] = ()
+    #: Reviewer 1 (post-signoff hardening): per-client-IP limit on the tenancy provisioning routes (create
+    #: org, create/list/revoke keys) -- distinct from, and much lower than, `rate_limit_per_minute` above,
+    #: because a wrong `X-Pravrudhi-Tenancy-Secret` guess is exactly the kind of call this exists to slow
+    #: down, not a normal partner workload. Defaults to 10 when the config file predates this field.
+    provision_rate_limit_per_minute: int = 10
 
     def __post_init__(self) -> None:
         if self.trust_proxy_header and not self.trusted_proxies:
@@ -95,6 +100,7 @@ def load_partner_api_config(root: Path) -> PartnerApiConfig:
         trust_proxy_header=bool(body["trust_proxy_header"]),
         rate_limit_max_keys=int(body.get("rate_limit_max_keys", 10_000)),
         trusted_proxies=tuple(body.get("trusted_proxies") or ()),
+        provision_rate_limit_per_minute=int(body.get("provision_rate_limit_per_minute", 10)),
     )
 
 
@@ -320,14 +326,38 @@ def build_partner_router(
     _state_lock = threading.Lock()
     _state: dict[str, Any] = {}
 
-    def _get_state() -> tuple[PartnerApiConfig, RateLimiter, ConcurrencyLimiter]:
+    def _get_state() -> tuple[PartnerApiConfig, RateLimiter, ConcurrencyLimiter, RateLimiter]:
         with _state_lock:
             if not _state:
                 cfg = config or load_partner_api_config(engine_root)
                 _state["cfg"] = cfg
                 _state["rate_limiter"] = RateLimiter(cfg.rate_limit_per_minute, max_keys=cfg.rate_limit_max_keys)
                 _state["concurrency"] = ConcurrencyLimiter(cfg.max_concurrent)
-            return _state["cfg"], _state["rate_limiter"], _state["concurrency"]
+                # A separate, much lower-budget limiter for the tenancy provisioning routes: sharing the
+                # analyse-facts limiter would mean a normal partner workload and a guessed-secret attempt
+                # against /api/v1/orgs draw from the same 6-per-minute budget, which is generous for the
+                # latter and would also let provisioning traffic starve analyse-facts's own limit.
+                _state["provision_rate_limiter"] = RateLimiter(
+                    cfg.provision_rate_limit_per_minute, max_keys=cfg.rate_limit_max_keys
+                )
+            return (
+                _state["cfg"], _state["rate_limiter"], _state["concurrency"], _state["provision_rate_limiter"]
+            )
+
+    def _provision_rate_limit(request: Request) -> JSONResponse | None:
+        """`None` when the call may proceed; a ready-to-return 429 otherwise. Keyed by client IP the same
+        way `analyse_facts_ep` keys its own limiter (`_client_ip`, honoring `trust_proxy_header` /
+        `trusted_proxies` identically) -- a caller who can burn analyse-facts's GPU-time budget from one IP
+        can burn the provisioning budget from that same IP, and both must be told apart the same way."""
+        cfg, _rate_limiter, _concurrency, provision_rate_limiter = _get_state()
+        ip = _client_ip(request, trust_proxy_header=cfg.trust_proxy_header, trusted_proxies=cfg.trusted_proxies)
+        if provision_rate_limiter.allow(ip):
+            return None
+        return JSONResponse(
+            status_code=429,
+            content={"detail": "rate limit exceeded"},
+            headers={"Retry-After": str(provision_rate_limiter.retry_after_seconds())},
+        )
 
     _key_rate_limiter = tenancy.KeyRateLimiter()
 
@@ -338,7 +368,7 @@ def build_partner_router(
         req: AnalyseFactsRequest, request: Request, user: User | None = CurrentUserDep
     ) -> dict[str, Any] | JSONResponse:
         del user  # optional session identity today; see module docstring on tenancy/API-key auth
-        cfg, rate_limiter, concurrency = _get_state()
+        cfg, rate_limiter, concurrency, _provision_rate_limiter = _get_state()
         ip = _client_ip(request, trust_proxy_header=cfg.trust_proxy_header, trusted_proxies=cfg.trusted_proxies)
         if not rate_limiter.allow(ip):
             return JSONResponse(
@@ -378,7 +408,9 @@ def build_partner_router(
     @router.post("/orgs", response_model=OrgOut)
     def create_org_ep(
         req: CreateOrgRequest, request: Request, user: User | None = CurrentUserDep
-    ) -> dict[str, Any]:
+    ) -> dict[str, Any] | JSONResponse:
+        if (limited := _provision_rate_limit(request)) is not None:
+            return limited
         tenancy.require_tenancy_admin(user, request.headers)
         try:
             org = tenancy.create_org(engine_root, req.org_id, req.name)
@@ -389,7 +421,9 @@ def build_partner_router(
     @router.post("/orgs/{org_id}/keys", response_model=CreatedKeyOut)
     def create_key_ep(
         org_id: str, req: CreateKeyRequest, request: Request, user: User | None = CurrentUserDep
-    ) -> dict[str, Any]:
+    ) -> dict[str, Any] | JSONResponse:
+        if (limited := _provision_rate_limit(request)) is not None:
+            return limited
         tenancy.require_tenancy_admin(user, request.headers)
         try:
             created = tenancy.create_key(
@@ -400,14 +434,20 @@ def build_partner_router(
         return {**created.record.to_public_dict(), "secret": created.secret}
 
     @router.get("/orgs/{org_id}/keys", response_model=ApiKeysOut)
-    def list_keys_ep(org_id: str, request: Request, user: User | None = CurrentUserDep) -> dict[str, Any]:
+    def list_keys_ep(
+        org_id: str, request: Request, user: User | None = CurrentUserDep
+    ) -> dict[str, Any] | JSONResponse:
+        if (limited := _provision_rate_limit(request)) is not None:
+            return limited
         tenancy.require_tenancy_admin(user, request.headers)
         return {"keys": [k.to_public_dict() for k in tenancy.keys_for_org(engine_root, org_id)]}
 
     @router.post("/orgs/{org_id}/keys/{key_id}/revoke", response_model=ApiKeyOut)
     def revoke_key_ep(
         org_id: str, key_id: str, request: Request, user: User | None = CurrentUserDep
-    ) -> dict[str, Any]:
+    ) -> dict[str, Any] | JSONResponse:
+        if (limited := _provision_rate_limit(request)) is not None:
+            return limited
         tenancy.require_tenancy_admin(user, request.headers)
         try:
             record = tenancy.revoke_key(engine_root, key_id)

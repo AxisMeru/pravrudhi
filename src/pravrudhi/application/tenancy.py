@@ -35,6 +35,7 @@ from __future__ import annotations
 import contextlib
 import hmac
 import json
+import logging
 import os
 import re
 import secrets
@@ -60,6 +61,7 @@ _KEY_ID_ALPHABET = "0123456789abcdefghijklmnopqrstuvwxyz"
 KEY_PREFIX = "pnk"
 
 _hasher = PasswordHasher()
+_logger = logging.getLogger(__name__)
 
 
 class TenancyError(ValueError):
@@ -394,6 +396,31 @@ plain string comparison short-circuits on the first mismatched byte, which leaks
 guess got right through response timing; `compare_digest` runs in time dependent only on the (public)
 lengths involved."""
 
+MIN_PROVISION_SECRET_LENGTH = 32
+"""A configured `TENANCY_PROVISION_SECRET_ENV` shorter than this is treated as though it were never set at
+all -- fail closed, the same as unset -- rather than accepted as a weak-but-working unlock. A short static
+secret compared over HTTP is guessable in a feasible number of attempts even with `provision_rate_limit_per_
+minute` throttling it; refusing to use it is safer than an operator believing a 6-character value they typed
+in a hurry is protecting these routes."""
+
+_short_secret_warned_lock = threading.Lock()
+_short_secret_warned = False
+
+
+def _warn_short_secret_once() -> None:
+    """Exactly one warning per process for a too-short configured secret -- an operator who set a weak value
+    should hear about it, but not once per request; never logs the value itself."""
+    global _short_secret_warned
+    with _short_secret_warned_lock:
+        if _short_secret_warned:
+            return
+        _short_secret_warned = True
+    _logger.warning(
+        "%s is set but shorter than %d characters -- treating tenancy provisioning as NOT configured "
+        "(failing closed) rather than accepting a weak secret. Set a longer value to use this path.",
+        TENANCY_PROVISION_SECRET_ENV, MIN_PROVISION_SECRET_LENGTH,
+    )
+
 
 def is_tenancy_admin(user: User | None, headers: Mapping[str, str]) -> bool:
     """Authorises every tenancy provisioning route (create org, create/list/revoke keys) -- passes only when
@@ -404,7 +431,9 @@ def is_tenancy_admin(user: User | None, headers: Mapping[str, str]) -> bool:
         local caller is the operator by construction" reasoning is not consulted here at all) whose id or
         email is on the same allowlist (`roles.admin_ids()`) `roles.role_of` uses for every other admin
         surface; or
-    (b) the caller presents `TENANCY_PROVISION_HEADER` and it matches `TENANCY_PROVISION_SECRET_ENV`.
+    (b) the caller presents `TENANCY_PROVISION_HEADER` and it matches `TENANCY_PROVISION_SECRET_ENV`, which
+        must itself be at least `MIN_PROVISION_SECRET_LENGTH` characters or this path is treated as
+        unconfigured entirely (see `_warn_short_secret_once`).
 
     Returns `False` -- never raises -- so a caller can decide whether `False` means "403" (the provisioning
     routes) or "fall through to some other check" (a future org-scoped route that also accepts a member,
@@ -418,6 +447,9 @@ def is_tenancy_admin(user: User | None, headers: Mapping[str, str]) -> bool:
         if allowed and candidates & allowed:
             return True
     secret = os.environ.get(TENANCY_PROVISION_SECRET_ENV, "")
+    if secret and len(secret) < MIN_PROVISION_SECRET_LENGTH:
+        _warn_short_secret_once()
+        secret = ""
     if secret:
         presented = headers.get(TENANCY_PROVISION_HEADER, "")
         if presented and hmac.compare_digest(presented, secret):
@@ -492,8 +524,8 @@ class KeyRateLimiter:
 
 __all__ = [
     "API_KEY_HEADER", "ApiKeyRecord", "CreatedApiKey", "InvalidApiKey", "KeyRateLimiter", "MEMBER_ROLES",
-    "Membership", "Org", "OrgPrincipal", "TENANCY_PROVISION_HEADER", "TENANCY_PROVISION_SECRET_ENV",
-    "TenancyError", "add_member", "create_key", "create_org", "get_org", "is_tenancy_admin", "keys_for_org",
-    "list_orgs", "membership_role", "memberships_for_org", "principal_from_headers", "require_org_access",
-    "require_tenancy_admin", "revoke_key", "verify_key",
+    "MIN_PROVISION_SECRET_LENGTH", "Membership", "Org", "OrgPrincipal", "TENANCY_PROVISION_HEADER",
+    "TENANCY_PROVISION_SECRET_ENV", "TenancyError", "add_member", "create_key", "create_org", "get_org",
+    "is_tenancy_admin", "keys_for_org", "list_orgs", "membership_role", "memberships_for_org",
+    "principal_from_headers", "require_org_access", "require_tenancy_admin", "revoke_key", "verify_key",
 ]
