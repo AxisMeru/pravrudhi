@@ -15,6 +15,9 @@ pinned_score_sha256: 29f6eaed3ef5c548d6c8a1cdf884c9a73895937132779ea4d4cffb8e66c
 house_judge:
   base_url: http://127.0.0.1:8110/v1
   model: null
+  # 60s is right for the always-warm 5090. A serverless deployment (no warm workers) needs far more: the
+  # judge's own cold start alone runs ~200s. NYAYA_HOUSE_JUDGE_TIMEOUT_S overrides this per-deployment
+  # (2026-09-24: a fully-cold demo visit hit ABSTAIN/judge_error every time before this was raised).
   timeout_s: 60
   # First-token top-k logprobs read for P(" established") vs P(" not"); the span comes from the same
   # greedy completion, which needs room for `established F1:0:123`.

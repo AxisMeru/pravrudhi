@@ -217,9 +217,29 @@ class UpdateApplyRequest(BaseModel):
     channel: Literal["dev", "release"] | None = None
 
 
+def _warm_up_house_judge_in_background(root: Path) -> None:
+    """Best-effort only, never blocks or fails server startup: a deployment that doesn't use Nyaya at all has
+    no `configs/nyaya_agent.yaml`, and `load_agent_config` is allowed to raise for that (FileNotFoundError,
+    a malformed YAML, a missing key) -- caught broadly here on purpose, since none of that should ever be
+    the reason the whole engine fails to start."""
+    try:
+        from pravrudhi.application.nyaya_agent import load_agent_config
+        from pravrudhi.application.nyaya_judge_warmup import start_house_judge_warmup
+
+        hj = load_agent_config(root).house_judge
+        base_url = hj.get("base_url")
+        if not base_url:
+            return
+        api_key = os.environ.get("NYAYA_HOUSE_JUDGE_API_KEY") or hj.get("api_key") or None
+        start_house_judge_warmup(base_url=str(base_url), api_key=api_key, timeout_s=float(hj.get("timeout_s", 60)))
+    except Exception:  # noqa: BLE001 -- a warm-up that can't even be started is not a reason to refuse to serve
+        pass
+
+
 def create_app(root: Path, *, nyaya_ask_fn: Any | None = None) -> FastAPI:
     root = Path(root)
     app = FastAPI(title="pravrudhi", version=__version__)
+    _warm_up_house_judge_in_background(root)
     # Every JSON route lives under /api. The interface is a static export mounted at the root, and the two
     # namespaces collided: a browser navigating to /runs or /models was answered with JSON rather than the
     # page, because the API route matched first. Separating them is also what makes the API addressable on
