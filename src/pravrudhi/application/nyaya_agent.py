@@ -64,6 +64,23 @@ class BinaryShaMismatch(RuntimeError):
     """The score binary's sha256 is not the pinned one -- refused before any call."""
 
 
+class JudgeMisconfigured(RuntimeError):
+    """The judge refused the request with a 4xx (bad key, unknown model, bad request): a configuration fault, so the
+    run stops rather than recording a per-element failure that would read as an ordinary "not established"."""
+
+
+def _judge_config_fault(e: BaseException) -> int | None:
+    """The HTTP status of a 4xx (other than 429) anywhere in `e`'s cause chain, else None."""
+    from pravrudhi.models.openai_compat import HTTPStatusError
+
+    seen: BaseException | None = e
+    while seen is not None:
+        if isinstance(seen, HTTPStatusError) and 400 <= seen.status < 500 and seen.status != 429:
+            return seen.status
+        seen = seen.__cause__
+    return None
+
+
 # -- config ------------------------------------------------------------------------------------------------
 
 
@@ -416,6 +433,10 @@ class NyayaAgent:
             try:
                 judgment = self.judge.judge(request)
             except Exception as e:  # recorded and retried; a judge failure never becomes a status
+                status = _judge_config_fault(e)
+                if status is not None:
+                    audit.step("judge", asdict(request), {**head, "error": f"configuration fault {status}"}, _ms(t0))
+                    raise JudgeMisconfigured(f"the judge refused the request ({status}); check its key and model") from e
                 if anchor is None:
                     error = f"{type(e).__name__}: {e}"[-400:]
                 audit.step("judge", asdict(request), {**head, "error": f"{type(e).__name__}: {e}"[-400:]}, _ms(t0))

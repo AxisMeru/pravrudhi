@@ -48,7 +48,7 @@ from starlette.responses import JSONResponse
 from pravrudhi.api.identity import CurrentUserDep, User
 from pravrudhi.application import nyaya_lean_registry as reg
 from pravrudhi.application.config_files import config_file
-from pravrudhi.application.nyaya_agent import BinaryShaMismatch, NyayaAgent
+from pravrudhi.application.nyaya_agent import BinaryShaMismatch, JudgeMisconfigured, NyayaAgent
 
 CONFIG_PATH = Path("configs") / "partner_api.yaml"
 
@@ -308,6 +308,8 @@ def build_partner_router(
             raise HTTPException(422, str(e)) from e
         except reg.UnknownContractError as e:
             raise HTTPException(422, str(e)) from e
+        except JudgeMisconfigured as e:
+            raise HTTPException(503, f"nyaya agent unavailable: {e}") from e
         except BinaryShaMismatch as e:
             raise HTTPException(503, f"nyaya agent unavailable: {e}") from e
         except (FileNotFoundError, OSError) as e:

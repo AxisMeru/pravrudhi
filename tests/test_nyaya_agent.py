@@ -549,3 +549,33 @@ class TestRealBinary:
                 "bns46_intentional_aid",
             ]
         )
+
+
+class TestJudgeConfigurationFault:
+    """Reviewer 1 (2026-09-24): a 4xx from the judge (bad key, unknown model) is a configuration fault. Recording it as
+    an ordinary per-element failure turned a revoked key into a normal-looking "not established"; it must stop the
+    request instead."""
+
+    def _fault(self, status: int) -> RuntimeError:
+        from pravrudhi.models.openai_compat import HTTPStatusError
+
+        try:
+            raise HTTPStatusError(status, f"judge answered {status}")
+        except HTTPStatusError as inner:
+            err = RuntimeError(f"judge backend 0 failed: {inner}")
+            err.__cause__ = inner
+            return err
+
+    @pytest.mark.parametrize("status", [401, 403, 404, 400])
+    def test_a_client_error_from_the_judge_stops_the_run(self, tmp_path: Path, status: int) -> None:
+        from pravrudhi.application.nyaya_agent import JudgeMisconfigured
+
+        judge = ScriptedJudge({el: [self._fault(status)] for el in BNS69_EL + [BNS69_DENY]})
+        with pytest.raises(JudgeMisconfigured, match=str(status)):
+            NyayaAgent(judge, _registry(), _config(tmp_path)).run(TOY_FACTS, contract_ids=["bns69"])
+        assert len(judge.requests) == 1  # never retried
+
+    def test_a_transient_failure_is_still_retried_and_recorded(self, tmp_path: Path) -> None:
+        judge = ScriptedJudge({el: [self._fault(503)] for el in BNS69_EL + [BNS69_DENY]})
+        run = NyayaAgent(judge, _registry(), _config(tmp_path)).run(TOY_FACTS, contract_ids=["bns69"])
+        assert run.contracts[0].outcome != "PROOF"
