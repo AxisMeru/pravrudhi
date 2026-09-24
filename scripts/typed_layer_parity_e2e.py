@@ -57,6 +57,12 @@ def main() -> int:
     if not env_path:
         print("REFUSING: PRAVRUDHI_T1_PARITY_PROMPTS is not set (no host-path default)", file=sys.stderr)
         return 2
+    results_dir_env = os.environ.get("PRAVRUDHI_T2_RESULTS_DIR")
+    if not results_dir_env:
+        print("REFUSING: PRAVRUDHI_T2_RESULTS_DIR is not set (results never write inside the repo)", file=sys.stderr)
+        return 2
+    results_dir = Path(results_dir_env)
+    results_dir.mkdir(parents=True, exist_ok=True)
     prompts_path = Path(env_path)
     digest = hashlib.sha256(prompts_path.read_bytes()).hexdigest()
     if digest != EXPECTED_SHA:
@@ -178,7 +184,7 @@ def main() -> int:
         "typed_model": typed_house.decoder.model,
         "passed": passed,
     }
-    out_path = ROOT / "scripts" / "typed_layer_parity_e2e_result.json"
+    out_path = results_dir / "typed_layer_parity_e2e_result.json"
     out_path.write_text(json.dumps(result, indent=2))
     print(f"result: {out_path}")
     print("PASS" if passed else "FAIL")
