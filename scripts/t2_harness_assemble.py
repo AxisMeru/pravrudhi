@@ -23,7 +23,6 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import subprocess
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
@@ -33,19 +32,12 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from _t2_run_metadata import RunMetadata  # noqa: E402
+from _t2_run_metadata import RunMetadata, nvidia_smi_snapshot  # noqa: E402
 
 from pravrudhi.application.nyaya_judges import p_established_from_top_logprobs  # noqa: E402
 from pravrudhi.application.typed.decoder import score_decision  # noqa: E402
 from pravrudhi.application.typed.house_judge import _STATUS_FIELD  # noqa: E402
 from pravrudhi.models.openai_compat import CompletionResult  # noqa: E402
-
-
-def _nvidia_smi() -> str:
-    return subprocess.run(
-        ["nvidia-smi", "--query-gpu=memory.used,memory.total,utilization.gpu", "--format=csv,noheader"],
-        capture_output=True, text=True,
-    ).stdout.strip()
 
 HARNESS_RAW_SHA256 = "f9be2b3e32dac264bedec48fcf33ce47e71c45c745d20e4ea111e172536d7d16"
 T0 = 0.74  # config A's threshold, the only one T2 needs (4B/product path)
@@ -121,7 +113,7 @@ def main() -> int:
     meta.data["ws_b_worktree"] = str(wt)
     meta.data["prabhasa_nyaya_path"] = f"{wt / 'src'} (graph-fix worktree's own copy, no separate checkout used)"
     meta.data["harness_raw_input_sha256"] = HARNESS_RAW_SHA256
-    meta.data["nvidia_smi_before"] = _nvidia_smi()
+    meta.data["nvidia_smi_before"] = nvidia_smi_snapshot()
 
     # -- load phase 1's sealed, R2-signed raw p-values ---------------------------------------------------
     harness_raw_path = results_dir / "t2_harness_raw_outputs.jsonl"
@@ -197,7 +189,7 @@ def main() -> int:
         print(f"WARNING: {len(missing)} phase-1 scores never used by the assembler: {list(missing)[:5]}...", file=sys.stderr)
 
     meta.data["end_utc"] = datetime.now(UTC).isoformat()
-    meta.data["nvidia_smi_after"] = _nvidia_smi()
+    meta.data["nvidia_smi_after"] = nvidia_smi_snapshot()
     meta_path = results_dir / "t2_harness_assemble_RUN-METADATA.json"
     meta.write(meta_path)
     print(f"RUN-METADATA written: {meta_path}")
