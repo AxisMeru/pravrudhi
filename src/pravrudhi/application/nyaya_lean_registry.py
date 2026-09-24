@@ -27,13 +27,13 @@ from typing import Any
 
 from pravrudhi.application.nyaya_gold_score import score_bin_path
 
-#: The twenty-three registry Contract ids `contractForId` in `lean/Score.lean` knows -- expanded from
-#: the original fourteen to include BNS 316 (misappropriation, use_or_disposal, wilfully_suffers),
-#: BNS 318 (property, damaging_act), BNS 217 (misdirected_act, abuse_of_power), and BNSS 187
-#: (extended_serious, extended_other). Hand-listed here for fast validation before a subprocess call -- kept
-#: honest by `tests/test_nyaya_lean_registry.py`'s drift test, which reads the binary's OWN `--list-contracts`
-#: output and asserts it equals this set exactly, rather than trusting this list on its own (the lead's
-#: explicit no-drift requirement: the test reads from the binary, this constant is not the source of truth).
+#: The twenty-one registry Contract ids `contractForId` in `lean/Score.lean` that conform to the wire
+#: grammar spec. Expanded from the original fourteen to include BNS 316 (misappropriation, use_or_disposal,
+#: wilfully_suffers), BNS 318 (property, damaging_act), and BNS 217 (misdirected_act, abuse_of_power).
+#: Hand-listed here for fast validation before a subprocess call -- kept honest by
+#: `tests/test_nyaya_lean_registry.py`'s drift test, which reads the binary's OWN `--list-contracts`
+#: output and asserts it unions exactly with EXCLUDED_CONTRACT_IDS (the lead's explicit no-drift requirement:
+#: the test reads from the binary, this constant is not the source of truth).
 KNOWN_CONTRACT_IDS: frozenset[str] = frozenset(
     {
         "ipc405_misappropriation", "ipc405_use_or_disposal", "ipc405_wilfully_suffers",
@@ -44,9 +44,16 @@ KNOWN_CONTRACT_IDS: frozenset[str] = frozenset(
         "bns316_misappropriation", "bns316_use_or_disposal", "bns316_wilfully_suffers",
         "bns318_property", "bns318_damaging_act",
         "bns217_misdirected_act", "bns217_abuse_of_power",
-        "bnss187_extended_serious", "bnss187_extended_other",
     }
 )
+
+#: Registry Contract ids present in the binary but explicitly excluded from KNOWN_CONTRACT_IDS due to
+#: defects that make them unsuitable for production use. The engine rejects these with UnknownContractError,
+#: preventing silent wrong results. Each entry maps to a reason string suitable for user-facing error messages.
+EXCLUDED_CONTRACT_IDS: dict[str, str] = {
+    "bnss187_extended_serious": "non-standard conduct entity (Lean-side defect, pending fix)",
+    "bnss187_extended_other": "non-standard conduct entity (Lean-side defect, pending fix)",
+}
 
 #: Every registry Contract's own `conduct` entity is literally this string (confirmed identical across all
 #: seven `Seeds/*.lean` files before choosing the wire design, not assumed) -- fixed here rather than
