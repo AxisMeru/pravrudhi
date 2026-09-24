@@ -112,13 +112,22 @@ class ChatClient:
             raise RuntimeError(f"{self.base_url}{path} answered {exc.code}: {detail or exc.reason}") from exc
 
     def complete(
-        self, prompt: str, *, max_tokens: int = 16, temperature: float = 0.0, logprobs: int | None = None
+        self, prompt: str, *, max_tokens: int = 16, temperature: float = 0.0, logprobs: int | None = None,
+        stop: list[str] | None = None,
     ) -> CompletionResult:
         """Raw-text completion (no chat template) -- the shape a model fine-tuned on `prompt + completion` text
-        was trained on. `logprobs=k` asks for the top-k alternatives at every generated position."""
+        was trained on. `logprobs=k` asks for the top-k alternatives at every generated position. `stop`, when
+        given, is passed straight through to `/completions` as the OpenAI-compatible `stop` field (a list of
+        strings; generation halts the moment any of them appears) -- a base/non-instruct model has no chat
+        template or natural end-of-turn signal, so without an explicit stop it CAN continue generating past a
+        single answer into unrelated follow-on text; P1 adds stops for base-model QA/LSI cells for this reason
+        (a predicted risk this param defends against, not something P1 has observed happen -- as of this
+        commit no base-model QA/LSI cell has been run at all, only an Adalat MCQ cell)."""
         body: dict[str, Any] = {"model": self.model, "prompt": prompt, "max_tokens": max_tokens, "temperature": temperature}
         if logprobs is not None:
             body["logprobs"] = logprobs
+        if stop is not None:
+            body["stop"] = stop
         t0 = time.monotonic()
         data = self._call("/completions", body)
         choice = data["choices"][0]

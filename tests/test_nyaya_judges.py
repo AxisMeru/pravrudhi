@@ -186,6 +186,33 @@ class TestClientCompletions:
         assert res.text == " established F1:0:5"
         assert res.top_logprobs == [{" established": -0.1, " not": -2.0}]
 
+    def test_complete_passes_stop_through_when_given(self) -> None:
+        captured: dict[str, Any] = {}
+        body = {"model": "judge", "choices": [{"text": " B", "finish_reason": "stop"}]}
+
+        def fake_open(req: Any, timeout: float | None = None) -> _Resp:
+            captured["body"] = json.loads(req.data)
+            return _Resp(body)
+
+        with mock.patch("urllib.request.urlopen", fake_open):
+            ChatClient("http://h/v1", model="judge").complete("P", max_tokens=30, stop=["\n\n", "\nQuestion:"])
+        assert captured["body"]["stop"] == ["\n\n", "\nQuestion:"]
+
+    def test_complete_omits_stop_entirely_when_not_given(self) -> None:
+        # P1's real finding, 2026-09-24: a missing `stop` must be an ABSENT field, not a null/empty
+        # one silently sent -- some OpenAI-compatible servers treat an empty list differently from a
+        # missing key, so "no stop requested" must not be indistinguishable from "stop on nothing".
+        captured: dict[str, Any] = {}
+        body = {"model": "judge", "choices": [{"text": " B", "finish_reason": "stop"}]}
+
+        def fake_open(req: Any, timeout: float | None = None) -> _Resp:
+            captured["body"] = json.loads(req.data)
+            return _Resp(body)
+
+        with mock.patch("urllib.request.urlopen", fake_open):
+            ChatClient("http://h/v1", model="judge").complete("P", max_tokens=30)
+        assert "stop" not in captured["body"]
+
     def test_list_models_reads_ids(self) -> None:
         def fake_open(req: Any, timeout: float | None = None) -> _Resp:
             assert req.full_url == "http://h/v1/models"
