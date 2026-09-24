@@ -54,9 +54,11 @@ import hashlib
 import json
 import math
 import os
+import queue
 import time
 import uuid
 from collections.abc import Iterable, Mapping, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -115,6 +117,10 @@ class AgentConfig:
     #: NYAYA_SECOND_JUDGE_* env var) turns the gate on. Composes with `typed_layer` independently -- see
     #: `NyayaAgent.house`.
     second_judge: Mapping[str, Any] | None = None
+    #: `house_judge.max_concurrency` (or env NYAYA_JUDGE_MAX_CONCURRENCY): how many (contract, element/denial)
+    #: judge requests `NyayaAgent.run` judges at once, bounded by a `ThreadPoolExecutor`. Default 1 -- today's
+    #: serial behaviour, byte-identical results and audit ordering. See `NyayaAgent._judge_elements`.
+    max_concurrency: int = 1
 
     def __post_init__(self) -> None:
         low, high = self.refer_band
@@ -127,6 +133,8 @@ class AgentConfig:
         delta = self.second_refer_logit_delta()
         if delta is not None and delta < 0:
             raise ValueError(f"second_judge.refer_logit_delta must be >= 0, got {delta}")
+        if self.max_concurrency < 1:
+            raise ValueError(f"max_concurrency must be >= 1, got {self.max_concurrency}")
 
     def in_band(self, p: float) -> bool:
         low, high = self.refer_band
@@ -181,6 +189,10 @@ def load_agent_config(root: Path) -> AgentConfig:
     # visit hit ABSTAIN/judge_error every time until this was raised.
     if os.environ.get("NYAYA_HOUSE_JUDGE_TIMEOUT_S"):
         house_judge["timeout_s"] = int(os.environ["NYAYA_HOUSE_JUDGE_TIMEOUT_S"])
+    # Bounded judge concurrency (docs/decisions, 2026-09-24): default 1 -- today's serial behaviour -- so an
+    # existing deployment's yaml with no `max_concurrency` key and no env var is unchanged.
+    if os.environ.get("NYAYA_JUDGE_MAX_CONCURRENCY"):
+        house_judge["max_concurrency"] = int(os.environ["NYAYA_JUDGE_MAX_CONCURRENCY"])
 
     # The optional config-C second judge (AndGateJudge): absent block + no env var = None = today's single
     # HouseJudge, unchanged. An NYAYA_SECOND_JUDGE_* var can also introduce the block on a host with no yaml
@@ -220,6 +232,7 @@ def load_agent_config(root: Path) -> AgentConfig:
         house_judge=house_judge,
         typed_layer=bool(body.get("typed_layer", False)),
         second_judge=second_judge,
+        max_concurrency=int(house_judge.get("max_concurrency", 1)),
     )
 
 
@@ -398,6 +411,72 @@ def _ms(t0: float) -> float:
     return (time.monotonic() - t0) * 1000.0
 
 
+class _BufferedAudit:
+    """Collects one (contract, element/denial) task's `.step()` calls while it runs concurrently, instead of
+    writing them straight to the real `AuditTrail`. `flush_into` replays them, in the task's own order, once
+    every task in the contract has finished -- so the audit trail a concurrent run produces is the same steps
+    in the same order as a serial run, whichever task's HTTP call happens to answer first."""
+
+    def __init__(self) -> None:
+        self._entries: list[tuple[str, Any, Any, float]] = []
+
+    def step(self, name: str, inputs: Any, output: Any, wall_ms: float) -> None:
+        self._entries.append((name, inputs, output, wall_ms))
+
+    def flush_into(self, audit: AuditTrail) -> None:
+        for name, inputs, output, wall_ms in self._entries:
+            audit.step(name, inputs, output, wall_ms)
+
+
+@dataclass(frozen=True)
+class JudgeCallRecord:
+    """One `judge.judge(request)` invocation (one attempt of one element), for the per-request judge
+    accounting -- no keys, no prompt text, just what a caller needs to reason about cost and latency."""
+
+    wall_ms: float
+    ok: bool
+    backend_used: int | None
+    second_called: bool
+    second_backend_used: int | None
+
+
+def _judge_call_record(judgment: ElementJudgment | None, wall_ms: float, *, ok: bool) -> JudgeCallRecord:
+    if judgment is None:
+        return JudgeCallRecord(wall_ms, ok, None, False, None)
+    # `second_skipped` is True only on the "primary_not_established" skip; a second that was actually invoked
+    # (whether it established, vetoed, or errored fail-closed) always leaves it False, see nyaya_judges.AndGateJudge.
+    second_called = judgment.second_judge is not None and not judgment.second_skipped
+    return JudgeCallRecord(
+        wall_ms, ok, judgment.backend_used, second_called,
+        judgment.backend_used_second if second_called else None,
+    )
+
+
+def _judge_accounting(records: Sequence[JudgeCallRecord]) -> dict[str, Any]:
+    """Aggregates a run's `JudgeCallRecord`s into the per-request accounting the audit trail records: call
+    counts and a `backend_used` histogram (concurrency-invariant, must match bit for bit between a serial and
+    a concurrent run of the same request) plus total/max latency (real wall-clock, expected to shrink under
+    concurrency -- never asserted equal across configs)."""
+    wall = [r.wall_ms for r in records]
+    backend_used_counts: dict[str, int] = {}
+    backend_used_second_counts: dict[str, int] = {}
+    for r in records:
+        if r.backend_used is not None:
+            key = str(r.backend_used)
+            backend_used_counts[key] = backend_used_counts.get(key, 0) + 1
+        if r.second_backend_used is not None:
+            key = str(r.second_backend_used)
+            backend_used_second_counts[key] = backend_used_second_counts.get(key, 0) + 1
+    return {
+        "judge_calls_primary": len(records),
+        "judge_calls_second": sum(1 for r in records if r.second_called),
+        "total_latency_ms": round(sum(wall), 3),
+        "max_latency_ms": round(max(wall), 3) if wall else 0.0,
+        "backend_used_counts": backend_used_counts,
+        "backend_used_second_counts": backend_used_second_counts,
+    }
+
+
 # -- results -----------------------------------------------------------------------------------------------
 
 
@@ -455,6 +534,9 @@ class AgentRun:
     contracts: list[ContractResult]
     audit_path: Path
     provenance: str = "agama"
+    #: `_judge_accounting`'s summary of every judge call this run made (counts, latency, backend histogram).
+    #: Content-identical across `max_concurrency` values except the latency numbers, which are real wall-clock.
+    judge_accounting: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
@@ -531,10 +613,19 @@ def _second_band_info(anchor: ElementJudgment | None, delta: float | None) -> di
 
 
 class NyayaAgent:
-    def __init__(self, judge: Judge, registry: Registry, config: AgentConfig) -> None:
+    def __init__(
+        self, judge: Judge, registry: Registry, config: AgentConfig, *, judge_pool: Sequence[Judge] | None = None,
+    ) -> None:
         self.judge = judge
         self.registry = registry
         self.config = config
+        #: One independent judge stack per concurrent worker (own HouseJudge, own ChatClients): a HouseJudge's
+        #: `complete` mutates its client's `.model` attribute per call (see nyaya_judges.HouseJudge, the
+        #: `_complete_with_fallback` closure), so two concurrent judge calls sharing one instance would race
+        #: on it. `NyayaAgent.house` builds this pool to `config.max_concurrency` size; a caller building the
+        #: agent directly (e.g. a test) with `config.max_concurrency > 1` and no pool gets `[judge]` alone --
+        #: safe only if that single `judge` is itself safe to share, which a bare HouseJudge is NOT.
+        self.judge_pool: list[Judge] = list(judge_pool) if judge_pool else [judge]
 
     @classmethod
     def house(cls, root: Path, *, config: AgentConfig | None = None) -> NyayaAgent:
@@ -561,31 +652,41 @@ class NyayaAgent:
         registry = BinaryRegistry(cfg.score_bin, pinned_sha256=cfg.pinned_score_sha256)
         from pravrudhi.application.nyaya_judges import AndGateJudge
 
-        primary = _build_house_judge(cfg.house_judge, tau=cfg.tau, typed=cfg.typed_layer,
-                                     api_key_env="NYAYA_HOUSE_JUDGE_API_KEY")
-        judge: Judge
-        if cfg.second_judge:
-            second_tau = float(cfg.second_judge["tau"])
-            second = _build_house_judge(cfg.second_judge, tau=second_tau, typed=cfg.typed_layer,
-                                        api_key_env="NYAYA_SECOND_JUDGE_API_KEY")
-            judge = AndGateJudge(primary, second, tau_primary=cfg.tau, tau_second=second_tau)
-        else:
-            judge = primary
-        return cls(judge, registry, cfg)
+        def _build_judge() -> Judge:
+            primary = _build_house_judge(cfg.house_judge, tau=cfg.tau, typed=cfg.typed_layer,
+                                         api_key_env="NYAYA_HOUSE_JUDGE_API_KEY")
+            if cfg.second_judge:
+                second_tau = float(cfg.second_judge["tau"])
+                second = _build_house_judge(cfg.second_judge, tau=second_tau, typed=cfg.typed_layer,
+                                            api_key_env="NYAYA_SECOND_JUDGE_API_KEY")
+                return AndGateJudge(primary, second, tau_primary=cfg.tau, tau_second=second_tau)
+            return primary
+
+        judge = _build_judge()
+        # `max_concurrency > 1` builds one independent judge stack per worker slot (own ChatClients, see
+        # NyayaAgent.__init__) rather than sharing `judge` across threads.
+        judge_pool = [judge] if cfg.max_concurrency <= 1 else [judge] + [_build_judge() for _ in range(cfg.max_concurrency - 1)]
+        return cls(judge, registry, cfg, judge_pool=judge_pool)
 
     def _judge_element(
         self,
-        audit: AuditTrail,
+        judge: Judge,
+        audit: AuditTrail | _BufferedAudit,
         contract_id: str,
         element: str,
         is_denial: bool,
         statute: str,
         facts: tuple[Fact, ...],
         narrative: str,
-    ) -> ElementResult:
+    ) -> tuple[ElementResult, list[JudgeCallRecord]]:
         """Attempt 1 decides the element's status and p_established. If it says established but its quote is
         not verbatim in the named fact, up to `max_retries` re-asks follow -- the SAME request, same training
-        statute -- and each is used ONLY for its quote; its status and p are recorded and ignored."""
+        statute -- and each is used ONLY for its quote; its status and p are recorded and ignored.
+
+        `judge` is passed explicitly (rather than read off `self.judge`) so a concurrent caller can hand this
+        task its OWN judge instance (see `NyayaAgent.judge_pool`); `audit` may be the real `AuditTrail` (serial
+        path) or a `_BufferedAudit` (concurrent path, flushed into the real trail only after every task in the
+        contract has finished, in original order)."""
         fact_map = {f.id: f.text for f in facts}
         request = JudgeRequest(contract_id, element, is_denial, statute, narrative, tuple((f.id, f.text) for f in facts))
         anchor: ElementJudgment | None = None
@@ -595,6 +696,7 @@ class NyayaAgent:
         loc: QuoteLocation | None = None
         error: str | None = None
         attempts = 0
+        calls: list[JudgeCallRecord] = []
         for attempt in range(1, self.config.max_retries + 2):
             attempts = attempt
             uses = "status_and_quote" if anchor is None else "quote_only"
@@ -602,18 +704,21 @@ class NyayaAgent:
                     "uses": uses}
             t0 = time.monotonic()
             try:
-                judgment = self.judge.judge(request)
+                judgment = judge.judge(request)
             except Exception as e:  # recorded and retried; a judge failure never becomes a status
+                wall_ms = _ms(t0)
                 status = _judge_config_fault(e)
                 if status is not None:
-                    audit.step("judge", asdict(request), {**head, "error": f"configuration fault {status}"}, _ms(t0))
+                    audit.step("judge", asdict(request), {**head, "error": f"configuration fault {status}"}, wall_ms)
                     raise JudgeMisconfigured(f"the judge refused the request ({status}); check its key and model") from e
                 if anchor is None:
                     error = f"{type(e).__name__}: {e}"[-400:]
-                audit.step("judge", asdict(request), {**head, "error": f"{type(e).__name__}: {e}"[-400:]}, _ms(t0))
+                audit.step("judge", asdict(request), {**head, "error": f"{type(e).__name__}: {e}"[-400:]}, wall_ms)
+                calls.append(_judge_call_record(None, wall_ms, ok=False))
                 continue
-            audit.step("judge", asdict(request), {**head, "judge": self.judge.name, "judgment": judgment.as_dict()},
-                       _ms(t0))
+            wall_ms = _ms(t0)
+            calls.append(_judge_call_record(judgment, wall_ms, ok=True))
+            audit.step("judge", asdict(request), {**head, "judge": judge.name, "judgment": judgment.as_dict()}, wall_ms)
             if anchor is None:
                 anchor, error = judgment, None
                 if judgment.status != "established":
@@ -633,17 +738,80 @@ class NyayaAgent:
         delta = self.config.second_refer_logit_delta()
         if anchor is None:
             return ElementResult(element, is_denial, "not_established", False, None, None, None, None, None, None,
-                                 attempts, error=error, **_second_band_info(None, delta))
+                                 attempts, error=error, **_second_band_info(None, delta)), calls
         claimed = anchor.status == "established"
         valid = claimed and loc is not None and loc.valid
-        return ElementResult(
+        result = ElementResult(
             element, is_denial, "established" if valid else "not_established", claimed, anchor.p_established,
             fact_id, quote, loc.start if loc else None, loc.end if loc else None, loc.reason if loc else None, attempts,
             occurrences=loc.occurrences if loc else 0, offsets_source=loc.offsets_source if loc and loc.valid else None,
             quote_source=quote_source, **_second_band_info(anchor, delta),
         )
+        return result, calls
 
-    def _run_contract(self, audit: AuditTrail, contract_id: str, facts: tuple[Fact, ...], narrative: str) -> ContractResult:
+    def _judge_elements(
+        self,
+        audit: AuditTrail,
+        contract_id: str,
+        tasks: Sequence[tuple[str, bool]],
+        statute: str,
+        facts: tuple[Fact, ...],
+        narrative: str,
+    ) -> tuple[list[ElementResult], list[JudgeCallRecord]]:
+        """Judges every `(element_or_denial, is_denial)` task of one contract. `max_concurrency <= 1` (the
+        default) or a single task runs them one at a time, writing straight to `audit` -- byte-for-byte the
+        pre-concurrency code path. A pool > 1 runs every task's judge calls concurrently, bounded by
+        `min(max_concurrency, len(tasks))` workers, each task drawing an exclusive judge instance from
+        `self.judge_pool` (returned to the pool when it finishes, so no instance is ever used by two tasks at
+        once); each task's audit steps are buffered while it runs and flushed into `audit`, in the tasks'
+        ORIGINAL order, only once every task in this contract has finished -- so the audit trail and result
+        order never depend on which task's HTTP call happens to answer first."""
+        if self.config.max_concurrency <= 1 or len(tasks) <= 1:
+            pairs = [
+                self._judge_element(self.judge, audit, contract_id, name, is_denial, statute, facts, narrative)
+                for name, is_denial in tasks
+            ]
+            return [r for r, _ in pairs], [c for _, calls in pairs for c in calls]
+
+        workers = min(self.config.max_concurrency, len(tasks))
+        pool_size = len(self.judge_pool)
+        if pool_size >= workers:
+            judges = list(self.judge_pool[:workers])
+        elif pool_size:
+            # Fewer distinct judge instances than workers (e.g. NyayaAgent built directly, bypassing `.house`,
+            # with a short `judge_pool`): reuse instances round-robin rather than refuse to run concurrently.
+            # A caller wanting every worker fully isolated must supply `workers` instances.
+            judges = [self.judge_pool[i % pool_size] for i in range(workers)]
+        else:
+            judges = [self.judge]
+        work_queue: queue.SimpleQueue[Judge] = queue.SimpleQueue()
+        for j in judges:
+            work_queue.put(j)
+        buffers = [_BufferedAudit() for _ in tasks]
+
+        def _run(i: int) -> tuple[ElementResult, list[JudgeCallRecord]]:
+            j = work_queue.get()
+            try:
+                name, is_denial = tasks[i]
+                return self._judge_element(j, buffers[i], contract_id, name, is_denial, statute, facts, narrative)
+            finally:
+                work_queue.put(j)
+
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            pairs = list(pool.map(_run, range(len(tasks))))
+        for buf in buffers:
+            buf.flush_into(audit)
+        return [r for r, _ in pairs], [c for _, calls in pairs for c in calls]
+
+    def _run_contract(
+        self,
+        audit: AuditTrail,
+        contract_id: str,
+        facts: tuple[Fact, ...],
+        narrative: str,
+        *,
+        call_records_out: list[JudgeCallRecord] | None = None,
+    ) -> ContractResult:
         t0 = time.monotonic()
         contract = self.registry.describe(contract_id)
         audit.step("describe", {"contract_id": contract_id}, asdict(contract), _ms(t0))
@@ -675,8 +843,11 @@ class NyayaAgent:
         if training is None:
             return finish("ABSTAIN", "no_training_statute_text")
 
-        results += [self._judge_element(audit, contract_id, e, False, training, facts, narrative) for e in contract.elements]
-        results += [self._judge_element(audit, contract_id, d, True, training, facts, narrative) for d in contract.denials]
+        tasks = [(e, False) for e in contract.elements] + [(d, True) for d in contract.denials]
+        elem_results, call_records = self._judge_elements(audit, contract_id, tasks, training, facts, narrative)
+        results += elem_results
+        if call_records_out is not None:
+            call_records_out.extend(call_records)
 
         if any(r.error is not None for r in results):
             return finish("ABSTAIN", "judge_error")
@@ -734,7 +905,11 @@ class NyayaAgent:
                     "sections": sorted(sections) if sections is not None else None},
                    {"selected": chosen}, _ms(t0))
 
-        results = [self._run_contract(audit, cid, ingested, narrative) for cid in chosen]
+        call_records: list[JudgeCallRecord] = []
+        results = [self._run_contract(audit, cid, ingested, narrative, call_records_out=call_records) for cid in chosen]
+        accounting = _judge_accounting(call_records)
+        audit.step("judge_accounting", {"run_id": run_id}, accounting, 0.0)
         audit.step("run_end", {"run_id": run_id}, {c.contract_id: c.outcome for c in results}, 0.0)
         return AgentRun(run_id, self.judge.name, self.registry.sha256,
-                        [{"id": f.id, "sha256": f.sha256} for f in ingested], results, audit.path)
+                        [{"id": f.id, "sha256": f.sha256} for f in ingested], results, audit.path,
+                        judge_accounting=accounting)
