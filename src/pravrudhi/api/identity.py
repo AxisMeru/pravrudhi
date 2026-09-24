@@ -107,6 +107,17 @@ def guard_boot() -> None:
             "PRAVRUDHI_AUTH is not 'required' but a deployed-environment marker (VERCEL/RENDER) is set — refusing "
             "to start unauthenticated on a publicly reachable engine."
         )
+    opened = _demo_anon_env()
+    if opened - DEMO_ANON_CAPABLE:
+        raise RuntimeError(
+            f"PRAVRUDHI_DEMO_ANON_PATHS names {sorted(opened - DEMO_ANON_CAPABLE)}, outside the routes that may answer "
+            f"anonymously ({sorted(DEMO_ANON_CAPABLE)}) — refusing to start."
+        )
+    if opened and _deployed_env():
+        raise RuntimeError(
+            "PRAVRUDHI_DEMO_ANON_PATHS is set on a deployment platform (VERCEL/RENDER) — the anonymous demo allowance "
+            "is for the operator's own host only; refusing to start."
+        )
 
 
 def _default_fetch(url: str, *, headers: dict[str, str] | None = None) -> httpx.Response:
@@ -184,6 +195,23 @@ PUBLIC_PATHS: frozenset[str] = frozenset({"/api/health"})
 """What an internet-facing engine answers without identity: the tunnel's and the gateway's liveness check, which
 carries no state and names nothing. Everything else under `/api` is somebody's."""
 
+DEMO_ANON_CAPABLE: frozenset[str] = frozenset({"/api/v1/analyse-facts", "/api/nyaya/registry/contracts"})
+"""The only routes a deployment may open to anonymous callers (operator, 2026-09-23: every feature demoable without
+login on the 5090-hosted deployment). Both are stateless for the caller: analyse-facts is rate- and concurrency-
+limited by configs/partner_api.yaml and writes only the engine's own audit trail; the contract list is read-only.
+Which of them are open is the deployment's choice (`PRAVRUDHI_DEMO_ANON_PATHS`); widening this set is a code
+change with its own review."""
+
+
+def _demo_anon_env() -> frozenset[str]:
+    raw = os.environ.get("PRAVRUDHI_DEMO_ANON_PATHS", "")
+    return frozenset(p.strip() for p in raw.split(",") if p.strip())
+
+
+def demo_anon_paths() -> frozenset[str]:
+    """The routes this deployment answers without a token: the env's list, never more than `DEMO_ANON_CAPABLE`."""
+    return _demo_anon_env() & DEMO_ANON_CAPABLE
+
 
 def _with_query_token(conn: HTTPConnection) -> Mapping[str, str]:
     """The request's headers, with `?access_token=` standing in for a missing Authorization header.
@@ -231,7 +259,10 @@ async def current_user(request: Request) -> User | None:
     mode, with the whole-surface gate `RequireIdentity` installs, which refuses an anonymous caller before
     any route runs.
     """
-    return user_from_headers(_with_query_token(request))
+    headers = _with_query_token(request)
+    if "authorization" not in headers and request.url.path in demo_anon_paths():
+        return None
+    return user_from_headers(headers)
 
 
 class RequireIdentity:
@@ -251,7 +282,13 @@ class RequireIdentity:
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] in ("http", "websocket") and auth_mode() == AuthMode.REQUIRED:
             path: str = scope.get("path", "")
-            if path.startswith("/api/") and path not in PUBLIC_PATHS and scope.get("method") != "OPTIONS":
+            anon_ok = path in demo_anon_paths() and "authorization" not in HTTPConnection(scope).headers
+            if (
+                path.startswith("/api/")
+                and path not in PUBLIC_PATHS
+                and not anon_ok
+                and scope.get("method") != "OPTIONS"
+            ):
                 try:
                     user_from_headers(_with_query_token(HTTPConnection(scope)))
                 except HTTPException as exc:
