@@ -80,6 +80,23 @@ def _default_cooldown_minutes(agent_id: str) -> float:
     return float(minutes.get("default", DEFAULT_COOLDOWN_MINUTES))
 
 
+_TYPOGRAPHIC = str.maketrans({
+    "\u2019": "'", "\u2018": "'", "\u02bc": "'",  # curly / modifier apostrophes -> '
+    "\u00b7": " ", "\u2022": " ", "\u2219": " ", "\u22c5": " ",  # middle dot, bullet, bullet operator, dot operator
+})
+_SPACES = re.compile(r"\s+")
+
+
+def _normalise(text: str) -> str:
+    """Lower-cased, typographic apostrophes folded to ', dot separators to spaces, whitespace collapsed.
+
+    A vendor's refusal is typeset text: `claude -p` prints "You\u2019ve hit your session limit \u00b7 resets
+    3:20am", and the same CLI has printed the ASCII apostrophe. Both the haystack and every configured phrase go
+    through this, so a phrase in `limits.yaml` never has to spell a particular glyph.
+    """
+    return _SPACES.sub(" ", (text or "").translate(_TYPOGRAPHIC)).lower()
+
+
 def classify(agent_id: str, text: str, returncode: int) -> str:
     """"ok", "limited", "transient" or "failed" for one finished agent run.
 
@@ -90,10 +107,10 @@ def classify(agent_id: str, text: str, returncode: int) -> str:
     wave, so the match against `LIMIT_PATTERNS` is deliberately a loose, case-insensitive substring test rather than
     a precise parse of a vendor's error format that would need updating every time that format changes.
     """
-    haystack = (text or "").lower()
-    if any(phrase.lower() in haystack for phrase in LIMIT_PATTERNS.get(agent_id, ())):
+    haystack = _normalise(text)
+    if any(_normalise(phrase) in haystack for phrase in LIMIT_PATTERNS.get(agent_id, ())):
         return "limited"
-    if returncode != 0 and any(phrase.lower() in haystack for phrase in TRANSIENT_PATTERNS):
+    if returncode != 0 and any(_normalise(phrase) in haystack for phrase in TRANSIENT_PATTERNS):
         # Checked after `limited` deliberately: a 429 that also mentions a reset connection is a spent account,
         # and calling it a stumble would retry into the same wall on a two-minute cooldown instead of an hour's.
         return "transient"
@@ -214,6 +231,73 @@ or, worse, returns it before the account has."""
 _DATED = re.compile(r"(\d{1,2})-(\d{1,2})\s+(\d{1,2}):(\d{2})(?::\d{2})?\s*(UTC|GMT)?", re.IGNORECASE)
 
 
+_MONTHS = {m: i for i, m in enumerate(
+    ("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"), start=1)}
+
+# What the claude CLI prints after a spent seat: "resets 3:20am", "resets 11am", "resets Sep 29, 5pm", optionally
+# followed by a zone in parentheses ("resets 3:20am (Europe/London)"). Anchored on the word "resets" for the same
+# reason `_TIME` is anchored on "try again at". A clock with no meridiem is accepted only with minutes, so a bare
+# number after "resets" is not read as an hour. Matched against `_normalise`d text.
+_RESETS = re.compile(
+    r"\bresets\s+(?:(?P<mon>[a-z]{3})[a-z]*\.?\s+(?P<day>\d{1,2}),?\s+(?:at\s+)?)?"
+    r"(?P<h>\d{1,2})(?::(?P<m>\d{2}))?\s*(?P<ap>am|pm)?\b(?:\s*\((?P<tz>[a-z_]+(?:/[a-z_+-]+)*)\))?"
+)
+
+
+def _zone(name: str | None, fallback: tzinfo) -> tzinfo:
+    """The zone the vendor named, or `fallback` when it named none or one this machine does not know."""
+    if not name:
+        return fallback
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+    wanted = name.lower()
+    if wanted in ("utc", "gmt", "z"):
+        return UTC
+    try:
+        from zoneinfo import available_timezones
+
+        for key in available_timezones():
+            if key.lower() == wanted:
+                return ZoneInfo(key)
+    except (ZoneInfoNotFoundError, OSError, ValueError):
+        pass
+    return fallback
+
+
+def _resets_reset(text: str, now: datetime, tz: tzinfo | None) -> datetime | None:
+    """The return time a claude CLI refusal states after "resets", or None when it states none it can mean."""
+    match = _RESETS.search(_normalise(text))
+    if not match:
+        return None
+    hour, minute_s, meridiem = int(match.group("h")), match.group("m"), match.group("ap") or ""
+    minute = int(minute_s) if minute_s is not None else 0
+    if meridiem:
+        if not 1 <= hour <= 12 or minute > 59:
+            return None
+        hour = (hour % 12) + (12 if meridiem == "pm" else 0)
+    elif minute_s is None or hour > 23 or minute > 59:
+        return None
+
+    zone = _zone(match.group("tz"), tz or now.astimezone().tzinfo or UTC)
+    local = now.astimezone(zone)
+    mon, day = match.group("mon"), match.group("day")
+    if mon is not None and day is not None:
+        month = _MONTHS.get(mon)
+        if month is None:
+            return None
+        try:
+            stated = local.replace(month=month, day=int(day), hour=hour, minute=minute, second=0, microsecond=0)
+            if stated < local:  # a date already past names next year's
+                stated = stated.replace(year=local.year + 1)
+        except ValueError:
+            return None
+    else:
+        stated = local.replace(hour=hour, minute=minute, second=0, microsecond=0)
+        if stated <= local:
+            stated += timedelta(days=1)
+    return stated.astimezone(UTC)
+
+
 def _dated_reset(text: str, now: datetime) -> datetime | None:
     """A month-day-and-time the vendor stated, resolved against the year it must belong to."""
     match = _DATED.search(text or "")
@@ -251,6 +335,9 @@ def reset_at(text: str, *, now: datetime | None = None, tz: tzinfo | None = None
     dated = _dated_reset(text, when_now)
     if dated is not None:
         return dated
+    resets = _resets_reset(text, when_now, tz)
+    if resets is not None:
+        return resets
 
     match = _TIME.search(text or "")
     if not match:

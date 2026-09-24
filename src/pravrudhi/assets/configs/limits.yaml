@@ -11,6 +11,14 @@ patterns:
     - "5-hour limit"
     - "rate_limit_error"
     - "claude usage limit"
+    # What `claude -p` itself prints for a spent seat (2026-09-24): "You've hit your session limit · resets
+    # 3:20am", and the "weekly limit" / "usage limit" variants. Anchored on "hit your" so an answer that merely
+    # discusses a session or weekly limit is not mistaken for a refusal. Matched against normalised text
+    # (`availability._normalise`): the apostrophe may be U+2019 and the separator a middle dot, so neither is
+    # part of the phrase.
+    - "hit your session limit"
+    - "hit your weekly limit"
+    - "hit your usage limit"
   codex:
     - "usage limit"
     - "quota"
