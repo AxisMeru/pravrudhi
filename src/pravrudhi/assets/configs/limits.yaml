@@ -6,7 +6,8 @@
 # limit is worse, because it gets recorded as an ordinary loss against the route's success rate and can sink a route
 # that never actually failed.
 patterns:
-  claude-code:
+  # Anchored (`&name`) so an Orca-hosted run of the same CLI below reuses THIS list by alias rather than a copy.
+  claude-code: &claude_code_limits
     - "usage limit reached"
     - "5-hour limit"
     - "rate_limit_error"
@@ -19,10 +20,22 @@ patterns:
     - "hit your session limit"
     - "hit your weekly limit"
     - "hit your usage limit"
-  codex:
+  codex: &codex_limits
     - "usage limit"
     - "quota"
     - "429"
+  # An Orca terminal runs the vendor's own CLI (`orca_agent.headless_command`: `claude -p`, `codex exec`), so it
+  # prints the vendor's own refusal. Aliases, not copies: a phrase added to the vendor's list reaches its
+  # Orca-hosted id with no second edit, and the two cannot drift. Without these, `classify("orca:claude",
+  # "You've hit your session limit ...")` read "failed" (verified on 790b8fb) and a spent seat was recorded as a
+  # loss against the route.
+  orca:claude: *claude_code_limits
+  orca:codex: *codex_limits
+  # `orca:local` runs `opencode run` against the llama.cpp server on this box (provider `pravrudhi-local`). A local
+  # server has no vendor quota, and no refusal wording from that path has ever been observed, so nothing is
+  # guessed: the empty entry records that the absence is a decision, not an omission. A busy or loading server is
+  # a transport stumble and is already caught by `transient` below. Add phrases here only once one is seen.
+  orca:local: []
   hosted:
     - "freetieronly"
     - "exceeded your current quota"

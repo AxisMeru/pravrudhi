@@ -25,6 +25,8 @@ import shutil
 import subprocess
 import tempfile
 import time
+from collections.abc import Mapping
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -173,7 +175,9 @@ class OrcaWorkspace:
             _orca(["terminal", "close", "--terminal", handle, "--json"])
 
 
-def headless_command(agent_id: str, *, model: str | None = None) -> list[str]:
+def headless_command(
+    agent_id: str, *, model: str | None = None, seat_env: Mapping[str, str] | None = None
+) -> list[str]:
     """The non-interactive invocation for each agent, run inside an Orca terminal, WITHOUT the prompt.
 
     The prompt is read from stdin, which `OrcaAgent.run` redirects from a private file (`write_prompt_file`,
@@ -198,7 +202,11 @@ def headless_command(agent_id: str, *, model: str | None = None) -> list[str]:
         # project's own credential is present yet -- and an unprovisioned directory then fails as the CLI's
         # own login error rather than ours. Refusing to build a string was over-eager and broke five tests
         # that are about command shape, not credentials; the refusal belongs in `run()`, where it is.
-        prefix = [f"{k}={v}" for k, v in sorted(claude_env(require=False).items())]
+        #
+        # `seat_env` names the seat explicitly. `OrcaAgent.run` passes it so a usage limit can move to the next
+        # seat; without it the command rides whichever seat `claude_env` would pick right now.
+        chosen = dict(seat_env) if seat_env is not None else claude_env(require=False)
+        prefix = [f"{k}={v}" for k, v in sorted(chosen.items())]
         return ["env", *prefix, "claude", "-p", "--output-format", "json",
                 "--allowed-tools", "Read,Edit,Write,Grep,Glob,Bash"]
     if agent_id == "codex":
@@ -206,6 +214,11 @@ def headless_command(agent_id: str, *, model: str | None = None) -> list[str]:
     if agent_id == "local":
         return ["opencode", "run", "--format", "json", "-m", f"{LOCAL_PROVIDER}/{model or 'glm-4.7-flash'}"]
     raise OrcaUnavailable(f"no headless invocation known for agent {agent_id!r}")
+
+
+LIMITS_ID = {"claude": "orca:claude", "codex": "orca:codex", "local": "orca:local"}
+"""The `limits.yaml` key for each hosted agent. Not `OrcaAgent.name`, which carries the model
+(`orca:claude:<model>`) and so would match no entry."""
 
 
 class OrcaAgent(GitWorktreeMixin):
@@ -235,9 +248,55 @@ class OrcaAgent(GitWorktreeMixin):
         return self.ws.create_worktree(f"pravrudhi-{task_id}", base_ref)
 
     def run(self, prompt: str, workspace: Path, timeout_s: int | None = None) -> AgentRun:
+        """One turn in an Orca terminal; for `claude`, on the highest-precedence seat, moving down on a limit.
+
+        The Claude path mirrors `ClaudeCodeAgent.run` step for step, because it is the same CLI spending the
+        same seats: the seat is chosen by `select_seat`, a usage limit marks THAT seat (`claude-code:<id>`, the
+        key `ClaudeCodeAgent` uses, so a seat spent here is skipped there too) until the vendor's stated reset,
+        and the next seat is tried; an ordinary failure is returned as it stands; with every seat spent the last
+        limited run is returned for the router, and with no seat able to serve at all the documented refusal is
+        raised. The seat rides inside the terminal command as `env CLAUDE_CONFIG_DIR=...` -- Orca builds its own
+        shell, so there is no environment dict to hand over, but a per-seat directory in argv is honoured.
+
+        Codex and the local model have no seats (one login each, or none), so there is nothing to fail over to:
+        the run is returned and a limit reaches the router, which cools `orca:codex` from `limits.yaml`.
+        """
         timeout_s = timeout_s or self.timeout_s
+        if self.agent_id != "claude":
+            argv = headless_command(self.agent_id, model=self.model)  # raises for an unknown agent before any file
+            return self._attempt(prompt, workspace, timeout_s, argv)
+
+        from pravrudhi.agents.account import claude_env, select_seat
+        from pravrudhi.application import availability
+
+        spent: list[str] = []
+        last: AgentRun | None = None
+        while True:
+            seat = select_seat(self.root)
+            if seat is None or seat.id in spent:
+                break
+            spent.append(seat.id)
+            argv = headless_command(
+                self.agent_id, model=self.model, seat_env={"CLAUDE_CONFIG_DIR": str(seat.config_dir)}
+            )
+            last = self._attempt(prompt, workspace, timeout_s, argv)
+            whole = f"{last.text}\n{last.stderr_tail}"
+            if availability.classify(LIMITS_ID["claude"], whole, last.exit_code) != "limited":
+                return last
+            availability.mark_limited(self.root, seat.cooldown_key, until=availability.reset_at(whole))
+
+        if last is None:
+            claude_env(root=self.root)  # no seat can serve: raise the documented refusal rather than guess
+        # An Orca terminal's `ok` is whether Orca could READ the terminal, not the CLI's exit status, so a spent
+        # seat's refusal can arrive as ok=True. `ClaudeCodeAgent` returns it failed (the CLI's JSON envelope says
+        # `is_error`), and a caller such as `delegate.dispatch` only classifies a failed run -- so it is returned
+        # failed here too, or the limit would never reach the router.
+        assert last is not None
+        return replace(last, ok=False, exit_code=last.exit_code or 1, stderr_tail=last.text[-2000:])
+
+    def _attempt(self, prompt: str, workspace: Path, timeout_s: int, argv: list[str]) -> AgentRun:
+        """One dispatch in one Orca terminal. Knows nothing about seats beyond the argv it is handed."""
         t0 = time.monotonic()
-        argv = headless_command(self.agent_id, model=self.model)  # raises for an unknown agent before any file
         prompt_file = write_prompt_file(self.prompt_dir, prompt)
         try:
             ok, text, handle = self.ws.run_command(
