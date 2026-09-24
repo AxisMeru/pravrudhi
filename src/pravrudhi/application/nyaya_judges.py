@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import re
 import urllib.error
 from collections.abc import Callable, Mapping
@@ -199,6 +200,14 @@ class HouseJudge:
 
     @classmethod
     def from_config(cls, cfg: Mapping[str, Any], *, tau: float) -> HouseJudge:
+        """Load config with optional fallback URLs and API key.
+
+        Supports same config keys as from_config_with_fallback, with graceful fallback
+        to None for optional fields. Reads NYAYA_HOUSE_JUDGE_API_KEY env var.
+        """
+        # Read api_key from env var first, then config
+        api_key = os.environ.get("NYAYA_HOUSE_JUDGE_API_KEY") or cfg.get("api_key") or None
+
         return cls(
             tau=tau,
             statute_chars=int(cfg["statute_chars"]),
@@ -207,6 +216,8 @@ class HouseJudge:
             max_tokens=int(cfg["max_tokens"]),
             top_logprobs=int(cfg["top_logprobs"]),
             timeout_s=int(cfg["timeout_s"]),
+            api_key=api_key,
+            fallback_urls=cfg.get("base_urls_fallback") or [],
         )
 
     @classmethod
@@ -218,7 +229,13 @@ class HouseJudge:
         - base_urls_fallback (optional): list of fallback endpoints [local 5090, etc.]
         - api_key (optional): Bearer token for serverless endpoints
         - Other keys as in from_config: statute_chars, model, max_tokens, top_logprobs, timeout_s
+
+        Environment variables (override config):
+        - NYAYA_HOUSE_JUDGE_API_KEY: Bearer token for serverless endpoints
         """
+        # Read api_key from config or env var (env var takes precedence)
+        api_key = os.environ.get("NYAYA_HOUSE_JUDGE_API_KEY") or cfg.get("api_key") or None
+
         return cls(
             tau=tau,
             statute_chars=int(cfg["statute_chars"]),
@@ -227,7 +244,7 @@ class HouseJudge:
             max_tokens=int(cfg["max_tokens"]),
             top_logprobs=int(cfg["top_logprobs"]),
             timeout_s=int(cfg["timeout_s"]),
-            api_key=cfg.get("api_key") or None,
+            api_key=api_key,
             fallback_urls=cfg.get("base_urls_fallback") or [],
         )
 
