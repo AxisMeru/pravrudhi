@@ -5,6 +5,7 @@ module is never tested against a stand-in for it.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -22,15 +23,14 @@ from pravrudhi.application.nyaya_gold_score import (
     wilson,
 )
 
-# prabhasa-nyaya main's own build (Score.lean, isSatpratipaksa and isBadhita are all merged there as of
-# f47267f). See docs/decisions/plan-A2-hetvabhasa-gold-set.md (prabhasa-nyaya repo) for the wiring this is
-# part of.
-_LEAN_SCORE_BIN = Path("/home/ss/projects/prabhasa-nyaya/lean/.lake/build/bin/score")
+# No host path is committed here.  Set PRABHASA_NYAYA_SCORE_BIN to the built score binary; tests skip
+# with a clear reason when the variable is unset.
+_LEAN_SCORE_BIN = Path(os.environ.get("PRABHASA_NYAYA_SCORE_BIN", "prabhasa-nyaya-score-not-configured"))
 requires_lean_scorer = pytest.mark.skipif(
     not _LEAN_SCORE_BIN.exists(),
     reason=(
-        f"requires a build artifact from the sibling prabhasa-nyaya repository ({_LEAN_SCORE_BIN}); "
-        "CI never checks that repo out, so this class never runs there, on any commit"
+        "PRABHASA_NYAYA_SCORE_BIN is not set or does not point to a built score binary; "
+        "CI never checks out prabhasa-nyaya, so this class never runs there"
     ),
 )
 
@@ -158,6 +158,8 @@ class TestAgainstTheRealLeanScorer:
         assert len(result["decided_classes"]) == 6
 
     def test_the_lean_source_commit_is_recorded(self) -> None:
+        if lean_source_commit(_LEAN_SCORE_BIN) is None:
+            pytest.skip("binary is not inside a git checkout — lean_source_commit unavailable")
         items = build_gold_set(per_class=2, seed=0)
         result = score_gold_set(items, _LEAN_SCORE_BIN)
         assert result["lean_source_commit"]

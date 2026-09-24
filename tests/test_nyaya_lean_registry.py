@@ -14,14 +14,12 @@ import pytest
 
 from pravrudhi.application import nyaya_lean_registry as reg
 
-# T5b's REG/--list-contracts/--describe-contract tags live on prabhasa-nyaya's main branch.
-# PRABHASA_NYAYA_SCORE_BIN env override (e.g., a freshly-built binary) takes precedence; fallback to the
-# default worktree path for backward compatibility.
-_BINARY_DEFAULT = "/home/ss/projects/prabhasa-nyaya/.worktrees/trackA-t5b-atomic/lean/.lake/build/bin/score"
-_SCORE_BIN = Path(_os.environ.get("PRABHASA_NYAYA_SCORE_BIN", _BINARY_DEFAULT))
+# No host path is committed here.  Set PRABHASA_NYAYA_SCORE_BIN to the built score binary; tests skip
+# with a clear reason when the variable is unset.
+_SCORE_BIN = Path(_os.environ.get("PRABHASA_NYAYA_SCORE_BIN", "prabhasa-nyaya-score-not-configured"))
 requires_registry_scorer = pytest.mark.skipif(
     not _SCORE_BIN.exists(),
-    reason=f"prabhasa-nyaya score binary is not built at {_SCORE_BIN} (set PRABHASA_NYAYA_SCORE_BIN to override)",
+    reason="PRABHASA_NYAYA_SCORE_BIN is not set or does not point to a built score binary (set it to run these tests)",
 )
 
 

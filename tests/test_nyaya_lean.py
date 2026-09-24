@@ -8,6 +8,7 @@ contract ids are refused rather than silently defaulted.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -18,12 +19,12 @@ from pravrudhi.api.server import create_app
 from pravrudhi.application import nyaya_lean
 from pravrudhi.application.init import init_project
 
-# P1b's `A3N` wire tag lives on prabhasa-nyaya's assistant/trackA/p1b-checker-generalize branch, not yet
-# merged to main -- point at that worktree's freshly-built binary until the merge lands and this can revert
-# to the main checkout's own path.
-_LEAN_SCORE_BIN = Path("/home/ss/projects/prabhasa-nyaya/.worktrees/trackA-p1b/lean/.lake/build/bin/score")
+# No host path is committed here.  Set PRABHASA_NYAYA_SCORE_BIN to the built score binary; tests skip
+# with a clear reason when the variable is unset.
+_LEAN_SCORE_BIN = Path(os.environ.get("PRABHASA_NYAYA_SCORE_BIN", "prabhasa-nyaya-score-not-configured"))
 requires_lean_scorer = pytest.mark.skipif(
-    not _LEAN_SCORE_BIN.exists(), reason="prabhasa-nyaya's compiled score binary is not built on this host"
+    not _LEAN_SCORE_BIN.exists(),
+    reason="PRABHASA_NYAYA_SCORE_BIN is not set or does not point to a built score binary (set it to run these tests)",
 )
 
 # contract_id "0": Tests.lean's IPC 378 example (Pierce v. State, 470 F.2d 798).

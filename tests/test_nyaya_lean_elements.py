@@ -9,20 +9,19 @@ refused rather than silently scored against nothing.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
 
 from pravrudhi.application import nyaya_lean_elements as nle
 
-# P3's A3E tag lives on prabhasa-nyaya main (78bf844) but the checked-in binary under the primary checkout
-# predates that commit (built 2026-09-13, before A3E existed) -- point at the freshly-rebuilt worktree
-# binary until the primary checkout's binary is rebuilt.
-_LEAN_SCORE_BIN = Path(
-    "/home/ss/projects/prabhasa-nyaya/.worktrees/trackA-b1-amend/lean/.lake/build/bin/score"
-)
+# No host path is committed here.  Set PRABHASA_NYAYA_SCORE_BIN to the built score binary; tests skip
+# with a clear reason when the variable is unset.
+_LEAN_SCORE_BIN = Path(os.environ.get("PRABHASA_NYAYA_SCORE_BIN", "prabhasa-nyaya-score-not-configured"))
 requires_lean_scorer = pytest.mark.skipif(
-    not _LEAN_SCORE_BIN.exists(), reason="prabhasa-nyaya's rebuilt A3E-capable score binary is not present on this host"
+    not _LEAN_SCORE_BIN.exists(),
+    reason="PRABHASA_NYAYA_SCORE_BIN is not set or does not point to a built score binary (set it to run these tests)",
 )
 
 # Section 107's real required-element names (research/nyaya-elements/packets/section-107's

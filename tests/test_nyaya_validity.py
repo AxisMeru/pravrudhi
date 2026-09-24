@@ -20,18 +20,20 @@ from typer.testing import CliRunner
 
 from pravrudhi.application import nyaya_validity as nv
 from pravrudhi.application import objectives
+from pravrudhi.application.nyaya_gold_score import lean_source_commit
 from pravrudhi.cli.app import app
 from pravrudhi_kernel.ledger import LedgerWriter
 
 runner = CliRunner()
 
-# prabhasa-nyaya main's own build (Score.lean, isSatpratipaksa and isBadhita all merged as of f47267f).
-_LEAN_SCORE_BIN = Path("/home/ss/projects/prabhasa-nyaya/lean/.lake/build/bin/score")
+# No host path is committed here.  Set PRABHASA_NYAYA_SCORE_BIN to the built score binary; tests skip
+# with a clear reason when the variable is unset.
+_LEAN_SCORE_BIN = Path(os.environ.get("PRABHASA_NYAYA_SCORE_BIN", "prabhasa-nyaya-score-not-configured"))
 requires_lean_scorer = pytest.mark.skipif(
     not _LEAN_SCORE_BIN.exists(),
     reason=(
-        f"requires a build artifact from the sibling prabhasa-nyaya repository ({_LEAN_SCORE_BIN}); "
-        "CI never checks that repo out, so this class never runs there, on any commit"
+        "PRABHASA_NYAYA_SCORE_BIN is not set or does not point to a built score binary; "
+        "CI never checks out prabhasa-nyaya, so this class never runs there"
     ),
 )
 
@@ -133,6 +135,8 @@ class TestTheConstructedGoldSet:
         assert row["not_decided_classes"] == []
         assert row["per_class"]["satpratipaksa"]["pass_rate"] == 1.0
         assert row["per_class"]["badhita"]["pass_rate"] == 1.0
+        if lean_source_commit(_LEAN_SCORE_BIN) is None:
+            pytest.skip("binary is not inside a git checkout — lean_source_commit unavailable")
         assert row["lean_source_commit"]
 
     def test_cli_constructed_flag_runs_the_per_class_check(

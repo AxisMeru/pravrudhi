@@ -9,6 +9,7 @@ defaulted, before any subprocess call.
 
 from __future__ import annotations
 
+import os
 import subprocess
 from pathlib import Path
 
@@ -16,12 +17,12 @@ import pytest
 
 from pravrudhi.application import nyaya_lean_composition as comp
 
-# §9's COMP/--list-compositions tags live on prabhasa-nyaya's assistant/trackA/composition-scoring-tag
-# branch, not yet merged to main -- point at that worktree's freshly built binary until the merge
-# lands, same pattern test_nyaya_lean_registry.py already established for T5b.
-_SCORE_BIN = Path("/home/ss/projects/prabhasa-nyaya/.worktrees/trackA-comp-scoring/lean/.lake/build/bin/score")
+# No host path is committed here.  Set PRABHASA_NYAYA_SCORE_BIN to the built score binary; tests skip
+# with a clear reason when the variable is unset.
+_SCORE_BIN = Path(os.environ.get("PRABHASA_NYAYA_SCORE_BIN", "prabhasa-nyaya-score-not-configured"))
 requires_composition_scorer = pytest.mark.skipif(
-    not _SCORE_BIN.exists(), reason="prabhasa-nyaya's composition-scoring-tag score binary is not built on this host"
+    not _SCORE_BIN.exists(),
+    reason="PRABHASA_NYAYA_SCORE_BIN is not set or does not point to a built score binary (set it to run these tests)",
 )
 
 # ipc415_property's own three required elements (IPC415.lean), used across several tests below.
