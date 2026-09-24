@@ -8,6 +8,11 @@
 // The Worker adds nothing to the trust model. Identity is the engine's (PRAVRUDHI_AUTH=required verifies the
 // Supabase bearer token); CORS is the engine's (PRAVRUDHI_ALLOWED_ORIGINS). The Worker forwards headers and
 // body untouched in both directions, and answers 503 when no tunnel is registered.
+//
+// RunPod mode (UPSTREAM_KIND="runpod"): the engine is behind RunPod's LB gateway which requires
+// Authorization: Bearer <RUNPOD_API_KEY>. This creates an auth collision: the engine also needs the user's
+// Supabase token. The Worker moves the caller's Authorization to X-Pravrudhi-Authorization (the engine's
+// custom identity header) and sets Authorization to Bearer <RUNPOD_API_KEY> for the gateway.
 
 // KV is read at most once per BACKEND_TTL_MS per isolate, not once per request: the free tier counts every
 // KV read against a daily allowance (the account reached half of it on 2026-09-12 from this lookup alone), and
@@ -24,6 +29,10 @@ async function backendFor(env) {
   return url;
 }
 
+function isRunPodMode(env) {
+  return env.UPSTREAM_KIND === "runpod" && env.RUNPOD_API_KEY;
+}
+
 export default {
   async fetch(request, env) {
     const backend = await backendFor(env);
@@ -36,6 +45,21 @@ export default {
     const target = backend.replace(/\/$/, "") + url.pathname + url.search;
     const headers = new Headers(request.headers);
     headers.delete("host");
+
+    // Ensure User-Agent is set: RunPod's Cloudflare proxy returns 403 (error 1010) to urllib's default
+    if (!headers.get("user-agent")) {
+      headers.set("user-agent", `pravrudhi/${env.PRAVRUDHI_VERSION || "unknown"}`);
+    }
+
+    // RunPod mode: move user's Authorization to custom header, inject RunPod key
+    if (isRunPodMode(env)) {
+      const userAuth = headers.get("authorization");
+      if (userAuth) {
+        headers.set("x-pravrudhi-authorization", userAuth);
+      }
+      headers.set("authorization", `Bearer ${env.RUNPOD_API_KEY}`);
+    }
+
     try {
       const resp = await fetch(target, {
         method: request.method,

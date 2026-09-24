@@ -15,3 +15,10 @@ kv_namespaces = [{ binding = "KV", id = "KV_NAMESPACE_ID" }]
 name = "pravrudhi-app"
 vars = { EDITION = "product", ENGINE_KEY = "engine_url_product" }
 kv_namespaces = [{ binding = "KV", id = "KV_NAMESPACE_ID" }]
+
+# Staging Worker for the RunPod serverless engine (UPSTREAM_KIND=runpod; the RUNPOD_API_KEY secret is set
+# with `wrangler secret put --env staging`). Same KV namespace as studio/product, its own ENGINE_KEY.
+[env.staging]
+name = "pravrudhi-app-staging"
+vars = { EDITION = "product", ENGINE_KEY = "engine_url_staging", UPSTREAM_KIND = "runpod" }
+kv_namespaces = [{ binding = "KV", id = "KV_NAMESPACE_ID" }]

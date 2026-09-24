@@ -145,6 +145,8 @@ USER_FACING: frozenset[str] = frozenset({
     "/api/v1/analyse-facts",
     "/api/doctor",
     "/api/health", "/api/status",
+    # RunPod serverless load-balancer liveness (outside /api; no identity asked, carries no state).
+    "/ping",
     "/api/me",
     "/api/memory", "/api/memory/notes", "/api/memory/notes/{note_id}",
     "/api/messaging/telegram",

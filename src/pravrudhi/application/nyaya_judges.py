@@ -25,14 +25,16 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import re
+import urllib.error
 from collections.abc import Callable, Mapping
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 from pravrudhi.application import panel
-from pravrudhi.models.openai_compat import ChatClient, CompletionResult
+from pravrudhi.models.openai_compat import ChatClient, CompletionResult, HTTPStatusError
 
 if TYPE_CHECKING:
     from pravrudhi.application.credentials import CredentialStore
@@ -67,6 +69,8 @@ class ElementJudgment:
     #: "model" -- words the judge wrote; "whole_fact" -- the named fact's full text (house judge, see module doc).
     quote_source: Literal["model", "whole_fact"] | None = None
     raw: str = ""
+    #: Which backend answered: primary URL (index 0) or fallback (index 1+), or None if not tracked
+    backend_used: int | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -121,7 +125,10 @@ def parse_house_fact_id(text: str) -> str | None:
 class HouseJudge:
     """The house element judge over an OpenAI-compatible `/completions` endpoint. `complete` is the transport
     (prompt -> `CompletionResult`); by default a `ChatClient` against `base_url`, with the model id read from
-    the server's own `/models` when none is configured."""
+    the server's own `/models` when none is configured.
+
+    Supports fallback to additional base URLs on connection/timeout errors (primary serverless -> local 5090 fallback).
+    The result's `backend_used` field records which URL answered."""
 
     name = "house"
 
@@ -135,31 +142,75 @@ class HouseJudge:
         max_tokens: int = 30,
         top_logprobs: int = 20,
         timeout_s: int = 60,
+        api_key: str | None = None,
+        fallback_urls: list[str] | None = None,
         complete: Callable[[str], CompletionResult] | None = None,
     ) -> None:
         self.tau = tau
         self.statute_chars = statute_chars
+        self.primary_base_url = base_url
+        self.fallback_urls = fallback_urls or []
+        self.api_key = api_key
+
         if complete is None:
             if base_url is None:
                 raise ValueError("HouseJudge needs a base_url or a complete transport")
-            client = ChatClient(base_url=base_url, model=model or "", timeout_s=timeout_s)
-            if not model:
-                listed = client.list_models()
-                if not listed:
-                    raise RuntimeError(f"{base_url}/models lists no model")
-                client.model = listed[0]
-            self.model = client.model
 
-            def _complete(prompt: str) -> CompletionResult:
-                return client.complete(prompt, max_tokens=max_tokens, temperature=0.0, logprobs=top_logprobs)
+            # One client per backend. The bearer key is the primary's (the RunPod endpoint); a fallback is the
+            # operator's own vLLM and never receives it. Each backend answers under its own model id.
+            self.clients: list[ChatClient] = [
+                ChatClient(base_url=url, model="", api_key=api_key if i == 0 else None, timeout_s=timeout_s)
+                for i, url in enumerate([base_url, *self.fallback_urls])
+            ]
+            self._models: list[str | None] = [model or None] + [None] * len(self.fallback_urls)
 
-            complete = _complete
+            def _model_for(i: int) -> str:
+                if self._models[i] is None:
+                    listed = self.clients[i].list_models()
+                    if not listed:
+                        raise RuntimeError(f"{self.clients[i].base_url}/models lists no model")
+                    self._models[i] = listed[0]
+                resolved = self._models[i]
+                assert resolved is not None
+                return resolved
+
+            self.model = _model_for(0)
+
+            def _transient(e: BaseException) -> bool:
+                """Only these move to the next backend; a 4xx (bad key, unknown model, bad request) surfaces."""
+                if isinstance(e, HTTPStatusError):
+                    return e.status >= 500 or e.status == 429
+                return isinstance(e, (TimeoutError, urllib.error.URLError, ConnectionError))
+
+            def _complete_with_fallback(prompt: str) -> CompletionResult:
+                for i, client in enumerate(self.clients):
+                    try:
+                        client.model = _model_for(i)
+                        result = client.complete(prompt, max_tokens=max_tokens, temperature=0.0, logprobs=top_logprobs)
+                    except Exception as e:  # noqa: BLE001 -- classified just below, re-raised unless transient
+                        if not _transient(e) or i == len(self.clients) - 1:
+                            raise RuntimeError(f"judge backend {i} ({client.base_url}) failed: {e}") from e
+                        continue
+                    object.__setattr__(result, "backend_index", i)  # the result is frozen
+                    return result
+                raise RuntimeError("no judge backend configured")
+
+            complete = _complete_with_fallback
         else:
             self.model = model or "injected"
+
         self._complete = complete
 
     @classmethod
     def from_config(cls, cfg: Mapping[str, Any], *, tau: float) -> HouseJudge:
+        """Load config with optional fallback URLs and API key.
+
+        Supports same config keys as from_config_with_fallback, with graceful fallback
+        to None for optional fields. Reads NYAYA_HOUSE_JUDGE_API_KEY env var.
+        """
+        # Read api_key from env var first, then config
+        api_key = os.environ.get("NYAYA_HOUSE_JUDGE_API_KEY") or cfg.get("api_key") or None
+
         return cls(
             tau=tau,
             statute_chars=int(cfg["statute_chars"]),
@@ -168,6 +219,36 @@ class HouseJudge:
             max_tokens=int(cfg["max_tokens"]),
             top_logprobs=int(cfg["top_logprobs"]),
             timeout_s=int(cfg["timeout_s"]),
+            api_key=api_key,
+            fallback_urls=cfg.get("base_urls_fallback") or [],
+        )
+
+    @classmethod
+    def from_config_with_fallback(cls, cfg: Mapping[str, Any], *, tau: float) -> HouseJudge:
+        """Load config with optional fallback URLs and API key.
+
+        Config keys:
+        - base_url (required): primary judge endpoint
+        - base_urls_fallback (optional): list of fallback endpoints [local 5090, etc.]
+        - api_key (optional): Bearer token for serverless endpoints
+        - Other keys as in from_config: statute_chars, model, max_tokens, top_logprobs, timeout_s
+
+        Environment variables (override config):
+        - NYAYA_HOUSE_JUDGE_API_KEY: Bearer token for serverless endpoints
+        """
+        # Read api_key from config or env var (env var takes precedence)
+        api_key = os.environ.get("NYAYA_HOUSE_JUDGE_API_KEY") or cfg.get("api_key") or None
+
+        return cls(
+            tau=tau,
+            statute_chars=int(cfg["statute_chars"]),
+            base_url=str(cfg["base_url"]),
+            model=cfg.get("model") or None,
+            max_tokens=int(cfg["max_tokens"]),
+            top_logprobs=int(cfg["top_logprobs"]),
+            timeout_s=int(cfg["timeout_s"]),
+            api_key=api_key,
+            fallback_urls=cfg.get("base_urls_fallback") or [],
         )
 
     def judge(self, request: JudgeRequest) -> ElementJudgment:
@@ -175,16 +256,17 @@ class HouseJudge:
         if not res.top_logprobs:
             raise JudgeOutputError("the server returned no logprobs for the first token")
         p = p_established_from_top_logprobs(res.top_logprobs[0])
+        backend_idx = res.backend_index
         if p < self.tau:
-            return ElementJudgment("not_established", p, raw=res.text)
+            return ElementJudgment("not_established", p, raw=res.text, backend_used=backend_idx)
         fact_id = parse_house_fact_id(res.text)
         if fact_id is None:
-            return ElementJudgment("established", p, raw=res.text)
+            return ElementJudgment("established", p, raw=res.text, backend_used=backend_idx)
         # Fact granularity (module doc): the claim is "this fact, whole". A fact id not among the facts gets no
         # quote -- never a nearest-match fact -- so the quote check rejects it as unknown.
         text = dict(request.facts).get(fact_id)
         return ElementJudgment(
-            "established", p, fact_id, text, "whole_fact" if text is not None else None, raw=res.text
+            "established", p, fact_id, text, "whole_fact" if text is not None else None, raw=res.text, backend_used=backend_idx
         )
 
 

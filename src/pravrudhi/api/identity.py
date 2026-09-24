@@ -213,27 +213,45 @@ def demo_anon_paths() -> frozenset[str]:
     return _demo_anon_env() & DEMO_ANON_CAPABLE
 
 
+def _identity_header_name() -> str:
+    """The name of the header from which to read the user token.
+
+    When PRAVRUDHI_IDENTITY_HEADER is set, read identity from that header instead of Authorization.
+    This supports RunPod LB gateways that require Bearer authorization but the engine needs the
+    user's Supabase token. The Cloudflare Worker moves the user's Authorization to this header and
+    puts the RunPod key in Authorization.
+    """
+    raw = os.environ.get("PRAVRUDHI_IDENTITY_HEADER", "").strip()
+    return raw.lower() if raw else "authorization"
+
+
 def _with_query_token(conn: HTTPConnection) -> Mapping[str, str]:
-    """The request's headers, with `?access_token=` standing in for a missing Authorization header.
+    """The request's headers, with `?access_token=` standing in for a missing custom identity header.
 
     A browser's EventSource cannot set headers, so the run event stream (`/api/runs/{id}/events`) carries the
-    session token in the query string instead. Only the absence of the header is filled; a header always wins.
+    session token in the query string instead. When PRAVRUDHI_IDENTITY_HEADER is set, the query param fills
+    that header; otherwise it fills Authorization. A provided header always wins (query param is fallback only).
     """
-    headers = conn.headers
-    if "authorization" in headers:
+    headers = dict(conn.headers)
+    header_name = _identity_header_name()
+    if header_name in headers:
         return headers
     token = conn.query_params.get("access_token")
-    return {**headers, "authorization": f"Bearer {token}"} if token else headers
+    if token:
+        headers[header_name] = f"Bearer {token}"
+    return headers
 
 
 def user_from_headers(headers: Mapping[str, str]) -> User | None:
     """Resolve the caller from request headers, or None when identity is not required and none was sent.
 
-    Raises 401 in `required` mode when no valid bearer token is present. Shared by the per-route dependency and
-    the whole-surface gate so the two can never disagree about who a caller is.
+    Reads the bearer token from the header named by PRAVRUDHI_IDENTITY_HEADER if set, otherwise from
+    Authorization. Raises 401 in `required` mode when no valid bearer token is present. Shared by the
+    per-route dependency and the whole-surface gate so the two can never disagree about who a caller is.
     """
     mode = auth_mode()
-    auth = headers.get("authorization", "")
+    header_name = _identity_header_name()
+    auth = headers.get(header_name, "")
     if not auth.lower().startswith("bearer "):
         if mode == AuthMode.REQUIRED:
             raise HTTPException(status_code=401, detail="Missing bearer token")
@@ -260,7 +278,8 @@ async def current_user(request: Request) -> User | None:
     any route runs.
     """
     headers = _with_query_token(request)
-    if "authorization" not in headers and request.url.path in demo_anon_paths():
+    header_name = _identity_header_name()
+    if header_name not in headers and request.url.path in demo_anon_paths():
         return None
     return user_from_headers(headers)
 
@@ -282,7 +301,9 @@ class RequireIdentity:
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] in ("http", "websocket") and auth_mode() == AuthMode.REQUIRED:
             path: str = scope.get("path", "")
-            anon_ok = path in demo_anon_paths() and "authorization" not in HTTPConnection(scope).headers
+            conn = HTTPConnection(scope)
+            header_name = _identity_header_name()
+            anon_ok = path in demo_anon_paths() and header_name not in conn.headers
             if (
                 path.startswith("/api/")
                 and path not in PUBLIC_PATHS
@@ -290,7 +311,7 @@ class RequireIdentity:
                 and scope.get("method") != "OPTIONS"
             ):
                 try:
-                    user_from_headers(_with_query_token(HTTPConnection(scope)))
+                    user_from_headers(_with_query_token(conn))
                 except HTTPException as exc:
                     if scope["type"] == "http":
                         await JSONResponse({"detail": exc.detail}, status_code=exc.status_code)(scope, receive, send)
