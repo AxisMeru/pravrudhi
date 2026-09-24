@@ -183,9 +183,13 @@ class TestSelectContracts:
 
     def test_default_is_every_listed_contract_the_checker_knows_in_binary_order(self) -> None:
         chosen = select_contracts(self.LISTED)
+        # Only KNOWN_CONTRACT_IDS are selected; EXCLUDED_CONTRACT_IDS are refused
         assert chosen == [c for c in self.LISTED if c in reg.KNOWN_CONTRACT_IDS]
-        # All listed contracts are now known to check_registry (23-contract update)
-        assert set(chosen) == set(self.LISTED)
+        # BNSS 187 contracts are in LISTED but NOT in chosen (they are excluded)
+        assert "bnss187_extended_serious" not in chosen
+        assert "bnss187_extended_other" not in chosen
+        # But all other contracts should be present
+        assert len(chosen) == len(self.LISTED) - 2  # 23 - 2 excluded = 21
 
     def test_named_ids_keep_the_binary_order_not_the_callers(self) -> None:
         assert select_contracts(self.LISTED, contract_ids=["bns85", "ipc416"]) == ["ipc416", "bns85"]
@@ -194,9 +198,14 @@ class TestSelectContracts:
         with pytest.raises(reg.UnknownContractError):
             select_contracts(self.LISTED, contract_ids=["ipc999"])
 
-    def test_listed_but_unchecked_id_is_refused_not_dropped(self) -> None:
+    def test_excluded_contract_id_is_refused_not_dropped(self) -> None:
+        # BNSS 187 contracts are excluded due to Lean-side defects, not unknown
         with pytest.raises(reg.UnknownContractError):
-            select_contracts(self.LISTED, contract_ids=["bns316_misappropriation"])
+            select_contracts(self.LISTED, contract_ids=["bnss187_extended_serious"])
+
+    def test_known_contract_id_is_selected(self) -> None:
+        # bns316 is now KNOWN (previously was in binary but not known)
+        assert select_contracts(self.LISTED, contract_ids=["bns316_misappropriation"]) == ["bns316_misappropriation"]
 
     def test_by_section_matches_the_source_column(self) -> None:
         assert select_contracts(self.LISTED, sections=["Bharatiya Nyaya Sanhita §86"]) == ["bns85"]
