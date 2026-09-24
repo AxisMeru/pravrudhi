@@ -27,13 +27,13 @@ from typing import Any
 
 from pravrudhi.application.nyaya_gold_score import score_bin_path
 
-#: The fourteen registry Contract ids `contractForId` in `lean/Score.lean` knows -- eleven from the
-#: original T5b exit criterion plus BNS 46's three routes (bns46_instigation, bns46_conspiracy,
-#: bns46_intentional_aid), wired in the T5b atomic wire pass once the Lean branch rebased onto
-#: tranche 3 main. Hand-listed here for fast validation before a subprocess call -- kept honest by
-#: `tests/test_nyaya_lean_registry.py`'s drift test, which reads the binary's OWN `--list-contracts` output
-#: and asserts it equals this set exactly, rather than trusting this list on its own (the lead's explicit
-#: no-drift requirement: the test reads from the binary, this constant is not the source of truth).
+#: The twenty-three registry Contract ids `contractForId` in `lean/Score.lean` knows -- expanded from
+#: the original fourteen to include BNS 316 (misappropriation, use_or_disposal, wilfully_suffers),
+#: BNS 318 (property, damaging_act), BNS 217 (misdirected_act, abuse_of_power), and BNSS 187
+#: (extended_serious, extended_other). Hand-listed here for fast validation before a subprocess call -- kept
+#: honest by `tests/test_nyaya_lean_registry.py`'s drift test, which reads the binary's OWN `--list-contracts`
+#: output and asserts it equals this set exactly, rather than trusting this list on its own (the lead's
+#: explicit no-drift requirement: the test reads from the binary, this constant is not the source of truth).
 KNOWN_CONTRACT_IDS: frozenset[str] = frozenset(
     {
         "ipc405_misappropriation", "ipc405_use_or_disposal", "ipc405_wilfully_suffers",
@@ -41,6 +41,10 @@ KNOWN_CONTRACT_IDS: frozenset[str] = frozenset(
         "ipc182_misdirected_act", "ipc182_abuse_of_power",
         "bns69", "bns47", "bns85",
         "bns46_instigation", "bns46_conspiracy", "bns46_intentional_aid",
+        "bns316_misappropriation", "bns316_use_or_disposal", "bns316_wilfully_suffers",
+        "bns318_property", "bns318_damaging_act",
+        "bns217_misdirected_act", "bns217_abuse_of_power",
+        "bnss187_extended_serious", "bnss187_extended_other",
     }
 )
 
