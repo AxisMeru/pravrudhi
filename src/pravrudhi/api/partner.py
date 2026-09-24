@@ -5,10 +5,14 @@ NyayaAgent` -- facts in, one `ContractResult` per selected registry contract out
 element in the response (not just the final PROOF/DENIAL/ABSTAIN/REFER_TO_LAWYER verdict), so a partner's UI
 can show a user which fact grounded each element rather than asking them to trust an opaque outcome.
 
-Tenancy (orgs, API keys, per-org scoping) is a separate, larger L4 item and is NOT in this router -- this
-endpoint currently rides the same optional session identity every other user-facing nyaya route uses
-(`CurrentUserDep`), not a partner API key. Widening to real API-key auth is tracked as follow-up, stated here
-rather than silently implied by the `/api/v1` prefix looking partner-ready.
+Tenancy (`application/tenancy.py`: orgs, memberships, org-scoped API keys) now lives alongside
+`analyse-facts` in this router -- `POST /api/v1/orgs` and the key-management routes below it, both
+engine-admin-only (`roles.require_admin`, the same allowlisted operator gate every other admin-only route
+uses). `analyse-facts` itself still rides the optional Supabase session identity every other user-facing
+nyaya route uses (`CurrentUserDep`), unchanged, so its existing anonymous and Supabase-authenticated behavior
+stays byte-identical; accepting an org API key as an *alternative* identity on that route, and scoping the
+partner resources the plan still lists (matters, documents, verify-citations, research, draft, audit
+export) to an org once they exist, is the next slice of this card, not this one.
 
 **Reviewer 1's rejection of the first version (8344594), addressed here.** On the self-hosted 5090
 deployment, `identity.guard_boot` only refuses an unauthenticated deploy on VERCEL/RENDER -- so this route is
@@ -46,7 +50,9 @@ from pydantic import BaseModel, Field
 from starlette.responses import JSONResponse
 
 from pravrudhi.api.identity import CurrentUserDep, User
+from pravrudhi.api.roles import is_admin, require_admin
 from pravrudhi.application import nyaya_lean_registry as reg
+from pravrudhi.application import tenancy
 from pravrudhi.application.config_files import config_file
 from pravrudhi.application.nyaya_agent import BinaryShaMismatch, JudgeMisconfigured, NyayaAgent
 
@@ -231,6 +237,48 @@ class AnalyseFactsResponse(BaseModel):
 AgentFactory = Callable[[Path], AgentLike]
 
 
+class CreateOrgRequest(BaseModel):
+    org_id: str = Field(min_length=2, max_length=63)
+    name: str = Field(min_length=1, max_length=200)
+
+
+class OrgOut(BaseModel):
+    id: str
+    name: str
+    created: str
+
+
+class CreateKeyRequest(BaseModel):
+    label: str = Field(default="", max_length=200)
+    rate_limit_per_minute: int = Field(default=60, ge=1, le=100_000)
+
+
+class ApiKeyOut(BaseModel):
+    key_id: str
+    org_id: str
+    label: str
+    created: str
+    revoked: bool
+    revoked_at: str | None
+    rate_limit_per_minute: int
+
+
+class CreatedKeyOut(ApiKeyOut):
+    #: Present only in the create-key response, and only that one time -- nothing else this router returns
+    #: ever carries a key's secret.
+    secret: str
+
+
+class ApiKeysOut(BaseModel):
+    keys: list[ApiKeyOut]
+
+
+class UsageOut(BaseModel):
+    key_id: str
+    org_id: str
+    calls_since_process_start: int
+
+
 def _client_ip(request: Request, *, trust_proxy_header: bool, trusted_proxies: tuple[str, ...]) -> str:
     client = request.client
     socket_peer = client.host if client is not None else "unknown"
@@ -276,6 +324,8 @@ def build_partner_router(
                 _state["concurrency"] = ConcurrencyLimiter(cfg.max_concurrent)
             return _state["cfg"], _state["rate_limiter"], _state["concurrency"]
 
+    _key_rate_limiter = tenancy.KeyRateLimiter()
+
     router = APIRouter(prefix="/api/v1")
 
     @router.post("/analyse-facts", response_model=AnalyseFactsResponse)
@@ -319,5 +369,74 @@ def build_partner_router(
         body: dict[str, Any] = result.to_dict()
         body.pop("audit_path", None)
         return body
+
+    @router.post("/orgs", response_model=OrgOut)
+    def create_org_ep(req: CreateOrgRequest, user: User | None = CurrentUserDep) -> dict[str, Any]:
+        require_admin(user)
+        try:
+            org = tenancy.create_org(engine_root, req.org_id, req.name)
+        except tenancy.TenancyError as e:
+            raise HTTPException(409, str(e)) from e
+        return org.to_dict()
+
+    @router.post("/orgs/{org_id}/keys", response_model=CreatedKeyOut)
+    def create_key_ep(
+        org_id: str, req: CreateKeyRequest, user: User | None = CurrentUserDep
+    ) -> dict[str, Any]:
+        require_admin(user)
+        try:
+            created = tenancy.create_key(
+                engine_root, org_id, label=req.label, rate_limit_per_minute=req.rate_limit_per_minute
+            )
+        except tenancy.TenancyError as e:
+            raise HTTPException(404, str(e)) from e
+        return {**created.record.to_public_dict(), "secret": created.secret}
+
+    @router.get("/orgs/{org_id}/keys", response_model=ApiKeysOut)
+    def list_keys_ep(org_id: str, user: User | None = CurrentUserDep) -> dict[str, Any]:
+        require_admin(user)
+        return {"keys": [k.to_public_dict() for k in tenancy.keys_for_org(engine_root, org_id)]}
+
+    @router.post("/orgs/{org_id}/keys/{key_id}/revoke", response_model=ApiKeyOut)
+    def revoke_key_ep(org_id: str, key_id: str, user: User | None = CurrentUserDep) -> dict[str, Any]:
+        require_admin(user)
+        try:
+            record = tenancy.revoke_key(engine_root, key_id)
+        except tenancy.TenancyError as e:
+            raise HTTPException(404, str(e)) from e
+        if record.org_id != org_id:
+            # The key id exists but under a different org: refuse rather than revoke, and say 404 (not
+            # which org it actually belongs to) -- an admin's typo must not become an info leak either.
+            raise HTTPException(404, f"key {key_id!r} does not exist under org {org_id!r}")
+        return record.to_public_dict()
+
+    @router.get("/orgs/{org_id}/usage", response_model=UsageOut)
+    def usage_ep(
+        org_id: str, request: Request, user: User | None = CurrentUserDep
+    ) -> dict[str, Any] | JSONResponse:
+        principal = tenancy.principal_from_headers(engine_root, request.headers)
+        tenancy.require_org_access(
+            principal.org_id if principal else None, org_id, is_admin=is_admin(user)
+        )
+        if principal is None:
+            # An admin asking with no key names no particular key's usage -- refuse rather than guess one.
+            raise HTTPException(422, "usage is reported per API key; supply X-Pravrudhi-Api-Key")
+        key = next((k for k in tenancy.keys_for_org(engine_root, org_id) if k.key_id == principal.key_id), None)
+        if key is None:
+            raise HTTPException(404, "key not found")
+        # Calling /usage is itself the one key-scoped call this slice of the API has to spend a key's own
+        # rate budget against -- the per-key limiter (distinct from analyse-facts's per-IP one) is exercised
+        # here so a key's `rate_limit_per_minute` is real and testable even before matters/documents exist.
+        if not _key_rate_limiter.allow(key.key_id, key.rate_limit_per_minute):
+            return JSONResponse(
+                status_code=429,
+                content={"detail": "rate limit exceeded"},
+                headers={"Retry-After": str(_key_rate_limiter.retry_after_seconds())},
+            )
+        return UsageOut(
+            key_id=key.key_id,
+            org_id=key.org_id,
+            calls_since_process_start=_key_rate_limiter.usage_total(key.key_id),
+        ).model_dump()
 
     return router

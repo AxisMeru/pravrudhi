@@ -143,6 +143,12 @@ USER_FACING: frozenset[str] = frozenset({
     "/api/nyaya/registry/contracts", "/api/nyaya/registry/{contract_id}/elements", "/api/nyaya/registry/check",
     # L4 partner API (LEG-PLAN-2026-09-23): the agentic loop over the same registry contracts, facts in.
     "/api/v1/analyse-facts",
+    # L4 tenancy (application/tenancy.py): org and API-key provisioning. Not admin-only in the ADMIN_ONLY
+    # sense above -- these are not surfaces about Pravrudhi improving itself, they are how a partner account
+    # is set up -- so each route gates itself internally with `roles.require_admin` (partner.py) rather than
+    # disappearing entirely on a product install the way ADMIN_ONLY routes do.
+    "/api/v1/orgs", "/api/v1/orgs/{org_id}/keys", "/api/v1/orgs/{org_id}/keys/{key_id}/revoke",
+    "/api/v1/orgs/{org_id}/usage",
     "/api/doctor",
     "/api/health", "/api/status",
     # RunPod serverless load-balancer liveness (outside /api; no identity asked, carries no state).
