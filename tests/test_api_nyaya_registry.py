@@ -1,5 +1,6 @@
-"""The registry (23-contract) HTTP surface: /api/nyaya/registry/contracts, /{id}/elements, /check.
+"""The registry (21-contract) HTTP surface: /api/nyaya/registry/contracts, /{id}/elements, /check.
 Real compiled Lean binary, real FastAPI app -- no stub, no fake scorer (house rule).
+BNSS 187 contracts are excluded due to Lean-side defects and return UnknownContractError.
 """
 
 from __future__ import annotations
@@ -40,11 +41,12 @@ def _token_header(tmp_path: Path) -> dict[str, str]:
     return {TOKEN_HEADER: app_token(tmp_path)}
 
 
-def test_lists_all_twenty_three_contracts(tmp_path: Path) -> None:
+def test_lists_all_known_contracts(tmp_path: Path) -> None:
     c = _client(tmp_path)
     body = c.get("/api/nyaya/registry/contracts").json()
-    assert len(body["contracts"]) == 23
+    assert len(body["contracts"]) == 21  # BNSS 187 contracts excluded due to Lean-side defects
     assert "ipc405_misappropriation" in body["contracts"]
+    assert "bnss187_extended_serious" not in body["contracts"]  # Excluded
 
 
 @requires_registry_scorer

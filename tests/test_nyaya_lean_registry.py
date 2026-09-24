@@ -108,13 +108,22 @@ class TestKnownContractIdsMatchesTheBinary:
     @requires_registry_scorer
     def test_drift_test_against_list_contracts(self) -> None:
         """The lead's explicit requirement: this reads the binary's OWN output, never trusts the hand-
-        listed KNOWN_CONTRACT_IDS constant on its own -- if someone adds a twelfth registry Contract on
-        the Lean side and forgets this file, this test catches it, not a human noticing later."""
+        listed KNOWN_CONTRACT_IDS constant on its own. The binary's list must equal KNOWN ∪ EXCLUDED exactly,
+        and the two sets must be disjoint (no contract appears in both)."""
         import subprocess
 
         proc = subprocess.run([str(_SCORE_BIN), "--list-contracts"], capture_output=True, text=True, check=True)
         ids_from_binary = frozenset(reg.parse_list_contracts(proc.stdout))
-        assert ids_from_binary == reg.KNOWN_CONTRACT_IDS
+
+        known_union_excluded = reg.KNOWN_CONTRACT_IDS | frozenset(reg.EXCLUDED_CONTRACT_IDS.keys())
+        assert ids_from_binary == known_union_excluded, (
+            f"binary has {ids_from_binary}, "
+            f"KNOWN ∪ EXCLUDED = {known_union_excluded}"
+        )
+        # Verify the sets are disjoint
+        assert reg.KNOWN_CONTRACT_IDS & frozenset(reg.EXCLUDED_CONTRACT_IDS.keys()) == frozenset(), (
+            "KNOWN_CONTRACT_IDS and EXCLUDED_CONTRACT_IDS must be disjoint"
+        )
 
 
 class TestDescribeContract:
@@ -236,20 +245,12 @@ class TestCheckRegistry:
 @requires_registry_scorer
 class TestReachabilityForEveryKnownContractId:
     """The exit criterion (the lead, 2026-09-15): a recorded end-to-end run for every one of the
-    twenty-three ids, not just a sample -- reads each contract's own required elements live via
+    twenty-one KNOWN contract ids, not just a sample -- reads each contract's own required elements live via
     `describe_contract` (never hand-copied) and drives one grounded run and one omission run
-    through `check_registry` for each.
-
-    BNSS 187 contracts (extended_serious, extended_other) are xfail due to a Lean-side defect:
-    they use conduct="the remand proceedings described in the facts" instead of the wire grammar's
-    specified "the conduct in the facts", causing matcher misalignment."""
+    through `check_registry` for each."""
 
     @pytest.mark.parametrize("contract_id", sorted(reg.KNOWN_CONTRACT_IDS))
     def test_all_required_elements_met_is_grounded(self, contract_id: str) -> None:
-        # BNSS 187 contracts have conduct entity mismatch (Lean-side defect)
-        if contract_id.startswith("bnss187_"):
-            pytest.xfail(reason="Lean-side defect: BNSS 187 contracts use different conduct entity")
-
         names = reg.describe_contract(contract_id, score_bin=_SCORE_BIN)
         assert names, f"{contract_id} reported zero required elements -- describe_contract itself is broken"
         result = reg.check_registry(dict.fromkeys(names, True), contract_id, score_bin=_SCORE_BIN)
@@ -259,10 +260,6 @@ class TestReachabilityForEveryKnownContractId:
 
     @pytest.mark.parametrize("contract_id", sorted(reg.KNOWN_CONTRACT_IDS))
     def test_dropping_the_first_required_element_is_flagged_naming_it_omitted(self, contract_id: str) -> None:
-        # BNSS 187 contracts have conduct entity mismatch (Lean-side defect)
-        if contract_id.startswith("bnss187_"):
-            pytest.xfail(reason="Lean-side defect: BNSS 187 contracts use different conduct entity")
-
         names = reg.describe_contract(contract_id, score_bin=_SCORE_BIN)
         dropped, kept = names[0], names[1:]
         result = reg.check_registry(dict.fromkeys(kept, True), contract_id, score_bin=_SCORE_BIN)
@@ -273,6 +270,23 @@ class TestReachabilityForEveryKnownContractId:
         # not the bare one, since a dropped element containing a reserved character (e.g. bns47's
         # own "cheats (s.415: ...)") would otherwise never be found as a plain substring.
         assert reg._esc(dropped) in result["omitted_claims"][0], (contract_id, dropped, result["omitted_claims"])
+
+
+class TestExcludedContractsAreRefused:
+    """Excluded contracts (due to Lean-side defects) must raise UnknownContractError, preventing silent
+    wrong results in production. Never flag a request; always refuse it at the contract-ID validation stage."""
+
+    @pytest.mark.parametrize("contract_id", sorted(reg.EXCLUDED_CONTRACT_IDS.keys()))
+    def test_excluded_contract_raises_unknown_contract_error_on_describe(self, contract_id: str) -> None:
+        with pytest.raises(reg.UnknownContractError) as exc_info:
+            reg.describe_contract_detail(contract_id, score_bin=_SCORE_BIN)
+        assert contract_id in str(exc_info.value)
+
+    @pytest.mark.parametrize("contract_id", sorted(reg.EXCLUDED_CONTRACT_IDS.keys()))
+    def test_excluded_contract_raises_unknown_contract_error_on_check(self, contract_id: str) -> None:
+        with pytest.raises(reg.UnknownContractError) as exc_info:
+            reg.check_registry({"dummy": True}, contract_id, score_bin=_SCORE_BIN)
+        assert contract_id in str(exc_info.value)
 
 
 @requires_registry_scorer

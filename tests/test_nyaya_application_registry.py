@@ -33,10 +33,10 @@ def _point_at_real_binary(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 class TestRegistryContractIds:
-    def test_lists_all_twenty_three_sorted(self) -> None:
+    def test_lists_all_known_sorted(self) -> None:
         ids = nyaya.registry_contract_ids()
         assert ids == sorted(nyaya_lean_registry.KNOWN_CONTRACT_IDS)
-        assert len(ids) == 23
+        assert len(ids) == 21  # BNSS 187 contracts excluded due to Lean-side defects
 
     def test_disjoint_from_the_citation_family(self) -> None:
         """The two contract families never share an id -- a real risk if someone later renumbers one

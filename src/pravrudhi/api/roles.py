@@ -137,8 +137,9 @@ USER_FACING: frozenset[str] = frozenset({
     "/api/chat", "/api/chat/stream", "/api/chat/threads", "/api/chat/threads/{thread_id}",
     # prabhasa-nyaya: a legal question answered from sources and checked. The product's first domain surface.
     "/api/nyaya/ask", "/api/nyaya/audit", "/api/nyaya/corpus", "/api/nyaya/vendors", "/api/nyaya/asks",
-    # The twenty-three BNS/IPC registry contracts (Track A T5b) -- a manual element-audit surface, distinct
-    # from the citation-shaped checker="lean" path above; see application/nyaya.py's registry_check.
+    # The twenty-one BNS/IPC registry contracts (Track A T5b, minus BNSS 187 excluded contracts) --
+    # a manual element-audit surface, distinct from the citation-shaped checker="lean" path above;
+    # see application/nyaya.py's registry_check.
     "/api/nyaya/registry/contracts", "/api/nyaya/registry/{contract_id}/elements", "/api/nyaya/registry/check",
     # L4 partner API (LEG-PLAN-2026-09-23): the agentic loop over the same registry contracts, facts in.
     "/api/v1/analyse-facts",
