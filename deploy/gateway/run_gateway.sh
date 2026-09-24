@@ -20,6 +20,8 @@
 #                   /api/v1/analyse-facts agent calls, reached by container name on a shared docker network
 #                   (e.g. http://vllm-judge:8000/v1 on network nyaya-judge) -- the host's 127.0.0.1 is not
 #                   reachable from an engine container, and docker0 -> host is firewalled on this box
+#                   optional PRODUCT_DEMO_ANON_PATHS: comma list passed to the PRODUCT engine only as
+#                   PRAVRUDHI_DEMO_ANON_PATHS (anonymous demo routes; the engine refuses any outside its fixed set)
 #   supabase.env    SUPABASE_URL (token verification)
 #   chat.env        the vendor key the engine routes to (a cost the operator has accepted)
 #   github.env      GITHUB_TOKEN, only to fetch release wheels past the anonymous rate limit when building
@@ -116,6 +118,10 @@ ensure_engine() {
   if [ "$edition" = studio ]; then
     data="${STUDIO_ROOT:-$STATE/studio}"
     extra=(-e "PRAVRUDHI_ADMINS=$PRAVRUDHI_ADMINS" --user "$(id -u):$(id -g)" -e HOME=/tmp)   # Studio admits only the operator
+  fi
+  # The anonymous-demo allowance (identity.DEMO_ANON_CAPABLE) is for the product edition only: Studio stays login-only.
+  if [ "$edition" = product ] && [ -n "${PRODUCT_DEMO_ANON_PATHS:-}" ]; then
+    extra+=(-e "PRAVRUDHI_DEMO_ANON_PATHS=$PRODUCT_DEMO_ANON_PATHS")
   fi
   mkdir -p "$data"
   docker run -d --name "$name" --restart unless-stopped --memory 3g \
