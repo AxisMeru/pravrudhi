@@ -113,9 +113,20 @@ _NOT_TOKENS = (" not", "not")
 _HOUSE_FACT = re.compile(r"^\s*established\s+([^\s:]+)")
 
 
+#: The training data (element_judgment_combined.jsonl) carries the scenario narrative as a fact row under
+#: this reserved id, but the judge was TRAINED on prompts that drop it from `Available facts:` -- it is
+#: already the `Scenario:` line, and showing it again as `[F_narrative] ...` collapses the model's
+#: established-probability (measured live: ~0.99 -> ~0.08 on affected elements). A caller whose
+#: `request.facts` still carries this row (e.g. built straight off that jsonl schema, as batch/eval scoring
+#: is) must not have it doubled here.
+_NARRATIVE_FACT_ID = "F_narrative"
+
+
 def build_house_prompt(request: JudgeRequest, *, statute_chars: int) -> str:
-    """The element judge's training prompt, byte for byte (no few-shots)."""
-    facts_block = "\n".join(f"[{fid}] {text}" for fid, text in request.facts)
+    """The element judge's training prompt, byte for byte (no few-shots). `request.facts` may carry a
+    `F_narrative` row (see `_NARRATIVE_FACT_ID`); it is excluded from `Available facts:` here, never shown
+    twice with `Scenario:`."""
+    facts_block = "\n".join(f"[{fid}] {text}" for fid, text in request.facts if fid != _NARRATIVE_FACT_ID)
     return (
         f"Statute: {request.statute[:statute_chars]}\n"
         f"Scenario: {request.narrative}\n"
@@ -140,9 +151,16 @@ def p_established_from_top_logprobs(top: Mapping[str, float]) -> float:
 
 
 def parse_house_fact_id(text: str) -> str | None:
-    """`established <fact_id>[:<start>:<end>]` -> `fact_id`; anything else -> `None`. Offsets are ignored."""
+    """`established <fact_id>[:<start>:<end>]` -> `fact_id`; anything else -> `None`. Offsets are ignored.
+
+    `F_narrative` is never a legitimate answer -- `build_house_prompt` never shows it in `Available facts:`
+    (above), so a completion naming it anyway (a caller whose `request.facts` still carries that row, or a
+    hallucination) is read as no fact id at all, exactly like an unparseable completion. This is the single
+    choke point both `HouseJudge` and `TypedHouseJudge` read a fact id through, so the guard covers both."""
     m = _HOUSE_FACT.match(text)
-    return m.group(1) if m else None
+    if m is None or m.group(1) == _NARRATIVE_FACT_ID:
+        return None
+    return m.group(1)
 
 
 class HouseJudge:
