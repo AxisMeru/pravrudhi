@@ -140,6 +140,8 @@ USER_FACING: frozenset[str] = frozenset({
     # The fourteen BNS/IPC registry contracts (Track A T5b) -- a manual element-audit surface, distinct
     # from the citation-shaped checker="lean" path above; see application/nyaya.py's registry_check.
     "/api/nyaya/registry/contracts", "/api/nyaya/registry/{contract_id}/elements", "/api/nyaya/registry/check",
+    # L4 partner API (LEG-PLAN-2026-09-23): the agentic loop over the same registry contracts, facts in.
+    "/api/v1/analyse-facts",
     "/api/doctor",
     "/api/health", "/api/status",
     "/api/me",

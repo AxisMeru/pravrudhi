@@ -1259,6 +1259,11 @@ def create_app(root: Path, *, nyaya_ask_fn: Any | None = None) -> FastAPI:
     from pravrudhi.api.nyaya import build_nyaya_router
 
     app.include_router(build_nyaya_router(root, ask_fn=nyaya_ask_fn))
+    # L4 partner API (docs/decisions/LEG-PLAN-2026-09-23.md): /api/v1, starting with analyse-facts. Not
+    # tenancy-scoped yet -- see partner.py's own module docstring.
+    from pravrudhi.api.partner import build_partner_router
+
+    app.include_router(build_partner_router(root))
     # The run subsystem — starting work, watching it, stopping it — was written, tested and never mounted, so
     # `/api/runs` answered 404 and nothing in the product could begin anything. The desktop application could
     # sign in, list workspaces and set a band, and then had no way to act, because the route that acts was not
