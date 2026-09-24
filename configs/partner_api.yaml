@@ -13,6 +13,11 @@ rate_limit_per_minute: 6
 # a 503 immediately, never queued.
 max_concurrent: 2
 
+# Hard cap on distinct rate-limiter keys (IPs) held in memory at once -- real IP rotation must not grow
+# this table without bound. LRU + stale-window eviction keeps it at or under this regardless of how many
+# distinct callers actually show up.
+rate_limit_max_keys: 10000
+
 # Whether to trust an "X-Forwarded-For" header for the caller's IP (true only behind a proxy this
 # deployment's own operator controls and that is known to set the header truthfully -- e.g. the Cloudflare
 # tunnel in front of the hosted engine). False (the default) reads the raw socket peer address instead,

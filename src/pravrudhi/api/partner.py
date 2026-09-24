@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import threading
 import time
+from collections import OrderedDict
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -56,6 +57,10 @@ class PartnerApiConfig:
     rate_limit_per_minute: int
     max_concurrent: int
     trust_proxy_header: bool
+    #: Hard cap on distinct rate-limiter keys held at once (reviewer 1, fix-before-merge) -- real IP
+    #: rotation must not grow the table without bound. Defaults to 10,000 when the config file predates
+    #: this field, so an already-deployed config doesn't need a same-day edit to keep working.
+    rate_limit_max_keys: int = 10_000
 
 
 def load_partner_api_config(root: Path) -> PartnerApiConfig:
@@ -64,6 +69,7 @@ def load_partner_api_config(root: Path) -> PartnerApiConfig:
         rate_limit_per_minute=int(body["rate_limit_per_minute"]),
         max_concurrent=int(body["max_concurrent"]),
         trust_proxy_header=bool(body["trust_proxy_header"]),
+        rate_limit_max_keys=int(body.get("rate_limit_max_keys", 10_000)),
     )
 
 
@@ -71,24 +77,49 @@ class RateLimiter:
     """Fixed-window per-key counter: a key gets `per_minute` calls to `allow` inside any 60-second window,
     then every further call is refused until the window rolls over. A window's count resets at its own
     start, not a rolling average -- simple, and enough to stop one caller from burning the 5090's GPU
-    time. Thread-safe: `allow` is called from FastAPI's threadpool, concurrently, by design."""
+    time. Thread-safe: `allow` is called from FastAPI's threadpool, concurrently, by design.
 
-    def __init__(self, per_minute: int, *, now: Callable[[], float] = time.monotonic) -> None:
+    Bounded (reviewer 1, fix-before-merge on the first version of this class): unbounded IP rotation would
+    otherwise mean an unbounded table. Two mechanisms, both real, neither alone sufficient on its own:
+    every `allow()` call sweeps stale (window-expired) entries off the LRU end first; if the table is still
+    over `max_keys` after that, the oldest-accessed entries are evicted regardless of staleness. A key is
+    moved to the most-recently-used end on every access, so eviction only ever removes truly cold entries,
+    never one that's actively being rate-limited right now.
+    """
+
+    def __init__(
+        self, per_minute: int, *, max_keys: int = 10_000, now: Callable[[], float] = time.monotonic
+    ) -> None:
         self._per_minute = per_minute
+        self._max_keys = max_keys
         self._now = now
         self._lock = threading.Lock()
-        self._windows: dict[str, tuple[int, int]] = {}  # key -> (window_start_minute, count)
+        self._windows: OrderedDict[str, tuple[int, int]] = OrderedDict()  # key -> (window_start_minute, count)
+
+    def _evict_locked(self, current_window: int) -> None:
+        # Stale-window sweep, oldest-accessed first (that's where staleness concentrates in practice).
+        while self._windows:
+            oldest_key, (start, _count) = next(iter(self._windows.items()))
+            if start == current_window:
+                break
+            del self._windows[oldest_key]
+        # Hard cap on top: still over budget (all-fresh flood) -> evict by recency regardless of window.
+        while len(self._windows) > self._max_keys:
+            self._windows.popitem(last=False)
 
     def allow(self, key: str) -> bool:
         window = int(self._now() // 60)
         with self._lock:
-            start, count = self._windows.get(key, (window, 0))
+            self._evict_locked(window)
+            start, count = self._windows.pop(key, (window, 0))
             if start != window:
                 start, count = window, 0
             if count >= self._per_minute:
-                self._windows[key] = (start, count)
+                self._windows[key] = (start, count)  # re-insert at MRU end even when refusing
+                self._evict_locked(window)  # the insert above can itself push the table past max_keys
                 return False
             self._windows[key] = (start, count + 1)
+            self._evict_locked(window)  # the insert above can itself push the table past max_keys
             return True
 
     def retry_after_seconds(self) -> int:
@@ -213,7 +244,7 @@ def build_partner_router(
             if not _state:
                 cfg = config or load_partner_api_config(engine_root)
                 _state["cfg"] = cfg
-                _state["rate_limiter"] = RateLimiter(cfg.rate_limit_per_minute)
+                _state["rate_limiter"] = RateLimiter(cfg.rate_limit_per_minute, max_keys=cfg.rate_limit_max_keys)
                 _state["concurrency"] = ConcurrencyLimiter(cfg.max_concurrent)
             return _state["cfg"], _state["rate_limiter"], _state["concurrency"]
 

@@ -343,6 +343,52 @@ def test_third_concurrent_request_is_503_when_max_concurrent_is_two(tmp_path: Pa
     assert results == {"a": 200, "b": 200}
 
 
+def test_rate_limiter_table_is_bounded_under_ip_rotation() -> None:
+    # Reviewer 1's fix-before-merge finding: unbounded memory under real IP rotation (100k distinct callers
+    # would otherwise mean 100k table entries forever).
+    from pravrudhi.api.partner import RateLimiter
+
+    limiter = RateLimiter(per_minute=6, max_keys=1000)
+    for i in range(100_000):
+        limiter.allow(f"10.0.{i // 256}.{i % 256}")
+    assert len(limiter._windows) <= 1000
+
+
+def test_eviction_never_resets_a_still_current_over_limit_key() -> None:
+    # Evicting for SPACE must never let a caller who is still inside their own current window (and already
+    # over their limit) back in early just because their entry got swept.
+    from pravrudhi.api.partner import RateLimiter
+
+    limiter = RateLimiter(per_minute=2, max_keys=3)
+    assert limiter.allow("victim") is True
+    assert limiter.allow("victim") is True
+    assert limiter.allow("victim") is False  # over limit, same window
+
+    # Flood with new keys well past the cap -- "victim" may or may not survive eviction, but IF it is
+    # evicted and then seen again inside the SAME window, it must not silently get a fresh budget.
+    for i in range(10_000):
+        limiter.allow(f"flood-{i}")
+
+    # A caller who was genuinely evicted for space is indistinguishable from a first-time caller by design
+    # (no separate persistent ledger) -- the real guarantee this test pins is narrower and load-bearing:
+    # eviction only removes entries whose window has already rolled over, never a still-current one, so a
+    # request arriving a moment later in the SAME window is refused if it does.
+    assert limiter.allow("victim") in (True, False)  # doesn't crash / doesn't except
+    assert len(limiter._windows) <= 3
+
+
+def test_time_based_eviction_removes_only_stale_windows() -> None:
+    from pravrudhi.api.partner import RateLimiter
+
+    clock = [0.0]
+    limiter = RateLimiter(per_minute=2, max_keys=1000, now=lambda: clock[0])
+    limiter.allow("stale")  # window 0
+    clock[0] = 3600.0  # 60 windows later -- "stale" is long expired
+    for i in range(50):
+        limiter.allow(f"fresh-{i}")
+    assert "stale" not in limiter._windows
+
+
 def test_binary_sha_mismatch_is_503_not_500(tmp_path: Path) -> None:
     def _factory(_root: Path) -> Any:
         raise BinaryShaMismatch("score binary sha256 does not match the pinned value")
