@@ -4,8 +4,9 @@
 # The Lean `score` binary the loop checks every assembled wire with, and the FULL sha256 it must have.
 # A binary whose hash differs is refused before any call (never "close enough"). Relative to the repo root;
 # the PRABHASA_NYAYA_SCORE_BIN environment variable wins, same as configs/nyaya_gold.yaml.
+# The binary specified here is the 25-contract version (BNS 80 and BNS 108 added).
 score_bin: ../prabhasa-nyaya/lean/.lake/build/bin/score
-pinned_score_sha256: cff3bee2b296e6dcca6016ad985c8524fdc7f1711f707d0194435abad619c1ba
+pinned_score_sha256: 97d4bc34c5c617cc8ae8e79e4b7d69706b2e6fc5ff8379361a3eea0ae45717d8
 
 # The house element judge: an OpenAI-compatible vLLM server serving the fine-tuned element judge.
 # `model: null` means "the first id the server's own /v1/models lists".

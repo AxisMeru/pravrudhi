@@ -27,9 +27,10 @@ from typing import Any
 
 from pravrudhi.application.nyaya_gold_score import score_bin_path
 
-#: The twenty-one registry Contract ids `contractForId` in `lean/Score.lean` that conform to the wire
+#: The twenty-five registry Contract ids `contractForId` in `lean/Score.lean` that conform to the wire
 #: grammar spec. Expanded from the original fourteen to include BNS 316 (misappropriation, use_or_disposal,
-#: wilfully_suffers), BNS 318 (property, damaging_act), and BNS 217 (misdirected_act, abuse_of_power).
+#: wilfully_suffers), BNS 318 (property, damaging_act), BNS 217 (misdirected_act, abuse_of_power),
+#: BNS 80 (dowry death), and BNS 108 (abetment of suicide).
 #: Hand-listed here for fast validation before a subprocess call -- kept honest by
 #: `tests/test_nyaya_lean_registry.py`'s drift test, which reads the binary's OWN `--list-contracts`
 #: output and asserts it unions exactly with EXCLUDED_CONTRACT_IDS (the lead's explicit no-drift requirement:
@@ -44,6 +45,7 @@ KNOWN_CONTRACT_IDS: frozenset[str] = frozenset(
         "bns316_misappropriation", "bns316_use_or_disposal", "bns316_wilfully_suffers",
         "bns318_property", "bns318_damaging_act",
         "bns217_misdirected_act", "bns217_abuse_of_power",
+        "bns80", "bns108",
     }
 )
 

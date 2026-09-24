@@ -33,8 +33,8 @@ from pravrudhi.application.nyaya_agent import (
 from pravrudhi.application.nyaya_judges import ElementJudgment, JudgeOutputError, JudgeRequest
 
 REPO = Path(__file__).resolve().parent.parent
-SCORE_BIN = Path("/home/ss/projects/prabhasa-nyaya/.worktrees/trackA-wave1/lean/.lake/build/bin/score")
-PINNED = "cff3bee2b296e6dcca6016ad985c8524fdc7f1711f707d0194435abad619c1ba"
+SCORE_BIN = Path("/home/ss/projects/prabhasa-nyaya/.worktrees/trackA-fix-bnss187-conduct/lean/.lake/build/bin/score")
+PINNED = "97d4bc34c5c617cc8ae8e79e4b7d69706b2e6fc5ff8379361a3eea0ae45717d8"
 requires_score_bin = pytest.mark.skipif(
     not SCORE_BIN.exists(), reason=f"the pinned prabhasa-nyaya score binary is not built on this host ({SCORE_BIN})"
 )
@@ -179,7 +179,7 @@ class TestIngest:
 
 
 class TestSelectContracts:
-    LISTED = reg.parse_list_contracts((_FIXTURES / "499a39ed_list_contracts.txt").read_text())
+    LISTED = reg.parse_list_contracts((_FIXTURES / "97d4bc34_list_contracts.txt").read_text())
 
     def test_default_is_every_listed_contract_the_checker_knows_in_binary_order(self) -> None:
         chosen = select_contracts(self.LISTED)
@@ -189,7 +189,7 @@ class TestSelectContracts:
         assert "bnss187_extended_serious" not in chosen
         assert "bnss187_extended_other" not in chosen
         # But all other contracts should be present
-        assert len(chosen) == len(self.LISTED) - 2  # 23 - 2 excluded = 21
+        assert len(chosen) == len(self.LISTED) - 2  # 25 - 2 excluded = 23
 
     def test_named_ids_keep_the_binary_order_not_the_callers(self) -> None:
         assert select_contracts(self.LISTED, contract_ids=["bns85", "ipc416"]) == ["ipc416", "bns85"]

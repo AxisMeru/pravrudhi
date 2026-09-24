@@ -94,7 +94,9 @@ class AgentConfig:
 
 def load_agent_config(root: Path) -> AgentConfig:
     """`configs/nyaya_agent.yaml` under `root`; relative paths resolve against `root`. The score binary path
-    follows `nyaya_gold_score.score_bin_path`'s precedence (env var first) when the file names none."""
+    follows `nyaya_gold_score.score_bin_path`'s precedence (env var first) when the file names none. The house
+    judge's base_url can be overridden by NYAYA_HOUSE_JUDGE_BASE_URL env var (for container deployments where
+    localhost does not refer to the host)."""
     import yaml
 
     from pravrudhi.application.nyaya_gold_score import SCORE_BIN_ENV, score_bin_path
@@ -109,6 +111,10 @@ def load_agent_config(root: Path) -> AgentConfig:
     else:
         score_bin = score_bin_path(root)
     low, high = body["refer_band"]
+    house_judge = dict(body.get("house_judge") or {})
+    # Allow env override for judge base_url (container deployments)
+    if os.environ.get("NYAYA_HOUSE_JUDGE_BASE_URL"):
+        house_judge["base_url"] = os.environ["NYAYA_HOUSE_JUDGE_BASE_URL"]
     return AgentConfig(
         tau=float(body["tau"]),
         refer_band=(float(low), float(high)),
@@ -117,7 +123,7 @@ def load_agent_config(root: Path) -> AgentConfig:
         judge_statute_text={str(k): str(v) for k, v in (body.get("judge_statute_text") or {}).items()},
         pinned_score_sha256=body.get("pinned_score_sha256"),
         score_bin=score_bin,
-        house_judge=dict(body.get("house_judge") or {}),
+        house_judge=house_judge,
     )
 
 

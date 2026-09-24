@@ -1,0 +1,25 @@
+ipc405_misappropriation	Indian Penal Code §405
+ipc405_use_or_disposal	Indian Penal Code §405
+ipc405_wilfully_suffers	Indian Penal Code §405
+ipc415_property	Indian Penal Code §415
+ipc415_damaging_act	Indian Penal Code §415
+ipc416	Indian Penal Code §416
+ipc182_misdirected_act	Indian Penal Code §182
+ipc182_abuse_of_power	Indian Penal Code §182
+bns69	Bharatiya Nyaya Sanhita §69
+bns47	Bharatiya Nyaya Sanhita §47
+bns85	Bharatiya Nyaya Sanhita §85; Bharatiya Nyaya Sanhita §86
+bns46_instigation	Bharatiya Nyaya Sanhita §45; Bharatiya Nyaya Sanhita §46
+bns46_conspiracy	Bharatiya Nyaya Sanhita §45; Bharatiya Nyaya Sanhita §46
+bns46_intentional_aid	Bharatiya Nyaya Sanhita §45; Bharatiya Nyaya Sanhita §46
+bns316_misappropriation	Bharatiya Nyaya Sanhita §316
+bns316_use_or_disposal	Bharatiya Nyaya Sanhita §316
+bns316_wilfully_suffers	Bharatiya Nyaya Sanhita §316
+bns318_property	Bharatiya Nyaya Sanhita §318
+bns318_damaging_act	Bharatiya Nyaya Sanhita §318
+bns217_misdirected_act	Bharatiya Nyaya Sanhita §217
+bns217_abuse_of_power	Bharatiya Nyaya Sanhita §217
+bnss187_extended_serious	Bharatiya Nagarik Suraksha Sanhita §187
+bnss187_extended_other	Bharatiya Nagarik Suraksha Sanhita §187
+bns80	Bharatiya Nyaya Sanhita §80
+bns108	Bharatiya Nyaya Sanhita §108
