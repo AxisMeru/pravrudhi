@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -28,7 +29,8 @@ from pravrudhi.application.typed.decoder import score_decision  # noqa: E402
 from pravrudhi.application.typed.house_judge import _STATUS_FIELD  # noqa: E402
 from pravrudhi.models.openai_compat import ChatClient  # noqa: E402
 
-PROMPTS = Path("/home/ss/fusion-project/tmp_scratch/lead2/eval14b/prompts.jsonl")
+# No host path is committed here. Set PRAVRUDHI_T1_PARITY_PROMPTS to the 279-prompt file; the script refuses
+# with a clear message when unset, and hash-checks whatever it points to before using it either way.
 EXPECTED_SHA = "d56c449f9332f22a85176b1008974c1f147a7b8d45e4f5cea0e5ed08a01935cf"
 
 BASE_URL = "http://127.0.0.1:8110/v1"
@@ -38,11 +40,16 @@ TOP_LOGPROBS = 20
 
 
 def main() -> int:
-    digest = hashlib.sha256(PROMPTS.read_bytes()).hexdigest()
-    if digest != EXPECTED_SHA:
-        print(f"REFUSING: {PROMPTS} sha256 {digest} != expected {EXPECTED_SHA}", file=sys.stderr)
+    env_path = os.environ.get("PRAVRUDHI_T1_PARITY_PROMPTS")
+    if not env_path:
+        print("REFUSING: PRAVRUDHI_T1_PARITY_PROMPTS is not set (no host-path default)", file=sys.stderr)
         return 2
-    rows = [json.loads(line) for line in PROMPTS.read_text().splitlines() if line.strip()]
+    prompts = Path(env_path)
+    digest = hashlib.sha256(prompts.read_bytes()).hexdigest()
+    if digest != EXPECTED_SHA:
+        print(f"REFUSING: {prompts} sha256 {digest} != expected {EXPECTED_SHA}", file=sys.stderr)
+        return 2
+    rows = [json.loads(line) for line in prompts.read_text().splitlines() if line.strip()]
     print(f"{len(rows)} prompts, sha256 confirmed. Backend: {BASE_URL}")
 
     client = ChatClient(base_url=BASE_URL, model="", timeout_s=60)
