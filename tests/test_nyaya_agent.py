@@ -525,10 +525,13 @@ class TestSecondJudgeReferBand:
         assert c.uncertain_second == []
         assert c.outcome == "ABSTAIN" and c.reason == "missing_element"
 
-    def test_second_unavailable_fails_closed_without_an_extra_refer(self, tmp_path: Path) -> None:
-        """The second judge errors (unavailable): the element fails closed (not established) exactly as today,
-        and is never additionally referred by the logit-distance band -- there is no p to compare. (EL0's own
-        second is far outside the band here, so the contract's outcome turns only on EL1.)"""
+    def test_second_unavailable_fails_closed_but_refers_the_contract(self, tmp_path: Path) -> None:
+        """Lead-2, 2026-09-24: the second judge errors (unavailable) -- the ELEMENT still fails closed (not
+        established, unchanged), and is never additionally referred by the logit-distance band -- there is no
+        p to compare. But the CONTRACT now becomes REFER_TO_LAWYER instead of an ordinary DENIAL/ABSTAIN,
+        because a fail-closed element is not the same as a genuinely-not-established one: the second opinion
+        was never actually obtained. (EL0's own second is far outside the band here, so the contract's outcome
+        turns only on EL1.)"""
         script = _proof_script(TOY_FACTS)
         c = self._run(tmp_path, script, {BNS69_EL[0]: [_second("established", 0.5)],
                                          BNS69_EL[1]: [ConnectionError("second judge unreachable")]}, delta=0.2)
@@ -537,8 +540,31 @@ class TestSecondJudgeReferBand:
         assert el1.p_established_second is None
         assert el1.second_skip_reason is not None and "second_unavailable" in el1.second_skip_reason
         assert el1.second_refer_band_fired is False
+        assert el1.second_unavailable is True
         assert c.uncertain_second == []
-        assert c.outcome == "ABSTAIN" and c.reason == "missing_element"
+        assert c.unavailable_second == [BNS69_EL[1]]
+        assert c.outcome == "REFER_TO_LAWYER" and c.reason == "second_judge_unavailable"
+
+    def test_second_unavailable_refers_even_with_no_delta_configured(self, tmp_path: Path) -> None:
+        """The unavailable->REFER rule does not depend on `second_judge.refer_logit_delta` being set at all --
+        it fires purely off `second_skip_reason`, unconditionally, unlike the logit-distance band."""
+        script = _proof_script(TOY_FACTS)
+        c = self._run(tmp_path, script, {BNS69_EL[0]: [_second("established", 0.99)],
+                                         BNS69_EL[1]: [ConnectionError("second judge unreachable")]}, delta=None)
+        assert c.outcome == "REFER_TO_LAWYER" and c.reason == "second_judge_unavailable"
+        assert c.unavailable_second == [BNS69_EL[1]]
+
+    def test_second_unavailable_takes_priority_over_final_outcome_but_after_the_bands(self, tmp_path: Path) -> None:
+        """When one element hits the logit-distance band AND another element's second judge is unavailable,
+        the band's `uncertain_second_judge` reason wins (checked first) -- both lists are still populated, only
+        the reported `reason` picks one, same composition rule as the primary/second band interaction above."""
+        script = _proof_script(TOY_FACTS)
+        c = self._run(tmp_path, script, {BNS69_EL[0]: [_second("established", 0.975)],  # inside delta=0.2 band
+                                         BNS69_EL[1]: [ConnectionError("second judge unreachable")]}, delta=0.2)
+        assert c.outcome == "REFER_TO_LAWYER"
+        assert c.reason == "uncertain_second_judge"
+        assert c.uncertain_second == [BNS69_EL[0]]
+        assert c.unavailable_second == [BNS69_EL[1]]  # still recorded, just not the reported reason
 
     def test_records_p_second_tau_and_distance_on_the_element(self, tmp_path: Path) -> None:
         p2 = 0.975
@@ -825,3 +851,107 @@ class TestJudgeConfigurationFault:
         judge = ScriptedJudge({el: [self._fault(503)] for el in BNS69_EL + [BNS69_DENY]})
         run = NyayaAgent(judge, _registry(), _config(tmp_path)).run(TOY_FACTS, contract_ids=["bns69"])
         assert run.contracts[0].outcome != "PROOF"
+
+
+class TestSecondBandReproducesSignedEndpointCounts:
+    """Reproduces the signed served_C REFER-band counts on the production-candidate serverless endpoint's
+    32B raw (T2-HARNESS-CONFIGC-ENDPOINT-32B-RESULTS-2026-09-24.md, sha
+    6766dda20cee0a4fbb473840550ee40c612aab2c0d1fbd16f661c1b9866ca3ad): 6/10/15 of 109 decided items referred
+    at delta=0.125/0.25/0.375. Uses the SHIPPED `nyaya_agent._logit` distance function -- the same one
+    `_second_band_info` calls in production -- never a reimplementation of the math, so this proves the
+    engine code (not just the measurement script that originally produced these numbers) reproduces them.
+
+    Host-specific sealed artifacts, not committed: skips cleanly when the env vars aren't set, per this
+    project's standing rule (no host path defaults, no silent skip-as-pass -- an unset env var here means
+    "not configured", printed as the skip reason, not a false green)."""
+
+    ENDPOINT_32B_SHA256 = "5fc22c0c1ccb509c6e51b1ccf7d6c10d8fb134b007aec2cc20f2faba73a51c78"
+    TAU = 0.97
+
+    _SCORES_ENV = "PRAVRUDHI_NYAYA_AGENT_TEST_ENDPOINT_32B_SCORES"
+    _VERDICTS_ENV = "PRAVRUDHI_NYAYA_AGENT_TEST_ENDPOINT_SERVED_C_VERDICTS"
+    _scores_path = os.environ.get(_SCORES_ENV)
+    _verdicts_path = os.environ.get(_VERDICTS_ENV)
+    requires_sealed_endpoint = pytest.mark.skipif(
+        not (_scores_path and _verdicts_path and Path(_scores_path).exists() and Path(_verdicts_path).exists()),
+        reason=(
+            f"sealed endpoint served_C artifacts not configured on this host "
+            f"(set {_SCORES_ENV} and {_VERDICTS_ENV})"
+        ),
+    )
+
+    def _load(self) -> tuple[dict[tuple[str, str], float], list[dict[str, Any]]]:
+        from pravrudhi.application.nyaya_agent import _logit  # noqa: F401 -- imported by callers below
+
+        scores_path = Path(self._scores_path)  # type: ignore[arg-type]
+        raw = scores_path.read_bytes()
+        digest = hashlib.sha256(raw).hexdigest()
+        assert digest == self.ENDPOINT_32B_SHA256, (
+            f"{scores_path} sha256 {digest} != R2-signed {self.ENDPOINT_32B_SHA256} -- refusing to reproduce "
+            "the signed counts against an unverified file"
+        )
+        served_32b: dict[tuple[str, str], float] = {}
+        for r in (json.loads(line) for line in raw.decode().splitlines() if line.strip()):
+            item_id, element_id = r["id"].rsplit("__", 1)  # element_id never itself contains "__"
+            served_32b[(item_id, element_id)] = r["p_established"]
+        verdicts_path = Path(self._verdicts_path)  # type: ignore[arg-type]
+        verdicts = [json.loads(line) for line in verdicts_path.read_text().splitlines() if line.strip()]
+        return served_32b, verdicts
+
+    @requires_sealed_endpoint
+    @pytest.mark.parametrize("delta,expected_referred,expected_decided", [(0.125, 6, 109), (0.25, 10, 109), (0.375, 15, 109)])
+    def test_reproduces_signed_referred_count(
+        self, delta: float, expected_referred: int, expected_decided: int
+    ) -> None:
+        from pravrudhi.application.nyaya_agent import _logit
+
+        served_32b, verdicts = self._load()
+        decided = [
+            r for r in verdicts
+            if (r["partition"] == "full_ir_gold" and r["checker_pass"] is True)
+            or (r["partition"] == "negatives" and r["false_prove"])
+        ]
+        assert len(decided) == expected_decided  # the signed doc's own "109 decided" premise
+
+        logit_tau = _logit(self.TAU)
+        referred_items: set[str] = set()
+        for r in decided:
+            elem_ids = {eid for (iid, eid) in served_32b if iid == r["item_id"]}
+            for eid in elem_ids:
+                p32 = served_32b.get((r["item_id"], eid))
+                if p32 is None:
+                    continue
+                if abs(_logit(p32) - logit_tau) < delta:  # the shipped band's own strict "<", never "<="
+                    referred_items.add(r["item_id"])
+                    break
+
+        assert len(referred_items) == expected_referred
+
+    @requires_sealed_endpoint
+    def test_delta_grid_is_monotone_non_decreasing(self) -> None:
+        """A wider delta can only catch the same items or more, never fewer -- sanity-checks the three
+        parametrized counts above are internally consistent with each other, not just individually correct."""
+        from pravrudhi.application.nyaya_agent import _logit
+
+        served_32b, verdicts = self._load()
+        decided = [
+            r for r in verdicts
+            if (r["partition"] == "full_ir_gold" and r["checker_pass"] is True)
+            or (r["partition"] == "negatives" and r["false_prove"])
+        ]
+        logit_tau = _logit(self.TAU)
+
+        def referred_count(delta: float) -> int:
+            items: set[str] = set()
+            for r in decided:
+                elem_ids = {eid for (iid, eid) in served_32b if iid == r["item_id"]}
+                for eid in elem_ids:
+                    p32 = served_32b.get((r["item_id"], eid))
+                    if p32 is not None and abs(_logit(p32) - logit_tau) < delta:
+                        items.add(r["item_id"])
+                        break
+            return len(items)
+
+        counts = [referred_count(d) for d in (0.125, 0.25, 0.375)]
+        assert counts == sorted(counts)
+        assert counts == [6, 10, 15]

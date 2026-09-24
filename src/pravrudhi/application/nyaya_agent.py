@@ -38,8 +38,15 @@ Rules enforced here rather than asked of a judge:
   at that resolution. `config.second_judge.refer_logit_delta` (env `NYAYA_SECOND_JUDGE_REFER_LOGIT_DELTA`),
   default `None` (off), makes the element 'uncertain' (`uncertain_second_judge`) when the second judge was
   actually consulted and `|logit(p_established_second) - logit(tau_second)| < delta` (strict; equal to delta is
-  NOT in band). It never fires when the primary already rejected (second skipped) or the second failed closed
-  (unavailable) -- those keep their existing outcomes unchanged.
+  NOT in band). It never fires when the primary already rejected (second skipped) -- there is no second p to
+  compare, and the element keeps its existing skipped outcome unchanged.
+* **An unavailable second judge is referred, never silently denied (Lead-2, 2026-09-24).** When the second
+  judge errors after being consulted (not a configuration fault -- those still raise via `JudgeMisconfigured`,
+  unchanged), `AndGateJudge` fails the element closed (not established) exactly as before, but the CONTRACT now
+  becomes REFER_TO_LAWYER (`second_judge_unavailable`), unconditionally -- with no `refer_logit_delta`
+  required and independent of the primary's own outcome for other elements. Before this, a fail-closed element
+  was scored as an ordinary not-established fact, which could surface to the user as a false DENIAL rather than
+  a case that needed a lawyer's attention because the second opinion was never actually obtained.
 * **The judge sees one statute text.** Its training text (config `judge_statute_text`) on every attempt; a
   contract with none is not judged (ABSTAIN, `no_training_statute_text`).
 * **A judge that cannot answer is a gap.** An element whose judge raised on every attempt makes the contract
@@ -511,6 +518,12 @@ class ElementResult:
     second_skip_reason: str | None = None
     second_logit_distance: float | None = None
     second_refer_band_fired: bool = False
+    #: True iff `second_skip_reason` records the second judge failing closed after an error (AndGateJudge's
+    #: `second_unavailable: ...` prefix) -- distinct from `primary_not_established` (an ordinary skip, never a
+    #: REFER on its own) and from the logit-distance band above (there is no `p_established_second` to compare
+    #: in this case). Lead-2, 2026-09-24: a second-judge error must surface as REFER_TO_LAWYER, not silently
+    #: become an ordinary not-established fact that can drive a false DENIAL.
+    second_unavailable: bool = False
 
 
 @dataclass
@@ -530,6 +543,10 @@ class ContractResult:
     #: `second_refer_logit_delta` is off -- the default). Distinct from `uncertain` (the primary's own band):
     #: an element can appear in either, both, or neither.
     uncertain_second: list[str] = field(default_factory=list)
+    #: Elements whose second judge was unavailable (errored, not a config fault) and failed closed. Always []
+    #: when there is no second judge. Distinct from `uncertain_second`: this fires unconditionally on a second-
+    #: judge error, with no `second_refer_logit_delta` needed and no p-value to compare.
+    unavailable_second: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -595,18 +612,26 @@ def _second_band_info(anchor: ElementJudgment | None, delta: float | None) -> di
     """Attempt 1's second-judge fields for `ElementResult` (module doc, "the second judge gets its own band"):
     `second_refer_band_fired` is True only when the second judge was actually asked and answered --
     `p_established_second` and `tau_second` both present -- AND `delta` is configured AND the logit distance is
-    STRICTLY less than it (`< delta`, never `<=`). The two fail-closed paths (`AndGateJudge` recorded
-    `second_skip_reason`: the primary already rejected so the second was never asked, or the second errored and
-    the element failed closed) leave `p_established_second` None here and never reach the band -- a REFER must
-    come from genuine second-judge uncertainty, never as a side effect of a skip."""
+    STRICTLY less than it (`< delta`, never `<=`). The skip path (`second_skip_reason ==
+    "primary_not_established"`) leaves `p_established_second` None here and never reaches the band -- a band
+    REFER must come from genuine second-judge uncertainty, never as a side effect of a skip.
+
+    `second_unavailable` is a SEPARATE signal (Lead-2, 2026-09-24): `AndGateJudge` records
+    `second_skip_reason` starting with `"second_unavailable"` when the second judge errored (not a config
+    fault -- those raise) and the element failed closed. That element has no `p_established_second` to band
+    on, but it must still surface as a REFER, not an ordinary not-established fact -- `_run_contract` checks
+    this flag unconditionally, independent of whether `delta` is even configured."""
     out: dict[str, Any] = {
         "p_established_second": None, "tau_second": None, "second_skip_reason": None,
-        "second_logit_distance": None, "second_refer_band_fired": False,
+        "second_logit_distance": None, "second_refer_band_fired": False, "second_unavailable": False,
     }
     if anchor is None:
         return out
     out["second_skip_reason"] = anchor.second_skip_reason
     out["tau_second"] = anchor.tau_second
+    out["second_unavailable"] = bool(
+        anchor.second_skip_reason and anchor.second_skip_reason.startswith("second_unavailable")
+    )
     if anchor.p_established_second is None or anchor.tau_second is None:
         return out
     out["p_established_second"] = anchor.p_established_second
@@ -877,11 +902,11 @@ class NyayaAgent:
         def finish(outcome: Outcome, reason: str, **kw: Any) -> ContractResult:
             res = ContractResult(contract_id, outcome, reason, results, kw.get("assertions"), kw.get("lean"),
                                  kw.get("lean_outcome"), kw.get("uncertain", []), mismatch,
-                                 kw.get("uncertain_second", []))
+                                 kw.get("uncertain_second", []), unavailable_second=kw.get("unavailable_second", []))
             audit.step("outcome", {"contract_id": contract_id, "elements": [asdict(r) for r in results]},
                        {"contract_id": contract_id, "outcome": outcome, "reason": reason,
                         "lean_outcome": res.lean_outcome, "uncertain": res.uncertain,
-                        "uncertain_second": res.uncertain_second,
+                        "uncertain_second": res.uncertain_second, "unavailable_second": res.unavailable_second,
                         "statute_text_mismatch": mismatch}, 0.0)
             return res
 
@@ -909,8 +934,10 @@ class NyayaAgent:
         lean_outcome = outcome_from_lean(lean)
         uncertain = [r.element for r in results if r.p_established is not None and self.config.in_band(r.p_established)]
         uncertain_second = [r.element for r in results if r.second_refer_band_fired]
+        unavailable_second = [r.element for r in results if r.second_unavailable]
         kw: dict[str, Any] = {"assertions": assertions, "lean": lean, "lean_outcome": lean_outcome,
-                              "uncertain": uncertain, "uncertain_second": uncertain_second}
+                              "uncertain": uncertain, "uncertain_second": uncertain_second,
+                              "unavailable_second": unavailable_second}
 
         if lean_outcome != local:
             return finish("ABSTAIN", "assembly_lean_mismatch", **kw)
@@ -920,6 +947,8 @@ class NyayaAgent:
             return finish("REFER_TO_LAWYER", "uncertain", **kw)
         if uncertain_second:
             return finish("REFER_TO_LAWYER", "uncertain_second_judge", **kw)
+        if unavailable_second:
+            return finish("REFER_TO_LAWYER", "second_judge_unavailable", **kw)
         reason = {"PROOF": "all_elements_established", "DENIAL": "denial_established", "ABSTAIN": "missing_element"}[lean_outcome]
         return finish(lean_outcome, reason, **kw)
 
