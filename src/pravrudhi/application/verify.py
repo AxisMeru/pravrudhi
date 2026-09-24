@@ -24,7 +24,7 @@ from pravrudhi.application.citations import Citation, parse_citations
 # hand measuring resolution precision on 100 real citations (LEG-PLAN P3): mine_aliases's own regex (a run
 # of Title-Case tokens) cannot tell "In" the filler word from "In" a genuine name, since both are
 # Title-Case; this list is the disambiguation `citations.py`'s stricter regex didn't fully cover either.
-_LEADING_FILLER = re.compile(r"^(?:this|that|in|the|court|held|observed|noted)\s+", re.IGNORECASE)
+_LEADING_FILLER = re.compile(r"^(?:this|that|in|the|court|held|observed|noted|see)\s+", re.IGNORECASE)
 # Trailing honorific/plural variants that name the same party ("Anr." vs "Ors." vs the bare name) --
 # stripped for comparison only, never for the stored/displayed party name.
 _TRAILING_HONORIFIC = re.compile(r"\s+(?:and|&)?\s*(?:anr\.?|ors\.?|others?|etc\.?)\s*$", re.IGNORECASE)
@@ -89,19 +89,22 @@ def normalize_party_name(name: str) -> str:
 _FUZZY_THRESHOLD = 0.9
 
 
-def _fuzzy_confirm(conn: sqlite3.Connection, party_1: str, party_2: str, t1: str, t2: str) -> list[sqlite3.Row]:
+def _fuzzy_confirm(conn: sqlite3.Connection, party_1: str, party_2: str) -> list[sqlite3.Row]:
     """The exact `"t1" AND "t2"` FTS5 match found nothing -- fall back to a real spelling variant, e.g.
-    "Ramchandran" (as mined from a citing document) vs "Ramachandran" (the actual corpus title). Widens the
-    FTS query to an OR (a real superset, still cheap: both tokens are still real words from the alias, just
-    not required together) and accepts a candidate only if its title's edit-distance ratio against the full
-    party names is at or above `_FUZZY_THRESHOLD` -- a coincidentally-similar but unrelated title scores far
-    below that in practice (see this function's own tests for the negative case)."""
+    "Ramchandran" (as mined from a citing document) vs "Ramachandran" (the actual corpus title).
+
+    Scans every case's title directly rather than pre-filtering through an FTS `"t1" OR "t2"` query: a real
+    corpus miss (P3 re-measurement, 2026-09-24, idx 69 against the full 38,657-title corpus) showed that
+    pre-filter actively hides the correct match whenever one of the two tokens is generic ("State" alone
+    matched 14,221 titles) -- the real title shares zero tokens with the misspelled name and is just one of
+    thousands of equally-ranked "State" hits, so any LIMIT on the OR query can cut it off before the ratio
+    check ever sees it. A full scan is the conservative-but-correct fix: title-only comparison keeps it to
+    ~1s even at full-corpus scale (this function is a fallback on the already-rare "exact match failed"
+    path, never the hot path), and the `_FUZZY_THRESHOLD` ratio floor still does all the actual filtering --
+    this function widens what gets INSPECTED, not what gets ACCEPTED."""
     target = normalize_party_name(f"{party_1} {party_2}")
-    candidates = conn.execute(
-        "SELECT case_id, title, text FROM cases WHERE title MATCH ? LIMIT 50", (f'"{t1}" OR "{t2}"',)
-    ).fetchall()
     confirmed = []
-    for row in candidates:
+    for row in conn.execute("SELECT case_id, title, text FROM cases"):
         ratio = SequenceMatcher(None, target, normalize_party_name(row["title"])).ratio()
         if ratio >= _FUZZY_THRESHOLD:
             confirmed.append(row)
@@ -166,7 +169,7 @@ def verify(conn: sqlite3.Connection, citation_text: str, quote_or_proposition: s
         "SELECT case_id, text FROM cases WHERE title MATCH ?", (f'"{t1}" AND "{t2}"',)
     ).fetchall()
     if not case_rows:
-        case_rows = _fuzzy_confirm(conn, party_1, party_2, t1, t2)
+        case_rows = _fuzzy_confirm(conn, party_1, party_2)
     if not case_rows:
         return VerifyResult.NOT_IN_INDEX
 

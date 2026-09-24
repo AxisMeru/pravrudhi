@@ -185,6 +185,58 @@ def test_fuzzy_confirmation_resolves_a_real_spelling_variant(db: sqlite3.Connect
     assert result == VerifyResult.VERIFIED
 
 
+def test_fuzzy_confirmation_survives_a_generic_second_token(db: sqlite3.Connection) -> None:
+    # Real verify() miss found re-measuring against the FULL rebuilt corpus (P3, 2026-09-24), after the
+    # narrow unit test above passed: idx 69's real alias is ("Ramchandran & Ors.", "State of Kerala"), and
+    # "State" alone matches 14,221 of 38,657 real case titles. An FTS `"Ramchandran" OR "State"` query capped
+    # at a small LIMIT never reaches the real "Ramachandran Ors vs State Of Kerala" title before the cap cuts
+    # it off -- the real title shares ZERO exact tokens with "Ramchandran" (it's spelled correctly) and is
+    # just one of thousands of "State" matches, indistinguishable from them at the token-match level. This
+    # test reproduces that shape with 60 decoy "...State..." titles (deliberately more than any small LIMIT)
+    # to pin that the fuzzy fallback must not silently miss the real match once the corpus is large enough
+    # for a naive LIMIT to bite.
+    insert_case(
+        db,
+        CaseRecord(
+            case_id="citer4",
+            title="A Later Case",
+            court="Supreme Court",
+            year=2011,
+            source="sc_pdf",
+            path_or_url="/fake/citer4.pdf",
+            text="This Court in Ramchandran & Ors. v. State of Kerala (2011) 9 SCC 257 held that",
+        ),
+    )
+    for i in range(60):
+        insert_case(
+            db,
+            CaseRecord(
+                case_id=f"decoy{i}",
+                title=f"Some Other Party {i} vs The State Of Somewhere",
+                court="Supreme Court",
+                year=2000,
+                source="sc_pdf",
+                path_or_url=f"/fake/decoy{i}.pdf",
+                text="unrelated text",
+            ),
+        )
+    insert_case(
+        db,
+        CaseRecord(
+            case_id="ramachandran-kerala-2",
+            title="Ramachandran Ors vs State Of Kerala",
+            court="Supreme Court",
+            year=2011,
+            source="sc_pdf",
+            path_or_url="/fake/ramachandran2.pdf",
+            text="The appellant's real name is spelled Ramachandran throughout this judgment, correctly.",
+        ),
+    )
+    db.commit()
+    result = verify(db, "(2011) 9 SCC 257", "The appellant's real name is spelled Ramachandran throughout")
+    assert result == VerifyResult.VERIFIED
+
+
 def test_fuzzy_confirmation_never_invents_a_match_with_no_citation_evidence(db: sqlite3.Connection) -> None:
     # No alias at all for this citation -- fuzzy matching must never kick in without a citation-key hit
     # first, even if a case with a similar-looking title happens to exist in the index.
@@ -203,6 +255,16 @@ def test_fuzzy_confirmation_never_invents_a_match_with_no_citation_evidence(db: 
     db.commit()
     result = verify(db, "(2011) 9 SCC 257", "anything")
     assert result == VerifyResult.NOT_IN_INDEX
+
+
+def test_see_leading_filler_normalizes_the_same_as_bare_name(db: sqlite3.Connection) -> None:
+    # Real gap found re-measuring idx 73 against the full rebuilt corpus (P3, 2026-09-24): once the SCC
+    # bracket-variant fix correctly merged all of "State of A.P. v. McDowell"'s citing variants under one
+    # canonical citation key, one of the real aliases read "See State of Andhra Pradesh" -- a citation-style
+    # lead-in word this list didn't cover, so it grouped as a false second party rather than the same one.
+    from pravrudhi.application.verify import normalize_party_name
+
+    assert normalize_party_name("See State of Andhra Pradesh") == normalize_party_name("State of Andhra Pradesh")
 
 
 def test_ampersand_honorific_normalizes_the_same_as_and(db: sqlite3.Connection) -> None:
