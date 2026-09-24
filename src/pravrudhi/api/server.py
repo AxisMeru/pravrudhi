@@ -1253,6 +1253,12 @@ def create_app(root: Path, *, nyaya_ask_fn: Any | None = None) -> FastAPI:
         )
 
     app.include_router(api)
+
+    @app.get("/ping", include_in_schema=False)
+    def ping() -> dict[str, bool]:
+        """RunPod serverless load-balancer liveness: it probes GET /ping, outside /api, so no identity is asked."""
+        return {"ok": True}
+
     app.include_router(build_chat_router(root))
     # prabhasa-nyaya as a product surface: a question of Indian law, answered from sources by any vendor the
     # user can reach, every citation checked against the corpus. User-facing in both editions.
