@@ -58,7 +58,7 @@ import queue
 import time
 import uuid
 from collections.abc import Iterable, Mapping, Sequence
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import CancelledError, ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -423,8 +423,15 @@ class _BufferedAudit:
     def step(self, name: str, inputs: Any, output: Any, wall_ms: float) -> None:
         self._entries.append((name, inputs, output, wall_ms))
 
-    def flush_into(self, audit: AuditTrail) -> None:
+    def flush_into(self, audit: AuditTrail, *, after_fault: bool = False) -> None:
+        """Replays this task's buffered steps into the real trail. `after_fault=True` (a config-fault
+        cancelled the request but THIS task had already started and could not be interrupted mid HTTP-call)
+        tags every dict-shaped output with `after_fault: true` -- the audit must record reality, never pretend
+        a call that actually happened did not. Never set otherwise, so the ordinary (no fault) path's output
+        content is untouched -- byte-identical to a run with no concurrency at all."""
         for name, inputs, output, wall_ms in self._entries:
+            if after_fault and isinstance(output, dict):
+                output = {**output, "after_fault": True}
             audit.step(name, inputs, output, wall_ms)
 
 
@@ -765,7 +772,15 @@ class NyayaAgent:
         `self.judge_pool` (returned to the pool when it finishes, so no instance is ever used by two tasks at
         once); each task's audit steps are buffered while it runs and flushed into `audit`, in the tasks'
         ORIGINAL order, only once every task in this contract has finished -- so the audit trail and result
-        order never depend on which task's HTTP call happens to answer first."""
+        order never depend on which task's HTTP call happens to answer first.
+
+        A configuration fault (`JudgeMisconfigured`, one task's judge refused with a 4xx) is FAIL-FAST: every
+        not-yet-started future is cancelled the moment the fault is seen, so a misconfigured deployment burns
+        at most `workers` calls, never every task. A task already running cannot be interrupted mid HTTP-call
+        and is let finish; its buffered steps are flushed anyway (in the `finally` below, alongside every
+        other task that ran) so the audit records what actually happened, tagged `after_fault: true` since it
+        completed only after the fault was already known. `JudgeMisconfigured` is then re-raised, exactly as
+        the serial path already does."""
         if self.config.max_concurrency <= 1 or len(tasks) <= 1:
             pairs = [
                 self._judge_element(self.judge, audit, contract_id, name, is_denial, statute, facts, narrative)
@@ -797,10 +812,40 @@ class NyayaAgent:
             finally:
                 work_queue.put(j)
 
+        results_by_index: dict[int, tuple[ElementResult, list[JudgeCallRecord]]] = {}
+        after_fault_indices: set[int] = set()
+        fault: JudgeMisconfigured | None = None
         with ThreadPoolExecutor(max_workers=workers) as pool:
-            pairs = list(pool.map(_run, range(len(tasks))))
-        for buf in buffers:
-            buf.flush_into(audit)
+            futures = {pool.submit(_run, i): i for i in range(len(tasks))}
+            try:
+                for fut in as_completed(futures):
+                    i = futures[fut]
+                    already_faulted = fault is not None
+                    try:
+                        results_by_index[i] = fut.result()
+                    except CancelledError:
+                        continue  # never started -- no judge call was ever made, nothing to flush
+                    except JudgeMisconfigured as e:
+                        if fault is None:
+                            fault = e
+                            # Fail-fast: every future not yet started is cancelled now; one already running
+                            # keeps running (see docstring) and is flushed below, tagged `after_fault`.
+                            for other_fut, other_i in futures.items():
+                                if other_i != i:
+                                    other_fut.cancel()
+                        else:
+                            after_fault_indices.add(i)  # a second (or later) task also hit a config fault
+                        continue
+                    if already_faulted:
+                        after_fault_indices.add(i)
+            finally:
+                # Every task that actually made a judge call is flushed, in ORIGINAL task order, whether or
+                # not a fault occurred -- see the docstring.
+                for i, buf in enumerate(buffers):
+                    buf.flush_into(audit, after_fault=i in after_fault_indices)
+        if fault is not None:
+            raise fault
+        pairs = [results_by_index[i] for i in range(len(tasks))]
         return [r for r, _ in pairs], [c for _, calls in pairs for c in calls]
 
     def _run_contract(

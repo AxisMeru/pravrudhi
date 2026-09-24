@@ -26,12 +26,14 @@ import pytest
 from pravrudhi.application import nyaya_lean_registry as reg
 from pravrudhi.application.nyaya_agent import (
     AgentConfig,
+    JudgeMisconfigured,
     NyayaAgent,
     _judge_accounting,
     _judge_call_record,
     load_agent_config,
 )
 from pravrudhi.application.nyaya_judges import ElementJudgment, JudgeRequest
+from pravrudhi.models.openai_compat import HTTPStatusError
 
 REPO = Path(__file__).resolve().parent.parent
 
@@ -79,6 +81,30 @@ class ConcurrentFakeJudge:
         if isinstance(item, Exception):
             raise item
         return item
+
+
+@dataclass
+class SlowFaultJudge:
+    """Thread-safe fake for the config-fault fail-fast tests: `fault_element`'s call raises `fault`
+    IMMEDIATELY (no sleep); every other element's call sleeps `slow_s` before answering established -- long
+    enough that a fail-fast cancellation has time to reach every task still queued behind the busy workers,
+    while a task already running (and so NOT cancellable) is still caught mid-sleep when the fault lands."""
+
+    fault_element: str
+    fault: Exception
+    established: Mapping[str, ElementJudgment]
+    slow_s: float = 0.3
+    name: str = "slow_fault_fake"
+    calls: list[str] = field(default_factory=list)
+    _lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
+
+    def judge(self, request: JudgeRequest) -> ElementJudgment:
+        with self._lock:
+            self.calls.append(request.element)
+        if request.element == self.fault_element:
+            raise self.fault
+        time.sleep(self.slow_s)
+        return self.established[request.element]
 
 
 @dataclass
@@ -364,3 +390,116 @@ class TestRealJudgeConcurrencyIsUnsafeWithoutAPool:
             "thread-safe, NyayaAgent.house's per-worker judge_pool may be relaxed to share one instance; "
             "until then this test's premise, and the pooling, must both be revisited together."
         )
+
+
+class TestConfigFaultFailFast:
+    """R1 (2026-09-24): a config fault (`JudgeMisconfigured`, a 4xx like a bad key) under concurrency must
+    (a) fail fast -- cancel every not-yet-started task rather than burning N calls for a misconfigured
+    deployment, and (b) still record every call that ACTUALLY happened, in original task order, tagging any
+    task that only finished after the fault `after_fault: true` -- never silently drop it, and never let one
+    task's fault erase every other task's already-buffered audit steps."""
+
+    N = 8
+    FAULT_EL = "elF"
+    SLOW_S = 0.25
+    ELEMENTS_F = [FAULT_EL] + [f"el{i}" for i in range(1, N)]
+    FACTS_F = [f"F{i} fact text carrying marker quote{i}." for i in range(1, N + 1)]
+    CONTRACT_F = reg.DescribedContract("bns69", list(ELEMENTS_F), [])
+
+    def _judge(self) -> SlowFaultJudge:
+        established = {
+            el: ElementJudgment("established", 0.9, f"F{i}", f"quote{i}", "model")
+            for i, el in enumerate(self.ELEMENTS_F[1:], start=2)
+        }
+        return SlowFaultJudge(self.FAULT_EL, HTTPStatusError(401, "bad key (test)"), established, slow_s=self.SLOW_S)
+
+    def _agent(self, tmp_path: Path, judge: SlowFaultJudge, max_concurrency: int) -> NyayaAgent:
+        cfg = AgentConfig(
+            tau=0.74, refer_band=(0.5, 0.74), max_retries=0, audit_dir=tmp_path / f"audit_fault_{max_concurrency}",
+            judge_statute_text={self.CONTRACT_F.contract_id: "TRAINING statute text"},
+            max_concurrency=max_concurrency,
+        )
+        return NyayaAgent(judge, FakeRegistry(self.CONTRACT_F), cfg)
+
+    def _audit_path(self, agent: NyayaAgent) -> Path:
+        files = list(agent.config.audit_dir.glob("*.jsonl"))
+        assert len(files) == 1, f"expected exactly one audit file, found {files}"
+        return files[0]
+
+    def test_serial_raises_judge_misconfigured_and_calls_only_up_to_the_fault(self, tmp_path: Path) -> None:
+        judge = self._judge()
+        agent = self._agent(tmp_path, judge, max_concurrency=1)
+        with pytest.raises(JudgeMisconfigured):
+            agent.run(self.FACTS_F, narrative="", contract_ids=[self.CONTRACT_F.contract_id])
+        # Serial: the fault element is first in the list, so nothing after it is ever even attempted.
+        assert judge.calls == [self.FAULT_EL]
+        lines = _audit_lines(self._audit_path(agent))
+        judge_steps = [x for x in lines if x["step"] == "judge"]
+        assert [s["output"]["element"] for s in judge_steps] == [self.FAULT_EL]
+        assert not any(s["output"].get("after_fault") for s in judge_steps)
+
+    def test_concurrent_raises_the_same_exception_type_as_serial(self, tmp_path: Path) -> None:
+        serial_agent = self._agent(tmp_path, self._judge(), max_concurrency=1)
+        with pytest.raises(JudgeMisconfigured) as serial_exc:
+            serial_agent.run(self.FACTS_F, narrative="", contract_ids=[self.CONTRACT_F.contract_id])
+
+        concurrent_agent = self._agent(tmp_path, self._judge(), max_concurrency=2)
+        with pytest.raises(JudgeMisconfigured) as concurrent_exc:
+            concurrent_agent.run(self.FACTS_F, narrative="", contract_ids=[self.CONTRACT_F.contract_id])
+
+        assert type(serial_exc.value) is type(concurrent_exc.value)
+
+    def test_concurrent_fails_fast_some_tasks_never_start(self, tmp_path: Path) -> None:
+        judge = self._judge()
+        agent = self._agent(tmp_path, judge, max_concurrency=2)
+        with pytest.raises(JudgeMisconfigured):
+            agent.run(self.FACTS_F, narrative="", contract_ids=[self.CONTRACT_F.contract_id])
+        # Fail-fast: with 8 tasks and only 2 workers, and every non-fault call sleeping 0.25s, the tasks still
+        # queued behind the busy workers are cancelled long before they could ever start -- at most the two
+        # tasks already dispatched to workers when the (near-instant) fault landed were ever called.
+        assert len(judge.calls) <= 3
+        assert self.FAULT_EL in judge.calls
+
+    def test_audit_records_every_call_actually_made_in_original_order(self, tmp_path: Path) -> None:
+        judge = self._judge()
+        agent = self._agent(tmp_path, judge, max_concurrency=2)
+        with pytest.raises(JudgeMisconfigured):
+            agent.run(self.FACTS_F, narrative="", contract_ids=[self.CONTRACT_F.contract_id])
+        lines = _audit_lines(self._audit_path(agent))
+        judge_steps = [x for x in lines if x["step"] == "judge"]
+        audited_elements = [s["output"]["element"] for s in judge_steps]
+        # Every element the fake judge actually recorded a call for -- and ONLY those -- appears in the
+        # audit, in the tasks' ORIGINAL order (not completion order).
+        assert set(audited_elements) == set(judge.calls)
+        assert audited_elements == [el for el in self.ELEMENTS_F if el in judge.calls]
+        # A task never called leaves no audit trace at all (no partial/placeholder step).
+        for el in self.ELEMENTS_F:
+            if el not in judge.calls:
+                assert el not in audited_elements
+
+    def test_tasks_already_running_are_flushed_tagged_after_fault(self, tmp_path: Path) -> None:
+        judge = self._judge()
+        agent = self._agent(tmp_path, judge, max_concurrency=2)
+        with pytest.raises(JudgeMisconfigured):
+            agent.run(self.FACTS_F, narrative="", contract_ids=[self.CONTRACT_F.contract_id])
+        lines = _audit_lines(self._audit_path(agent))
+        judge_steps = {x["output"]["element"]: x["output"] for x in lines if x["step"] == "judge"}
+        # The fault element's own step is never tagged (it is the CAUSE, not a consequence).
+        assert judge_steps[self.FAULT_EL].get("after_fault") is not True
+        # Any OTHER element that was actually called (it was already running -- sleeping SLOW_S -- when the
+        # fault landed, and could not be interrupted) is flushed anyway, tagged `after_fault: true`.
+        for el, output in judge_steps.items():
+            if el != self.FAULT_EL:
+                assert output.get("after_fault") is True, f"{el} was called but not tagged after_fault"
+
+    def test_cancelled_before_starting_tasks_make_no_call_and_no_audit_step(self, tmp_path: Path) -> None:
+        judge = self._judge()
+        agent = self._agent(tmp_path, judge, max_concurrency=2)
+        with pytest.raises(JudgeMisconfigured):
+            agent.run(self.FACTS_F, narrative="", contract_ids=[self.CONTRACT_F.contract_id])
+        never_called = [el for el in self.ELEMENTS_F if el not in judge.calls]
+        assert never_called  # the whole point of fail-fast: SOME tasks were cancelled before they could start
+        lines = _audit_lines(self._audit_path(agent))
+        judge_steps = [x for x in lines if x["step"] == "judge"]
+        audited = {s["output"]["element"] for s in judge_steps}
+        assert not (set(never_called) & audited)
