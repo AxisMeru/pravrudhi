@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "pravrudhi"
-version = "0.5.27"
+version = "0.5.28"
 description = "Recursive self-improvement engine for language-model systems: run a budgeted night over your own model and harness."
 readme = "README.md"
 requires-python = ">=3.13,<3.14"
@@ -56,6 +56,13 @@ pravrudhi-kernel = { workspace = true }
 [tool.hatch.build.targets.wheel]
 packages = ["src/pravrudhi"]
 include = ["src/pravrudhi/assets/**"]
+
+# The configs a route reads (`application/config_files.py`): an installed engine's root is a data directory with
+# no configs/ of its own, so the wheel carries the release's copies. tests/test_config_files.py keeps this list
+# in step with every `config_file(...)` call site.
+[tool.hatch.build.targets.wheel.force-include]
+"configs/nyaya_agent.yaml" = "pravrudhi/assets/configs/nyaya_agent.yaml"
+"configs/partner_api.yaml" = "pravrudhi/assets/configs/partner_api.yaml"
 
 # The built web interface lives outside src/, so neither `packages` nor `include` reaches it. Without this mapping
 # an installed wheel serves the API with no interface at all, which is the silent degradation `frontend_dir()`

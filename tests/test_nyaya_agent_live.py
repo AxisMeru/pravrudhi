@@ -12,6 +12,7 @@ audited, an outcome in the four) plus one outcome that cannot legitimately be PR
 from __future__ import annotations
 
 import json
+import os
 import urllib.request
 from dataclasses import replace
 from pathlib import Path
@@ -22,7 +23,8 @@ from pravrudhi.application.nyaya_agent import BinaryRegistry, NyayaAgent, load_a
 from pravrudhi.application.nyaya_judges import HouseJudge
 
 REPO = Path(__file__).resolve().parent.parent
-SCORE_BIN = Path("/home/ss/projects/prabhasa-nyaya/.worktrees/trackA-wave1/lean/.lake/build/bin/score")
+#: The pinned binary lives outside this repo; point PRABHASA_NYAYA_SCORE_BIN at it (no host path is committed).
+SCORE_BIN = Path(os.environ.get("PRABHASA_NYAYA_SCORE_BIN", "prabhasa-nyaya-score-not-configured"))
 BASE_URL = "http://127.0.0.1:8110/v1"
 MAX_RETRIES = 1  # keeps the shared server's worst case at 15 requests
 

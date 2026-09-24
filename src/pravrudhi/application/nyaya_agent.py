@@ -93,16 +93,18 @@ class AgentConfig:
 
 
 def load_agent_config(root: Path) -> AgentConfig:
-    """`configs/nyaya_agent.yaml` under `root`; relative paths resolve against `root`. The score binary path
+    """`configs/nyaya_agent.yaml` under `root`, else the copy the wheel ships (`config_files.config_file`);
+    relative paths resolve against `root`. The score binary path
     follows `nyaya_gold_score.score_bin_path`'s precedence (env var first) when the file names none. The house
     judge's base_url can be overridden by NYAYA_HOUSE_JUDGE_BASE_URL env var (for container deployments where
     localhost does not refer to the host)."""
     import yaml
 
+    from pravrudhi.application.config_files import config_file
     from pravrudhi.application.nyaya_gold_score import SCORE_BIN_ENV, score_bin_path
 
     root = Path(root)
-    body = yaml.safe_load((root / CONFIG_PATH).read_text()) or {}
+    body = yaml.safe_load(config_file(root, "nyaya_agent.yaml").read_text()) or {}
     env_bin = os.environ.get(SCORE_BIN_ENV)
     if env_bin:
         score_bin = Path(env_bin)

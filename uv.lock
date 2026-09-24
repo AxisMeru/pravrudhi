@@ -441,7 +441,7 @@ wheels = [
 
 [[package]]
 name = "pravrudhi"
-version = "0.5.27"
+version = "0.5.28"
 source = { editable = "." }
 dependencies = [
     { name = "fastapi" },

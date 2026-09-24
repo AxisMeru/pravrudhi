@@ -47,6 +47,7 @@ from starlette.responses import JSONResponse
 
 from pravrudhi.api.identity import CurrentUserDep, User
 from pravrudhi.application import nyaya_lean_registry as reg
+from pravrudhi.application.config_files import config_file
 from pravrudhi.application.nyaya_agent import BinaryShaMismatch, NyayaAgent
 
 CONFIG_PATH = Path("configs") / "partner_api.yaml"
@@ -76,7 +77,7 @@ class PartnerApiConfig:
 
 
 def load_partner_api_config(root: Path) -> PartnerApiConfig:
-    body = yaml.safe_load((Path(root) / CONFIG_PATH).read_text()) or {}
+    body = yaml.safe_load(config_file(Path(root), "partner_api.yaml").read_text()) or {}
     return PartnerApiConfig(
         rate_limit_per_minute=int(body["rate_limit_per_minute"]),
         max_concurrent=int(body["max_concurrent"]),

@@ -36,7 +36,7 @@ RUN set -eu; \
 # the engine's own registry_elements/registry_check (pravrudhi/application/nyaya.py) already convert a
 # missing binary into a clean 503, not a crash, so a real-binary-less image is a degraded-but-honest
 # image, never a broken build.
-ARG NYAYA_SCORE_SHA256=97d4bc34c5c617cc8ae8e79e4b7d69706b2e6fc5ff8379361a3eea0ae45717d8
+ARG NYAYA_SCORE_SHA256=29f6eaed3ef5c548d6c8a1cdf884c9a73895937132779ea4d4cffb8e66cb80ae
 COPY nyaya/ /opt/nyaya/
 RUN set -eu; \
     if [ -f /opt/nyaya/score ]; then \

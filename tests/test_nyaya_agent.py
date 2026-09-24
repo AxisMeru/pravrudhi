@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -33,8 +34,9 @@ from pravrudhi.application.nyaya_agent import (
 from pravrudhi.application.nyaya_judges import ElementJudgment, JudgeOutputError, JudgeRequest
 
 REPO = Path(__file__).resolve().parent.parent
-SCORE_BIN = Path("/home/ss/projects/prabhasa-nyaya/.worktrees/trackA-fix-bnss187-conduct/lean/.lake/build/bin/score")
-PINNED = "97d4bc34c5c617cc8ae8e79e4b7d69706b2e6fc5ff8379361a3eea0ae45717d8"
+#: The pinned binary lives outside this repo; point PRABHASA_NYAYA_SCORE_BIN at it (no host path is committed).
+SCORE_BIN = Path(os.environ.get("PRABHASA_NYAYA_SCORE_BIN", "prabhasa-nyaya-score-not-configured"))
+PINNED = "29f6eaed3ef5c548d6c8a1cdf884c9a73895937132779ea4d4cffb8e66cb80ae"
 requires_score_bin = pytest.mark.skipif(
     not SCORE_BIN.exists(), reason=f"the pinned prabhasa-nyaya score binary is not built on this host ({SCORE_BIN})"
 )
@@ -179,17 +181,14 @@ class TestIngest:
 
 
 class TestSelectContracts:
-    LISTED = reg.parse_list_contracts((_FIXTURES / "97d4bc34_list_contracts.txt").read_text())
+    LISTED = reg.parse_list_contracts((_FIXTURES / "29f6eaed_list_contracts.txt").read_text())
 
     def test_default_is_every_listed_contract_the_checker_knows_in_binary_order(self) -> None:
         chosen = select_contracts(self.LISTED)
-        # Only KNOWN_CONTRACT_IDS are selected; EXCLUDED_CONTRACT_IDS are refused
-        assert chosen == [c for c in self.LISTED if c in reg.KNOWN_CONTRACT_IDS]
-        # BNSS 187 contracts are in LISTED but NOT in chosen (they are excluded)
-        assert "bnss187_extended_serious" not in chosen
-        assert "bnss187_extended_other" not in chosen
-        # But all other contracts should be present
-        assert len(chosen) == len(self.LISTED) - 2  # 25 - 2 excluded = 23
+        # Nothing is excluded since 0.5.28, so every listed contract is chosen, in the binary's own order.
+        assert chosen == list(self.LISTED)
+        assert len(chosen) == 26
+        assert {"bnss187_extended_serious", "bnss187_extended_other", "ni138"} <= set(chosen)
 
     def test_named_ids_keep_the_binary_order_not_the_callers(self) -> None:
         assert select_contracts(self.LISTED, contract_ids=["bns85", "ipc416"]) == ["ipc416", "bns85"]
@@ -198,10 +197,13 @@ class TestSelectContracts:
         with pytest.raises(reg.UnknownContractError):
             select_contracts(self.LISTED, contract_ids=["ipc999"])
 
-    def test_excluded_contract_id_is_refused_not_dropped(self) -> None:
-        # BNSS 187 contracts are excluded due to Lean-side defects, not unknown
+    def test_bnss187_is_selectable_since_its_conduct_fix(self) -> None:
+        # Excluded in 0.5.26 for a non-standard conduct entity; fixed in prabhasa-nyaya 8d9f0af.
+        assert select_contracts(self.LISTED, contract_ids=["bnss187_extended_serious"]) == ["bnss187_extended_serious"]
+
+    def test_an_id_the_binary_does_not_list_is_refused_not_dropped(self) -> None:
         with pytest.raises(reg.UnknownContractError):
-            select_contracts(self.LISTED, contract_ids=["bnss187_extended_serious"])
+            select_contracts(self.LISTED, contract_ids=["bns999_not_a_contract"])
 
     def test_known_contract_id_is_selected(self) -> None:
         # bns316 is now KNOWN (previously was in binary but not known)

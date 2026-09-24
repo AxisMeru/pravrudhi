@@ -27,10 +27,11 @@ from typing import Any
 
 from pravrudhi.application.nyaya_gold_score import score_bin_path
 
-#: The twenty-five registry Contract ids `contractForId` in `lean/Score.lean` that conform to the wire
+#: The twenty-six registry Contract ids `contractForId` in `lean/Score.lean` that conform to the wire
 #: grammar spec. Expanded from the original fourteen to include BNS 316 (misappropriation, use_or_disposal,
 #: wilfully_suffers), BNS 318 (property, damaging_act), BNS 217 (misdirected_act, abuse_of_power),
-#: BNS 80 (dowry death), and BNS 108 (abetment of suicide).
+#: BNS 80 (dowry death), BNS 108 (abetment of suicide), BNSS 187 (extended detention, both branches; the
+#: conduct-entity defect that excluded them in 0.5.26 is fixed in prabhasa-nyaya 8d9f0af), and NI Act 138.
 #: Hand-listed here for fast validation before a subprocess call -- kept honest by
 #: `tests/test_nyaya_lean_registry.py`'s drift test, which reads the binary's OWN `--list-contracts`
 #: output and asserts it unions exactly with EXCLUDED_CONTRACT_IDS (the lead's explicit no-drift requirement:
@@ -46,16 +47,16 @@ KNOWN_CONTRACT_IDS: frozenset[str] = frozenset(
         "bns318_property", "bns318_damaging_act",
         "bns217_misdirected_act", "bns217_abuse_of_power",
         "bns80", "bns108",
+        "bnss187_extended_serious", "bnss187_extended_other",
+        "ni138",
     }
 )
 
 #: Registry Contract ids present in the binary but explicitly excluded from KNOWN_CONTRACT_IDS due to
 #: defects that make them unsuitable for production use. The engine rejects these with UnknownContractError,
 #: preventing silent wrong results. Each entry maps to a reason string suitable for user-facing error messages.
-EXCLUDED_CONTRACT_IDS: dict[str, str] = {
-    "bnss187_extended_serious": "non-standard conduct entity (Lean-side defect, pending fix)",
-    "bnss187_extended_other": "non-standard conduct entity (Lean-side defect, pending fix)",
-}
+#: Empty since 0.5.28 (the BNSS 187 pair is fixed); kept so a future defective contract has a named place to go.
+EXCLUDED_CONTRACT_IDS: dict[str, str] = {}
 
 #: Every registry Contract's own `conduct` entity is literally this string (confirmed identical across all
 #: seven `Seeds/*.lean` files before choosing the wire design, not assumed) -- fixed here rather than
