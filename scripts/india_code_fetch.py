@@ -187,9 +187,11 @@ def fetch_all(
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--out-dir", type=Path, default=Path("research/nyaya/pdf_indiacode"),
-        help="Where to write the PDFs and manifest.json (must stay under the gitignored "
-             "research/ tree).",
+        "--out-dir", type=Path,
+        default=Path("/home/ss/fusion-project/corpus-raw/india_code"),
+        help="Where to write the PDFs and manifest.json. Default is the persistent "
+             "corpus-raw path so PDFs survive across runs. Override to a gitignored "
+             "research/ path if running outside this machine.",
     )
     args = parser.parse_args()
 
