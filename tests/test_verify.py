@@ -150,6 +150,16 @@ def test_near_duplicate_party_names_are_not_a_false_conflict(db: sqlite3.Connect
     assert result == VerifyResult.VERIFIED
 
 
+def test_ampersand_honorific_normalizes_the_same_as_and(db: sqlite3.Connection) -> None:
+    # Real bug found by hand-inspecting the 26 CONFLICTs still left after the first normalization pass
+    # (LEG-PLAN P3 re-measurement): "State of Bihar & Ors." vs "State of Bihar" was reported as a
+    # CONFLICT because _TRAILING_HONORIFIC only recognized "and Ors.", not "& Ors." -- the same real party,
+    # a different conjunction spelling.
+    from pravrudhi.application.verify import normalize_party_name
+
+    assert normalize_party_name("State of Bihar & Ors.") == normalize_party_name("State of Bihar")
+
+
 def test_conflict_when_alias_maps_citation_to_two_different_party_pairs(db: sqlite3.Connection) -> None:
     # A second, different citing document attributes the SAME citation to different parties -- real
     # data-integrity signal, not silently resolved to either one.
