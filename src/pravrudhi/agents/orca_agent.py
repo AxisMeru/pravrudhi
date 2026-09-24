@@ -17,10 +17,13 @@ get a real agent loop from a tool built for it.
 
 from __future__ import annotations
 
+import contextlib
 import json
+import os
 import shlex
 import shutil
 import subprocess
+import tempfile
 import time
 from pathlib import Path
 from typing import Any
@@ -28,6 +31,47 @@ from typing import Any
 from pravrudhi.agents.base import AgentRun, Diff, GitWorktreeMixin, git
 
 LOCAL_PROVIDER = "pravrudhi-local"
+
+PROMPT_DIR_ENV = "PRAVRUDHI_ORCA_PROMPT_DIR"
+"""Overrides where prompt files are written. Default: `<root>/.pravrudhi/orca-prompts` (ignored run state).
+Never the system temp dir: on this host /tmp is a 16 GB tmpfs that large benchmark prompts have filled."""
+
+
+def default_prompt_dir(root: Path) -> Path:
+    raw = os.environ.get(PROMPT_DIR_ENV)
+    return Path(raw).expanduser() if raw else Path(root) / ".pravrudhi" / "orca-prompts"
+
+
+def write_prompt_file(directory: Path, prompt: str) -> Path:
+    """Write `prompt` (UTF-8) to a fresh private file under `directory` and return its path.
+
+    The prompt cannot go on argv: an Orca terminal execs the CLI with each argument as one string, and Linux caps
+    a single argv string at MAX_ARG_STRLEN (128 KiB), so a large prompt fails with E2BIG before the CLI starts --
+    the bug 97606bf fixed for `panel.ask_vendor` and `cli_agents`. A terminal has no stdin pipe to hand over, so
+    the shell redirects stdin from this file instead. `mkstemp` creates it 0600 with O_EXCL, so concurrent runs
+    never collide and no other user can read a prompt; the directory is created 0700.
+    """
+    directory = Path(directory)
+    directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+    fd, name = tempfile.mkstemp(prefix="prompt-", suffix=".txt", dir=directory)
+    try:
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(prompt.encode("utf-8"))
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(name)
+        raise
+    return Path(name)
+
+
+def terminal_command(argv: list[str], stdin_file: Path | None = None) -> str:
+    """The shell string an Orca terminal runs: every argument quoted, stdin redirected from `stdin_file`.
+
+    `< path` is the only unquoted shell syntax emitted, and the path itself is `shlex.quote`d, so a run directory
+    containing spaces, quotes, `$` or backticks is passed through literally.
+    """
+    cmd = " ".join(shlex.quote(c) for c in argv)
+    return f"{cmd} < {shlex.quote(str(stdin_file))}" if stdin_file is not None else cmd
 
 
 class OrcaUnavailable(RuntimeError):
@@ -97,9 +141,14 @@ class OrcaWorkspace:
     def remove_worktree(self, workspace: Path) -> None:
         _orca(["worktree", "rm", "--worktree", f"path:{workspace}", "--json"], timeout_s=300)
 
-    def run_command(self, workspace: Path, command: list[str], title: str, timeout_s: int) -> tuple[bool, str, str]:
-        """Run one command in an Orca terminal in this worktree and return (ok, output, handle)."""
-        cmd = " ".join(shlex.quote(c) for c in command)
+    def run_command(
+        self, workspace: Path, command: list[str], title: str, timeout_s: int, *, stdin_file: Path | None = None
+    ) -> tuple[bool, str, str]:
+        """Run one command in an Orca terminal in this worktree and return (ok, output, handle).
+
+        `stdin_file`, when given, is redirected onto the command's stdin (see `terminal_command`).
+        """
+        cmd = terminal_command(command, stdin_file)
         code, out, err = _orca(
             ["terminal", "create", "--worktree", f"path:{workspace}", "--title", title, "--command", cmd, "--json"],
             timeout_s=180,
@@ -124,8 +173,14 @@ class OrcaWorkspace:
             _orca(["terminal", "close", "--terminal", handle, "--json"])
 
 
-def headless_command(agent_id: str, prompt: str, model: str | None = None) -> list[str]:
-    """The non-interactive invocation for each agent, run inside an Orca terminal.
+def headless_command(agent_id: str, *, model: str | None = None) -> list[str]:
+    """The non-interactive invocation for each agent, run inside an Orca terminal, WITHOUT the prompt.
+
+    The prompt is read from stdin, which `OrcaAgent.run` redirects from a private file (`write_prompt_file`,
+    `terminal_command`): a positional prompt over 128 KiB fails with E2BIG. Each CLI reads stdin when no prompt
+    is given -- `claude -p` and `codex exec` per their `--help`, and `opencode run` (1.18.x) reads
+    `Bun.stdin.text()` whenever stdin is not a TTY. `model` is keyword-only so a caller still passing a prompt
+    positionally gets a TypeError rather than having its prompt read as a model name.
 
     Open-weight models go through OpenCode against the local llama.cpp endpoint, so they get a genuine agent loop
     rather than a bespoke one written here.
@@ -144,20 +199,25 @@ def headless_command(agent_id: str, prompt: str, model: str | None = None) -> li
         # own login error rather than ours. Refusing to build a string was over-eager and broke five tests
         # that are about command shape, not credentials; the refusal belongs in `run()`, where it is.
         prefix = [f"{k}={v}" for k, v in sorted(claude_env(require=False).items())]
-        return ["env", *prefix, "claude", "-p", prompt, "--output-format", "json",
+        return ["env", *prefix, "claude", "-p", "--output-format", "json",
                 "--allowed-tools", "Read,Edit,Write,Grep,Glob,Bash"]
     if agent_id == "codex":
-        return ["codex", "exec", "--sandbox", "workspace-write", "--skip-git-repo-check", prompt]
+        return ["codex", "exec", "--sandbox", "workspace-write", "--skip-git-repo-check"]
     if agent_id == "local":
-        return ["opencode", "run", "--format", "json", "-m", f"{LOCAL_PROVIDER}/{model or 'glm-4.7-flash'}", prompt]
+        return ["opencode", "run", "--format", "json", "-m", f"{LOCAL_PROVIDER}/{model or 'glm-4.7-flash'}"]
     raise OrcaUnavailable(f"no headless invocation known for agent {agent_id!r}")
 
 
 class OrcaAgent(GitWorktreeMixin):
     """One agent, hosted in Orca's scaffolding. `agent_id` is claude, codex or local."""
 
-    def __init__(self, root: Path, agent_id: str = "claude", model: str | None = None, timeout_s: int = 1800) -> None:
+    def __init__(
+        self, root: Path, agent_id: str = "claude", model: str | None = None, timeout_s: int = 1800,
+        *, prompt_dir: Path | None = None,
+    ) -> None:
         self.root, self.agent_id, self.model, self.timeout_s = Path(root), agent_id, model, timeout_s
+        # Outside the worktree on purpose: a prompt file inside it would show up in `collect_changes`.
+        self.prompt_dir = Path(prompt_dir) if prompt_dir is not None else default_prompt_dir(self.root)
         self.name = f"orca:{agent_id}" + (f":{model}" if model else "")
         self.ws = OrcaWorkspace(self.root)
         self._terminals: dict[str, str] = {}
@@ -177,9 +237,21 @@ class OrcaAgent(GitWorktreeMixin):
     def run(self, prompt: str, workspace: Path, timeout_s: int | None = None) -> AgentRun:
         timeout_s = timeout_s or self.timeout_s
         t0 = time.monotonic()
-        ok, text, handle = self.ws.run_command(
-            workspace, headless_command(self.agent_id, prompt, self.model), f"pravrudhi-{self.agent_id}", timeout_s
-        )
+        argv = headless_command(self.agent_id, model=self.model)  # raises for an unknown agent before any file
+        prompt_file = write_prompt_file(self.prompt_dir, prompt)
+        try:
+            ok, text, handle = self.ws.run_command(
+                workspace, argv, f"pravrudhi-{self.agent_id}", timeout_s, stdin_file=prompt_file
+            )
+        finally:
+            # `run_command` returns after `terminal wait --for exit`, so the CLI has finished reading. On a wait
+            # timeout the command is still running, but the shell opened `< file` before exec, so unlinking does
+            # not cut off its read (the open descriptor keeps the inode). The one case that can lose the prompt
+            # is Orca returning before its terminal's shell reached the redirect (a wait that errors out at
+            # once); the CLI then fails loudly with "No such file" rather than running on a wrong prompt. A hard
+            # crash of this process between write and unlink leaves one 0600 file in the prompt directory.
+            with contextlib.suppress(OSError):
+                prompt_file.unlink()
         if handle:
             self._terminals[str(workspace)] = handle
         return AgentRun(

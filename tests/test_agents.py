@@ -80,18 +80,19 @@ def test_each_agent_kind_has_a_headless_invocation():
     # personal account -- Orca builds its own shell string, so there is no environment dict to pass and the
     # credential has to ride inside the command. The property to hold is that the pin is there and the
     # invocation is unchanged after it, not the exact prefix length.
-    claude = headless_command("claude", "do it")
+    # The prompt is no longer in argv (it rides on stdin from a file; see tests/test_orca_prompt_stdin.py).
+    claude = headless_command("claude")
     assert claude[0] == "env"
     assert any(a.startswith("CLAUDE_CONFIG_DIR=") for a in claude), "the personal account must be unreachable"
     at = claude.index("claude")
-    assert claude[at : at + 3] == ["claude", "-p", "do it"]
+    assert claude[at : at + 3] == ["claude", "-p", "--output-format"]
     # And only for claude: codex has its own credential store and its own instruction.
-    assert headless_command("codex", "do it")[:2] == ["codex", "exec"]
-    local = headless_command("local", "do it", model="qwen3-30b-a3b")
+    assert headless_command("codex")[:2] == ["codex", "exec"]
+    local = headless_command("local", model="qwen3-30b-a3b")
     assert local[:4] == ["opencode", "run", "--format", "json"]
     assert f"{LOCAL_PROVIDER}/qwen3-30b-a3b" in local
     with pytest.raises(OrcaUnavailable):
-        headless_command("gemini", "do it")
+        headless_command("gemini")
 
 
 def test_survey_reports_a_reason_for_every_agent(tmp_path):
