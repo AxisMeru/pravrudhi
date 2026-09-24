@@ -142,6 +142,11 @@ def load_agent_config(root: Path) -> AgentConfig:
         house_judge["base_urls_fallback"] = [
             u.strip() for u in os.environ["NYAYA_HOUSE_JUDGE_FALLBACK_URLS"].split(",") if u.strip()
         ]
+    # A serverless deployment's real cold start (~200s judge + up to 300s idle-out) needs a longer timeout
+    # than a local 5090's yaml default (60s) -- 2026-09-24, a real production regression: a fully-cold demo
+    # visit hit ABSTAIN/judge_error every time until this was raised.
+    if os.environ.get("NYAYA_HOUSE_JUDGE_TIMEOUT_S"):
+        house_judge["timeout_s"] = int(os.environ["NYAYA_HOUSE_JUDGE_TIMEOUT_S"])
     return AgentConfig(
         tau=float(body["tau"]),
         refer_band=(float(low), float(high)),
