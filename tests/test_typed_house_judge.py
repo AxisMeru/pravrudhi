@@ -84,6 +84,14 @@ class TestTypedHouseJudgeAgreesWithHouseJudge:
         o, t = _both_judges({" established": -0.05}, "established")
         assert (o.status, o.fact_id) == (t.status, t.fact_id) == ("established", None)
 
+    def test_f_narrative_is_rejected_as_evidence_on_both(self) -> None:
+        """Both judges share `parse_house_fact_id`: a completion naming the reserved `F_narrative` id (never
+        one of the facts either judge's prompt shows, `build_house_prompt` above) must not be accepted as
+        evidence by either -- not just excluded from the prompt, but refused as a fact_id too."""
+        o, t = _both_judges({" established": -0.05}, "established F_narrative:0:50")
+        assert o.status == t.status == "established"
+        assert (o.fact_id, o.quote, o.quote_source) == (t.fact_id, t.quote, t.quote_source) == (None, None, None)
+
     def test_no_evidence_either_way_raises_on_both(self) -> None:
         original = HouseJudge(
             tau=0.74, statute_chars=600, model="m", complete=_house_judge_transport({"unrelated": -0.1}, "?")

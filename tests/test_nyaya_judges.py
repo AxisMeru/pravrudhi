@@ -56,6 +56,23 @@ class TestHousePrompt:
         prompt = build_house_prompt(REQ, statute_chars=20)
         assert prompt.startswith(f"Statute: {STATUTE[:20]}\nScenario:")
 
+    def test_a_narrative_fact_is_never_shown_twice(self) -> None:
+        """The training data (element_judgment_combined.jsonl) carries the narrative as a fact row too, id
+        `F_narrative` -- but the judge was TRAINED on prompts that drop it from `Available facts:` (it is
+        already the `Scenario:` line). A caller that hands `build_house_prompt` a `request.facts` including
+        an `F_narrative` entry -- as any consumer built straight off that jsonl schema would, batch scoring
+        included -- must not see it doubled: `Scenario:` still carries the narrative, `Available facts:`
+        does not, and every other fact is unchanged and in the caller's order."""
+        req_with_narrative = JudgeRequest(
+            contract_id=REQ.contract_id,
+            element=REQ.element,
+            is_denial=REQ.is_denial,
+            statute=REQ.statute,
+            narrative=REQ.narrative,
+            facts=(("F_narrative", REQ.narrative), *REQ.facts),
+        )
+        assert build_house_prompt(req_with_narrative, statute_chars=600) == build_house_prompt(REQ, statute_chars=600)
+
 
 class TestFirstTokenScore:
     def test_softmax_of_established_vs_not(self) -> None:
@@ -87,6 +104,15 @@ class TestParseHouseFactId:
     @pytest.mark.parametrize("text", [" not_established", " established", "garbage"])
     def test_no_fact_is_none(self, text: str) -> None:
         assert parse_house_fact_id(text) is None
+
+    def test_f_narrative_is_never_a_returned_fact_id(self) -> None:
+        """`F_narrative` is never one of the facts the model is shown (`build_house_prompt` drops it, above)
+        -- so a completion naming it is not a legitimate answer the model could have given by looking at
+        `Available facts:`. Read as `None` (same as no fact id at all) rather than as a real fact id, so a
+        caller whose `request.facts` still happens to carry an `F_narrative` entry (e.g. handed the raw
+        jsonl row) can never have it accepted downstream as the evidence for an element."""
+        assert parse_house_fact_id(" established F_narrative:0:80") is None
+        assert parse_house_fact_id("established F_narrative") is None
 
 
 def _completion(text: str, top: dict[str, float]) -> CompletionResult:
@@ -224,6 +250,26 @@ class TestHouseJudge:
         j = HouseJudge(complete=fake, tau=0.74, statute_chars=600).judge(REQ)
         assert j.status == "established"
         assert j.fact_id is None and j.quote is None
+
+    def test_f_narrative_cannot_be_returned_as_evidence_even_if_present_in_facts(self) -> None:
+        """Defense in depth: even if `request.facts` carries an `F_narrative` entry (a caller built off the
+        jsonl training/eval schema, or a hallucination the model produced despite never seeing it in
+        `Available facts:`), the judge must not accept it as the evidence fact -- `fact_id`/`quote` collapse
+        to None exactly as for any other name absent from `Available facts:`, so `nyaya_quote.locate_quote`
+        sees `fact_id=None` (`reason="no_quote"`) rather than a lookup that happens to succeed against a
+        fact_map that (for other reasons -- e.g. the quote check) still carries the narrative."""
+        req_with_narrative = JudgeRequest(
+            contract_id=REQ.contract_id,
+            element=REQ.element,
+            is_denial=REQ.is_denial,
+            statute=REQ.statute,
+            narrative=REQ.narrative,
+            facts=(("F_narrative", REQ.narrative), *REQ.facts),
+        )
+        fake = _FakeComplete(_completion(" established F_narrative:0:80", {" established": -0.05, " not": -3.0}))
+        j = HouseJudge(complete=fake, tau=0.74, statute_chars=600).judge(req_with_narrative)
+        assert j.status == "established"
+        assert (j.fact_id, j.quote, j.quote_source) == (None, None, None)
 
     def test_no_logprobs_is_a_judge_output_error(self) -> None:
         fake = _FakeComplete(CompletionResult(text=" not", model="m", top_logprobs=[], wall_s=0.0, finish_reason="stop"))
