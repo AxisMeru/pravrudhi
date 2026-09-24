@@ -33,13 +33,15 @@ and drifting, per route.
 from __future__ import annotations
 
 import contextlib
+import hmac
 import json
+import os
 import re
 import secrets
 import threading
 import time
 from collections import OrderedDict
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -49,6 +51,8 @@ from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError
 from fastapi import HTTPException
 
+from pravrudhi.api.identity import User
+from pravrudhi.api.roles import admin_ids
 from pravrudhi.application.portable_lock import exclusive_lock
 
 ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,62}$")
@@ -291,9 +295,12 @@ def verify_key(root: Path, token: str) -> ApiKeyRecord:
     """Resolve a presented `X-Pravrudhi-Api-Key` token to its (unrevoked) record, or raise `InvalidApiKey`.
 
     Looks the key id up directly (an `O(1)` dict read, never a scan that argon2-verifies every stored key)
-    and only then runs the one argon2 verify the token's secret half needs -- but the not-found and
-    wrong-secret paths raise the identical exception, so neither timing nor message tells a caller which one
-    happened.
+    and only then runs the one argon2 verify the token's secret half needs -- but not-found, wrong-secret
+    and revoked all raise the identical exception after paying the identical argon2 cost, so neither timing
+    nor message tells a caller which one happened. Revocation is checked strictly AFTER the verify, never
+    before it: an early return on `revoked` would make a revoked key's failure roughly 2000x cheaper than
+    every other rejection (reviewer 1, fix-before-merge on the first version of this function), which is
+    itself a timing side-channel -- it would tell a caller "this key id used to be real" for free.
     """
     parts = token.split("_", 2)
     if len(parts) != 3 or parts[0] != KEY_PREFIX:
@@ -302,17 +309,17 @@ def verify_key(root: Path, token: str) -> ApiKeyRecord:
     rows = _read_store(root, "keys")
     row = rows.get(key_id)
     if row is None:
-        # Still pay the hashing cost so "unknown key id" and "known key id, wrong secret" take comparable
-        # time -- verified against a fixed dummy hash rather than skipping straight to the raise.
+        # Still pay the hashing cost so "unknown key id" takes comparable time to every other failure --
+        # verified against a fixed dummy hash rather than skipping straight to the raise.
         with contextlib.suppress(VerifyMismatchError):
             _hasher.verify(_DUMMY_HASH, secret_part)
         raise InvalidApiKey("unknown key id")
-    if row.get("revoked"):
-        raise InvalidApiKey("key is revoked")
     try:
         _hasher.verify(row["hash"], secret_part)
     except VerifyMismatchError as exc:
         raise InvalidApiKey("secret does not match") from exc
+    if row.get("revoked"):
+        raise InvalidApiKey("key is revoked")
     return ApiKeyRecord(**row)
 
 
@@ -363,6 +370,70 @@ def require_org_access(principal_org_id: str | None, resource_org_id: str, *, is
     if principal_org_id is not None and principal_org_id == resource_org_id:
         return
     raise HTTPException(status_code=403, detail="This resource does not belong to your organisation.")
+
+
+# --------------------------------------------------------------------------------------------------------
+# Tenancy provisioning authorization (fail-closed)
+# --------------------------------------------------------------------------------------------------------
+
+TENANCY_PROVISION_SECRET_ENV = "PRAVRUDHI_TENANCY_PROVISION_SECRET"
+"""A static secret, set by the operator, that unlocks org/key provisioning with no Supabase identity at all
+-- required on a self-hosted deployment that runs with `PRAVRUDHI_AUTH` left at its `disabled` default (the
+5090 demo-mode config), where `roles.role_of(None)` resolves an anonymous caller to `ADMIN` by construction.
+That fallback is correct for the `ADMIN_ONLY` surfaces in `roles.py` -- Pravrudhi improving *itself*, which
+only makes sense for the single operator running their own local engine -- and it is exactly wrong here: it
+would let anyone who reaches this deployment's port create a partner org and mint that org's first live API
+key (reviewer 1, fix-before-merge, demonstrated with a real, unoverridden `TestClient`). Provisioning
+therefore never consults `role_of` or `is_admin` at all. Empty or unset means this deployment has configured
+no way to provision tenancy over HTTP -- deliberately fail-closed, the same shape `roles.ADMIN_ENV` already
+uses for its own allowlist."""
+
+TENANCY_PROVISION_HEADER = "x-pravrudhi-tenancy-secret"
+"""Carries `TENANCY_PROVISION_SECRET_ENV`'s value. Compared with `hmac.compare_digest`, never `==` -- a
+plain string comparison short-circuits on the first mismatched byte, which leaks how many leading bytes a
+guess got right through response timing; `compare_digest` runs in time dependent only on the (public)
+lengths involved."""
+
+
+def is_tenancy_admin(user: User | None, headers: Mapping[str, str]) -> bool:
+    """Authorises every tenancy provisioning route (create org, create/list/revoke keys) -- passes only when
+    at least one of two things holds, and refuses everyone else, including an anonymous caller on an
+    auth-disabled deployment that `roles.is_admin` would otherwise wave through:
+
+    (a) `user` is a real, verified, non-anonymous identity (never `None` -- `auth_mode() == DISABLED`'s "the
+        local caller is the operator by construction" reasoning is not consulted here at all) whose id or
+        email is on the same allowlist (`roles.admin_ids()`) `roles.role_of` uses for every other admin
+        surface; or
+    (b) the caller presents `TENANCY_PROVISION_HEADER` and it matches `TENANCY_PROVISION_SECRET_ENV`.
+
+    Returns `False` -- never raises -- so a caller can decide whether `False` means "403" (the provisioning
+    routes) or "fall through to some other check" (a future org-scoped route that also accepts a member,
+    say); `require_tenancy_admin` is the raising form provisioning routes actually call.
+    """
+    if user is not None:
+        allowed = admin_ids()
+        candidates = {user.id.strip().lower()}
+        if user.email:
+            candidates.add(user.email.strip().lower())
+        if allowed and candidates & allowed:
+            return True
+    secret = os.environ.get(TENANCY_PROVISION_SECRET_ENV, "")
+    if secret:
+        presented = headers.get(TENANCY_PROVISION_HEADER, "")
+        if presented and hmac.compare_digest(presented, secret):
+            return True
+    return False
+
+
+def require_tenancy_admin(user: User | None, headers: Mapping[str, str]) -> None:
+    """The raising form of `is_tenancy_admin`. 403, not 401: this is an authorization refusal (the caller may
+    be a perfectly valid, signed-in user, just not one on the allowlist and not carrying the secret), the
+    same distinction `roles.require_admin` draws for every other admin-only surface."""
+    if not is_tenancy_admin(user, headers):
+        raise HTTPException(
+            status_code=403,
+            detail="Tenancy provisioning requires an allowlisted admin identity or the provisioning secret.",
+        )
 
 
 # --------------------------------------------------------------------------------------------------------
@@ -421,7 +492,8 @@ class KeyRateLimiter:
 
 __all__ = [
     "API_KEY_HEADER", "ApiKeyRecord", "CreatedApiKey", "InvalidApiKey", "KeyRateLimiter", "MEMBER_ROLES",
-    "Membership", "Org", "OrgPrincipal", "TenancyError", "add_member", "create_key", "create_org",
-    "get_org", "keys_for_org", "list_orgs", "membership_role", "memberships_for_org",
-    "principal_from_headers", "require_org_access", "revoke_key", "verify_key",
+    "Membership", "Org", "OrgPrincipal", "TENANCY_PROVISION_HEADER", "TENANCY_PROVISION_SECRET_ENV",
+    "TenancyError", "add_member", "create_key", "create_org", "get_org", "is_tenancy_admin", "keys_for_org",
+    "list_orgs", "membership_role", "memberships_for_org", "principal_from_headers", "require_org_access",
+    "require_tenancy_admin", "revoke_key", "verify_key",
 ]

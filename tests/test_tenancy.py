@@ -202,3 +202,87 @@ class TestKeyRateLimiter:
         limiter = tenancy.KeyRateLimiter()
         assert limiter.allow("key-1", per_minute=1) is True
         assert limiter.allow("key-2", per_minute=1) is True
+
+
+class TestRevokedKeyVerifyTiming:
+    """Reviewer 1, fix-before-merge: the first version checked `revoked` before the argon2 verify, so a
+    revoked key's rejection was ~2000x cheaper than every other failure -- a timing side-channel revealing
+    "this key id used to be real". Revocation is now checked strictly after the verify."""
+
+    def test_a_revoked_keys_wrong_secret_still_pays_the_argon2_cost(self, tmp_path: Path) -> None:
+        import time
+
+        tenancy.create_org(tmp_path, "acme", "Acme")
+        created = tenancy.create_key(tmp_path, "acme")
+        tenancy.revoke_key(tmp_path, created.record.key_id)
+        prefix, key_id, _secret = created.secret.split("_", 2)
+        wrong_token = f"{prefix}_{key_id}_totally-wrong-secret"
+
+        # Not a strict benchmark (too flaky under CI load), just a floor: a real argon2id verify against a
+        # real hash costs single-digit milliseconds at minimum on any machine this runs on. The bug this
+        # guards made a revoked key's own rejection a plain dict lookup -- microseconds, not milliseconds.
+        start = time.perf_counter()
+        with pytest.raises(tenancy.InvalidApiKey):
+            tenancy.verify_key(tmp_path, wrong_token)
+        elapsed = time.perf_counter() - start
+        assert elapsed > 0.001
+
+    def test_the_right_secret_against_a_revoked_key_is_still_invalid(self, tmp_path: Path) -> None:
+        tenancy.create_org(tmp_path, "acme", "Acme")
+        created = tenancy.create_key(tmp_path, "acme")
+        tenancy.revoke_key(tmp_path, created.record.key_id)
+        with pytest.raises(tenancy.InvalidApiKey):
+            tenancy.verify_key(tmp_path, created.secret)
+
+
+class TestTenancyProvisioningAuthorization:
+    """Core-module tests for `is_tenancy_admin`/`require_tenancy_admin` -- the HTTP-level fail-closed tests
+    (real, unoverridden identity resolution against the actual routes) live in
+    `test_api_partner_tenancy.py::TestProvisioningFailsClosedOnRealIdentityResolution`."""
+
+    def test_nothing_configured_refuses_everyone(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("PRAVRUDHI_ADMINS", raising=False)
+        monkeypatch.delenv(tenancy.TENANCY_PROVISION_SECRET_ENV, raising=False)
+        assert tenancy.is_tenancy_admin(None, {}) is False
+
+    def test_a_none_user_never_passes_via_the_allowlist_alone(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # Even with an allowlist configured, `user=None` (no real identity at all -- the disabled-auth
+        # case) must not pass on the allowlist path; only a real, non-anonymous identity can.
+        monkeypatch.setenv("PRAVRUDHI_ADMINS", "op-1")
+        monkeypatch.delenv(tenancy.TENANCY_PROVISION_SECRET_ENV, raising=False)
+        assert tenancy.is_tenancy_admin(None, {}) is False
+
+    def test_an_allowlisted_real_identity_passes(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from pravrudhi.api.identity import User
+
+        monkeypatch.setenv("PRAVRUDHI_ADMINS", "op-1")
+        user = User(id="op-1", email=None, role="authenticated")
+        assert tenancy.is_tenancy_admin(user, {}) is True
+
+    def test_a_non_allowlisted_real_identity_is_refused(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from pravrudhi.api.identity import User
+
+        monkeypatch.setenv("PRAVRUDHI_ADMINS", "op-1")
+        user = User(id="u-2", email=None, role="authenticated")
+        assert tenancy.is_tenancy_admin(user, {}) is False
+
+    def test_the_provisioning_secret_passes_with_no_identity_at_all(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("PRAVRUDHI_ADMINS", raising=False)
+        monkeypatch.setenv(tenancy.TENANCY_PROVISION_SECRET_ENV, "s3cr3t")
+        assert tenancy.is_tenancy_admin(None, {tenancy.TENANCY_PROVISION_HEADER: "s3cr3t"}) is True
+
+    def test_a_wrong_secret_is_refused(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("PRAVRUDHI_ADMINS", raising=False)
+        monkeypatch.setenv(tenancy.TENANCY_PROVISION_SECRET_ENV, "s3cr3t")
+        assert tenancy.is_tenancy_admin(None, {tenancy.TENANCY_PROVISION_HEADER: "nope"}) is False
+
+    def test_require_tenancy_admin_raises_403(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from fastapi import HTTPException
+
+        monkeypatch.delenv("PRAVRUDHI_ADMINS", raising=False)
+        monkeypatch.delenv(tenancy.TENANCY_PROVISION_SECRET_ENV, raising=False)
+        with pytest.raises(HTTPException) as exc:
+            tenancy.require_tenancy_admin(None, {})
+        assert exc.value.status_code == 403

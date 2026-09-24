@@ -6,13 +6,19 @@ element in the response (not just the final PROOF/DENIAL/ABSTAIN/REFER_TO_LAWYER
 can show a user which fact grounded each element rather than asking them to trust an opaque outcome.
 
 Tenancy (`application/tenancy.py`: orgs, memberships, org-scoped API keys) now lives alongside
-`analyse-facts` in this router -- `POST /api/v1/orgs` and the key-management routes below it, both
-engine-admin-only (`roles.require_admin`, the same allowlisted operator gate every other admin-only route
-uses). `analyse-facts` itself still rides the optional Supabase session identity every other user-facing
-nyaya route uses (`CurrentUserDep`), unchanged, so its existing anonymous and Supabase-authenticated behavior
-stays byte-identical; accepting an org API key as an *alternative* identity on that route, and scoping the
-partner resources the plan still lists (matters, documents, verify-citations, research, draft, audit
-export) to an org once they exist, is the next slice of this card, not this one.
+`analyse-facts` in this router -- `POST /api/v1/orgs` and the key-management routes below it. These are
+deliberately gated with `tenancy.require_tenancy_admin`, not `roles.require_admin`: this deployment can run
+with `PRAVRUDHI_AUTH` left at its `disabled` default (the 5090 demo-mode config), where `roles.role_of(None)`
+resolves an anonymous caller to `ADMIN` by construction -- correct for the engine-improvement surfaces
+`roles.ADMIN_ONLY` gates, and exactly wrong for provisioning a partner's first live API key, which must never
+be mintable by an anonymous caller regardless of this deployment's auth mode (reviewer 1, fix-before-merge:
+demonstrated with a real, unoverridden `TestClient` that the `roles.require_admin` version returned 200 to
+POST /api/v1/orgs with no identity at all). `analyse-facts` itself still rides the optional Supabase session
+identity every other user-facing nyaya route uses (`CurrentUserDep`), unchanged, so its existing anonymous
+and Supabase-authenticated behavior stays byte-identical; accepting an org API key as an *alternative*
+identity on that route, and scoping the partner resources the plan still lists (matters, documents,
+verify-citations, research, draft, audit export) to an org once they exist, is the next slice of this card,
+not this one.
 
 **Reviewer 1's rejection of the first version (8344594), addressed here.** On the self-hosted 5090
 deployment, `identity.guard_boot` only refuses an unauthenticated deploy on VERCEL/RENDER -- so this route is
@@ -50,7 +56,6 @@ from pydantic import BaseModel, Field
 from starlette.responses import JSONResponse
 
 from pravrudhi.api.identity import CurrentUserDep, User
-from pravrudhi.api.roles import is_admin, require_admin
 from pravrudhi.application import nyaya_lean_registry as reg
 from pravrudhi.application import tenancy
 from pravrudhi.application.config_files import config_file
@@ -371,8 +376,10 @@ def build_partner_router(
         return body
 
     @router.post("/orgs", response_model=OrgOut)
-    def create_org_ep(req: CreateOrgRequest, user: User | None = CurrentUserDep) -> dict[str, Any]:
-        require_admin(user)
+    def create_org_ep(
+        req: CreateOrgRequest, request: Request, user: User | None = CurrentUserDep
+    ) -> dict[str, Any]:
+        tenancy.require_tenancy_admin(user, request.headers)
         try:
             org = tenancy.create_org(engine_root, req.org_id, req.name)
         except tenancy.TenancyError as e:
@@ -381,9 +388,9 @@ def build_partner_router(
 
     @router.post("/orgs/{org_id}/keys", response_model=CreatedKeyOut)
     def create_key_ep(
-        org_id: str, req: CreateKeyRequest, user: User | None = CurrentUserDep
+        org_id: str, req: CreateKeyRequest, request: Request, user: User | None = CurrentUserDep
     ) -> dict[str, Any]:
-        require_admin(user)
+        tenancy.require_tenancy_admin(user, request.headers)
         try:
             created = tenancy.create_key(
                 engine_root, org_id, label=req.label, rate_limit_per_minute=req.rate_limit_per_minute
@@ -393,13 +400,15 @@ def build_partner_router(
         return {**created.record.to_public_dict(), "secret": created.secret}
 
     @router.get("/orgs/{org_id}/keys", response_model=ApiKeysOut)
-    def list_keys_ep(org_id: str, user: User | None = CurrentUserDep) -> dict[str, Any]:
-        require_admin(user)
+    def list_keys_ep(org_id: str, request: Request, user: User | None = CurrentUserDep) -> dict[str, Any]:
+        tenancy.require_tenancy_admin(user, request.headers)
         return {"keys": [k.to_public_dict() for k in tenancy.keys_for_org(engine_root, org_id)]}
 
     @router.post("/orgs/{org_id}/keys/{key_id}/revoke", response_model=ApiKeyOut)
-    def revoke_key_ep(org_id: str, key_id: str, user: User | None = CurrentUserDep) -> dict[str, Any]:
-        require_admin(user)
+    def revoke_key_ep(
+        org_id: str, key_id: str, request: Request, user: User | None = CurrentUserDep
+    ) -> dict[str, Any]:
+        tenancy.require_tenancy_admin(user, request.headers)
         try:
             record = tenancy.revoke_key(engine_root, key_id)
         except tenancy.TenancyError as e:
@@ -415,8 +424,13 @@ def build_partner_router(
         org_id: str, request: Request, user: User | None = CurrentUserDep
     ) -> dict[str, Any] | JSONResponse:
         principal = tenancy.principal_from_headers(engine_root, request.headers)
+        # The admin bypass here is the same fail-closed check as the provisioning routes above -- never
+        # roles.is_admin's auth-disabled-means-operator fallback, for the identical reason: an anonymous
+        # caller on a deployment that left auth disabled must not be able to read another org's usage.
         tenancy.require_org_access(
-            principal.org_id if principal else None, org_id, is_admin=is_admin(user)
+            principal.org_id if principal else None,
+            org_id,
+            is_admin=tenancy.is_tenancy_admin(user, request.headers),
         )
         if principal is None:
             # An admin asking with no key names no particular key's usage -- refuse rather than guess one.
