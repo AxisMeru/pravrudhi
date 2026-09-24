@@ -337,11 +337,15 @@ def ask_vendor(
             # own quota is the wrong shape as well as a fragile one.
             from pravrudhi.agents.account import claude_env
 
-            cmd = ["claude", "-p", prompt, "--output-format", "text"]
+            cmd = ["claude", "-p", "--output-format", "text"]
             env = claude_env()
         else:
-            cmd = ["codex", "exec", "--skip-git-repo-check", prompt]
-        code, out, err, wall = _run(cmd, Path.cwd(), int(vendor.params.get("timeout_s", 900)), env=env)
+            cmd = ["codex", "exec", "--skip-git-repo-check"]
+        # The prompt rides on stdin, never argv: a >128 KiB prompt is refused by the kernel as an argv string
+        # (E2BIG) before the CLI starts. Both CLIs read the prompt from stdin when none is given positionally.
+        code, out, err, wall = _run(
+            cmd, Path.cwd(), int(vendor.params.get("timeout_s", 900)), env=env, stdin_text=prompt
+        )
         if code != 0:
             raise RuntimeError((err or out or f"{vendor.model} exited {code}")[-400:])
         return Answer(vendor.id, vendor.interface, vendor.model, "", out.strip(), wall, None, None)

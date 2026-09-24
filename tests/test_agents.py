@@ -119,7 +119,7 @@ class TestCodexIsToldWhereToWorkUnambiguously:
 
         seen: dict[str, object] = {}
 
-        def fake_run(cmd, cwd, timeout_s, env=None):  # type: ignore[no-untyped-def]
+        def fake_run(cmd, cwd, timeout_s, env=None, *, stdin_text=None):  # type: ignore[no-untyped-def]
             seen["cmd"] = list(cmd)
             return 0, "done", "", 0.1
 

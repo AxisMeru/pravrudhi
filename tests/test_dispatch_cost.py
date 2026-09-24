@@ -41,7 +41,7 @@ REAL_ENVELOPE = {
 
 
 def _stub_cli(monkeypatch, payload: object, code: int = 0, *, credential: Path | None = None) -> None:
-    def fake_run(cmd, cwd, timeout_s, env=None):  # type: ignore[no-untyped-def]
+    def fake_run(cmd, cwd, timeout_s, env=None, *, stdin_text=None):  # type: ignore[no-untyped-def]
         return code, json.dumps(payload) if not isinstance(payload, str) else payload, "", 1.5
     monkeypatch.setattr(cli_agents, "_run", fake_run)
     # `ClaudeCodeAgent.run` refuses to spawn `claude` without this project's OWN credential, rather than

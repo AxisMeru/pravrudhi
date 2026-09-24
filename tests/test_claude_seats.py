@@ -163,7 +163,7 @@ def _record_runs(monkeypatch, outcomes: dict[str, tuple[int, str]]) -> list[str]
 
     seen: list[str] = []
 
-    def fake_run(cmd, workspace, timeout_s, env=None):  # noqa: ANN001, ARG001
+    def fake_run(cmd, workspace, timeout_s, env=None, *, stdin_text=None):  # noqa: ANN001, ARG001
         directory = (env or {}).get("CLAUDE_CONFIG_DIR", "")
         seen.append(directory)
         code, text = outcomes.get(Path(directory).name, (0, "ok"))

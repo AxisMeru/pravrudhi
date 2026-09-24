@@ -47,7 +47,16 @@ def _reap(proc: subprocess.Popen[str]) -> None:
         proc.wait(timeout=5)
 
 
-def _run(cmd: list[str], cwd: Path, timeout_s: int, env: dict[str, str] | None = None) -> tuple[int, str, str, float]:
+def _run(
+    cmd: list[str], cwd: Path, timeout_s: int, env: dict[str, str] | None = None, *, stdin_text: str | None = None
+) -> tuple[int, str, str, float]:
+    """Run one CLI to completion. `stdin_text`, when given, is written to the child's stdin and then closed.
+
+    A prompt travels on stdin rather than argv because Linux caps a single argv string at 128 KiB
+    (MAX_ARG_STRLEN): a P1 benchmark prompt carrying IL-TUR's 100-statute candidate block exceeded it and
+    `Popen` raised `OSError: [Errno 7] Argument list too long: 'claude'` before the CLI started (2026-09-24).
+    Both vendor CLIs document stdin as a prompt source. Without `stdin_text` the child still gets DEVNULL.
+    """
     t0 = time.monotonic()
     proc = subprocess.Popen(
         cmd,
@@ -55,7 +64,7 @@ def _run(cmd: list[str], cwd: Path, timeout_s: int, env: dict[str, str] | None =
         # The child inherits this process's stdin otherwise. When the parent is itself an agent, that is a pipe
         # that never delivers, so the CLI warns "no stdin data received in 3s" and exits non-zero — three agents
         # that had finished their work correctly were rejected for it.
-        stdin=subprocess.DEVNULL,
+        stdin=subprocess.DEVNULL if stdin_text is None else subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
@@ -67,7 +76,7 @@ def _run(cmd: list[str], cwd: Path, timeout_s: int, env: dict[str, str] | None =
         start_new_session=True,  # its own process group, so the whole tree can be reaped together
     )
     try:
-        out, err = proc.communicate(timeout=timeout_s)
+        out, err = proc.communicate(input=stdin_text, timeout=timeout_s)
         return proc.returncode, out, err, time.monotonic() - t0
     except subprocess.TimeoutExpired:
         _reap(proc)
@@ -144,7 +153,8 @@ class ClaudeCodeAgent(GitWorktreeMixin):
         from pravrudhi.agents.account import AGENT_ID, claude_env, select_seat
         from pravrudhi.application import availability
 
-        cmd = ["claude", "-p", prompt, "--output-format", "json", "--allowed-tools", self.allowed_tools]
+        # The prompt goes on stdin (`claude -p` reads it there when no positional prompt is given): see `_run`.
+        cmd = ["claude", "-p", "--output-format", "json", "--allowed-tools", self.allowed_tools]
         if self.model:
             cmd += ["--model", self.model]
 
@@ -155,7 +165,7 @@ class ClaudeCodeAgent(GitWorktreeMixin):
             if seat is None or seat.id in spent:
                 break
             spent.append(seat.id)
-            last = self._attempt(cmd, workspace, timeout_s, {"CLAUDE_CONFIG_DIR": str(seat.config_dir)})
+            last = self._attempt(cmd, workspace, timeout_s, {"CLAUDE_CONFIG_DIR": str(seat.config_dir)}, prompt)
             whole = f"{last.text}\n{last.stderr_tail}"
             if availability.classify(AGENT_ID, whole, last.exit_code) != "limited":
                 return last
@@ -165,9 +175,9 @@ class ClaudeCodeAgent(GitWorktreeMixin):
             claude_env(root=self.root)  # no seat can serve: raise the documented refusal rather than guess
         return last  # type: ignore[return-value]
 
-    def _attempt(self, cmd: list[str], workspace: Path, timeout_s: int, env: dict[str, str]) -> AgentRun:
+    def _attempt(self, cmd: list[str], workspace: Path, timeout_s: int, env: dict[str, str], prompt: str) -> AgentRun:
         """One dispatch to one seat. Knows nothing about seats beyond the environment it is handed."""
-        code, out, err, wall = _run(cmd, workspace, timeout_s, env=env)
+        code, out, err, wall = _run(cmd, workspace, timeout_s, env=env, stdin_text=prompt)
         text, session, cost = out, None, None
         tokens = read = write = None
         try:
@@ -278,8 +288,8 @@ class CodexAgent(GitWorktreeMixin):
             cmd += ["--model", self.model]
         if self.effort:
             cmd += ["-c", f"model_reasoning_effort={self.effort}"]
-        cmd.append(prompt)
-        code, out, err, wall = _run(cmd, workspace, timeout_s)
+        # No positional prompt: `codex exec` then reads the instructions from stdin (see `_run`).
+        code, out, err, wall = _run(cmd, workspace, timeout_s, stdin_text=prompt)
         tokens, read, write = _codex_usage(out)
         # `text` stays the WHOLE stream rather than the final message. `delegate.dispatch` classifies usage
         # limits over `run.text`, and a vendor announces a limit at the end of its output, so trimming this to

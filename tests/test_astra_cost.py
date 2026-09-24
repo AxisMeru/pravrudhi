@@ -40,7 +40,7 @@ REAL_EVENTS = [
 def _stub(monkeypatch, lines, code: int = 0) -> list[list[str]]:
     seen: list[list[str]] = []
 
-    def fake_run(cmd, cwd, timeout_s, env=None):  # type: ignore[no-untyped-def]
+    def fake_run(cmd, cwd, timeout_s, env=None, *, stdin_text=None):  # type: ignore[no-untyped-def]
         seen.append(list(cmd))
         body = lines if isinstance(lines, str) else "\n".join(json.dumps(e) for e in lines)
         return code, body, "", 2.0
