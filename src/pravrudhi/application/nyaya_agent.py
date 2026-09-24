@@ -117,6 +117,14 @@ def load_agent_config(root: Path) -> AgentConfig:
     # Allow env override for judge base_url (container deployments)
     if os.environ.get("NYAYA_HOUSE_JUDGE_BASE_URL"):
         house_judge["base_url"] = os.environ["NYAYA_HOUSE_JUDGE_BASE_URL"]
+    # A deployment names the judge's model id (so no /models round-trip on a cold serverless worker) and an
+    # ordered fallback list; both are the host's facts, not the release's.
+    if os.environ.get("NYAYA_HOUSE_JUDGE_MODEL"):
+        house_judge["model"] = os.environ["NYAYA_HOUSE_JUDGE_MODEL"]
+    if os.environ.get("NYAYA_HOUSE_JUDGE_FALLBACK_URLS"):
+        house_judge["base_urls_fallback"] = [
+            u.strip() for u in os.environ["NYAYA_HOUSE_JUDGE_FALLBACK_URLS"].split(",") if u.strip()
+        ]
     return AgentConfig(
         tau=float(body["tau"]),
         refer_band=(float(low), float(high)),

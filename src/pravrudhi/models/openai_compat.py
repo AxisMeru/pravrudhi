@@ -35,6 +35,15 @@ class CompletionResult(BaseModel):
     backend_index: int | None = None
 
 
+class HTTPStatusError(RuntimeError):
+    """The server answered with an HTTP error. `status` lets a caller tell a transient 5xx/429 from a 4xx
+    configuration fault; the message carries the server's own body, never the request's credentials."""
+
+    def __init__(self, status: int, message: str) -> None:
+        super().__init__(message)
+        self.status = status
+
+
 class ChatClient:
     def __init__(
         self,
@@ -111,7 +120,7 @@ class ChatClient:
                 return out
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode(errors="replace")[:600] if exc.fp else ""
-            raise RuntimeError(f"{self.base_url}{path} answered {exc.code}: {detail or exc.reason}") from exc
+            raise HTTPStatusError(exc.code, f"{self.base_url}{path} answered {exc.code}: {detail or exc.reason}") from exc
 
     def complete(
         self, prompt: str, *, max_tokens: int = 16, temperature: float = 0.0, logprobs: int | None = None,

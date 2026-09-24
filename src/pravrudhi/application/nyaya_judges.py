@@ -34,7 +34,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 from pravrudhi.application import panel
-from pravrudhi.models.openai_compat import ChatClient, CompletionResult
+from pravrudhi.models.openai_compat import ChatClient, CompletionResult, HTTPStatusError
 
 if TYPE_CHECKING:
     from pravrudhi.application.credentials import CredentialStore
@@ -156,41 +156,44 @@ class HouseJudge:
             if base_url is None:
                 raise ValueError("HouseJudge needs a base_url or a complete transport")
 
-            # Create clients for primary and fallback URLs
-            self.clients: list[ChatClient] = []
-            for url in [base_url] + self.fallback_urls:
-                client = ChatClient(base_url=url, model=model or "", api_key=api_key, timeout_s=timeout_s)
-                self.clients.append(client)
+            # One client per backend. The bearer key is the primary's (the RunPod endpoint); a fallback is the
+            # operator's own vLLM and never receives it. Each backend answers under its own model id.
+            self.clients: list[ChatClient] = [
+                ChatClient(base_url=url, model="", api_key=api_key if i == 0 else None, timeout_s=timeout_s)
+                for i, url in enumerate([base_url, *self.fallback_urls])
+            ]
+            self._models: list[str | None] = [model or None] + [None] * len(self.fallback_urls)
 
-            if not model:
-                # Try to list models from primary client
-                listed = self.clients[0].list_models()
-                if not listed:
-                    raise RuntimeError(f"{base_url}/models lists no model")
-                model = listed[0]
+            def _model_for(i: int) -> str:
+                if self._models[i] is None:
+                    listed = self.clients[i].list_models()
+                    if not listed:
+                        raise RuntimeError(f"{self.clients[i].base_url}/models lists no model")
+                    self._models[i] = listed[0]
+                resolved = self._models[i]
+                assert resolved is not None
+                return resolved
 
-            self.model = model
+            self.model = _model_for(0)
+
+            def _transient(e: BaseException) -> bool:
+                """Only these move to the next backend; a 4xx (bad key, unknown model, bad request) surfaces."""
+                if isinstance(e, HTTPStatusError):
+                    return e.status >= 500 or e.status == 429
+                return isinstance(e, (TimeoutError, urllib.error.URLError, ConnectionError))
 
             def _complete_with_fallback(prompt: str) -> CompletionResult:
-                """Try primary, then fallback URLs on connection/timeout errors."""
-                last_error = None
                 for i, client in enumerate(self.clients):
                     try:
-                        client.model = self.model
+                        client.model = _model_for(i)
                         result = client.complete(prompt, max_tokens=max_tokens, temperature=0.0, logprobs=top_logprobs)
-                        # Record which backend answered (0=primary, 1+=fallback)
-                        # Use object.__setattr__ since result is frozen
-                        object.__setattr__(result, "backend_index", i)
-                        return result
-                    except (OSError, RuntimeError, urllib.error.HTTPError, urllib.error.URLError) as e:
-                        last_error = e
-                        if i < len(self.clients) - 1:
-                            # Fallback available, try next
-                            continue
-                        else:
-                            # Last fallback failed
-                            raise RuntimeError(f"All judge backends failed. Last error: {last_error}") from e
-                raise RuntimeError(f"All judge backends failed. Last error: {last_error}")
+                    except Exception as e:  # noqa: BLE001 -- classified just below, re-raised unless transient
+                        if not _transient(e) or i == len(self.clients) - 1:
+                            raise RuntimeError(f"judge backend {i} ({client.base_url}) failed: {e}") from e
+                        continue
+                    object.__setattr__(result, "backend_index", i)  # the result is frozen
+                    return result
+                raise RuntimeError("no judge backend configured")
 
             complete = _complete_with_fallback
         else:
