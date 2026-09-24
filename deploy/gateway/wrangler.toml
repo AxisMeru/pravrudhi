@@ -15,3 +15,13 @@ kv_namespaces = [{ binding = "KV", id = "KV_NAMESPACE_ID" }]
 name = "pravrudhi-app"
 vars = { EDITION = "product", ENGINE_KEY = "engine_url_product" }
 kv_namespaces = [{ binding = "KV", id = "KV_NAMESPACE_ID" }]
+
+# Staging only, deployed from this scratch worktree, never the live gateway checkout
+# (/home/ss/projects/pravrudhi) -- `wrangler deploy --env staging` only. Same KV namespace as
+# studio/product (one namespace, distinct keys per ENGINE_KEY), so the real id is required here;
+# studio/product above stay on the placeholder deliberately, so this file can never accidentally
+# redeploy production if the wrong --env is passed from this worktree.
+[env.staging]
+name = "pravrudhi-app-staging"
+vars = { EDITION = "product", ENGINE_KEY = "engine_url_staging", UPSTREAM_KIND = "runpod", PRAVRUDHI_VERSION = "0.5.29" }
+kv_namespaces = [{ binding = "KV", id = "4486cc4e4cb4474a8db0d92768006f20" }]
