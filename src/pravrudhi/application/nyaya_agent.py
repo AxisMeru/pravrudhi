@@ -28,9 +28,18 @@ Rules enforced here rather than asked of a judge:
   after the retries is not established. A DENY defeater the judge calls present but cannot quote is the one exception to "treat
   as absent": treating it as absent would let the contract PROVE on the strength of a failed quote, so the
   contract is referred instead (`denial_unquotable`).
-* **Uncertainty is referred, not rounded.** Any judged element whose `p_established` falls in the configured
-  `refer_band` [low, high) makes the contract REFER_TO_LAWYER; the Lean check still runs and is recorded. The
-  shipped band [0.5, 0.74) is an UNVALIDATED DEFAULT, CALIBRATION PENDING M3 -- not pre-registered, not fitted.
+* **Uncertainty is referred, not rounded.** Any judged element whose `p_established` (the PRIMARY judge's,
+  always) falls in the configured `refer_band` [low, high) makes the contract REFER_TO_LAWYER; the Lean check
+  still runs and is recorded. The shipped band [0.5, 0.74) is an UNVALIDATED DEFAULT, CALIBRATION PENDING M3 --
+  not pre-registered, not fitted.
+* **The second judge (config C) gets its own band, in logit distance, not probability.** The served 32B second
+  judge's `p_established_second` is bf16-quantised (`sigmoid(k/8)`) and run-to-run non-deterministic near its
+  own tau (e.g. logit(0.97)=3.4761) -- a probability-space band the width of the primary's would be too coarse
+  at that resolution. `config.second_judge.refer_logit_delta` (env `NYAYA_SECOND_JUDGE_REFER_LOGIT_DELTA`),
+  default `None` (off), makes the element 'uncertain' (`uncertain_second_judge`) when the second judge was
+  actually consulted and `|logit(p_established_second) - logit(tau_second)| < delta` (strict; equal to delta is
+  NOT in band). It never fires when the primary already rejected (second skipped) or the second failed closed
+  (unavailable) -- those keep their existing outcomes unchanged.
 * **The judge sees one statute text.** Its training text (config `judge_statute_text`) on every attempt; a
   contract with none is not judged (ABSTAIN, `no_training_statute_text`).
 * **A judge that cannot answer is a gap.** An element whose judge raised on every attempt makes the contract
@@ -43,6 +52,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import time
 import uuid
@@ -114,10 +124,23 @@ class AgentConfig:
             raise ValueError(f"tau must be in (0, 1], got {self.tau}")
         if self.max_retries < 0:
             raise ValueError(f"max_retries must be >= 0, got {self.max_retries}")
+        delta = self.second_refer_logit_delta()
+        if delta is not None and delta < 0:
+            raise ValueError(f"second_judge.refer_logit_delta must be >= 0, got {delta}")
 
     def in_band(self, p: float) -> bool:
         low, high = self.refer_band
         return low <= p < high
+
+    def second_refer_logit_delta(self) -> float | None:
+        """`second_judge.refer_logit_delta` (config key or `NYAYA_SECOND_JUDGE_REFER_LOGIT_DELTA`, already
+        merged into `second_judge` by `load_agent_config`), else None -- off, today's behaviour, byte-identical.
+        Reads from `second_judge` rather than its own field so a bare env override on a host with no
+        `second_judge:` yaml block still works, mirroring the other `NYAYA_SECOND_JUDGE_*` overrides."""
+        if not self.second_judge:
+            return None
+        raw = self.second_judge.get("refer_logit_delta")
+        return None if raw is None else float(raw)
 
 
 def load_agent_config(root: Path) -> AgentConfig:
@@ -178,6 +201,13 @@ def load_agent_config(root: Path) -> AgentConfig:
     _second_override("NYAYA_SECOND_JUDGE_MODEL", "model")
     _second_override("NYAYA_SECOND_JUDGE_TAU", "tau", float)
     _second_override("NYAYA_SECOND_JUDGE_TIMEOUT_S", "timeout_s", int)
+    # The second-judge REFER band (logit distance, not probability -- module doc): off (None) unless a
+    # `refer_logit_delta:` key is in the yaml's `second_judge:` block or this env var is set. Reachable even
+    # with no `second_judge:` yaml block, exactly like the overrides above -- though it is inert without a
+    # second judge actually configured (`AgentConfig.second_refer_logit_delta` only ever reads it off a real
+    # `second_judge` mapping, and `_run_contract` only ever sees a non-None `p_established_second` when config C
+    # is on).
+    _second_override("NYAYA_SECOND_JUDGE_REFER_LOGIT_DELTA", "refer_logit_delta", float)
 
     return AgentConfig(
         tau=float(body["tau"]),
@@ -388,6 +418,13 @@ class ElementResult:
     offsets_source: Literal["system"] | None = None
     quote_source: str | None = None
     error: str | None = None
+    #: Attempt 1's second-judge fields (config C, AND-gate only; all None/False when there is no second judge,
+    #: or the second was never asked -- primary rejected outright or the second failed closed/unavailable).
+    p_established_second: float | None = None
+    tau_second: float | None = None
+    second_skip_reason: str | None = None
+    second_logit_distance: float | None = None
+    second_refer_band_fired: bool = False
 
 
 @dataclass
@@ -403,6 +440,10 @@ class ContractResult:
     #: The judge's training statute text differs from the binary's official --describe-source text (None: no
     #: training text to compare). An M2 retraining-on-official-texts target list, not an outcome input.
     statute_text_mismatch: bool | None = None
+    #: Elements whose second-judge logit-distance band fired (config C only; always [] when
+    #: `second_refer_logit_delta` is off -- the default). Distinct from `uncertain` (the primary's own band):
+    #: an element can appear in either, both, or neither.
+    uncertain_second: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -448,6 +489,42 @@ def _build_house_judge(hj_cfg: Mapping[str, Any], *, tau: float, typed: bool, ap
     from pravrudhi.application.nyaya_judges import HouseJudge
 
     return HouseJudge.from_config(hj_cfg, tau=tau, api_key_env=api_key_env)
+
+
+def _clamp_p(p: float) -> float:
+    """`p` clamped into (1e-9, 1-1e-9) -- `logit` is defined nowhere else and a served, bf16-quantised
+    probability can land exactly on 0.0 or 1.0."""
+    return min(max(p, 1e-9), 1.0 - 1e-9)
+
+
+def _logit(p: float) -> float:
+    p = _clamp_p(p)
+    return math.log(p / (1.0 - p))
+
+
+def _second_band_info(anchor: ElementJudgment | None, delta: float | None) -> dict[str, Any]:
+    """Attempt 1's second-judge fields for `ElementResult` (module doc, "the second judge gets its own band"):
+    `second_refer_band_fired` is True only when the second judge was actually asked and answered --
+    `p_established_second` and `tau_second` both present -- AND `delta` is configured AND the logit distance is
+    STRICTLY less than it (`< delta`, never `<=`). The two fail-closed paths (`AndGateJudge` recorded
+    `second_skip_reason`: the primary already rejected so the second was never asked, or the second errored and
+    the element failed closed) leave `p_established_second` None here and never reach the band -- a REFER must
+    come from genuine second-judge uncertainty, never as a side effect of a skip."""
+    out: dict[str, Any] = {
+        "p_established_second": None, "tau_second": None, "second_skip_reason": None,
+        "second_logit_distance": None, "second_refer_band_fired": False,
+    }
+    if anchor is None:
+        return out
+    out["second_skip_reason"] = anchor.second_skip_reason
+    out["tau_second"] = anchor.tau_second
+    if anchor.p_established_second is None or anchor.tau_second is None:
+        return out
+    out["p_established_second"] = anchor.p_established_second
+    distance = abs(_logit(anchor.p_established_second) - _logit(anchor.tau_second))
+    out["second_logit_distance"] = distance
+    out["second_refer_band_fired"] = delta is not None and distance < delta
+    return out
 
 
 # -- the loop ----------------------------------------------------------------------------------------------
@@ -553,16 +630,17 @@ class NyayaAgent:
                         "offsets_source": loc.offsets_source, "quote_source": quote_source}, _ms(t0))
             if loc.valid:
                 break
+        delta = self.config.second_refer_logit_delta()
         if anchor is None:
             return ElementResult(element, is_denial, "not_established", False, None, None, None, None, None, None,
-                                 attempts, error=error)
+                                 attempts, error=error, **_second_band_info(None, delta))
         claimed = anchor.status == "established"
         valid = claimed and loc is not None and loc.valid
         return ElementResult(
             element, is_denial, "established" if valid else "not_established", claimed, anchor.p_established,
             fact_id, quote, loc.start if loc else None, loc.end if loc else None, loc.reason if loc else None, attempts,
             occurrences=loc.occurrences if loc else 0, offsets_source=loc.offsets_source if loc and loc.valid else None,
-            quote_source=quote_source,
+            quote_source=quote_source, **_second_band_info(anchor, delta),
         )
 
     def _run_contract(self, audit: AuditTrail, contract_id: str, facts: tuple[Fact, ...], narrative: str) -> ContractResult:
@@ -585,10 +663,12 @@ class NyayaAgent:
 
         def finish(outcome: Outcome, reason: str, **kw: Any) -> ContractResult:
             res = ContractResult(contract_id, outcome, reason, results, kw.get("assertions"), kw.get("lean"),
-                                 kw.get("lean_outcome"), kw.get("uncertain", []), mismatch)
+                                 kw.get("lean_outcome"), kw.get("uncertain", []), mismatch,
+                                 kw.get("uncertain_second", []))
             audit.step("outcome", {"contract_id": contract_id, "elements": [asdict(r) for r in results]},
                        {"contract_id": contract_id, "outcome": outcome, "reason": reason,
                         "lean_outcome": res.lean_outcome, "uncertain": res.uncertain,
+                        "uncertain_second": res.uncertain_second,
                         "statute_text_mismatch": mismatch}, 0.0)
             return res
 
@@ -612,7 +692,9 @@ class NyayaAgent:
                    {"contract_id": contract_id, **lean}, _ms(t0))
         lean_outcome = outcome_from_lean(lean)
         uncertain = [r.element for r in results if r.p_established is not None and self.config.in_band(r.p_established)]
-        kw: dict[str, Any] = {"assertions": assertions, "lean": lean, "lean_outcome": lean_outcome, "uncertain": uncertain}
+        uncertain_second = [r.element for r in results if r.second_refer_band_fired]
+        kw: dict[str, Any] = {"assertions": assertions, "lean": lean, "lean_outcome": lean_outcome,
+                              "uncertain": uncertain, "uncertain_second": uncertain_second}
 
         if lean_outcome != local:
             return finish("ABSTAIN", "assembly_lean_mismatch", **kw)
@@ -620,6 +702,8 @@ class NyayaAgent:
             return finish("REFER_TO_LAWYER", "denial_unquotable", **kw)
         if uncertain:
             return finish("REFER_TO_LAWYER", "uncertain", **kw)
+        if uncertain_second:
+            return finish("REFER_TO_LAWYER", "uncertain_second_judge", **kw)
         reason = {"PROOF": "all_elements_established", "DENIAL": "denial_established", "ABSTAIN": "missing_element"}[lean_outcome]
         return finish(lean_outcome, reason, **kw)
 
@@ -633,7 +717,8 @@ class NyayaAgent:
     ) -> AgentRun:
         run_id = f"nyaya-agent-{uuid.uuid4().hex[:10]}"
         audit = AuditTrail(Path(self.config.audit_dir) / f"{run_id}.jsonl", run_id)
-        cfg_view = {"tau": self.config.tau, "refer_band": list(self.config.refer_band), "max_retries": self.config.max_retries}
+        cfg_view = {"tau": self.config.tau, "refer_band": list(self.config.refer_band), "max_retries": self.config.max_retries,
+                   "second_refer_logit_delta": self.config.second_refer_logit_delta()}
         audit.step("run_start", cfg_view, {"judge": self.judge.name, "score_sha256": self.registry.sha256, **cfg_view}, 0.0)
 
         t0 = time.monotonic()

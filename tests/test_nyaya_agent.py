@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -31,7 +32,7 @@ from pravrudhi.application.nyaya_agent import (
     outcome_from_lean,
     select_contracts,
 )
-from pravrudhi.application.nyaya_judges import ElementJudgment, JudgeOutputError, JudgeRequest
+from pravrudhi.application.nyaya_judges import AndGateJudge, ElementJudgment, JudgeOutputError, JudgeRequest
 
 REPO = Path(__file__).resolve().parent.parent
 #: The pinned binary lives outside this repo; point PRABHASA_NYAYA_SCORE_BIN at it (no host path is committed).
@@ -413,6 +414,163 @@ class TestLoop:
         c = run.contracts[0]
         assert (c.outcome, c.reason) == ("ABSTAIN", "no_training_statute_text")
         assert judge.requests == []
+
+
+def _logit(p: float) -> float:
+    """Duplicates `nyaya_agent._logit`'s definition (clamp then log-odds) so a test can compute an exact
+    boundary value without reaching into the module's private helper."""
+    p = min(max(p, 1e-9), 1.0 - 1e-9)
+    return math.log(p / (1.0 - p))
+
+
+def _second(status: str, p: float) -> ElementJudgment:
+    """A second-judge reply as a bare `Judge` double would give it -- fact_id/quote are never read from the
+    second (AndGateJudge always keeps the primary's span), so they are dummy values here."""
+    return ElementJudgment(status, p, fact_id="Fx", quote="unused")
+
+
+class TestSecondJudgeReferBand:
+    """Config C's own REFER band (module doc, "the second judge gets its own band"): a logit-distance test on
+    the second judge's `p_established_second` against ITS tau, `second_judge.refer_logit_delta` (env
+    `NYAYA_SECOND_JUDGE_REFER_LOGIT_DELTA`). Wraps two `ScriptedJudge` doubles in a REAL `AndGateJudge` (never
+    hand-builds an `ElementJudgment` with second-judge fields) so the gate's own skip/fail-closed logic is
+    exercised exactly as production wires it, never re-implemented here."""
+
+    TAU2 = 0.97
+
+    def _run(
+        self, tmp_path: Path, primary_script: dict[str, list[Any]], second_script: dict[str, list[Any]],
+        *, delta: float | None = 0.2, **cfg: Any,
+    ) -> Any:
+        primary = ScriptedJudge(primary_script)
+        second = ScriptedJudge(second_script)
+        gate = AndGateJudge(primary, second, tau_primary=0.74, tau_second=self.TAU2)
+        second_judge_cfg = None if delta is None else {"tau": self.TAU2, "refer_logit_delta": delta}
+        config = _config(tmp_path, second_judge=second_judge_cfg, **cfg)
+        agent = NyayaAgent(gate, _registry(), config)
+        return agent.run(TOY_FACTS, narrative="TOY narrative.", contract_ids=["bns69"]).contracts[0]
+
+    def test_off_by_default_is_byte_identical(self, tmp_path: Path) -> None:
+        """No `second_judge` config at all (delta=None): the second is still consulted (the gate is real) and
+        its p is still recorded, but the band never fires -- outcome is exactly what it would be without any
+        of this feature."""
+        script = _proof_script(TOY_FACTS)
+        c = self._run(tmp_path, script, {BNS69_EL[0]: [_second("established", 0.975)],
+                                         BNS69_EL[1]: [_second("established", 0.99)]}, delta=None)
+        assert c.outcome == "PROOF"
+        assert c.uncertain_second == []
+        el0 = c.elements[0]
+        assert el0.p_established_second == 0.975  # consulted and recorded...
+        assert el0.second_refer_band_fired is False  # ...but the band is off, so it never fires
+
+    @pytest.mark.parametrize("p2", [0.975, 0.965])  # above and below tau=0.97
+    def test_within_delta_on_either_side_of_tau_refers(self, tmp_path: Path, p2: float) -> None:
+        script = _proof_script(TOY_FACTS)
+        c = self._run(tmp_path, script, {BNS69_EL[0]: [_second("established", p2)],
+                                         BNS69_EL[1]: [_second("established", 0.999)]}, delta=0.2)
+        assert abs(_logit(p2) - _logit(self.TAU2)) < 0.2  # the test's own premise
+        assert c.outcome == "REFER_TO_LAWYER"
+        assert c.reason == "uncertain_second_judge"
+        assert c.uncertain_second == [BNS69_EL[0]]
+        assert c.uncertain == []  # the primary's own band never fired
+
+    def test_boundary_distance_equal_delta_is_not_in_band(self, tmp_path: Path) -> None:
+        """Strict `<`, never `<=` -- mirrors the primary band's own half-open convention."""
+        p2 = 0.965
+        delta = abs(_logit(p2) - _logit(self.TAU2))  # distance == delta exactly
+        script = _proof_script(TOY_FACTS)
+        c = self._run(tmp_path, script, {BNS69_EL[0]: [_second("established", p2)],
+                                         BNS69_EL[1]: [_second("established", 0.999)]}, delta=delta)
+        assert c.outcome == "PROOF"
+        assert c.uncertain_second == []
+        assert c.elements[0].second_refer_band_fired is False
+
+    def test_beyond_delta_does_not_refer(self, tmp_path: Path) -> None:
+        script = _proof_script(TOY_FACTS)
+        c = self._run(tmp_path, script, {BNS69_EL[0]: [_second("established", 0.9999)],
+                                         BNS69_EL[1]: [_second("established", 0.999)]}, delta=0.2)
+        assert c.outcome == "PROOF"
+        assert c.uncertain_second == []
+
+    def test_primary_rejects_second_is_skipped_band_never_applies(self, tmp_path: Path) -> None:
+        """An element the primary already rejects (second never asked) cannot be referred by the second-judge
+        band, at any delta -- there is no second p to test. (EL0's own second is far outside the band here, so
+        the contract's outcome turns only on EL1.)"""
+        script = _proof_script(TOY_FACTS)
+        script[BNS69_EL[1]] = [_not(p=0.3)]  # primary rejects outright, below its own tau 0.74
+        c = self._run(tmp_path, script, {BNS69_EL[0]: [_second("established", 0.5)],
+                                         BNS69_EL[1]: [_second("established", 0.99)]}, delta=0.2)
+        el1 = c.elements[1]
+        assert el1.p_established_second is None
+        assert el1.second_skip_reason == "primary_not_established"
+        assert el1.second_refer_band_fired is False
+        assert c.uncertain_second == []
+        assert c.outcome == "ABSTAIN" and c.reason == "missing_element"
+
+    def test_second_unavailable_fails_closed_without_an_extra_refer(self, tmp_path: Path) -> None:
+        """The second judge errors (unavailable): the element fails closed (not established) exactly as today,
+        and is never additionally referred by the logit-distance band -- there is no p to compare. (EL0's own
+        second is far outside the band here, so the contract's outcome turns only on EL1.)"""
+        script = _proof_script(TOY_FACTS)
+        c = self._run(tmp_path, script, {BNS69_EL[0]: [_second("established", 0.5)],
+                                         BNS69_EL[1]: [ConnectionError("second judge unreachable")]}, delta=0.2)
+        el1 = c.elements[1]
+        assert el1.status == "not_established"
+        assert el1.p_established_second is None
+        assert el1.second_skip_reason is not None and "second_unavailable" in el1.second_skip_reason
+        assert el1.second_refer_band_fired is False
+        assert c.uncertain_second == []
+        assert c.outcome == "ABSTAIN" and c.reason == "missing_element"
+
+    def test_records_p_second_tau_and_distance_on_the_element(self, tmp_path: Path) -> None:
+        p2 = 0.975
+        script = _proof_script(TOY_FACTS)
+        c = self._run(tmp_path, script, {BNS69_EL[0]: [_second("established", p2)],
+                                         BNS69_EL[1]: [_second("established", 0.999)]}, delta=0.2)
+        el0 = c.elements[0]
+        assert el0.p_established_second == p2
+        assert el0.tau_second == self.TAU2
+        assert el0.second_logit_distance == pytest.approx(abs(_logit(p2) - _logit(self.TAU2)))
+        assert el0.second_refer_band_fired is True
+
+    def test_composes_with_the_primarys_own_band_primary_takes_reason_priority(self, tmp_path: Path) -> None:
+        """An element in BOTH bands at once (contrived, but the composition must be well-defined): the
+        primary's `uncertain` reason wins, exactly as it would with no second judge configured at all -- the
+        primary band's existing behaviour is unchanged by this feature being on."""
+        script = _proof_script(TOY_FACTS)
+        # attempt 1 is "established" (so the second is asked) with a valid quote, but its OWN p sits in the
+        # primary's refer_band [0.5, 0.74) -- claimed/quote validity and the recorded p are independent axes.
+        script[BNS69_EL[1]] = [_est("F3", TOY_FACTS[2], "Lata had sexual intercourse with Kiran", p=0.6)]
+        c = self._run(tmp_path, script, {BNS69_EL[0]: [_second("established", 0.999)],
+                                         BNS69_EL[1]: [_second("established", 0.975)]}, delta=0.2)
+        assert c.outcome == "REFER_TO_LAWYER"
+        assert c.reason == "uncertain"
+        assert c.uncertain == [BNS69_EL[1]]
+        assert c.uncertain_second == [BNS69_EL[1]]  # both recorded; only the reason picks one
+
+    def test_composes_with_typed_layer_flag_independently(self, tmp_path: Path) -> None:
+        """`typed_layer` governs judge CONSTRUCTION only (`NyayaAgent.house`); the second-judge band reads
+        `second_judge.refer_logit_delta` off the config the same way whichever flag value is set."""
+        for typed in (False, True):
+            cfg = _config(tmp_path, typed_layer=typed, second_judge={"tau": 0.97, "refer_logit_delta": 0.2})
+            assert cfg.second_refer_logit_delta() == 0.2
+
+    def test_negative_delta_is_refused(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError):
+            _config(tmp_path, second_judge={"tau": 0.97, "refer_logit_delta": -0.1})
+
+    def test_no_second_judge_config_means_delta_is_none(self, tmp_path: Path) -> None:
+        assert _config(tmp_path).second_refer_logit_delta() is None
+
+    def test_env_var_introduces_the_key_on_a_host_with_no_yaml_block(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("NYAYA_SECOND_JUDGE_REFER_LOGIT_DELTA", "0.2")
+        sj = load_agent_config(REPO).second_judge
+        assert sj is not None
+        assert sj["refer_logit_delta"] == 0.2
+
+    def test_env_var_absent_by_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("NYAYA_SECOND_JUDGE_REFER_LOGIT_DELTA", raising=False)
+        assert load_agent_config(REPO).second_judge is None
 
 
 class TestStatuteMismatch:
