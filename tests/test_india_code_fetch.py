@@ -232,7 +232,7 @@ def test_fetch_all_retains_all_pdfs_on_disk_with_sha_in_manifest(tmp_path):
     manifest = json.loads(manifest_path.read_text())
     assert len(manifest) == len(ACTS)
 
-    for record, act, payload in zip(records, ACTS, payloads):
+    for record, act, payload in zip(records, ACTS, payloads, strict=True):
         pdf_path = tmp_path / act["filename"]
         # PDF is retained on disk
         assert pdf_path.exists(), f"{act['filename']} not written to disk"

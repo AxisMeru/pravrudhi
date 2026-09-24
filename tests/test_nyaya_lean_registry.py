@@ -7,6 +7,7 @@ in `omitted_claims`; an unknown contract_id is refused, never silently defaulted
 
 from __future__ import annotations
 
+import os as _os
 from pathlib import Path
 
 import pytest
@@ -16,10 +17,11 @@ from pravrudhi.application import nyaya_lean_registry as reg
 # T5b's REG/--list-contracts/--describe-contract tags live on prabhasa-nyaya's main branch.
 # PRABHASA_NYAYA_SCORE_BIN env override (e.g., a freshly-built binary) takes precedence; fallback to the
 # default worktree path for backward compatibility.
-import os as _os
-_SCORE_BIN = Path(_os.environ.get("PRABHASA_NYAYA_SCORE_BIN", "/home/ss/projects/prabhasa-nyaya/.worktrees/trackA-t5b-atomic/lean/.lake/build/bin/score"))
+_BINARY_DEFAULT = "/home/ss/projects/prabhasa-nyaya/.worktrees/trackA-t5b-atomic/lean/.lake/build/bin/score"
+_SCORE_BIN = Path(_os.environ.get("PRABHASA_NYAYA_SCORE_BIN", _BINARY_DEFAULT))
 requires_registry_scorer = pytest.mark.skipif(
-    not _SCORE_BIN.exists(), reason=f"prabhasa-nyaya score binary is not built at {_SCORE_BIN} (set PRABHASA_NYAYA_SCORE_BIN to override)"
+    not _SCORE_BIN.exists(),
+    reason=f"prabhasa-nyaya score binary is not built at {_SCORE_BIN} (set PRABHASA_NYAYA_SCORE_BIN to override)",
 )
 
 
