@@ -26,6 +26,9 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
+sys.path.insert(0, str(ROOT / "scripts"))
+
+from _t2_run_metadata import RunMetadata  # noqa: E402
 
 from pravrudhi.application.nyaya_judges import HouseJudge, p_established_from_top_logprobs, parse_house_fact_id  # noqa: E402
 from pravrudhi.application.typed.decoder import VLLMDecoder, score_decision  # noqa: E402
@@ -33,6 +36,7 @@ from pravrudhi.application.typed.house_judge import _STATUS_FIELD  # noqa: E402
 
 EXPECTED_SHA = "d56c449f9332f22a85176b1008974c1f147a7b8d45e4f5cea0e5ed08a01935cf"
 BASE_URL = "http://127.0.0.1:8110/v1"
+JUDGE_CONTAINER_NAME = "vllm-judge"  # local docker container name, for RunMetadata's StartedAt/RestartCount
 TAU = 0.74
 MAX_TOKENS = 30
 TOP_LOGPROBS = 20
@@ -83,6 +87,13 @@ def main() -> int:
     calib_v1 = [r for r in rows if r["split"] == "calib_v1"]
     heldout_v1 = [r for r in rows if r["split"] == "heldout_v1"]
     print(f"sha256 confirmed. calib_v1 n={len(calib_v1)}, heldout_v1 n={len(heldout_v1)}. Backend: {BASE_URL}")
+
+    meta = RunMetadata(
+        script_path=Path(__file__), base_url=BASE_URL, container_name=JUDGE_CONTAINER_NAME,
+        concurrency_description="concurrency 1 (sequential synchronous calls, no threading/asyncio import)",
+        delay_s=0.0,
+    )
+    meta.start()
 
     house = HouseJudge(
         tau=TAU, statute_chars=600, base_url=BASE_URL, max_tokens=MAX_TOKENS, top_logprobs=TOP_LOGPROBS, timeout_s=60
@@ -157,6 +168,15 @@ def main() -> int:
     print()
     print(f"RAW OUTPUTS SEALED: {raw_path}, sha256 {raw_sha}, {len(raw_rows)} rows")
     print("This sha must reach R2 before any scoring pass, per the sealed prereg.")
+
+    meta.finish(extra={"raw_output_sha256": raw_sha, "n_rows": len(raw_rows)})
+    meta_path = results_dir / "t2_c3_ab_run_RUN-METADATA.json"
+    meta.write(meta_path)
+    print(f"RUN-METADATA written: {meta_path}")
+
+    # Lead-2's protocol note (2026-09-24): no aggregate/headline numbers computed here, even as a "quick
+    # sanity check" -- everything downstream of the raw seal waits for R2's sign and runs as its own
+    # separate scoring pass (t2_c3_score.py).
     return 0
 
 
