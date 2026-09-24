@@ -1,0 +1,20 @@
+# The /api/v1 partner API's own safety limits (LEG-PLAN-2026-09-23, reviewer 1's rejection of
+# assistant/web/l4-analyse-facts@8344594). On the self-hosted 5090 deployment, auth is optional by design
+# (application/identity.py's guard_boot only refuses an unauthenticated deploy on VERCEL/RENDER), so
+# /api/v1/analyse-facts is callable by anyone with no other gate -- these two limits are that gate, not a
+# secondary defense on top of one.
+
+# Per-client-IP fixed-window limit on POST /api/v1/analyse-facts. A window's count resets at its own start,
+# not a rolling average -- simple, and enough to stop one caller from burning the 5090's GPU time.
+rate_limit_per_minute: 6
+
+# The house judge is one vLLM server on one 5090 -- there is no queue depth that makes waiting sensible for
+# an anonymous caller. A request that arrives once this many analyse-facts calls are already in flight gets
+# a 503 immediately, never queued.
+max_concurrent: 2
+
+# Whether to trust an "X-Forwarded-For" header for the caller's IP (true only behind a proxy this
+# deployment's own operator controls and that is known to set the header truthfully -- e.g. the Cloudflare
+# tunnel in front of the hosted engine). False (the default) reads the raw socket peer address instead,
+# which is correct for a direct connection and cannot be spoofed by the caller.
+trust_proxy_header: false

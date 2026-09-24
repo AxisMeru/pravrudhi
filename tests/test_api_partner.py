@@ -1,21 +1,25 @@
 """The partner API's first endpoint: POST /api/v1/analyse-facts, wrapping application.nyaya_agent.NyayaAgent
 over real FastAPI routing (house rule: no stub scorer as evidence -- but the AGENT here is exercised with the
 same scripted Judge/Registry test doubles `test_nyaya_agent.py` itself uses, since this test file's job is the
-HTTP wiring -- request parsing, response shape, error mapping -- not re-proving the agent loop's own decision
-logic, which is already covered there against the real pinned Lean binary).
+HTTP wiring -- request parsing, response shape, error mapping, and the safety limits reviewer 1 required
+(rate limit, concurrency cap, input caps, no path disclosure, clean 503 on a binary-sha mismatch) -- not
+re-proving the agent loop's own decision logic, which is already covered there against the real pinned Lean
+binary.
 """
 
 from __future__ import annotations
 
+import threading
+import time
 from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from pravrudhi.api.partner import build_partner_router
+from pravrudhi.api.partner import PartnerApiConfig, build_partner_router
 from pravrudhi.application import nyaya_lean_registry as reg
-from pravrudhi.application.nyaya_agent import AgentConfig, NyayaAgent
+from pravrudhi.application.nyaya_agent import AgentConfig, BinaryShaMismatch, NyayaAgent
 from pravrudhi.application.nyaya_judges import ElementJudgment, JudgeRequest
 
 TOY_FACTS = [
@@ -98,19 +102,31 @@ def _agent(tmp_path: Path, script: dict[str, list[ElementJudgment]]) -> NyayaAge
     return NyayaAgent(ScriptedJudge(script), ScriptedRegistry(), config)
 
 
-def _client(tmp_path: Path, script: dict[str, list[ElementJudgment]] | None = None) -> TestClient:
+#: Generous enough that the request-caps/shape tests below never trip the default rate limit by accident.
+_NO_LIMIT_CONFIG = PartnerApiConfig(rate_limit_per_minute=1000, max_concurrent=100, trust_proxy_header=False)
+
+
+def _client(
+    tmp_path: Path,
+    script: dict[str, list[ElementJudgment]] | None = None,
+    *,
+    config: PartnerApiConfig = _NO_LIMIT_CONFIG,
+) -> TestClient:
     agent = _agent(tmp_path, script if script is not None else _proof_script())
     app = FastAPI()
-    app.include_router(build_partner_router(tmp_path, agent_factory=lambda _root: agent))
+    app.include_router(build_partner_router(tmp_path, agent_factory=lambda _root: agent, config=config))
     return TestClient(app)
+
+
+def _req(**over: Any) -> dict[str, Any]:
+    base: dict[str, Any] = {"facts": TOY_FACTS, "narrative": "TOY narrative.", "contract_ids": ["bns69"]}
+    base.update(over)
+    return base
 
 
 def test_proof_response_shape_and_status(tmp_path: Path) -> None:
     c = _client(tmp_path)
-    resp = c.post(
-        "/api/v1/analyse-facts",
-        json={"facts": TOY_FACTS, "narrative": "TOY narrative.", "contract_ids": ["bns69"]},
-    )
+    resp = c.post("/api/v1/analyse-facts", json=_req())
     assert resp.status_code == 200
     body = resp.json()
     assert body["judge"] == "scripted-test-judge"
@@ -125,10 +141,7 @@ def test_quote_source_is_visible_per_element(tmp_path: Path) -> None:
     # Lead-2-assistant's explicit requirement: whole-fact claims need to be visible to the user, not just
     # the final verdict -- quote_source must survive the HTTP boundary, per element.
     c = _client(tmp_path)
-    resp = c.post(
-        "/api/v1/analyse-facts",
-        json={"facts": TOY_FACTS, "narrative": "TOY narrative.", "contract_ids": ["bns69"]},
-    )
+    resp = c.post("/api/v1/analyse-facts", json=_req())
     body = resp.json()
     elements = body["contracts"][0]["elements"]
     established = [e for e in elements if e["status"] == "established"]
@@ -145,9 +158,11 @@ def _unreachable_factory(_root: Path) -> NyayaAgent:
 
 def test_empty_facts_is_422() -> None:
     app = FastAPI()
-    app.include_router(build_partner_router(Path("."), agent_factory=_unreachable_factory))
+    app.include_router(
+        build_partner_router(Path("."), agent_factory=_unreachable_factory, config=_NO_LIMIT_CONFIG)
+    )
     c = TestClient(app)
-    resp = c.post("/api/v1/analyse-facts", json={"facts": []})
+    resp = c.post("/api/v1/analyse-facts", json={"facts": [], "contract_ids": ["bns69"]})
     assert resp.status_code == 422
 
 
@@ -158,29 +173,182 @@ def test_denial_outcome(tmp_path: Path) -> None:
         BNS69_DENY: [_est("F3", "Lata had sexual intercourse with Kiran")],
     }
     c = _client(tmp_path, script)
-    resp = c.post(
-        "/api/v1/analyse-facts",
-        json={"facts": TOY_FACTS, "narrative": "TOY narrative.", "contract_ids": ["bns69"]},
-    )
+    resp = c.post("/api/v1/analyse-facts", json=_req())
     body = resp.json()
     assert body["contracts"][0]["outcome"] == "DENIAL"
 
 
 def test_unknown_contract_id_is_422(tmp_path: Path) -> None:
     c = _client(tmp_path)
-    resp = c.post(
-        "/api/v1/analyse-facts",
-        json={"facts": TOY_FACTS, "contract_ids": ["not_a_real_contract"]},
-    )
+    resp = c.post("/api/v1/analyse-facts", json=_req(contract_ids=["not_a_real_contract"]))
     assert resp.status_code == 422
 
 
-def test_audit_path_is_included_in_the_response(tmp_path: Path) -> None:
+# -- reviewer 1's requirements ---------------------------------------------------------------------------
+
+
+def test_response_has_run_id_but_no_audit_path(tmp_path: Path) -> None:
+    # (c): audit_path was an absolute server filesystem path disclosed to any anonymous caller. Dropped.
     c = _client(tmp_path)
+    resp = c.post("/api/v1/analyse-facts", json=_req())
+    body = resp.json()
+    assert body["run_id"]
+    assert "audit_path" not in body
+
+
+def test_contract_ids_is_required(tmp_path: Path) -> None:
+    # (b): omitting contract_ids used to mean "all 23 contracts" -- dozens of GPU calls from one public,
+    # unauthenticated request. Now refused before the agent is ever touched.
+    app = FastAPI()
+    app.include_router(
+        build_partner_router(tmp_path, agent_factory=_unreachable_factory, config=_NO_LIMIT_CONFIG)
+    )
+    c = TestClient(app)
+    resp = c.post("/api/v1/analyse-facts", json={"facts": TOY_FACTS})
+    assert resp.status_code == 422
+
+
+def test_contract_ids_over_five_is_422(tmp_path: Path) -> None:
+    app = FastAPI()
+    app.include_router(
+        build_partner_router(tmp_path, agent_factory=_unreachable_factory, config=_NO_LIMIT_CONFIG)
+    )
+    c = TestClient(app)
+    resp = c.post("/api/v1/analyse-facts", json=_req(contract_ids=["a", "b", "c", "d", "e", "f"]))
+    assert resp.status_code == 422
+
+
+def test_more_than_eight_facts_is_422(tmp_path: Path) -> None:
+    app = FastAPI()
+    app.include_router(
+        build_partner_router(tmp_path, agent_factory=_unreachable_factory, config=_NO_LIMIT_CONFIG)
+    )
+    c = TestClient(app)
+    resp = c.post("/api/v1/analyse-facts", json=_req(facts=["fact"] * 9))
+    assert resp.status_code == 422
+
+
+def test_a_fact_over_four_thousand_chars_is_422(tmp_path: Path) -> None:
+    app = FastAPI()
+    app.include_router(
+        build_partner_router(tmp_path, agent_factory=_unreachable_factory, config=_NO_LIMIT_CONFIG)
+    )
+    c = TestClient(app)
+    resp = c.post("/api/v1/analyse-facts", json=_req(facts=["x" * 4001]))
+    assert resp.status_code == 422
+
+
+def test_eight_facts_and_five_contracts_are_accepted(tmp_path: Path) -> None:
+    # The caps are a ceiling, not a trap -- exactly at the limit must still work. Registry only knows
+    # "bns69", so this exercises validation acceptance via an unknown-contract 422 from the AGENT layer,
+    # not the 422 Pydantic would raise for exceeding the cap.
+    app = FastAPI()
+    app.include_router(
+        build_partner_router(tmp_path, agent_factory=_unreachable_factory, config=_NO_LIMIT_CONFIG)
+    )
+    # raise_server_exceptions=False: _unreachable_factory raises AssertionError once reached with valid
+    # input; the point of this test is that Pydantic's own validation let the request through (a 500 from
+    # the handler), not to assert anything about unhandled-exception behaviour in general.
+    c = TestClient(app, raise_server_exceptions=False)
     resp = c.post(
         "/api/v1/analyse-facts",
-        json={"facts": TOY_FACTS, "narrative": "TOY narrative.", "contract_ids": ["bns69"]},
+        json=_req(facts=["fact"] * 8, contract_ids=["a", "b", "c", "d", "e"]),
     )
-    body = resp.json()
-    assert body["audit_path"]
-    assert Path(body["audit_path"]).exists()
+    assert resp.status_code == 500
+
+
+def test_sixth_request_in_a_minute_is_429_with_retry_after(tmp_path: Path) -> None:
+    config = PartnerApiConfig(rate_limit_per_minute=6, max_concurrent=100, trust_proxy_header=False)
+    c = _client(tmp_path, config=config)
+    statuses = [c.post("/api/v1/analyse-facts", json=_req()).status_code for _ in range(6)]
+    assert statuses == [200] * 6
+    resp = c.post("/api/v1/analyse-facts", json=_req())
+    assert resp.status_code == 429
+    assert "Retry-After" in resp.headers
+
+
+def test_rate_limit_is_per_client_ip(tmp_path: Path) -> None:
+    # TestClient always presents as the same peer address, so this exercises the counter keying logic
+    # directly rather than simulating two real sockets.
+    from pravrudhi.api.partner import RateLimiter
+
+    limiter = RateLimiter(per_minute=2)
+    assert limiter.allow("1.2.3.4") is True
+    assert limiter.allow("1.2.3.4") is True
+    assert limiter.allow("1.2.3.4") is False
+    # A different IP has its own budget, untouched by the first.
+    assert limiter.allow("5.6.7.8") is True
+
+
+def test_trusted_proxy_header_used_only_when_configured(tmp_path: Path) -> None:
+    config_untrusted = PartnerApiConfig(rate_limit_per_minute=1, max_concurrent=100, trust_proxy_header=False)
+    c = _client(tmp_path, config=config_untrusted)
+    # Two different spoofed X-Forwarded-For values from the SAME test client peer must share one budget,
+    # since the header is not trusted.
+    r1 = c.post("/api/v1/analyse-facts", json=_req(), headers={"X-Forwarded-For": "9.9.9.9"})
+    r2 = c.post("/api/v1/analyse-facts", json=_req(), headers={"X-Forwarded-For": "8.8.8.8"})
+    assert r1.status_code == 200
+    assert r2.status_code == 429  # same underlying peer, budget of 1 already spent
+
+
+def _blocking_agent_factory(release: threading.Event, entered: threading.Event) -> Any:
+    class _BlockingAgent:
+        def run(self, *_a: Any, **_kw: Any) -> Any:
+            entered.set()
+            release.wait(timeout=5)
+
+            class _Result:
+                def to_dict(self) -> dict[str, Any]:
+                    return {
+                        "run_id": "blocked-run",
+                        "judge": "blocking",
+                        "score_sha256": "x",
+                        "facts": [],
+                        "contracts": [],
+                        "provenance": "agama",
+                    }
+
+            return _Result()
+
+    return _BlockingAgent()
+
+
+def test_third_concurrent_request_is_503_when_max_concurrent_is_two(tmp_path: Path) -> None:
+    release = threading.Event()
+    entered = threading.Event()
+    agent = _blocking_agent_factory(release, entered)
+    config = PartnerApiConfig(rate_limit_per_minute=1000, max_concurrent=2, trust_proxy_header=False)
+    app = FastAPI()
+    app.include_router(build_partner_router(tmp_path, agent_factory=lambda _r: agent, config=config))
+    c = TestClient(app)
+
+    results: dict[str, int] = {}
+
+    def _call(name: str) -> None:
+        results[name] = c.post("/api/v1/analyse-facts", json=_req()).status_code
+
+    t1 = threading.Thread(target=_call, args=("a",))
+    t2 = threading.Thread(target=_call, args=("b",))
+    t1.start()
+    t2.start()
+    entered.wait(timeout=5)
+    time.sleep(0.05)  # let both threads register as in-flight before the third fires
+
+    resp3 = c.post("/api/v1/analyse-facts", json=_req())
+    assert resp3.status_code == 503
+
+    release.set()
+    t1.join(timeout=5)
+    t2.join(timeout=5)
+    assert results == {"a": 200, "b": 200}
+
+
+def test_binary_sha_mismatch_is_503_not_500(tmp_path: Path) -> None:
+    def _factory(_root: Path) -> Any:
+        raise BinaryShaMismatch("score binary sha256 does not match the pinned value")
+
+    app = FastAPI()
+    app.include_router(build_partner_router(tmp_path, agent_factory=_factory, config=_NO_LIMIT_CONFIG))
+    c = TestClient(app)
+    resp = c.post("/api/v1/analyse-facts", json=_req())
+    assert resp.status_code == 503
