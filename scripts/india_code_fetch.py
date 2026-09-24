@@ -40,6 +40,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import random
 import sys
 import time
@@ -184,14 +185,28 @@ def fetch_all(
     return records
 
 
+def _default_out_dir() -> Path:
+    """Resolve the default output directory.
+
+    If PRAVRUDHI_CORPUS_RAW is set, the default is <that>/india_code (the host's
+    persistent corpus store). Otherwise fall back to the gitignored research/ tree
+    (safe default for any checkout, including CI and other machines).
+    """
+    env = os.environ.get("PRAVRUDHI_CORPUS_RAW", "")
+    if env:
+        return Path(env) / "india_code"
+    return Path("research/nyaya/pdf_indiacode")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--out-dir", type=Path,
-        default=Path("/home/ss/fusion-project/corpus-raw/india_code"),
-        help="Where to write the PDFs and manifest.json. Default is the persistent "
-             "corpus-raw path so PDFs survive across runs. Override to a gitignored "
-             "research/ path if running outside this machine.",
+        default=_default_out_dir(),
+        help="Where to write the PDFs and manifest.json. Defaults to "
+             "$PRAVRUDHI_CORPUS_RAW/india_code if PRAVRUDHI_CORPUS_RAW is set "
+             "(the persistent corpus store for the host machine), otherwise to the "
+             "gitignored research/nyaya/pdf_indiacode tree.",
     )
     args = parser.parse_args()
 

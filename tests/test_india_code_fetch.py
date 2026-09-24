@@ -193,20 +193,20 @@ def test_download_bitstream_other_http_errors_propagate_unwrapped(monkeypatch):
         raise AssertionError("expected the underlying HTTPError to propagate for non-403/429")
 
 
-def test_default_out_dir_is_persistent_corpus_raw():
-    """Default --out-dir must NOT be the gitignored research/ path that is discarded
-    each run; it must be the persistent corpus-raw store so PDFs survive."""
-    import argparse
+def test_default_out_dir_env_var_set(monkeypatch, tmp_path):
+    """When PRAVRUDHI_CORPUS_RAW is set, the default out-dir is <that>/india_code."""
     import india_code_fetch as icf
+    monkeypatch.setenv("PRAVRUDHI_CORPUS_RAW", str(tmp_path))
+    result = icf._default_out_dir()
+    assert result == tmp_path / "india_code"
 
-    # Re-parse with empty argv to exercise the default
-    p = argparse.ArgumentParser()
-    p.add_argument("--out-dir", type=Path, default=icf.main.__globals__["__builtins__"])
-    # Instead, probe the parser definition directly:
-    src = Path(icf.__file__).read_text(encoding="utf-8")
-    # The default must be the persistent path, not the old research tree.
-    assert "/home/ss/fusion-project/corpus-raw/india_code" in src
-    assert 'default=Path("research/nyaya/pdf_indiacode")' not in src
+
+def test_default_out_dir_env_var_unset(monkeypatch):
+    """When PRAVRUDHI_CORPUS_RAW is unset, the fallback is the gitignored research/ tree."""
+    import india_code_fetch as icf
+    monkeypatch.delenv("PRAVRUDHI_CORPUS_RAW", raising=False)
+    result = icf._default_out_dir()
+    assert result == Path("research/nyaya/pdf_indiacode")
 
 
 def test_fetch_all_retains_all_pdfs_on_disk_with_sha_in_manifest(tmp_path):
