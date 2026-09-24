@@ -39,6 +39,7 @@ jobs:
       - run: uv run mypy src
       - run: uv run pytest tests -q
       - run: uv run python scripts/import_guard.py
+      - run: uv run python scripts/check_no_private_data.py
 
   # The local-engine e2e project starts a real engine and drives the real interface. Nothing ran it: pages.yml
   # runs only --project=deployed and this file had no Playwright at all, so when the front door was reworked and

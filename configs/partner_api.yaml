@@ -29,3 +29,9 @@ trust_proxy_header: false
 # bypass otherwise: spoof a fresh header value per request). Only consulted when trust_proxy_header is
 # true; e.g. ["127.0.0.1"] for a same-host reverse proxy, or the tunnel daemon's fixed local address.
 trusted_proxies: []
+
+# Per-client-IP fixed-window limit on the tenancy provisioning routes (POST /api/v1/orgs, and
+# create/list/revoke under /api/v1/orgs/{org_id}/keys) -- deliberately much lower than
+# rate_limit_per_minute above, since a wrong X-Pravrudhi-Tenancy-Secret guess against these routes is
+# exactly the kind of call this exists to slow down, not a normal partner workload.
+provision_rate_limit_per_minute: 10
