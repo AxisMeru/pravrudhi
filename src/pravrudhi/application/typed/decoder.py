@@ -12,11 +12,12 @@ itself uses for testability) -- not a new protocol invented ahead of what either
 from __future__ import annotations
 
 import math
+import urllib.error
 from collections.abc import Callable, Mapping
 from typing import Protocol
 
 from pravrudhi.application.typed.schema import Field, FieldKind
-from pravrudhi.models.openai_compat import ChatClient, CompletionResult
+from pravrudhi.models.openai_compat import ChatClient, CompletionResult, HTTPStatusError
 
 
 class DecodeError(ValueError):
@@ -35,24 +36,65 @@ class TypedDecoder(Protocol):
 _CompleteFn = Callable[..., CompletionResult]
 
 
-def _client_complete(*, base_url: str, model: str | None, timeout_s: int, api_key: str | None) -> tuple[str, _CompleteFn]:
-    """The shared transport both adapters below wrap: an OpenAI-compatible ChatClient, with the model id
-    read from the server's own `/models` when none is configured (the same fallback HouseJudge.__init__
-    uses). No multi-backend fallback here (nyaya_judges.HouseJudge's `fallback_urls`/`backend_used` feature,
-    added after T1's design was written) -- a real, stated gap for a follow-up, not hidden: T1's scope is
-    the typed-layer interface and its parity against a single fixed backend, not production resilience."""
-    client = ChatClient(base_url=base_url, model=model or "", api_key=api_key, timeout_s=timeout_s)
-    if not model:
-        listed = client.list_models()
-        if not listed:
-            raise RuntimeError(f"{base_url}/models lists no model")
-        client.model = listed[0]
-    return client.model, client.complete
+def _is_transient(e: BaseException) -> bool:
+    """Only these move to the next backend; a 4xx (bad key, unknown model, bad request) surfaces. Identical
+    classification to `nyaya_judges.HouseJudge`'s own `_transient`, kept in sync deliberately -- both read the
+    same backends and must fail over on the same conditions."""
+    if isinstance(e, HTTPStatusError):
+        return e.status >= 500 or e.status == 429
+    return isinstance(e, (TimeoutError, urllib.error.URLError, ConnectionError))
+
+
+def _client_complete(
+    *, base_url: str, model: str | None, timeout_s: int, api_key: str | None, fallback_urls: list[str] | None = None
+) -> tuple[str, _CompleteFn]:
+    """The shared transport both adapters below wrap: an OpenAI-compatible ChatClient per backend (primary
+    plus `fallback_urls`), with the model id read from each backend's own `/models` when none is configured
+    -- the same construction `nyaya_judges.HouseJudge.__init__` uses. The bearer key is the primary's only; a
+    fallback backend never receives it (same rule, same reason: a fallback is the operator's own local vLLM,
+    not the serverless endpoint the key authenticates). Fallback is attempted only on a transient failure
+    (`_is_transient`); a 4xx surfaces immediately rather than masking a real configuration fault. The returned
+    `CompletionResult.backend_index` records which backend answered.
+    """
+    urls = [base_url, *(fallback_urls or [])]
+    clients = [
+        ChatClient(base_url=u, model="", api_key=api_key if i == 0 else None, timeout_s=timeout_s)
+        for i, u in enumerate(urls)
+    ]
+    resolved: list[str | None] = [model or None] + [None] * (len(urls) - 1)
+
+    def _model_for(i: int) -> str:
+        if resolved[i] is None:
+            listed = clients[i].list_models()
+            if not listed:
+                raise RuntimeError(f"{clients[i].base_url}/models lists no model")
+            resolved[i] = listed[0]
+        got = resolved[i]
+        assert got is not None
+        return got
+
+    primary_model = _model_for(0)
+
+    def _complete(prompt: str, *, max_tokens: int, temperature: float, logprobs: int | None) -> CompletionResult:
+        for i, client in enumerate(clients):
+            try:
+                client.model = _model_for(i)
+                result = client.complete(prompt, max_tokens=max_tokens, temperature=temperature, logprobs=logprobs)
+            except Exception as e:  # noqa: BLE001 -- classified by _is_transient, re-raised unless transient
+                if not _is_transient(e) or i == len(clients) - 1:
+                    raise RuntimeError(f"typed-decoder backend {i} ({client.base_url}) failed: {e}") from e
+                continue
+            object.__setattr__(result, "backend_index", i)  # the result is frozen
+            return result
+        raise RuntimeError("no typed-decoder backend configured")
+
+    return primary_model, _complete
 
 
 class VLLMDecoder:
     """vLLM's OpenAI-compatible `/completions` endpoint (the transport `nyaya_judges.HouseJudge` already
-    uses in production, e.g. `http://127.0.0.1:8110/v1`)."""
+    uses in production, e.g. `http://127.0.0.1:8110/v1`). `fallback_urls`/`api_key` match
+    `HouseJudge`'s own multi-backend fallback exactly (same classification, same primary-only key)."""
 
     name = "vllm"
 
@@ -63,12 +105,15 @@ class VLLMDecoder:
         model: str | None = None,
         timeout_s: int = 60,
         api_key: str | None = None,
+        fallback_urls: list[str] | None = None,
         complete: _CompleteFn | None = None,
     ) -> None:
         if complete is None:
             if base_url is None:
                 raise ValueError("VLLMDecoder needs a base_url or an injected complete transport")
-            self.model, complete = _client_complete(base_url=base_url, model=model, timeout_s=timeout_s, api_key=api_key)
+            self.model, complete = _client_complete(
+                base_url=base_url, model=model, timeout_s=timeout_s, api_key=api_key, fallback_urls=fallback_urls
+            )
         else:
             self.model = model or "injected"
         self._complete = complete
@@ -93,12 +138,15 @@ class SGLangDecoder:
         model: str | None = None,
         timeout_s: int = 60,
         api_key: str | None = None,
+        fallback_urls: list[str] | None = None,
         complete: _CompleteFn | None = None,
     ) -> None:
         if complete is None:
             if base_url is None:
                 raise ValueError("SGLangDecoder needs a base_url or an injected complete transport")
-            self.model, complete = _client_complete(base_url=base_url, model=model, timeout_s=timeout_s, api_key=api_key)
+            self.model, complete = _client_complete(
+                base_url=base_url, model=model, timeout_s=timeout_s, api_key=api_key, fallback_urls=fallback_urls
+            )
         else:
             self.model = model or "injected"
         self._complete = complete

@@ -62,14 +62,15 @@ class TypedHouseJudge:
             raise JudgeOutputError(str(e)) from e
         p = scores["true"]
         if p < self.tau:
-            return ElementJudgment("not_established", p, raw=res.text)
+            return ElementJudgment("not_established", p, raw=res.text, backend_used=res.backend_index)
         # Fact granularity (nyaya_judges module doc, unchanged here): the claim is "this fact, whole". The
         # fact id itself is parsed from the greedy completion, exactly like HouseJudge -- not scored like a
         # decision field, since which fact was named is not itself a decision this call makes.
         fact_id = parse_house_fact_id(res.text)
         if fact_id is None:
-            return ElementJudgment("established", p, raw=res.text)
+            return ElementJudgment("established", p, raw=res.text, backend_used=res.backend_index)
         text = dict(request.facts).get(fact_id)
         return ElementJudgment(
-            "established", p, fact_id, text, "whole_fact" if text is not None else None, raw=res.text
+            "established", p, fact_id, text, "whole_fact" if text is not None else None,
+            raw=res.text, backend_used=res.backend_index,
         )

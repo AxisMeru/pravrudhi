@@ -422,6 +422,7 @@ class NyayaAgent:
                 model=hj.get("model") or None,
                 timeout_s=int(hj.get("timeout_s", 60)),
                 api_key=api_key,
+                fallback_urls=hj.get("base_urls_fallback") or [],
             )
             judge = TypedHouseJudge(
                 tau=cfg.tau,
