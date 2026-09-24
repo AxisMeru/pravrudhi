@@ -89,6 +89,25 @@ def test_mine_aliases_no_match_on_plain_text() -> None:
     assert mine_aliases("no citation-shaped alias appears here at all") == []
 
 
+def test_mine_aliases_scc_bracket_variants_normalize_to_the_same_key() -> None:
+    # Real verify() miss (P3 audit, 2026-09-24, reviewer 2): a citation appears in the corpus under
+    # different SCC bracket placements for the same reporter/year/volume/page. MINED from
+    # research/nyaya/case_index/cases.sqlite3 (full-text search over the real corpus, not invented).
+    year_scc_paren_volume = (
+        "This Court has taken the view in Durga Show and Others v. The State of West Bengal, "
+        "1970 (3) SCC 696 that"
+    )
+    year_paren_volume_scc = "Mohammed Giasuddin v. State of Andhra Pradesh 1977(3) SCC 287"
+
+    a1 = mine_aliases(year_scc_paren_volume)
+    assert [a.citation for a in a1] == ["(1970) 3 SCC 696"]
+    assert a1[0].party_1 == "Durga Show and Others"
+    assert a1[0].party_2 == "The State of West Bengal"
+
+    a2 = mine_aliases(year_paren_volume_scc)
+    assert [a.citation for a in a2] == ["(1977) 3 SCC 287"]
+
+
 @pytest.fixture
 def db(tmp_path: Path) -> sqlite3.Connection:
     conn = open_index(tmp_path / "test_index.sqlite3")

@@ -61,6 +61,22 @@ def test_scc_no_space_before_scc_mined() -> None:
     assert got == [Citation(reporter="SCC", year=2011, volume=9, page=527, court=None, span=(4, 19))]
 
 
+def test_scc_year_space_bracket_volume_form_mined() -> None:
+    # MINED: prabhasa-nyaya P3 audit (2026-09-24, reviewer 2) -- the "1996 SCC (3) 709" bracket placement
+    # of the SAME citation as "(1996) 3 SCC 709", found in a real case's own "Equivalent citations" line
+    # (research/nyaya/case_index/cases.sqlite3, case f430d882e1b636f5e38d8527). Must normalize to the same
+    # Citation as the "(Y) V SCC P" form -- this was the root cause of a real verify() miss (idx 73).
+    got = parse_citations("Equivalent citations: 1996 AIR 1627, 1996 SCC (3) 709, AIR 1996")
+    assert got == [Citation(reporter="SCC", year=1996, volume=3, page=709, court=None, span=(37, 53))]
+
+
+def test_scc_year_bracket_volume_scc_form_mined() -> None:
+    # MINED: real corpus text -- "2011 (15) SCC 229" ("Y (V) SCC P", a third bracket placement, distinct
+    # from both existing forms).
+    got = parse_citations("reported at 2011 (15) SCC 229 on this point")
+    assert got == [Citation(reporter="SCC", year=2011, volume=15, page=229, court=None, span=(12, 29))]
+
+
 def test_scc_online_mined() -> None:
     # MINED: InJudgements shard0.
     got = parse_citations("reported at 2019 SCC OnLine Mad 13990")

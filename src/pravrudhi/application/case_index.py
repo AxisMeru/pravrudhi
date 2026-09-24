@@ -106,10 +106,19 @@ _NAME = rf"[A-Z][\w.&']*(?:\s+(?:[A-Z][\w.&']*|{_CONNECTOR})){{0,6}}"
 # Between the party names and the citation, real text sometimes has a lead-in verb ("reported in",
 # "reported at", "cited in") -- MINED (see test_case_index.py's "Asha Goel reported in (2001) 2 SCC 160").
 _LEAD_IN = r"(?:,?\s*(?:reported|cited)\s+(?:in|at)\s+)?"
-_ALIAS = re.compile(
-    rf"(?P<p1>{_NAME})\s+v\.?\s+(?P<p2>{_NAME}),?\s*{_LEAD_IN}"
+# The same citation appears under three different SCC bracket placements in real text (P3 verifier audit,
+# 2026-09-24 -- a citing document read "Durga Show ... v. The State of West Bengal, 1970 (3) SCC ..."; see
+# citations.py's own module comment for the mirror-image fix on the query side). All three feed the same
+# named groups, so CitationAlias.citation always emits the one canonical "(Y) V SCC P" key regardless of
+# which form matched.
+_SCC_CITE = (
+    r"(?:"
     r"\((?P<year>\d{4})\)\s*(?P<volume>\d+)\s*SCC\s*(?P<page>\d+)"
+    r"|(?P<year2>\d{4})\s*SCC\s*\((?P<volume2>\d+)\)\s*(?P<page2>\d+)"
+    r"|(?P<year3>\d{4})\s*\((?P<volume3>\d+)\)\s*SCC\s*(?P<page3>\d+)"
+    r")"
 )
+_ALIAS = re.compile(rf"(?P<p1>{_NAME})\s+v\.?\s+(?P<p2>{_NAME}),?\s*{_LEAD_IN}{_SCC_CITE}")
 
 
 @dataclass(frozen=True)
@@ -127,16 +136,21 @@ class CitationAlias:
 
 
 def mine_aliases(text: str) -> list[CitationAlias]:
-    """Find every "party v. party, (year) vol SCC page" alias in `text`."""
+    """Find every "party v. party, <SCC citation>" alias in `text`, any of the three bracket placements
+    `_SCC_CITE` matches -- only one of `year`/`year2`/`year3` etc. is non-None per match, since they're
+    alternatives in the same group."""
     out = []
     for m in _ALIAS.finditer(text):
+        year = m["year"] or m["year2"] or m["year3"]
+        volume = m["volume"] or m["volume2"] or m["volume3"]
+        page = m["page"] or m["page2"] or m["page3"]
         out.append(
             CitationAlias(
                 party_1=m["p1"].strip(),
                 party_2=m["p2"].strip(),
-                year=int(m["year"]),
-                volume=int(m["volume"]),
-                page=int(m["page"]),
+                year=int(year),
+                volume=int(volume),
+                page=int(page),
                 span=m.span(),
             )
         )

@@ -38,7 +38,13 @@ class Citation:
 
 _AIR = re.compile(r"\bAIR\s+(?P<year>\d{4})\s+(?P<court>[A-Z]{2,4}|[A-Z][a-z]+)\s+(?P<page>\d+)\b")
 
+# SCC citations appear in the corpus under three different bracket placements for the same citation --
+# found by a real verify() miss (P3 audit, 2026-09-24): a case's own "Equivalent citations" line cited
+# itself as "1996 SCC (3) 709", not the "(1996) 3 SCC 709" form the parser only handled before. All three
+# are MINED (see tests/test_citations.py for the exact real strings each was built and checked against).
 _SCC = re.compile(r"\((?P<year>\d{4})\)\s*(?P<volume>\d+)\s*SCC\s+(?P<page>\d+)\b")
+_SCC_YEAR_SCC_PAREN_VOLUME = re.compile(r"\b(?P<year>\d{4})\s*SCC\s*\((?P<volume>\d+)\)\s*(?P<page>\d+)\b")
+_SCC_YEAR_PAREN_VOLUME_SCC = re.compile(r"\b(?P<year>\d{4})\s*\((?P<volume>\d+)\)\s*SCC\s*(?P<page>\d+)\b")
 
 _SCC_ONLINE = re.compile(
     r"\b(?P<year>\d{4})\s+SCC\s+OnLine\s+(?P<court>[A-Za-z]{2,4})\s+(?P<page>\d+)\b"
@@ -129,6 +135,8 @@ def _hc_neutral(m: re.Match[str]) -> Citation:
 _PATTERNS: tuple[tuple[re.Pattern[str], Callable[[re.Match[str]], Citation]], ...] = (
     (_AIR, _air),
     (_SCC, _scc),
+    (_SCC_YEAR_SCC_PAREN_VOLUME, _scc),
+    (_SCC_YEAR_PAREN_VOLUME_SCC, _scc),
     (_SCC_ONLINE, _scc_online),
     (_INSC, _insc),
     (_SCR, _scr),

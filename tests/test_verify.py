@@ -150,6 +150,61 @@ def test_near_duplicate_party_names_are_not_a_false_conflict(db: sqlite3.Connect
     assert result == VerifyResult.VERIFIED
 
 
+def test_fuzzy_confirmation_resolves_a_real_spelling_variant(db: sqlite3.Connection) -> None:
+    # Real verify() miss (P3 audit, 2026-09-24, reviewer 2, idx 69): "Ramchandran" (as mined from a citing
+    # document) vs "Ramachandran" (the actual corpus title) is a genuine spelling variant, not a different
+    # party -- exact FTS token match misses it. A conservative fuzzy confirmation (token-set-ratio >= 0.9)
+    # must resolve it, but ONLY as a confirmation of a candidate the citation key already pointed to, never
+    # to invent a match with no citation evidence at all.
+    insert_case(
+        db,
+        CaseRecord(
+            case_id="citer3",
+            title="A Later Case",
+            court="Supreme Court",
+            year=2011,
+            source="sc_pdf",
+            path_or_url="/fake/citer3.pdf",
+            text="This Court in Ramchandran & Ors. v. State of Kerala (2011) 9 SCC 257 held that",
+        ),
+    )
+    insert_case(
+        db,
+        CaseRecord(
+            case_id="ramachandran-kerala",
+            title="Ramachandran Ors vs State Of Kerala",
+            court="Supreme Court",
+            year=2011,
+            source="sc_pdf",
+            path_or_url="/fake/ramachandran.pdf",
+            text="The appellant's real name is spelled Ramachandran throughout this judgment, correctly.",
+        ),
+    )
+    db.commit()
+    result = verify(db, "(2011) 9 SCC 257", "The appellant's real name is spelled Ramachandran throughout")
+    assert result == VerifyResult.VERIFIED
+
+
+def test_fuzzy_confirmation_never_invents_a_match_with_no_citation_evidence(db: sqlite3.Connection) -> None:
+    # No alias at all for this citation -- fuzzy matching must never kick in without a citation-key hit
+    # first, even if a case with a similar-looking title happens to exist in the index.
+    insert_case(
+        db,
+        CaseRecord(
+            case_id="unrelated",
+            title="Ramachandran Ors vs State Of Kerala",
+            court="Supreme Court",
+            year=2011,
+            source="sc_pdf",
+            path_or_url="/fake/unrelated.pdf",
+            text="unrelated text",
+        ),
+    )
+    db.commit()
+    result = verify(db, "(2011) 9 SCC 257", "anything")
+    assert result == VerifyResult.NOT_IN_INDEX
+
+
 def test_ampersand_honorific_normalizes_the_same_as_and(db: sqlite3.Connection) -> None:
     # Real bug found by hand-inspecting the 26 CONFLICTs still left after the first normalization pass
     # (LEG-PLAN P3 re-measurement): "State of Bihar & Ors." vs "State of Bihar" was reported as a

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import re
 import sqlite3
+from difflib import SequenceMatcher
 from enum import StrEnum
 
 from pravrudhi.application.citations import Citation, parse_citations
@@ -82,6 +83,31 @@ def normalize_party_name(name: str) -> str:
     return s.strip(" ,")
 
 
+#: Conservative on purpose (reviewer 2, P3 audit 2026-09-24): used ONLY to confirm a candidate the exact
+#: citation-key lookup already narrowed to (via alias party tokens), never to search the whole corpus for
+#: a plausible-looking title on its own.
+_FUZZY_THRESHOLD = 0.9
+
+
+def _fuzzy_confirm(conn: sqlite3.Connection, party_1: str, party_2: str, t1: str, t2: str) -> list[sqlite3.Row]:
+    """The exact `"t1" AND "t2"` FTS5 match found nothing -- fall back to a real spelling variant, e.g.
+    "Ramchandran" (as mined from a citing document) vs "Ramachandran" (the actual corpus title). Widens the
+    FTS query to an OR (a real superset, still cheap: both tokens are still real words from the alias, just
+    not required together) and accepts a candidate only if its title's edit-distance ratio against the full
+    party names is at or above `_FUZZY_THRESHOLD` -- a coincidentally-similar but unrelated title scores far
+    below that in practice (see this function's own tests for the negative case)."""
+    target = normalize_party_name(f"{party_1} {party_2}")
+    candidates = conn.execute(
+        "SELECT case_id, title, text FROM cases WHERE title MATCH ? LIMIT 50", (f'"{t1}" OR "{t2}"',)
+    ).fetchall()
+    confirmed = []
+    for row in candidates:
+        ratio = SequenceMatcher(None, target, normalize_party_name(row["title"])).ratio()
+        if ratio >= _FUZZY_THRESHOLD:
+            confirmed.append(row)
+    return confirmed
+
+
 class VerifyResult(StrEnum):
     VERIFIED = "VERIFIED"
     EXISTS_QUOTE_NOT_FOUND = "EXISTS_QUOTE_NOT_FOUND"
@@ -139,6 +165,8 @@ def verify(conn: sqlite3.Connection, citation_text: str, quote_or_proposition: s
     case_rows = conn.execute(
         "SELECT case_id, text FROM cases WHERE title MATCH ?", (f'"{t1}" AND "{t2}"',)
     ).fetchall()
+    if not case_rows:
+        case_rows = _fuzzy_confirm(conn, party_1, party_2, t1, t2)
     if not case_rows:
         return VerifyResult.NOT_IN_INDEX
 
