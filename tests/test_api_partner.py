@@ -9,6 +9,7 @@ binary.
 
 from __future__ import annotations
 
+import os
 import threading
 import time
 from pathlib import Path
@@ -44,12 +45,15 @@ def _not(p: float = 0.03) -> ElementJudgment:
 
 
 class ScriptedJudge:
-    def __init__(self, script: dict[str, list[ElementJudgment]]) -> None:
+    def __init__(self, script: dict[str, list[ElementJudgment | Exception]]) -> None:
         self.script = script
 
     def judge(self, request: JudgeRequest) -> ElementJudgment:
         queue = self.script[request.element]
-        return queue.pop(0) if len(queue) > 1 else queue[0]
+        item = queue.pop(0) if len(queue) > 1 else queue[0]
+        if isinstance(item, Exception):
+            raise item
+        return item
 
     name = "scripted-test-judge"
 
@@ -185,6 +189,140 @@ def test_unknown_contract_id_is_422(tmp_path: Path) -> None:
     assert resp.status_code == 422
 
 
+# -- R1, 2026-09-25: an unreachable PRIMARY must be 503 judge_unavailable, never a 200 ABSTAIN -------------
+# `NyayaAgent`'s own philosophy is that an exhausted-retries primary is a recorded, non-evidentiary
+# ABSTAIN/judge_error outcome (module doc, "nothing here is evidence") -- correct for the engine's own
+# testimony record, but an infrastructure failure must never look like a legal outcome to an HTTP caller or
+# to monitoring. This maps ONLY that specific reason to 503; every other ABSTAIN/DENIAL/REFER_TO_LAWYER
+# reason, including the second judge's own unavailable -> REFER_TO_LAWYER path, is untouched.
+
+
+def test_primary_exhausting_retries_is_503_judge_unavailable(tmp_path: Path) -> None:
+    """The primary raises on every attempt (max_retries=2 -> 3 total attempts, all failing): the request
+    never reaches the caller as a 200 ABSTAIN."""
+    script: dict[str, list[ElementJudgment | Exception]] = {
+        BNS69_EL[0]: [ConnectionError("primary unreachable")],
+        BNS69_EL[1]: [_est("F3", "Lata had sexual intercourse with Kiran")],
+        BNS69_DENY: [_not()],
+    }
+    c = _client(tmp_path, script)
+    resp = c.post("/api/v1/analyse-facts", json=_req())
+    assert resp.status_code == 503
+    assert resp.json() == {"error": "judge_unavailable"}
+
+
+def test_a_transient_blip_that_the_retry_loop_rides_out_stays_200(tmp_path: Path) -> None:
+    """Mid-run transient blips keep their existing retry behaviour: fewer failures than max_retries, then a
+    real answer, must still read as a normal 200 -- the 503 mapping only fires once retries are exhausted,
+    never on a blip the loop already recovered from."""
+    script: dict[str, list[ElementJudgment | Exception]] = {
+        BNS69_EL[0]: [ConnectionError("transient blip"), _est("F2", "never to marry Lata")],
+        BNS69_EL[1]: [_est("F3", "Lata had sexual intercourse with Kiran")],
+        BNS69_DENY: [_not()],
+    }
+    c = _client(tmp_path, script)
+    resp = c.post("/api/v1/analyse-facts", json=_req())
+    assert resp.status_code == 200
+    assert resp.json()["contracts"][0]["outcome"] == "PROOF"
+
+
+def test_second_judge_unavailable_stays_refer_not_503(tmp_path: Path) -> None:
+    """The second judge's own unavailable path is untouched: still REFER_TO_LAWYER, a legitimate safety
+    outcome, never 503 -- distinguishing the two matters exactly because both start from "a judge errored"."""
+    from pravrudhi.application.nyaya_judges import AndGateJudge
+
+    primary_script: dict[str, list[ElementJudgment | Exception]] = {
+        BNS69_EL[0]: [_est("F2", "never to marry Lata")],
+        BNS69_EL[1]: [_est("F3", "Lata had sexual intercourse with Kiran")],
+        BNS69_DENY: [_not()],
+    }
+    second_script: dict[str, list[ElementJudgment | Exception]] = {
+        BNS69_EL[0]: [ConnectionError("second judge unreachable")],
+        BNS69_EL[1]: [_est("F3s", "Lata had sexual intercourse with Kiran")],
+        BNS69_DENY: [_not()],
+    }
+    gate = AndGateJudge(ScriptedJudge(primary_script), ScriptedJudge(second_script), tau_primary=0.74, tau_second=0.97)
+    config = AgentConfig(
+        tau=0.74, refer_band=(0.5, 0.74), max_retries=2, audit_dir=tmp_path / "audit",
+        judge_statute_text={"bns69": "TRAINING statute text for bns69"},
+    )
+    agent = NyayaAgent(gate, ScriptedRegistry(), config)
+    app = FastAPI()
+    app.include_router(build_partner_router(tmp_path, agent_factory=lambda _root: agent, config=_NO_LIMIT_CONFIG))
+    resp = TestClient(app).post("/api/v1/analyse-facts", json=_req())
+    assert resp.status_code == 200
+    assert resp.json()["contracts"][0]["outcome"] == "REFER_TO_LAWYER"
+    assert resp.json()["contracts"][0]["reason"] == "second_judge_unavailable"
+
+
+def test_judge_misconfigured_still_503_unchanged(tmp_path: Path) -> None:
+    """A 4xx config fault (JudgeMisconfigured) is untouched by this change -- still 503, via its own
+    existing except clause, not the new judge_error check (there is no 401 mapping anywhere in this repo
+    for JudgeMisconfigured; R1's "401 path" phrase does not match the code -- verified by grep before
+    writing this test)."""
+    from pravrudhi.models.openai_compat import HTTPStatusError
+
+    class _ConfigFaultJudge:
+        name = "fault-judge"
+
+        def judge(self, request: JudgeRequest) -> ElementJudgment:
+            try:
+                raise HTTPStatusError(401, "bad key")
+            except HTTPStatusError as inner:
+                err = RuntimeError(f"judge backend 0 failed: {inner}")
+                err.__cause__ = inner
+                raise err from inner
+
+    config = AgentConfig(
+        tau=0.74, refer_band=(0.5, 0.74), max_retries=2, audit_dir=tmp_path / "audit",
+        judge_statute_text={"bns69": "TRAINING statute text for bns69"},
+    )
+    agent = NyayaAgent(_ConfigFaultJudge(), ScriptedRegistry(), config)
+    app = FastAPI()
+    app.include_router(build_partner_router(tmp_path, agent_factory=lambda _root: agent, config=_NO_LIMIT_CONFIG))
+    resp = TestClient(app).post("/api/v1/analyse-facts", json=_req())
+    assert resp.status_code == 503
+    assert resp.json()["detail"].startswith("nyaya agent unavailable:")  # existing JudgeMisconfigured mapping, untouched
+
+
+_REAL_SCORE_BIN = Path(os.environ.get("PRABHASA_NYAYA_SCORE_BIN", "prabhasa-nyaya-score-not-configured"))
+_requires_score_bin = pytest.mark.skipif(
+    not _REAL_SCORE_BIN.exists(),
+    reason=f"the pinned prabhasa-nyaya score binary is not built on this host ({_REAL_SCORE_BIN})",
+)
+
+
+class TestRealDeadPortPrimary:
+    """R1, 2026-09-25: "including a real dead-port primary test at the HTTP layer" -- a REAL HouseJudge
+    pointed at an unreachable port (no ScriptedJudge double), through the real pinned Lean binary, through
+    the real FastAPI TestClient. Proves the actual engine's exception (not a hand-simulated one) reaches
+    partner.py's mapping."""
+
+    SCORE_BIN = _REAL_SCORE_BIN
+    requires_score_bin = _requires_score_bin
+
+    @requires_score_bin
+    def test_dead_port_primary_is_503_judge_unavailable_over_real_http(self, tmp_path: Path) -> None:
+        from pravrudhi.application.nyaya_agent import BinaryRegistry
+        from pravrudhi.application.nyaya_judges import HouseJudge
+
+        real_registry = BinaryRegistry(self.SCORE_BIN, pinned_sha256=None)
+        primary = HouseJudge(base_url="http://127.0.0.1:1/v1", model=None, tau=0.74, statute_chars=600, timeout_s=2)
+        config = AgentConfig(
+            tau=0.74, refer_band=(0.5, 0.74), max_retries=1, audit_dir=tmp_path / "audit",
+            judge_statute_text={"bns69": "Whoever, by deceitful means or by making promise to marry to a "
+                                "woman without any intention of fulfilling the same, has sexual intercourse "
+                                "with her, such sexual intercourse not amounting to the offence of rape, "
+                                "shall be punished."},
+        )
+        agent = NyayaAgent(primary, real_registry, config)
+        app = FastAPI()
+        app.include_router(build_partner_router(tmp_path, agent_factory=lambda _root: agent, config=_NO_LIMIT_CONFIG))
+        resp = TestClient(app).post("/api/v1/analyse-facts", json=_req())
+        assert resp.status_code == 503
+        assert resp.json() == {"error": "judge_unavailable"}
+
+
 # -- reviewer 1's requirements ---------------------------------------------------------------------------
 
 
@@ -307,6 +445,10 @@ def _blocking_agent_factory(release: threading.Event, entered: threading.Event) 
             release.wait(timeout=5)
 
             class _Result:
+                #: analyse_facts_ep reads .contracts directly (judge_error -> 503 mapping) before calling
+                #: .to_dict() -- this double must carry both, matching AgentRun's real shape.
+                contracts: list[Any] = []
+
                 def to_dict(self) -> dict[str, Any]:
                     return {
                         "run_id": "blocked-run",
