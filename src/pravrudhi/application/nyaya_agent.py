@@ -220,6 +220,9 @@ def load_agent_config(root: Path) -> AgentConfig:
     _second_override("NYAYA_SECOND_JUDGE_MODEL", "model")
     _second_override("NYAYA_SECOND_JUDGE_TAU", "tau", float)
     _second_override("NYAYA_SECOND_JUDGE_TIMEOUT_S", "timeout_s", int)
+    _second_override("NYAYA_SECOND_JUDGE_STATUTE_CHARS", "statute_chars", int)
+    _second_override("NYAYA_SECOND_JUDGE_TOP_LOGPROBS", "top_logprobs", int)
+    _second_override("NYAYA_SECOND_JUDGE_MAX_TOKENS", "max_tokens", int)
     # The second-judge REFER band (logit distance, not probability -- module doc): off (None) unless a
     # `refer_logit_delta:` key is in the yaml's `second_judge:` block or this env var is set. Reachable even
     # with no `second_judge:` yaml block, exactly like the overrides above -- though it is inert without a
@@ -227,6 +230,19 @@ def load_agent_config(root: Path) -> AgentConfig:
     # `second_judge` mapping, and `_run_contract` only ever sees a non-None `p_established_second` when config C
     # is on).
     _second_override("NYAYA_SECOND_JUDGE_REFER_LOGIT_DELTA", "refer_logit_delta", float)
+
+    # An env-built second_judge inherits statute_chars/top_logprobs/max_tokens from the primary house_judge
+    # block, unless the caller set them explicitly (in the yaml's own second_judge: block, or via the three
+    # NYAYA_SECOND_JUDGE_* overrides just above). `HouseJudge.from_config` requires all three (`cfg["..."]`,
+    # no default) -- a second_judge built from NYAYA_SECOND_JUDGE_BASE_URL/_TAU alone, with no yaml
+    # second_judge: block at all, used to crash with KeyError the first time NyayaAgent.house() ran; this is
+    # what makes a purely env-driven switch-on possible (2026-09-25, the RunPod endpoint is configured this
+    # way). Inheriting from house_judge, not a hardcoded default, keeps the second judge's prompt shape
+    # identical to the primary's unless a deployment deliberately diverges.
+    if second_judge is not None:
+        for key in ("statute_chars", "top_logprobs", "max_tokens"):
+            if key not in second_judge and key in house_judge:
+                second_judge[key] = house_judge[key]
 
     return AgentConfig(
         tau=float(body["tau"]),

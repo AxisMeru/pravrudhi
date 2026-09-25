@@ -215,7 +215,16 @@ class HouseJudge:
                 assert resolved is not None
                 return resolved
 
-            self.model = _model_for(0)
+            # Lazy: `_model_for` is NOT called here. Resolving the model id means an HTTP round-trip
+            # (`/v1/models`) when `model` wasn't given; calling it eagerly, at construction time, meant an
+            # unreachable or not-yet-warm judge crashed `NyayaAgent.house()` itself with an unhandled error
+            # -- before any request was even attempted, and (for the second judge specifically) before
+            # AndGateJudge's own try/except around the per-request call ever got a chance to convert the
+            # failure into a fail-closed REFER (found 2026-09-25 validating the config-C switch-on smoke
+            # test against a real, briefly-unreachable second judge). `_model_for(0)` now runs on first
+            # actual use instead -- see the `model` property below and `_complete_with_fallback`'s own
+            # per-request `_model_for(i)` call, which already re-resolves lazily and was never the problem.
+            self._model_for: Callable[[int], str] | None = _model_for
 
             def _transient(e: BaseException) -> bool:
                 """Only these move to the next backend; a 4xx (bad key, unknown model, bad request) surfaces."""
@@ -238,9 +247,19 @@ class HouseJudge:
 
             complete = _complete_with_fallback
         else:
-            self.model = model or "injected"
+            self._model_for = None
+            self._injected_model = model or "injected"
 
         self._complete = complete
+
+    @property
+    def model(self) -> str:
+        """The resolved model id. Lazy: for a real (non-injected) transport, this calls `/v1/models` on
+        FIRST ACCESS, not at construction -- see the note in `__init__`. Cached after the first successful
+        resolution (`self._models[0]`), same as every other backend's `_model_for` call."""
+        if self._model_for is not None:
+            return self._model_for(0)
+        return self._injected_model
 
     @classmethod
     def from_config(cls, cfg: Mapping[str, Any], *, tau: float, api_key_env: str = "NYAYA_HOUSE_JUDGE_API_KEY") -> HouseJudge:
