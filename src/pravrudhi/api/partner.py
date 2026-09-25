@@ -401,6 +401,20 @@ def build_partner_router(
             raise HTTPException(503, f"nyaya agent unavailable: {e}") from e
         finally:
             concurrency.release()
+        # R1, 2026-09-25: a PRIMARY judge that is unreachable from boot (model resolution or a connection
+        # failure after `_judge_element`'s own transient-retry loop is exhausted) does not raise out of
+        # `agent.run()` -- `NyayaAgent`'s own philosophy is that this is a recorded, non-evidentiary outcome
+        # (`reason="judge_error"`, contract ABSTAIN; see nyaya_agent.py's module doc, "nothing here is
+        # evidence"), which is correct for the engine's own testimony record but wrong for an HTTP API: an
+        # infrastructure failure must never look like a legal outcome to a caller or to monitoring. This is
+        # unambiguous -- "judge_error" can ONLY arise from the primary exhausting its retries (a second-judge
+        # config fault raises JudgeMisconfigured before ever reaching this reason, above; a second-judge
+        # CONNECTION failure is caught inside AndGateJudge itself and becomes `second_judge_unavailable` /
+        # REFER_TO_LAWYER, a legitimate safety outcome, never this reason) -- so no other ABSTAIN reason is
+        # touched here, and REFER_TO_LAWYER outcomes are never affected. Mid-run transient blips that the
+        # retry loop successfully rode out never reach this reason either; only exhausted retries do.
+        if any(c.reason == "judge_error" for c in result.contracts):
+            return JSONResponse(status_code=503, content={"error": "judge_unavailable"})
         body: dict[str, Any] = result.to_dict()
         body.pop("audit_path", None)
         return body
