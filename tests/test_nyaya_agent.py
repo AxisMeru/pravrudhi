@@ -864,7 +864,13 @@ class TestRealBinary:
         real = BinaryRegistry(SCORE_BIN, pinned_sha256=PINNED)
         training = load_agent_config(REPO).judge_statute_text
         differ = sorted(cid for cid, text in training.items() if text != real.source_text(cid))
-        assert len(training) == 14
+        # 2026-09-25: 11 of the 12 Wave-1 ids (bns316/318/217/80, bnss187) were added to close the
+        # no_training_statute_text ABSTAIN gap Lead-2's production relay test found; each is trimmed to an
+        # operative sentence same as the pre-existing entries, so (like several of those) differs from the
+        # binary's own full --describe-source text. bns108 is the one Wave-1 id whose full official text IS
+        # short enough to use verbatim, so it is NOT in this list. ni138 has no entry at all (not sourced,
+        # not fabricated) and so does not appear in `training` in the first place.
+        assert len(training) == 25
         assert differ == sorted(
             [
                 "ipc415_property",
@@ -876,8 +882,34 @@ class TestRealBinary:
                 "bns46_instigation",
                 "bns46_conspiracy",
                 "bns46_intentional_aid",
+                "bns316_misappropriation",
+                "bns316_use_or_disposal",
+                "bns316_wilfully_suffers",
+                "bns318_property",
+                "bns318_damaging_act",
+                "bns217_misdirected_act",
+                "bns217_abuse_of_power",
+                "bns80",
+                "bnss187_extended_serious",
+                "bnss187_extended_other",
             ]
         )
+
+    def test_every_known_contract_has_training_statute_text_except_the_named_exception(self) -> None:
+        """The regression this exists to catch (Lead-2, 2026-09-25 production relay test): Track A's Wave-1
+        registry expansion (14 -> 26 contracts) added BNS 316/318/217/80/108, BNSS 187 and NI Act 138 to the
+        Lean side but nobody wired their statute text here, so every one of them silently ABSTAINed with
+        no_training_statute_text -- in production, not caught by CI, because no test asserted COMPLETENESS
+        (the existing `<=` check above only ever caught an extra/misspelled key, never a missing one).
+        `ni138` is the one deliberate, named exception: NI Act 1881 was never one of
+        india_code_fetch.py's five operator-authorized Acts, so its text is not sourced anywhere in this
+        repo, and this test does not require it -- but a future Wave-2 contract added to
+        KNOWN_CONTRACT_IDS with no corresponding entry here, and no equally-explicit exception added to
+        this test, now fails loudly instead of shipping a silent ABSTAIN."""
+        training = load_agent_config(REPO).judge_statute_text
+        deliberately_unsourced = {"ni138"}
+        missing = (reg.KNOWN_CONTRACT_IDS - deliberately_unsourced) - set(training)
+        assert missing == set(), f"contracts with no training statute text at all: {sorted(missing)}"
 
 
 class TestJudgeConfigurationFault:
