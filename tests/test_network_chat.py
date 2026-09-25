@@ -134,6 +134,57 @@ class TestReadingTheAnswer:
         assert network_complete(tmp_path)([{"role": "user", "content": "x"}], [])["content"] == "said it anyway"
 
 
+class TestEndpointForHosted:
+    """Free-tier DashScope is being removed everywhere per operator instruction (2026-09-25). The `"hosted"`
+    agent used to read the free-tier `alibaba` provider (dashscope.env, the shared-quota Singapore endpoint)
+    -- it must read the paid Lite Plan provider (`alibaba-plan`, dashscope-plan.env) instead, the same
+    provider `opencode:alibaba-plan` already uses."""
+
+    def test_hosted_reads_the_plan_credential_not_the_free_tier_one(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from pravrudhi.application import network_chat
+        from pravrudhi.application.credentials import PROVIDERS, Secret
+
+        calls: list[str] = []
+
+        def fake_credential(provider_id: str) -> Secret:
+            calls.append(provider_id)
+            return Secret(provider=provider_id, value=f"key-for-{provider_id}")
+
+        monkeypatch.setattr("pravrudhi.agents.alibaba_agent.credential", fake_credential)
+        endpoint = network_chat._endpoint_for("hosted")
+        assert calls == ["alibaba-plan"], "must never read the free-tier 'alibaba' credential"
+        assert endpoint == (PROVIDERS["alibaba-plan"].base_url, "key-for-alibaba-plan")
+        assert endpoint[0] != PROVIDERS["alibaba"].base_url
+
+    def test_hosted_is_unusable_when_only_the_free_tier_credential_exists(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Same shape as every other missing-credential case here: None, not a crash, and never a silent
+        fall-back to the free tier this task exists to stop using."""
+
+        def fake_credential(provider_id: str):
+            if provider_id == "alibaba-plan":
+                raise OSError("no plan credential configured")
+            raise AssertionError(f"must never fall back to provider {provider_id!r}")
+
+        monkeypatch.setattr("pravrudhi.agents.alibaba_agent.credential", fake_credential)
+        from pravrudhi.application import network_chat
+
+        assert network_chat._endpoint_for("hosted") is None
+
+    def test_the_model_actually_sent_still_comes_from_the_routing_table_not_this_function(self) -> None:
+        """`_endpoint_for` only ever returns (base_url, key) -- the model is `route.model` from
+        configs/routing.yaml, resolved in `network_complete`'s own loop. Confirms there is nothing to thread
+        through here: the "hosted" agent's route(s) already name their own model independently of which
+        credential file backs the endpoint."""
+        import inspect
+
+        from pravrudhi.application import network_chat
+
+        sig = inspect.signature(network_chat._endpoint_for)
+        assert list(sig.parameters) == ["agent"]
+
+
 def test_no_model_available_is_an_unreachable_endpoint_so_the_api_answers_503() -> None:
     """The 2026-09-11 e2e run caught /api/chat answering 500 for a network with nothing to answer; the API maps
     ChatEndpointUnreachable to 503 with its message, so this must be one."""
