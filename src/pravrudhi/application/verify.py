@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import re
 import sqlite3
+from dataclasses import dataclass
 from difflib import SequenceMatcher
 from enum import StrEnum
 
@@ -126,21 +127,30 @@ def _citation_key(c: Citation) -> str | None:
     return None
 
 
-def verify(conn: sqlite3.Connection, citation_text: str, quote_or_proposition: str) -> VerifyResult:
-    citations = parse_citations(citation_text)
-    if len(citations) != 1:
-        return VerifyResult.MALFORMED
+@dataclass(frozen=True)
+class ResolvedAlias:
+    """The outcome of resolving a citation KEY to case row(s) in the index, stopping short of any quote
+    check. `status` is `NOT_IN_INDEX`/`CONFLICT` exactly when `case_rows` is empty; any other case is a
+    successful resolution (`status` is `None`) to one or more rows (rows agree after party-name
+    normalization, so more than one row here means the SAME real case indexed more than once, not an
+    ambiguity -- a real CONFLICT already returned above it)."""
 
-    key = _citation_key(citations[0])
-    if key is None:
-        return VerifyResult.NOT_IN_INDEX
+    status: VerifyResult | None
+    case_rows: list[sqlite3.Row]
 
+
+def resolve_citation_key(conn: sqlite3.Connection, key: str) -> ResolvedAlias:
+    """`verify()`'s resolution step alone (citation-key lookup -> party-group -> exact-title FTS match ->
+    `_fuzzy_confirm` fallback), extracted so the P3 prereg's resolution-precision measurement
+    (`application.p3_prereg`) can label exactly what the system resolved a sampled alias to, without also
+    running (or needing) a quote check -- resolution-precision asks "is the resolved case the right case",
+    a question `verify()` alone has no way to answer since it only ever returns the end-to-end enum."""
     conn.row_factory = sqlite3.Row
     alias_rows = conn.execute(
         "SELECT DISTINCT party_1, party_2 FROM citation_aliases WHERE citation = ?", (key,)
     ).fetchall()
     if not alias_rows:
-        return VerifyResult.NOT_IN_INDEX
+        return ResolvedAlias(VerifyResult.NOT_IN_INDEX, [])
 
     # Group by NORMALIZED party pair, not raw string equality -- two mentions of the same real case
     # (OCR line-break noise, a residual leading-filler word) must not count as a real conflict. Only a
@@ -150,7 +160,7 @@ def verify(conn: sqlite3.Connection, citation_text: str, quote_or_proposition: s
         gkey = (normalize_party_name(row["party_1"]), normalize_party_name(row["party_2"]))
         groups.setdefault(gkey, row)
     if len(groups) > 1:
-        return VerifyResult.CONFLICT
+        return ResolvedAlias(VerifyResult.CONFLICT, [])
 
     row = next(iter(groups.values()))
     party_1, party_2 = row["party_1"], row["party_2"]
@@ -166,15 +176,30 @@ def verify(conn: sqlite3.Connection, citation_text: str, quote_or_proposition: s
     t1 = _strip_filler(party_1).split()[0]
     t2 = _strip_filler(party_2).split()[0]
     case_rows = conn.execute(
-        "SELECT case_id, text FROM cases WHERE title MATCH ?", (f'"{t1}" AND "{t2}"',)
+        "SELECT case_id, title, text FROM cases WHERE title MATCH ?", (f'"{t1}" AND "{t2}"',)
     ).fetchall()
     if not case_rows:
         case_rows = _fuzzy_confirm(conn, party_1, party_2)
     if not case_rows:
+        return ResolvedAlias(VerifyResult.NOT_IN_INDEX, [])
+    return ResolvedAlias(None, list(case_rows))
+
+
+def verify(conn: sqlite3.Connection, citation_text: str, quote_or_proposition: str) -> VerifyResult:
+    citations = parse_citations(citation_text)
+    if len(citations) != 1:
+        return VerifyResult.MALFORMED
+
+    key = _citation_key(citations[0])
+    if key is None:
         return VerifyResult.NOT_IN_INDEX
 
+    resolved = resolve_citation_key(conn, key)
+    if resolved.status is not None:
+        return resolved.status
+
     normalized_quote = normalize_text_for_match(quote_or_proposition)
-    for row in case_rows:
+    for row in resolved.case_rows:
         normalized_text = normalize_text_for_match(row["text"])
         if normalized_quote in normalized_text:
             return VerifyResult.VERIFIED

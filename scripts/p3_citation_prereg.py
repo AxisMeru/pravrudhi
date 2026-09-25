@@ -28,6 +28,8 @@ from pravrudhi.application.p3_prereg import (  # noqa: E402
     clopper_pearson_ci,
     cohens_kappa,
     precision_sample_indices,
+    precision_sample_with_text,
+    recall_order_with_text,
     recall_sample_order,
 )
 
@@ -36,33 +38,45 @@ PRECISION_SEED = 20250926
 PRECISION_K = 100
 
 
+#: Over-provisioning for the recall walk (prereg §3): the labeler stops at their own 200th hand-marked
+#: citation, which this script cannot know in advance, so it loads real text for this many leading documents
+#: of the frozen walk order rather than guessing exactly 200. Re-run with `--prefix` raised (same seed, same
+#: order -- a strict extension) if 300 documents' worth of citations somehow falls short of 200.
+DEFAULT_RECALL_PREFIX = 300
+
+
 def cmd_emit_recall_order(args: argparse.Namespace) -> None:
-    """Write the full deterministic document walk (prereg §3): case_ids in the fixed-seed permutation order,
-    so a labeler can pull documents one at a time and stop at their own 200th hand-marked citation without
-    this script ever deciding in advance how many documents that will take."""
+    """Write the deterministic document walk (prereg §3) WITH each document's real text attached, for the
+    first `--prefix` entries of the fixed-seed permutation order -- a labeler pulls documents one at a time
+    from this file and stops at their own 200th hand-marked citation."""
     conn = sqlite3.connect(args.db)
     rows = conn.execute("SELECT case_id FROM cases ORDER BY case_id").fetchall()
     case_ids = [r[0] for r in rows]
     order = recall_sample_order(n_docs=len(case_ids), seed=RECALL_SEED)
-    Path(args.out).write_text(json.dumps({"seed": RECALL_SEED, "case_id_order": [case_ids[i] for i in order]}, indent=2))
-    print(f"wrote {len(case_ids)}-document walk order to {args.out}", file=sys.stderr)
+    full_order = [case_ids[i] for i in order]
+    records = recall_order_with_text(conn, full_order, prefix=args.prefix)
+    Path(args.out).write_text(
+        json.dumps({"seed": RECALL_SEED, "prefix": args.prefix, "total_docs": len(case_ids), "documents": records}, indent=2)
+    )
+    print(f"wrote {len(records)} documents (with text) to {args.out}", file=sys.stderr)
 
 
 def cmd_emit_precision_sample(args: argparse.Namespace) -> None:
-    """Write the 100-alias resolution-precision sample (prereg §4): each sampled `citation_aliases` row plus
-    enough context (the citing document's own text is looked up separately by the labeler; this file names
-    which document to look in) for a labeler to judge the resolution independently."""
+    """Write the 100-alias resolution-precision sample (prereg §4), each WITH the citing document's real text
+    and, when `verify()`'s resolution step actually resolves it, the resolved case's real text too -- so a
+    labeler judges from the text itself, never from a bare citation string."""
     conn = sqlite3.connect(args.db)
     rows = conn.execute(
         "SELECT rowid, party_1, party_2, citation, case_id FROM citation_aliases ORDER BY rowid"
     ).fetchall()
     idx = precision_sample_indices(n_rows=len(rows), k=PRECISION_K, seed=PRECISION_SEED)
-    sample = [
+    raw_sample = [
         {"rowid": rows[i][0], "party_1": rows[i][1], "party_2": rows[i][2], "citation": rows[i][3], "citing_case_id": rows[i][4]}
         for i in idx
     ]
+    sample = precision_sample_with_text(conn, raw_sample)
     Path(args.out).write_text(json.dumps({"seed": PRECISION_SEED, "k": PRECISION_K, "sample": sample}, indent=2))
-    print(f"wrote {len(sample)}-alias sample to {args.out}", file=sys.stderr)
+    print(f"wrote {len(sample)}-alias sample (with text) to {args.out}", file=sys.stderr)
 
 
 _LABEL_INSTRUCTIONS_RECALL = """You are hand-labeling real Indian court judgment text for a legal citation \
@@ -109,17 +123,32 @@ def _dashscope_label_one(text: str, task: str) -> dict[str, object]:
     return parsed
 
 
+def _precision_prompt_text(item: dict[str, object]) -> str:
+    """The two texts a precision labeler needs, concatenated with a clear separator -- the citing sentence's
+    document and, when resolved, the resolved case's own text; a `not_in_index`/`conflict` item has nothing to
+    confirm the resolution of and is not sent to a labeler at all (see `cmd_label_dashscope`)."""
+    parts = [f"CITING DOCUMENT:\n{item['citing_text']}"]
+    if item["status"] == "resolved":
+        parts.append(f"\nRESOLVED CASE ({item['resolved_title']}):\n{item['resolved_text']}")
+    return "\n".join(parts)
+
+
 def cmd_label_dashscope(args: argparse.Namespace) -> None:
     """Batch-run Labeler B (DashScope qwen3.8-max) over every item in a recall order / precision sample file.
-    Never given parser or Labeler-A output -- raw text (and, for precision, the resolved case's own text) only."""
+    Never given parser or Labeler-A output -- raw text (and, for precision, the resolved case's own text) only.
+    A precision item with no resolution (`not_in_index`/`conflict`) has nothing for a labeler to confirm and
+    is skipped, carried through to the output unchanged with no labeler judgment attached."""
     data = json.loads(Path(args.input).read_text())
     results = []
-    items = data["case_id_order"] if args.task == "recall" else data["sample"]
-    for item in items:
-        # The actual text lookup (by case_id / citing_case_id against the DB) and the stop-at-200 walk logic
-        # for recall live in the labeling session itself, not here -- this function is the one DashScope call
-        # per item; wiring it into the interactive walk is the next step once sampling is unblocked.
-        results.append(_dashscope_label_one(item.get("text", ""), args.task))
+    if args.task == "recall":
+        for doc in data["documents"]:
+            results.append({**doc, "label": _dashscope_label_one(doc["text"], "recall")})
+    else:
+        for item in data["sample"]:
+            if item["status"] != "resolved":
+                results.append({**item, "label": None})
+                continue
+            results.append({**item, "label": _dashscope_label_one(_precision_prompt_text(item), "precision")})
     Path(args.out).write_text(json.dumps(results, indent=2))
     print(f"labeled {len(results)} items with DashScope qwen3.8-max ({args.task}) -> {args.out}", file=sys.stderr)
 
@@ -158,6 +187,7 @@ def main() -> None:
     p = sub.add_parser("emit-recall-order")
     p.add_argument("--db", required=True)
     p.add_argument("--out", required=True)
+    p.add_argument("--prefix", type=int, default=DEFAULT_RECALL_PREFIX)
     p.set_defaults(func=cmd_emit_recall_order)
 
     p = sub.add_parser("emit-precision-sample")

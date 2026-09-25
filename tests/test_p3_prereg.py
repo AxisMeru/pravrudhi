@@ -3,16 +3,27 @@
 for the two-labeler agreement, and the two code-exact sampling procedures (§3/§4 of the prereg). Written
 before the prereg is signed and before any real sample is drawn -- these are the pure/testable building
 blocks the scoring script will use once R1 signs; none of them touch the real case index.
+
+`TestRecallOrderWithText`/`TestPrecisionSampleWithText` cover a real gap R1 found in the first cut of
+`scripts/p3_citation_prereg.py` (2026-09-25): `emit-recall-order` wrote bare case_ids and
+`emit-precision-sample` wrote dicts with no `text` key at all -- Labeler B (DashScope) would have been sent an
+empty prompt. These tests exist specifically to fail on that regression (an empty/missing `text` field),
+against a real in-memory index built the same way `test_verify.py`'s fixture is.
 """
 
 from __future__ import annotations
 
+import sqlite3
+
 import pytest
 
+from pravrudhi.application.case_index import CaseRecord, insert_case, open_index
 from pravrudhi.application.p3_prereg import (
     clopper_pearson_ci,
     cohens_kappa,
     precision_sample_indices,
+    precision_sample_with_text,
+    recall_order_with_text,
     recall_sample_order,
 )
 
@@ -167,3 +178,93 @@ class TestPrecisionSampleIndices:
     def test_refuses_k_larger_than_population(self) -> None:
         with pytest.raises(ValueError):
             precision_sample_indices(n_rows=10, k=100, seed=20250926)
+
+
+# MINED fixture text, same source as tests/test_verify.py (opennyaiorg/InJudgements shard0 `Text` column).
+_CITING_TEXT = (
+    "This Court in Narandas Karsondas v. S.A. Kamtam and Anr. (1977) 3 SCC 247 clarified the "
+    "position on specific performance and time being of the essence in a contract for sale."
+)
+_RESOLVED_CASE_TEXT = (
+    "In a suit for specific performance, time is not ordinarily of the essence of the contract "
+    "for sale of immovable property unless the parties expressly intend it to be so."
+)
+
+
+@pytest.fixture
+def db(tmp_path):  # type: ignore[no-untyped-def]
+    conn = open_index(tmp_path / "p3_prereg_index.sqlite3")
+    insert_case(
+        conn,
+        CaseRecord(
+            case_id="citer1", title="Some Later Case v Someone Else", court="Supreme Court", year=2005,
+            source="sc_pdf", path_or_url="/fake/citer.pdf", text=_CITING_TEXT,
+        ),
+    )
+    insert_case(
+        conn,
+        CaseRecord(
+            case_id="resolved1", title="Narandas Karsondas vs S A Kamtam and Anr", court="Supreme Court",
+            year=1977, source="sc_pdf", path_or_url="/fake/narandas.pdf", text=_RESOLVED_CASE_TEXT,
+        ),
+    )
+    insert_case(
+        conn,
+        CaseRecord(
+            case_id="empty1", title="A Document With No Text", court="Supreme Court", year=1999,
+            source="sc_pdf", path_or_url="/fake/empty.pdf", text=" ",
+        ),
+    )
+    conn.commit()
+    yield conn
+    conn.close()
+
+
+class TestRecallOrderWithText:
+    """The regression this exists to catch: `emit-recall-order` wrote bare case_ids with no text at all,
+    which would have sent Labeler B an empty prompt."""
+
+    def test_every_emitted_record_has_the_real_case_text(self, db: sqlite3.Connection) -> None:
+        records = recall_order_with_text(db, case_id_order=["citer1", "resolved1"], prefix=2)
+        assert records == [
+            {"case_id": "citer1", "text": _CITING_TEXT},
+            {"case_id": "resolved1", "text": _RESOLVED_CASE_TEXT},
+        ]
+
+    def test_refuses_to_emit_a_record_with_empty_or_missing_text(self, db: sqlite3.Connection) -> None:
+        # This is the exact shape of the bug R1 found -- a record with no usable text must never reach a
+        # labeler; the function raises rather than silently emitting `{"case_id": ..., "text": ""}`.
+        with pytest.raises(ValueError, match="empty1"):
+            recall_order_with_text(db, case_id_order=["citer1", "empty1"], prefix=2)
+
+    def test_prefix_limits_how_many_documents_are_loaded(self, db: sqlite3.Connection) -> None:
+        records = recall_order_with_text(db, case_id_order=["citer1", "resolved1"], prefix=1)
+        assert [r["case_id"] for r in records] == ["citer1"]
+
+
+class TestPrecisionSampleWithText:
+    """The regression this exists to catch: `emit-precision-sample` wrote `{party_1, party_2, citation,
+    citing_case_id}` dicts with no `text` key at all."""
+
+    def test_resolved_alias_carries_both_citing_and_resolved_text(self, db: sqlite3.Connection) -> None:
+        sample = [{"rowid": 1, "party_1": "Narandas Karsondas", "party_2": "S.A. Kamtam and Anr.",
+                   "citation": "(1977) 3 SCC 247", "citing_case_id": "citer1"}]
+        [record] = precision_sample_with_text(db, sample)
+        assert record["citing_text"] == _CITING_TEXT
+        assert record["status"] == "resolved"
+        assert record["resolved_case_id"] == "resolved1"
+        assert record["resolved_text"] == _RESOLVED_CASE_TEXT
+
+    def test_not_in_index_alias_has_no_resolved_text_but_still_has_citing_text(self, db: sqlite3.Connection) -> None:
+        sample = [{"rowid": 2, "party_1": "Nobody", "party_2": "Nowhere", "citation": "(1999) 9 SCC 999",
+                   "citing_case_id": "citer1"}]
+        [record] = precision_sample_with_text(db, sample)
+        assert record["citing_text"] == _CITING_TEXT
+        assert record["status"] == "not_in_index"
+        assert "resolved_text" not in record
+
+    def test_refuses_when_the_citing_document_itself_has_no_text(self, db: sqlite3.Connection) -> None:
+        sample = [{"rowid": 3, "party_1": "X", "party_2": "Y", "citation": "(1977) 3 SCC 247",
+                   "citing_case_id": "empty1"}]
+        with pytest.raises(ValueError, match="empty1"):
+            precision_sample_with_text(db, sample)

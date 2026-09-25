@@ -8,7 +8,10 @@ document/row count and return indices; the caller supplies the actual rows.
 from __future__ import annotations
 
 import random
+import sqlite3
 from math import comb, exp, fsum, log, log1p
+
+from pravrudhi.application.verify import VerifyResult, resolve_citation_key
 
 
 def _beta_ppf(q: float, a: float, b: float) -> float:
@@ -87,3 +90,47 @@ def precision_sample_indices(n_rows: int, k: int, seed: int) -> list[int]:
         raise ValueError(f"cannot sample k={k} distinct rows from a population of only {n_rows}")
     rng = random.Random(seed)
     return rng.sample(range(n_rows), k)
+
+
+def _load_text(conn: sqlite3.Connection, case_id: str) -> str:
+    """The real gap R1 found (2026-09-25): a sampled record with empty/missing text would have sent a
+    labeler an empty prompt. Refuse here, once, rather than let every caller re-check."""
+    row = conn.execute("SELECT text FROM cases WHERE case_id = ?", (case_id,)).fetchone()
+    text = (row[0] if row else "") or ""
+    if not text.strip():
+        raise ValueError(f"case_id {case_id!r} has no usable text (empty or not found) -- refusing to emit it")
+    return text
+
+
+def recall_order_with_text(conn: sqlite3.Connection, case_id_order: list[str], prefix: int) -> list[dict[str, str]]:
+    """Load the real document text for the first `prefix` entries of the prereg §3 walk order. `prefix`
+    over-provisions the walk (the labeler stops at their own 200th hand-marked citation, which this function
+    cannot know in advance) rather than loading text for all 38,657 documents up front; if a labeler exhausts
+    `prefix` documents before reaching 200 citations, re-run with a larger `prefix` over the SAME `case_id_order`
+    -- a strict extension of the same frozen walk, never a different order."""
+    return [{"case_id": cid, "text": _load_text(conn, cid)} for cid in case_id_order[:prefix]]
+
+
+def precision_sample_with_text(conn: sqlite3.Connection, sample: list[dict[str, object]]) -> list[dict[str, object]]:
+    """Attach the real text a Labeler needs to judge each sampled alias's resolution (prereg §4): the citing
+    document's own text (always required -- refuses if missing, same as `recall_order_with_text`), plus,
+    when `verify()`'s resolution step (`resolve_citation_key`) actually resolves the alias's citation, the
+    resolved case's own id/title/text too. `status` is `"resolved"`, `"not_in_index"`, or `"conflict"` --
+    never a bare boolean, so a labeler (or the scoring script) can tell a real ambiguity from "no evidence"."""
+    out = []
+    for item in sample:
+        citing_text = _load_text(conn, str(item["citing_case_id"]))
+        resolved = resolve_citation_key(conn, str(item["citation"]))
+        record = {**item, "citing_text": citing_text}
+        if resolved.status is None:
+            row = resolved.case_rows[0]
+            record["status"] = "resolved"
+            record["resolved_case_id"] = row["case_id"]
+            record["resolved_title"] = row["title"]
+            record["resolved_text"] = row["text"]
+        elif resolved.status == VerifyResult.CONFLICT:
+            record["status"] = "conflict"
+        else:
+            record["status"] = "not_in_index"
+        out.append(record)
+    return out
