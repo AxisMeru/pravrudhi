@@ -121,3 +121,29 @@ judge_statute_text:
   bns108: If any person commits suicide, whoever abets the commission of such suicide, shall be punished with imprisonment of either description for a term which may extend to ten years, and shall also be liable to fine.
   bnss187_extended_serious: Whenever any person is arrested and detained in custody, and it appears that the investigation cannot be completed within the period of twenty-four hours fixed by section 58, and there are grounds for believing that the accusation or information is well-founded, the officer in charge of the police station or the police officer making the investigation, if he is not below the rank of sub-inspector, shall forthwith transmit to the nearest Magistrate a copy of the entries in the diary hereinafter specified relating to the case, and shall at the same time forward the accused to such Magistrate.
   bnss187_extended_other: Whenever any person is arrested and detained in custody, and it appears that the investigation cannot be completed within the period of twenty-four hours fixed by section 58, and there are grounds for believing that the accusation or information is well-founded, the officer in charge of the police station or the police officer making the investigation, if he is not below the rank of sub-inspector, shall forthwith transmit to the nearest Magistrate a copy of the entries in the diary hereinafter specified relating to the case, and shall at the same time forward the accused to such Magistrate.
+
+# Safety gate (Lead-2, 2026-09-25), decided the same day the ABSTAIN gap above was closed: the element judge
+# has never been trained or measured on any of the 11 contracts below (the dual-signed eval, config C,
+# checker_pass 109/377, false-prove 0/225, covers only the original 14). Every element for a contract listed
+# here still judges, quotes and Lean-checks normally -- the reasoning stays fully visible in the response and
+# the audit trail -- but NyayaAgent._run_contract intercepts a final PROOF or DENIAL for one of these and
+# returns REFER_TO_LAWYER (reason contract_not_validated) instead. An outcome that is already ABSTAIN or
+# REFER_TO_LAWYER for another reason is never touched by this gate.
+#
+# THIS IS NOT A TODO. A contract leaves this list only by Lead-2's explicit decision, after a signed eval of
+# the M2-trained judge that actually covers it -- never by whoever next edits this file, and never just
+# because the ABSTAIN gap looked closed once statute text existed. ni138 is not on this list yet only because
+# it has no judge_statute_text entry at all above and so cannot reach PROOF/DENIAL regardless; it is added
+# here the moment its statute text is added, before its ABSTAIN can turn into unvalidated judging.
+unvalidated_contracts:
+  - bns316_misappropriation
+  - bns316_use_or_disposal
+  - bns316_wilfully_suffers
+  - bns318_property
+  - bns318_damaging_act
+  - bns217_misdirected_act
+  - bns217_abuse_of_power
+  - bns80
+  - bns108
+  - bnss187_extended_serious
+  - bnss187_extended_other

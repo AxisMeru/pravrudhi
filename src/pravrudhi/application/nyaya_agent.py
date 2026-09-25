@@ -128,6 +128,16 @@ class AgentConfig:
     #: judge requests `NyayaAgent.run` judges at once, bounded by a `ThreadPoolExecutor`. Default 1 -- today's
     #: serial behaviour, byte-identical results and audit ordering. See `NyayaAgent._judge_elements`.
     max_concurrency: int = 1
+    #: Contracts whose statute text was added (Wave-1 registry expansion, 2026-09-25) without the element
+    #: judge ever being trained or measured on them -- the dual-signed eval (config C, checker_pass 109/377,
+    #: false-prove 0/225) covers only the original 14. Every element still judges normally (elements, quotes
+    #: and the Lean result all stay visible in the audit and the response) but a contract in this set can
+    #: never reach a final PROOF or DENIAL: `_run_contract` intercepts that outcome and returns
+    #: REFER_TO_LAWYER, reason `contract_not_validated`, instead. An outcome that would already be ABSTAIN or
+    #: REFER_TO_LAWYER for another reason passes through unchanged -- this only ever intercepts PROOF/DENIAL.
+    #: A contract comes OFF this set only by Lead-2's explicit decision after a signed eval of the M2-trained
+    #: judge covering it -- this is a deliberate, standing safety gate, not a TODO for anyone to clear later.
+    unvalidated_contracts: frozenset[str] = field(default_factory=frozenset)
 
     def __post_init__(self) -> None:
         low, high = self.refer_band
@@ -256,6 +266,7 @@ def load_agent_config(root: Path) -> AgentConfig:
         typed_layer=bool(body.get("typed_layer", False)),
         second_judge=second_judge,
         max_concurrency=int(house_judge.get("max_concurrency", 1)),
+        unvalidated_contracts=frozenset(str(c) for c in (body.get("unvalidated_contracts") or [])),
     )
 
 
@@ -965,6 +976,13 @@ class NyayaAgent:
             return finish("REFER_TO_LAWYER", "uncertain_second_judge", **kw)
         if unavailable_second:
             return finish("REFER_TO_LAWYER", "second_judge_unavailable", **kw)
+        # Safety gate (Lead-2, 2026-09-25): a contract with no judge-side validation never reaches the user
+        # as a PROOF or DENIAL. Every element judged, quoted and Lean-checked above stays visible in `results`
+        # and the audit trail -- only the FINAL outcome is intercepted, and only when it would otherwise be a
+        # definite PROOF/DENIAL; ABSTAIN never reaches this line at all (both `expected_outcome` paths that
+        # produce it return earlier), so a genuinely missing-element case still ABSTAINs untouched.
+        if lean_outcome in ("PROOF", "DENIAL") and contract_id in self.config.unvalidated_contracts:
+            return finish("REFER_TO_LAWYER", "contract_not_validated", **kw)
         reason = {"PROOF": "all_elements_established", "DENIAL": "denial_established", "ABSTAIN": "missing_element"}[lean_outcome]
         return finish(lean_outcome, reason, **kw)
 
