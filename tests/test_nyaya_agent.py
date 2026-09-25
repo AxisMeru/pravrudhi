@@ -423,6 +423,59 @@ def _logit(p: float) -> float:
     return math.log(p / (1.0 - p))
 
 
+class TestUnvalidatedContractsGate:
+    """Safety gate (Lead-2, 2026-09-25): a contract on `unvalidated_contracts` never reaches the user as a
+    final PROOF or DENIAL -- the judge that would decide it has never been measured on that contract. Every
+    element still judges, quotes and Lean-checks normally (visible in `results`/the audit); only the final
+    outcome is intercepted, and only a PROOF/DENIAL -- an outcome that would already be ABSTAIN passes
+    through untouched."""
+
+    def test_a_gated_contract_that_would_prove_gives_refer_with_the_named_reason(self, tmp_path: Path) -> None:
+        run, _, _ = _run(tmp_path, _proof_script(TOY_FACTS), unvalidated_contracts=frozenset({"bns69"}))
+        c = run.contracts[0]
+        assert c.outcome == "REFER_TO_LAWYER"
+        assert c.reason == "contract_not_validated"
+        # The reasoning stays visible: every element (and the denial check) still judged, quoted, and the
+        # Lean check still ran and still says "grounded" -- the gate hides none of that from the response.
+        assert len(c.elements) == 3  # 2 required elements + the one denial check
+        established = [e for e in c.elements if e.status == "established"]
+        assert len(established) == 2 and all(e.quote for e in established)
+        assert c.lean is not None and c.lean["verdict"] == "grounded"
+
+    def test_a_gated_contract_that_would_deny_gives_refer_with_the_named_reason(self, tmp_path: Path) -> None:
+        script = _proof_script(TOY_FACTS)
+        script[BNS69_DENY] = [_est("F3", TOY_FACTS[2], "sexual intercourse")]
+        run, _, _ = _run(tmp_path, script, unvalidated_contracts=frozenset({"bns69"}))
+        c = run.contracts[0]
+        assert c.outcome == "REFER_TO_LAWYER"
+        assert c.reason == "contract_not_validated"
+
+    def test_a_gated_contract_that_would_abstain_still_abstains_untouched(self, tmp_path: Path) -> None:
+        """The gate only ever intercepts PROOF/DENIAL -- a genuinely missing element still ABSTAINs, not
+        REFER, since that outcome carries no unvalidated judging to warn about."""
+        script = _proof_script(TOY_FACTS)
+        script[BNS69_EL[1]] = [_not()]
+        run, _, _ = _run(tmp_path, script, unvalidated_contracts=frozenset({"bns69"}))
+        assert run.contracts[0].outcome == "ABSTAIN"
+        assert run.contracts[0].reason == "missing_element"
+
+    def test_the_gate_never_touches_a_contract_not_on_the_list(self, tmp_path: Path) -> None:
+        """A non-empty `unvalidated_contracts` naming some OTHER contract must not change bns69's own
+        outcome -- the gate is per-contract-id, never a global switch. Byte-identical to today's behaviour
+        for every contract not explicitly listed."""
+        run, _, _ = _run(tmp_path, _proof_script(TOY_FACTS), unvalidated_contracts=frozenset({"some_other_contract"}))
+        assert run.contracts[0].outcome == "PROOF"
+        assert run.contracts[0].reason == "all_elements_established"
+
+    def test_the_default_empty_gate_leaves_every_original_contract_unaffected(self, tmp_path: Path) -> None:
+        """The default (no yaml `unvalidated_contracts:` key, or an empty list) is an empty frozenset --
+        every existing deployment's config, and every one of the original 14 contracts, is byte-identical to
+        before this gate existed."""
+        run, _, _ = _run(tmp_path, _proof_script(TOY_FACTS))
+        assert run.contracts[0].outcome == "PROOF"
+        assert run.contracts[0].reason == "all_elements_established"
+
+
 def _second(status: str, p: float) -> ElementJudgment:
     """A second-judge reply as a bare `Judge` double would give it -- fact_id/quote are never read from the
     second (AndGateJudge always keeps the primary's span), so they are dummy values here."""
@@ -864,7 +917,13 @@ class TestRealBinary:
         real = BinaryRegistry(SCORE_BIN, pinned_sha256=PINNED)
         training = load_agent_config(REPO).judge_statute_text
         differ = sorted(cid for cid, text in training.items() if text != real.source_text(cid))
-        assert len(training) == 14
+        # 2026-09-25: 11 of the 12 Wave-1 ids (bns316/318/217/80, bnss187) were added to close the
+        # no_training_statute_text ABSTAIN gap Lead-2's production relay test found; each is trimmed to an
+        # operative sentence same as the pre-existing entries, so (like several of those) differs from the
+        # binary's own full --describe-source text. bns108 is the one Wave-1 id whose full official text IS
+        # short enough to use verbatim, so it is NOT in this list. ni138 has no entry at all (not sourced,
+        # not fabricated) and so does not appear in `training` in the first place.
+        assert len(training) == 25
         assert differ == sorted(
             [
                 "ipc415_property",
@@ -876,8 +935,34 @@ class TestRealBinary:
                 "bns46_instigation",
                 "bns46_conspiracy",
                 "bns46_intentional_aid",
+                "bns316_misappropriation",
+                "bns316_use_or_disposal",
+                "bns316_wilfully_suffers",
+                "bns318_property",
+                "bns318_damaging_act",
+                "bns217_misdirected_act",
+                "bns217_abuse_of_power",
+                "bns80",
+                "bnss187_extended_serious",
+                "bnss187_extended_other",
             ]
         )
+
+    def test_every_known_contract_has_training_statute_text_except_the_named_exception(self) -> None:
+        """The regression this exists to catch (Lead-2, 2026-09-25 production relay test): Track A's Wave-1
+        registry expansion (14 -> 26 contracts) added BNS 316/318/217/80/108, BNSS 187 and NI Act 138 to the
+        Lean side but nobody wired their statute text here, so every one of them silently ABSTAINed with
+        no_training_statute_text -- in production, not caught by CI, because no test asserted COMPLETENESS
+        (the existing `<=` check above only ever caught an extra/misspelled key, never a missing one).
+        `ni138` is the one deliberate, named exception: NI Act 1881 was never one of
+        india_code_fetch.py's five operator-authorized Acts, so its text is not sourced anywhere in this
+        repo, and this test does not require it -- but a future Wave-2 contract added to
+        KNOWN_CONTRACT_IDS with no corresponding entry here, and no equally-explicit exception added to
+        this test, now fails loudly instead of shipping a silent ABSTAIN."""
+        training = load_agent_config(REPO).judge_statute_text
+        deliberately_unsourced = {"ni138"}
+        missing = (reg.KNOWN_CONTRACT_IDS - deliberately_unsourced) - set(training)
+        assert missing == set(), f"contracts with no training statute text at all: {sorted(missing)}"
 
 
 class TestJudgeConfigurationFault:
