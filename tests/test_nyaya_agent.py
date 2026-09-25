@@ -738,6 +738,63 @@ class TestConfig:
         assert sj["base_url"] == "http://from-yaml/v1"  # untouched: no env var for it
         assert sj["tau"] == 0.97  # env override wins
 
+    def test_env_only_second_judge_inherits_prompt_shape_from_house_judge(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Lead-2, 2026-09-25: a second_judge built purely from NYAYA_SECOND_JUDGE_* env vars (no yaml
+        second_judge: block at all) used to crash the first time NyayaAgent.house() ran, with
+        KeyError: 'statute_chars' -- HouseJudge.from_config requires statute_chars/top_logprobs/max_tokens
+        and there was no way to supply them via env alone. This is what makes a purely env-driven switch-on
+        possible (the RunPod endpoint is configured this way)."""
+        monkeypatch.setenv("NYAYA_SECOND_JUDGE_BASE_URL", "http://127.0.0.1:8111/v1")
+        monkeypatch.setenv("NYAYA_SECOND_JUDGE_TAU", "0.97")
+        cfg = load_agent_config(REPO)
+        sj = cfg.second_judge
+        assert sj is not None
+        house = cfg.house_judge
+        assert sj["statute_chars"] == house["statute_chars"]
+        assert sj["top_logprobs"] == house["top_logprobs"]
+        assert sj["max_tokens"] == house["max_tokens"]
+
+    def test_second_judge_explicit_statute_chars_override_wins_over_inherited(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("NYAYA_SECOND_JUDGE_BASE_URL", "http://127.0.0.1:8111/v1")
+        monkeypatch.setenv("NYAYA_SECOND_JUDGE_STATUTE_CHARS", "500")
+        monkeypatch.setenv("NYAYA_SECOND_JUDGE_TOP_LOGPROBS", "10")
+        monkeypatch.setenv("NYAYA_SECOND_JUDGE_MAX_TOKENS", "40")
+        cfg = load_agent_config(REPO)
+        sj = cfg.second_judge
+        assert sj is not None
+        assert sj["statute_chars"] == 500 != cfg.house_judge["statute_chars"]
+        assert sj["top_logprobs"] == 10 != cfg.house_judge["top_logprobs"]
+        assert sj["max_tokens"] == 40 != cfg.house_judge["max_tokens"]
+
+    def test_yaml_second_judges_own_statute_chars_is_not_overwritten_by_inheritance(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import yaml
+
+        cfg_dir = tmp_path / "configs"
+        cfg_dir.mkdir()
+        body = yaml.safe_load((REPO / "configs" / "nyaya_agent.yaml").read_text())
+        assert body["house_judge"]["statute_chars"] != 999  # the test's own premise: genuinely different
+        body["second_judge"] = {"base_url": "http://from-yaml/v1", "tau": 0.9, "statute_chars": 999,
+                                 "max_tokens": 30, "top_logprobs": 20, "timeout_s": 60}
+        (cfg_dir / "nyaya_agent.yaml").write_text(yaml.safe_dump(body))
+        sj = load_agent_config(tmp_path).second_judge
+        assert sj is not None
+        assert sj["statute_chars"] == 999  # untouched -- yaml's own value, not overwritten by house_judge's
+
+    def test_env_only_second_judge_with_no_second_judge_at_all_stays_none(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The inheritance logic only ever runs when second_judge is not None -- no second_judge configured
+        at all must still be byte-identical to before this change (None, no house_judge leakage)."""
+        for var in ("NYAYA_SECOND_JUDGE_BASE_URL", "NYAYA_SECOND_JUDGE_MODEL", "NYAYA_SECOND_JUDGE_TAU",
+                    "NYAYA_SECOND_JUDGE_TIMEOUT_S", "NYAYA_SECOND_JUDGE_STATUTE_CHARS",
+                    "NYAYA_SECOND_JUDGE_TOP_LOGPROBS", "NYAYA_SECOND_JUDGE_MAX_TOKENS"):
+            monkeypatch.delenv(var, raising=False)
+        assert load_agent_config(REPO).second_judge is None
+
 
 class TestHouseFactory:
     """`NyayaAgent.house` wires config C (AndGateJudge) only when `second_judge` is configured; absent is

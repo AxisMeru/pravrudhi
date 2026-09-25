@@ -277,6 +277,94 @@ class TestHouseJudge:
             HouseJudge(complete=fake, tau=0.74, statute_chars=600).judge(REQ)
 
 
+class TestLazyModelResolution:
+    """Lead-2, 2026-09-25: found validating the config-C switch-on smoke test against a real, briefly-
+    unreachable second judge -- `HouseJudge(base_url=..., model=None)` used to call `/v1/models` EAGERLY at
+    construction, so an unreachable/cold judge crashed agent construction itself with an unhandled error,
+    before any request was attempted (and, for the second judge, before AndGateJudge's own try/except around
+    the per-request call ever ran). Resolution must be lazy: on first actual use, not at construction.
+    Port 1 (never bound, always refused) stands in for "unreachable" -- no mock needed, this is a real,
+    fast, local connection refusal."""
+
+    UNREACHABLE = "http://127.0.0.1:1/v1"
+
+    def test_construction_with_an_unreachable_server_and_no_model_does_not_raise(self) -> None:
+        HouseJudge(base_url=self.UNREACHABLE, model=None, tau=0.74, statute_chars=600)  # must not raise
+
+    def test_the_model_property_is_what_actually_resolves_lazily(self) -> None:
+        j = HouseJudge(base_url=self.UNREACHABLE, model=None, tau=0.74, statute_chars=600)
+        with pytest.raises((ConnectionError, OSError)):
+            _ = j.model  # first access -- this is where the /v1/models call now happens
+
+    def test_judge_call_against_an_unreachable_server_and_no_model_raises_at_call_time_not_earlier(self) -> None:
+        j = HouseJudge(base_url=self.UNREACHABLE, model=None, tau=0.74, statute_chars=600)
+        with pytest.raises(RuntimeError):
+            j.judge(REQ)  # the error surfaces here, not at construction (already proven not to raise, above)
+
+    def test_a_reachable_server_with_no_model_still_resolves_and_caches(self) -> None:
+        """The primary's own behaviour for a REACHABLE judge is unchanged: `.model` resolves correctly (still
+        lazily, on first access) and is cached, matching the pre-existing (eager) resolution's cached value
+        for every subsequent access -- this only moves WHEN resolution happens, never what it resolves to."""
+
+        class _FakeListModelsClient:
+            def __init__(self, models: list[str]) -> None:
+                self._models = models
+                self.list_models_calls = 0
+
+            def list_models(self) -> list[str]:
+                self.list_models_calls += 1
+                return self._models
+
+        j = HouseJudge(base_url="http://fake/v1", model=None, tau=0.74, statute_chars=600)
+        fake_client = _FakeListModelsClient(["resolved-model-id"])
+        j.clients[0] = fake_client  # type: ignore[assignment]  -- a test double, real ChatClient never used
+        assert j.model == "resolved-model-id"
+        assert j.model == "resolved-model-id"  # second access: cached, not a second list_models() call
+        assert fake_client.list_models_calls == 1
+
+    def test_a_given_model_id_skips_list_models_entirely_construction_and_access(self) -> None:
+        """`model="some-id"` (never None): resolution is a no-op either way -- unchanged from before this
+        fix, and the point of pinning a fixed model id in the runbook for the second judge specifically."""
+
+        class _RaisingClient:
+            def list_models(self) -> list[str]:
+                raise AssertionError("list_models() must never be called when a model id was given")
+
+        j = HouseJudge(base_url="http://fake/v1", model="pinned-model", tau=0.74, statute_chars=600)
+        j.clients[0] = _RaisingClient()  # type: ignore[assignment]
+        assert j.model == "pinned-model"  # does not raise -- list_models() is never reached
+
+
+class TestSecondJudgeAgainstAnUnreachableRealServer:
+    """End-to-end, through the real AndGateJudge + NyayaAgent path, not a ScriptedJudge double: the second
+    judge is a REAL HouseJudge pointed at an unreachable server. Confirms the whole chain -- lazy resolution
+    (this file) plus the second_judge_unavailable -> REFER_TO_LAWYER fix (nyaya_agent.py, #10) -- composes
+    correctly, not just each half in isolation."""
+
+    def test_and_gate_construction_does_not_raise_even_though_second_is_unreachable(self) -> None:
+        from pravrudhi.application.nyaya_judges import AndGateJudge
+
+        primary = HouseJudge(
+            complete=_FakeComplete(_completion(" established F1:5:22", {" established": -0.05, " not": -3.0})),
+            tau=0.74, statute_chars=600,
+        )
+        second = HouseJudge(base_url="http://127.0.0.1:1/v1", model=None, tau=0.97, statute_chars=600)
+        AndGateJudge(primary, second, tau_primary=0.74, tau_second=0.97)  # must not raise
+
+    def test_and_gate_judge_call_fails_closed_not_established_when_second_is_unreachable(self) -> None:
+        from pravrudhi.application.nyaya_judges import AndGateJudge
+
+        primary = HouseJudge(
+            complete=_FakeComplete(_completion(" established F1:5:22", {" established": -0.05, " not": -3.0})),
+            tau=0.74, statute_chars=600,
+        )
+        second = HouseJudge(base_url="http://127.0.0.1:1/v1", model=None, tau=0.97, statute_chars=600)
+        out = AndGateJudge(primary, second, tau_primary=0.74, tau_second=0.97).judge(REQ)
+        assert out.status == "not_established"
+        assert out.vetoed_by == "second"
+        assert out.second_skip_reason is not None and "second_unavailable" in out.second_skip_reason
+
+
 class _Resp:
     status = 200
 
