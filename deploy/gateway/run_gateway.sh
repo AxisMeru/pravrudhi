@@ -22,6 +22,11 @@
 #                   reachable from an engine container, and docker0 -> host is firewalled on this box
 #                   optional PRODUCT_DEMO_ANON_PATHS: comma list passed to the PRODUCT engine only as
 #                   PRAVRUDHI_DEMO_ANON_PATHS (anonymous demo routes; the engine refuses any outside its fixed set)
+#                   optional PRODUCT_UPSTREAM=runpod: the product edition has cut over to RunPod serverless
+#                   (deploy/gateway/wrangler.toml [env.product]) and reads its live backend from
+#                   `engine_url_product` directly, not from this box's tunnel -- set this so a restart of this
+#                   loop records the 5090's own tunnel URL under `engine_url_product_rollback` instead of
+#                   clobbering the cutover (2026-09-25 incident, root-caused by Lead-2)
 #   supabase.env    SUPABASE_URL (token verification)
 #   chat.env        the vendor key the engine routes to (a cost the operator has accepted)
 #   github.env      GITHUB_TOKEN, only to fetch release wheels past the anonymous rate limit when building
@@ -139,13 +144,22 @@ ensure_engine() {
 
 PIDS=()
 tunnel() {
-  local edition=$1 port log url; port=$(port_of "$1"); log="$LOGS/tunnel-$edition.log"
+  local edition=$1 port log url kv_key; port=$(port_of "$1"); log="$LOGS/tunnel-$edition.log"
   : > "$log"; cloudflared tunnel --url "http://127.0.0.1:$port" >"$log" 2>&1 & PIDS+=($!)
   for _ in $(seq 1 30); do url=$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' "$log" | head -1 || true); [ -n "$url" ] && break; sleep 1; done
   [ -n "$url" ] || { echo "no tunnel url for $edition" >&2; exit 1; }
   grep -q "Registered tunnel connection" "$log" || sleep 5
-  curl -sf "${auth[@]}" -X PUT "$API/storage/kv/namespaces/$CF_KV_ID/values/engine_url_$edition" --data "$url" >/dev/null
-  echo "$edition: $url -> KV engine_url_$edition"
+  # A product edition cut over to RunPod serverless (PRODUCT_UPSTREAM=runpod, deploy/gateway/wrangler.toml
+  # [env.product]) reads its live backend from `engine_url_product`, not from this 5090 tunnel -- writing here
+  # on every gateway restart silently clobbered that cutover (2026-09-25, root-caused by Lead-2). The 5090's
+  # own tunnel URL still gets recorded, under a rollback-only key nothing reads unless the cutover is undone,
+  # so restarting the local gateway loop can never again overwrite what production is actually pointed at.
+  kv_key="engine_url_$edition"
+  if [ "$edition" = "product" ] && [ "${PRODUCT_UPSTREAM:-}" = "runpod" ]; then
+    kv_key="engine_url_product_rollback"
+  fi
+  curl -sf "${auth[@]}" -X PUT "$API/storage/kv/namespaces/$CF_KV_ID/values/$kv_key" --data "$url" >/dev/null
+  echo "$edition: $url -> KV $kv_key"
 }
 
 REBUILD_IMAGE=""
