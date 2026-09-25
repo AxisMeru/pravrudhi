@@ -43,7 +43,9 @@ def test_dispatch_uses_model_and_environment_only(tmp_path, monkeypatch, key):
         assert env["DASHSCOPE_API_KEY"] == key.reveal()
         provider = config["provider"][alibaba.PROVIDER]
         assert provider["npm"] == "@ai-sdk/openai-compatible"
-        assert provider["options"]["baseURL"] == "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
+        # "opencode:alibaba" is now an alias for the paid Lite Plan (free tier retired, 2026-09-25) --
+        # build_agent resolves it to provider_id "alibaba-plan", so this is that provider's base URL.
+        assert provider["options"]["baseURL"] == "https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1"
         assert config["small_model"] == config["model"]
         return 0, transcript, "", 0.5
 

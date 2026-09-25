@@ -7,7 +7,7 @@ import pytest
 from pravrudhi.agents.base import PROTECTED, CodingAgent, Diff, GitWorktreeMixin
 from pravrudhi.agents.cli_agents import ClaudeCodeAgent, CodexAgent
 from pravrudhi.agents.orca_agent import OrcaAgent, OrcaUnavailable
-from pravrudhi.agents.registry import build_registry, survey
+from pravrudhi.agents.registry import build_agent, build_registry, survey
 
 
 def _repo(tmp_path: Path) -> Path:
@@ -103,6 +103,43 @@ def test_survey_reports_a_reason_for_every_agent(tmp_path):
     assert set(build_registry(r, include_orca=False)) == {
         "claude-code", "codex", "opencode:alibaba", "opencode:alibaba-plan", "hermes",
     }
+
+
+class TestFreeTierDashscopeRemoved:
+    """Operator instruction (2026-09-25): free-tier DashScope is retired everywhere. `opencode:alibaba` is
+    kept as a NAME only, for any route/config that still names it -- it must resolve to the exact same paid
+    Lite Plan agent as `opencode:alibaba-plan`, never construct its own free-tier credential lookup."""
+
+    def test_the_free_tier_route_name_is_an_alias_for_the_same_plan_agent(self, tmp_path: Path) -> None:
+        r = _repo(tmp_path)
+        agents = build_registry(r, include_orca=False)
+        assert agents["opencode:alibaba"] is agents["opencode:alibaba-plan"]
+        assert agents["opencode:alibaba"].provider_id == "alibaba-plan"
+
+    def test_build_agent_resolves_the_free_tier_name_to_the_plan_provider_too(self, tmp_path: Path) -> None:
+        """`build_agent` is a second, separate construction path (the swarm dispatches by name here, not
+        through `build_registry`'s dict) -- fixing only the registry would leave this one still building a
+        real free-tier AlibabaAgent for any caller naming "opencode:alibaba"."""
+        r = _repo(tmp_path)
+        a = build_agent(r, "opencode:alibaba", model=None)
+        if a is not None:  # None means unavailable (no credential/CLI on this host) -- still must never be free-tier
+            assert a.provider_id == "alibaba-plan"
+
+    def test_no_internal_wiring_references_the_free_tier_credential_file(self) -> None:
+        """Grep guard (Lead-2, 2026-09-25): `dashscope.env` (the free-tier file) may appear only where the two
+        credential files are legitimately BOTH named side by side -- `credentials.py`'s BYOK provider
+        registry (a user can still bring their own free-tier key there) and `alibaba_agent.py`'s
+        `CREDENTIAL_NAMES` mapping (which must name both files to tell them apart). Anywhere else in
+        `src/pravrudhi/` is a hardcoded internal default this task exists to remove."""
+        import pravrudhi
+
+        root = Path(pravrudhi.__file__).resolve().parent
+        allowlisted = {root / "application" / "credentials.py", root / "agents" / "alibaba_agent.py"}
+        offenders = [
+            p for p in root.rglob("*.py")
+            if p not in allowlisted and "dashscope.env" in p.read_text(encoding="utf-8")
+        ]
+        assert offenders == [], f"internal free-tier credential reference(s): {offenders}"
 
 
 class TestCodexIsToldWhereToWorkUnambiguously:
