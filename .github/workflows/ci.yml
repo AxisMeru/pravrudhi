@@ -103,6 +103,33 @@ jobs:
           path: ${{ runner.temp }}/prabhasa-nyaya/lean/.lake/build/bin/score
           retention-days: 1
 
+  # CI ordering hole (Tag, 2026-09-26): these were steps in `engine`, AFTER its pytest step. A `run:` step
+  # that fails stops the rest of that job's steps by default, so all five were silently SKIPPED whenever
+  # pytest failed -- exactly when someone is pushing fast and least likely to notice a skipped guard. Its
+  # own job, independent of pytest and of build-lean-binary, so a red pytest run never hides a real guard
+  # failure. Make this a required check in the repo's branch protection settings.
+  guards:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with: { python-version: "3.13" }
+      - run: uv sync --all-groups --frozen
+      - run: uv run python scripts/import_guard.py
+      - run: uv run python scripts/check_no_private_data.py
+      # 2026-09-26 incident backstop: an undeclared ARG GITHUB_TOKEN masked a silently-unauthenticated
+      # Docker build for every prior release, and the fix-attempt (declaring it) leaked the real token value
+      # in cleartext in the build log. This makes that class of mistake fail CI instead of a human review.
+      - run: uv run python scripts/check_no_secret_dockerfile_args.py
+      # Fail-open defaults (operator, 2026-09-26, after the sweep of both repos): a missing, empty or
+      # unparseable verdict/confidence/score that defaults to a NUMBER instead of to None or an error, so an
+      # item that could not be scored silently counts as a pass. Rules 1 and 3 fail the build; rule 2 is
+      # advisory and never does (measured ~30% false positives even scoped to scorers -- see the script's
+      # own docstring for the per-rule rates). The occurrences that predate this guard are listed, each with
+      # a reason and an issue, in scripts/fail_open_defaults_baseline.txt; they are findings going to their
+      # owners, not things this step's own PR fixed.
+      - run: uv run python scripts/check_fail_open_defaults.py
+
   engine:
     runs-on: ubuntu-latest
     needs: [build-lean-binary]
@@ -132,8 +159,6 @@ jobs:
         env:
           PRABHASA_NYAYA_SCORE_BIN: /tmp/score-bin/score
         run: uv run pytest tests -q
-      - run: uv run python scripts/import_guard.py
-      - run: uv run python scripts/check_no_private_data.py
       # Permanent backstop (Lead-2, 2026-09-26): fails if not one requires_score_bin-gated test actually
       # executed. Green whenever build-lean-binary supplied a real, pin-verified binary above; red on a fork
       # PR or if that job ever fails -- both cases where the registry/pin tests genuinely did not run here,

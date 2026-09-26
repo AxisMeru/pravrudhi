@@ -27,6 +27,7 @@ from pravrudhi.application.nyaya_agent import (
     BinaryRegistry,
     BinaryShaMismatch,
     NyayaAgent,
+    _truthful_status,
     assemble_assertions,
     expected_outcome,
     ingest_facts,
@@ -1267,6 +1268,97 @@ class TestTruthfulElementStatus:
         assert c1.outcome == c2.outcome  # but the outcome never does
 
 
+class TestBindingLegInSingleJudgeMode:
+    """Issue #57 (Tag's review of #37): `binding_leg` is documented as `"primary" | "second" | None`, but a
+    BARE judge (no `AndGateJudge` wrapper at all -- no `second_judge:` configured, the module-level `_run`
+    helper's own shape, not this file's `TestTruthfulElementStatus` class, which always wraps two
+    `ScriptedJudge`s in a real `AndGateJudge`) never touches `vetoed_by` -- that field only exists on
+    AndGateJudge's own output. Before this fix, a single-judge deployment's own primary rejecting an element
+    left `binding_leg` null even though the primary is the ONLY judge that could possibly have decided it,
+    contradicting the docstring's own claim that null means "not a tau miss at all"."""
+
+    def test_a_bare_single_judges_own_rejection_still_names_primary(self, tmp_path: Path) -> None:
+        script = _proof_script(TOY_FACTS)
+        script[BNS69_EL[0]] = [_not(0.6)]  # leans established (p >= 0.5) but under tau -- not_confirmed
+        run, _, _ = _run(tmp_path, script)
+        el0 = run.contracts[0].elements[0]
+        assert el0.status == "not_confirmed"
+        assert el0.binding_leg == "primary"
+
+    def test_a_bare_single_judges_genuine_rejection_also_names_primary(self, tmp_path: Path) -> None:
+        script = _proof_script(TOY_FACTS)
+        script[BNS69_EL[0]] = [_not(0.2)]  # genuinely low p -- not_established
+        run, _, _ = _run(tmp_path, script)
+        el0 = run.contracts[0].elements[0]
+        assert el0.status == "not_established"
+        assert el0.binding_leg == "primary"
+
+    def test_a_bare_single_judges_established_element_still_has_no_binding_leg(self, tmp_path: Path) -> None:
+        run, _, _ = _run(tmp_path, _proof_script(TOY_FACTS))
+        el0 = run.contracts[0].elements[0]
+        assert el0.status == "established"
+        assert el0.binding_leg is None
+
+
+class TestBindingLegDiscriminatorReadsConfigNotTauSecond:
+    """Tag review, 2026-09-26 (issue #57 follow-up): `_truthful_status` used to infer single-judge mode from
+    `anchor.tau_second is None` -- true today only because `AndGateJudge` happens to always set `tau_second`,
+    an implementation detail this function has no business depending on. It now takes
+    `second_judge_configured` explicitly (the caller passes `self.config.second_judge is not None`, the
+    actual ground truth) so a two-judge run can never spuriously get "primary" attributed to it just because
+    `tau_second` happens to be unset on a particular anchor.
+
+    Unlike `TestTruthfulElementStatus` above (which always exercises a REAL `AndGateJudge`), these call
+    `_truthful_status` directly: the whole point is to prove the function's OWN contract holds even for an
+    anchor shape `AndGateJudge` would never actually produce, which a real end-to-end run cannot construct."""
+
+    def _anchor(self, **kw: Any) -> ElementJudgment:
+        return ElementJudgment(status="not_established", p_established=0.3, **kw)
+
+    def test_two_judge_mode_with_a_tau_less_anchor_never_spuriously_names_primary(self) -> None:
+        """The exact case the old `tau_second is None` inference got wrong: a second judge IS configured for
+        this run, but this particular anchor has no `tau_second` (e.g. `vetoed_by` was never set on it) --
+        the old code would have wrongly filled in "primary" here; the fix must leave `binding_leg` at None
+        instead of guessing, since nothing recorded which judge actually decided this."""
+        anchor = self._anchor(tau_second=None, vetoed_by=None)
+        status, binding_leg = _truthful_status(False, False, anchor, False, second_judge_configured=True)
+        assert status == "not_established"
+        assert binding_leg is None
+
+    def test_two_judge_mode_still_reports_a_real_vetoed_by_leg(self) -> None:
+        """The same tau-less anchor, but `vetoed_by` WAS set (a real `AndGateJudge` rejection) -- that real
+        signal must still come through unchanged; `second_judge_configured` only governs the FALLBACK, never
+        overrides an actual recorded leg."""
+        anchor = self._anchor(tau_second=None, vetoed_by="second")
+        status, binding_leg = _truthful_status(False, False, anchor, False, second_judge_configured=True)
+        assert status == "not_established"
+        assert binding_leg == "second"
+
+    def test_single_judge_mode_still_falls_back_to_primary(self) -> None:
+        """The genuine single-judge case (no second judge configured at all, `vetoed_by` never set by a bare
+        judge): the fallback must still fire -- this is what issue #57 asked for in the first place, and the
+        discriminator change must not have broken it."""
+        anchor = self._anchor(tau_second=None, vetoed_by=None)
+        status, binding_leg = _truthful_status(False, False, anchor, False, second_judge_configured=False)
+        assert status == "not_established"
+        assert binding_leg == "primary"
+
+    def test_skip_second_branch_in_a_real_two_judge_run_names_primary_legitimately(self, tmp_path: Path) -> None:
+        """The skip-second branch (primary rejects outright, so the second is never asked at all) through a
+        REAL `AndGateJudge`, two-judge config: `binding_leg == "primary"` here is legitimate (`vetoed_by`
+        really is "primary"), not the discriminator's fallback -- this is the case Tag's finding named
+        explicitly, run end-to-end so it cannot be confused with the synthetic tests above."""
+        primary = ScriptedJudge({BNS69_EL[0]: [_not(0.6)]})  # leans established but under tau -- rejected outright
+        second = ScriptedJudge({})  # never consulted -- an empty script would raise if it were
+        gate = AndGateJudge(primary, second, tau_primary=0.74, tau_second=0.97)
+        config = _config(tmp_path, second_judge={"tau": 0.97})
+        agent = NyayaAgent(gate, _registry(), config)
+        run = agent.run(TOY_FACTS, narrative="TOY narrative.", contract_ids=["bns69"])
+        el0 = run.contracts[0].elements[0]
+        assert el0.status == "not_confirmed"
+        assert el0.binding_leg == "primary"
+
+
 class TestGate1ReferWiring:
     """Gate 1 (Track-C, GATE1-PRODUCT-WIRING-SPEC-2026-09-26.md): wraps a `ScriptedJudge` in a REAL
     `Gate1Judge` (never hand-builds an `ElementJudgment` with gate1 fields) so `_run_contract`'s own
@@ -1349,6 +1441,17 @@ class TestGate1ReferWiring:
         # Every established element hits the same unconditional model error -- both BNS69_EL entries.
         assert set(c.gate1_unavailable) == {BNS69_EL[0], BNS69_EL[1]}
         assert c.gate1_failed == []  # never double-counted under the other reason
+        # Tag review, 2026-09-26 (issue #57/#63): a fail-closed Gate 1 error is its own element status, never
+        # the same label ("not_established") a genuine veto or a real unmet score gets -- there is no score
+        # to distrust here, only a model that couldn't answer. Only the elements Gate 1 actually touched
+        # (the two the base judge established, per `gate1_unavailable` above) -- an element the base judge
+        # never established in the first place never reaches Gate 1 at all, and keeps its own ordinary
+        # "not_established" status unrelated to this feature.
+        by_element = {el.element: el for el in c.elements}
+        assert by_element[BNS69_EL[0]].status == "not_evaluated_gate1_unavailable"
+        assert by_element[BNS69_EL[1]].status == "not_evaluated_gate1_unavailable"
+        # And the real-veto sibling test above keeps its OWN "not_established" label unchanged, so the two
+        # cases stay distinguishable at the element level, not just the contract-level reason string.
 
 
 class TestStatuteMismatch:

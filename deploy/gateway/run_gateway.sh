@@ -106,8 +106,22 @@ ensure_image() {
     echo "route will answer 503 in this image until a redeploy includes it (see deploy/docker/README.md)" >&2
   fi
 
-  docker build --build-arg "PRAVRUDHI_VERSION=$PRAVRUDHI_VERSION" ${GITHUB_TOKEN:+--build-arg GITHUB_TOKEN=$GITHUB_TOKEN} \
+  # The token goes in via --secret, never --build-arg (2026-09-26 incident: a --build-arg is printed in
+  # cleartext in the build log and in `docker history`; a --secret is read from a file at
+  # /run/secrets/<id> inside the one RUN step that needs it, never recorded anywhere else). Written to a
+  # 600 tmp file for the duration of this one build call and removed immediately after, success or fail.
+  local secret_arg=() token_file=""
+  if [ -n "$GITHUB_TOKEN" ]; then
+    token_file="$(mktemp)"
+    trap 'rm -f "$token_file"' RETURN
+    umask 177
+    printf '%s' "$GITHUB_TOKEN" > "$token_file"
+    umask 022
+    secret_arg=(--secret "id=github_token,src=$token_file")
+  fi
+  docker build --build-arg "PRAVRUDHI_VERSION=$PRAVRUDHI_VERSION" "${secret_arg[@]}" \
     "${sha_arg[@]}" -t "pravrudhi-engine:$PRAVRUDHI_VERSION" "$build_ctx"
+  [ -n "$token_file" ] && rm -f "$token_file"
   rm -rf "$build_ctx"
 }
 

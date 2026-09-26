@@ -1,8 +1,16 @@
+# syntax=docker/dockerfile:1
+#
 # A hosted Pravrudhi engine: the multitenant design's shape (c), one container per edition, behind a web app on
 # Vercel (ADR-0051 addendum 2). The engine's intelligence is the vendor layer, so this image carries no GPU; GPU
 # work belongs to the artifact projects and, later, to cloud GPU. Build with the release the web app expects:
 #
 #   docker build --build-arg PRAVRUDHI_VERSION=0.5.7 -t pravrudhi-engine deploy/docker
+#
+# With a GitHub token, to raise the unauthenticated 60/hour API limit (never as --build-arg, see below):
+#
+#   printf '%s' "$GITHUB_TOKEN" > /tmp/gh_token && \
+#   docker build --secret id=github_token,src=/tmp/gh_token --build-arg PRAVRUDHI_VERSION=0.5.7 \
+#     -t pravrudhi-engine deploy/docker && rm -f /tmp/gh_token
 #
 # Run with the environment deploy/docker/README.md lists (identity required, local guard off, the Vercel origin
 # allowed, a Supabase project to verify tokens against) and a volume at /data for the root.
@@ -16,7 +24,21 @@ RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends git cur
 # The two wheels every AxisMeru/pravrudhi release publishes. The kernel's own version is read from the release
 # assets rather than assumed, so a kernel release does not need this file changed. The asset list comes from
 # the release's own assets_url: the by-tag view has been seen listing no assets long after they were published.
-RUN set -eu; \
+#
+# A GitHub token, if provided, must NEVER be an ARG or ENV (2026-09-26 incident: an earlier version of this
+# file used `ARG GITHUB_TOKEN` -- BuildKit prints every RUN command's fully-expanded shell line in its build
+# log and in `docker history`, so the token value was printed in cleartext the moment a real value was passed,
+# even though the image itself never persisted it in a layer. BuildKit's own SecretsUsedInArgOrEnv warning
+# was flagging exactly this and was ignored under time pressure -- token was rotated as a result.) A
+# `--mount=type=secret` is read from a file at /run/secrets/<id> inside the RUN step only, never recorded in
+# the build log, never baked into any layer, never visible via `docker history`.
+#
+# Usage: docker build --secret id=github_token,src=<path to a file containing just the token> ...
+# The secret is OPTIONAL: with none provided, requests go out unauthenticated (the ~60/hour GitHub limit,
+# fine for infrequent builds; provide the secret for anything more frequent).
+RUN --mount=type=secret,id=github_token set -eu; \
+    GITHUB_TOKEN=""; \
+    [ -f /run/secrets/github_token ] && GITHUB_TOKEN="$(cat /run/secrets/github_token)"; \
     api="https://api.github.com/repos/AxisMeru/pravrudhi/releases/tags/v${PRAVRUDHI_VERSION}"; \
     release="$(curl -sSf ${GITHUB_TOKEN:+-H "Authorization: Bearer $GITHUB_TOKEN"} "$api")"; \
     assets_url="$(printf '%s' "$release" | grep -o '"assets_url": *"[^"]*"' | head -1 | sed 's/.*"\(https[^"]*\)"/\1/')"; \
