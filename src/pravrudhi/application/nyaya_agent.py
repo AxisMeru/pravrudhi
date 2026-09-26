@@ -69,7 +69,7 @@ from concurrent.futures import CancelledError, ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal, Protocol
+from typing import Any, Literal, Protocol, get_args
 
 from pravrudhi.application import nyaya_lean_registry as reg
 from pravrudhi.application.nyaya_judges import ElementJudgment, Judge, JudgeRequest, SecondJudgeCircuitBreaker
@@ -628,6 +628,15 @@ ElementStatus = Literal[
     "established", "not_confirmed", "not_established",
     "not_evaluated_second_unavailable", "not_evaluated_gate1_unavailable",
 ]
+
+#: The exact, runtime-checkable set `ElementStatus` allows -- derived from the `Literal` itself (`typing.
+#: get_args`), never restated, so the two cannot drift apart. Deliberately public and pinned by a test
+#: (`tests/test_nyaya_agent.py::TestElementStatusesArePinned`): every element status this engine can ever
+#: emit is a wire-format contract with pravrudhi-app's own exhaustive switch over the SAME list (issue #72 --
+#: enabling a status-emitting path the app cannot handle yet, e.g. gate1, is exactly the failure that issue
+#: exists to prevent). Changing this set without also shipping the app's own handling first is the mistake
+#: this constant's test is there to catch before a config flip does it in production instead.
+ELEMENT_STATUSES: tuple[ElementStatus, ...] = get_args(ElementStatus)
 
 
 @dataclass
