@@ -5,6 +5,37 @@ on:
   pull_request:
 
 jobs:
+  # Belt and braces (Lead-2, 2026-09-26): three direct-to-main pushes (4861672, ef37cc8, 89c8eb4) were found
+  # here with zero associated pull requests, all pre-dating branch protection. Branch protection now blocks
+  # a direct push outright, so this can't recur -- but it mirrors prabhasa-nyaya's own main-push-has-pr job
+  # anyway, so a push that somehow lands (a settings change, an admin override elsewhere) is still visible
+  # rather than silent.
+  main-push-has-pr:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: every new commit on main must have an associated PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          BAD=0
+          if [ "$BEFORE_SHA" = "0000000000000000000000000000000000000000" ]; then
+            echo "first push to this ref, nothing to diff against"
+            exit 0
+          fi
+          for sha in $(git rev-list "$BEFORE_SHA..${{ github.event.after }}"); do
+            count=$(gh api "repos/${{ github.repository }}/commits/$sha/pulls" --jq 'length')
+            if [ "$count" = "0" ]; then
+              echo "commit $sha has no associated pull request"
+              BAD=1
+            fi
+          done
+          exit "$BAD"
+
   kernel:
     runs-on: ubuntu-latest
     steps:
