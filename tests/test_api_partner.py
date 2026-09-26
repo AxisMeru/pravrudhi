@@ -398,6 +398,7 @@ class TestRealDeadPortPrimary:
     SCORE_BIN = _REAL_SCORE_BIN
     requires_score_bin = _requires_score_bin
 
+    @pytest.mark.requires_score_bin
     @requires_score_bin
     def test_dead_port_primary_is_503_judge_unavailable_over_real_http(self, tmp_path: Path) -> None:
         from pravrudhi.application.nyaya_agent import BinaryRegistry

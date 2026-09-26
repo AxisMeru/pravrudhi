@@ -108,6 +108,7 @@ def test_a_contract_with_many_elements_names_every_field() -> None:
     assert cs.schema.field("element_7") is cs.schema.fields[7]
 
 
+@pytest.mark.requires_score_bin
 @requires_pinned_registry_scorer
 class TestContractSchemaAgainstTheRealBinary:
     """Fixtures alone can't catch drift from the real binary -- this reads every known contract's OWN

@@ -1011,12 +1011,14 @@ class TestHouseFactory:
 
 
 class TestRealBinary:
+    @pytest.mark.requires_score_bin
     @requires_score_bin
     def test_pinned_sha_is_enforced(self) -> None:
         with pytest.raises(BinaryShaMismatch):
             BinaryRegistry(SCORE_BIN, pinned_sha256="0" * 64)
         assert BinaryRegistry(SCORE_BIN, pinned_sha256=PINNED).sha256 == PINNED
 
+    @pytest.mark.requires_score_bin
     @requires_score_bin
     def test_scripted_registry_answers_like_the_real_binary(self) -> None:
         real = BinaryRegistry(SCORE_BIN, pinned_sha256=PINNED)
@@ -1031,6 +1033,7 @@ class TestRealBinary:
             r, f = real.check(assertions, "bns69"), fake.check(assertions, "bns69")
             assert outcome_from_lean(r) == outcome_from_lean(f) == expected_outcome(c, assertions)
 
+    @pytest.mark.requires_score_bin
     @requires_score_bin
     def test_loop_end_to_end_on_the_real_binary(self, tmp_path: Path) -> None:
         real = BinaryRegistry(SCORE_BIN, pinned_sha256=PINNED)
@@ -1039,6 +1042,7 @@ class TestRealBinary:
         assert run.contracts[0].outcome == "PROOF"
         assert real.source_text("bns69").startswith("Whoever, by deceitful means")
 
+    @pytest.mark.requires_score_bin
     @requires_score_bin
     def test_training_statute_texts_that_differ_from_the_official_text(self) -> None:
         """The M2 target list: which configured training texts are not the binary's official text."""
@@ -1104,6 +1108,7 @@ class TestRealBinary:
         missing = reg.KNOWN_CONTRACT_IDS - set(training)
         assert missing == set(), f"contracts with no training statute text at all: {sorted(missing)}"
 
+    @pytest.mark.requires_score_bin
     @requires_score_bin
     def test_ni138_statute_text_mismatch_is_false(self, tmp_path: Path) -> None:
         """Confirms configs/nyaya_agent.yaml's ni138 entry does not set statute_text_mismatch=true against
@@ -1200,6 +1205,7 @@ class TestSecondBandReproducesSignedEndpointCounts:
         verdicts = [json.loads(line) for line in verdicts_path.read_text().splitlines() if line.strip()]
         return served_32b, verdicts
 
+    @pytest.mark.requires_score_bin
     @requires_sealed_endpoint
     @pytest.mark.parametrize("delta,expected_referred,expected_decided", [(0.125, 6, 109), (0.25, 10, 109), (0.375, 15, 109)])
     def test_reproduces_signed_referred_count(
@@ -1229,6 +1235,7 @@ class TestSecondBandReproducesSignedEndpointCounts:
 
         assert len(referred_items) == expected_referred
 
+    @pytest.mark.requires_score_bin
     @requires_sealed_endpoint
     def test_delta_grid_is_monotone_non_decreasing(self) -> None:
         """A wider delta can only catch the same items or more, never fewer -- sanity-checks the three

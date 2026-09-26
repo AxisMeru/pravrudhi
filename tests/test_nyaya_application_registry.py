@@ -46,6 +46,7 @@ class TestRegistryContractIds:
         assert set(nyaya.registry_contract_ids()).isdisjoint(nyaya_lean.KNOWN_CONTRACT_IDS)
 
 
+@pytest.mark.requires_score_bin
 @requires_registry_scorer
 class TestRegistryElements:
     def test_reads_required_elements_live(self, tmp_path: Path) -> None:
@@ -60,6 +61,7 @@ class TestRegistryElements:
             nyaya.registry_elements(tmp_path, "not_a_real_id")
 
 
+@pytest.mark.requires_score_bin
 @requires_registry_scorer
 class TestRegistryCheck:
     def test_all_elements_met_is_grounded_and_persisted(self, tmp_path: Path) -> None:

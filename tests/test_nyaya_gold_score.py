@@ -127,6 +127,7 @@ def test_lean_source_commit_is_none_off_a_path_with_no_git_ancestor(tmp_path: Pa
     assert lean_source_commit(tmp_path / "bin" / "score") is None
 
 
+@pytest.mark.requires_score_bin
 @requires_lean_scorer
 class TestAgainstTheRealLeanScorer:
     def test_every_class_scores_perfectly(self) -> None:

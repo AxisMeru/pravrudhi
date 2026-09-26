@@ -49,6 +49,7 @@ _SEED5_CLEAN_ANSWER = (
 _SEED5_INVENTED_CITATION_ANSWER = _SEED5_CLEAN_ANSWER.replace("149 U.S. 302", "150 U.S. 302")
 
 
+@pytest.mark.requires_score_bin
 @requires_lean_scorer
 class TestLeanCheckerOnTheIPC378Contract:
     def test_a_clean_citation_is_licensed(self) -> None:
@@ -78,6 +79,7 @@ class TestLeanCheckerOnTheIPC378Contract:
         assert result["unlicensed_claims"] == []
 
 
+@pytest.mark.requires_score_bin
 @requires_lean_scorer
 class TestLeanCheckerGeneralizesToASecondContract:
     """P1b's own done-when: the SAME check() function, a DIFFERENT contract_id (seed 5, Rowan v. Fisk) --
@@ -96,12 +98,14 @@ class TestLeanCheckerGeneralizesToASecondContract:
         assert result["not_formalisable_count"] == 1
 
 
+@pytest.mark.requires_score_bin
 @requires_lean_scorer
 def test_unknown_contract_id_is_refused_not_defaulted() -> None:
     with pytest.raises(nyaya_lean.UnknownContractError, match="99"):
         nyaya_lean.check("anything", "99", score_bin=_LEAN_SCORE_BIN)
 
 
+@pytest.mark.requires_score_bin
 @requires_lean_scorer
 def test_api_audit_endpoint_with_lean_checker_names_the_unlicensed_citation_across_two_vendors(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -136,6 +140,7 @@ def test_api_audit_endpoint_with_lean_checker_names_the_unlicensed_citation_acro
         assert body["not_formalisable_count"] == 1, vendor
 
 
+@pytest.mark.requires_score_bin
 @requires_lean_scorer
 def test_api_audit_endpoint_refuses_an_unknown_contract_id(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -153,6 +158,7 @@ def test_api_audit_endpoint_refuses_an_unknown_contract_id(
     assert r.status_code == 422, r.text
 
 
+@pytest.mark.requires_score_bin
 @requires_lean_scorer
 def test_api_audit_endpoint_refuses_lean_checker_with_no_contract_id(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch

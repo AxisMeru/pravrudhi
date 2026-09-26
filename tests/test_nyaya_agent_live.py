@@ -89,6 +89,7 @@ TOY_PATTERNS = {
 }
 
 
+@pytest.mark.requires_score_bin
 def test_house_judge_loop_end_to_end(tmp_path: Path, served_model: str) -> None:
     cfg = replace(load_agent_config(REPO), max_retries=MAX_RETRIES, audit_dir=tmp_path / "audit", score_bin=SCORE_BIN)
     registry = BinaryRegistry(SCORE_BIN, pinned_sha256=cfg.pinned_score_sha256)

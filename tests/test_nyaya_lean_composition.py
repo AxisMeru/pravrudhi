@@ -45,6 +45,7 @@ _PERSONATION = (
 
 
 class TestKnownCompositionIdsMatchesTheBinary:
+    @pytest.mark.requires_score_bin
     @requires_composition_scorer
     def test_drift_test_against_list_compositions(self) -> None:
         proc = subprocess.run([str(_SCORE_BIN), "--list-compositions"], capture_output=True, text=True, check=True)
@@ -57,6 +58,7 @@ class TestCheckComposition:
         with pytest.raises(comp.UnknownCompositionError):
             comp.check_composition({"x": True}, "not_a_real_composition_id", score_bin=_SCORE_BIN)
 
+    @pytest.mark.requires_score_bin
     @requires_composition_scorer
     def test_grounded_by_one_route_names_it_route_of_record(self) -> None:
         result = comp.check_composition(
@@ -75,6 +77,7 @@ class TestCheckComposition:
         assert result["omitted_claims"] == []
         assert result["refuted_claims"] == []
 
+    @pytest.mark.requires_score_bin
     @requires_composition_scorer
     def test_grounded_by_two_routes_comma_joins_route_of_record(self) -> None:
         result = comp.check_composition(
@@ -93,6 +96,7 @@ class TestCheckComposition:
         assert result["verdict"] == "grounded"
         assert result["route_of_record"] == "ipc415_property,ipc415_damaging_act"
 
+    @pytest.mark.requires_score_bin
     @requires_composition_scorer
     def test_partial_reading_is_flagged_naming_the_closest_route(self) -> None:
         # Limb A missing its mental element (fraudulentOrDishonestInducement) -- one element short.
@@ -107,6 +111,7 @@ class TestCheckComposition:
         assert result["omitted_claims"][0]["source"] == "ipc415_property"
         assert "fraudulently or dishonestly" in result["omitted_claims"][0]["claim"]
 
+    @pytest.mark.requires_score_bin
     @requires_composition_scorer
     def test_silent_on_inner_family_is_flagged_with_no_route_of_record(self) -> None:
         result = comp.check_composition(
@@ -117,6 +122,7 @@ class TestCheckComposition:
         assert len(result["omitted_claims"]) == 1
         assert result["omitted_claims"][0]["source"] == "outer"
 
+    @pytest.mark.requires_score_bin
     @requires_composition_scorer
     def test_bare_bridge_assertion_is_labelled_bridge_not_outer(self) -> None:
         """Amendment A: the reading DID assert `cheats`, with no inner working shown -- the
@@ -131,6 +137,7 @@ class TestCheckComposition:
         assert len(result["omitted_claims"]) == 1
         assert result["omitted_claims"][0]["source"] == "bridge"
 
+    @pytest.mark.requires_score_bin
     @requires_composition_scorer
     def test_route_omission_counts_reports_every_declared_route(self) -> None:
         result = comp.check_composition(

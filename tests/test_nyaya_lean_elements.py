@@ -51,6 +51,7 @@ class TestLoadRequiredElements:
             nle.load_required_elements(p)
 
 
+@pytest.mark.requires_score_bin
 @requires_lean_scorer
 class TestCheckElementsOnTheA3EWireTag:
     def test_an_answer_stating_every_required_element_is_grounded(self) -> None:
