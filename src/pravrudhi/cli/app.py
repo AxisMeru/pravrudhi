@@ -668,7 +668,7 @@ def nyaya_validity_check_cmd(
     root: Path = ROOT_OPT,
     constructed: bool = typer.Option(
         False, "--constructed",
-        help="Score the six-bank constructed hetvabhasa gold set against prabhasa-nyaya's Lean verifier "
+        help="Score the six-bank constructed hetvabhasa gold set against prabhasa-nyaya's Lean checker "
              "instead of the 5-item hand-labelled smoke-check (session-3's A2 decisions, 2026-09-12).",
     ),
     per_class: int = typer.Option(100, "--per-class", help="--constructed only: items per class."),

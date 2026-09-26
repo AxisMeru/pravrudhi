@@ -510,6 +510,38 @@ _PII_SHAPES: tuple[tuple[str, re.Pattern[str], str], ...] = (
         re.compile(r"\b(?!admin@axismeru\.com\b)[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b"),
         "<redacted:personal-email>",
     ),
+    # `application.requests` stores an operator's ask verbatim by design ("Nothing here interprets the
+    # operator") - correct for the backlog itself, and exactly wrong once that text is a teammate's relayed
+    # <cross-session-message> rather than a real ask: an auto-capture hook sometimes records the relay
+    # itself as the ask text, and on 2026-09-14 that put 872 internal agent-to-agent messages (session
+    # socket paths, cross-session content) into the hourly-published snapshot. The whole wrapped block is
+    # dropped, not just the socket path inside it, since a relay's own prose is usually internal shorthand
+    # too, not written for a public reader. Non-greedy, and stops at the first unescaped quote (`[^"\\]` /
+    # `\\.` -- either a plain non-quote-non-backslash char or an escaped pair, the same shape a JSON string
+    # literal itself is built from) rather than `.` freely, because a captured relay is sometimes truncated
+    # with no closing tag at all in the SAME JSON string value -- an unbounded `.*?` then hunts across
+    # unrelated later fields for the next literal `</cross-session-message>` anywhere in the file and
+    # deletes everything in between, corrupting the JSON (found by actually re-parsing the redacted output,
+    # not just checking substring counts -- the first fix attempt looked clean by that weaker check alone).
+    (
+        "cross-session-relay",
+        re.compile(r'<cross-session-message\b(?:\\.|[^"\\])*?</cross-session-message>'),
+        "<redacted:internal-relay>",
+    ),
+    # A session socket path mentioned outside a full <cross-session-message> wrapper (e.g. a delivery-notice
+    # sentence quoted verbatim inside a request's own text) -- still host-local detail with no business in
+    # a public snapshot, caught separately since it isn't always inside the tagged block above.
+    (
+        "session-socket-path",
+        re.compile(r"uds:/(?:tmp|run/user/\d+)/cc-socks/[^\s\"'\\)]+"),
+        "<redacted:internal-socket-path>",
+    ),
+    # Catch-all for what the two shapes above cannot bound: a relay truncated with no closing tag anywhere
+    # in the same JSON string (a captured ask cut off mid-transcript), or a bare mention of either token in
+    # ordinary prose. Neither is a well-formed block or path to redact surgically, so this replaces the bare
+    # token itself -- coarser, but it is what actually guarantees the marker never survives, which matters
+    # more here than preserving the surrounding sentence.
+    ("internal-marker-residue", re.compile(r"cross-session-message|cc-socks"), "<redacted:internal-marker>"),
 )
 
 

@@ -1,5 +1,5 @@
 """Scoring the constructed hetvabhasa gold set against prabhasa-nyaya's real Lean `score` executable --
-integration, not a fake: session-3's A2 decision 2 names the Lean verifier of record specifically so this
+integration, not a fake: session-3's A2 decision 2 names the Lean checker of record specifically so this
 module is never tested against a stand-in for it.
 """
 
