@@ -108,7 +108,7 @@ def test_cli_validity_check_runs_the_kernel_check_and_reports_the_tier(tmp_path:
 @requires_lean_scorer
 class TestTheConstructedGoldSet:
     """Session-3's A2 decisions, 2026-09-12: the six-bank constructed set, scored per class against
-    prabhasa-nyaya's Lean verifier, additive to the 5-item smoke-check above."""
+    prabhasa-nyaya's Lean checker, additive to the 5-item smoke-check above."""
 
     def _env(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("PRABHASA_NYAYA_SCORE_BIN", str(_LEAN_SCORE_BIN))
