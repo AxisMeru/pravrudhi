@@ -34,7 +34,10 @@ sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
 from check_no_secrets_in_diff import (  # noqa: E402 -- path set just above, repo idiom (test_check_fail_open_defaults.py:26)
     Finding,
+    _changed,
+    _rev_sha,
     check,
+    degenerate_range,
     fingerprint,
     load_baseline,
     looks_like_placeholder,
@@ -382,3 +385,261 @@ class TestRealTreeStaysGreen:
         diff the CI job scans -- against this checkout, with the shipped baseline."""
         report = check(REPO_ROOT, all_tracked=True)
         assert report.violations == [], [v.render() for v in report.violations]
+
+
+# -- issue #93: a base that RESOLVES is not a base that is USABLE --------------------------------------------
+
+
+def _commit(root: Path, message: str) -> None:
+    subprocess.run(["git", "add", "-A"], cwd=root, check=True)
+    subprocess.run(
+        ["git", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", message],
+        cwd=root, check=True,
+    )
+
+
+class TestDegenerateBaseEscalates:
+    """Issue #93. `resolve_base` fell back to `origin/main`, which on a push to `main` names the same commit
+    as the checked-out HEAD. The guard diffed a commit against itself, scanned 0 files and 0 lines, printed
+    `OK` and exited 0 -- a green tick meaning "examined nothing", which is read as evidence.
+
+    The input guard was never the defect (see `TestDegradedInputsStillRejected`); what happens after the
+    fallback runs was. These tests pin both halves of the fix: the degenerate range is DETECTED, by sha and
+    never by ref name, and the escalated whole-tree run must actually read something.
+    """
+
+    def test_a_usable_distinct_base_still_scans_the_diff_and_only_the_diff(self, tmp_path: Path) -> None:
+        """The control. Nothing about a healthy diff scan moves, including that it stays scoped to the diff."""
+        root = _repo_with(tmp_path, "correct_patterns.py", commit=True)
+        shutil.copy(FIXTURES / "trips_entropy.py", root / "scripts")
+        _commit(root, "add a secret")
+        report = check(root, base="HEAD~1", head="HEAD")
+        assert (report.mode, report.escalated_reason) == ("diff", None)
+        assert report.scanned == ["scripts/trips_entropy.py"], "scanned wider than the diff"
+        assert "secret-shaped-assignment" in _rules(report.violations)
+
+    def test_degenerate_range_passes_a_usable_range(self, tmp_path: Path) -> None:
+        """The other direction of the same guard: a real range must not be flagged as degenerate, or every
+        honest diff run would be escalated and the gate would cease to be a gate."""
+        root = _repo_with(tmp_path, "correct_patterns.py", commit=True)
+        (root / "scripts" / "added.py").write_text('"""a later commit"""\n')
+        _commit(root, "second")
+        assert degenerate_range(root, "HEAD~1", "HEAD") is None
+
+    def test_the_push_to_main_shape_finds_a_secret_the_empty_diff_would_have_missed(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """THE REGRESSION TEST for #93, and it fails against the behaviour this replaced.
+
+        Reproduces CI exactly: `origin/main` exists and points at the checked-out HEAD, which is what a push
+        to `main` creates, and `SECRET_SCAN_BEFORE` is the all-zeros sha a force-push delivers. A planted
+        token is already committed, so it is absent from the (empty) diff and present in the tree.
+
+        Old behaviour: `scanned 0 file(s), 0 line(s)`, `OK`, exit 0 -- the token ships behind a green tick.
+        New behaviour: escalate, read the tree, find it, exit 1.
+        """
+        root = _repo_with(tmp_path, "trips_structural.py", commit=True)
+        subprocess.run(["git", "update-ref", "refs/remotes/origin/main", "HEAD"], cwd=root, check=True)
+        monkeypatch.delenv("GITHUB_BASE_REF", raising=False)
+        monkeypatch.setenv("SECRET_SCAN_BEFORE", "0" * 40)
+        assert resolve_base(root, None) == "origin/main", "precondition: the fallback chain is what runs"
+
+        monkeypatch.setattr(sys, "argv", ["check_no_secrets_in_diff.py", "--root", str(root)])
+        assert main() == 1, "a token sitting in the tree went unreported -- the #93 vacuous pass"
+
+        out = capsys.readouterr().out
+        assert "ESCALATED to a whole-tree scan" in out, "the escalation was silent, which is how #93 hid"
+        assert "SAME commit" in out, "the output does not say WHY it escalated"
+        assert "mode: all-tracked" in out
+        assert "github-pat-classic" in out
+
+    def test_a_base_that_merely_NAMES_head_differently_is_still_detected(self, tmp_path: Path) -> None:
+        """The subtle way to write this fix and have it silently not work: compare the ref NAMES. `origin/main`
+        and `HEAD` are different strings that name one commit, so the comparison must resolve both to shas.
+        """
+        root = _repo_with(tmp_path, "trips_structural.py", commit=True)
+        subprocess.run(["git", "branch", "same-tip"], cwd=root, check=True)
+        assert "same-tip" != "HEAD", "the premise: the names differ"
+        assert _rev_sha(root, "same-tip") == _rev_sha(root, "HEAD"), "the premise: the commits do not"
+
+        report = check(root, base="same-tip", head="HEAD")
+        assert report.escalated_reason is not None, "a string comparison would have missed this entirely"
+        assert report.mode == "all-tracked"
+        assert "scripts/trips_structural.py" in report.scanned
+        assert "github-pat-classic" in _rules(report.violations)
+
+    def test_a_range_whose_merge_base_is_already_head_escalates(self, tmp_path: Path) -> None:
+        """Distinct shas and still no commits in the range: head is an ancestor of base, so `base...head`
+        compares head with itself. Equality alone would not catch this; merge-base does."""
+        root = _repo_with(tmp_path, "trips_structural.py", commit=True)
+        (root / "scripts" / "later.py").write_text('"""a later, unrelated commit"""\n')
+        _commit(root, "second")
+        assert _rev_sha(root, "HEAD") != _rev_sha(root, "HEAD~1"), "the premise: the shas differ"
+
+        report = check(root, base="HEAD", head="HEAD~1")
+        assert report.escalated_reason is not None
+        assert "merge base IS head" in report.escalated_reason
+        assert report.mode == "all-tracked"
+        assert report.scanned, "escalated and then read nothing, which is the same bug in a new costume"
+
+    def test_two_unrelated_histories_escalate_instead_of_crashing(self, tmp_path: Path) -> None:
+        """No merge base at all. `git diff a...b` FAILS here, so the old code raised out of the guard with a
+        CalledProcessError -- a crashed gate, which in a workflow reads as an infrastructure flake. Escalate
+        instead: the tree is still scannable even when the range is not."""
+        root = _repo_with(tmp_path, "correct_patterns.py", commit=True)
+        # Read the branch name rather than assuming it: `git init` gives `master` or `main` depending on
+        # the machine's `init.defaultBranch`, and hardcoding either makes this test pass for the wrong
+        # reason on the other one (it would take the "does not resolve" branch instead).
+        first = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            cwd=root, capture_output=True, text=True, check=True,
+        ).stdout.strip()
+        subprocess.run(["git", "checkout", "-q", "--orphan", "unrelated"], cwd=root, check=True)
+        shutil.copy(FIXTURES / "trips_structural.py", root / "scripts")
+        _commit(root, "an orphan branch sharing no history")
+        assert _rev_sha(root, first) is not None, "precondition: the original branch still exists"
+
+        report = check(root, base=first, head="HEAD")
+        assert report.escalated_reason is not None
+        assert "no merge base" in report.escalated_reason
+        assert report.mode == "all-tracked"
+        assert "github-pat-classic" in _rules(report.violations), "escalated and then found nothing"
+
+    def test_a_base_ref_that_does_not_resolve_escalates_instead_of_crashing(self, tmp_path: Path) -> None:
+        root = _repo_with(tmp_path, "trips_structural.py", commit=True)
+        report = check(root, base="no/such/ref", head="HEAD")
+        assert report.escalated_reason is not None
+        assert "does not resolve" in report.escalated_reason
+        assert report.mode == "all-tracked"
+        assert "github-pat-classic" in _rules(report.violations)
+
+
+class TestWholeTreeScanMustReadSomething:
+    """The files-scanned floor. It lives on the whole-tree path and nowhere else, because only there is zero
+    files impossible for a real repository -- so zero means the scan is broken, not that the tree is clean.
+    """
+
+    def test_a_whole_tree_scan_that_reads_no_files_is_a_violation(self, tmp_path: Path) -> None:
+        """Every tracked file exempt. The scan examined nothing, so it proves nothing and must not pass."""
+        root = _repo_with(tmp_path)
+        shutil.copy(REPO_ROOT / "scripts" / "check_no_secrets_in_diff.py", root / "scripts")
+        subprocess.run(["git", "add", "-A"], cwd=root, check=True)
+        report = check(root, all_tracked=True)
+        assert report.scanned == []
+        assert "vacuous-scan" in _rules(report.violations)
+        assert not report.ok
+        assert "swallowed the repository" in _rendered(report), "the message does not say which kind it is"
+
+    def test_an_empty_checkout_is_a_violation_and_names_that_cause(self, tmp_path: Path) -> None:
+        report = check(_repo_with(tmp_path), all_tracked=True)
+        assert "vacuous-scan" in _rules(report.violations)
+        assert "NO TRACKED FILES AT ALL" in _rendered(report)
+
+    def test_the_cli_exits_non_zero_when_the_whole_tree_scan_read_nothing(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        root = _repo_with(tmp_path)
+        monkeypatch.setattr(
+            sys, "argv", ["check_no_secrets_in_diff.py", "--root", str(root), "--all-tracked"]
+        )
+        assert main() == 1
+        assert "ZERO files" in capsys.readouterr().out
+
+
+class TestTheDiffPathHasNoFilesScannedFloor:
+    """The design point a bare `files_scanned > 0` assertion would have got wrong. A legitimate change can
+    touch only files this guard exempts; that scans nothing and is a PASS, not a red. It still has to be
+    distinguishable in the log from the degenerate base of #93 -- being indistinguishable is how #93 hid.
+    """
+
+    def _only_an_exempt_file_changed(self, tmp_path: Path) -> Path:
+        root = _repo_with(tmp_path, "correct_patterns.py", commit=True)
+        shutil.copy(REPO_ROOT / "scripts" / "check_no_secrets_in_diff.py", root / "scripts")
+        _commit(root, "change only a file the guard exempts")
+        return root
+
+    def test_a_diff_touching_only_exempt_files_passes_and_says_it_is_legitimate(
+        self, tmp_path: Path
+    ) -> None:
+        report = check(self._only_an_exempt_file_changed(tmp_path), base="HEAD~1", head="HEAD")
+        assert (report.mode, report.escalated_reason) == ("diff", None), "escalated a usable base"
+        assert report.scanned == []
+        assert report.ok, "a floor on the diff path would make this a FALSE RED"
+        assert "vacuous-scan" not in _rules(report.violations)
+        rendered = _rendered(report)
+        assert "LEGITIMATE PASS" in rendered
+        assert "not the degenerate" in rendered
+
+    def test_the_legitimate_empty_diff_and_the_escalated_run_do_not_read_alike(self, tmp_path: Path) -> None:
+        """Both outcomes scan zero files through the diff request. They must not look the same in the log."""
+        root = self._only_an_exempt_file_changed(tmp_path)
+        legitimate = check(root, base="HEAD~1", head="HEAD")
+        degenerate = check(root, base="HEAD", head="HEAD")
+        assert (legitimate.mode, legitimate.escalated_reason) == ("diff", None)
+        assert degenerate.mode == "all-tracked"
+        assert degenerate.escalated_reason is not None
+        assert "LEGITIMATE PASS" in _rendered(legitimate)
+        assert "LEGITIMATE PASS" not in _rendered(degenerate)
+
+
+class TestTheTwoEntryPointsAgree:
+    """`_changed()` returned an empty diff for a None base -- a literal scan-nothing path, unreachable from
+    `main()` but reachable by any caller using `check()` as a library. The two entry points must not be able
+    to disagree about what "no base" means (issue #93's closing note)."""
+
+    def test_check_as_a_library_escalates_a_none_base_instead_of_scanning_nothing(
+        self, tmp_path: Path
+    ) -> None:
+        root = _repo_with(tmp_path, "trips_structural.py", commit=True)
+        report = check(root, base=None, all_tracked=False)
+        assert report.mode == "all-tracked"
+        assert report.escalated_reason is not None
+        assert "no base ref could be resolved" in report.escalated_reason
+        assert "github-pat-classic" in _rules(report.violations), (
+            "base=None through the library scanned nothing -- the old latent fail-open path"
+        )
+
+    def test_the_diff_helper_refuses_a_none_base_outright(self, tmp_path: Path) -> None:
+        root = _repo_with(tmp_path, "correct_patterns.py", commit=True)
+        with pytest.raises(ValueError, match="would scan nothing"):
+            _changed(root, None, "HEAD")
+
+
+class TestDegradedInputsStillRejected:
+    """The `resolve_base` input guard was never the defect and must not be disturbed by the fix. All three
+    degraded values are still refused as a base, and a pull request is still gated on its diff."""
+
+    @pytest.mark.parametrize("before", ["", "0" * 40, "0" * 7])
+    def test_an_empty_or_all_zeros_before_is_never_used_as_the_base(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, before: str
+    ) -> None:
+        root = _repo_with(tmp_path, "correct_patterns.py", commit=True)
+        monkeypatch.delenv("GITHUB_BASE_REF", raising=False)
+        monkeypatch.setenv("SECRET_SCAN_BEFORE", before)
+        assert resolve_base(root, None) != before
+        assert resolve_base(root, None) is None, "single-commit repo: nothing later in the chain resolves"
+
+    def test_an_absent_before_is_never_used_as_the_base(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        root = _repo_with(tmp_path, "correct_patterns.py", commit=True)
+        monkeypatch.delenv("GITHUB_BASE_REF", raising=False)
+        monkeypatch.delenv("SECRET_SCAN_BEFORE", raising=False)
+        assert resolve_base(root, None) is None
+
+    def test_a_pull_requests_base_ref_still_wins_and_is_still_gated_on_its_diff(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """PR gating was correct before this change and stays correct: `GITHUB_BASE_REF` wins, so a pull
+        request is scanned as a diff and is NOT escalated to the wider whole-tree run."""
+        root = _repo_with(tmp_path, "correct_patterns.py", commit=True)
+        subprocess.run(["git", "update-ref", "refs/remotes/origin/trunk", "HEAD"], cwd=root, check=True)
+        (root / "scripts" / "added.py").write_text('"""a later commit"""\n')
+        _commit(root, "second")
+        monkeypatch.setenv("GITHUB_BASE_REF", "trunk")
+        monkeypatch.setenv("SECRET_SCAN_BEFORE", "0" * 40)
+        assert resolve_base(root, None) == "origin/trunk"
+
+        report = check(root, base=resolve_base(root, None), head="HEAD")
+        assert (report.mode, report.escalated_reason) == ("diff", None), "a PR must stay a diff scan"
+        assert report.scanned == ["scripts/added.py"]

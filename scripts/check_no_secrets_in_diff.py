@@ -52,6 +52,15 @@ With no `--base`, the base is resolved from the environment the way CI supplies 
 (a pull request) wins, then `SECRET_SCAN_BEFORE` (a push's `github.event.before`), then `origin/main`, then
 `HEAD~1`. Exit 1 and print `path:line: [rule] message` for every violation, exit 0 clean -- the same shape
 as `import_guard.py` and `check_no_private_data.py`.
+
+A base that RESOLVES is not necessarily one that is USABLE. If the range turns out to hold nothing -- no
+base at all, a base naming the same commit as the head, or a merge base that already IS the head -- this
+does not report a pass over an empty diff. It says so loudly and escalates to the whole-tree scan, then
+requires that scan to have read at least one file (issue #93). Both refs are resolved to commit SHAS before
+being compared, because `origin/main` and `HEAD` routinely name the same commit on a push to `main`. The
+files-scanned floor applies ONLY to the whole-tree path: a change touching only exempt files legitimately
+scans nothing, so the same floor on the diff path would be a false red. A legitimately empty diff is
+reported as such, so it cannot be confused with the degenerate case.
 """
 
 from __future__ import annotations
@@ -391,16 +400,89 @@ def _git(root: Path, *args: str) -> str:
     ).stdout
 
 
-def _rev_exists(root: Path, ref: str) -> bool:
-    return subprocess.run(
+def _rev_sha(root: Path, ref: str) -> str | None:
+    """The full commit sha `ref` names, or None if it names nothing.
+
+    Every comparison between two refs in this file goes through here first. `origin/main` and `HEAD` are
+    different STRINGS that, on a push to `main`, name the SAME COMMIT -- comparing the names finds them
+    unequal, and the degenerate empty range of issue #93 goes undetected. Compare shas, never names.
+    """
+    proc = subprocess.run(
         ["git", "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}"],
         cwd=root, capture_output=True, text=True,
-    ).returncode == 0
+    )
+    if proc.returncode != 0:
+        return None
+    return proc.stdout.strip() or None
+
+
+def _rev_exists(root: Path, ref: str) -> bool:
+    return _rev_sha(root, ref) is not None
+
+
+def _merge_base_sha(root: Path, base: str, head: str) -> str | None:
+    """The merge base of two refs as a sha, or None if they have none (unrelated histories)."""
+    proc = subprocess.run(
+        ["git", "merge-base", base, head], cwd=root, capture_output=True, text=True,
+    )
+    if proc.returncode != 0:
+        return None
+    return proc.stdout.strip() or None
+
+
+def degenerate_range(root: Path, base: str | None, head: str) -> str | None:
+    """Why the diff `base...head` cannot be trusted to contain anything, or None if the range is usable.
+
+    This is the gate on the vacuous pass of issue #93. `resolve_base` falls back to `origin/main`, and on a
+    push to `main` the checked-out HEAD *is* main's tip: the range is then empty by construction, the scan
+    reads 0 files and 0 lines, and the guard prints OK. A green tick meaning "examined nothing" is worse
+    than no guard at all, because it is read as evidence.
+
+    A reason returned here does NOT fail the run -- it escalates it to the whole-tree scan, which is what
+    this file's docstring has promised all along. The reason is carried into the output so that a reader of
+    the log can tell an escalated run from a diff run: a SILENT escalation is how the original pass hid.
+    """
+    if base is None:
+        return (
+            "no base ref could be resolved (no GITHUB_BASE_REF, no usable SECRET_SCAN_BEFORE, no "
+            "origin/main, no HEAD~1), so there is no diff to scan"
+        )
+    head_sha = _rev_sha(root, head)
+    if head_sha is None:
+        return f"head ref {head!r} does not resolve to a commit, so no range can be computed"
+    base_sha = _rev_sha(root, base)
+    if base_sha is None:
+        return f"base ref {base!r} does not resolve to a commit, so no range can be computed"
+    if base_sha == head_sha:
+        return (
+            f"base {base!r} and head {head!r} are the SAME commit {base_sha[:12]} -- the push-to-main "
+            f"shape, where the fallback base resolves to the very tip that is checked out -- so the range "
+            f"is empty by construction and a diff scan would examine nothing"
+        )
+    merge_base = _merge_base_sha(root, base, head)
+    if merge_base is None:
+        return (
+            f"base {base!r} ({base_sha[:12]}) and head {head!r} ({head_sha[:12]}) have no merge base, so "
+            f"the range {base}...{head} cannot be computed at all"
+        )
+    if merge_base == head_sha:
+        return (
+            f"head {head!r} ({head_sha[:12]}) is already contained in base {base!r} ({base_sha[:12]}) -- "
+            f"their merge base IS head -- so the range {base}...{head} holds no commits and a diff scan "
+            f"would examine nothing"
+        )
+    return None
 
 
 def resolve_base(root: Path, explicit: str | None) -> str | None:
     """The ref this diff is measured against. None means "no base" -- scan the whole tracked tree instead,
-    which is the fail-closed answer when nothing can be resolved, never "scan nothing"."""
+    which is the fail-closed answer when nothing can be resolved, never "scan nothing".
+
+    Resolving a base is NOT the same as resolving a USABLE one: the `origin/main` fallback below resolves
+    on a push to `main` and names the same commit as HEAD, which is issue #93. Judging that is
+    `degenerate_range`'s job, and `check` escalates to the whole-tree scan on its verdict. Do not add a
+    HEAD-equality test here -- this function reports what it found, the caller decides what it is worth.
+    """
     if explicit:
         return explicit
     base_ref = os.environ.get("GITHUB_BASE_REF", "").strip()
@@ -430,6 +512,12 @@ class Report:
     scanned: list[str] = field(default_factory=list)
     stale_baseline: list[str] = field(default_factory=list)
     lines_scanned: int = 0
+    #: Which mode actually RAN, after any escalation: "diff" or "all-tracked". A caller that asked for a
+    #: diff can legitimately read "all-tracked" here -- that is the escalation working, not a bug.
+    mode: str = "diff"
+    #: Why a requested diff scan was escalated to a whole-tree scan, or None if the range was usable. When
+    #: set, this run examined the whole tree; the reason is printed so the log distinguishes the two paths.
+    escalated_reason: str | None = None
 
     @property
     def ok(self) -> bool:
@@ -465,9 +553,19 @@ def load_baseline(path: Path) -> tuple[dict[str, str], list[str]]:
 
 def _changed(root: Path, base: str | None, head: str) -> tuple[dict[str, list[tuple[int, str]]], list[str]]:
     """({path: [(lineno, added line)]}, [paths git calls binary]). Added lines only: a line REMOVED by this
-    PR is not a secret entering the repo, and flagging it would make every deletion of an old hit red."""
+    PR is not a secret entering the repo, and flagging it would make every deletion of an old hit red.
+
+    A None base is a PROGRAMMING ERROR here, not an empty diff. This used to return `({}, [])` -- a literal
+    scan-nothing path, unreachable from `main()` but reachable by any caller using `check()` as a library,
+    so the two entry points could disagree about what "no base" means. `check()` now escalates a missing or
+    degenerate base to a whole-tree scan before control ever reaches here (issue #93).
+    """
     if base is None:
-        return {}, []
+        raise ValueError(
+            "_changed() was called with base=None, which would scan nothing and report it as clean. A "
+            "missing base must be escalated to a whole-tree scan (see check() and degenerate_range()), "
+            "never treated as an empty diff."
+        )
     name_status = _git(root, "diff", "--name-only", "--diff-filter=ACMR", f"{base}...{head}")
     changed_paths = [p for p in name_status.splitlines() if p.strip()]
     binary: list[str] = []
@@ -522,6 +620,14 @@ def check(
     baseline_path: Path | None = None,
 ) -> Report:
     report = Report()
+    if not all_tracked:
+        # Issue #93: a base that RESOLVES is not the same as a base that is USABLE. If the range cannot
+        # contain anything, audit the whole tree -- never report a pass over an empty diff. This lives here
+        # rather than in main() so that the library and CLI entry points cannot disagree.
+        report.escalated_reason = degenerate_range(root, base, head)
+        if report.escalated_reason is not None:
+            all_tracked = True
+    report.mode = "all-tracked" if all_tracked else "diff"
     baseline_file = baseline_path if baseline_path is not None else root / DEFAULT_BASELINE
     baseline, baseline_problems = load_baseline(baseline_file)
     used_keys: set[str] = set()
@@ -540,8 +646,10 @@ def check(
             f"{len(binary)} of them binary (scanned whole, as bytes -- a diff gives no lines for them)"
         )
 
+    exempt_count = 0
     for rel in sorted(targets):
         if _is_exempt(rel):
+            exempt_count += 1
             report.notices.append(f"exempt by name/directory, not scanned: {rel}")
             continue
         lines: list[tuple[int, str]]
@@ -598,6 +706,36 @@ def check(
     report.notices.extend(baseline_problems)
     if all_tracked:
         report.stale_baseline = sorted(set(baseline) - used_keys)
+        if not report.scanned:
+            # THE FILES-SCANNED FLOOR, and it belongs here and nowhere else. A whole-tree audit of a
+            # non-empty repository must yield files; zero means the scan is broken, not that the tree is
+            # clean. The message distinguishes the two ways it can happen, because they need different
+            # fixes. The same assertion on the DIFF path would be wrong -- see the notice below.
+            detail = (
+                f"every one of the {exempt_count} tracked file(s) is exempt by name or directory, so this "
+                f"guard cannot gate this tree at all -- the exemption list has swallowed the repository"
+                if exempt_count
+                else "the checkout reports NO TRACKED FILES AT ALL, so this is a broken or empty checkout"
+            )
+            report.violations.append(
+                Finding(
+                    "vacuous-scan", "<whole tree>", 0, "", 0, "-" * 16,
+                    f"a whole-tree scan examined ZERO files, so it proves nothing and must not report a "
+                    f"pass: {detail}",
+                )
+            )
+    elif not report.scanned:
+        # A legitimately empty diff over a USABLE, DISTINCT base. This is a real pass and stays one: a
+        # change touching only files this guard exempts scans nothing through no fault of its own, so a
+        # files-scanned floor here would be a FALSE RED. Say so explicitly, so this run cannot be mistaken
+        # in the log for the degenerate base of issue #93, which escalates instead of passing.
+        report.notices.append(
+            f"the diff {base}...{head} scanned no files, and that is a LEGITIMATE PASS, not the degenerate "
+            f"case: the base is a distinct commit with a real range behind it, and that range simply "
+            f"changed nothing this guard scans ({exempt_count} changed file(s) exempt by name or "
+            f"directory). No files-scanned floor is enforced on the diff path for exactly this reason; it "
+            f"is enforced on the whole-tree path, where zero files scanned is not a legitimate outcome."
+        )
     return report
 
 
@@ -613,19 +751,19 @@ def main() -> int:
 
     root = Path(args.root).resolve()
     base = None if args.all_tracked else resolve_base(root, args.base)
-    if not args.all_tracked and base is None:
-        print(
-            "no base ref could be resolved (no GITHUB_BASE_REF, no SECRET_SCAN_BEFORE, no origin/main, no "
-            "HEAD~1), so there is no diff to scan -- auditing the whole tracked tree instead rather than "
-            "reporting a vacuous pass."
-        )
-        args.all_tracked = True
 
     report = check(
         root, base=base, head=args.head, all_tracked=args.all_tracked,
         baseline_path=Path(args.baseline).resolve() if args.baseline else None,
     )
 
+    if report.escalated_reason:
+        print(
+            f"ESCALATED to a whole-tree scan: {report.escalated_reason} -- auditing the whole tracked "
+            f"tree instead rather than reporting a vacuous pass. This run is deliberately WIDER and "
+            f"slower than the diff gate: a guard that prints OK after examining zero lines is worse than "
+            f"no guard, because the green tick is read as evidence (issue #93)."
+        )
     for n in report.notices:
         print(f"note: {n}")
     for w in report.waived:
@@ -636,7 +774,7 @@ def main() -> int:
         print(v.render())
 
     print(
-        f"scanned {len(report.scanned)} file(s), {report.lines_scanned} line(s); "
+        f"scanned {len(report.scanned)} file(s), {report.lines_scanned} line(s) [mode: {report.mode}]; "
         f"{len(report.waived)} waived, {len(report.violations)} violation(s)"
     )
     if report.violations:
