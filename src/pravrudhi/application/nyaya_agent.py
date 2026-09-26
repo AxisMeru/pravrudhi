@@ -1109,7 +1109,12 @@ class NyayaAgent:
                         "uncertain_second": res.uncertain_second, "unavailable_second": res.unavailable_second,
                         "gate1_unavailable": res.gate1_unavailable, "gate1_failed": res.gate1_failed,
                         "gate1_contradiction": res.gate1_contradiction,
-                        "statute_text_mismatch": mismatch}, 0.0)
+                        "statute_text_mismatch": mismatch,
+                        # Issue #37: the per-element truthful status/binding_leg (and every other
+                        # ElementResult field) as readable OUTPUT, not just hashed into inputs_sha256 above --
+                        # an auditor reading the JSONL directly must be able to see these without a matching
+                        # copy of `results` to hash and compare against.
+                        "elements": [asdict(r) for r in results]}, 0.0)
             return res
 
         if training is None:

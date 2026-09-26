@@ -724,13 +724,16 @@ class TestTruthfulElementStatus:
 
     TAU2 = 0.97
 
-    def _run(self, tmp_path: Path, primary_script: dict[str, list[Any]], second_script: dict[str, list[Any]]) -> Any:
+    def _run_full(self, tmp_path: Path, primary_script: dict[str, list[Any]], second_script: dict[str, list[Any]]) -> Any:
         primary = ScriptedJudge(primary_script)
         second = ScriptedJudge(second_script)
         gate = AndGateJudge(primary, second, tau_primary=0.74, tau_second=self.TAU2)
         config = _config(tmp_path, second_judge={"tau": self.TAU2})
         agent = NyayaAgent(gate, _registry(), config)
-        return agent.run(TOY_FACTS, narrative="TOY narrative.", contract_ids=["bns69"]).contracts[0]
+        return agent.run(TOY_FACTS, narrative="TOY narrative.", contract_ids=["bns69"])
+
+    def _run(self, tmp_path: Path, primary_script: dict[str, list[Any]], second_script: dict[str, list[Any]]) -> Any:
+        return self._run_full(tmp_path, primary_script, second_script).contracts[0]
 
     def test_primary_leans_established_but_under_tau_is_not_confirmed(self, tmp_path: Path) -> None:
         """The primary's own p (0.6) is >= 0.5 but under its tau (0.74) -- rejected outright, so the second
@@ -777,6 +780,36 @@ class TestTruthfulElementStatus:
         el0 = c.elements[0]
         assert el0.status == "established"
         assert el0.binding_leg is None
+
+    def test_audit_trail_carries_the_new_fields_and_null_is_never_coerced_to_zero(self, tmp_path: Path) -> None:
+        """Lead-2 (M4 tau_C lesson: a null-vs-zero conflation caused a real bug there before): the audit
+        JSONL's own outcome/assemble step must carry `status`, `binding_leg`, `p_established` and
+        `p_established_second` for every element, and when the second judge never answered,
+        `p_established_second` must serialize as JSON `null`, never `0.0` -- reading the raw JSONL text
+        itself, not just the in-memory dataclass, so a future serialization change (e.g. a `default=` that
+        coerces None) would be caught here."""
+        script = _proof_script(TOY_FACTS)
+        run = self._run_full(
+            tmp_path, script,
+            {BNS69_EL[0]: [_second("not_established", 0.8)], BNS69_EL[1]: [ConnectionError("second judge unreachable")]},
+        )
+        lines = [json.loads(x) for x in run.audit_path.read_text().splitlines()]
+        outcome = next(x for x in lines if x["step"] == "outcome")
+        elements = {e["element"]: e for e in outcome["output"]["elements"]}
+
+        el0 = elements[BNS69_EL[0]]  # 4B passes, 32B leans established but misses its own tau
+        assert el0["status"] == "not_confirmed"
+        assert el0["binding_leg"] == "second"
+        assert el0["p_established"] == pytest.approx(0.97)
+        assert el0["p_established_second"] == pytest.approx(0.8)
+
+        el1 = elements[BNS69_EL[1]]  # the second judge never answered at all
+        assert el1["status"] == "not_evaluated_second_unavailable"
+        assert el1["binding_leg"] is None
+        assert el1["p_established"] is not None
+        # The real regression this guards: JSON `null`, never the float `0.0` a p_vote=0.0 bug would produce.
+        assert el1["p_established_second"] is None
+        assert '"p_established_second": null' in run.audit_path.read_text()
 
     def test_outcome_is_identical_whether_not_confirmed_or_not_established(self, tmp_path: Path) -> None:
         """The whole point of this change (issue #37's own framing): only the LABEL differs. The contract's
