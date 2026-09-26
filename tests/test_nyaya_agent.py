@@ -1108,12 +1108,19 @@ class TestSecondJudgeReferBand:
     def test_only_established_flattens_to_true_in_the_lean_wire(
         self, tmp_path: Path, status: str, asserted: bool,
     ) -> None:
-        """Guarantee (b) over the WHOLE `ElementStatus` domain: every one of the four statuses, produced end
-        to end by the real gate, and what each one becomes in the assertions map Lean is checked against.
-        Only "established" maps to True; all three non-established labels -- including the "nobody answered"
-        one -- map to False. There is no status a missing answer flattens to True, which is why a missing
-        answer can never manufacture the established defeater a DENIAL requires, nor the all-elements-true a
-        PROOF requires.
+        """Guarantee (b) over every `ElementStatus` reachable WITHOUT Gate 1: each of the four statuses the
+        judge(s) alone can produce, made end to end by the real gate, and what each one becomes in the
+        assertions map Lean is checked against. Only "established" maps to True; all three non-established
+        labels -- including the "nobody answered" one -- map to False. There is no status a missing answer
+        flattens to True, which is why a missing answer can never manufacture the established defeater a
+        DENIAL requires, nor the all-elements-true a PROOF requires.
+
+        `ElementStatus`'s fifth value, `not_evaluated_gate1_unavailable` (#63), is deliberately NOT covered
+        here: producing it needs a Gate 1 score model, which this class has no double for, and its referral
+        is a separate rule (`gate1_unavailable`) from the second judge's. It flattens the same way -- the
+        expression is `status == "established"`, so every non-established label is False by construction --
+        but it is asserted where Gate 1's own doubles live, not here. `TestGate1ReferWiring` is the natural
+        home if that case is ever wanted end to end.
 
         Proof-shaped here on purpose: `lean_outcome` then separates the two directions cleanly (PROOF when
         the element is True, ABSTAIN when it is False). The contract's FINAL outcome is deliberately not
