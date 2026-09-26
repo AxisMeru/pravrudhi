@@ -128,6 +128,18 @@ jobs:
       - name: mark the downloaded binary executable
         if: needs.build-lean-binary.result == 'success'
         run: chmod +x /tmp/score-bin/score
+      # Temporary (Lead-2-assistant, 2026-09-26): 986bca5's pytest step still reported the
+      # requires_score_bin-gated tests skipped even though this same run's download+chmod steps above
+      # both reported success. Before guessing further, observe from inside the job what pytest's own
+      # process actually sees for PRABHASA_NYAYA_SCORE_BIN and Path(...).exists() -- remove this step
+      # once the real cause is found and fixed.
+      - name: DEBUG score-bin presence (temporary, remove once root-caused)
+        env:
+          PRABHASA_NYAYA_SCORE_BIN: /tmp/score-bin/score
+        run: |
+          ls -la /tmp/score-bin || true
+          file /tmp/score-bin/score || true
+          uv run python3 -c "import os; from pathlib import Path; v = os.environ.get('PRABHASA_NYAYA_SCORE_BIN'); p = Path(v) if v else None; print('env value:', repr(v)); print('exists():', p.exists() if p else None); print('is_file():', p.is_file() if p else None)"
       - name: pytest (with the real Lean binary when build-lean-binary produced one)
         env:
           PRABHASA_NYAYA_SCORE_BIN: /tmp/score-bin/score
