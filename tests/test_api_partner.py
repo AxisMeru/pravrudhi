@@ -103,6 +103,7 @@ def _agent(tmp_path: Path, script: dict[str, list[ElementJudgment]]) -> NyayaAge
         max_retries=2,
         audit_dir=tmp_path / "audit",
         judge_statute_text={"bns69": "TRAINING statute text for bns69"},
+        validated_contracts=frozenset({"bns69"}),
     )
     return NyayaAgent(ScriptedJudge(script), ScriptedRegistry(), config)
 
@@ -245,6 +246,7 @@ def test_second_judge_unavailable_stays_refer_not_503(tmp_path: Path) -> None:
     config = AgentConfig(
         tau=0.74, refer_band=(0.5, 0.74), max_retries=2, audit_dir=tmp_path / "audit",
         judge_statute_text={"bns69": "TRAINING statute text for bns69"},
+        validated_contracts=frozenset({"bns69"}),
     )
     agent = NyayaAgent(gate, ScriptedRegistry(), config)
     app = FastAPI()
@@ -268,6 +270,7 @@ def _config_c_client(
     agent_config = AgentConfig(
         tau=0.74, refer_band=(0.5, 0.74), max_retries=2, audit_dir=tmp_path / "audit",
         judge_statute_text={"bns69": "TRAINING statute text for bns69"},
+        validated_contracts=frozenset({"bns69"}),
     )
     agent = NyayaAgent(gate, ScriptedRegistry(), agent_config)
     app = FastAPI()
@@ -373,6 +376,7 @@ def test_judge_misconfigured_still_503_unchanged(tmp_path: Path) -> None:
     config = AgentConfig(
         tau=0.74, refer_band=(0.5, 0.74), max_retries=2, audit_dir=tmp_path / "audit",
         judge_statute_text={"bns69": "TRAINING statute text for bns69"},
+        validated_contracts=frozenset({"bns69"}),
     )
     agent = NyayaAgent(_ConfigFaultJudge(), ScriptedRegistry(), config)
     app = FastAPI()
@@ -412,6 +416,7 @@ class TestRealDeadPortPrimary:
                                 "woman without any intention of fulfilling the same, has sexual intercourse "
                                 "with her, such sexual intercourse not amounting to the offence of rape, "
                                 "shall be punished."},
+            validated_contracts=frozenset({"bns69"}),
         )
         agent = NyayaAgent(primary, real_registry, config)
         app = FastAPI()

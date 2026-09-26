@@ -148,6 +148,10 @@ def _config(tmp_path: Path, max_concurrency: int, **over: Any) -> AgentConfig:
         "audit_dir": tmp_path / f"audit_c{max_concurrency}",
         "judge_statute_text": {CONTRACT.contract_id: "TRAINING statute text for manyel"},
         "max_concurrency": max_concurrency,
+        # This file's tests are about concurrency, not the validated_contracts allowlist (issue #36) --
+        # explicitly validating CONTRACT.contract_id here is what keeps them testing that, unaffected by the
+        # gate's own production-safe fail-closed default.
+        "validated_contracts": frozenset({CONTRACT.contract_id}),
     }
     base.update(over)
     return AgentConfig(**base)

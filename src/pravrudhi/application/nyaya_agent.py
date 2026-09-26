@@ -128,16 +128,25 @@ class AgentConfig:
     #: judge requests `NyayaAgent.run` judges at once, bounded by a `ThreadPoolExecutor`. Default 1 -- today's
     #: serial behaviour, byte-identical results and audit ordering. See `NyayaAgent._judge_elements`.
     max_concurrency: int = 1
-    #: Contracts whose statute text was added (Wave-1 registry expansion, 2026-09-25) without the element
-    #: judge ever being trained or measured on them -- the dual-signed eval (config C, checker_pass 109/377,
-    #: false-prove 0/225) covers only the original 14. Every element still judges normally (elements, quotes
-    #: and the Lean result all stay visible in the audit and the response) but a contract in this set can
-    #: never reach a final PROOF or DENIAL: `_run_contract` intercepts that outcome and returns
-    #: REFER_TO_LAWYER, reason `contract_not_validated`, instead. An outcome that would already be ABSTAIN or
-    #: REFER_TO_LAWYER for another reason passes through unchanged -- this only ever intercepts PROOF/DENIAL.
-    #: A contract comes OFF this set only by Lead-2's explicit decision after a signed eval of the M2-trained
-    #: judge covering it -- this is a deliberate, standing safety gate, not a TODO for anyone to clear later.
-    unvalidated_contracts: frozenset[str] = field(default_factory=frozenset)
+    #: ALLOWLIST (inverted from a `unvalidated_contracts` deny-list, Tag's review / issue #36, 2026-09-26+):
+    #: the ONLY contracts the element judge has actually been trained or measured on -- the dual-signed eval
+    #: (config C, checker_pass 109/377, false-prove 0/225) covers exactly these 14. A contract NOT in this
+    #: set can never reach a final PROOF or DENIAL, no matter how it got onto the registry: `_run_contract`
+    #: intercepts that outcome and returns REFER_TO_LAWYER, reason `contract_not_validated`, instead. Every
+    #: element still judges normally (elements, quotes and the Lean result all stay visible in the audit and
+    #: the response) -- only the FINAL outcome is intercepted, and only when it would otherwise be a definite
+    #: PROOF/DENIAL; an outcome that would already be ABSTAIN or REFER_TO_LAWYER for another reason passes
+    #: through unchanged.
+    #:
+    #: The deny-list this replaces was fail-OPEN: a registry id missing from it (e.g. every new id a pin bump
+    #: adds) was validated BY DEFAULT until someone remembered to add it. This allowlist is fail-CLOSED: a
+    #: registry id missing from it -- including every new id a future pin bump adds -- is REFER by default,
+    #: with no action required to keep it that way. A contract joins this set only by Lead-2's explicit
+    #: decision after a signed eval of the M2-trained judge covering it -- this is a deliberate, standing
+    #: safety gate, not a TODO for anyone to clear later. `load_agent_config` asserts every id here actually
+    #: exists in the pinned registry (`nyaya_lean_registry.KNOWN_CONTRACT_IDS`), so a typo'd id can never
+    #: silently validate nothing.
+    validated_contracts: frozenset[str] = field(default_factory=frozenset)
     #: Gate 1 (Track-C, GATE1-PRODUCT-WIRING-SPEC-2026-09-26.md): threshold/model config, always present with
     #: its documented defaults even when Gate 1 is off (`gate1_enabled=False`) -- keeping the block configured
     #: while the gate itself stays off is deliberate (Track-C's own recommendation, §5): a threshold this
@@ -285,6 +294,18 @@ def load_agent_config(root: Path) -> AgentConfig:
     gate1_enabled_raw = os.environ.get("NYAYA_GATE1_ENABLED", "")
     gate1_enabled = gate1_enabled_raw.strip().lower() in ("1", "true", "yes", "on")
 
+    # Fail-closed allowlist (issue #36): every id here must actually exist in the pinned registry, checked at
+    # load time rather than left to surface later as a silently-inert typo -- an id that isn't real can never
+    # validate anything, so a typo here would (correctly) REFER that contract forever, but SILENTLY, with no
+    # signal that the allowlist entry was ever wrong.
+    validated_contracts = frozenset(str(c) for c in (body.get("validated_contracts") or []))
+    unknown = validated_contracts - reg.KNOWN_CONTRACT_IDS
+    if unknown:
+        raise ValueError(
+            f"configs/nyaya_agent.yaml's validated_contracts names id(s) not in the pinned registry: "
+            f"{sorted(unknown)} -- known ids: {sorted(reg.KNOWN_CONTRACT_IDS)}"
+        )
+
     return AgentConfig(
         tau=float(body["tau"]),
         refer_band=(float(low), float(high)),
@@ -297,7 +318,7 @@ def load_agent_config(root: Path) -> AgentConfig:
         typed_layer=bool(body.get("typed_layer", False)),
         second_judge=second_judge,
         max_concurrency=int(house_judge.get("max_concurrency", 1)),
-        unvalidated_contracts=frozenset(str(c) for c in (body.get("unvalidated_contracts") or [])),
+        validated_contracts=validated_contracts,
         gate1=gate1,
         gate1_enabled=gate1_enabled,
     )
@@ -864,7 +885,7 @@ class NyayaAgent:
         fact_map = {f.id: f.text for f in facts}
         request = JudgeRequest(
             contract_id, element, is_denial, statute, narrative, tuple((f.id, f.text) for f in facts),
-            skip_second=contract_id in self.config.unvalidated_contracts,
+            skip_second=contract_id not in self.config.validated_contracts,
         )
         anchor: ElementJudgment | None = None
         fact_id: str | None = None
@@ -1109,12 +1130,13 @@ class NyayaAgent:
             return finish("REFER_TO_LAWYER", "gate1_not_entailed", **kw)
         if gate1_contradiction:
             return finish("REFER_TO_LAWYER", "gate1_contradiction", **kw)
-        # Safety gate (Lead-2, 2026-09-25): a contract with no judge-side validation never reaches the user
-        # as a PROOF or DENIAL. Every element judged, quoted and Lean-checked above stays visible in `results`
-        # and the audit trail -- only the FINAL outcome is intercepted, and only when it would otherwise be a
-        # definite PROOF/DENIAL; ABSTAIN never reaches this line at all (both `expected_outcome` paths that
-        # produce it return earlier), so a genuinely missing-element case still ABSTAINs untouched.
-        if lean_outcome in ("PROOF", "DENIAL") and contract_id in self.config.unvalidated_contracts:
+        # Safety gate, allowlist form (Lead-2, 2026-09-25; inverted to fail-closed, issue #36, 2026-09-26+):
+        # a contract not in `validated_contracts` never reaches the user as a PROOF or DENIAL. Every element
+        # judged, quoted and Lean-checked above stays visible in `results` and the audit trail -- only the
+        # FINAL outcome is intercepted, and only when it would otherwise be a definite PROOF/DENIAL; ABSTAIN
+        # never reaches this line at all (both `expected_outcome` paths that produce it return earlier), so a
+        # genuinely missing-element case still ABSTAINs untouched.
+        if lean_outcome in ("PROOF", "DENIAL") and contract_id not in self.config.validated_contracts:
             return finish("REFER_TO_LAWYER", "contract_not_validated", **kw)
         reason = {"PROOF": "all_elements_established", "DENIAL": "denial_established", "ABSTAIN": "missing_element"}[lean_outcome]
         return finish(lean_outcome, reason, **kw)

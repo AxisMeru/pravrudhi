@@ -146,6 +146,11 @@ def _config(tmp_path: Path, **over: Any) -> AgentConfig:
         "max_retries": 2,
         "audit_dir": tmp_path / "audit",
         "judge_statute_text": {"bns69": "TRAINING statute text for bns69"},
+        # Every test in this file that doesn't care about the allowlist gate itself uses bns69 and expects
+        # today's PROOF/DENIAL behaviour -- explicitly validating it here (rather than leaving the
+        # production-safe empty-by-default) is what keeps those tests testing what they say they test.
+        # Tests of the gate itself override this, usually to frozenset() (fail-closed default).
+        "validated_contracts": frozenset({"bns69"}),
     }
     base.update(over)
     return AgentConfig(**base)
@@ -426,15 +431,19 @@ def _logit(p: float) -> float:
     return math.log(p / (1.0 - p))
 
 
-class TestUnvalidatedContractsGate:
-    """Safety gate (Lead-2, 2026-09-25): a contract on `unvalidated_contracts` never reaches the user as a
-    final PROOF or DENIAL -- the judge that would decide it has never been measured on that contract. Every
-    element still judges, quotes and Lean-checks normally (visible in `results`/the audit); only the final
-    outcome is intercepted, and only a PROOF/DENIAL -- an outcome that would already be ABSTAIN passes
-    through untouched."""
+class TestValidatedContractsAllowlist:
+    """Safety gate, ALLOWLIST form (issue #36, inverted 2026-09-26 from a `unvalidated_contracts` deny-list):
+    a contract NOT in `validated_contracts` never reaches the user as a final PROOF or DENIAL -- the judge
+    that would decide it has never been measured on that contract. Every element still judges, quotes and
+    Lean-checks normally (visible in `results`/the audit); only the final outcome is intercepted, and only a
+    PROOF/DENIAL -- an outcome that would already be ABSTAIN passes through untouched.
 
-    def test_a_gated_contract_that_would_prove_gives_refer_with_the_named_reason(self, tmp_path: Path) -> None:
-        run, _, _ = _run(tmp_path, _proof_script(TOY_FACTS), unvalidated_contracts=frozenset({"bns69"}))
+    The whole point of the allowlist over the deny-list it replaces is fail-CLOSED: a registry id that is in
+    NEITHER an explicit allowlist nor denylist must REFER, not silently validate -- every test below that
+    doesn't explicitly add bns69 to `validated_contracts` is exercising exactly that default."""
+
+    def test_a_contract_not_on_the_allowlist_that_would_prove_gives_refer_with_the_named_reason(self, tmp_path: Path) -> None:
+        run, _, _ = _run(tmp_path, _proof_script(TOY_FACTS), validated_contracts=frozenset())
         c = run.contracts[0]
         assert c.outcome == "REFER_TO_LAWYER"
         assert c.reason == "contract_not_validated"
@@ -445,48 +454,85 @@ class TestUnvalidatedContractsGate:
         assert len(established) == 2 and all(e.quote for e in established)
         assert c.lean is not None and c.lean["verdict"] == "grounded"
 
-    def test_a_gated_contract_that_would_deny_gives_refer_with_the_named_reason(self, tmp_path: Path) -> None:
+    def test_a_contract_not_on_the_allowlist_that_would_deny_gives_refer_with_the_named_reason(self, tmp_path: Path) -> None:
         script = _proof_script(TOY_FACTS)
         script[BNS69_DENY] = [_est("F3", TOY_FACTS[2], "sexual intercourse")]
-        run, _, _ = _run(tmp_path, script, unvalidated_contracts=frozenset({"bns69"}))
+        run, _, _ = _run(tmp_path, script, validated_contracts=frozenset())
         c = run.contracts[0]
         assert c.outcome == "REFER_TO_LAWYER"
         assert c.reason == "contract_not_validated"
 
-    def test_a_gated_contract_that_would_abstain_still_abstains_untouched(self, tmp_path: Path) -> None:
+    def test_a_contract_not_on_the_allowlist_that_would_abstain_still_abstains_untouched(self, tmp_path: Path) -> None:
         """The gate only ever intercepts PROOF/DENIAL -- a genuinely missing element still ABSTAINs, not
         REFER, since that outcome carries no unvalidated judging to warn about."""
         script = _proof_script(TOY_FACTS)
         script[BNS69_EL[1]] = [_not()]
-        run, _, _ = _run(tmp_path, script, unvalidated_contracts=frozenset({"bns69"}))
+        run, _, _ = _run(tmp_path, script, validated_contracts=frozenset())
         assert run.contracts[0].outcome == "ABSTAIN"
         assert run.contracts[0].reason == "missing_element"
 
-    def test_the_gate_never_touches_a_contract_not_on_the_list(self, tmp_path: Path) -> None:
-        """A non-empty `unvalidated_contracts` naming some OTHER contract must not change bns69's own
-        outcome -- the gate is per-contract-id, never a global switch. Byte-identical to today's behaviour
-        for every contract not explicitly listed."""
-        run, _, _ = _run(tmp_path, _proof_script(TOY_FACTS), unvalidated_contracts=frozenset({"some_other_contract"}))
+    def test_a_registry_id_in_neither_list_still_refers(self, tmp_path: Path) -> None:
+        """`validated_contracts` naming some OTHER contract must not validate bns69 -- the allowlist is
+        per-contract-id, and a registry id in neither an old-style denylist nor this allowlist REFERs,
+        fail-closed, exactly as a new pin-bump id would with no code change at all."""
+        run, _, _ = _run(tmp_path, _proof_script(TOY_FACTS), validated_contracts=frozenset({"some_other_contract"}))
+        assert run.contracts[0].outcome == "REFER_TO_LAWYER"
+        assert run.contracts[0].reason == "contract_not_validated"
+
+    def test_a_contract_explicitly_on_the_allowlist_still_reaches_proof(self, tmp_path: Path) -> None:
+        """The positive case the allowlist exists to allow through: an id Lead-2 has explicitly validated
+        still reaches PROOF on a known-good fixture, byte-identical to before this gate existed."""
+        run, _, _ = _run(tmp_path, _proof_script(TOY_FACTS), validated_contracts=frozenset({"bns69"}))
         assert run.contracts[0].outcome == "PROOF"
         assert run.contracts[0].reason == "all_elements_established"
 
-    def test_the_default_empty_gate_leaves_every_original_contract_unaffected(self, tmp_path: Path) -> None:
-        """The default (no yaml `unvalidated_contracts:` key, or an empty list) is an empty frozenset --
-        every existing deployment's config, and every one of the original 14 contracts, is byte-identical to
-        before this gate existed."""
-        run, _, _ = _run(tmp_path, _proof_script(TOY_FACTS))
-        assert run.contracts[0].outcome == "PROOF"
-        assert run.contracts[0].reason == "all_elements_established"
+    def test_the_default_empty_allowlist_gates_every_contract(self, tmp_path: Path) -> None:
+        """The production-safe default (no yaml `validated_contracts:` key, or an empty list) is an empty
+        frozenset -- fail-closed: with nothing explicitly validated, even bns69's own known-good fixture
+        REFERs rather than silently proving. This is the exact behaviour a fresh pin bump gets for every new
+        id it adds, with no code or config change required to keep it that way."""
+        run, _, _ = _run(tmp_path, _proof_script(TOY_FACTS), validated_contracts=frozenset())
+        assert run.contracts[0].outcome == "REFER_TO_LAWYER"
+        assert run.contracts[0].reason == "contract_not_validated"
+
+    def test_load_agent_config_rejects_a_validated_id_not_in_the_pinned_registry(self, tmp_path: Path) -> None:
+        """The config-load assertion issue #36 asks for: a typo'd or non-existent id in
+        `validated_contracts:` must fail loudly at load time, never silently validate nothing."""
+        import yaml
+
+        cfg_dir = tmp_path / "configs"
+        cfg_dir.mkdir()
+        body = yaml.safe_load((REPO / "configs" / "nyaya_agent.yaml").read_text())
+        body["validated_contracts"] = ["not_a_real_contract_id"]
+        (cfg_dir / "nyaya_agent.yaml").write_text(yaml.safe_dump(body))
+        with pytest.raises(ValueError, match="not_a_real_contract_id"):
+            load_agent_config(tmp_path)
+
+    def test_the_shipped_config_validates_exactly_the_fourteen_v1_ids(self) -> None:
+        """Each of the 14 v1 ids issue #36 names must still be on the shipped allowlist, and reach PROOF on
+        a known-good fixture -- a real load_agent_config() against the actual configs/nyaya_agent.yaml, not
+        a hand-built AgentConfig, so a future edit that accidentally drops or renames one of these is caught
+        here rather than only in a live deployment."""
+        cfg = load_agent_config(REPO)
+        v1_ids = {
+            "ipc405_misappropriation", "ipc405_use_or_disposal", "ipc405_wilfully_suffers",
+            "ipc415_property", "ipc415_damaging_act", "ipc416",
+            "ipc182_misdirected_act", "ipc182_abuse_of_power",
+            "bns69", "bns47", "bns85",
+            "bns46_instigation", "bns46_conspiracy", "bns46_intentional_aid",
+        }
+        assert v1_ids <= cfg.validated_contracts
+        assert cfg.validated_contracts <= reg.KNOWN_CONTRACT_IDS
 
 
 class TestUnvalidatedContractsSkipSecondJudge:
-    """Lead-2, 2026-09-26 (found live in production): `unvalidated_contracts` must be checked BEFORE the
-    second judge is ever called, not just before the outcome is reported. Before this fix, an unvalidated
-    contract still paid the 32B's ~90s round trip on every element, and if the second judge happened to be
-    unavailable, the response's `reason` came back as `second_judge_unavailable` instead of the correct
-    `contract_not_validated` -- silently masking the real, cheaper-to-diagnose reason. Wraps two real
-    `ScriptedJudge` doubles in a REAL `AndGateJudge` (never a hand-built `ElementJudgment`) so the skip is
-    exercised exactly as production wires it."""
+    """Lead-2, 2026-09-26 (found live in production; allowlist inversion, issue #36, same day+): a contract
+    not on `validated_contracts` must be checked BEFORE the second judge is ever called, not just before the
+    outcome is reported. Before the original fix, an unvalidated contract still paid the 32B's ~90s round
+    trip on every element, and if the second judge happened to be unavailable, the response's `reason` came
+    back as `second_judge_unavailable` instead of the correct `contract_not_validated` -- silently masking
+    the real, cheaper-to-diagnose reason. Wraps two real `ScriptedJudge` doubles in a REAL `AndGateJudge`
+    (never a hand-built `ElementJudgment`) so the skip is exercised exactly as production wires it."""
 
     def _run(self, tmp_path: Path, **cfg: Any) -> tuple[Any, ScriptedJudge, ScriptedJudge]:
         primary = ScriptedJudge(_proof_script(TOY_FACTS))
@@ -500,17 +546,16 @@ class TestUnvalidatedContractsSkipSecondJudge:
         run = agent.run(TOY_FACTS, narrative="TOY narrative.", contract_ids=["bns69"])
         return run.contracts[0], primary, second
 
-    def test_unvalidated_contract_never_calls_the_second_judge(self, tmp_path: Path) -> None:
-        c, primary, second = self._run(tmp_path, unvalidated_contracts=frozenset({"bns69"}))
+    def test_a_contract_not_on_the_allowlist_never_calls_the_second_judge(self, tmp_path: Path) -> None:
+        c, primary, second = self._run(tmp_path, validated_contracts=frozenset())
         assert second.requests == []  # the 32B's ~90s round trip is never spent on a gated contract
         assert len(primary.requests) == 3  # every element (2 required + the denial check) still judges
         assert c.outcome == "REFER_TO_LAWYER"
         assert c.reason == "contract_not_validated"  # never masked by a second-judge-unavailable style reason
 
-    def test_validated_contract_still_calls_the_second_judge_as_before(self, tmp_path: Path) -> None:
-        """A contract NOT on the list falls through to the second judge exactly as before this fix --
-        `unvalidated_contracts` naming some OTHER contract must not change bns69's own path."""
-        c, primary, second = self._run(tmp_path, unvalidated_contracts=frozenset({"some_other_contract"}))
+    def test_a_contract_on_the_allowlist_still_calls_the_second_judge_as_before(self, tmp_path: Path) -> None:
+        """A contract ON the allowlist falls through to the second judge exactly as before this fix."""
+        c, primary, second = self._run(tmp_path, validated_contracts=frozenset({"bns69"}))
         assert len(second.requests) == 2  # both established elements still went to the second judge
         assert c.outcome == "PROOF"
         assert c.reason == "all_elements_established"

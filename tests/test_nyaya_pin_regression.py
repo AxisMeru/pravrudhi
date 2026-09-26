@@ -8,8 +8,10 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 from pravrudhi.application import nyaya_lean_registry as reg
-from pravrudhi.application.nyaya_pin_regression import compare_pins
+from pravrudhi.application.nyaya_pin_regression import assert_new_ids_not_validated, compare_pins, new_contract_ids
 
 OLD = Path("old-binary")
 NEW = Path("new-binary")
@@ -119,3 +121,41 @@ class TestCheckRegistryDiff:
         ):
             diffs = compare_pins(OLD, NEW)
         assert any("missing-element path (dropped 'el0')" in d for d in diffs)
+
+
+class TestNewIdsNotValidated:
+    """Issue #36's fail-closed safety check: a pin bump may only ever introduce ids that start out
+    unvalidated. If a new id somehow already appears in `validated_contracts`, that is a real config defect
+    -- the allowlist would be claiming coverage for a contract this exact binary has never been eval'd
+    against -- so this must raise, never silently pass."""
+
+    def test_new_contract_ids_is_new_minus_old(self) -> None:
+        def list_ids(binpath: Path) -> set[str]:
+            return {"bns69", "bns47"} if binpath == OLD else {"bns69", "bns47", "ni138"}
+
+        with patch("pravrudhi.application.nyaya_pin_regression.list_contract_ids", side_effect=list_ids):
+            assert new_contract_ids(OLD, NEW) == {"ni138"}
+
+    def test_new_unvalidated_id_passes(self) -> None:
+        def list_ids(binpath: Path) -> set[str]:
+            return {"bns69"} if binpath == OLD else {"bns69", "ni138"}
+
+        with patch("pravrudhi.application.nyaya_pin_regression.list_contract_ids", side_effect=list_ids):
+            assert_new_ids_not_validated(OLD, NEW, validated_contracts=frozenset({"bns69"}))  # must not raise
+
+    def test_new_id_already_validated_raises(self) -> None:
+        """The exact defect this check exists to catch: a pin bump adds `ni138`, and someone already put
+        `ni138` on the allowlist -- before this binary, the one that would actually decide it, was ever
+        eval'd. Must raise, never a silent pass."""
+        def list_ids(binpath: Path) -> set[str]:
+            return {"bns69"} if binpath == OLD else {"bns69", "ni138"}
+
+        with (
+            patch("pravrudhi.application.nyaya_pin_regression.list_contract_ids", side_effect=list_ids),
+            pytest.raises(ValueError, match="ni138"),
+        ):
+            assert_new_ids_not_validated(OLD, NEW, validated_contracts=frozenset({"bns69", "ni138"}))
+
+    def test_no_new_ids_passes_trivially(self) -> None:
+        with patch("pravrudhi.application.nyaya_pin_regression.list_contract_ids", return_value={"bns69"}):
+            assert_new_ids_not_validated(OLD, NEW, validated_contracts=frozenset({"bns69"}))  # must not raise

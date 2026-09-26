@@ -228,45 +228,72 @@ judge_statute_text:
   contract56_supervening: An agreement to do an act impossible in itself is void. Contract to do an act afterwards becoming impossible or unlawful.—A contract to do an act which, after the contract is made, becomes impossible, or, by reason of some event which the promisor could not prevent, unlawful, becomes void when the act becomes impossible or unlawful. Compensation for loss through non-performance of act known to be impossible or unlawful.— Where one person has promised to do something which he knew, or, with reasonable diligence, might have known, and which the promisee did not know, to be impossible or unlawful, such promisor must make compensation to such promisee for any loss which such promisee sustains through the nonperformance of the promise. Illustrations (a) A agrees with B to discover treasure by magic. The agreement is void. (b) A and B contract to marry each other. Before the time fixed for the marriage, A goes mad. The contract becomes void. (c) A contracts to marry B, being already married to C, and being forbidden by the law to which he is subject to practise polygamy, A must make compensation to B for the loss caused to her by the non-performance of his promise. (d) A contracts to take in cargo for B at a foreign port. A’s Government afterwards declares war against the country in which the port is situated. The contract becomes void when war is declared. (e) A contracts to act at a theatre for six months in consideration of a sum paid in advance by B. On several occasions A is too ill to act. The contract to act on those occasions becomes void.
   contract56_compensation: An agreement to do an act impossible in itself is void. Contract to do an act afterwards becoming impossible or unlawful.—A contract to do an act which, after the contract is made, becomes impossible, or, by reason of some event which the promisor could not prevent, unlawful, becomes void when the act becomes impossible or unlawful. Compensation for loss through non-performance of act known to be impossible or unlawful.— Where one person has promised to do something which he knew, or, with reasonable diligence, might have known, and which the promisee did not know, to be impossible or unlawful, such promisor must make compensation to such promisee for any loss which such promisee sustains through the nonperformance of the promise. Illustrations (a) A agrees with B to discover treasure by magic. The agreement is void. (b) A and B contract to marry each other. Before the time fixed for the marriage, A goes mad. The contract becomes void. (c) A contracts to marry B, being already married to C, and being forbidden by the law to which he is subject to practise polygamy, A must make compensation to B for the loss caused to her by the non-performance of his promise. (d) A contracts to take in cargo for B at a foreign port. A’s Government afterwards declares war against the country in which the port is situated. The contract becomes void when war is declared. (e) A contracts to act at a theatre for six months in consideration of a sum paid in advance by B. On several occasions A is too ill to act. The contract to act on those occasions becomes void.
 
-# Safety gate (Lead-2, 2026-09-25), decided the same day the ABSTAIN gap above was closed: the element judge
-# has never been trained or measured on any of the 12 contracts below (the dual-signed eval, config C,
-# checker_pass 109/377, false-prove 0/225, covers only the original 14). Every element for a contract listed
-# here still judges, quotes and Lean-checks normally -- the reasoning stays fully visible in the response and
-# the audit trail -- but NyayaAgent._run_contract intercepts a final PROOF or DENIAL for one of these and
-# returns REFER_TO_LAWYER (reason contract_not_validated) instead. An outcome that is already ABSTAIN or
-# REFER_TO_LAWYER for another reason is never touched by this gate.
+# Safety gate, ALLOWLIST form (issue #36, Tag's review -- inverted 2026-09-26 from the deny-list this
+# replaces, kept below as documentation): the element judge has been trained and measured ONLY on the 14 ids
+# listed under `validated_contracts:` below (the dual-signed eval, config C, checker_pass 109/377,
+# false-prove 0/225). Every element for a contract NOT on that allowlist still judges, quotes and
+# Lean-checks normally -- the reasoning stays fully visible in the response and the audit trail -- but
+# NyayaAgent._run_contract intercepts a final PROOF or DENIAL for one of these and returns REFER_TO_LAWYER
+# (reason contract_not_validated) instead. An outcome that is already ABSTAIN or REFER_TO_LAWYER for another
+# reason is never touched by this gate.
 #
-# THIS IS NOT A TODO. A contract leaves this list only by Lead-2's explicit decision, after a signed eval of
-# the M2-trained judge that actually covers it -- never by whoever next edits this file, and never just
-# because the ABSTAIN gap looked closed once statute text existed. ni138 was added to this list in the SAME
-# commit that gave it a judge_statute_text entry above, precisely so its ABSTAIN never has a window where it
-# turns into unvalidated PROOF/DENIAL judging before this gate catches it.
-unvalidated_contracts:
-  - bns316_misappropriation
-  - bns316_use_or_disposal
-  - bns316_wilfully_suffers
-  - bns318_property
-  - bns318_damaging_act
-  - bns217_misdirected_act
-  - bns217_abuse_of_power
-  - bns80
-  - bns108
-  - bnss187_extended_serious
-  - bnss187_extended_other
-  - ni138
-  - bnss528  # 2026-09-26, UPDATED: `pinned_score_sha256` now IS the 37-contract candidate, so this id
+# THIS IS NOT A TODO. A contract joins `validated_contracts:` only by Lead-2's explicit decision, after a
+# signed eval of the M2-trained judge that actually covers it -- never by whoever next edits this file, and
+# never just because the ABSTAIN gap looked closed once statute text existed.
+#
+# Why an allowlist and not the deny-list it replaces: the deny-list was fail-OPEN -- a registry id missing
+# from it (every new id a pin bump adds, by construction) was validated BY DEFAULT until someone remembered
+# to add it there. `load_agent_config` asserts every id below actually exists in the pinned registry
+# (nyaya_lean_registry.KNOWN_CONTRACT_IDS), so a typo can never silently validate nothing.
+validated_contracts:
+  - ipc405_misappropriation
+  - ipc405_use_or_disposal
+  - ipc405_wilfully_suffers
+  - ipc415_property
+  - ipc415_damaging_act
+  - ipc416
+  - ipc182_misdirected_act
+  - ipc182_abuse_of_power
+  - bns69
+  - bns47
+  - bns85
+  - bns46_instigation
+  - bns46_conspiracy
+  - bns46_intentional_aid
+
+# The deny-list `validated_contracts:` above replaces (issue #36) -- kept as documentation only, NEVER read
+# by code: every id below is, by construction, everything in the pinned registry that is NOT one of the 14
+# ids above, so this list is redundant with the registry once the allowlist exists. Retained because the
+# PER-CONTRACT reasoning below (why each one isn't validated yet, contract73's known text defect, etc.) is
+# still true and still useful to a reader deciding whether/when a contract is ready to move onto the
+# allowlist -- losing that context would be a real loss even though the list itself no longer does anything.
+#
+# unvalidated_contracts (historical, decided 2026-09-25, expanded 2026-09-26):
+#   - bns316_misappropriation
+#   - bns316_use_or_disposal
+#   - bns316_wilfully_suffers
+#   - bns318_property
+#   - bns318_damaging_act
+#   - bns217_misdirected_act
+#   - bns217_abuse_of_power
+#   - bns80
+#   - bns108
+#   - bnss187_extended_serious
+#   - bnss187_extended_other
+#   - ni138
+#   - bnss528  # 2026-09-26, UPDATED: `pinned_score_sha256` now IS the 37-contract candidate, so this id
             # (and the other 10 below) are reachable through this branch's own config -- the earlier
             # "production binary doesn't know this id yet" reason no longer applies to the RELEASE BRANCH,
             # only to what's still actually deployed until Lead-2's item-5 cutover. Stays on this list for
             # the ORIGINAL reason every other entry here is on it: the element judge has never been
             # trained or measured on it. Comes off only by Lead-2's explicit decision after a signed eval.
   # 2026-09-26: the other 10 new ids in the same 37-contract pin candidate, same reason as bnss528 above.
-  - bsa63
-  - ibc7_application
-  - ibc7_admission
-  - ibc9_application
-  - ibc9_admission
-  - contract73  # ADDITIONAL condition beyond the rest of this list (Lead-2, 2026-09-26): this one does not
+#   - bsa63
+#   - ibc7_application
+#   - ibc7_admission
+#   - ibc9_application
+#   - ibc9_admission
+#   - contract73  # ADDITIONAL condition beyond the rest of this list (Lead-2, 2026-09-26): this one does not
                 # come off just because judge coverage lands and the binary gets repinned, like its
                 # siblings. Its statute text has a known, documented defect -- see
                 # research/nyaya/corpus/contract_act.text_edits.json's "known_defects" entry for
@@ -279,10 +306,10 @@ unvalidated_contracts:
                 # generates judge training data from -- fixing only one side would leave the judge trained
                 # on text the Lean contract no longer cites, or vice versa. Track A informed of this same
                 # condition separately by Lead-2.
-  - contract74
-  - contract56_initial_impossibility
-  - contract56_supervening
-  - contract56_compensation
+#   - contract74
+#   - contract56_initial_impossibility
+#   - contract56_supervening
+#   - contract56_compensation
 
 # Gate 1 (Track-C, GATE1-PRODUCT-WIRING-SPEC-2026-09-26.md): a third gate, pure NLI entailment check, run
 # only on an element the judge(s) above already established. This block configures the threshold and model
