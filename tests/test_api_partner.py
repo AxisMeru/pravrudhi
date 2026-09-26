@@ -21,7 +21,7 @@ from fastapi.testclient import TestClient
 
 from pravrudhi.api.partner import PartnerApiConfig, build_partner_router, load_partner_api_config
 from pravrudhi.application import nyaya_lean_registry as reg
-from pravrudhi.application.nyaya_agent import AgentConfig, BinaryShaMismatch, NyayaAgent
+from pravrudhi.application.nyaya_agent import RETENTION_NOTICE, AgentConfig, BinaryShaMismatch, NyayaAgent
 from pravrudhi.application.nyaya_judges import ElementJudgment, JudgeRequest
 
 TOY_FACTS = [
@@ -353,6 +353,14 @@ class TestSecondJudgeDebugFields:
             "element", "is_denial", "status", "claimed", "p_established", "fact_id", "quote", "start", "end",
             "quote_check", "attempts", "occurrences", "offsets_source", "quote_source", "error",
         }
+
+
+def test_retention_notice_is_on_every_analyse_facts_response(tmp_path: Path) -> None:
+    """Issue #39's own API-notice ask: a partner API caller who never sees the web UI still gets the exact
+    retention notice text, verbatim, on every response -- not just in documentation."""
+    c = _client(tmp_path)
+    resp = c.post("/api/v1/analyse-facts", json=_req())
+    assert resp.json()["retention_notice"] == RETENTION_NOTICE
 
 
 def test_judge_misconfigured_still_503_unchanged(tmp_path: Path) -> None:

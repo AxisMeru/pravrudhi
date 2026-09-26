@@ -66,6 +66,13 @@ max_retries: 2
 # Where each run's JSONL audit trail is written, relative to the repo root.
 audit_dir: research/nyaya/agent_runs
 
+# Issue #39 (interim posture until a partner onboards): how many days a run's audit record survives under
+# audit_dir before purge_stale_runs deletes it, purged opportunistically on every new run (no separate
+# cron/background process). 7 is the operator/Lead-2 decided default -- if this changes, update
+# nyaya_agent.py's RETENTION_NOTICE string (the "up to 7 days" promise shown to callers) in the same change,
+# since a config edit alone does not rewrite that string.
+retention_days: 7
+
 # Optional config C: a SECOND judge, AND-gated with house_judge above (nyaya_judges.AndGateJudge). Absent (the
 # default, as below) is exactly today's single-house-judge behaviour -- the second is called ONLY when
 # house_judge already says established, and an element proves iff BOTH clear their own tau. Same keys as
