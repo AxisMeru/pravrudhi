@@ -59,6 +59,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import math
 import os
 import queue
@@ -101,6 +102,8 @@ def _judge_config_fault(e: BaseException) -> int | None:
 
 
 # -- config ------------------------------------------------------------------------------------------------
+
+_logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -162,6 +165,11 @@ class AgentConfig:
     #: under `audit_dir` before `purge_stale_runs` deletes it. Config-driven, never hardcoded, so the window
     #: can be tightened or loosened with a config edit alone. 7.0 is the operator/Lead-2 decided default.
     retention_days: float = 7.0
+    #: Issue #44 (standing second-judge positive control): record_path/max_age_hours -- `_build_judge` checks
+    #: a fresh, matching passing live-check record before letting `AndGateJudge` reach the real second
+    #: judge; empty (the default) means the record check is skipped -- a deployment that hasn't opted into
+    #: the positive control yet keeps today's behaviour (second_judge configured -> used) unchanged.
+    second_judge_positive_control: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         low, high = self.refer_band
@@ -176,6 +184,26 @@ class AgentConfig:
             raise ValueError(f"second_judge.refer_logit_delta must be >= 0, got {delta}")
         if self.max_concurrency < 1:
             raise ValueError(f"max_concurrency must be >= 1, got {self.max_concurrency}")
+        # Issue #44 (Lead-2, 2026-09-26): a configured second_judge MUST have a positive-control record gate
+        # -- the day someone re-enables second_judge and forgets record_path is exactly the "must exist
+        # before the 32B returns to serving" rule failing silently. One escape: an explicit, logged
+        # disabled_reason -- tests are the only intended user of it.
+        if self.second_judge and not self.second_judge_positive_control.get("record_path"):
+            disabled_reason = self.second_judge_positive_control.get("disabled_reason")
+            if not disabled_reason:
+                raise ValueError(
+                    "second_judge is configured but second_judge_positive_control.record_path is not set -- "
+                    "issue #44: the second judge must never serve without a positive-control record gate. "
+                    "Set record_path, or set second_judge_positive_control.disabled_reason to an explicit "
+                    "reason to bypass this deliberately (logged loudly at startup and recorded in every "
+                    "audit trail row)."
+                )
+            _logger.warning(
+                "second_judge_positive_control record gate is DISABLED for a configured second_judge "
+                "(disabled_reason=%r) -- the second judge will serve with NO positive-control record gate. "
+                "Issue #44's rule (\"must exist before the 32B returns to serving\") is NOT enforced while "
+                "this escape hatch is set.", disabled_reason,
+            )
 
     def in_band(self, p: float) -> bool:
         low, high = self.refer_band
@@ -278,6 +306,22 @@ def load_agent_config(root: Path) -> AgentConfig:
             if key not in second_judge and key in house_judge:
                 second_judge[key] = house_judge[key]
 
+    second_judge_positive_control = dict(body.get("second_judge_positive_control") or {})
+    # Issue #44: env overrides mirror the house_judge/second_judge/gate1 pattern above -- NYAYA_SECOND_
+    # JUDGE_POSITIVE_CONTROL_RECORD_PATH/_MAX_AGE_HOURS/_DISABLED_REASON override or introduce the block's
+    # own values. _DISABLED_REASON is the deliberate-escape env path (e.g. for a one-off env-only test host
+    # or an emergency override) -- same loudness/audit-row requirement as the yaml key.
+    if os.environ.get("NYAYA_SECOND_JUDGE_POSITIVE_CONTROL_RECORD_PATH"):
+        second_judge_positive_control["record_path"] = os.environ["NYAYA_SECOND_JUDGE_POSITIVE_CONTROL_RECORD_PATH"]
+    if os.environ.get("NYAYA_SECOND_JUDGE_POSITIVE_CONTROL_MAX_AGE_HOURS"):
+        second_judge_positive_control["max_age_hours"] = float(
+            os.environ["NYAYA_SECOND_JUDGE_POSITIVE_CONTROL_MAX_AGE_HOURS"]
+        )
+    if os.environ.get("NYAYA_SECOND_JUDGE_POSITIVE_CONTROL_DISABLED_REASON"):
+        second_judge_positive_control["disabled_reason"] = os.environ[
+            "NYAYA_SECOND_JUDGE_POSITIVE_CONTROL_DISABLED_REASON"
+        ]
+
     # Gate 1 (Track-C, GATE1-PRODUCT-WIRING-SPEC-2026-09-26.md §3/§5): the yaml block (threshold/model) and
     # the enable switch are deliberately independent -- NYAYA_GATE1_THRESHOLD/_MODEL override the block's own
     # values (or introduce it, mirroring the house_judge/second_judge env-override pattern above) whether or
@@ -321,6 +365,7 @@ def load_agent_config(root: Path) -> AgentConfig:
         house_judge=house_judge,
         typed_layer=bool(body.get("typed_layer", False)),
         second_judge=second_judge,
+        second_judge_positive_control=second_judge_positive_control,
         max_concurrency=int(house_judge.get("max_concurrency", 1)),
         validated_contracts=validated_contracts,
         gate1=gate1,
@@ -510,13 +555,17 @@ def purge_stale_runs(audit_dir: Path, retention_days: float, *, now: float | Non
 
 
 class AuditTrail:
-    """One JSONL line per step: `{run_id, seq, ts, step, inputs_sha256, output, wall_ms}`. Inputs are hashed,
-    never copied; outputs are recorded as produced."""
+    """One JSONL line per step: `{run_id, seq, ts, step, inputs_sha256, output, wall_ms}`, plus whatever
+    `extra` names (merged into every line -- issue #44's own `second_judge_positive_control_disabled_reason`
+    is the reason this exists: when the record-gate escape hatch is in use, every audit row must show it,
+    not just a one-off startup log line someone could miss). Inputs are hashed, never copied; outputs are
+    recorded as produced."""
 
-    def __init__(self, path: Path, run_id: str) -> None:
+    def __init__(self, path: Path, run_id: str, *, extra: Mapping[str, Any] | None = None) -> None:
         self.path = path
         self.run_id = run_id
         self._seq = 0
+        self._extra = dict(extra) if extra else {}
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("")
 
@@ -529,6 +578,7 @@ class AuditTrail:
             "inputs_sha256": _hash_obj(inputs),
             "output": output,
             "wall_ms": round(float(wall_ms), 3),
+            **self._extra,
         }
         self._seq += 1
         with self.path.open("a", encoding="utf-8") as f:
@@ -989,8 +1039,25 @@ class NyayaAgent:
             judge: Judge
             if cfg.second_judge:
                 second_tau = float(cfg.second_judge["tau"])
-                second = _build_house_judge(cfg.second_judge, tau=second_tau, typed=cfg.typed_layer,
-                                            api_key_env="NYAYA_SECOND_JUDGE_API_KEY")
+                second: Judge = _build_house_judge(cfg.second_judge, tau=second_tau, typed=cfg.typed_layer,
+                                                   api_key_env="NYAYA_SECOND_JUDGE_API_KEY")
+                # Issue #44 (Lead-2, 2026-09-26): opt-in via second_judge_positive_control.record_path --
+                # absent (the default, every deployment before this) means today's behaviour, unchanged.
+                # When set, wrap `second` so the real endpoint is never reached without a fresh, matching
+                # passing record; RecordCheckFailed then fails closed through AndGateJudge's own existing
+                # except-Exception -> second_judge_unavailable path, no new logic there.
+                record_path = cfg.second_judge_positive_control.get("record_path")
+                if record_path:
+                    from pravrudhi.application.second_judge_positive_control import RecordGatedJudge
+                    # No default: an unset endpoint_id/adapter_sha must stay None, never fall back to "" --
+                    # a deployment that forgot to configure BOTH the record and the live identity must not
+                    # have them silently "match" as two equal empty strings (check_record refuses on None).
+                    second = RecordGatedJudge(
+                        second, record_path=Path(record_path),
+                        max_age_hours=float(cfg.second_judge_positive_control["max_age_hours"]),
+                        expected_endpoint_id=cfg.second_judge.get("endpoint_id"),
+                        expected_adapter_sha=cfg.second_judge.get("adapter_sha"),
+                    )
                 judge = AndGateJudge(
                     primary, second, tau_primary=cfg.tau, tau_second=second_tau, breaker=second_judge_breaker
                 )
@@ -1314,7 +1381,12 @@ class NyayaAgent:
         # only because nothing new is being written either.
         purge_stale_runs(Path(self.config.audit_dir), self.config.retention_days)
         run_id = f"nyaya-agent-{uuid.uuid4().hex[:10]}"
-        audit = AuditTrail(Path(self.config.audit_dir) / f"{run_id}.jsonl", run_id)
+        # Issue #44: when the record-gate escape hatch (second_judge_positive_control.disabled_reason) is in
+        # use, every row of every run's audit trail carries it -- not just a startup log line someone could
+        # miss.
+        disabled_reason = self.config.second_judge_positive_control.get("disabled_reason")
+        audit_extra = {"second_judge_positive_control_disabled_reason": disabled_reason} if disabled_reason else None
+        audit = AuditTrail(Path(self.config.audit_dir) / f"{run_id}.jsonl", run_id, extra=audit_extra)
         cfg_view = {"tau": self.config.tau, "refer_band": list(self.config.refer_band), "max_retries": self.config.max_retries,
                    "second_refer_logit_delta": self.config.second_refer_logit_delta()}
         audit.step("run_start", cfg_view,

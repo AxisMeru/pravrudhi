@@ -12,12 +12,17 @@ from pravrudhi.application.second_judge_positive_control import (
     ControlCheckResult,
     ControlElement,
     PrivateControlDataUnavailable,
+    RecordCheckFailed,
+    RecordGatedJudge,
+    check_record,
     compute_established_accuracy,
     compute_ne_discrimination,
     compute_parity,
     decide_availability,
+    read_record,
     resolve_private_root,
     run_live_check,
+    write_record,
 )
 
 TAU = 0.97
@@ -88,6 +93,11 @@ class TestComputeEstablishedAccuracy:
         assert result.n_p_ge_half == 2  # a, b
         assert result.n_p_ge_tau == 1  # a only
 
+    def test_empty_elements_gives_none_not_a_fabricated_zero(self) -> None:
+        result = compute_established_accuracy([], {}, TAU)
+        assert result.n_total == 0
+        assert result.accuracy is None
+
 
 class TestDecideAvailability:
     def _passing_result(self) -> ControlCheckResult:
@@ -148,6 +158,18 @@ class TestDecideAvailability:
                                        ne_discrimination_min=0)
         assert verdict.available is False
         assert any("median" in r for r in verdict.reasons)
+
+    def test_empty_control_set_fails_closed_without_crashing(self) -> None:
+        """Fail-open-defaults guard fix: agree_rate/median_abs_dp are None on an empty set, so
+        decide_availability must not compare None to a float (TypeError) or, worse, treat None as passing.
+        An empty control set is a config error, not a clean 100%/0-drift result."""
+        empty_parity = compute_parity([], {}, TAU)
+        empty_ne = compute_ne_discrimination([], {}, TAU)
+        result = ControlCheckResult(parity=empty_parity, ne=empty_ne, established=EstablishedResultStub())
+        verdict = decide_availability(result, parity_floor=0.98, parity_median_abs_dp=0.02,
+                                       ne_discrimination_min=70)
+        assert verdict.available is False
+        assert any("empty control set" in r for r in verdict.reasons)
 
 
 class TestFailClosedOnEndpointFailure:
@@ -245,6 +267,175 @@ class TestResolvePrivateRoot:
         (eval_dir / "eval_items.jsonl").write_text("")
         result = resolve_private_root(env={"PRABHASA_NYAYA_ROOT": str(tmp_path)})
         assert result == tmp_path
+
+
+class TestRecordRoundTrip:
+    """Lead-2, 2026-09-26, trigger wiring: write_record/read_record/check_record are the pure functions
+    the engine gates on -- no record, stale record, or mismatched record all fail closed the same way."""
+
+    def test_write_then_read_round_trips(self, tmp_path: Path) -> None:
+        path = tmp_path / "record.json"
+        write_record(path, available=True, endpoint_id="ep1", adapter_sha="abc", reasons=[], timestamp=1000.0)
+        record = read_record(path)
+        assert record == {"timestamp": 1000.0, "available": True, "endpoint_id": "ep1",
+                           "adapter_sha": "abc", "reasons": []}
+
+    def test_read_missing_file_returns_none(self, tmp_path: Path) -> None:
+        assert read_record(tmp_path / "does_not_exist.json") is None
+
+    def test_read_malformed_json_returns_none(self, tmp_path: Path) -> None:
+        path = tmp_path / "record.json"
+        path.write_text("not json {{{")
+        assert read_record(path) is None
+
+    def test_write_is_atomic_no_tmp_file_left_behind(self, tmp_path: Path) -> None:
+        path = tmp_path / "record.json"
+        write_record(path, available=True, endpoint_id="ep1", adapter_sha="abc", reasons=[])
+        assert path.exists()
+        assert not path.with_suffix(".json.tmp").exists()
+
+    def test_check_record_none_fails(self) -> None:
+        ok, reason = check_record(None, max_age_hours=24, expected_endpoint_id="ep1",
+                                   expected_adapter_sha="abc")
+        assert ok is False
+        assert reason == "no record"
+
+    def test_check_record_last_check_failed_fails(self) -> None:
+        record = {"timestamp": 1000.0, "available": False, "endpoint_id": "ep1", "adapter_sha": "abc",
+                  "reasons": ["ne_discrimination 65/71 < floor 70/71"]}
+        ok, reason = check_record(record, max_age_hours=24, expected_endpoint_id="ep1",
+                                   expected_adapter_sha="abc", now=1000.0)
+        assert ok is False
+        assert "last check failed" in reason
+
+    def test_check_record_too_old_fails(self) -> None:
+        record = {"timestamp": 1000.0, "available": True, "endpoint_id": "ep1", "adapter_sha": "abc"}
+        now = 1000.0 + 25 * 3600  # 25 hours later, past a 24h max_age
+        ok, reason = check_record(record, max_age_hours=24, expected_endpoint_id="ep1",
+                                   expected_adapter_sha="abc", now=now)
+        assert ok is False
+        assert "old" in reason
+
+    def test_check_record_within_max_age_passes(self) -> None:
+        record = {"timestamp": 1000.0, "available": True, "endpoint_id": "ep1", "adapter_sha": "abc"}
+        now = 1000.0 + 23 * 3600  # 23 hours later, within a 24h max_age
+        ok, reason = check_record(record, max_age_hours=24, expected_endpoint_id="ep1",
+                                   expected_adapter_sha="abc", now=now)
+        assert ok is True
+
+    def test_check_record_wrong_endpoint_id_fails(self) -> None:
+        record = {"timestamp": 1000.0, "available": True, "endpoint_id": "ep1", "adapter_sha": "abc"}
+        ok, reason = check_record(record, max_age_hours=24, expected_endpoint_id="ep2",
+                                   expected_adapter_sha="abc", now=1000.0)
+        assert ok is False
+        assert "endpoint_id" in reason
+
+    def test_check_record_wrong_adapter_sha_fails(self) -> None:
+        record = {"timestamp": 1000.0, "available": True, "endpoint_id": "ep1", "adapter_sha": "abc"}
+        ok, reason = check_record(record, max_age_hours=24, expected_endpoint_id="ep1",
+                                   expected_adapter_sha="different", now=1000.0)
+        assert ok is False
+        assert "adapter_sha" in reason
+
+    def test_check_record_missing_available_key_fails_closed(self) -> None:
+        """Fail-open-defaults guard fix: a malformed record with NO "available" key must fail exactly like
+        one whose available was measured False, never silently pass via a `.get(..., False)` default that
+        can't tell "no verdict" from "verdict was False" apart from a real measured value."""
+        record = {"timestamp": 1000.0, "endpoint_id": "ep1", "adapter_sha": "abc"}
+        ok, reason = check_record(record, max_age_hours=24, expected_endpoint_id="ep1",
+                                   expected_adapter_sha="abc", now=1000.0)
+        assert ok is False
+
+    def test_check_record_none_expected_endpoint_id_fails_closed_even_if_record_also_unset(self) -> None:
+        """The dangerous direction the guard flagged: if a deployment never configures second_judge.endpoint_
+        id, the OLD code defaulted both the written record's endpoint_id and the expected value to "" --
+        two unset configs would silently "match" as equal empty strings, letting an unverifiable identity
+        read as verified. None must never match None (or "") here -- an unset expected identity always
+        fails closed, regardless of what the record itself contains."""
+        record = {"timestamp": 1000.0, "available": True, "endpoint_id": None, "adapter_sha": "abc"}
+        ok, reason = check_record(record, max_age_hours=24, expected_endpoint_id=None,
+                                   expected_adapter_sha="abc", now=1000.0)
+        assert ok is False
+        assert "not configured" in reason
+
+    def test_check_record_none_expected_adapter_sha_fails_closed_even_if_record_also_unset(self) -> None:
+        record = {"timestamp": 1000.0, "available": True, "endpoint_id": "ep1", "adapter_sha": None}
+        ok, reason = check_record(record, max_age_hours=24, expected_endpoint_id="ep1",
+                                   expected_adapter_sha=None, now=1000.0)
+        assert ok is False
+        assert "not configured" in reason
+
+
+class TestRecordGatedJudge:
+    def _write_passing_record(self, path: Path, now: float) -> None:
+        write_record(path, available=True, endpoint_id="ep1", adapter_sha="abc", reasons=[], timestamp=now)
+
+    def test_delegates_to_inner_when_record_is_fresh_and_matching(self, tmp_path: Path) -> None:
+        import time as time_mod
+
+        path = tmp_path / "record.json"
+        self._write_passing_record(path, time_mod.time())
+
+        class _StubInner:
+            name = "inner"
+
+            def judge(self, request):
+                return "real judgment"
+
+        gated = RecordGatedJudge(_StubInner(), record_path=path, max_age_hours=24,
+                                  expected_endpoint_id="ep1", expected_adapter_sha="abc")
+        assert gated.judge(object()) == "real judgment"
+
+    def test_raises_without_calling_inner_when_no_record(self, tmp_path: Path) -> None:
+        calls = []
+
+        class _StubInner:
+            name = "inner"
+
+            def judge(self, request):
+                calls.append(request)
+                return "should never be reached"
+
+        gated = RecordGatedJudge(_StubInner(), record_path=tmp_path / "no_such_record.json",
+                                  max_age_hours=24, expected_endpoint_id="ep1", expected_adapter_sha="abc")
+        with pytest.raises(RecordCheckFailed, match="no record"):
+            gated.judge(object())
+        assert calls == []  # the real endpoint must never be reached when the record check fails
+
+    def test_raises_without_calling_inner_when_record_is_stale(self, tmp_path: Path) -> None:
+        import time as time_mod
+
+        path = tmp_path / "record.json"
+        self._write_passing_record(path, time_mod.time() - 25 * 3600)  # 25h old, past a 24h max_age
+
+        class _StubInner:
+            name = "inner"
+
+            def judge(self, request):
+                raise AssertionError("must not be called")
+
+        gated = RecordGatedJudge(_StubInner(), record_path=path, max_age_hours=24,
+                                  expected_endpoint_id="ep1", expected_adapter_sha="abc")
+        with pytest.raises(RecordCheckFailed, match="old"):
+            gated.judge(object())
+
+    def test_raises_without_calling_inner_when_adapter_sha_mismatches(self, tmp_path: Path) -> None:
+        import time as time_mod
+
+        path = tmp_path / "record.json"
+        write_record(path, available=True, endpoint_id="ep1", adapter_sha="OLD_ADAPTER", reasons=[],
+                     timestamp=time_mod.time())
+
+        class _StubInner:
+            name = "inner"
+
+            def judge(self, request):
+                raise AssertionError("must not be called")
+
+        gated = RecordGatedJudge(_StubInner(), record_path=path, max_age_hours=24,
+                                  expected_endpoint_id="ep1", expected_adapter_sha="NEW_ADAPTER")
+        with pytest.raises(RecordCheckFailed, match="adapter_sha"):
+            gated.judge(object())
 
 
 # -- lightweight stubs for tests that only need SOME of ControlCheckResult's fields non-None -------------
