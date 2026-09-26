@@ -17,7 +17,6 @@
 FROM python:3.13-slim
 
 ARG PRAVRUDHI_VERSION
-ARG GITHUB_TOKEN
 RUN test -n "$PRAVRUDHI_VERSION" || (echo "PRAVRUDHI_VERSION is required" >&2 && exit 1)
 RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends git curl ca-certificates > /dev/null \
     && rm -rf /var/lib/apt/lists/*
