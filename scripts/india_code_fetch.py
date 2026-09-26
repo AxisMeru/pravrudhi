@@ -13,6 +13,19 @@ That conflict is the operator's decision and risk to accept, not this script's t
 the underlying statutory text remains exempt from copyright regardless (Copyright Act, 1957,
 s. 52(1)(q)).
 
+**Widened 2026-09-23** (operator, via AskUserQuestion in the Lead-2 session; recorded in
+``docs/decisions/LEG-LEDGER-2026-09-23.md`` row "23:02 BST ... INDIA CODE AUTHORISATION
+widened"): the same narrow method -- hand-found file ids, one file per Act, no crawling,
+source URL + sha recorded -- now also covers the Bharatiya Sakshya Adhiniyam 2023 (BSA), the
+Digital Personal Data Protection Act 2023 (DPDP), the Negotiable Instruments Act 1881, the
+Insolvency and Bankruptcy Code 2016 (IBC), and the Specific Relief Act 1963. Not yet added to
+``ACTS`` below: this session has no working interactive browser (``claude-in-chrome`` reports
+zero connected browsers; a static ``WebFetch`` against the portal's item pages returns an
+empty SPA shell, not the rendered "Download" link) and the whole point of "hand-found" is
+that this script never discovers a bitstream id itself -- so the five ids need to come from
+whoever can actually click through the portal once, the same way the original five were
+found on 2026-09-12.
+
 **Constraints this script holds itself to**, so an automated fetch still behaves like one
 person downloading a few named documents once, not a crawler:
 
