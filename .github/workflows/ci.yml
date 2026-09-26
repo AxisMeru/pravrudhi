@@ -56,6 +56,10 @@ jobs:
       - name: clone prabhasa-nyaya at that exact commit (read-only deploy key, SSH)
         env:
           DEPLOY_KEY: ${{ secrets.PRABHASA_NYAYA_DEPLOY_KEY }}
+        # runner.temp (not /tmp) -- 2026-09-26: on the current ubuntu-latest image, `git clone` into a
+        # bare /tmp/<name> path fails hard with `fatal: Invalid path '<path>/.git': Permission denied`
+        # (git 2.55.0's hardening around cloning into the shared, sticky-bit /tmp). $RUNNER_TEMP is the
+        # runner's own per-job scratch directory and is the path GitHub's docs recommend for exactly this.
         run: |
           set -euo pipefail
           KEY_FILE="$(mktemp)"
@@ -65,31 +69,31 @@ jobs:
           printf '%s\n' "$DEPLOY_KEY" > "$KEY_FILE"
           chmod 600 "$KEY_FILE"
           export GIT_SSH_COMMAND="ssh -i $KEY_FILE -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
-          git clone --filter=blob:none git@github.com:AxisMeru/prabhasa-nyaya.git /tmp/prabhasa-nyaya
-          git -C /tmp/prabhasa-nyaya checkout --detach "${{ steps.pin.outputs.commit }}"
+          git clone --filter=blob:none git@github.com:AxisMeru/prabhasa-nyaya.git "$RUNNER_TEMP/prabhasa-nyaya"
+          git -C "$RUNNER_TEMP/prabhasa-nyaya" checkout --detach "${{ steps.pin.outputs.commit }}"
           # The key file is also removed by the trap above on any exit path (success or failure); this
           # explicit rm is redundant on the happy path but costs nothing and removes any doubt.
           rm -f "$KEY_FILE"
 
       # Same install command prabhasa-nyaya's own CI uses (its .github/workflows/ci.yml), not a
-      # separately-guessed one -- elan itself then reads /tmp/prabhasa-nyaya/lean/lean-toolchain and fetches
-      # the pinned Lean toolchain named there on first `lake build` below.
+      # separately-guessed one -- elan itself then reads $RUNNER_TEMP/prabhasa-nyaya/lean/lean-toolchain
+      # and fetches the pinned Lean toolchain named there on first `lake build` below.
       - name: install elan (Lean toolchain manager)
         run: |
           curl https://raw.githubusercontent.com/leanprover/elan/v4.2.4/elan-init.sh -sSf | sh -s -- -y --default-toolchain none
           echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
 
       - name: lake build
-        working-directory: /tmp/prabhasa-nyaya/lean
+        working-directory: ${{ runner.temp }}/prabhasa-nyaya/lean
         run: lake build
 
       - name: verify the built binary's sha256 against pinned_score_sha256 -- fail loud on any mismatch
-        run: uv run python scripts/verify_score_bin_sha.py /tmp/prabhasa-nyaya/lean/.lake/build/bin/score
+        run: uv run python scripts/verify_score_bin_sha.py "$RUNNER_TEMP/prabhasa-nyaya/lean/.lake/build/bin/score"
 
       - uses: actions/upload-artifact@v4
         with:
           name: prabhasa-nyaya-score-bin
-          path: /tmp/prabhasa-nyaya/lean/.lake/build/bin/score
+          path: ${{ runner.temp }}/prabhasa-nyaya/lean/.lake/build/bin/score
           retention-days: 1
 
   engine:
