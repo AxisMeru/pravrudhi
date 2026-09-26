@@ -617,11 +617,17 @@ def _judge_accounting(records: Sequence[JudgeCallRecord]) -> dict[str, Any]:
 
 #: Truthful element statuses (issue #37, Tag's review): a gold-established element the served judge(s) didn't
 #: clear tau on must never look the same as one a judge actually scored unmet, or one the second judge never
-#: got to evaluate at all -- three previously-collapsed cases now have three distinct labels below, alongside
-#: the original "established". `assemble_assertions` and every other outcome check still treats every
-#: non-"established" value identically (`status == "established"`); this ONLY changes what a caller sees,
-#: never what the contract's outcome is.
-ElementStatus = Literal["established", "not_confirmed", "not_established", "not_evaluated_second_unavailable"]
+#: got to evaluate at all, or one Gate 1's own model failed to evaluate (issue #57, Tag's review of #63: a
+#: fail-closed Gate 1 error must not share `not_established`'s label with a genuine veto or a real unmet
+#: score -- there IS no score here, only a model that couldn't answer, the same distinction
+#: `not_evaluated_second_unavailable` already draws for the second judge) -- four previously-collapsed cases
+#: now have four distinct labels below, alongside the original "established". `assemble_assertions` and every
+#: other outcome check still treats every non-"established" value identically (`status == "established"`);
+#: this ONLY changes what a caller sees, never what the contract's outcome is.
+ElementStatus = Literal[
+    "established", "not_confirmed", "not_established",
+    "not_evaluated_second_unavailable", "not_evaluated_gate1_unavailable",
+]
 
 
 @dataclass
@@ -829,6 +835,7 @@ def _second_band_info(anchor: ElementJudgment | None, delta: float | None) -> di
 
 def _truthful_status(
     claimed: bool, valid: bool, anchor: ElementJudgment | None, second_unavailable: bool,
+    *, second_judge_configured: bool,
 ) -> tuple[ElementStatus, Literal["primary", "second"] | None]:
     """The final element status and binding leg (issue #37; single-judge fix, #57). Called only after
     `_second_band_info` has already computed `second_unavailable`, so the "second judge never answered"
@@ -847,21 +854,31 @@ def _truthful_status(
     `binding_leg` reuses `anchor.vetoed_by` where AndGateJudge already set it (its own primary-rejected
     branch sets `vetoed_by="primary"`, its second-rejected branch sets `"second"`) -- but a BARE single judge
     (no AndGateJudge wrapper at all) never touches `vetoed_by`; that field only exists on AndGateJudge's own
-    output. `anchor.tau_second` is the reliable discriminator: only AndGateJudge ever sets it (both of its
-    branches always do, even when the second was skipped/unavailable/never asked), so `tau_second is None`
-    means single-judge mode -- there, the primary is the ONLY judge in play, so it alone decided any
-    non-established outcome; `binding_leg` must be "primary", never null, matching its own docstring."""
+    output. `second_judge_configured` (Tag review, 2026-09-26 -- the caller passes `self.config.second_judge
+    is not None`) is the discriminator for that case, NOT `anchor.tau_second is None`: the config is the
+    actual ground truth for whether a second judge exists in this run, while `tau_second` is a side effect of
+    AndGateJudge's own field-setting that this function has no business depending on -- a future judge
+    implementation that shapes its output differently would silently break the old inference without
+    touching the config at all. When no second judge is configured, the primary is the ONLY judge in play, so
+    it alone decided any non-established outcome; `binding_leg` must be "primary", never null, matching its
+    own docstring."""
     if claimed and valid:
         return "established", None
     if claimed and not valid:
         return "not_established", None
     assert anchor is not None  # claimed is False only when anchor.status != "established", so anchor exists
     if anchor.vetoed_by == "gate1":
+        # A fail-closed Gate 1 error (the model never loaded or errored on this call) gets its own label,
+        # never "not_established" (Tag review, 2026-09-26): there is no score to distrust here, unlike a real
+        # veto (`gate1_not_entailed`/`gate1_contradiction`, which keep "not_established" -- the model DID
+        # answer, it just didn't clear the bar). Same `gate1_skip_reason` prefix `_gate1_info` itself checks.
+        if anchor.gate1_skip_reason and anchor.gate1_skip_reason.startswith("gate1_unavailable"):
+            return "not_evaluated_gate1_unavailable", None
         return "not_established", None
     if second_unavailable:
         return "not_evaluated_second_unavailable", None
     binding_leg = anchor.vetoed_by if anchor.vetoed_by in ("primary", "second") else None
-    if binding_leg is None and anchor.tau_second is None:
+    if binding_leg is None and not second_judge_configured:
         binding_leg = "primary"  # single-judge mode: no second judge exists to blame instead
     second_leans_established = anchor.p_established_second is None or anchor.p_established_second >= 0.5
     if anchor.p_established >= 0.5 and second_leans_established:
@@ -1071,7 +1088,10 @@ class NyayaAgent:
         claimed = anchor.status == "established"
         valid = claimed and loc is not None and loc.valid
         second_band = _second_band_info(anchor, delta)
-        final_status, final_binding_leg = _truthful_status(claimed, valid, anchor, second_band["second_unavailable"])
+        final_status, final_binding_leg = _truthful_status(
+            claimed, valid, anchor, second_band["second_unavailable"],
+            second_judge_configured=self.config.second_judge is not None,
+        )
         result = ElementResult(
             element, is_denial, final_status, claimed, anchor.p_established,
             fact_id, quote, loc.start if loc else None, loc.end if loc else None, loc.reason if loc else None, attempts,
