@@ -105,6 +105,7 @@ def test_cli_validity_check_runs_the_kernel_check_and_reports_the_tier(tmp_path:
     assert '"track": "nyaya"' in result.stdout
 
 
+@pytest.mark.requires_score_bin
 @requires_lean_scorer
 class TestTheConstructedGoldSet:
     """Session-3's A2 decisions, 2026-09-12: the six-bank constructed set, scored per class against

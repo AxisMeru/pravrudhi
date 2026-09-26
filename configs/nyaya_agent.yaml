@@ -19,6 +19,14 @@
 # release actually deploys (Lead-2's item 5: tag, image smoke, Track-C's switch-on smoke, then cutover).
 score_bin: ../prabhasa-nyaya/lean/.lake/build/bin/score
 pinned_score_sha256: 700de3aadf50b482f4cf23499a03fd518cf72734bf8f51b950b5983555dea229
+# PRABHASA_NYAYA_PINNED_COMMIT: 636c540e3f682fad4e930f60e7c71cf7bbfe6630 (branch
+# assistant/trackA/wave23-integration -- the same commit named in prose above, spelled out here in full and
+# in a fixed, machine-parseable shape). CI's build-lean-binary job (scripts/extract_pinned_score_bin_commit.py)
+# checks out and builds EXACTLY this commit, then verifies the result's sha256 against pinned_score_sha256
+# above (scripts/verify_score_bin_sha.py) -- update this line in the SAME commit as any re-pin of that sha256,
+# never separately, or CI will build a binary that (correctly, loudly) fails to match the pin.
+# Verified locally, 2026-09-26 (web-on-seat0): `lake build` at this exact commit reproduces
+# 700de3aadf50b482f4cf23499a03fd518cf72734bf8f51b950b5983555dea229 byte-for-byte.
 
 # The house element judge: an OpenAI-compatible vLLM server serving the fine-tuned element judge.
 # `model: null` means "the first id the server's own /v1/models lists".

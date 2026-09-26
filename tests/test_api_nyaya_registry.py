@@ -50,6 +50,7 @@ def test_lists_all_known_contracts(tmp_path: Path) -> None:
     )
 
 
+@pytest.mark.requires_score_bin
 @requires_registry_scorer
 def test_elements_reads_live_from_the_binary(tmp_path: Path) -> None:
     c = _client(tmp_path)
@@ -67,6 +68,7 @@ def test_elements_422s_an_unknown_contract_id(tmp_path: Path) -> None:
     assert resp.status_code == 422
 
 
+@pytest.mark.requires_score_bin
 @requires_registry_scorer
 def test_check_all_met_is_grounded(tmp_path: Path) -> None:
     c = _client(tmp_path)
@@ -89,6 +91,7 @@ def test_check_all_met_is_grounded(tmp_path: Path) -> None:
     assert body["provenance"] == "agama"
 
 
+@pytest.mark.requires_score_bin
 @requires_registry_scorer
 def test_check_a_missing_element_is_flagged(tmp_path: Path) -> None:
     c = _client(tmp_path)
@@ -125,6 +128,7 @@ def test_check_422s_empty_assertions(tmp_path: Path) -> None:
     assert resp.status_code == 422
 
 
+@pytest.mark.requires_score_bin
 @requires_registry_scorer
 def test_check_carries_evidence_through_without_affecting_the_verdict(tmp_path: Path) -> None:
     c = _client(tmp_path)

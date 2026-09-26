@@ -28,8 +28,79 @@ jobs:
       - run: uv run pravrudhi --version
       - run: uv run pytest pravrudhi_kernel/tests -q
 
+  # Builds the REAL pinned prabhasa-nyaya Lean `score` binary so `engine`'s pytest step can run every
+  # requires_score_bin-gated registry/pin test for real, instead of the silent 100%-skip CI has had since
+  # those tests were written (Lead-2, 2026-09-26: CI never set PRABHASA_NYAYA_SCORE_BIN anywhere -- grepped
+  # every workflow, zero hits). A separate job, not steps folded into `engine`, so the deploy-key secret is
+  # scoped to exactly the steps that need it and never touches `engine`'s own environment at all.
+  #
+  # Security (required, non-negotiable): the secret is used only when this job's own `if:` is true -- a push
+  # to this repo, or a pull_request whose head repo IS this repo (never a fork). This is checked explicitly
+  # here rather than relied on implicitly: GitHub already withholds repo secrets from a fork's `pull_request`
+  # event by default, but that default is not what gates this job -- the job-level `if:` below is, so nothing
+  # about workflow structure (a future `pull_request_target` trigger, a workflow_run chain) can silently
+  # widen who this ever runs for. Never `pull_request_target`.
+  build-lean-binary:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with: { python-version: "3.13" }
+      - run: uv sync --all-groups --frozen
+
+      - name: read the pinned prabhasa-nyaya commit from configs/nyaya_agent.yaml's own pin comment
+        id: pin
+        run: echo "commit=$(uv run python scripts/extract_pinned_score_bin_commit.py)" >> "$GITHUB_OUTPUT"
+
+      - name: clone prabhasa-nyaya at that exact commit (read-only deploy key, SSH)
+        env:
+          DEPLOY_KEY: ${{ secrets.PRABHASA_NYAYA_DEPLOY_KEY }}
+        run: |
+          set -euo pipefail
+          KEY_FILE="$(mktemp)"
+          cleanup() { rm -f "$KEY_FILE"; }
+          trap cleanup EXIT
+          umask 177
+          printf '%s\n' "$DEPLOY_KEY" > "$KEY_FILE"
+          chmod 600 "$KEY_FILE"
+          export GIT_SSH_COMMAND="ssh -i $KEY_FILE -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
+          git clone --filter=blob:none git@github.com:AxisMeru/prabhasa-nyaya.git /tmp/prabhasa-nyaya
+          git -C /tmp/prabhasa-nyaya checkout --detach "${{ steps.pin.outputs.commit }}"
+          # The key file is also removed by the trap above on any exit path (success or failure); this
+          # explicit rm is redundant on the happy path but costs nothing and removes any doubt.
+          rm -f "$KEY_FILE"
+
+      # Same install command prabhasa-nyaya's own CI uses (its .github/workflows/ci.yml), not a
+      # separately-guessed one -- elan itself then reads /tmp/prabhasa-nyaya/lean/lean-toolchain and fetches
+      # the pinned Lean toolchain named there on first `lake build` below.
+      - name: install elan (Lean toolchain manager)
+        run: |
+          curl https://raw.githubusercontent.com/leanprover/elan/v4.2.4/elan-init.sh -sSf | sh -s -- -y --default-toolchain none
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+
+      - name: lake build
+        working-directory: /tmp/prabhasa-nyaya/lean
+        run: lake build
+
+      - name: verify the built binary's sha256 against pinned_score_sha256 -- fail loud on any mismatch
+        run: uv run python scripts/verify_score_bin_sha.py /tmp/prabhasa-nyaya/lean/.lake/build/bin/score
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: prabhasa-nyaya-score-bin
+          path: /tmp/prabhasa-nyaya/lean/.lake/build/bin/score
+          retention-days: 1
+
   engine:
     runs-on: ubuntu-latest
+    needs: [build-lean-binary]
+    # Runs regardless of build-lean-binary's outcome (success, failure, OR skipped -- a fork PR skips that
+    # job entirely, by design): the pytest step below still runs either way, and
+    # check_score_bin_gate_ran.py is the permanent backstop that makes the difference visible rather than
+    # silent -- green with the real binary available, red (as designed, see that script's own docstring)
+    # without it.
+    if: "!cancelled()"
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
@@ -37,9 +108,26 @@ jobs:
       - run: uv sync --all-groups --frozen
       - run: uv run ruff check pravrudhi_kernel src tests scripts
       - run: uv run mypy src
-      - run: uv run pytest tests -q
+      - name: download the real Lean binary (absent on a fork PR or a failed build -- pytest below still runs)
+        if: needs.build-lean-binary.result == 'success'
+        uses: actions/download-artifact@v4
+        with:
+          name: prabhasa-nyaya-score-bin
+          path: /tmp/score-bin
+      - name: mark the downloaded binary executable
+        if: needs.build-lean-binary.result == 'success'
+        run: chmod +x /tmp/score-bin/score
+      - name: pytest (with the real Lean binary when build-lean-binary produced one)
+        env:
+          PRABHASA_NYAYA_SCORE_BIN: /tmp/score-bin/score
+        run: uv run pytest tests -q
       - run: uv run python scripts/import_guard.py
       - run: uv run python scripts/check_no_private_data.py
+      # Permanent backstop (Lead-2, 2026-09-26): fails if not one requires_score_bin-gated test actually
+      # executed. Green whenever build-lean-binary supplied a real, pin-verified binary above; red on a fork
+      # PR or if that job ever fails -- both cases where the registry/pin tests genuinely did not run here,
+      # which is exactly what this exists to make impossible to miss.
+      - run: uv run python scripts/check_score_bin_gate_ran.py
 
   # The local-engine e2e project starts a real engine and drives the real interface. Nothing ran it: pages.yml
   # runs only --project=deployed and this file had no Playwright at all, so when the front door was reworked and

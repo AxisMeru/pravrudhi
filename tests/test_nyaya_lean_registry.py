@@ -105,6 +105,7 @@ class TestParseListContracts:
 
 
 class TestKnownContractIdsMatchesTheBinary:
+    @pytest.mark.requires_score_bin
     @requires_registry_scorer
     def test_drift_test_against_list_contracts(self) -> None:
         """The lead's explicit requirement: this reads the binary's OWN output, never trusts the hand-
@@ -127,6 +128,7 @@ class TestKnownContractIdsMatchesTheBinary:
 
 
 class TestDescribeContract:
+    @pytest.mark.requires_score_bin
     @requires_registry_scorer
     def test_reads_required_element_names_live_from_the_binary(self) -> None:
         names = reg.describe_contract("ipc405_misappropriation", score_bin=_SCORE_BIN)
@@ -140,6 +142,7 @@ class TestDescribeContract:
             reg.describe_contract("not_a_real_id", score_bin=_SCORE_BIN)
 
 
+@pytest.mark.requires_score_bin
 @requires_registry_scorer
 class TestCheckRegistry:
     def test_all_required_elements_met_is_grounded(self) -> None:
@@ -242,6 +245,7 @@ class TestCheckRegistry:
         )
 
 
+@pytest.mark.requires_score_bin
 @requires_registry_scorer
 class TestReachabilityForEveryKnownContractId:
     """The exit criterion (the lead, 2026-09-15): a recorded end-to-end run for every one of the
@@ -289,6 +293,7 @@ class TestExcludedContractsAreRefused:
         assert contract_id in str(exc_info.value)
 
 
+@pytest.mark.requires_score_bin
 @requires_registry_scorer
 class TestRefutation:
     def test_a_denial_bearing_element_asserted_is_refuted(self) -> None:

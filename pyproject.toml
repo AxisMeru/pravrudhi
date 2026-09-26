@@ -76,6 +76,9 @@ path = "hatch_build.py"
 [tool.pytest.ini_options]
 testpaths = ["tests", "pravrudhi_kernel/tests"]
 addopts = "-p no:cacheprovider"
+markers = [
+  "requires_score_bin: needs a real, built prabhasa-nyaya Lean `score` binary (PRABHASA_NYAYA_SCORE_BIN) -- CI never sets this (2026-09-26), so every one of these currently skips silently in every CI run; scripts/check_score_bin_gate_ran.py fails the build if not one of them actually executed, on purpose, until that's fixed.",
+]
 
 [tool.ruff]
 line-length = 130
