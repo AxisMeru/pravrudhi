@@ -32,7 +32,14 @@ from pravrudhi.application.nyaya_agent import (
     outcome_from_lean,
     select_contracts,
 )
-from pravrudhi.application.nyaya_judges import AndGateJudge, ElementJudgment, JudgeOutputError, JudgeRequest
+from pravrudhi.application.nyaya_judges import (
+    GATE1_TAU_C_DEFAULT,
+    GATE1_THRESHOLD_DEFAULT,
+    AndGateJudge,
+    ElementJudgment,
+    JudgeOutputError,
+    JudgeRequest,
+)
 
 REPO = Path(__file__).resolve().parent.parent
 #: The pinned binary lives outside this repo; point PRABHASA_NYAYA_SCORE_BIN at it (no host path is committed).
@@ -1016,6 +1023,55 @@ class TestConfig:
                     "NYAYA_SECOND_JUDGE_TOP_LOGPROBS", "NYAYA_SECOND_JUDGE_MAX_TOKENS"):
             monkeypatch.delenv(var, raising=False)
         assert load_agent_config(REPO).second_judge is None
+
+    def test_repo_config_gate1_tau_c_and_mode_are_configured(self) -> None:
+        """Issue #40: `tau_c` and `mode` used to live only as code defaults (`GATE1_TAU_C_DEFAULT`,
+        `mode="entailment"`) -- house rule is constants live in configs/, never magic numbers in code. The
+        config value equals the (unchanged) code default here -- this test is about the value being
+        present and readable from the shipped yaml, not about it differing from the default."""
+        gate1 = load_agent_config(REPO).gate1
+        assert gate1["threshold"] == GATE1_THRESHOLD_DEFAULT
+        assert gate1["tau_c"] == GATE1_TAU_C_DEFAULT
+        assert gate1["mode"] == "entailment"
+
+    def test_gate1_tau_c_and_mode_env_vars_override_a_configured_block(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Mirrors `test_second_judge_env_vars_override_a_configured_block`: a yaml-configured gate1 block
+        (tau_c/mode explicitly set, different from the shipped config's values) still yields to
+        NYAYA_GATE1_TAU_C/NYAYA_GATE1_MODE when both are set -- matching the existing threshold/model
+        override pattern exactly."""
+        import yaml
+
+        cfg_dir = tmp_path / "configs"
+        cfg_dir.mkdir()
+        body = yaml.safe_load((REPO / "configs" / "nyaya_agent.yaml").read_text())
+        body["gate1"] = {"threshold": 0.05, "model": "some/model", "mode": "entailment", "tau_c": 0.5}
+        (cfg_dir / "nyaya_agent.yaml").write_text(yaml.safe_dump(body))
+        monkeypatch.setenv("NYAYA_GATE1_TAU_C", "0.321158230304718")
+        monkeypatch.setenv("NYAYA_GATE1_MODE", "contradiction_veto")
+        gate1 = load_agent_config(tmp_path).gate1
+        assert gate1["threshold"] == 0.05  # untouched: no env var for it in this test
+        assert gate1["tau_c"] == 0.321158230304718  # env override wins over the yaml's own 0.5
+        assert gate1["mode"] == "contradiction_veto"  # env override wins over the yaml's own "entailment"
+
+    def test_gate1_tau_c_and_mode_default_to_code_constants_when_absent_from_yaml(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A gate1 block that configures only threshold/model (pre-#40 shape) still resolves tau_c/mode to
+        the code defaults -- the config addition in #40 is backward compatible with an older yaml."""
+        import yaml
+
+        for var in ("NYAYA_GATE1_TAU_C", "NYAYA_GATE1_MODE"):
+            monkeypatch.delenv(var, raising=False)
+        cfg_dir = tmp_path / "configs"
+        cfg_dir.mkdir()
+        body = yaml.safe_load((REPO / "configs" / "nyaya_agent.yaml").read_text())
+        body["gate1"] = {"threshold": 0.04074102267622948, "model": "some/model"}
+        (cfg_dir / "nyaya_agent.yaml").write_text(yaml.safe_dump(body))
+        cfg = load_agent_config(tmp_path)
+        assert "tau_c" not in cfg.gate1  # not injected into the loaded dict -- read-site defaults it
+        assert "mode" not in cfg.gate1
 
 
 class TestHouseFactory:
