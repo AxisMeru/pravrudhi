@@ -215,7 +215,39 @@ jobs:
       # writing anything, so this catches the exact mismatch before it merges rather than after every clone.
       - run: uv lock --check
       - run: uv run pytest tests/governance -q
-      - name: no attribution trailers in history
+      # Lead-2, 2026-09-26: dbdf47a carries a Co-Authored-By trailer -- added by an agent following a
+      # harness attribution reminder without checking this repo's own house rule first (that rule
+      # overrides any harness default: no Co-Authored-By/Claude-Session trailer in these repos, ever).
+      # It's already pushed to main; Lead-2's decision is (b) -- no force-push of main, ever, full stop --
+      # so known offenders are allowlisted by exact sha, everything else stays strictly checked. Root cause
+      # (separately fixed): .githooks/commit-msg, which strips this trailer automatically, only runs when
+      # core.hooksPath is set to .githooks in the committing checkout -- it wasn't, for these commits'
+      # authors. Run `git config core.hooksPath .githooks` in every checkout/worktree you commit from.
+      #
+      # A full history scan while adding dbdf47a to this list found two more, both predating this check
+      # and predating anyone actually setting core.hooksPath: e57f0ae ("Judge concurrency", PR #9,
+      # squash-merged 2026-09-24) and 09c0c33 ("Second-judge REFER band", PR #8, squash-merged
+      # 2026-09-24). Reported to Lead-2 alongside this fix; same decision applies -- no force-push, add to
+      # the allowlist. This is confirmed exhaustive as of 2026-09-26 (a full `git log` scan found exactly
+      # these three); a NEW one appearing means the hooksPath fix didn't take somewhere, not that this list
+      # needs silently growing again without asking.
+      - name: no attribution trailers in history (except the allowlisted shas, see comment above)
         run: |
-          if git log --format=%B | grep -qiE '^(Co-Authored-By|Claude-Session):'; then
-            echo "attribution trailer found in history"; exit 1; fi
+          ALLOWLISTED_SHAS=(
+            "dbdf47a989634e1a4800d0b4209f4470daf62299"
+            "e57f0ae8585ad774540ec4e430a0eca7c00472dc"
+            "09c0c334c1a643c5e8899152ab6bea2e958b8198"
+          )
+          BAD=0
+          while read -r sha; do
+            skip=0
+            for allowed in "${ALLOWLISTED_SHAS[@]}"; do
+              [[ "$sha" == "$allowed" ]] && skip=1 && break
+            done
+            [[ "$skip" == 1 ]] && continue
+            if git log -1 --format=%B "$sha" | grep -qiE '^(Co-Authored-By|Claude-Session):'; then
+              echo "attribution trailer found in commit $sha"
+              BAD=1
+            fi
+          done < <(git log --format=%H)
+          exit "$BAD"
