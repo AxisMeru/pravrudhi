@@ -9,6 +9,9 @@ Nothing on this page states a measurement. Measurements live in the paper under 
 ```bash
 git clone https://github.com/AxisMeru/pravrudhi.git && cd pravrudhi
 uv sync
+# after pulling a version bump into an existing checkout, run `uv sync` again -- an installed venv's own
+# package metadata does not update itself on a plain `git pull`, and `tests/test_version_is_single_sourced.py`
+# will fail locally (not in CI, which always syncs fresh) until it does
 uv run pravrudhi init --root .                       # kernel state dir, config, pre-registrations, prompts, genesis ledger
 make exec-image                                       # execution image (public NVIDIA PyTorch base; override with BASE_IMAGE=)
 uvx --from huggingface_hub hf download Qwen/Qwen3-4B  # trainee
