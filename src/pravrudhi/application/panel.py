@@ -208,11 +208,13 @@ VENDORS: dict[str, Vendor] = {
         note="codex exec, agentic non-interactive",
     ),
     "qwen-dashscope": Vendor(
-        id="qwen-dashscope", interface="openai_compat", model="qwen3-coder-plus",
-        base_url="https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
-        credential="DASHSCOPE_API_KEY", credential_file="~/.config/llm/dashscope.env",
-        provider="alibaba", params=dict(_API),
-        note="the operator's Singapore credential; the file it comes from picks the endpoint",
+        # Free-tier DashScope retired everywhere (operator instruction, 2026-09-25): the paid Lite Plan
+        # endpoint, credential file and model below, never the free tier's.
+        id="qwen-dashscope", interface="openai_compat", model="qwen3.8-max",
+        base_url="https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1",
+        credential="DASHSCOPE_API_KEY", credential_file="~/.config/llm/dashscope-plan.env",
+        provider="alibaba-plan", params=dict(_API),
+        note="the operator's Lite Plan credential; the file it comes from picks the endpoint",
     ),
     # Derived from the product's own BYOK registry, not restated. `credentials.PROVIDERS` already holds the
     # base URL and key variable for each of these, the product already has `/api/providers/{id}/key` to put a

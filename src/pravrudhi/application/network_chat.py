@@ -48,17 +48,22 @@ def _endpoint_for(agent: str) -> tuple[str, str] | None:
 
     if agent in ("opencode:alibaba", "opencode:alibaba-plan"):
         provider_id = agent.split(":", 1)[1]
+        if provider_id == "alibaba":
+            provider_id = "alibaba-plan"  # free tier retired (2026-09-25); alias to the paid Lite Plan
         try:
             secret = credential(provider_id)
         except (OSError, ValueError):
             return None
         return PROVIDERS[provider_id].base_url, secret.reveal()
     if agent == "hosted":
+        # The paid Lite Plan provider, never the free tier (operator instruction, 2026-09-25: free-tier
+        # DashScope is being removed everywhere). The model actually sent is `route.model` from
+        # configs/routing.yaml, resolved by the caller -- nothing to thread through here.
         try:
-            secret = credential("alibaba")
+            secret = credential("alibaba-plan")
         except (OSError, ValueError):
             return None
-        return PROVIDERS["alibaba"].base_url, secret.reveal()
+        return PROVIDERS["alibaba-plan"].base_url, secret.reveal()
     return None
 
 

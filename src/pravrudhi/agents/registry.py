@@ -28,8 +28,12 @@ class AgentStatus:
 
 def build_registry(root: Path, *, include_orca: bool = True) -> dict[str, Any]:
     agents: dict[str, Any] = {"claude-code": ClaudeCodeAgent(root), "codex": CodexAgent(root)}
-    agents["opencode:alibaba"] = AlibabaAgent(root)
-    agents["opencode:alibaba-plan"] = AlibabaAgent(root, model="qwen3.8-max", provider_id="alibaba-plan")
+    # Free-tier DashScope is retired everywhere (operator instruction, 2026-09-25). "opencode:alibaba" is
+    # kept as a NAME only, for any existing route/config that still names it, aliased to the exact same paid
+    # Lite Plan agent as "opencode:alibaba-plan" rather than constructing its own free-tier credential lookup.
+    _alibaba_plan = AlibabaAgent(root, model="qwen3.8-max", provider_id="alibaba-plan")
+    agents["opencode:alibaba"] = _alibaba_plan
+    agents["opencode:alibaba-plan"] = _alibaba_plan
     # Registered unconditionally: `available()` is a local check, and a seat absent from the registry cannot
     # be reported as missing by `survey` or `doctor`, which is how an uninstalled CLI stays invisible.
     agents["hermes"] = HermesAgent(root)
@@ -97,6 +101,8 @@ def build_agent(root: Path, name: str, model: str | None = None) -> Any | None:
         return a if a.available() else None
     if name.startswith("opencode:alibaba"):
         provider_id = name.split(":", 1)[1]
+        if provider_id == "alibaba":
+            provider_id = "alibaba-plan"  # free tier retired (2026-09-25); alias to the paid Lite Plan
         a = AlibabaAgent(root, provider_id=provider_id, **({"model": model} if model else {}))
         return a if a.available() else None
     if name == "hosted":
