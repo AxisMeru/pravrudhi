@@ -294,9 +294,21 @@ unvalidated_contracts:
 # (both the disjunct-fix dev pass on heldout_v1 and the final 377/225 re-run used it unchanged) --
 # NYAYA_GATE1_THRESHOLD overrides.
 #
+# mode picks which of Gate1Judge's two check functions runs: "entailment" (default, this block's threshold)
+# or "contradiction_veto" (Arm C, GATE1-ARM-C-2026-09-26.md, this block's tau_c) -- NYAYA_GATE1_MODE
+# overrides. tau_c 0.321158230304718 is Arm C's own frozen threshold (the LOWEST tau_c such that the block
+# rate on positives was <=5% on the tune half of a 60-item calibration set, disjoint from 377/225, the 13
+# OOS negation items, and heldout_v1; test-half: leak 0.0% (0/30), block 6.7% (2/30)) -- inert in the
+# default "entailment" mode, just as threshold is inert in "contradiction_veto" mode; both stay configured
+# either way. NYAYA_GATE1_TAU_C overrides. Issue #40 (Track-C): both values already lived only as code
+# defaults (GATE1_TAU_C_DEFAULT, mode="entailment") before this -- moved here per house rule (constants
+# live in configs/, never magic numbers in code).
+#
 # DO NOT SHIP ENABLED: the measured coverage cost (-19%/-9% on the only population tested) with zero
 # demonstrated false-prove benefit means this stays off until Lead-2 decides otherwise on a dirtier eval
 # population -- see the spec's own §5.
 gate1:
   threshold: 0.04074102267622948
   model: "MoritzLaurer/DeBERTa-v3-base-mnli-fever-anli"
+  mode: "entailment"
+  tau_c: 0.321158230304718
