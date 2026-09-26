@@ -565,8 +565,10 @@ def split_disjuncts(element_desc: str) -> list[str]:
 GATE1_THRESHOLD_DEFAULT = 0.04074102267622948
 GATE1_MODEL_DEFAULT = "MoritzLaurer/DeBERTa-v3-base-mnli-fever-anli"
 #: Pinned by commit sha, never a branch/tag (a model card edit or a weights update on `main` must never
-#: silently change what a running deployment scores with) -- `main`'s tip as of 2026-09-26, the same commit
-#: Track-C's own eval scripts actually read (unpinned, by branch name) when this was speced.
+#: silently change what a running deployment scores with). Confirmed (Lead-2, 2026-09-26) to be the exact
+#: revision `GATE1_THRESHOLD_DEFAULT` above was calibrated against, not just "whatever main resolved to on
+#: the day this was pinned": the upstream repo has not moved since 2024-04-11, and the 5090's own HF cache
+#: -- what Track-C's Gate 1 evals actually ran against -- holds exactly this one snapshot.
 GATE1_MODEL_REVISION_DEFAULT = "6f5cf0a2b59cabb106aca4c287eed12e357e90eb"
 
 
