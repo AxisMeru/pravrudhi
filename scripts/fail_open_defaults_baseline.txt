@@ -1,0 +1,143 @@
+# Baseline for scripts/check_fail_open_defaults.py -- the fail-open defaults that ALREADY EXISTED when that
+# guard landed (operator instruction, 2026-09-26, after the fail-open-default sweep of both repos).
+#
+# READ THIS FIRST: every line below is a FINDING, not a decision that the code is right. They are baselined
+# only so the new guard can land green instead of turning CI red for everyone; they go to the owners as
+# issues and come OFF this list as they are fixed. The guard prints a "no longer matches anything" note for
+# any entry that stops matching, so this file shrinks on its own as the fixes land -- it cannot quietly
+# outlive them.
+#
+# Nothing here was fixed by the PR that added this file: that PR is tests-and-CI only, by instruction.
+#
+# FORMAT: one key per line, `<repo-relative path>::<the matched expression, whitespace-normalised>`.
+# Keyed on the expression, NOT on a line number, so an unrelated edit above a waived line does not turn CI
+# red. Stated consequence: a SECOND, byte-identical occurrence added to an already-listed file is not
+# caught. Prefer an inline `# fail-open-ok: <reason>` for new code; this file is for what predates the guard.
+#
+# Issue numbers are left as `issue: TBD` where the owning issue has not been opened yet. The sweep's own
+# finding ids (C1-C8) are cited where one applies, so each line is traceable to the written-up direction of
+# error rather than to a bare "known".
+
+# -----------------------------------------------------------------------------------------------------
+# rule2-advisory-count: 297
+#
+# Rule 2 (`or <falsy>` coalescing) is ADVISORY and summary-only; this records the count at landing so a
+# reviewer can see growth. It is not a waiver list: 297 entries spread over 40-odd files, ~70% of them
+# correct zero-when-absent counts (token totals, GPU-hours, wall-clock), which is exactly why rule 2 never
+# fails the build. `--advisory-detail` prints them.
+# -----------------------------------------------------------------------------------------------------
+
+
+# === CRITICAL DIRECTION (unsafe reads as safe) -- sweep findings C5 and C8's siblings =================
+#
+# A fabricated 0.0 standard deviation reads as ZERO VARIANCE, which makes any effect look arbitrarily
+# significant to anything that divides by it. A fabricated 0.0 mean reads as a measured null. In the same
+# function, `paired_delta_min`/`paired_delta_max` correctly use None and `brier_mean` correctly uses
+# `if briers else None` -- four adjacent fields, two right, two wrong.
+# Sweep finding: C5. issue: TBD (owner: evidence/gate reporting)
+src/pravrudhi/application/evidence.py::sum(all_d) / len(all_d) if all_d else 0.0
+src/pravrudhi/application/evidence.py::math.sqrt(sum((x - mean) ** 2 for x in all_d) / (len(all_d) - 1)) if len(all_d) > 1 else 0.0
+# The rendered arm table prints `+0.0000` as a mean delta next to a count of 0.
+# Sweep finding: C5 (same function family). issue: TBD
+src/pravrudhi/application/evidence.py::sum(d) / len(d) if d else 0.0
+
+# A fabricated confidence interval. `(0.0, 0.0)` from no data is the exact thing `wilson`'s own docstring
+# gives as the reason to prefer Wilson over the normal approximation ("that one gives [0, 0] at k=0, which
+# reads as certainty from no evidence") -- and then does at n<=0. Conservative while the metric is a pass
+# rate; DANGEROUS the moment either helper is reused for a lower-is-better metric such as a false-prove
+# rate, where [0,0] reads as certainly-safe.
+# Sweep finding: conservative-list item 2. issue: TBD
+src/pravrudhi/application/nyaya_gold_score.py::return (0.0, 0.0)
+src/pravrudhi/application/noise_floor.py::wilson_ci(int(k_pass), total_items) if total_items else (0.0, 0.0)
+src/pravrudhi/application/propose.py::wilson_ci(switches, n) if n else (0.0, 0.0)
+pravrudhi_kernel/src/pravrudhi_kernel/stats/tost.py::boot_ci_bca_mean(x, n_boot=n_boot, alpha=2 * alpha, seed=seed) if n else (0.0, 0.0)
+
+# The honest version of the same shape, kept on the list only because the guard cannot tell the two apart:
+# `(0.0, 1.0)` is the MAXIMALLY UNINFORMATIVE interval, which is the correct answer from no data. Fix the
+# four above by making them look like this one, or by returning None.
+# Not a safety defect. issue: none needed -- reference case
+src/pravrudhi/application/routing.py::wilson_ci(k, n) if n else (0.0, 1.0)
+
+# A sample standard deviation over fewer than two points is undefined, not 0.0.
+# issue: TBD
+src/pravrudhi/application/noise_floor.py::return 0.0
+src/pravrudhi/application/noise_floor.py::math.sqrt(sum(x * x for x in within) / len(within)) if within else 0.0
+src/pravrudhi/application/harness_track.py::math.sqrt(sum(x * x for x in within) / len(within)) if within else 0.0
+src/pravrudhi/application/harness_track.py::math.sqrt(sum((m - sum(means) / len(means)) ** 2 for m in means) / (len(means) - 1)) if len(means) > 1 else 0.0
+
+# The mean of an empty sample is not 0.0. `tost.py` is the kernel's equivalence test -- a 0.0 mean plus the
+# (0.0, 0.0) interval two lines below it is a fabricated "equivalent" verdict from no data.
+# issue: TBD
+pravrudhi_kernel/src/pravrudhi_kernel/stats/tost.py::float(x.mean()) if n else 0.0
+src/pravrudhi/application/noise_floor.py::sum(all_v) / len(all_v) if all_v else 0.0
+src/pravrudhi/application/acq_replay.py::sum(picked) / len(picked) if picked else 0.0
+
+
+# === CONSERVATIVE DIRECTION (a real result reads worse than it is, or attrition deflates a rate) ======
+#
+# A class whose Lean verdicts never arrived scores 0.0 and stays in the denominator; the gate is a min over
+# classes, so a partially-scored run reads as a regression. Correct behaviour is exclusion plus a count, as
+# `scripts/t2_c3_score.py` already does.
+# Sweep finding: conservative-list item 1. issue: TBD
+src/pravrudhi/application/nyaya_gold_score.py::passed / n if n else 0.0
+
+# Rates over a zero denominator in routing/selection accounting. Lower stakes than the safety gates above
+# (these steer route choice and reporting, not a PROOF/DENIAL), but the same substitution.
+# issue: TBD
+src/pravrudhi/application/routing.py::(k / n) if n else 0.0
+src/pravrudhi/application/routing.py::(sum(o.wall_s for o in mine) / n) if n else 0.0
+src/pravrudhi/application/procedure_graph.py::self.accepted / self.count if self.count else 0.0
+src/pravrudhi/application/variation.py::(self.attempts - self.accepted) / self.attempts if self.attempts else 0.0
+
+# Generation-run reporting stats: a run that produced nothing reports a 0.0 mean score / 0 mean attempts
+# rather than "no data". Offline, low stakes, same class.
+# issue: TBD
+scripts/ext_iltur_generate.py::sum(scores) / len(scores) if scores else 0.0
+scripts/ext_iltur_generate.py::sum(r["attempts"] for r in results.values()) / len(results) if results else 0
+scripts/ext_casehold_generate.py::sum(r["attempts"] for r in results.values()) / len(results) if results else 0
+scripts/ext_tasks/nyaya_utils.py::(sum(c for c, _ in items) / answered) if answered else 0.0
+
+
+# === RULE 1: DECISION-BEARING KEYS =====================================================================
+#
+# `finish()`'s keyword defaults: an early-return ABSTAIN legitimately has no such list, and the outcome
+# chain reads the LOCAL lists rather than these, so the recorded `[]` is defensible. Listed rather than
+# silently allowed because an empty collection standing in for a category that was never computed is the
+# reporting form of this class, and the operator asked for flag-and-waive over silent allow. A reader of
+# `ContractResult` cannot tell "no elements were unavailable" from "this was never evaluated".
+# Not a safety defect. issue: none needed unless a consumer starts reading these fields as measurements
+src/pravrudhi/application/nyaya_agent.py::kw.get("unavailable_second", [])
+src/pravrudhi/application/nyaya_agent.py::kw.get("gate1_unavailable", [])
+
+# The CORRECT use of a False default, and the reason rule 1 flags rather than allows: this is a Telegram
+# API reply, where a missing `ok` means the call did NOT succeed, so False is "refuse/fail", not "no problem
+# found". Kept on the list as the reference case for the distinction the AST cannot make.
+# Not a defect. issue: none needed -- reference case
+src/pravrudhi/application/reach.py::data.get("ok", False)
+
+
+# === proposals/ -- VENDORED PROPOSAL SCORERS ===========================================================
+#
+# Not product code, and not covered by `ruff check`'s own paths, but included deliberately: the sweep found
+# real instances of this class here, and a promotion of any of these into `src/` would carry them in.
+#
+# `eval_compare.py`: a row with no `valid_citations` yields an EMPTY GOLD SET while `total_citations` still
+# grows (`max(len(cited), 1)`), so citation exactness is deflated by rows that could not be scored; and a
+# missing `expect_abstain` both moves the row into the exactness branch AND out of the abstention
+# denominator, so `n_abstain_expected` shrinks silently. Textbook shape.
+# issue: TBD (owner: prabhasa-nyaya finetune)
+proposals/prabhasa-nyaya/finetune/scripts/eval_compare.py::example.get("expect_abstain", False)
+proposals/prabhasa-nyaya/finetune/scripts/eval_compare.py::e.get("expect_abstain", False)
+proposals/prabhasa-nyaya/finetune/scripts/eval_compare.py::(correct_citations / total_citations) if total_citations else 0.0
+proposals/prabhasa-nyaya/finetune/scripts/eval_compare.py::(correct_abstentions / n_abstain_expected) if n_abstain_expected else 0.0
+# A missing gold citation list becomes an empty gold set, so precision/recall are computed against nothing
+# and report 0.0 rather than "not scoreable".
+# issue: TBD (owner: prabhasa-nyaya rl)
+proposals/prabhasa-nyaya/rl/scripts/held_out_eval.py::obj.get("gold_citations", [])
+proposals/prabhasa-nyaya/rl/scripts/held_out_eval.py::(len(set(grounded) & gold) / len(grounded)) if grounded else 0.0
+proposals/prabhasa-nyaya/rl/scripts/held_out_eval.py::(len(set(grounded) & gold) / len(gold)) if gold else 0.0
+proposals/prabhasa-nyaya/rl/scripts/train_rl.py::obj.get("gold_citations", [])
+# Accuracy of 0.0 from zero graded items reads as a model that got everything wrong.
+# issue: TBD (owner: math-reasoning)
+proposals/math-reasoning/finetune/scripts/matheval_utils.py::return 0.0
+proposals/math-reasoning/rl/eval_holdout.py::sum(flags) / len(flags) if flags else 0.0
