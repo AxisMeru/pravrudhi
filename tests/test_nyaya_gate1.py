@@ -15,11 +15,14 @@ from pathlib import Path
 import pytest
 
 from pravrudhi.application.nyaya_judges import (
+    GATE1_TAU_C_DEFAULT,
     ElementJudgment,
     Gate1Judge,
     JudgeRequest,
     gate1_check,
+    gate1_contradiction_check,
     split_disjuncts,
+    split_sentences,
 )
 
 #: No hard-coded absolute path (this repo is public) -- set PRABHASA_NYAYA_SCORE_BIN to a real, built
@@ -138,16 +141,23 @@ class _StubJudge:
 
 @dataclass
 class _StubModel:
-    """A `Gate1NLIModel` double: `score_fn` maps (fact_text, hypothesis_text) -> a fixed score, or raises."""
+    """A `Gate1NLIModel` double: `score_fn` maps (fact_text, hypothesis_text) -> a fixed score, or raises.
+    `contradiction_scores` is a SEPARATE map, keyed by (premise, hypothesis_text) -- contradiction_veto mode
+    calls once per (sentence, disjunct) pair, so the same hypothesis can legitimately map to different
+    scores against different sentences, unlike entailment mode's one-call-per-disjunct shape."""
 
     model_id: str = "stub-model"
     scores: dict[str, float] | None = None
+    contradiction_scores: dict[tuple[str, str], float] | None = None
     error: BaseException | None = None
     calls: list[tuple[str, str]] | None = None
+    contradiction_calls: list[tuple[str, str]] | None = None
 
     def __post_init__(self) -> None:
         if self.calls is None:
             self.calls = []
+        if self.contradiction_calls is None:
+            self.contradiction_calls = []
 
     def score_one(self, fact_text: str, hypothesis_text: str) -> float:
         assert self.calls is not None
@@ -156,6 +166,14 @@ class _StubModel:
             raise self.error
         assert self.scores is not None
         return self.scores[hypothesis_text]
+
+    def score_contradiction_one(self, premise: str, hypothesis_text: str) -> float:
+        assert self.contradiction_calls is not None
+        self.contradiction_calls.append((premise, hypothesis_text))
+        if self.error is not None:
+            raise self.error
+        assert self.contradiction_scores is not None
+        return self.contradiction_scores[(premise, hypothesis_text)]
 
 
 class TestSplitDisjuncts:
@@ -413,3 +431,162 @@ class TestGate1Judge:
         assert out.status == "established"  # Gate 1 did not touch it
         assert out.gate1_score is None
         assert model.calls == []
+
+
+class TestSplitSentences:
+    """Pure sentence splitter Arm C uses (contradiction_veto mode) -- splits on sentence-ending
+    punctuation followed by whitespace + a capital letter (GATE1-ARM-C-2026-09-26.md's own documented
+    simplification: no special abbreviation handling)."""
+
+    def test_two_sentences_split(self) -> None:
+        assert split_sentences("First sentence. Second sentence.") == ["First sentence.", "Second sentence."]
+
+    def test_single_sentence_is_a_one_item_list(self) -> None:
+        assert split_sentences("Only one sentence here.") == ["Only one sentence here."]
+
+    def test_no_terminal_punctuation_is_still_a_one_item_list(self) -> None:
+        assert split_sentences("no period at all") == ["no period at all"]
+
+    def test_whitespace_only_disjuncts_are_not_produced(self) -> None:
+        for s in split_sentences("A.  B.   C."):
+            assert s.strip() == s and s != ""
+
+
+class TestGate1ContradictionCheck:
+    """Pure max-over-(sentence x disjunct)-of-contradiction scoring (Arm C, GATE1-ARM-C-2026-09-26.md) --
+    no entailment requirement at all, mirrors `TestGate1Check`'s structure for the entailment-mode function."""
+
+    def test_takes_the_max_over_sentences_and_disjuncts(self) -> None:
+        scores = {
+            ("First sentence.", "insufficiency of funds"): 0.01,
+            ("First sentence.", "account closed"): 0.2,
+            ("Second sentence.", "insufficiency of funds"): 0.9,
+            ("Second sentence.", "account closed"): 0.1,
+        }
+        result = gate1_contradiction_check(
+            "First sentence. Second sentence.", "insufficiency of funds, or account closed",
+            score_fn=lambda s, d: scores[(s, d)], tau_c=0.3, model="stub",
+        )
+        assert result.score == 0.9
+        assert result.sentences == ["First sentence.", "Second sentence."]
+        assert result.disjuncts == ["insufficiency of funds", "account closed"]
+        assert result.vetoed is True
+
+    @pytest.mark.parametrize("score,expected", [(0.321158230304718, True), (0.321158230304717, False)])
+    def test_vetoed_is_score_ge_tau_c_at_the_exact_boundary(self, score: float, expected: bool) -> None:
+        result = gate1_contradiction_check(
+            "fact", "element", score_fn=lambda _s, _d: score, tau_c=0.321158230304718, model="stub",
+        )
+        assert result.vetoed is expected
+
+    def test_no_disjunction_no_multi_sentence_scores_exactly_once(self) -> None:
+        calls = []
+
+        def score_fn(sentence: str, disjunct: str) -> float:
+            calls.append((sentence, disjunct))
+            return 0.1
+
+        gate1_contradiction_check("one sentence fact", "no disjunction here", score_fn=score_fn, tau_c=0.3, model="stub")
+        assert calls == [("one sentence fact", "no disjunction here")]
+
+
+class TestGate1JudgeContradictionVetoMode:
+    """Composition in `mode="contradiction_veto"` (Arm C) -- mirrors `TestGate1Judge`'s structure for the
+    default entailment mode, using `score_contradiction_one` instead of `score_one`."""
+
+    def test_never_asks_gate1_when_inner_says_not_established(self) -> None:
+        inner = _StubJudge("inner", _judgment("not_established", 0.3))
+        model = _StubModel(error=AssertionError("must not be called"))
+        gate = Gate1Judge(inner, model, mode="contradiction_veto", tau_c=0.3)
+        out = gate.judge(REQ)
+        assert out.status == "not_established"
+        assert out.gate1_score is None and out.gate1_disjuncts is None
+        assert model.contradiction_calls == []
+
+    def test_established_and_below_tau_c_stays_established(self) -> None:
+        inner = _StubJudge("inner", _judgment("established", 0.97))
+        model = _StubModel(contradiction_scores={(REQ_SIMPLE.facts[0][1], REQ_SIMPLE.element): 0.05})
+        gate = Gate1Judge(inner, model, mode="contradiction_veto", tau_c=0.3)
+        out = gate.judge(REQ_SIMPLE)
+        assert out.status == "established"
+        assert out.gate1_score == 0.05
+        assert out.gate1_disjuncts == [REQ_SIMPLE.element]
+        assert out.vetoed_by is None
+        assert out.gate1_veto_kind is None
+
+    def test_established_but_contradiction_at_or_above_tau_c_vetoes(self) -> None:
+        inner = _StubJudge("inner", _judgment("established", 0.97))
+        model = _StubModel(contradiction_scores={(REQ_SIMPLE.facts[0][1], REQ_SIMPLE.element): 0.95})
+        gate = Gate1Judge(inner, model, mode="contradiction_veto", tau_c=0.3)
+        out = gate.judge(REQ_SIMPLE)
+        assert out.status == "not_established"
+        assert out.vetoed_by == "gate1"
+        assert out.gate1_veto_kind == "contradiction"
+        assert out.gate1_score == 0.95
+        assert out.gate1_skip_reason is None  # a real score, not a model failure
+
+    def test_entailment_veto_kind_is_not_entailed_not_contradiction(self) -> None:
+        """The two modes' veto kinds are mutually exclusive and mode-specific -- pinning the DEFAULT mode's
+        own veto kind here so a future change can't quietly blur the two."""
+        inner = _StubJudge("inner", _judgment("established", 0.97))
+        model = _StubModel(scores={REQ_SIMPLE.element: 0.001})
+        gate = Gate1Judge(inner, model, mode="entailment", threshold=0.04)
+        out = gate.judge(REQ_SIMPLE)
+        assert out.vetoed_by == "gate1"
+        assert out.gate1_veto_kind == "not_entailed"
+
+    def test_gate1_model_error_fails_closed(self) -> None:
+        inner = _StubJudge("inner", _judgment("established", 0.97))
+        model = _StubModel(error=RuntimeError("model not loaded"))
+        gate = Gate1Judge(inner, model, mode="contradiction_veto", tau_c=0.3)
+        out = gate.judge(REQ)
+        assert out.status == "not_established"
+        assert out.vetoed_by == "gate1"
+        assert out.gate1_veto_kind is None  # unavailable, not a real veto decision
+        assert out.gate1_skip_reason is not None
+        assert out.gate1_skip_reason.startswith("gate1_unavailable")
+
+    def test_missing_fact_id_passes_through_unchanged(self) -> None:
+        inner = _StubJudge("inner", _judgment("established", 0.97, fact_id="F99", quote="nonexistent"))
+        model = _StubModel(error=AssertionError("must not be called"))
+        gate = Gate1Judge(inner, model, mode="contradiction_veto", tau_c=0.3)
+        out = gate.judge(REQ)
+        assert out.status == "established"
+        assert model.contradiction_calls == []
+
+
+class TestArmCOutOfSampleFixtures:
+    """The 13 out-of-sample negation items (12 negation probes + Gate 0's mutation (d)) at Arm C's frozen
+    tau_c -- NOT new data, their (id, max_contra score, expected veto) come straight from
+    GATE1-ARM-C-2026-09-26.md's own sealed `arm_c_eval_summary.json` (this session's real measurement
+    against the real model), pinned here as a regression fixture for the threshold decision boundary. Only
+    `bns318-scope` is expected to leak through (max_contra=0.159, well below tau_c) -- explained in that
+    doc as a partial-disjunct negation (the fact negates only one of the element's two disjuncts), the same
+    class of gap as the bns46 elements themselves (GATE1-ARM-C-ROBUSTNESS-2026-09-26.md)."""
+
+    OOS_RESULTS = (
+        ("bns85-plain", 0.9974810481071472, True),
+        ("bns85-scope", 0.9769153594970703, True),
+        ("bns85-double", 0.9976490139961243, True),
+        ("bns316-plain", 0.9979641437530518, True),
+        ("bns316-scope", 0.9956282377243042, True),
+        ("bns316-double", 0.9873064756393433, True),
+        ("ni138-plain", 0.9987825751304626, True),
+        ("ni138-scope", 0.9954634308815002, True),
+        ("ni138-double", 0.9095112681388855, True),
+        ("bns318-plain", 0.9825838208198547, True),
+        ("bns318-scope", 0.15876516699790955, False),
+        ("bns318-double", 0.9968783855438232, True),
+        ("gate0-mutation-d", 0.9924754500389099, True),
+    )
+
+    @pytest.mark.parametrize("item_id,max_contra,expected_vetoed", OOS_RESULTS)
+    def test_frozen_tau_c_matches_the_sealed_measurement(
+        self, item_id: str, max_contra: float, expected_vetoed: bool,
+    ) -> None:
+        assert (max_contra >= GATE1_TAU_C_DEFAULT) is expected_vetoed, item_id
+
+    def test_12_of_13_caught_overall(self) -> None:
+        n_caught = sum(1 for _id, _score, vetoed in self.OOS_RESULTS if vetoed)
+        assert n_caught == 12
+        assert len(self.OOS_RESULTS) == 13

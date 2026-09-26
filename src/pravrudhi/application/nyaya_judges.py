@@ -117,6 +117,11 @@ class ElementJudgment:
     #: established but the entailment check failed, or the Gate 1 model itself was unavailable), or None
     #: when established (or when a given gate is not configured and so never has an opinion).
     vetoed_by: Literal["primary", "second", "gate1"] | None = None
+    #: Which Gate 1 MODE produced a `vetoed_by="gate1"` veto -- "not_entailed" (the entailment mode, the
+    #: original design) or "contradiction" (Arm C, GATE1-ARM-C-2026-09-26.md: a REFER fired because the fact
+    #: explicitly contradicts the element, with no entailment requirement at all). None whenever `vetoed_by
+    #: != "gate1"`, or Gate 1 was never configured/asked.
+    gate1_veto_kind: Literal["not_entailed", "contradiction"] | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -626,7 +631,24 @@ def split_disjuncts(element_desc: str) -> list[str]:
     return [element_desc]
 
 
+#: Sentence splitter for Arm C (contradiction_veto mode) -- splits on sentence-ending punctuation followed
+#: by whitespace + a capital letter. Documented simplification (GATE1-ARM-C-2026-09-26.md): does not handle
+#: abbreviations specially; every calibration/eval fact this was validated against is plain declarative
+#: English, not abbreviation-heavy. Falls back to the whole text as one "sentence" when nothing splits.
+_SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+(?=[A-Z])")
+
+
+def split_sentences(fact_text: str) -> list[str]:
+    parts = [s.strip() for s in _SENTENCE_SPLIT.split(fact_text.strip()) if s.strip()]
+    return parts or [fact_text.strip()]
+
+
 GATE1_THRESHOLD_DEFAULT = 0.04074102267622948
+#: Arm C's own frozen threshold (GATE1-ARM-C-2026-09-26.md): the LOWEST tau_c such that the block rate on
+#: positives was <=5% on the tune half of a 60-item calibration set (disjoint from 377/225, the 13 OOS
+#: negation items, and heldout_v1). Test-half: leak 0.0% (0/30), block 6.7% (2/30). Only used when
+#: `Gate1Judge.mode == "contradiction_veto"` -- inert in the default "entailment" mode.
+GATE1_TAU_C_DEFAULT = 0.321158230304718
 GATE1_MODEL_DEFAULT = "MoritzLaurer/DeBERTa-v3-base-mnli-fever-anli"
 #: Pinned by commit sha, never a branch/tag (a model card edit or a weights update on `main` must never
 #: silently change what a running deployment scores with). Confirmed (Lead-2, 2026-09-26) to be the exact
@@ -654,6 +676,34 @@ def gate1_check(
     disjuncts = split_disjuncts(element_desc)
     score = max(score_fn(fact_text, d) for d in disjuncts)
     return Gate1Result(score=score, passed=score >= threshold, disjuncts=disjuncts, model=model)
+
+
+@dataclass(frozen=True)
+class Gate1ContradictionResult:
+    score: float
+    vetoed: bool
+    disjuncts: list[str]
+    sentences: list[str]
+    model: str
+
+
+def gate1_contradiction_check(
+    fact_text: str, element_desc: str, *, score_fn: Callable[[str, str], float], tau_c: float, model: str,
+) -> Gate1ContradictionResult:
+    """Arm C (GATE1-ARM-C-2026-09-26.md): `score_fn(sentence, hypothesis_text) -> p_contradiction` is the
+    only thing that touches a real model. Splits `fact_text` into sentences and `element_desc` into its
+    disjuncts (the SAME `split_disjuncts` the entailment mode uses), scores every (sentence, disjunct) pair,
+    and takes the max -- vetoed iff that max clears `tau_c`. No entailment requirement at all: this is a
+    narrower check than `gate1_check`, scoped to explicit contradiction only (Lead-2's diagnosis, 2026-09-26:
+    the entailment mode's calibration trained it to do element discrimination, the JUDGE's job, where NLI is
+    weak -- Arm C is scoped to the (d)-class gap alone, catching a fact that contradicts its element, never
+    asking whether the fact affirmatively supports it)."""
+    disjuncts = split_disjuncts(element_desc)
+    sentences = split_sentences(fact_text)
+    score = max(score_fn(s, d) for s in sentences for d in disjuncts)
+    return Gate1ContradictionResult(
+        score=score, vetoed=score >= tau_c, disjuncts=disjuncts, sentences=sentences, model=model,
+    )
 
 
 class Gate1NLIModel:
@@ -688,31 +738,55 @@ class Gate1NLIModel:
         self._model = AutoModelForSequenceClassification.from_pretrained(local_dir, dtype=torch.float32)
         self._model.eval()
 
-    def score_one(self, fact_text: str, hypothesis_text: str) -> float:
-        """`entailment - contradiction`, the exact shape `run_configc_gate1_v2_eval.py`'s own `score_one`
-        computes -- `"It is true that: {hypothesis}"` as the NLI hypothesis, softmax over the model's own
-        label set (read from `model.config.id2label`, never a hardcoded index order)."""
+    def _raw_probs(self, premise: str, hypothesis_text: str) -> dict[str, float]:
+        """(entailment, neutral, contradiction) probabilities, keyed by the model's own label names (read
+        from `model.config.id2label`, never a hardcoded index order) -- the single real model call both
+        `score_one` (entailment mode) and `score_contradiction_one` (Arm C, contradiction_veto mode) build
+        on, so there is exactly one place that ever talks to the model."""
         self._ensure_loaded()
         import torch
 
         hyp = f"It is true that: {hypothesis_text}"
-        enc = self._tokenizer(fact_text, hyp, return_tensors="pt", truncation=True, max_length=512)
+        enc = self._tokenizer(premise, hyp, return_tensors="pt", truncation=True, max_length=512)
         with torch.no_grad():
             logits = self._model(**enc).logits[0]
         probs = torch.softmax(logits, dim=-1).tolist()
         labels = self._model.config.id2label
-        name_to_p = {labels[i].lower(): probs[i] for i in range(len(probs))}
-        return float(name_to_p.get("entailment", 0.0) - name_to_p.get("contradiction", 0.0))
+        return {labels[i].lower(): probs[i] for i in range(len(probs))}
+
+    def score_one(self, fact_text: str, hypothesis_text: str) -> float:
+        """`entailment - contradiction`, the exact shape `run_configc_gate1_v2_eval.py`'s own `score_one`
+        computes -- the entailment-mode `score_fn` `gate1_check` expects."""
+        p = self._raw_probs(fact_text, hypothesis_text)
+        return float(p.get("entailment", 0.0) - p.get("contradiction", 0.0))
+
+    def score_contradiction_one(self, premise: str, hypothesis_text: str) -> float:
+        """Raw `p_contradiction` -- the contradiction_veto-mode `score_fn` `gate1_contradiction_check`
+        expects (Arm C, GATE1-ARM-C-2026-09-26.md: no entailment requirement, contradiction only). `premise`
+        is a single FACT SENTENCE here, not the whole fact -- `gate1_contradiction_check` calls this once
+        per (sentence, disjunct) pair."""
+        p = self._raw_probs(premise, hypothesis_text)
+        return float(p.get("contradiction", 0.0))
 
 
 class Gate1ScoreModel(Protocol):
-    """What `Gate1Judge` needs from a model -- `Gate1NLIModel` in production, a lightweight test double in
-    tests (mirrors `Judge`'s own role: a Protocol, never a concrete-class requirement, so a test never needs
-    a real model just to satisfy a type check)."""
+    """What `Gate1Judge` needs from a model in the default "entailment" mode -- `Gate1NLIModel` in
+    production, a lightweight test double in tests (mirrors `Judge`'s own role: a Protocol, never a
+    concrete-class requirement, so a test never needs a real model just to satisfy a type check)."""
 
     model_id: str
 
     def score_one(self, fact_text: str, hypothesis_text: str) -> float: ...
+
+
+class Gate1ContradictionScoreModel(Protocol):
+    """What `Gate1Judge` needs from a model in `mode="contradiction_veto"` (Arm C) -- a SEPARATE Protocol
+    from `Gate1ScoreModel` so an entailment-mode test double never needs to implement
+    `score_contradiction_one`, and vice versa. `Gate1NLIModel` satisfies both."""
+
+    model_id: str
+
+    def score_contradiction_one(self, premise: str, hypothesis_text: str) -> float: ...
 
 
 class Gate1Judge:
@@ -720,21 +794,37 @@ class Gate1Judge:
     same way the second judge does: Gate 1 is asked ONLY when the wrapped judge already says established --
     never on an element neither judge (nor Gate 1) has anything to check yet.
 
-    An established call that fails Gate 1 does NOT become an ordinary not-established fact: `vetoed_by=
-    "gate1"` and `gate1_score`/`gate1_disjuncts` are set so `nyaya_agent._run_contract` can surface this as
-    REFER_TO_LAWYER (`gate1_not_entailed`), a reviewable outcome, rather than an indistinguishable coverage
-    loss (GATE1-PRODUCT-WIRING-SPEC-2026-09-26.md §4). A Gate 1 model that fails to load or errors on this
-    call fails the SAME way the second judge does on an error: NOT established, `gate1_skip_reason` records
-    why, and the agent surfaces a REFER (`gate1_unavailable`) -- never a silent pass, never a silent
-    not-established that could drive a false DENIAL."""
+    Two MODES, mutually exclusive, selected at construction (`mode=`), never both at once:
+    - `"entailment"` (default): the original design, `gate1_check` -- REFER unless the fact affirmatively
+      entails the element. Measured cost: -19%/-9% coverage on the 377/225 set for no demonstrated
+      false-prove benefit there (GATE1-PRODUCT-WIRING-SPEC-2026-09-26.md).
+    - `"contradiction_veto"` (Arm C, GATE1-ARM-C-2026-09-26.md): `gate1_contradiction_check` -- REFER only
+      if the fact explicitly CONTRADICTS the element, no entailment requirement. Narrower job, much cheaper
+      coverage cost (89/377 vs config C alone's 109/377), 12/13 catch on the out-of-sample negation set.
+      Known weakness, measured not glossed over: narrative-framed denials leak at 33-40%
+      (GATE1-ARM-C-ROBUSTNESS-2026-09-26.md) -- RJ-Bench v2.2 reports Arm C's catch rate on real
+      narrative-framed denials separately, per Lead-2's instruction.
+
+    An established call that fails Gate 1 (either mode) does NOT become an ordinary not-established fact:
+    `vetoed_by="gate1"` and `gate1_veto_kind` (`"not_entailed"` or `"contradiction"`) are set so
+    `nyaya_agent._run_contract` can surface this as REFER_TO_LAWYER with a mode-specific reason
+    (`gate1_not_entailed` or `gate1_contradiction`), a reviewable outcome, rather than an indistinguishable
+    coverage loss (GATE1-PRODUCT-WIRING-SPEC-2026-09-26.md §4). A Gate 1 model that fails to load or errors
+    on this call fails the SAME way in both modes: NOT established, `gate1_skip_reason` records why, and the
+    agent surfaces a REFER (`gate1_unavailable`) -- never a silent pass, never a silent not-established that
+    could drive a false DENIAL."""
 
     def __init__(
-        self, inner: Judge, model: Gate1ScoreModel, *,
-        threshold: float = GATE1_THRESHOLD_DEFAULT, name: str | None = None,
+        self, inner: Judge, model: Gate1ScoreModel | Gate1ContradictionScoreModel, *,
+        mode: Literal["entailment", "contradiction_veto"] = "entailment",
+        threshold: float = GATE1_THRESHOLD_DEFAULT, tau_c: float = GATE1_TAU_C_DEFAULT,
+        name: str | None = None,
     ) -> None:
         self.inner = inner
         self.model = model
+        self.mode = mode
         self.threshold = threshold
+        self.tau_c = tau_c
         self.name: str = name or str(getattr(inner, "name", "gate1"))
 
     def judge(self, request: JudgeRequest) -> ElementJudgment:
@@ -744,10 +834,29 @@ class Gate1Judge:
         fact_text = dict(request.facts).get(judgment.fact_id) if judgment.fact_id else None
         if fact_text is None:
             return judgment  # no resolvable fact id -- the quote check downstream will reject this anyway
+
+        if self.mode == "contradiction_veto":
+            try:
+                c_result = gate1_contradiction_check(
+                    fact_text, request.element, score_fn=self.model.score_contradiction_one,  # type: ignore[union-attr]
+                    tau_c=self.tau_c, model=self.model.model_id,
+                )
+            except Exception as e:  # noqa: BLE001 -- fail closed, mirrors AndGateJudge's second-judge-error path
+                return replace(
+                    judgment, status="not_established", vetoed_by="gate1",
+                    gate1_skip_reason=f"gate1_unavailable: {type(e).__name__}: {e}"[:400],
+                )
+            if not c_result.vetoed:
+                return replace(judgment, gate1_score=c_result.score, gate1_disjuncts=c_result.disjuncts)
+            return replace(
+                judgment, status="not_established", vetoed_by="gate1", gate1_veto_kind="contradiction",
+                gate1_score=c_result.score, gate1_disjuncts=c_result.disjuncts,
+            )
+
         try:
             result = gate1_check(
-                fact_text, request.element, score_fn=self.model.score_one, threshold=self.threshold,
-                model=self.model.model_id,
+                fact_text, request.element, score_fn=self.model.score_one,  # type: ignore[union-attr]
+                threshold=self.threshold, model=self.model.model_id,
             )
         except Exception as e:  # noqa: BLE001 -- fail closed, mirrors AndGateJudge's second-judge-error path
             return replace(
@@ -757,6 +866,6 @@ class Gate1Judge:
         if result.passed:
             return replace(judgment, gate1_score=result.score, gate1_disjuncts=result.disjuncts)
         return replace(
-            judgment, status="not_established", vetoed_by="gate1",
+            judgment, status="not_established", vetoed_by="gate1", gate1_veto_kind="not_entailed",
             gate1_score=result.score, gate1_disjuncts=result.disjuncts,
         )

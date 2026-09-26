@@ -274,6 +274,14 @@ def load_agent_config(root: Path) -> AgentConfig:
         gate1["threshold"] = float(os.environ["NYAYA_GATE1_THRESHOLD"])
     if os.environ.get("NYAYA_GATE1_MODEL"):
         gate1["model"] = os.environ["NYAYA_GATE1_MODEL"]
+    # Arm C (GATE1-ARM-C-2026-09-26.md): a SEPARATE mode, not a separate gate -- "mode" picks which of
+    # Gate1Judge's two check functions runs; "tau_c" is inert in the default "entailment" mode, just as
+    # "threshold" is inert in "contradiction_veto" mode. Both stay configured either way, same rationale as
+    # keeping the whole `gate1` block present while `gate1_enabled` is False (Track-C's own recommendation).
+    if os.environ.get("NYAYA_GATE1_MODE"):
+        gate1["mode"] = os.environ["NYAYA_GATE1_MODE"]
+    if os.environ.get("NYAYA_GATE1_TAU_C"):
+        gate1["tau_c"] = float(os.environ["NYAYA_GATE1_TAU_C"])
     gate1_enabled_raw = os.environ.get("NYAYA_GATE1_ENABLED", "")
     gate1_enabled = gate1_enabled_raw.strip().lower() in ("1", "true", "yes", "on")
 
@@ -585,9 +593,14 @@ class ElementResult:
     #: Gate1Judge`'s own docstring), surfaced as REFER_TO_LAWYER (`gate1_unavailable`), never a silent
     #: not-established.
     gate1_unavailable: bool = False
-    #: Gate 1 answered but scored below its threshold -- REFER_TO_LAWYER (`gate1_not_entailed`), distinct
-    #: from `gate1_unavailable`: there IS a score here, it just didn't clear the bar.
+    #: Gate 1 (entailment mode) answered but scored below its threshold -- REFER_TO_LAWYER
+    #: (`gate1_not_entailed`), distinct from `gate1_unavailable`: there IS a score here, it just didn't
+    #: clear the bar. Mutually exclusive with `gate1_contradiction` below (only one mode ever runs).
     gate1_not_entailed: bool = False
+    #: Gate 1 (Arm C, `mode="contradiction_veto"`) found the fact explicitly contradicts the element --
+    #: REFER_TO_LAWYER (`gate1_contradiction`), GATE1-ARM-C-2026-09-26.md. Mutually exclusive with
+    #: `gate1_not_entailed` above.
+    gate1_contradiction: bool = False
 
 
 @dataclass
@@ -616,8 +629,11 @@ class ContractResult:
     #: threshold.
     gate1_unavailable: list[str] = field(default_factory=list)
     #: Elements the judge(s) established but Gate 1's entailment check did not clear its threshold. Always []
-    #: when Gate 1 is not configured.
+    #: when Gate 1 is not configured, or configured in `mode="contradiction_veto"`.
     gate1_failed: list[str] = field(default_factory=list)
+    #: Elements Gate 1 (Arm C, `mode="contradiction_veto"`) vetoed because the fact explicitly contradicts
+    #: the element. Always [] when Gate 1 is not configured, or configured in the default entailment mode.
+    gate1_contradiction: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -716,10 +732,13 @@ def _gate1_info(anchor: ElementJudgment | None) -> dict[str, Any]:
     """Attempt 1's Gate 1 fields for `ElementResult` -- mirrors `_second_band_info`'s shape exactly, reading
     only from `anchor` (attempt 1's own judgment; a quote-only retry never re-reads Gate 1's opinion, same
     convention the second judge's own fields already follow). `gate1_unavailable` is a fail-closed signal
-    (the model errored or never loaded), distinct from `gate1_not_entailed` (the model answered, the score
-    just didn't clear threshold) -- both are None/False when Gate 1 is not configured at all."""
+    (the model errored or never loaded), distinct from the two POSSIBLE veto reasons (the model answered,
+    the score just didn't clear the bar) -- `gate1_not_entailed` (entailment mode) and `gate1_contradiction`
+    (Arm C, contradiction_veto mode) are mutually exclusive with each other and with `gate1_unavailable`; all
+    three are False/None when Gate 1 is not configured at all."""
     out: dict[str, Any] = {
-        "gate1_score": None, "gate1_disjuncts": None, "gate1_unavailable": False, "gate1_not_entailed": False,
+        "gate1_score": None, "gate1_disjuncts": None, "gate1_unavailable": False,
+        "gate1_not_entailed": False, "gate1_contradiction": False,
     }
     if anchor is None:
         return out
@@ -728,7 +747,9 @@ def _gate1_info(anchor: ElementJudgment | None) -> dict[str, Any]:
     out["gate1_unavailable"] = bool(
         anchor.gate1_skip_reason and anchor.gate1_skip_reason.startswith("gate1_unavailable")
     )
-    out["gate1_not_entailed"] = anchor.vetoed_by == "gate1" and not out["gate1_unavailable"]
+    vetoed = anchor.vetoed_by == "gate1" and not out["gate1_unavailable"]
+    out["gate1_not_entailed"] = vetoed and anchor.gate1_veto_kind == "not_entailed"
+    out["gate1_contradiction"] = vetoed and anchor.gate1_veto_kind == "contradiction"
     return out
 
 
@@ -776,6 +797,7 @@ class NyayaAgent:
         from pravrudhi.application.nyaya_judges import (
             GATE1_MODEL_DEFAULT,
             GATE1_MODEL_REVISION_DEFAULT,
+            GATE1_TAU_C_DEFAULT,
             GATE1_THRESHOLD_DEFAULT,
             AndGateJudge,
             Gate1Judge,
@@ -807,7 +829,11 @@ class NyayaAgent:
                 judge = primary
             if gate1_model is not None:
                 threshold = float(cfg.gate1.get("threshold", GATE1_THRESHOLD_DEFAULT))
-                judge = Gate1Judge(judge, gate1_model, threshold=threshold)
+                tau_c = float(cfg.gate1.get("tau_c", GATE1_TAU_C_DEFAULT))
+                mode = str(cfg.gate1.get("mode", "entailment"))
+                if mode not in ("entailment", "contradiction_veto"):
+                    raise ValueError(f"gate1.mode must be 'entailment' or 'contradiction_veto', got {mode!r}")
+                judge = Gate1Judge(judge, gate1_model, mode=mode, threshold=threshold, tau_c=tau_c)  # type: ignore[arg-type]
             return judge
 
         judge = _build_judge()
@@ -1022,12 +1048,14 @@ class NyayaAgent:
             res = ContractResult(contract_id, outcome, reason, results, kw.get("assertions"), kw.get("lean"),
                                  kw.get("lean_outcome"), kw.get("uncertain", []), mismatch,
                                  kw.get("uncertain_second", []), unavailable_second=kw.get("unavailable_second", []),
-                                 gate1_unavailable=kw.get("gate1_unavailable", []), gate1_failed=kw.get("gate1_failed", []))
+                                 gate1_unavailable=kw.get("gate1_unavailable", []), gate1_failed=kw.get("gate1_failed", []),
+                                 gate1_contradiction=kw.get("gate1_contradiction", []))
             audit.step("outcome", {"contract_id": contract_id, "elements": [asdict(r) for r in results]},
                        {"contract_id": contract_id, "outcome": outcome, "reason": reason,
                         "lean_outcome": res.lean_outcome, "uncertain": res.uncertain,
                         "uncertain_second": res.uncertain_second, "unavailable_second": res.unavailable_second,
                         "gate1_unavailable": res.gate1_unavailable, "gate1_failed": res.gate1_failed,
+                        "gate1_contradiction": res.gate1_contradiction,
                         "statute_text_mismatch": mismatch}, 0.0)
             return res
 
@@ -1058,10 +1086,12 @@ class NyayaAgent:
         unavailable_second = [r.element for r in results if r.second_unavailable]
         gate1_unavailable = [r.element for r in results if r.gate1_unavailable]
         gate1_failed = [r.element for r in results if r.gate1_not_entailed]
+        gate1_contradiction = [r.element for r in results if r.gate1_contradiction]
         kw: dict[str, Any] = {"assertions": assertions, "lean": lean, "lean_outcome": lean_outcome,
                               "uncertain": uncertain, "uncertain_second": uncertain_second,
                               "unavailable_second": unavailable_second,
-                              "gate1_unavailable": gate1_unavailable, "gate1_failed": gate1_failed}
+                              "gate1_unavailable": gate1_unavailable, "gate1_failed": gate1_failed,
+                              "gate1_contradiction": gate1_contradiction}
 
         if lean_outcome != local:
             return finish("ABSTAIN", "assembly_lean_mismatch", **kw)
@@ -1077,6 +1107,8 @@ class NyayaAgent:
             return finish("REFER_TO_LAWYER", "gate1_unavailable", **kw)
         if gate1_failed:
             return finish("REFER_TO_LAWYER", "gate1_not_entailed", **kw)
+        if gate1_contradiction:
+            return finish("REFER_TO_LAWYER", "gate1_contradiction", **kw)
         # Safety gate (Lead-2, 2026-09-25): a contract with no judge-side validation never reaches the user
         # as a PROOF or DENIAL. Every element judged, quoted and Lean-checked above stays visible in `results`
         # and the audit trail -- only the FINAL outcome is intercepted, and only when it would otherwise be a
