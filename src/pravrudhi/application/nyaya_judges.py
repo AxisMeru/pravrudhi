@@ -539,26 +539,70 @@ class AndGateJudge:
 
 #: The two disjunct-split patterns frozen on heldout_v1 (Track-C, GATE1-DISJUNCT-FIX-2026-09-26.md,
 #: develop_gate1_disjunct_fix.py sha 7897c381) and re-verified unchanged on the full 377/225 eval
-#: (run_configc_gate1_v2_eval.py sha 7ed02c49) -- copied here verbatim, never re-derived. Known gap,
-#: documented not fixed: mishandles a SUBJECT-EMBEDDED disjunction ("the consequence [intended, or known to
-#: be likely,] is X"), producing two grammatically broken halves -- it still matches by shape and degrades
-#: gracefully (never flips a correct not-established to a false established), it just doesn't rescue that one
-#: shape (see `split_disjuncts`'s own docstring).
+#: (run_configc_gate1_v2_eval.py sha 7ed02c49). Known gap, documented not fixed: mishandles a
+#: SUBJECT-EMBEDDED disjunction ("the consequence [intended, or known to be likely,] is X"), producing two
+#: grammatically broken halves -- it still matches by shape and degrades gracefully (never flips a correct
+#: not-established to a false established), it just doesn't rescue that one shape (see `split_disjuncts`'s
+#: own docstring).
+#:
+#: PAREN-AWARE, 2026-09-26 (Track-C, GATE1-PAREN-SPLIT-BUG-2026-09-26.md): the original version matched
+#: "or" inside a statutory citation parenthetical (e.g. bns85 el1's "(s.86(a) or (b))") as if it were a
+#: real top-level disjunction, producing paren-unbalanced garbage on 4/30 disjunctive-matched elements
+#: across the 26-contract registry. `split_disjuncts` below now masks any "or" sitting at parenthesis
+#: depth > 0 before applying these two patterns, so they only ever see a genuine top-level "or" -- these
+#: two regexes themselves are UNCHANGED (still applied to a same-length masked copy of the text, matched
+#: spans sliced back out of the ORIGINAL text), so every already-correct split is untouched.
 _GATE1_SUFFIX3 = re.compile(r"^(?P<pre>.*?),\s*or\s+(?P<b>[^,]+),\s*(?P<suf>.*)$")
 _GATE1_SIMPLE2 = re.compile(r"^(?P<pre>.*?),?\s+or\s+(?P<suf>.*)$")
+
+
+def _mask_nested_or(text: str) -> str:
+    """Same-length copy of `text` with every whole-word "or" that sits inside parentheses (paren depth > 0
+    at that position) replaced by two NUL characters -- invisible to `_GATE1_SUFFIX3`/`_GATE1_SIMPLE2`
+    (neither can match a NUL byte as "or"), while every other character, including all parentheses
+    themselves, is left in place so span positions/offsets are identical to the original text."""
+    depth = 0
+    out = list(text)
+    i, n = 0, len(text)
+    while i < n:
+        ch = text[i]
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth = max(0, depth - 1)
+        elif (
+            depth > 0
+            and text[i : i + 2] == "or"
+            and (i == 0 or not text[i - 1].isalnum())
+            and (i + 2 == n or not text[i + 2].isalnum())
+        ):
+            out[i] = out[i + 1] = "\0"
+            i += 2
+            continue
+        i += 1
+    return "".join(out)
 
 
 def split_disjuncts(element_desc: str) -> list[str]:
     """`element_desc` split into its disjuncts, each scored separately by `gate1_check` (max over all of
     them): `"A, or B, suffix"` -> `["A, suffix", "B, suffix"]`; `"A, or B"` -> `["A", "B"]`; anything else ->
-    `[element_desc]` unchanged (no disjunction found, or the SUBJECT-EMBEDDED shape this heuristic cannot
-    parse -- see the module-level comment above)."""
-    m = _GATE1_SUFFIX3.match(element_desc)
+    `[element_desc]` unchanged (no TOP-LEVEL disjunction found -- either none at all, an "or" that only
+    ever appears inside parentheses (a citation, not a disjunction -- see `_mask_nested_or` above), or the
+    SUBJECT-EMBEDDED shape this heuristic cannot parse, see the module-level comment above). Matches against
+    a `_mask_nested_or`-masked copy of `element_desc`, then slices the ORIGINAL text using the match's own
+    spans -- the masking only decides WHERE a split may happen, never what text ends up in the disjuncts."""
+    masked = _mask_nested_or(element_desc)
+    m = _GATE1_SUFFIX3.match(masked)
     if m:
-        return [f"{m['pre']}, {m['suf']}", f"{m['b']}, {m['suf']}"]
-    m = _GATE1_SIMPLE2.match(element_desc)
+        pre = element_desc[: m.end("pre")]
+        b = element_desc[m.start("b") : m.end("b")]
+        suf = element_desc[m.start("suf") :]
+        return [f"{pre}, {suf}", f"{b}, {suf}"]
+    m = _GATE1_SIMPLE2.match(masked)
     if m:
-        return [m["pre"], m["suf"]]
+        pre = element_desc[: m.end("pre")]
+        suf = element_desc[m.start("suf") :]
+        return [pre, suf]
     return [element_desc]
 
 
