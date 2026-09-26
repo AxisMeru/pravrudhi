@@ -836,7 +836,10 @@ class NyayaAgent:
         path) or a `_BufferedAudit` (concurrent path, flushed into the real trail only after every task in the
         contract has finished, in original order)."""
         fact_map = {f.id: f.text for f in facts}
-        request = JudgeRequest(contract_id, element, is_denial, statute, narrative, tuple((f.id, f.text) for f in facts))
+        request = JudgeRequest(
+            contract_id, element, is_denial, statute, narrative, tuple((f.id, f.text) for f in facts),
+            skip_second=contract_id in self.config.unvalidated_contracts,
+        )
         anchor: ElementJudgment | None = None
         fact_id: str | None = None
         quote: str | None = None

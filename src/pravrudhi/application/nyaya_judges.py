@@ -58,6 +58,14 @@ class JudgeRequest:
     statute: str
     narrative: str
     facts: tuple[tuple[str, str], ...]
+    #: Set by `nyaya_agent._judge_element` when `contract_id` is in `AgentConfig.unvalidated_contracts`
+    #: (Lead-2, 2026-09-26): the contract-level safety gate already refuses to let this element's judgment
+    #: reach the user as a real PROOF/DENIAL regardless of what the second judge would have said, so
+    #: `AndGateJudge` reads this to skip the second judge's call entirely -- saving its latency (~90s
+    #: observed) and serverless spend on every unvalidated-contract call, never changing the validated-
+    #: contract path. Default False so every OTHER caller (a test double, a request built by hand) is
+    #: unaffected.
+    skip_second: bool = False
 
 
 @dataclass(frozen=True)
@@ -498,6 +506,18 @@ class AndGateJudge:
                 second_skipped=True,
                 second_skip_reason="primary_not_established",
                 vetoed_by="primary",
+            )
+        if request.skip_second:
+            # Cost saved: `nyaya_agent._run_contract`'s own unvalidated_contracts gate already refuses to
+            # let ANY element of this contract reach the user as a real PROOF/DENIAL, so calling the second
+            # judge here could only ever be discarded -- never asked, never vetoes, the primary's own
+            # established call stands (audit still shows what the primary alone decided).
+            return replace(
+                p,
+                tau_primary=self.tau_primary,
+                tau_second=self.tau_second,
+                second_skipped=True,
+                second_skip_reason="contract_not_validated",
             )
         try:
             s = self.second.judge(request)
