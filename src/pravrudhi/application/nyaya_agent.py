@@ -72,7 +72,7 @@ from pathlib import Path
 from typing import Any, Literal, Protocol
 
 from pravrudhi.application import nyaya_lean_registry as reg
-from pravrudhi.application.nyaya_judges import ElementJudgment, Judge, JudgeRequest
+from pravrudhi.application.nyaya_judges import ElementJudgment, Judge, JudgeRequest, SecondJudgeCircuitBreaker
 from pravrudhi.application.nyaya_quote import QuoteLocation, locate_quote
 
 Outcome = Literal["PROOF", "DENIAL", "ABSTAIN", "REFER_TO_LAWYER"]
@@ -793,7 +793,10 @@ class NyayaAgent:
         self.judge_pool: list[Judge] = list(judge_pool) if judge_pool else [judge]
 
     @classmethod
-    def house(cls, root: Path, *, config: AgentConfig | None = None) -> NyayaAgent:
+    def house(
+        cls, root: Path, *, config: AgentConfig | None = None,
+        second_judge_breaker: SecondJudgeCircuitBreaker | None = None,
+    ) -> NyayaAgent:
         """The configured loop: the house judge from `house_judge`, the pinned binary from `score_bin`.
 
         Two independent flags compose:
@@ -810,6 +813,12 @@ class NyayaAgent:
         for no benefit -- HouseJudge and TypedHouseJudge are independently verified at parity (0 flips over
         the live 279-prompt set, `scripts/typed_layer_parity*.py`), so building both slots the same way
         changes nothing about either judge's DECISION, only which construction path they share.
+
+        `second_judge_breaker` (issue #35): strictly opt-in, forwarded as-is to every `AndGateJudge` this
+        call builds (the whole `judge_pool`, so concurrent workers within one request share it too). `None`
+        (the default, every existing caller) is byte-identical to before this parameter existed. The deployed
+        app shares ONE instance across every `.house()` call via `partner.py`'s own per-process singleton, so
+        a real failure trips the breaker for every request within its TTL, not just the rest of this one.
         """
         cfg = config or load_agent_config(root)
         if cfg.score_bin is None:
@@ -845,7 +854,9 @@ class NyayaAgent:
                 second_tau = float(cfg.second_judge["tau"])
                 second = _build_house_judge(cfg.second_judge, tau=second_tau, typed=cfg.typed_layer,
                                             api_key_env="NYAYA_SECOND_JUDGE_API_KEY")
-                judge = AndGateJudge(primary, second, tau_primary=cfg.tau, tau_second=second_tau)
+                judge = AndGateJudge(
+                    primary, second, tau_primary=cfg.tau, tau_second=second_tau, breaker=second_judge_breaker
+                )
             else:
                 judge = primary
             if gate1_model is not None:

@@ -27,6 +27,8 @@ import json
 import math
 import os
 import re
+import threading
+import time
 import urllib.error
 from collections.abc import Callable, Mapping
 from dataclasses import asdict, dataclass, replace
@@ -446,6 +448,49 @@ def _config_fault_status(e: BaseException) -> int | None:
     return None
 
 
+class SecondJudgeCircuitBreaker:
+    """Cross-request second-judge unavailability cache (issue #35): a `trip()` (a real timeout or connection
+    failure -- never a config fault, those still raise past `AndGateJudge`) opens the breaker for `ttl_s`
+    seconds. While open, `AndGateJudge.judge()` skips calling the second judge at all for every OTHER element
+    that would otherwise reach it -- both the rest of the SAME request (a multi-element contract stops
+    paying N timeouts, one is enough) and, when one instance is shared across requests (the deployed app's
+    own wiring, `NyayaAgent.house`'s `second_judge_breaker` parameter, threaded from `partner.py`'s
+    per-process singleton), every subsequent request within the TTL window too -- a cold/down second judge
+    doesn't cost every later caller its own full timeout before giving up.
+
+    Fail-closed by construction (issue #38's own guard): this class has no opinion on PROOF/DENIAL at all --
+    it only ever changes whether the second judge is CALLED. `AndGateJudge.judge()` treats a tripped breaker
+    exactly like a real second-judge failure it just observed (`vetoed_by="second"`,
+    `second_skip_reason` starting `"second_unavailable"`), which nyaya_agent.py's `_run_contract` already
+    turns into `REFER_TO_LAWYER`/`contract_not_validated` -- there is no code path anywhere in this class that
+    ever returns "established" on the breaker's say-so; it can only ever make the fail-closed path cheaper to
+    reach, never optional.
+
+    Thread-safe: `NyayaAgent.house`'s own `max_concurrency > 1` builds one judge stack per worker, and a
+    shared breaker instance is exactly how one worker's real failure should immediately help every other
+    concurrently-running worker skip its own timeout too."""
+
+    def __init__(self, *, ttl_s: float = 60.0, now: Callable[[], float] = time.monotonic) -> None:
+        self._ttl_s = ttl_s
+        self._now = now
+        self._tripped_until: float | None = None
+        self._lock = threading.Lock()
+
+    def is_open(self) -> bool:
+        """True while the breaker is tripped -- the second judge should be treated as unavailable without
+        being called at all."""
+        with self._lock:
+            return self._tripped_until is not None and self._now() < self._tripped_until
+
+    def trip(self) -> None:
+        """Opens the breaker for `ttl_s` seconds from now. A second trip while already open extends the
+        window from THIS moment (never shortens it, never accumulates beyond one TTL) -- a still-failing
+        second judge should not be allowed to close early just because the first trip's clock happened to
+        run out mid-outage."""
+        with self._lock:
+            self._tripped_until = self._now() + self._ttl_s
+
+
 class AndGateJudge:
     """Config C: AND(primary @ its own tau, second @ its own tau) -- e.g. the 4B house judge @ 0.74 AND the
     32B QLoRA judge @ 0.97. Both slots are ordinary `Judge`s (in production, two `HouseJudge`s: same prompt
@@ -475,6 +520,7 @@ class AndGateJudge:
         tau_primary: float | None = None,
         tau_second: float | None = None,
         name: str = "and_gate",
+        breaker: SecondJudgeCircuitBreaker | None = None,
     ) -> None:
         self.primary = primary
         self.second = second
@@ -483,6 +529,11 @@ class AndGateJudge:
         self.tau_primary = tau_primary if tau_primary is not None else getattr(primary, "tau", None)
         self.tau_second = tau_second if tau_second is not None else getattr(second, "tau", None)
         self.name = name
+        #: Issue #35/#38: strictly opt-in (None = today's behaviour, byte-identical, every existing caller
+        #: unaffected). A caller that wants the circuit-breaker saving constructs one explicitly and passes
+        #: it here (or via `from_config`) -- `NyayaAgent.house`'s own `second_judge_breaker` parameter is how
+        #: the deployed app shares ONE instance across a whole request's judge_pool, and across requests.
+        self.breaker = breaker
 
     @classmethod
     def from_config(
@@ -493,13 +544,14 @@ class AndGateJudge:
         tau: float,
         second_api_key_env: str = "NYAYA_SECOND_JUDGE_API_KEY",
         name: str = "and_gate",
+        breaker: SecondJudgeCircuitBreaker | None = None,
     ) -> AndGateJudge:
         """Both slots as `HouseJudge`s: the primary from `house_cfg` at `tau` (the existing `tau:` key), the
         second from `second_cfg` at ITS OWN `tau` (a distinct threshold, e.g. 0.97 for the 32B)."""
         primary = HouseJudge.from_config(house_cfg, tau=tau)
         second_tau = float(second_cfg["tau"])
         second = HouseJudge.from_config(second_cfg, tau=second_tau, api_key_env=second_api_key_env)
-        return cls(primary, second, tau_primary=tau, tau_second=second_tau, name=name)
+        return cls(primary, second, tau_primary=tau, tau_second=second_tau, name=name, breaker=breaker)
 
     def judge(self, request: JudgeRequest) -> ElementJudgment:
         p = self.primary.judge(request)
@@ -525,11 +577,26 @@ class AndGateJudge:
                 second_skipped=True,
                 second_skip_reason="contract_not_validated",
             )
+        if self.breaker is not None and self.breaker.is_open():
+            # Circuit breaker open (issue #35): a real failure already observed (this request or a recent
+            # one, whichever tripped it) -- fail closed exactly as a fresh failure would, without paying the
+            # second judge's own timeout again to find that out.
+            return replace(
+                p,
+                status="not_established",
+                tau_primary=self.tau_primary,
+                tau_second=self.tau_second,
+                second_judge=getattr(self.second, "name", None),
+                vetoed_by="second",
+                second_skip_reason="second_unavailable: circuit breaker open",
+            )
         try:
             s = self.second.judge(request)
         except Exception as e:  # noqa: BLE001 -- classified just below, re-raised unless it should fail closed
             if _config_fault_status(e) is not None:
                 raise  # a second-judge configuration fault surfaces like the primary's would (never fail closed)
+            if self.breaker is not None:
+                self.breaker.trip()
             return replace(
                 p,
                 status="not_established",

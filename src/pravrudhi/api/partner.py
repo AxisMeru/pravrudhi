@@ -63,6 +63,7 @@ from pravrudhi.application import nyaya_lean_registry as reg
 from pravrudhi.application import tenancy
 from pravrudhi.application.config_files import config_file
 from pravrudhi.application.nyaya_agent import BinaryShaMismatch, JudgeMisconfigured, NyayaAgent
+from pravrudhi.application.nyaya_judges import SecondJudgeCircuitBreaker
 
 CONFIG_PATH = Path("configs") / "partner_api.yaml"
 
@@ -85,6 +86,12 @@ class PartnerApiConfig:
     #: because a wrong `X-Pravrudhi-Tenancy-Secret` guess is exactly the kind of call this exists to slow
     #: down, not a normal partner workload. Defaults to 10 when the config file predates this field.
     provision_rate_limit_per_minute: int = 10
+    #: Issue #35: how long the second-judge circuit breaker stays open after a real timeout/connection
+    #: failure, shared across every request this process serves (see `_get_state`'s own singleton). Defaults
+    #: to 60s when the config file predates this field -- the breaker itself is always on (this only tunes
+    #: the window), since it can never change PROOF/DENIAL, only how cheaply the fail-closed REFER path is
+    #: reached (issue #38's own guard).
+    second_judge_circuit_breaker_ttl_s: float = 60.0
     #: Off by default -- this is a public, unauthenticated endpoint (module docstring), so the second
     #: judge's own p_established/tau/skip-reason/logit-distance/refer-band/unavailable fields (already
     #: computed by AndGateJudge, already on ElementResult) are never in a response unless BOTH this
@@ -120,6 +127,7 @@ def load_partner_api_config(root: Path) -> PartnerApiConfig:
         rate_limit_max_keys=int(body.get("rate_limit_max_keys", 10_000)),
         trusted_proxies=tuple(body.get("trusted_proxies") or ()),
         provision_rate_limit_per_minute=int(body.get("provision_rate_limit_per_minute", 10)),
+        second_judge_circuit_breaker_ttl_s=float(body.get("second_judge_circuit_breaker_ttl_s", 60.0)),
         debug_second_judge_fields_enabled=debug_second_judge_fields_enabled,
     )
 
@@ -420,17 +428,20 @@ def build_partner_router(
     `config` is likewise injectable for tests; production reads `configs/partner_api.yaml`.
     """
     engine_root = Path(root)
-    factory: AgentFactory = agent_factory or (lambda r: NyayaAgent.house(r))
-    # Config (and the limiter state built from it) is resolved lazily, on the first request, not at router-
-    # build time: build_partner_router runs during create_app for EVERY app instance, including ones built
-    # over a bare tmp_path with no configs/ directory at all (test_roles.py's route-table tests) -- reading
-    # configs/partner_api.yaml eagerly here broke every one of those, since nothing else in create_app
+    # `factory`'s definition references `_get_state` below (a closure, resolved at call time, not here) --
+    # production leaves `agent_factory` None and gets ONE breaker shared across every request via
+    # `_get_state`'s own singleton; a test-supplied `agent_factory` never sees this at all, since it built
+    # its own scripted agent already and never calls `.house()`.
+    # Config (and the limiter/breaker state built from it) is resolved lazily, on the first request, not at
+    # router-build time: build_partner_router runs during create_app for EVERY app instance, including ones
+    # built over a bare tmp_path with no configs/ directory at all (test_roles.py's route-table tests) --
+    # reading configs/partner_api.yaml eagerly here broke every one of those, since nothing else in create_app
     # touches disk before the app is fully built. NyayaAgent.house(root) already follows this same lazy
     # pattern (only called inside the request handler via `factory`), mirrored here for the same reason.
     _state_lock = threading.Lock()
     _state: dict[str, Any] = {}
 
-    def _get_state() -> tuple[PartnerApiConfig, RateLimiter, ConcurrencyLimiter, RateLimiter]:
+    def _get_state() -> tuple[PartnerApiConfig, RateLimiter, ConcurrencyLimiter, RateLimiter, SecondJudgeCircuitBreaker]:
         with _state_lock:
             if not _state:
                 cfg = config or load_partner_api_config(engine_root)
@@ -444,16 +455,27 @@ def build_partner_router(
                 _state["provision_rate_limiter"] = RateLimiter(
                     cfg.provision_rate_limit_per_minute, max_keys=cfg.rate_limit_max_keys
                 )
+                # Issue #35: ONE breaker for this process's whole lifetime, shared across every request's
+                # NyayaAgent (and its whole judge_pool) -- a real second-judge failure trips it for every
+                # later request within the TTL, not just the rest of the one that hit it.
+                _state["second_judge_breaker"] = SecondJudgeCircuitBreaker(
+                    ttl_s=cfg.second_judge_circuit_breaker_ttl_s
+                )
             return (
-                _state["cfg"], _state["rate_limiter"], _state["concurrency"], _state["provision_rate_limiter"]
+                _state["cfg"], _state["rate_limiter"], _state["concurrency"], _state["provision_rate_limiter"],
+                _state["second_judge_breaker"],
             )
+
+    factory: AgentFactory = agent_factory or (
+        lambda r: NyayaAgent.house(r, second_judge_breaker=_get_state()[4])
+    )
 
     def _provision_rate_limit(request: Request) -> JSONResponse | None:
         """`None` when the call may proceed; a ready-to-return 429 otherwise. Keyed by client IP the same
         way `analyse_facts_ep` keys its own limiter (`_client_ip`, honoring `trust_proxy_header` /
         `trusted_proxies` identically) -- a caller who can burn analyse-facts's GPU-time budget from one IP
         can burn the provisioning budget from that same IP, and both must be told apart the same way."""
-        cfg, _rate_limiter, _concurrency, provision_rate_limiter = _get_state()
+        cfg, _rate_limiter, _concurrency, provision_rate_limiter, _breaker = _get_state()
         ip = _client_ip(request, trust_proxy_header=cfg.trust_proxy_header, trusted_proxies=cfg.trusted_proxies)
         if provision_rate_limiter.allow(ip):
             return None
@@ -486,7 +508,7 @@ def build_partner_router(
         ),
     ) -> dict[str, Any] | JSONResponse:
         del user  # optional session identity today; see module docstring on tenancy/API-key auth
-        cfg, rate_limiter, concurrency, _provision_rate_limiter = _get_state()
+        cfg, rate_limiter, concurrency, _provision_rate_limiter, _breaker = _get_state()
         ip = _client_ip(request, trust_proxy_header=cfg.trust_proxy_header, trusted_proxies=cfg.trusted_proxies)
         if not rate_limiter.allow(ip):
             return JSONResponse(

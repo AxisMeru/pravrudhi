@@ -7,7 +7,8 @@ drive the gate's own AND/skip/veto/fail-closed logic. Facts and statute text are
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import time
+from dataclasses import dataclass, field
 
 import pytest
 
@@ -16,6 +17,7 @@ from pravrudhi.application.nyaya_judges import (
     ElementJudgment,
     HouseJudge,
     JudgeRequest,
+    SecondJudgeCircuitBreaker,
 )
 
 REQ = JudgeRequest(
@@ -160,3 +162,99 @@ class TestReusesHouseJudgeCode:
         out = AndGateJudge(judge4b, judge32b, tau_primary=0.74, tau_second=0.97).judge(REQ)
         assert out.status == "established"
         assert fake4b.prompts == fake32b.prompts  # same prompt template, both judges
+
+
+@dataclass
+class _SlowFailingJudge:
+    """A second-judge double that takes `delay_s` wall-clock to fail every time it is actually called --
+    stands in for a real HouseJudge's own timeout (issues #35/#38 measure wall-clock, not just call count,
+    so this needs a real, small, measurable delay rather than an instant raise)."""
+
+    name: str
+    delay_s: float
+    calls: int = field(default=0, init=False)
+
+    def judge(self, request: JudgeRequest) -> ElementJudgment:
+        self.calls += 1
+        time.sleep(self.delay_s)
+        raise ConnectionError("second judge unreachable")
+
+
+class TestSecondJudgeCircuitBreaker:
+    """Issue #35: after the first real second-judge failure, a shared breaker instance makes every OTHER
+    element route straight to the fail-closed REFER path without paying the second judge's own timeout
+    again -- both the rest of one request (the SAME `AndGateJudge` instance, called once per element, which
+    is exactly how `NyayaAgent`'s serial judge_pool[0] is reused today) and, since the breaker is a plain
+    object a caller can share across separately-constructed gates, across requests too."""
+
+    DELAY_S = 0.05  # small enough to keep the suite fast, large enough to measure reliably
+
+    def test_a_multi_element_contract_pays_one_timeout_not_n(self) -> None:
+        primary = _StubJudge("house-4b", _judgment("established", 0.97))
+        second = _SlowFailingJudge("house-32b", delay_s=self.DELAY_S)
+        breaker = SecondJudgeCircuitBreaker(ttl_s=60.0)
+        gate = AndGateJudge(primary, second, tau_primary=0.74, tau_second=0.97, breaker=breaker)
+
+        t0 = time.monotonic()
+        results = [gate.judge(REQ) for _ in range(5)]
+        elapsed = time.monotonic() - t0
+
+        assert second.calls == 1  # every element after the first trip skips the real call entirely
+        assert elapsed < self.DELAY_S * 2  # one timeout's worth of wall-clock, not five
+        assert all(r.status == "not_established" for r in results)
+        assert all(r.second_skip_reason is not None and "second_unavailable" in r.second_skip_reason for r in results)
+        # The first (real failure) and the rest (breaker-open) must both say WHY, distinguishably, in the
+        # audit trail's own field -- not silently identical text that hides which happened.
+        assert "circuit breaker open" not in (results[0].second_skip_reason or "")
+        assert all("circuit breaker open" in (r.second_skip_reason or "") for r in results[1:])
+
+    def test_without_a_shared_breaker_every_element_pays_its_own_timeout(self) -> None:
+        """Control case: the strictly-opt-in default (no breaker passed) is unaffected -- every element still
+        pays its own full delay, proving the saving above comes from the breaker, not some other change."""
+        primary = _StubJudge("house-4b", _judgment("established", 0.97))
+        second = _SlowFailingJudge("house-32b", delay_s=self.DELAY_S)
+        gate = AndGateJudge(primary, second, tau_primary=0.74, tau_second=0.97)  # no breaker
+
+        t0 = time.monotonic()
+        [gate.judge(REQ) for _ in range(3)]
+        elapsed = time.monotonic() - t0
+
+        assert second.calls == 3
+        assert elapsed >= self.DELAY_S * 3 * 0.9  # allow a little scheduling slack, never a free pass
+
+
+class TestSecondJudgeCircuitBreakerFailsClosed:
+    """Issue #38's own guard: while the breaker is open, an element must NEVER reach a real PROOF/DENIAL on
+    the primary alone, no matter how confident the primary is -- the breaker only ever makes the EXISTING
+    fail-closed path cheaper to reach, it can never become a silent single-judge switch."""
+
+    def test_a_high_confidence_primary_still_refers_while_the_breaker_is_open(self) -> None:
+        breaker = SecondJudgeCircuitBreaker(ttl_s=60.0)
+        breaker.trip()  # simulates a failure this or an earlier request already observed
+        primary = _StubJudge("house-4b", _judgment("established", 0.999))  # about as confident as it gets
+        second = _StubJudge("house-32b", _judgment("established", 0.999))  # would ALSO establish if asked
+        gate = AndGateJudge(primary, second, tau_primary=0.74, tau_second=0.97, breaker=breaker)
+
+        out = gate.judge(REQ)
+
+        assert out.status != "established"  # never PROOF/DENIAL-eligible while the breaker is open
+        assert second.calls == 0  # the second was never actually asked, despite what it would have said
+        assert out.vetoed_by == "second"
+        assert out.second_skip_reason is not None and "second_unavailable" in out.second_skip_reason
+
+    def test_the_breaker_closes_again_once_its_ttl_elapses(self) -> None:
+        """The breaker is a temporary cost-saving measure, never a permanent switch: once its TTL passes, the
+        second judge is asked again like normal."""
+        fake_clock = {"t": 0.0}
+        breaker = SecondJudgeCircuitBreaker(ttl_s=10.0, now=lambda: fake_clock["t"])
+        breaker.trip()
+        assert breaker.is_open() is True
+        fake_clock["t"] = 10.1
+        assert breaker.is_open() is False
+
+        primary = _StubJudge("house-4b", _judgment("established", 0.97))
+        second = _StubJudge("house-32b", _judgment("established", 0.99))
+        gate = AndGateJudge(primary, second, tau_primary=0.74, tau_second=0.97, breaker=breaker)
+        out = gate.judge(REQ)
+        assert out.status == "established"  # the second WAS asked, and it established -- gate works normally
+        assert second.calls == 1
