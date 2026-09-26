@@ -6,7 +6,11 @@ way `test_nyaya_and_gate.py` wraps two for `AndGateJudge`, never a real NLI mode
 
 from __future__ import annotations
 
+import os
+import re
+import subprocess
 from dataclasses import dataclass
+from pathlib import Path
 
 import pytest
 
@@ -17,6 +21,62 @@ from pravrudhi.application.nyaya_judges import (
     gate1_check,
     split_disjuncts,
 )
+
+#: No hard-coded absolute path (this repo is public) -- set PRABHASA_NYAYA_SCORE_BIN to a real, built
+#: prabhasa-nyaya score binary to run the registry-wide tests below (same convention as
+#: test_nyaya_application_registry.py / test_api_nyaya_registry.py).
+_SCORE_BIN = os.environ.get("PRABHASA_NYAYA_SCORE_BIN")
+requires_score_bin = pytest.mark.skipif(
+    not _SCORE_BIN or not Path(_SCORE_BIN).exists(),
+    reason="set PRABHASA_NYAYA_SCORE_BIN to a built prabhasa-nyaya score binary to run these",
+)
+
+#: Every contract id the pinned binary knows, per KNOWN_CONTRACT_IDS (nyaya_lean_registry.py) -- listed
+#: directly rather than imported to keep this test file independent of that module's own drift test.
+_ALL_REGISTRY_CONTRACT_IDS = (
+    "ipc405_misappropriation", "ipc405_use_or_disposal", "ipc405_wilfully_suffers",
+    "ipc415_property", "ipc415_damaging_act", "ipc416",
+    "ipc182_misdirected_act", "ipc182_abuse_of_power",
+    "bns69", "bns47", "bns85",
+    "bns46_instigation", "bns46_conspiracy", "bns46_intentional_aid",
+    "bns316_misappropriation", "bns316_use_or_disposal", "bns316_wilfully_suffers",
+    "bns318_property", "bns318_damaging_act",
+    "bns217_misdirected_act", "bns217_abuse_of_power",
+    "bns80", "bns108",
+    "bnss187_extended_serious", "bnss187_extended_other",
+    "ni138",
+)
+
+
+def _registry_element_descriptions() -> list[tuple[str, str, str]]:
+    """(contract_id, element_id, description) for EVERY element of every registered contract, straight off
+    the binary's own `--describe-contract` output -- never `p2b_registry.CONTRACTS`, which is missing
+    several of the newer contracts (a Python-side data gap, not this test's concern)."""
+    out = []
+    for cid in _ALL_REGISTRY_CONTRACT_IDS:
+        proc = subprocess.run(
+            [str(_SCORE_BIN), "--describe-contract", cid], capture_output=True, text=True, timeout=30, check=True,
+        )
+        for i, desc in enumerate(line for line in proc.stdout.split("\n") if line):
+            out.append((cid, f"el{i}", desc))
+    return out
+
+
+#: The pre-fix regex pair, inlined verbatim for the non-regression comparison below -- this is what
+#: `split_disjuncts` computed before the paren-awareness fix (GATE1-PAREN-SPLIT-BUG-2026-09-26.md), kept
+#: here ONLY as a fixed comparison baseline, never imported from the module (which no longer has it).
+_PRE_FIX_SUFFIX3 = re.compile(r"^(?P<pre>.*?),\s*or\s+(?P<b>[^,]+),\s*(?P<suf>.*)$")
+_PRE_FIX_SIMPLE2 = re.compile(r"^(?P<pre>.*?),?\s+or\s+(?P<suf>.*)$")
+
+
+def _pre_fix_split(desc: str) -> list[str]:
+    m = _PRE_FIX_SUFFIX3.match(desc)
+    if m:
+        return [f"{m['pre']}, {m['suf']}", f"{m['b']}, {m['suf']}"]
+    m = _PRE_FIX_SIMPLE2.match(desc)
+    if m:
+        return [m["pre"], m["suf"]]
+    return [desc]
 
 REQ = JudgeRequest(
     contract_id="bns85",
@@ -114,6 +174,81 @@ class TestSplitDisjuncts:
         # Neither half reads as a complete, correct restatement of the original clause -- this is the
         # documented non-rescue, not a fix.
         assert broken != ["the consequence is intended to be death", "the consequence is known to be likely death"]
+
+
+class TestParenAwareSplit:
+    """GATE1-PAREN-SPLIT-BUG-2026-09-26.md: the pre-fix regex matched "or" inside a parenthetical (a
+    statutory citation, not a real disjunction) as a top-level split point, producing paren-unbalanced
+    garbage on 4/30 disjunctive-matched elements across the 26-contract registry. These pin the exact
+    corrected output for all 4, found and root-caused by hand."""
+
+    def test_bns85_el1_citation_parenthetical_is_not_a_disjunction(self) -> None:
+        # "(s.86(a) or (b))" is a citation, not "subjects to cruelty OR subjects to something else" --
+        # there is no real top-level disjunction here at all.
+        assert split_disjuncts("subjects the woman to cruelty (s.86(a) or (b))") == [
+            "subjects the woman to cruelty (s.86(a) or (b))"
+        ]
+
+    def test_ipc416_el0_citation_parenthetical_is_not_a_disjunction(self) -> None:
+        assert split_disjuncts(
+            "cheats (s.415: either the property-inducement limb or the damaging-act limb)"
+        ) == ["cheats (s.415: either the property-inducement limb or the damaging-act limb)"]
+
+    def test_bns69_el0_finds_the_real_top_level_or_past_the_parenthetical(self) -> None:
+        # The "or"s INSIDE the parenthetical (a list of ways deceit can happen) are not the split point;
+        # the real top-level disjunction is the "or" AFTER the parenthetical closes.
+        assert split_disjuncts(
+            "induces the woman by deceitful means (inducement for, or false promise of, employment or "
+            "promotion, or marrying by suppressing identity), or by a promise to marry made without any "
+            "intention of fulfilling it"
+        ) == [
+            "induces the woman by deceitful means (inducement for, or false promise of, employment or "
+            "promotion, or marrying by suppressing identity)",
+            "by a promise to marry made without any intention of fulfilling it",
+        ]
+
+    def test_bns46_instigation_el0_finds_the_real_top_level_or_past_the_parenthetical(self) -> None:
+        assert split_disjuncts(
+            "instigates any person to do the thing (urges, incites or provokes it), including, per s.45 "
+            "Explanation 1, wilfully misrepresenting or wilfully concealing a material fact one is bound "
+            "to disclose so as to cause, procure, or attempt to cause or procure it"
+        ) == [
+            "instigates any person to do the thing (urges, incites or provokes it), including, per s.45 "
+            "Explanation 1, wilfully misrepresenting",
+            "wilfully concealing a material fact one is bound to disclose so as to cause, procure, or "
+            "attempt to cause or procure it",
+        ]
+
+    @requires_score_bin
+    def test_non_regression_all_other_registry_elements_unchanged(self) -> None:
+        """Every disjunctive-matched element in the 26-contract registry OTHER than the 4 fixed above must
+        produce a BYTE-IDENTICAL split to the pre-fix regex -- the fix changes behavior only where the
+        pre-fix regex was matching "or" inside parentheses."""
+        fixed_keys = {("bns85", "el1"), ("ipc416", "el0"), ("bns69", "el0"), ("bns46_instigation", "el0")}
+        n_compared = 0
+        for cid, element_id, desc in _registry_element_descriptions():
+            n_compared += 1
+            old = _pre_fix_split(desc)
+            new = split_disjuncts(desc)
+            if (cid, element_id) in fixed_keys:
+                assert old != new, f"{cid}/{element_id} was expected to change but didn't"
+            else:
+                assert old == new, f"{cid}/{element_id} changed unexpectedly: {old!r} -> {new!r}"
+        assert n_compared > 30  # sanity: the registry scan actually ran, not silently empty
+
+    @requires_score_bin
+    def test_paren_balance_holds_for_every_registry_element(self) -> None:
+        """Every disjunct of every element in the registry has balanced parentheses -- the mechanical
+        signal GATE1-PAREN-SPLIT-BUG-2026-09-26.md used to find the original 4 broken elements; this test
+        makes that check permanent so a future contract with the same shape is caught automatically."""
+        n_compared = 0
+        for cid, element_id, desc in _registry_element_descriptions():
+            n_compared += 1
+            for disjunct in split_disjuncts(desc):
+                assert disjunct.count("(") == disjunct.count(")"), (
+                    f"{cid}/{element_id} disjunct has unbalanced parens: {disjunct!r}"
+                )
+        assert n_compared > 30
 
 
 class TestGate1Check:
