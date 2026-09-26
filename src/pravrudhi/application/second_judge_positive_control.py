@@ -185,6 +185,10 @@ def decide_availability(
     if result.parity.n_total == 0:
         reasons.append("parity: no elements scored (empty control set) -- cannot verify")
     else:
+        # n_total > 0 here, so agree_rate/median_abs_dp are real floats, not None (see their own
+        # docstrings) -- mypy can't narrow across the sibling n_total check, so assert it explicitly.
+        assert result.parity.agree_rate is not None
+        assert result.parity.median_abs_dp is not None
         if result.parity.agree_rate < parity_floor:
             reasons.append(f"parity {result.parity.n_tau_agree}/{result.parity.n_total} "
                             f"({result.parity.agree_rate:.4%}) < floor {parity_floor:.2%}")
