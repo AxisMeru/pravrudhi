@@ -207,6 +207,32 @@ class TestParenAwareSplit:
             "by a promise to marry made without any intention of fulfilling it",
         ]
 
+    def test_doubly_nested_parens_never_split(self) -> None:
+        """R1 review question: does depth-tracking handle MORE than one level of nesting? None of the 4
+        real registry elements need more than 1 level, so this is a synthetic stress case, not a registry
+        pin -- an "or" two levels deep must still never be treated as a top-level disjunction."""
+        assert split_disjuncts(
+            "the accused acted unlawfully (see s.5 (exceptions (a) or (b) apply)) and caused harm"
+        ) == ["the accused acted unlawfully (see s.5 (exceptions (a) or (b) apply)) and caused harm"]
+
+    def test_real_top_level_or_after_a_doubly_nested_paren_closes(self) -> None:
+        """Depth must return to 0 (not get stuck) once ALL nested parens close, so a genuine top-level "or"
+        immediately after a doubly-nested citation still splits correctly."""
+        assert split_disjuncts(
+            "the accused acted unlawfully (see s.5 (exceptions (a) or (b) apply)), or failed to prevent it"
+        ) == [
+            "the accused acted unlawfully (see s.5 (exceptions (a) or (b) apply))",
+            "failed to prevent it",
+        ]
+
+    def test_two_separate_parenthesized_clauses_each_with_their_own_or(self) -> None:
+        """Depth must drop back to 0 between two SEPARATE parenthesized clauses, not stay "inside" from the
+        first one -- the "or" joining the two clauses is a real top-level disjunction; the "or"s inside
+        each clause's own parens are not."""
+        assert split_disjuncts("a happens (x or y), or b happens (p or q)") == [
+            "a happens (x or y)", "b happens (p or q)",
+        ]
+
     def test_bns46_instigation_el0_finds_the_real_top_level_or_past_the_parenthetical(self) -> None:
         assert split_disjuncts(
             "instigates any person to do the thing (urges, incites or provokes it), including, per s.45 "
@@ -234,7 +260,7 @@ class TestParenAwareSplit:
                 assert old != new, f"{cid}/{element_id} was expected to change but didn't"
             else:
                 assert old == new, f"{cid}/{element_id} changed unexpectedly: {old!r} -> {new!r}"
-        assert n_compared > 30  # sanity: the registry scan actually ran, not silently empty
+        assert n_compared == 47  # exact: all 47 elements across all 26 registry contracts, never a sample
 
     @requires_score_bin
     def test_paren_balance_holds_for_every_registry_element(self) -> None:
@@ -248,7 +274,7 @@ class TestParenAwareSplit:
                 assert disjunct.count("(") == disjunct.count(")"), (
                     f"{cid}/{element_id} disjunct has unbalanced parens: {disjunct!r}"
                 )
-        assert n_compared > 30
+        assert n_compared == 47  # exact: all 47 elements across all 26 registry contracts, never a sample
 
 
 class TestGate1Check:
