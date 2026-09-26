@@ -54,6 +54,17 @@ def _provision_claude(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return home
 
 
+def _provision_claude_cli(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """`panel.ask_vendor`'s OWN dedicated credential directory (issue #59 follow-up) -- a separate env var
+    from `_provision_claude` above, since `ask_vendor`'s claude-cli path deliberately does not use
+    `account.claude_env`'s CLI-agent seat rotation at all."""
+    home = tmp_path / "claude-cli-colab"
+    home.mkdir()
+    (home / ".credentials.json").write_text("{}")
+    monkeypatch.setenv("PRAVRUDHI_CLAUDE_CLI_CONFIG_DIR", str(home))
+    return home
+
+
 class TestRunFeedsStdin:
     def test_stdin_text_reaches_the_child_intact(self, tmp_path: Path) -> None:
         prompt = _big_prompt()
@@ -80,7 +91,7 @@ class TestPanelAskVendorEndToEnd:
     def test_claude_prompt_goes_on_stdin_not_argv(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         from pravrudhi.application import panel
 
-        home = _provision_claude(tmp_path, monkeypatch)
+        home = _provision_claude_cli(tmp_path, monkeypatch)
         report = tmp_path / "report.json"
         _stand_in(tmp_path / "bin", "claude", report)
         monkeypatch.setenv("PATH", f"{tmp_path / 'bin'}{os.pathsep}{os.environ['PATH']}")
@@ -131,11 +142,15 @@ class _Capture:
 
 
 class TestPanelKeepsTheAccount:
-    def test_claude_env_is_passed_unchanged(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        from pravrudhi.agents.account import claude_env
+    def test_claude_cli_env_points_at_its_own_dedicated_seat(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Issue #59 follow-up: `ask_vendor`'s claude-cli path uses ITS OWN dedicated credential
+        (`_claude_cli_env`), never `account.claude_env`'s CLI-agent seat rotation -- this one-shot vendor
+        comparison would otherwise compete with those seats for the same weekly quota."""
         from pravrudhi.application import panel
 
-        _provision_claude(tmp_path, monkeypatch)
+        home = _provision_claude_cli(tmp_path, monkeypatch)
         cap = _Capture()
         monkeypatch.setattr(cli_agents, "_run", cap)
         prompt = _big_prompt()
@@ -143,9 +158,40 @@ class TestPanelKeepsTheAccount:
         panel.ask_vendor(panel.VENDORS["claude-cli"], prompt)
 
         (call,) = cap.calls
-        assert call["env"] == claude_env()
+        assert call["env"] == {"CLAUDE_CONFIG_DIR": str(home)}
         assert call["stdin_text"] == prompt
         assert all(prompt not in a for a in call["cmd"])  # type: ignore[attr-defined]
+
+    def test_refuses_when_the_dedicated_seat_has_no_login(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Fail closed (Lead-2, 2026-09-26): a missing login at the dedicated colab directory must refuse,
+        never silently fall back to whatever `CLAUDE_CONFIG_DIR` happens to be ambient in the environment."""
+        from pravrudhi.application import panel
+
+        monkeypatch.setenv("PRAVRUDHI_CLAUDE_CLI_CONFIG_DIR", str(tmp_path / "never-provisioned"))
+        cap = _Capture()
+        monkeypatch.setattr(cli_agents, "_run", cap)
+
+        with pytest.raises(panel.ClaudeCliNotProvisioned, match="never-provisioned"):
+            panel.ask_vendor(panel.VENDORS["claude-cli"], "hello")
+        assert cap.calls == []  # refused before ever reaching the subprocess call
+
+    def test_defaults_to_the_colab_directory_when_unset(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """No env override at all: `_claude_cli_env` still names a real, specific default location (the
+        operator's own colab seat) rather than leaving `CLAUDE_CONFIG_DIR` to resolve however the ambient
+        environment happens to. Monkeypatches the DEFAULT constant itself to a guaranteed-empty directory --
+        never asserts on the real `~/.config/pravrudhi/claude-colab` path's actual state, since that is a
+        real, live, machine-specific login this test must not depend on being present OR absent."""
+        from pravrudhi.application import panel
+
+        monkeypatch.delenv("PRAVRUDHI_CLAUDE_CLI_CONFIG_DIR", raising=False)
+        empty = tmp_path / "not-provisioned-here"
+        monkeypatch.setattr(panel, "CLAUDE_CLI_CONFIG_DIR_DEFAULT", empty)
+        with pytest.raises(panel.ClaudeCliNotProvisioned, match=r"not-provisioned-here"):
+            panel.ask_vendor(panel.VENDORS["claude-cli"], "hello")
 
 
 class TestPanelSlimClaudeCliFlags:
@@ -160,7 +206,7 @@ class TestPanelSlimClaudeCliFlags:
     ) -> None:
         from pravrudhi.application import panel
 
-        _provision_claude(tmp_path, monkeypatch)
+        _provision_claude_cli(tmp_path, monkeypatch)
         cap = _Capture()
         monkeypatch.setattr(cli_agents, "_run", cap)
 
@@ -186,7 +232,7 @@ class TestPanelSlimClaudeCliFlags:
 
         from pravrudhi.application import panel
 
-        _provision_claude(tmp_path, monkeypatch)
+        _provision_claude_cli(tmp_path, monkeypatch)
         cap = _Capture()
         monkeypatch.setattr(cli_agents, "_run", cap)
         vendor = replace(panel.VENDORS["claude-cli"], params={**panel.VENDORS["claude-cli"].params, "model": "opus"})

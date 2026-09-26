@@ -188,6 +188,34 @@ CLAUDE_CLI_SLIM_FLAGS = (
     "--tools", "",
 )
 
+#: Issue #59 follow-up (Lead-2, 2026-09-26): `ask_vendor`'s claude-cli comparison uses its OWN dedicated
+#: credential (the operator's new `sharath.ai.colab` login), never one of `account.claude_env`'s CLI-agent
+#: seats -- this is a one-shot vendor comparison, not agentic coding work, and competing with those seats
+#: for the same weekly quota would undo the whole point of giving this path a separate account.
+#: Config-driven (env var, matching `account.py`'s own `PRAVRUDHI_CLAUDE_CONFIG_DIR` convention) rather than
+#: hardcoded, so this can be redirected without a code change.
+CLAUDE_CLI_CONFIG_DIR_ENV = "PRAVRUDHI_CLAUDE_CLI_CONFIG_DIR"
+CLAUDE_CLI_CONFIG_DIR_DEFAULT = Path("~/.config/pravrudhi/claude-colab")
+
+
+class ClaudeCliNotProvisioned(RuntimeError):
+    """`ask_vendor`'s dedicated claude-cli credential directory has no login. Raised rather than falling
+    back to whatever account happens to be ambient -- `account.py`'s own "the refusal is the other half"
+    principle (a silent fallback would look like compliance while being the opposite), applied to this
+    separate, comparison-only seat."""
+
+
+def _claude_cli_env() -> dict[str, str]:
+    from pravrudhi.agents.account import CREDENTIAL_FILES
+
+    config_dir = Path(os.environ.get(CLAUDE_CLI_CONFIG_DIR_ENV) or CLAUDE_CLI_CONFIG_DIR_DEFAULT).expanduser()
+    if not any((config_dir / f).is_file() for f in CREDENTIAL_FILES):
+        raise ClaudeCliNotProvisioned(
+            f"no claude login at {config_dir} (set {CLAUDE_CLI_CONFIG_DIR_ENV} to redirect, or log in there)"
+        )
+    return {"CLAUDE_CONFIG_DIR": str(config_dir)}
+
+
 # Declared before any key exists, on the operator's instruction, so that when a key lands nothing has to be
 # designed under time pressure. Each names the variable it reads. `temperature` is pinned on every one of them
 # because an unpinned sampler makes a comparison unrepeatable.
@@ -354,15 +382,14 @@ def ask_vendor(
 
         env: dict[str, str] = {}
         if vendor.model == "claude":
-            # This project's own account, never the operator's personal login (operator instruction,
-            # 2026-09-10). It was the personal account's WEEKLY limit that ran out mid-panel during gate
-            # A1.1, answering 68 of 80 prompts and recording 12 gaps -- a comparison spending a person's
-            # own quota is the wrong shape as well as a fragile one.
-            from pravrudhi.agents.account import claude_env
-
+            # The operator's personal login was the original problem (2026-09-10: its weekly limit ran out
+            # mid-panel during gate A1.1, 68 of 80 prompts answered, 12 recorded as gaps). This path now
+            # uses its OWN dedicated seat instead (`_claude_cli_env`, issue #59 follow-up) -- deliberately
+            # NOT `account.claude_env`'s CLI-agent seat rotation, which this one-shot comparison would
+            # otherwise compete with for the same quota.
             model = str(vendor.params.get("model") or CLAUDE_CLI_MODEL_DEFAULT)
             cmd = ["claude", "-p", "--output-format", "text", *CLAUDE_CLI_SLIM_FLAGS, "--model", model]
-            env = claude_env()
+            env = _claude_cli_env()
         else:
             cmd = ["codex", "exec", "--skip-git-repo-check"]
         # The prompt rides on stdin, never argv: a >128 KiB prompt is refused by the kernel as an argv string
