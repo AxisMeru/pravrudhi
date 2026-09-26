@@ -86,6 +86,11 @@ WAIVER_MARKER = "secret-scan-ok:"
 #: shaped like real credentials on purpose. Both are exempt, or the guard would fail on its own PR.
 #: Consequence, stated rather than hidden: a real secret placed in one of these two locations is not seen
 #: by this scan. They are small, they are read on every change to this guard, and no other path is exempt.
+#: Violations that say the SCAN ITSELF did not do its job, as opposed to a token-shaped string found in
+#: the content. They are equally red, but the remedy is completely different -- there is no value to
+#: rotate and nothing to waive -- so the failure text must not offer credential advice for them.
+SCAN_INTEGRITY_RULES = frozenset({"vacuous-scan", "unreadable"})
+
 EXEMPT_NAMES = frozenset({
     "check_no_secrets_in_diff.py",
     "test_check_no_secrets_in_diff.py",
@@ -778,15 +783,26 @@ def main() -> int:
         f"{len(report.waived)} waived, {len(report.violations)} violation(s)"
     )
     if report.violations:
-        print(
-            f"\nFAIL: {len(report.violations)} token-shaped string(s) entering the repo. The value itself is "
-            f"NOT printed above, by design -- a CI log is public to everyone who can see the run. If a hit "
-            f"is real: ROTATE IT FIRST (it is already in the branch's history; deleting the line does not "
-            f"unpublish it), then remove it from the diff. If it is not a credential, waive it where the "
-            f"next reader will see it: `# {WAIVER_MARKER} <reason>` on the line, or -- for a historical "
-            f"value that cannot be removed from published history -- its printed key plus a reason in "
-            f"{DEFAULT_BASELINE}."
-        )
+        broken = [v for v in report.violations if v.rule in SCAN_INTEGRITY_RULES]
+        token_hits = [v for v in report.violations if v.rule not in SCAN_INTEGRITY_RULES]
+        if broken:
+            print(
+                f"\nFAIL: {len(broken)} finding(s) above mean this run did not examine what it was meant "
+                f"to. That is a BROKEN GUARD, not a clean tree: there is no value to rotate and nothing to "
+                f"waive, and the fix is to make the scan able to read the content again. A guard that "
+                f"reports a pass over what it never looked at is worse than no guard, because the green "
+                f"tick is read as evidence."
+            )
+        if token_hits:
+            print(
+                f"\nFAIL: {len(token_hits)} token-shaped string(s) entering the repo. The value itself is "
+                f"NOT printed above, by design -- a CI log is public to everyone who can see the run. If a hit "
+                f"is real: ROTATE IT FIRST (it is already in the branch's history; deleting the line does not "
+                f"unpublish it), then remove it from the diff. If it is not a credential, waive it where the "
+                f"next reader will see it: `# {WAIVER_MARKER} <reason>` on the line, or -- for a historical "
+                f"value that cannot be removed from published history -- its printed key plus a reason in "
+                f"{DEFAULT_BASELINE}."
+            )
         return 1
     print("OK: no unwaived token-shaped strings in the scanned content.")
     return 0

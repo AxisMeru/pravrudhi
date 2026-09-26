@@ -545,6 +545,35 @@ class TestWholeTreeScanMustReadSomething:
         assert main() == 1
         assert "ZERO files" in capsys.readouterr().out
 
+    def test_a_broken_scan_is_not_reported_as_a_credential_to_rotate(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Both failures are red, and the remedies are opposites. Telling someone to ROTATE IT FIRST when
+        the scan simply read nothing sends them looking for a credential that does not exist, and buries
+        the actual problem: the guard could not do its job."""
+        root = _repo_with(tmp_path)
+        monkeypatch.setattr(
+            sys, "argv", ["check_no_secrets_in_diff.py", "--root", str(root), "--all-tracked"]
+        )
+        assert main() == 1
+        out = capsys.readouterr().out
+        assert "BROKEN GUARD" in out
+        assert "ROTATE IT FIRST" not in out, "offered credential advice for a scan that read nothing"
+        assert "token-shaped string(s) entering the repo" not in out
+
+    def test_a_real_token_still_gets_the_rotation_guidance(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """The other side of the split: a genuine hit must keep the advice that matters."""
+        root = _repo_with(tmp_path, "trips_structural.py")
+        monkeypatch.setattr(
+            sys, "argv", ["check_no_secrets_in_diff.py", "--root", str(root), "--all-tracked"]
+        )
+        assert main() == 1
+        out = capsys.readouterr().out
+        assert "ROTATE IT FIRST" in out
+        assert "BROKEN GUARD" not in out
+
 
 class TestTheDiffPathHasNoFilesScannedFloor:
     """The design point a bare `files_scanned > 0` assertion would have got wrong. A legitimate change can
