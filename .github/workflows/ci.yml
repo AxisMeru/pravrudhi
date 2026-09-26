@@ -134,6 +134,10 @@ jobs:
         run: uv run pytest tests -q
       - run: uv run python scripts/import_guard.py
       - run: uv run python scripts/check_no_private_data.py
+      # 2026-09-26 incident backstop: an undeclared ARG GITHUB_TOKEN masked a silently-unauthenticated
+      # Docker build for every prior release, and the fix-attempt (declaring it) leaked the real token value
+      # in cleartext in the build log. This makes that class of mistake fail CI instead of a human review.
+      - run: uv run python scripts/check_no_secret_dockerfile_args.py
       # Fail-open defaults (operator, 2026-09-26, after the sweep of both repos): a missing, empty or
       # unparseable verdict/confidence/score that defaults to a NUMBER instead of to None or an error, so an
       # item that could not be scored silently counts as a pass. Rules 1 and 3 fail the build; rule 2 is
