@@ -1,0 +1,50 @@
+# Baseline for scripts/check_run_completeness.py -- the ONLY two tracked files whose NAME says "a run's
+# result" while carrying no `run_completeness` block, both of which predate that guard.
+#
+# READ THIS FIRST. Three things about this file are deliberate.
+#
+# 1. IT IS TINY ON PURPOSE, AND IT IS NOT A LIST OF UNVERIFIED RESULTS. This repository commits zero real
+#    result artefacts -- results never write inside it (`PRAVRUDHI_T2_RESULTS_DIR` is mandatory in every T2
+#    script and has no in-repo default), and there is no `gates/` or `research/gates/` tree here. Both
+#    entries below are FABRICATED EXAMPLE INPUTS that say so in their own first line, used to exercise a
+#    vendored proposal's `evaluate.py`. Neither is the output of any run, so neither has a denominator to
+#    verify. They are here only because the guard's name patterns are deliberately WIDE (`*_results.json`
+#    matches `baseline_results.json`): narrowing a pattern until the existing tree goes green is how one of
+#    this repo's own guards shipped blind to the only real instance in its history, so the pattern stays
+#    wide and the two known non-results are waived VISIBLY instead.
+#
+# 2. KEYED ON THE EXACT BYTES, NOT ON THE PATH. `<repo-relative path>::<sha256 of the file>`. A waiver
+#    therefore cannot follow a file into becoming something else: the moment either file is edited -- say a
+#    real measured number replaces the invented ones -- its sha256 changes, the waiver stops matching, the
+#    guard reports the file AND prints "no longer matches anything, remove this line" for the stale key, and
+#    CI is red until a human looks again. This is the digest convention of
+#    `scripts/secret_scan_baseline.txt` rather than the expression convention of
+#    `scripts/fail_open_defaults_baseline.txt`, because here the thing being waived IS a whole file.
+#
+# 3. A KEY WITH NO REASON WAIVES NOTHING, and neither does a reason with no `issue:` reference. The guard
+#    reports such a line as a problem of its own and keeps failing. Same rule as the secret-scan baseline,
+#    for the same reason: a waiver nobody wrote down is indistinguishable from an oversight, and telling
+#    those two apart is the entire point of the guard this file belongs to.
+#
+# FORMAT: `<path>::<sha256>` then TWO OR MORE SPACES then the reason, which must contain `issue:`. Lines
+# starting with `#`, and blank lines, are ignored. The guard prints the key for every waivable finding, so
+# adding a line here is copy-and-paste from the failing CI log.
+#
+# Files named on the command line (`check_run_completeness.py <path>`) are NOT waivable by this file: asking
+# about a specific file and being answered with a baseline hit would answer a different question.
+
+# ---------------------------------------------------------------------------------------------------------
+# Entries. Both verified by hand against main at 73936b3 on 2026-09-26.
+# ---------------------------------------------------------------------------------------------------------
+
+# proposals/math-reasoning/.../baseline_results.json -- first line is `"_comment": "ILLUSTRATIVE DUMMY
+# NUMBERS ONLY -- not a measured result of any real checkpoint."`. An example INPUT to a vendored proposal's
+# evaluate.py, not the output of a run; there is no selection artefact it could name and no run whose
+# completeness could be stated. Read by hand while measuring this guard over main.
+proposals/math-reasoning/candidate-evaluation/example_inputs/baseline_results.json::e81a4bcd920e82060bffacab0461905abbd6de3d5d1e1dc2a5c874eb24829166  fabricated example input, self-labelled "ILLUSTRATIVE DUMMY NUMBERS ONLY", not a run's result; verified by hand 2026-09-26. issue: TBD (rename to *_example_inputs.json and this line can go)
+
+# proposals/prabhasa-nyaya/.../baseline_results.example.json -- first line is `"_note": "FABRICATED EXAMPLE
+# — invented numbers, only for exercising scripts/evaluate.py. Not a measured result."`. Same case, and the
+# `.example.` infix already says it; the guard matches it anyway because `*_results.*.json` is one of the
+# wide patterns and narrowing that pattern is the thing point 1 above refuses to do.
+proposals/prabhasa-nyaya/candidate-evaluation/configs/baseline_results.example.json::f3a21aa992aec329a6a2574b079ec054746966b7dbda3ffcfecc90ce571dc681  fabricated example config, self-labelled "FABRICATED EXAMPLE", not a run's result; verified by hand 2026-09-26. issue: TBD (same rename follow-up as the line above)

@@ -129,6 +129,25 @@ jobs:
       # a reason and an issue, in scripts/fail_open_defaults_baseline.txt; they are findings going to their
       # owners, not things this step's own PR fixed.
       - run: uv run python scripts/check_fail_open_defaults.py
+      # Run completeness (adopted standing rule, 2026-09-26): every scored result states n_planned,
+      # n_scored and its error counts, and a run with n_scored < n_planned is reported as truncated and
+      # labelled with its walk order. n_planned is DERIVED from the committed selection/manifest artefact
+      # the result names (after verifying that artefact's sha256), never taken from the result's own claim,
+      # because a truncated run declaring `n_planned: 55` would otherwise pass its own check; n_scored is
+      # recounted as USABLE scores rather than rows present; and every required field absent is a rejection,
+      # not a default.
+      #
+      # In THIS job rather than `engine`, for the reason this job exists at all (#74): it is a pure static
+      # check over tracked files with no dependency on tests having run.
+      #
+      # Stated plainly so a green tick is not over-read: this repository commits ZERO result artefacts today
+      # (results never write inside it -- PRAVRUDHI_T2_RESULTS_DIR is mandatory in every T2 script and has
+      # no in-repo default), so this step currently checks no real result and SAYS SO in its own output on
+      # every run. Its teeth are prospective -- any result artefact committed from here on -- plus the
+      # by-hand use over a results directory: `uv run python scripts/check_run_completeness.py <result>`.
+      # The two files it name-matches today are self-labelled fabricated proposal examples, waived by exact
+      # bytes with a reason and an issue each in scripts/run_completeness_baseline.txt.
+      - run: uv run python scripts/check_run_completeness.py
       # Secret scanning over THIS PR'S DIFF (operator ask, 2026-09-26, after that morning's Docker ARG
       # token leak and the 2026-09-11 Telegram bot token). In THIS job rather than `engine` for the reason
       # this job exists at all (#74): it is a pure static check with no dependency on tests having run, and
