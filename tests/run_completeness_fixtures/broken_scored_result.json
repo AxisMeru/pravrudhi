@@ -1,0 +1,5 @@
+{
+  "_fixture": "DELIBERATELY WRONG, and named so that scripts/check_run_completeness.py's own discovery would match it (`*_scored*.json`) and fail on it. It carries no `run_completeness` block on purpose. It sits in tests/run_completeness_fixtures/, whose directory name is in the guard's EXCLUDED_DIR_NAMES, so it can never fail the real build -- and tests/test_check_run_completeness.py asserts exactly that, which is what keeps the exclusion honest rather than assumed.",
+  "accuracy": 0.99,
+  "n": 3
+}
