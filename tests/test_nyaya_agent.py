@@ -1083,6 +1083,38 @@ class TestTruthfulElementStatus:
         assert c1.outcome == c2.outcome  # but the outcome never does
 
 
+class TestBindingLegInSingleJudgeMode:
+    """Issue #57 (Tag's review of #37): `binding_leg` is documented as `"primary" | "second" | None`, but a
+    BARE judge (no `AndGateJudge` wrapper at all -- no `second_judge:` configured, the module-level `_run`
+    helper's own shape, not this file's `TestTruthfulElementStatus` class, which always wraps two
+    `ScriptedJudge`s in a real `AndGateJudge`) never touches `vetoed_by` -- that field only exists on
+    AndGateJudge's own output. Before this fix, a single-judge deployment's own primary rejecting an element
+    left `binding_leg` null even though the primary is the ONLY judge that could possibly have decided it,
+    contradicting the docstring's own claim that null means "not a tau miss at all"."""
+
+    def test_a_bare_single_judges_own_rejection_still_names_primary(self, tmp_path: Path) -> None:
+        script = _proof_script(TOY_FACTS)
+        script[BNS69_EL[0]] = [_not(0.6)]  # leans established (p >= 0.5) but under tau -- not_confirmed
+        run, _, _ = _run(tmp_path, script)
+        el0 = run.contracts[0].elements[0]
+        assert el0.status == "not_confirmed"
+        assert el0.binding_leg == "primary"
+
+    def test_a_bare_single_judges_genuine_rejection_also_names_primary(self, tmp_path: Path) -> None:
+        script = _proof_script(TOY_FACTS)
+        script[BNS69_EL[0]] = [_not(0.2)]  # genuinely low p -- not_established
+        run, _, _ = _run(tmp_path, script)
+        el0 = run.contracts[0].elements[0]
+        assert el0.status == "not_established"
+        assert el0.binding_leg == "primary"
+
+    def test_a_bare_single_judges_established_element_still_has_no_binding_leg(self, tmp_path: Path) -> None:
+        run, _, _ = _run(tmp_path, _proof_script(TOY_FACTS))
+        el0 = run.contracts[0].elements[0]
+        assert el0.status == "established"
+        assert el0.binding_leg is None
+
+
 class TestGate1ReferWiring:
     """Gate 1 (Track-C, GATE1-PRODUCT-WIRING-SPEC-2026-09-26.md): wraps a `ScriptedJudge` in a REAL
     `Gate1Judge` (never hand-builds an `ElementJudgment` with gate1 fields) so `_run_contract`'s own

@@ -654,16 +654,23 @@ class ElementResult:
     #: in this case). Lead-2, 2026-09-24: a second-judge error must surface as REFER_TO_LAWYER, not silently
     #: become an ordinary not-established fact that can drive a false DENIAL.
     second_unavailable: bool = False
-    #: Issue #37: which judge's tau this non-established element failed to clear -- "primary" (it rejected
-    #: outright, or `not_confirmed`/`not_established` on the primary's own p when the second was never
-    #: asked), "second" (the primary passed but the second didn't), or "both" reserved for a future mode
-    #: where both are asked and scored independently (unreachable today: the current AND-gate never asks the
-    #: second once the primary has already failed -- see AndGateJudge.judge's own cost-saving early return).
-    #: None whenever the element IS established, or the non-established reason isn't a tau miss at all
+    #: Issue #37 (single-judge fix, #57): which judge's tau this non-established element failed to clear --
+    #: "primary" (it rejected outright; also single-judge mode's ONLY possible value, since there is no
+    #: second judge to blame instead) or "second" (the primary passed but the second didn't). None whenever
+    #: the element IS established, or the non-established reason isn't a tau miss at all
     #: (`not_evaluated_second_unavailable`, or a Gate 1 veto -- Gate 1's own `gate1_veto_kind` field already
-    #: names that reason). Reuses `ElementJudgment.vetoed_by` (issue #37's own suggestion) rather than a
-    #: fully separate signal.
-    binding_leg: Literal["primary", "second", "both"] | None = None
+    #: names that reason). Reuses `ElementJudgment.vetoed_by` (issue #37's own suggestion) where AndGateJudge
+    #: already set it; single-judge mode never sets `vetoed_by` at all (that field only exists on
+    #: AndGateJudge's own output), so `_truthful_status` fills in "primary" itself in that case -- see its
+    #: own docstring.
+    #:
+    #: There is no "both" value: it would mean both judges independently failed their own tau, which would
+    #: require asking the second even after the primary has already failed -- the current AND-gate's own
+    #: cost-saving early return (AndGateJudge.judge) never does that, so no code path can produce it. Declared
+    #: here once (issue #57, Tag's review of #37) and then removed rather than left as a documented-but-dead
+    #: type value once confirmed unreachable; implementing that mode is a materially different, more
+    #: expensive design (always paying the second judge's call) that no issue has asked for.
+    binding_leg: Literal["primary", "second"] | None = None
     #: Gate 1 (Track-C, 2026-09-26): a third gate, NLI entailment check, run only when the judge(s) above
     #: already established the element. All None/False when Gate 1 is not configured (`NYAYA_GATE1_ENABLED`
     #: unset/false, today's default) or was never asked (nothing established yet to check).
@@ -823,10 +830,10 @@ def _second_band_info(anchor: ElementJudgment | None, delta: float | None) -> di
 def _truthful_status(
     claimed: bool, valid: bool, anchor: ElementJudgment | None, second_unavailable: bool,
 ) -> tuple[ElementStatus, Literal["primary", "second"] | None]:
-    """The final element status and binding leg (issue #37). Called only after `_second_band_info` has
-    already computed `second_unavailable`, so the "second judge never answered" signal is read once, not
-    re-derived. `claimed`/`valid` follow `_judge_element`'s own naming: `claimed` is attempt 1's own judge
-    status, `valid` is claimed AND the quote verified.
+    """The final element status and binding leg (issue #37; single-judge fix, #57). Called only after
+    `_second_band_info` has already computed `second_unavailable`, so the "second judge never answered"
+    signal is read once, not re-derived. `claimed`/`valid` follow `_judge_element`'s own naming: `claimed` is
+    attempt 1's own judge status, `valid` is claimed AND the quote verified.
 
     A claimed-but-unverifiable quote (`claimed and not valid`) is always `not_established` regardless of
     `p_established` -- a hallucination is a real negative, never a confidence question. Otherwise (`not
@@ -835,7 +842,15 @@ def _truthful_status(
     reason); the second-unavailable case gets its own distinct label; and what remains is split by whether
     the judge(s) that DID run leaned toward established (p >= 0.5) without clearing their tau
     (`not_confirmed`) or actually scored the element unmet (`not_established`) -- the outcome any of these
-    three drives is identical (never "established"), only the label differs."""
+    three drives is identical (never "established"), only the label differs.
+
+    `binding_leg` reuses `anchor.vetoed_by` where AndGateJudge already set it (its own primary-rejected
+    branch sets `vetoed_by="primary"`, its second-rejected branch sets `"second"`) -- but a BARE single judge
+    (no AndGateJudge wrapper at all) never touches `vetoed_by`; that field only exists on AndGateJudge's own
+    output. `anchor.tau_second` is the reliable discriminator: only AndGateJudge ever sets it (both of its
+    branches always do, even when the second was skipped/unavailable/never asked), so `tau_second is None`
+    means single-judge mode -- there, the primary is the ONLY judge in play, so it alone decided any
+    non-established outcome; `binding_leg` must be "primary", never null, matching its own docstring."""
     if claimed and valid:
         return "established", None
     if claimed and not valid:
@@ -846,6 +861,8 @@ def _truthful_status(
     if second_unavailable:
         return "not_evaluated_second_unavailable", None
     binding_leg = anchor.vetoed_by if anchor.vetoed_by in ("primary", "second") else None
+    if binding_leg is None and anchor.tau_second is None:
+        binding_leg = "primary"  # single-judge mode: no second judge exists to blame instead
     second_leans_established = anchor.p_established_second is None or anchor.p_established_second >= 0.5
     if anchor.p_established >= 0.5 and second_leans_established:
         return "not_confirmed", binding_leg
