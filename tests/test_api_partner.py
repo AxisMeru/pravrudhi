@@ -442,6 +442,95 @@ def test_trust_proxy_header_without_a_trusted_proxy_allowlist_is_refused() -> No
         PartnerApiConfig(rate_limit_per_minute=1, max_concurrent=1, trust_proxy_header=True, trusted_proxies=())
 
 
+_CLIENT_IP_SECRET = "s" * 32  # exactly MIN_CLIENT_IP_SECRET_LENGTH; a valid, if not realistic, value
+
+
+def test_client_ip_header_with_correct_secret_keys_per_caller(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from pravrudhi.api.partner import CLIENT_IP_HEADER, CLIENT_IP_SECRET_ENV, CLIENT_IP_SECRET_HEADER
+
+    monkeypatch.setenv(CLIENT_IP_SECRET_ENV, _CLIENT_IP_SECRET)
+    config = PartnerApiConfig(rate_limit_per_minute=1, max_concurrent=100, trust_proxy_header=False)
+    c = _client(tmp_path, config=config)
+    # Same TestClient peer both times (no proxy in play at all), but two DIFFERENT proven client-IPs --
+    # each gets its own budget of 1, exactly what a Worker→RunPod/tunnel deployment needs to stop one
+    # caller's traffic from spending everyone else's rate-limit budget.
+    r1 = c.post(
+        "/api/v1/analyse-facts", json=_req(),
+        headers={CLIENT_IP_HEADER: "203.0.113.1", CLIENT_IP_SECRET_HEADER: _CLIENT_IP_SECRET},
+    )
+    r2 = c.post(
+        "/api/v1/analyse-facts", json=_req(),
+        headers={CLIENT_IP_HEADER: "203.0.113.2", CLIENT_IP_SECRET_HEADER: _CLIENT_IP_SECRET},
+    )
+    assert r1.status_code == 200
+    assert r2.status_code == 200
+    # The SAME proven client-IP a second time spends the same budget as the first call.
+    r3 = c.post(
+        "/api/v1/analyse-facts", json=_req(),
+        headers={CLIENT_IP_HEADER: "203.0.113.1", CLIENT_IP_SECRET_HEADER: _CLIENT_IP_SECRET},
+    )
+    assert r3.status_code == 429
+
+
+def test_client_ip_header_without_the_secret_falls_back_to_the_shared_key(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from pravrudhi.api.partner import CLIENT_IP_HEADER, CLIENT_IP_SECRET_ENV
+
+    monkeypatch.delenv(CLIENT_IP_SECRET_ENV, raising=False)  # not configured: fail closed
+    config = PartnerApiConfig(rate_limit_per_minute=1, max_concurrent=100, trust_proxy_header=False)
+    c = _client(tmp_path, config=config)
+    # Two different spoofed client-IP headers, no secret at all -- must NOT be believed; both calls share
+    # the same underlying-peer budget, exactly as an untrusted X-Forwarded-For already does above.
+    r1 = c.post("/api/v1/analyse-facts", json=_req(), headers={CLIENT_IP_HEADER: "203.0.113.1"})
+    r2 = c.post("/api/v1/analyse-facts", json=_req(), headers={CLIENT_IP_HEADER: "203.0.113.2"})
+    assert r1.status_code == 200
+    assert r2.status_code == 429  # same underlying peer, budget of 1 already spent
+
+
+def test_client_ip_header_with_wrong_secret_falls_back_to_the_shared_key(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from pravrudhi.api.partner import CLIENT_IP_HEADER, CLIENT_IP_SECRET_ENV, CLIENT_IP_SECRET_HEADER
+
+    monkeypatch.setenv(CLIENT_IP_SECRET_ENV, _CLIENT_IP_SECRET)
+    config = PartnerApiConfig(rate_limit_per_minute=1, max_concurrent=100, trust_proxy_header=False)
+    c = _client(tmp_path, config=config)
+    r1 = c.post(
+        "/api/v1/analyse-facts", json=_req(),
+        headers={CLIENT_IP_HEADER: "203.0.113.1", CLIENT_IP_SECRET_HEADER: "wrong" * 8},
+    )
+    r2 = c.post(
+        "/api/v1/analyse-facts", json=_req(),
+        headers={CLIENT_IP_HEADER: "203.0.113.2", CLIENT_IP_SECRET_HEADER: "wrong" * 8},
+    )
+    assert r1.status_code == 200
+    assert r2.status_code == 429  # a wrong secret is exactly as unbelievable as no secret at all
+
+
+def test_client_ip_secret_too_short_is_treated_as_unset(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from pravrudhi.api.partner import CLIENT_IP_HEADER, CLIENT_IP_SECRET_ENV, CLIENT_IP_SECRET_HEADER
+
+    short_secret = "too-short"
+    monkeypatch.setenv(CLIENT_IP_SECRET_ENV, short_secret)
+    config = PartnerApiConfig(rate_limit_per_minute=1, max_concurrent=100, trust_proxy_header=False)
+    c = _client(tmp_path, config=config)
+    r1 = c.post(
+        "/api/v1/analyse-facts", json=_req(),
+        headers={CLIENT_IP_HEADER: "203.0.113.1", CLIENT_IP_SECRET_HEADER: short_secret},
+    )
+    r2 = c.post(
+        "/api/v1/analyse-facts", json=_req(),
+        headers={CLIENT_IP_HEADER: "203.0.113.2", CLIENT_IP_SECRET_HEADER: short_secret},
+    )
+    assert r1.status_code == 200
+    assert r2.status_code == 429  # a short configured secret is fail-closed, same as unset
+
+
 def _blocking_agent_factory(release: threading.Event, entered: threading.Event) -> Any:
     class _BlockingAgent:
         def run(self, *_a: Any, **_kw: Any) -> Any:

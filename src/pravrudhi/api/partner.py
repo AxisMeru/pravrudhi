@@ -42,6 +42,9 @@ version's error mapping to a bare 500 -- is now mapped to 503 like every other s
 
 from __future__ import annotations
 
+import hmac
+import logging
+import os
 import threading
 import time
 from collections import OrderedDict
@@ -290,7 +293,70 @@ class UsageOut(BaseModel):
     calls_since_process_start: int
 
 
+_logger = logging.getLogger(__name__)
+
+#: Carries the real caller IP the Cloudflare Worker read from `CF-Connecting-IP` -- an edge-assigned value a
+#: caller cannot spoof by hitting Cloudflare directly, unlike `X-Forwarded-For`. Trusted only alongside
+#: `CLIENT_IP_SECRET_HEADER` (below); presented alone it is exactly as unbelievable as a raw
+#: `X-Forwarded-For` from an untrusted peer, so it must never be consulted without the secret check passing
+#: first.
+CLIENT_IP_HEADER = "x-pravrudhi-client-ip"
+
+#: A shared secret only the Worker and this engine know, proving `CLIENT_IP_HEADER` was set by the Worker at
+#: the edge and not by whoever is actually making the HTTP request (RunPod's load balancer or the operator's
+#: cloudflared tunnel, either of which would otherwise present every caller as the same peer -- exactly the
+#: "one shared budget for everyone behind the proxy" gap this exists to close). Compared with
+#: `hmac.compare_digest`, never `==`, for the same timing-leak reason `tenancy.TENANCY_PROVISION_HEADER` is.
+CLIENT_IP_SECRET_HEADER = "x-pravrudhi-client-ip-secret"
+
+#: The engine's half of the shared secret; the Worker's half is a Cloudflare Worker secret of the same
+#: value, set independently (`wrangler secret put`) -- never committed, never passed through `configs/
+#: partner_api.yaml`, the same reasoning `tenancy.TENANCY_PROVISION_SECRET_ENV` uses for its own secret.
+CLIENT_IP_SECRET_ENV = "PRAVRUDHI_CLIENT_IP_SECRET"
+
+#: Below this length, a configured secret is treated as though it were never set at all -- fail closed, the
+#: same threshold and reasoning as `tenancy.MIN_PROVISION_SECRET_LENGTH`.
+MIN_CLIENT_IP_SECRET_LENGTH = 32
+
+_client_ip_secret_warned_lock = threading.Lock()
+_client_ip_secret_warned = False
+
+
+def _warn_short_client_ip_secret_once() -> None:
+    """Exactly one warning per process for a too-short configured secret -- mirrors `tenancy._warn_short_
+    secret_once`; never logs the value itself."""
+    global _client_ip_secret_warned
+    with _client_ip_secret_warned_lock:
+        if _client_ip_secret_warned:
+            return
+        _client_ip_secret_warned = True
+    _logger.warning(
+        "%s is set but shorter than %d characters -- treating the Worker's client-IP header as untrusted "
+        "(failing closed to the shared rate-limit key) rather than accepting a weak secret. Set a longer "
+        "value to use this path.",
+        CLIENT_IP_SECRET_ENV, MIN_CLIENT_IP_SECRET_LENGTH,
+    )
+
+
 def _client_ip(request: Request, *, trust_proxy_header: bool, trusted_proxies: tuple[str, ...]) -> str:
+    # Preferred over everything below: a caller-specific key proven, by the shared secret, to have come
+    # from the Worker's own read of Cloudflare's CF-Connecting-IP -- correct even when this engine sits
+    # behind a proxy (RunPod's LB, a cloudflared tunnel) that presents every real caller as the same socket
+    # peer, which would otherwise turn the per-IP rate limit into one shared budget for every caller at
+    # once. Fails CLOSED, never open: a missing or too-short secret, a missing client-IP header, or a
+    # mismatched secret all fall through to the existing (stricter, shared-key-prone) behavior below rather
+    # than trusting an unproven header.
+    secret = os.environ.get(CLIENT_IP_SECRET_ENV, "")
+    if secret and len(secret) < MIN_CLIENT_IP_SECRET_LENGTH:
+        _warn_short_client_ip_secret_once()
+        secret = ""
+    if secret:
+        presented = request.headers.get(CLIENT_IP_SECRET_HEADER, "")
+        if presented and hmac.compare_digest(presented, secret):
+            client_ip = request.headers.get(CLIENT_IP_HEADER, "").strip()
+            if client_ip:
+                return client_ip
+
     client = request.client
     socket_peer = client.host if client is not None else "unknown"
     # The header is only trusted when the DIRECT socket peer -- who actually opened this TCP connection,
