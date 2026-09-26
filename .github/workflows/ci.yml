@@ -110,6 +110,52 @@ jobs:
   # pytest failed -- exactly when someone is pushing fast and least likely to notice a skipped guard. Its
   # own job, independent of pytest and of build-lean-binary, so a red pytest run never hides a real guard
   # failure. Make this a required check in the repo's branch protection settings.
+  # Companion to `guards`' range-scoped trailer check (Lead-2, 2026-09-26): the range-scoped check only
+  # catches a trailer in the commits a given PR/push actually introduces -- it can't catch one that lands
+  # some other way (a manual push before branch protection existed, a future settings lapse, anything this
+  # repo's own CI didn't see at the time). This job re-scans main's ENTIRE history on every push to main, so
+  # a trailer that slipped through by any mechanism is still caught, not silently accepted forever. NOT
+  # claimed exhaustive: a scan only proves what it actually found today, never that nothing else is out
+  # there -- state a reason for each allowlist entry instead of a summary claim of completeness.
+  main-history-trailer-scan:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: no attribution trailers anywhere in main's full history (except the allowlist below)
+        run: |
+          # Split by mechanism, each with its own reason -- not one undifferentiated list.
+          #
+          # Agent-written trailers in a squash body (added by an agent following a harness attribution
+          # reminder without checking this repo's no-trailer house rule first):
+          AGENT_WRITTEN=(
+            "dbdf47a989634e1a4800d0b4209f4470daf62299"
+            "e57f0ae8585ad774540ec4e430a0eca7c00472dc"
+            "09c0c334c1a643c5e8899152ab6bea2e958b8198"
+          )
+          # GitHub-composed Co-authored-by (GitHub itself composes this on a squash merge when the PR
+          # opener differs from the commits' authors -- fixed going forward per TEAM-RULES.md Merging:
+          # rebase-merge when possible, else an explicit trailer-free commit_message):
+          GITHUB_COMPOSED=(
+            "5bdc4e4bc2d0fefede2543e3a51b1baf5cf08bc7"
+          )
+          ALLOWLISTED_SHAS=("${AGENT_WRITTEN[@]}" "${GITHUB_COMPOSED[@]}")
+          BAD=0
+          while read -r sha; do
+            skip=0
+            for allowed in "${ALLOWLISTED_SHAS[@]}"; do
+              [[ "$sha" == "$allowed" ]] && skip=1 && break
+            done
+            [[ "$skip" == 1 ]] && continue
+            if git log -1 --format=%B "$sha" | grep -qiE '^(Co-Authored-By|Claude-Session):'; then
+              echo "attribution trailer found in commit $sha, not on the allowlist"
+              BAD=1
+            fi
+          done < <(git log --format=%H)
+          exit "$BAD"
+
   guards:
     runs-on: ubuntu-latest
     steps:
