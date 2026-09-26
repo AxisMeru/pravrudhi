@@ -94,14 +94,32 @@ given: (1) a sentence from a citing judgment naming two parties and a citation, 
 of the case a lookup resolved that citation to. Judge independently, from the text alone, whether the \
 resolved case is genuinely the same case the citation refers to (same parties, same year/volume/page as \
 cited, a consistent holding if one is mentioned) -- not merely that a search matched some words. Respond with \
-ONLY a JSON object: {"correct": true|false, "category": "resolved_correct"|"resolved_incorrect"| \
-"conflict_correct"|"conflict_incorrect", "reason": "<one line>"}."""
+ONLY a JSON object: {"correct": true|false, "category": "resolved_correct"|"resolved_incorrect", \
+"reason": "<one line>"}."""
+
+_LABEL_INSTRUCTIONS_CONFLICT = """You are hand-checking a citation the system found attributed to more than \
+one, genuinely different, party pair in the corpus -- a CONFLICT. You are given: (1) a sentence from a \
+citing judgment naming two parties and a citation, (2) every candidate case the system found for that same \
+citation string, each with its own title and an excerpt of its text. Judge, from the text alone, which of \
+two things this is: "real_ambiguity" (the citation genuinely is attributed to more than one case in the real \
+world -- e.g. a reporter reused a volume/page number, or two unrelated judgments cite it identically), or \
+"normalization_bug" (these are actually mentions of the SAME real case, and the system's party-name \
+normalization should have folded them into one group but didn't -- e.g. a spelling variant, an OCR artifact, \
+or a filler word it missed). Respond with ONLY a JSON object: {"category": "real_ambiguity"| \
+"normalization_bug", "reason": "<one line>"}."""
+
+
+_TASK_INSTRUCTIONS = {
+    "recall": _LABEL_INSTRUCTIONS_RECALL,
+    "precision": _LABEL_INSTRUCTIONS_PRECISION,
+    "conflict": _LABEL_INSTRUCTIONS_CONFLICT,
+}
 
 
 def _dashscope_label_one(text: str, task: str) -> dict[str, object]:
     """One blind DashScope qwen3.8-max call via the free-tier-llm skill's CLI wrapper -- raw text and task
     instructions only, no parser or Labeler-A output ever included in the prompt."""
-    instructions = _LABEL_INSTRUCTIONS_RECALL if task == "recall" else _LABEL_INSTRUCTIONS_PRECISION
+    instructions = _TASK_INSTRUCTIONS[task]
     prompt = f"{instructions}\n\n---\n{text}\n---"
     result = subprocess.run(
         [
@@ -124,20 +142,29 @@ def _dashscope_label_one(text: str, task: str) -> dict[str, object]:
 
 
 def _precision_prompt_text(item: dict[str, object]) -> str:
-    """The two texts a precision labeler needs, concatenated with a clear separator -- the citing sentence's
-    document and, when resolved, the resolved case's own text; a `not_in_index`/`conflict` item has nothing to
-    confirm the resolution of and is not sent to a labeler at all (see `cmd_label_dashscope`)."""
+    """The texts a precision labeler needs, concatenated with a clear separator. A `resolved` item gets the
+    citing document plus the one resolved case; a `conflict` item gets the citing document plus EVERY
+    candidate case the system found, each labeled by its own title, so the labeler can judge "real
+    ambiguity" vs "normalization bug" from the actual text rather than a bare CONFLICT label. A
+    `not_in_index` item has nothing to confirm the resolution of and is not sent to a labeler at all (see
+    `cmd_label_dashscope`)."""
     parts = [f"CITING DOCUMENT:\n{item['citing_text']}"]
     if item["status"] == "resolved":
         parts.append(f"\nRESOLVED CASE ({item['resolved_title']}):\n{item['resolved_text']}")
+    elif item["status"] == "conflict":
+        candidates: list[dict[str, str]] = item.get("conflict_candidates") or []  # type: ignore[assignment]
+        for i, c in enumerate(candidates, start=1):
+            parts.append(f"\nCANDIDATE {i} ({c['title']}):\n{c['text']}")
     return "\n".join(parts)
 
 
 def cmd_label_dashscope(args: argparse.Namespace) -> None:
     """Batch-run Labeler B (DashScope qwen3.8-max) over every item in a recall order / precision sample file.
-    Never given parser or Labeler-A output -- raw text (and, for precision, the resolved case's own text) only.
-    A precision item with no resolution (`not_in_index`/`conflict`) has nothing for a labeler to confirm and
-    is skipped, carried through to the output unchanged with no labeler judgment attached."""
+    Never given parser or Labeler-A output -- raw text (and, for precision, the resolved/candidate case
+    text) only. A `resolved` item is judged correct/incorrect against its one resolved case; a `conflict`
+    item is judged real_ambiguity/normalization_bug against every candidate the system found (prereg v3 §4,
+    R1's rejection of 90c101b: CONFLICT must reach a labeler, not be skipped). Only `not_in_index` has
+    nothing for a labeler to confirm and is carried through unchanged with no labeler judgment attached."""
     data = json.loads(Path(args.input).read_text())
     results = []
     if args.task == "recall":
@@ -145,10 +172,11 @@ def cmd_label_dashscope(args: argparse.Namespace) -> None:
             results.append({**doc, "label": _dashscope_label_one(doc["text"], "recall")})
     else:
         for item in data["sample"]:
-            if item["status"] != "resolved":
+            if item["status"] == "not_in_index":
                 results.append({**item, "label": None})
                 continue
-            results.append({**item, "label": _dashscope_label_one(_precision_prompt_text(item), "precision")})
+            label_task = "conflict" if item["status"] == "conflict" else "precision"
+            results.append({**item, "label": _dashscope_label_one(_precision_prompt_text(item), label_task)})
     Path(args.out).write_text(json.dumps(results, indent=2))
     print(f"labeled {len(results)} items with DashScope qwen3.8-max ({args.task}) -> {args.out}", file=sys.stderr)
 

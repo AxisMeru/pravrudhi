@@ -116,7 +116,10 @@ def precision_sample_with_text(conn: sqlite3.Connection, sample: list[dict[str, 
     document's own text (always required -- refuses if missing, same as `recall_order_with_text`), plus,
     when `verify()`'s resolution step (`resolve_citation_key`) actually resolves the alias's citation, the
     resolved case's own id/title/text too. `status` is `"resolved"`, `"not_in_index"`, or `"conflict"` --
-    never a bare boolean, so a labeler (or the scoring script) can tell a real ambiguity from "no evidence"."""
+    never a bare boolean, so a labeler (or the scoring script) can tell a real ambiguity from "no evidence".
+    A `"conflict"` record also carries `conflict_candidates` (each candidate's id/title/text, one per
+    genuinely distinct party-pair group) -- the prereg's §4 CONFLICT bucket needs the labeler to actually
+    see them and choose "real ambiguity" or "normalization bug", which a bare status string cannot answer."""
     out = []
     for item in sample:
         citing_text = _load_text(conn, str(item["citing_case_id"]))
@@ -130,6 +133,9 @@ def precision_sample_with_text(conn: sqlite3.Connection, sample: list[dict[str, 
             record["resolved_text"] = row["text"]
         elif resolved.status == VerifyResult.CONFLICT:
             record["status"] = "conflict"
+            record["conflict_candidates"] = [
+                {"case_id": r["case_id"], "title": r["title"], "text": r["text"]} for r in resolved.case_rows
+            ]
         else:
             record["status"] = "not_in_index"
         out.append(record)

@@ -26,6 +26,7 @@ from pravrudhi.application.p3_prereg import (
     recall_order_with_text,
     recall_sample_order,
 )
+from pravrudhi.application.verify import VerifyResult, resolve_citation_key
 
 
 class TestClopperPearsonCi:
@@ -268,3 +269,70 @@ class TestPrecisionSampleWithText:
                    "citing_case_id": "empty1"}]
         with pytest.raises(ValueError, match="empty1"):
             precision_sample_with_text(db, sample)
+
+
+def _insert_second_conflicting_group(conn: sqlite3.Connection) -> None:
+    """A second citing document attributes the SAME citation ("(1977) 3 SCC 247", already attributed to
+    Narandas Karsondas v. S.A. Kamtam by the `db` fixture) to a genuinely different, ALSO resolvable, party
+    pair -- a real CONFLICT (test_verify.py's own `test_conflict_when_alias_maps_citation_to_two_different_
+    party_pairs` covers the CONFLICT status itself; this adds a resolvable second case so a fix that returns
+    candidate rows can be checked against more than one)."""
+    insert_case(
+        conn,
+        CaseRecord(
+            case_id="citer2", title="A Different Later Case", court="Supreme Court", year=2010,
+            source="sc_pdf", path_or_url="/fake/citer2.pdf",
+            text="In Totally Different Party v. Another Stranger (1977) 3 SCC 247 the Court held that.",
+        ),
+    )
+    insert_case(
+        conn,
+        CaseRecord(
+            case_id="resolved2", title="Totally Different Party vs Another Stranger", court="Supreme Court",
+            year=1977, source="sc_pdf", path_or_url="/fake/resolved2.pdf",
+            text="An entirely different holding, about an entirely different dispute.",
+        ),
+    )
+    conn.commit()
+
+
+class TestResolveCitationKeyOnConflict:
+    """R1's rejection of 90c101b (prereg v3 §4): a bare CONFLICT with the candidates discarded cannot
+    produce the labeler judgment the signed protocol requires ("real ambiguity" vs "normalization bug") --
+    `resolve_citation_key` must carry a candidate row per genuinely distinct party-pair group instead."""
+
+    def test_conflict_carries_one_candidate_per_distinct_party_pair_group(self, db: sqlite3.Connection) -> None:
+        _insert_second_conflicting_group(db)
+        resolved = resolve_citation_key(db, "(1977) 3 SCC 247")
+        assert resolved.status == VerifyResult.CONFLICT
+        assert {r["case_id"] for r in resolved.case_rows} == {"resolved1", "resolved2"}
+
+    def test_a_conflicting_group_that_resolves_to_nothing_contributes_no_candidate(
+        self, db: sqlite3.Connection
+    ) -> None:
+        # The existing test_verify.py scenario: the second group's party pair has no matching case at all.
+        # It must not turn the whole lookup into an error or silently manufacture a candidate -- it simply
+        # contributes zero rows, leaving only the group(s) that actually resolved.
+        insert_case(
+            db,
+            CaseRecord(
+                case_id="citer3", title="Yet Another Later Case", court="Supreme Court", year=2011,
+                source="sc_pdf", path_or_url="/fake/citer3.pdf",
+                text="In Nobody At All v. Nowhere In Particular (1977) 3 SCC 247 the Court observed that.",
+            ),
+        )
+        db.commit()
+        resolved = resolve_citation_key(db, "(1977) 3 SCC 247")
+        assert resolved.status == VerifyResult.CONFLICT
+        assert {r["case_id"] for r in resolved.case_rows} == {"resolved1"}
+
+
+class TestPrecisionSampleWithTextOnConflict:
+    def test_conflict_record_carries_every_candidates_title_and_text(self, db: sqlite3.Connection) -> None:
+        _insert_second_conflicting_group(db)
+        sample = [{"rowid": 4, "party_1": "Narandas Karsondas", "party_2": "S.A. Kamtam and Anr.",
+                   "citation": "(1977) 3 SCC 247", "citing_case_id": "citer1"}]
+        [record] = precision_sample_with_text(db, sample)
+        assert record["status"] == "conflict"
+        assert {c["case_id"] for c in record["conflict_candidates"]} == {"resolved1", "resolved2"}
+        assert all({"case_id", "title", "text"} <= c.keys() for c in record["conflict_candidates"])

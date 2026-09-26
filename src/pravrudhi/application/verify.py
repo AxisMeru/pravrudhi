@@ -130,13 +130,40 @@ def _citation_key(c: Citation) -> str | None:
 @dataclass(frozen=True)
 class ResolvedAlias:
     """The outcome of resolving a citation KEY to case row(s) in the index, stopping short of any quote
-    check. `status` is `NOT_IN_INDEX`/`CONFLICT` exactly when `case_rows` is empty; any other case is a
-    successful resolution (`status` is `None`) to one or more rows (rows agree after party-name
-    normalization, so more than one row here means the SAME real case indexed more than once, not an
-    ambiguity -- a real CONFLICT already returned above it)."""
+    check. `status` is `NOT_IN_INDEX` exactly when `case_rows` is empty. `CONFLICT` carries one candidate
+    row PER genuinely distinct party-pair group (Lead-2, prereg v3 R1 rejection of 90c101b: the signed
+    protocol's §4 CONFLICT bucket needs a labeler to actually see the candidates and judge "real ambiguity"
+    vs "normalization bug" -- a bare CONFLICT with the candidates discarded cannot produce that judgment).
+    Any other status is a successful resolution (`status` is `None`) to one or more rows (rows agree after
+    party-name normalization, so more than one row here means the SAME real case indexed more than once,
+    not an ambiguity -- a real CONFLICT already returned above it)."""
 
     status: VerifyResult | None
     case_rows: list[sqlite3.Row]
+
+
+def _resolve_party_pair(conn: sqlite3.Connection, party_1: str, party_2: str) -> list[sqlite3.Row]:
+    """The exact-title FTS match -> `_fuzzy_confirm` fallback for one already-normalized party pair,
+    extracted so `resolve_citation_key` can run it once per candidate group on a CONFLICT (previously run
+    only for the single-group case) without duplicating the lookup logic.
+
+    Corpus documents are titled from party names (SC PDF filenames, InJudgements `Titles`) -- an FTS5 match
+    on both party names' first significant token finds the resolved case's own document, not the citing
+    one. `_strip_filler`'s output is used (not the raw alias text, and not `normalize_party_name`'s more
+    aggressive period-stripping -- that would collapse "S.A." to "sa" and stop matching a title that keeps
+    initials space-separated, e.g. "S A Kamtam"), so a leading filler word that survived mining ("In
+    Narandas Karsondas") doesn't send the lookup hunting for a document titled "In ...". A short/common-word
+    first token (e.g. "the") is not filtered here; a real corpus mostly avoids that shape ("The State v. X"
+    is common in the OTHER direction, party_1 first) -- not proven bulletproof at full-corpus scale, flagged
+    as a known simplification rather than silently assumed safe."""
+    t1 = _strip_filler(party_1).split()[0]
+    t2 = _strip_filler(party_2).split()[0]
+    case_rows = conn.execute(
+        "SELECT case_id, title, text FROM cases WHERE title MATCH ?", (f'"{t1}" AND "{t2}"',)
+    ).fetchall()
+    if not case_rows:
+        case_rows = _fuzzy_confirm(conn, party_1, party_2)
+    return list(case_rows)
 
 
 def resolve_citation_key(conn: sqlite3.Connection, key: str) -> ResolvedAlias:
@@ -159,30 +186,22 @@ def resolve_citation_key(conn: sqlite3.Connection, key: str) -> ResolvedAlias:
     for row in alias_rows:
         gkey = (normalize_party_name(row["party_1"]), normalize_party_name(row["party_2"]))
         groups.setdefault(gkey, row)
+
     if len(groups) > 1:
-        return ResolvedAlias(VerifyResult.CONFLICT, [])
+        # A real conflict: resolve EACH distinct party-pair to its own candidate row(s), rather than
+        # discarding them, so a labeler can actually see what the citation might point to and judge which
+        # of the prereg's two categories this is -- a genuine ambiguity in the source text, or a
+        # normalization bug in this module that should have folded these into one group.
+        candidates: list[sqlite3.Row] = []
+        for group_row in groups.values():
+            candidates.extend(_resolve_party_pair(conn, group_row["party_1"], group_row["party_2"]))
+        return ResolvedAlias(VerifyResult.CONFLICT, candidates)
 
     row = next(iter(groups.values()))
-    party_1, party_2 = row["party_1"], row["party_2"]
-    # Corpus documents are titled from party names (SC PDF filenames, InJudgements `Titles`) -- an FTS5
-    # match on both party names' first significant token finds the resolved case's own document, not the
-    # citing one. `_strip_filler`'s output is used (not the raw alias text, and not `normalize_party_name`'s
-    # more aggressive period-stripping -- that would collapse "S.A." to "sa" and stop matching a title that
-    # keeps initials space-separated, e.g. "S A Kamtam"), so a leading filler word that survived mining
-    # ("In Narandas Karsondas") doesn't send the lookup hunting for a document titled "In ...". A
-    # short/common-word first token (e.g. "the") is not filtered here; a real corpus mostly avoids that
-    # shape ("The State v. X" is common in the OTHER direction, party_1 first) -- not proven bulletproof at
-    # full-corpus scale, flagged as a known simplification rather than silently assumed safe.
-    t1 = _strip_filler(party_1).split()[0]
-    t2 = _strip_filler(party_2).split()[0]
-    case_rows = conn.execute(
-        "SELECT case_id, title, text FROM cases WHERE title MATCH ?", (f'"{t1}" AND "{t2}"',)
-    ).fetchall()
-    if not case_rows:
-        case_rows = _fuzzy_confirm(conn, party_1, party_2)
+    case_rows = _resolve_party_pair(conn, row["party_1"], row["party_2"])
     if not case_rows:
         return ResolvedAlias(VerifyResult.NOT_IN_INDEX, [])
-    return ResolvedAlias(None, list(case_rows))
+    return ResolvedAlias(None, case_rows)
 
 
 def verify(conn: sqlite3.Connection, citation_text: str, quote_or_proposition: str) -> VerifyResult:
