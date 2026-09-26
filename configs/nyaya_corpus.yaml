@@ -1,0 +1,14 @@
+# nyaya.py's Corpus.retrieve() -- the /nyaya "ask" feature's BM25 retrieval over the statute corpus shipped
+# under assets/nyaya/ (issue #32, follow-up from PR #30 d7d82a9: this constant was a magic number in code,
+# against the house rule that constants live in configs/, never in code).
+
+# Below this score, retrieve() returns nothing rather than the nearest noise, so a caller with no hits gets
+# an honest empty result (NOT_IN_INDEX) instead of citations that only look plausible.
+#
+# Measurement note (2026-09-26, PR #30 d7d82a9): a question about a BNS provision (bns69) has no BNS-family
+# document in this corpus (only IPC + Constitution of India are shipped) at all, but the old `scores[i] > 0`
+# filter let generic-word overlap with the Constitution's own prose through anyway. Measured on the shipped
+# corpus: a genuinely off-topic question's best score tops out around 7.1, while every real match in
+# tests/test_nyaya.py's own suite starts above 12.7 (as low as k=1 on a short query like "equality before
+# law"). 8.0 sits cleanly in that gap.
+min_relevance_score: 8.0
