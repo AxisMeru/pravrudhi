@@ -87,6 +87,13 @@ retention_days: 7
 #   max_tokens: 30
 #   statute_chars: 600
 #   tau: 0.97
+#   # endpoint_id / adapter_sha: only read when second_judge_positive_control.record_path is set below --
+#   # RecordGatedJudge compares these against the record the preflight CLI wrote, refusing the real endpoint
+#   # if either doesn't match (a redeploy to a different endpoint or a new adapter needs a fresh passing
+#   # record before the second judge is trusted again). Deployment-specific -- current values are ops
+#   # config, not committed here.
+#   endpoint_id: "<current RunPod endpoint id>"
+#   adapter_sha: "<current adapter commit/revision>"
 
 # The statute text the house judge was trained with (public statute text: IPC 1860 / BNS 2023), keyed by
 # registry contract id. The ONLY statute text the judge ever sees, on every attempt, so it stays in its
@@ -384,9 +391,22 @@ gate1:
 # handling, no new decision logic in the judge itself), and Lead-2 is alerted. Trigger: every (re)deploy or
 # config change of the second-judge endpoint, every engine release, and on a schedule -- always a preflight,
 # never through the public analyse-facts path.
+#
+# TRIGGER WIRING (Lead-2, 2026-09-26): record_path/max_age_hours close the loop without depending on anyone
+# remembering to run the preflight CLI. Commented out (the default, every deployment before this): the
+# record gate is OPT-IN -- `_build_judge` only wraps the second judge in `RecordGatedJudge` when
+# `record_path` is set, so a deployment with second_judge configured but no record_path keeps today's
+# behaviour unchanged (real second judge, always reachable). When set, the engine refuses to let a real
+# second-judge call happen at all unless `record_path` holds a record that is (a) itself `available: true`
+# (the preflight CLI's own last verdict), (b) younger than `max_age_hours`, and (c) names the CURRENT
+# second_judge.endpoint_id / second_judge.adapter_sha below -- no record, a stale one, or a mismatched one
+# all fail closed the identical way (second_judge_unavailable -> REFER for every element). The preflight CLI
+# (scripts/second_judge_positive_control_preflight.py) writes this record after every run, pass or fail.
 second_judge_positive_control:
   parity_floor: 0.98
   parity_median_abs_dp: 0.02
   ne_discrimination_min: 70
   ne_discrimination_tau: 0.97
   est_accuracy_alert_drop: 3
+  # record_path: /var/lib/pravrudhi/second_judge_positive_control_record.json
+  # max_age_hours: 24

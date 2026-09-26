@@ -1571,6 +1571,68 @@ class TestHouseFactory:
         assert isinstance(agent.judge, Gate1Judge)
         assert isinstance(agent.judge.inner, AndGateJudge)
 
+    def test_second_judge_positive_control_record_path_absent_is_unwrapped(self, tmp_path: Path) -> None:
+        """Issue #44 trigger wiring (Lead-2, 2026-09-26): the default -- no second_judge_positive_control
+        block at all, or one without record_path -- is byte-identical to before this feature: the real
+        second-judge HouseJudge, not wrapped in anything."""
+        from pravrudhi.application.nyaya_judges import AndGateJudge, HouseJudge
+
+        second_cfg = {**self._HOUSE_JUDGE_CFG, "base_url": "http://s/v1", "model": "m2", "tau": 0.97}
+        cfg = _config(tmp_path, house_judge=self._HOUSE_JUDGE_CFG, second_judge=second_cfg,
+                      score_bin=self._score_bin(tmp_path), pinned_score_sha256=None)
+        agent = NyayaAgent.house(tmp_path, config=cfg)
+        assert isinstance(agent.judge, AndGateJudge)
+        assert isinstance(agent.judge.second, HouseJudge)
+
+    def test_second_judge_positive_control_record_path_set_wraps_in_record_gated_judge(
+        self, tmp_path: Path
+    ) -> None:
+        from pravrudhi.application.nyaya_judges import AndGateJudge
+        from pravrudhi.application.second_judge_positive_control import RecordGatedJudge
+
+        second_cfg = {**self._HOUSE_JUDGE_CFG, "base_url": "http://s/v1", "model": "m2", "tau": 0.97,
+                      "endpoint_id": "ep1", "adapter_sha": "abc123"}
+        cfg = _config(
+            tmp_path, house_judge=self._HOUSE_JUDGE_CFG, second_judge=second_cfg,
+            score_bin=self._score_bin(tmp_path), pinned_score_sha256=None,
+            second_judge_positive_control={"record_path": str(tmp_path / "record.json"), "max_age_hours": 24},
+        )
+        agent = NyayaAgent.house(tmp_path, config=cfg)
+        assert isinstance(agent.judge, AndGateJudge)
+        assert isinstance(agent.judge.second, RecordGatedJudge)
+        assert agent.judge.second.expected_endpoint_id == "ep1"
+        assert agent.judge.second.expected_adapter_sha == "abc123"
+        assert agent.judge.second.max_age_hours == 24
+
+    def test_no_record_fails_the_element_closed_to_not_established_via_and_gate(self, tmp_path: Path) -> None:
+        """End-to-end proof the wiring actually closes the loop: with no record file at all, a call to the
+        second judge slot raises RecordCheckFailed, which AndGateJudge's existing generic except-Exception
+        handling converts into second_judge_unavailable -- never a bare primary-alone established."""
+        from pravrudhi.application.nyaya_judges import JudgeRequest
+
+        second_cfg = {**self._HOUSE_JUDGE_CFG, "base_url": "http://s/v1", "model": "m2", "tau": 0.97,
+                      "endpoint_id": "ep1", "adapter_sha": "abc123"}
+        cfg = _config(
+            tmp_path, house_judge=self._HOUSE_JUDGE_CFG, second_judge=second_cfg,
+            score_bin=self._score_bin(tmp_path), pinned_score_sha256=None,
+            second_judge_positive_control={"record_path": str(tmp_path / "record.json"), "max_age_hours": 24},
+        )
+        agent = NyayaAgent.house(tmp_path, config=cfg)
+
+        class _StubPrimary:
+            name = "primary"
+
+            def judge(self, request: JudgeRequest):
+                from pravrudhi.application.nyaya_judges import ElementJudgment
+                return ElementJudgment("established", 0.99, "F1", "quote", "model")
+
+        agent.judge.primary = _StubPrimary()  # the second slot must be reached to prove the gate fires
+        result = agent.judge.judge(JudgeRequest("c", "e", False, "s", "n", (("F1", "text"),)))
+        assert result.status == "not_established"
+        assert result.vetoed_by == "second"
+        assert "second_unavailable" in (result.second_skip_reason or "")
+        assert "no record" in (result.second_skip_reason or "")
+
 
 class TestRealBinary:
     @pytest.mark.requires_score_bin

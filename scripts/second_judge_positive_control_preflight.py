@@ -31,6 +31,7 @@ from pravrudhi.application.second_judge_positive_control import (  # noqa: E402
     decide_availability,
     resolve_private_root,
     run_live_check,
+    write_record,
 )
 
 
@@ -131,6 +132,22 @@ def main() -> int:
     print(f"VERDICT: {'AVAILABLE' if verdict.available else 'UNAVAILABLE (fail closed)'}")
     for reason in verdict.reasons:
         print(f"  reason: {reason}")
+
+    # Issue #44 trigger wiring (Lead-2, 2026-09-26): write the record the engine gates on -- ALWAYS, whether
+    # this run passed or failed, so a failing run's record is itself what makes the engine fail closed (a
+    # missing record and a recorded failure both refuse the second judge; only a fresh, matching, PASSING
+    # record lets AndGateJudge reach it).
+    record_path = control_cfg.get("record_path")
+    if record_path:
+        write_record(
+            Path(record_path), available=verdict.available,
+            endpoint_id=str(cfg.second_judge.get("endpoint_id", "")),
+            adapter_sha=str(cfg.second_judge.get("adapter_sha", "")), reasons=verdict.reasons,
+        )
+        print(f"record written: {record_path}")
+    else:
+        print("no record_path configured -- record not written (the engine's record gate, if configured "
+              "separately, is not affected by this run)")
 
     return 0 if verdict.available else 1
 

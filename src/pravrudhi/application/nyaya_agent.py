@@ -162,6 +162,11 @@ class AgentConfig:
     #: under `audit_dir` before `purge_stale_runs` deletes it. Config-driven, never hardcoded, so the window
     #: can be tightened or loosened with a config edit alone. 7.0 is the operator/Lead-2 decided default.
     retention_days: float = 7.0
+    #: Issue #44 (standing second-judge positive control): record_path/max_age_hours -- `_build_judge` checks
+    #: a fresh, matching passing live-check record before letting `AndGateJudge` reach the real second
+    #: judge; empty (the default) means the record check is skipped -- a deployment that hasn't opted into
+    #: the positive control yet keeps today's behaviour (second_judge configured -> used) unchanged.
+    second_judge_positive_control: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         low, high = self.refer_band
@@ -278,6 +283,8 @@ def load_agent_config(root: Path) -> AgentConfig:
             if key not in second_judge and key in house_judge:
                 second_judge[key] = house_judge[key]
 
+    second_judge_positive_control = dict(body.get("second_judge_positive_control") or {})
+
     # Gate 1 (Track-C, GATE1-PRODUCT-WIRING-SPEC-2026-09-26.md §3/§5): the yaml block (threshold/model) and
     # the enable switch are deliberately independent -- NYAYA_GATE1_THRESHOLD/_MODEL override the block's own
     # values (or introduce it, mirroring the house_judge/second_judge env-override pattern above) whether or
@@ -321,6 +328,7 @@ def load_agent_config(root: Path) -> AgentConfig:
         house_judge=house_judge,
         typed_layer=bool(body.get("typed_layer", False)),
         second_judge=second_judge,
+        second_judge_positive_control=second_judge_positive_control,
         max_concurrency=int(house_judge.get("max_concurrency", 1)),
         validated_contracts=validated_contracts,
         gate1=gate1,
@@ -989,8 +997,22 @@ class NyayaAgent:
             judge: Judge
             if cfg.second_judge:
                 second_tau = float(cfg.second_judge["tau"])
-                second = _build_house_judge(cfg.second_judge, tau=second_tau, typed=cfg.typed_layer,
-                                            api_key_env="NYAYA_SECOND_JUDGE_API_KEY")
+                second: Judge = _build_house_judge(cfg.second_judge, tau=second_tau, typed=cfg.typed_layer,
+                                                   api_key_env="NYAYA_SECOND_JUDGE_API_KEY")
+                # Issue #44 (Lead-2, 2026-09-26): opt-in via second_judge_positive_control.record_path --
+                # absent (the default, every deployment before this) means today's behaviour, unchanged.
+                # When set, wrap `second` so the real endpoint is never reached without a fresh, matching
+                # passing record; RecordCheckFailed then fails closed through AndGateJudge's own existing
+                # except-Exception -> second_judge_unavailable path, no new logic there.
+                record_path = cfg.second_judge_positive_control.get("record_path")
+                if record_path:
+                    from pravrudhi.application.second_judge_positive_control import RecordGatedJudge
+                    second = RecordGatedJudge(
+                        second, record_path=Path(record_path),
+                        max_age_hours=float(cfg.second_judge_positive_control["max_age_hours"]),
+                        expected_endpoint_id=str(cfg.second_judge.get("endpoint_id", "")),
+                        expected_adapter_sha=str(cfg.second_judge.get("adapter_sha", "")),
+                    )
                 judge = AndGateJudge(
                     primary, second, tau_primary=cfg.tau, tau_second=second_tau, breaker=second_judge_breaker
                 )
