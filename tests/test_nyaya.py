@@ -36,6 +36,17 @@ def test_retrieval_is_deterministic_and_a_named_section_comes_first() -> None:
     assert c.retrieve("", k=5) == []
 
 
+def test_a_question_outside_the_shipped_corpus_retrieves_nothing_rather_than_noise() -> None:
+    """Lead-2, 2026-09-26 (found live in production): this corpus ships only IPC + Constitution of India --
+    no BNS (Bharatiya Nyaya Sanhita, the 2023 replacement code). A question naming a BNS provision used to
+    still return 8 "hits", every one of them an unrelated Constitution article whose only tie to the question
+    was generic-word overlap (the old filter was `scores[i] > 0`, and BM25 gives near-any document some
+    nonzero score on common words). `MIN_RELEVANCE_SCORE` must cut that noise: a genuinely uncovered question
+    retrieves nothing, so a caller gets an honest empty result instead of citations that only look plausible."""
+    c = nyaya.load_corpus()
+    assert c.retrieve("What is the applicable statute for bns69?", k=8) == []
+
+
 def test_a_lay_question_reaches_the_homicide_sections_through_the_lexicon() -> None:
     """The first live ask retrieved hurt and robbery sections for a victim who died, and both CLIs rightly
     abstained. The gap was vocabulary, so the fix is config: lexicon.json maps lay words to the Code's."""
@@ -105,6 +116,25 @@ def test_ask_runs_every_vendor_records_failures_and_writes_no_ledger_row(tmp_pat
     assert (tmp_path / "research" / "nyaya" / "asks" / f"{rec.id}.json").exists()
     assert (tmp_path / "research" / "ledger.jsonl").read_text() == before
     assert nyaya.recent_asks(tmp_path)[0]["id"] == rec.id
+
+
+def test_ask_on_an_out_of_corpus_question_shows_the_vendor_no_sources_honestly(tmp_path: Path) -> None:
+    """Companion to the `Corpus.retrieve` regression above, at the `ask()` level: once retrieval correctly
+    finds nothing for a BNS question this corpus does not cover, the record's `sources` must be empty and the
+    prompt actually built for the vendor must say so plainly, rather than silently handing it Constitution
+    articles that only coincidentally share common words with the question."""
+    init_project(tmp_path)
+    seen_prompt: dict[str, str] = {}
+
+    def fn(v: panel.Vendor, prompt: str) -> panel.Answer:
+        seen_prompt["prompt"] = prompt
+        text = "I do not know: the provided sources do not cover this."
+        return panel.Answer(v.id, v.interface, v.model, "", text, 0.1, None, None)
+
+    rec = nyaya.ask(tmp_path, "What is the applicable statute for bns69?", ("claude-cli",), ask_fn=fn)
+    assert rec.sources == []
+    assert "(no source matched the question)" in seen_prompt["prompt"]
+    assert rec.answers[0].verdict == "abstained"
 
 
 def test_the_checker_audits_each_answer_in_the_a1_1_shape(tmp_path: Path) -> None:

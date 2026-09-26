@@ -45,6 +45,9 @@ if TYPE_CHECKING:
 
 ASSET_DIR = Path(__file__).resolve().parent.parent / "assets" / "nyaya"
 
+#: `Corpus.retrieve`'s relevance floor -- see that method's own docstring for how this was measured.
+MIN_RELEVANCE_SCORE = 8.0
+
 #: How a source is named in a prompt and cited in a reply. The id is the corpus document id verbatim, so a
 #: citation can be checked by equality and nothing has to be inferred from prose.
 CITE = re.compile(r"\[([A-Za-z]+/(?:Section|Article) [0-9]+[A-Za-z]?(?:\([0-9a-z]+\))?)\]")
@@ -112,7 +115,18 @@ class Corpus:
 
     def retrieve(self, question: str, k: int = 6) -> list[tuple[Document, float]]:
         """BM25 (k1=1.5, b=0.75). A section number named in the question is a strong signal on its own, so a
-        query token that is exactly a section id gets that document first."""
+        query token that is exactly a section id gets that document first.
+
+        `MIN_RELEVANCE_SCORE` -- found live in production (Lead-2, 2026-09-26): a question about a BNS
+        provision (`bns69`) has no BNS-family document in this corpus (only IPC + Constitution of India are
+        shipped here) at all, but the old `scores[i] > 0` filter let it through anyway -- generic-word overlap
+        with the Constitution's own prose (article/power/salaries-type vocabulary) gives every unrelated
+        document a small nonzero BM25 score, and "nonzero" is not "relevant". Measured on this corpus: a
+        genuinely off-topic question's best score tops out around 7.1, while every real match in this file's
+        own test suite starts above 12.7 (as low as `k=1` on a short query like "equality before law") -- a
+        floor of 8.0 sits cleanly in that gap. Below it, `retrieve` returns nothing rather than the nearest
+        noise, so a caller with no hits (see `grounded_prompt`'s own "(no source matched the question)"
+        fallback) gets an honest empty result instead of citations that only look plausible."""
         n = len(self.documents)
         if n == 0:
             return []
@@ -133,7 +147,7 @@ class Corpus:
             if d.section.lower() in named:
                 scores[i] += 100.0
         order = sorted(range(n), key=lambda i: -scores[i])
-        return [(self.documents[i], round(scores[i], 4)) for i in order[:k] if scores[i] > 0]
+        return [(self.documents[i], round(scores[i], 4)) for i in order[:k] if scores[i] >= MIN_RELEVANCE_SCORE]
 
 
 def _load_file(path: Path) -> tuple[list[Document], dict[str, Any]]:
