@@ -209,3 +209,53 @@ def test_the_routes_serve_the_product_and_need_the_local_token_to_ask(tmp_path: 
     r = c.post("/api/nyaya/ask", json={"question": "murder", "vendors": ["nope"]}, headers={TOKEN_HEADER: app_token(tmp_path)})
     assert r.status_code == 422
     assert c.get("/api/nyaya/asks").json()["asks"][0]["question"] == "murder"
+
+
+class TestHostShimVendorReachability:
+    """Lead-2, 2026-09-26 (found live in production): an `openai_compat` vendor with no `credential` (a
+    host-shim vendor like `nyaya-p2b-local`) fell through `available_vendors`'s whole if/elif chain with
+    `why=None`, so it always read `available: true` regardless of whether its host shim was actually there --
+    on RunPod serverless it never is, and every real call timed out. `available_vendors` must now probe it."""
+
+    def test_probe_reports_reachable_when_something_is_listening(self) -> None:
+        import socket
+
+        srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        srv.bind(("127.0.0.1", 0))
+        srv.listen(1)
+        try:
+            port = srv.getsockname()[1]
+            assert nyaya._probe_host_shim(f"http://127.0.0.1:{port}/v1") is None
+        finally:
+            srv.close()
+
+    def test_probe_reports_unreachable_when_nothing_is_listening(self) -> None:
+        import socket
+
+        # Bind then immediately close: guarantees this port is free right now, so the probe's connect
+        # refuses fast (ECONNREFUSED) instead of hanging out to its timeout.
+        probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+        probe.close()
+        why = nyaya._probe_host_shim(f"http://127.0.0.1:{port}/v1", timeout=0.5)
+        assert why is not None and str(port) in why
+
+    def test_available_vendors_reports_unreachable_host_shim_honestly(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import socket
+
+        init_project(tmp_path)
+        probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+        probe.close()
+        unreachable = panel.VENDORS["nyaya-p2b-local"].__class__(
+            id="nyaya-p2b-local", interface="openai_compat", model="nyaya-p2b-arm_c",
+            base_url=f"http://127.0.0.1:{port}/v1",
+        )
+        monkeypatch.setitem(panel.VENDORS, "nyaya-p2b-local", unreachable)
+        row = next(v for v in nyaya.available_vendors(tmp_path) if v["id"] == "nyaya-p2b-local")
+        assert row["available"] is False
+        assert row["why"] is not None and str(port) in row["why"]
