@@ -19,12 +19,17 @@
 # error rather than to a bare "known".
 
 # -----------------------------------------------------------------------------------------------------
-# rule2-advisory-count: 297
+# rule2-advisory-count: 298
 #
 # Rule 2 (`or <falsy>` coalescing) is ADVISORY and summary-only; this records the count at landing so a
-# reviewer can see growth. It is not a waiver list: 297 entries spread over 40-odd files, ~70% of them
+# reviewer can see growth. It is not a waiver list: 298 entries spread over 40-odd files, ~70% of them
 # correct zero-when-absent counts (token totals, GPU-hours, wall-clock), which is exactly why rule 2 never
 # fails the build. `--advisory-detail` prints them.
+#
+# Counted against main at 51f6e23. The 298th arrived with de9af0b (MIN_RELEVANCE_SCORE into
+# configs/nyaya_corpus.yaml) as `application/nyaya.py:211`'s `(raw.get("expansions") or {})` -- an optional
+# config block, correct as written, and a good illustration of why this rule never gates: it cannot tell
+# that from a score. Growth past this number prints a note and nothing more; it is expected to drift.
 # -----------------------------------------------------------------------------------------------------
 
 

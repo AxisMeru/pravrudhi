@@ -120,7 +120,7 @@ WAIVER_MARKER = "fail-open-ok:"
 DEFAULT_BASELINE = Path("scripts") / "fail_open_defaults_baseline.txt"
 
 #: The baseline directive recording how many RULE 2 advisories existed when this guard landed. Rule 2 is
-#: summary-only by default: 297 of them at that point, spread across 40-odd files (the `str(x or "")` /
+#: summary-only by default: 298 of them at that point, spread across 40-odd files (the `str(x or "")` /
 #: `int(x or 0)` idiom for optional config), so printing every one on every CI run would bury the two hard
 #: rules' output. `--advisory-detail` prints them all; growth past this number prints a note, never a
 #: failure.
