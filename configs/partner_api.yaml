@@ -35,3 +35,13 @@ trusted_proxies: []
 # rate_limit_per_minute above, since a wrong X-Pravrudhi-Tenancy-Secret guess against these routes is
 # exactly the kind of call this exists to slow down, not a normal partner workload.
 provision_rate_limit_per_minute: 10
+
+# Off by default, and should stay off on a normal deployment: when true, a caller who ALSO passes
+# ?debug_second_judge=true on a single /api/v1/analyse-facts request gets the config-C second judge's own
+# diagnostic fields per element (p_established_second, tau_second, second_skip_reason,
+# second_logit_distance, second_refer_band_fired, second_unavailable) -- this is a public, unauthenticated
+# endpoint, so this deployment-level gate must be on BEFORE any caller's query param can do anything; a
+# caller alone can never turn this on. NYAYA_DEBUG_SECOND_JUDGE_FIELDS env var overrides this per-deployment
+# (2026-09-25, Lead-2's config-C smoke: diagnosing a primary/second disagreement needed a direct Python call
+# because the HTTP response silently dropped every one of these fields).
+debug_second_judge_fields_enabled: false

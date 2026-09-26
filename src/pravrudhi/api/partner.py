@@ -42,6 +42,7 @@ version's error mapping to a bare 500 -- is now mapped to 503 like every other s
 
 from __future__ import annotations
 
+import os
 import threading
 import time
 from collections import OrderedDict
@@ -51,7 +52,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 import yaml
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from starlette.responses import JSONResponse
 
@@ -82,6 +83,14 @@ class PartnerApiConfig:
     #: because a wrong `X-Pravrudhi-Tenancy-Secret` guess is exactly the kind of call this exists to slow
     #: down, not a normal partner workload. Defaults to 10 when the config file predates this field.
     provision_rate_limit_per_minute: int = 10
+    #: Off by default -- this is a public, unauthenticated endpoint (module docstring), so the second
+    #: judge's own p_established/tau/skip-reason/logit-distance/refer-band/unavailable fields (already
+    #: computed by AndGateJudge, already on ElementResult) are never in a response unless BOTH this
+    #: deployment-level gate AND the caller's own `?debug_second_judge=true` are set -- a caller alone
+    #: can never turn this on for a deployment that hasn't opted in (Lead-2, 2026-09-25 config-C smoke:
+    #: diagnosing a primary/second disagreement needed a direct Python call because the HTTP response
+    #: silently dropped every one of these fields).
+    debug_second_judge_fields_enabled: bool = False
 
     def __post_init__(self) -> None:
         if self.trust_proxy_header and not self.trusted_proxies:
@@ -94,6 +103,14 @@ class PartnerApiConfig:
 
 def load_partner_api_config(root: Path) -> PartnerApiConfig:
     body = yaml.safe_load(config_file(Path(root), "partner_api.yaml").read_text()) or {}
+    # NYAYA_DEBUG_SECOND_JUDGE_FIELDS: an env override (this file's yaml has none of its own precedent for
+    # one, but ad-hoc diagnostic on/off is exactly the case the rest of this codebase's NYAYA_* env
+    # overrides exist for -- flip it for one deployment without a same-day yaml edit + redeploy). Same
+    # truthy-string convention as models.hosted.opted_in().
+    debug_env = os.environ.get("NYAYA_DEBUG_SECOND_JUDGE_FIELDS", "").strip().lower()
+    debug_second_judge_fields_enabled = (
+        debug_env in ("1", "true", "yes") if debug_env else bool(body.get("debug_second_judge_fields_enabled", False))
+    )
     return PartnerApiConfig(
         rate_limit_per_minute=int(body["rate_limit_per_minute"]),
         max_concurrent=int(body["max_concurrent"]),
@@ -101,6 +118,7 @@ def load_partner_api_config(root: Path) -> PartnerApiConfig:
         rate_limit_max_keys=int(body.get("rate_limit_max_keys", 10_000)),
         trusted_proxies=tuple(body.get("trusted_proxies") or ()),
         provision_rate_limit_per_minute=int(body.get("provision_rate_limit_per_minute", 10)),
+        debug_second_judge_fields_enabled=debug_second_judge_fields_enabled,
     )
 
 
@@ -203,6 +221,15 @@ class AnalyseFactsRequest(BaseModel):
     sections: list[str] | None = None
 
 
+#: The exact keys `analyse_facts_ep` strips out of each element's dict when the debug gate is off -- listed
+#: once here and reused both for the strip and (in tests) for the presence/absence assertions, so the two
+#: can never silently drift apart.
+_SECOND_JUDGE_DEBUG_FIELDS = (
+    "p_established_second", "tau_second", "second_skip_reason", "second_logit_distance",
+    "second_refer_band_fired", "second_unavailable",
+)
+
+
 class ElementResultOut(BaseModel):
     element: str
     is_denial: bool
@@ -222,6 +249,18 @@ class ElementResultOut(BaseModel):
     #: user rather than folded silently into the verdict.
     quote_source: str | None
     error: str | None
+    #: Config-C debug fields (Lead-2, 2026-09-25): present ONLY when both `PartnerApiConfig.
+    #: debug_second_judge_fields_enabled` and the request's own `?debug_second_judge=true` are set --
+    #: `analyse_facts_ep` pops these five keys out of every element's dict before returning otherwise, so a
+    #: response with the gate off is byte-for-byte what it was before this field existed. Declared here
+    #: (rather than left for Pydantic to silently strip) so they validate through when present; same names
+    #: as `ElementResult`'s own fields, not renamed, so there is no separate translation to keep in sync.
+    p_established_second: float | None = None
+    tau_second: float | None = None
+    second_skip_reason: str | None = None
+    second_logit_distance: float | None = None
+    second_refer_band_fired: bool | None = None
+    second_unavailable: bool | None = None
 
 
 class ContractResultOut(BaseModel):
@@ -363,9 +402,23 @@ def build_partner_router(
 
     router = APIRouter(prefix="/api/v1")
 
-    @router.post("/analyse-facts", response_model=AnalyseFactsResponse)
+    # exclude_unset=True: the debug fields are POPPED from each element dict (never set) when the gate is
+    # off, and must actually disappear from the JSON, not reappear as their Pydantic default (None) --
+    # FastAPI otherwise fills in every declared field's default when constructing the response model,
+    # regardless of what the source dict contained. Safe for every other field: each of those is always
+    # present as an explicit key in `body` (even when its value is None, e.g. `fact_id`), and a key that IS
+    # present counts as "set" for exclude_unset's purposes, so nothing else in the response shape changes.
+    @router.post("/analyse-facts", response_model=AnalyseFactsResponse, response_model_exclude_unset=True)
     def analyse_facts_ep(
-        req: AnalyseFactsRequest, request: Request, user: User | None = CurrentUserDep
+        req: AnalyseFactsRequest,
+        request: Request,
+        user: User | None = CurrentUserDep,
+        debug_second_judge: bool = Query(
+            False,
+            description="Include config-C second-judge diagnostic fields per element. Only takes effect "
+            "when this deployment's own debug_second_judge_fields_enabled is also set -- a caller cannot "
+            "turn this on for a deployment that hasn't opted in.",
+        ),
     ) -> dict[str, Any] | JSONResponse:
         del user  # optional session identity today; see module docstring on tenancy/API-key auth
         cfg, rate_limiter, concurrency, _provision_rate_limiter = _get_state()
@@ -417,6 +470,11 @@ def build_partner_router(
             return JSONResponse(status_code=503, content={"error": "judge_unavailable"})
         body: dict[str, Any] = result.to_dict()
         body.pop("audit_path", None)
+        if not (debug_second_judge and cfg.debug_second_judge_fields_enabled):
+            for contract in body.get("contracts", []):
+                for element in contract.get("elements", []):
+                    for field in _SECOND_JUDGE_DEBUG_FIELDS:
+                        element.pop(field, None)
         return body
 
     @router.post("/orgs", response_model=OrgOut)
