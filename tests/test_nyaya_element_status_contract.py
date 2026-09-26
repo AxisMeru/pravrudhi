@@ -19,20 +19,19 @@ fifth status or a fourth leg without extending the coverage here trips this file
 
 THE FIFTH STATUS (operator decision, 2026-09-26). `not_evaluated_gate1_unavailable`: Gate 1, the entailment
 check, could not evaluate the element at all -- distinct from `not_established` (a judge scored it and it
-failed) and from `not_evaluated_second_unavailable` (the SECOND judge never answered). The engine does not
-emit it yet: `_truthful_status`'s `vetoed_by == "gate1"` early return collapses every Gate 1 veto, including
-the model-unavailable one, into plain `not_established` (`nyaya_agent.py:844-845`), while the contract
-OUTCOME is already REFER_TO_LAWYER / `gate1_unavailable` (`nyaya_agent.py:1248-1249`). So the outcome is
-fail-closed and truthful; the element label is fail-closed but not truthful. The operator sequenced the
-frontend first (`pravrudhi-app` PR #8 renders all five, unknown still to the error state), the engine after,
-so the three assertions that pin the new label cannot hold on this branch yet. The assertions that already
-hold today -- the outcome-level refusal, and the element's own `gate1_unavailable` flag that a later engine
-change derives the label from -- are ordinary PASSING tests here, so a refactor cannot quietly remove the
-fail-closed half while the truthful-label half is still in flight.
+failed) and from `not_evaluated_second_unavailable` (the SECOND judge never answered). Written here first,
+against an engine that still collapsed every Gate 1 veto into plain `not_established` while already
+returning REFER_TO_LAWYER / `gate1_unavailable` at the OUTCOME level -- fail-closed but not truthful at
+element level. #63 (fbbf38e) has since adopted it: `_truthful_status` now returns the new status for the
+model-unavailable case specifically, and keeps `not_established` for a real Gate 1 veto where the model DID
+answer. These tests are the independent, outside-in check on that change, and they pass against it. The
+assertions that held all along -- the outcome-level refusal, and the element's own `gate1_unavailable` flag
+the new label is derived from -- stay here as ordinary passing tests, so a later refactor cannot quietly
+remove the fail-closed half.
 
 CONTRACTS THE CODE HAS NOT ADOPTED YET are marked `xfail(strict=True)` rather than left red (`main` is
-branch-protected, and a deliberately-red suite cannot merge into it). Seven markers, four reasons, listed at
-`XFAIL_FIFTH_STATUS` and below. This is NOT a skip and NOT a quarantine: every marked test runs on every
+branch-protected, and a deliberately-red suite cannot merge into it). Three markers, two reasons, listed at
+`XFAIL_TRI_STATE_ASSERTIONS` and below. This is NOT a skip and NOT a quarantine: every marked test runs on every
 CI run and executes every one of its assertions, pinning exactly what the code does today; only the
 reporting of its known failure changes. And it cannot rot -- `strict=True` turns the XPASS into a hard
 FAILURE the moment the contract IS adopted, so the marker has to be deleted by whoever lands that change.
@@ -79,16 +78,18 @@ TAU_SECOND = 0.97
 #: measuring the engine, not this constant.
 GATE1_UNAVAILABLE_STATUS = "not_evaluated_gate1_unavailable"
 
-#: The seven contracts this file asserts that the engine/API has NOT adopted yet, each marked
+#: The contracts this file asserts that the engine/API has NOT adopted yet, each marked
 #: `xfail(strict=True)` with the reason verbatim as the project set it (2026-09-26). `strict=True` on every
 #: one, deliberately: the day a contract IS adopted the test XPASSes, and a strict xfail reports an XPASS as
 #: a FAILURE -- so the marker cannot rot in place, whoever lands the change has to delete it. A non-strict
 #: marker would absorb the xpass silently, the same fail-open shape this suite exists to remove. Note what
 #: this is NOT: nothing is skipped or quarantined. Every marked test still runs, still executes every
 #: assertion, and still pins today's behaviour -- only the reporting of its known failure changes.
-XFAIL_FIFTH_STATUS = "awaits fifth-status engine change (not_evaluated_gate1_unavailable)"
+#:
+#: Four markers have already been through that cycle and are gone: `#63` (fbbf38e) adopted both the fifth
+#: status and the single-judge `binding_leg` fix, their four tests XPASSed as designed, and the markers were
+#: deleted in the same commit that merged main in. Two reasons remain.
 XFAIL_TRI_STATE_ASSERTIONS = "awaits #56 tri-state assertions (PR #60)"
-XFAIL_BINDING_LEG = "awaits #57 binding_leg fix (PR #63)"
 #: Issue #78, "API response model must constrain element status to the declared set and refuse empty or
 #: unknown values" -- filed 2026-09-26 off this suite's own findings 3 and 4, and covering both of them.
 XFAIL_RESPONSE_MODEL = "awaits #78: API response model must constrain status to the declared set and refuse empty"
@@ -198,24 +199,6 @@ SCENARIOS: dict[str, tuple[Callable[[], tuple[Script, Script]], str, str | None]
     "gate1_unavailable": (_sc_gate1_unavailable, GATE1_UNAVAILABLE_STATUS, None),
 }
 
-#: Scenarios whose EXPECTED status the engine does not emit yet. Deliberately a separate set from
-#: `GATE1_DOWN` above even though the two hold the same one name today: `GATE1_DOWN` says how the agent is
-#: wired for a scenario, this says which expectation is still awaiting an engine change. They stop agreeing
-#: the moment either changes, and conflating them would silently mis-mark whichever moved.
-AWAITS_FIFTH_STATUS: frozenset[str] = frozenset({"gate1_unavailable"})
-
-
-def _scenario_params() -> list[Any]:
-    """The scenario table as `parametrize` arguments, with the strict xfail on the fifth-status scenario's
-    CASE ONLY (`pytest.param(..., marks=...)`) rather than on the test. Marking the test would xfail the six
-    scenarios that pass today too, and a regression in any of those would then be reported as an expected
-    failure -- exactly the blindness this file was written to prevent."""
-    return [
-        pytest.param(name, marks=pytest.mark.xfail(strict=True, reason=XFAIL_FIFTH_STATUS))
-        if name in AWAITS_FIFTH_STATUS
-        else name
-        for name in SCENARIOS
-    ]
 
 
 # -- harness -----------------------------------------------------------------------------------------------
@@ -287,14 +270,14 @@ def _out_kwargs(**over: Any) -> dict[str, Any]:
 
 
 class TestEachStateRoundTrips:
-    @pytest.mark.parametrize("scenario", _scenario_params())
+    @pytest.mark.parametrize("scenario", list(SCENARIOS))
     def test_computed_status_and_leg(self, tmp_path: Path, scenario: str) -> None:
         _factory, status, leg = SCENARIOS[scenario]
         el = _computed(tmp_path, scenario)
         assert el.status == status
         assert el.binding_leg == leg
 
-    @pytest.mark.parametrize("scenario", _scenario_params())
+    @pytest.mark.parametrize("scenario", list(SCENARIOS))
     def test_serialised_status_and_leg_survive_the_api(self, tmp_path: Path, scenario: str) -> None:
         """Both fields reach a real caller on the DEFAULT response (no `?debug_second_judge`): issue #37 asked
         for this carried through "the API response, not just an internal field"."""
@@ -381,16 +364,19 @@ class TestGate1UnevaluableIsItsOwnStatus:
     evaluated: entailment check unavailable"). The same conflation this file exists to catch, one gate over:
     an element Gate 1 could not evaluate must not be spelled the way an element a judge scored unmet is.
     Three tests here PASS today -- the fail-closed outcome, the element flag a later engine change derives
-    the label from, and the half of the operator's distinctness requirement that already holds. One is
-    `xfail(strict=True)` until the engine change lands, per the operator's app-first sequencing."""
+    the label from, and the half of the operator's distinctness requirement that held all along. The fourth
+    pinned the new label itself: written before the engine emitted it, strict-xfailed for one commit while
+    the operator's app-first sequencing ran, and passing since #63 (fbbf38e) adopted the status."""
 
     def test_the_fixture_really_is_a_gate1_unevaluable_element(self, tmp_path: Path) -> None:
-        """PASSES today, and is deliberately NEVER `xfail`-marked: it is the non-vacuity guard for all three
-        strict-xfail fifth-status tests (the one below, plus the two `gate1_unavailable` round-trip cases in
-        `TestEachStateRoundTrips`). If this scenario ever stopped producing a genuine Gate-1-unavailable
-        element (Gate 1 never asked, the model answering after all, a quote check rejecting first), those
-        three could XPASS with nothing having been adopted -- and under `strict=True` an XPASS reads as
-        adoption. This test fails first and says why instead. Every field asserted here is one the engine
+        """PASSES, and was deliberately never `xfail`-marked: it is the non-vacuity guard for the three
+        fifth-status tests (the one below, plus the two `gate1_unavailable` round-trip cases in
+        `TestEachStateRoundTrips`). While those were strict-xfailed it stopped a drifting fixture from
+        XPASSing them, which under `strict=True` would have read as the engine adopting the status. Now that
+        #63 has genuinely adopted it, this test is what keeps those three passing for the RIGHT reason: if
+        this scenario ever stopped producing a real Gate-1-unavailable element (Gate 1 never asked, the model
+        answering after all, a quote check rejecting first), it fails here and says so instead of leaving
+        three green tests asserting nothing. Every field asserted here is one the engine
         ALREADY carries, which is the point -- the information needed to emit the fifth status exists; only
         the label is missing."""
         el = _computed(tmp_path, "gate1_unavailable")
@@ -429,17 +415,16 @@ class TestGate1UnevaluableIsItsOwnStatus:
         s = _serialised(tmp_path, "second_unavailable")["elements"][0]
         assert g["status"] != s["status"]
 
-    @pytest.mark.xfail(strict=True, reason=XFAIL_FIFTH_STATUS)
     def test_it_must_not_collapse_into_a_scored_and_failed_element(self, tmp_path: Path) -> None:
-        """XFAIL (strict), engine change not yet landed -- NOT a defect introduced here. Today
-        `_truthful_status` returns plain `not_established` for every Gate 1 veto, the model-unavailable one
-        included (`nyaya_agent.py:844-845`), so this element carries exactly the label of one a judge scored
-        unmet: the first assertion fails with both sides reading "not_established". That is the failure a
-        consumer cannot detect -- `ElementResultOut` declares no `gate1_*` field at all
-        (`partner.py:244-279`), so nothing else in the default response reveals that nothing was evaluated.
-        Goes green when the engine emits `not_evaluated_gate1_unavailable`, sequenced after `pravrudhi-app`
-        PR #8 per the operator; Gate 1 is off by default in production (`AgentConfig.gate1_enabled=False`),
-        so nothing emits this status today and no caller is seeing the collapse yet."""
+        """The assertion the operator named, and the one that matters most in this class: "could not
+        evaluate" must not be spelled the way "a judge concluded fail" is. Written against an engine where
+        it did not hold -- `_truthful_status` returned plain `not_established` for every Gate 1 veto, the
+        model-unavailable one included, so this element carried exactly the label of one a judge scored
+        unmet, and `ElementResultOut` declares no `gate1_*` field at all (`partner.py:244-279`), so nothing
+        else in the default response revealed that nothing had been evaluated. It was
+        `xfail(strict=True, reason="awaits fifth-status engine change (not_evaluated_gate1_unavailable)")`
+        for one commit; #63 (fbbf38e) adopted the status, this XPASSed, and the marker was deleted. It now
+        passes for the right reason, which the fixture test above is here to keep true."""
         g = _serialised(tmp_path, "gate1_unavailable")["elements"][0]
         ne = _serialised(tmp_path, "not_established_second_leg")["elements"][0]
         assert g["status"] != ne["status"], (
@@ -480,7 +465,6 @@ class TestBindingLegAgreesWithTheState:
         for scenario in ("established", "second_unavailable", "gate1_unavailable"):
             assert _computed(tmp_path, scenario).binding_leg is None, scenario
 
-    @pytest.mark.xfail(strict=True, reason=XFAIL_BINDING_LEG)
     def test_a_tau_miss_always_names_the_leg_that_bound_it(self, tmp_path: Path) -> None:
         """`ElementResult.binding_leg`'s own docstring says it is None ONLY when the element IS established,
         or the reason is not a tau miss at all (`not_evaluated_second_unavailable`, or a Gate 1 veto). A
@@ -489,9 +473,11 @@ class TestBindingLegAgreesWithTheState:
         Without a leg, Lead-2's "not_confirmed split by binding leg, with n" cannot be computed at all on the
         default config.
 
-        XFAIL (strict): a real defect, awaiting #57's fix. Its own non-vacuity guard is in-test and ahead of
-        the marked assertion -- `status == "not_confirmed"` must still hold, so the only way to XPASS is a
-        leg appearing on a genuine tau miss, not the fixture drifting into some other state."""
+        This was `xfail(strict=True, reason="awaits #57 binding_leg fix (PR #63)")` for one commit. #63
+        (fbbf38e) landed the fix -- `_truthful_status` fills in "primary" itself when no second judge is
+        configured -- the test XPASSed, and the marker was deleted, which is the whole point of strict. The
+        `status == "not_confirmed"` assertion above stays as the non-vacuity guard: it is what makes this a
+        genuine tau miss rather than some other state that happens to carry a leg."""
         script = _proof_script(TOY_FACTS)
         script[BNS69_EL[0]] = [_not(0.6)]
         agent = NyayaAgent(ScriptedJudge(script), _registry(), _config(tmp_path))
@@ -518,14 +504,21 @@ class TestExhaustiveness:
         produced = {_computed(tmp_path, name).binding_leg for name in SCENARIOS}
         assert produced - {None} <= set(DECLARED_LEGS), f"undeclared leg produced: {produced - {None}}"
 
-    def test_the_only_unreachable_declared_leg_is_the_reserved_one(self, tmp_path: Path) -> None:
-        """PR #45 reserves "both" for a future mode where both judges are asked and scored independently, and
-        says it is unreachable under today's AND gate. That is the ONLY declared leg allowed to have no
-        scenario: a fourth leg added to the field trips here until it is either produced or documented."""
+    def test_no_declared_leg_is_unreachable(self, tmp_path: Path) -> None:
+        """Every declared leg must have a scenario producing it -- no documented-but-dead type values.
+
+        This started out as `test_the_only_unreachable_declared_leg_is_the_reserved_one`: PR #45 reserved
+        "both" for a future mode where both judges are asked and scored independently, unreachable under
+        today's AND gate, and this test allowed that ONE exception. #63 (fbbf38e) removed "both" instead --
+        the stronger answer, and this file's finding in the first place -- so the exception has nothing left
+        to cover and the assertion tightens to "none". Renamed rather than left asserting a value that no
+        longer exists: with "both" gone, the old equality could only ever fail. A new leg added to the field
+        with no scenario producing it still trips here, which is the drift alarm that mattered."""
         produced = {_computed(tmp_path, name).binding_leg for name in SCENARIOS} - {None}
-        assert set(DECLARED_LEGS) - produced == {"both"}, (
+        assert set(DECLARED_LEGS) - produced == set(), (
             f"declared legs with no scenario: {sorted(set(DECLARED_LEGS) - produced)}"
         )
+        assert "both" not in DECLARED_LEGS, "the dead 'both' leg is back in the field (#57/#63 removed it)"
 
     @pytest.mark.parametrize("status", DECLARED_STATUSES)
     def test_every_declared_status_survives_the_response_model(self, status: str) -> None:
