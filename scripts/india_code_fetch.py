@@ -13,18 +13,27 @@ That conflict is the operator's decision and risk to accept, not this script's t
 the underlying statutory text remains exempt from copyright regardless (Copyright Act, 1957,
 s. 52(1)(q)).
 
-**Widened 2026-09-23** (operator, via AskUserQuestion in the Lead-2 session; recorded in
-``docs/decisions/LEG-LEDGER-2026-09-23.md`` row "23:02 BST ... INDIA CODE AUTHORISATION
-widened"): the same narrow method -- hand-found file ids, one file per Act, no crawling,
-source URL + sha recorded -- now also covers the Bharatiya Sakshya Adhiniyam 2023 (BSA), the
-Digital Personal Data Protection Act 2023 (DPDP), the Negotiable Instruments Act 1881, the
-Insolvency and Bankruptcy Code 2016 (IBC), and the Specific Relief Act 1963. Not yet added to
-``ACTS`` below: this session has no working interactive browser (``claude-in-chrome`` reports
-zero connected browsers; a static ``WebFetch`` against the portal's item pages returns an
-empty SPA shell, not the rendered "Download" link) and the whole point of "hand-found" is
-that this script never discovers a bitstream id itself -- so the five ids need to come from
-whoever can actually click through the portal once, the same way the original five were
+**Widened 2026-09-23** (operator, via AskUserQuestion in the Lead-2 session; recorded, committed
+and checkable, in the private prabhasa-nyaya repo's ``docs/decisions/CORPUS-SOURCES.md`` -- Tag
+review, 2026-09-26: the previous citation here pointed at this repo's own
+``docs/decisions/LEG-LEDGER-2026-09-23.md``, which is gitignored/local and so could not be
+checked by anyone without shell access to this exact host): the same narrow method -- hand-found
+file ids, one file per Act, no crawling, source URL + sha recorded -- now also covers the
+Bharatiya Sakshya Adhiniyam 2023 (BSA), the Digital Personal Data Protection Act 2023 (DPDP), the
+Negotiable Instruments Act 1881, the Insolvency and Bankruptcy Code 2016 (IBC), and the Specific
+Relief Act 1963. Not yet added to ``ACTS`` below: this session has no working interactive browser
+(``claude-in-chrome`` reports zero connected browsers; a static ``WebFetch`` against the portal's
+item pages returns an empty SPA shell, not the rendered "Download" link) and the whole point of
+"hand-found" is that this script never discovers a bitstream id itself -- so the five ids need to
+come from whoever can actually click through the portal once, the same way the original five were
 found on 2026-09-12.
+
+**HELD 2026-09-26** (Tag/Lead-2, prabhasa-nyaya ``docs/decisions/CORPUS-SOURCES.md``): a fetch
+under this authorization is a research/verification action, not a licence to ship the fetched
+text as a SHIPPED PACKAGE ASSET -- those are different acts. No indiacode-scraped text may ship
+in a package asset until a lawyer's review (parked by the operator until after the MVP) resolves
+the conflict between this portal's own anti-automation Terms of Use/Copyright Policy and the
+underlying text's copyright-exempt status.
 
 **Constraints this script holds itself to**, so an automated fetch still behaves like one
 person downloading a few named documents once, not a crawler:

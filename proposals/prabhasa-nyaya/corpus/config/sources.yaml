@@ -14,9 +14,18 @@ target_counts:
 sources:
   india_code:
     description: "Official Central Acts repository, Legislative Dept, Ministry of Law and Justice"
+    # www.indiacode.nic.in has migrated -- it now redirects to indiacode.gov.in (scripts/india_code_fetch.py's
+    # own docstring). Left as the historical name, not corrected to the live host: see the conflict below.
     base_url: "https://www.indiacode.nic.in"
     authority_kind: statute
-    license_note: "Government of India public work; reproduction permitted with source acknowledgement"
+    # CONFLICT, pending lawyer's review (Tag review, 2026-09-26; prabhasa-nyaya docs/decisions/
+    # CORPUS-SOURCES.md): the underlying statutory text is exempt from copyright (Copyright Act 1957,
+    # s.52(1)(q)), but indiacode.gov.in's own Terms of Use and Copyright Policy prohibit automated access and
+    # systematic extraction -- this note previously asserted "reproduction permitted with source
+    # acknowledgement" without qualification, which contradicted that already-documented conflict
+    # (scripts/india_code_fetch.py, scripts/nyaya_corpus_build.py). No indiacode-scraped text may ship in a
+    # package asset until the lawyer's review the operator has parked resolves how the text was obtained.
+    license_note: "Government of India public work (text itself exempt from copyright, Copyright Act 1957 s.52(1)(q)) -- but indiacode.gov.in's own Terms of Use/Copyright Policy prohibit automated access and systematic extraction; HOW the text may be fetched/shipped is pending lawyer's review, not yet resolved"
     fetch_method: http_html
     rate_limit_per_minute: 20
 
