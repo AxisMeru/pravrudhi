@@ -25,11 +25,21 @@ the model-unavailable one, into plain `not_established` (`nyaya_agent.py:844-845
 OUTCOME is already REFER_TO_LAWYER / `gate1_unavailable` (`nyaya_agent.py:1248-1249`). So the outcome is
 fail-closed and truthful; the element label is fail-closed but not truthful. The operator sequenced the
 frontend first (`pravrudhi-app` PR #8 renders all five, unknown still to the error state), the engine after,
-so the three assertions that pin the new label FAIL on this branch by design and are listed in the PR body
-alongside the four that were already intended. The assertions that already hold today -- the outcome-level
-refusal, and the element's own `gate1_unavailable` flag that a later engine change derives the label from --
-are asserted as PASSING tests here, so a refactor cannot quietly remove the fail-closed half while the
-truthful-label half is still in flight.
+so the three assertions that pin the new label cannot hold on this branch yet. The assertions that already
+hold today -- the outcome-level refusal, and the element's own `gate1_unavailable` flag that a later engine
+change derives the label from -- are ordinary PASSING tests here, so a refactor cannot quietly remove the
+fail-closed half while the truthful-label half is still in flight.
+
+CONTRACTS THE CODE HAS NOT ADOPTED YET are marked `xfail(strict=True)` rather than left red (`main` is
+branch-protected, and a deliberately-red suite cannot merge into it). Seven markers, four reasons, listed at
+`XFAIL_FIFTH_STATUS` and below. This is NOT a skip and NOT a quarantine: every marked test runs on every
+CI run and executes every one of its assertions, pinning exactly what the code does today; only the
+reporting of its known failure changes. And it cannot rot -- `strict=True` turns the XPASS into a hard
+FAILURE the moment the contract IS adopted, so the marker has to be deleted by whoever lands that change.
+The flip side of strict is that an XPASS for the WRONG reason (a fixture that stopped exercising the thing)
+would also read as adoption, which a red test could not do, so each marked test either keeps its own
+in-test guard ahead of the marked assertion or has a plain, never-marked companion test that fails if its
+fixture drifts; both are called out in the docstrings below.
 """
 
 from __future__ import annotations
@@ -68,6 +78,20 @@ TAU_SECOND = 0.97
 #: it emits it. `DECLARED_STATUSES` below stays the engine's own four, so the exhaustiveness tests keep
 #: measuring the engine, not this constant.
 GATE1_UNAVAILABLE_STATUS = "not_evaluated_gate1_unavailable"
+
+#: The seven contracts this file asserts that the engine/API has NOT adopted yet, each marked
+#: `xfail(strict=True)` with the reason verbatim as the project set it (2026-09-26). `strict=True` on every
+#: one, deliberately: the day a contract IS adopted the test XPASSes, and a strict xfail reports an XPASS as
+#: a FAILURE -- so the marker cannot rot in place, whoever lands the change has to delete it. A non-strict
+#: marker would absorb the xpass silently, the same fail-open shape this suite exists to remove. Note what
+#: this is NOT: nothing is skipped or quarantined. Every marked test still runs, still executes every
+#: assertion, and still pins today's behaviour -- only the reporting of its known failure changes.
+XFAIL_FIFTH_STATUS = "awaits fifth-status engine change (not_evaluated_gate1_unavailable)"
+XFAIL_TRI_STATE_ASSERTIONS = "awaits #56 tri-state assertions (PR #60)"
+XFAIL_BINDING_LEG = "awaits #57 binding_leg fix (PR #63)"
+#: Issue #78, "API response model must constrain element status to the declared set and refuse empty or
+#: unknown values" -- filed 2026-09-26 off this suite's own findings 3 and 4, and covering both of them.
+XFAIL_RESPONSE_MODEL = "awaits #78: API response model must constrain status to the declared set and refuse empty"
 
 Script = dict[str, list[ElementJudgment | Exception]]
 
@@ -174,6 +198,25 @@ SCENARIOS: dict[str, tuple[Callable[[], tuple[Script, Script]], str, str | None]
     "gate1_unavailable": (_sc_gate1_unavailable, GATE1_UNAVAILABLE_STATUS, None),
 }
 
+#: Scenarios whose EXPECTED status the engine does not emit yet. Deliberately a separate set from
+#: `GATE1_DOWN` above even though the two hold the same one name today: `GATE1_DOWN` says how the agent is
+#: wired for a scenario, this says which expectation is still awaiting an engine change. They stop agreeing
+#: the moment either changes, and conflating them would silently mis-mark whichever moved.
+AWAITS_FIFTH_STATUS: frozenset[str] = frozenset({"gate1_unavailable"})
+
+
+def _scenario_params() -> list[Any]:
+    """The scenario table as `parametrize` arguments, with the strict xfail on the fifth-status scenario's
+    CASE ONLY (`pytest.param(..., marks=...)`) rather than on the test. Marking the test would xfail the six
+    scenarios that pass today too, and a regression in any of those would then be reported as an expected
+    failure -- exactly the blindness this file was written to prevent."""
+    return [
+        pytest.param(name, marks=pytest.mark.xfail(strict=True, reason=XFAIL_FIFTH_STATUS))
+        if name in AWAITS_FIFTH_STATUS
+        else name
+        for name in SCENARIOS
+    ]
+
 
 # -- harness -----------------------------------------------------------------------------------------------
 
@@ -244,14 +287,14 @@ def _out_kwargs(**over: Any) -> dict[str, Any]:
 
 
 class TestEachStateRoundTrips:
-    @pytest.mark.parametrize("scenario", list(SCENARIOS))
+    @pytest.mark.parametrize("scenario", _scenario_params())
     def test_computed_status_and_leg(self, tmp_path: Path, scenario: str) -> None:
         _factory, status, leg = SCENARIOS[scenario]
         el = _computed(tmp_path, scenario)
         assert el.status == status
         assert el.binding_leg == leg
 
-    @pytest.mark.parametrize("scenario", list(SCENARIOS))
+    @pytest.mark.parametrize("scenario", _scenario_params())
     def test_serialised_status_and_leg_survive_the_api(self, tmp_path: Path, scenario: str) -> None:
         """Both fields reach a real caller on the DEFAULT response (no `?debug_second_judge`): issue #37 asked
         for this carried through "the API response, not just an internal field"."""
@@ -305,16 +348,26 @@ class TestSecondUnavailableIsNeverAFinding:
         assert c["outcome"] == "REFER_TO_LAWYER"
         assert c["reason"] == "second_judge_unavailable"
 
+    @pytest.mark.xfail(strict=True, reason=XFAIL_TRI_STATE_ASSERTIONS)
     def test_the_element_is_not_presented_as_a_definite_boolean_finding(self, tmp_path: Path) -> None:
         """`assertions` is part of the SAME response (`ContractResultOut.assertions`) and is a plain
         `dict[str, bool]`: an element nothing was ever evaluated for appears there as `false`, i.e. exactly
         "the judge concluded this element is not met" -- the one place in the shipped output where "couldn't
         evaluate" and "concluded fail" still carry the same label. `status` and `outcome` above distinguish
-        them; this field does not."""
+        them; this field does not.
+
+        The three assertions before the marked one are the non-vacuity guard, and they must stay ahead of
+        it: with `strict=True` an XPASS is a hard failure, so the only acceptable way for this to pass is the
+        assertions map becoming truthful about an unevaluated element -- NOT the element under test drifting
+        away from `not_evaluated_second_unavailable`, and not the map arriving empty or absent (a `.get` on
+        an element that simply is not there returns None, which would pass this assertion while telling a
+        caller nothing). `BNS69_EL[1]`, the element that WAS established, is asserted present and True to
+        prove the map is really populated for this contract."""
         c = _serialised(tmp_path, "second_unavailable")
         el = c["elements"][0]
         assert el["status"] == "not_evaluated_second_unavailable"
         assert c["assertions"] is not None
+        assert c["assertions"].get(BNS69_EL[1]) is True, "the assertions map is not populated for this contract"
         assert c["assertions"].get(el["element"]) is not False, (
             "an element that was never evaluated is asserted false in the response's own assertions map"
         )
@@ -328,14 +381,16 @@ class TestGate1UnevaluableIsItsOwnStatus:
     evaluated: entailment check unavailable"). The same conflation this file exists to catch, one gate over:
     an element Gate 1 could not evaluate must not be spelled the way an element a judge scored unmet is.
     Three tests here PASS today -- the fail-closed outcome, the element flag a later engine change derives
-    the label from, and the half of the operator's distinctness requirement that already holds. One FAILS by
-    design until the engine change lands, per the operator's app-first sequencing."""
+    the label from, and the half of the operator's distinctness requirement that already holds. One is
+    `xfail(strict=True)` until the engine change lands, per the operator's app-first sequencing."""
 
     def test_the_fixture_really_is_a_gate1_unevaluable_element(self, tmp_path: Path) -> None:
-        """PASSES today. Also the guard that keeps the intended failure below from going red for the wrong
-        reason: if this scenario ever stopped producing a genuine Gate-1-unavailable element (Gate 1 never
-        asked, the model answering after all, a quote check rejecting first), this test says so instead of
-        leaving a status mismatch to be misread as the known gap. Every field asserted here is one the engine
+        """PASSES today, and is deliberately NEVER `xfail`-marked: it is the non-vacuity guard for all three
+        strict-xfail fifth-status tests (the one below, plus the two `gate1_unavailable` round-trip cases in
+        `TestEachStateRoundTrips`). If this scenario ever stopped producing a genuine Gate-1-unavailable
+        element (Gate 1 never asked, the model answering after all, a quote check rejecting first), those
+        three could XPASS with nothing having been adopted -- and under `strict=True` an XPASS reads as
+        adoption. This test fails first and says why instead. Every field asserted here is one the engine
         ALREADY carries, which is the point -- the information needed to emit the fifth status exists; only
         the label is missing."""
         el = _computed(tmp_path, "gate1_unavailable")
@@ -374,8 +429,9 @@ class TestGate1UnevaluableIsItsOwnStatus:
         s = _serialised(tmp_path, "second_unavailable")["elements"][0]
         assert g["status"] != s["status"]
 
+    @pytest.mark.xfail(strict=True, reason=XFAIL_FIFTH_STATUS)
     def test_it_must_not_collapse_into_a_scored_and_failed_element(self, tmp_path: Path) -> None:
-        """INTENDED FAILURE, engine change not yet landed -- NOT a defect introduced here. Today
+        """XFAIL (strict), engine change not yet landed -- NOT a defect introduced here. Today
         `_truthful_status` returns plain `not_established` for every Gate 1 veto, the model-unavailable one
         included (`nyaya_agent.py:844-845`), so this element carries exactly the label of one a judge scored
         unmet: the first assertion fails with both sides reading "not_established". That is the failure a
@@ -424,13 +480,18 @@ class TestBindingLegAgreesWithTheState:
         for scenario in ("established", "second_unavailable", "gate1_unavailable"):
             assert _computed(tmp_path, scenario).binding_leg is None, scenario
 
+    @pytest.mark.xfail(strict=True, reason=XFAIL_BINDING_LEG)
     def test_a_tau_miss_always_names_the_leg_that_bound_it(self, tmp_path: Path) -> None:
         """`ElementResult.binding_leg`'s own docstring says it is None ONLY when the element IS established,
         or the reason is not a tau miss at all (`not_evaluated_second_unavailable`, or a Gate 1 veto). A
         single-judge deployment -- the shipped `configs/nyaya_agent.yaml` default, where the `second_judge:`
         block is commented out -- is a tau miss on the primary and nothing else, so it must name "primary".
         Without a leg, Lead-2's "not_confirmed split by binding leg, with n" cannot be computed at all on the
-        default config."""
+        default config.
+
+        XFAIL (strict): a real defect, awaiting #57's fix. Its own non-vacuity guard is in-test and ahead of
+        the marked assertion -- `status == "not_confirmed"` must still hold, so the only way to XPASS is a
+        leg appearing on a genuine tau miss, not the fixture drifting into some other state."""
         script = _proof_script(TOY_FACTS)
         script[BNS69_EL[0]] = [_not(0.6)]
         agent = NyayaAgent(ScriptedJudge(script), _registry(), _config(tmp_path))
@@ -471,11 +532,18 @@ class TestExhaustiveness:
         """Fail-closed must not become fail-everything: each of the four real statuses validates through."""
         assert ElementResultOut(**_out_kwargs(status=status)).status == status
 
+    @pytest.mark.xfail(strict=True, reason=XFAIL_RESPONSE_MODEL)
     def test_the_response_model_constrains_status_to_the_declared_set(self) -> None:
         """The serialisation boundary is the only presentation layer this repo ships, so it is where a status
         the code does not know must be refused. `ElementResultOut.status` is a bare `str`, so an unknown
         status is serialised to a caller verbatim and unflagged -- and `AnalyseFactsResponse` is the response
-        model for the whole route, so nothing downstream of it re-checks."""
+        model for the whole route, so nothing downstream of it re-checks.
+
+        XFAIL (strict), awaiting #78. The non-vacuity guard is the never-marked
+        `test_every_declared_status_survives_the_response_model` above: a `pytest.raises(Exception)` test
+        XPASSes on ANY exception, so a `_out_kwargs` payload gone stale against the model (a field added or
+        removed) would raise about something else entirely and read exactly like adoption. That test
+        constructs the same payload with each known status and fails first if it ever stops validating."""
         with pytest.raises(Exception):  # noqa: B017 -- pydantic.ValidationError is what SHOULD be raised
             ElementResultOut(**_out_kwargs(status="a_status_this_build_does_not_know"))
 
@@ -493,8 +561,10 @@ class TestUnknownStatusFailsClosed:
         with pytest.raises(Exception):  # noqa: B017 -- pydantic.ValidationError
             ElementResultOut(**kwargs)
 
+    @pytest.mark.xfail(strict=True, reason=XFAIL_RESPONSE_MODEL)
     def test_an_empty_status_is_refused(self) -> None:
-        """The blank case specifically: `status: ""` renders as nothing at all."""
+        """The blank case specifically: `status: ""` renders as nothing at all. XFAIL (strict), awaiting #78
+        with the test above, and guarded against a stale-payload XPASS the same way it is."""
         with pytest.raises(Exception):  # noqa: B017 -- pydantic.ValidationError
             ElementResultOut(**_out_kwargs(status=""))
 
