@@ -38,6 +38,14 @@ negative_not_proved fixture's facts are drawn from the constructed 1519-element 
 here would leak eval-set text into the public pravrudhi repo. The fixture file itself lives in tmp_scratch,
 outside this repo; see its own `_provenance` field for exactly where each fixture came from.
 
+Every check prints its outcome, reason, and `unavailable_second` regardless of pass/fail (Lead-2, 2026-09-26)
+-- so a reader never has to re-derive from a bare PASS/FAIL whether a result reflects the judges' actual
+answer or an infrastructure gap that happened to land on the right (or wrong) side. Check 1 specifically
+labels a failure caused by the second judge being unavailable as `COLD/UNAVAILABLE` (most often a cold
+endpoint mid-warm-up timing out inside `NYAYA_SECOND_JUDGE_TIMEOUT_S`), distinct from a genuine `FAIL` --
+that failure mode is REFER-by-design, not evidence the fixture or the judges disagree with the expected
+outcome.
+
 Run with the runbook's full environment already set (CONFIGC-PRODUCTION-SWITCHON-RUNBOOK-2026-09-25.md).
 Exits non-zero and prints which check(s) failed if any expectation doesn't match.
 """
@@ -94,29 +102,59 @@ def _config_from_env() -> AgentConfig:
     return dataclasses.replace(load_agent_config(ROOT), audit_dir=_SMOKE_AUDIT_DIR)
 
 
-def _run(config: AgentConfig, facts: list[str], contract_id: str, narrative: str = "Smoke-test facts, not a real case.") -> str:
+class _RunResult:
+    """Everything a check needs to report: the outcome, the contract's own reason, and which elements (if
+    any) the second judge was unavailable for. Printed for EVERY check, pass or fail (Lead-2, 2026-09-26) --
+    so a reader never has to guess whether a given result reflects the judges' actual answer or an
+    infrastructure gap that happened to land on the right side by luck."""
+
+    def __init__(self, outcome: str, reason: str, unavailable_second: list[str]) -> None:
+        self.outcome = outcome
+        self.reason = reason
+        self.unavailable_second = unavailable_second
+
+    def __str__(self) -> str:
+        return f"outcome={self.outcome} reason={self.reason} unavailable_second={self.unavailable_second}"
+
+
+def _run(
+    config: AgentConfig, facts: list[str], contract_id: str,
+    narrative: str = "Smoke-test facts, not a real case.",
+) -> _RunResult:
     agent = NyayaAgent.house(ROOT, config=config)
     run = agent.run(facts, narrative=narrative, contract_ids=[contract_id])
-    return run.contracts[0].outcome
+    c = run.contracts[0]
+    return _RunResult(c.outcome, c.reason, c.unavailable_second)
 
 
-def check_proof(fixtures: dict[str, Any]) -> tuple[bool, str]:
+def check_proof(fixtures: dict[str, Any]) -> tuple[bool, str, str]:
     fx = fixtures["proof"]
-    outcome = _run(_config_from_env(), fx["facts"], fx["contract_id"])
-    ok = outcome == "PROOF"
-    return ok, f"expected PROOF, got {outcome}" if not ok else "PROOF as expected"
+    r = _run(_config_from_env(), fx["facts"], fx["contract_id"])
+    if r.outcome == "PROOF":
+        return True, "PASS", f"PROOF as expected ({r})"
+    if r.unavailable_second:
+        # Lead-2, 2026-09-26: a FAIL here caused by the second judge being unavailable (most often a cold
+        # endpoint mid-warm-up, timing out inside NYAYA_SECOND_JUDGE_TIMEOUT_S) is an infrastructure signal,
+        # not a verdict failure -- REFER-by-design (second_judge_unavailable), not evidence the fixture or
+        # the judges disagree with the expected PROOF. Reported distinctly so nobody has to re-derive this
+        # from the reason string by hand every time.
+        return False, "COLD/UNAVAILABLE", f"second judge unavailable, not a verdict failure ({r})"
+    return False, "FAIL", f"expected PROOF, got {r.outcome} ({r})"
 
 
-def check_negative_not_proved(fixtures: dict[str, Any]) -> tuple[bool, str]:
+def check_negative_not_proved(fixtures: dict[str, Any]) -> tuple[bool, str, str]:
     """Passes on DENIAL, ABSTAIN, or REFER_TO_LAWYER -- fails ONLY on PROOF. The safety property is "no
-    false proof," not any specific non-PROOF outcome."""
+    false proof," not any specific non-PROOF outcome. (A second-judge-unavailable REFER here is still a
+    PASS -- "not proved" is the requirement either way -- but the reason/unavailable_second fields are still
+    printed so a reader can tell the two apart.)"""
     fx = fixtures["negative_not_proved"]
-    outcome = _run(_config_from_env(), fx["facts"], fx["contract_id"])
-    ok = outcome != "PROOF"
-    return ok, "FALSE PROOF: got PROOF on a known court-negative item" if not ok else f"not proved (outcome={outcome})"
+    r = _run(_config_from_env(), fx["facts"], fx["contract_id"])
+    if r.outcome != "PROOF":
+        return True, "PASS", f"not proved ({r})"
+    return False, "FAIL", f"FALSE PROOF: got PROOF on a known court-negative item ({r})"
 
 
-def check_red_team_leading_narrative(fixtures: dict[str, Any]) -> tuple[bool, str]:
+def check_red_team_leading_narrative(fixtures: dict[str, Any]) -> tuple[bool, str, str]:
     """Standing red-team case (Lead-2, 2026-09-26, from the narrative-sensitivity investigation): a sealed
     court-negative item whose missing required element is asserted directly by a LEADING narrative (no new
     facts added), to check the AND-gate does not let free text substitute for a quotable fact. Passes on
@@ -124,14 +162,13 @@ def check_red_team_leading_narrative(fixtures: dict[str, Any]) -> tuple[bool, st
     Uses the fixture's OWN `narrative` field (not the shared placeholder) -- this is the one fixture where
     the narrative itself is the point of the test."""
     fx = fixtures["red_team_leading_narrative"]
-    outcome = _run(_config_from_env(), fx["facts"], fx["contract_id"], narrative=fx["narrative"])
-    ok = outcome != "PROOF"
-    if ok:
-        return True, f"not proved (outcome={outcome})"
-    return False, "FALSE PROOF: a leading narrative asserting the missing element produced PROOF"
+    r = _run(_config_from_env(), fx["facts"], fx["contract_id"], narrative=fx["narrative"])
+    if r.outcome != "PROOF":
+        return True, "PASS", f"not proved ({r})"
+    return False, "FAIL", f"FALSE PROOF: a leading narrative asserting the missing element produced PROOF ({r})"
 
 
-def check_second_judge_unavailable_refers(fixtures: dict[str, Any]) -> tuple[bool, str]:
+def check_second_judge_unavailable_refers(fixtures: dict[str, Any]) -> tuple[bool, str, str]:
     """Deterministic: NYAYA_SECOND_JUDGE_BASE_URL is overridden to an unreachable local port, and
     NYAYA_SECOND_JUDGE_MODEL is pinned to a fixed string, for THIS check only -- both together, regardless
     of whatever real endpoint the rest of this script's environment points at. Pinning the model is required:
@@ -152,16 +189,17 @@ def check_second_judge_unavailable_refers(fixtures: dict[str, Any]) -> tuple[boo
     try:
         config = _config_from_env()
         if config.second_judge is None:
-            return False, "second_judge is not configured at all -- set NYAYA_SECOND_JUDGE_BASE_URL first"
-        outcome = _run(config, fixtures["proof"]["facts"], fixtures["proof"]["contract_id"])
+            return False, "FAIL", "second_judge is not configured at all -- set NYAYA_SECOND_JUDGE_BASE_URL first"
+        r = _run(config, fixtures["proof"]["facts"], fixtures["proof"]["contract_id"])
     finally:
         for env_var, saved in (("NYAYA_SECOND_JUDGE_BASE_URL", saved_url), ("NYAYA_SECOND_JUDGE_MODEL", saved_model)):
             if saved is None:
                 os.environ.pop(env_var, None)
             else:
                 os.environ[env_var] = saved
-    ok = outcome == "REFER_TO_LAWYER"
-    return ok, f"expected REFER_TO_LAWYER, got {outcome}" if not ok else "REFER_TO_LAWYER as expected"
+    if r.outcome == "REFER_TO_LAWYER":
+        return True, "PASS", f"REFER_TO_LAWYER as expected ({r})"
+    return False, "FAIL", f"expected REFER_TO_LAWYER, got {r.outcome} ({r})"
 
 
 def run_default(fixtures: dict[str, Any]) -> int:
@@ -174,7 +212,7 @@ def run_default(fixtures: dict[str, Any]) -> int:
         )
         return 2
 
-    checks: list[tuple[str, Callable[[], tuple[bool, str]]]] = [
+    checks: list[tuple[str, Callable[[], tuple[bool, str, str]]]] = [
         ("1: PROOF-able item", lambda: check_proof(fixtures)),
         ("2: negative_not_proved", lambda: check_negative_not_proved(fixtures)),
         ("3: second judge unavailable -> REFER", lambda: check_second_judge_unavailable_refers(fixtures)),
@@ -205,7 +243,7 @@ def run_rollback(fixtures: dict[str, Any]) -> int:
         return 1
     print("[PASS] second_judge is None and NyayaAgent.house built a plain judge (not AndGateJudge)")
 
-    checks: list[tuple[str, Callable[[], tuple[bool, str]]]] = [
+    checks: list[tuple[str, Callable[[], tuple[bool, str, str]]]] = [
         ("1: PROOF-able item (primary alone)", lambda: check_proof(fixtures)),
         ("2: negative_not_proved (primary alone)", lambda: check_negative_not_proved(fixtures)),
         ("3: red-team leading narrative -> not PROOF (primary alone)", lambda: check_red_team_leading_narrative(fixtures)),
@@ -213,16 +251,20 @@ def run_rollback(fixtures: dict[str, Any]) -> int:
     return _run_checks(checks)
 
 
-def _run_checks(checks: list[tuple[str, Callable[[], tuple[bool, str]]]]) -> int:
+def _run_checks(checks: list[tuple[str, Callable[[], tuple[bool, str, str]]]]) -> int:
+    """Each check returns (ok, label, detail). `label` is normally "PASS"/"FAIL", but a check may report a
+    distinct label (e.g. check_proof's "COLD/UNAVAILABLE") for a failure that reflects an infrastructure gap
+    rather than a genuine verdict disagreement -- `ok` still drives the exit code and the failed-list, only
+    the printed label and the caller's read of WHY differ."""
     failed: list[str] = []
     for name, fn in checks:
         try:
-            ok, detail = fn()
+            ok, label, detail = fn()
         except Exception as e:  # noqa: BLE001 -- a smoke test reports every failure, never crashes silently
-            ok, detail = False, f"{type(e).__name__}: {e}"
-        print(f"[{'PASS' if ok else 'FAIL'}] {name}: {detail}")
+            ok, label, detail = False, "FAIL", f"{type(e).__name__}: {e}"
+        print(f"[{label}] {name}: {detail}")
         if not ok:
-            failed.append(name)
+            failed.append(f"{name} ({label})")
 
     if failed:
         print(f"\n{len(failed)} check(s) failed: {failed}", file=sys.stderr)
