@@ -161,12 +161,31 @@ AGENT_ID = "claude-code"
 
 
 @dataclass(frozen=True)
+class SeatActivation:
+    """When a seat becomes eligible at all, beyond having a credential and not being cooled down (Lead-2,
+    2026-09-27: seat 2 is fallback ONLY -- never a default -- reachable only when seat 0 is genuinely
+    running hot AND seat 2 itself has real headroom left).
+
+    `other_seat_5h_pct_at_least`: the referenced seat's rolling 5-hour usage must be at or above this
+    percentage. `self_weekly_pct_below`: THIS seat's own weekly usage must be under this percentage --
+    spending the reserve into its own limit would just move the problem, not solve it.
+    """
+
+    depends_on_seat: str
+    other_seat_5h_pct_at_least: float
+    self_weekly_pct_below: float
+
+
+@dataclass(frozen=True)
 class Seat:
     """One Claude login this project may spend, and where its credential lives."""
 
     id: str
     email: str
     config_dir: Path
+    #: None means "always eligible once provisioned and not cooling" -- every seat before this feature, and
+    #: still `primary`'s own shape today.
+    activation: SeatActivation | None = None
 
     @property
     def cooldown_key(self) -> str:
@@ -255,10 +274,19 @@ def seats(root: Path | None = None) -> list[Seat]:
     for entry in entries:
         if not isinstance(entry, dict) or not entry.get("config_dir"):
             continue
+        activation = None
+        raw_activation = entry.get("activation")
+        if isinstance(raw_activation, dict) and raw_activation.get("depends_on_seat"):
+            activation = SeatActivation(
+                depends_on_seat=str(raw_activation["depends_on_seat"]),
+                other_seat_5h_pct_at_least=float(raw_activation.get("other_seat_5h_pct_at_least", 0)),
+                self_weekly_pct_below=float(raw_activation.get("self_weekly_pct_below", 100)),
+            )
         seat = Seat(
             id=str(entry.get("id") or "unnamed"),
             email=str(entry.get("email") or ""),
             config_dir=Path(str(entry["config_dir"])).expanduser(),
+            activation=activation,
         )
         if pinned is not None and seat.config_dir == pinned.config_dir:
             continue  # the pinned directory is already first; do not offer it twice
@@ -266,20 +294,76 @@ def seats(root: Path | None = None) -> list[Seat]:
     return declared
 
 
+#: Where a live usage watchdog (a real interactive session that CAN ask the app's own usage API -- this
+#: module cannot, there is no `claude` CLI subcommand or file that reports rolling 5-hour/weekly percentages)
+#: is expected to publish the numbers `SeatActivation` gates on. NOT written by anything in this repository;
+#: this is the read side of a contract with whatever process polls the real usage figures, documented here so
+#: that process has one clear file and shape to write to. Configurable so a test, or a different watchdog
+#: convention, can point elsewhere.
+SEAT_USAGE_FILE_ENV = "PRAVRUDHI_SEAT_USAGE_FILE"
+SEAT_USAGE_FILE_DEFAULT = Path("~/.config/pravrudhi/seat-usage.json")
+
+
+def _seat_usage_file() -> Path:
+    return Path(os.environ.get(SEAT_USAGE_FILE_ENV) or SEAT_USAGE_FILE_DEFAULT).expanduser()
+
+
+def _seat_usage(seat_id: str) -> tuple[float | None, float | None]:
+    """`(five_hour_pct, weekly_pct)` for `seat_id` from the usage file, or `(None, None)` when the file is
+    missing, unreadable, or silent about this seat -- FAIL CLOSED: `select_seat` treats missing data as "the
+    activation condition is not met", never as "assume it's fine to fall back". Shape:
+    `{"<seat_id>": {"five_hour_pct": <0-100>, "weekly_pct": <0-100>}}`."""
+    try:
+        data = json.loads(_seat_usage_file().read_text())
+    except (OSError, ValueError):
+        return None, None
+    entry = data.get(seat_id) if isinstance(data, dict) else None
+    if not isinstance(entry, dict):
+        return None, None
+
+    def _pct(key: str) -> float | None:
+        value = entry.get(key)
+        return float(value) if isinstance(value, int | float) else None
+
+    return _pct("five_hour_pct"), _pct("weekly_pct")
+
+
+def _activation_met(seat: Seat) -> bool:
+    """Whether `seat.activation`'s condition currently holds -- `True` unconditionally for a seat with no
+    `activation` at all (every seat before this feature)."""
+    if seat.activation is None:
+        return True
+    other_5h, _ = _seat_usage(seat.activation.depends_on_seat)
+    _, self_weekly = _seat_usage(seat.id)
+    if other_5h is None or self_weekly is None:
+        return False  # no usage data at all -- fail closed, never guess the reserve is needed
+    return other_5h >= seat.activation.other_seat_5h_pct_at_least and self_weekly < seat.activation.self_weekly_pct_below
+
+
 def select_seat(root: Path | None = None, *, now: datetime | None = None) -> Seat | None:
     """The highest-precedence seat that can actually serve, or `None` when none can.
 
-    A seat is passed over for exactly two reasons: it holds no credential, or it is inside a usage-limit
-    cooldown. An ordinary failure is not one of them -- a prompt the model botched will be botched by the
-    reserve seat too, and spending the always-available account on it inverts the instruction this implements.
+    A seat is passed over for four reasons, not two: no credential; inside a usage-limit cooldown; its cached
+    profile names a DIFFERENT account than its own declared `email` (issue #82/#83's verification, reused
+    here rather than restated -- a seat is not "available" just because a directory has SOME live token, it
+    must be the token this registry actually declared); or it declares an `activation` condition
+    (`SeatActivation`) that does not currently hold (2026-09-27: seat 2 is fallback only, gated on seat 0
+    running hot AND seat 2 itself having weekly headroom -- see `_activation_met`). An ordinary failure is
+    none of these -- a prompt the model botched will be botched by the reserve too, and spending it on that
+    inverts the instruction this implements.
     """
     from pravrudhi.application import availability
 
     base = Path(root or Path.cwd())
     cool = availability.cooling(base, now=now)
     for seat in seats(base):
-        if seat.provisioned and seat.cooldown_key not in cool:
-            return seat
+        if not seat.provisioned or seat.cooldown_key in cool:
+            continue
+        if seat.email and seat.recorded_email is not None and seat.recorded_email != seat.email:
+            continue  # a live login is present, but it is not the account this seat declares
+        if not _activation_met(seat):
+            continue
+        return seat
     return None
 
 
