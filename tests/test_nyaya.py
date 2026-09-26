@@ -69,10 +69,27 @@ def test_min_relevance_score_is_config_driven(tmp_path: Path) -> None:
     # is now below the (absurdly high) configured floor -- proving retrieve() actually reads this field.
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="absolute BM25 floor grows with query length; see https://github.com/AxisMeru/pravrudhi/issues/51",
-)
+def test_min_relevance_norm_is_config_driven(tmp_path: Path) -> None:
+    """Issue #51: min_relevance_norm follows min_relevance_score's own precedence -- overridable, and never
+    a required file (a root with no nyaya_corpus.yaml at all keeps MIN_RELEVANCE_NORM unchanged)."""
+    cfg_dir = tmp_path / "configs"
+    cfg_dir.mkdir()
+    (cfg_dir / "nyaya_corpus.yaml").write_text("min_relevance_norm: 1000\n")
+    assert nyaya.load_min_relevance_norm(tmp_path) == 1000.0
+
+    no_config_root = tmp_path / "no-config-here"
+    no_config_root.mkdir()
+    assert nyaya.load_min_relevance_norm(no_config_root) == nyaya.MIN_RELEVANCE_NORM
+    assert nyaya.load_min_relevance_norm(None) == nyaya.MIN_RELEVANCE_NORM
+
+    # An overridden norm floor actually changes retrieve()'s own behaviour, not just the loader's value: a
+    # real match's raw score still clears min_relevance_score, but no hit can capture 1000x its own query's
+    # obtainable BM25 score, so the (absurdly high) configured norm floor drops it via the second gate.
+    c = nyaya.load_corpus(tmp_path)
+    assert c.min_relevance_norm == 1000.0
+    assert c.retrieve("equality before law", k=1) == []
+
+
 def test_a_moderately_worded_off_topic_question_is_still_cut_by_the_relevance_floor() -> None:
     """Issue #33 (follow-up from PR #30) surfaced a real gap, not just a confirmation: `MIN_RELEVANCE_SCORE`
     is an ABSOLUTE BM25 score, and BM25 sums over every matched query term -- it grows with query
@@ -87,10 +104,12 @@ def test_a_moderately_worded_off_topic_question_is_still_cut_by_the_relevance_fl
       with nothing to do with bns69.
     - + a few more constitutional terms (21 words): top score 20.2.
 
-    An ordinarily-phrased question that happens to mention a couple of unrelated terms gets a false-positive
-    citation almost immediately. This test encodes the TRUE desired behaviour (empty, same as the 7-word
-    case) and is `xfail(strict=True)` until issue #51's length-aware floor lands -- strict means it flips to
-    a hard failure the moment a fix changes this behaviour, so the marker can never be forgotten."""
+    An ordinarily-phrased question that happens to mention a couple of unrelated terms used to get a
+    false-positive citation almost immediately. Issue #51's length-aware second gate (`min_relevance_norm`,
+    `Corpus._self_score`) fixes it: this question's top hit captures only a small fraction of its own query's
+    obtainable BM25 score, well under the configured norm floor, even though the raw score alone clears
+    `min_relevance_score`. This test used to be `xfail(strict=True)` -- the marker is gone now that the
+    behaviour it encoded is real, per that marker's own reason text."""
     c = nyaya.load_corpus()
     q = "What is the applicable statute for bns69, considering the Governor and the President?"
     assert c.retrieve(q, k=8) == []
