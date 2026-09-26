@@ -817,3 +817,79 @@ class TestDebugSecondJudgeFieldsConfigLoading:
             assert load_partner_api_config(tmp_path).debug_second_judge_fields_enabled is True
         monkeypatch.setenv("NYAYA_DEBUG_SECOND_JUDGE_FIELDS", "0")
         assert load_partner_api_config(tmp_path).debug_second_judge_fields_enabled is False
+
+
+def _agent_returning(body: dict[str, Any]) -> Any:
+    """A fake agent whose `.run()` returns a double with the exact `.to_dict()` shape
+    `analyse_facts_ep` reads -- same double-construction pattern as `_blocking_agent_factory` above, used
+    here to hand the endpoint a `contracts`/`elements` shape a REAL agent could never actually produce (an
+    empty or unrecognised element status), since `_truthful_status` only ever returns a declared
+    `ElementStatus` -- issue #78's fail-closed check exists for exactly the engine bug this simulates, not a
+    caller input problem."""
+
+    class _Agent:
+        contracts: list[Any] = []
+
+        def run(self, *_a: Any, **_kw: Any) -> Any:
+            return self
+
+        def to_dict(self) -> dict[str, Any]:
+            return body
+
+    return _Agent()
+
+
+def _body_with_status(status: Any) -> dict[str, Any]:
+    return {
+        "run_id": "r", "judge": "j", "score_sha256": "x", "facts": [], "provenance": "agama",
+        "contracts": [{
+            "contract_id": "bns69", "outcome": "ABSTAIN", "reason": "test", "assertions": None,
+            "lean": None, "lean_outcome": None, "uncertain": [], "uncertain_second": [],
+            "unavailable_second": [], "gate1_unavailable": [], "gate1_failed": [], "gate1_contradiction": [],
+            "statute_text_mismatch": None,
+            "elements": [{
+                "element": BNS69_EL[0], "is_denial": False, "status": status, "claimed": False,
+                "p_established": None, "fact_id": None, "quote": None, "start": None, "end": None,
+                "quote_check": None, "attempts": 1, "occurrences": 0, "offsets_source": None,
+                "quote_source": None, "error": None,
+            }],
+        }],
+    }
+
+
+class TestElementStatusIsConstrained:
+    """Issue #78: the response must fail closed (a clean 422 naming the element) on an empty or unrecognised
+    `status`, never silently coerce or pass one through -- pairs with `not_evaluated_gate1_unavailable`
+    (#63/#72), which this same set (`ELEMENT_STATUSES`) now also constrains against."""
+
+    def _post(self, tmp_path: Path, status: Any) -> Any:
+        agent = _agent_returning(_body_with_status(status))
+        app = FastAPI()
+        app.include_router(build_partner_router(tmp_path, agent_factory=lambda _r: agent, config=_NO_LIMIT_CONFIG))
+        return TestClient(app).post("/api/v1/analyse-facts", json=_req())
+
+    def test_an_unrecognised_status_is_refused_with_422(self, tmp_path: Path) -> None:
+        resp = self._post(tmp_path, "banana")
+        assert resp.status_code == 422
+        detail = resp.json()["detail"]
+        assert "banana" in detail and BNS69_EL[0] in detail and "bns69" in detail
+
+    def test_an_empty_status_is_refused_with_422(self, tmp_path: Path) -> None:
+        resp = self._post(tmp_path, "")
+        assert resp.status_code == 422
+        assert BNS69_EL[0] in resp.json()["detail"]
+
+    def test_a_null_status_is_refused_with_422(self, tmp_path: Path) -> None:
+        resp = self._post(tmp_path, None)
+        assert resp.status_code == 422
+
+    def test_every_real_element_status_is_accepted(self, tmp_path: Path) -> None:
+        """The exhaustiveness half: every one of the engine's own five declared statuses passes through
+        unrefused -- this fails the moment `ELEMENT_STATUSES` gains a sixth value this check does not yet
+        know, since it is driven directly by that same constant, never a hand-copied list."""
+        from pravrudhi.application.nyaya_agent import ELEMENT_STATUSES
+
+        for status in ELEMENT_STATUSES:
+            resp = self._post(tmp_path, status)
+            assert resp.status_code == 200, f"{status!r} was wrongly refused: {resp.text}"
+            assert resp.json()["contracts"][0]["elements"][0]["status"] == status
