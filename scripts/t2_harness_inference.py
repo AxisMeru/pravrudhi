@@ -123,17 +123,29 @@ def main() -> int:
         time.sleep(INTER_CALL_DELAY_S)
         return res
 
+    n_planned = len(items)
+    n_error = 0
+    truncated_reason: str | None = None
     raw_rows: list[dict[str, Any]] = []
     try:
         for i, item in enumerate(items):
-            req = JudgeRequest(
-                contract_id=item["contract_id"], element=item["element_desc"], is_denial=False,
-                statute=item["statute"], narrative=item["narrative"],
-                facts=tuple((f["id"], f["text"]) for f in item["facts"]),
-            )
-            prompt = build_house_prompt(req, statute_chars=STATUTE_CHARS)
-            res_free = _timed(house._complete, prompt)  # noqa: SLF001
-            res_typed = _timed(decoder.complete, prompt, max_tokens=MAX_TOKENS, temperature=0.0, logprobs=TOP_LOGPROBS)
+            try:
+                req = JudgeRequest(
+                    contract_id=item["contract_id"], element=item["element_desc"], is_denial=False,
+                    statute=item["statute"], narrative=item["narrative"],
+                    facts=tuple((f["id"], f["text"]) for f in item["facts"]),
+                )
+                prompt = build_house_prompt(req, statute_chars=STATUTE_CHARS)
+                res_free = _timed(house._complete, prompt)  # noqa: SLF001
+                res_typed = _timed(
+                    decoder.complete, prompt, max_tokens=MAX_TOKENS, temperature=0.0, logprobs=TOP_LOGPROBS
+                )
+            except LatencyDegraded:
+                raise
+            except Exception as e:  # noqa: BLE001 -- one item's failure must not crash the whole run
+                n_error += 1
+                print(f"ERROR on item {i} ({item.get('item_id')}): {e}", file=sys.stderr)
+                continue
             raw_rows.append(
                 {
                     "item_id": item["item_id"], "element_id": item["element_id"], "contract_id": item["contract_id"],
@@ -146,22 +158,52 @@ def main() -> int:
             if (i + 1) % 100 == 0:
                 print(f"  {i + 1}/{len(items)}")
     except LatencyDegraded as e:
+        truncated_reason = str(e)
         print(f"ABORTING: {e}", file=sys.stderr)
         print(f"completed {len(raw_rows)}/{len(items)} rows before stopping", file=sys.stderr)
 
-    raw_path = results_dir / "t2_harness_raw_outputs.jsonl"
-    with raw_path.open("w") as f:
+    n_scored = len(raw_rows)
+    complete = n_scored == n_planned
+
+    canonical_name = "t2_harness_raw_outputs.jsonl"
+    out_path = results_dir / (canonical_name if complete else canonical_name + ".TRUNCATED")
+    with out_path.open("w") as f:
         for r in raw_rows:
             f.write(json.dumps(r) + "\n")
-    raw_sha = hashlib.sha256(raw_path.read_bytes()).hexdigest()
+    raw_sha = hashlib.sha256(out_path.read_bytes()).hexdigest()
     print()
-    print(f"RAW OUTPUTS SEALED: {raw_path}, sha256 {raw_sha}, {len(raw_rows)} rows")
-    print("This sha must reach R2 before any scoring pass, per the sealed prereg.")
+    if complete:
+        print(f"RAW OUTPUTS SEALED: {out_path}, sha256 {raw_sha}, {len(raw_rows)} rows")
+        print("This sha must reach R2 before any scoring pass, per the sealed prereg.")
+    else:
+        print(
+            f"TRUNCATED OUTPUT WRITTEN, NOT SEALED: {out_path}, sha256 {raw_sha}, "
+            f"n_scored={n_scored} != n_planned={n_planned}",
+            file=sys.stderr,
+        )
 
-    meta.finish(extra={"raw_output_sha256": raw_sha, "n_rows": len(raw_rows)})
+    meta.finish(
+        extra={
+            "raw_output_sha256": raw_sha,
+            "output_path": str(out_path),
+            "n_planned": n_planned,
+            "n_scored": n_scored,
+            "n_error": n_error,
+            "complete": complete,
+            "truncated_reason": truncated_reason,
+        }
+    )
     meta_path = results_dir / "t2_harness_inference_RUN-METADATA.json"
     meta.write(meta_path)
     print(f"RUN-METADATA written: {meta_path}")
+
+    if not complete:
+        print(
+            f"REFUSING TO SEAL: n_scored ({n_scored}) != n_planned ({n_planned}); "
+            f"wrote {out_path} instead of the canonical filename",
+            file=sys.stderr,
+        )
+        return 2
 
     # Lead-2's protocol note (2026-09-24): no aggregate/headline numbers computed here, even as a "quick
     # sanity check" -- everything downstream of the raw seal, including the free-arm vs frozen-score
