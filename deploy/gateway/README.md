@@ -44,6 +44,12 @@ Never in the repository. `~/.config/pravrudhi/`:
 * `gateway.env`: `PRAVRUDHI_ADMINS` (operator's account email), `PRAVRUDHI_VERSION` (the release to run).
 * `supabase.env`, `chat.env`, `github.env`: already present for the other units.
 
+The partner API's client-IP proof (`worker.js`, `api/partner.py`) needs one more secret, in the same value on
+both sides: a Cloudflare Worker secret named `CLIENT_IP_SECRET` (`wrangler secret put CLIENT_IP_SECRET --env
+<env>`) and the engine's own `PRAVRUDHI_CLIENT_IP_SECRET`, at least 32 characters, set wherever that engine's
+process gets its environment (a RunPod secret ref for the product endpoint; `gateway.env`-style for a
+container). Only the operator creates the RunPod secret; nothing generates or guesses this value.
+
 ## Bring-up
 
 ```bash

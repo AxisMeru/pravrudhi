@@ -13,6 +13,14 @@
 // Authorization: Bearer <RUNPOD_API_KEY>. This creates an auth collision: the engine also needs the user's
 // Supabase token. The Worker moves the caller's Authorization to X-Pravrudhi-Authorization (the engine's
 // custom identity header) and sets Authorization to Bearer <RUNPOD_API_KEY> for the gateway.
+//
+// Partner API client-IP proof: every caller reaches the engine through this one proxy (RunPod's LB or a
+// cloudflared tunnel), so the engine's own per-IP rate limiter would otherwise see one shared socket peer
+// for every real caller. The Worker reads the true client IP from Cloudflare's own CF-Connecting-IP
+// (edge-assigned, not spoofable by hitting Cloudflare) and forwards it in X-Pravrudhi-Client-Ip, alongside
+// X-Pravrudhi-Client-Ip-Secret so the engine can tell "the Worker set this" from "a caller set this" --
+// unconditionally overwritten below, never merged with whatever the inbound request already carried, the
+// same rule X-Pravrudhi-Authorization already follows.
 
 // KV is read at most once per BACKEND_TTL_MS per isolate, not once per request: the free tier counts every
 // KV read against a daily allowance (the account reached half of it on 2026-09-12 from this lookup alone), and
@@ -49,6 +57,17 @@ export default {
     // Ensure User-Agent is set: RunPod's Cloudflare proxy returns 403 (error 1010) to urllib's default
     if (!headers.get("user-agent")) {
       headers.set("user-agent", `pravrudhi/${env.PRAVRUDHI_VERSION || "unknown"}`);
+    }
+
+    // Overwrite, never merge: whatever the caller sent for these two headers is discarded first, so only
+    // the Worker's own read of CF-Connecting-IP and its own secret ever reach the engine under these names.
+    const cfConnectingIp = request.headers.get("cf-connecting-ip");
+    if (cfConnectingIp && env.CLIENT_IP_SECRET) {
+      headers.set("x-pravrudhi-client-ip", cfConnectingIp);
+      headers.set("x-pravrudhi-client-ip-secret", env.CLIENT_IP_SECRET);
+    } else {
+      headers.delete("x-pravrudhi-client-ip");
+      headers.delete("x-pravrudhi-client-ip-secret");
     }
 
     // RunPod mode: move user's Authorization to custom header, inject RunPod key

@@ -1,6 +1,15 @@
 # Two Workers from one script: `wrangler deploy --env studio` and `wrangler deploy --env product`.
 # KV_NAMESPACE_ID is filled by run_gateway.sh --setup (it creates the namespace once and writes the id to
 # ~/.config/pravrudhi/cloudflare.env as CF_KV_ID); the account comes from CLOUDFLARE_ACCOUNT_ID in that file.
+#
+# CLIENT_IP_SECRET (a Worker secret, never a `vars` entry -- set with `wrangler secret put CLIENT_IP_SECRET
+# --env <env>`) proves to the engine that X-Pravrudhi-Client-Ip actually came from this Worker's own read of
+# Cloudflare's CF-Connecting-IP, not from whoever is making the HTTP request to the engine directly (RunPod's
+# LB or a cloudflared tunnel present every real caller as one shared socket peer otherwise, which is exactly
+# the gap this closes -- see worker.js). The engine's matching half is PRAVRUDHI_CLIENT_IP_SECRET; both must
+# be the SAME value, created once by the operator (only they can create a RunPod secret) and set on both
+# sides -- never generated or guessed by an agent. Absent on either side, the Worker sends nothing and the
+# engine falls back to its existing (shared-key) behavior -- fail closed, not fail open.
 name = "pravrudhi-gateway"
 main = "worker.js"
 compatibility_date = "2026-09-01"
