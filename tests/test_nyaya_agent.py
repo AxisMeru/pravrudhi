@@ -673,6 +673,90 @@ class TestSecondJudgeReferBand:
         assert load_agent_config(REPO).second_judge is None
 
 
+class TestGate1ReferWiring:
+    """Gate 1 (Track-C, GATE1-PRODUCT-WIRING-SPEC-2026-09-26.md): wraps a `ScriptedJudge` in a REAL
+    `Gate1Judge` (never hand-builds an `ElementJudgment` with gate1 fields) so `_run_contract`'s own
+    aggregation into REFER_TO_LAWYER is exercised exactly as production wires it."""
+
+    @dataclass
+    class _FakeGate1Model:
+        """`default_score` covers whatever `split_disjuncts` actually produces for a disjunctive element
+        description (BNS69_EL[0] has several "or"s, so its exact split text is an implementation detail this
+        test should not have to hardcode) -- `scores` overrides by EXACT hypothesis text for the one element
+        a test wants to single out (BNS69_EL[1] has no disjunction, so its hypothesis is always the element
+        description verbatim)."""
+
+        model_id: str = "fake-gate1-model"
+        default_score: float = 0.5
+        scores: dict[str, float] | None = None
+        error: BaseException | None = None
+
+        def score_one(self, fact_text: str, hypothesis_text: str) -> float:
+            if self.error is not None:
+                raise self.error
+            if self.scores and hypothesis_text in self.scores:
+                return self.scores[hypothesis_text]
+            return self.default_score
+
+    def _run(
+        self, tmp_path: Path, script: dict[str, list[Any]], model: Any, *, threshold: float = 0.04, **cfg: Any,
+    ) -> Any:
+        from pravrudhi.application.nyaya_judges import Gate1Judge
+
+        inner = ScriptedJudge(script)
+        gate = Gate1Judge(inner, model, threshold=threshold)
+        config = _config(tmp_path, **cfg)
+        agent = NyayaAgent(gate, _registry(), config)
+        return agent.run(TOY_FACTS, narrative="TOY narrative.", contract_ids=["bns69"]).contracts[0]
+
+    def test_off_by_default_is_byte_identical(self, tmp_path: Path) -> None:
+        """No Gate 1 wrapper at all (the default -- `NyayaAgent.house` never builds one unless
+        `gate1_enabled`): outcome is exactly what it would be without this feature."""
+        script = _proof_script(TOY_FACTS)
+        registry = _registry()
+        agent = NyayaAgent(ScriptedJudge(script), registry, _config(tmp_path))
+        c = agent.run(TOY_FACTS, narrative="TOY narrative.", contract_ids=["bns69"]).contracts[0]
+        assert c.outcome == "PROOF"
+        assert c.gate1_unavailable == [] and c.gate1_failed == []
+
+    def test_established_and_gate1_passes_is_unaffected(self, tmp_path: Path) -> None:
+        script = _proof_script(TOY_FACTS)
+        model = self._FakeGate1Model(default_score=0.5)
+        c = self._run(tmp_path, script, model)
+        assert c.outcome == "PROOF"
+        assert c.gate1_failed == [] and c.gate1_unavailable == []
+        assert c.elements[0].gate1_score == 0.5
+
+    def test_established_but_gate1_fails_refers(self, tmp_path: Path) -> None:
+        script = _proof_script(TOY_FACTS)
+        # BNS69_EL[0] is disjunctive ("or" appears several times); its own split disjuncts are an
+        # implementation detail of split_disjuncts, so this scores everything low by default (failing
+        # BNS69_EL[0] regardless of exactly how it splits) and overrides only BNS69_EL[1] (no disjunction,
+        # so its hypothesis is always the element text verbatim) to pass.
+        model = self._FakeGate1Model(default_score=0.001, scores={BNS69_EL[1]: 0.5})
+        c = self._run(tmp_path, script, model)
+        assert c.outcome == "REFER_TO_LAWYER"
+        assert c.reason == "gate1_not_entailed"
+        assert c.gate1_failed == [BNS69_EL[0]]
+        assert c.gate1_unavailable == []
+        el0 = c.elements[0]
+        assert el0.status == "not_established"
+        assert el0.gate1_score == 0.001
+
+    def test_gate1_model_unavailable_refers_distinctly_from_not_entailed(self, tmp_path: Path) -> None:
+        """A model that errors on every call is a DIFFERENT reason (`gate1_unavailable`) from a model that
+        answers and scores below threshold (`gate1_not_entailed`) -- the agent must be able to tell an
+        infrastructure failure from a real entailment result."""
+        script = _proof_script(TOY_FACTS)
+        model = self._FakeGate1Model(error=RuntimeError("model not loaded"))
+        c = self._run(tmp_path, script, model)
+        assert c.outcome == "REFER_TO_LAWYER"
+        assert c.reason == "gate1_unavailable"
+        # Every established element hits the same unconditional model error -- both BNS69_EL entries.
+        assert set(c.gate1_unavailable) == {BNS69_EL[0], BNS69_EL[1]}
+        assert c.gate1_failed == []  # never double-counted under the other reason
+
+
 class TestStatuteMismatch:
     def test_training_vs_official_text_is_flagged_per_contract(self, tmp_path: Path) -> None:
         run, _, _ = _run(tmp_path, _proof_script(TOY_FACTS))
@@ -883,6 +967,47 @@ class TestHouseFactory:
         assert isinstance(agent.judge, AndGateJudge)
         assert agent.judge.tau_primary == 0.74 and agent.judge.tau_second == 0.97
         assert agent.judge.primary.model == "m" and agent.judge.second.model == "m2"
+
+    def test_gate1_off_by_default_uses_plain_house_judge(self, tmp_path: Path) -> None:
+        """`gate1_enabled` defaults False (no `NYAYA_GATE1_ENABLED`): `NyayaAgent.house` never wraps in
+        `Gate1Judge` at all -- byte-identical to before Gate 1 existed, and no NLI model is ever loaded
+        (`Gate1NLIModel` is lazy, but not even CONSTRUCTED here)."""
+        from pravrudhi.application.nyaya_judges import HouseJudge
+
+        cfg = _config(tmp_path, house_judge=self._HOUSE_JUDGE_CFG, score_bin=self._score_bin(tmp_path),
+                      pinned_score_sha256=None)
+        assert cfg.gate1_enabled is False
+        agent = NyayaAgent.house(tmp_path, config=cfg)
+        assert isinstance(agent.judge, HouseJudge)
+
+    def test_gate1_enabled_wraps_the_judge(self, tmp_path: Path) -> None:
+        from pravrudhi.application.nyaya_judges import Gate1Judge, Gate1NLIModel, HouseJudge
+
+        cfg = _config(tmp_path, house_judge=self._HOUSE_JUDGE_CFG, score_bin=self._score_bin(tmp_path),
+                      pinned_score_sha256=None, gate1={"threshold": 0.05, "model": "some/model"},
+                      gate1_enabled=True)
+        agent = NyayaAgent.house(tmp_path, config=cfg)
+        assert isinstance(agent.judge, Gate1Judge)
+        assert isinstance(agent.judge.inner, HouseJudge)  # the plain house judge, still underneath
+        assert agent.judge.threshold == 0.05
+        assert isinstance(agent.judge.model, Gate1NLIModel)
+        assert agent.judge.model.model_id == "some/model"
+        # Constructing the wrapper never loads the model (lazy -- `_ensure_loaded` runs on first
+        # `score_one` call, never at construction): no network access, no torch/transformers import cost
+        # paid by a deployment that turns Gate 1 on but never actually asks it anything.
+        assert agent.judge.model._model is None
+
+    def test_gate1_enabled_composes_with_second_judge(self, tmp_path: Path) -> None:
+        """Gate 1 wraps whatever the inner judge already is -- `AndGateJudge` when config C is also on,
+        exactly the "third gate after the AND-gate" composition the spec describes."""
+        from pravrudhi.application.nyaya_judges import AndGateJudge, Gate1Judge
+
+        second_cfg = {**self._HOUSE_JUDGE_CFG, "base_url": "http://s/v1", "model": "m2", "tau": 0.97}
+        cfg = _config(tmp_path, house_judge=self._HOUSE_JUDGE_CFG, second_judge=second_cfg,
+                      score_bin=self._score_bin(tmp_path), pinned_score_sha256=None, gate1_enabled=True)
+        agent = NyayaAgent.house(tmp_path, config=cfg)
+        assert isinstance(agent.judge, Gate1Judge)
+        assert isinstance(agent.judge.inner, AndGateJudge)
 
 
 class TestRealBinary:

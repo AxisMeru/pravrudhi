@@ -275,3 +275,20 @@ unvalidated_contracts:
   - contract56_initial_impossibility
   - contract56_supervening
   - contract56_compensation
+
+# Gate 1 (Track-C, GATE1-PRODUCT-WIRING-SPEC-2026-09-26.md): a third gate, pure NLI entailment check, run
+# only on an element the judge(s) above already established. This block configures the threshold and model
+# but does NOT turn the gate on -- only NYAYA_GATE1_ENABLED does that (unset/false = today's behaviour,
+# byte-identical responses; the gate composes the same way the second judge does, never called on an
+# element nothing else established yet).
+#
+# threshold 0.04074102267622948 is FROZEN, chosen on a 35-example calibration set and never re-tuned since
+# (both the disjunct-fix dev pass on heldout_v1 and the final 377/225 re-run used it unchanged) --
+# NYAYA_GATE1_THRESHOLD overrides.
+#
+# DO NOT SHIP ENABLED: the measured coverage cost (-19%/-9% on the only population tested) with zero
+# demonstrated false-prove benefit means this stays off until Lead-2 decides otherwise on a dirtier eval
+# population -- see the spec's own §5.
+gate1:
+  threshold: 0.04074102267622948
+  model: "MoritzLaurer/DeBERTa-v3-base-mnli-fever-anli"

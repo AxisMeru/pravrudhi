@@ -90,10 +90,25 @@ class ElementJudgment:
     #: The second judge's own fact_id, kept for the record even though the primary's span is what is used.
     second_fact_id: str | None = None
     fact_id_disagreement: bool = False
-    #: Which judge is why the element is not established: "primary" (it rejected outright), "second" (the
-    #: primary accepted but the second rejected, or the second was configured and unavailable), or None when
-    #: established (or when there is no second judge and the primary alone decided).
-    vetoed_by: Literal["primary", "second"] | None = None
+
+    # -- Gate 1 fields (Gate1Judge, below). All None when Gate 1 is not configured, or was never asked
+    # because neither judge above established the element (the same cost-saving convention the second judge
+    # itself uses -- there is nothing to entailment-check yet).
+    #: max(entailment - contradiction) over the element's disjuncts (see `split_disjuncts`), else None.
+    gate1_score: float | None = None
+    #: What was actually scored -- the disjuncts `split_disjuncts` found, or `[element_desc]` when it found
+    #: none. None only when Gate 1 was never asked at all.
+    gate1_disjuncts: list[str] | None = None
+    #: Set (to `f"gate1_unavailable: {type(e).__name__}: {e}"`) when Gate 1 was asked but its model failed to
+    #: answer (never loaded, or errored on this call) -- fail closed, same as `second_skip_reason`'s
+    #: `"second_unavailable: ..."` prefix: the element is NOT established and this is a REFER, never a silent
+    #: not-established that could drive a false DENIAL. None whenever Gate 1 actually answered (pass or fail).
+    gate1_skip_reason: str | None = None
+    #: Why the element is not established: "primary" (it rejected outright), "second" (the primary accepted
+    #: but the second rejected, or the second was configured and unavailable), "gate1" (both judges
+    #: established but the entailment check failed, or the Gate 1 model itself was unavailable), or None
+    #: when established (or when a given gate is not configured and so never has an opinion).
+    vetoed_by: Literal["primary", "second", "gate1"] | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -517,4 +532,165 @@ class AndGateJudge:
             second_fact_id=s.fact_id,
             fact_id_disagreement=disagreement,
             vetoed_by=None if established else "second",
+        )
+
+
+# -- Gate 1: NLI entailment check ---------------------------------------------------------------------------
+
+#: The two disjunct-split patterns frozen on heldout_v1 (Track-C, GATE1-DISJUNCT-FIX-2026-09-26.md,
+#: develop_gate1_disjunct_fix.py sha 7897c381) and re-verified unchanged on the full 377/225 eval
+#: (run_configc_gate1_v2_eval.py sha 7ed02c49) -- copied here verbatim, never re-derived. Known gap,
+#: documented not fixed: mishandles a SUBJECT-EMBEDDED disjunction ("the consequence [intended, or known to
+#: be likely,] is X"), producing two grammatically broken halves -- it still matches by shape and degrades
+#: gracefully (never flips a correct not-established to a false established), it just doesn't rescue that one
+#: shape (see `split_disjuncts`'s own docstring).
+_GATE1_SUFFIX3 = re.compile(r"^(?P<pre>.*?),\s*or\s+(?P<b>[^,]+),\s*(?P<suf>.*)$")
+_GATE1_SIMPLE2 = re.compile(r"^(?P<pre>.*?),?\s+or\s+(?P<suf>.*)$")
+
+
+def split_disjuncts(element_desc: str) -> list[str]:
+    """`element_desc` split into its disjuncts, each scored separately by `gate1_check` (max over all of
+    them): `"A, or B, suffix"` -> `["A, suffix", "B, suffix"]`; `"A, or B"` -> `["A", "B"]`; anything else ->
+    `[element_desc]` unchanged (no disjunction found, or the SUBJECT-EMBEDDED shape this heuristic cannot
+    parse -- see the module-level comment above)."""
+    m = _GATE1_SUFFIX3.match(element_desc)
+    if m:
+        return [f"{m['pre']}, {m['suf']}", f"{m['b']}, {m['suf']}"]
+    m = _GATE1_SIMPLE2.match(element_desc)
+    if m:
+        return [m["pre"], m["suf"]]
+    return [element_desc]
+
+
+GATE1_THRESHOLD_DEFAULT = 0.04074102267622948
+GATE1_MODEL_DEFAULT = "MoritzLaurer/DeBERTa-v3-base-mnli-fever-anli"
+#: Pinned by commit sha, never a branch/tag (a model card edit or a weights update on `main` must never
+#: silently change what a running deployment scores with) -- `main`'s tip as of 2026-09-26, the same commit
+#: Track-C's own eval scripts actually read (unpinned, by branch name) when this was speced.
+GATE1_MODEL_REVISION_DEFAULT = "6f5cf0a2b59cabb106aca4c287eed12e357e90eb"
+
+
+@dataclass(frozen=True)
+class Gate1Result:
+    score: float
+    passed: bool
+    disjuncts: list[str]
+    model: str
+
+
+def gate1_check(
+    fact_text: str, element_desc: str, *, score_fn: Callable[[str, str], float], threshold: float, model: str,
+) -> Gate1Result:
+    """`score_fn(fact_text, hypothesis_text) -> entailment - contradiction` is the only thing that touches a
+    real model (`Gate1NLIModel.score_one`, below, in production; a test double in tests) -- this function is
+    the pure disjunct-max logic Track-C froze (`run_configc_gate1_v2_eval.py`'s own `gate1_score`), unchanged:
+    split `element_desc` into its disjuncts, score each as its own hypothesis, take the max."""
+    disjuncts = split_disjuncts(element_desc)
+    score = max(score_fn(fact_text, d) for d in disjuncts)
+    return Gate1Result(score=score, passed=score >= threshold, disjuncts=disjuncts, model=model)
+
+
+class Gate1NLIModel:
+    """Loads the real DeBERTa-v3 NLI model once (lazily, on first `score_one` call, never at construction --
+    a deployment that never enables Gate 1 must never pay for it) and exposes the `score_fn` shape
+    `gate1_check` needs. Runs in-process on whatever device is available (CPU on the product tier -- Lead-2's
+    explicit deviation from Track-C's own sidecar recommendation, GATE1-PRODUCT-WIRING-SPEC-2026-09-26.md
+    §6: measured 110ms/element on 2 vCPU is small next to the judge calls it follows, which take seconds, and
+    a sidecar is one more failure mode)."""
+
+    def __init__(
+        self, *, model_id: str = GATE1_MODEL_DEFAULT, revision: str = GATE1_MODEL_REVISION_DEFAULT,
+    ) -> None:
+        self.model_id = model_id
+        self.revision = revision
+        self._tokenizer: Any = None
+        self._model: Any = None
+
+    def _ensure_loaded(self) -> None:
+        if self._model is not None:
+            return
+        import torch
+        from huggingface_hub import snapshot_download
+        from transformers import AutoModelForSequenceClassification, AutoTokenizer
+
+        # Only the safetensors weight format, never the duplicate .bin the upstream repo also carries
+        # (749MB vs ~380MB) -- GATE1-PRODUCT-WIRING-SPEC-2026-09-26.md §7.
+        local_dir = snapshot_download(
+            self.model_id, revision=self.revision, allow_patterns=["*.safetensors", "*.json", "*.model"],
+        )
+        self._tokenizer = AutoTokenizer.from_pretrained(local_dir)
+        self._model = AutoModelForSequenceClassification.from_pretrained(local_dir, dtype=torch.float32)
+        self._model.eval()
+
+    def score_one(self, fact_text: str, hypothesis_text: str) -> float:
+        """`entailment - contradiction`, the exact shape `run_configc_gate1_v2_eval.py`'s own `score_one`
+        computes -- `"It is true that: {hypothesis}"` as the NLI hypothesis, softmax over the model's own
+        label set (read from `model.config.id2label`, never a hardcoded index order)."""
+        self._ensure_loaded()
+        import torch
+
+        hyp = f"It is true that: {hypothesis_text}"
+        enc = self._tokenizer(fact_text, hyp, return_tensors="pt", truncation=True, max_length=512)
+        with torch.no_grad():
+            logits = self._model(**enc).logits[0]
+        probs = torch.softmax(logits, dim=-1).tolist()
+        labels = self._model.config.id2label
+        name_to_p = {labels[i].lower(): probs[i] for i in range(len(probs))}
+        return float(name_to_p.get("entailment", 0.0) - name_to_p.get("contradiction", 0.0))
+
+
+class Gate1ScoreModel(Protocol):
+    """What `Gate1Judge` needs from a model -- `Gate1NLIModel` in production, a lightweight test double in
+    tests (mirrors `Judge`'s own role: a Protocol, never a concrete-class requirement, so a test never needs
+    a real model just to satisfy a type check)."""
+
+    model_id: str
+
+    def score_one(self, fact_text: str, hypothesis_text: str) -> float: ...
+
+
+class Gate1Judge:
+    """Wraps ANY `Judge` (a bare `HouseJudge`, or `AndGateJudge` for config C) as a THIRD gate, composing the
+    same way the second judge does: Gate 1 is asked ONLY when the wrapped judge already says established --
+    never on an element neither judge (nor Gate 1) has anything to check yet.
+
+    An established call that fails Gate 1 does NOT become an ordinary not-established fact: `vetoed_by=
+    "gate1"` and `gate1_score`/`gate1_disjuncts` are set so `nyaya_agent._run_contract` can surface this as
+    REFER_TO_LAWYER (`gate1_not_entailed`), a reviewable outcome, rather than an indistinguishable coverage
+    loss (GATE1-PRODUCT-WIRING-SPEC-2026-09-26.md §4). A Gate 1 model that fails to load or errors on this
+    call fails the SAME way the second judge does on an error: NOT established, `gate1_skip_reason` records
+    why, and the agent surfaces a REFER (`gate1_unavailable`) -- never a silent pass, never a silent
+    not-established that could drive a false DENIAL."""
+
+    def __init__(
+        self, inner: Judge, model: Gate1ScoreModel, *,
+        threshold: float = GATE1_THRESHOLD_DEFAULT, name: str | None = None,
+    ) -> None:
+        self.inner = inner
+        self.model = model
+        self.threshold = threshold
+        self.name: str = name or str(getattr(inner, "name", "gate1"))
+
+    def judge(self, request: JudgeRequest) -> ElementJudgment:
+        judgment = self.inner.judge(request)
+        if judgment.status != "established":
+            return judgment  # nothing established yet -- Gate 1 has nothing to check (cost saved)
+        fact_text = dict(request.facts).get(judgment.fact_id) if judgment.fact_id else None
+        if fact_text is None:
+            return judgment  # no resolvable fact id -- the quote check downstream will reject this anyway
+        try:
+            result = gate1_check(
+                fact_text, request.element, score_fn=self.model.score_one, threshold=self.threshold,
+                model=self.model.model_id,
+            )
+        except Exception as e:  # noqa: BLE001 -- fail closed, mirrors AndGateJudge's second-judge-error path
+            return replace(
+                judgment, status="not_established", vetoed_by="gate1",
+                gate1_skip_reason=f"gate1_unavailable: {type(e).__name__}: {e}"[:400],
+            )
+        if result.passed:
+            return replace(judgment, gate1_score=result.score, gate1_disjuncts=result.disjuncts)
+        return replace(
+            judgment, status="not_established", vetoed_by="gate1",
+            gate1_score=result.score, gate1_disjuncts=result.disjuncts,
         )
