@@ -575,11 +575,20 @@ def _judge_accounting(records: Sequence[JudgeCallRecord]) -> dict[str, Any]:
 # -- results -----------------------------------------------------------------------------------------------
 
 
+#: Truthful element statuses (issue #37, Tag's review): a gold-established element the served judge(s) didn't
+#: clear tau on must never look the same as one a judge actually scored unmet, or one the second judge never
+#: got to evaluate at all -- three previously-collapsed cases now have three distinct labels below, alongside
+#: the original "established". `assemble_assertions` and every other outcome check still treats every
+#: non-"established" value identically (`status == "established"`); this ONLY changes what a caller sees,
+#: never what the contract's outcome is.
+ElementStatus = Literal["established", "not_confirmed", "not_established", "not_evaluated_second_unavailable"]
+
+
 @dataclass
 class ElementResult:
     element: str
     is_denial: bool
-    status: Literal["established", "not_established"]
+    status: ElementStatus
     claimed: bool  # attempt 1's own status was "established", before any quote check
     p_established: float | None  # always attempt 1's -- a retry never changes it
     fact_id: str | None
@@ -605,6 +614,16 @@ class ElementResult:
     #: in this case). Lead-2, 2026-09-24: a second-judge error must surface as REFER_TO_LAWYER, not silently
     #: become an ordinary not-established fact that can drive a false DENIAL.
     second_unavailable: bool = False
+    #: Issue #37: which judge's tau this non-established element failed to clear -- "primary" (it rejected
+    #: outright, or `not_confirmed`/`not_established` on the primary's own p when the second was never
+    #: asked), "second" (the primary passed but the second didn't), or "both" reserved for a future mode
+    #: where both are asked and scored independently (unreachable today: the current AND-gate never asks the
+    #: second once the primary has already failed -- see AndGateJudge.judge's own cost-saving early return).
+    #: None whenever the element IS established, or the non-established reason isn't a tau miss at all
+    #: (`not_evaluated_second_unavailable`, or a Gate 1 veto -- Gate 1's own `gate1_veto_kind` field already
+    #: names that reason). Reuses `ElementJudgment.vetoed_by` (issue #37's own suggestion) rather than a
+    #: fully separate signal.
+    binding_leg: Literal["primary", "second", "both"] | None = None
     #: Gate 1 (Track-C, 2026-09-26): a third gate, NLI entailment check, run only when the judge(s) above
     #: already established the element. All None/False when Gate 1 is not configured (`NYAYA_GATE1_ENABLED`
     #: unset/false, today's default) or was never asked (nothing established yet to check).
@@ -747,6 +766,38 @@ def _second_band_info(anchor: ElementJudgment | None, delta: float | None) -> di
     out["second_logit_distance"] = distance
     out["second_refer_band_fired"] = delta is not None and distance < delta
     return out
+
+
+def _truthful_status(
+    claimed: bool, valid: bool, anchor: ElementJudgment | None, second_unavailable: bool,
+) -> tuple[ElementStatus, Literal["primary", "second"] | None]:
+    """The final element status and binding leg (issue #37). Called only after `_second_band_info` has
+    already computed `second_unavailable`, so the "second judge never answered" signal is read once, not
+    re-derived. `claimed`/`valid` follow `_judge_element`'s own naming: `claimed` is attempt 1's own judge
+    status, `valid` is claimed AND the quote verified.
+
+    A claimed-but-unverifiable quote (`claimed and not valid`) is always `not_established` regardless of
+    `p_established` -- a hallucination is a real negative, never a confidence question. Otherwise (`not
+    claimed`, so `anchor` exists and its own status was already not "established"): a Gate 1 veto keeps its
+    existing `not_established` label untouched (its own `gate1_veto_kind` field already names the real
+    reason); the second-unavailable case gets its own distinct label; and what remains is split by whether
+    the judge(s) that DID run leaned toward established (p >= 0.5) without clearing their tau
+    (`not_confirmed`) or actually scored the element unmet (`not_established`) -- the outcome any of these
+    three drives is identical (never "established"), only the label differs."""
+    if claimed and valid:
+        return "established", None
+    if claimed and not valid:
+        return "not_established", None
+    assert anchor is not None  # claimed is False only when anchor.status != "established", so anchor exists
+    if anchor.vetoed_by == "gate1":
+        return "not_established", None
+    if second_unavailable:
+        return "not_evaluated_second_unavailable", None
+    binding_leg = anchor.vetoed_by if anchor.vetoed_by in ("primary", "second") else None
+    second_leans_established = anchor.p_established_second is None or anchor.p_established_second >= 0.5
+    if anchor.p_established >= 0.5 and second_leans_established:
+        return "not_confirmed", binding_leg
+    return "not_established", binding_leg
 
 
 def _gate1_info(anchor: ElementJudgment | None) -> dict[str, Any]:
@@ -939,11 +990,13 @@ class NyayaAgent:
                                  attempts, error=error, **_second_band_info(None, delta), **_gate1_info(None)), calls
         claimed = anchor.status == "established"
         valid = claimed and loc is not None and loc.valid
+        second_band = _second_band_info(anchor, delta)
+        final_status, final_binding_leg = _truthful_status(claimed, valid, anchor, second_band["second_unavailable"])
         result = ElementResult(
-            element, is_denial, "established" if valid else "not_established", claimed, anchor.p_established,
+            element, is_denial, final_status, claimed, anchor.p_established,
             fact_id, quote, loc.start if loc else None, loc.end if loc else None, loc.reason if loc else None, attempts,
             occurrences=loc.occurrences if loc else 0, offsets_source=loc.offsets_source if loc and loc.valid else None,
-            quote_source=quote_source, **_second_band_info(anchor, delta), **_gate1_info(anchor),
+            quote_source=quote_source, binding_leg=final_binding_leg, **second_band, **_gate1_info(anchor),
         )
         return result, calls
 
@@ -1077,7 +1130,12 @@ class NyayaAgent:
                         "uncertain_second": res.uncertain_second, "unavailable_second": res.unavailable_second,
                         "gate1_unavailable": res.gate1_unavailable, "gate1_failed": res.gate1_failed,
                         "gate1_contradiction": res.gate1_contradiction,
-                        "statute_text_mismatch": mismatch}, 0.0)
+                        "statute_text_mismatch": mismatch,
+                        # Issue #37: the per-element truthful status/binding_leg (and every other
+                        # ElementResult field) as readable OUTPUT, not just hashed into inputs_sha256 above --
+                        # an auditor reading the JSONL directly must be able to see these without a matching
+                        # copy of `results` to hash and compare against.
+                        "elements": [asdict(r) for r in results]}, 0.0)
             return res
 
         if training is None:

@@ -671,17 +671,21 @@ class TestSecondJudgeReferBand:
         assert c.outcome == "ABSTAIN" and c.reason == "missing_element"
 
     def test_second_unavailable_fails_closed_but_refers_the_contract(self, tmp_path: Path) -> None:
-        """Lead-2, 2026-09-24: the second judge errors (unavailable) -- the ELEMENT still fails closed (not
-        established, unchanged), and is never additionally referred by the logit-distance band -- there is no
-        p to compare. But the CONTRACT now becomes REFER_TO_LAWYER instead of an ordinary DENIAL/ABSTAIN,
-        because a fail-closed element is not the same as a genuinely-not-established one: the second opinion
-        was never actually obtained. (EL0's own second is far outside the band here, so the contract's outcome
-        turns only on EL1.)"""
+        """Lead-2, 2026-09-24; status truthfulness issue #37, 2026-09-26+: the second judge errors
+        (unavailable) -- the ELEMENT fails closed (never "established"), and is never additionally referred
+        by the logit-distance band -- there is no p to compare. Its status is the DISTINCT
+        `not_evaluated_second_unavailable` label, never the plain `not_established` a genuinely-scored-unmet
+        element gets -- "couldn't evaluate" and "judge concluded fail" must never look the same downstream.
+        The CONTRACT still becomes REFER_TO_LAWYER instead of an ordinary DENIAL/ABSTAIN, unchanged from
+        before: a fail-closed element is not the same as a genuinely-not-established one, and this label
+        change never touches that outcome logic. (EL0's own second is far outside the band here, so the
+        contract's outcome turns only on EL1.)"""
         script = _proof_script(TOY_FACTS)
         c = self._run(tmp_path, script, {BNS69_EL[0]: [_second("established", 0.5)],
                                          BNS69_EL[1]: [ConnectionError("second judge unreachable")]}, delta=0.2)
         el1 = c.elements[1]
-        assert el1.status == "not_established"
+        assert el1.status == "not_evaluated_second_unavailable"
+        assert el1.binding_leg is None  # nothing was evaluated against a tau; there is no leg to blame
         assert el1.p_established_second is None
         assert el1.second_skip_reason is not None and "second_unavailable" in el1.second_skip_reason
         assert el1.second_refer_band_fired is False
@@ -760,6 +764,116 @@ class TestSecondJudgeReferBand:
     def test_env_var_absent_by_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("NYAYA_SECOND_JUDGE_REFER_LOGIT_DELTA", raising=False)
         assert load_agent_config(REPO).second_judge is None
+
+
+class TestTruthfulElementStatus:
+    """Issue #37 (Tag's review): a gold-established element that leans toward established (p >= 0.5 on
+    every judge that actually ran) but didn't clear a served tau must never be labelled the same as one a
+    judge genuinely scored unmet. Wraps two `ScriptedJudge` doubles in a REAL `AndGateJudge` (never
+    hand-builds an `ElementJudgment` with second-judge fields), same discipline as
+    `TestSecondJudgeReferBand`, so the AND gate's own cost-saving early return (primary rejects -> second
+    never asked) is exercised exactly as production wires it, never re-implemented here."""
+
+    TAU2 = 0.97
+
+    def _run_full(self, tmp_path: Path, primary_script: dict[str, list[Any]], second_script: dict[str, list[Any]]) -> Any:
+        primary = ScriptedJudge(primary_script)
+        second = ScriptedJudge(second_script)
+        gate = AndGateJudge(primary, second, tau_primary=0.74, tau_second=self.TAU2)
+        config = _config(tmp_path, second_judge={"tau": self.TAU2})
+        agent = NyayaAgent(gate, _registry(), config)
+        return agent.run(TOY_FACTS, narrative="TOY narrative.", contract_ids=["bns69"])
+
+    def _run(self, tmp_path: Path, primary_script: dict[str, list[Any]], second_script: dict[str, list[Any]]) -> Any:
+        return self._run_full(tmp_path, primary_script, second_script).contracts[0]
+
+    def test_primary_leans_established_but_under_tau_is_not_confirmed(self, tmp_path: Path) -> None:
+        """The primary's own p (0.6) is >= 0.5 but under its tau (0.74) -- rejected outright, so the second
+        is never asked at all ("second not asked" satisfies the rule's OR clause). not_confirmed, never the
+        plain not_established a genuinely low-p element gets."""
+        script = _proof_script(TOY_FACTS)
+        script[BNS69_EL[0]] = [_not(0.6)]
+        c = self._run(tmp_path, script, {})
+        el0 = c.elements[0]
+        assert el0.status == "not_confirmed"
+        assert el0.binding_leg == "primary"
+
+    def test_primary_genuinely_low_p_is_not_established(self, tmp_path: Path) -> None:
+        """The primary's own p (0.2) is under 0.5 -- a real negative, not a confidence question."""
+        script = _proof_script(TOY_FACTS)
+        script[BNS69_EL[0]] = [_not(0.2)]
+        c = self._run(tmp_path, script, {})
+        el0 = c.elements[0]
+        assert el0.status == "not_established"
+        assert el0.binding_leg == "primary"
+
+    def test_second_leans_established_but_under_tau_is_not_confirmed(self, tmp_path: Path) -> None:
+        """The primary passes (its own tau is 0.74); the second's own p (0.8) is >= 0.5 but under ITS tau
+        (0.97) -- not_confirmed, binding_leg="second", the exact fixture Lead-2 asked for ("4B passes, 32B
+        misses")."""
+        script = _proof_script(TOY_FACTS)
+        c = self._run(tmp_path, script, {BNS69_EL[0]: [_second("not_established", 0.8)]})
+        el0 = c.elements[0]
+        assert el0.status == "not_confirmed"
+        assert el0.binding_leg == "second"
+
+    def test_second_genuinely_low_p_is_not_established(self, tmp_path: Path) -> None:
+        """The primary passes; the second's own p (0.3) is under 0.5 -- a real negative from the second,
+        binding_leg="second"."""
+        script = _proof_script(TOY_FACTS)
+        c = self._run(tmp_path, script, {BNS69_EL[0]: [_second("not_established", 0.3)]})
+        el0 = c.elements[0]
+        assert el0.status == "not_established"
+        assert el0.binding_leg == "second"
+
+    def test_established_element_has_no_binding_leg(self, tmp_path: Path) -> None:
+        script = _proof_script(TOY_FACTS)
+        c = self._run(tmp_path, script, {BNS69_EL[0]: [_second("established", 0.99)]})
+        el0 = c.elements[0]
+        assert el0.status == "established"
+        assert el0.binding_leg is None
+
+    def test_audit_trail_carries_the_new_fields_and_null_is_never_coerced_to_zero(self, tmp_path: Path) -> None:
+        """Lead-2 (M4 tau_C lesson: a null-vs-zero conflation caused a real bug there before): the audit
+        JSONL's own outcome/assemble step must carry `status`, `binding_leg`, `p_established` and
+        `p_established_second` for every element, and when the second judge never answered,
+        `p_established_second` must serialize as JSON `null`, never `0.0` -- reading the raw JSONL text
+        itself, not just the in-memory dataclass, so a future serialization change (e.g. a `default=` that
+        coerces None) would be caught here."""
+        script = _proof_script(TOY_FACTS)
+        run = self._run_full(
+            tmp_path, script,
+            {BNS69_EL[0]: [_second("not_established", 0.8)], BNS69_EL[1]: [ConnectionError("second judge unreachable")]},
+        )
+        lines = [json.loads(x) for x in run.audit_path.read_text().splitlines()]
+        outcome = next(x for x in lines if x["step"] == "outcome")
+        elements = {e["element"]: e for e in outcome["output"]["elements"]}
+
+        el0 = elements[BNS69_EL[0]]  # 4B passes, 32B leans established but misses its own tau
+        assert el0["status"] == "not_confirmed"
+        assert el0["binding_leg"] == "second"
+        assert el0["p_established"] == pytest.approx(0.97)
+        assert el0["p_established_second"] == pytest.approx(0.8)
+
+        el1 = elements[BNS69_EL[1]]  # the second judge never answered at all
+        assert el1["status"] == "not_evaluated_second_unavailable"
+        assert el1["binding_leg"] is None
+        assert el1["p_established"] is not None
+        # The real regression this guards: JSON `null`, never the float `0.0` a p_vote=0.0 bug would produce.
+        assert el1["p_established_second"] is None
+        assert '"p_established_second": null' in run.audit_path.read_text()
+
+    def test_outcome_is_identical_whether_not_confirmed_or_not_established(self, tmp_path: Path) -> None:
+        """The whole point of this change (issue #37's own framing): only the LABEL differs. The contract's
+        outcome (here, ABSTAIN -- a required element failed either way) is byte-identical."""
+        confirmed_script = _proof_script(TOY_FACTS)
+        confirmed_script[BNS69_EL[0]] = [_not(0.6)]  # not_confirmed
+        established_script = _proof_script(TOY_FACTS)
+        established_script[BNS69_EL[0]] = [_not(0.2)]  # not_established
+        c1 = self._run(tmp_path, confirmed_script, {})
+        c2 = self._run(tmp_path, established_script, {})
+        assert c1.elements[0].status != c2.elements[0].status  # the labels really do differ
+        assert c1.outcome == c2.outcome  # but the outcome never does
 
 
 class TestGate1ReferWiring:
