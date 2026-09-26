@@ -138,6 +138,17 @@ class AgentConfig:
     #: A contract comes OFF this set only by Lead-2's explicit decision after a signed eval of the M2-trained
     #: judge covering it -- this is a deliberate, standing safety gate, not a TODO for anyone to clear later.
     unvalidated_contracts: frozenset[str] = field(default_factory=frozenset)
+    #: Gate 1 (Track-C, GATE1-PRODUCT-WIRING-SPEC-2026-09-26.md): threshold/model config, always present with
+    #: its documented defaults even when Gate 1 is off (`gate1_enabled=False`) -- keeping the block configured
+    #: while the gate itself stays off is deliberate (Track-C's own recommendation, §5): a threshold this
+    #: consequential should never require a code change to adjust once there's a reason to turn it on.
+    gate1: Mapping[str, Any] = field(default_factory=dict)
+    #: Whether Gate 1 actually runs (`NYAYA_GATE1_ENABLED`). Default False -- today's behaviour, byte-identical
+    #: responses, is unchanged unless a deployment opts in. Deliberately a SEPARATE switch from `gate1` above
+    #: (unlike `second_judge`, whose mere presence turns config C on): the measured -19%/-9% coverage cost
+    #: with zero demonstrated false-prove benefit on the only population tested means this must stay off by
+    #: default even on a host that has the model/threshold configured, until Lead-2 decides otherwise.
+    gate1_enabled: bool = False
 
     def __post_init__(self) -> None:
         low, high = self.refer_band
@@ -254,6 +265,18 @@ def load_agent_config(root: Path) -> AgentConfig:
             if key not in second_judge and key in house_judge:
                 second_judge[key] = house_judge[key]
 
+    # Gate 1 (Track-C, GATE1-PRODUCT-WIRING-SPEC-2026-09-26.md §3/§5): the yaml block (threshold/model) and
+    # the enable switch are deliberately independent -- NYAYA_GATE1_THRESHOLD/_MODEL override the block's own
+    # values (or introduce it, mirroring the house_judge/second_judge env-override pattern above) whether or
+    # not NYAYA_GATE1_ENABLED is set; the block being configured never itself turns the gate on.
+    gate1 = dict(body.get("gate1") or {})
+    if os.environ.get("NYAYA_GATE1_THRESHOLD"):
+        gate1["threshold"] = float(os.environ["NYAYA_GATE1_THRESHOLD"])
+    if os.environ.get("NYAYA_GATE1_MODEL"):
+        gate1["model"] = os.environ["NYAYA_GATE1_MODEL"]
+    gate1_enabled_raw = os.environ.get("NYAYA_GATE1_ENABLED", "")
+    gate1_enabled = gate1_enabled_raw.strip().lower() in ("1", "true", "yes", "on")
+
     return AgentConfig(
         tau=float(body["tau"]),
         refer_band=(float(low), float(high)),
@@ -267,6 +290,8 @@ def load_agent_config(root: Path) -> AgentConfig:
         second_judge=second_judge,
         max_concurrency=int(house_judge.get("max_concurrency", 1)),
         unvalidated_contracts=frozenset(str(c) for c in (body.get("unvalidated_contracts") or [])),
+        gate1=gate1,
+        gate1_enabled=gate1_enabled,
     )
 
 
@@ -551,6 +576,18 @@ class ElementResult:
     #: in this case). Lead-2, 2026-09-24: a second-judge error must surface as REFER_TO_LAWYER, not silently
     #: become an ordinary not-established fact that can drive a false DENIAL.
     second_unavailable: bool = False
+    #: Gate 1 (Track-C, 2026-09-26): a third gate, NLI entailment check, run only when the judge(s) above
+    #: already established the element. All None/False when Gate 1 is not configured (`NYAYA_GATE1_ENABLED`
+    #: unset/false, today's default) or was never asked (nothing established yet to check).
+    gate1_score: float | None = None
+    gate1_disjuncts: list[str] | None = None
+    #: The Gate 1 model itself failed to load or errored on this call -- fail closed (see `nyaya_judges.
+    #: Gate1Judge`'s own docstring), surfaced as REFER_TO_LAWYER (`gate1_unavailable`), never a silent
+    #: not-established.
+    gate1_unavailable: bool = False
+    #: Gate 1 answered but scored below its threshold -- REFER_TO_LAWYER (`gate1_not_entailed`), distinct
+    #: from `gate1_unavailable`: there IS a score here, it just didn't clear the bar.
+    gate1_not_entailed: bool = False
 
 
 @dataclass
@@ -574,6 +611,13 @@ class ContractResult:
     #: when there is no second judge. Distinct from `uncertain_second`: this fires unconditionally on a second-
     #: judge error, with no `second_refer_logit_delta` needed and no p-value to compare.
     unavailable_second: list[str] = field(default_factory=list)
+    #: Elements whose Gate 1 model was unavailable (errored, or never loaded). Always [] when Gate 1 is not
+    #: configured. Distinct from `gate1_failed`: this is the model itself failing, not a real score below
+    #: threshold.
+    gate1_unavailable: list[str] = field(default_factory=list)
+    #: Elements the judge(s) established but Gate 1's entailment check did not clear its threshold. Always []
+    #: when Gate 1 is not configured.
+    gate1_failed: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -668,6 +712,26 @@ def _second_band_info(anchor: ElementJudgment | None, delta: float | None) -> di
     return out
 
 
+def _gate1_info(anchor: ElementJudgment | None) -> dict[str, Any]:
+    """Attempt 1's Gate 1 fields for `ElementResult` -- mirrors `_second_band_info`'s shape exactly, reading
+    only from `anchor` (attempt 1's own judgment; a quote-only retry never re-reads Gate 1's opinion, same
+    convention the second judge's own fields already follow). `gate1_unavailable` is a fail-closed signal
+    (the model errored or never loaded), distinct from `gate1_not_entailed` (the model answered, the score
+    just didn't clear threshold) -- both are None/False when Gate 1 is not configured at all."""
+    out: dict[str, Any] = {
+        "gate1_score": None, "gate1_disjuncts": None, "gate1_unavailable": False, "gate1_not_entailed": False,
+    }
+    if anchor is None:
+        return out
+    out["gate1_score"] = anchor.gate1_score
+    out["gate1_disjuncts"] = anchor.gate1_disjuncts
+    out["gate1_unavailable"] = bool(
+        anchor.gate1_skip_reason and anchor.gate1_skip_reason.startswith("gate1_unavailable")
+    )
+    out["gate1_not_entailed"] = anchor.vetoed_by == "gate1" and not out["gate1_unavailable"]
+    return out
+
+
 # -- the loop ----------------------------------------------------------------------------------------------
 
 
@@ -709,17 +773,42 @@ class NyayaAgent:
         if cfg.score_bin is None:
             raise ValueError("no score_bin configured")
         registry = BinaryRegistry(cfg.score_bin, pinned_sha256=cfg.pinned_score_sha256)
-        from pravrudhi.application.nyaya_judges import AndGateJudge
+        from pravrudhi.application.nyaya_judges import (
+            GATE1_MODEL_DEFAULT,
+            GATE1_MODEL_REVISION_DEFAULT,
+            GATE1_THRESHOLD_DEFAULT,
+            AndGateJudge,
+            Gate1Judge,
+            Gate1NLIModel,
+        )
+
+        # One model instance shared across the whole judge_pool (max_concurrency > 1 builds several judge
+        # stacks, but loading the same ~380MB weights once per worker would be pure waste) -- inference
+        # through a loaded HF model is a stateless forward pass per call, safe to share this way.
+        gate1_model = (
+            Gate1NLIModel(
+                model_id=str(cfg.gate1.get("model", GATE1_MODEL_DEFAULT)),
+                revision=str(cfg.gate1.get("revision", GATE1_MODEL_REVISION_DEFAULT)),
+            )
+            if cfg.gate1_enabled
+            else None
+        )
 
         def _build_judge() -> Judge:
             primary = _build_house_judge(cfg.house_judge, tau=cfg.tau, typed=cfg.typed_layer,
                                          api_key_env="NYAYA_HOUSE_JUDGE_API_KEY")
+            judge: Judge
             if cfg.second_judge:
                 second_tau = float(cfg.second_judge["tau"])
                 second = _build_house_judge(cfg.second_judge, tau=second_tau, typed=cfg.typed_layer,
                                             api_key_env="NYAYA_SECOND_JUDGE_API_KEY")
-                return AndGateJudge(primary, second, tau_primary=cfg.tau, tau_second=second_tau)
-            return primary
+                judge = AndGateJudge(primary, second, tau_primary=cfg.tau, tau_second=second_tau)
+            else:
+                judge = primary
+            if gate1_model is not None:
+                threshold = float(cfg.gate1.get("threshold", GATE1_THRESHOLD_DEFAULT))
+                judge = Gate1Judge(judge, gate1_model, threshold=threshold)
+            return judge
 
         judge = _build_judge()
         # `max_concurrency > 1` builds one independent judge stack per worker slot (own ChatClients, see
@@ -797,14 +886,14 @@ class NyayaAgent:
         delta = self.config.second_refer_logit_delta()
         if anchor is None:
             return ElementResult(element, is_denial, "not_established", False, None, None, None, None, None, None,
-                                 attempts, error=error, **_second_band_info(None, delta)), calls
+                                 attempts, error=error, **_second_band_info(None, delta), **_gate1_info(None)), calls
         claimed = anchor.status == "established"
         valid = claimed and loc is not None and loc.valid
         result = ElementResult(
             element, is_denial, "established" if valid else "not_established", claimed, anchor.p_established,
             fact_id, quote, loc.start if loc else None, loc.end if loc else None, loc.reason if loc else None, attempts,
             occurrences=loc.occurrences if loc else 0, offsets_source=loc.offsets_source if loc and loc.valid else None,
-            quote_source=quote_source, **_second_band_info(anchor, delta),
+            quote_source=quote_source, **_second_band_info(anchor, delta), **_gate1_info(anchor),
         )
         return result, calls
 
@@ -929,11 +1018,13 @@ class NyayaAgent:
         def finish(outcome: Outcome, reason: str, **kw: Any) -> ContractResult:
             res = ContractResult(contract_id, outcome, reason, results, kw.get("assertions"), kw.get("lean"),
                                  kw.get("lean_outcome"), kw.get("uncertain", []), mismatch,
-                                 kw.get("uncertain_second", []), unavailable_second=kw.get("unavailable_second", []))
+                                 kw.get("uncertain_second", []), unavailable_second=kw.get("unavailable_second", []),
+                                 gate1_unavailable=kw.get("gate1_unavailable", []), gate1_failed=kw.get("gate1_failed", []))
             audit.step("outcome", {"contract_id": contract_id, "elements": [asdict(r) for r in results]},
                        {"contract_id": contract_id, "outcome": outcome, "reason": reason,
                         "lean_outcome": res.lean_outcome, "uncertain": res.uncertain,
                         "uncertain_second": res.uncertain_second, "unavailable_second": res.unavailable_second,
+                        "gate1_unavailable": res.gate1_unavailable, "gate1_failed": res.gate1_failed,
                         "statute_text_mismatch": mismatch}, 0.0)
             return res
 
@@ -962,9 +1053,12 @@ class NyayaAgent:
         uncertain = [r.element for r in results if r.p_established is not None and self.config.in_band(r.p_established)]
         uncertain_second = [r.element for r in results if r.second_refer_band_fired]
         unavailable_second = [r.element for r in results if r.second_unavailable]
+        gate1_unavailable = [r.element for r in results if r.gate1_unavailable]
+        gate1_failed = [r.element for r in results if r.gate1_not_entailed]
         kw: dict[str, Any] = {"assertions": assertions, "lean": lean, "lean_outcome": lean_outcome,
                               "uncertain": uncertain, "uncertain_second": uncertain_second,
-                              "unavailable_second": unavailable_second}
+                              "unavailable_second": unavailable_second,
+                              "gate1_unavailable": gate1_unavailable, "gate1_failed": gate1_failed}
 
         if lean_outcome != local:
             return finish("ABSTAIN", "assembly_lean_mismatch", **kw)
@@ -976,6 +1070,10 @@ class NyayaAgent:
             return finish("REFER_TO_LAWYER", "uncertain_second_judge", **kw)
         if unavailable_second:
             return finish("REFER_TO_LAWYER", "second_judge_unavailable", **kw)
+        if gate1_unavailable:
+            return finish("REFER_TO_LAWYER", "gate1_unavailable", **kw)
+        if gate1_failed:
+            return finish("REFER_TO_LAWYER", "gate1_not_entailed", **kw)
         # Safety gate (Lead-2, 2026-09-25): a contract with no judge-side validation never reaches the user
         # as a PROOF or DENIAL. Every element judged, quoted and Lean-checked above stays visible in `results`
         # and the audit trail -- only the FINAL outcome is intercepted, and only when it would otherwise be a

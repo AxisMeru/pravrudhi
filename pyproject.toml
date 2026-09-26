@@ -92,5 +92,5 @@ packages = ["pravrudhi_kernel", "pravrudhi"]
 mypy_path = "src:pravrudhi_kernel/src"
 
 [[tool.mypy.overrides]]
-module = ["pyarrow", "pyarrow.*", "torch", "torch.*", "transformers", "transformers.*"]
+module = ["pyarrow", "pyarrow.*", "torch", "torch.*", "transformers", "transformers.*", "huggingface_hub", "huggingface_hub.*"]
 ignore_missing_imports = true
