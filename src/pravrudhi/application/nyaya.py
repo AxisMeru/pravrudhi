@@ -97,6 +97,10 @@ class Corpus:
     documents: list[Document]
     sources: list[dict[str, Any]]
     expansions: dict[str, list[str]] = field(default_factory=dict, repr=False)
+    #: Issue #32 (follow-up from PR #30): `configs/nyaya_corpus.yaml`'s own `min_relevance_score`, resolved by
+    #: `load_corpus` -- see `retrieve`'s own docstring for what this floor does and how it was measured.
+    #: Defaults to `MIN_RELEVANCE_SCORE` for a `Corpus` built by hand (e.g. a test) with no config to read.
+    min_relevance_score: float = MIN_RELEVANCE_SCORE
     _df: Counter[str] = field(default_factory=Counter, repr=False)
     _tf: list[Counter[str]] = field(default_factory=list, repr=False)
     _len: list[int] = field(default_factory=list, repr=False)
@@ -117,14 +121,15 @@ class Corpus:
         """BM25 (k1=1.5, b=0.75). A section number named in the question is a strong signal on its own, so a
         query token that is exactly a section id gets that document first.
 
-        `MIN_RELEVANCE_SCORE` -- found live in production (Lead-2, 2026-09-26): a question about a BNS
-        provision (`bns69`) has no BNS-family document in this corpus (only IPC + Constitution of India are
-        shipped here) at all, but the old `scores[i] > 0` filter let it through anyway -- generic-word overlap
-        with the Constitution's own prose (article/power/salaries-type vocabulary) gives every unrelated
-        document a small nonzero BM25 score, and "nonzero" is not "relevant". Measured on this corpus: a
-        genuinely off-topic question's best score tops out around 7.1, while every real match in this file's
-        own test suite starts above 12.7 (as low as `k=1` on a short query like "equality before law") -- a
-        floor of 8.0 sits cleanly in that gap. Below it, `retrieve` returns nothing rather than the nearest
+        `self.min_relevance_score` (`configs/nyaya_corpus.yaml`'s own `min_relevance_score`, issue #32) --
+        found live in production (Lead-2, 2026-09-26): a question about a BNS provision (`bns69`) has no
+        BNS-family document in this corpus (only IPC + Constitution of India are shipped here) at all, but
+        the old `scores[i] > 0` filter let it through anyway -- generic-word overlap with the Constitution's
+        own prose (article/power/salaries-type vocabulary) gives every unrelated document a small nonzero
+        BM25 score, and "nonzero" is not "relevant". Measured on this corpus: a genuinely off-topic
+        question's best score tops out around 7.1, while every real match in this file's own test suite
+        starts above 12.7 (as low as `k=1` on a short query like "equality before law") -- the configured
+        floor (8.0) sits cleanly in that gap. Below it, `retrieve` returns nothing rather than the nearest
         noise, so a caller with no hits (see `grounded_prompt`'s own "(no source matched the question)"
         fallback) gets an honest empty result instead of citations that only look plausible."""
         n = len(self.documents)
@@ -147,13 +152,36 @@ class Corpus:
             if d.section.lower() in named:
                 scores[i] += 100.0
         order = sorted(range(n), key=lambda i: -scores[i])
-        return [(self.documents[i], round(scores[i], 4)) for i in order[:k] if scores[i] >= MIN_RELEVANCE_SCORE]
+        return [(self.documents[i], round(scores[i], 4)) for i in order[:k] if scores[i] >= self.min_relevance_score]
 
 
 def _load_file(path: Path) -> tuple[list[Document], dict[str, Any]]:
     raw = json.loads(path.read_text(encoding="utf-8"))
     docs = [Document(**{k: str(d.get(k, "")) for k in ("id", "act", "section", "title", "text")}) for d in raw["documents"]]
     return docs, {"file": path.name, **(raw.get("source") or {}), "documents": len(docs)}
+
+
+def load_min_relevance_score(root: Path | None) -> float:
+    """`configs/nyaya_corpus.yaml`'s own `min_relevance_score` (issue #32) -- `MIN_RELEVANCE_SCORE` remains
+    the fallback both when there is no `root` to resolve a config against (a bare `load_corpus()` call) AND
+    when neither the wheel's own packaged copy nor `<root>/configs/nyaya_corpus.yaml` exists: this constant
+    worked fine as a plain code default before this config file existed, so an existing caller's root (a
+    project workspace, a test's tmp_path -- neither provisions this new file) must keep working exactly as
+    before, unchanged, rather than a newly-required file turning every one of them into a 503/crash. Unlike
+    `nyaya_agent.yaml`/`partner_api.yaml` (whose own missing-file case IS a deliberate refusal, per
+    `config_files`'s own module docstring), this value was never safety-critical enough to justify that."""
+    if root is None:
+        return MIN_RELEVANCE_SCORE
+    import yaml
+
+    from pravrudhi.application.config_files import config_file
+
+    try:
+        path = config_file(Path(root), "nyaya_corpus.yaml")
+    except FileNotFoundError:
+        return MIN_RELEVANCE_SCORE
+    body = yaml.safe_load(path.read_text()) or {}
+    return float(body.get("min_relevance_score", MIN_RELEVANCE_SCORE))
 
 
 def load_corpus(root: Path | None = None) -> Corpus:
@@ -169,7 +197,7 @@ def load_corpus(root: Path | None = None) -> Corpus:
         docs.extend(x for x in d if x.id not in seen)
         seen.update(x.id for x in d)
         sources.append(meta)
-    return Corpus(docs, sources, expansions=load_lexicon())
+    return Corpus(docs, sources, expansions=load_lexicon(), min_relevance_score=load_min_relevance_score(root))
 
 
 LEXICON = ASSET_DIR / "lexicon.json"
