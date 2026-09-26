@@ -353,7 +353,7 @@ def fetch_apps(dest: Path, split: str = "test") -> Path:
     returned that night, with nothing in the manifest able to tell the difference. So the fetch is a separate
     operator act: fetch once, inspect, then seal from the file on disk whose sha256 the manifest records."""
     try:
-        from huggingface_hub import hf_hub_download  # type: ignore[import-not-found]
+        from huggingface_hub import hf_hub_download
     except ImportError as e:
         raise RuntimeError(
             f"huggingface_hub is not installed; download {APPS_PARQUET_FILE.format(split=split)} by hand from "
