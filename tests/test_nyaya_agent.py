@@ -164,6 +164,15 @@ def _config(tmp_path: Path, **over: Any) -> AgentConfig:
         "validated_contracts": frozenset({"bns69"}),
     }
     base.update(over)
+    # Issue #44 (Lead-2, 2026-09-26): a configured second_judge with no second_judge_positive_control.
+    # record_path now REFUSES at construction unless disabled_reason is set. Tests in this file that
+    # configure second_judge for OTHER reasons (the AND-gate composition, the refer band, etc.) are not
+    # testing the positive control itself, so they use the escape hatch here -- tests OF the positive
+    # control pass their own second_judge_positive_control explicitly (present in `over`) and this is skipped.
+    if base.get("second_judge") and "second_judge_positive_control" not in over:
+        base["second_judge_positive_control"] = {
+            "disabled_reason": "test fixture (issue #44 escape hatch) -- not testing the positive control here",
+        }
     return AgentConfig(**base)
 
 
@@ -965,6 +974,7 @@ class TestSecondJudgeReferBand:
 
     def test_env_var_introduces_the_key_on_a_host_with_no_yaml_block(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("NYAYA_SECOND_JUDGE_REFER_LOGIT_DELTA", "0.2")
+        monkeypatch.setenv("NYAYA_SECOND_JUDGE_POSITIVE_CONTROL_DISABLED_REASON", "test fixture, not testing #44")
         sj = load_agent_config(REPO).second_judge
         assert sj is not None
         assert sj["refer_logit_delta"] == 0.2
@@ -1369,6 +1379,7 @@ class TestConfig:
         monkeypatch.setenv("NYAYA_SECOND_JUDGE_MODEL", "nyaya-judge-32b")
         monkeypatch.setenv("NYAYA_SECOND_JUDGE_TAU", "0.97")
         monkeypatch.setenv("NYAYA_SECOND_JUDGE_TIMEOUT_S", "120")
+        monkeypatch.setenv("NYAYA_SECOND_JUDGE_POSITIVE_CONTROL_DISABLED_REASON", "test fixture, not testing #44")
         sj = load_agent_config(REPO).second_judge
         assert sj is not None
         assert sj["base_url"] == "http://127.0.0.1:8111/v1"
@@ -1386,6 +1397,7 @@ class TestConfig:
                                  "max_tokens": 30, "top_logprobs": 20, "timeout_s": 60}
         (cfg_dir / "nyaya_agent.yaml").write_text(yaml.safe_dump(body))
         monkeypatch.setenv("NYAYA_SECOND_JUDGE_TAU", "0.97")
+        monkeypatch.setenv("NYAYA_SECOND_JUDGE_POSITIVE_CONTROL_DISABLED_REASON", "test fixture, not testing #44")
         sj = load_agent_config(tmp_path).second_judge
         assert sj is not None
         assert sj["base_url"] == "http://from-yaml/v1"  # untouched: no env var for it
@@ -1399,6 +1411,7 @@ class TestConfig:
         possible (the RunPod endpoint is configured this way)."""
         monkeypatch.setenv("NYAYA_SECOND_JUDGE_BASE_URL", "http://127.0.0.1:8111/v1")
         monkeypatch.setenv("NYAYA_SECOND_JUDGE_TAU", "0.97")
+        monkeypatch.setenv("NYAYA_SECOND_JUDGE_POSITIVE_CONTROL_DISABLED_REASON", "test fixture, not testing #44")
         cfg = load_agent_config(REPO)
         sj = cfg.second_judge
         assert sj is not None
@@ -1414,6 +1427,7 @@ class TestConfig:
         monkeypatch.setenv("NYAYA_SECOND_JUDGE_STATUTE_CHARS", "500")
         monkeypatch.setenv("NYAYA_SECOND_JUDGE_TOP_LOGPROBS", "10")
         monkeypatch.setenv("NYAYA_SECOND_JUDGE_MAX_TOKENS", "40")
+        monkeypatch.setenv("NYAYA_SECOND_JUDGE_POSITIVE_CONTROL_DISABLED_REASON", "test fixture, not testing #44")
         cfg = load_agent_config(REPO)
         sj = cfg.second_judge
         assert sj is not None
@@ -1433,6 +1447,7 @@ class TestConfig:
         body["second_judge"] = {"base_url": "http://from-yaml/v1", "tau": 0.9, "statute_chars": 999,
                                  "max_tokens": 30, "top_logprobs": 20, "timeout_s": 60}
         (cfg_dir / "nyaya_agent.yaml").write_text(yaml.safe_dump(body))
+        monkeypatch.setenv("NYAYA_SECOND_JUDGE_POSITIVE_CONTROL_DISABLED_REASON", "test fixture, not testing #44")
         sj = load_agent_config(tmp_path).second_judge
         assert sj is not None
         assert sj["statute_chars"] == 999  # untouched -- yaml's own value, not overwritten by house_judge's
@@ -1571,18 +1586,66 @@ class TestHouseFactory:
         assert isinstance(agent.judge, Gate1Judge)
         assert isinstance(agent.judge.inner, AndGateJudge)
 
-    def test_second_judge_positive_control_record_path_absent_is_unwrapped(self, tmp_path: Path) -> None:
-        """Issue #44 trigger wiring (Lead-2, 2026-09-26): the default -- no second_judge_positive_control
-        block at all, or one without record_path -- is byte-identical to before this feature: the real
-        second-judge HouseJudge, not wrapped in anything."""
+    def test_second_judge_configured_without_record_path_refuses_at_construction(self, tmp_path: Path) -> None:
+        """Issue #44 (Lead-2, 2026-09-26 follow-up): the record gate is MANDATORY whenever second_judge is
+        configured. The day someone re-enables second_judge and forgets record_path is exactly the "must
+        exist before the 32B returns to serving" rule failing silently -- so this refuses at config
+        construction, not lazily at first judge call."""
+        second_cfg = {**self._HOUSE_JUDGE_CFG, "base_url": "http://s/v1", "model": "m2", "tau": 0.97}
+        with pytest.raises(ValueError, match="record_path is not set"):
+            _config(tmp_path, house_judge=self._HOUSE_JUDGE_CFG, second_judge=second_cfg,
+                    score_bin=self._score_bin(tmp_path), pinned_score_sha256=None,
+                    second_judge_positive_control={})
+
+    def test_second_judge_with_record_path_starts_and_wraps(self, tmp_path: Path) -> None:
+        from pravrudhi.application.nyaya_judges import AndGateJudge
+        from pravrudhi.application.second_judge_positive_control import RecordGatedJudge
+
+        second_cfg = {**self._HOUSE_JUDGE_CFG, "base_url": "http://s/v1", "model": "m2", "tau": 0.97}
+        cfg = _config(
+            tmp_path, house_judge=self._HOUSE_JUDGE_CFG, second_judge=second_cfg,
+            score_bin=self._score_bin(tmp_path), pinned_score_sha256=None,
+            second_judge_positive_control={"record_path": str(tmp_path / "record.json"), "max_age_hours": 24},
+        )
+        agent = NyayaAgent.house(tmp_path, config=cfg)
+        assert isinstance(agent.judge, AndGateJudge)
+        assert isinstance(agent.judge.second, RecordGatedJudge)
+
+    def test_second_judge_with_disabled_reason_escape_starts_unwrapped_and_logs(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """The escape hatch: no record_path, but an explicit disabled_reason -- starts (no refusal), the
+        real second-judge HouseJudge is used directly (not wrapped, since there's no record to gate on), and
+        a loud warning is logged at construction. Tests are the only intended user of this path."""
+        import logging
+
         from pravrudhi.application.nyaya_judges import AndGateJudge, HouseJudge
 
         second_cfg = {**self._HOUSE_JUDGE_CFG, "base_url": "http://s/v1", "model": "m2", "tau": 0.97}
-        cfg = _config(tmp_path, house_judge=self._HOUSE_JUDGE_CFG, second_judge=second_cfg,
-                      score_bin=self._score_bin(tmp_path), pinned_score_sha256=None)
+        with caplog.at_level(logging.WARNING):
+            cfg = _config(
+                tmp_path, house_judge=self._HOUSE_JUDGE_CFG, second_judge=second_cfg,
+                score_bin=self._score_bin(tmp_path), pinned_score_sha256=None,
+                second_judge_positive_control={"disabled_reason": "deliberate test escape, issue #44"},
+            )
+        assert any("DISABLED" in r.message for r in caplog.records)
+        assert any("deliberate test escape, issue #44" in r.message for r in caplog.records)
         agent = NyayaAgent.house(tmp_path, config=cfg)
         assert isinstance(agent.judge, AndGateJudge)
         assert isinstance(agent.judge.second, HouseJudge)
+
+    def test_disabled_reason_is_recorded_in_every_audit_trail_row(self, tmp_path: Path) -> None:
+        """Issue #44: the escape hatch must be visible in the audit trail, not just a startup log line
+        someone could miss -- every row of every run carries second_judge_positive_control_disabled_reason
+        when the escape is in use."""
+        second_cfg = {**self._HOUSE_JUDGE_CFG, "base_url": "http://s/v1", "model": "m2", "tau": 0.97}
+        run, _, _ = _run(tmp_path, _proof_script(TOY_FACTS), house_judge=self._HOUSE_JUDGE_CFG,
+                          second_judge=second_cfg,
+                          second_judge_positive_control={"disabled_reason": "deliberate test escape, issue #44"})
+        rows = [json.loads(x) for x in run.audit_path.read_text().splitlines()]
+        assert rows  # the run actually produced audit rows
+        assert all(r["second_judge_positive_control_disabled_reason"] == "deliberate test escape, issue #44"
+                   for r in rows)
 
     def test_second_judge_positive_control_record_path_set_wraps_in_record_gated_judge(
         self, tmp_path: Path
