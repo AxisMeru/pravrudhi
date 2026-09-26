@@ -47,6 +47,33 @@ def test_a_question_outside_the_shipped_corpus_retrieves_nothing_rather_than_noi
     assert c.retrieve("What is the applicable statute for bns69?", k=8) == []
 
 
+@pytest.mark.xfail(
+    strict=True,
+    reason="absolute BM25 floor grows with query length; see https://github.com/AxisMeru/pravrudhi/issues/51",
+)
+def test_a_moderately_worded_off_topic_question_is_still_cut_by_the_relevance_floor() -> None:
+    """Issue #33 (follow-up from PR #30) surfaced a real gap, not just a confirmation: `MIN_RELEVANCE_SCORE`
+    is an ABSOLUTE BM25 score, and BM25 sums over every matched query term -- it grows with query
+    length/vocabulary diversity regardless of actual relevance. This is NOT a long-question edge case:
+    measured directly on the shipped corpus (2026-09-26), the SAME off-topic bns69 question from the test
+    above --
+
+    - 7 words ("What is the applicable statute for bns69?"): top score 0 (correctly filtered, see the test
+      above).
+    - +"considering the Governor and the President" (13 words): top score 11.4 -- ALREADY above the 8.0
+      floor, and it's a real citation (COI/Article 163, "Council of Ministers to aid and advise Governor")
+      with nothing to do with bns69.
+    - + a few more constitutional terms (21 words): top score 20.2.
+
+    An ordinarily-phrased question that happens to mention a couple of unrelated terms gets a false-positive
+    citation almost immediately. This test encodes the TRUE desired behaviour (empty, same as the 7-word
+    case) and is `xfail(strict=True)` until issue #51's length-aware floor lands -- strict means it flips to
+    a hard failure the moment a fix changes this behaviour, so the marker can never be forgotten."""
+    c = nyaya.load_corpus()
+    q = "What is the applicable statute for bns69, considering the Governor and the President?"
+    assert c.retrieve(q, k=8) == []
+
+
 def test_a_lay_question_reaches_the_homicide_sections_through_the_lexicon() -> None:
     """The first live ask retrieved hurt and robbery sections for a victim who died, and both CLIs rightly
     abstained. The gap was vocabulary, so the fix is config: lexicon.json maps lay words to the Code's."""
