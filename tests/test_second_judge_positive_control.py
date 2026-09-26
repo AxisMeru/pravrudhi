@@ -88,6 +88,12 @@ class TestComputeEstablishedAccuracy:
         assert result.n_p_ge_half == 2  # a, b
         assert result.n_p_ge_tau == 1  # a only
 
+    def test_empty_elements_gives_none_not_a_fabricated_zero(self) -> None:
+        """Fail-open-defaults guard fix: accuracy over ZERO elements is undefined, not a measured 0.0."""
+        result = compute_established_accuracy([], {}, TAU)
+        assert result.n_total == 0
+        assert result.accuracy is None
+
 
 class TestDecideAvailability:
     def _passing_result(self) -> ControlCheckResult:
@@ -148,6 +154,35 @@ class TestDecideAvailability:
                                        ne_discrimination_min=0)
         assert verdict.available is False
         assert any("median" in r for r in verdict.reasons)
+
+    def test_empty_parity_alone_fails_closed_without_crashing(self) -> None:
+        """Fail-open-defaults guard fix: agree_rate/median_abs_dp are None on an empty parity set, so
+        decide_availability must not compare None to a float (TypeError) or treat it as passing. NE is
+        healthy/passing here so this isolates the PARITY branch specifically -- if that branch were
+        removed, this test alone would fail (unlike a test that also has NE empty, which the ne branch's
+        own message would mask)."""
+        empty_parity = compute_parity([], {}, TAU)
+        elements_ne = [_ne(0.01, f"n{i}") for i in range(71)]
+        live_ne = {f"{el.item_id}__{el.element_id}": el.sealed_reference_p for el in elements_ne}
+        ne = compute_ne_discrimination(elements_ne, live_ne, TAU)  # 71/71, would pass on its own
+        result = ControlCheckResult(parity=empty_parity, ne=ne, established=EstablishedResultStub())
+        verdict = decide_availability(result, parity_floor=0.98, parity_median_abs_dp=0.02,
+                                       ne_discrimination_min=70)
+        assert verdict.available is False
+        assert any("parity" in r and "empty control set" in r for r in verdict.reasons)
+
+    def test_empty_ne_alone_fails_closed_without_crashing(self) -> None:
+        """Isolates the NE branch specifically -- parity here is healthy/passing (against itself), so this
+        test alone would fail if the NE empty-set branch were removed."""
+        elements_est = [_est(0.99, f"e{i}") for i in range(10)]
+        live_est = {f"{el.item_id}__{el.element_id}": el.sealed_reference_p for el in elements_est}
+        parity = compute_parity(elements_est, live_est, TAU)  # scored against itself: 100%/0 drift
+        empty_ne = compute_ne_discrimination([], {}, TAU)
+        result = ControlCheckResult(parity=parity, ne=empty_ne, established=EstablishedResultStub())
+        verdict = decide_availability(result, parity_floor=0.98, parity_median_abs_dp=0.02,
+                                       ne_discrimination_min=70)
+        assert verdict.available is False
+        assert any("ne_discrimination" in r and "empty control set" in r for r in verdict.reasons)
 
 
 class TestFailClosedOnEndpointFailure:
