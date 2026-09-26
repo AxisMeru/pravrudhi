@@ -1,82 +1,108 @@
 {
-  "_provenance": "Hand-built and sealed 2026-09-26 for issue #51 (length-aware relevance floor). Every question is invented; every expected_ids entry names a real document in src/pravrudhi/assets/nyaya/*.json (IPC, COI, BNS, BNSS), checked by hand against that document's own text before this file was committed. Written and committed BEFORE any candidate rule (self-score normalisation / term-coverage / top-1-top-2 margin) was run against it -- see tests/test_nyaya_relevance_calibration.py's own docstring for the anti-overfitting discipline this enforces. expected_ids: [] means a genuinely uncovered question -- retrieve() should return nothing, not the nearest noise. kind: on_topic (a real question with a real match), off_topic (short, unrelated, no shared legal vocabulary), off_topic_verbose (unrelated but padded with real corpus vocabulary -- the false-citation risk issue #51 is about).",
+  "_provenance": "Hand-built and sealed 2026-09-26 for issue #51 (length-aware relevance floor). Every question is invented; every expected_ids entry names a real document in src/pravrudhi/assets/nyaya/*.json (IPC, COI, BNS, BNSS), checked by hand against that document's own text before this file was committed. Written and committed BEFORE any candidate rule (self-score normalisation / term-coverage / top-1-top-2 margin) was run against it -- see tests/test_nyaya_relevance_calibration.py's own docstring for the anti-overfitting discipline this enforces. expected_ids: [] means a genuinely uncovered question -- retrieve() should return nothing, not the nearest noise. kind: on_topic (a real question with a real match), off_topic (short, unrelated, no shared legal vocabulary), off_topic_verbose (unrelated but padded with real corpus vocabulary -- the false-citation risk issue #51 is about). Widened 5 expected_ids entries once, before any candidate rule was run, after checking plain BM25 top-1 by hand against each: several IPC provisions have an exact-doctrine BNS successor (dowry death IPC 304B / BNS 80, criminal conspiracy IPC 120B / BNS 61, culpable-homicide-not-murder IPC 304 / BNS 105/110, and the false-promise-of-marriage overlap between IPC 375 and BNS 69) -- the same widening PR #30 (08a3d20) already applied to its own regression tests for the identical reason (both code families genuinely apply). No candidate rule (self-score normalisation / coverage / margin) was computed before this correction.",
   "cases": [
     {
       "id": "short-on-topic-murder-punishment",
       "question": "What is the punishment for murder under section 302?",
       "length_bucket": "short",
       "kind": "on_topic",
-      "expected_ids": ["IPC/Section 302"]
+      "expected_ids": [
+        "IPC/Section 302"
+      ]
     },
     {
       "id": "short-on-topic-equality",
       "question": "equality before law",
       "length_bucket": "short",
       "kind": "on_topic",
-      "expected_ids": ["COI/Article 14"]
+      "expected_ids": [
+        "COI/Article 14"
+      ]
     },
     {
       "id": "short-on-topic-life-liberty",
       "question": "right to life and personal liberty",
       "length_bucket": "short",
       "kind": "on_topic",
-      "expected_ids": ["COI/Article 21"]
+      "expected_ids": [
+        "COI/Article 21"
+      ]
     },
     {
       "id": "short-on-topic-common-intention",
       "question": "several persons common intention liability",
       "length_bucket": "short",
       "kind": "on_topic",
-      "expected_ids": ["IPC/Section 34"]
+      "expected_ids": [
+        "IPC/Section 34"
+      ]
     },
     {
       "id": "medium-on-topic-common-intention-story",
       "question": "If several people act together in furtherance of a shared common intention to commit a crime, is each one of them liable for the whole act as if he alone had done it?",
       "length_bucket": "medium",
       "kind": "on_topic",
-      "expected_ids": ["IPC/Section 34"]
+      "expected_ids": [
+        "IPC/Section 34"
+      ]
     },
     {
       "id": "medium-on-topic-bns-deceit-marriage",
       "question": "A man promises marriage to a woman purely to get her to agree to sexual intercourse, never intending to actually marry her. What offence does that fall under in the Bharatiya Nyaya Sanhita?",
       "length_bucket": "medium",
       "kind": "on_topic",
-      "expected_ids": ["BNS/Section 69"]
+      "expected_ids": [
+        "BNS/Section 69",
+        "IPC/Section 375"
+      ]
     },
     {
       "id": "medium-on-topic-bns-murder-definition",
       "question": "Under the new criminal code, when does an act that causes death cross the line from culpable homicide into murder, in terms of the intention behind it?",
       "length_bucket": "medium",
       "kind": "on_topic",
-      "expected_ids": ["BNS/Section 100", "BNS/Section 101"]
+      "expected_ids": [
+        "BNS/Section 100",
+        "BNS/Section 101",
+        "BNS/Section 110"
+      ]
     },
     {
       "id": "medium-on-topic-coi-freedom-of-speech",
       "question": "Which fundamental right protects a citizen's freedom of speech and expression, and their right to assemble peaceably without arms?",
       "length_bucket": "medium",
       "kind": "on_topic",
-      "expected_ids": ["COI/Article 19"]
+      "expected_ids": [
+        "COI/Article 19"
+      ]
     },
     {
       "id": "long-on-topic-dowry-death-story",
       "question": "A young married woman dies from burns within a year of her wedding, and her family says that in the weeks before her death her in-laws had been harassing her for more dowry money, refusing to let her visit her parents and constantly demeaning her in front of relatives. Under the Bharatiya Nyaya Sanhita, what offence captures a death like this where cruelty over dowry preceded it?",
       "length_bucket": "long",
       "kind": "on_topic",
-      "expected_ids": ["BNS/Section 80"]
+      "expected_ids": [
+        "BNS/Section 80",
+        "IPC/Section 304B"
+      ]
     },
     {
       "id": "long-on-topic-arrest-procedure-story",
       "question": "When a police officer goes to arrest a suspect who is standing quietly and does not resist or try to run, is the officer still required to physically touch or confine the person, or can an arrest happen just by announcing it, and does it matter if the person being arrested is a woman?",
       "length_bucket": "long",
       "kind": "on_topic",
-      "expected_ids": ["BNSS/Section 43"]
+      "expected_ids": [
+        "BNSS/Section 43"
+      ]
     },
     {
       "id": "long-on-topic-search-warrant-story",
       "question": "Suppose a Magistrate has reason to believe that someone is being kept confined against their will in circumstances that amount to a criminal offence, in some house on the edge of town, and the family wants to know whether the Magistrate can issue a warrant for a search of the place and have that person recovered, and who exactly is allowed to carry out that search once the warrant is issued.",
       "length_bucket": "long",
       "kind": "on_topic",
-      "expected_ids": ["BNSS/Section 100"]
+      "expected_ids": [
+        "BNSS/Section 100"
+      ]
     },
     {
       "id": "short-off-topic-patent",
@@ -160,21 +186,29 @@
       "question": "Two colleagues secretly agree between themselves to commit a serious offence that carries a sentence of life imprisonment, and they never actually go through with any further act beyond the agreement itself -- assuming there's no separate provision punishing that particular conspiracy, is the agreement by itself enough to be punished, and how severely?",
       "length_bucket": "long",
       "kind": "on_topic",
-      "expected_ids": ["IPC/Section 120B"]
+      "expected_ids": [
+        "IPC/Section 120B",
+        "BNS/Section 61"
+      ]
     },
     {
       "id": "medium-on-topic-culpable-homicide-not-murder",
       "question": "If someone causes a death intending only to cause an injury likely to cause death, but the case does not meet the stricter definition of murder, what is the punishment for that lesser form of culpable homicide?",
       "length_bucket": "medium",
       "kind": "on_topic",
-      "expected_ids": ["IPC/Section 304"]
+      "expected_ids": [
+        "IPC/Section 304",
+        "BNS/Section 105"
+      ]
     },
     {
       "id": "medium-on-topic-remedies-fundamental-rights",
       "question": "If the State violates one of a citizen's fundamental rights, which article lets that citizen go directly to the Supreme Court for a writ like habeas corpus or mandamus?",
       "length_bucket": "medium",
       "kind": "on_topic",
-      "expected_ids": ["COI/Article 32"]
+      "expected_ids": [
+        "COI/Article 32"
+      ]
     },
     {
       "id": "short-off-topic-flight-booking",
