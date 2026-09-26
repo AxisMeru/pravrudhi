@@ -36,6 +36,14 @@ trusted_proxies: []
 # exactly the kind of call this exists to slow down, not a normal partner workload.
 provision_rate_limit_per_minute: 10
 
+# Issue #35: how long the second-judge circuit breaker stays open (shared for this process's whole
+# lifetime, across every request) after a real timeout or connection failure. The breaker itself is always
+# on -- it never changes an outcome, only how cheaply the fail-closed REFER path is reached once the second
+# judge is down -- this only tunes the window. 60s default: long enough that a cold/down second judge
+# doesn't cost every request in the next minute its own full timeout, short enough that a real recovery is
+# noticed within a minute rather than papered over indefinitely.
+second_judge_circuit_breaker_ttl_s: 60.0
+
 # Off by default, and should stay off on a normal deployment: when true, a caller who ALSO passes
 # ?debug_second_judge=true on a single /api/v1/analyse-facts request gets the config-C second judge's own
 # diagnostic fields per element (p_established_second, tau_second, second_skip_reason,
