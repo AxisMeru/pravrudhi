@@ -339,3 +339,47 @@ gate1:
   model: "MoritzLaurer/DeBERTa-v3-base-mnli-fever-anli"
   mode: "entailment"
   tau_c: 0.321158230304718
+
+# Issue #44 (standing second-judge positive control) + its 2026-09-26 amendment from Tag/Lead-2: a PRESENT-
+# and-WRONG second judge is not caught by availability monitoring alone (the endpoint answers, so it reads
+# as healthy even if silently miscalibrated or serving the wrong weights). Two fixed control sets, sealed
+# BEFORE any scoring (research/gates/P2b/configC/second_judge_positive_control/ in prabhasa-nyaya, this
+# session): `established_200.json` (200 gold-established v1 elements, stratified sample, seed=44) and
+# `ne_discrimination_71.json` (71 gold-not_established v1 elements -- the 60 NE elements of the 30
+# two-NE-element negative instances, plus the 11 single-NE instances where the 4B itself scored
+# p_established>=0.74 -- selection reads ONLY gold status and the 4B's own score, never the 32B's).
+#
+# SPEC CLARIFIED AFTER DRY-RUN by Lead-2, 2026-09-26 (declared as a deviation, not silent): the original
+# `established_agreement_floor: 0.98` was ambiguous about agreement with WHAT, and a floor of 98% agreement
+# with GOLD was never reachable by this model -- the dry-run measured 191/200 (95.5%), and Lead-2's own
+# independent count over ALL 1264 established v1 elements confirms this is the model's known baseline
+# (1172/1264 = 92.7% have p>=0.5). The INTENT was always serving integrity (catching a broken deployment --
+# a wrong adapter, template drift, a bad merge_and_unload -- not measuring the model's own established-
+# element recall). Re-split into three checks. The NE discrimination safety floor is UNCHANGED.
+#
+# 1. PARITY (serving integrity, the real 98% gate): the LIVE 32B's own tau-decisions (p>=ne_discrimination_
+#    tau or not) on all 271 control elements (200+71) must agree with the SEALED reference decisions
+#    (research/gates/P2b/configC/second_judge_positive_control/'s sealed_reference_p, captured from
+#    sxm_parity_scores_32b_final.jsonl, endpoint bmps0hbfupilz7, adapter nyaya-element-judge-32b-v0@0cb1d508)
+#    on >=parity_floor, AND median(|p_live - p_sealed|) <= parity_median_abs_dp. Trivially 100%/0 by
+#    construction against itself -- only meaningful live, against a running endpoint.
+# 2. NE DISCRIMINATION vs GOLD (safety, UNCHANGED): the live 32B must score p<ne_discrimination_tau on
+#    >=ne_discrimination_min of the 71 NE elements. Dry-run: 70/71, ZERO slack (the closest item sits right
+#    at the tau -- item id and exact margin are PRIVATE, sealed in prabhasa-nyaya, not this public repo).
+#    One more fooled element fails this closed -- the safe direction.
+# 3. Established accuracy vs GOLD: RECORDED every run (count with p>=0.5 and count with p>=tau, out of 200),
+#    NEVER a gate -- a miss on a gold-established element fails safe (not_confirmed -> REFER, a coverage
+#    loss, never a false proof). Alert (not fail-closed) if it drops more than est_accuracy_alert_drop
+#    percentage points below the sealed baseline (191/200 = 95.5%, this dry-run) on the same 200 elements.
+#
+# Below the parity floor OR the NE discrimination floor: the second judge is treated as unavailable (same
+# fail-closed-to-REFER path as an absent/errored endpoint -- AndGateJudge's existing second_judge_unavailable
+# handling, no new decision logic in the judge itself), and Lead-2 is alerted. Trigger: every (re)deploy or
+# config change of the second-judge endpoint, every engine release, and on a schedule -- always a preflight,
+# never through the public analyse-facts path.
+second_judge_positive_control:
+  parity_floor: 0.98
+  parity_median_abs_dp: 0.02
+  ne_discrimination_min: 70
+  ne_discrimination_tau: 0.97
+  est_accuracy_alert_drop: 3
