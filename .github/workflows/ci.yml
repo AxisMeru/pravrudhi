@@ -128,18 +128,6 @@ jobs:
       - name: mark the downloaded binary executable
         if: needs.build-lean-binary.result == 'success'
         run: chmod +x /tmp/score-bin/score
-      # Temporary (Lead-2-assistant, 2026-09-26): 986bca5's pytest step still reported the
-      # requires_score_bin-gated tests skipped even though this same run's download+chmod steps above
-      # both reported success. Before guessing further, observe from inside the job what pytest's own
-      # process actually sees for PRABHASA_NYAYA_SCORE_BIN and Path(...).exists() -- remove this step
-      # once the real cause is found and fixed.
-      - name: DEBUG score-bin presence (temporary, remove once root-caused)
-        env:
-          PRABHASA_NYAYA_SCORE_BIN: /tmp/score-bin/score
-        run: |
-          ls -la /tmp/score-bin || true
-          file /tmp/score-bin/score || true
-          uv run python3 -c "import os; from pathlib import Path; v = os.environ.get('PRABHASA_NYAYA_SCORE_BIN'); p = Path(v) if v else None; print('env value:', repr(v)); print('exists():', p.exists() if p else None); print('is_file():', p.is_file() if p else None)"
       - name: pytest (with the real Lean binary when build-lean-binary produced one)
         env:
           PRABHASA_NYAYA_SCORE_BIN: /tmp/score-bin/score
@@ -150,7 +138,17 @@ jobs:
       # executed. Green whenever build-lean-binary supplied a real, pin-verified binary above; red on a fork
       # PR or if that job ever fails -- both cases where the registry/pin tests genuinely did not run here,
       # which is exactly what this exists to make impossible to miss.
+      #
+      # env is required here (Lead-2-assistant, 2026-09-26): e6b9d70's debug step proved
+      # PRABHASA_NYAYA_SCORE_BIN was correctly set and the file genuinely existed for the pytest step right
+      # above -- 3104 passed there. This step runs its own separate pytest.main() in-process
+      # (check_score_bin_gate_ran.py), but as its own workflow step it never inherited an env: block, so its
+      # in-process pytest saw no PRABHASA_NYAYA_SCORE_BIN at all and every requires_score_bin test skipped
+      # from ITS point of view alone -- nothing to do with whether the real pytest run above actually ran
+      # them (it did).
       - run: uv run python scripts/check_score_bin_gate_ran.py
+        env:
+          PRABHASA_NYAYA_SCORE_BIN: /tmp/score-bin/score
 
   # The local-engine e2e project starts a real engine and drives the real interface. Nothing ran it: pages.yml
   # runs only --project=deployed and this file had no Playwright at all, so when the front door was reworked and
