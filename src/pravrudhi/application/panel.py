@@ -167,6 +167,27 @@ class Answer:
 # does not change the verdict, and `interface` records it either way.
 _CLI = {"temperature": 0.0, "max_tokens": 2048}
 
+#: Issue #59: a bare `claude -p` call loads every plugin/MCP/skill/CLAUDE.md the CLI knows about before it
+#: ever reads the prompt -- measured 2026-09-26 at ~105k tokens per call, against ~3.3k for the slim
+#: invocation below. `ask_vendor`'s claude-cli path is a one-shot "ask this vendor one prompt" comparison,
+#: never an agentic coding turn (unlike `ClaudeCodeAgent`/`orca_agent.headless_command`'s own `claude -p`
+#: calls, which grant real tools -- Read/Edit/Write/Grep/Glob/Bash -- and so cannot use these flags without
+#: breaking the thing they exist for): it never needs a tool, a skill, an MCP server, or this repo's own
+#: CLAUDE.md, so there is nothing here to pay 105k tokens of context for. `--tools ""` and
+#: `--disable-slash-commands` turn off the two things a genuinely bare `-p` call could still reach for;
+#: `--strict-mcp-config --mcp-config '{"mcpServers":{}}'` and `--setting-sources ""` are what actually stop
+#: the plugin/MCP/CLAUDE.md load. Model is capped at `sonnet` (TEAM-RULES.md's Claude usage cost rules --
+#: never opus/default for this path); a caller who wants a different pinned model still overrides
+#: `vendor.params["model"]` (see `ask_vendor` below), this is only the default.
+CLAUDE_CLI_MODEL_DEFAULT = "sonnet"
+CLAUDE_CLI_SLIM_FLAGS = (
+    "--strict-mcp-config",
+    "--mcp-config", '{"mcpServers":{}}',
+    "--setting-sources", "",
+    "--disable-slash-commands",
+    "--tools", "",
+)
+
 # Declared before any key exists, on the operator's instruction, so that when a key lands nothing has to be
 # designed under time pressure. Each names the variable it reads. `temperature` is pinned on every one of them
 # because an unpinned sampler makes a comparison unrepeatable.
@@ -339,7 +360,8 @@ def ask_vendor(
             # own quota is the wrong shape as well as a fragile one.
             from pravrudhi.agents.account import claude_env
 
-            cmd = ["claude", "-p", "--output-format", "text"]
+            model = str(vendor.params.get("model") or CLAUDE_CLI_MODEL_DEFAULT)
+            cmd = ["claude", "-p", "--output-format", "text", *CLAUDE_CLI_SLIM_FLAGS, "--model", model]
             env = claude_env()
         else:
             cmd = ["codex", "exec", "--skip-git-repo-check"]

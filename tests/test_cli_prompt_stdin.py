@@ -92,7 +92,13 @@ class TestPanelAskVendorEndToEnd:
         seen = json.loads(report.read_text(encoding="utf-8"))
         assert seen["stdin"] == prompt
         assert all(prompt not in a for a in seen["argv"])
-        assert seen["argv"][1:] == ["-p", "--output-format", "text"]
+        # Issue #59: the slim invocation -- no plugin/MCP/skill/CLAUDE.md load, model capped at sonnet.
+        assert seen["argv"][1:] == [
+            "-p", "--output-format", "text",
+            "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}',
+            "--setting-sources", "", "--disable-slash-commands", "--tools", "",
+            "--model", "sonnet",
+        ]
         assert ans.text == "ANSWER: A"
         assert home.exists()
 
@@ -140,6 +146,58 @@ class TestPanelKeepsTheAccount:
         assert call["env"] == claude_env()
         assert call["stdin_text"] == prompt
         assert all(prompt not in a for a in call["cmd"])  # type: ignore[attr-defined]
+
+
+class TestPanelSlimClaudeCliFlags:
+    """Issue #59: `panel.ask_vendor`'s claude-cli path is a one-shot vendor comparison, never an agentic
+    coding turn -- unlike `ClaudeCodeAgent`/`orca_agent.headless_command` below, it never needs a tool, a
+    skill, an MCP server, or this repo's own CLAUDE.md, so it should never pay a default `claude -p`'s
+    ~105k-token context load (measured 2026-09-26) for a plain question. These tests capture the actual
+    subprocess command line via a mocked `cli_agents._run` -- never a real `claude` binary."""
+
+    def test_default_invocation_is_the_slim_flags_with_sonnet(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from pravrudhi.application import panel
+
+        _provision_claude(tmp_path, monkeypatch)
+        cap = _Capture()
+        monkeypatch.setattr(cli_agents, "_run", cap)
+
+        panel.ask_vendor(panel.VENDORS["claude-cli"], "hello")
+
+        (call,) = cap.calls
+        cmd = call["cmd"]
+        assert isinstance(cmd, list)
+        assert cmd == [
+            "claude", "-p", "--output-format", "text",
+            "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}',
+            "--setting-sources", "", "--disable-slash-commands", "--tools", "",
+            "--model", "sonnet",
+        ]
+
+    def test_vendor_param_can_override_the_pinned_model(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The team-rules cap is on the DEFAULT, not a hard ceiling a caller can never move past -- a vendor
+        that sets its own `model` param (e.g. a tuned panel config) still gets the slim flags, just with its
+        own model in the `--model` slot instead of `sonnet`."""
+        from dataclasses import replace
+
+        from pravrudhi.application import panel
+
+        _provision_claude(tmp_path, monkeypatch)
+        cap = _Capture()
+        monkeypatch.setattr(cli_agents, "_run", cap)
+        vendor = replace(panel.VENDORS["claude-cli"], params={**panel.VENDORS["claude-cli"].params, "model": "opus"})
+
+        panel.ask_vendor(vendor, "hello")
+
+        (call,) = cap.calls
+        cmd = call["cmd"]
+        assert isinstance(cmd, list)
+        assert cmd[-2:] == ["--model", "opus"]
+        assert "--strict-mcp-config" in cmd and "--disable-slash-commands" in cmd
 
 
 class TestCodingAgentsUseStdin:
