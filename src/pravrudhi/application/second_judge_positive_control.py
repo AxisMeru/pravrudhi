@@ -96,11 +96,12 @@ class ScoreFn(Protocol):
 class ParityResult:
     n_total: int
     n_tau_agree: int
-    median_abs_dp: float
+    median_abs_dp: float | None  # None iff n_total == 0 -- a median of no differences is undefined, not 0
 
     @property
-    def agree_rate(self) -> float:
-        return self.n_tau_agree / self.n_total if self.n_total else 0.0
+    def agree_rate(self) -> float | None:
+        """None iff n_total == 0 -- an agreement rate over zero elements is undefined, not a measured 0%."""
+        return self.n_tau_agree / self.n_total if self.n_total else None
 
 
 @dataclass(frozen=True)
@@ -116,8 +117,9 @@ class EstablishedResult:
     n_p_ge_tau: int
 
     @property
-    def accuracy(self) -> float:
-        return self.n_p_ge_half / self.n_total if self.n_total else 0.0
+    def accuracy(self) -> float | None:
+        """None iff n_total == 0 -- an accuracy over zero elements is undefined, not a measured 0%."""
+        return self.n_p_ge_half / self.n_total if self.n_total else None
 
 
 @dataclass(frozen=True)
@@ -146,7 +148,7 @@ def compute_parity(elements: list[ControlElement], live_scores: dict[str, float]
             n_agree += 1
         abs_dps.append(abs(p_live - p_sealed))
     return ParityResult(n_total=len(elements), n_tau_agree=n_agree,
-                         median_abs_dp=statistics.median(abs_dps) if abs_dps else 0.0)
+                         median_abs_dp=statistics.median(abs_dps) if abs_dps else None)
 
 
 def compute_ne_discrimination(ne_elements: list[ControlElement], live_scores: dict[str, float], tau: float) -> NEResult:
@@ -178,12 +180,19 @@ def decide_availability(
     if result.endpoint_unavailable or result.parity is None or result.ne is None:
         return Verdict(available=False, reasons=[f"endpoint_unavailable: {result.endpoint_error}"])
     reasons = []
-    if result.parity.agree_rate < parity_floor:
-        reasons.append(f"parity {result.parity.n_tau_agree}/{result.parity.n_total} "
-                        f"({result.parity.agree_rate:.4%}) < floor {parity_floor:.2%}")
-    if result.parity.median_abs_dp > parity_median_abs_dp:
-        reasons.append(f"parity median|dp| {result.parity.median_abs_dp:.4f} > {parity_median_abs_dp}")
-    if result.ne.n_correct < ne_discrimination_min:
+    # An empty control set (n_total == 0) makes agree_rate/median_abs_dp None -- undefined, not a passing
+    # measurement. Fail closed explicitly rather than comparing None to a float (which would raise).
+    if result.parity.n_total == 0:
+        reasons.append("parity: no elements scored (empty control set) -- cannot verify")
+    else:
+        if result.parity.agree_rate < parity_floor:
+            reasons.append(f"parity {result.parity.n_tau_agree}/{result.parity.n_total} "
+                            f"({result.parity.agree_rate:.4%}) < floor {parity_floor:.2%}")
+        if result.parity.median_abs_dp > parity_median_abs_dp:
+            reasons.append(f"parity median|dp| {result.parity.median_abs_dp:.4f} > {parity_median_abs_dp}")
+    if result.ne.n_total == 0:
+        reasons.append("ne_discrimination: no elements scored (empty control set) -- cannot verify")
+    elif result.ne.n_correct < ne_discrimination_min:
         reasons.append(f"ne_discrimination {result.ne.n_correct}/{result.ne.n_total} "
                         f"< floor {ne_discrimination_min}/{result.ne.n_total}")
     return Verdict(available=not reasons, reasons=reasons)

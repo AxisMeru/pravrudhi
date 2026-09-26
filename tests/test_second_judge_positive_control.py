@@ -56,6 +56,15 @@ class TestComputeParity:
         assert result.n_tau_agree == 1
         assert result.median_abs_dp == pytest.approx(0.01)
 
+    def test_empty_elements_gives_none_not_a_fabricated_zero(self) -> None:
+        """Fail-open-defaults guard fix: an agreement rate / median drift over ZERO elements is undefined,
+        not a measured 0.0 -- a fabricated 0.0 median_abs_dp would read as "perfect match" and pass the
+        parity_median_abs_dp gate by coincidence, exactly the unsafe-looks-safe direction the guard flags."""
+        result = compute_parity([], {}, TAU)
+        assert result.n_total == 0
+        assert result.agree_rate is None
+        assert result.median_abs_dp is None
+
 
 class TestComputeNEDiscrimination:
     def test_all_correct(self) -> None:
