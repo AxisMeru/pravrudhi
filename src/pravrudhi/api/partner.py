@@ -62,7 +62,7 @@ from pravrudhi.api.identity import CurrentUserDep, User
 from pravrudhi.application import nyaya_lean_registry as reg
 from pravrudhi.application import tenancy
 from pravrudhi.application.config_files import config_file
-from pravrudhi.application.nyaya_agent import BinaryShaMismatch, JudgeMisconfigured, NyayaAgent
+from pravrudhi.application.nyaya_agent import RETENTION_NOTICE, BinaryShaMismatch, JudgeMisconfigured, NyayaAgent
 
 CONFIG_PATH = Path("configs") / "partner_api.yaml"
 
@@ -209,6 +209,7 @@ class AgentLike(Protocol):
         narrative: str = "",
         contract_ids: list[str] | None = None,
         sections: list[str] | None = None,
+        client_data: bool = True,
     ) -> Any: ...
 
 
@@ -284,6 +285,9 @@ class AnalyseFactsResponse(BaseModel):
     facts: list[dict[str, str]]
     contracts: list[ContractResultOut]
     provenance: str = Field(default="agama")
+    #: Issue #39: the exact retention notice text (nyaya_agent.RETENTION_NOTICE), on every response -- a
+    #: partner API caller who never sees the web UI still gets this verbatim, not just in documentation.
+    retention_notice: str = Field(default=RETENTION_NOTICE)
 
 
 AgentFactory = Callable[[Path], AgentLike]
@@ -504,8 +508,13 @@ def build_partner_router(
             raise HTTPException(503, "the nyaya agent is at capacity; retry shortly")
         try:
             agent = factory(engine_root)
+            # client_data=True is already this call's default, made explicit here (issue #39): this is a
+            # public, unauthenticated endpoint (module docstring), so every run through it is exactly the
+            # anonymous-submission case the retention/training-corpus guard exists for -- a reader should
+            # never have to check NyayaAgent.run's own default to know that.
             result = agent.run(
                 req.facts, narrative=req.narrative, contract_ids=req.contract_ids, sections=req.sections,
+                client_data=True,
             )
         except ValueError as e:
             raise HTTPException(422, str(e)) from e

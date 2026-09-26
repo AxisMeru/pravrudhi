@@ -12,6 +12,7 @@ import hashlib
 import json
 import math
 import os
+import time
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -21,6 +22,7 @@ import pytest
 
 from pravrudhi.application import nyaya_lean_registry as reg
 from pravrudhi.application.nyaya_agent import (
+    RETENTION_NOTICE,
     AgentConfig,
     BinaryRegistry,
     BinaryShaMismatch,
@@ -30,6 +32,7 @@ from pravrudhi.application.nyaya_agent import (
     ingest_facts,
     load_agent_config,
     outcome_from_lean,
+    purge_stale_runs,
     select_contracts,
 )
 from pravrudhi.application.nyaya_judges import (
@@ -1402,3 +1405,67 @@ class TestSecondBandReproducesSignedEndpointCounts:
         counts = [referred_count(d) for d in (0.125, 0.25, 0.375)]
         assert counts == sorted(counts)
         assert counts == [6, 10, 15]
+
+
+class TestRetentionPolicy:
+    """Issue #39 (interim posture until a partner onboards): a TTL purge of anonymous run records, the
+    exact notice text every anonymous-callable surface must show, and a client_data guard field a future
+    training/eval-corpus builder must treat as off-limits."""
+
+    def test_purge_deletes_only_runs_older_than_the_retention_window(self, tmp_path: Path) -> None:
+        audit_dir = tmp_path / "agent_runs"
+        audit_dir.mkdir()
+        stale = audit_dir / "nyaya-agent-stale.jsonl"
+        fresh = audit_dir / "nyaya-agent-fresh.jsonl"
+        stale.write_text("{}\n")
+        fresh.write_text("{}\n")
+        now = 1_000_000.0
+        eight_days_ago = now - 8 * 86400
+        os.utime(stale, (eight_days_ago, eight_days_ago))
+        # fresh keeps its just-written mtime (effectively "now")
+
+        deleted = purge_stale_runs(audit_dir, retention_days=7.0, now=now)
+
+        assert deleted == [stale]
+        assert not stale.exists()
+        assert fresh.exists()
+
+    def test_purge_on_a_missing_directory_is_a_silent_noop(self, tmp_path: Path) -> None:
+        assert purge_stale_runs(tmp_path / "never-created", retention_days=7.0) == []
+
+    def test_purge_runs_opportunistically_on_every_new_agent_run(self, tmp_path: Path) -> None:
+        """No separate cron/background process (issue #39's own "config-driven, not hardcoded" ask, and the
+        same lazy-eviction discipline RateLimiter already uses elsewhere) -- a stale run left over from a
+        previous call is gone by the time the NEXT `agent.run()` returns."""
+        run1, _, _ = _run(tmp_path, _proof_script(TOY_FACTS), retention_days=7.0)
+        old_path = run1.audit_path
+        eight_days_ago = time.time() - 8 * 86400
+        os.utime(old_path, (eight_days_ago, eight_days_ago))
+        assert old_path.exists()
+
+        run2, _, _ = _run(tmp_path, _proof_script(TOY_FACTS), retention_days=7.0)
+
+        assert not old_path.exists()
+        assert run2.audit_path.exists()  # the new run's own record is never touched by its own purge
+
+    def test_the_shipped_config_defaults_retention_to_seven_days(self) -> None:
+        assert load_agent_config(REPO).retention_days == pytest.approx(7.0)
+
+    def test_client_data_defaults_true_and_is_recorded_on_the_run(self, tmp_path: Path) -> None:
+        """The safe pole is the default: a caller that forgets to think about this can never accidentally
+        mark a real submission as safe-for-training."""
+        run, _, _ = _run(tmp_path, _proof_script(TOY_FACTS))
+        assert run.client_data is True
+
+    def test_a_caller_can_explicitly_mark_a_run_as_not_client_data(self, tmp_path: Path) -> None:
+        judge = ScriptedJudge(_proof_script(TOY_FACTS))
+        registry = _registry()
+        agent = NyayaAgent(judge, registry, _config(tmp_path))
+        run = agent.run(TOY_FACTS, narrative="TOY narrative.", contract_ids=["bns69"], client_data=False)
+        assert run.client_data is False
+
+    def test_retention_notice_is_a_real_constant_on_every_run(self, tmp_path: Path) -> None:
+        run, _, _ = _run(tmp_path, _proof_script(TOY_FACTS))
+        assert run.retention_notice == RETENTION_NOTICE
+        assert "7 days" in RETENTION_NOTICE
+        assert "never" in RETENTION_NOTICE and "training" in RETENTION_NOTICE

@@ -158,6 +158,10 @@ class AgentConfig:
     #: with zero demonstrated false-prove benefit on the only population tested means this must stay off by
     #: default even on a host that has the model/threshold configured, until Lead-2 decides otherwise.
     gate1_enabled: bool = False
+    #: Issue #39 (interim posture until a partner onboards): how many days a run's audit record survives
+    #: under `audit_dir` before `purge_stale_runs` deletes it. Config-driven, never hardcoded, so the window
+    #: can be tightened or loosened with a config edit alone. 7.0 is the operator/Lead-2 decided default.
+    retention_days: float = 7.0
 
     def __post_init__(self) -> None:
         low, high = self.refer_band
@@ -321,6 +325,7 @@ def load_agent_config(root: Path) -> AgentConfig:
         validated_contracts=validated_contracts,
         gate1=gate1,
         gate1_enabled=gate1_enabled,
+        retention_days=float(body.get("retention_days", 7.0)),
     )
 
 
@@ -464,9 +469,44 @@ def outcome_from_lean(lean: Mapping[str, Any]) -> Outcome:
 
 # -- audit -------------------------------------------------------------------------------------------------
 
+#: Issue #39: the exact text every anonymous-callable surface must show or return -- one place, so wording
+#: changes (word choice, the exact day count) never drift between the engine, the partner API response, and
+#: a future frontend. Kept in sync with `AgentConfig.retention_days` only by convention (a config change to
+#: the number of days doesn't rewrite this string automatically) -- deliberately: the number this string
+#: quotes is a promise to the caller, so bumping the config alone should never silently make the promise
+#: wrong; whoever changes `retention_days` updates this string in the same change.
+RETENTION_NOTICE = (
+    "Don't submit real names or case details; anonymous submissions are kept up to 7 days for audit and "
+    "are never used for training or evaluation."
+)
+
 
 def _hash_obj(obj: Any) -> str:
     return _sha(json.dumps(obj, sort_keys=True, ensure_ascii=False, default=str))
+
+
+def purge_stale_runs(audit_dir: Path, retention_days: float, *, now: float | None = None) -> list[Path]:
+    """Deletes every `*.jsonl` run record under `audit_dir` whose own mtime is older than `retention_days`
+    (issue #39's TTL purge). Returns the paths actually deleted, for a caller (or a test) that wants to know
+    what happened without re-scanning the directory itself.
+
+    `now` is a Unix timestamp (`time.time()`'s own epoch), injectable for tests -- never `time.monotonic()`,
+    which has no fixed epoch to compare a file's mtime against. A missing `audit_dir` (nothing has ever run
+    yet) is not an error: nothing to purge, an empty list. A file that disappears between the listing and the
+    delete (another process racing this one) is not an error either -- it is already gone, which is exactly
+    what this function wanted."""
+    if not audit_dir.exists():
+        return []
+    cutoff = (now if now is not None else time.time()) - retention_days * 86400
+    deleted: list[Path] = []
+    for path in audit_dir.glob("*.jsonl"):
+        try:
+            if path.stat().st_mtime < cutoff:
+                path.unlink()
+                deleted.append(path)
+        except FileNotFoundError:
+            continue
+    return deleted
 
 
 class AuditTrail:
@@ -669,6 +709,18 @@ class AgentRun:
     #: `_judge_accounting`'s summary of every judge call this run made (counts, latency, backend histogram).
     #: Content-identical across `max_concurrency` values except the latency numbers, which are real wall-clock.
     judge_accounting: dict[str, Any] = field(default_factory=dict)
+    #: Issue #39's own guard: True unless the caller of `NyayaAgent.run` explicitly says otherwise. A future
+    #: training/eval-corpus builder reading `audit_dir` must treat `client_data=True` runs as off-limits --
+    #: the SAFE pole is the default, so forgetting to think about this for a new caller can never accidentally
+    #: leak a real submission into training data; only a caller that deliberately knows its input is
+    #: controlled/internal (e.g. a sealed eval harness calling `agent.run` directly, never a public endpoint)
+    #: would ever pass `client_data=False`. No such caller exists in this repo today.
+    client_data: bool = True
+    #: Issue #39: the exact notice text every caller of `/api/v1/analyse-facts` (and any other surface this
+    #: run reaches) must show or return, verbatim -- one place, so wording changes never drift between the
+    #: engine, the partner API response, and a future frontend that reads this field instead of hardcoding
+    #: its own copy.
+    retention_notice: str = RETENTION_NOTICE
 
     def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
@@ -1148,12 +1200,20 @@ class NyayaAgent:
         narrative: str = "",
         contract_ids: Iterable[str] | None = None,
         sections: Iterable[str] | None = None,
+        client_data: bool = True,
     ) -> AgentRun:
+        # Issue #39's TTL purge: opportunistic, on every new run (the same lazy-eviction discipline
+        # `partner.py`'s own RateLimiter already uses) rather than a separate background process or cron --
+        # no new infrastructure, and a request that never comes still means nothing accumulates unbounded
+        # only because nothing new is being written either.
+        purge_stale_runs(Path(self.config.audit_dir), self.config.retention_days)
         run_id = f"nyaya-agent-{uuid.uuid4().hex[:10]}"
         audit = AuditTrail(Path(self.config.audit_dir) / f"{run_id}.jsonl", run_id)
         cfg_view = {"tau": self.config.tau, "refer_band": list(self.config.refer_band), "max_retries": self.config.max_retries,
                    "second_refer_logit_delta": self.config.second_refer_logit_delta()}
-        audit.step("run_start", cfg_view, {"judge": self.judge.name, "score_sha256": self.registry.sha256, **cfg_view}, 0.0)
+        audit.step("run_start", cfg_view,
+                   {"judge": self.judge.name, "score_sha256": self.registry.sha256, "client_data": client_data,
+                    **cfg_view}, 0.0)
 
         t0 = time.monotonic()
         ingested = ingest_facts(facts)
@@ -1175,4 +1235,4 @@ class NyayaAgent:
         audit.step("run_end", {"run_id": run_id}, {c.contract_id: c.outcome for c in results}, 0.0)
         return AgentRun(run_id, self.judge.name, self.registry.sha256,
                         [{"id": f.id, "sha256": f.sha256} for f in ingested], results, audit.path,
-                        judge_accounting=accounting)
+                        judge_accounting=accounting, client_data=client_data)
