@@ -14,6 +14,11 @@
 # nightly (run_e2e_nightly.sh) is what proves the hosted engine.
 set -uo pipefail
 
+# Found live 2026-09-26 (silently failing every night since at least 09-23): a systemd user unit's PATH does
+# not source ~/.bashrc's nvm init, so npm/node were only ever found in an interactive shell -- never here.
+# They resolve at $HOME/.local/bin on this box; prepending it is a no-op wherever that's already on PATH.
+export PATH="$HOME/.local/bin:$PATH"
+
 # shellcheck source=notify_telegram.sh
 source "$(dirname "${BASH_SOURCE[0]}")/notify_telegram.sh"
 
