@@ -90,11 +90,10 @@ audit_dir: research/nyaya/agent_runs
 # sentence, same convention as the other entries) from `research/nyaya/corpus/bns.json`
 # (sha256 ce4d9855f0804fa40a9481be1681d23971fb29125d18d9d2a43f2831203da63c) and `bnss.json`
 # (source page sha256 572c79880b9f8effc8fa6e39b864101835a0fb5d85b194b90a99d170121a0562) -- both already
-# in the fetched, operator-authorized corpus (india_code_fetch.py's fixed five-Act list). NI Act 138 has
-# NO entry here: the Negotiable Instruments Act, 1881 was never one of india_code_fetch.py's five
-# operator-authorized Acts, its text is not in this corpus, and no other file here has it sourced with a
-# recorded sha -- inventing wording from memory would violate this project's no-fakes-as-evidence rule.
-# ni138 keeps ABSTAINing (honestly) until that text is fetched under an explicit, separate authorization.
+# in the fetched, operator-authorized corpus (india_code_fetch.py's fixed five-Act list).
+#
+# 2026-09-25 (Lead-2, browser fetch authorized separately from india_code_fetch.py's fixed five-Act list):
+# NI Act 138's text is now sourced too, from `research/nyaya/corpus/ni.json`, see its own comment above.
 judge_statute_text:
   ipc405_misappropriation: Whoever, being in any manner entrusted with property, or with any dominion over property, dishonestly misappropriates or converts to his own use that property, or dishonestly uses or disposes of that property in violation of any direction of law prescribing the mode in which such trust is to be discharged, or of any legal contract, express or implied, which he has made touching the discharge of such trust, or wilfully suffers any other person so to do, commits "criminal breach of trust".
   ipc405_use_or_disposal: Whoever, being in any manner entrusted with property, or with any dominion over property, dishonestly misappropriates or converts to his own use that property, or dishonestly uses or disposes of that property in violation of any direction of law prescribing the mode in which such trust is to be discharged, or of any legal contract, express or implied, which he has made touching the discharge of such trust, or wilfully suffers any other person so to do, commits "criminal breach of trust".
@@ -121,9 +120,22 @@ judge_statute_text:
   bns108: If any person commits suicide, whoever abets the commission of such suicide, shall be punished with imprisonment of either description for a term which may extend to ten years, and shall also be liable to fine.
   bnss187_extended_serious: Whenever any person is arrested and detained in custody, and it appears that the investigation cannot be completed within the period of twenty-four hours fixed by section 58, and there are grounds for believing that the accusation or information is well-founded, the officer in charge of the police station or the police officer making the investigation, if he is not below the rank of sub-inspector, shall forthwith transmit to the nearest Magistrate a copy of the entries in the diary hereinafter specified relating to the case, and shall at the same time forward the accused to such Magistrate.
   bnss187_extended_other: Whenever any person is arrested and detained in custody, and it appears that the investigation cannot be completed within the period of twenty-four hours fixed by section 58, and there are grounds for believing that the accusation or information is well-founded, the officer in charge of the police station or the police officer making the investigation, if he is not below the rank of sub-inspector, shall forthwith transmit to the nearest Magistrate a copy of the entries in the diary hereinafter specified relating to the case, and shall at the same time forward the accused to such Magistrate.
+  # NI Act 138, sourced from research/nyaya/corpus/ni.json (indiacode.gov.in, fetched 2026-09-25) with its
+  # amendment-marker brackets (1[, 2[, 3[) mechanically stripped per that file's own text_edits record --
+  # the wrapped substituted text is kept verbatim, nothing paraphrased. Two of the portal's own rendering
+  # quirks are kept deliberately verbatim, per instruction, not silently corrected: "debt of other liability"
+  # (missing "r" in "or") and "a notice; in writing" (semicolon where a comma reads more naturally). One
+  # single-character difference from the pinned Lean binary's own --describe-source ni138 was found and IS
+  # corrected here (recorded in ni.json's text_edits, not silently): the binary's copy reads
+  # "Explanation .--" (space before the period); the portal's own rendering read "Explanation.--" with no
+  # space. Paragraph breaks are collapsed to single spaces (not kept as real newlines, unlike ni.json's own
+  # `text` field) to match the binary's own --describe-source rendering exactly, same as every other entry
+  # in this table -- confirmed byte-for-byte identical against the real pinned binary (sha 29f6eaed...),
+  # not just Lead-2's normalized comparison, so this entry sets statute_text_mismatch=false.
+  ni138: "Where any cheque drawn by a person on an account maintained by him with a banker for payment of any amount of money to another person from out of that account for the discharge, in whole or in part, of any debt or other liability, is returned by the bank unpaid, either because of the amount of money standing to the credit of that account is insufficient to honour the cheque or that it exceeds the amount arranged to be paid from that account by an agreement made with that bank, such person shall be deemed to have committed an offence and shall, without prejudice to any other provision of this Act, be punished with imprisonment for a term which may be extended to two years, or with fine which may extend to twice the amount of the cheque, or with both: Provided that nothing contained in this section shall apply unless-- (a) the cheque has been presented to the bank within a period of six months from the date on which it is drawn or within the period of its validity, whichever is earlier; (b) the payee or the holder in due course of the cheque, as the case may be, makes a demand for the payment of the said amount of money by giving a notice; in writing, to the drawer of the cheque, within thirty days of the receipt of information by him from the bank regarding the return of the cheque as unpaid; and (c) the drawer of such cheque fails to make the payment of the said amount of money to the payee or, as the case may be, to the holder in due course of the cheque, within fifteen days of the receipt of the said notice. Explanation .-- For the purposes of this section, debt of other liability means a legally enforceable debt or other liability."
 
 # Safety gate (Lead-2, 2026-09-25), decided the same day the ABSTAIN gap above was closed: the element judge
-# has never been trained or measured on any of the 11 contracts below (the dual-signed eval, config C,
+# has never been trained or measured on any of the 12 contracts below (the dual-signed eval, config C,
 # checker_pass 109/377, false-prove 0/225, covers only the original 14). Every element for a contract listed
 # here still judges, quotes and Lean-checks normally -- the reasoning stays fully visible in the response and
 # the audit trail -- but NyayaAgent._run_contract intercepts a final PROOF or DENIAL for one of these and
@@ -132,9 +144,9 @@ judge_statute_text:
 #
 # THIS IS NOT A TODO. A contract leaves this list only by Lead-2's explicit decision, after a signed eval of
 # the M2-trained judge that actually covers it -- never by whoever next edits this file, and never just
-# because the ABSTAIN gap looked closed once statute text existed. ni138 is not on this list yet only because
-# it has no judge_statute_text entry at all above and so cannot reach PROOF/DENIAL regardless; it is added
-# here the moment its statute text is added, before its ABSTAIN can turn into unvalidated judging.
+# because the ABSTAIN gap looked closed once statute text existed. ni138 was added to this list in the SAME
+# commit that gave it a judge_statute_text entry above, precisely so its ABSTAIN never has a window where it
+# turns into unvalidated PROOF/DENIAL judging before this gate catches it.
 unvalidated_contracts:
   - bns316_misappropriation
   - bns316_use_or_disposal
@@ -147,3 +159,4 @@ unvalidated_contracts:
   - bns108
   - bnss187_extended_serious
   - bnss187_extended_other
+  - ni138
