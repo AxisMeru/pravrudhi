@@ -48,6 +48,8 @@ def _endpoint_for(agent: str) -> tuple[str, str] | None:
 
     if agent in ("opencode:alibaba", "opencode:alibaba-plan"):
         provider_id = agent.split(":", 1)[1]
+        if provider_id == "alibaba":
+            provider_id = "alibaba-plan"  # free tier retired (2026-09-25); alias to the paid Lite Plan
         try:
             secret = credential(provider_id)
         except (OSError, ValueError):

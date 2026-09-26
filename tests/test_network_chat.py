@@ -134,6 +134,34 @@ class TestReadingTheAnswer:
         assert network_complete(tmp_path)([{"role": "user", "content": "x"}], [])["content"] == "said it anyway"
 
 
+class TestNoEndpointAgentEverReadsTheFreeTier:
+    """R1's fix-before-merge (liaison-log 2ba7727): `_endpoint_for`'s first branch
+    (`"opencode:alibaba"`/`"opencode:alibaba-plan"`) still derived `provider_id="alibaba"` for the free-tier
+    name -- dormant today (the qwen-loop route that would exercise it has `tiers: []`) but would silently
+    revive the free tier the moment that route is ever restored. A behavioral walk of every
+    `ENDPOINT_AGENTS` name, not a grep, so this can never regress the same way twice regardless of which
+    branch the free-tier default hides in."""
+
+    def test_no_endpoint_agent_name_resolves_to_the_free_tier_provider(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from pravrudhi.application import network_chat
+        from pravrudhi.application.credentials import PROVIDERS
+
+        for agent in network_chat.ENDPOINT_AGENTS:
+            calls: list[str] = []
+
+            def fake_credential(provider_id: str, _calls: list[str] = calls) -> object:
+                _calls.append(provider_id)
+                from pravrudhi.application.credentials import Secret
+
+                return Secret(provider=provider_id, value=f"key-for-{provider_id}")
+
+            monkeypatch.setattr("pravrudhi.agents.alibaba_agent.credential", fake_credential)
+            endpoint = network_chat._endpoint_for(agent)
+            assert "alibaba" not in calls, f"agent {agent!r} read the free-tier credential: calls={calls}"
+            if endpoint is not None:
+                assert endpoint[0] != PROVIDERS["alibaba"].base_url, f"agent {agent!r} resolved the free-tier base URL"
+
+
 class TestEndpointForHosted:
     """Free-tier DashScope is being removed everywhere per operator instruction (2026-09-25). The `"hosted"`
     agent used to read the free-tier `alibaba` provider (dashscope.env, the shared-quota Singapore endpoint)
