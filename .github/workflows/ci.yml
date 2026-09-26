@@ -3,6 +3,9 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Lead-2, 2026-09-27: lets main-history-trailer-scan be run on demand as a canary, independent of a real
+  # push to main -- see that job's own if: condition.
+  workflow_dispatch:
 
 jobs:
   kernel:
@@ -118,7 +121,7 @@ jobs:
   # claimed exhaustive: a scan only proves what it actually found today, never that nothing else is out
   # there -- state a reason for each allowlist entry instead of a summary claim of completeness.
   main-history-trailer-scan:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -142,8 +145,16 @@ jobs:
             "5bdc4e4bc2d0fefede2543e3a51b1baf5cf08bc7"
           )
           ALLOWLISTED_SHAS=("${AGENT_WRITTEN[@]}" "${GITHUB_COMPOSED[@]}")
+          # Pinned floor (Lead-2, 2026-09-27): main had 109 commits at #77's base (2026-09-27, `git
+          # rev-list --count origin/main`). This job's whole purpose depends on actually walking full
+          # history -- printing the scanned count and refusing anything under this floor catches a future
+          # regression of the exact #74 shape (a shallow clone silently checking almost nothing) by count,
+          # not just by re-reading the fetch-depth line and trusting it's still there.
+          PINNED_MIN_COMMITS=109
           BAD=0
+          SCANNED=0
           while read -r sha; do
+            SCANNED=$((SCANNED + 1))
             skip=0
             for allowed in "${ALLOWLISTED_SHAS[@]}"; do
               [[ "$sha" == "$allowed" ]] && skip=1 && break
@@ -154,6 +165,11 @@ jobs:
               BAD=1
             fi
           done < <(git log --format=%H)
+          echo "full-history scan: $SCANNED commit(s) scanned (pinned floor: $PINNED_MIN_COMMITS)"
+          if [ "$SCANNED" -lt "$PINNED_MIN_COMMITS" ]; then
+            echo "scanned fewer commits ($SCANNED) than the pinned floor ($PINNED_MIN_COMMITS) -- the scan is shallower than expected, refusing to pass"
+            exit 1
+          fi
           exit "$BAD"
 
   guards:
@@ -248,23 +264,59 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
+          # Third branch (Lead-2, 2026-09-27): a pull_request or a push with a real BEFORE_SHA both give a
+          # genuine range to diff. Any OTHER event (workflow_dispatch, now that the workflow accepts it) or
+          # a push with an empty/all-zeros before (a branch's first push, nothing to diff against) has no
+          # range at all -- falling through to `git rev-list ..<sha>` there would silently scan nothing
+          # while still exiting 0. Instead this branch does a full-history scan against the same allowlist
+          # mechanism-split as main-history-trailer-scan, and asserts it actually saw at least one commit;
+          # zero commits scanned is a hard failure here, never a silent pass.
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             RANGE="$BASE_SHA..$HEAD_SHA"
-          else
-            if [ "$BEFORE_SHA" = "0000000000000000000000000000000000000000" ]; then
-              echo "first push to this ref, nothing to diff against"
-              exit 0
-            fi
+          elif [ "${{ github.event_name }}" = "push" ] && [ "$BEFORE_SHA" != "0000000000000000000000000000000000000000" ] && [ -n "$BEFORE_SHA" ]; then
             RANGE="$BEFORE_SHA..${{ github.sha }}"
+          else
+            echo "no range available (event=${{ github.event_name }}, before=${BEFORE_SHA:-<empty>}) -- falling back to a full-history scan"
+            AGENT_WRITTEN=(
+              "dbdf47a989634e1a4800d0b4209f4470daf62299"
+              "e57f0ae8585ad774540ec4e430a0eca7c00472dc"
+              "09c0c334c1a643c5e8899152ab6bea2e958b8198"
+            )
+            GITHUB_COMPOSED=(
+              "5bdc4e4bc2d0fefede2543e3a51b1baf5cf08bc7"
+            )
+            ALLOWLISTED_SHAS=("${AGENT_WRITTEN[@]}" "${GITHUB_COMPOSED[@]}")
+            SCANNED=0
+            BAD=0
+            while read -r sha; do
+              [ -z "$sha" ] && continue
+              SCANNED=$((SCANNED + 1))
+              skip=0
+              for allowed in "${ALLOWLISTED_SHAS[@]}"; do
+                [[ "$sha" == "$allowed" ]] && skip=1 && break
+              done
+              [[ "$skip" == 1 ]] && continue
+              if git log -1 --format=%B "$sha" | grep -qiE '^(Co-Authored-By|Claude-Session):'; then
+                echo "attribution trailer found in commit $sha, not on the allowlist"
+                BAD=1
+              fi
+            done < <(git log --format=%H)
+            echo "full-history fallback scanned $SCANNED commit(s)"
+            [ "$SCANNED" -lt 1 ] && { echo "scanned zero commits -- refusing to pass silently"; exit 1; }
+            exit "$BAD"
           fi
           BAD=0
+          SCANNED=0
           while read -r sha; do
             [ -z "$sha" ] && continue
+            SCANNED=$((SCANNED + 1))
             if git log -1 --format=%B "$sha" | grep -qiE '^(Co-Authored-By|Claude-Session):'; then
               echo "attribution trailer found in commit $sha"
               BAD=1
             fi
           done < <(git rev-list "$RANGE")
+          echo "range scan ($RANGE) scanned $SCANNED commit(s)"
+          [ "$SCANNED" -lt 1 ] && { echo "the range held zero commits -- refusing to pass silently"; exit 1; }
           exit "$BAD"
 
   engine:
