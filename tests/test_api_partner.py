@@ -19,7 +19,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from pravrudhi.api.partner import PartnerApiConfig, build_partner_router
+from pravrudhi.api.partner import PartnerApiConfig, build_partner_router, load_partner_api_config
 from pravrudhi.application import nyaya_lean_registry as reg
 from pravrudhi.application.nyaya_agent import AgentConfig, BinaryShaMismatch, NyayaAgent
 from pravrudhi.application.nyaya_judges import ElementJudgment, JudgeRequest
@@ -253,6 +253,103 @@ def test_second_judge_unavailable_stays_refer_not_503(tmp_path: Path) -> None:
     assert resp.status_code == 200
     assert resp.json()["contracts"][0]["outcome"] == "REFER_TO_LAWYER"
     assert resp.json()["contracts"][0]["reason"] == "second_judge_unavailable"
+
+
+def _config_c_client(
+    tmp_path: Path,
+    *,
+    primary_script: dict[str, list[ElementJudgment | Exception]],
+    second_script: dict[str, list[ElementJudgment | Exception]],
+    config: PartnerApiConfig,
+) -> TestClient:
+    from pravrudhi.application.nyaya_judges import AndGateJudge
+
+    gate = AndGateJudge(ScriptedJudge(primary_script), ScriptedJudge(second_script), tau_primary=0.74, tau_second=0.97)
+    agent_config = AgentConfig(
+        tau=0.74, refer_band=(0.5, 0.74), max_retries=2, audit_dir=tmp_path / "audit",
+        judge_statute_text={"bns69": "TRAINING statute text for bns69"},
+    )
+    agent = NyayaAgent(gate, ScriptedRegistry(), agent_config)
+    app = FastAPI()
+    app.include_router(build_partner_router(tmp_path, agent_factory=lambda _root: agent, config=config))
+    return TestClient(app)
+
+
+class TestSecondJudgeDebugFields:
+    """Lead-2's ask (2026-09-25, config-C smoke): the second judge's own p_established/tau/skip-reason/
+    logit-distance/refer-band/unavailable fields are already computed by AndGateJudge and already survive
+    onto `ElementResult` -- diagnosing a config-C disagreement needed a direct Python call because the HTTP
+    response silently dropped every one of them. Two independent gates, both required: `configs/
+    partner_api.yaml` (or NYAYA_DEBUG_SECOND_JUDGE_FIELDS) must opt the DEPLOYMENT in, and the caller must
+    also pass `?debug_second_judge=true` on that specific request -- this is a public, unauthenticated
+    partner endpoint (module docstring), so a caller alone flipping a query param can never expose these on
+    a deployment that hasn't opted in."""
+
+    def _scripts(self) -> tuple[dict, dict]:
+        primary: dict[str, list[ElementJudgment | Exception]] = {
+            BNS69_EL[0]: [_est("F2", "never to marry Lata", p=0.9998)],
+            BNS69_EL[1]: [_est("F3", "Lata had sexual intercourse with Kiran", p=0.99999)],
+            BNS69_DENY: [_not()],
+        }
+        second: dict[str, list[ElementJudgment | Exception]] = {
+            BNS69_EL[0]: [_est("F2s", "never to marry Lata", p=0.65)],
+            BNS69_EL[1]: [_est("F3s", "Lata had sexual intercourse with Kiran", p=0.84)],
+            BNS69_DENY: [_not()],
+        }
+        return primary, second
+
+    def test_fields_appear_when_both_the_deployment_and_the_request_opt_in(self, tmp_path: Path) -> None:
+        primary, second = self._scripts()
+        config = PartnerApiConfig(
+            rate_limit_per_minute=1000, max_concurrent=100, trust_proxy_header=False,
+            debug_second_judge_fields_enabled=True,
+        )
+        c = _config_c_client(tmp_path, primary_script=primary, second_script=second, config=config)
+        resp = c.post("/api/v1/analyse-facts?debug_second_judge=true", json=_req())
+        assert resp.status_code == 200
+        elements = resp.json()["contracts"][0]["elements"]
+        el0 = next(e for e in elements if e["element"] == BNS69_EL[0])
+        assert el0["p_established_second"] == pytest.approx(0.65)
+        assert el0["second_unavailable"] is False
+        assert "tau_second" in el0 and "second_skip_reason" in el0 and "second_logit_distance" in el0
+        assert "second_refer_band_fired" in el0
+
+    def test_fields_absent_when_the_request_does_not_opt_in(self, tmp_path: Path) -> None:
+        """Same deployment (opted in) but a caller that never asked -- today's exact response shape."""
+        primary, second = self._scripts()
+        config = PartnerApiConfig(
+            rate_limit_per_minute=1000, max_concurrent=100, trust_proxy_header=False,
+            debug_second_judge_fields_enabled=True,
+        )
+        c = _config_c_client(tmp_path, primary_script=primary, second_script=second, config=config)
+        resp = c.post("/api/v1/analyse-facts", json=_req())
+        el0 = resp.json()["contracts"][0]["elements"][0]
+        for field in (
+            "p_established_second", "tau_second", "second_skip_reason",
+            "second_logit_distance", "second_refer_band_fired", "second_unavailable",
+        ):
+            assert field not in el0, f"{field} must not appear when the caller never asked for it"
+
+    def test_fields_absent_when_the_deployment_has_not_opted_in_even_if_the_request_asks(self, tmp_path: Path) -> None:
+        """The deployment-level gate wins: a caller alone cannot turn this on for a deployment that hasn't."""
+        primary, second = self._scripts()
+        config = PartnerApiConfig(rate_limit_per_minute=1000, max_concurrent=100, trust_proxy_header=False)
+        assert config.debug_second_judge_fields_enabled is False
+        c = _config_c_client(tmp_path, primary_script=primary, second_script=second, config=config)
+        resp = c.post("/api/v1/analyse-facts?debug_second_judge=true", json=_req())
+        el0 = resp.json()["contracts"][0]["elements"][0]
+        assert "p_established_second" not in el0
+
+    def test_default_response_shape_is_completely_unchanged_when_off(self, tmp_path: Path) -> None:
+        """Byte-for-byte the same keys as before this feature existed, for the ordinary (no config C, no
+        flags) case every existing test above already exercises."""
+        c = _client(tmp_path)
+        resp = c.post("/api/v1/analyse-facts", json=_req())
+        el0 = resp.json()["contracts"][0]["elements"][0]
+        assert set(el0) == {
+            "element", "is_denial", "status", "claimed", "p_established", "fact_id", "quote", "start", "end",
+            "quote_check", "attempts", "occurrences", "offsets_source", "quote_source", "error",
+        }
 
 
 def test_judge_misconfigured_still_503_unchanged(tmp_path: Path) -> None:
@@ -579,3 +676,34 @@ def test_binary_sha_mismatch_is_503_not_500(tmp_path: Path) -> None:
     c = TestClient(app)
     resp = c.post("/api/v1/analyse-facts", json=_req())
     assert resp.status_code == 503
+
+
+class TestDebugSecondJudgeFieldsConfigLoading:
+    def _write(self, tmp_path: Path, extra: str = "") -> None:
+        (tmp_path / "configs").mkdir(exist_ok=True)
+        (tmp_path / "configs" / "partner_api.yaml").write_text(
+            "rate_limit_per_minute: 6\nmax_concurrent: 2\ntrust_proxy_header: false\n" + extra
+        )
+
+    def test_defaults_to_false_when_the_yaml_predates_this_field(self, tmp_path: Path) -> None:
+        self._write(tmp_path)
+        assert load_partner_api_config(tmp_path).debug_second_judge_fields_enabled is False
+
+    def test_yaml_can_turn_it_on(self, tmp_path: Path) -> None:
+        self._write(tmp_path, "debug_second_judge_fields_enabled: true\n")
+        assert load_partner_api_config(tmp_path).debug_second_judge_fields_enabled is True
+
+    def test_env_override_turns_it_on_over_a_yaml_that_predates_the_field(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._write(tmp_path)
+        monkeypatch.setenv("NYAYA_DEBUG_SECOND_JUDGE_FIELDS", "true")
+        assert load_partner_api_config(tmp_path).debug_second_judge_fields_enabled is True
+
+    def test_env_override_recognizes_1_and_yes_too(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        self._write(tmp_path)
+        for value in ("1", "yes", "true"):
+            monkeypatch.setenv("NYAYA_DEBUG_SECOND_JUDGE_FIELDS", value)
+            assert load_partner_api_config(tmp_path).debug_second_judge_fields_enabled is True
+        monkeypatch.setenv("NYAYA_DEBUG_SECOND_JUDGE_FIELDS", "0")
+        assert load_partner_api_config(tmp_path).debug_second_judge_fields_enabled is False
