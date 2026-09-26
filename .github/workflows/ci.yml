@@ -134,6 +134,10 @@ jobs:
         run: uv run pytest tests -q
       - run: uv run python scripts/import_guard.py
       - run: uv run python scripts/check_no_private_data.py
+      # 2026-09-26 incident backstop: an undeclared ARG GITHUB_TOKEN masked a silently-unauthenticated
+      # Docker build for every prior release, and the fix-attempt (declaring it) leaked the real token value
+      # in cleartext in the build log. This makes that class of mistake fail CI instead of a human review.
+      - run: uv run python scripts/check_no_secret_dockerfile_args.py
       # Permanent backstop (Lead-2, 2026-09-26): fails if not one requires_score_bin-gated test actually
       # executed. Green whenever build-lean-binary supplied a real, pin-verified binary above; red on a fork
       # PR or if that job ever fails -- both cases where the registry/pin tests genuinely did not run here,
