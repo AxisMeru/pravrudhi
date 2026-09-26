@@ -51,13 +51,28 @@ _ALL_REGISTRY_CONTRACT_IDS = (
 def _registry_element_descriptions() -> list[tuple[str, str, str]]:
     """(contract_id, element_id, description) for EVERY element of every registered contract, straight off
     the binary's own `--describe-contract` output -- never `p2b_registry.CONTRACTS`, which is missing
-    several of the newer contracts (a Python-side data gap, not this test's concern)."""
+    several of the newer contracts (a Python-side data gap, not this test's concern).
+
+    HARD FAILS on a stale `PRABHASA_NYAYA_SCORE_BIN` that doesn't know a given contract yet (a real gap R1
+    found, 2026-09-26: an older binary answers `--describe-contract` for an unknown id with exit code 0 and
+    a single `"UNKNOWN_CONTRACT_ID\\t<cid>"` line on stdout, not a subprocess failure -- the pre-fix version
+    of this function silently swallowed that as if it were one real, harmless element description, masking
+    every real element of that contract from the whole registry scan below. `bnss187_extended_other` was
+    missed exactly this way against an older local binary; this guard makes that failure mode loud instead
+    of silent, so it can never happen again unnoticed."""
     out = []
     for cid in _ALL_REGISTRY_CONTRACT_IDS:
         proc = subprocess.run(
             [str(_SCORE_BIN), "--describe-contract", cid], capture_output=True, text=True, timeout=30, check=True,
         )
-        for i, desc in enumerate(line for line in proc.stdout.split("\n") if line):
+        lines = [line for line in proc.stdout.split("\n") if line]
+        if lines and lines[0].startswith("UNKNOWN_CONTRACT_ID"):
+            raise AssertionError(
+                f"PRABHASA_NYAYA_SCORE_BIN={_SCORE_BIN} does not know contract {cid!r} "
+                f"(binary said: {lines[0]!r}) -- this binary is too old for a complete registry scan; "
+                f"point PRABHASA_NYAYA_SCORE_BIN at the currently-pinned binary instead of skipping silently"
+            )
+        for i, desc in enumerate(lines):
             out.append((cid, f"el{i}", desc))
     return out
 
@@ -177,10 +192,13 @@ class TestSplitDisjuncts:
 
 
 class TestParenAwareSplit:
-    """GATE1-PAREN-SPLIT-BUG-2026-09-26.md: the pre-fix regex matched "or" inside a parenthetical (a
-    statutory citation, not a real disjunction) as a top-level split point, producing paren-unbalanced
-    garbage on 4/30 disjunctive-matched elements across the 26-contract registry. These pin the exact
-    corrected output for all 4, found and root-caused by hand."""
+    """GATE1-PAREN-SPLIT-BUG-2026-09-26.md (corrected by its successor, R1 finding 2026-09-26): the pre-fix
+    regex matched "or" inside a parenthetical (a statutory citation, not a real disjunction) as a top-level
+    split point, producing paren-unbalanced garbage on **5/30** disjunctive-matched elements across the
+    26-contract registry -- the original hand scan found 4 (run against a stale local binary that didn't
+    even know the 5th contract, `bnss187_extended_other`, existed); R1 caught the 5th running this test
+    against the currently-pinned binary. These pin the exact corrected output for all 5, found and
+    root-caused by hand."""
 
     def test_bns85_el1_citation_parenthetical_is_not_a_disjunction(self) -> None:
         # "(s.86(a) or (b))" is a citation, not "subjects to cruelty OR subjects to something else" --
@@ -245,12 +263,31 @@ class TestParenAwareSplit:
             "attempt to cause or procure it",
         ]
 
+    def test_bnss187_extended_other_el2_citation_parenthetical_is_not_a_disjunction(self) -> None:
+        """The 5th affected element, found by R1 (2026-09-26) running the non-regression test against the
+        currently-pinned binary -- the original hand scan missed it because the local binary used at the
+        time didn't know `bnss187_extended_other` at all (see `_registry_element_descriptions`'s own
+        UNKNOWN_CONTRACT_ID guard, added for exactly this). Same shape as the other 4: an "or" that's part
+        of a parenthetical qualifier, not a real disjunction."""
+        assert split_disjuncts(
+            "the investigation relates to any other offence (not within the death, life, or "
+            "ten-years-or-more category)"
+        ) == [
+            "the investigation relates to any other offence (not within the death, life, or "
+            "ten-years-or-more category)"
+        ]
+
     @requires_score_bin
     def test_non_regression_all_other_registry_elements_unchanged(self) -> None:
-        """Every disjunctive-matched element in the 26-contract registry OTHER than the 4 fixed above must
+        """Every disjunctive-matched element in the 26-contract registry OTHER than the 5 fixed above must
         produce a BYTE-IDENTICAL split to the pre-fix regex -- the fix changes behavior only where the
-        pre-fix regex was matching "or" inside parentheses."""
-        fixed_keys = {("bns85", "el1"), ("ipc416", "el0"), ("bns69", "el0"), ("bns46_instigation", "el0")}
+        pre-fix regex was matching "or" inside parentheses. Requires a binary that actually knows every
+        contract in `_ALL_REGISTRY_CONTRACT_IDS` (see `_registry_element_descriptions`'s hard-fail guard) --
+        an older/incomplete binary makes this test ERROR, not silently pass or skip."""
+        fixed_keys = {
+            ("bns85", "el1"), ("ipc416", "el0"), ("bns69", "el0"), ("bns46_instigation", "el0"),
+            ("bnss187_extended_other", "el2"),
+        }
         n_compared = 0
         for cid, element_id, desc in _registry_element_descriptions():
             n_compared += 1
@@ -260,7 +297,7 @@ class TestParenAwareSplit:
                 assert old != new, f"{cid}/{element_id} was expected to change but didn't"
             else:
                 assert old == new, f"{cid}/{element_id} changed unexpectedly: {old!r} -> {new!r}"
-        assert n_compared == 47  # exact: all 47 elements across all 26 registry contracts, never a sample
+        assert n_compared == 74  # exact: all 74 elements across all 26 registry contracts (current pinned binary), never a sample
 
     @requires_score_bin
     def test_paren_balance_holds_for_every_registry_element(self) -> None:
@@ -274,7 +311,7 @@ class TestParenAwareSplit:
                 assert disjunct.count("(") == disjunct.count(")"), (
                     f"{cid}/{element_id} disjunct has unbalanced parens: {disjunct!r}"
                 )
-        assert n_compared == 47  # exact: all 47 elements across all 26 registry contracts, never a sample
+        assert n_compared == 74  # exact: all 74 elements across all 26 registry contracts (current pinned binary), never a sample
 
 
 class TestGate1Check:
