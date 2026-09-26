@@ -161,11 +161,90 @@ class Answer:
     wall_s: float
     tokens: int | None
     error: str | None
+    #: The model claude-cli actually billed, read back from the JSON envelope's `modelUsage` (Tag review,
+    #: 2026-09-26) -- `model` above is the `--model` flag PINNED before the call; this is what the vendor
+    #: resolved that alias to. `None` for every interface that cannot report one (openai_compat vendors
+    #: already put their real model id in `model`; a failed call has no envelope to read it from).
+    resolved_model: str | None = None
+    #: Real cache read/write counts from the same envelope, never a hardcoded null (Tag review, 2026-09-26):
+    #: cache tokens can dwarf the visible turn (`cli_agents._usage`'s own docstring: a real envelope carried
+    #: cache write 47,852 against output 4), and `tokens` alone would hide that.
+    cache_read_tokens: int | None = None
+    cache_write_tokens: int | None = None
 
 
 # Reachable today. `claude` and `codex` are agentic CLIs in print mode; the operator's judgement is that this
 # does not change the verdict, and `interface` records it either way.
 _CLI = {"temperature": 0.0, "max_tokens": 2048}
+
+#: Issue #59: a bare `claude -p` call loads every plugin/MCP/skill/CLAUDE.md the CLI knows about before it
+#: ever reads the prompt -- Lead-2's own measurement (2026-09-26, TEAM-RULES.md's Claude usage cost rules),
+#: ~105k tokens per call against ~3.3k for the slim invocation below; this PR does not re-derive that figure,
+#: only applies it. `ask_vendor`'s claude-cli path is a one-shot "ask this vendor one prompt" comparison,
+#: never an agentic coding turn (unlike `ClaudeCodeAgent`/`orca_agent.headless_command`'s own `claude -p`
+#: calls, which grant real tools -- Read/Edit/Write/Grep/Glob/Bash -- and so cannot use these flags without
+#: breaking the thing they exist for): it never needs a tool, a skill, an MCP server, or this repo's own
+#: CLAUDE.md, so there is nothing here to pay 105k tokens of context for. `--tools ""` and
+#: `--disable-slash-commands` turn off the two things a genuinely bare `-p` call could still reach for;
+#: `--strict-mcp-config --mcp-config '{"mcpServers":{}}'` and `--setting-sources ""` are what actually stop
+#: the plugin/MCP/CLAUDE.md load. Model is capped at `sonnet` (TEAM-RULES.md's Claude usage cost rules --
+#: never opus/default for this path); a caller who wants a different pinned model still overrides
+#: `vendor.params["model"]` (see `ask_vendor` below), this is only the default.
+CLAUDE_CLI_MODEL_DEFAULT = "sonnet"
+CLAUDE_CLI_SLIM_FLAGS = (
+    "--strict-mcp-config",
+    "--mcp-config", '{"mcpServers":{}}',
+    "--setting-sources", "",
+    "--disable-slash-commands",
+    "--tools", "",
+)
+
+#: Issue #59 follow-up (Lead-2, 2026-09-26): `ask_vendor`'s claude-cli comparison uses its OWN dedicated
+#: credential (the operator's new `sharath.ai.colab` login), never one of `account.claude_env`'s CLI-agent
+#: seats -- this is a one-shot vendor comparison, not agentic coding work, and competing with those seats
+#: for the same weekly quota would undo the whole point of giving this path a separate account.
+#: Config-driven (env var, matching `account.py`'s own `PRAVRUDHI_CLAUDE_CONFIG_DIR` convention) rather than
+#: hardcoded, so this can be redirected without a code change.
+CLAUDE_CLI_CONFIG_DIR_ENV = "PRAVRUDHI_CLAUDE_CLI_CONFIG_DIR"
+CLAUDE_CLI_CONFIG_DIR_DEFAULT = Path("~/.config/pravrudhi/claude-colab")
+
+
+class ClaudeCliNotProvisioned(RuntimeError):
+    """`ask_vendor`'s dedicated claude-cli credential directory has no login. Raised rather than falling
+    back to whatever account happens to be ambient -- `account.py`'s own "the refusal is the other half"
+    principle (a silent fallback would look like compliance while being the opposite), applied to this
+    separate, comparison-only seat."""
+
+
+def _claude_cli_env() -> dict[str, str]:
+    from pravrudhi.agents.account import CREDENTIAL_FILES
+
+    config_dir = Path(os.environ.get(CLAUDE_CLI_CONFIG_DIR_ENV) or CLAUDE_CLI_CONFIG_DIR_DEFAULT).expanduser()
+    if not any((config_dir / f).is_file() for f in CREDENTIAL_FILES):
+        raise ClaudeCliNotProvisioned(
+            f"no claude login at {config_dir} (set {CLAUDE_CLI_CONFIG_DIR_ENV} to redirect, or log in there)"
+        )
+    return {"CLAUDE_CONFIG_DIR": str(config_dir)}
+
+
+def _claude_cli_pinned_model(vendor: Vendor) -> str:
+    """The `--model` this vendor's claude-cli call will actually use.
+
+    Shared by `ask_vendor` and `panel_manifest` (Tag review, 2026-09-26) so the two cannot drift: an ABSENT
+    `params["model"]` is the ordinary case the default exists for, but an explicit `None`/empty value means the
+    caller asked for something and got nothing -- that is a config error, not "fall back to the default", so
+    it raises rather than silently substituting `CLAUDE_CLI_MODEL_DEFAULT` via `or`.
+    """
+    if "model" not in vendor.params:
+        return CLAUDE_CLI_MODEL_DEFAULT
+    requested = vendor.params["model"]
+    if not requested:
+        raise ValueError(
+            f"vendor {vendor.id!r} params['model'] is {requested!r} -- omit the key to use the default "
+            f"({CLAUDE_CLI_MODEL_DEFAULT!r}), or give it a real model id"
+        )
+    return str(requested)
+
 
 # Declared before any key exists, on the operator's instruction, so that when a key lands nothing has to be
 # designed under time pressure. Each names the variable it reads. `temperature` is pinned on every one of them
@@ -329,28 +408,52 @@ def ask_vendor(
     OpenAI-compatible client below is built with that caller's key, never a bystander's.
     """
     if vendor.interface == "cli":
-        from pravrudhi.agents.cli_agents import _run
+        from pravrudhi.agents.cli_agents import _run, _usage
 
         env: dict[str, str] = {}
         if vendor.model == "claude":
-            # This project's own account, never the operator's personal login (operator instruction,
-            # 2026-09-10). It was the personal account's WEEKLY limit that ran out mid-panel during gate
-            # A1.1, answering 68 of 80 prompts and recording 12 gaps -- a comparison spending a person's
-            # own quota is the wrong shape as well as a fragile one.
-            from pravrudhi.agents.account import claude_env
-
-            cmd = ["claude", "-p", "--output-format", "text"]
-            env = claude_env()
+            # The operator's personal login was the original problem (2026-09-10: its weekly limit ran out
+            # mid-panel during gate A1.1, 68 of 80 prompts answered, 12 recorded as gaps). This path now
+            # uses its OWN dedicated seat instead (`_claude_cli_env`, issue #59 follow-up) -- deliberately
+            # NOT `account.claude_env`'s CLI-agent seat rotation, which this one-shot comparison would
+            # otherwise compete with for the same quota.
+            model = _claude_cli_pinned_model(vendor)
+            # `--output-format json` (Tag review, 2026-09-26), not `text`: the JSON envelope carries the
+            # resolved model (`modelUsage`) and the real usage breakdown that `text` throws away.
+            cmd = ["claude", "-p", "--output-format", "json", *CLAUDE_CLI_SLIM_FLAGS, "--model", model]
+            env = _claude_cli_env()
         else:
+            model = vendor.model
             cmd = ["codex", "exec", "--skip-git-repo-check"]
         # The prompt rides on stdin, never argv: a >128 KiB prompt is refused by the kernel as an argv string
         # (E2BIG) before the CLI starts. Both CLIs read the prompt from stdin when none is given positionally.
         code, out, err, wall = _run(
             cmd, Path.cwd(), int(vendor.params.get("timeout_s", 900)), env=env, stdin_text=prompt
         )
-        if code != 0:
-            raise RuntimeError((err or out or f"{vendor.model} exited {code}")[-400:])
-        return Answer(vendor.id, vendor.interface, vendor.model, "", out.strip(), wall, None, None)
+        if vendor.model != "claude":
+            if code != 0:
+                raise RuntimeError((err or out or f"{model} exited {code}")[-400:])
+            return Answer(vendor.id, vendor.interface, model, "", out.strip(), wall, None, None)
+
+        # A quota/limit notice prints to stdout with exit 0 (the 2026-09-26 incident that contaminated 847
+        # audit rows before this was caught) -- exit 0 is not itself success here. An unparseable envelope, an
+        # `is_error` envelope, or an empty `result` are the same kind of gap as a nonzero exit: recorded as a
+        # failure for `run_panel` to catch, never returned as a scored answer.
+        try:
+            envelope = json.loads(out)
+        except ValueError:
+            envelope = None
+        if code != 0 or not isinstance(envelope, dict) or envelope.get("is_error"):
+            raise RuntimeError((err or out or f"{model} exited {code}")[-400:])
+        text = str(envelope.get("result", "")).strip()
+        if not text:
+            raise RuntimeError(f"{model} exited 0 with an empty result (a quota/limit notice looks exactly like this)")
+        resolved_model: str | None = None
+        model_usage = envelope.get("modelUsage")
+        if isinstance(model_usage, dict) and model_usage:
+            resolved_model = next(iter(model_usage))
+        tokens, cache_read, cache_write = _usage(envelope)
+        return Answer(vendor.id, vendor.interface, model, "", text, wall, tokens, None, resolved_model, cache_read, cache_write)
 
     if vendor.interface == "openai_compat":
         from pravrudhi.models.openai_compat import ChatClient
@@ -388,6 +491,11 @@ def panel_manifest(prompts: Sequence[dict[str, str]], vendors: Sequence[Vendor])
                 "id": v.id, "interface": v.interface, "model": v.model, "params": dict(v.params),
                 "credential_env": v.credential or None, "provider": v.provider or None, "note": v.note,
                 "reachable": v.reachable[0], "reachable_detail": v.reachable[1],
+                # The `--model` claude-cli will actually pin (Tag review, 2026-09-26): `model` above is just
+                # "claude", the interface literal, not the model. Raises the same way `ask_vendor` would on an
+                # explicit null/empty override, so a bad config is caught building the manifest, not 40 calls
+                # into a run.
+                "pinned_model": _claude_cli_pinned_model(v) if v.interface == "cli" and v.model == "claude" else None,
             }
             for v in vendors
         ],
@@ -422,8 +530,12 @@ def run_panel(
                 pid = str(item["id"])
                 try:
                     answer = ask(vendor, str(item["prompt"]))
-                    row = Answer(vendor.id, vendor.interface, vendor.model, pid, answer.text,
-                                 answer.wall_s, answer.tokens, None)
+                    # `answer.model`, not `vendor.model` (Tag review, 2026-09-26): for claude-cli, `vendor.model`
+                    # is just the interface literal "claude" -- `answer.model` is the `--model` this call was
+                    # actually pinned to, and `answer.resolved_model` is what the vendor billed it as.
+                    row = Answer(vendor.id, vendor.interface, answer.model, pid, answer.text,
+                                 answer.wall_s, answer.tokens, None, answer.resolved_model,
+                                 answer.cache_read_tokens, answer.cache_write_tokens)
                 except Exception as exc:  # noqa: BLE001 - a vendor that cannot answer is data, not a crash
                     row = Answer(vendor.id, vendor.interface, vendor.model, pid, "", 0.0, None, str(exc)[:400])
                 answers.append(row)

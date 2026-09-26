@@ -103,6 +103,66 @@ jobs:
           path: ${{ runner.temp }}/prabhasa-nyaya/lean/.lake/build/bin/score
           retention-days: 1
 
+  # CI ordering hole (Tag, 2026-09-26): these were steps in `engine`, AFTER its pytest step. A `run:` step
+  # that fails stops the rest of that job's steps by default, so all five were silently SKIPPED whenever
+  # pytest failed -- exactly when someone is pushing fast and least likely to notice a skipped guard. Its
+  # own job, independent of pytest and of build-lean-binary, so a red pytest run never hides a real guard
+  # failure. Make this a required check in the repo's branch protection settings.
+  guards:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with: { python-version: "3.13" }
+      - run: uv sync --all-groups --frozen
+      - run: uv run python scripts/import_guard.py
+      - run: uv run python scripts/check_no_private_data.py
+      # 2026-09-26 incident backstop: an undeclared ARG GITHUB_TOKEN masked a silently-unauthenticated
+      # Docker build for every prior release, and the fix-attempt (declaring it) leaked the real token value
+      # in cleartext in the build log. This makes that class of mistake fail CI instead of a human review.
+      - run: uv run python scripts/check_no_secret_dockerfile_args.py
+      # Fail-open defaults (operator, 2026-09-26, after the sweep of both repos): a missing, empty or
+      # unparseable verdict/confidence/score that defaults to a NUMBER instead of to None or an error, so an
+      # item that could not be scored silently counts as a pass. Rules 1 and 3 fail the build; rule 2 is
+      # advisory and never does (measured ~30% false positives even scoped to scorers -- see the script's
+      # own docstring for the per-rule rates). The occurrences that predate this guard are listed, each with
+      # a reason and an issue, in scripts/fail_open_defaults_baseline.txt; they are findings going to their
+      # owners, not things this step's own PR fixed.
+      - run: uv run python scripts/check_fail_open_defaults.py
+      # Secret scanning over THIS PR'S DIFF (operator ask, 2026-09-26, after that morning's Docker ARG
+      # token leak and the 2026-09-11 Telegram bot token). In THIS job rather than `engine` for the reason
+      # this job exists at all (#74): it is a pure static check with no dependency on tests having run, and
+      # a PR being pushed at speed with a red pytest is exactly the case a secrets guard must still cover.
+      #
+      # It COMPLEMENTS check_no_secret_dockerfile_args.py two steps above rather than repeating it: that
+      # guard catches a secret-shaped DECLARATION in a Dockerfile (`ARG GITHUB_TOKEN`), the shape that
+      # leaked into the build log; this one catches a VALUE -- a token pasted into a test, a notebook, a
+      # README, a JSON blob or a YAML file, none of which the Dockerfile guard can see.
+      #
+      # What it does NOT do, so nobody reads more into a green tick than is there: it scans the DIFF, so a
+      # secret already on main is in no later PR's diff and will never be found here (the guard's
+      # `--all-tracked` mode is the sweep for that, an audit someone runs rather than a gate), and nothing
+      # in CI can remove a secret from published history -- the only remedy for a real hit is rotation. It
+      # never prints a matched value: the log gets a path, a line, a rule and a redacted fingerprint,
+      # because this log is readable by everyone who can see the run.
+      #
+      # The `unshallow` step below is separate, and additive, on purpose: this job's checkout is left
+      # exactly as #74 wrote it. actions/checkout defaults to depth 1, which has no origin/main and no
+      # HEAD~1 to diff against; the guard's answer to "no base" is a whole-tree audit rather than a vacuous
+      # pass -- correct, but wider and slower than this gate is meant to be.
+      #
+      # SECRET_SCAN_BEFORE is used only on a `push` event; on a pull_request the guard reads GitHub's own
+      # GITHUB_BASE_REF. Measured over the merged tree before landing: 25 raw hits, 23 of them pattern
+      # defects that were fixed (unquoted code right-hand sides, tokeniser `*_token_id` names, env-var
+      # NAMES and file paths held in credential-named constants), and the last 2 -- one constructed test
+      # string on two lines of tests/test_nyaya_judges.py -- waived by digest in
+      # scripts/secret_scan_baseline.txt with a written reason.
+      - name: deepen the checkout so the secret scan has a base commit to diff against
+        run: git fetch --no-tags --prune --unshallow origin || git fetch --no-tags --prune origin
+      - run: uv run python scripts/check_no_secrets_in_diff.py
+        env:
+          SECRET_SCAN_BEFORE: ${{ github.event.before }}
+
   engine:
     runs-on: ubuntu-latest
     needs: [build-lean-binary]
@@ -113,13 +173,7 @@ jobs:
     # without it.
     if: "!cancelled()"
     steps:
-      # fetch-depth: 0 (the default is 1) so `scripts/check_no_secrets_in_diff.py` at the end of this job
-      # has a base commit to diff this PR against. A shallow checkout has no `origin/main` and no `HEAD~1`,
-      # and that guard's answer to "no base" is a whole-tree audit rather than a vacuous pass -- correct,
-      # but slower and wider than the gate is meant to be, so give it the history it wants.
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
       - uses: astral-sh/setup-uv@v6
         with: { python-version: "3.13" }
       - run: uv sync --all-groups --frozen
@@ -138,43 +192,6 @@ jobs:
         env:
           PRABHASA_NYAYA_SCORE_BIN: /tmp/score-bin/score
         run: uv run pytest tests -q
-      - run: uv run python scripts/import_guard.py
-      - run: uv run python scripts/check_no_private_data.py
-      # 2026-09-26 incident backstop: an undeclared ARG GITHUB_TOKEN masked a silently-unauthenticated
-      # Docker build for every prior release, and the fix-attempt (declaring it) leaked the real token value
-      # in cleartext in the build log. This makes that class of mistake fail CI instead of a human review.
-      - run: uv run python scripts/check_no_secret_dockerfile_args.py
-      # Fail-open defaults (operator, 2026-09-26, after the sweep of both repos): a missing, empty or
-      # unparseable verdict/confidence/score that defaults to a NUMBER instead of to None or an error, so an
-      # item that could not be scored silently counts as a pass. Rules 1 and 3 fail the build; rule 2 is
-      # advisory and never does (measured ~30% false positives even scoped to scorers -- see the script's
-      # own docstring for the per-rule rates). The occurrences that predate this guard are listed, each with
-      # a reason and an issue, in scripts/fail_open_defaults_baseline.txt; they are findings going to their
-      # owners, not things this step's own PR fixed.
-      - run: uv run python scripts/check_fail_open_defaults.py
-      # Secret scanning over THIS PR'S DIFF (operator ask, 2026-09-26, after that morning's Docker ARG
-      # token leak and the 2026-09-11 Telegram bot token). This COMPLEMENTS
-      # check_no_secret_dockerfile_args.py two steps above rather than repeating it: that guard catches a
-      # secret-shaped DECLARATION in a Dockerfile (`ARG GITHUB_TOKEN`), which is the shape that leaked in
-      # the build log; this one catches a VALUE -- a token pasted into a test, a notebook, a README, a
-      # JSON blob or a YAML file, none of which the Dockerfile guard can see.
-      #
-      # What it does NOT do, so nobody reads more into a green tick than is there: it scans the DIFF, so a
-      # secret already on main is not in any later PR's diff and will never be found here (the guard's
-      # `--all-tracked` mode is the sweep for that, and it is an audit someone runs, not a gate), and
-      # nothing in CI can remove a secret from published history -- the only remedy for a real hit is
-      # rotation. It never prints a matched value: the log carries a path, a line, a rule and a redacted
-      # fingerprint, because this log is readable by everyone who can see the run.
-      #
-      # SECRET_SCAN_BEFORE is only used on a `push` event; on a pull_request the guard reads GitHub's own
-      # GITHUB_BASE_REF. Measured over main at 5bdc4e4 before landing: 25 raw hits, 23 of them pattern
-      # defects that were fixed (unquoted code right-hand sides, tokeniser `*_token_id` names, env-var
-      # NAMES and file paths held in credential-named constants), and the last 2 -- one constructed test
-      # string on two lines of tests/test_nyaya_judges.py -- waived by digest in
-      # scripts/secret_scan_baseline.txt with a written reason.
-      - run: uv run python scripts/check_no_secrets_in_diff.py
-        env:
-          SECRET_SCAN_BEFORE: ${{ github.event.before }}
       # Permanent backstop (Lead-2, 2026-09-26): fails if not one requires_score_bin-gated test actually
       # executed. Green whenever build-lean-binary supplied a real, pin-verified binary above; red on a fork
       # PR or if that job ever fails -- both cases where the registry/pin tests genuinely did not run here,
