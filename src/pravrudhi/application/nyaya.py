@@ -263,6 +263,27 @@ def parse_audit(text: str) -> dict[str, Any]:
     }
 
 
+def _probe_host_shim(base_url: str, *, timeout: float = 1.5) -> str | None:
+    """A short TCP-connect probe for an unauthenticated `openai_compat` vendor reached over a host shim
+    (`nyaya-p2b-local`'s docker-bridge address): unlike a keyed vendor, there is no credential whose absence
+    already tells us it can't be asked, so without this check it always read `available: true` even where the
+    shim's host is not there at all (2026-09-26, found live: the RunPod serverless container has no such host
+    on the other end of the bridge, and every real call timed out with `Errno 110`). Returns `None` when a
+    connection opens, else the `why` to report -- never raises."""
+    import socket
+    from urllib.parse import urlparse
+
+    parsed = urlparse(base_url)
+    host, port = parsed.hostname, parsed.port or (443 if parsed.scheme == "https" else 80)
+    if not host:
+        return f"{base_url!r} is not a valid URL"
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return None
+    except OSError as e:
+        return f"{host}:{port} unreachable ({e.strerror or e})"
+
+
 def available_vendors(
     root: Path, ids: tuple[str, ...] = DEFAULT_VENDORS, *, store: CredentialStore | None = None
 ) -> list[dict[str, Any]]:
@@ -282,6 +303,8 @@ def available_vendors(
             why = f"{v.model} is not installed"
         elif v.interface == "openai_compat" and v.credential and not v.key(root, store=store):
             why = f"no key for {v.provider or v.credential}"
+        elif v.interface == "openai_compat" and not v.credential and v.base_url:
+            why = _probe_host_shim(v.base_url)
         elif v.interface == "local_gguf":
             why = "local weights are not served here yet"
         out.append({"id": vid, "model": v.model, "interface": v.interface, "available": why is None, "why": why, "note": v.note})
