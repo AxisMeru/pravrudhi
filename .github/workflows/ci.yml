@@ -145,12 +145,21 @@ jobs:
             "5bdc4e4bc2d0fefede2543e3a51b1baf5cf08bc7"
           )
           ALLOWLISTED_SHAS=("${AGENT_WRITTEN[@]}" "${GITHUB_COMPOSED[@]}")
-          # Pinned floor (Lead-2, 2026-09-27): main had 109 commits at #77's base (2026-09-27, `git
-          # rev-list --count origin/main`). This job's whole purpose depends on actually walking full
-          # history -- printing the scanned count and refusing anything under this floor catches a future
+          # Direct shallow-clone guard (Lead-2, 2026-09-27, R1 finding on #77): the actual regression this
+          # job exists to catch is a shallow checkout, so check for that directly instead of only inferring
+          # it from a commit count. The count floor below is the backstop, not the primary guard.
+          if [ "$(git rev-parse --is-shallow-repository)" = "true" ]; then
+            echo "checkout is shallow -- full-history scan cannot run, refusing to pass"
+            exit 1
+          fi
+          # Pinned floor (Lead-2, 2026-09-27, corrected after R1 caught the original 109 as wrong by ~9x):
+          # main had 955 commits at #77's true merge-base 73936b3 (`git rev-list --count origin/main` run
+          # there), 959 on main as of this fix. Valid only because history on protected main only grows --
+          # never derived from the checkout itself, that would be circular with the shallow-clone guard
+          # above. Printing the scanned count and refusing anything under this floor catches a future
           # regression of the exact #74 shape (a shallow clone silently checking almost nothing) by count,
           # not just by re-reading the fetch-depth line and trusting it's still there.
-          PINNED_MIN_COMMITS=109
+          PINNED_MIN_COMMITS=955
           BAD=0
           SCANNED=0
           while read -r sha; do
