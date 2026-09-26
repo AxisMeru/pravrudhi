@@ -56,10 +56,16 @@ jobs:
       - name: clone prabhasa-nyaya at that exact commit (read-only deploy key, SSH)
         env:
           DEPLOY_KEY: ${{ secrets.PRABHASA_NYAYA_DEPLOY_KEY }}
-        # runner.temp (not /tmp) -- 2026-09-26: on the current ubuntu-latest image, `git clone` into a
-        # bare /tmp/<name> path fails hard with `fatal: Invalid path '<path>/.git': Permission denied`
-        # (git 2.55.0's hardening around cloning into the shared, sticky-bit /tmp). $RUNNER_TEMP is the
-        # runner's own per-job scratch directory and is the path GitHub's docs recommend for exactly this.
+        # runner.temp (not /tmp): a plain destination-path issue was rejected on the first real run (this
+        # job had never actually cloned anything until cf4a325 landed), so a first fix moved the clone off
+        # the shared, sticky-bit /tmp -- that alone did not fix it. The real bug (found on the SECOND real
+        # run, dbdf47a): `umask 177` below is set to keep the deploy-key file 600, but a umask is
+        # shell-wide and stays in effect for the rest of the script -- including the `git clone` a few
+        # lines later. With umask 177, git's own `mkdir` for the destination directory (and for `.git`
+        # inside it) gets mode 600: no execute bit, so nothing can be created inside it at all. That is
+        # exactly the "Invalid path '<path>/.git': Permission denied" git reports -- a plain EACCES on
+        # directory creation, not an auth or destination-path problem. Fix: restore the default umask
+        # (022) immediately after the key file is written, before anything else creates a directory.
         run: |
           set -euo pipefail
           KEY_FILE="$(mktemp)"
@@ -68,6 +74,7 @@ jobs:
           umask 177
           printf '%s\n' "$DEPLOY_KEY" > "$KEY_FILE"
           chmod 600 "$KEY_FILE"
+          umask 022
           export GIT_SSH_COMMAND="ssh -i $KEY_FILE -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
           git clone --filter=blob:none git@github.com:AxisMeru/prabhasa-nyaya.git "$RUNNER_TEMP/prabhasa-nyaya"
           git -C "$RUNNER_TEMP/prabhasa-nyaya" checkout --detach "${{ steps.pin.outputs.commit }}"
