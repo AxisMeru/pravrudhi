@@ -167,7 +167,13 @@ class TestAdminSessionIsAValidByokProxy:
 
         monkeypatch.delenv("PRAVRUDHI_ADMINS", raising=False)  # this account is an ordinary user right now
         stored = client.post(
-            "/api/providers/alibaba/key",
+            # "alibaba-plan", not "alibaba": 1e0560f moved panel.VENDORS["qwen-dashscope"] onto the paid
+            # Lite Plan provider (free tier retired everywhere), so the key must be stored under the same
+            # provider id the vendor's own `key()` looks up, or the stored key is invisible to it and this
+            # test only "passes" when the operator's own ~/.config/llm/dashscope-plan.env happens to exist
+            # on the machine running it -- which is exactly why this broke silently locally and only failed
+            # in CI.
+            "/api/providers/alibaba-plan/key",
             json={"key": "sk-stored-while-a-plain-user"},
             params={"workspace": "acme"},
             headers={TOKEN_HEADER: app_token(tmp_path)},
