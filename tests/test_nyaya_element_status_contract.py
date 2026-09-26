@@ -16,6 +16,20 @@ half goes through the REAL FastAPI route, the same discipline `test_api_partner.
 
 Every status/leg set is read from the code's own declarations (`get_args`), never hardcoded, so adding a
 fifth status or a fourth leg without extending the coverage here trips this file instead of shipping silently.
+
+THE FIFTH STATUS (operator decision, 2026-09-26). `not_evaluated_gate1_unavailable`: Gate 1, the entailment
+check, could not evaluate the element at all -- distinct from `not_established` (a judge scored it and it
+failed) and from `not_evaluated_second_unavailable` (the SECOND judge never answered). The engine does not
+emit it yet: `_truthful_status`'s `vetoed_by == "gate1"` early return collapses every Gate 1 veto, including
+the model-unavailable one, into plain `not_established` (`nyaya_agent.py:844-845`), while the contract
+OUTCOME is already REFER_TO_LAWYER / `gate1_unavailable` (`nyaya_agent.py:1248-1249`). So the outcome is
+fail-closed and truthful; the element label is fail-closed but not truthful. The operator sequenced the
+frontend first (`pravrudhi-app` PR #8 renders all five, unknown still to the error state), the engine after,
+so the three assertions that pin the new label FAIL on this branch by design and are listed in the PR body
+alongside the four that were already intended. The assertions that already hold today -- the outcome-level
+refusal, and the element's own `gate1_unavailable` flag that a later engine change derives the label from --
+are asserted as PASSING tests here, so a refactor cannot quietly remove the fail-closed half while the
+truthful-label half is still in flight.
 """
 
 from __future__ import annotations
@@ -30,7 +44,7 @@ from fastapi.testclient import TestClient
 
 from pravrudhi.api.partner import ElementResultOut, build_partner_router
 from pravrudhi.application.nyaya_agent import ElementResult, ElementStatus, NyayaAgent
-from pravrudhi.application.nyaya_judges import AndGateJudge, ElementJudgment
+from pravrudhi.application.nyaya_judges import AndGateJudge, ElementJudgment, Gate1Judge
 from tests.test_api_partner import _NO_LIMIT_CONFIG
 from tests.test_nyaya_agent import (
     BNS69_EL,
@@ -42,10 +56,18 @@ from tests.test_nyaya_agent import (
     _registry,
     _second,
 )
+from tests.test_nyaya_gate1 import _StubModel
 
 #: The served taus of the shipped AND gate: `AND(4B >= 0.74, 32B >= 0.97)`.
 TAU_PRIMARY = 0.74
 TAU_SECOND = 0.97
+
+#: The fifth element status, as the project operator specified it on 2026-09-26 (name and user label both).
+#: NOT in the engine's `ElementStatus` literal yet -- deliberately spelled out here rather than read from
+#: `get_args`, because this file's whole job for the fifth case is to say what the engine SHOULD emit before
+#: it emits it. `DECLARED_STATUSES` below stays the engine's own four, so the exhaustiveness tests keep
+#: measuring the engine, not this constant.
+GATE1_UNAVAILABLE_STATUS = "not_evaluated_gate1_unavailable"
 
 Script = dict[str, list[ElementJudgment | Exception]]
 
@@ -122,8 +144,26 @@ def _sc_second_unavailable() -> tuple[Script, Script]:
     return _proof_script(TOY_FACTS), second
 
 
+def _sc_gate1_unavailable() -> tuple[Script, Script]:
+    """Both judges clear their own tau, so Gate 1 is asked -- and the Gate 1 model is down (see `GATE1_DOWN`).
+    The operator's fifth case: the entailment check could not evaluate the element at all."""
+    return _proof_script(TOY_FACTS), _second_passes()
+
+
+#: Scenarios that additionally wrap the AND gate in the REAL `Gate1Judge` over a `_StubModel` that errors on
+#: every call -- the Gate 1 model failing to load, which is what `gate1_unavailable` means in production
+#: (`nyaya_judges.Gate1Judge`'s own fail-closed path, `nyaya_judges.py:929-933`). A whole-model failure, not
+#: a per-element contrivance: Gate 1 is only asked about an element the judge(s) already established, so EL1
+#: comes back unevaluable too, while the denial (never established) is never sent to Gate 1 at all. The
+#: contract outcome still turns on EL0, the element under test.
+GATE1_DOWN: frozenset[str] = frozenset({"gate1_unavailable"})
+
 #: name -> (script factory, expected status, expected binding_leg). The four declared statuses are all
-#: reachable through these six; `test_every_declared_status_is_covered_by_a_scenario` enforces that.
+#: reachable through the first six; `test_every_declared_status_is_covered_by_a_scenario` enforces that. The
+#: seventh expects the fifth status the engine does not emit yet (see the module docstring): its two
+#: round-trip entries below are intended failures until the engine change lands, and they are the reason the
+#: scenario lives in this table rather than only in its own class -- the day the engine emits the label, the
+#: computed AND serialised coverage is already here, rather than being a fifth status with no scenario.
 SCENARIOS: dict[str, tuple[Callable[[], tuple[Script, Script]], str, str | None]] = {
     "established": (_sc_established, "established", None),
     "not_confirmed_second_leg": (_sc_not_confirmed_second, "not_confirmed", "second"),
@@ -131,35 +171,50 @@ SCENARIOS: dict[str, tuple[Callable[[], tuple[Script, Script]], str, str | None]
     "not_confirmed_primary_leg": (_sc_not_confirmed_primary, "not_confirmed", "primary"),
     "not_established_primary_leg": (_sc_not_established_primary, "not_established", "primary"),
     "second_unavailable": (_sc_second_unavailable, "not_evaluated_second_unavailable", None),
+    "gate1_unavailable": (_sc_gate1_unavailable, GATE1_UNAVAILABLE_STATUS, None),
 }
 
 
 # -- harness -----------------------------------------------------------------------------------------------
 
 
-def _and_gate_agent(tmp_path: Path, primary: Script, second: Script) -> NyayaAgent:
-    gate = AndGateJudge(
+def _and_gate_agent(tmp_path: Path, primary: Script, second: Script, *, gate1_down: bool = False) -> NyayaAgent:
+    judge: Any = AndGateJudge(
         ScriptedJudge(primary), ScriptedJudge(second), tau_primary=TAU_PRIMARY, tau_second=TAU_SECOND,
     )
-    return NyayaAgent(gate, _registry(), _config(tmp_path, second_judge={"tau": TAU_SECOND}))
+    if gate1_down:
+        # The shipped composition order (`nyaya_agent._build`: Gate 1 wraps the AND gate, never the reverse)
+        # over a model double that errors -- never a hand-built `ElementJudgment` with Gate 1 fields set.
+        judge = Gate1Judge(judge, _StubModel(error=RuntimeError("gate 1 model not loaded")))
+    return NyayaAgent(judge, _registry(), _config(tmp_path, second_judge={"tau": TAU_SECOND}))
+
+
+def _agent(tmp_path: Path, scenario: str) -> NyayaAgent:
+    """The agent a scenario needs, wired as production wires it."""
+    factory, _status, _leg = SCENARIOS[scenario]
+    primary, second = factory()
+    return _and_gate_agent(tmp_path, primary, second, gate1_down=scenario in GATE1_DOWN)
 
 
 def _computed(tmp_path: Path, scenario: str) -> ElementResult:
     """The element under test as the ENGINE computes it (the `ElementResult` dataclass)."""
-    factory, _status, _leg = SCENARIOS[scenario]
-    primary, second = factory()
-    run = _and_gate_agent(tmp_path, primary, second).run(
+    run = _agent(tmp_path, scenario).run(
         TOY_FACTS, narrative="TOY narrative.", contract_ids=["bns69"],
     )
     return run.contracts[0].elements[0]
 
 
+def _computed_contract(tmp_path: Path, scenario: str) -> Any:
+    """The whole `ContractResult` as the engine computes it -- outcome and reason included."""
+    return _agent(tmp_path, scenario).run(
+        TOY_FACTS, narrative="TOY narrative.", contract_ids=["bns69"],
+    ).contracts[0]
+
+
 def _serialised(tmp_path: Path, scenario: str, *, debug: bool = False) -> dict[str, Any]:
     """The whole contract as the PARTNER API serialises it, through the real route. `debug=False` is the
     shipped default, where the five config-C debug fields are stripped -- i.e. what a real caller sees."""
-    factory, _status, _leg = SCENARIOS[scenario]
-    primary, second = factory()
-    agent = _and_gate_agent(tmp_path, primary, second)
+    agent = _agent(tmp_path, scenario)
     app = FastAPI()
     app.include_router(
         build_partner_router(tmp_path, agent_factory=lambda _root: agent, config=_NO_LIMIT_CONFIG),
@@ -265,6 +320,79 @@ class TestSecondUnavailableIsNeverAFinding:
         )
 
 
+# -- 2b. the fifth status: "could not evaluate" is not "concluded fail", one gate over --------------------
+
+
+class TestGate1UnevaluableIsItsOwnStatus:
+    """The operator's fifth status, `not_evaluated_gate1_unavailable` (decided 2026-09-26; user label "Not
+    evaluated: entailment check unavailable"). The same conflation this file exists to catch, one gate over:
+    an element Gate 1 could not evaluate must not be spelled the way an element a judge scored unmet is.
+    Three tests here PASS today -- the fail-closed outcome, the element flag a later engine change derives
+    the label from, and the half of the operator's distinctness requirement that already holds. One FAILS by
+    design until the engine change lands, per the operator's app-first sequencing."""
+
+    def test_the_fixture_really_is_a_gate1_unevaluable_element(self, tmp_path: Path) -> None:
+        """PASSES today. Also the guard that keeps the intended failure below from going red for the wrong
+        reason: if this scenario ever stopped producing a genuine Gate-1-unavailable element (Gate 1 never
+        asked, the model answering after all, a quote check rejecting first), this test says so instead of
+        leaving a status mismatch to be misread as the known gap. Every field asserted here is one the engine
+        ALREADY carries, which is the point -- the information needed to emit the fifth status exists; only
+        the label is missing."""
+        el = _computed(tmp_path, "gate1_unavailable")
+        assert el.gate1_unavailable is True
+        assert el.gate1_score is None, "the model never answered, so there is no score to report"
+        assert el.gate1_not_entailed is False and el.gate1_contradiction is False, (
+            "a model failure is neither of the two POSSIBLE veto reasons -- nothing was scored at all"
+        )
+        assert el.second_unavailable is False, "the 32B answered fine; Gate 1 is what could not evaluate"
+        assert el.claimed is False, (
+            "the veto happens inside the judge, so `claimed` is already False -- `gate1_unavailable` is the "
+            "only field left saying nothing was evaluated"
+        )
+
+    def test_the_contract_outcome_already_refuses_rather_than_deciding(self, tmp_path: Path) -> None:
+        """PASSES today, and is the half worth locking in: the OUTCOME level is already truthful and
+        fail-closed (`nyaya_agent.py:1248-1249`) -- REFER_TO_LAWYER under its own reason, distinct from the
+        second judge's. A refactor that folded `gate1_unavailable` into `second_judge_unavailable`, or into
+        an ordinary DENIAL/ABSTAIN a caller would read as a decision, would remove the only place the
+        distinction survives on this branch."""
+        c = _serialised(tmp_path, "gate1_unavailable")
+        assert c["outcome"] == "REFER_TO_LAWYER"
+        assert c["reason"] == "gate1_unavailable"
+        assert c["reason"] != _serialised(tmp_path, "second_unavailable")["reason"]
+        assert _computed_contract(tmp_path, "gate1_unavailable").outcome == "REFER_TO_LAWYER", (
+            "the engine's own ContractResult, not just the serialised view"
+        )
+
+    def test_it_is_already_distinct_from_second_judge_unavailable(self, tmp_path: Path) -> None:
+        """PASSES today, for a shallow reason worth stating out loud: the two labels differ only because
+        Gate 1's case is currently borrowing `not_established`. Asserted apart from the intended failure
+        below so that once the engine emits the fifth status this test goes on checking the operator's OTHER
+        distinctness requirement -- `not_evaluated_gate1_unavailable` and `not_evaluated_second_unavailable`
+        are never the same label -- rather than being satisfied by the collapse it is meant to rule out."""
+        g = _serialised(tmp_path, "gate1_unavailable")["elements"][0]
+        s = _serialised(tmp_path, "second_unavailable")["elements"][0]
+        assert g["status"] != s["status"]
+
+    def test_it_must_not_collapse_into_a_scored_and_failed_element(self, tmp_path: Path) -> None:
+        """INTENDED FAILURE, engine change not yet landed -- NOT a defect introduced here. Today
+        `_truthful_status` returns plain `not_established` for every Gate 1 veto, the model-unavailable one
+        included (`nyaya_agent.py:844-845`), so this element carries exactly the label of one a judge scored
+        unmet: the first assertion fails with both sides reading "not_established". That is the failure a
+        consumer cannot detect -- `ElementResultOut` declares no `gate1_*` field at all
+        (`partner.py:244-279`), so nothing else in the default response reveals that nothing was evaluated.
+        Goes green when the engine emits `not_evaluated_gate1_unavailable`, sequenced after `pravrudhi-app`
+        PR #8 per the operator; Gate 1 is off by default in production (`AgentConfig.gate1_enabled=False`),
+        so nothing emits this status today and no caller is seeing the collapse yet."""
+        g = _serialised(tmp_path, "gate1_unavailable")["elements"][0]
+        ne = _serialised(tmp_path, "not_established_second_leg")["elements"][0]
+        assert g["status"] != ne["status"], (
+            f"a Gate-1-unevaluable element reads as {g['status']!r}, the label of one a judge scored unmet"
+        )
+        assert g["status"] == GATE1_UNAVAILABLE_STATUS
+        assert g["status"] not in VERDICT_STATUSES
+
+
 # -- 3. binding_leg agrees with the state ------------------------------------------------------------------
 
 
@@ -289,9 +417,11 @@ class TestBindingLegAgreesWithTheState:
             assert el.binding_leg == "second", f"{scenario}: {el.binding_leg!r}"
 
     def test_states_with_no_tau_miss_name_no_leg(self, tmp_path: Path) -> None:
-        """`established` (nothing failed) and `not_evaluated_second_unavailable` (nothing was measured against
-        a tau) must carry no leg at all -- a leg there would invite a split that counts non-misses."""
-        for scenario in ("established", "second_unavailable"):
+        """`established` (nothing failed) and the two not-evaluated states (nothing was measured against a
+        tau at all) must carry no leg -- a leg there would invite a split that counts non-misses. Passes for
+        the Gate 1 case today too: `_truthful_status` returns no leg for a Gate 1 veto, and the operator's
+        fifth status does not change that, so the engine change must leave this third case as it is."""
+        for scenario in ("established", "second_unavailable", "gate1_unavailable"):
             assert _computed(tmp_path, scenario).binding_leg is None, scenario
 
     def test_a_tau_miss_always_names_the_leg_that_bound_it(self, tmp_path: Path) -> None:
