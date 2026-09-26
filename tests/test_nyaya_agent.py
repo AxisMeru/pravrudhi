@@ -921,9 +921,19 @@ class TestRealBinary:
         # no_training_statute_text ABSTAIN gap Lead-2's production relay test found; each is trimmed to an
         # operative sentence same as the pre-existing entries, so (like several of those) differs from the
         # binary's own full --describe-source text. bns108 is the one Wave-1 id whose full official text IS
-        # short enough to use verbatim, so it is NOT in this list. ni138 has no entry at all (not sourced,
-        # not fabricated) and so does not appear in `training` in the first place.
-        assert len(training) == 25
+        # short enough to use verbatim, so it is NOT in this list.
+        #
+        # ni138 (added the same day, separate browser-fetch authorization): Lead-2 cross-checked the
+        # normalized fetched text (amendment markers stripped, whitespace collapsed) against the pinned
+        # binary's own --describe-source ni138 and found exactly one difference -- "Explanation .--" (space)
+        # vs the portal's "Explanation.--" (no space) -- everything else byte-identical. That one character
+        # is corrected in configs/nyaya_agent.yaml (recorded as a mechanical text_edit in
+        # research/nyaya/corpus/ni.json, not silently), specifically so ni138 is NOT in this differ list and
+        # statute_text_mismatch is false for it. This assertion could not be independently re-verified on
+        # this host: the locally built prabhasa-nyaya binary here does not recognize ni138 at all
+        # (UNKNOWN_CONTRACT_ID) -- it relies on Lead-2's reported comparison against the real pinned binary.
+        assert len(training) == 26
+        assert "ni138" not in differ
         assert differ == sorted(
             [
                 "ipc415_property",
@@ -948,21 +958,34 @@ class TestRealBinary:
             ]
         )
 
-    def test_every_known_contract_has_training_statute_text_except_the_named_exception(self) -> None:
+    def test_every_known_contract_has_training_statute_text(self) -> None:
         """The regression this exists to catch (Lead-2, 2026-09-25 production relay test): Track A's Wave-1
         registry expansion (14 -> 26 contracts) added BNS 316/318/217/80/108, BNSS 187 and NI Act 138 to the
         Lean side but nobody wired their statute text here, so every one of them silently ABSTAINed with
         no_training_statute_text -- in production, not caught by CI, because no test asserted COMPLETENESS
-        (the existing `<=` check above only ever caught an extra/misspelled key, never a missing one).
-        `ni138` is the one deliberate, named exception: NI Act 1881 was never one of
-        india_code_fetch.py's five operator-authorized Acts, so its text is not sourced anywhere in this
-        repo, and this test does not require it -- but a future Wave-2 contract added to
-        KNOWN_CONTRACT_IDS with no corresponding entry here, and no equally-explicit exception added to
-        this test, now fails loudly instead of shipping a silent ABSTAIN."""
+        (the existing `<=` check above only ever caught an extra/misspelled key, never a missing one). Now
+        every one of the 26 known contracts has an entry -- a future Wave-2 contract added to
+        KNOWN_CONTRACT_IDS with no corresponding entry here now fails loudly instead of shipping a silent
+        ABSTAIN, unless it names an equally-explicit exception in this test."""
         training = load_agent_config(REPO).judge_statute_text
-        deliberately_unsourced = {"ni138"}
-        missing = (reg.KNOWN_CONTRACT_IDS - deliberately_unsourced) - set(training)
+        missing = reg.KNOWN_CONTRACT_IDS - set(training)
         assert missing == set(), f"contracts with no training statute text at all: {sorted(missing)}"
+
+    @requires_score_bin
+    def test_ni138_statute_text_mismatch_is_false(self, tmp_path: Path) -> None:
+        """Lead-2's explicit follow-up ask: confirm the one-character portal/binary difference does not set
+        statute_text_mismatch=true for ni138 in production. `statute_text_mismatch` is computed once, up
+        front, before any element is judged, and carried on the result regardless of final outcome -- so
+        every element can safely be judged not_established here; only the mismatch field is under test."""
+        real = BinaryRegistry(SCORE_BIN, pinned_sha256=PINNED)
+        cfg = load_agent_config(REPO)
+        contract = reg.describe_contract_detail("ni138", score_bin=SCORE_BIN)
+        script: dict[str, list[ElementJudgment | Exception]] = {
+            el: [_not()] for el in (*contract.elements, *contract.denials)
+        }
+        agent = NyayaAgent(ScriptedJudge(script), real, cfg)
+        run = agent.run(TOY_FACTS, contract_ids=["ni138"])
+        assert run.contracts[0].statute_text_mismatch is False
 
 
 class TestJudgeConfigurationFault:
