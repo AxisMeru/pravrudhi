@@ -514,18 +514,25 @@ _PII_SHAPES: tuple[tuple[str, re.Pattern[str], str], ...] = (
     # operator") - correct for the backlog itself, and exactly wrong once that text is a teammate's relayed
     # <cross-session-message> rather than a real ask: an auto-capture hook sometimes records the relay
     # itself as the ask text, and on 2026-09-14 that put 872 internal agent-to-agent messages (session
-    # socket paths, cross-session content) into the hourly-published snapshot. The whole wrapped block is
-    # dropped, not just the socket path inside it, since a relay's own prose is usually internal shorthand
-    # too, not written for a public reader. Non-greedy, and stops at the first unescaped quote (`[^"\\]` /
-    # `\\.` -- either a plain non-quote-non-backslash char or an escaped pair, the same shape a JSON string
-    # literal itself is built from) rather than `.` freely, because a captured relay is sometimes truncated
-    # with no closing tag at all in the SAME JSON string value -- an unbounded `.*?` then hunts across
-    # unrelated later fields for the next literal `</cross-session-message>` anywhere in the file and
-    # deletes everything in between, corrupting the JSON (found by actually re-parsing the redacted output,
-    # not just checking substring counts -- the first fix attempt looked clean by that weaker check alone).
+    # socket paths, cross-session content) into the hourly-published snapshot.
+    #
+    # GREEDY, not non-greedy, and bounded to the enclosing JSON string (`[^"\\]` / `\\.` -- either a plain
+    # non-quote-non-backslash char or an escaped pair, the same shape a JSON string literal itself is built
+    # from) rather than `.*` freely: R1's rejection of the first version (liaison-log 22c1451) found 6 of
+    # 957 relay fields truncated at 300 chars with no closing tag at all in the same JSON string value --
+    # the FIRST fix used a non-greedy `.*?</cross-session-message>` for the well-formed case and a bare-token
+    # catch-all for everything else, which left the full relay BODY (operator directives, session ids)
+    # sitting right there, un-redacted, with only the literal word "cross-session-message" stripped out of
+    # it. Bounding the match to the string's own boundary and making it greedy means one rule covers both
+    # shapes at once: a well-formed block consumes start-tag through end-tag (ordinary characters in
+    # between, matched the same as anything else); a truncated one consumes start-tag through wherever the
+    # JSON string itself actually ends, since there is no unescaped quote before that point to stop at
+    # either way. (An EARLIER unbounded `.*?</cross-session-message>` attempt hunted across unrelated later
+    # fields for the next literal closing tag anywhere in the file and corrupted the JSON -- found by
+    # actually re-parsing the redacted output, not just checking substring counts.)
     (
         "cross-session-relay",
-        re.compile(r'<cross-session-message\b(?:\\.|[^"\\])*?</cross-session-message>'),
+        re.compile(r'<cross-session-message\b(?:\\.|[^"\\])*'),
         "<redacted:internal-relay>",
     ),
     # A session socket path mentioned outside a full <cross-session-message> wrapper (e.g. a delivery-notice
@@ -536,12 +543,17 @@ _PII_SHAPES: tuple[tuple[str, re.Pattern[str], str], ...] = (
         re.compile(r"uds:/(?:tmp|run/user/\d+)/cc-socks/[^\s\"'\\)]+"),
         "<redacted:internal-socket-path>",
     ),
-    # Catch-all for what the two shapes above cannot bound: a relay truncated with no closing tag anywhere
-    # in the same JSON string (a captured ask cut off mid-transcript), or a bare mention of either token in
-    # ordinary prose. Neither is a well-formed block or path to redact surgically, so this replaces the bare
-    # token itself -- coarser, but it is what actually guarantees the marker never survives, which matters
-    # more here than preserving the surrounding sentence.
-    ("internal-marker-residue", re.compile(r"cross-session-message|cc-socks"), "<redacted:internal-marker>"),
+    # Defense-in-depth for a bare mention of either token that starts with neither a `<cross-session-message`
+    # tag nor a `uds:` path (so neither shape above ever gets a chance to match it) -- e.g. plain prose
+    # referencing the concept. Never seen in this corpus as of 2026-09-26 (every occurrence found so far was
+    # a real tag), kept anyway as a backstop. Same rule as above, not a bare-token strip: consumes from
+    # wherever the token starts through the enclosing JSON string's own boundary, so nothing trails after the
+    # marker -- the exact defect R1 found in the first version, generalized to this shape too.
+    (
+        "internal-marker-residue",
+        re.compile(r'(?:cross-session-message|cc-socks)(?:\\.|[^"\\])*'),
+        "<redacted:internal-marker>",
+    ),
 )
 
 

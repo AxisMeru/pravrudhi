@@ -28212,7 +28212,7 @@
             "met": false,
             "mode": "proposal",
             "source": "engine",
-            "text": "<<redacted:internal-marker> from=\"local_c7df1dda-a872-4762-9bab-73d823ba147a\" name=\"Pravrudhi agent architecture design\">\nRE-SEND \u2014 DIRECTION FROM THE OPERATOR (an earlier attempt to relay this did not reach you; treat this as the authoritative copy). Please acknowledge receipt explicitly in your next tu",
+            "text": "<redacted:internal-relay>",
             "toolchain": null
           },
           {
@@ -30402,7 +30402,7 @@
             "met": false,
             "mode": "proposal",
             "source": "engine",
-            "text": "<<redacted:internal-marker> from=\"local_bbc58cc8-dfda-4523-8769-dc40dbb366a8\" name=\"Multi-agent Pravrudhi architecture exploration\">\nHandoff: multi-agent architecture + knowledge graph survey, done and tested this session \u2014 please review and pick up.\n\nWhat was asked: study arXiv:2609.09153, check for a r",
+            "text": "<redacted:internal-relay>",
             "toolchain": null
           },
           {
@@ -30662,7 +30662,7 @@
             "met": false,
             "mode": "proposal",
             "source": "engine",
-            "text": "<<redacted:internal-marker> from=\"local_23261435-03e2-422f-8430-adf716ea5e26\" name=\"Project onboarding\">\nRelieved, acknowledged \u2014 you own pravrudhi's research/, ledger and handoff files from here. I've started no new jobs and touched none of those paths.\n\nTwo things that were NOT in CUTOVER.md, both now ",
+            "text": "<redacted:internal-relay>",
             "toolchain": null
           },
           {
@@ -30857,7 +30857,7 @@
             "met": false,
             "mode": "proposal",
             "source": "engine",
-            "text": "<<redacted:internal-marker> from=\"local_23261435-03e2-422f-8430-adf716ea5e26\" name=\"Project onboarding\">\nA1.1 v4 has scored. The session-local waiter I thought might be reaped survived and completed, so the result exists now \u2014 your detached scorer will write the same numbers to `.pravrudhi/handoff/a1_1_v",
+            "text": "<redacted:internal-relay>",
             "toolchain": null
           },
           {
@@ -30900,7 +30900,7 @@
         "session": "",
         "staleness_days": 4.09,
         "state": "captured",
-        "text": "<redacted:internal-relay>\n<redacted:internal-relay>"
+        "text": "<redacted:internal-relay>"
       },
       {
         "asked_at": "2026-09-10T17:11:32.962Z",
@@ -31537,7 +31537,7 @@
             "met": false,
             "mode": "proposal",
             "source": "engine",
-            "text": "<<redacted:internal-marker> from=\"local_ff8f8e31-1e91-4b27-94a7-3f1dbc1d3269\" name=\"session-3\">\nTakeover notice from the adversarial-review session, on the operator's instruction just now (\"takeover from session Project onboarding takeover... tell it to close its background tasks/handover to you and ceas",
+            "text": "<redacted:internal-relay>",
             "toolchain": null
           },
           {
@@ -31567,7 +31567,7 @@
             "met": false,
             "mode": "proposal",
             "source": "engine",
-            "text": "Do not commit or edit anything further. Confirm when done, then cease work in that session.\n</<redacted:internal-marker>>",
+            "text": "Do not commit or edit anything further. Confirm when done, then cease work in that session.\n</<redacted:internal-marker>",
             "toolchain": null
           }
         ],
@@ -32162,7 +32162,7 @@
             "met": false,
             "mode": "proposal",
             "source": "engine",
-            "text": "<<redacted:internal-marker> from=\"<redacted:internal-socket-path>\" from-name=\"pravrudhi-35\" from-mode=\"prompting\">\nClaude CLI seats are now an ordered two-seat registry with automatic failover \u2014 please commit the facts below to memory, because one of them contradicts a note that is probably in y",
+            "text": "<redacted:internal-relay>",
             "toolchain": null
           },
           {
@@ -33581,7 +33581,7 @@
         "session": "",
         "staleness_days": 3.25,
         "state": "captured",
-        "text": "An operator asked for the following, verbatim:\n\n<redacted:internal-relay>\n\nWrite the acceptance criteria that would settle whether this ask has been delivered. Each criterion must name the file, module, command or asset that has to change or hold, in backticks where it is an identifier \u2014 a criterion that only says something should be better cannot be built against or judged. State what must be true, not how to achieve it. Do not restate the ask. Do not invent measurements, numbers or results. Return at most 6 criteria as JSON: {\"criteria\": [\"...\", \"...\"]}\n\nReply with the JSON object only."
+        "text": "An operator asked for the following, verbatim:\n\n<redacted:internal-relay>"
       },
       {
         "asked_at": "2026-09-11T12:12:24.043Z",
@@ -33679,7 +33679,7 @@
         "session": "",
         "staleness_days": 3.25,
         "state": "captured",
-        "text": "An operator asked for the following, verbatim:\n\n<redacted:internal-relay>\n\nWrite the acceptance criteria that would settle whether this ask has been delivered. Each criterion must name the file, module, command or asset that has to change or hold, in backticks where it is an identifier \u2014 a criterion that only says something should be better cannot be built against or judged. State what must be true, not how to achieve it. Do not restate the ask. Do not invent measurements, numbers or results. Return at most 6 criteria as JSON: {\"criteria\": [\"...\", \"...\"]}\n\nReply with the JSON object only."
+        "text": "An operator asked for the following, verbatim:\n\n<redacted:internal-relay>"
       },
       {
         "asked_at": "2026-09-11T12:17:49.768Z",
@@ -33721,7 +33721,7 @@
         "session": "",
         "staleness_days": 3.25,
         "state": "captured",
-        "text": "An operator asked for the following, verbatim:\n\n<redacted:internal-relay>\n\nWrite the acceptance criteria that would settle whether this ask has been delivered. Each criterion must name the file, module, command or asset that has to change or hold, in backticks where it is an identifier \u2014 a criterion that only says something should be better cannot be built against or judged. State what must be true, not how to achieve it. Do not restate the ask. Do not invent measurements, numbers or results. Return at most 6 criteria as JSON: {\"criteria\": [\"...\", \"...\"]}\n\nReply with the JSON object only."
+        "text": "An operator asked for the following, verbatim:\n\n<redacted:internal-relay>"
       },
       {
         "asked_at": "2026-09-11T12:19:52.506Z",
@@ -33735,7 +33735,7 @@
         "session": "",
         "staleness_days": 3.25,
         "state": "captured",
-        "text": "An operator asked for the following, verbatim:\n\n<redacted:internal-relay>\n\nWrite the acceptance criteria that would settle whether this ask has been delivered. Each criterion must name the file, module, command or asset that has to change or hold, in backticks where it is an identifier \u2014 a criterion that only says something should be better cannot be built against or judged. State what must be true, not how to achieve it. Do not restate the ask. Do not invent measurements, numbers or results. Return at most 6 criteria as JSON: {\"criteria\": [\"...\", \"...\"]}\n\nReply with the JSON object only."
+        "text": "An operator asked for the following, verbatim:\n\n<redacted:internal-relay>"
       },
       {
         "asked_at": "2026-09-11T12:20:34.499Z",
@@ -34530,7 +34530,7 @@
         "session": "",
         "staleness_days": 2.81,
         "state": "captured",
-        "text": "<redacted:internal-relay>\n<redacted:internal-relay>"
+        "text": "<redacted:internal-relay>"
       },
       {
         "asked_at": "2026-09-11T22:56:10.703Z",
@@ -36019,7 +36019,7 @@
         "session": "",
         "staleness_days": 2.41,
         "state": "captured",
-        "text": "<redacted:internal-relay>\n<redacted:internal-relay>"
+        "text": "<redacted:internal-relay>"
       },
       {
         "asked_at": "2026-09-12T08:36:01.818Z",
@@ -36341,7 +36341,7 @@
         "session": "",
         "staleness_days": 2.39,
         "state": "captured",
-        "text": "<redacted:internal-relay>\n<redacted:internal-relay>"
+        "text": "<redacted:internal-relay>"
       },
       {
         "asked_at": "2026-09-12T09:05:51.642Z",
@@ -37727,7 +37727,7 @@
         "session": "",
         "staleness_days": 2.32,
         "state": "captured",
-        "text": "<redacted:internal-relay>\n<redacted:internal-relay>"
+        "text": "<redacted:internal-relay>"
       },
       {
         "asked_at": "2026-09-12T10:42:12.625Z",
