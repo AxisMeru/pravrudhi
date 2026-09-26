@@ -36,7 +36,9 @@ RUN set -eu; \
 # the engine's own registry_elements/registry_check (pravrudhi/application/nyaya.py) already convert a
 # missing binary into a clean 503, not a crash, so a real-binary-less image is a degraded-but-honest
 # image, never a broken build.
-ARG NYAYA_SCORE_SHA256=29f6eaed3ef5c548d6c8a1cdf884c9a73895937132779ea4d4cffb8e66cb80ae
+# 2026-09-26: re-pinned to the 37-contract build, assistant/trackA/wave23-integration @636c540 in
+# prabhasa-nyaya -- see configs/nyaya_agent.yaml's pinned_score_sha256 comment for the full provenance.
+ARG NYAYA_SCORE_SHA256=700de3aadf50b482f4cf23499a03fd518cf72734bf8f51b950b5983555dea229
 COPY nyaya/ /opt/nyaya/
 RUN set -eu; \
     if [ -f /opt/nyaya/score ]; then \

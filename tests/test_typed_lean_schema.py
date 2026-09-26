@@ -5,7 +5,7 @@ implicitly deciding the same shape. Most of this file is pure mapping over
 measurement dependency. `TestContractSchemaAgainstTheRealBinary` at the bottom is the one exception: fixtures
 alone can't catch drift from the real binary (a constructed `DescribedContract` is exactly what a bug in
 `describe_contract_detail`'s own parsing would still satisfy), so it runs `contract_schema` over the pinned
-26-contract binary's own live output, skipped unless `PRABHASA_NYAYA_SCORE_BIN` is set AND matches the pinned
+binary's own live output, skipped unless `PRABHASA_NYAYA_SCORE_BIN` is set AND matches the pinned
 sha256 -- same no-host-path-default pattern as 4ac21c3, plus the sha pin so a stale or wrong binary can't
 produce a silently misleading pass.
 """
@@ -24,10 +24,11 @@ from pravrudhi.application.nyaya_lean_registry import DescribedContract
 from pravrudhi.application.typed.lean_schema import contract_schema, element_field_name
 from pravrudhi.application.typed.schema import FieldKind
 
-#: The 26-contract build's own sha256 (`configs/nyaya_agent.yaml`'s `pinned_score_sha256`). No host path is
+#: The pinned build's own sha256 (`configs/nyaya_agent.yaml`'s `pinned_score_sha256`). No host path is
 #: committed here -- PRABHASA_NYAYA_SCORE_BIN has no default, and the integration test below skips unless
 #: it's set AND the binary it points to matches this exact hash.
-_PINNED_SCORE_SHA256 = "29f6eaed3ef5c548d6c8a1cdf884c9a73895937132779ea4d4cffb8e66cb80ae"
+#: 2026-09-26: re-pinned to the 37-contract build, assistant/trackA/wave23-integration @636c540.
+_PINNED_SCORE_SHA256 = "700de3aadf50b482f4cf23499a03fd518cf72734bf8f51b950b5983555dea229"
 _SCORE_BIN = Path(os.environ.get("PRABHASA_NYAYA_SCORE_BIN", "prabhasa-nyaya-score-not-configured"))
 
 
@@ -41,7 +42,7 @@ requires_pinned_registry_scorer = pytest.mark.skipif(
     not _score_bin_matches_pinned_sha(),
     reason=(
         "PRABHASA_NYAYA_SCORE_BIN is not set, missing, or does not match the pinned sha256 "
-        f"{_PINNED_SCORE_SHA256} (set it to the pinned 26-contract build to run this integration test)"
+        f"{_PINNED_SCORE_SHA256} (set it to the pinned 37-contract build to run this integration test)"
     ),
 )
 

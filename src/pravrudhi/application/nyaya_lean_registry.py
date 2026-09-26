@@ -27,15 +27,32 @@ from typing import Any
 
 from pravrudhi.application.nyaya_gold_score import score_bin_path
 
-#: The twenty-six registry Contract ids `contractForId` in `lean/Score.lean` that conform to the wire
+#: The thirty-seven registry Contract ids `contractForId` in `lean/Score.lean` that conform to the wire
 #: grammar spec. Expanded from the original fourteen to include BNS 316 (misappropriation, use_or_disposal,
 #: wilfully_suffers), BNS 318 (property, damaging_act), BNS 217 (misdirected_act, abuse_of_power),
 #: BNS 80 (dowry death), BNS 108 (abetment of suicide), BNSS 187 (extended detention, both branches; the
-#: conduct-entity defect that excluded them in 0.5.26 is fixed in prabhasa-nyaya 8d9f0af), and NI Act 138.
+#: conduct-entity defect that excluded them in 0.5.26 is fixed in prabhasa-nyaya 8d9f0af), NI Act 138, and
+#: (2026-09-26, Lead-2's un-hold of the Wave 2-3 pin candidate) eleven more: BNSS 528 (saving of inherent
+#: powers of High Court -- one contract, one element with a three-way internal disjunction over the
+#: statute's three grounds, per the Bhajan Lal reconciliation recorded in configs/nyaya_agent.yaml's
+#: judge_statute_text comment for bnss528), Contract Act 1872 ss.73/74 (contract73, contract74),
+#: Contract Act 1872 s.56 (contract56_initial_impossibility, contract56_supervening,
+#: contract56_compensation), IBC 2016 s.7 (ibc7_application, ibc7_admission), IBC 2016 s.9
+#: (ibc9_application, ibc9_admission), and BSA 2023 s.63 (bsa63).
 #: Hand-listed here for fast validation before a subprocess call -- kept honest by
 #: `tests/test_nyaya_lean_registry.py`'s drift test, which reads the binary's OWN `--list-contracts`
 #: output and asserts it unions exactly with EXCLUDED_CONTRACT_IDS (the lead's explicit no-drift requirement:
 #: the test reads from the binary, this constant is not the source of truth).
+#:
+#: THE ELEVEN 2026-09-26 IDS (2026-09-26, item-1 regression suite clean, Lead-2's item-3 pin bump): verified
+#: against the candidate's own binary (`assistant/trackA/wave23-integration` @636c540, sha 700de3aa...),
+#: built fresh this session -- `lake build` succeeds, every adequacy #guard passes, and
+#: `score --list-contracts` lists all 37 including these eleven. `configs/nyaya_agent.yaml`'s
+#: `pinned_score_sha256` now IS this sha, so this is the RELEASE BRANCH's own pin, not yet what's live in
+#: production -- that only changes at Lead-2's item-5 cutover (tag, image smoke, Track-C's switch-on smoke,
+#: then deploy). Any test here run against a binary that ISN'T this sha (e.g. the still-deployed production
+#: build) will raise `BinaryShaMismatch`, not `UnknownContractError` -- the pin-enforcement check now fires
+#: first, which is the correct signal that the running binary is stale relative to this branch, not a bug.
 KNOWN_CONTRACT_IDS: frozenset[str] = frozenset(
     {
         "ipc405_misappropriation", "ipc405_use_or_disposal", "ipc405_wilfully_suffers",
@@ -49,6 +66,12 @@ KNOWN_CONTRACT_IDS: frozenset[str] = frozenset(
         "bns80", "bns108",
         "bnss187_extended_serious", "bnss187_extended_other",
         "ni138",
+        "bnss528",
+        "contract73", "contract74",
+        "contract56_initial_impossibility", "contract56_supervening", "contract56_compensation",
+        "ibc7_application", "ibc7_admission",
+        "ibc9_application", "ibc9_admission",
+        "bsa63",
     }
 )
 

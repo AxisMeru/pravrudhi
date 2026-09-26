@@ -44,8 +44,10 @@ def _token_header(tmp_path: Path) -> dict[str, str]:
 def test_lists_all_known_contracts(tmp_path: Path) -> None:
     c = _client(tmp_path)
     body = c.get("/api/nyaya/registry/contracts").json()
-    assert len(body["contracts"]) == 26
-    assert {"ipc405_misappropriation", "bnss187_extended_serious", "ni138"} <= set(body["contracts"])
+    assert len(body["contracts"]) == 37
+    assert {"ipc405_misappropriation", "bnss187_extended_serious", "ni138", "bnss528", "bsa63"} <= set(
+        body["contracts"]
+    )
 
 
 @requires_registry_scorer

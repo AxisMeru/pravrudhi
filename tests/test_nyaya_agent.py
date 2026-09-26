@@ -37,7 +37,10 @@ from pravrudhi.application.nyaya_judges import AndGateJudge, ElementJudgment, Ju
 REPO = Path(__file__).resolve().parent.parent
 #: The pinned binary lives outside this repo; point PRABHASA_NYAYA_SCORE_BIN at it (no host path is committed).
 SCORE_BIN = Path(os.environ.get("PRABHASA_NYAYA_SCORE_BIN", "prabhasa-nyaya-score-not-configured"))
-PINNED = "29f6eaed3ef5c548d6c8a1cdf884c9a73895937132779ea4d4cffb8e66cb80ae"
+#: 2026-09-26: re-pinned to the 37-contract build, assistant/trackA/wave23-integration @636c540 in
+#: prabhasa-nyaya (Lead-2's item-3 authorization, after the item-1 regression suite ran clean against the
+#: prior pin -- see configs/nyaya_agent.yaml's pinned_score_sha256 comment for the full provenance).
+PINNED = "700de3aadf50b482f4cf23499a03fd518cf72734bf8f51b950b5983555dea229"
 requires_score_bin = pytest.mark.skipif(
     not SCORE_BIN.exists(), reason=f"the pinned prabhasa-nyaya score binary is not built on this host ({SCORE_BIN})"
 )
@@ -923,16 +926,21 @@ class TestRealBinary:
         # binary's own full --describe-source text. bns108 is the one Wave-1 id whose full official text IS
         # short enough to use verbatim, so it is NOT in this list.
         #
-        # ni138 (added the same day, separate browser-fetch authorization): Lead-2 cross-checked the
-        # normalized fetched text (amendment markers stripped, whitespace collapsed) against the pinned
-        # binary's own --describe-source ni138 and found exactly one difference -- "Explanation .--" (space)
-        # vs the portal's "Explanation.--" (no space) -- everything else byte-identical. That one character
-        # is corrected in configs/nyaya_agent.yaml (recorded as a mechanical text_edit in
-        # research/nyaya/corpus/ni.json, not silently), specifically so ni138 is NOT in this differ list and
-        # statute_text_mismatch is false for it. This assertion could not be independently re-verified on
-        # this host: the locally built prabhasa-nyaya binary here does not recognize ni138 at all
-        # (UNKNOWN_CONTRACT_ID) -- it relies on Lead-2's reported comparison against the real pinned binary.
-        assert len(training) == 26
+        # ni138: originally read "Explanation .--" (space before the period) to match the OLD pinned
+        # binary's own --describe-source at the time. UPDATED 2026-09-26 alongside the pin bump to
+        # "Explanation.--" (no space), matching the NEW pinned binary's own text (and the official India
+        # Code rendering) -- confirmed directly against the real binary now that PINNED is the 37-contract
+        # build that actually contains this fixed source text, not relayed from someone else's comparison.
+        # So ni138 is NOT in this differ list, and statute_text_mismatch is false for it (see
+        # test_ni138_statute_text_mismatch_is_false).
+        #
+        # bnss528 and the other 10 new ids from the same 37-contract pin (assistant/trackA/wave23-integration
+        # @636c540, Lead-2's item-3 re-pin, 2026-09-26): each entry's text was captured directly from this
+        # SAME binary's own --describe-source and is byte-identical to it, so none of these 11 appear in
+        # this differ list either -- there is nothing left to exclude from the scan now that PINNED actually
+        # is this binary's sha (contrast the prior version of this test, written before the pin bump, which
+        # had to exclude all 11 and assert UnknownContractError for each instead).
+        assert len(training) == 37
         assert "ni138" not in differ
         assert differ == sorted(
             [
@@ -973,10 +981,14 @@ class TestRealBinary:
 
     @requires_score_bin
     def test_ni138_statute_text_mismatch_is_false(self, tmp_path: Path) -> None:
-        """Lead-2's explicit follow-up ask: confirm the one-character portal/binary difference does not set
-        statute_text_mismatch=true for ni138 in production. `statute_text_mismatch` is computed once, up
-        front, before any element is judged, and carried on the result regardless of final outcome -- so
-        every element can safely be judged not_established here; only the mismatch field is under test."""
+        """Confirms configs/nyaya_agent.yaml's ni138 entry does not set statute_text_mismatch=true against
+        the pinned binary. UPDATED 2026-09-26 alongside the pin bump to the 37-contract candidate
+        (assistant/trackA/wave23-integration @636c540, sha 700de3aa...): this now runs directly against
+        that binary (via PINNED/SCORE_BIN) rather than relying on someone else's reported comparison, since
+        the config's ni138 text was updated in the same change to match this binary's own no-space
+        "Explanation.--" rendering. `statute_text_mismatch` is computed once, up front, before any element
+        is judged, and carried on the result regardless of final outcome -- so every element can safely be
+        judged not_established here; only the mismatch field is under test."""
         real = BinaryRegistry(SCORE_BIN, pinned_sha256=PINNED)
         cfg = load_agent_config(REPO)
         contract = reg.describe_contract_detail("ni138", score_bin=SCORE_BIN)
