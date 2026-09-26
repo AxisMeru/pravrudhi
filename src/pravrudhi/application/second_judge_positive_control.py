@@ -243,7 +243,7 @@ class RecordCheckFailed(Exception):
 
 
 def write_record(
-    path: Path, *, available: bool, endpoint_id: str, adapter_sha: str, reasons: list[str],
+    path: Path, *, available: bool, endpoint_id: str | None, adapter_sha: str | None, reasons: list[str],
     timestamp: float | None = None,
 ) -> None:
     """Called by the live preflight CLI after every run -- the durable record `check_record` reads later.
@@ -267,16 +267,24 @@ def read_record(path: Path) -> dict[str, Any] | None:
 
 
 def check_record(
-    record: dict[str, Any] | None, *, max_age_hours: float, expected_endpoint_id: str, expected_adapter_sha: str,
-    now: float | None = None,
+    record: dict[str, Any] | None, *, max_age_hours: float, expected_endpoint_id: str | None,
+    expected_adapter_sha: str | None, now: float | None = None,
 ) -> tuple[bool, str]:
     """(ok, reason). ok=False for: no record, a record whose own `available` was False, a record older than
     `max_age_hours`, or a record naming a different endpoint_id/adapter_sha -- all four are indistinguishable
     to the caller (RecordGatedJudge raises the same way for any of them), but the reason string says which."""
     if record is None:
         return False, "no record"
-    if not record.get("available", False):
-        return False, f"last check failed: {record.get('reasons')}"
+    # Explicit `is not True` rather than `.get("available", False)`: a missing/malformed "available" key
+    # must never be silently treated the same as a real measured False -- both fail closed here, but the
+    # reason string (and any future caller) can tell "no verdict recorded" apart from "verdict was failure".
+    if record.get("available") is not True:
+        return False, f"last check failed or malformed record: {record.get('reasons')}"
+    if expected_endpoint_id is None or expected_adapter_sha is None:
+        return False, (
+            "second_judge.endpoint_id/adapter_sha not configured -- cannot verify record identity "
+            "(never treat an unset expected identity as matching an unset recorded one)"
+        )
     now = now if now is not None else time.time()
     age_hours = (now - record["timestamp"]) / 3600.0
     if age_hours > max_age_hours:
@@ -296,8 +304,8 @@ class RecordGatedJudge:
     `AndGateJudge` itself -- the gate lives entirely in this wrapper."""
 
     def __init__(
-        self, inner, *, record_path: Path, max_age_hours: float, expected_endpoint_id: str,
-        expected_adapter_sha: str,
+        self, inner, *, record_path: Path, max_age_hours: float, expected_endpoint_id: str | None,
+        expected_adapter_sha: str | None,
     ) -> None:
         self.inner = inner
         self.record_path = record_path

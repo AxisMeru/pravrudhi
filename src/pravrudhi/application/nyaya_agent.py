@@ -1049,11 +1049,14 @@ class NyayaAgent:
                 record_path = cfg.second_judge_positive_control.get("record_path")
                 if record_path:
                     from pravrudhi.application.second_judge_positive_control import RecordGatedJudge
+                    # No default: an unset endpoint_id/adapter_sha must stay None, never fall back to "" --
+                    # a deployment that forgot to configure BOTH the record and the live identity must not
+                    # have them silently "match" as two equal empty strings (check_record refuses on None).
                     second = RecordGatedJudge(
                         second, record_path=Path(record_path),
                         max_age_hours=float(cfg.second_judge_positive_control["max_age_hours"]),
-                        expected_endpoint_id=str(cfg.second_judge.get("endpoint_id", "")),
-                        expected_adapter_sha=str(cfg.second_judge.get("adapter_sha", "")),
+                        expected_endpoint_id=cfg.second_judge.get("endpoint_id"),
+                        expected_adapter_sha=cfg.second_judge.get("adapter_sha"),
                     )
                 judge = AndGateJudge(
                     primary, second, tau_primary=cfg.tau, tau_second=second_tau, breaker=second_judge_breaker

@@ -116,18 +116,27 @@ def main() -> int:
     if result.endpoint_unavailable:
         print(f"ENDPOINT UNAVAILABLE: {result.endpoint_error}")
     else:
+        # agree_rate/median_abs_dp/accuracy are None iff their control set was empty (n_total == 0) -- a
+        # config error, not a routine reading. Printed as "n/a (empty control set)" rather than formatted
+        # as a number, since None is not a measured 0.
+        agree_rate_s = f"{result.parity.agree_rate:.4%}" if result.parity.agree_rate is not None else "n/a"
+        median_dp_s = f"{result.parity.median_abs_dp:.4f}" if result.parity.median_abs_dp is not None else "n/a"
         print(f"parity: {result.parity.n_tau_agree}/{result.parity.n_total} "
-              f"({result.parity.agree_rate:.4%}), median|dp|={result.parity.median_abs_dp:.4f}")
+              f"({agree_rate_s}), median|dp|={median_dp_s}")
         print(f"ne_discrimination: {result.ne.n_correct}/{result.ne.n_total}")
         print(f"established (recorded, not a gate): p>=0.5: {result.established.n_p_ge_half}/"
               f"{result.established.n_total}, p>=tau: {result.established.n_p_ge_tau}/"
               f"{result.established.n_total}")
-        baseline_pct = 95.5  # sealed dry-run baseline, established_200, 2026-09-26
-        drop = baseline_pct - result.established.accuracy * 100
-        alert_drop = float(control_cfg["est_accuracy_alert_drop"])
-        if drop > alert_drop:
-            print(f"ALERT (not a gate): established accuracy dropped {drop:.1f} points below the "
-                  f"{baseline_pct}% sealed baseline (threshold {alert_drop} points)")
+        if result.established.accuracy is None:
+            print("ALERT (not a gate): established accuracy is n/a (empty control set) -- cannot compare "
+                  "to the sealed baseline")
+        else:
+            baseline_pct = 95.5  # sealed dry-run baseline, established_200, 2026-09-26
+            drop = baseline_pct - result.established.accuracy * 100
+            alert_drop = float(control_cfg["est_accuracy_alert_drop"])
+            if drop > alert_drop:
+                print(f"ALERT (not a gate): established accuracy dropped {drop:.1f} points below the "
+                      f"{baseline_pct}% sealed baseline (threshold {alert_drop} points)")
 
     print(f"VERDICT: {'AVAILABLE' if verdict.available else 'UNAVAILABLE (fail closed)'}")
     for reason in verdict.reasons:
@@ -139,10 +148,13 @@ def main() -> int:
     # record lets AndGateJudge reach it).
     record_path = control_cfg.get("record_path")
     if record_path:
+        # No default: an unset endpoint_id/adapter_sha is written as None, never "" -- check_record refuses
+        # to match on a None expected identity rather than letting two unset configs "agree" as equal
+        # empty strings.
         write_record(
             Path(record_path), available=verdict.available,
-            endpoint_id=str(cfg.second_judge.get("endpoint_id", "")),
-            adapter_sha=str(cfg.second_judge.get("adapter_sha", "")), reasons=verdict.reasons,
+            endpoint_id=cfg.second_judge.get("endpoint_id"),
+            adapter_sha=cfg.second_judge.get("adapter_sha"), reasons=verdict.reasons,
         )
         print(f"record written: {record_path}")
     else:

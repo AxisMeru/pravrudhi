@@ -93,6 +93,11 @@ class TestComputeEstablishedAccuracy:
         assert result.n_p_ge_half == 2  # a, b
         assert result.n_p_ge_tau == 1  # a only
 
+    def test_empty_elements_gives_none_not_a_fabricated_zero(self) -> None:
+        result = compute_established_accuracy([], {}, TAU)
+        assert result.n_total == 0
+        assert result.accuracy is None
+
 
 class TestDecideAvailability:
     def _passing_result(self) -> ControlCheckResult:
@@ -153,6 +158,18 @@ class TestDecideAvailability:
                                        ne_discrimination_min=0)
         assert verdict.available is False
         assert any("median" in r for r in verdict.reasons)
+
+    def test_empty_control_set_fails_closed_without_crashing(self) -> None:
+        """Fail-open-defaults guard fix: agree_rate/median_abs_dp are None on an empty set, so
+        decide_availability must not compare None to a float (TypeError) or, worse, treat None as passing.
+        An empty control set is a config error, not a clean 100%/0-drift result."""
+        empty_parity = compute_parity([], {}, TAU)
+        empty_ne = compute_ne_discrimination([], {}, TAU)
+        result = ControlCheckResult(parity=empty_parity, ne=empty_ne, established=EstablishedResultStub())
+        verdict = decide_availability(result, parity_floor=0.98, parity_median_abs_dp=0.02,
+                                       ne_discrimination_min=70)
+        assert verdict.available is False
+        assert any("empty control set" in r for r in verdict.reasons)
 
 
 class TestFailClosedOnEndpointFailure:
@@ -319,6 +336,34 @@ class TestRecordRoundTrip:
                                    expected_adapter_sha="different", now=1000.0)
         assert ok is False
         assert "adapter_sha" in reason
+
+    def test_check_record_missing_available_key_fails_closed(self) -> None:
+        """Fail-open-defaults guard fix: a malformed record with NO "available" key must fail exactly like
+        one whose available was measured False, never silently pass via a `.get(..., False)` default that
+        can't tell "no verdict" from "verdict was False" apart from a real measured value."""
+        record = {"timestamp": 1000.0, "endpoint_id": "ep1", "adapter_sha": "abc"}
+        ok, reason = check_record(record, max_age_hours=24, expected_endpoint_id="ep1",
+                                   expected_adapter_sha="abc", now=1000.0)
+        assert ok is False
+
+    def test_check_record_none_expected_endpoint_id_fails_closed_even_if_record_also_unset(self) -> None:
+        """The dangerous direction the guard flagged: if a deployment never configures second_judge.endpoint_
+        id, the OLD code defaulted both the written record's endpoint_id and the expected value to "" --
+        two unset configs would silently "match" as equal empty strings, letting an unverifiable identity
+        read as verified. None must never match None (or "") here -- an unset expected identity always
+        fails closed, regardless of what the record itself contains."""
+        record = {"timestamp": 1000.0, "available": True, "endpoint_id": None, "adapter_sha": "abc"}
+        ok, reason = check_record(record, max_age_hours=24, expected_endpoint_id=None,
+                                   expected_adapter_sha="abc", now=1000.0)
+        assert ok is False
+        assert "not configured" in reason
+
+    def test_check_record_none_expected_adapter_sha_fails_closed_even_if_record_also_unset(self) -> None:
+        record = {"timestamp": 1000.0, "available": True, "endpoint_id": "ep1", "adapter_sha": None}
+        ok, reason = check_record(record, max_age_hours=24, expected_endpoint_id="ep1",
+                                   expected_adapter_sha=None, now=1000.0)
+        assert ok is False
+        assert "not configured" in reason
 
 
 class TestRecordGatedJudge:
