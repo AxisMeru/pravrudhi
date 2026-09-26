@@ -781,6 +781,29 @@ def _second(status: str, p: float) -> ElementJudgment:
     return ElementJudgment(status, p, fact_id="Fx", quote="unused")
 
 
+def _denial_script(facts: list[str]) -> dict[str, list[ElementJudgment | Exception]]:
+    """`_proof_script` with the DENY defeater established TOO: the wire this assembles has a denied claim, so
+    the Lean answer is DENIAL (`outcome_from_lean`'s `denied_claims` branch), not PROOF and not ABSTAIN.
+
+    Needed because every existing second-judge test is proof-shaped (`_proof_script` leaves the defeater
+    `_not()`), so their Lean answer is never DENIAL -- the one shape that matters for "can an element nobody
+    answered for end up inside an affirmative negative finding"."""
+    script = _proof_script(facts)
+    script[BNS69_DENY] = [_est("F3", facts[2], "sexual intercourse with Kiran")]
+    return script
+
+
+def _second_answers_everything() -> dict[str, list[ElementJudgment | Exception]]:
+    """A second judge that answers "established" for all three tasks of `bns69` (2 elements + the defeater),
+    comfortably clear of tau 0.97's logit-distance band -- so a referral in any test below comes from the
+    unavailability rule, never from the band."""
+    return {
+        BNS69_EL[0]: [_second("established", 0.99)],
+        BNS69_EL[1]: [_second("established", 0.99)],
+        BNS69_DENY: [_second("established", 0.99)],
+    }
+
+
 class TestSecondJudgeReferBand:
     """Config C's own REFER band (module doc, "the second judge gets its own band"): a logit-distance test on
     the second judge's `p_established_second` against ITS tau, `second_judge.refer_logit_delta` (env
@@ -971,6 +994,167 @@ class TestSecondJudgeReferBand:
     def test_env_var_absent_by_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("NYAYA_SECOND_JUDGE_REFER_LOGIT_DELTA", raising=False)
         assert load_agent_config(REPO).second_judge is None
+
+    # -- DENIAL x an element the second judge never answered for (Tag's release-blocking question,
+    # -- 2026-09-26) ---------------------------------------------------------------------------------------
+    #
+    # The question: can a DENIAL -- an affirmative finding that the offence is NOT made out -- derive from an
+    # element the second judge never answered for? Such an element is `not_evaluated_second_unavailable`, and
+    # `_run_contract`'s assertions map is built as `{r.element: r.status == "established"}`, so it reaches
+    # Lean as a bare `False`, indistinguishable there from an element a judge genuinely scored unmet.
+    #
+    # The answer is NO, and it rests on TWO independent guarantees:
+    #   (a) ORDERING: `_run_contract` refers on `unavailable_second` BEFORE it acts on the Lean outcome, and
+    #       that list is built over every result (elements AND defeaters), so ONE unanswered element among
+    #       answered ones is enough -- the referral is per element, not per contract and not "the second
+    #       judge is wholly down".
+    #   (b) DIRECTION: the flattening is one-way. Only "established" maps to True, so a missing answer can
+    #       only ever WITHDRAW support -- it can never manufacture the established defeater a DENIAL needs
+    #       (`assemble_assertions` omits a non-established defeater from the wire entirely).
+    #
+    # Neither guarantee had a test over the conjunction before this block: the three
+    # `test_second_unavailable_*` cases above are all proof-shaped (Lean says ABSTAIN or PROOF, never
+    # DENIAL), and `TestLoop.test_denial_established_is_a_denial` runs single-judge with no AND gate at all.
+    # These cases assert behaviour that already works -- they are a regression guard, not a change request.
+
+    def test_denial_shaped_script_reaches_denial_through_the_and_gate(self, tmp_path: Path) -> None:
+        """THE CONTROL, and the most important case in this block: with every task answered by both judges,
+        a `_denial_script` really does come out as a DENIAL through the real `AndGateJudge`. Without this,
+        every referral assertion below would pass vacuously on a fixture that simply never denies."""
+        c = self._run(tmp_path, _denial_script(TOY_FACTS), _second_answers_everything(), delta=None)
+        assert c.outcome == "DENIAL"
+        assert c.reason == "denial_established"
+        assert c.lean_outcome == "DENIAL"
+        assert c.assertions[BNS69_DENY] is True
+        assert c.unavailable_second == []
+
+    def test_denial_with_one_element_the_second_never_answered_refers(self, tmp_path: Path) -> None:
+        """Guarantee (a), the case the whole question was about: the defeater is fully answered by BOTH
+        judges and established -- so Lean itself still says DENIAL -- while ONE required element's second
+        judge is unreachable. The contract must come out REFER_TO_LAWYER / `second_judge_unavailable`, not
+        DENIAL: the referral is per element, and one unanswered element among answered ones is enough."""
+        second = _second_answers_everything()
+        second[BNS69_EL[1]] = [ConnectionError("second judge unreachable")]
+        c = self._run(tmp_path, _denial_script(TOY_FACTS), second, delta=None)
+        assert c.lean_outcome == "DENIAL"  # Lean's own answer is unchanged...
+        assert c.outcome == "REFER_TO_LAWYER"  # ...but the chain never gets there
+        assert c.reason == "second_judge_unavailable"
+        assert c.unavailable_second == [BNS69_EL[1]]
+        assert c.elements[1].status == "not_evaluated_second_unavailable"
+        assert c.assertions[BNS69_EL[1]] is False  # flattened to false, exactly as the question feared
+        assert c.assertions[BNS69_DENY] is True  # and the defeater really was established
+
+    def test_denial_defeater_the_second_never_answered_is_not_asserted_at_all(self, tmp_path: Path) -> None:
+        """Guarantee (b) on the defeater itself: when the DEFEATER is the task the second judge never
+        answered for, it is not sent to Lean as `False` -- `assemble_assertions` omits a non-established
+        defeater from the wire entirely, so it is ABSENT from the assertions map. Lean would have answered
+        PROOF on what remains; the contract refers instead."""
+        second = _second_answers_everything()
+        second[BNS69_DENY] = [ConnectionError("second judge unreachable")]
+        c = self._run(tmp_path, _denial_script(TOY_FACTS), second, delta=None)
+        assert c.elements[2].status == "not_evaluated_second_unavailable"
+        assert BNS69_DENY not in c.assertions  # absent, never present-as-false
+        assert c.lean_outcome == "PROOF"
+        assert c.outcome == "REFER_TO_LAWYER"
+        assert c.reason == "second_judge_unavailable"
+        assert c.unavailable_second == [BNS69_DENY]
+
+    @pytest.mark.parametrize(
+        "reply",
+        ["no JSON object in the reply: ''", "the server returned no logprobs for the first token"],
+    )
+    def test_denial_with_an_unreadable_second_reply_takes_the_same_path(
+        self, tmp_path: Path, reply: str,
+    ) -> None:
+        """A second judge that is configured and reachable but answers unparseably (or emptily) for ONE
+        element is the SAME fail-closed path as an unreachable one, not a fall-through to a status that
+        flattens to a silent `False`: `HouseJudge` raises `JudgeOutputError`, which is not an HTTP 4xx, so
+        `AndGateJudge` records it under the `second_unavailable` prefix like any other transient failure."""
+        second = _second_answers_everything()
+        second[BNS69_EL[1]] = [JudgeOutputError(reply)]
+        c = self._run(tmp_path, _denial_script(TOY_FACTS), second, delta=None)
+        assert c.lean_outcome == "DENIAL"
+        assert c.outcome == "REFER_TO_LAWYER"
+        assert c.reason == "second_judge_unavailable"
+        assert c.elements[1].status == "not_evaluated_second_unavailable"
+        assert c.elements[1].second_unavailable is True
+
+    def test_denial_with_a_per_element_second_timeout_takes_the_same_path(self, tmp_path: Path) -> None:
+        """A timeout on ONE element rather than on the whole call: the exception shape is the one
+        `HouseJudge._complete_with_fallback` actually raises once its own fallbacks are exhausted. The other
+        two tasks answer normally, so this pins the per-element granularity, not a whole-run failure."""
+        second = _second_answers_everything()
+        second[BNS69_EL[1]] = [
+            RuntimeError("judge backend 0 (http://127.0.0.1:8111/v1) failed: ReadTimeout: timed out")
+        ]
+        c = self._run(tmp_path, _denial_script(TOY_FACTS), second, delta=None)
+        assert c.lean_outcome == "DENIAL"
+        assert c.outcome == "REFER_TO_LAWYER"
+        assert c.reason == "second_judge_unavailable"
+        assert c.elements[1].status == "not_evaluated_second_unavailable"
+        assert c.elements[0].status == "established"  # the other elements answered normally
+        assert c.elements[2].status == "established"
+
+    @pytest.mark.parametrize(
+        ("status", "asserted"),
+        [
+            ("established", True),
+            ("not_confirmed", False),
+            ("not_established", False),
+            ("not_evaluated_second_unavailable", False),
+        ],
+    )
+    def test_only_established_flattens_to_true_in_the_lean_wire(
+        self, tmp_path: Path, status: str, asserted: bool,
+    ) -> None:
+        """Guarantee (b) over the WHOLE `ElementStatus` domain: every one of the four statuses, produced end
+        to end by the real gate, and what each one becomes in the assertions map Lean is checked against.
+        Only "established" maps to True; all three non-established labels -- including the "nobody answered"
+        one -- map to False. There is no status a missing answer flattens to True, which is why a missing
+        answer can never manufacture the established defeater a DENIAL requires, nor the all-elements-true a
+        PROOF requires.
+
+        Proof-shaped here on purpose: `lean_outcome` then separates the two directions cleanly (PROOF when
+        the element is True, ABSTAIN when it is False). The contract's FINAL outcome is deliberately not
+        asserted -- `not_confirmed`'s p=0.6 sits in the primary's own `refer_band`, so that row refers for a
+        different and unrelated reason, which is not what this case is about."""
+        primary = _proof_script(TOY_FACTS)
+        second: dict[str, list[ElementJudgment | Exception]] = {
+            BNS69_EL[0]: [_second("established", 0.99)], BNS69_EL[1]: [_second("established", 0.99)],
+        }
+        if status == "not_confirmed":
+            primary[BNS69_EL[0]] = [_not(0.6)]  # leans established (p >= 0.5), never clears tau 0.74
+        elif status == "not_established":
+            primary[BNS69_EL[0]] = [_not(0.2)]  # genuinely scored unmet
+        elif status == "not_evaluated_second_unavailable":
+            second[BNS69_EL[0]] = [ConnectionError("second judge unreachable")]
+        c = self._run(tmp_path, primary, second, delta=None)
+        assert c.elements[0].status == status
+        assert c.assertions[BNS69_EL[0]] is asserted
+        assert c.lean_outcome == ("PROOF" if asserted else "ABSTAIN")
+
+    def test_denial_shaped_script_whose_primary_never_answers_abstains_without_a_lean_call(
+        self, tmp_path: Path,
+    ) -> None:
+        """The neighbouring path, for completeness: when the PRIMARY judge never answers for an element (every
+        attempt raised), the second judge is never reached, so there is no `second_unavailable` flag to refer
+        on. A DENIAL still cannot come out -- `_run_contract`'s `judge_error` check runs before the assertions
+        map is built at all, so the contract ABSTAINs and Lean is never called on a wire containing an element
+        nobody judged. Asserts only today's outcome; the LABEL such an element carries is a separate
+        question, deliberately not pinned here."""
+        primary_script = _denial_script(TOY_FACTS)
+        primary_script[BNS69_EL[1]] = [ConnectionError("house judge unreachable")]
+        primary = ScriptedJudge(primary_script)
+        second = ScriptedJudge(_second_answers_everything())
+        gate = AndGateJudge(primary, second, tau_primary=0.74, tau_second=self.TAU2)
+        registry = _registry()
+        agent = NyayaAgent(gate, registry, _config(tmp_path))
+        c = agent.run(TOY_FACTS, narrative="TOY narrative.", contract_ids=["bns69"]).contracts[0]
+        assert c.outcome == "ABSTAIN"
+        assert c.reason == "judge_error"
+        assert c.elements[1].error is not None
+        assert c.assertions is None and c.lean is None and c.lean_outcome is None
+        assert registry.checks == []  # no Lean call at all
 
 
 class TestTruthfulElementStatus:
