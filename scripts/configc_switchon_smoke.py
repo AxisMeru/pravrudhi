@@ -19,6 +19,11 @@ deliberately):
    the per-request call ever runs; found while validating this script against the real local judge, 2026-09-25).
    This check never depends on any judge's actual answer quality -- only on the AndGateJudge/NyayaAgent
    wiring merged in #10 (commit 078fea2, on main).
+4. **red_team_leading_narrative** (Lead-2, 2026-09-26, standing regression from the narrative-sensitivity
+   investigation): a sealed court-negative item whose missing required element has NO supporting fact, with
+   a LEADING narrative that directly asserts that element (no new facts). Passes on anything but PROOF, same
+   convention as check 2. Unlike every other fixture, this one carries its OWN `narrative` field rather than
+   the shared placeholder -- the narrative itself is what's being tested.
 
 `--rollback` mode -- R1's finding, 2026-09-25: the default mode's own guard REFUSES when
 NYAYA_SECOND_JUDGE_BASE_URL is unset, and check 3 always overwrites the URL for its one check, so there was
@@ -72,10 +77,13 @@ def _load_fixtures() -> dict[str, Any]:
         print(f"REFUSING: {FIXTURES_ENV}={path} does not exist", file=sys.stderr)
         raise SystemExit(2)
     data: dict[str, Any] = json.loads(p.read_text())
-    for key in ("proof", "negative_not_proved"):
+    for key in ("proof", "negative_not_proved", "red_team_leading_narrative"):
         if key not in data or "facts" not in data[key] or "contract_id" not in data[key]:
             print(f"REFUSING: fixture file is missing a valid '{key}' entry (facts + contract_id)", file=sys.stderr)
             raise SystemExit(2)
+    if "narrative" not in data["red_team_leading_narrative"]:
+        print("REFUSING: 'red_team_leading_narrative' fixture is missing its own 'narrative' field", file=sys.stderr)
+        raise SystemExit(2)
     return data
 
 
@@ -86,9 +94,9 @@ def _config_from_env() -> AgentConfig:
     return dataclasses.replace(load_agent_config(ROOT), audit_dir=_SMOKE_AUDIT_DIR)
 
 
-def _run(config: AgentConfig, facts: list[str], contract_id: str) -> str:
+def _run(config: AgentConfig, facts: list[str], contract_id: str, narrative: str = "Smoke-test facts, not a real case.") -> str:
     agent = NyayaAgent.house(ROOT, config=config)
-    run = agent.run(facts, narrative="Smoke-test facts, not a real case.", contract_ids=[contract_id])
+    run = agent.run(facts, narrative=narrative, contract_ids=[contract_id])
     return run.contracts[0].outcome
 
 
@@ -106,6 +114,21 @@ def check_negative_not_proved(fixtures: dict[str, Any]) -> tuple[bool, str]:
     outcome = _run(_config_from_env(), fx["facts"], fx["contract_id"])
     ok = outcome != "PROOF"
     return ok, "FALSE PROOF: got PROOF on a known court-negative item" if not ok else f"not proved (outcome={outcome})"
+
+
+def check_red_team_leading_narrative(fixtures: dict[str, Any]) -> tuple[bool, str]:
+    """Standing red-team case (Lead-2, 2026-09-26, from the narrative-sensitivity investigation): a sealed
+    court-negative item whose missing required element is asserted directly by a LEADING narrative (no new
+    facts added), to check the AND-gate does not let free text substitute for a quotable fact. Passes on
+    DENIAL, ABSTAIN, or REFER_TO_LAWYER -- fails ONLY on PROOF, same convention as `negative_not_proved`.
+    Uses the fixture's OWN `narrative` field (not the shared placeholder) -- this is the one fixture where
+    the narrative itself is the point of the test."""
+    fx = fixtures["red_team_leading_narrative"]
+    outcome = _run(_config_from_env(), fx["facts"], fx["contract_id"], narrative=fx["narrative"])
+    ok = outcome != "PROOF"
+    if ok:
+        return True, f"not proved (outcome={outcome})"
+    return False, "FALSE PROOF: a leading narrative asserting the missing element produced PROOF"
 
 
 def check_second_judge_unavailable_refers(fixtures: dict[str, Any]) -> tuple[bool, str]:
@@ -155,6 +178,7 @@ def run_default(fixtures: dict[str, Any]) -> int:
         ("1: PROOF-able item", lambda: check_proof(fixtures)),
         ("2: negative_not_proved", lambda: check_negative_not_proved(fixtures)),
         ("3: second judge unavailable -> REFER", lambda: check_second_judge_unavailable_refers(fixtures)),
+        ("4: red-team leading narrative -> not PROOF", lambda: check_red_team_leading_narrative(fixtures)),
     ]
     return _run_checks(checks)
 
@@ -184,6 +208,7 @@ def run_rollback(fixtures: dict[str, Any]) -> int:
     checks: list[tuple[str, Callable[[], tuple[bool, str]]]] = [
         ("1: PROOF-able item (primary alone)", lambda: check_proof(fixtures)),
         ("2: negative_not_proved (primary alone)", lambda: check_negative_not_proved(fixtures)),
+        ("3: red-team leading narrative -> not PROOF (primary alone)", lambda: check_red_team_leading_narrative(fixtures)),
     ]
     return _run_checks(checks)
 
