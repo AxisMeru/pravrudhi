@@ -113,7 +113,14 @@ jobs:
   guards:
     runs-on: ubuntu-latest
     steps:
+      # fetch-depth: 0 (Tag, 2026-09-26): the trailer check below used to run `git log --format=%H` over
+      # "history", but actions/checkout's default is a depth-1 shallow clone -- that grep saw exactly ONE
+      # commit, the one being tested, so the check was never really scanning history at all. Full depth is
+      # needed now that the check below is range-scoped (a range still needs the endpoints and everything
+      # between them to be fetched).
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: astral-sh/setup-uv@v6
         with: { python-version: "3.13" }
       - run: uv sync --all-groups --frozen
@@ -172,36 +179,46 @@ jobs:
       # (separately fixed): .githooks/commit-msg, which strips this trailer automatically, only runs when
       # core.hooksPath is set to .githooks in the committing checkout -- it wasn't, for these commits'
       # authors. Run `git config core.hooksPath .githooks` in every checkout/worktree you commit from.
+      # Historical offenders (found while this check still did a full-history scan, now retired -- see
+      # below): e57f0ae ("Judge concurrency", PR #9), 09c0c33 ("Second-judge REFER band", PR #8), and
+      # 5bdc4e4 (Tag's #65 squash-merge: GitHub composed a Co-authored-by line itself from the PR's own
+      # commits; Lead-2's decision, 2026-09-26: allowlist it, no rewrite of a protected main, and
+      # squash-merges from now on pass an explicit commit_title/commit_message with no trailers via the
+      # API so GitHub can't compose one -- see TEAM-RULES.md Merging).
       #
-      # A full history scan while adding dbdf47a to this list found two more, both predating this check
-      # and predating anyone actually setting core.hooksPath: e57f0ae ("Judge concurrency", PR #9,
-      # squash-merged 2026-09-24) and 09c0c33 ("Second-judge REFER band", PR #8, squash-merged
-      # 2026-09-24). Reported to Lead-2 alongside this fix; same decision applies -- no force-push, add to
-      # the allowlist. This is confirmed exhaustive as of 2026-09-26 (a full `git log` scan found exactly
-      # these three); a NEW one appearing means the hooksPath fix didn't take somewhere, not that this list
-      # needs silently growing again without asking.
+      # Range-scoped, not full-history (Tag, 2026-09-26): the old version re-scanned the ENTIRE `git log`
+      # on every run, which (a) needed an ever-growing allowlist for old, already-merged commits and (b)
+      # combined with the missing fetch-depth above, was accidentally checking almost nothing. Checking
+      # just the commits that are actually new -- the PR's own range on a pull_request event, the pushed
+      # range (including the squash result) on a push to main -- means a commit merged once and found
+      # clean (or allowlisted) never needs re-checking, and the allowlist above only exists for the record,
+      # not because these commits are still in scope.
       #
       # Moved here from `governance` (Lead-2, 2026-09-26, same fix as #74): it ran after that job's own
       # pytest step, so a failing `uv run pytest tests/governance -q` silently skipped it too.
-      - name: no attribution trailers in history (except the allowlisted shas, see comment above)
+      - name: no attribution trailers in the commits this run actually introduces
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          ALLOWLISTED_SHAS=(
-            "dbdf47a989634e1a4800d0b4209f4470daf62299"
-            "e57f0ae8585ad774540ec4e430a0eca7c00472dc"
-            "09c0c334c1a643c5e8899152ab6bea2e958b8198"
-          )
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            RANGE="$BASE_SHA..$HEAD_SHA"
+          else
+            if [ "$BEFORE_SHA" = "0000000000000000000000000000000000000000" ]; then
+              echo "first push to this ref, nothing to diff against"
+              exit 0
+            fi
+            RANGE="$BEFORE_SHA..${{ github.sha }}"
+          fi
           BAD=0
           while read -r sha; do
-            skip=0
-            for allowed in "${ALLOWLISTED_SHAS[@]}"; do
-              [[ "$sha" == "$allowed" ]] && skip=1 && break
-            done
-            [[ "$skip" == 1 ]] && continue
+            [ -z "$sha" ] && continue
             if git log -1 --format=%B "$sha" | grep -qiE '^(Co-Authored-By|Claude-Session):'; then
               echo "attribution trailer found in commit $sha"
               BAD=1
             fi
-          done < <(git log --format=%H)
+          done < <(git rev-list "$RANGE")
           exit "$BAD"
 
   engine:
