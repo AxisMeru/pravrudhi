@@ -14,7 +14,7 @@ import math
 import os
 import time
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -533,6 +533,210 @@ class TestValidatedContractsAllowlist:
         }
         assert v1_ids <= cfg.validated_contracts
         assert cfg.validated_contracts <= reg.KNOWN_CONTRACT_IDS
+
+
+#: The fourteen v1 contracts the dual-signed eval (config C, checker_pass 109/377, false-prove 0/225)
+#: actually covers. Since the inversion shipped these are stated EXPLICITLY, as `configs/nyaya_agent.yaml`'s
+#: `validated_contracts:` list (lines 249-262); before it they were only ever implied, as the registry ids
+#: absent from the `unvalidated_contracts` deny list (37 listed by the pinned binary - 23 denied = these 14).
+#: Kept written out here so the reconciliation tests below compare the shipped config against an independent,
+#: reviewable set rather than against itself.
+V1_VALIDATED_CONTRACTS: frozenset[str] = frozenset(
+    {
+        "ipc405_misappropriation", "ipc405_use_or_disposal", "ipc405_wilfully_suffers",
+        "ipc415_property", "ipc415_damaging_act", "ipc416",
+        "ipc182_misdirected_act", "ipc182_abuse_of_power",
+        "bns69", "bns47", "bns85",
+        "bns46_instigation", "bns46_conspiracy", "bns46_intentional_aid",
+    }
+)
+
+#: Stands in for the NEXT registry pin bump's new contract: listed by the checker, given training statute
+#: text in the same wave (exactly how ni138 and the eleven 2026-09-26 ids arrived), and absent from
+#: `validated_contracts`, because whoever bumped the pin did not also add it there. Deliberately not a real
+#: id -- the question under test is what happens to an id no human has classified yet.
+WAVE_NEXT_ID = "bns999_wave_next"
+WAVE_NEXT_EL = [
+    "the promise was made without any intention of fulfilling it",
+    "the act actually occurred",
+]
+WAVE_NEXT_DENY = "the act amounts to a graver offence"
+
+
+def _wave_next_registry() -> ScriptedRegistry:
+    """`_registry()` plus one contract the checker lists that neither validation list mentions."""
+    registry = _registry()
+    registry.contracts[WAVE_NEXT_ID] = reg.DescribedContract(WAVE_NEXT_ID, list(WAVE_NEXT_EL), [WAVE_NEXT_DENY])
+    registry.sources[WAVE_NEXT_ID] = ["Bharatiya Nyaya Sanhita §999"]
+    return registry
+
+
+def _wave_next_script() -> dict[str, list[ElementJudgment | Exception]]:
+    return {
+        WAVE_NEXT_EL[0]: [_est("F2", TOY_FACTS[1], "never to marry Lata")],
+        WAVE_NEXT_EL[1]: [_est("F3", TOY_FACTS[2], "Lata had sexual intercourse with Kiran")],
+        WAVE_NEXT_DENY: [_not()],
+    }
+
+
+class TestUnclassifiedRegistryIdIsGated:
+    """The fail-open gap #36/#43 filed off, pinned from the OUTSIDE: a registry id that arrives without
+    anyone classifying it must REFER, not reach the user as a final PROOF or DENIAL. Written pre-inversion,
+    when `unvalidated_contracts` was a DENY list and validation was whatever was left over, so an
+    unclassified id was validated BY DEFAULT and every pin bump shipped fail-open.
+
+    The inversion has since landed (`validated_contracts`, an allowlist of the signed 14, named in
+    `configs/nyaya_agent.yaml` lines 249-262), so the tests that were red now pass -- which is the point of
+    keeping them: they were written against externally visible outcomes and the config's reconciliation
+    against the registry, never an internal shape, so they are an INDEPENDENT check on the shipped fix
+    rather than a restatement of it. They still run against the SHIPPED config
+    (`load_agent_config(REPO)`), not a hand-built one, and still guard the next pin bump.
+
+    `TestValidatedContractsAllowlist` above (the inversion's own tests) pins the gate's mechanics -- gated
+    PROOF/DENIAL intercepted, ABSTAIN untouched, per-contract not global, empty default fail-closed. Nothing
+    here restates or relaxes any of that. The two classes overlap; deduping them is a maintainer call
+    (R1/R2), deliberately not made here."""
+
+    def _run_wave_next(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, script: dict[str, list[ElementJudgment | Exception]]
+    ) -> Any:
+        """Runs `WAVE_NEXT_ID` through the SHIPPED validation config. `KNOWN_CONTRACT_IDS` is patched (not
+        hand-edited in the source) to simulate the one thing a pin bump always does -- add ids the checker
+        lists -- and training statute text is supplied for it, so the `no_training_statute_text` ABSTAIN
+        gate cannot mask the validation gate this test is about."""
+        monkeypatch.setattr(reg, "KNOWN_CONTRACT_IDS", reg.KNOWN_CONTRACT_IDS | {WAVE_NEXT_ID})
+        shipped = load_agent_config(REPO)
+        config = replace(
+            shipped,
+            audit_dir=tmp_path / "audit",
+            judge_statute_text={**shipped.judge_statute_text, WAVE_NEXT_ID: f"TRAINING statute text for {WAVE_NEXT_ID}"},
+        )
+        agent = NyayaAgent(ScriptedJudge(script), _wave_next_registry(), config)
+        run = agent.run(TOY_FACTS, narrative="TOY narrative.", contract_ids=[WAVE_NEXT_ID])
+        return run.contracts[0]
+
+    def test_a_registry_id_on_neither_list_that_would_prove_is_referred(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The fail-open gap itself. RED pre-inversion (PROOF / all_elements_established): the gate asked
+        whether the id was on the deny list, and an id nobody classified is not. Green since the allowlist
+        shipped -- an independent confirmation of the fix, written before it."""
+        c = self._run_wave_next(tmp_path, monkeypatch, _wave_next_script())
+        assert (c.outcome, c.reason) == ("REFER_TO_LAWYER", "contract_not_validated"), (
+            f"{WAVE_NEXT_ID} is on NEITHER validation list, so no signed eval covers its judging, yet the "
+            f"shipped config let it reach the user as {c.outcome}/{c.reason}"
+        )
+        # Same as for a denied contract: the gate intercepts the OUTCOME only -- every element still judged,
+        # quoted and Lean-checked, and all of it stays visible in the response.
+        assert len(c.elements) == 3
+        assert [e.status for e in c.elements] == ["established", "established", "not_established"]
+        assert c.lean is not None and c.lean["verdict"] == "grounded"
+
+    def test_a_registry_id_on_neither_list_that_would_deny_is_referred(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The DENIAL half of the same gap -- a fail-open id must not reach the user as a definite DENIAL
+        either. RED pre-inversion (DENIAL / denial_established), green since the allowlist shipped."""
+        script = _wave_next_script()
+        script[WAVE_NEXT_DENY] = [_est("F3", TOY_FACTS[2], "sexual intercourse")]
+        c = self._run_wave_next(tmp_path, monkeypatch, script)
+        assert (c.outcome, c.reason) == ("REFER_TO_LAWYER", "contract_not_validated"), (
+            f"{WAVE_NEXT_ID} is on NEITHER validation list, yet it reached the user as {c.outcome}/{c.reason}"
+        )
+
+    def test_a_registry_id_on_neither_list_still_abstains_when_an_element_is_missing(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Must pass EITHER WAY: the inversion widens which ids are gated, never what the gate does. An
+        outcome that is already ABSTAIN carries no unvalidated PROOF/DENIAL to intercept, so it stays
+        ABSTAIN for an unclassified id exactly as it does for a denied one."""
+        script = _wave_next_script()
+        script[WAVE_NEXT_EL[1]] = [_not()]
+        c = self._run_wave_next(tmp_path, monkeypatch, script)
+        assert (c.outcome, c.reason) == ("ABSTAIN", "missing_element")
+
+    def test_a_signed_v1_contract_still_proves_under_the_shipped_config(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Must pass EITHER WAY, and the reason the inversion is safe to make: bns69 is one of the signed 14,
+        so it proves under the deny list today and must still prove once it is named on the allowlist. A
+        change that gated everything would pass the two tests above and fail this one."""
+        monkeypatch.setattr(reg, "KNOWN_CONTRACT_IDS", reg.KNOWN_CONTRACT_IDS | {WAVE_NEXT_ID})
+        shipped = load_agent_config(REPO)
+        agent = NyayaAgent(
+            ScriptedJudge(_proof_script(TOY_FACTS)),
+            _wave_next_registry(),
+            replace(shipped, audit_dir=tmp_path / "audit"),
+        )
+        c = agent.run(TOY_FACTS, narrative="TOY narrative.", contract_ids=["bns69"]).contracts[0]
+        assert (c.outcome, c.reason) == ("PROOF", "all_elements_established")
+
+    def test_the_config_carries_an_explicit_validated_allowlist(self) -> None:
+        """Reconciliation, config side (no binary needed). One of the three that were RED pre-inversion:
+        there was no allowlist at all, so `AgentConfig` had no field to read and validation was only ever
+        stated as its complement. Now green against the shipped allowlist."""
+        config = load_agent_config(REPO)
+        validated = getattr(config, "validated_contracts", None)
+        assert validated is not None, (
+            "AgentConfig states validation only as a deny list, so any registry id absent from it is "
+            "validated by default -- there is no allowlist to reconcile against"
+        )
+        validated = frozenset(validated)
+        assert validated == V1_VALIDATED_CONTRACTS
+        # Post-inversion the deny list is gone (documentation-only in the yaml, never read), so the
+        # partition the two lists used to form is replaced by the two facts that still carry its intent:
+        # every validated id is one the registry actually lists, and the allowlist does NOT cover the whole
+        # registry. The second is the non-vacuity guard -- without it this test would still pass if the
+        # allowlist silently grew to include every id, which is exactly the fail-open state #36 filed off.
+        assert validated <= reg.KNOWN_CONTRACT_IDS, (
+            f"validated ids the registry does not list: {sorted(validated - reg.KNOWN_CONTRACT_IDS)}"
+        )
+        assert reg.KNOWN_CONTRACT_IDS - validated != frozenset(), (
+            "every registry id is on the allowlist, so the gate cannot refuse anything -- either a signed "
+            "eval now covers all 37 (update V1_VALIDATED_CONTRACTS) or the allowlist has gone fail-open"
+        )
+
+    def test_no_id_on_the_validated_allowlist_is_unknown_to_the_registry(self) -> None:
+        """Must pass EITHER WAY: a stale allowlist entry (a renamed or dropped contract) is the other way the
+        config and the registry drift apart, and it hides itself -- an id the checker does not list can never
+        be selected, so nothing else notices. Post-inversion this matters MORE than it did on the deny list:
+        a typo here does not just fail to deny, it fails to validate a contract that should PROOF."""
+        unknown = load_agent_config(REPO).validated_contracts - reg.KNOWN_CONTRACT_IDS
+        assert unknown == frozenset(), f"validated_contracts entries the registry does not list: {sorted(unknown)}"
+
+    def test_the_ids_no_list_denies_are_exactly_the_signed_fourteen(self) -> None:
+        """Must pass EITHER WAY, and the guard the fail-open gap actually needs in CI: the set treated as
+        validated must be the fourteen the signed eval covers -- no more. The day a pin bump adds an id
+        nobody classifies, this test fails, instead of that id shipping as validated-by-default. Reads the
+        allowlist directly now that the deny-list complement it used to fall back to is gone."""
+        config = load_agent_config(REPO)
+        treated_as_validated = frozenset(config.validated_contracts)
+        assert treated_as_validated == V1_VALIDATED_CONTRACTS, (
+            "contracts treated as validated that no signed eval covers: "
+            f"{sorted(treated_as_validated - V1_VALIDATED_CONTRACTS)}; signed but not treated as validated: "
+            f"{sorted(V1_VALIDATED_CONTRACTS - treated_as_validated)}"
+        )
+
+    @pytest.mark.requires_score_bin
+    @requires_score_bin
+    def test_the_pinned_binary_lists_exactly_what_the_two_lists_cover(self) -> None:
+        """Reconciliation against the real pinned binary rather than `KNOWN_CONTRACT_IDS` (which is
+        hand-listed). Skips cleanly where the binary is not built -- that host still gets the config-side
+        reconciliation above."""
+        listed = frozenset(BinaryRegistry(SCORE_BIN, pinned_sha256=PINNED).list_contracts())
+        validated = frozenset(load_agent_config(REPO).validated_contracts)
+        # Pre-inversion this asserted the two lists PARTITIONED what the binary lists. The deny list is gone,
+        # so the same intent is carried by: every validated id is one the binary really lists, and the
+        # hand-maintained `KNOWN_CONTRACT_IDS` the config-side tests above reconcile against is exactly what
+        # the binary lists -- which is what made the partition meaningful in the first place.
+        assert validated <= listed, (
+            f"validated ids the pinned binary does not list: {sorted(validated - listed)}"
+        )
+        assert listed == reg.KNOWN_CONTRACT_IDS, (
+            f"binary lists but KNOWN_CONTRACT_IDS omits: {sorted(listed - reg.KNOWN_CONTRACT_IDS)}; "
+            f"KNOWN_CONTRACT_IDS has but the binary does not list: {sorted(reg.KNOWN_CONTRACT_IDS - listed)}"
+        )
+        assert len(listed) == 37
 
 
 class TestUnvalidatedContractsSkipSecondJudge:
