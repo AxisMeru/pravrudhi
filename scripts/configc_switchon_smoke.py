@@ -24,6 +24,12 @@ deliberately):
    a LEADING narrative that directly asserts that element (no new facts). Passes on anything but PROOF, same
    convention as check 2. Unlike every other fixture, this one carries its OWN `narrative` field rather than
    the shared placeholder -- the narrative itself is what's being tested.
+5. **red_team_negation_probes** (Lead-2, 2026-09-26, Gate 0 follow-up -- NEGATION-PROBES-2026-09-26.md): 3
+   single-element probes (the hardest of 12 tested against the real judge(s), by smallest logit-distance
+   from either judge's own tau), each a fact that explicitly NEGATES the element it's asked about. Asserts
+   the real judge(s) never say `established` on any of them -- a P0 if one does. Single-element checks via
+   `agent.judge.judge()`, not full contract runs (the property under test is the judge's own read of a
+   negated fact, not contract completeness or the quote/Lean layers -- Gate 0's subject, not this check's).
 
 `--rollback` mode -- R1's finding, 2026-09-25: the default mode's own guard REFUSES when
 NYAYA_SECOND_JUDGE_BASE_URL is unset, and check 3 always overwrites the URL for its one check, so there was
@@ -65,7 +71,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
 from pravrudhi.application.nyaya_agent import AgentConfig, NyayaAgent, load_agent_config  # noqa: E402
-from pravrudhi.application.nyaya_judges import AndGateJudge  # noqa: E402
+from pravrudhi.application.nyaya_judges import AndGateJudge, JudgeRequest  # noqa: E402
 
 FIXTURES_ENV = "PRAVRUDHI_CONFIGC_SMOKE_FIXTURES"
 
@@ -92,6 +98,14 @@ def _load_fixtures() -> dict[str, Any]:
     if "narrative" not in data["red_team_leading_narrative"]:
         print("REFUSING: 'red_team_leading_narrative' fixture is missing its own 'narrative' field", file=sys.stderr)
         raise SystemExit(2)
+    probes = data.get("red_team_negation_probes")
+    if not isinstance(probes, list) or not probes:
+        print("REFUSING: fixture file is missing a valid 'red_team_negation_probes' list", file=sys.stderr)
+        raise SystemExit(2)
+    for probe in probes:
+        if not all(k in probe for k in ("id", "contract_id", "element", "statute", "fact", "narrative")):
+            print(f"REFUSING: 'red_team_negation_probes' entry {probe!r} is missing a required field", file=sys.stderr)
+            raise SystemExit(2)
     return data
 
 
@@ -168,6 +182,32 @@ def check_red_team_leading_narrative(fixtures: dict[str, Any]) -> tuple[bool, st
     return False, "FAIL", f"FALSE PROOF: a leading narrative asserting the missing element produced PROOF ({r})"
 
 
+def check_red_team_negation_probes(fixtures: dict[str, Any]) -> tuple[bool, str, str]:
+    """Standing red-team case (Lead-2, 2026-09-26, Gate 0 follow-up -- NEGATION-PROBES-2026-09-26.md): does
+    the judge itself fall for a fact that explicitly NEGATES the element it's asked about? Gate 0 found a
+    false-PROOF gap on an INJECTED "established" assertion with a negating quote (neither the quote check nor
+    Lean can see semantic negation) -- this checks whether the real judges independently manufacture that
+    "established" assertion in the first place, which they must not. Runs 3 probes (the hardest of 12 tested,
+    by smallest logit-distance from either judge's own tau -- see the fixture file's own provenance field)
+    directly through `agent.judge.judge()` (the real AndGateJudge in default mode, the primary HouseJudge
+    alone under --rollback) -- a single-element check, not a full contract run, since the property under
+    test is the judge's read of a negated fact, not contract completeness or the quote/Lean layers. Fails if
+    ANY probe comes back `established` -- that would be a P0 (an explicit negation getting proved)."""
+    agent = NyayaAgent.house(ROOT, config=_config_from_env())
+    established = []
+    for probe in fixtures["red_team_negation_probes"]:
+        req = JudgeRequest(
+            contract_id=probe["contract_id"], element=probe["element"], is_denial=False,
+            statute=probe["statute"], narrative=probe["narrative"], facts=(("F1", probe["fact"]),),
+        )
+        judgment = agent.judge.judge(req)
+        if judgment.status == "established":
+            established.append(f"{probe['id']} (p_established={judgment.p_established})")
+    if established:
+        return False, "FAIL", f"P0: negation probe(s) established: {established}"
+    return True, "PASS", f"all {len(fixtures['red_team_negation_probes'])} negation probes correctly not established"
+
+
 def check_second_judge_unavailable_refers(fixtures: dict[str, Any]) -> tuple[bool, str, str]:
     """Deterministic: NYAYA_SECOND_JUDGE_BASE_URL is overridden to an unreachable local port, and
     NYAYA_SECOND_JUDGE_MODEL is pinned to a fixed string, for THIS check only -- both together, regardless
@@ -217,6 +257,7 @@ def run_default(fixtures: dict[str, Any]) -> int:
         ("2: negative_not_proved", lambda: check_negative_not_proved(fixtures)),
         ("3: second judge unavailable -> REFER", lambda: check_second_judge_unavailable_refers(fixtures)),
         ("4: red-team leading narrative -> not PROOF", lambda: check_red_team_leading_narrative(fixtures)),
+        ("5: red-team negation probes -> not established", lambda: check_red_team_negation_probes(fixtures)),
     ]
     return _run_checks(checks)
 
@@ -247,6 +288,7 @@ def run_rollback(fixtures: dict[str, Any]) -> int:
         ("1: PROOF-able item (primary alone)", lambda: check_proof(fixtures)),
         ("2: negative_not_proved (primary alone)", lambda: check_negative_not_proved(fixtures)),
         ("3: red-team leading narrative -> not PROOF (primary alone)", lambda: check_red_team_leading_narrative(fixtures)),
+        ("4: red-team negation probes -> not established (primary alone)", lambda: check_red_team_negation_probes(fixtures)),
     ]
     return _run_checks(checks)
 
