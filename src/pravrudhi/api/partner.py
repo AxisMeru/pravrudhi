@@ -62,7 +62,14 @@ from pravrudhi.api.identity import CurrentUserDep, User
 from pravrudhi.application import nyaya_lean_registry as reg
 from pravrudhi.application import tenancy
 from pravrudhi.application.config_files import config_file
-from pravrudhi.application.nyaya_agent import RETENTION_NOTICE, BinaryShaMismatch, JudgeMisconfigured, NyayaAgent
+from pravrudhi.application.nyaya_agent import (
+    ELEMENT_STATUSES,
+    RETENTION_NOTICE,
+    BinaryShaMismatch,
+    ElementStatus,
+    JudgeMisconfigured,
+    NyayaAgent,
+)
 from pravrudhi.application.nyaya_judges import SecondJudgeCircuitBreaker
 
 CONFIG_PATH = Path("configs") / "partner_api.yaml"
@@ -240,11 +247,38 @@ _SECOND_JUDGE_DEBUG_FIELDS = (
     "second_refer_band_fired", "second_unavailable",
 )
 
+_ELEMENT_STATUSES_SET = frozenset(ELEMENT_STATUSES)
+
+
+def _refuse_unrecognised_element_statuses(body: dict[str, Any]) -> None:
+    """Issue #78: fail closed with a clean 422 naming the element, rather than letting an empty or
+    unrecognised `status` string reach a caller (silently, since a bare `str` field validates anything) or
+    fall through to FastAPI's own generic 500 from a `response_model` validation error. Checked explicitly,
+    ahead of Pydantic's own validation of `ElementResultOut.status`, so the failure mode is intentional and
+    the message says which contract/element misbehaved -- both engine bugs this exists to catch, never a
+    caller input problem, so 422 here means "the engine's own testimony is unreadable", not "you asked for
+    something invalid"."""
+    for contract in body.get("contracts", []):
+        for element in contract.get("elements", []):
+            status = element.get("status")
+            if not status or status not in _ELEMENT_STATUSES_SET:
+                raise HTTPException(
+                    422,
+                    f"contract {contract.get('contract_id')!r}, element {element.get('element')!r}: "
+                    f"unrecognised status {status!r} (expected one of {sorted(_ELEMENT_STATUSES_SET)})",
+                )
+
 
 class ElementResultOut(BaseModel):
     element: str
     is_denial: bool
-    status: str
+    #: Constrained to the engine's own declared set (`ElementStatus`, issue #78), never a bare `str` -- a
+    #: response carrying an empty or unrecognised value here would otherwise pass straight through
+    #: (Pydantic never validates a plain `str` field's actual content), which is exactly the "looks like
+    #: honest engine testimony, isn't" failure this route exists to avoid. `analyse_facts_ep` below also
+    #: checks this explicitly before ever building the response, so a bad value fails closed as a clean 422
+    #: naming the element, not FastAPI's own generic 500 from a response-model validation error.
+    status: ElementStatus
     claimed: bool
     p_established: float | None
     fact_id: str | None
@@ -578,6 +612,7 @@ def build_partner_router(
                 for element in contract.get("elements", []):
                     for field in _SECOND_JUDGE_DEBUG_FIELDS:
                         element.pop(field, None)
+        _refuse_unrecognised_element_statuses(body)
         return body
 
     @router.post("/orgs", response_model=OrgOut)
