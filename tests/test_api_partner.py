@@ -341,14 +341,17 @@ class TestSecondJudgeDebugFields:
         assert "p_established_second" not in el0
 
     def test_default_response_shape_is_completely_unchanged_when_off(self, tmp_path: Path) -> None:
-        """Byte-for-byte the same keys as before this feature existed, for the ordinary (no config C, no
-        flags) case every existing test above already exercises."""
+        """Byte-for-byte the same keys as before this feature existed for every CONFIG-C DEBUG field (the
+        five `_SECOND_JUDGE_DEBUG_FIELDS`), for the ordinary (no config C, no flags) case every existing test
+        above already exercises. `binding_leg` (issue #37) is a deliberate exception: unlike the debug
+        fields, it's always present -- the truthful element status it supports is a first-class response
+        field, never gated behind a debug flag."""
         c = _client(tmp_path)
         resp = c.post("/api/v1/analyse-facts", json=_req())
         el0 = resp.json()["contracts"][0]["elements"][0]
         assert set(el0) == {
             "element", "is_denial", "status", "claimed", "p_established", "fact_id", "quote", "start", "end",
-            "quote_check", "attempts", "occurrences", "offsets_source", "quote_source", "error",
+            "quote_check", "attempts", "occurrences", "offsets_source", "quote_source", "error", "binding_leg",
         }
 
 

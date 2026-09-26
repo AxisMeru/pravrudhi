@@ -251,6 +251,11 @@ class ElementResultOut(BaseModel):
     #: user rather than folded silently into the verdict.
     quote_source: str | None
     error: str | None
+    #: Issue #37: which judge's tau a non-established element failed to clear ("primary" / "second" /
+    #: "both", or None when established, second-judge-unavailable, or a Gate 1 veto) -- always present,
+    #: never gated behind the config-C debug flag below, since the truthful status itself is a first-class
+    #: response field, not a debug-only internal.
+    binding_leg: str | None = None
     #: Config-C debug fields (Lead-2, 2026-09-25): present ONLY when both `PartnerApiConfig.
     #: debug_second_judge_fields_enabled` and the request's own `?debug_second_judge=true` are set --
     #: `analyse_facts_ep` pops these five keys out of every element's dict before returning otherwise, so a
