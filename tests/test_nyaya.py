@@ -24,34 +24,6 @@ def test_the_shipped_corpus_is_real_and_traceable() -> None:
     assert c.by_id["IPC/Section 302"].title.lower().startswith("punishment for murder")
     assert c.by_id["COI/Article 14"].text.startswith("The State shall not deny to any person equality before the law")
     assert c.by_id["COI/Article 21"].text.startswith("No person shall be deprived of his life or personal liberty")
-
-
-def test_the_shipped_corpus_now_includes_bns_and_bnss() -> None:
-    """Issue #34: the corpus previously shipped no BNS/BNSS/BSA statute text at all -- a real match for a
-    BNS/BNSS contract's own question was never possible, only an honest NOT_IN_INDEX via the relevance
-    floor (PR #30). Fetched from indiacode.gov.in (BNS bitstream 8007a80e-..., BNSS bitstream
-    73f93470-...), extracted via scripts/india_code_extract.py, verified section counts matching the
-    portal's own structured section-index totals (358 and 531) before shipping. BSA is not yet added --
-    its bitstream id needs a browser click-through per india_code_fetch.py's own docstring, not done here."""
-    c = nyaya.load_corpus()
-    bns = next(s for s in c.sources if s.get("work") == "BNS (2023)")
-    assert bns["site"] == "indiacode.gov.in" and bns["pages"][0]["sha256"]
-    bnss = next(s for s in c.sources if s.get("work") == "BNSS (2023)")
-    assert bnss["site"] == "indiacode.gov.in" and bnss["pages"][0]["sha256"]
-    bns_ids = {d.id for d in c.documents if d.act == "BNS"}
-    bnss_ids = {d.id for d in c.documents if d.act == "BNSS"}
-    assert len(bns_ids) == 358
-    assert len(bnss_ids) == 531
-    # The exact sections every currently-validated BNS/BNSS contract cites (configs/nyaya_agent.yaml's own
-    # validated_contracts, issue #36) must actually exist and be retrievable -- not merely present in the
-    # corpus file but findable by a real question naming the provision, the whole point of this issue.
-    assert c.by_id["BNS/Section 69"].title == "Sexual intercourse by employing deceitful means, etc."
-    assert c.by_id["BNS/Section 69"].text.startswith(
-        "Whoever, by deceitful means or by making promise to marry to a woman without any intention of "
-        "fulfilling the same, has sexual intercourse with her"
-    )
-    hits = [d.id for d, _ in c.retrieve("What is the punishment for false promise to marry under bns69?", k=5)]
-    assert "BNS/Section 69" in hits
     assert "COI/Article 232" not in c.by_id  # repealed; only a chapter banner followed its number
 
 
@@ -103,15 +75,8 @@ def test_a_lay_question_reaches_the_homicide_sections_through_the_lexicon() -> N
     c = nyaya.load_corpus()
     q = "A man strikes another on the head with a heavy stick intending grievous hurt; the victim dies two days later."
     ids = [d.id for d, _ in c.retrieve(q, k=8)]
-    # Both code families are in the corpus (issue #34): IPC (repealed but still shipped) and BNS (its
-    # current replacement) each have their own homicide/grievous-hurt sections, and BNS's are often the
-    # stronger BM25 match for the same fact pattern -- either family reaching the top-8 satisfies this
-    # check, which is about the LEXICON closing a vocabulary gap, not about which code answers.
-    assert {
-        "IPC/Section 304", "IPC/Section 300", "IPC/Section 299", "IPC/Section 302",
-        "BNS/Section 100", "BNS/Section 101", "BNS/Section 103", "BNS/Section 105",
-    } & set(ids)
-    assert "IPC/Section 325" in ids or "IPC/Section 320" in ids or "BNS/Section 117" in ids
+    assert {"IPC/Section 304", "IPC/Section 300", "IPC/Section 299", "IPC/Section 302"} & set(ids)
+    assert "IPC/Section 325" in ids or "IPC/Section 320" in ids
     assert nyaya.expand("nothing legal here", c.expansions) == "nothing legal here"
     assert [d.id for d, _ in c.retrieve("equality before law", k=1)] == ["COI/Article 14"]
     assert [d.id for d, _ in c.retrieve("right to life and personal liberty", k=1)] == ["COI/Article 21"]
@@ -278,15 +243,9 @@ class TestAdminSessionIsAValidByokProxy:
 
 def test_the_routes_serve_the_product_and_need_the_local_token_to_ask(tmp_path: Path) -> None:
     init_project(tmp_path)
-    # BNS/Section 101 ("Murder.") rather than IPC/Section 302: with BNS in the corpus (issue #34) it is the
-    # exact, canonically-titled top hit for this query, unlike IPC/Section 302 which BNS's own more numerous
-    # culpable-homicide-family sections now displace out of the top-k for the bare word "murder".
-    fake = _fake({"*": "ANSWER: [BNS/Section 101].\nCITATIONS: BNS/Section 101\nCONFIDENCE: low"})
+    fake = _fake({"*": "ANSWER: [IPC/Section 302].\nCITATIONS: IPC/Section 302\nCONFIDENCE: low"})
     c = TestClient(create_app(tmp_path, nyaya_ask_fn=fake), base_url="http://127.0.0.1:8008")
-    # BNS (issue #34) now legitimately outranks IPC for "murder" -- either code family answering proves
-    # this endpoint works; which one wins is a retrieval-ranking question, not what this test checks.
-    top_id = c.get("/api/nyaya/corpus?q=murder").json()["hits"][0]["id"]
-    assert top_id.startswith("IPC/") or top_id.startswith("BNS/")
+    assert c.get("/api/nyaya/corpus?q=murder").json()["hits"][0]["id"].startswith("IPC/")
     vendors = c.get("/api/nyaya/vendors").json()["vendors"]
     assert {v["id"] for v in vendors} == set(nyaya.DEFAULT_VENDORS) and all("available" in v for v in vendors)
     # Regression (2026-09-21): nyaya-p2b-local was added to panel.VENDORS for the arm_c demo but
