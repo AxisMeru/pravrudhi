@@ -479,6 +479,43 @@ class TestUnvalidatedContractsGate:
         assert run.contracts[0].reason == "all_elements_established"
 
 
+class TestUnvalidatedContractsSkipSecondJudge:
+    """Lead-2, 2026-09-26 (found live in production): `unvalidated_contracts` must be checked BEFORE the
+    second judge is ever called, not just before the outcome is reported. Before this fix, an unvalidated
+    contract still paid the 32B's ~90s round trip on every element, and if the second judge happened to be
+    unavailable, the response's `reason` came back as `second_judge_unavailable` instead of the correct
+    `contract_not_validated` -- silently masking the real, cheaper-to-diagnose reason. Wraps two real
+    `ScriptedJudge` doubles in a REAL `AndGateJudge` (never a hand-built `ElementJudgment`) so the skip is
+    exercised exactly as production wires it."""
+
+    def _run(self, tmp_path: Path, **cfg: Any) -> tuple[Any, ScriptedJudge, ScriptedJudge]:
+        primary = ScriptedJudge(_proof_script(TOY_FACTS))
+        second = ScriptedJudge({
+            BNS69_EL[0]: [_second("established", 0.99)],
+            BNS69_EL[1]: [_second("established", 0.99)],
+        })
+        gate = AndGateJudge(primary, second, tau_primary=0.74, tau_second=0.97)
+        config = _config(tmp_path, **cfg)
+        agent = NyayaAgent(gate, _registry(), config)
+        run = agent.run(TOY_FACTS, narrative="TOY narrative.", contract_ids=["bns69"])
+        return run.contracts[0], primary, second
+
+    def test_unvalidated_contract_never_calls_the_second_judge(self, tmp_path: Path) -> None:
+        c, primary, second = self._run(tmp_path, unvalidated_contracts=frozenset({"bns69"}))
+        assert second.requests == []  # the 32B's ~90s round trip is never spent on a gated contract
+        assert len(primary.requests) == 3  # every element (2 required + the denial check) still judges
+        assert c.outcome == "REFER_TO_LAWYER"
+        assert c.reason == "contract_not_validated"  # never masked by a second-judge-unavailable style reason
+
+    def test_validated_contract_still_calls_the_second_judge_as_before(self, tmp_path: Path) -> None:
+        """A contract NOT on the list falls through to the second judge exactly as before this fix --
+        `unvalidated_contracts` naming some OTHER contract must not change bns69's own path."""
+        c, primary, second = self._run(tmp_path, unvalidated_contracts=frozenset({"some_other_contract"}))
+        assert len(second.requests) == 2  # both established elements still went to the second judge
+        assert c.outcome == "PROOF"
+        assert c.reason == "all_elements_established"
+
+
 def _second(status: str, p: float) -> ElementJudgment:
     """A second-judge reply as a bare `Judge` double would give it -- fact_id/quote are never read from the
     second (AndGateJudge always keeps the primary's span), so they are dummy values here."""
