@@ -120,17 +120,27 @@ def main() -> int:
     def _call_typed(prompt: str) -> Any:
         return _timed_complete(decoder.complete, prompt, max_tokens=MAX_TOKENS, temperature=0.0, logprobs=TOP_LOGPROBS)
 
+    n_planned = len(calib_v1) + len(heldout_v1)
+    n_error = 0
+    truncated_reason: str | None = None
     raw_rows: list[dict[str, Any]] = []
     try:
         for i, row in enumerate(calib_v1):
             half = "even" if i % 2 == 0 else "odd"
             first = "free_text" if half == "even" else "typed"
-            if first == "free_text":
-                res_free = _call_free(row["prompt"])
-                res_typed = _call_typed(row["prompt"])
-            else:
-                res_typed = _call_typed(row["prompt"])
-                res_free = _call_free(row["prompt"])
+            try:
+                if first == "free_text":
+                    res_free = _call_free(row["prompt"])
+                    res_typed = _call_typed(row["prompt"])
+                else:
+                    res_typed = _call_typed(row["prompt"])
+                    res_free = _call_free(row["prompt"])
+            except LatencyDegraded:
+                raise
+            except Exception as e:  # noqa: BLE001 -- one row's failure must not crash the whole run
+                n_error += 1
+                print(f"ERROR on calib_v1 row {i} ({row.get('id')}): {e}", file=sys.stderr)
+                continue
             raw_rows.append(
                 {
                     "row_source": "calib_v1", "index_in_split": i, "id": row.get("id"), "gold": row["gold"],
@@ -143,8 +153,15 @@ def main() -> int:
                 print(f"  calib_v1 {i + 1}/{len(calib_v1)}")
 
         for i, row in enumerate(heldout_v1):
-            res_free = _call_free(row["prompt"])
-            res_typed = _call_typed(row["prompt"])
+            try:
+                res_free = _call_free(row["prompt"])
+                res_typed = _call_typed(row["prompt"])
+            except LatencyDegraded:
+                raise
+            except Exception as e:  # noqa: BLE001 -- one row's failure must not crash the whole run
+                n_error += 1
+                print(f"ERROR on heldout_v1 row {i} ({row.get('id')}): {e}", file=sys.stderr)
+                continue
             raw_rows.append(
                 {
                     "row_source": "heldout_v1", "index_in_split": i, "id": row.get("id"), "gold": row["gold"],
@@ -156,23 +173,53 @@ def main() -> int:
             if (i + 1) % 50 == 0:
                 print(f"  heldout_v1 {i + 1}/{len(heldout_v1)}")
     except LatencyDegraded as e:
+        truncated_reason = str(e)
         print(f"ABORTING: {e}", file=sys.stderr)
-        print(f"completed {len(raw_rows)}/{len(calib_v1) + len(heldout_v1)} rows before stopping", file=sys.stderr)
+        print(f"completed {len(raw_rows)}/{n_planned} rows before stopping", file=sys.stderr)
+
+    n_scored = len(raw_rows)
+    complete = n_scored == n_planned
 
     # -- hash-seal raw outputs BEFORE any scoring pass (sealed §6) -----------------------------------------
-    raw_path = results_dir / "t2_c3_raw_outputs.jsonl"
-    with raw_path.open("w") as f:
+    canonical_name = "t2_c3_raw_outputs.jsonl"
+    out_path = results_dir / (canonical_name if complete else canonical_name + ".TRUNCATED")
+    with out_path.open("w") as f:
         for r in raw_rows:
             f.write(json.dumps(r) + "\n")
-    raw_sha = hashlib.sha256(raw_path.read_bytes()).hexdigest()
+    raw_sha = hashlib.sha256(out_path.read_bytes()).hexdigest()
     print()
-    print(f"RAW OUTPUTS SEALED: {raw_path}, sha256 {raw_sha}, {len(raw_rows)} rows")
-    print("This sha must reach R2 before any scoring pass, per the sealed prereg.")
+    if complete:
+        print(f"RAW OUTPUTS SEALED: {out_path}, sha256 {raw_sha}, {len(raw_rows)} rows")
+        print("This sha must reach R2 before any scoring pass, per the sealed prereg.")
+    else:
+        print(
+            f"TRUNCATED OUTPUT WRITTEN, NOT SEALED: {out_path}, sha256 {raw_sha}, "
+            f"n_scored={n_scored} != n_planned={n_planned}",
+            file=sys.stderr,
+        )
 
-    meta.finish(extra={"raw_output_sha256": raw_sha, "n_rows": len(raw_rows)})
+    meta.finish(
+        extra={
+            "raw_output_sha256": raw_sha,
+            "output_path": str(out_path),
+            "n_planned": n_planned,
+            "n_scored": n_scored,
+            "n_error": n_error,
+            "complete": complete,
+            "truncated_reason": truncated_reason,
+        }
+    )
     meta_path = results_dir / "t2_c3_ab_run_RUN-METADATA.json"
     meta.write(meta_path)
     print(f"RUN-METADATA written: {meta_path}")
+
+    if not complete:
+        print(
+            f"REFUSING TO SEAL: n_scored ({n_scored}) != n_planned ({n_planned}); "
+            f"wrote {out_path} instead of the canonical filename",
+            file=sys.stderr,
+        )
+        return 2
 
     # Lead-2's protocol note (2026-09-24): no aggregate/headline numbers computed here, even as a "quick
     # sanity check" -- everything downstream of the raw seal waits for R2's sign and runs as its own
