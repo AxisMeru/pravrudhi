@@ -475,7 +475,7 @@ wheels = [
 
 [[package]]
 name = "pravrudhi"
-version = "0.5.37"
+version = "0.5.38"
 source = { editable = "." }
 dependencies = [
     { name = "argon2-cffi" },
