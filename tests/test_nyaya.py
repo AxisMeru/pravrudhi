@@ -47,6 +47,28 @@ def test_a_question_outside_the_shipped_corpus_retrieves_nothing_rather_than_noi
     assert c.retrieve("What is the applicable statute for bns69?", k=8) == []
 
 
+def test_min_relevance_score_is_config_driven(tmp_path: Path) -> None:
+    """Issue #32 (follow-up from PR #30): MIN_RELEVANCE_SCORE moved out of code into
+    configs/nyaya_corpus.yaml -- a deployment can override it, and a root with no such file (every existing
+    caller before this config existed: a project workspace, a test's tmp_path) keeps the exact same
+    behaviour as before, never a newly-required file turning it into a crash."""
+    cfg_dir = tmp_path / "configs"
+    cfg_dir.mkdir()
+    (cfg_dir / "nyaya_corpus.yaml").write_text("min_relevance_score: 1000\n")
+    assert nyaya.load_min_relevance_score(tmp_path) == 1000.0
+
+    no_config_root = tmp_path / "no-config-here"
+    no_config_root.mkdir()
+    assert nyaya.load_min_relevance_score(no_config_root) == nyaya.MIN_RELEVANCE_SCORE
+    assert nyaya.load_min_relevance_score(None) == nyaya.MIN_RELEVANCE_SCORE
+
+    # An overridden floor actually changes retrieve()'s own behaviour, not just the loader's return value.
+    c = nyaya.load_corpus(tmp_path)
+    assert c.min_relevance_score == 1000.0
+    assert c.retrieve("What is the punishment for murder under section 302?", k=5) == []  # even a real match
+    # is now below the (absurdly high) configured floor -- proving retrieve() actually reads this field.
+
+
 def test_a_lay_question_reaches_the_homicide_sections_through_the_lexicon() -> None:
     """The first live ask retrieved hurt and robbery sections for a victim who died, and both CLIs rightly
     abstained. The gap was vocabulary, so the fix is config: lexicon.json maps lay words to the Code's."""
