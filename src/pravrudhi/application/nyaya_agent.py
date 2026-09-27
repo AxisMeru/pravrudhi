@@ -69,7 +69,7 @@ from concurrent.futures import CancelledError, ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal, Protocol
+from typing import Any, Literal, Protocol, cast
 
 from pravrudhi.application import nyaya_lean_registry as reg
 from pravrudhi.application.nyaya_judges import ElementJudgment, Judge, JudgeRequest, SecondJudgeCircuitBreaker
@@ -176,12 +176,13 @@ class AgentConfig:
             raise ValueError(f"second_judge.refer_logit_delta must be >= 0, got {delta}")
         if self.max_concurrency < 1:
             raise ValueError(f"max_concurrency must be >= 1, got {self.max_concurrency}")
-        gate = self.denial_second_gate()
-        if gate not in ("and", "proof_gated"):
-            raise ValueError(
-                f"second_judge.denial_gate must be 'and' or 'proof_gated', got {gate!r} -- fail closed, "
-                f"never a silent fallback to 'and' on a typo'd value"
-            )
+        if self.second_judge:
+            raw_gate = self.second_judge.get("denial_gate", "and")
+            if raw_gate not in ("and", "proof_gated"):
+                raise ValueError(
+                    f"second_judge.denial_gate must be 'and' or 'proof_gated', got {raw_gate!r} -- "
+                    f"fail closed, never a silent fallback to 'and' on a typo'd value"
+                )
 
     def in_band(self, p: float) -> bool:
         low, high = self.refer_band
@@ -210,7 +211,13 @@ class AgentConfig:
         yaml block still works; inert without a second judge actually configured, same as that method."""
         if not self.second_judge:
             return "and"
-        return self.second_judge.get("denial_gate", "and")
+        raw = self.second_judge.get("denial_gate", "and")
+        # __post_init__ validates this exact raw value BEFORE this method is ever reachable on a real
+        # instance (a dataclass's __post_init__ runs at construction time, before any other method can
+        # be called) -- an invalid value never survives to be narrowed here; it raises first. The
+        # `cast` is therefore a type-only narrowing of an already-runtime-guaranteed value, not a
+        # silent normalisation of one that could still be wrong.
+        return cast(Literal["and", "proof_gated"], raw)
 
 
 def load_agent_config(root: Path) -> AgentConfig:
