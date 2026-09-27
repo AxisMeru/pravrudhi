@@ -1,0 +1,64 @@
+# Allowlist for scripts/check_uncollected_tests.py -- test files that are allowed to sit OUTSIDE the roots
+# this repo's pytest configuration collects.
+#
+# READ THIS FIRST.
+#
+# 1. THIS FILE IS EMPTY OF ENTRIES ON PURPOSE, AND THAT IS A MEASURED RESULT, NOT AN OVERSIGHT. The guard
+#    was landed with an allowlist derived from a real scan of main, not from a count anybody quoted. At
+#    main 4fe533a the whole tracked tree holds 276 files matching pytest's `python_files` patterns and ALL
+#    276 of them sit inside a collected root (`tests` or `pravrudhi_kernel/tests`) -- so the true number of
+#    pre-existing offenders in THIS repository is ZERO. The guard lands green with nothing waived.
+#
+#    This is worth stating because the instruction that asked for the guard said there were "2 pre-existing
+#    files", and an earlier survey of these two repositories reported more, including files under
+#    `research/` and `research/gates/`. Neither number is pravrudhi's, for two separate and independently
+#    checked reasons:
+#
+#      * `research/` and `gates/` are BOTH in this repository's .gitignore (lines 28 and 27), as bare
+#        directory patterns, so they match at any depth and nothing under them can be tracked here at all.
+#        A file that is not tracked is not in a CI checkout, so it is neither a coverage gap nor something
+#        this guard could waive -- there is no path to write down.
+#      * Every `test_*.py` ever added outside the two testpaths in this repository's whole history sits
+#        under `prototypes/nyaya_ttt_rsi/` (14 files) or
+#        `docs/reviews/spikes/trackb-typed-ir/nyaya_ir_prototype/tests/test_ir.py` (1 file), and all 15
+#        live only on unmerged branches -- `origin/claude/ttt-llm-research-0f1adf` holds them. None has
+#        ever been on main (checked with `git log --first-parent main --diff-filter=A`).
+#
+#    Writing any of those paths in here would have created entries matching nothing, which the guard
+#    correctly prints as "remove this line" on every run, and an allowlist built from a quoted count rather
+#    than a scan is exactly how a new guard turns CI red on landing. The "2" belongs to prabhasa-nyaya,
+#    which has its own pull request and its own allowlist.
+#
+#    STATED CONSEQUENCE, so it is not a surprise later: if `origin/claude/ttt-llm-research-0f1adf` (or any
+#    branch carrying `prototypes/nyaya_ttt_rsi/tests/*` or
+#    `docs/reviews/spikes/trackb-typed-ir/nyaya_ir_prototype/tests/test_ir.py`) is ever opened as a PR,
+#    this guard turns that PR red. That is the guard working, not the guard misfiring: those files are
+#    collected by nothing. The fix at that point is a `testpaths` entry if they are meant to run, or a line
+#    here with a reason if they are a frozen prototype.
+#
+# 2. A LINE WITH NO REASON WAIVES NOTHING. The guard reports a bare key as an error and keeps failing, the
+#    same rule scripts/secret_scan_baseline.txt states for itself. The reason is for the next reader: say
+#    why the file belongs where it is, and what would let this line be deleted.
+#
+# 3. A WAIVER IS KEYED ON THE PATH PLUS A CONTENT DIGEST, so it cannot follow a file into becoming
+#    something else. scripts/secret_scan_baseline.txt keys on `sha256(path NUL value)` because a secret
+#    must never be written down; a test file's contents are not a secret, so this file keeps the path
+#    readable and appends the digest -- the shape scripts/fail_open_defaults_baseline.txt uses
+#    (`<path>::<the matched thing>`).
+#
+#    STATED CONSEQUENCE: EDITING a waived file breaks its waiver and turns the build red, with a message
+#    saying the digest moved. That is deliberate. A grandfathered uncollected test is grandfathered as it
+#    stood; anyone editing it is someone who can move it into a collected root instead.
+#
+# 4. A STALE LINE IS PRINTED, NOT ENFORCED. An entry whose path has gone, or whose path is now inside a
+#    collected root, is printed as "remove this line" and does not fail the build -- so this file shrinks
+#    on its own as the findings go away instead of quietly outliving them. Both existing baselines in
+#    scripts/ document the same behaviour for themselves.
+#
+# FORMAT: `<repo-relative path>::<sha256 of the file's contents, first 16 hex characters>  <reason>`, one
+# per line. `#` comments and blank lines are ignored. The guard PRINTS the exact key to paste for every
+# finding, so adding a line is copy-and-paste from the failing CI log.
+
+# ---------------------------------------------------------------------------------------------------------
+# Entries. (None -- see point 1 above.)
+# ---------------------------------------------------------------------------------------------------------

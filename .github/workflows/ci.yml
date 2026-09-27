@@ -211,6 +211,22 @@ jobs:
       # a reason and an issue, in scripts/fail_open_defaults_baseline.txt; they are findings going to their
       # owners, not things this step's own PR fixed.
       - run: uv run python scripts/check_fail_open_defaults.py
+      # Uncollected test files (2026-09-26): a PR added a 221-line `test_*.py` that sat outside the
+      # configured test root, so pytest never collected it -- the collected count was byte-identical to the
+      # base branch and the job went green on a file that contributed exactly zero tests. This guard fails
+      # when a test file is in the tree but outside the roots `testpaths` names, unless it is allowlisted
+      # with a written reason in scripts/uncollected_tests_allowlist.txt (which ships EMPTY: a real scan of
+      # main found zero pre-existing offenders in this repo -- see that file's header).
+      #
+      # In THIS job, never in `engine`, for the reason this job exists at all (#74): a guard placed after
+      # `engine`'s pytest step is silently skipped whenever pytest fails, and "pytest is red so nobody
+      # noticed the new tests were never collected" is precisely the situation this has to survive. It has
+      # no dependency on tests having run -- it reads `git ls-files` and the pytest configuration only.
+      #
+      # It reads the roots from pyproject.toml's `testpaths` on every run and never hardcodes them: this
+      # repo has TWO (`tests` and `pravrudhi_kernel/tests`, run by `engine` and `kernel` respectively), and
+      # assuming `tests` alone already produced one false CI-coverage alarm here.
+      - run: uv run python scripts/check_uncollected_tests.py
       # Contract classification (Lead-2, 2026-09-27, P2 hardening of the registry-to-gate coupling): every id
       # in the pinned registry must be in EXACTLY ONE of `validated_contracts:` and
       # `unvalidated_contracts_documented:`, the latter carrying a one-line reason per entry. Neither list and
