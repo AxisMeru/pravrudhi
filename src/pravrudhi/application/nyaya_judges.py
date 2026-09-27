@@ -215,6 +215,8 @@ class HouseJudge:
         top_logprobs: int = 20,
         timeout_s: int = 60,
         api_key: str | None = None,
+        fallback_api_key: str | None = None,
+        api_keys: list[str | None] | None = None,
         fallback_urls: list[str] | None = None,
         complete: Callable[[str], CompletionResult] | None = None,
     ) -> None:
@@ -223,25 +225,57 @@ class HouseJudge:
         self.primary_base_url = base_url
         self.fallback_urls = fallback_urls or []
         self.api_key = api_key
+        #: One entry per backend once real clients are built below; stays `None` for an injected `complete`
+        #: transport (test doubles), which never builds `self.clients` at all.
+        self.api_keys: list[str | None] | None = None
 
         if complete is None:
             if base_url is None:
                 raise ValueError("HouseJudge needs a base_url or a complete transport")
 
-            # One client per backend, ALL sharing the one configured `api_key` (2026-09-27, Lead-2: the
-            # 5090-second-judge exposure design, docs/decisions/2026-09-27-5090-second-judge-exposure-
-            # design.md sec 2.1, found that a fallback backend never received the bearer key at all --
-            # correct for the original "primary serverless -> local operator's-own-vLLM fallback" shape
-            # this class was first built for (the local fallback needed no key, so this was inert there),
-            # but wrong for the shape this fix targets: a RunPod-serverless FALLBACK that itself needs the
-            # SAME bearer key as the primary to authenticate. A deployment that puts a genuinely
-            # unauthenticated fallback behind this (still supported -- vLLM with no `--api-key` simply
-            # ignores an Authorization header it never checks) is unaffected; a deployment whose fallback
-            # DOES check the header is now the case this class was silently unable to serve at all. Each
-            # backend answers under its own model id.
+            urls = [base_url, *self.fallback_urls]
+            # One client per backend, EACH with its own bearer key -- three ways to say what that key is,
+            # most specific wins, at most one may be given (2026-09-27, Lead-2, `docs/decisions/2026-09-27-
+            # 5090-second-judge-exposure-design.md` sec 2.1: the earlier fix, "send `api_key` to every
+            # backend," is wrong whenever the primary and a fallback are different trust domains -- e.g.
+            # a 5090-tunnel primary and a RunPod-A40 fallback each have their OWN bearer secret, and a
+            # caller's key should never reach a backend it was not issued for):
+            #  - `api_keys`: one entry per backend in `urls` order, exactly -- a caller that knows every
+            #    backend's own key (the general case, any number of fallbacks, each independent). A length
+            #    that does not match `len(urls)` is refused (`ValueError`) rather than zipped/truncated
+            #    against a guess at which key belongs to which backend -- fail closed on a mismatch, never
+            #    a silent misalignment that sends backend N's key to backend M.
+            #  - `fallback_api_key`: one key, applied to EVERY fallback (index 1+), distinct from the
+            #    primary's `api_key` -- the common two-trust-domain case (one primary secret, one shared
+            #    fallback secret) without a caller having to enumerate a list of length `len(urls)`.
+            #  - neither given: every backend gets the ONE configured `api_key` (2026-09-27, the original
+            #    "every backend" fix) -- unchanged default, byte-identical to a caller that never touches
+            #    this. A deployment whose fallback is a genuinely unauthenticated host (still supported --
+            #    vLLM with no `--api-key` simply ignores an Authorization header it never checks) is
+            #    unaffected by any of the three shapes above.
+            if api_keys is not None and fallback_api_key is not None:
+                raise ValueError(
+                    "HouseJudge got both api_keys and fallback_api_key -- give at most one; they are two "
+                    "different ways to say the same thing and refusing to silently pick one is safer than "
+                    "guessing which was meant."
+                )
+            if api_keys is not None:
+                if len(api_keys) != len(urls):
+                    raise ValueError(
+                        f"HouseJudge got {len(api_keys)} api_keys for {len(urls)} backends {urls!r} -- "
+                        "refusing to guess which key belongs to which backend."
+                    )
+                resolved_keys: list[str | None] = list(api_keys)
+            elif fallback_api_key is not None:
+                resolved_keys = [api_key] + [fallback_api_key] * len(self.fallback_urls)
+            else:
+                resolved_keys = [api_key] * len(urls)
+            self.api_keys = resolved_keys
+
+            # Each backend answers under its own model id.
             self.clients: list[ChatClient] = [
-                ChatClient(base_url=url, model="", api_key=api_key, timeout_s=timeout_s)
-                for url in [base_url, *self.fallback_urls]
+                ChatClient(base_url=url, model="", api_key=key, timeout_s=timeout_s)
+                for url, key in zip(urls, resolved_keys, strict=True)
             ]
             self._models: list[str | None] = [model or None] + [None] * len(self.fallback_urls)
 
@@ -302,15 +336,31 @@ class HouseJudge:
         return self._injected_model
 
     @classmethod
-    def from_config(cls, cfg: Mapping[str, Any], *, tau: float, api_key_env: str = "NYAYA_HOUSE_JUDGE_API_KEY") -> HouseJudge:
+    def from_config(
+        cls,
+        cfg: Mapping[str, Any],
+        *,
+        tau: float,
+        api_key_env: str = "NYAYA_HOUSE_JUDGE_API_KEY",
+        fallback_api_key_env: str | None = None,
+    ) -> HouseJudge:
         """Load config with optional fallback URLs and API key.
 
         Supports same config keys as from_config_with_fallback, with graceful fallback
         to None for optional fields. Reads the `api_key_env` env var (default NYAYA_HOUSE_JUDGE_API_KEY; the
         AND-gate's second judge passes NYAYA_SECOND_JUDGE_API_KEY here so the two keys are never confused).
+
+        `fallback_api_key_env` (2026-09-27, sec 2.1 of the 5090 design doc): when given, that env var (or
+        the config's own `fallback_api_key` key, env taking precedence) is the bearer key sent to EVERY
+        fallback backend instead of the primary's `api_key` -- the two-trust-domain shape (a primary and a
+        fallback that are different hosts with different secrets, e.g. a 5090 tunnel and a RunPod-serverless
+        endpoint). `None` (the default) keeps today's behaviour: every backend shares the one `api_key`.
         """
         # Read api_key from env var first, then config
         api_key = os.environ.get(api_key_env) or cfg.get("api_key") or None
+        fallback_api_key = None
+        if fallback_api_key_env is not None:
+            fallback_api_key = os.environ.get(fallback_api_key_env) or cfg.get("fallback_api_key") or None
 
         return cls(
             tau=tau,
@@ -321,12 +371,18 @@ class HouseJudge:
             top_logprobs=int(cfg["top_logprobs"]),
             timeout_s=int(cfg["timeout_s"]),
             api_key=api_key,
+            fallback_api_key=fallback_api_key,
             fallback_urls=cfg.get("base_urls_fallback") or [],
         )
 
     @classmethod
     def from_config_with_fallback(
-        cls, cfg: Mapping[str, Any], *, tau: float, api_key_env: str = "NYAYA_HOUSE_JUDGE_API_KEY"
+        cls,
+        cfg: Mapping[str, Any],
+        *,
+        tau: float,
+        api_key_env: str = "NYAYA_HOUSE_JUDGE_API_KEY",
+        fallback_api_key_env: str | None = None,
     ) -> HouseJudge:
         """Load config with optional fallback URLs and API key.
 
@@ -334,13 +390,19 @@ class HouseJudge:
         - base_url (required): primary judge endpoint
         - base_urls_fallback (optional): list of fallback endpoints [local 5090, etc.]
         - api_key (optional): Bearer token for serverless endpoints
+        - fallback_api_key (optional): Bearer token for EVERY fallback endpoint, when distinct from the
+          primary's own `api_key` (see `from_config`'s own doc on `fallback_api_key_env`)
         - Other keys as in from_config: statute_chars, model, max_tokens, top_logprobs, timeout_s
 
         Environment variables (override config):
         - `api_key_env` (default NYAYA_HOUSE_JUDGE_API_KEY): Bearer token for serverless endpoints
+        - `fallback_api_key_env`: Bearer token for every fallback endpoint (see `from_config`)
         """
         # Read api_key from config or env var (env var takes precedence)
         api_key = os.environ.get(api_key_env) or cfg.get("api_key") or None
+        fallback_api_key = None
+        if fallback_api_key_env is not None:
+            fallback_api_key = os.environ.get(fallback_api_key_env) or cfg.get("fallback_api_key") or None
 
         return cls(
             tau=tau,
@@ -351,6 +413,7 @@ class HouseJudge:
             top_logprobs=int(cfg["top_logprobs"]),
             timeout_s=int(cfg["timeout_s"]),
             api_key=api_key,
+            fallback_api_key=fallback_api_key,
             fallback_urls=cfg.get("base_urls_fallback") or [],
         )
 
@@ -552,14 +615,24 @@ class AndGateJudge:
         *,
         tau: float,
         second_api_key_env: str = "NYAYA_SECOND_JUDGE_API_KEY",
+        second_fallback_api_key_env: str = "NYAYA_SECOND_JUDGE_FALLBACK_API_KEY",
         name: str = "and_gate",
         breaker: SecondJudgeCircuitBreaker | None = None,
     ) -> AndGateJudge:
         """Both slots as `HouseJudge`s: the primary from `house_cfg` at `tau` (the existing `tau:` key), the
-        second from `second_cfg` at ITS OWN `tau` (a distinct threshold, e.g. 0.97 for the 32B)."""
+        second from `second_cfg` at ITS OWN `tau` (a distinct threshold, e.g. 0.97 for the 32B).
+
+        `second_fallback_api_key_env` (2026-09-27, sec 2.1 of the 5090 design doc): the second judge's own
+        fallback backend (e.g. a RunPod-serverless A40) gets this env var's key instead of `second_api_key_
+        env`'s -- a different trust domain from the second judge's own primary (e.g. a 5090 tunnel), which
+        must never receive the fallback's secret or vice versa. Unset/empty is a no-op (every backend
+        shares `second_api_key_env`'s key, today's behaviour) -- see `HouseJudge.from_config`'s own doc."""
         primary = HouseJudge.from_config(house_cfg, tau=tau)
         second_tau = float(second_cfg["tau"])
-        second = HouseJudge.from_config(second_cfg, tau=second_tau, api_key_env=second_api_key_env)
+        second = HouseJudge.from_config(
+            second_cfg, tau=second_tau, api_key_env=second_api_key_env,
+            fallback_api_key_env=second_fallback_api_key_env,
+        )
         return cls(primary, second, tau_primary=tau, tau_second=second_tau, name=name, breaker=breaker)
 
     def judge(self, request: JudgeRequest) -> ElementJudgment:
