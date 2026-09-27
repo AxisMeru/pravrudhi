@@ -27,6 +27,21 @@ pinned_score_sha256: 700de3aadf50b482f4cf23499a03fd518cf72734bf8f51b950b5983555d
 # never separately, or CI will build a binary that (correctly, loudly) fails to match the pin.
 # Verified locally, 2026-09-26 (web-on-seat0): `lake build` at this exact commit reproduces
 # 700de3aadf50b482f4cf23499a03fd518cf72734bf8f51b950b5983555dea229 byte-for-byte.
+#
+# How many registry contract ids that pinned binary has (Lead-2, 2026-09-27). Deliberately HERE, on the line
+# after the sha it belongs to, and not as a constant inside a checker: the id count is a property of the
+# pinned binary, so a re-pin has to touch both lines in the same diff, on purpose. Read by
+# `scripts/check_contract_classification.py` (a required step in the `guards` job), which asserts
+# `len(nyaya_lean_registry.KNOWN_CONTRACT_IDS)` EQUALS this number -- an exact equality in both directions,
+# not a floor, because a floor would silently accept a registry that shrank. Absent, empty or non-integer
+# fails that check rather than defaulting to anything.
+#
+# The same number is also the digest seal's `EXPECTED_N` in
+# `tests/test_sealed_set_digests.py::TestKnownContractIds` (which pins the count AND a sha256 over the sorted
+# ids, and is the real protection against a registry edit). Two copies of one truth drift, so that guard
+# reads both and REFUSES if they disagree. A re-pin updates this line, the seal's EXPECTED_N and
+# EXPECTED_DIGEST, and the classification lists further down, together, in one commit.
+pinned_registry_count: 37
 
 # The house element judge: an OpenAI-compatible vLLM server serving the fine-tuned element judge.
 # `model: null` means "the first id the server's own /v1/models lists".
@@ -317,6 +332,77 @@ validated_contracts:
 #   - contract56_initial_impossibility
 #   - contract56_supervening
 #   - contract56_compensation
+
+# CLASSIFICATION, THE OTHER HALF OF THE ALLOWLIST (Lead-2, 2026-09-27, P2 hardening).
+#
+# READ BY CI ONLY -- NEVER BY THE ENGINE. `load_agent_config` does not read this key and must not start:
+# `tests/test_contract_classification_key_is_ci_only.py` asserts that nothing under `src/` so much as
+# mentions `unvalidated_contracts_documented`, and that test is the guard on this comment. Wiring this list
+# back into the runtime would recreate the fail-OPEN deny-list `validated_contracts:` replaced (issue #36) --
+# an id missing from a deny-list is validated by default, which is the exact shape the release rule now bars.
+# The runtime gate is, and stays, the allowlist above: unlisted means REFER, by construction.
+#
+# WHAT IT IS FOR. The allowlist fails closed, but it does not make the DECISION visible: a pin bump that adds
+# ids to `nyaya_lean_registry.KNOWN_CONTRACT_IDS` changes nothing here, so every config-side test still
+# passes while the new contracts have been classified by default rather than by anyone.
+# `scripts/check_contract_classification.py`, a required step in the `guards` job, asserts every registry id
+# is in EXACTLY ONE of `validated_contracts:` and this list, each entry here carrying a one-line reason. An
+# id in neither fails the build; an id in both fails the build. So the next pin bump cannot merge until
+# somebody writes down, per new id, which side it is on and why.
+#
+# This supersedes the historical `unvalidated_contracts` comment block above as the MACHINE-CHECKED record;
+# that block is kept for its longer per-contract prose, which does not fit on one line.
+#
+# A list of `- id:` / `reason:` mappings, not an `id: reason` mapping: YAML silently keeps only the LAST of
+# two duplicate keys, so a mapping would hide a duplicated id, and the guard's whole argument is that these
+# two lists PARTITION the registry.
+unvalidated_contracts_documented:
+  - id: bns316_misappropriation
+    reason: BNS 2023 successor to IPC 405; the element judge has never been trained or measured on it.
+  - id: bns316_use_or_disposal
+    reason: BNS 2023 successor to IPC 405; the element judge has never been trained or measured on it.
+  - id: bns316_wilfully_suffers
+    reason: BNS 2023 successor to IPC 405; the element judge has never been trained or measured on it.
+  - id: bns318_property
+    reason: BNS 2023 successor to IPC 415; the element judge has never been trained or measured on it.
+  - id: bns318_damaging_act
+    reason: BNS 2023 successor to IPC 415; the element judge has never been trained or measured on it.
+  - id: bns217_misdirected_act
+    reason: BNS 2023 successor to IPC 182; the element judge has never been trained or measured on it.
+  - id: bns217_abuse_of_power
+    reason: BNS 2023 successor to IPC 182; the element judge has never been trained or measured on it.
+  - id: bns80
+    reason: Dowry death; added in the 0.5.28 pin and never covered by a signed eval of the M2-trained judge.
+  - id: bns108
+    reason: Abetment of suicide; added in the 0.5.28 pin and never covered by a signed eval of the judge.
+  - id: bnss187_extended_serious
+    reason: Extended detention, serious branch; conduct-entity defect fixed in 8d9f0af but judge uncovered.
+  - id: bnss187_extended_other
+    reason: Extended detention, other branch; conduct-entity defect fixed in 8d9f0af but judge uncovered.
+  - id: ni138
+    reason: NI Act 138 cheque dishonour; in the pinned registry, no signed eval of the judge covers it.
+  - id: bnss528
+    reason: Reachable through this branch's pin, but the judge has never been trained or measured on it.
+  - id: bsa63
+    reason: One of the eleven ids added by the 2026-09-26 37-contract pin; judge coverage does not exist yet.
+  - id: ibc7_application
+    reason: One of the eleven ids added by the 2026-09-26 37-contract pin; judge coverage does not exist yet.
+  - id: ibc7_admission
+    reason: One of the eleven ids added by the 2026-09-26 37-contract pin; judge coverage does not exist yet.
+  - id: ibc9_application
+    reason: One of the eleven ids added by the 2026-09-26 37-contract pin; judge coverage does not exist yet.
+  - id: ibc9_admission
+    reason: One of the eleven ids added by the 2026-09-26 37-contract pin; judge coverage does not exist yet.
+  - id: contract73
+    reason: Judge uncovered AND a known statute-text defect (glued footnotes/page numbers) must be fixed first.
+  - id: contract74
+    reason: One of the eleven ids added by the 2026-09-26 37-contract pin; judge coverage does not exist yet.
+  - id: contract56_initial_impossibility
+    reason: One of the eleven ids added by the 2026-09-26 37-contract pin; judge coverage does not exist yet.
+  - id: contract56_supervening
+    reason: One of the eleven ids added by the 2026-09-26 37-contract pin; judge coverage does not exist yet.
+  - id: contract56_compensation
+    reason: One of the eleven ids added by the 2026-09-26 37-contract pin; judge coverage does not exist yet.
 
 # Gate 1 (Track-C, GATE1-PRODUCT-WIRING-SPEC-2026-09-26.md): a third gate, pure NLI entailment check, run
 # only on an element the judge(s) above already established. This block configures the threshold and model

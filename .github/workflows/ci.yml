@@ -227,6 +227,24 @@ jobs:
       # repo has TWO (`tests` and `pravrudhi_kernel/tests`, run by `engine` and `kernel` respectively), and
       # assuming `tests` alone already produced one false CI-coverage alarm here.
       - run: uv run python scripts/check_uncollected_tests.py
+      # Contract classification (Lead-2, 2026-09-27, P2 hardening of the registry-to-gate coupling): every id
+      # in the pinned registry must be in EXACTLY ONE of `validated_contracts:` and
+      # `unvalidated_contracts_documented:`, the latter carrying a one-line reason per entry. Neither list and
+      # both lists are each a hard failure, so a pin bump cannot merge until somebody classifies the new ids
+      # on purpose.
+      #
+      # IN THIS JOB, NOT `engine` (deliberate): `guards` is a required status context and `engine` is not
+      # today, so the existing registry-coupling tests in `engine`'s pytest step do not actually gate a
+      # merge -- that split is on the morning list as a branch-protection item. A pure static script belongs
+      # here anyway, for the reason this job exists at all (#74): no pytest dependency, no application import
+      # (KNOWN_CONTRACT_IDS is read with `ast`, like scripts/import_guard.py does), so a PR pushed at speed
+      # with a red pytest is still covered.
+      #
+      # Fail-closed on every input: a missing, empty or unparseable config / registry / pinned count / digest
+      # seal FAILS, and the registry id count is an EXACT equality against `pinned_registry_count:` in
+      # configs/nyaya_agent.yaml (a floor would silently accept a registry that shrank). A green line here
+      # prints the three counts it examined, so a pass over nothing is visible in the log.
+      - run: uv run python scripts/check_contract_classification.py
       # Secret scanning over THIS PR'S DIFF (operator ask, 2026-09-26, after that morning's Docker ARG
       # token leak and the 2026-09-11 Telegram bot token). In THIS job rather than `engine` for the reason
       # this job exists at all (#74): it is a pure static check with no dependency on tests having run, and

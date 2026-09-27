@@ -706,10 +706,30 @@ class TestUnclassifiedRegistryIdIsGated:
         assert unknown == frozenset(), f"validated_contracts entries the registry does not list: {sorted(unknown)}"
 
     def test_the_ids_no_list_denies_are_exactly_the_signed_fourteen(self) -> None:
-        """Must pass EITHER WAY, and the guard the fail-open gap actually needs in CI: the set treated as
-        validated must be the fourteen the signed eval covers -- no more. The day a pin bump adds an id
-        nobody classifies, this test fails, instead of that id shipping as validated-by-default. Reads the
-        allowlist directly now that the deny-list complement it used to fall back to is gone."""
+        """Must pass EITHER WAY: the set treated as validated must be the fourteen the signed eval covers --
+        no more. Reads the allowlist directly now that the deny-list complement it used to fall back to is
+        gone.
+
+        WHAT THIS TEST DOES NOT DO (corrected 2026-09-27; it used to claim "the day a pin bump adds an id
+        nobody classifies, this test fails", which was false). A pin bump changes
+        `nyaya_lean_registry.KNOWN_CONTRACT_IDS`, not `validated_contracts:`, so the assertion below still
+        compares fourteen against fourteen and still passes while the new ids sit unclassified. This test
+        catches an unreviewed addition to the ALLOWLIST, and only that.
+
+        The two checks that actually cover the pin bump, both outside this file:
+
+          * the DIGEST SEAL over the registry id set --
+            `tests/test_sealed_set_digests.py::TestKnownContractIds` (`EXPECTED_N = 37` plus a sha256 over
+            the sorted ids). A bump that adds or renames an id fails there until someone updates the count
+            and the digest in the same commit. That is the protection against a silent registry change.
+          * the CLASSIFICATION CHECK -- `scripts/check_contract_classification.py`, a required step in the
+            `guards` job, which asserts every registry id is in exactly one of `validated_contracts:` and
+            `unvalidated_contracts_documented:`, the latter with a one-line reason per entry. That is the
+            protection against an id nobody classifies.
+
+        The runtime direction is safe either way: `validated_contracts:` is an allowlist, so an unclassified
+        id is REFER by construction, never validated-by-default.
+        """
         config = load_agent_config(REPO)
         treated_as_validated = frozenset(config.validated_contracts)
         assert treated_as_validated == V1_VALIDATED_CONTRACTS, (
