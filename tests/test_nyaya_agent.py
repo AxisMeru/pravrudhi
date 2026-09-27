@@ -1571,7 +1571,7 @@ class TestConfig:
 
     def test_second_judge_env_vars_are_absent_by_default_too(self, monkeypatch: pytest.MonkeyPatch) -> None:
         for var in ("NYAYA_SECOND_JUDGE_BASE_URL", "NYAYA_SECOND_JUDGE_MODEL", "NYAYA_SECOND_JUDGE_TAU",
-                    "NYAYA_SECOND_JUDGE_TIMEOUT_S"):
+                    "NYAYA_SECOND_JUDGE_TIMEOUT_S", "NYAYA_SECOND_JUDGE_FALLBACK_URLS"):
             monkeypatch.delenv(var, raising=False)
         assert load_agent_config(REPO).second_judge is None
 
@@ -1601,6 +1601,83 @@ class TestConfig:
         assert sj is not None
         assert sj["base_url"] == "http://from-yaml/v1"  # untouched: no env var for it
         assert sj["tau"] == 0.97  # env override wins
+
+    def test_second_judge_fallback_urls_env_introduces_the_block(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """2026-09-27 (Lead-2, 5090-second-judge-exposure design sec 2.2): mirrors house_judge's own
+        NYAYA_HOUSE_JUDGE_FALLBACK_URLS -- can introduce second_judge on its own, exactly like the other
+        NYAYA_SECOND_JUDGE_* overrides above (though a real deployment would also set base_url/tau)."""
+        monkeypatch.setenv("NYAYA_SECOND_JUDGE_FALLBACK_URLS", "https://a40-fallback.example/v1")
+        sj = load_agent_config(REPO).second_judge
+        assert sj is not None
+        assert sj["base_urls_fallback"] == ["https://a40-fallback.example/v1"]
+
+    def test_second_judge_fallback_urls_env_splits_strips_and_filters_a_comma_list(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv(
+            "NYAYA_SECOND_JUDGE_FALLBACK_URLS", " https://a.example/v1 , https://b.example/v1,, "
+        )
+        sj = load_agent_config(REPO).second_judge
+        assert sj is not None
+        assert sj["base_urls_fallback"] == ["https://a.example/v1", "https://b.example/v1"]
+
+    def test_second_judge_fallback_urls_env_overrides_a_configured_block(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import yaml
+
+        cfg_dir = tmp_path / "configs"
+        cfg_dir.mkdir()
+        body = yaml.safe_load((REPO / "configs" / "nyaya_agent.yaml").read_text())
+        body["second_judge"] = {
+            "base_url": "http://from-yaml/v1", "tau": 0.97, "statute_chars": 600, "max_tokens": 30,
+            "top_logprobs": 20, "timeout_s": 60, "base_urls_fallback": ["http://from-yaml-fallback/v1"],
+        }
+        (cfg_dir / "nyaya_agent.yaml").write_text(yaml.safe_dump(body))
+        monkeypatch.setenv("NYAYA_SECOND_JUDGE_FALLBACK_URLS", "https://env-fallback.example/v1")
+        sj = load_agent_config(tmp_path).second_judge
+        assert sj is not None
+        assert sj["base_urls_fallback"] == ["https://env-fallback.example/v1"]  # env wins over yaml
+
+    def test_second_judge_fallback_urls_env_unset_leaves_a_yaml_configured_list_untouched(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Neither this override nor the api-key-every-backend fix may change behaviour when the new env
+        var is unset (Lead-2's own condition on both follow-ons)."""
+        import yaml
+
+        monkeypatch.delenv("NYAYA_SECOND_JUDGE_FALLBACK_URLS", raising=False)
+        cfg_dir = tmp_path / "configs"
+        cfg_dir.mkdir()
+        body = yaml.safe_load((REPO / "configs" / "nyaya_agent.yaml").read_text())
+        body["second_judge"] = {
+            "base_url": "http://from-yaml/v1", "tau": 0.97, "statute_chars": 600, "max_tokens": 30,
+            "top_logprobs": 20, "timeout_s": 60, "base_urls_fallback": ["http://from-yaml-fallback/v1"],
+        }
+        (cfg_dir / "nyaya_agent.yaml").write_text(yaml.safe_dump(body))
+        sj = load_agent_config(tmp_path).second_judge
+        assert sj is not None
+        assert sj["base_urls_fallback"] == ["http://from-yaml-fallback/v1"]
+
+    @pytest.mark.parametrize(
+        "raw", ["   ", ",,,", "not-a-url", "https://ok.example/v1, ftp://bad.example/v1"]
+    )
+    def test_second_judge_fallback_urls_env_fails_closed_on_a_malformed_value(
+        self, raw: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A set-but-broken value must never be silently accepted (empty list) or silently filtered down
+        to fewer URLs than the operator believes are configured -- refuse to boot instead. (A genuinely
+        empty string is treated as unset, the same convention every other NYAYA_*_URL override in this
+        module already uses -- `if os.environ.get(...):` -- so it is not one of the malformed cases here.)"""
+        monkeypatch.setenv("NYAYA_SECOND_JUDGE_FALLBACK_URLS", raw)
+        with pytest.raises(ValueError, match="NYAYA_SECOND_JUDGE_FALLBACK_URLS"):
+            load_agent_config(REPO)
+
+    def test_second_judge_fallback_urls_env_empty_string_is_treated_as_unset(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("NYAYA_SECOND_JUDGE_FALLBACK_URLS", "")
+        assert load_agent_config(REPO).second_judge is None
 
     def test_env_only_second_judge_inherits_prompt_shape_from_house_judge(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Lead-2, 2026-09-25: a second_judge built purely from NYAYA_SECOND_JUDGE_* env vars (no yaml
@@ -1655,7 +1732,8 @@ class TestConfig:
         at all must still be byte-identical to before this change (None, no house_judge leakage)."""
         for var in ("NYAYA_SECOND_JUDGE_BASE_URL", "NYAYA_SECOND_JUDGE_MODEL", "NYAYA_SECOND_JUDGE_TAU",
                     "NYAYA_SECOND_JUDGE_TIMEOUT_S", "NYAYA_SECOND_JUDGE_STATUTE_CHARS",
-                    "NYAYA_SECOND_JUDGE_TOP_LOGPROBS", "NYAYA_SECOND_JUDGE_MAX_TOKENS"):
+                    "NYAYA_SECOND_JUDGE_TOP_LOGPROBS", "NYAYA_SECOND_JUDGE_MAX_TOKENS",
+                    "NYAYA_SECOND_JUDGE_FALLBACK_URLS"):
             monkeypatch.delenv(var, raising=False)
         assert load_agent_config(REPO).second_judge is None
 

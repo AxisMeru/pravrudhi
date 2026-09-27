@@ -264,6 +264,31 @@ def load_agent_config(root: Path) -> AgentConfig:
     # `second_judge` mapping, and `_run_contract` only ever sees a non-None `p_established_second` when config C
     # is on).
     _second_override("NYAYA_SECOND_JUDGE_REFER_LOGIT_DELTA", "refer_logit_delta", float)
+    # 2026-09-27 (Lead-2, the 5090-second-judge-exposure design, docs/decisions/2026-09-27-5090-second-
+    # judge-exposure-design.md sec 2.2): the house judge has had NYAYA_HOUSE_JUDGE_FALLBACK_URLS since
+    # 2026-09-24 (above); the second judge never got the equivalent, so its own `base_urls_fallback` could
+    # only ever be set by editing configs/nyaya_agent.yaml's second_judge: block -- a same-day image
+    # rebuild for every fallback-endpoint change, unlike every OTHER second_judge setting in production
+    # today (set purely via NYAYA_SECOND_JUDGE_* env, per the 0.5.41 ledger row). Not folded into
+    # `_second_override` (that helper's `cast` is a bare type constructor; this needs list-splitting AND
+    # validation). Fail-closed, deliberately stricter than the house-judge sibling above (which silently
+    # accepts and filters a malformed value): an env var that is SET but produces zero URLs after
+    # stripping, or contains an entry with no http(s) scheme, is refused outright with a raised
+    # ValueError rather than silently running with an empty or broken fallback list -- a caller that
+    # believes a fallback is configured must never silently get none.
+    raw_second_fallback = os.environ.get("NYAYA_SECOND_JUDGE_FALLBACK_URLS")
+    if raw_second_fallback:
+        second_fallback_urls = [u.strip() for u in raw_second_fallback.split(",") if u.strip()]
+        if not second_fallback_urls or any(
+            not u.startswith(("http://", "https://")) for u in second_fallback_urls
+        ):
+            raise ValueError(
+                "NYAYA_SECOND_JUDGE_FALLBACK_URLS is set but malformed "
+                f"({raw_second_fallback!r}): every comma-separated entry must be a non-empty http(s) "
+                "URL -- refusing to start with a broken second-judge fallback list."
+            )
+        second_judge = dict(second_judge or {})
+        second_judge["base_urls_fallback"] = second_fallback_urls
 
     # An env-built second_judge inherits statute_chars/top_logprobs/max_tokens from the primary house_judge
     # block, unless the caller set them explicitly (in the yaml's own second_judge: block, or via the three
