@@ -3,18 +3,10 @@ on:
   push:
     branches: [main]
   pull_request:
-  # Lead-2, 2026-09-27: lets main-history-trailer-scan be run on demand as a canary, independent of a real
-  # push to main -- see that job's own if: condition.
-  workflow_dispatch:
 
 jobs:
   kernel:
     runs-on: ubuntu-latest
-    # Skip on workflow_dispatch (Lead-2, 2026-09-27): dispatch exists only to run main-history-trailer-scan
-    # as a canary independent of a real push to main. Every other job needs artifacts/secrets that job
-    # doesn't (build-lean-binary's binary, the frontend build, etc), so without this a dispatch run goes red
-    # everywhere else for reasons that have nothing to do with what it's actually checking.
-    if: github.event_name != 'workflow_dispatch'
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
@@ -30,7 +22,6 @@ jobs:
   # pravrudhi_kernel) on a Windows runner and proves the import path and the kernel's own tests survive there.
   windows-import-smoke:
     runs-on: windows-latest
-    if: github.event_name != 'workflow_dispatch'
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
@@ -126,8 +117,13 @@ jobs:
   # a trailer that slipped through by any mechanism is still caught, not silently accepted forever. NOT
   # claimed exhaustive: a scan only proves what it actually found today, never that nothing else is out
   # there -- state a reason for each allowlist entry instead of a summary claim of completeness.
+  #
+  # push-to-main only, no workflow_dispatch here (Lead-2 + Tag, 2026-09-27): a dispatchable trigger on THIS
+  # workflow let a workflow_dispatch run's SKIPPED `guards` job satisfy `guards` as a required status
+  # context -- a real bypass of branch protection. The on-demand canary now lives in its own separate
+  # workflow, `history-trailer-canary.yml`, whose only job shares no name with anything required here.
   main-history-trailer-scan:
-    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -189,7 +185,6 @@ jobs:
 
   guards:
     runs-on: ubuntu-latest
-    if: github.event_name != 'workflow_dispatch'
     steps:
       # fetch-depth: 0 (Tag, 2026-09-26): the trailer check below used to run `git log --format=%H` over
       # "history", but actions/checkout's default is a depth-1 shallow clone -- that grep saw exactly ONE
@@ -281,12 +276,15 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           # Third branch (Lead-2, 2026-09-27): a pull_request or a push with a real BEFORE_SHA both give a
-          # genuine range to diff. Any OTHER event (workflow_dispatch, now that the workflow accepts it) or
-          # a push with an empty/all-zeros before (a branch's first push, nothing to diff against) has no
-          # range at all -- falling through to `git rev-list ..<sha>` there would silently scan nothing
-          # while still exiting 0. Instead this branch does a full-history scan against the same allowlist
-          # mechanism-split as main-history-trailer-scan, and asserts it actually saw at least one commit;
-          # zero commits scanned is a hard failure here, never a silent pass.
+          # genuine range to diff. A push with an empty/all-zeros before (a branch's first push, nothing to
+          # diff against) has no range at all -- falling through to `git rev-list ..<sha>` there would
+          # silently scan nothing while still exiting 0. Instead this branch does a full-history scan
+          # against the same allowlist mechanism-split as main-history-trailer-scan, and asserts it actually
+          # saw at least one commit; zero commits scanned is a hard failure here, never a silent pass. This
+          # workflow accepts only push/pull_request (2026-09-27: workflow_dispatch was removed after Tag
+          # found it let a workflow_dispatch run's SKIPPED `guards` satisfy a required status context --
+          # see history-trailer-canary.yml, a separate workflow with no job sharing this repo's required
+          # check names), so in practice this branch is only ever reached by the empty-before case.
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             RANGE="$BASE_SHA..$HEAD_SHA"
           elif [ "${{ github.event_name }}" = "push" ] && [ "$BEFORE_SHA" != "0000000000000000000000000000000000000000" ] && [ -n "$BEFORE_SHA" ]; then
@@ -343,7 +341,7 @@ jobs:
     # check_score_bin_gate_ran.py is the permanent backstop that makes the difference visible rather than
     # silent -- green with the real binary available, red (as designed, see that script's own docstring)
     # without it.
-    if: "!cancelled() && github.event_name != 'workflow_dispatch'"
+    if: "!cancelled()"
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
@@ -389,7 +387,6 @@ jobs:
   # that says nothing about the change under test.
   live-interface:
     runs-on: ubuntu-latest
-    if: github.event_name != 'workflow_dispatch'
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
@@ -432,7 +429,6 @@ jobs:
 
   governance:
     runs-on: ubuntu-latest
-    if: github.event_name != 'workflow_dispatch'
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
