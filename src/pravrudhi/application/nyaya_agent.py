@@ -66,10 +66,10 @@ import time
 import uuid
 from collections.abc import Iterable, Mapping, Sequence
 from concurrent.futures import CancelledError, ThreadPoolExecutor, as_completed
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal, Protocol
+from typing import Any, Literal, Protocol, cast
 
 from pravrudhi.application import nyaya_lean_registry as reg
 from pravrudhi.application.nyaya_judges import ElementJudgment, Judge, JudgeRequest, SecondJudgeCircuitBreaker
@@ -176,6 +176,13 @@ class AgentConfig:
             raise ValueError(f"second_judge.refer_logit_delta must be >= 0, got {delta}")
         if self.max_concurrency < 1:
             raise ValueError(f"max_concurrency must be >= 1, got {self.max_concurrency}")
+        if self.second_judge:
+            raw_gate = self.second_judge.get("denial_gate", "and")
+            if raw_gate not in ("and", "proof_gated"):
+                raise ValueError(
+                    f"second_judge.denial_gate must be 'and' or 'proof_gated', got {raw_gate!r} -- "
+                    f"fail closed, never a silent fallback to 'and' on a typo'd value"
+                )
 
     def in_band(self, p: float) -> bool:
         low, high = self.refer_band
@@ -190,6 +197,27 @@ class AgentConfig:
             return None
         raw = self.second_judge.get("refer_logit_delta")
         return None if raw is None else float(raw)
+
+    def denial_second_gate(self) -> Literal["and", "proof_gated"]:
+        """`second_judge.denial_gate` (config key or `NYAYA_SECOND_JUDGE_DENIAL_GATE`, already merged into
+        `second_judge` by `load_agent_config`), else `"and"` -- today's exact behaviour, byte-identical: a
+        defeater is judged exactly like any other element, so the second is asked only when the primary
+        already says established (`AndGateJudge.judge`'s own cost-saving rule). `"proof_gated"`
+        (Track-C, DEFENCE-LEG-DESIGN-2026-09-27.md, option (d), Lead-2's go 2026-09-27) additionally asks the
+        second judge, once, for a defeater the primary rejected, but ONLY when every required element of the
+        SAME contract is already established (the contract would otherwise return `PROOF`) -- see
+        `_judge_elements`'s `_proof_gated_denial_correction`. Reads from `second_judge` rather than its own
+        field, mirroring `second_refer_logit_delta`, so a bare env override on a host with no `second_judge:`
+        yaml block still works; inert without a second judge actually configured, same as that method."""
+        if not self.second_judge:
+            return "and"
+        raw = self.second_judge.get("denial_gate", "and")
+        # __post_init__ validates this exact raw value BEFORE this method is ever reachable on a real
+        # instance (a dataclass's __post_init__ runs at construction time, before any other method can
+        # be called) -- an invalid value never survives to be narrowed here; it raises first. The
+        # `cast` is therefore a type-only narrowing of an already-runtime-guaranteed value, not a
+        # silent normalisation of one that could still be wrong.
+        return cast(Literal["and", "proof_gated"], raw)
 
 
 def load_agent_config(root: Path) -> AgentConfig:
@@ -264,6 +292,10 @@ def load_agent_config(root: Path) -> AgentConfig:
     # `second_judge` mapping, and `_run_contract` only ever sees a non-None `p_established_second` when config C
     # is on).
     _second_override("NYAYA_SECOND_JUDGE_REFER_LOGIT_DELTA", "refer_logit_delta", float)
+    # The defeater gate (Track-C, DEFENCE-LEG-DESIGN-2026-09-27.md option (d)): "and" (default, unset) is
+    # today's exact behaviour; "proof_gated" is opt-in only, same reachable-without-a-yaml-block pattern as
+    # every other second_judge override above.
+    _second_override("NYAYA_SECOND_JUDGE_DENIAL_GATE", "denial_gate")
 
     # An env-built second_judge inherits statute_chars/top_logprobs/max_tokens from the primary house_judge
     # block, unless the caller set them explicitly (in the yaml's own second_judge: block, or via the three
@@ -670,13 +702,18 @@ class ElementResult:
     #: AndGateJudge's own output), so `_truthful_status` fills in "primary" itself in that case -- see its
     #: own docstring.
     #:
-    #: There is no "both" value: it would mean both judges independently failed their own tau, which would
-    #: require asking the second even after the primary has already failed -- the current AND-gate's own
-    #: cost-saving early return (AndGateJudge.judge) never does that, so no code path can produce it. Declared
-    #: here once (issue #57, Tag's review of #37) and then removed rather than left as a documented-but-dead
-    #: type value once confirmed unreachable; implementing that mode is a materially different, more
-    #: expensive design (always paying the second judge's call) that no issue has asked for.
-    binding_leg: Literal["primary", "second"] | None = None
+    #: "both" (Track-C, DEFENCE-LEG-DESIGN-2026-09-27.md option (d), Lead-2's go 2026-09-27): the ONE case
+    #: where asking the second even after the primary already rejected is deliberate -- a defeater, under
+    #: `second_judge.denial_gate="proof_gated"`, when the contract would otherwise return `PROOF` (every
+    #: required element established) and the primary rejected the defeater. `_judge_elements`'s
+    #: `_proof_gated_denial_correction` asks the second once more in exactly that case; if the second ALSO
+    #: rejects, both judges have now independently examined the defeater and agreed, hence `"both"` -- distinct
+    #: from `"primary"` (only the primary ever looked) and from `"second"` (the primary accepted but the
+    #: second rejected, the ordinary AND-gate case). Unreachable under the default `"and"` gate (the original
+    #: 2026-09-26 analysis, issue #57/#37, correctly found no code path could produce it THEN -- `"proof_gated"`
+    #: is the first design to deliberately pay that extra call, and only for the one contract-level condition
+    #: above, not unconditionally).
+    binding_leg: Literal["primary", "second", "both"] | None = None
     #: Gate 1 (Track-C, 2026-09-26): a third gate, NLI entailment check, run only when the judge(s) above
     #: already established the element. All None/False when Gate 1 is not configured (`NYAYA_GATE1_ENABLED`
     #: unset/false, today's default) or was never asked (nothing established yet to check).
@@ -1130,7 +1167,9 @@ class NyayaAgent:
                 self._judge_element(self.judge, audit, contract_id, name, is_denial, statute, facts, narrative)
                 for name, is_denial in tasks
             ]
-            return [r for r, _ in pairs], [c for _, calls in pairs for c in calls]
+            results, calls = [r for r, _ in pairs], [c for _, calls in pairs for c in calls]
+            self._proof_gated_denial_correction(results, calls, audit, contract_id, tasks, statute, facts, narrative)
+            return results, calls
 
         workers = min(self.config.max_concurrency, len(tasks))
         pool_size = len(self.judge_pool)
@@ -1190,7 +1229,138 @@ class NyayaAgent:
         if fault is not None:
             raise fault
         pairs = [results_by_index[i] for i in range(len(tasks))]
-        return [r for r, _ in pairs], [c for _, calls in pairs for c in calls]
+        results, calls = [r for r, _ in pairs], [c for _, calls in pairs for c in calls]
+        self._proof_gated_denial_correction(results, calls, audit, contract_id, tasks, statute, facts, narrative)
+        return results, calls
+
+    def _proof_gated_denial_correction(
+        self,
+        results: list[ElementResult],
+        calls: list[JudgeCallRecord],
+        audit: AuditTrail,
+        contract_id: str,
+        tasks: Sequence[tuple[str, bool]],
+        statute: str,
+        facts: tuple[Fact, ...],
+        narrative: str,
+    ) -> None:
+        """Option (d) (Track-C, DEFENCE-LEG-DESIGN-2026-09-27.md; Lead-2's go, 2026-09-27):
+        `second_judge.denial_gate="proof_gated"` asks the second judge, ONE more time, for a defeater the
+        primary already rejected -- but ONLY when every required element of this SAME contract is already
+        established (the contract would otherwise return `PROOF`). Mutates `results`/`calls`/`audit` in
+        place; a no-op (returns immediately) in every other case, including the default `"and"` gate, so this
+        function's mere presence changes nothing unless a deployment opts in.
+
+        No-op cases, in order:
+        - gate is not `"proof_gated"` (today's default);
+        - `self.judge` is not a bare `AndGateJudge` (Gate 1 or single-judge mode wraps/replaces it --
+          combining `proof_gated` with Gate 1 is not supported by this pass, a known scope limit, not a
+          silent wrong answer: Gate 1 stays off by default, and if it is ever turned on alongside
+          `proof_gated`, this correction simply never fires, leaving the ordinary AND-gate/Gate-1 path
+          untouched rather than guessing how to compose the two);
+        - the contract has no defeater;
+        - the defeater is already `established` (the ordinary AND-gate already double-checked it, since the
+          second is asked whenever the primary says established, unrelated to this option);
+        - the defeater already has `second_unavailable` or an `error` set (already REFER-worthy for another
+          reason, nothing to correct);
+        - NOT every required element is established (the cost-saving case sec 4/A.2/A.5 of the design doc
+          describes: the outcome is `ABSTAIN` regardless of the defeater, so a second call here would be a
+          real cost for zero possible safety benefit).
+
+        Fail-closed on second-judge unavailability (Lead-2, 2026-09-27, Tag's addition): a raised exception
+        here sets `second_unavailable=True` on the defeater's `ElementResult` and returns -- the SAME field
+        `_run_contract`'s existing `unavailable_second` check already reads (`nyaya_agent.py`'s own
+        `_run_contract`, BEFORE the Lean-outcome dispatch), so this correction never needs its own REFER
+        branch: the existing generic mechanism already turns a `second_unavailable` defeater into
+        `REFER_TO_LAWYER` (`second_judge_unavailable`), never a silent `PROOF`. Reads the raw boolean, not a
+        status label, per Lead-2's instruction -- `_run_contract` checks `r.second_unavailable` directly.
+        """
+        if self.config.denial_second_gate() != "proof_gated":
+            return
+        from pravrudhi.application.nyaya_judges import AndGateJudge
+
+        if not isinstance(self.judge, AndGateJudge):
+            return
+        denial_indices = [i for i, (_, is_denial) in enumerate(tasks) if is_denial]
+        if not denial_indices:
+            return
+        i = denial_indices[0]  # a contract carries at most one defeater (registry invariant, `eldeny`)
+        denial_result = results[i]
+        if denial_result.status == "established":
+            return
+        if denial_result.second_unavailable or denial_result.error is not None:
+            return
+        pos_results = [r for j, r in enumerate(results) if not tasks[j][1]]
+        would_be_proof = bool(pos_results) and all(r.status == "established" for r in pos_results)
+        if not would_be_proof:
+            return
+
+        name, _ = tasks[i]
+        fact_map = {f.id: f.text for f in facts}
+        request = JudgeRequest(
+            contract_id, name, True, statute, narrative, tuple((f.id, f.text) for f in facts),
+            skip_second=contract_id not in self.config.validated_contracts,
+        )
+        t0 = time.monotonic()
+        try:
+            second_judgment = self.judge.second.judge(request)
+        except Exception as e:  # noqa: BLE001 -- fail closed, classified as second_unavailable, never re-raised
+            wall_ms = _ms(t0)
+            audit.step("judge", asdict(request),
+                       {"contract_id": contract_id, "element": name, "attempt": "proof_gated_second_pass",
+                        "error": f"{type(e).__name__}: {e}"[-400:]}, wall_ms)
+            calls.append(_judge_call_record(None, wall_ms, ok=False))
+            results[i] = replace(
+                denial_result, second_unavailable=True,
+                second_skip_reason=f"second_unavailable: {type(e).__name__}: {e}"[:400],
+            )
+            return
+        wall_ms = _ms(t0)
+        calls.append(_judge_call_record(second_judgment, wall_ms, ok=True))
+        audit.step("judge", asdict(request),
+                   {"contract_id": contract_id, "element": name, "attempt": "proof_gated_second_pass",
+                    "judge": self.judge.second.name, "judgment": second_judgment.as_dict()}, wall_ms)
+
+        if second_judgment.status != "established":
+            # Both judges have now independently examined the defeater and agreed it is not established --
+            # binding_leg="both" (issue #57's original analysis correctly found no code path could produce
+            # this under the plain AND-gate; "proof_gated" is the first design to deliberately pay for it).
+            results[i] = replace(
+                denial_result, p_established_second=second_judgment.p_established,
+                tau_second=self.judge.tau_second, binding_leg="both",
+                second_skip_reason="proof_gated_second_pass_both_rejected",
+            )
+            return
+
+        # Second claims the defeater established: verified via the SAME quote check attempt 1 uses for any
+        # element ("a quote is checked, never repaired" -- module docstring) -- never trust an established
+        # claim's status without locating its quote first, defeater or not.
+        t0 = time.monotonic()
+        loc = locate_quote(fact_map, fact_id=second_judgment.fact_id, quote=second_judgment.quote)
+        audit.step("quote_check", {"fact_id": second_judgment.fact_id, "quote": second_judgment.quote,
+                                    "facts": [f.sha256 for f in facts]},
+                   {"contract_id": contract_id, "element": name, "attempt": "proof_gated_second_pass",
+                    "valid": loc.valid, "reason": loc.reason, "start": loc.start, "end": loc.end,
+                    "occurrences": loc.occurrences, "offsets_source": loc.offsets_source,
+                    "quote_source": second_judgment.quote_source}, _ms(t0))
+        if loc.valid:
+            results[i] = replace(
+                denial_result, status="established", claimed=True, fact_id=second_judgment.fact_id,
+                quote=second_judgment.quote, start=loc.start, end=loc.end, quote_check=loc.reason,
+                occurrences=loc.occurrences, offsets_source="system", quote_source=second_judgment.quote_source,
+                p_established_second=second_judgment.p_established, tau_second=self.judge.tau_second,
+                binding_leg="second",
+            )
+        else:
+            # claimed=True, status left not_established: `_run_contract`'s EXISTING `denial_unquotable` check
+            # (`r.is_denial and r.claimed and r.status != "established"`) fires unchanged on this row -- the
+            # same rule attempt 1's own unquotable-defeater case already relies on ("treating it as absent
+            # would let the contract PROVE on the strength of a failed quote," module docstring) -- no new
+            # outcome branch needed here.
+            results[i] = replace(
+                denial_result, claimed=True, p_established_second=second_judgment.p_established,
+                tau_second=self.judge.tau_second, binding_leg="both",
+            )
 
     def _run_contract(
         self,

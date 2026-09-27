@@ -56,10 +56,12 @@ from pravrudhi.application.nyaya_agent import ElementResult, ElementStatus, Nyay
 from pravrudhi.application.nyaya_judges import AndGateJudge, ElementJudgment, Gate1Judge
 from tests.test_api_partner import _NO_LIMIT_CONFIG
 from tests.test_nyaya_agent import (
+    BNS69_DENY,
     BNS69_EL,
     TOY_FACTS,
     ScriptedJudge,
     _config,
+    _est,
     _not,
     _proof_script,
     _registry,
@@ -175,6 +177,34 @@ def _sc_gate1_unavailable() -> tuple[Script, Script]:
     return _proof_script(TOY_FACTS), _second_passes()
 
 
+def _sc_both_leg_proof_gated() -> tuple[Script, Script]:
+    """Track-C, DEFENCE-LEG-DESIGN-2026-09-27.md option (d), Lead-2's go 2026-09-27:
+    `second_judge.denial_gate="proof_gated"`. Both required elements established (would_be_proof holds),
+    primary rejects the denial confidently (0.03) -- the correction asks the second once more for the
+    denial specifically, and the second ALSO rejects it. Both judges have now independently examined the
+    defeater and agreed it is absent -- `binding_leg="both"`, the value #57/#63 originally found
+    unreachable and removed, brought back for exactly the reason that analysis said would require it
+    ("always paying the second judge's call [for a rejected primary]")."""
+    primary = _proof_script(TOY_FACTS)
+    second = _second_passes()
+    second[BNS69_DENY] = [_not(0.04)]
+    return primary, second
+
+
+def _sc_second_leg_proof_gated() -> tuple[Script, Script]:
+    """Same would_be_proof precondition as `_sc_both_leg_proof_gated`, but the second judge CATCHES the
+    primary's confident miss on the denial: established via the second alone. This is the actual gap
+    Tag's finding (the first live PROOF, defence score 0.033) motivated closing -- a defeater the primary
+    missed still becomes DENIAL, not a false PROOF, under `proof_gated`. The companion assertion that the
+    SAME fixture stays PROOF under the default `"and"` gate (today's known gap, encoded as an explicit
+    regression fixture) lives in `test_nyaya_agent.py`, not here (this file targets `binding_leg`, that one
+    targets the contract outcome)."""
+    primary = _proof_script(TOY_FACTS)
+    second = _second_passes()
+    second[BNS69_DENY] = [_est("F1", TOY_FACTS[0], "Kiran was engaged to Lata", 0.99)]
+    return primary, second
+
+
 #: Scenarios that additionally wrap the AND gate in the REAL `Gate1Judge` over a `_StubModel` that errors on
 #: every call -- the Gate 1 model failing to load, which is what `gate1_unavailable` means in production
 #: (`nyaya_judges.Gate1Judge`'s own fail-closed path, `nyaya_judges.py:929-933`). A whole-model failure, not
@@ -182,6 +212,19 @@ def _sc_gate1_unavailable() -> tuple[Script, Script]:
 #: comes back unevaluable too, while the denial (never established) is never sent to Gate 1 at all. The
 #: contract outcome still turns on EL0, the element under test.
 GATE1_DOWN: frozenset[str] = frozenset({"gate1_unavailable"})
+
+#: Scenarios that additionally set `second_judge.denial_gate="proof_gated"` (option (d)) instead of the
+#: default `"and"`. Both target the DENIAL's own `ElementResult`, not EL0/EL1 like every other scenario in
+#: this table -- see `ELEMENT_INDEX` below, which is what makes `_computed`/`_serialised` look at the right
+#: element for exactly these two names, and only these two.
+PROOF_GATED: frozenset[str] = frozenset({"both_leg_proof_gated", "second_leg_proof_gated"})
+
+#: `_computed`/`_serialised` default to `elements[0]` (every pre-existing scenario's element of interest is
+#: EL0). The two `PROOF_GATED` scenarios are about the DENIAL specifically, which is always LAST in
+#: `contract.elements` (`_run_contract`'s `tasks = [... required elements ...] + [... denials ...]`,
+#: `ElementResult`s returned in the same order) -- `-1` here, not a fragile hardcoded `2`, so this keeps
+#: working if `BNS69_EL` ever grows a third required element.
+ELEMENT_INDEX: dict[str, int] = {"both_leg_proof_gated": -1, "second_leg_proof_gated": -1}
 
 #: name -> (script factory, expected status, expected binding_leg). The four declared statuses are all
 #: reachable through the first six; `test_every_declared_status_is_covered_by_a_scenario` enforces that. The
@@ -197,6 +240,8 @@ SCENARIOS: dict[str, tuple[Callable[[], tuple[Script, Script]], str, str | None]
     "not_established_primary_leg": (_sc_not_established_primary, "not_established", "primary"),
     "second_unavailable": (_sc_second_unavailable, "not_evaluated_second_unavailable", None),
     "gate1_unavailable": (_sc_gate1_unavailable, GATE1_UNAVAILABLE_STATUS, None),
+    "both_leg_proof_gated": (_sc_both_leg_proof_gated, "not_established", "both"),
+    "second_leg_proof_gated": (_sc_second_leg_proof_gated, "established", "second"),
 }
 
 
@@ -204,7 +249,9 @@ SCENARIOS: dict[str, tuple[Callable[[], tuple[Script, Script]], str, str | None]
 # -- harness -----------------------------------------------------------------------------------------------
 
 
-def _and_gate_agent(tmp_path: Path, primary: Script, second: Script, *, gate1_down: bool = False) -> NyayaAgent:
+def _and_gate_agent(
+    tmp_path: Path, primary: Script, second: Script, *, gate1_down: bool = False, proof_gated: bool = False,
+) -> NyayaAgent:
     judge: Any = AndGateJudge(
         ScriptedJudge(primary), ScriptedJudge(second), tau_primary=TAU_PRIMARY, tau_second=TAU_SECOND,
     )
@@ -212,22 +259,28 @@ def _and_gate_agent(tmp_path: Path, primary: Script, second: Script, *, gate1_do
         # The shipped composition order (`nyaya_agent._build`: Gate 1 wraps the AND gate, never the reverse)
         # over a model double that errors -- never a hand-built `ElementJudgment` with Gate 1 fields set.
         judge = Gate1Judge(judge, _StubModel(error=RuntimeError("gate 1 model not loaded")))
-    return NyayaAgent(judge, _registry(), _config(tmp_path, second_judge={"tau": TAU_SECOND}))
+    second_judge_cfg: dict[str, Any] = {"tau": TAU_SECOND}
+    if proof_gated:
+        second_judge_cfg["denial_gate"] = "proof_gated"
+    return NyayaAgent(judge, _registry(), _config(tmp_path, second_judge=second_judge_cfg))
 
 
 def _agent(tmp_path: Path, scenario: str) -> NyayaAgent:
     """The agent a scenario needs, wired as production wires it."""
     factory, _status, _leg = SCENARIOS[scenario]
     primary, second = factory()
-    return _and_gate_agent(tmp_path, primary, second, gate1_down=scenario in GATE1_DOWN)
+    return _and_gate_agent(
+        tmp_path, primary, second, gate1_down=scenario in GATE1_DOWN, proof_gated=scenario in PROOF_GATED,
+    )
 
 
 def _computed(tmp_path: Path, scenario: str) -> ElementResult:
-    """The element under test as the ENGINE computes it (the `ElementResult` dataclass)."""
+    """The element under test as the ENGINE computes it (the `ElementResult` dataclass). `ELEMENT_INDEX`
+    defaults every scenario to EL0 except the two `PROOF_GATED` ones, which are about the denial."""
     run = _agent(tmp_path, scenario).run(
         TOY_FACTS, narrative="TOY narrative.", contract_ids=["bns69"],
     )
-    return run.contracts[0].elements[0]
+    return run.contracts[0].elements[ELEMENT_INDEX.get(scenario, 0)]
 
 
 def _computed_contract(tmp_path: Path, scenario: str) -> Any:
@@ -282,7 +335,7 @@ class TestEachStateRoundTrips:
         """Both fields reach a real caller on the DEFAULT response (no `?debug_second_judge`): issue #37 asked
         for this carried through "the API response, not just an internal field"."""
         _factory, status, leg = SCENARIOS[scenario]
-        el = _serialised(tmp_path, scenario)["elements"][0]
+        el = _serialised(tmp_path, scenario)["elements"][ELEMENT_INDEX.get(scenario, 0)]
         assert el["status"] == status
         assert el["binding_leg"] == leg
 
@@ -510,15 +563,21 @@ class TestExhaustiveness:
         This started out as `test_the_only_unreachable_declared_leg_is_the_reserved_one`: PR #45 reserved
         "both" for a future mode where both judges are asked and scored independently, unreachable under
         today's AND gate, and this test allowed that ONE exception. #63 (fbbf38e) removed "both" instead --
-        the stronger answer, and this file's finding in the first place -- so the exception has nothing left
-        to cover and the assertion tightens to "none". Renamed rather than left asserting a value that no
-        longer exists: with "both" gone, the old equality could only ever fail. A new leg added to the field
-        with no scenario producing it still trips here, which is the drift alarm that mattered."""
+        the stronger answer at the time, and this file's own finding -- so the exception had nothing left to
+        cover and the assertion tightened to "none".
+
+        **Revision, 2026-09-27** (Track-C, DEFENCE-LEG-DESIGN-2026-09-27.md option (d), Lead-2's go): "both"
+        is back, deliberately, and reachable -- `second_judge.denial_gate="proof_gated"` is the first design
+        to pay for asking the second judge even after the primary already rejected (a defeater, and only
+        when the contract would otherwise return `PROOF`), exactly the case #63's analysis said would be
+        needed to produce it. `_sc_both_leg_proof_gated` is that scenario. This is not the old dead value
+        resurrected by accident -- it is a NEW, narrower reachability (one specific contract-level
+        condition, not "always pay for both"), asserted by the exhaustiveness check below same as any other
+        leg, and by `_sc_both_leg_proof_gated`'s own round-trip test."""
         produced = {_computed(tmp_path, name).binding_leg for name in SCENARIOS} - {None}
         assert set(DECLARED_LEGS) - produced == set(), (
             f"declared legs with no scenario: {sorted(set(DECLARED_LEGS) - produced)}"
         )
-        assert "both" not in DECLARED_LEGS, "the dead 'both' leg is back in the field (#57/#63 removed it)"
 
     @pytest.mark.parametrize("status", DECLARED_STATUSES)
     def test_every_declared_status_survives_the_response_model(self, status: str) -> None:
