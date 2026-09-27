@@ -224,17 +224,26 @@ PROTECTED_PATTERNS: tuple[tuple[str, str], ...] = (
         "a log reports for the paths it covers.",
     ),
     (
-        "tests/test_check_workflow_change_label.py",
-        "RULING (2026-09-27, Lead-2). The test file that pins THIS guard. Every property that "
-        "makes the guard both effective and safe is asserted here and nowhere else: the trigger, "
-        "the `types:` list, the read-only permission set, that the head is never checked out, "
-        "that no `${{ }}` reaches a `run:` block, that the checkout is the default branch and "
-        "not `base.sha`, that `could-not-run` is never exit 0, and that the allowlist can never "
-        "be read from the pull request's own tree. Weakening or deleting an assertion here "
-        "removes a gate exactly as editing `ci.yml` does -- it is simply the slowest-acting way "
-        "to do it, because nothing goes red on the commit that does it. Guarded as the single "
-        "literal path Lead-2 named; see the pull request body for the `tests/test_check_*.py` "
-        "alternative, which is Lead-2's call and is NOT adopted here.",
+        "tests/test_check_*.py",
+        "RULING (2026-09-27, Lead-2). The tests that pin the guard scripts. For THIS guard, every "
+        "property that makes it both effective and safe is asserted in its test file and nowhere "
+        "else: the trigger, the `types:` list, the read-only permission set, that the head is "
+        "never checked out, that no `${{ }}` reaches a `run:` block, that the checkout is the "
+        "default branch and not `base.sha`, that `could-not-run` is never exit 0, and that the "
+        "allowlist can never be read from the pull request's own tree. Weakening or deleting an "
+        "assertion there removes a gate exactly as editing `ci.yml` does -- it is simply the "
+        "slowest-acting way to do it, because nothing goes red on the commit that does it. "
+        "A GLOB rather than one literal path, and deliberately the mirror image of "
+        "`scripts/check_*.py` above: it covers the other guard scripts' tests on the same "
+        "reasoning, and it survives a rename of the file, which a bare filename does not. "
+        "`*` does not cross a `/` (see `glob_to_regex`), so this is `tests/` only and a test "
+        "filed in a subdirectory is not covered; it matches four files today, enumerated in the "
+        "pull request body. NOTE THE ASYMMETRY, because it is a real limit rather than an "
+        "oversight: `scripts/check_*.py` covers seven scripts and only four of them have a test "
+        "file named `test_check_<script>.py`, so three guard scripts -- check_no_private_data, "
+        "check_no_secret_dockerfile_args, check_score_bin_gate_ran, check_sign_carryover -- have "
+        "no test this entry can protect. This entry does not create that gap and does not close "
+        "it.",
     ),
     (
         "scripts/workflow_change_label_setters.txt",

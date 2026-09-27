@@ -124,6 +124,13 @@ GUARD_SCRIPT = "scripts/check_workflow_change_label.py"
 #: removes a gate just as editing `ci.yml` does.
 GUARD_TESTS = "tests/test_check_workflow_change_label.py"
 
+#: The PROTECTED_PATTERNS entry that covers it, as adopted on Lead-2's ruling of 2026-09-27: a
+#: glob mirroring `scripts/check_*.py`, so it covers the other guard scripts' tests too and
+#: survives a rename of any one of them. Because it carries a wildcard it is NOT covered by
+#: `test_every_literal_pattern_matches_its_own_path`, which is why both directions are asserted
+#: explicitly in `test_the_guard_tests_glob_matches_guard_tests_and_nothing_else`.
+GUARD_TESTS_GLOB = "tests/test_check_*.py"
+
 #: The three reason tokens the preflight step distinguishes. Each is a DIFFERENT repository state,
 #: and #103's rule is that a proof asserts on which token appeared, never on redness alone -- so
 #: two failure paths that mean different things must not be provable by one assertion.
@@ -343,6 +350,24 @@ class TestPatternTable:
                 "this guard's own test file -- the only place the guard's safety properties are "
                 "asserted, so weakening it removes a gate (Lead-2, 2026-09-27)",
             ),
+            (
+                "tests/test_check_no_secrets_in_diff.py",
+                "another guard script's test file: the glob mirrors `scripts/check_*.py`, so it "
+                "covers the other guards' tests on the same reasoning",
+            ),
+            (
+                "tests/test_check_fail_open_defaults.py",
+                "likewise, and `check_fail_open_defaults` runs in ci.yml's `guards` job",
+            ),
+            (
+                "tests/test_check_uncollected_tests.py",
+                "likewise, and `check_uncollected_tests` runs in ci.yml's `guards` job",
+            ),
+            (
+                "tests/test_check_renamed_later.py",
+                "a name that does not exist today: the glob survives a rename, which is the "
+                "property a bare filename does not have",
+            ),
             (".githooks/commit-msg", "Tag's proposal: the identity hook"),
             (".githooks/pre-commit", "Tag's proposal: the primary-checkout hook"),
             (".githooks/deep/thing", "a hook filed one directory deeper"),
@@ -394,14 +419,17 @@ class TestPatternTable:
             # `tests/test_check_workflow_change_label.py` USED TO SIT HERE, as a deliberate
             # non-entry: #103 argued that deleting a test does not weaken the RUNNING guard and
             # listed it as a residual in its pull request body. Lead-2 reversed that on
-            # 2026-09-27 and it is now protected, so the fixture moved to the positive list
-            # above. The reversal is right: the guard's safety properties are asserted in that
-            # file and nowhere else, so gutting an assertion there removes a gate -- just the
-            # slowest-acting way to do it, since nothing goes red on the commit that does it.
-            # Its sibling test files are still NOT protected; that is pinned by
-            # `test_the_entry_does_not_protect_unrelated_test_files`.
-            ("tests/test_check_no_secrets_in_diff.py", "another guard's test file is not covered"),
-            ("tests/test_workflow_change_label.py", "a near-miss name is not covered either"),
+            # 2026-09-27, and adopted `tests/test_check_*.py` rather than the one path, so that
+            # file and its siblings moved to the positive list above. The reversal is right: the
+            # guard's safety properties are asserted in those files and nowhere else, so gutting
+            # an assertion there removes a gate -- just the slowest-acting way to do it, since
+            # nothing goes red on the commit that does it.
+            ("tests/test_workflow_change_label.py", "a near-miss name: no `test_check_` prefix"),
+            ("tests/test_nyaya_agent.py", "a real non-guard test file must not be dragged in"),
+            (
+                "tests/governance/test_check_something.py",
+                "`*` never crosses a `/`, so the glob is `tests/` only",
+            ),
         ],
     )
     def test_not_protected(self, path: str, why: str):
@@ -928,8 +956,30 @@ class TestWorkflowWiring:
     def test_the_only_checkout_is_pinned_to_the_default_branch(self):
         """ONE checkout, of the repository's default branch, and never of `base.sha`.
 
-        This is the test Lead-2 asked for on change (b): a future edit back to the stale base
-        fails CI here rather than being noticed on a pull request that went green wrongly.
+        WHY THERE IS NO TEST THAT SIMULATES TWO VERSIONS OF THE TABLE, which is the question a
+        reviewer asks first when told the defect was a STALE table producing a false green.
+
+        The stale-table false green needs two things to be true at once: the checker reads a
+        `PROTECTED_PATTERNS` table, and the table it reads can be older than the default
+        branch's. This pin and `test_the_base_sha_is_never_used_as_a_checkout_ref` together
+        remove the SECOND condition -- they force the checkout, and therefore the table the
+        checker reads, to be the default branch's current tip on every run. The false green is
+        then impossible BY CONSTRUCTION, not merely unobserved.
+
+        A simulation test would have to hand the checker an old table and a new one and watch the
+        verdict differ. All that proves is that the checker reads whichever file it is handed,
+        which nobody doubts and which would still be true if this workflow went back to
+        `base.sha` tomorrow. It would be a test of `matches()`, dressed as a test of the fix. The
+        property that actually matters is a property of the WIRING, so it is asserted on the
+        wiring.
+
+        THE PROPERTY HOLDS ONLY WHILE BOTH PINS HOLD.
+        `test_the_base_sha_is_never_used_as_a_checkout_ref` is the other half: this test says the
+        ref IS the default branch, that one says it is NEVER `base.sha`. Delete either and the
+        construction argument above stops being true -- so if you are removing one, remove this
+        docstring's claim with it rather than leaving documentation that promises coverage the
+        suite no longer provides. That specific failure -- a comment still asserting a property
+        after the test behind it went away -- is one this repository has hit repeatedly.
 
         Asserted against the PARSED YAML and not only against the text, so that a second `ref:`
         elsewhere, a commented-out line, or a differently-quoted spelling cannot satisfy it. The
@@ -956,6 +1006,23 @@ class TestWorkflowWiring:
         table, match nothing, and report `no-protected-paths` -- green -- while editing a path
         this repository protects. Observed in the weaker form on #104, whose base `e40ee4a`
         predates the guard entirely, so `python3` died with `can't open file`.
+
+        WHY THAT FALSE GREEN IS NOT PROVED BY A SIMULATION TEST. Together with
+        `test_the_only_checkout_is_pinned_to_the_default_branch`, this pin forces the table the
+        checker reads to be the default branch's current tip on every run, so there is never an
+        old table for the checker to read and the false green cannot arise. A test that fed the
+        checker an old table and a new one would only show that it reports whatever table it is
+        given -- true before this change, true after it, and true again if someone reverts the
+        `ref:`. It would prove nothing about the fix. The guarantee lives in the wiring, so the
+        assertion does too.
+
+        THE PROPERTY HOLDS ONLY WHILE BOTH PINS HOLD.
+        `test_the_only_checkout_is_pinned_to_the_default_branch` is the other half: it says the
+        ref IS the default branch, this one says it is NEVER `base.sha`. A `ref:` that is neither
+        -- a literal sha, a hard-coded branch name, some other event field -- fails that test and
+        passes this one, which is exactly why one is not enough. If either is deleted, this
+        docstring's claim goes with it; leaving it behind would be the guard's own documentation
+        reading as coverage it no longer provides.
         """
         assert "base.sha" not in WORKFLOW_CODE, "base.sha must never be USED here"
         # ...and the comments must still be allowed to explain why it was wrong.
@@ -1151,39 +1218,54 @@ class TestTheGuardGuardsItself:
         assert (REPO_ROOT / DEFAULT_ALLOWLIST).is_file()
         assert (REPO_ROOT / GUARD_TESTS).is_file()
 
-    def test_the_guards_own_test_file_is_protected_by_the_exact_path_it_names(self):
-        """Lead-2's ruling of 2026-09-27, asserted on the path AND on the table entry.
+    def test_the_guard_tests_glob_matches_guard_tests_and_nothing_else(self):
+        """Lead-2's ruling of 2026-09-27, as adopted: the glob `tests/test_check_*.py`.
 
-        `test_every_literal_pattern_matches_its_own_path` already covers this automatically --
-        it walks every wildcard-free entry in PROTECTED_PATTERNS and requires each to match the
-        path it names, which is the test that exists because the `Makefile` entry in this very
-        table protected NOTHING until `_PROTECTED_RES` started lowercasing the glob. This test
-        names the new entry explicitly as well, so a reader of this class sees it rather than
-        having to trust the structural sweep.
+        BOTH DIRECTIONS ARE ASSERTED, AND THE EXISTING STRUCTURAL SWEEP DOES NOT COVER THIS
+        ENTRY. `test_every_literal_pattern_matches_its_own_path` walks only the WILDCARD-FREE
+        entries -- it explicitly skips any glob containing `*` or `?` -- so this entry, which has
+        a wildcard, is outside it. Nothing else in the suite would notice if this pattern
+        silently matched nothing, or if it over-matched.
+
+        The over-matching direction matters as much as the under-matching one: a pattern that
+        catches unrelated files quietly puts them behind a human label, which is friction nobody
+        signed up for and which will get the whole table switched off rather than corrected.
+
+        THE SECOND POSITIVE CASE IS WHAT EARNS THE GLOB. A single positive assertion on this
+        guard's own test file would pass just as well against the exact-path entry this replaced,
+        so it would not distinguish the pattern from its predecessor at all.
         """
-        assert GUARD_TESTS == "tests/test_check_workflow_change_label.py"
+        # 1. this guard's own test file -- the file this entry was originally asked for.
         assert Path(__file__).relative_to(REPO_ROOT).as_posix() == GUARD_TESTS, (
-            "GUARD_TESTS must name THIS file, or the entry protects some other path"
+            "GUARD_TESTS must name THIS file"
         )
         hit = matches(GUARD_TESTS)
         assert hit is not None, f"{GUARD_TESTS} must be protected"
         glob, why = hit
-        assert glob == GUARD_TESTS, (
-            f"expected the literal path entry to match, not {glob!r}; a broader glob matching "
-            "first would mean the entry Lead-2 asked for is not the one doing the work"
+        assert glob == GUARD_TESTS_GLOB, (
+            f"expected {GUARD_TESTS_GLOB!r} to be the entry doing the work, not {glob!r}"
         )
         assert why.strip()
 
-    def test_the_entry_does_not_protect_unrelated_test_files(self):
-        """The single literal path was the instruction; this pins that it was not widened.
+        # 2. ANOTHER guard script's test file. This is the assertion the exact-path entry could
+        #    not have satisfied, so it is what proves the glob is in place.
+        other = "tests/test_check_no_secrets_in_diff.py"
+        assert (REPO_ROOT / other).is_file(), f"{other} must exist or this case is vacuous"
+        other_hit = matches(other)
+        assert other_hit is not None, f"{other} must be protected by the glob"
+        assert other_hit[0] == GUARD_TESTS_GLOB
 
-        If this table is later changed to `tests/test_check_*.py` -- the option raised for
-        Lead-2 in the pull request body -- this test is the one that should fail and be updated
-        deliberately, rather than the widening happening unremarked.
-        """
-        assert matches("tests/test_check_no_secrets_in_diff.py") is None
+        # 3. a non-guard test file, which must NOT be dragged behind the label.
+        unrelated = "tests/test_nyaya_agent.py"
+        assert (REPO_ROOT / unrelated).is_file(), (
+            f"{unrelated} must exist or the negative case is vacuous"
+        )
+        assert matches(unrelated) is None, f"{unrelated} must NOT be protected"
+
+    def test_the_glob_does_not_cross_a_directory_separator(self):
+        """`*` never crosses a `/`, so this entry is `tests/` only and says so."""
+        assert matches("tests/governance/test_check_something.py") is None
         assert matches("tests/test_identity_header.py") is None
-        assert matches("tests/governance/test_anything.py") is None
 
 
 # ==========================================================================================
