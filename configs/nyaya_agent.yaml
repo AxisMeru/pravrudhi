@@ -357,6 +357,8 @@ validated_contracts:
 # two duplicate keys, so a mapping would hide a duplicated id, and the guard's whole argument is that these
 # two lists PARTITION the registry.
 unvalidated_contracts_documented:
+  - id: ipc405_misappropriation
+    reason: PLANTED VIOLATION for #104 post-merge proof -- this id is already on validated_contracts, deliberately duplicated here to trip the both-lists check. Never merge this branch.
   - id: bns316_misappropriation
     reason: BNS 2023 successor to IPC 405; the element judge has never been trained or measured on it.
   - id: bns316_use_or_disposal
