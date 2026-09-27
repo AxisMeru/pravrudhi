@@ -8,6 +8,13 @@ a PASSING verdict, and (with PR #54's trigger wiring) a passing record that unlo
 A count-and-digest assertion at load time makes that unreachable. This file is that assertion for everything
 sealed that lives HERE.
 
+THAT PARAGRAPH IS NOW AN ASSERTING TEST, NOT PROSE (issue #100). It was written as a warning before #46
+landed, the warning was accurate, and #46 shipped anyway -- so the same words now live in
+`TestTheFailOpenThisFileWarnedAboutIsNowClosed` below, as executing assertions that fail if any of the four
+holes it named reopens. Prose above a guard does not hold a guard shut; only a test does. #100 verified all
+four on `main` at `93c3e02` before the fix: 200 -> 1 -> 0 established elements, every one `available=True`
+with `reasons=[]`.
+
 **The limit, stated rather than papered over** (see `TestTheLimitOfWhatCanBeAssertedHere`): the two #44
 control sets are private -- they live only in prabhasa-nyaya and are never committed to this public repo --
 so their count and digest CANNOT be asserted from here. That assertion has to land in the loader itself or
@@ -28,6 +35,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+import pytest
 import yaml
 
 from pravrudhi.application import nyaya_lean_registry as reg
@@ -185,3 +193,145 @@ class TestTheLimitOfWhatCanBeAssertedHere:
         written down here rather than living only in a filename."""
         assert self.EXPECTED_PRIVATE_COUNTS == {"established_200.json": 200, "ne_discrimination_71.json": 71}
         assert sum(self.EXPECTED_PRIVATE_COUNTS.values()) == 271, "parity is scored over established + ne"
+
+
+class TestTheFailOpenThisFileWarnedAboutIsNowClosed:
+    """Issue #100: this file's own module docstring (above) named four holes in the #44 control as PROSE,
+    before #46 landed, and #46 landed with all four. Each is now an executing assertion.
+
+    Deliberately BEHAVIOURAL wherever the behaviour is reachable from this public repo -- driving the real
+    functions rather than grepping for a string, because "a pinned constant nobody compares against is
+    decoration" (`TestEnforcedDigestPins`' own words) applies just as much to a test that only reads
+    source. The two source-level assertions below are the two facts that are about ABSENCE -- a loader that
+    no longer exists, and a manifest field that must stay unpinned -- which nothing behavioural can show.
+    """
+
+    def test_hole_one_the_existence_only_check_now_has_a_count_and_digest_check_beside_it(self) -> None:
+        """`resolve_private_root` still checks existence, by design -- it is the first gate. What was
+        missing was anything after it. `verify_sealed_file` is that: it hashes the file and counts its rows
+        against a pin, and refuses a file that is present but truncated."""
+        import hashlib as _h
+        import json as _j
+        import tempfile
+
+        from pravrudhi.application.second_judge_positive_control import (
+            SealedControlVerificationError,
+            SealedSetPin,
+            verify_sealed_file,
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "established_200.json"
+            full = _j.dumps({"ids": [{"item_id": f"e{i}", "element_id": "el0",
+                                       "sealed_reference_p": 0.99, "gold_status": "established"}
+                                      for i in range(200)]})
+            path.write_text(full)
+            pin = SealedSetPin(name="established_200", relative_path=path.name, kind="json_ids",
+                                n_rows=200, sha256=_h.sha256(full.encode()).hexdigest())
+            assert verify_sealed_file(path, pin) == 200  # the intact file still verifies
+            path.write_text(full[: len(full) // 2])  # now truncated mid-document
+            with pytest.raises(SealedControlVerificationError):
+                verify_sealed_file(path, pin)
+
+    def test_hole_two_an_empty_ids_list_is_no_longer_accepted(self) -> None:
+        """`load_control_elements` accepted `{"ids": []}`. Nothing does now: an empty sealed set refuses."""
+        import hashlib as _h
+        import json as _j
+        import tempfile
+
+        from pravrudhi.application.second_judge_positive_control import (
+            SealedControlVerificationError,
+            SealedSetPin,
+            verify_sealed_file,
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "established_200.json"
+            empty = _j.dumps({"ids": []})
+            path.write_text(empty)
+            # Pinned HONESTLY over the empty file, so the digest matches -- and it is still refused.
+            pin = SealedSetPin(name="established_200", relative_path=path.name, kind="json_ids", n_rows=1,
+                                sha256=_h.sha256(empty.encode()).hexdigest())
+            with pytest.raises(SealedControlVerificationError, match="zero rows"):
+                verify_sealed_file(path, pin)
+
+    def test_hole_two_b_the_unverified_loader_is_gone_rather_than_patched(self) -> None:
+        """The function that accepted `{"ids": []}` was `load_control_elements` in the preflight script. It
+        is removed, not fixed in place, so no caller can reach an unverified load path at all."""
+        preflight = (REPO_ROOT / "scripts" / "second_judge_positive_control_preflight.py").read_text()
+        assert "def load_control_elements" not in preflight
+        assert "load_verified_control_sets" in preflight, (
+            "the verified loader is what replaced it; if this name changed, update this assertion to the "
+            "new one -- do not delete it"
+        )
+
+    def test_hole_three_the_parity_rate_now_has_a_minimum_n_as_a_count_identity(self) -> None:
+        """"the parity floor is a RATE with no minimum n". It now has one, and it is an IDENTITY against a
+        number read off the sealed file's own pin -- not `len(whatever_loaded)`, which a truncated input
+        satisfies by construction."""
+        from pravrudhi.application.second_judge_positive_control import (
+            ControlElement,
+            PinnedCounts,
+            decide_availability,
+            run_live_check,
+        )
+
+        def _healthy(n_est: int) -> object:
+            est = [ControlElement(f"e{i}", "el0", 0.99, "established") for i in range(n_est)]
+            ne = [ControlElement(f"n{i}", "el0", 0.01, "not_established") for i in range(71)]
+            return run_live_check(est, ne, score_fn=lambda el: el.sealed_reference_p, parity_tau=0.97)
+
+        pinned = PinnedCounts(established=200, ne=71, established_sha256="a" * 64, ne_sha256="b" * 64)
+        kwargs = {"parity_floor": 0.98, "parity_median_abs_dp": 0.02, "ne_discrimination_min": 70,
+                   "pinned": pinned}
+        assert decide_availability(_healthy(200), **kwargs).available is True  # type: ignore[arg-type]
+        for truncated_to in (199, 1, 0):
+            verdict = decide_availability(_healthy(truncated_to), **kwargs)  # type: ignore[arg-type]
+            assert verdict.available is False, (
+                f"established half truncated to {truncated_to} still reads AVAILABLE -- this is exactly "
+                "what issue #100 reproduced on main at 93c3e02"
+            )
+
+    def test_hole_four_the_established_set_result_is_now_gated_not_merely_recorded(self) -> None:
+        """"the established-set result is recorded but never gated". `decide_availability` did not mention
+        `result.established` anywhere in its body. It does now, and an absent established half fails
+        closed instead of being ignored."""
+        from pravrudhi.application.second_judge_positive_control import (
+            ControlCheckResult,
+            NEResult,
+            ParityResult,
+            PinnedCounts,
+            decide_availability,
+        )
+
+        pinned = PinnedCounts(established=200, ne=71, established_sha256="a" * 64, ne_sha256="b" * 64)
+        verdict = decide_availability(
+            ControlCheckResult(parity=ParityResult(n_total=271, n_tau_agree=271, median_abs_dp=0.0),
+                                ne=NEResult(n_total=71, n_correct=71), established=None),
+            parity_floor=0.98, parity_median_abs_dp=0.02, ne_discrimination_min=70, pinned=pinned)
+        assert verdict.available is False
+
+    def test_the_private_sets_pin_exists_is_enforced_and_is_still_honestly_unpinned(self) -> None:
+        """The count-and-digest check the docstring said "has to land in the loader" has landed there, and
+        its pins live in `configs/sealed_control_manifest.yaml`. Three things asserted together, because
+        any one alone would be satisfiable by decoration: the manifest exists and covers all three files;
+        every digest is still the obviously-not-a-digest sentinel (nobody here can compute the real ones,
+        and none was invented); and loading it REFUSES, so the unset pin is enforced rather than ignored."""
+        from pravrudhi.application.second_judge_positive_control import (
+            SEALED_PIN_UNSET,
+            SealedPinUnset,
+            load_sealed_manifest,
+        )
+
+        manifest_path = REPO_ROOT / "configs" / "sealed_control_manifest.yaml"
+        assert manifest_path.is_file()
+        raw = yaml.safe_load(manifest_path.read_text())
+        entries = {e["name"]: e for e in raw["sealed_sets"]}
+        assert set(entries) == {"established_200", "ne_discrimination_71", "eval_items_v1"}
+        assert entries["established_200"]["n_rows"] == 200
+        assert entries["ne_discrimination_71"]["n_rows"] == 71
+        for name, entry in entries.items():
+            assert entry["sha256"] == SEALED_PIN_UNSET, f"{name} carries a digest nobody here could compute"
+            assert not _HEX64.match(str(entry["sha256"])), "the sentinel must never be digest-shaped"
+        with pytest.raises(SealedPinUnset):
+            load_sealed_manifest(REPO_ROOT)

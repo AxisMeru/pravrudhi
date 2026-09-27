@@ -384,6 +384,21 @@ gate1:
 # handling, no new decision logic in the judge itself), and Lead-2 is alerted. Trigger: every (re)deploy or
 # config change of the second-judge endpoint, every engine release, and on a schedule -- always a preflight,
 # never through the public analyse-facts path.
+#
+# KNOWN LIMITATION OF THE PARITY CHECK (recorded on Lead-2's instruction, 2026-09-27, issue #100).
+# PARITY MEASURES DRIFT FROM THE SEALED STATE, NOT CORRECTNESS. It compares the live judge's scores against
+# `sealed_reference_p`, which is the second judge's OWN earlier serving output -- so a judge that was
+# already wrong when it was sealed passes parity at 100%, and parity would not notice. It answers "is this
+# still the model that was sealed", never "is the model right about the law". NE discrimination (check 2) is
+# the only gate in this control measured against GOLD, and its floor sits at the dry-run value with zero
+# slack. Treat a green parity result as evidence of serving integrity only.
+#
+# COMPLETENESS OF THE CONTROL SETS (issue #100). Both sealed sets are verified at load time against the row
+# count and sha256 pinned in `configs/sealed_control_manifest.yaml`, and the verdict re-checks the number of
+# elements actually evaluated against those pinned counts as an identity. A truncated or emptied set, or a
+# run that evaluated nothing, yields available=False and a non-zero exit -- never a pass. The digests in
+# that manifest are UNPINNED today, which means the control REFUSES TO RUN until whoever holds the sealed
+# files fills them in; see that file's header.
 second_judge_positive_control:
   parity_floor: 0.98
   parity_median_abs_dp: 0.02
