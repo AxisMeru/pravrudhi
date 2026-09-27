@@ -72,20 +72,25 @@ on:
 #                            allowlist at the BASE ref (deliberately not from any checkout; see
 #                            the guard's module docstring).
 #   pull-requests: read   -- GET /pulls/{n} and GET /pulls/{n}/files.
+#   issues: read          -- GET /issues/{n}/labels and GET /issues/{n}/timeline. THE TIMELINE AND
+#                            LABEL ENDPOINTS LIVE IN THE ISSUES NAMESPACE EVEN FOR A PULL REQUEST.
+#                            An earlier draft declared only the two scopes above and argued that
+#                            `pull-requests: read` probably covers them, with the guard failing
+#                            closed on a 403 as the safety net. Lead-2's ruling (2026-09-27) is to
+#                            declare it now rather than discover it: the scope is READ-ONLY, the
+#                            guard genuinely needs both reads, and "it will go red and someone
+#                            will add it" is a worse first impression than one more read scope.
+#                            Without it the timeline read can 403 and the job is red for a reason
+#                            that says nothing about the pull request under test.
 #
-# Nothing wider. In particular no write scope of any kind: this job never applies, removes or
-# creates a label, never comments, and never pushes.
-#
-# KNOWN OPEN POINT FOR THE REVIEWER. The guard also reads GET /issues/{n}/labels and
-# GET /issues/{n}/timeline. Those paths live in the issues namespace even for a pull request.
-# `pull-requests: read` is expected to cover them for a pull-request target, and the ruling says
-# these two scopes and nothing more, so that is what is declared. If the first real run comes back
-# `HTTP 403` on either read, the guard FAILS CLOSED (red, with the failing URL in the message) --
-# it cannot turn that into a green tick -- and the fix is to add `issues: read` here, as a visible
-# one-line change rather than a silent widening.
+# Nothing wider. ALL THREE ARE `read`. In particular no write scope of any kind: this job never
+# applies, removes or creates a label, never comments, and never pushes. That is the property that
+# defuses `pull_request_target`, and tests/test_check_workflow_change_label.py asserts both the
+# exact scope set and that the token `write` appears nowhere in this file.
 permissions:
   contents: read
   pull-requests: read
+  issues: read
 
 concurrency:
   # Per pull request, cancelling in progress: toggling a label twice in quick succession should

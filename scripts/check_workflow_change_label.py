@@ -149,6 +149,48 @@ PROTECTED_PATTERNS: tuple[tuple[str, str], ...] = (
         "are guard machinery in every sense except that they run before CI. Easy to drop: delete "
         "this entry and nothing else changes.",
     ),
+    # ======================================================================================
+    # RULING (2026-09-27 follow-up): "everything that changes what CI runs". The three paths
+    # below are not workflows and not guard scripts, but each of them decides what the workflows
+    # actually DO, so an unreviewed edit to one is an unreviewed change to the gate.
+    #
+    # THIS ADDS REAL FRICTION AND THAT IS A DELIBERATE TRADE, NOT AN OVERSIGHT: an ordinary
+    # dependency bump touches `uv.lock` (and usually `pyproject.toml`), so routine bumps now need
+    # the `workflow-change` label. Stated here and in the pull request body so it is weighed
+    # rather than discovered on the first red bump.
+    # ======================================================================================
+    (
+        "pyproject.toml",
+        "RULING (follow-up). Carries `[tool.pytest.ini_options] testpaths`, which decides WHICH "
+        "tests are collected at all, plus the ruff `select` list and the mypy `packages`/`strict` "
+        "configuration. Narrowing `testpaths` or dropping a ruff rule silently shrinks the build "
+        "without touching a single workflow file.",
+    ),
+    (
+        "uv.lock",
+        "RULING (follow-up). Decides which dependency VERSIONS CI resolves. Every job runs "
+        "`uv sync --all-groups --frozen`, which trusts this file as-is, and `governance` runs "
+        "`uv lock --check`. A changed pin changes what every job executes.",
+    ),
+    (
+        "Makefile",
+        "RULING (follow-up). The contributor-facing targets. NOTE FOR ACCURACY: no workflow in "
+        "this repository invokes `make` -- checked across all four workflow files -- so this is "
+        "not guarded because CI runs it. It is guarded because `make init` is what sets "
+        "`core.hooksPath .githooks` and the git identity, i.e. it is the on-ramp to the same "
+        "commit-identity machinery `.githooks/**` enforces, and because a target here is what a "
+        "contributor is told to run.",
+    ),
+    (
+        "pravrudhi_kernel/pyproject.toml",
+        "BEYOND THE RULING, flagged for the reviewer. The ruling names `pyproject.toml`, and that "
+        "glob is anchored, so it matches the ROOT file only. The workspace member has its own "
+        "`[tool.pytest.ini_options] testpaths = [\"tests\"]` and its own dependency list, and the "
+        "`kernel` and `windows-import-smoke` jobs both run against it -- so the ruling's stated "
+        "aim (\"everything that changes what CI runs\") is not met by the root file alone. Added "
+        "explicitly rather than by widening the ruling's glob to `**/pyproject.toml`, so this is "
+        "one line the reviewer can delete.",
+    ),
     (
         "scripts/**/check_*.py",
         "WIDENING (adversarial pass). `scripts/check_*.py` above does not cross a `/`, so a guard "
@@ -187,8 +229,34 @@ MAX_PAGES = 30
 API_ROOT = "https://api.github.com"
 
 
+#: Stable, machine-greppable tokens printed on every terminal path, so a caller -- a human reading
+#: a log, or the post-merge proof run -- can assert WHICH outcome occurred rather than only that
+#: the job was red. `label-setter-not-authorised` and `actor-unresolved` are both red but prove
+#: DIFFERENT things: the first proves the allowlist check ran and rejected an account, the second
+#: proves only that the guard could not establish who acted. A proof run that asserts on redness
+#: alone cannot tell them apart, and an allowlist bug would look identical to a resolution failure.
+VERDICT_PREFIX = "workflow-change: VERDICT="
+VERDICT_EMPTY_DIFF = "empty-diff"
+VERDICT_NO_PROTECTED_PATHS = "no-protected-paths"
+VERDICT_LABEL_MISSING = "label-missing"
+VERDICT_NOT_AUTHORISED = "label-setter-not-authorised"
+VERDICT_ACTOR_UNRESOLVED = "actor-unresolved"
+VERDICT_CLEARED = "cleared"
+VERDICT_COULD_NOT_RUN = "could-not-run"
+
+
 class GuardFailure(Exception):
-    """Something the verdict depends on could not be determined. Always exit 1, never a pass."""
+    """Something the verdict depends on could not be determined. Always exit 1, never a pass.
+
+    `verdict` names which hard-failure this is, so `main` can print a distinguishable token. It
+    defaults to `could-not-run`; `resolve_actor` raises with `actor-unresolved` specifically,
+    because "the labeller could not be resolved" must never be mistaken in a log for "the labeller
+    was checked against the allowlist and rejected".
+    """
+
+    def __init__(self, message: str, verdict: str = VERDICT_COULD_NOT_RUN) -> None:
+        super().__init__(message)
+        self.verdict = verdict
 
 
 # ------------------------------------------------------------------------------------------
@@ -234,7 +302,16 @@ def glob_to_regex(glob: str) -> re.Pattern[str]:
     return re.compile("".join(out) + r"\Z")
 
 
-_PROTECTED_RES = tuple((glob, glob_to_regex(glob), why) for glob, why in PROTECTED_PATTERNS)
+# THE GLOB IS LOWERCASED HERE, AND THAT IS LOAD-BEARING, NOT TIDINESS. `matches` lowercases the
+# PATH before testing it (so `.JSONL`-style renames are not a bypass), so a pattern carrying a
+# capital letter could never match anything at all. `Makefile` was added to the table above and
+# silently matched NOTHING until this `.lower()` was added -- caught by
+# `test_every_literal_pattern_matches_its_own_path`, which now pins the whole class rather than
+# that one file. A guard whose pattern matches nothing is worse than no pattern: it reads as
+# coverage.
+_PROTECTED_RES = tuple(
+    (glob, glob_to_regex(glob.lower()), why) for glob, why in PROTECTED_PATTERNS
+)
 
 
 def matches(path: str) -> tuple[str, str] | None:
@@ -496,16 +573,32 @@ def resolve_actor(fetch, login: str) -> str:
     `/users/` resource and 404s here, which is the intended direction: no agent account is
     allowlisted, so an app-applied label must not clear a CI change.
     """
-    payload, _ = fetch(f"{API_ROOT}/users/{urllib.parse.quote(login, safe='')}")
+    # `quote(..., safe="")` because a login is pasted straight into the path. An app login carries
+    # brackets (`claude[bot]` -> `claude%5Bbot%5D`); without encoding the request would fail for a
+    # URL syntax reason, which would read in a log as a security refusal while being a bug.
+    quoted = urllib.parse.quote(login, safe="")
+    try:
+        payload, _ = fetch(f"{API_ROOT}/users/{quoted}")
+    except GuardFailure as exc:
+        raise GuardFailure(
+            f"could not resolve the account @{login}: {exc}", VERDICT_ACTOR_UNRESOLVED
+        ) from exc
     if not isinstance(payload, dict):
-        raise GuardFailure(f"could not resolve the account @{login}: /users/{login} is not an object")
+        raise GuardFailure(
+            f"could not resolve the account @{login}: /users/ did not return an object",
+            VERDICT_ACTOR_UNRESOLVED,
+        )
     resolved = payload.get("login")
     if not isinstance(resolved, str) or not resolved:
-        raise GuardFailure(f"could not resolve the account @{login}: /users/{login} carries no login")
+        raise GuardFailure(
+            f"could not resolve the account @{login}: /users/ carries no login",
+            VERDICT_ACTOR_UNRESOLVED,
+        )
     if resolved.lower() != login.lower():
         raise GuardFailure(
-            f"could not resolve the account @{login}: /users/{login} answered for @{resolved} "
-            "instead. Refusing to authorise against an account this guard cannot pin down."
+            f"could not resolve the account @{login}: /users/ answered for @{resolved} instead. "
+            "Refusing to authorise against an account this guard cannot pin down.",
+            VERDICT_ACTOR_UNRESOLVED,
         )
     return resolved
 
@@ -543,6 +636,7 @@ def check(
             "entries -- an empty diff, not an unread list. Nothing to protect.",
             file=out,
         )
+        print(f"{VERDICT_PREFIX}{VERDICT_EMPTY_DIFF}", file=out)
         return 0
 
     print(
@@ -556,6 +650,7 @@ def check(
             "no CI or guard machinery touched; the `workflow-change` label is not required",
             file=out,
         )
+        print(f"{VERDICT_PREFIX}{VERDICT_NO_PROTECTED_PATHS}", file=out)
         return 0
 
     print(f"protected paths in this pull request ({len(hits)}):", file=out)
@@ -573,6 +668,7 @@ def check(
             file=out,
         )
         print(f"labels present: {', '.join(sorted(labels)) or '(none)'}", file=out)
+        print(f"{VERDICT_PREFIX}{VERDICT_LABEL_MISSING}", file=out)
         return 1
 
     # The allowlist comes from the BASE branch, not from this checkout -- otherwise a pull request
@@ -590,7 +686,21 @@ def check(
     # Only now, with the label confirmed still present above, is the timeline consulted. Any
     # failure in here raises GuardFailure and fails the job -- there is no presence-only fallback.
     login, when = fetch_last_labeller(fetch, repo, number, WORKFLOW_CHANGE_LABEL)
-    login = resolve_actor(fetch, login)
+
+    # THE ALLOWLIST IS CHECKED BEFORE THE ACCOUNT IS RESOLVED, AND THE ORDER IS DELIBERATE.
+    #
+    # Denying costs no trust: if the timeline's login is not on the list, no lookup can make it
+    # authorised, so there is nothing to prove and the honest message is "not authorised".
+    # Resolving first would turn every login that `/users/` cannot answer for -- notably an APP
+    # login like `claude[bot]`, which is not a `/users/` resource and 404s -- into
+    # `actor-unresolved`, which proves only that the guard could not look the account up. That is
+    # still red, but it is the WRONG RED: it does not demonstrate that the allowlist check works,
+    # and a proof run that labels a pull request as a bot account and asserts only on redness
+    # would pass even if the allowlist were broken.
+    #
+    # Resolution still happens, on the path where it matters: a login that IS on the allowlist is
+    # about to WAIVE the guard, and that is the one case where this code extends trust, so the
+    # account is confirmed to exist and to answer for that exact login before the waiver stands.
     if login.lower() not in setters:
         print(
             f"::error title=`{WORKFLOW_CHANGE_LABEL}` set by an account that is not authorised::"
@@ -601,13 +711,29 @@ def check(
             "diff, or add this account to the allowlist with a reason.",
             file=out,
         )
+        print(f"{VERDICT_PREFIX}{VERDICT_NOT_AUTHORISED}", file=out)
         return 1
+
+    # On the allowlist. Confirm the account is real before the waiver stands. A failure here is
+    # `actor-unresolved`, a DIFFERENT and distinguishable red from the one above.
+    resolved = resolve_actor(fetch, login)
+    if resolved.lower() not in setters:
+        print(
+            f"::error title=`{WORKFLOW_CHANGE_LABEL}` set by an account that is not authorised::"
+            f"`{WORKFLOW_CHANGE_LABEL}` was applied by @{login}, which resolved to @{resolved}, "
+            f"who is not in {source}.",
+            file=out,
+        )
+        print(f"{VERDICT_PREFIX}{VERDICT_NOT_AUTHORISED}", file=out)
+        return 1
+    login = resolved
 
     print(
         f"`{WORKFLOW_CHANGE_LABEL}` applied by @{login} at {when} -- authorised "
         f"({setters[login.lower()]}). This proves the ACCOUNT, not which person acted as it.",
         file=out,
     )
+    print(f"{VERDICT_PREFIX}{VERDICT_CLEARED}", file=out)
     return 0
 
 
@@ -670,6 +796,7 @@ def main(argv: list[str] | None = None) -> int:
         )
     except GuardFailure as exc:
         print(f"::error title=workflow-change guard could not run::{exc}")
+        print(f"{VERDICT_PREFIX}{exc.verdict}")
         return 1
 
 

@@ -64,6 +64,13 @@ from check_workflow_change_label import (  # noqa: E402 -- path set just above, 
     PER_PAGE,
     PROTECTED_PATTERNS,
     TOUCHING_STATUSES,
+    VERDICT_ACTOR_UNRESOLVED,
+    VERDICT_CLEARED,
+    VERDICT_EMPTY_DIFF,
+    VERDICT_LABEL_MISSING,
+    VERDICT_NO_PROTECTED_PATHS,
+    VERDICT_NOT_AUTHORISED,
+    VERDICT_PREFIX,
     WORKFLOW_CHANGE_LABEL,
     GuardFailure,
     check,
@@ -137,8 +144,12 @@ class FakeAPI:
         if path.endswith(f"/issues/{PR}/timeline"):
             return self._page(self.timeline, page)
         if "/users/" in path:
+            if self.users == "404":
+                raise GuardFailure(f"GET {url} failed: HTTP 404 Not Found")
             if self.users is None:
-                return {"login": path.rsplit("/", 1)[1]}, ""
+                import urllib.parse as _up
+
+                return {"login": _up.unquote(path.rsplit("/", 1)[1])}, ""
             return self.users, ""
         if "/contents/" in path:
             if self.allowlist is None:
@@ -250,6 +261,15 @@ class TestPatternTable:
             (".githooks/commit-msg", "Tag's proposal: the identity hook"),
             (".githooks/pre-commit", "Tag's proposal: the primary-checkout hook"),
             (".githooks/deep/thing", "a hook filed one directory deeper"),
+            ("pyproject.toml", "ruling follow-up: testpaths, ruff select, mypy config"),
+            ("uv.lock", "ruling follow-up: which dependency versions CI resolves"),
+            ("Makefile", "ruling follow-up: `make init` sets core.hooksPath and the identity"),
+            ("MAKEFILE", "the path is lowercased before matching, so case is not a bypass"),
+            (
+                "pravrudhi_kernel/pyproject.toml",
+                "beyond the ruling: the workspace member carries its own testpaths, and the "
+                "`kernel` and `windows-import-smoke` jobs run against it",
+            ),
         ],
     )
     def test_protected(self, path: str, why: str):
@@ -279,6 +299,14 @@ class TestPatternTable:
             ),
             ("vendor/.githooks/commit-msg", "not the hooks directory `core.hooksPath` points at"),
             (
+                "paper/Makefile",
+                "the ruling's `Makefile` is anchored to the root; the paper build's own makefile "
+                "is not the contributor on-ramp and no required job runs it",
+            ),
+            ("docs/pyproject.toml", "anchored: only the root project file is the ruling's path"),
+            ("uv.lock.bak", "anchored at the end too"),
+            ("my-pyproject.toml", "anchored at the start too"),
+            (
                 "tests/test_check_workflow_change_label.py",
                 "this test file is deliberately NOT protected -- see the pull request body's "
                 "residuals; deleting a test does not weaken the running guard",
@@ -287,6 +315,26 @@ class TestPatternTable:
     )
     def test_not_protected(self, path: str, why: str):
         assert matches(path) is None, f"{path} must not be protected ({why})"
+
+    def test_every_literal_pattern_matches_its_own_path(self):
+        """A pattern that matches nothing at all reads as coverage and is worse than none.
+
+        THIS IS A REGRESSION TEST FOR A REAL DEFECT IN THIS FILE'S OWN GUARD. `matches()`
+        lowercases the path before testing it, so `Makefile` -- added on the 2026-09-27 follow-up
+        ruling -- compiled to a regex with a capital `M` and matched NOTHING. Every wildcard-free
+        pattern must match the very path it names.
+        """
+        unmatched = [
+            glob
+            for glob, _ in PROTECTED_PATTERNS
+            if not any(ch in glob for ch in "*?") and matches(glob) is None
+        ]
+        assert unmatched == [], f"patterns that match nothing: {unmatched}"
+
+    def test_a_pattern_with_an_upper_case_letter_still_matches(self):
+        # The narrow case, stated separately from the structural test above so a reader sees it.
+        assert matches("Makefile") is not None
+        assert matches("makefile") is not None
 
     def test_every_pattern_has_a_reason(self):
         for glob, why in PROTECTED_PATTERNS:
@@ -300,6 +348,10 @@ class TestPatternTable:
             "scripts/uncollected_test_baseline.txt",
             ".githooks/**",
         } <= globs
+
+    def test_the_three_follow_up_ruling_paths_are_all_present(self):
+        globs = {glob for glob, _ in PROTECTED_PATTERNS}
+        assert {"pyproject.toml", "uv.lock", "Makefile"} <= globs
 
     def test_the_ruling_glob_is_what_a_log_reports_for_a_script_in_scripts(self):
         # Both `scripts/check_*.py` and the wider `scripts/**/check_*.py` match this path. The
@@ -718,7 +770,10 @@ class TestWorkflowWiring:
         scopes = dict(
             re.findall(r"^\s+([a-z-]+):\s*(\S+)\s*$", block.group(1), re.MULTILINE)
         )
-        assert scopes == {"contents": "read", "pull-requests": "read"}
+        # `issues: read` added on Lead-2's ruling of 2026-09-27: the label and timeline endpoints
+        # live in the issues namespace even for a pull request, so the guard needs it. All three
+        # are `read`; the next test pins that no `write` appears anywhere in the file.
+        assert scopes == {"contents": "read", "pull-requests": "read", "issues": "read"}
 
     def test_no_write_permission_anywhere_in_the_file(self):
         assert not re.search(r"^\s*[a-z-]+:\s*write\s*$", WORKFLOW_TEXT, re.MULTILINE)
@@ -768,6 +823,137 @@ class TestWorkflowWiring:
         )
         assert re.search(r"^  pull_request:\s*$", ci_code, re.MULTILINE)
         assert "pull_request_target" not in ci_code
+
+
+class TestTheTwoRedsAreDistinguishable:
+    """`not authorised` and `could not resolve` are both red and prove DIFFERENT things.
+
+    Only the first demonstrates that the allowlist check ran and rejected an account. A proof run
+    that asserts on redness alone cannot tell them apart, so an allowlist bug that accepted any
+    actor would be indistinguishable from a resolution failure. Every terminal path therefore
+    prints a stable `workflow-change: VERDICT=<token>` line, and these tests pin the tokens.
+    """
+
+    def test_an_unauthorised_actor_reports_not_authorised_not_unresolved(self):
+        code, text = run(cleared(".github/workflows/ci.yml", login="SomeoneElse"))
+        assert code == 1
+        assert f"{VERDICT_PREFIX}{VERDICT_NOT_AUTHORISED}" in text
+        assert VERDICT_ACTOR_UNRESOLVED not in text
+        assert "is not authorised" in text or "not authorised" in text
+
+    def test_an_allowlisted_actor_that_cannot_be_resolved_reports_unresolved(self):
+        # Resolution now runs only for a login that IS on the allowlist -- the one path where
+        # this code extends trust.
+        api = cleared(".github/workflows/ci.yml", login="AxisMeru")
+        api.users = "404"
+        with pytest.raises(GuardFailure) as exc:
+            run(api)
+        assert exc.value.verdict == VERDICT_ACTOR_UNRESOLVED
+        assert "could not resolve the account @AxisMeru" in str(exc.value)
+
+    def test_main_prints_the_actor_unresolved_token_on_that_failure(self, capsys, monkeypatch):
+        import check_workflow_change_label as guard
+
+        api = cleared(".github/workflows/ci.yml", login="AxisMeru")
+        api.users = "404"
+        monkeypatch.setenv("GITHUB_TOKEN", "x")
+        monkeypatch.setattr(guard, "make_fetcher", lambda token: api)
+        assert guard.main(["--repo", REPO, "--pr", str(PR)]) == 1
+        out = capsys.readouterr().out
+        assert f"{VERDICT_PREFIX}{VERDICT_ACTOR_UNRESOLVED}" in out
+        assert VERDICT_NOT_AUTHORISED not in out
+
+    @pytest.mark.parametrize(
+        ("api_factory", "token"),
+        [
+            (lambda: FakeAPI(pull=pull_obj(changed=0), files=[[]]), VERDICT_EMPTY_DIFF),
+            (
+                lambda: FakeAPI(pull=pull_obj(changed=1), files=files("README.md")),
+                VERDICT_NO_PROTECTED_PATHS,
+            ),
+            (
+                lambda: FakeAPI(
+                    pull=pull_obj(changed=1),
+                    files=files(".github/workflows/ci.yml"),
+                    labels=[[]],
+                ),
+                VERDICT_LABEL_MISSING,
+            ),
+            (lambda: cleared(".github/workflows/ci.yml"), VERDICT_CLEARED),
+            (
+                lambda: cleared(".github/workflows/ci.yml", login="SomeoneElse"),
+                VERDICT_NOT_AUTHORISED,
+            ),
+        ],
+    )
+    def test_every_terminal_path_prints_exactly_one_verdict_token(self, api_factory, token: str):
+        _, text = run(api_factory())
+        tokens = [ln for ln in text.splitlines() if ln.startswith(VERDICT_PREFIX)]
+        assert tokens == [f"{VERDICT_PREFIX}{token}"]
+
+
+class TestABotLoginIsARealCase:
+    """`claude[bot]` is the login this session itself acts as -- not a hypothetical."""
+
+    def test_a_bracketed_bot_login_lands_in_not_authorised_not_unresolved(self):
+        # THE POINT OF THE ORDERING. `claude[bot]` is not a `/users/` resource and 404s there. If
+        # resolution ran first, this would report `actor-unresolved` -- red, but the WRONG red: it
+        # would not demonstrate that the allowlist rejected the account, so a post-merge proof run
+        # asserting only on redness would pass even with a broken allowlist.
+        api = cleared(".github/workflows/ci.yml", login="claude[bot]")
+        api.users = "404"
+        code, text = run(api)
+        assert code == 1
+        assert f"{VERDICT_PREFIX}{VERDICT_NOT_AUTHORISED}" in text
+        assert VERDICT_ACTOR_UNRESOLVED not in text
+        assert "@claude[bot]" in text
+
+    def test_the_bot_login_never_reaches_the_users_endpoint_at_all(self):
+        api = cleared(".github/workflows/ci.yml", login="claude[bot]")
+        api.users = "404"
+        run(api)
+        assert not any("/users/" in c for c in api.calls)
+
+    def test_a_bracketed_login_is_url_encoded_when_it_IS_on_the_allowlist(self):
+        # If a bracketed login were ever added to the allowlist, the lookup must be a well-formed
+        # request. An unencoded `[` would fail for a URL-syntax reason, which reads in a log like
+        # a security refusal while being a bug.
+        from check_workflow_change_label import resolve_actor
+
+        seen: list[str] = []
+
+        def fetch(url: str) -> tuple[object, str]:
+            seen.append(url)
+            return {"login": "claude[bot]"}, ""
+
+        assert resolve_actor(fetch, "claude[bot]") == "claude[bot]"
+        assert seen == ["https://api.github.com/users/claude%5Bbot%5D"]
+        assert "[" not in seen[0] and "]" not in seen[0]
+
+    def test_the_allowlist_still_refuses_a_bot_even_if_users_would_resolve_it(self):
+        api = cleared(".github/workflows/ci.yml", login="claude[bot]")
+        code, text = run(api)  # users resolves fine here
+        assert code == 1
+        assert f"{VERDICT_PREFIX}{VERDICT_NOT_AUTHORISED}" in text
+
+
+class TestTheFrictionThisAdds:
+    """The follow-up ruling's cost, written down so it is weighed rather than discovered."""
+
+    def test_an_ordinary_dependency_bump_now_needs_the_label(self):
+        # `uv.lock` + `pyproject.toml` is what a routine bump touches. It now goes red without
+        # the label. This test exists so that cost is visible in the suite, not only in a comment.
+        api = FakeAPI(
+            pull=pull_obj(changed=2),
+            files=files("pyproject.toml", "uv.lock"),
+            labels=[[]],
+        )
+        code, text = run(api)
+        assert code == 1
+        assert "pyproject.toml" in text and "uv.lock" in text
+
+    def test_the_same_bump_clears_with_the_label(self):
+        assert run(cleared("pyproject.toml", "uv.lock"))[0] == 0
 
 
 class TestTheGuardGuardsItself:
