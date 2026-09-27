@@ -15,10 +15,13 @@ be mintable by an anonymous caller regardless of this deployment's auth mode (re
 demonstrated with a real, unoverridden `TestClient` that the `roles.require_admin` version returned 200 to
 POST /api/v1/orgs with no identity at all). `analyse-facts` itself still rides the optional Supabase session
 identity every other user-facing nyaya route uses (`CurrentUserDep`), unchanged, so its existing anonymous
-and Supabase-authenticated behavior stays byte-identical; accepting an org API key as an *alternative*
-identity on that route, and scoping the partner resources the plan still lists (matters, documents,
-verify-citations, research, draft, audit export) to an org once they exist, is the next slice of this card,
-not this one.
+and Supabase-authenticated response SHAPE stays byte-identical; an org API key is now also accepted there as
+an *alternative* identity (`tenancy.principal_from_headers`), but today only for one purpose -- QUEUE.md
+2026-09-27's "per-leg scores for authenticated callers only" (see `ElementResultOut`'s field doc and
+`analyse_facts_ep`'s `authenticated` gate): a caller with either a verified session or a valid key sees the
+second judge's per-element fields, an anonymous caller never does. Scoping the partner resources the plan
+still lists (matters, documents, verify-citations, research, draft, audit export) to an org once they exist
+is the next slice of this card, not this one.
 
 **Reviewer 1's rejection of the first version (8344594), addressed here.** On the self-hosted 5090
 deployment, `identity.guard_boot` only refuses an unauthenticated deploy on VERCEL/RENDER -- so this route is
@@ -267,12 +270,17 @@ class ElementResultOut(BaseModel):
     #: flag below, since the truthful status itself is a first-class response field, not a debug-only
     #: internal.
     binding_leg: str | None = None
-    #: Config-C debug fields (Lead-2, 2026-09-25): present ONLY when both `PartnerApiConfig.
-    #: debug_second_judge_fields_enabled` and the request's own `?debug_second_judge=true` are set --
-    #: `analyse_facts_ep` pops these five keys out of every element's dict before returning otherwise, so a
-    #: response with the gate off is byte-for-byte what it was before this field existed. Declared here
-    #: (rather than left for Pydantic to silently strip) so they validate through when present; same names
-    #: as `ElementResult`'s own fields, not renamed, so there is no separate translation to keep in sync.
+    #: Second-judge fields, visible in two independent cases (`analyse_facts_ep`'s `show_second_judge_fields`):
+    #: (1) the caller is AUTHENTICATED -- a verified Supabase session or a valid org API key (never an
+    #: anonymous caller, `PRAVRUDHI_DEMO_ANON_PATHS` notwithstanding: QUEUE.md 2026-09-27, "per-leg scores for
+    #: authenticated callers only") -- or (2) the deployment-level debug gate (Lead-2, 2026-09-25 config-C
+    #: smoke): both `PartnerApiConfig.debug_second_judge_fields_enabled` and the request's own
+    #: `?debug_second_judge=true` are set, for an operator diagnosing a disagreement on a deployment that has
+    #: opted in, authenticated or not. `analyse_facts_ep` pops these six keys out of every element's dict
+    #: when NEITHER case holds, so an anonymous, non-debug response is byte-for-byte what it was before this
+    #: field existed. Declared here (rather than left for Pydantic to silently strip) so they validate through
+    #: when present; same names as `ElementResult`'s own fields, not renamed, so there is no separate
+    #: translation to keep in sync.
     p_established_second: float | None = None
     tau_second: float | None = None
     second_skip_reason: str | None = None
@@ -513,13 +521,21 @@ def build_partner_router(
         user: User | None = CurrentUserDep,
         debug_second_judge: bool = Query(
             False,
-            description="Include config-C second-judge diagnostic fields per element. Only takes effect "
-            "when this deployment's own debug_second_judge_fields_enabled is also set -- a caller cannot "
-            "turn this on for a deployment that hasn't opted in.",
+            description="Include config-C second-judge diagnostic fields per element even when not "
+            "authenticated. Only takes effect when this deployment's own debug_second_judge_fields_enabled "
+            "is also set -- a caller cannot turn this on for a deployment that hasn't opted in. An "
+            "authenticated caller (Supabase session or org API key) always gets these fields regardless of "
+            "this flag or the deployment gate.",
         ),
     ) -> dict[str, Any] | JSONResponse:
-        del user  # optional session identity today; see module docstring on tenancy/API-key auth
         cfg, rate_limiter, concurrency, _provision_rate_limiter, _breaker = _get_state()
+        # QUEUE.md 2026-09-27: per-leg second-judge scores are visible to an AUTHENTICATED caller -- a
+        # verified Supabase session (`user`) or a valid org API key -- never to an anonymous one, even on a
+        # deployment that answers analyse-facts anonymously (`PRAVRUDHI_DEMO_ANON_PATHS`). `principal_from_
+        # headers` raises 401 itself when a key header WAS sent but does not verify, the same as `usage_ep`;
+        # it never treats a bad key as "no key" (a caller who supplied a bad key is never silently anonymous).
+        principal = tenancy.principal_from_headers(engine_root, request.headers)
+        authenticated = user is not None or principal is not None
         ip = _client_ip(request, trust_proxy_header=cfg.trust_proxy_header, trusted_proxies=cfg.trusted_proxies)
         if not rate_limiter.allow(ip):
             return JSONResponse(
@@ -573,7 +589,8 @@ def build_partner_router(
             return JSONResponse(status_code=503, content={"error": "judge_unavailable"})
         body: dict[str, Any] = result.to_dict()
         body.pop("audit_path", None)
-        if not (debug_second_judge and cfg.debug_second_judge_fields_enabled):
+        show_second_judge_fields = authenticated or (debug_second_judge and cfg.debug_second_judge_fields_enabled)
+        if not show_second_judge_fields:
             for contract in body.get("contracts", []):
                 for element in contract.get("elements", []):
                     for field in _SECOND_JUDGE_DEBUG_FIELDS:

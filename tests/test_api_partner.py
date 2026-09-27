@@ -19,8 +19,11 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from pravrudhi.api import identity
+from pravrudhi.api.identity import User
 from pravrudhi.api.partner import PartnerApiConfig, build_partner_router, load_partner_api_config
 from pravrudhi.application import nyaya_lean_registry as reg
+from pravrudhi.application import tenancy
 from pravrudhi.application.nyaya_agent import RETENTION_NOTICE, AgentConfig, BinaryShaMismatch, NyayaAgent
 from pravrudhi.application.nyaya_judges import ElementJudgment, JudgeRequest
 
@@ -356,6 +359,81 @@ class TestSecondJudgeDebugFields:
             "element", "is_denial", "status", "claimed", "p_established", "fact_id", "quote", "start", "end",
             "quote_check", "attempts", "occurrences", "offsets_source", "quote_source", "error", "binding_leg",
         }
+
+
+class TestSecondJudgeFieldsForAuthenticatedCallers:
+    """QUEUE.md 2026-09-27 ("per-leg scores for authenticated callers only"): a verified Supabase session or
+    a valid org API key must see the second judge's per-element fields even on a deployment that has never
+    turned on the `debug_second_judge_fields_enabled` gate above -- and an anonymous caller must never see
+    them, on that same deployment, even if it presents the `?debug_second_judge=true` query flag. Every test
+    here uses `_no_debug_config` (the gate off) throughout, so any field that appears comes only from the
+    authenticated path added by this fix, never from `TestSecondJudgeDebugFields`'s own mechanism."""
+
+    def _scripts(self) -> tuple[dict, dict]:
+        primary: dict[str, list[ElementJudgment | Exception]] = {
+            BNS69_EL[0]: [_est("F2", "never to marry Lata", p=0.9998)],
+            BNS69_EL[1]: [_est("F3", "Lata had sexual intercourse with Kiran", p=0.99999)],
+            BNS69_DENY: [_not()],
+        }
+        second: dict[str, list[ElementJudgment | Exception]] = {
+            BNS69_EL[0]: [_est("F2s", "never to marry Lata", p=0.65)],
+            BNS69_EL[1]: [_est("F3s", "Lata had sexual intercourse with Kiran", p=0.84)],
+            BNS69_DENY: [_not()],
+        }
+        return primary, second
+
+    def _no_debug_config(self) -> PartnerApiConfig:
+        config = PartnerApiConfig(rate_limit_per_minute=1000, max_concurrent=100, trust_proxy_header=False)
+        assert config.debug_second_judge_fields_enabled is False
+        return config
+
+    def _client(self, tmp_path: Path) -> TestClient:
+        primary, second = self._scripts()
+        return _config_c_client(
+            tmp_path, primary_script=primary, second_script=second, config=self._no_debug_config()
+        )
+
+    def test_a_verified_supabase_session_sees_the_fields_with_the_debug_gate_off(self, tmp_path: Path) -> None:
+        c = self._client(tmp_path)
+        c.app.dependency_overrides[identity.current_user] = lambda: User(
+            id="u-1", email="partner@example.com", role="authenticated"
+        )
+        resp = c.post("/api/v1/analyse-facts", json=_req())
+        assert resp.status_code == 200
+        el0 = resp.json()["contracts"][0]["elements"][0]
+        assert el0["p_established_second"] == pytest.approx(0.65)
+        assert "tau_second" in el0 and "second_skip_reason" in el0 and "second_logit_distance" in el0
+
+    def test_a_valid_org_api_key_sees_the_fields_with_the_debug_gate_off(self, tmp_path: Path) -> None:
+        tenancy.create_org(tmp_path, "acme", "Acme")
+        secret = tenancy.create_key(tmp_path, "acme", label="prod").secret
+        c = self._client(tmp_path)
+        resp = c.post("/api/v1/analyse-facts", json=_req(), headers={tenancy.API_KEY_HEADER: secret})
+        assert resp.status_code == 200
+        el0 = resp.json()["contracts"][0]["elements"][0]
+        assert el0["p_established_second"] == pytest.approx(0.65)
+
+    def test_a_revoked_org_api_key_is_401_not_a_silent_anonymous_fallback(self, tmp_path: Path) -> None:
+        tenancy.create_org(tmp_path, "acme", "Acme")
+        created = tenancy.create_key(tmp_path, "acme", label="prod")
+        tenancy.revoke_key(tmp_path, created.record.key_id)
+        c = self._client(tmp_path)
+        resp = c.post("/api/v1/analyse-facts", json=_req(), headers={tenancy.API_KEY_HEADER: created.secret})
+        assert resp.status_code == 401
+
+    def test_an_anonymous_caller_never_sees_the_fields_even_with_the_debug_query_flag(self, tmp_path: Path) -> None:
+        """No Supabase override, no API key header -- the identical anonymous caller `TestSecondJudgeDebugFields`
+        covers, plus the debug query flag on a deployment that never opted the gate in. Neither the debug path
+        nor the new authenticated path may expose these fields here."""
+        c = self._client(tmp_path)
+        resp = c.post("/api/v1/analyse-facts?debug_second_judge=true", json=_req())
+        assert resp.status_code == 200
+        el0 = resp.json()["contracts"][0]["elements"][0]
+        for field in (
+            "p_established_second", "tau_second", "second_skip_reason",
+            "second_logit_distance", "second_refer_band_fired", "second_unavailable",
+        ):
+            assert field not in el0, f"{field} leaked to an anonymous caller"
 
 
 def test_retention_notice_is_on_every_analyse_facts_response(tmp_path: Path) -> None:
