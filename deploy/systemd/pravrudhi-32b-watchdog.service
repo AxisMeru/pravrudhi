@@ -1,0 +1,17 @@
+# Durable, host-level watchdog for the always-on 32B second-judge RunPod endpoint (nyaya-judge-32b-anydc,
+# 7j7ipedmwi8z1w) -- Lead-2, 2026-09-27. Queries ready-worker count every 30 minutes (via the paired .timer)
+# and alerts through the existing Telegram notifier if 0 are ready. Deliberately a systemd user unit, not a
+# session cron, so it survives any Claude session ending. `@ROOT@` substituted by install.sh, matching the
+# other units in this directory.
+[Unit]
+Description=32B second-judge endpoint ready-worker watchdog
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=@ROOT@
+# -%h prefix: a missing file is not a startup failure, matching the existing heartbeat unit's convention.
+EnvironmentFile=-%h/.config/pravrudhi/runpod-axismeru.env
+EnvironmentFile=-%h/.config/pravrudhi/telegram.env
+ExecStart=@ROOT@/deploy/systemd/check_32b_ready.sh
+TimeoutStartSec=60
