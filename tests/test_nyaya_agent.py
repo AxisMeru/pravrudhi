@@ -1608,8 +1608,13 @@ class TestConfig:
     def test_second_judge_fallback_urls_env_introduces_the_block(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """2026-09-27 (Lead-2, 5090-second-judge-exposure design sec 2.2): mirrors house_judge's own
         NYAYA_HOUSE_JUDGE_FALLBACK_URLS -- can introduce second_judge on its own, exactly like the other
-        NYAYA_SECOND_JUDGE_* overrides above (though a real deployment would also set base_url/tau)."""
+        NYAYA_SECOND_JUDGE_* overrides above (though a real deployment would also set base_url/tau).
+
+        NO_AUTH=1 here (R1's review of #115, rebased onto this test): this test is about the URL list
+        itself, not about keys -- the same load-time guard that refuses a keyless fallback by default
+        would otherwise fire on every test below that configures `base_urls_fallback` with no key."""
         monkeypatch.setenv("NYAYA_SECOND_JUDGE_FALLBACK_URLS", "https://a40-fallback.example/v1")
+        monkeypatch.setenv("NYAYA_SECOND_JUDGE_FALLBACK_NO_AUTH", "1")
         sj = load_agent_config(REPO).second_judge
         assert sj is not None
         assert sj["base_urls_fallback"] == ["https://a40-fallback.example/v1"]
@@ -1620,6 +1625,7 @@ class TestConfig:
         monkeypatch.setenv(
             "NYAYA_SECOND_JUDGE_FALLBACK_URLS", " https://a.example/v1 , https://b.example/v1,, "
         )
+        monkeypatch.setenv("NYAYA_SECOND_JUDGE_FALLBACK_NO_AUTH", "1")  # see the test above -- not about keys
         sj = load_agent_config(REPO).second_judge
         assert sj is not None
         assert sj["base_urls_fallback"] == ["https://a.example/v1", "https://b.example/v1"]
@@ -1638,6 +1644,7 @@ class TestConfig:
         }
         (cfg_dir / "nyaya_agent.yaml").write_text(yaml.safe_dump(body))
         monkeypatch.setenv("NYAYA_SECOND_JUDGE_FALLBACK_URLS", "https://env-fallback.example/v1")
+        monkeypatch.setenv("NYAYA_SECOND_JUDGE_FALLBACK_NO_AUTH", "1")  # see the first test above
         sj = load_agent_config(tmp_path).second_judge
         assert sj is not None
         assert sj["base_urls_fallback"] == ["https://env-fallback.example/v1"]  # env wins over yaml
@@ -1650,6 +1657,7 @@ class TestConfig:
         import yaml
 
         monkeypatch.delenv("NYAYA_SECOND_JUDGE_FALLBACK_URLS", raising=False)
+        monkeypatch.setenv("NYAYA_SECOND_JUDGE_FALLBACK_NO_AUTH", "1")  # see the first test above
         cfg_dir = tmp_path / "configs"
         cfg_dir.mkdir()
         body = yaml.safe_load((REPO / "configs" / "nyaya_agent.yaml").read_text())

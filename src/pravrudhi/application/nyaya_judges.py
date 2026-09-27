@@ -251,10 +251,16 @@ class HouseJudge:
             #    be `None`, meaning no `Authorization` header at all, never the primary's `api_key`
             #    silently reused). `isolate_fallback_key` exists so a caller can say "this fallback is
             #    isolated, and today it happens to have no key configured" without that collapsing into the
-            #    broadcast default below -- an unconfigured isolated key fails closed (an unauthenticated
-            #    request gets a real 401 from a fallback that DOES check auth, which `AndGateJudge`/
-            #    `_complete_with_fallback` already turn into REFER, never a false PROOF; see `from_config`'s
-            #    own doc for how `fallback_api_key_env` drives this for the second judge).
+            #    broadcast default below. Correction (R1's review of pravrudhi #115, 2026-09-27): an
+            #    unconfigured isolated key does NOT fail closed to REFER on its own -- a real 401 from a
+            #    fallback that DOES check auth is classified as a CONFIGURATION fault (`_config_fault_
+            #    status`), which `AndGateJudge`/`nyaya_agent` turn into `JudgeMisconfigured`, a bare 503 for
+            #    the whole request, never `REFER_TO_LAWYER`. That is the correct outcome for a genuine auth
+            #    failure (it must never look like case testimony) -- what is NOT correct is reaching this
+            #    shape by accident, which is why `nyaya_agent.load_agent_config` refuses to start when the
+            #    second judge has fallback URLs configured and no fallback key is resolvable anywhere,
+            #    unless the deployment explicitly opts in (`NYAYA_SECOND_JUDGE_FALLBACK_NO_AUTH=1`); see
+            #    `from_config`'s own doc for how `fallback_api_key_env` drives this for the second judge.
             #  - neither given: every backend gets the ONE configured `api_key` (2026-09-27, the original
             #    "every backend" fix on this class) -- unchanged default, byte-identical to a caller that
             #    never touches this (the house judge's own fallback keeps this: it is the operator's own
@@ -363,12 +369,16 @@ class HouseJudge:
         `fallback_api_key` key, actually has a value set), the fallback(s) are an ISOLATED trust domain,
         separate from the primary: they get that env var's value (env wins), else the config's own
         `fallback_api_key`, else `None` -- meaning NO `Authorization` header at all, and the primary's
-        `api_key` is NEVER used as a fallback default. A fallback that itself checks auth then answers 401,
-        which `HouseJudge`'s own transient-error classification and `AndGateJudge` already turn into a
-        fail-closed REFER, never a false PROOF -- the isolation fails closed, it does not fail open. `None`
-        (the default, omitting this argument entirely) keeps today's behaviour instead: every backend
-        shares the one `api_key` (the house judge's own case -- its fallback is the operator's own local
-        vLLM, the SAME trust domain as its primary).
+        `api_key` is NEVER used as a fallback default. Correction (R1's review, 2026-09-27): a fallback
+        that itself checks auth then answers 401, which is classified as a CONFIGURATION fault
+        (`_config_fault_status`) -- `AndGateJudge`/`nyaya_agent` turn that into `JudgeMisconfigured`, a
+        bare 503 for the whole request, NOT a fail-closed `REFER_TO_LAWYER`. That is correct for a real
+        auth failure; what must never happen is REACHING this shape by accident, which is why
+        `nyaya_agent.load_agent_config` refuses to start on a keyless fallback unless the deployment
+        explicitly opts in (`NYAYA_SECOND_JUDGE_FALLBACK_NO_AUTH=1`). `None` (the default, omitting this
+        argument entirely) keeps today's behaviour instead: every backend shares the one `api_key` (the
+        house judge's own case -- its fallback is the operator's own local vLLM, the SAME trust domain as
+        its primary).
         """
         # Read api_key from env var first, then config
         api_key = os.environ.get(api_key_env) or cfg.get("api_key") or None
@@ -650,11 +660,17 @@ class AndGateJudge:
         A40) gets that env var's value if set, else the config's own `fallback_api_key`, else NO
         `Authorization` header at all. The primary's own `second_api_key_env` key is NEVER used as a
         fallback default here: a 5090-tunnel primary and a RunPod-A40 fallback are different trust
-        domains, and an unconfigured fallback key must fail closed (401 from a fallback that checks auth,
-        which `HouseJudge`/`AndGateJudge` already turn into REFER, never a false PROOF), not silently reuse
-        the primary's secret. A caller that explicitly wants the OLD shared-key behaviour for the second
-        judge would have to pass `second_fallback_api_key_env=None` itself -- see `HouseJudge.from_config`'s
-        own doc for the full three-way precedence."""
+        domains, and an unconfigured fallback key must never silently reuse the primary's secret.
+        Correction (R1's review, 2026-09-27): a 401 from a fallback that DOES check auth is a
+        CONFIGURATION fault (`_config_fault_status`), not a fail-closed REFER -- `HouseJudge`/
+        `AndGateJudge`/`nyaya_agent` turn it into `JudgeMisconfigured`, a bare 503 for the whole request.
+        That is the correct behaviour for a genuine auth failure; the actual safety net is
+        `nyaya_agent.load_agent_config`, which refuses to start when the second judge has fallback URLs
+        configured and no fallback key is resolvable anywhere, unless the deployment explicitly opts in
+        (`NYAYA_SECOND_JUDGE_FALLBACK_NO_AUTH=1`) -- so this shape is never reached by accident in the
+        first place. A caller that explicitly wants the OLD shared-key behaviour for the second judge
+        would have to pass `second_fallback_api_key_env=None` itself -- see `HouseJudge.from_config`'s own
+        doc for the full three-way precedence."""
         primary = HouseJudge.from_config(house_cfg, tau=tau)
         second_tau = float(second_cfg["tau"])
         second = HouseJudge.from_config(
