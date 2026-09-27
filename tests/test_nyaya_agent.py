@@ -9,14 +9,17 @@ the decision logic is covered on a host without the sibling checkout too. All fa
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import math
 import os
 import time
+import urllib.error
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
+from unittest import mock
 
 import pytest
 
@@ -1848,7 +1851,18 @@ class TestHouseFactory:
         "NYAYA_SECOND_JUDGE_FALLBACK_API_KEY"`, always passed for the second judge) -- with that var unset
         and no `fallback_api_key` in the yaml, the fallback backend gets NO key at all, never the primary's
         `second-primary-key` reused. Confirms this holds through the real `NyayaAgent.house()` wiring, not
-        just a direct `HouseJudge(...)` construction."""
+        just a direct `HouseJudge(...)` construction.
+
+        This test builds its `AgentConfig` directly (`_config`, bypassing `load_agent_config`), which is
+        exactly the one path this exact shape is now REFUSED on by default (`TestSecondJudgeFallbackAuthLoad
+        TimeGuard` below) -- a real deployment loading this same `second_judge` shape from yaml/env would
+        not reach `NyayaAgent.house()` at all unless it set `NYAYA_SECOND_JUDGE_FALLBACK_NO_AUTH=1`. This
+        test is deliberately lower-level: it checks that IF a caller reaches this point (either via that
+        opt-in, or by constructing `AgentConfig` directly the way this test does), the isolation mechanism
+        itself is correct -- not that reaching it is unguarded in production. A keyless fallback's 401 at
+        RUNTIME is a `JudgeMisconfigured` config fault (a loud 503), never a silent REFER -- see
+        `TestJudgeConfigurationFault.test_an_isolated_second_judge_fallback_with_no_key_is_a_config_fault_
+        not_a_refer`, which is the reason the load-time guard exists at all."""
         from pravrudhi.application.nyaya_judges import AndGateJudge
 
         monkeypatch.setenv("NYAYA_SECOND_JUDGE_API_KEY", "second-primary-key")
@@ -2054,6 +2068,137 @@ class TestJudgeConfigurationFault:
         judge = ScriptedJudge({el: [self._fault(503)] for el in BNS69_EL + [BNS69_DENY]})
         run = NyayaAgent(judge, _registry(), _config(tmp_path)).run(TOY_FACTS, contract_ids=["bns69"])
         assert run.contracts[0].outcome != "PROOF"
+
+    def test_an_isolated_second_judge_fallback_with_no_key_is_a_config_fault_not_a_refer(
+        self, tmp_path: Path
+    ) -> None:
+        """2026-09-27, R1's finding on pravrudhi #115: the earlier claim ("an isolated fallback with no key
+        fails closed to REFER_TO_LAWYER") was WRONG. A 401 from that fallback is classified as a
+        CONFIGURATION fault (`nyaya_judges._config_fault_status`, any 4xx but 429) -- `AndGateJudge.judge`
+        re-raises it rather than treating it as a transient failure, and `_judge_element` turns that into
+        `JudgeMisconfigured`, a bare 503 for the whole request. Correct behaviour for a genuinely broken
+        key -- it must never look like PROOF/DENIAL/REFER, all of which are testimony about the facts, not
+        about whether the deployment is configured correctly. This is exactly why `load_agent_config` now
+        refuses to START with this shape at all (the tests above) unless the deployment explicitly opts in
+        -- this test proves the load-time guard is closing a REAL per-request gap, not a theoretical one."""
+        from pravrudhi.application.nyaya_agent import JudgeMisconfigured
+        from pravrudhi.application.nyaya_judges import AndGateJudge, HouseJudge
+
+        def fake_open(req: Any, timeout: float | None = None) -> Any:
+            class _Resp:
+                def __enter__(self) -> _Resp:
+                    return self
+
+                def __exit__(self, *a: object) -> bool:
+                    return False
+
+                def read(self) -> bytes:
+                    return json.dumps({"data": [{"id": "second-model"}]}).encode()
+
+            if req.full_url == "http://second-primary/v1/models":
+                return _Resp()
+            if req.full_url == "http://second-primary/v1/completions":
+                raise urllib.error.URLError("connection refused")  # forces the fallback
+            if req.full_url == "http://second-fallback/v1/models":
+                return _Resp()
+            if req.full_url == "http://second-fallback/v1/completions":
+                raise urllib.error.HTTPError(
+                    req.full_url, 401, "unauthorized", {}, io.BytesIO(b'{"error":"no key"}')
+                )
+            raise AssertionError(f"unexpected URL in test: {req.full_url}")
+
+        primary = ScriptedJudge(_proof_script(TOY_FACTS))
+        with mock.patch("urllib.request.urlopen", fake_open):
+            second = HouseJudge(
+                base_url="http://second-primary/v1",
+                fallback_urls=["http://second-fallback/v1"],
+                api_key="second-primary-key",
+                isolate_fallback_key=True,  # no fallback_api_key given -- the isolated-with-no-key shape
+                tau=0.97,
+                statute_chars=600,
+            )
+            gate = AndGateJudge(primary, second, tau_primary=0.74, tau_second=0.97)
+            with pytest.raises(JudgeMisconfigured, match="401"):
+                NyayaAgent(gate, _registry(), _config(tmp_path)).run(
+                    TOY_FACTS, narrative="TOY narrative.", contract_ids=["bns69"]
+                )
+
+
+class TestSecondJudgeFallbackAuthLoadTimeGuard:
+    """Lead-2, 2026-09-27, after R1's review of pravrudhi #115 (see `TestJudgeConfigurationFault.
+    test_an_isolated_second_judge_fallback_with_no_key_is_a_config_fault_not_a_refer` just above for the
+    real per-request gap this closes): a second judge with fallback URLs configured and no fallback key
+    resolvable anywhere refuses to start, at `load_agent_config` time, rather than waiting to discover a
+    keyless fallback's 401 turns into a bare 503 on some future live request. The one escape hatch is an
+    explicit, deliberate opt-in (`NYAYA_SECOND_JUDGE_FALLBACK_NO_AUTH=1`) for a fallback that genuinely
+    has no auth by design."""
+
+    def _yaml_with_second_judge_fallback(self, tmp_path: Path, **second_judge_extra: Any) -> Path:
+        import yaml
+
+        cfg_dir = tmp_path / "configs"
+        cfg_dir.mkdir()
+        body = yaml.safe_load((REPO / "configs" / "nyaya_agent.yaml").read_text())
+        body["second_judge"] = {
+            "base_url": "https://second.example/v1", "tau": 0.97, "statute_chars": 600,
+            "max_tokens": 30, "top_logprobs": 20, "timeout_s": 60,
+            "base_urls_fallback": ["https://second-fallback.example/v1"],
+            **second_judge_extra,
+        }
+        (cfg_dir / "nyaya_agent.yaml").write_text(yaml.safe_dump(body))
+        return tmp_path
+
+    def test_fallback_urls_with_no_key_anywhere_refuses_to_start(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("NYAYA_SECOND_JUDGE_FALLBACK_API_KEY", raising=False)
+        monkeypatch.delenv("NYAYA_SECOND_JUDGE_FALLBACK_NO_AUTH", raising=False)
+        root = self._yaml_with_second_judge_fallback(tmp_path)
+        with pytest.raises(ValueError, match="no fallback key is set"):
+            load_agent_config(root)
+
+    def test_a_yaml_configured_fallback_key_avoids_the_refusal(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("NYAYA_SECOND_JUDGE_FALLBACK_API_KEY", raising=False)
+        monkeypatch.delenv("NYAYA_SECOND_JUDGE_FALLBACK_NO_AUTH", raising=False)
+        root = self._yaml_with_second_judge_fallback(tmp_path, fallback_api_key="a-real-key")
+        cfg = load_agent_config(root)  # must not raise
+        assert cfg.second_judge is not None
+
+    def test_the_env_var_key_also_avoids_the_refusal(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("NYAYA_SECOND_JUDGE_FALLBACK_API_KEY", "a-real-key")
+        root = self._yaml_with_second_judge_fallback(tmp_path)
+        load_agent_config(root)  # must not raise
+
+    def test_the_explicit_opt_in_allows_a_keyless_fallback(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("NYAYA_SECOND_JUDGE_FALLBACK_API_KEY", raising=False)
+        monkeypatch.setenv("NYAYA_SECOND_JUDGE_FALLBACK_NO_AUTH", "1")
+        root = self._yaml_with_second_judge_fallback(tmp_path)
+        cfg = load_agent_config(root)  # must not raise -- explicit, deliberate opt-in
+        assert cfg.second_judge is not None
+        assert cfg.second_judge.get("fallback_api_key") is None
+
+    def test_no_fallback_urls_at_all_is_unaffected_by_the_guard(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The guard only fires when fallback URLs actually exist -- an ordinary second_judge with no
+        fallback at all (today's common, single-endpoint shape) must never be refused."""
+        import yaml
+
+        monkeypatch.delenv("NYAYA_SECOND_JUDGE_FALLBACK_API_KEY", raising=False)
+        monkeypatch.delenv("NYAYA_SECOND_JUDGE_FALLBACK_NO_AUTH", raising=False)
+        cfg_dir = tmp_path / "configs"
+        cfg_dir.mkdir()
+        body = yaml.safe_load((REPO / "configs" / "nyaya_agent.yaml").read_text())
+        body["second_judge"] = {"base_url": "https://second.example/v1", "tau": 0.97, "statute_chars": 600,
+                                 "max_tokens": 30, "top_logprobs": 20, "timeout_s": 60}
+        (cfg_dir / "nyaya_agent.yaml").write_text(yaml.safe_dump(body))
+        load_agent_config(tmp_path)  # must not raise
 
 
 class TestSecondBandReproducesSignedEndpointCounts:

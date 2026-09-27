@@ -408,10 +408,17 @@ class TestHouseJudge:
     def test_isolated_fallback_with_no_key_configured_sends_no_authorization_header(self) -> None:
         """2026-09-27, Lead-2's follow-up decision on #115: an isolated fallback (a different trust domain
         from the primary) with NO fallback key configured gets NO `Authorization` header at all -- it must
-        NEVER silently fall back to the primary's own key. (A real deployment where that fallback itself
-        checks auth would then see a bare 401, which `HouseJudge`'s own transient-error classification and
-        `AndGateJudge` already turn into a fail-closed REFER, never a false PROOF -- not re-proven here,
-        this test is at the HTTP-header level.)"""
+        NEVER silently fall back to the primary's own key. (Correction, R1's review: a real deployment
+        where that fallback itself checks auth would then see a bare 401, which `_config_fault_status`
+        classifies as a CONFIGURATION fault, not a transient one -- `AndGateJudge`/`nyaya_agent` turn that
+        into `JudgeMisconfigured`, a loud 503, NOT a fail-closed REFER. That is correct for a genuinely
+        broken/missing key, but it means an unauthenticated fallback must never be reached by accident --
+        `nyaya_agent.load_agent_config` now refuses to start with fallback URLs configured and no key
+        anywhere, unless the deployment explicitly opts in (`NYAYA_SECOND_JUDGE_FALLBACK_NO_AUTH=1`); see
+        `tests/test_nyaya_agent.py`'s `TestSecondJudgeFallbackAuthLoadTimeGuard` and
+        `TestJudgeConfigurationFault.test_an_isolated_second_judge_fallback_with_no_key_is_a_config_fault_
+        not_a_refer`. This test itself is unaffected -- it stays at the HTTP-header level, checking only
+        that the key isolation itself works, not what happens to the request afterward.)"""
         captured: dict[str, Any] = {}
         with mock.patch("urllib.request.urlopen", self._fallback_net(captured)):
             j = HouseJudge(

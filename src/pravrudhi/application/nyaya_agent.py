@@ -303,6 +303,36 @@ def load_agent_config(root: Path) -> AgentConfig:
             if key not in second_judge and key in house_judge:
                 second_judge[key] = house_judge[key]
 
+    # 2026-09-27 (Lead-2, on R1's review of pravrudhi #115): a second-judge FALLBACK with no key configured
+    # is NOT safely fail-closed per request the way it looks at first glance -- R1 showed that a 401 from
+    # an isolated, keyless fallback is classified as a CONFIGURATION fault (`nyaya_judges._config_fault_
+    # status`, any 4xx other than 429), which `AndGateJudge.judge` re-raises rather than treating as a
+    # transient failure. That becomes `JudgeMisconfigured` and a bare 503 for the WHOLE request -- never the
+    # REFER_TO_LAWYER the earlier version of this PR (and the 5090 design doc) claimed. A genuinely wrong
+    # key SHOULD be a loud 503 (it is a real misconfiguration, not evidence about the facts) -- the fix is
+    # not to change that per-request mapping, it is to never let a deployment reach it BY ACCIDENT: if the
+    # second judge has fallback URLs configured and no fallback key is resolvable from anywhere (env or
+    # yaml), refuse to start, unless the deployment explicitly opts into running that fallback with no auth
+    # at all (`NYAYA_SECOND_JUDGE_FALLBACK_NO_AUTH=1`, same truthy-string convention as `NYAYA_DEBUG_SECOND_
+    # JUDGE_FIELDS`) -- a deliberate, load-time choice, never something discovered per request.
+    if second_judge is not None and second_judge.get("base_urls_fallback"):
+        fallback_key_configured = bool(
+            os.environ.get("NYAYA_SECOND_JUDGE_FALLBACK_API_KEY") or second_judge.get("fallback_api_key")
+        )
+        no_auth_opt_in = os.environ.get("NYAYA_SECOND_JUDGE_FALLBACK_NO_AUTH", "").strip().lower() in (
+            "1", "true", "yes",
+        )
+        if not fallback_key_configured and not no_auth_opt_in:
+            raise ValueError(
+                "second_judge has fallback URLs configured "
+                f"({second_judge['base_urls_fallback']!r}) but no fallback key is set -- set "
+                "NYAYA_SECOND_JUDGE_FALLBACK_API_KEY (or the yaml's own second_judge.fallback_api_key) so "
+                "the fallback backend can authenticate, or set NYAYA_SECOND_JUDGE_FALLBACK_NO_AUTH=1 to "
+                "explicitly run it with no auth at all. Refusing to start rather than let a caller "
+                "discover, per request, that an unauthenticated fallback's 401 is a loud 503, not a "
+                "fail-closed REFER."
+            )
+
     # Gate 1 (Track-C, GATE1-PRODUCT-WIRING-SPEC-2026-09-26.md §3/§5): the yaml block (threshold/model) and
     # the enable switch are deliberately independent -- NYAYA_GATE1_THRESHOLD/_MODEL override the block's own
     # values (or introduce it, mirroring the house_judge/second_judge env-override pattern above) whether or
