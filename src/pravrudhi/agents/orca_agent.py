@@ -203,8 +203,11 @@ def headless_command(
         # own login error rather than ours. Refusing to build a string was over-eager and broke five tests
         # that are about command shape, not credentials; the refusal belongs in `run()`, where it is.
         #
-        # `seat_env` names the seat explicitly. `OrcaAgent.run` passes it so a usage limit can move to the next
-        # seat; without it the command rides whichever seat `claude_env` would pick right now.
+        # `seat_env` names the seat explicitly. `OrcaAgent.run` (the real dispatch path) always passes it, so a
+        # usage limit can move to the next registry seat -- `claude_env` below is a fallback for a caller that
+        # builds this command directly with no seat_env (tests only, today; issue #82: `claude_env` now
+        # resolves the scripted seat-0 account, not the registry, so this fallback no longer mirrors
+        # `select_seat`'s rotation, which is exactly why real dispatch never omits `seat_env`).
         chosen = dict(seat_env) if seat_env is not None else claude_env(require=False)
         prefix = [f"{k}={v}" for k, v in sorted(chosen.items())]
         return ["env", *prefix, "claude", "-p", "--output-format", "json",
@@ -266,7 +269,7 @@ class OrcaAgent(GitWorktreeMixin):
             argv = headless_command(self.agent_id, model=self.model)  # raises for an unknown agent before any file
             return self._attempt(prompt, workspace, timeout_s, argv)
 
-        from pravrudhi.agents.account import claude_env, select_seat
+        from pravrudhi.agents.account import refuse_no_seat_available, select_seat
         from pravrudhi.application import availability
 
         spent: list[str] = []
@@ -286,7 +289,7 @@ class OrcaAgent(GitWorktreeMixin):
             availability.mark_limited(self.root, seat.cooldown_key, until=availability.reset_at(whole))
 
         if last is None:
-            claude_env(root=self.root)  # no seat can serve: raise the documented refusal rather than guess
+            refuse_no_seat_available(self.root)  # no seat can serve: raise the documented refusal rather than guess
         # An Orca terminal's `ok` is whether Orca could READ the terminal, not the CLI's exit status, so a spent
         # seat's refusal can arrive as ok=True. `ClaudeCodeAgent` returns it failed (the CLI's JSON envelope says
         # `is_error`), and a caller such as `delegate.dispatch` only classifies a failed run -- so it is returned
