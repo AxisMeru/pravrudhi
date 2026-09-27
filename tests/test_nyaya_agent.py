@@ -1840,6 +1840,30 @@ class TestHouseFactory:
         assert isinstance(agent.judge, AndGateJudge)
         assert agent.judge.second.api_keys == ["second-primary-key", "second-fallback-key"]
 
+    def test_second_judges_fallback_with_no_fallback_key_set_gets_no_authorization_header(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """2026-09-27, Lead-2's follow-up decision on #115: the second judge's fallback is ISOLATED from
+        its primary by default (`_build_house_judge`'s own `fallback_api_key_env=
+        "NYAYA_SECOND_JUDGE_FALLBACK_API_KEY"`, always passed for the second judge) -- with that var unset
+        and no `fallback_api_key` in the yaml, the fallback backend gets NO key at all, never the primary's
+        `second-primary-key` reused. Confirms this holds through the real `NyayaAgent.house()` wiring, not
+        just a direct `HouseJudge(...)` construction."""
+        from pravrudhi.application.nyaya_judges import AndGateJudge
+
+        monkeypatch.setenv("NYAYA_SECOND_JUDGE_API_KEY", "second-primary-key")
+        monkeypatch.delenv("NYAYA_SECOND_JUDGE_FALLBACK_API_KEY", raising=False)
+        second_cfg = {
+            **self._HOUSE_JUDGE_CFG, "base_url": "http://s/v1", "model": "m2", "tau": 0.97,
+            "base_urls_fallback": ["http://s-fallback/v1"],
+        }
+        assert "fallback_api_key" not in second_cfg
+        cfg = _config(tmp_path, house_judge=self._HOUSE_JUDGE_CFG, second_judge=second_cfg,
+                      score_bin=self._score_bin(tmp_path), pinned_score_sha256=None)
+        agent = NyayaAgent.house(tmp_path, config=cfg)
+        assert isinstance(agent.judge, AndGateJudge)
+        assert agent.judge.second.api_keys == ["second-primary-key", None]
+
     def test_gate1_off_by_default_uses_plain_house_judge(self, tmp_path: Path) -> None:
         """`gate1_enabled` defaults False (no `NYAYA_GATE1_ENABLED`): `NyayaAgent.house` never wraps in
         `Gate1Judge` at all -- byte-identical to before Gate 1 existed, and no NLI model is ever loaded

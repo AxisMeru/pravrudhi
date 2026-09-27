@@ -405,6 +405,29 @@ class TestHouseJudge:
         assert captured["auth_by_url"]["primary"] == "Bearer shared_secret"
         assert captured["auth_by_url"]["fallback"] == "Bearer shared_secret"
 
+    def test_isolated_fallback_with_no_key_configured_sends_no_authorization_header(self) -> None:
+        """2026-09-27, Lead-2's follow-up decision on #115: an isolated fallback (a different trust domain
+        from the primary) with NO fallback key configured gets NO `Authorization` header at all -- it must
+        NEVER silently fall back to the primary's own key. (A real deployment where that fallback itself
+        checks auth would then see a bare 401, which `HouseJudge`'s own transient-error classification and
+        `AndGateJudge` already turn into a fail-closed REFER, never a false PROOF -- not re-proven here,
+        this test is at the HTTP-header level.)"""
+        captured: dict[str, Any] = {}
+        with mock.patch("urllib.request.urlopen", self._fallback_net(captured)):
+            j = HouseJudge(
+                base_url="http://primary/v1",
+                fallback_urls=["http://fallback/v1"],
+                api_key="primary_secret",
+                isolate_fallback_key=True,  # fallback_api_key omitted: no key configured for it
+                tau=0.74,
+                statute_chars=600,
+            )
+            assert j.api_keys == ["primary_secret", None]
+            j.judge(REQ)
+
+        assert captured["auth_by_url"]["primary"] == "Bearer primary_secret"
+        assert captured["auth_by_url"]["fallback"] is None
+
     def test_unknown_fact_id_is_reported_with_no_quote(self) -> None:
         fake = _FakeComplete(_completion(" established F_el0:0:40", {" established": -0.05, " not": -3.0}))
         j = HouseJudge(complete=fake, tau=0.74, statute_chars=600).judge(REQ)
