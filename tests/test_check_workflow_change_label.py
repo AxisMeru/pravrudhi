@@ -760,10 +760,14 @@ class TestWorkflowWiring:
         # repository: nothing in a new workflow may change the timing or permissions of ci.yml's
         # jobs. ci.yml's own trigger must still be a bare `pull_request:`.
         ci = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
-        assert re.search(r"^  pull_request:\s*$", ci, re.MULTILINE)
-        assert "pull_request_target" not in ci.replace(
-            "a future `pull_request_target` trigger", ""
-        ).replace("Never `pull_request_target`", "")
+        # Comment lines stripped, for the same reason WORKFLOW_CODE exists: ci.yml's own comments
+        # NAME `pull_request_target` in order to forbid it there, and a test that could not tell a
+        # prohibition from a use would either fail on merge or force those comments to be deleted.
+        ci_code = "".join(
+            line for line in ci.splitlines(keepends=True) if not line.lstrip().startswith("#")
+        )
+        assert re.search(r"^  pull_request:\s*$", ci_code, re.MULTILINE)
+        assert "pull_request_target" not in ci_code
 
 
 class TestTheGuardGuardsItself:
