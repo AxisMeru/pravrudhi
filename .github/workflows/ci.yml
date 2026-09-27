@@ -10,6 +10,11 @@ on:
 jobs:
   kernel:
     runs-on: ubuntu-latest
+    # Skip on workflow_dispatch (Lead-2, 2026-09-27): dispatch exists only to run main-history-trailer-scan
+    # as a canary independent of a real push to main. Every other job needs artifacts/secrets that job
+    # doesn't (build-lean-binary's binary, the frontend build, etc), so without this a dispatch run goes red
+    # everywhere else for reasons that have nothing to do with what it's actually checking.
+    if: github.event_name != 'workflow_dispatch'
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
@@ -25,6 +30,7 @@ jobs:
   # pravrudhi_kernel) on a Windows runner and proves the import path and the kernel's own tests survive there.
   windows-import-smoke:
     runs-on: windows-latest
+    if: github.event_name != 'workflow_dispatch'
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
@@ -183,6 +189,7 @@ jobs:
 
   guards:
     runs-on: ubuntu-latest
+    if: github.event_name != 'workflow_dispatch'
     steps:
       # fetch-depth: 0 (Tag, 2026-09-26): the trailer check below used to run `git log --format=%H` over
       # "history", but actions/checkout's default is a depth-1 shallow clone -- that grep saw exactly ONE
@@ -336,7 +343,7 @@ jobs:
     # check_score_bin_gate_ran.py is the permanent backstop that makes the difference visible rather than
     # silent -- green with the real binary available, red (as designed, see that script's own docstring)
     # without it.
-    if: "!cancelled()"
+    if: "!cancelled() && github.event_name != 'workflow_dispatch'"
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
@@ -382,6 +389,7 @@ jobs:
   # that says nothing about the change under test.
   live-interface:
     runs-on: ubuntu-latest
+    if: github.event_name != 'workflow_dispatch'
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
@@ -424,6 +432,7 @@ jobs:
 
   governance:
     runs-on: ubuntu-latest
+    if: github.event_name != 'workflow_dispatch'
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
