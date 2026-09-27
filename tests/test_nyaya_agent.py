@@ -1185,6 +1185,100 @@ class TestSecondJudgeReferBand:
         assert registry.checks == []  # no Lean call at all
 
 
+class TestProofGatedDenialCorrection:
+    """Track-C, DEFENCE-LEG-DESIGN-2026-09-27.md option (d), Lead-2's go 2026-09-27:
+    `second_judge.denial_gate="proof_gated"` asks the second judge once more for a defeater the primary
+    rejected, but ONLY when every required element is already established (the contract would otherwise
+    return PROOF). Wraps two `ScriptedJudge` doubles in a REAL `AndGateJudge`, never a hand-built
+    `ElementJudgment`, same discipline as every other AND-gate test in this file."""
+
+    def _agent(self, tmp_path: Path, *, denial_gate: str | None, second_denies: bool) -> NyayaAgent:
+        primary = _proof_script(TOY_FACTS)  # both required elements established, denial confidently rejected
+        second: dict[str, list[Any]] = {
+            BNS69_EL[0]: [_second("established", 0.99)],
+            BNS69_EL[1]: [_second("established", 0.99)],
+            BNS69_DENY: (
+                [_not(0.04)] if second_denies
+                else [_est("F1", TOY_FACTS[0], "Kiran was engaged to Lata", 0.99)]
+            ),
+        }
+        gate = AndGateJudge(ScriptedJudge(primary), ScriptedJudge(second), tau_primary=0.74, tau_second=0.97)
+        second_judge_cfg: dict[str, Any] = {"tau": 0.97}
+        if denial_gate is not None:
+            second_judge_cfg["denial_gate"] = denial_gate
+        return NyayaAgent(gate, _registry(), _config(tmp_path, second_judge=second_judge_cfg))
+
+    def test_stays_proof_under_the_default_and_gate(self, tmp_path: Path) -> None:
+        """Today's known gap (DEFENCE-LEG-DESIGN-2026-09-27.md sec 2), pinned as an explicit regression
+        fixture: a confident primary miss on the defeater, with both required elements established, still
+        reaches PROOF under the default `"and"` gate. If this test ever starts failing because the outcome
+        changed to DENIAL, the default gate's behaviour drifted -- fix that deliberately, do not just delete
+        this test."""
+        c = self._agent(tmp_path, denial_gate=None, second_denies=True).run(
+            TOY_FACTS, narrative="TOY narrative.", contract_ids=["bns69"],
+        ).contracts[0]
+        assert c.outcome == "PROOF"
+        assert c.reason == "all_elements_established"
+
+    def test_flips_to_denial_when_the_second_catches_the_miss(self, tmp_path: Path) -> None:
+        """The actual fix, and the case Tag's finding (the first live PROOF, defence score 0.033)
+        motivated: `denial_gate="proof_gated"`, the second judge catches the primary's miss -- DENIAL, not
+        a false PROOF."""
+        c = self._agent(tmp_path, denial_gate="proof_gated", second_denies=False).run(
+            TOY_FACTS, narrative="TOY narrative.", contract_ids=["bns69"],
+        ).contracts[0]
+        assert c.outcome == "DENIAL"
+        assert c.reason == "denial_established"
+        assert c.elements[-1].binding_leg == "second"
+
+    def test_stays_proof_when_the_second_also_rejects(self, tmp_path: Path) -> None:
+        """`proof_gated`, but the second judge agrees with the primary that the defeater is absent -- PROOF
+        stands, `binding_leg="both"` records that both judges independently examined it and agreed (the
+        value #57/#63 originally found unreachable -- see DEFENCE-LEG-DESIGN-2026-09-27.md and
+        test_nyaya_element_status_contract.py's own round-trip test for this leg)."""
+        c = self._agent(tmp_path, denial_gate="proof_gated", second_denies=True).run(
+            TOY_FACTS, narrative="TOY narrative.", contract_ids=["bns69"],
+        ).contracts[0]
+        assert c.outcome == "PROOF"
+        assert c.elements[-1].binding_leg == "both"
+
+    def test_would_not_be_proof_never_asks_the_second_for_the_denial(self, tmp_path: Path) -> None:
+        """The cost-saving case (~27% vs 100%, DEFENCE-LEG-DESIGN-2026-09-27.md sec 4/5): one required
+        element is NOT established, so the outcome is ABSTAIN regardless of the defeater -- the second judge
+        must NEVER be asked about the denial here, `proof_gated` or not. `second`'s script has no
+        `BNS69_DENY` entry at all: if the correction ever asked for it anyway, `ScriptedJudge` would raise
+        `KeyError` -- the loudest possible failure, not a silent pass."""
+        primary = _proof_script(TOY_FACTS)
+        primary[BNS69_EL[0]] = [_not(0.2)]  # one required element now fails -- would_be_proof is False
+        second: dict[str, list[Any]] = {BNS69_EL[1]: [_second("established", 0.99)]}
+        gate = AndGateJudge(ScriptedJudge(primary), ScriptedJudge(second), tau_primary=0.74, tau_second=0.97)
+        config = _config(tmp_path, second_judge={"tau": 0.97, "denial_gate": "proof_gated"})
+        c = NyayaAgent(gate, _registry(), config).run(
+            TOY_FACTS, narrative="TOY narrative.", contract_ids=["bns69"],
+        ).contracts[0]
+        assert c.outcome == "ABSTAIN"
+
+    def test_second_unavailable_during_the_correction_refers_never_proofs(self, tmp_path: Path) -> None:
+        """Lead-2's binding addition (2026-09-27, per Tag): phase-2 unavailability must fail closed --
+        REFER_TO_LAWYER (`second_judge_unavailable`), never PROOF, and never a silent `not_established` that
+        would let the contract proceed as though no defeater existed. Reads the raw `second_unavailable`
+        boolean (`_run_contract`'s existing generic check), not a status label."""
+        primary = _proof_script(TOY_FACTS)
+        second: dict[str, list[Any]] = {
+            BNS69_EL[0]: [_second("established", 0.99)],
+            BNS69_EL[1]: [_second("established", 0.99)],
+            BNS69_DENY: [ConnectionError("second judge unreachable")],
+        }
+        gate = AndGateJudge(ScriptedJudge(primary), ScriptedJudge(second), tau_primary=0.74, tau_second=0.97)
+        config = _config(tmp_path, second_judge={"tau": 0.97, "denial_gate": "proof_gated"})
+        c = NyayaAgent(gate, _registry(), config).run(
+            TOY_FACTS, narrative="TOY narrative.", contract_ids=["bns69"],
+        ).contracts[0]
+        assert c.outcome == "REFER_TO_LAWYER"
+        assert c.reason == "second_judge_unavailable"
+        assert c.elements[-1].second_unavailable is True
+
+
 class TestTruthfulElementStatus:
     """Issue #37 (Tag's review): a gold-established element that leans toward established (p >= 0.5 on
     every judge that actually ran) but didn't clear a served tau must never be labelled the same as one a
@@ -1568,6 +1662,38 @@ class TestConfig:
     def test_repo_config_has_no_second_judge_by_default(self) -> None:
         """The shipped config has no `second_judge:` block: config C is opt-in, never the default."""
         assert load_agent_config(REPO).second_judge is None
+
+    def test_denial_gate_defaults_to_and_with_no_second_judge_configured(self, tmp_path: Path) -> None:
+        """No `second_judge:` block at all -- `denial_second_gate()` still returns "and" (its own doc's
+        "inert without a second judge actually configured" case), never raises."""
+        cfg = _config(tmp_path)
+        assert cfg.second_judge is None
+        assert cfg.denial_second_gate() == "and"
+
+    def test_denial_gate_defaults_to_and_with_a_second_judge_configured(self, tmp_path: Path) -> None:
+        cfg = _config(tmp_path, second_judge={"tau": 0.97})
+        assert cfg.denial_second_gate() == "and"
+
+    def test_denial_gate_proof_gated_is_read_from_config(self, tmp_path: Path) -> None:
+        cfg = _config(tmp_path, second_judge={"tau": 0.97, "denial_gate": "proof_gated"})
+        assert cfg.denial_second_gate() == "proof_gated"
+
+    def test_denial_gate_bogus_value_is_refused_at_load_time(self, tmp_path: Path) -> None:
+        """Fail closed (Lead-2, 2026-09-27's GO instruction): an unrecognised value raises at CONSTRUCTION,
+        never silently falls back to "and" -- same discipline as every other `AgentConfig.__post_init__`
+        check."""
+        with pytest.raises(ValueError, match="denial_gate"):
+            _config(tmp_path, second_judge={"tau": 0.97, "denial_gate": "or"})
+        with pytest.raises(ValueError, match="denial_gate"):
+            _config(tmp_path, second_judge={"tau": 0.97, "denial_gate": "bogus"})
+
+    def test_denial_gate_env_var_introduces_the_value(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("NYAYA_SECOND_JUDGE_BASE_URL", "http://127.0.0.1:8111/v1")
+        monkeypatch.setenv("NYAYA_SECOND_JUDGE_TAU", "0.97")
+        monkeypatch.setenv("NYAYA_SECOND_JUDGE_DENIAL_GATE", "proof_gated")
+        cfg = load_agent_config(REPO)
+        assert cfg.second_judge is not None
+        assert cfg.denial_second_gate() == "proof_gated"
 
     def test_second_judge_env_vars_are_absent_by_default_too(self, monkeypatch: pytest.MonkeyPatch) -> None:
         for var in ("NYAYA_SECOND_JUDGE_BASE_URL", "NYAYA_SECOND_JUDGE_MODEL", "NYAYA_SECOND_JUDGE_TAU",
