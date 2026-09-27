@@ -1,0 +1,66 @@
+# Row-count and sha256 pin for the PRIVATE sealed sets the second-judge positive control (#44) loads.
+# Added for issue #100, which verified that the control returned available=True on a truncated or emptied
+# established half, and exited 0 when nothing was evaluated at all.
+#
+# WHY THIS FILE EXISTS AT ALL, AND WHY THE DIGESTS BELOW ARE NOT FILLED IN
+# -----------------------------------------------------------------------
+# pravrudhi is PUBLIC. The three files pinned below live only in prabhasa-nyaya and are never committed
+# here -- `tests/test_sealed_set_digests.py::TestTheLimitOfWhatCanBeAssertedHere` asserts their absence, and
+# the count/digest check therefore cannot be computed from inside this repo. Nobody working in this
+# repository has ever been able to read those files, so no sha256 for them has ever existed in this git
+# history, and none was invented for this commit. A plausible-looking digest here would be worse than none:
+# it would make the pin look enforced while comparing the sealed sets against a number somebody guessed.
+#
+# WHO FILLS THESE IN: whoever holds the sealed sets (the prabhasa-nyaya working copy -- Lead-2, or the
+# operator). For each entry: run `sha256sum <file>` on the sealed file and `n_rows` as defined by `kind`
+# below, then replace the UNPINNED sentinel in a single follow-up commit that records who computed it and
+# from which prabhasa-nyaya revision. Do not copy a digest out of a log or a chat message.
+#
+# UNTIL THEY ARE FILLED IN, THE CONTROL REFUSES TO RUN. `load_sealed_manifest` raises on an UNPINNED value
+# (see `src/pravrudhi/application/second_judge_positive_control.py`), the CLI prints NOT_EVALUATED and a
+# fail-closed verdict, and exits non-zero. That is deliberate, and it is the safe state: `second_judge:` is
+# commented out in `configs/nyaya_agent.yaml`, so no second judge is configured and nothing live depends on
+# this control today. A control that runs against unverified inputs is the defect #100 reports; a control
+# that refuses to run is merely unavailable, which is the direction this whole subsystem fails in.
+#
+# The sentinel is the literal string UNPINNED. It is not a digest and cannot be mistaken for one: every
+# pinned value must match ^[0-9a-f]{64}$, and anything that is neither the sentinel nor a well-formed
+# sha256 is rejected as malformed rather than treated as absent. `n_rows` uses the same sentinel.
+#
+# NOT PINNED HERE, on purpose: `sxm_parity_scores_32b_final.jsonl` (the parity score file named at
+# configs/nyaya_agent.yaml:369-370). The control never opens it -- its `sealed_reference_p` values were
+# baked into the two control-set JSONs when they were sealed. Pinning a file no code path reads would be
+# decoration, which is the failure mode `tests/test_sealed_set_digests.py` already warns about.
+
+# `kind` determines how n_rows is counted, and is part of the pin -- a file whose shape changed is a
+# different file:
+#   json_ids -- a JSON object with an "ids" list; n_rows == len(ids).
+#   jsonl    -- one JSON object per line; n_rows == the number of non-blank lines.
+sealed_sets:
+  - name: established_200
+    relative_path: research/gates/P2b/configC/second_judge_positive_control/established_200.json
+    kind: json_ids
+    # 200 is public knowledge in this repo and is NOT a guess: configs/nyaya_agent.yaml's own commentary
+    # counts the established half at 200 ("out of 200", "on the same 200 elements"), and
+    # tests/test_sealed_set_digests.py:171 records EXPECTED_PRIVATE_COUNTS established_200.json -> 200.
+    n_rows: 200
+    sha256: UNPINNED
+
+  - name: ne_discrimination_71
+    relative_path: research/gates/P2b/configC/second_judge_positive_control/ne_discrimination_71.json
+    kind: json_ids
+    # 71 likewise: configs/nyaya_agent.yaml describes "71 gold-not_established v1 elements ... the 60 NE
+    # elements of the 30 two-NE-element negative instances, plus the 11 single-NE instances" (60 + 11 = 71),
+    # and tests/test_sealed_set_digests.py:171 records ne_discrimination_71.json -> 71.
+    n_rows: 71
+    sha256: UNPINNED
+
+  - name: eval_items_v1
+    relative_path: research/gates/P2b/element_judgment_v1/eval_items.jsonl
+    kind: jsonl
+    # UNPINNED, not a number: this file's row count is NOT public knowledge in this repo. The config's
+    # "ALL 1264 established v1 elements" is a count of established ELEMENTS across v1, which is not this
+    # file's line count, and no other in-repo source states it. Guessing it would put a fabricated
+    # completeness target into the one place the run trusts, which is precisely the defect being fixed.
+    n_rows: UNPINNED
+    sha256: UNPINNED
