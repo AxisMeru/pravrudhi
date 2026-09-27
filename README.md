@@ -72,3 +72,5 @@ uv run pravrudhi evidence external --root .
 ## Licence
 
 Apache-2.0.
+
+<!-- harmless comment for #103 post-merge proof (c): README-only, no label -->
