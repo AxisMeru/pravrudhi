@@ -1268,6 +1268,72 @@ class TestTheGuardGuardsItself:
         assert matches("tests/test_identity_header.py") is None
 
 
+class TestTheExhaustivenessPinIsProtected:
+    """Lead-2, 2026-09-27: the outcome-token pin is in the table, by its exact path.
+
+    WHY TWO CASES AND NOT ONE. The entry is WILDCARD-FREE, so
+    `test_every_literal_pattern_matches_its_own_path` already walks it and would notice a pattern
+    that matched nothing at all. What that structural sweep cannot notice is the OTHER direction:
+    an entry widened to `tests/governance/**` during some later tidy-up would still satisfy the
+    sweep while quietly putting every governance test behind a human label. So the negative case
+    is what pins the entry's NARROWNESS, and it is the half that earns its keep.
+    """
+
+    #: The pin itself. `tests/test_check_*.py` does not reach it -- `*` never crosses a `/`.
+    PIN = "tests/governance/test_outcome_token_fixtures_pinned.py"
+    #: A name nothing in this tree claims; see the negative test's docstring for why that matters.
+    UNRELATED = "tests/governance/test_unrelated_governance_thing.py"
+
+    def test_the_pin_is_protected_by_its_exact_path(self):
+        """Deleting the pin must itself need the label, or the chain ends in an unguarded file.
+
+        The pin is the LAST link: it asserts from outside `test_check_contract_classification.py`
+        that `TOKEN_FIXTURES` still covers `OUTCOME_TOKENS` and that the driver is still collected
+        per token, and nothing else in the suite goes red if the pin is simply removed. The
+        `tests/test_check_*.py` entry cannot cover it, because that glob is `tests/` only (see
+        `glob_to_regex`, and `test_the_glob_does_not_cross_a_directory_separator` above). This
+        asserts the entry that closes that gap is in the table AND that it is the entry doing the
+        work -- not some other pattern matching by accident, which would make the table's log
+        report the wrong reason for the wrong file.
+        """
+        assert (REPO_ROOT / self.PIN).is_file(), (
+            f"{self.PIN} must exist or this case is vacuous"
+        )
+        hit = matches(self.PIN)
+        assert hit is not None, (
+            f"{self.PIN} must be protected: it is the last link in the outcome-token "
+            f"exhaustiveness chain and nothing else notices its deletion"
+        )
+        glob, why = hit
+        assert glob == self.PIN, (
+            f"expected the exact-path entry {self.PIN!r} to be the entry doing the work, "
+            f"not {glob!r}"
+        )
+        assert why.strip(), "every entry carries a written reason for the next reader"
+
+    def test_an_unrelated_governance_test_is_not_protected(self):
+        """One path, not a directory glob, so the rest of `tests/governance/` stays label-free.
+
+        DELIBERATELY A PATH THAT DOES NOT EXIST IN THE TREE. A real sibling could legitimately be
+        added to the table one day on its own merits, and this case would then be asserting
+        something nobody meant -- it would go red for a correct change, which is how a test gets
+        deleted instead of read. A name nothing will ever claim keeps this a test of the entry's
+        WIDTH and of nothing else.
+
+        Over-matching is not a harmless excess. A table that drags unrelated files behind a human
+        label is friction nobody signed up for, and that is what gets a whole table switched off
+        rather than corrected.
+        """
+        assert not (REPO_ROOT / self.UNRELATED).exists(), (
+            f"{self.UNRELATED} was chosen precisely because nothing claims it; pick another name"
+        )
+        assert matches(self.UNRELATED) is None, (
+            f"{self.UNRELATED} must NOT be protected -- the pin is guarded by an exact path, and "
+            f"widening that to `tests/governance/**` would put every governance test, present and "
+            f"future, behind the `{WORKFLOW_CHANGE_LABEL}` label"
+        )
+
+
 # ==========================================================================================
 # CHANGE (a): the guard must never fail with a bare interpreter error.
 #
