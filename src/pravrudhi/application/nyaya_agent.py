@@ -685,6 +685,19 @@ class ElementResult:
     #: in this case). Lead-2, 2026-09-24: a second-judge error must surface as REFER_TO_LAWYER, not silently
     #: become an ordinary not-established fact that can drive a false DENIAL.
     second_unavailable: bool = False
+    #: The second judge's own fact_id, kept for the record even though `fact_id` above (the primary's span)
+    #: is what the quote check and the Lean wire use -- AndGateJudge never substitutes it in
+    #: (`nyaya_judges.AndGateJudge`'s own docstring). Behaviour-neutral: propagating these two fields changes
+    #: no verdict, quote, or outcome; they only make an existing `ElementJudgment`-level signal visible past
+    #: the judge call, where it was previously computed and then discarded (found 2026-09-27 investigating
+    #: the fact-id convention skew: `judgment.as_dict()` already carries both fields into the audit log, but
+    #: neither ever reached `ElementResult`, so no sealed run's response ever recorded a disagreement).
+    #: None/False whenever the second judge was never asked (single-judge mode, or the primary already
+    #: rejected) -- same convention as every other second-judge field above.
+    second_fact_id: str | None = None
+    #: True iff the second judge cited a different fact_id than the primary (both established, both cited
+    #: something) -- `AndGateJudge`'s own computation, reused verbatim, never re-derived here.
+    fact_id_disagreement: bool = False
     #: Issue #37 (single-judge fix, #57): which judge's tau this non-established element failed to clear --
     #: "primary" (it rejected outright; also single-judge mode's ONLY possible value, since there is no
     #: second judge to blame instead) or "second" (the primary passed but the second didn't). None whenever
@@ -837,10 +850,16 @@ def _second_band_info(anchor: ElementJudgment | None, delta: float | None) -> di
     `second_skip_reason` starting with `"second_unavailable"` when the second judge errored (not a config
     fault -- those raise) and the element failed closed. That element has no `p_established_second` to band
     on, but it must still surface as a REFER, not an ordinary not-established fact -- `_run_contract` checks
-    this flag unconditionally, independent of whether `delta` is even configured."""
+    this flag unconditionally, independent of whether `delta` is even configured.
+
+    `second_fact_id` / `fact_id_disagreement` (2026-09-27): read straight off `anchor` -- `AndGateJudge`
+    already computed them, this function never re-derives the comparison. Behaviour-neutral: neither field
+    feeds any decision here or in `_truthful_status`; they exist only so a caller can SEE the second judge's
+    own citation and whether it matched the primary's, which the verdict itself has never depended on."""
     out: dict[str, Any] = {
         "p_established_second": None, "tau_second": None, "second_skip_reason": None,
         "second_logit_distance": None, "second_refer_band_fired": False, "second_unavailable": False,
+        "second_fact_id": None, "fact_id_disagreement": False,
     }
     if anchor is None:
         return out
@@ -849,6 +868,8 @@ def _second_band_info(anchor: ElementJudgment | None, delta: float | None) -> di
     out["second_unavailable"] = bool(
         anchor.second_skip_reason and anchor.second_skip_reason.startswith("second_unavailable")
     )
+    out["second_fact_id"] = anchor.second_fact_id
+    out["fact_id_disagreement"] = anchor.fact_id_disagreement
     if anchor.p_established_second is None or anchor.tau_second is None:
         return out
     out["p_established_second"] = anchor.p_established_second

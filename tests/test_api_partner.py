@@ -319,6 +319,9 @@ class TestSecondJudgeDebugFields:
         assert el0["second_unavailable"] is False
         assert "tau_second" in el0 and "second_skip_reason" in el0 and "second_logit_distance" in el0
         assert "second_refer_band_fired" in el0
+        # The fixture's primary/second cite different fact_ids ("F2" vs "F2s") -- a genuine disagreement.
+        assert el0["second_fact_id"] == "F2s"
+        assert el0["fact_id_disagreement"] is True
 
     def test_fields_absent_when_the_request_does_not_opt_in(self, tmp_path: Path) -> None:
         """Same deployment (opted in) but a caller that never asked -- today's exact response shape."""
@@ -333,6 +336,7 @@ class TestSecondJudgeDebugFields:
         for field in (
             "p_established_second", "tau_second", "second_skip_reason",
             "second_logit_distance", "second_refer_band_fired", "second_unavailable",
+            "second_fact_id", "fact_id_disagreement",
         ):
             assert field not in el0, f"{field} must not appear when the caller never asked for it"
 
@@ -403,6 +407,7 @@ class TestSecondJudgeFieldsForAuthenticatedCallers:
         el0 = resp.json()["contracts"][0]["elements"][0]
         assert el0["p_established_second"] == pytest.approx(0.65)
         assert "tau_second" in el0 and "second_skip_reason" in el0 and "second_logit_distance" in el0
+        assert "second_fact_id" in el0 and "fact_id_disagreement" in el0
 
     def test_a_valid_org_api_key_sees_the_fields_with_the_debug_gate_off(self, tmp_path: Path) -> None:
         tenancy.create_org(tmp_path, "acme", "Acme")
@@ -432,6 +437,7 @@ class TestSecondJudgeFieldsForAuthenticatedCallers:
         for field in (
             "p_established_second", "tau_second", "second_skip_reason",
             "second_logit_distance", "second_refer_band_fired", "second_unavailable",
+            "second_fact_id", "fact_id_disagreement",
         ):
             assert field not in el0, f"{field} leaked to an anonymous caller"
 

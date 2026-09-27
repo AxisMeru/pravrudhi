@@ -240,7 +240,7 @@ class AnalyseFactsRequest(BaseModel):
 #: can never silently drift apart.
 _SECOND_JUDGE_DEBUG_FIELDS = (
     "p_established_second", "tau_second", "second_skip_reason", "second_logit_distance",
-    "second_refer_band_fired", "second_unavailable",
+    "second_refer_band_fired", "second_unavailable", "second_fact_id", "fact_id_disagreement",
 )
 
 
@@ -276,7 +276,7 @@ class ElementResultOut(BaseModel):
     #: authenticated callers only") -- or (2) the deployment-level debug gate (Lead-2, 2026-09-25 config-C
     #: smoke): both `PartnerApiConfig.debug_second_judge_fields_enabled` and the request's own
     #: `?debug_second_judge=true` are set, for an operator diagnosing a disagreement on a deployment that has
-    #: opted in, authenticated or not. `analyse_facts_ep` pops these six keys out of every element's dict
+    #: opted in, authenticated or not. `analyse_facts_ep` pops these eight keys out of every element's dict
     #: when NEITHER case holds, so an anonymous, non-debug response is byte-for-byte what it was before this
     #: field existed. Declared here (rather than left for Pydantic to silently strip) so they validate through
     #: when present; same names as `ElementResult`'s own fields, not renamed, so there is no separate
@@ -287,6 +287,11 @@ class ElementResultOut(BaseModel):
     second_logit_distance: float | None = None
     second_refer_band_fired: bool | None = None
     second_unavailable: bool | None = None
+    #: The second judge's own fact_id, and whether it disagreed with the primary's (2026-09-27) -- same gate
+    #: as the fields above, added to `_SECOND_JUDGE_DEBUG_FIELDS` rather than a new one: this is exactly the
+    #: same "config-C internal, not for a public unauthenticated caller by default" category.
+    second_fact_id: str | None = None
+    fact_id_disagreement: bool | None = None
 
 
 class ContractResultOut(BaseModel):

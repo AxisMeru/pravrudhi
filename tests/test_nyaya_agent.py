@@ -1185,6 +1185,74 @@ class TestSecondJudgeReferBand:
         assert registry.checks == []  # no Lean call at all
 
 
+class TestFactIdDisagreementPropagation:
+    """2026-09-27: `second_fact_id`/`fact_id_disagreement` are computed by `AndGateJudge` (`ElementJudgment`'s
+    own fields) but were being discarded before ever reaching `ElementResult` -- found investigating the
+    fact-id convention skew (no sealed run's response ever recorded a disagreement, though the audit log's
+    `judgment.as_dict()` always has). Behaviour-neutral: propagating them changes no verdict, quote, or
+    outcome -- every assertion below about `status`/`outcome` is unchanged from what `TestSecondJudgeReferBand`
+    already established; only the two new fields are new here."""
+
+    TAU2 = 0.97
+
+    def _run(
+        self, tmp_path: Path, primary_script: dict[str, list[Any]], second_script: dict[str, list[Any]],
+    ) -> Any:
+        primary = ScriptedJudge(primary_script)
+        second = ScriptedJudge(second_script)
+        gate = AndGateJudge(primary, second, tau_primary=0.74, tau_second=self.TAU2)
+        config = _config(tmp_path, second_judge={"tau": self.TAU2})
+        agent = NyayaAgent(gate, _registry(), config)
+        return agent.run(TOY_FACTS, narrative="TOY narrative.", contract_ids=["bns69"]).contracts[0]
+
+    def test_propagates_when_both_judges_run_and_cite_different_facts(self, tmp_path: Path) -> None:
+        primary_script = _proof_script(TOY_FACTS)
+        second_script = {
+            BNS69_EL[0]: [ElementJudgment("established", 0.99, fact_id="Fdifferent", quote="unused")],
+            BNS69_EL[1]: [_second("established", 0.99)],  # cites "Fx", still != primary's "F3" -- also a
+                                                           # disagreement, checked on el0 below for clarity
+        }
+        c = self._run(tmp_path, primary_script, second_script)
+        el0 = c.elements[0]
+        # primary cited "F2" (_proof_script); second cited "Fdifferent" -- a genuine disagreement
+        assert el0.fact_id == "F2"
+        assert el0.second_fact_id == "Fdifferent"
+        assert el0.fact_id_disagreement is True
+        # verdict/outcome untouched by this feature: same as TestSecondJudgeReferBand's own established case
+        assert el0.status == "established"
+        assert c.outcome == "PROOF"
+
+    def test_no_disagreement_when_both_judges_cite_the_same_fact(self, tmp_path: Path) -> None:
+        primary_script = _proof_script(TOY_FACTS)
+        second_script = {
+            BNS69_EL[0]: [ElementJudgment("established", 0.99, fact_id="F2", quote="unused")],
+            BNS69_EL[1]: [ElementJudgment("established", 0.99, fact_id="F3", quote="unused")],
+        }
+        c = self._run(tmp_path, primary_script, second_script)
+        el0 = c.elements[0]
+        assert el0.second_fact_id == "F2"
+        assert el0.fact_id_disagreement is False
+        el1 = c.elements[1]
+        assert el1.second_fact_id == "F3"
+        assert el1.fact_id_disagreement is False
+
+    def test_absent_when_the_second_judge_is_skipped(self, tmp_path: Path) -> None:
+        """The primary rejects outright (`_not()`), so the second is never asked (cost-saving skip) --
+        `second_fact_id`/`fact_id_disagreement` must read as None/False, the same convention every other
+        second-judge field on `ElementResult` already follows."""
+        primary_script = _proof_script(TOY_FACTS)
+        primary_script[BNS69_EL[0]] = [_not()]
+        second_script = {
+            BNS69_EL[1]: [_second("established", 0.99)],
+            BNS69_DENY: [_second("not_established", 0.02)],
+        }
+        c = self._run(tmp_path, primary_script, second_script)
+        el0 = c.elements[0]
+        assert el0.status != "established"
+        assert el0.second_fact_id is None
+        assert el0.fact_id_disagreement is False
+
+
 class TestTruthfulElementStatus:
     """Issue #37 (Tag's review): a gold-established element that leans toward established (p >= 0.5 on
     every judge that actually ran) but didn't clear a served tau must never be labelled the same as one a
