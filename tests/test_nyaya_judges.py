@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import math
+import urllib.error
 from collections.abc import Callable
 from typing import Any
 from unittest import mock
@@ -225,6 +226,48 @@ class TestHouseJudge:
         # Test: config api_key used when env var not set
         j = HouseJudge.from_config(config, tau=0.5)
         assert j.api_key == "config_bearer_key"
+
+    def test_the_fallback_backend_also_receives_the_bearer_key(self) -> None:
+        """2026-09-27 (Lead-2, `docs/decisions/2026-09-27-5090-second-judge-exposure-design.md` sec 2.1,
+        pravrudhi): a fallback backend used to get NO Authorization header at all -- fine for a fallback
+        that never checks one (the class's original "operator's own local vLLM" fallback shape), silently
+        broken for a fallback (a RunPod serverless endpoint) that requires the SAME bearer key the primary
+        does. The primary here fails with a connection error (a real `urllib.error.URLError`, the same
+        exception class a genuinely unreachable host raises) so `_complete_with_fallback` moves to the
+        fallback backend, which is where the header actually gets checked."""
+        captured: dict[str, Any] = {}
+        result = _completion(" established F1:0:5", {" established": -0.1, " not": -2.0})
+
+        def fake_open(req: Any, timeout: float | None = None) -> _Resp:
+            if req.full_url == "http://primary/v1/models":
+                return _Resp({"data": [{"id": "primary-model"}]})
+            if req.full_url == "http://primary/v1/completions":
+                raise urllib.error.URLError("connection refused")
+            if req.full_url == "http://fallback/v1/models":
+                return _Resp({"data": [{"id": "fallback-model"}]})
+            if req.full_url == "http://fallback/v1/completions":
+                captured["auth_header"] = req.get_header("Authorization")
+                return _Resp({
+                    "model": "fallback-model",
+                    "choices": [{
+                        "text": result.text, "finish_reason": "stop",
+                        "logprobs": {"top_logprobs": result.top_logprobs},
+                    }],
+                })
+            raise AssertionError(f"unexpected URL in test: {req.full_url}")
+
+        with mock.patch("urllib.request.urlopen", fake_open):
+            j = HouseJudge(
+                base_url="http://primary/v1",
+                fallback_urls=["http://fallback/v1"],
+                api_key="shared_bearer_key",
+                tau=0.74,
+                statute_chars=600,
+            )
+            out = j.judge(REQ)
+
+        assert captured["auth_header"] == "Bearer shared_bearer_key"
+        assert out.backend_used == 1  # confirms the fallback, not the primary, actually answered
 
     def test_unknown_fact_id_is_reported_with_no_quote(self) -> None:
         fake = _FakeComplete(_completion(" established F_el0:0:40", {" established": -0.05, " not": -3.0}))

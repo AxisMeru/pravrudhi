@@ -228,11 +228,20 @@ class HouseJudge:
             if base_url is None:
                 raise ValueError("HouseJudge needs a base_url or a complete transport")
 
-            # One client per backend. The bearer key is the primary's (the RunPod endpoint); a fallback is the
-            # operator's own vLLM and never receives it. Each backend answers under its own model id.
+            # One client per backend, ALL sharing the one configured `api_key` (2026-09-27, Lead-2: the
+            # 5090-second-judge exposure design, docs/decisions/2026-09-27-5090-second-judge-exposure-
+            # design.md sec 2.1, found that a fallback backend never received the bearer key at all --
+            # correct for the original "primary serverless -> local operator's-own-vLLM fallback" shape
+            # this class was first built for (the local fallback needed no key, so this was inert there),
+            # but wrong for the shape this fix targets: a RunPod-serverless FALLBACK that itself needs the
+            # SAME bearer key as the primary to authenticate. A deployment that puts a genuinely
+            # unauthenticated fallback behind this (still supported -- vLLM with no `--api-key` simply
+            # ignores an Authorization header it never checks) is unaffected; a deployment whose fallback
+            # DOES check the header is now the case this class was silently unable to serve at all. Each
+            # backend answers under its own model id.
             self.clients: list[ChatClient] = [
-                ChatClient(base_url=url, model="", api_key=api_key if i == 0 else None, timeout_s=timeout_s)
-                for i, url in enumerate([base_url, *self.fallback_urls])
+                ChatClient(base_url=url, model="", api_key=api_key, timeout_s=timeout_s)
+                for url in [base_url, *self.fallback_urls]
             ]
             self._models: list[str | None] = [model or None] + [None] * len(self.fallback_urls)
 

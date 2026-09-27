@@ -4,7 +4,10 @@
   is a configuration fault and must surface: a revoked key must never silently downgrade every call to the fallback.
 - Each backend answers under its own model id (the RunPod endpoint serves `nyaya-judge-4b`, the 5090 serves the HF
   repo id), resolved from that backend's own /models when not configured.
-- The bearer key goes to the primary only.
+- The bearer key goes to EVERY backend, primary and every fallback alike (2026-09-27, Lead-2, `docs/
+  decisions/2026-09-27-5090-second-judge-exposure-design.md` sec 2.1: a fallback that is itself a
+  RunPod-serverless endpoint, not a trusted local host, needs the same bearer key the primary does --
+  the original "primary only" rule assumed every fallback was the operator's own unauthenticated vLLM).
 """
 
 from __future__ import annotations
@@ -98,11 +101,11 @@ def test_the_fallback_answers_under_its_own_model_id(monkeypatch: pytest.MonkeyP
     assert fb and fb[0]["model"] == "AxisMeru/prabhasa-nyaya-element-judge-4b-v0"
 
 
-def test_the_key_goes_to_the_primary_only(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_key_goes_to_every_backend_primary_and_fallback_alike(monkeypatch: pytest.MonkeyPatch) -> None:
     net = _Net(primary="503")
     _judge(monkeypatch, net).judge(_req())
     assert all(c["auth"] == "Bearer primary-secret" for c in net.calls if c["base"] == PRIMARY)
-    assert all(c["auth"] is None for c in net.calls if c["base"] == FALLBACK)
+    assert all(c["auth"] == "Bearer primary-secret" for c in net.calls if c["base"] == FALLBACK)
 
 
 def test_a_healthy_primary_is_used_and_the_fallback_never_touched(monkeypatch: pytest.MonkeyPatch) -> None:
