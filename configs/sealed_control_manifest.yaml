@@ -2,7 +2,12 @@
 # Added for issue #100, which verified that the control returned available=True on a truncated or emptied
 # established half, and exited 0 when nothing was evaluated at all.
 #
-# WHY THIS FILE EXISTS AT ALL, AND WHY THE DIGESTS BELOW ARE NOT FILLED IN
+# PINNED 2026-09-27: computed by Lead-2 from prabhasa-nyaya commit add40e6d8418b16b726ec54fa8444969d78403b0
+# (git objects, off-repo), for the second-judge-availability Phase-1 parity run. The section below explains
+# why the file shipped unpinned and who was meant to fill it in -- kept as the historical record of that
+# rule, now exercised rather than theoretical.
+#
+# WHY THIS FILE EXISTED UNPINNED, AND WHO WAS MEANT TO FILL IT IN
 # -----------------------------------------------------------------------
 # pravrudhi is PUBLIC. The three files pinned below live only in prabhasa-nyaya and are never committed
 # here -- `tests/test_sealed_set_digests.py::TestTheLimitOfWhatCanBeAssertedHere` asserts their absence, and
@@ -44,7 +49,7 @@ sealed_sets:
     # counts the established half at 200 ("out of 200", "on the same 200 elements"), and
     # tests/test_sealed_set_digests.py:171 records EXPECTED_PRIVATE_COUNTS established_200.json -> 200.
     n_rows: 200
-    sha256: UNPINNED
+    sha256: 8c098912e56bac998414cb748633f5fff12deca10cba8c28fc4671127952a074
 
   - name: ne_discrimination_71
     relative_path: research/gates/P2b/configC/second_judge_positive_control/ne_discrimination_71.json
@@ -53,14 +58,14 @@ sealed_sets:
     # elements of the 30 two-NE-element negative instances, plus the 11 single-NE instances" (60 + 11 = 71),
     # and tests/test_sealed_set_digests.py:171 records ne_discrimination_71.json -> 71.
     n_rows: 71
-    sha256: UNPINNED
+    sha256: 5bfb6420b78a0409acb5aafbabdaf1fe5830e18dfdb4be0db01eab615278d01c
 
   - name: eval_items_v1
     relative_path: research/gates/P2b/element_judgment_v1/eval_items.jsonl
     kind: jsonl
-    # UNPINNED, not a number: this file's row count is NOT public knowledge in this repo. The config's
-    # "ALL 1264 established v1 elements" is a count of established ELEMENTS across v1, which is not this
-    # file's line count, and no other in-repo source states it. Guessing it would put a fabricated
-    # completeness target into the one place the run trusts, which is precisely the defect being fixed.
-    n_rows: UNPINNED
-    sha256: UNPINNED
+    # 1519: computed by Lead-2 from prabhasa-nyaya add40e6 (git objects), 2026-09-27. Identical on
+    # prabhasa-nyaya main. This is the file's own line count, not the "ALL 1264 established v1 elements"
+    # figure elsewhere in this repo's commentary (a count of established ELEMENTS, not JSONL rows) --
+    # kept distinct rather than conflated, per the note this replaces.
+    n_rows: 1519
+    sha256: 600f6dc28222b97eb5dd16e8b2ac4d159dd1aea5f1bb05c91eb6ef8a6991fa19
