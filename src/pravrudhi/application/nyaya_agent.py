@@ -785,11 +785,19 @@ class AgentRun:
         return d
 
 
-def _build_house_judge(hj_cfg: Mapping[str, Any], *, tau: float, typed: bool, api_key_env: str) -> Judge:
+def _build_house_judge(
+    hj_cfg: Mapping[str, Any], *, tau: float, typed: bool, api_key_env: str,
+    fallback_api_key_env: str | None = None,
+) -> Judge:
     """One judge slot (primary or, for config C, second) from a `house_judge`-shaped config: `HouseJudge` by
     default, or `pravrudhi.application.typed.house_judge.TypedHouseJudge` over a `VLLMDecoder` when `typed`
     is set (T1) -- shared by `NyayaAgent.house` for BOTH slots, so the typed-layer flag and config C's second
-    judge compose instead of the flag silently applying to only one of them."""
+    judge compose instead of the flag silently applying to only one of them.
+
+    `fallback_api_key_env` (2026-09-27, sec 2.1 of the 5090 design doc) only applies to the non-typed
+    (`HouseJudge`) path below -- `VLLMDecoder` (the `typed=True` path) still sends its one `api_key` to
+    every backend (the pre-2026-09-27 behaviour); giving the typed layer its own per-backend keys is a
+    separate change, not made here, since `VLLMDecoder` is a different class with its own fallback wiring."""
     if typed:
         from pravrudhi.application.typed.decoder import VLLMDecoder
         from pravrudhi.application.typed.house_judge import TypedHouseJudge
@@ -811,7 +819,9 @@ def _build_house_judge(hj_cfg: Mapping[str, Any], *, tau: float, typed: bool, ap
         )
     from pravrudhi.application.nyaya_judges import HouseJudge
 
-    return HouseJudge.from_config(hj_cfg, tau=tau, api_key_env=api_key_env)
+    return HouseJudge.from_config(
+        hj_cfg, tau=tau, api_key_env=api_key_env, fallback_api_key_env=fallback_api_key_env
+    )
 
 
 def _clamp_p(p: float) -> float:
@@ -1015,7 +1025,8 @@ class NyayaAgent:
             if cfg.second_judge:
                 second_tau = float(cfg.second_judge["tau"])
                 second = _build_house_judge(cfg.second_judge, tau=second_tau, typed=cfg.typed_layer,
-                                            api_key_env="NYAYA_SECOND_JUDGE_API_KEY")
+                                            api_key_env="NYAYA_SECOND_JUDGE_API_KEY",
+                                            fallback_api_key_env="NYAYA_SECOND_JUDGE_FALLBACK_API_KEY")
                 judge = AndGateJudge(
                     primary, second, tau_primary=cfg.tau, tau_second=second_tau, breaker=second_judge_breaker
                 )

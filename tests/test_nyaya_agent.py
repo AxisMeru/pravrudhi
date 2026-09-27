@@ -1819,6 +1819,27 @@ class TestHouseFactory:
         assert agent.judge.tau_primary == 0.74 and agent.judge.tau_second == 0.97
         assert agent.judge.primary.model == "m" and agent.judge.second.model == "m2"
 
+    def test_second_judges_fallback_gets_its_own_key_via_env(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """2026-09-27 (5090-second-judge-exposure design sec 2.1): the second judge's PRIMARY (its own
+        `base_url`, e.g. a 5090 tunnel) and its FALLBACK (e.g. a RunPod-serverless A40) are different trust
+        domains -- NYAYA_SECOND_JUDGE_FALLBACK_API_KEY must reach only the fallback, never the primary's
+        own key silently reused. The house judge's own fallback (unset here) is untouched by any of this."""
+        from pravrudhi.application.nyaya_judges import AndGateJudge
+
+        monkeypatch.setenv("NYAYA_SECOND_JUDGE_API_KEY", "second-primary-key")
+        monkeypatch.setenv("NYAYA_SECOND_JUDGE_FALLBACK_API_KEY", "second-fallback-key")
+        second_cfg = {
+            **self._HOUSE_JUDGE_CFG, "base_url": "http://s/v1", "model": "m2", "tau": 0.97,
+            "base_urls_fallback": ["http://s-fallback/v1"],
+        }
+        cfg = _config(tmp_path, house_judge=self._HOUSE_JUDGE_CFG, second_judge=second_cfg,
+                      score_bin=self._score_bin(tmp_path), pinned_score_sha256=None)
+        agent = NyayaAgent.house(tmp_path, config=cfg)
+        assert isinstance(agent.judge, AndGateJudge)
+        assert agent.judge.second.api_keys == ["second-primary-key", "second-fallback-key"]
+
     def test_gate1_off_by_default_uses_plain_house_judge(self, tmp_path: Path) -> None:
         """`gate1_enabled` defaults False (no `NYAYA_GATE1_ENABLED`): `NyayaAgent.house` never wraps in
         `Gate1Judge` at all -- byte-identical to before Gate 1 existed, and no NLI model is ever loaded
