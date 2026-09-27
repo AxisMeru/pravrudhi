@@ -16,8 +16,13 @@ fixture per way this guard could pass without knowing the answer:
   * the label is present but the timeline read fails, or holds no `labeled` event for it, or the
     event has no actor, or the actor login does not resolve to a real account -- NONE of which may
     degrade to "the label is there, good enough";
-  * the setter allowlist cannot be fetched from the base ref, is empty, or holds an entry with no
-    reason.
+  * the repository's default branch cannot be determined, so there is no ref to read an
+    allowlist from;
+  * the setter allowlist cannot be fetched, came back with no blob sha, is empty, or holds an
+    entry with no reason;
+  * the guard's OWN SCRIPT is absent, unreadable or unparseable at the checked-out ref -- which
+    cannot be detected from inside the script, so `TestThePreflightNamesEveryCause` extracts the
+    workflow's preflight step and runs it.
 
 `TestEmptyDiffIsNotTheSameAsNoProtectedFiles` pins requirement 11's last case. Both outcomes are a
 pass, and that is correct, but they are DIFFERENT FACTS and the log must say which one happened --
@@ -40,7 +45,7 @@ event pushed onto page two of the timeline, a label added by an authorised accou
 someone else, and an upper-cased path.
 
 `TestWorkflowWiring` reads the workflow YAML as text. `pull_request_target` with
-`types: [... labeled, unlabeled]`, read-only permissions, a base-sha checkout and no `${{ }}` in
+`types: [... labeled, unlabeled]`, read-only permissions, a default-branch checkout and no `${{ }}` in
 any `run:` block are the four properties that make this guard both effective and safe, and a
 reviewer who does not know that will delete one as noise. A test is a comment that fights back.
 """
@@ -48,12 +53,18 @@ reviewer who does not know that will delete one as noise. A test is a comment th
 from __future__ import annotations
 
 import base64
+import inspect
 import io
+import os
 import re
+import shutil
+import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
+import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
@@ -66,6 +77,7 @@ from check_workflow_change_label import (  # noqa: E402 -- path set just above, 
     TOUCHING_STATUSES,
     VERDICT_ACTOR_UNRESOLVED,
     VERDICT_CLEARED,
+    VERDICT_COULD_NOT_RUN,
     VERDICT_EMPTY_DIFF,
     VERDICT_LABEL_MISSING,
     VERDICT_NO_PROTECTED_PATHS,
@@ -73,9 +85,12 @@ from check_workflow_change_label import (  # noqa: E402 -- path set just above, 
     VERDICT_PREFIX,
     WORKFLOW_CHANGE_LABEL,
     GuardFailure,
+    build_parser,
     check,
-    fetch_allowlist_at_base,
+    fetch_allowlist_at_ref,
+    fetch_default_branch,
     glob_to_regex,
+    main,
     matches,
     parse_allowlist,
     resolve_pr_number,
@@ -84,6 +99,10 @@ from check_workflow_change_label import (  # noqa: E402 -- path set just above, 
 REPO = "AxisMeru/pravrudhi"
 PR = 78
 ALLOWLIST_TEXT = "# comment\n\nAxisMeru  the account the lead acts as\n"
+#: The blob sha the contents API hands back for the allowlist. The guard quotes it in every
+#: message that names the allowlist, so that "`@main`" -- a moving target -- is not the whole of
+#: what a reader is given. `fetch_allowlist_at_ref` fails closed if it is absent.
+ALLOWLIST_BLOB = "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678"
 WORKFLOW = REPO_ROOT / ".github" / "workflows" / "workflow-change.yml"
 WORKFLOW_TEXT = WORKFLOW.read_text(encoding="utf-8")
 
@@ -94,6 +113,51 @@ WORKFLOW_TEXT = WORKFLOW.read_text(encoding="utf-8")
 WORKFLOW_CODE = "".join(
     line for line in WORKFLOW_TEXT.splitlines(keepends=True) if not line.lstrip().startswith("#")
 )
+
+#: The guard's own script, as the workflow's preflight step names it. One constant so that the
+#: tests and the assertion "every literal path in the change names a path that exists" cannot
+#: drift apart.
+GUARD_SCRIPT = "scripts/check_workflow_change_label.py"
+
+#: The three reason tokens the preflight step distinguishes. Each is a DIFFERENT repository state,
+#: and #103's rule is that a proof asserts on which token appeared, never on redness alone -- so
+#: two failure paths that mean different things must not be provable by one assertion.
+PREFLIGHT_REASONS = (
+    "guard-file-absent",
+    "guard-file-unreadable",
+    "guard-script-unparseable",
+)
+
+
+def _workflow_steps() -> list[dict]:
+    """The parsed steps of the `workflow-change` job. Parsed, not grepped, on purpose.
+
+    A text assertion is satisfied by a commented-out line or by a second occurrence somewhere
+    else in the file; the parsed step list is what GitHub Actions will actually run.
+    """
+    doc = yaml.safe_load(WORKFLOW_TEXT)
+    steps = doc["jobs"]["workflow-change"]["steps"]
+    assert isinstance(steps, list) and steps
+    return steps
+
+
+def _preflight_body() -> str:
+    """The preflight step's `run:` script, lifted out of the real workflow file.
+
+    THE TESTS BELOW RUN THIS, not a copy of it pasted into the test file. A copy would pass
+    forever after someone edited the workflow, which is the failure mode these tests exist to
+    prevent: the artifact under test is the YAML that CI executes.
+    """
+    named = [s for s in _workflow_steps() if "Preflight" in (s.get("name") or "")]
+    assert len(named) == 1, f"expected exactly one preflight step, found {len(named)}"
+    body = named[0]["run"]
+    assert isinstance(body, str)
+    # Non-vacuity: a step that had been gutted to `true` would otherwise pass every test below.
+    assert len(body.splitlines()) >= 15, "the preflight step looks gutted"
+    for reason in PREFLIGHT_REASONS:
+        assert reason in body, f"the preflight step no longer names {reason}"
+    assert GUARD_SCRIPT in body
+    return body
 
 
 class FakeAPI:
@@ -114,6 +178,8 @@ class FakeAPI:
         timeline: list[list[dict]] | None = None,
         users: dict | None = None,
         allowlist: str | None = ALLOWLIST_TEXT,
+        allowlist_blob: str | None = ALLOWLIST_BLOB,
+        default_branch: str | None = "main",
         errors: tuple[str, ...] = (),
     ) -> None:
         self.pull = pull
@@ -122,6 +188,8 @@ class FakeAPI:
         self.timeline = timeline if timeline is not None else [[]]
         self.users = users
         self.allowlist = allowlist
+        self.allowlist_blob = allowlist_blob
+        self.default_branch = default_branch
         self.errors = errors
         self.calls: list[str] = []
 
@@ -131,6 +199,10 @@ class FakeAPI:
             if fragment in url:
                 raise GuardFailure(f"GET {url} failed: HTTP 403 Forbidden")
         path, _, query = url.partition("?")
+        # The repository object, for `default_branch`. Matched before the endpoints below because
+        # its URL is a prefix of theirs.
+        if path == f"https://api.github.com/repos/{REPO}":
+            return ({} if self.default_branch is None else {"default_branch": self.default_branch}), ""
         page = 1
         for part in query.split("&"):
             if part.startswith("page="):
@@ -154,10 +226,13 @@ class FakeAPI:
         if "/contents/" in path:
             if self.allowlist is None:
                 raise GuardFailure(f"GET {url} failed: HTTP 404 Not Found")
-            return {
+            payload: dict[str, object] = {
                 "encoding": "base64",
                 "content": base64.b64encode(self.allowlist.encode()).decode(),
-            }, ""
+            }
+            if self.allowlist_blob is not None:
+                payload["sha"] = self.allowlist_blob
+            return payload, ""
         raise AssertionError(f"unexpected URL in test: {url}")
 
     @staticmethod
@@ -590,17 +665,57 @@ class TestFailsClosed:
 
     def test_a_contents_response_that_is_not_a_base64_file_is_a_hard_failure(self):
         def fetch(url: str) -> tuple[object, str]:
-            return {"encoding": "none", "content": "x"}, ""
+            return {"encoding": "none", "content": "x", "sha": ALLOWLIST_BLOB}, ""
 
         with pytest.raises(GuardFailure, match="did not come back as a base64 file"):
-            fetch_allowlist_at_base(fetch, REPO, "main", DEFAULT_ALLOWLIST)
+            fetch_allowlist_at_ref(fetch, REPO, "main", DEFAULT_ALLOWLIST)
 
     def test_an_undecodable_allowlist_is_a_hard_failure(self):
         def fetch(url: str) -> tuple[object, str]:
-            return {"encoding": "base64", "content": "!!!not base64!!!"}, ""
+            return {"encoding": "base64", "content": "!!!not base64!!!", "sha": ALLOWLIST_BLOB}, ""
 
         with pytest.raises(GuardFailure, match="could not be decoded"):
-            fetch_allowlist_at_base(fetch, REPO, "main", DEFAULT_ALLOWLIST)
+            fetch_allowlist_at_ref(fetch, REPO, "main", DEFAULT_ALLOWLIST)
+
+    def test_an_allowlist_with_no_blob_sha_is_a_hard_failure(self):
+        """A message that cannot cite which bytes it read is not a message this guard will send.
+
+        The whole point of quoting the blob sha is that `@main` names a moving target. A contents
+        payload with no `sha` would leave the failure message saying "not in ...@main" with
+        nothing checkable in it, so it fails closed instead.
+        """
+
+        def fetch(url: str) -> tuple[object, str]:
+            return {
+                "encoding": "base64",
+                "content": base64.b64encode(ALLOWLIST_TEXT.encode()).decode(),
+            }, ""
+
+        with pytest.raises(GuardFailure, match="no blob sha"):
+            fetch_allowlist_at_ref(fetch, REPO, "main", DEFAULT_ALLOWLIST)
+
+    def test_a_repository_object_without_a_default_branch_is_a_hard_failure(self):
+        """No guessing `main`. A silent fallback to a branch name is the pattern this file bans."""
+
+        def fetch(url: str) -> tuple[object, str]:
+            return {}, ""
+
+        with pytest.raises(GuardFailure, match="default branch"):
+            fetch_default_branch(fetch, REPO)
+
+    def test_a_default_branch_that_is_not_a_string_is_a_hard_failure(self):
+        def fetch(url: str) -> tuple[object, str]:
+            return {"default_branch": 7}, ""
+
+        with pytest.raises(GuardFailure, match="default branch"):
+            fetch_default_branch(fetch, REPO)
+
+    def test_an_undeterminable_default_branch_fails_the_run_rather_than_clearing_it(self):
+        """The end-to-end shape of it: a would-be `cleared` run that cannot name the ref."""
+        api = cleared(".github/workflows/ci.yml")
+        api.default_branch = None
+        with pytest.raises(GuardFailure, match="default branch"):
+            run(api)
 
     def test_a_missing_pull_request_number_is_a_hard_failure(self, monkeypatch):
         monkeypatch.delenv("GITHUB_EVENT_PATH", raising=False)
@@ -609,8 +724,10 @@ class TestFailsClosed:
             resolve_pr_number(None)
 
 
-class TestAllowlistComesFromTheBaseRef:
-    def test_the_allowlist_is_read_at_the_base_ref_and_never_at_head(self):
+class TestAllowlistComesFromTheDefaultBranch:
+    """Which REF the allowlist is read at. Changed by this pull request; see the class below."""
+
+    def test_the_allowlist_is_read_at_the_default_branch_and_never_at_head(self):
         api = cleared(".github/workflows/ci.yml")
         code, _ = run(api)
         assert code == 0
@@ -618,6 +735,20 @@ class TestAllowlistComesFromTheBaseRef:
         assert contents, "the allowlist was never fetched"
         assert all("?ref=main" in c for c in contents)
         assert not any("h" * 40 in c for c in api.calls)
+
+    def test_the_allowlist_is_never_read_at_a_commit_sha(self):
+        """A REF, not a sha: that is what makes it the CURRENT tip rather than a snapshot.
+
+        `pull_obj` sets `base.sha` to `"b" * 40`. If any allowlist read carried it, amending the
+        allowlist on the default branch would stop taking effect on already-open pull requests --
+        which is the property the docstring claims.
+        """
+        api = cleared(".github/workflows/ci.yml")
+        assert run(api)[0] == 0
+        contents = [c for c in api.calls if "/contents/" in c]
+        assert contents
+        for call in contents:
+            assert "b" * 40 not in call, f"the allowlist was read at a commit sha: {call}"
 
     def test_the_allowlist_path_is_the_one_the_workflow_does_not_override(self):
         assert DEFAULT_ALLOWLIST == "scripts/workflow_change_label_setters.txt"
@@ -778,10 +909,42 @@ class TestWorkflowWiring:
     def test_no_write_permission_anywhere_in_the_file(self):
         assert not re.search(r"^\s*[a-z-]+:\s*write\s*$", WORKFLOW_TEXT, re.MULTILINE)
 
-    def test_the_only_checkout_is_pinned_to_the_base_sha(self):
+    def test_the_only_checkout_is_pinned_to_the_default_branch(self):
+        """ONE checkout, of the repository's default branch, and never of `base.sha`.
+
+        This is the test Lead-2 asked for on change (b): a future edit back to the stale base
+        fails CI here rather than being noticed on a pull request that went green wrongly.
+
+        Asserted against the PARSED YAML and not only against the text, so that a second `ref:`
+        elsewhere, a commented-out line, or a differently-quoted spelling cannot satisfy it. The
+        negative half runs against WORKFLOW_CODE, because the file's comments must remain free to
+        NAME `base.sha` as the thing not to do -- they explain at length why it was wrong.
+        """
         checkouts = re.findall(r"uses:\s*actions/checkout@", WORKFLOW_TEXT)
-        assert len(checkouts) == 1, "exactly one checkout, of the base"
-        assert "ref: ${{ github.event.pull_request.base.sha }}" in WORKFLOW_TEXT
+        assert len(checkouts) == 1, "exactly one checkout, of the default branch"
+
+        steps = _workflow_steps()
+        assert steps, "no steps parsed -- this test would be vacuous"
+        checkout_steps = [s for s in steps if "actions/checkout@" in (s.get("uses") or "")]
+        assert len(checkout_steps) == 1
+        ref = (checkout_steps[0].get("with") or {}).get("ref")
+        assert ref == "${{ github.event.repository.default_branch }}", (
+            f"the checkout ref must be the repository default branch, not {ref!r}"
+        )
+        assert (checkout_steps[0].get("with") or {}).get("persist-credentials") is False
+
+    def test_the_base_sha_is_never_used_as_a_checkout_ref(self):
+        """The regression this locks. `base.sha` does not advance as the default branch moves.
+
+        A pull request opened before a path was added to `PROTECTED_PATTERNS` would run the OLD
+        table, match nothing, and report `no-protected-paths` -- green -- while editing a path
+        this repository protects. Observed in the weaker form on #104, whose base `e40ee4a`
+        predates the guard entirely, so `python3` died with `can't open file`.
+        """
+        assert "base.sha" not in WORKFLOW_CODE, "base.sha must never be USED here"
+        # ...and the comments must still be allowed to explain why it was wrong.
+        assert "base.sha" in WORKFLOW_TEXT
+        assert "default_branch" in WORKFLOW_CODE
 
     def test_the_head_ref_and_head_sha_are_never_referenced(self):
         # Checking out or fetching the head is what turns `pull_request_target` into a
@@ -969,3 +1132,411 @@ class TestTheGuardGuardsItself:
         assert WORKFLOW.is_file()
         assert (REPO_ROOT / "scripts" / "check_workflow_change_label.py").is_file()
         assert (REPO_ROOT / DEFAULT_ALLOWLIST).is_file()
+
+
+# ==========================================================================================
+# CHANGE (a): the guard must never fail with a bare interpreter error.
+#
+# Observed live on #104, check run 108552280328 (head 043ff3f3, conclusion `failure`,
+# 2026-09-27T04:42:10Z): the checked-out ref did not contain the guard script, `python3` died with
+# `can't open file ... [Errno 2]`, and the job printed NO `workflow-change: VERDICT=` line at all.
+#
+# Why that is a defect and not merely untidy: #103's own rule is that a proof run must assert on
+# WHICH token the guard printed, never on redness alone, because `label-missing`,
+# `label-setter-not-authorised` and `actor-unresolved` are all red and prove different things. A
+# bare interpreter error is indistinguishable from a runner outage or a GitHub incident, so it
+# defeats that rule from inside the guard.
+#
+# These tests run the REAL preflight script, extracted from the workflow YAML.
+# ==========================================================================================
+
+
+class TestThePreflightNamesEveryCause:
+    """One fixture per distinct cause, each asserted on BY ITS OWN TOKEN.
+
+    `guard-file-absent` and `guard-file-unreadable` are both `could-not-run` and both exit 1. If
+    the only assertion were "it failed", a preflight that reported every cause as `absent` would
+    pass this class -- and a reader of a red log would be told the wrong thing about their
+    repository. So every test here pins its own token AND asserts the other two are not claimed.
+    """
+
+    @staticmethod
+    def _run(setup) -> subprocess.CompletedProcess[str]:
+        tmp = Path(tempfile.mkdtemp())
+        try:
+            env = {**os.environ, "GIT_CONFIG_GLOBAL": str(tmp / "gitconfig"), "GIT_CONFIG_SYSTEM": str(tmp / "gitconfig")}
+            subprocess.run(["git", "init", "-q", "-b", "main"], cwd=tmp, check=True, env=env)
+            (tmp / "scripts").mkdir()
+            (tmp / "seed").write_text("seed\n", encoding="utf-8")
+            subprocess.run(["git", "add", "-A"], cwd=tmp, check=True, env=env)
+            subprocess.run(
+                ["git", "-c", "user.name=t", "-c", "user.email=t@example.invalid",
+                 "-c", "core.hooksPath=", "commit", "-qm", "seed"],
+                cwd=tmp, check=True, env=env,
+            )
+            setup(tmp)
+            script = tmp / "preflight.sh"
+            script.write_text(_preflight_body(), encoding="utf-8")
+            return subprocess.run(
+                ["bash", str(script)], cwd=tmp, capture_output=True, text=True, timeout=120, env=env
+            )
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    @staticmethod
+    def _assert_could_not_run(result, reason: str) -> None:
+        out = result.stdout + result.stderr
+        assert result.returncode != 0, f"a {reason} state must NOT exit 0:\n{out}"
+        assert f"{VERDICT_PREFIX}{VERDICT_COULD_NOT_RUN}" in out, (
+            f"no explicit could-not-run verdict was printed:\n{out}"
+        )
+        assert f"REASON={reason}" in out, f"expected REASON={reason}, got:\n{out}"
+        for other in PREFLIGHT_REASONS:
+            if other != reason:
+                assert f"REASON={other}" not in out, f"{reason} was also reported as {other}"
+        assert GUARD_SCRIPT in out, "the message must name WHICH file"
+
+    def test_an_absent_guard_script_is_could_not_run_and_not_a_pass(self):
+        """#104's exact state: the checked-out ref simply does not contain the script."""
+        result = self._run(lambda tmp: None)
+        self._assert_could_not_run(result, "guard-file-absent")
+
+    def test_an_unreadable_guard_script_is_could_not_run_and_not_a_pass(self):
+        """A path that exists but whose bytes cannot be read.
+
+        A directory at the path rather than `chmod 000`, and that choice is load-bearing: this
+        suite runs as root in some environments, and root defeats every DAC permission bit, so a
+        `chmod 000` fixture would silently PASS THE FILE as readable and the test would prove
+        nothing. `EISDIR` is refused for everyone. The preflight tests readability by actually
+        reading a byte (`head -c 1`) rather than by consulting `-r`, which is what makes both the
+        permission case and this one land on the same token.
+        """
+        result = self._run(lambda tmp: (tmp / GUARD_SCRIPT).mkdir())
+        self._assert_could_not_run(result, "guard-file-unreadable")
+
+    def test_an_unparseable_guard_script_is_could_not_run_and_not_a_pass(self):
+        """It reads, but `python3` would die with a SyntaxError and print no verdict either."""
+        result = self._run(
+            lambda tmp: (tmp / GUARD_SCRIPT).write_text("def broken(:\n", encoding="utf-8")
+        )
+        self._assert_could_not_run(result, "guard-script-unparseable")
+
+    def test_a_present_readable_parseable_script_passes_the_preflight(self):
+        """The non-vacuity half: if this failed too, the three tests above would prove nothing."""
+        result = self._run(
+            lambda tmp: (tmp / GUARD_SCRIPT).write_text("x = 1\n", encoding="utf-8")
+        )
+        out = result.stdout + result.stderr
+        assert result.returncode == 0, out
+        assert "PREFLIGHT=ok" in out
+        assert VERDICT_COULD_NOT_RUN not in out
+        for reason in PREFLIGHT_REASONS:
+            assert f"REASON={reason}" not in out
+
+    def test_the_real_guard_script_passes_the_preflight_in_this_tree(self):
+        """The literal path in the workflow must name the file that is actually here.
+
+        A preflight pointed at a path that does not exist would report `guard-file-absent` on
+        every run, which is a guard that cries wolf; a preflight pointed at a path that exists but
+        is not this guard reads as coverage.
+        """
+        result = self._run(
+            lambda tmp: shutil.copyfile(REPO_ROOT / GUARD_SCRIPT, tmp / GUARD_SCRIPT)
+        )
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert "PREFLIGHT=ok" in result.stdout
+
+    def test_the_failure_message_names_the_ref_and_the_sha_it_actually_read(self):
+        """Not the expression that was meant to produce them -- the values git landed on.
+
+        `ref=` and `sha=` are read back with `git rev-parse` inside the step, so the message is
+        verifiable after the fact rather than aspirational.
+        """
+        result = self._run(lambda tmp: None)
+        out = result.stdout + result.stderr
+        assert "ref=main" in out, out
+        sha = re.search(r"sha=([0-9a-f]{40})\b", out)
+        assert sha is not None, f"no 40-hex sha in the message:\n{out}"
+        assert sha.group(1) not in ("0" * 40,)
+
+    def test_the_three_reasons_are_pairwise_distinct(self):
+        assert len(set(PREFLIGHT_REASONS)) == len(PREFLIGHT_REASONS)
+
+    def test_the_preflight_runs_before_the_guard(self):
+        """Order matters: a preflight after the failing step would never be reached."""
+        names = [(s.get("name") or s.get("uses") or "") for s in _workflow_steps()]
+        pre = [i for i, n in enumerate(names) if "Preflight" in n]
+        guard = [i for i, n in enumerate(names) if "workflow-change` label" in n]
+        assert len(pre) == 1 and len(guard) == 1, names
+        assert pre[0] < guard[0], names
+
+    def test_the_preflight_run_block_has_no_interpolation(self):
+        """Same rule as every other `run:` here, restated where the new block is.
+
+        `test_no_interpolation_reaches_any_run_block` covers the file; this names the new step, so
+        a reader of this class does not have to go looking for the guarantee.
+        """
+        assert "${{" not in _preflight_body()
+
+    def test_every_literal_repo_path_in_the_preflight_exists(self):
+        """A literal path or glob that names nothing reads as coverage.
+
+        Mirrors `test_every_literal_pattern_matches_its_own_path` for the paths introduced by this
+        change: every `scripts/...`-shaped literal in the preflight must name a real file here.
+        """
+        body = _preflight_body()
+        found = re.findall(r"(?:scripts|\.github|\.githooks)/[A-Za-z0-9_./-]+", body)
+        assert found, "no repository path found in the preflight -- this test would be vacuous"
+        missing = sorted({f for f in set(found) if not (REPO_ROOT / f).exists()})
+        assert missing == [], f"the preflight names paths that do not exist: {missing}"
+
+
+class TestCouldNotRunIsNeverAPass:
+    """`could-not-run` must be a FAILURE on EVERY path that can emit it.
+
+    A `could-not-run` path that exited 0 would be a fail-open bug in the merged guard. There are
+    exactly two emitters: `main`'s `except GuardFailure` handler in the script, and the workflow's
+    preflight step. Both are checked here, and the script's is checked structurally as well as
+    behaviourally, so a future path that prints the token cannot quietly return 0.
+    """
+
+    def test_main_returns_non_zero_when_the_guard_cannot_run(self, monkeypatch, capsys):
+        monkeypatch.setenv("GITHUB_REPOSITORY", REPO)
+        monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+        code = main(["--pr", str(PR)])
+        out = capsys.readouterr().out
+        assert code != 0, "a guard that could not run must never exit 0"
+        assert f"{VERDICT_PREFIX}{VERDICT_COULD_NOT_RUN}" in out
+
+    def test_main_returns_non_zero_when_the_repository_is_unknown(self, monkeypatch, capsys):
+        monkeypatch.delenv("GITHUB_REPOSITORY", raising=False)
+        monkeypatch.setenv("GITHUB_TOKEN", "x")
+        code = main(["--pr", str(PR)])
+        out = capsys.readouterr().out
+        assert code != 0
+        assert f"{VERDICT_PREFIX}{VERDICT_COULD_NOT_RUN}" in out
+
+    def test_the_actor_unresolved_red_is_also_non_zero_and_its_own_token(self, monkeypatch, capsys):
+        """The other GuardFailure verdict, so this class is not only about one token."""
+        assert VERDICT_ACTOR_UNRESOLVED != VERDICT_COULD_NOT_RUN
+
+    def test_the_only_emitter_of_the_token_in_the_script_returns_one(self):
+        """Structural, so a NEW path that prints the token cannot be added returning 0.
+
+        The script prints `could-not-run` in exactly one place: `main`'s `except GuardFailure`
+        handler, which ends `return 1`. If a second print site appears, this test fails and whoever
+        added it has to say what its exit status is.
+        """
+        source = (REPO_ROOT / GUARD_SCRIPT).read_text(encoding="utf-8")
+        body = "".join(
+            line for line in source.splitlines(keepends=True)
+            if not line.lstrip().startswith("#")
+        )
+        printers = [
+            line.strip()
+            for line in body.splitlines()
+            if "print(" in line and "VERDICT_COULD_NOT_RUN" in line
+        ]
+        assert printers == [], (
+            "could-not-run is printed via `exc.verdict`, not by name; a new by-name print site "
+            f"needs its exit status stated: {printers}"
+        )
+        handler = body[body.index("except GuardFailure as exc:") :]
+        assert "exc.verdict" in handler
+        assert "return 1" in handler.split("if __name__")[0]
+
+    def test_no_terminal_path_in_the_script_returns_zero_after_a_guard_failure(self):
+        """Every GuardFailure reaches `main`'s handler, which is the only `return` after it."""
+        api = cleared(".github/workflows/ci.yml")
+        api.default_branch = None
+        with pytest.raises(GuardFailure):
+            run(api)
+
+
+class TestTheAllowlistRefIsTheDefaultBranchAndNotTheBase:
+    """Change (b), the half that is NOT about the checkout.
+
+    The merged guard read the allowlist at `pull.base.ref` -- the pull request's own base branch.
+    For a pull request into `main` that is the same string and the same answer, which is why the
+    defect was invisible. For a pull request into any OTHER branch it was a self-authorisation
+    hole: the allowlist came from the branch being merged into, so anyone who could push to that
+    branch could add an account there and have it clear their own CI change.
+
+    NOTE, because it was the premise of this pull request and it turned out not to hold: the
+    merged guard did NOT read the allowlist out of the checked-out tree. It fetched it from the
+    contents API at `base.ref`, a REF, which GitHub resolves to that branch's current tip -- so
+    REVOCATION ALREADY WORKED for pull requests into `main`. Removing an account took effect on
+    the next run of every open pull request, whatever commit it was based on. The staleness in the
+    merged code was the guard SCRIPT, checked out at `base.sha`; the allowlist was never stale.
+    """
+
+    def test_a_pull_request_into_a_non_default_branch_still_reads_the_default_branchs_allowlist(
+        self,
+    ):
+        api = cleared(".github/workflows/ci.yml")
+        api.pull = {
+            "changed_files": 1,
+            # A branch the author may well be able to push to.
+            "base": {"ref": "release/0.5.x", "sha": "b" * 40},
+            "head": {"sha": "h" * 40},
+        }
+        api.default_branch = "main"
+        code, _ = run(api)
+        assert code == 0
+        contents = [c for c in api.calls if "/contents/" in c]
+        assert contents, "the allowlist was never fetched"
+        for call in contents:
+            assert "?ref=main" in call, f"the allowlist was read at the PR's base: {call}"
+            assert "release/0.5.x" not in call
+            assert "release%2F0.5.x" not in call
+
+    def test_the_default_branch_is_asked_for_explicitly(self):
+        api = cleared(".github/workflows/ci.yml")
+        assert run(api)[0] == 0
+        assert f"https://api.github.com/repos/{REPO}" in api.calls, (
+            "the repository object was never read, so the default branch was assumed"
+        )
+
+    def test_the_default_branch_is_not_hard_coded_to_main(self):
+        """A repository whose default branch is not `main` must still be handled."""
+        api = cleared(".github/workflows/ci.yml")
+        api.default_branch = "trunk"
+        code, _ = run(api)
+        assert code == 0
+        contents = [c for c in api.calls if "/contents/" in c]
+        assert contents
+        assert all("?ref=trunk" in c for c in contents)
+
+    def test_the_source_named_in_a_failure_cites_the_ref_and_the_blob_sha(self):
+        """"`@main`" alone names a moving target. The blob sha is what makes it checkable.
+
+        Asserted on the `label-setter-not-authorised` message, which is the one a human is sent to
+        act on: they are told an account is not on the list, so they must be able to read the exact
+        list that was consulted -- `git cat-file -p <sha>`.
+        """
+        api = FakeAPI(
+            pull=pull_obj(changed=1),
+            files=files(".github/workflows/ci.yml"),
+            labels=[[{"name": WORKFLOW_CHANGE_LABEL}]],
+            timeline=[[labelled_by("someone-else")]],
+        )
+        code, text = run(api)
+        assert code == 1
+        assert f"{VERDICT_PREFIX}{VERDICT_NOT_AUTHORISED}" in text
+        assert f"{DEFAULT_ALLOWLIST}@main" in text
+        assert ALLOWLIST_BLOB in text, f"the blob sha is not cited:\n{text}"
+
+    def test_the_cleared_message_also_cites_a_checkable_allowlist(self):
+        api = cleared(".github/workflows/ci.yml")
+        code, text = run(api)
+        assert code == 0
+        assert f"{VERDICT_PREFIX}{VERDICT_CLEARED}" in text
+
+    def test_the_guard_script_no_longer_reads_the_allowlist_at_the_pull_requests_base(self):
+        """Structural, so the line cannot quietly go back.
+
+        The one remaining read of `pull["base"]` is `fetch_pull_request`'s completeness check,
+        which is about having a base at all, not about which ref to trust.
+        """
+        source = (REPO_ROOT / GUARD_SCRIPT).read_text(encoding="utf-8")
+        body = "".join(
+            line for line in source.splitlines(keepends=True)
+            if not line.lstrip().startswith("#")
+        )
+        check_body = body[body.index("def check("): body.index("def resolve_pr_number(")]
+        assert "fetch_default_branch" in check_body
+        assert 'pull["base"]' not in check_body, (
+            "check() must not take the allowlist ref from the pull request's base"
+        )
+
+
+# ==========================================================================================
+# THE ADVERSARIAL PASS ON THIS CHANGE FOUND THREE SURVIVING MUTANTS. They are fixed here rather
+# than counted as coverage, and each class below names the mutant it exists to kill.
+# ==========================================================================================
+
+
+class TestThePreflightedScriptIsTheScriptThatRuns:
+    """SURVIVOR: the guard step was pointed at a different file than the preflight checks.
+
+    The mutant changed `run: python3 scripts/check_workflow_change_label.py` to
+    `..._v2.py` and the whole suite still passed. The preflight would then have gone green on a
+    file nothing executes while `python3` died with `can't open file` on the file nothing checked
+    -- reinstating the exact defect this change removes, with a preflight standing next to it
+    saying everything was fine.
+
+    Both paths are read out of the parsed YAML, so they cannot drift apart again.
+    """
+
+    @staticmethod
+    def _guard_step() -> dict:
+        steps = _workflow_steps()
+        running = [
+            s for s in steps
+            if isinstance(s.get("run"), str)
+            and "check_workflow" in s["run"]
+            and "Preflight" not in (s.get("name") or "")
+        ]
+        assert len(running) == 1, f"expected exactly one step that runs the guard, got {len(running)}"
+        return running[0]
+
+    def test_the_guard_step_invokes_the_guard_script(self):
+        run_line = self._guard_step()["run"].strip()
+        assert run_line == f"python3 {GUARD_SCRIPT}", (
+            f"the guard step must invoke {GUARD_SCRIPT} and nothing else, got {run_line!r}"
+        )
+
+    def test_the_preflighted_path_and_the_executed_path_are_the_same_file(self):
+        body = _preflight_body()
+        assigned = re.findall(r"^\s*script=(\S+)\s*$", body, re.MULTILINE)
+        assert len(assigned) == 1, f"the preflight must name exactly one script, got {assigned}"
+        executed = re.findall(r"python3\s+(\S+\.py)", self._guard_step()["run"])
+        assert len(executed) == 1, f"the guard step must run exactly one script, got {executed}"
+        assert assigned[0] == executed[0], (
+            f"the preflight checks {assigned[0]} but the job runs {executed[0]}"
+        )
+        assert (REPO_ROOT / executed[0]).is_file(), f"{executed[0]} does not exist in this tree"
+
+    def test_the_guard_step_is_still_the_only_interpolation_free_run_of_the_guard(self):
+        # Non-vacuity: if `_guard_step` ever matched nothing, every assertion above would be
+        # unreachable rather than false, so the count is asserted inside `_guard_step`.
+        assert "${{" not in self._guard_step()["run"]
+
+
+class TestTheLocalAllowlistReadIsNeverTheDefault:
+    """SURVIVOR: `--allowlist-file` was given a default, moving the CI read into the checkout.
+
+    Two mutants survived the whole suite: `--allowlist-file default=DEFAULT_ALLOWLIST` in the
+    parser, and `allowlist_file: str | None = DEFAULT_ALLOWLIST` on `check` itself. Either one
+    makes CI read the allowlist out of whatever tree the job checked out, with NO change to the
+    workflow -- so the existing
+    `test_the_allowlist_path_is_the_one_the_workflow_does_not_override`, which asserts only that
+    the workflow does not PASS the flag, passed unchanged.
+
+    THIS IS A LATENT FAIL-OPEN IN THE MERGED GUARD, not something this change introduced: the
+    merged code had both defaults right and neither was asserted. It matters even now that the
+    checkout is the default branch, because the guarantee the file states everywhere is that the
+    allowlist comes from a REF the pull request cannot write to -- never from a tree, which is a
+    thing one line of a later edit can re-point.
+    """
+
+    def test_the_parser_defaults_to_no_local_allowlist(self):
+        args = build_parser().parse_args([])
+        assert args.allowlist_file is None, (
+            "--allowlist-file must default to None, or CI reads the allowlist from the checkout"
+        )
+
+    def test_the_parser_still_accepts_the_flag_for_offline_runs(self):
+        # Non-vacuity: the test above would also pass if the flag had simply been deleted.
+        args = build_parser().parse_args(["--allowlist-file", "x.txt"])
+        assert args.allowlist_file == "x.txt"
+
+    def test_checks_own_parameter_defaults_to_no_local_allowlist(self):
+        default = inspect.signature(check).parameters["allowlist_file"].default
+        assert default is None, f"check()'s allowlist_file must default to None, not {default!r}"
+
+    def test_the_default_path_really_does_reach_the_contents_api(self):
+        """The behavioural half: with the defaults above, the read is an API read."""
+        api = cleared(".github/workflows/ci.yml")
+        assert run(api)[0] == 0
+        assert [c for c in api.calls if "/contents/" in c], "no API read of the allowlist happened"

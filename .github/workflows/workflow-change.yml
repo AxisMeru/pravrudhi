@@ -22,9 +22,11 @@
 # standard way a CI guard becomes a credential-exfiltration path. This job:
 #
 #   1. NEVER checks out or executes pull-request code. The one checkout below is pinned to
-#      `github.event.pull_request.base.sha` -- the base branch commit, which the pull request
-#      cannot write to -- and exists only to obtain the guard script. The head ref and head sha
-#      are never fetched, never checked out, and never referenced for code anywhere in this file.
+#      `github.event.repository.default_branch` -- the repository's default branch, a ref the
+#      pull request cannot write to -- and exists only to obtain the guard script. The head ref
+#      and head sha are never fetched, never checked out, and never referenced for code anywhere
+#      in this file. `default_branch` is a REPOSITORY SETTING, not a pull-request field: nothing
+#      an author of a pull request can write reaches that `ref:`.
 #   2. Declares `permissions:` explicitly, read-only, at the workflow level (see below), so the
 #      token is not write-capable at all.
 #   3. Interpolates NO pull-request-controlled string into any `run:` block. A pull request title,
@@ -38,6 +40,10 @@
 # DEPENDENCY INSTALL FROM THE PULL REQUEST'S OWN LOCKFILE, OR ANY `${{ github.event.* }}` INSIDE A
 # `run:` BLOCK, THAT CHANGE IS THE VULNERABILITY. tests/test_check_workflow_change_label.py reads
 # this file as text and fails on the first three.
+#
+# A LATER CHANGE BACK TO `ref: ${{ github.event.pull_request.base.sha }}` IS ALSO A DEFECT, FOR A
+# DIFFERENT REASON -- it is stale rather than unsafe. See the checkout step's own comment; the
+# test `test_the_only_checkout_is_pinned_to_the_default_branch` fails on it.
 # ============================================================================================
 #
 # ============================================================================================
@@ -109,19 +115,99 @@ jobs:
   workflow-change:
     runs-on: ubuntu-latest
     steps:
-      # THE BASE, EXPLICITLY AND ONLY. `pull_request_target`'s default checkout is already the base
-      # branch, but the default is not what this relies on -- this line is. `base.sha` is the exact
-      # base commit for this event, a commit the pull request cannot write to, so the script that
-      # runs below is the version on `main`, not the version the pull request would like to run.
+      # THE DEFAULT BRANCH'S CURRENT TIP, EXPLICITLY AND ONLY.
       #
-      # `persist-credentials: false` because nothing after this step uses git at all, and a token
-      # left in `.git/config` on a `pull_request_target` runner is a credential sitting next to a
-      # pull request's own inputs for no reason. The guard needs no git history: its entire input
-      # is the API.
+      # This line used to read `ref: ${{ github.event.pull_request.base.sha }}`, and that was a
+      # CORRECTNESS defect, not untidiness. `base.sha` is the base-branch tip as recorded when the
+      # pull request was opened or last had its base updated, and IT DOES NOT ADVANCE AS THE
+      # DEFAULT BRANCH MOVES. So the guard script that ran was the script as it stood at the
+      # pull request's base, not as it stands now:
+      #
+      #   * A PATH ADDED TO `PROTECTED_PATTERNS` ON THE DEFAULT BRANCH WAS NOT ENFORCED on any
+      #     pull request based on an earlier commit. The old table ran, found no match, and the
+      #     job printed `VERDICT=no-protected-paths` and went GREEN on a pull request editing a
+      #     path this repository considers protected. That is a coverage bypass with a green tick
+      #     on it, which is worse than a red one.
+      #   * A FAIL-OPEN FIX TO THE GUARD ITSELF was likewise not applied to those pull requests:
+      #     they kept running the version with the defect.
+      #   * AND THE FILE COULD SIMPLY BE ABSENT. Observed live: pull request #104, opened at
+      #     04:31:57Z against base `e40ee4a`, was still checking out `e40ee4a` -- which predates
+      #     this guard -- at 04:42:10Z, several minutes after the default branch became `0dc5315`.
+      #     `python3` then died with `can't open file ... [Errno 2]` and printed no verdict line at
+      #     all. The preflight step below now names that case; this line removes its cause.
+      #
+      # `github.event.repository.default_branch` is a REF, so the checkout is the branch's tip at
+      # the moment the job runs. It is also a REPOSITORY SETTING rather than a pull-request field,
+      # so -- unlike a title, a branch name or a label -- no author of a pull request can write
+      # it, and it is not untrusted input. It is used in `ref:`, never inside a `run:` block.
+      #
+      # WHAT THIS DELIBERATELY DOES NOT CHANGE: the list of changed paths still comes from the
+      # API (`GET /pulls/{n}/files`), never from a diff of this tree. That mattered before and it
+      # matters more now, because this tree is the default branch and not the pull request at all.
+      #
+      # `persist-credentials: false` because nothing after this step uses git for anything but
+      # reading back the ref and sha it landed on, and a token left in `.git/config` on a
+      # `pull_request_target` runner is a credential sitting next to a pull request's own inputs
+      # for no reason. The guard needs no git history: its entire input is the API.
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.base.sha }}
+          ref: ${{ github.event.repository.default_branch }}
           persist-credentials: false
+
+      # ==================================================================================
+      # THE GUARD'S OWN FILE MUST BE PRESENT, READABLE AND PARSEABLE -- AND IF IT IS NOT, THAT
+      # MUST BE A NAMED VERDICT AND NOT AN INTERPRETER TRACEBACK.
+      #
+      # #103's own rule is that a proof run must assert on WHICH token the guard printed, never on
+      # redness alone -- `label-missing`, `label-setter-not-authorised` and `actor-unresolved` are
+      # all red and prove different things. A bare `python3: can't open file` defeats that rule
+      # from inside the guard: it prints no `workflow-change: VERDICT=` line, so the one red it
+      # produces is indistinguishable from a runner outage, a network failure or a GitHub
+      # incident. The declared token set already has the right word for it (`could-not-run`), and
+      # this step is what actually emits it.
+      #
+      # Three causes, THREE DISTINCT REASON TOKENS, because they are three different repository
+      # states and a single "it failed" cannot tell them apart:
+      #   guard-file-absent        -- the checked-out ref does not contain the script at all.
+      #   guard-file-unreadable    -- the path exists but its bytes cannot be read (no permission,
+      #                               or it is not a readable regular file).
+      #   guard-script-unparseable -- it reads, but it is not valid Python, so `python3` would die
+      #                               with a SyntaxError and again print no verdict.
+      #
+      # THE ALLOWLIST IS DELIBERATELY NOT PREFLIGHTED HERE, and that is not an oversight. The
+      # guard does not read `scripts/workflow_change_label_setters.txt` out of this tree at all --
+      # it fetches it from the contents API at the default branch (see the guard's
+      # `fetch_allowlist_at_ref`), and already fails closed with its own message if that read
+      # fails. Checking a copy in this tree that nothing reads would be a false red on a file the
+      # verdict does not depend on.
+      #
+      # The ref and sha are read back from git rather than interpolated, so this `run:` block
+      # contains no `${{ }}` of any kind, and so the message names THE REF AND SHA THE JOB
+      # ACTUALLY LANDED ON rather than restating the expression that was meant to produce it.
+      # ==================================================================================
+      - name: Preflight -- the guard's own script must be present, readable and parseable
+        run: |
+          set -u
+          script=scripts/check_workflow_change_label.py
+          ref="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)"
+          sha="$(git rev-parse HEAD 2>/dev/null || echo unknown)"
+          if [ "$ref" = "HEAD" ]; then ref="(detached)"; fi
+          fail() {
+            printf '::error title=workflow-change guard could not run::%s\n' "$2"
+            printf 'workflow-change: REASON=%s file=%s ref=%s sha=%s\n' "$1" "$script" "$ref" "$sha"
+            printf 'workflow-change: VERDICT=could-not-run\n'
+            exit 1
+          }
+          if [ ! -e "$script" ]; then
+            fail guard-file-absent "$script does not exist at $ref ($sha), so this guard has no verdict to give. That is not a pass: the ref that was checked out does not contain the guard."
+          fi
+          if ! head -c 1 "$script" >/dev/null 2>&1; then
+            fail guard-file-unreadable "$script exists at $ref ($sha) but its bytes could not be read, so this guard has no verdict to give. That is not a pass."
+          fi
+          if ! python3 -c 'import ast,sys; ast.parse(open(sys.argv[1], encoding="utf-8").read(), sys.argv[1])' "$script"; then
+            fail guard-script-unparseable "$script at $ref ($sha) is not valid Python, so python3 would die with a SyntaxError and print no verdict. That is not a pass."
+          fi
+          printf 'workflow-change: PREFLIGHT=ok file=%s ref=%s sha=%s\n' "$script" "$ref" "$sha"
 
       # On the runner's own python3 rather than under `uv`, matching how ci.yml's `guards` job
       # treats a pure static check: this script imports only the standard library and has no

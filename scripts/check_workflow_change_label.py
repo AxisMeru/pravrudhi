@@ -21,8 +21,9 @@ introduce `pull_request_target` there -- and that is right FOR THAT GUARD: readi
 write-capable token with an untrusted head checkout. This guard is the one case where the trigger
 is load-bearing, and it answers that danger directly rather than by assertion:
 
-  * it NEVER checks out or executes pull-request code -- the workflow checks out the BASE sha and
-    only the base sha, purely to get this file, and never fetches or references the head ref/sha;
+  * it NEVER checks out or executes pull-request code -- the workflow checks out the repository's
+    DEFAULT BRANCH and only that, purely to get this file, and never fetches or references the
+    head ref/sha;
   * the workflow declares `contents: read` and `pull-requests: read` and nothing else, so the
     token this runs with is not write-capable at all;
   * no pull-request-controlled string (title, branch name, label name, body) is ever interpolated
@@ -33,7 +34,25 @@ WHAT IS ENFORCED, AND WHAT IS NOT
 ENFORCED (exit 1): the pull request touches at least one path matching PROTECTED_PATTERNS below,
 and either the `workflow-change` label is absent, or it is present but the most recent `labeled`
 event for it was performed by an account that is not listed in
-`scripts/workflow_change_label_setters.txt` AS THAT FILE STANDS ON THE BASE BRANCH.
+`scripts/workflow_change_label_setters.txt` AS THAT FILE STANDS ON THE REPOSITORY'S DEFAULT
+BRANCH, AT ITS CURRENT TIP.
+
+WHICH REF THE ALLOWLIST COMES FROM, AND WHY IT IS THE DEFAULT BRANCH AND NOT THE PULL REQUEST'S
+BASE
+-----------------------------------------------------------------------------------------------
+This used to read the allowlist at `pull.base.ref` -- the pull request's OWN base branch, whatever
+that happened to be. For a pull request into `main` that is the same string and the same answer,
+which is why the defect was invisible. For a pull request into ANY OTHER BRANCH it was a
+self-authorisation hole: the allowlist was read from the branch being merged into, so anyone who
+could push to that branch could add an account to the allowlist there and then have that account
+clear their own CI change. The point of reading the allowlist off a ref at all is that it is a ref
+the pull request cannot write to, and `base.ref` is only that ref by coincidence.
+
+`GET /repos/{owner}/{name}` -> `default_branch` is asked for explicitly instead, and the allowlist
+is read at that ref. Being a REF and not a commit sha, it resolves to the branch's CURRENT TIP at
+request time, so removing an account from the allowlist takes effect on the next run of every open
+pull request -- including one whose base commit predates the removal -- with no reopen and no
+rebase.
 
 NOT ENFORCED, and not enforceable here:
 
@@ -76,8 +95,13 @@ The hard-failure cases, each with its own message:
   * the label list cannot be read;
   * the label is present but the timeline cannot be read, or holds no `labeled` event for it, or
     such an event has no actor, or that actor login does not resolve to a real account;
-  * the setter allowlist cannot be fetched from the base ref, or is empty, or holds an entry with
-    no reason.
+  * the repository's default branch cannot be determined;
+  * the setter allowlist cannot be fetched from the default branch, or came back without a blob
+    sha, or is empty, or holds an entry with no reason;
+  * -- and, before this script is reached at all, the workflow's preflight step fails with
+    `VERDICT=could-not-run` and its own `REASON=` token if THIS FILE is absent, unreadable or
+    unparseable at the checked-out ref. That case cannot be detected from inside this file, since
+    the interpreter never gets as far as running it.
 
 THERE IS NO DEGRADED MODE. When the label is present and the actor cannot be established -- API
 error, rate limit, a timeline with no `labeled` event, an event with no actor, a login that does
@@ -202,9 +226,9 @@ PROTECTED_PATTERNS: tuple[tuple[str, str], ...] = (
     (
         "scripts/workflow_change_label_setters.txt",
         "WIDENING (adversarial pass). The allowlist this guard reads. Editing it in a pull request "
-        "cannot authorise that pull request -- the allowlist is fetched from the BASE ref, see "
-        "`fetch_allowlist_at_base` -- but a change to who may clear CI edits is itself a change "
-        "that should not land unremarked.",
+        "cannot authorise that pull request -- the allowlist is fetched from the repository's "
+        "DEFAULT BRANCH, see `fetch_allowlist_at_ref` -- but a change to who may clear CI edits "
+        "is itself a change that should not land unremarked.",
     ),
 )
 
@@ -370,35 +394,76 @@ def parse_allowlist(text: str, source: str) -> dict[str, str]:
     return entries
 
 
-def fetch_allowlist_at_base(fetch, repo: str, base_ref: str, path: str) -> dict[str, str]:
-    """The setter allowlist AS IT STANDS ON THE BASE BRANCH, via the contents API.
+def fetch_default_branch(fetch, repo: str) -> str:
+    """The repository's default branch name, from the repository object.
 
-    Pinned to `base_ref` -- `main` -- and never to the pull request's head, so a pull request
-    cannot add an account to the list in the same change it wants that account to authorise. That
-    self-authorisation is the whole control undone in one line of a text file.
+    Asked for explicitly rather than taken from `pull.base.ref`. `base.ref` is the branch this
+    pull request happens to target, which for a pull request into a non-default branch is a branch
+    its author may well be able to push to -- and an allowlist read from a branch the author can
+    write is not a control. The default branch is a repository SETTING; changing it is not
+    something a pull request can do.
 
-    `base_ref` rather than `base.sha`: it is the CURRENT tip of the base branch, so amending the
-    allowlist on `main` takes effect on open pull requests without reopening them, and it is still
-    a ref the pull request cannot write to.
+    A failure to determine it is a hard failure: there is then no ref this guard is willing to
+    read an allowlist from, and guessing `main` would be exactly the silent fallback this file
+    refuses everywhere else.
+    """
+    payload, _ = fetch(f"{API_ROOT}/repos/{repo}")
+    branch = payload.get("default_branch") if isinstance(payload, dict) else None
+    if not isinstance(branch, str) or not branch:
+        raise GuardFailure(
+            f"could not determine {repo}'s default branch, so there is no ref this guard will "
+            f"read `{DEFAULT_ALLOWLIST}` from. Refusing to guess a branch name."
+        )
+    return branch
+
+
+def fetch_allowlist_at_ref(
+    fetch, repo: str, ref: str, path: str
+) -> tuple[dict[str, str], str]:
+    """The setter allowlist AS IT STANDS AT `ref`, via the contents API. -> (entries, blob sha).
+
+    `ref` is the repository's DEFAULT BRANCH (see `fetch_default_branch`), never the pull
+    request's head and never the pull request's base, so a pull request can neither add an account
+    to the list in the same change it wants that account to authorise, nor point the read at a
+    branch it controls. That self-authorisation is the whole control undone in one line of a text
+    file.
+
+    A REF and not a commit sha, deliberately: the contents API resolves it at request time, so it
+    is the branch's CURRENT tip. Amending -- or shortening -- the allowlist on the default branch
+    therefore takes effect on the next run of every open pull request, with no reopen and no
+    rebase.
+
+    THE BLOB SHA IS RETURNED BECAUSE THE FAILURE MESSAGES QUOTE IT. A message that says "not in
+    scripts/workflow_change_label_setters.txt@main" names an aspiration: `main` moves, and the
+    reader cannot tell which bytes were actually consulted. With the blob sha the claim is
+    checkable after the fact -- `git cat-file -p <sha>` is the exact list the verdict used. A
+    payload with no sha is a hard failure rather than a message with a hole in it.
 
     Any failure here is a hard failure. A missing or unreadable allowlist means nobody is
     authorised, and that must be loud.
     """
-    url = f"{API_ROOT}/repos/{repo}/contents/{path}?ref={base_ref}"
+    url = f"{API_ROOT}/repos/{repo}/contents/{path}?ref={ref}"
     payload, _ = fetch(url)
     if not isinstance(payload, dict) or payload.get("encoding") != "base64":
         raise GuardFailure(
-            f"could not determine who may set `{WORKFLOW_CHANGE_LABEL}`: {path} at {base_ref} did "
+            f"could not determine who may set `{WORKFLOW_CHANGE_LABEL}`: {path} at {ref} did "
             "not come back as a base64 file from the contents API."
+        )
+    blob = payload.get("sha")
+    if not isinstance(blob, str) or not blob:
+        raise GuardFailure(
+            f"could not determine who may set `{WORKFLOW_CHANGE_LABEL}`: {path} at {ref} came "
+            "back from the contents API with no blob sha, so this guard could not say which "
+            "bytes it read. Refusing to authorise against an allowlist it cannot cite."
         )
     try:
         text = base64.b64decode(payload.get("content") or "").decode("utf-8")
     except (ValueError, UnicodeDecodeError) as exc:
         raise GuardFailure(
-            f"could not determine who may set `{WORKFLOW_CHANGE_LABEL}`: {path} at {base_ref} "
+            f"could not determine who may set `{WORKFLOW_CHANGE_LABEL}`: {path} at {ref} "
             f"could not be decoded: {exc}"
         ) from exc
-    return parse_allowlist(text, f"{path}@{base_ref}")
+    return parse_allowlist(text, f"{path}@{ref} (blob {blob})"), blob
 
 
 # ------------------------------------------------------------------------------------------
@@ -464,7 +529,9 @@ def fetch_pull_request(fetch, repo: str, number: int) -> dict:
     if not base.get("ref") or not base.get("sha"):
         raise GuardFailure(
             "could not resolve the pull request's base ref/sha; without a base there is nothing "
-            "to diff this pull request against, and no trustworthy ref to read the allowlist from."
+            "to diff this pull request against. (The allowlist is NOT read from this ref -- see "
+            "`fetch_default_branch` -- but a pull request object with no base is not one this "
+            "guard is willing to compute a verdict from.)"
         )
     return payload
 
@@ -671,17 +738,24 @@ def check(
         print(f"{VERDICT_PREFIX}{VERDICT_LABEL_MISSING}", file=out)
         return 1
 
-    # The allowlist comes from the BASE branch, not from this checkout -- otherwise a pull request
-    # could list an account and then have that account authorise it. `allowlist_file` is the
-    # offline/test override only; the workflow never passes it.
+    # The allowlist comes from the repository's DEFAULT BRANCH, at its current tip -- not from
+    # this checkout, and not from `pull.base.ref`. Not from the checkout, because a checkout is a
+    # thing a future edit could point at the pull request's head. Not from `base.ref`, because a
+    # pull request into a non-default branch would then have its allowlist read from a branch its
+    # author may be able to push to, which is self-authorisation by another route.
+    #
+    # `allowlist_file` is the offline/test override only; the workflow never passes it, and
+    # `test_the_allowlist_path_is_the_one_the_workflow_does_not_override` pins that.
     if allowlist_file is not None:
         with open(allowlist_file, encoding="utf-8") as fh:
             setters = parse_allowlist(fh.read(), allowlist_file)
         source = allowlist_file
     else:
-        base_ref = pull["base"]["ref"]
-        setters = fetch_allowlist_at_base(fetch, repo, base_ref, DEFAULT_ALLOWLIST)
-        source = f"{DEFAULT_ALLOWLIST}@{base_ref}"
+        allowlist_ref = fetch_default_branch(fetch, repo)
+        setters, blob = fetch_allowlist_at_ref(fetch, repo, allowlist_ref, DEFAULT_ALLOWLIST)
+        # The ref AND the sha actually read. `@main` alone names a moving target; the blob sha is
+        # what makes the message checkable with `git cat-file -p <sha>`.
+        source = f"{DEFAULT_ALLOWLIST}@{allowlist_ref} (blob {blob})"
 
     # Only now, with the label confirmed still present above, is the timeline consulted. Any
     # failure in here raises GuardFailure and fails the job -- there is no presence-only fallback.
@@ -761,20 +835,35 @@ def resolve_pr_number(explicit: int | None) -> int:
     )
 
 
-def main(argv: list[str] | None = None) -> int:
+def build_parser() -> argparse.ArgumentParser:
+    """The command line, built in its own function SO THAT A TEST CAN ASSERT ITS DEFAULTS.
+
+    This exists because of a real survivor found in the adversarial pass on this change:
+    `--allowlist-file default=None` is the single line that keeps CI reading the allowlist from a
+    REF rather than from whatever tree the job checked out, and NOTHING asserted it. Changing that
+    default to a path would have moved the CI read into the checkout without touching the workflow
+    at all -- so `test_the_allowlist_path_is_the_one_the_workflow_does_not_override`, which only
+    checks that the workflow does not PASS the flag, would have passed unchanged.
+    `TestTheLocalAllowlistReadIsNeverTheDefault` now pins it.
+    """
     parser = argparse.ArgumentParser(description=(__doc__ or "").splitlines()[0])
     parser.add_argument(
         "--allowlist-file",
         default=None,
         help=(
-            "read the setter allowlist from this LOCAL file instead of from the base ref. For "
+            "read the setter allowlist from this LOCAL file instead of from the default branch. "
+            "For "
             "offline runs and this repository's own tests only -- CI must not pass it, because a "
             "local read is a read of whatever tree the job happens to have checked out."
         ),
     )
     parser.add_argument("--pr", type=int, default=None)
     parser.add_argument("--repo", default=None, help="OWNER/NAME; default $GITHUB_REPOSITORY")
-    args = parser.parse_args(argv)
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
 
     try:
         repo = args.repo or os.environ.get("GITHUB_REPOSITORY")
