@@ -224,6 +224,19 @@ PROTECTED_PATTERNS: tuple[tuple[str, str], ...] = (
         "a log reports for the paths it covers.",
     ),
     (
+        "tests/test_check_workflow_change_label.py",
+        "RULING (2026-09-27, Lead-2). The test file that pins THIS guard. Every property that "
+        "makes the guard both effective and safe is asserted here and nowhere else: the trigger, "
+        "the `types:` list, the read-only permission set, that the head is never checked out, "
+        "that no `${{ }}` reaches a `run:` block, that the checkout is the default branch and "
+        "not `base.sha`, that `could-not-run` is never exit 0, and that the allowlist can never "
+        "be read from the pull request's own tree. Weakening or deleting an assertion here "
+        "removes a gate exactly as editing `ci.yml` does -- it is simply the slowest-acting way "
+        "to do it, because nothing goes red on the commit that does it. Guarded as the single "
+        "literal path Lead-2 named; see the pull request body for the `tests/test_check_*.py` "
+        "alternative, which is Lead-2's call and is NOT adopted here.",
+    ),
+    (
         "scripts/workflow_change_label_setters.txt",
         "WIDENING (adversarial pass). The allowlist this guard reads. Editing it in a pull request "
         "cannot authorise that pull request -- the allowlist is fetched from the repository's "

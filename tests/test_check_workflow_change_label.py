@@ -119,6 +119,11 @@ WORKFLOW_CODE = "".join(
 #: drift apart.
 GUARD_SCRIPT = "scripts/check_workflow_change_label.py"
 
+#: This very file, as `PROTECTED_PATTERNS` names it. Protected on Lead-2's ruling of 2026-09-27:
+#: the guard's safety properties are asserted here and nowhere else, so weakening an assertion
+#: removes a gate just as editing `ci.yml` does.
+GUARD_TESTS = "tests/test_check_workflow_change_label.py"
+
 #: The three reason tokens the preflight step distinguishes. Each is a DIFFERENT repository state,
 #: and #103's rule is that a proof asserts on which token appeared, never on redness alone -- so
 #: two failure paths that mean different things must not be provable by one assertion.
@@ -333,6 +338,11 @@ class TestPatternTable:
             ("scripts/guards/check_foo.py", "a guard script filed one directory deeper"),
             ("scripts/uncollected_test_baseline.txt", "the baseline the ruling names"),
             ("scripts/workflow_change_label_setters.txt", "this guard's own allowlist"),
+            (
+                "tests/test_check_workflow_change_label.py",
+                "this guard's own test file -- the only place the guard's safety properties are "
+                "asserted, so weakening it removes a gate (Lead-2, 2026-09-27)",
+            ),
             (".githooks/commit-msg", "Tag's proposal: the identity hook"),
             (".githooks/pre-commit", "Tag's proposal: the primary-checkout hook"),
             (".githooks/deep/thing", "a hook filed one directory deeper"),
@@ -381,11 +391,17 @@ class TestPatternTable:
             ("docs/pyproject.toml", "anchored: only the root project file is the ruling's path"),
             ("uv.lock.bak", "anchored at the end too"),
             ("my-pyproject.toml", "anchored at the start too"),
-            (
-                "tests/test_check_workflow_change_label.py",
-                "this test file is deliberately NOT protected -- see the pull request body's "
-                "residuals; deleting a test does not weaken the running guard",
-            ),
+            # `tests/test_check_workflow_change_label.py` USED TO SIT HERE, as a deliberate
+            # non-entry: #103 argued that deleting a test does not weaken the RUNNING guard and
+            # listed it as a residual in its pull request body. Lead-2 reversed that on
+            # 2026-09-27 and it is now protected, so the fixture moved to the positive list
+            # above. The reversal is right: the guard's safety properties are asserted in that
+            # file and nowhere else, so gutting an assertion there removes a gate -- just the
+            # slowest-acting way to do it, since nothing goes red on the commit that does it.
+            # Its sibling test files are still NOT protected; that is pinned by
+            # `test_the_entry_does_not_protect_unrelated_test_files`.
+            ("tests/test_check_no_secrets_in_diff.py", "another guard's test file is not covered"),
+            ("tests/test_workflow_change_label.py", "a near-miss name is not covered either"),
         ],
     )
     def test_not_protected(self, path: str, why: str):
@@ -1120,18 +1136,54 @@ class TestTheFrictionThisAdds:
 
 
 class TestTheGuardGuardsItself:
-    def test_this_guards_own_workflow_script_and_allowlist_are_all_protected(self):
+    def test_this_guards_own_workflow_script_allowlist_and_tests_are_all_protected(self):
         for path in (
             ".github/workflows/workflow-change.yml",
             "scripts/check_workflow_change_label.py",
             DEFAULT_ALLOWLIST,
+            GUARD_TESTS,
         ):
             assert matches(path) is not None, f"{path} must be protected"
 
-    def test_all_three_files_exist_where_the_guard_expects_them(self):
+    def test_all_four_files_exist_where_the_guard_expects_them(self):
         assert WORKFLOW.is_file()
         assert (REPO_ROOT / "scripts" / "check_workflow_change_label.py").is_file()
         assert (REPO_ROOT / DEFAULT_ALLOWLIST).is_file()
+        assert (REPO_ROOT / GUARD_TESTS).is_file()
+
+    def test_the_guards_own_test_file_is_protected_by_the_exact_path_it_names(self):
+        """Lead-2's ruling of 2026-09-27, asserted on the path AND on the table entry.
+
+        `test_every_literal_pattern_matches_its_own_path` already covers this automatically --
+        it walks every wildcard-free entry in PROTECTED_PATTERNS and requires each to match the
+        path it names, which is the test that exists because the `Makefile` entry in this very
+        table protected NOTHING until `_PROTECTED_RES` started lowercasing the glob. This test
+        names the new entry explicitly as well, so a reader of this class sees it rather than
+        having to trust the structural sweep.
+        """
+        assert GUARD_TESTS == "tests/test_check_workflow_change_label.py"
+        assert Path(__file__).relative_to(REPO_ROOT).as_posix() == GUARD_TESTS, (
+            "GUARD_TESTS must name THIS file, or the entry protects some other path"
+        )
+        hit = matches(GUARD_TESTS)
+        assert hit is not None, f"{GUARD_TESTS} must be protected"
+        glob, why = hit
+        assert glob == GUARD_TESTS, (
+            f"expected the literal path entry to match, not {glob!r}; a broader glob matching "
+            "first would mean the entry Lead-2 asked for is not the one doing the work"
+        )
+        assert why.strip()
+
+    def test_the_entry_does_not_protect_unrelated_test_files(self):
+        """The single literal path was the instruction; this pins that it was not widened.
+
+        If this table is later changed to `tests/test_check_*.py` -- the option raised for
+        Lead-2 in the pull request body -- this test is the one that should fail and be updated
+        deliberately, rather than the widening happening unremarked.
+        """
+        assert matches("tests/test_check_no_secrets_in_diff.py") is None
+        assert matches("tests/test_identity_header.py") is None
+        assert matches("tests/governance/test_anything.py") is None
 
 
 # ==========================================================================================
