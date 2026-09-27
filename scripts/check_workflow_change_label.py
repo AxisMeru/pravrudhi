@@ -246,6 +246,23 @@ PROTECTED_PATTERNS: tuple[tuple[str, str], ...] = (
         "it.",
     ),
     (
+        "tests/governance/test_outcome_token_fixtures_pinned.py",
+        "RULING (2026-09-27, Lead-2). The outcome-token exhaustiveness PIN, and the last link in "
+        "that chain: it asserts from OUTSIDE `tests/test_check_contract_classification.py` that "
+        "`TOKEN_FIXTURES` still covers `OUTCOME_TOKENS` and that the parametrised driver is still "
+        "collected for every token -- and nothing at all goes red if the pin ITSELF is deleted. "
+        "Protected so that deleting the pin needs a label exactly as gutting the driver does, "
+        "which leaves the chain with no unprotected link: the driver and `TOKEN_FIXTURES` are "
+        "covered by `tests/test_check_*.py` above, `OUTCOME_TOKENS` and this table by "
+        "`scripts/check_*.py`, and `testpaths`/`addopts`/the workflow's pytest invocation -- the "
+        "only ways to stop the pin being COLLECTED without touching it -- by `pyproject.toml` and "
+        "`.github/workflows/**`. AN EXACT PATH, not `tests/governance/**`: it is the narrowest "
+        "entry that closes the link and it leaves the rest of `tests/governance/` out from behind "
+        "a human label. CONSEQUENCE STATED RATHER THAN DISCOVERED: a literal path does not survive "
+        "a RENAME, so moving the pin needs the label too -- intended friction for a file whose "
+        "whole job is to stay where the chain expects it.",
+    ),
+    (
         "scripts/workflow_change_label_setters.txt",
         "WIDENING (adversarial pass). The allowlist this guard reads. Editing it in a pull request "
         "cannot authorise that pull request -- the allowlist is fetched from the repository's "
