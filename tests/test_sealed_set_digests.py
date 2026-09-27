@@ -311,15 +311,16 @@ class TestTheFailOpenThisFileWarnedAboutIsNowClosed:
             parity_floor=0.98, parity_median_abs_dp=0.02, ne_discrimination_min=70, pinned=pinned)
         assert verdict.available is False
 
-    def test_the_private_sets_pin_exists_is_enforced_and_is_still_honestly_unpinned(self) -> None:
+    def test_the_private_sets_pin_exists_is_enforced_and_is_now_honestly_pinned(self) -> None:
         """The count-and-digest check the docstring said "has to land in the loader" has landed there, and
-        its pins live in `configs/sealed_control_manifest.yaml`. Three things asserted together, because
-        any one alone would be satisfiable by decoration: the manifest exists and covers all three files;
-        every digest is still the obviously-not-a-digest sentinel (nobody here can compute the real ones,
-        and none was invented); and loading it REFUSES, so the unset pin is enforced rather than ignored."""
+        its pins live in `configs/sealed_control_manifest.yaml`. Pinned 2026-09-27 (Lead-2, from
+        prabhasa-nyaya add40e6, git objects) -- this test's own premise flipped from "nobody here can
+        compute the real ones" to "they are now filled in", so it now asserts the OTHER direction: every
+        digest is real digest-shaped (not the sentinel), and loading the manifest SUCCEEDS rather than
+        refusing. `test_sealed_pin_unset_is_still_enforced` right below keeps the refusal path covered
+        directly, so this file still proves the unset-pin guard works, just not against its own manifest."""
         from pravrudhi.application.second_judge_positive_control import (
             SEALED_PIN_UNSET,
-            SealedPinUnset,
             load_sealed_manifest,
         )
 
@@ -330,8 +331,29 @@ class TestTheFailOpenThisFileWarnedAboutIsNowClosed:
         assert set(entries) == {"established_200", "ne_discrimination_71", "eval_items_v1"}
         assert entries["established_200"]["n_rows"] == 200
         assert entries["ne_discrimination_71"]["n_rows"] == 71
+        assert entries["eval_items_v1"]["n_rows"] == 1519
         for name, entry in entries.items():
-            assert entry["sha256"] == SEALED_PIN_UNSET, f"{name} carries a digest nobody here could compute"
-            assert not _HEX64.match(str(entry["sha256"])), "the sentinel must never be digest-shaped"
+            assert entry["sha256"] != SEALED_PIN_UNSET, f"{name} still carries the unset sentinel"
+            assert _HEX64.match(str(entry["sha256"])), f"{name}'s sha256 is not a lowercase 64-hex digest"
+        pins = load_sealed_manifest(REPO_ROOT)
+        assert set(pins) == {"established_200", "ne_discrimination_71", "eval_items_v1"}
+
+    def test_sealed_pin_unset_is_still_enforced(self) -> None:
+        """The refusal-on-unset-pin path this file used to prove against its own (then-unpinned) manifest
+        still needs direct coverage now that manifest is pinned -- a fresh manifest with one field left as
+        the sentinel must still raise, so the guard itself, not just this file's fixture data, is real."""
+        from pravrudhi.application.second_judge_positive_control import (
+            SealedPinUnset,
+            parse_sealed_manifest,
+        )
+
+        unset_manifest = """
+sealed_sets:
+  - name: established_200
+    relative_path: research/gates/P2b/configC/second_judge_positive_control/established_200.json
+    kind: json_ids
+    n_rows: 200
+    sha256: UNPINNED
+"""
         with pytest.raises(SealedPinUnset):
-            load_sealed_manifest(REPO_ROOT)
+            parse_sealed_manifest(unset_manifest)
