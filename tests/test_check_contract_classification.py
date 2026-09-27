@@ -13,14 +13,17 @@ proves the fixture builder below can produce a passing input at all -- so a nega
 evidence about the mutation, not about the builder.
 
 Each terminal path has its own token (`OUTCOME_TOKENS`), and every assertion below names the token it
-expects. `test_every_declared_outcome_token_is_exercised` closes the loop: a token that no test names is a
-terminal path nobody checked.
+expects. `TestOutcomeTokens` closes the loop BEHAVIOURALLY: `TOKEN_FIXTURES` maps every declared token to an
+input that drives that path, and the parametrised case runs the guard over each one and asserts the token the
+raise site actually constructed. It reads no source text -- see that section's own header for what the
+previous text-search version claimed and could not support.
 """
 
 from __future__ import annotations
 
 import subprocess
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -510,15 +513,188 @@ class TestAdversarialSelfReview:
 
 
 # -- the outcome space itself ------------------------------------------------------------------------------
+#
+# WHAT WAS WRONG HERE, AND WHY THE MECHANISM CHANGED (Lead-2 follow-up, 2026-09-27).
+#
+# This section used to close the loop with `test_every_declared_outcome_token_is_exercised`, which read THIS
+# FILE'S OWN TEXT and asserted `source.count(token) >= 1` for every declared token. Its name and docstring
+# claimed each token was "actually reached by a test". The mechanism could not support that claim: a token
+# mentioned in a docstring, in a comment, or in a variable name satisfied it, and nothing in it ever drove
+# the guard or looked at what the guard raised. It was coverage by MENTION. The audit that found this also
+# established that all 29 failure tokens were in fact genuinely exercised by the which-token assertions
+# above, so this was an unearned claim rather than a coverage hole -- which is exactly why it had to be
+# fixed rather than left: an unearned claim is the thing that stops the next person looking.
+#
+# THE REPLACEMENT IS BEHAVIOURAL AND PER-TOKEN. `TOKEN_FIXTURES` below maps every declared token to an
+# input builder that produces a throwaway repo tree which drives that token's terminal path. The
+# parametrised test runs the guard's real `check()` over each tree and asserts the token carried by the
+# `ClassificationFailure` the RAISE SITE constructed (`excinfo.value.token`), or, for the one success
+# token, the token the returned line starts with. No source text is read anywhere in it.
+#
+# WHY A TOKEN -> INPUT-BUILDER MAPPING RATHER THAN RECORDING WHICH TOKENS GOT RAISED DURING THE RUN. A
+# recorder (a session-scoped list appended to in `ClassificationFailure.__init__`, asserted non-empty at
+# the end) would be strictly weaker here for two reasons. First, ORDER: its assertion is only true after
+# the fixtures that populate it have run, so it passes when the whole file runs in declaration order and
+# fails when the assertion is selected on its own or the file is shuffled -- a test whose result depends on
+# what else ran is not evidence about the guard. Second, ATTRIBUTION: a recorder tells you the token was
+# raised by SOMETHING in the session, not that any particular input reaches it, so deleting the input that
+# reaches a path still leaves the recorder green as long as some other test happens to hit the same token.
+# The mapping has neither problem: each case builds its own tree in its own `tmp_path`, drives the guard
+# itself, and asserts the exact token, so every case is standalone and independently meaningful. Selecting
+# one case alone, or the whole file in any order, gives the same answer.
+#
+# WHY THIS IS NOT THE OLD DEFECT ONE LEVEL UP. The failure mode of a text check is that the TEXT can exist
+# while the BEHAVIOUR does not. Parsing this file's AST for assertion comparisons would have the same
+# shape: an `assert ... == "FAIL-X"` can sit in a test that is skipped, or that never calls `check()`, and
+# an AST scan would count it. Nothing below inspects source. The only thing asserted is what the guard did
+# when it was run over a real tree, which is the property the section claims.
+#
+# WHAT PINS THE CHECK ITSELF. Deleting the parametrised test would be invisible to the rest of this file --
+# that is unavoidably true of any last check in a chain, and it is the reason to say so out loud rather
+# than imply otherwise. `TOKEN_FIXTURES`'s coverage of `OUTCOME_TOKENS` is pinned from OUTSIDE this file by
+# `tests/governance/test_outcome_token_fixtures_pinned.py`, which imports the mapping: deleting or
+# narrowing the mapping turns that file red. That pin does NOT cover deleting the parametrised driver while
+# leaving the mapping in place; nothing today does, and no amount of checking inside one file can.
+
+
+def _documented_default() -> list[tuple[str, str | None]]:
+    return [(i, f"reason for {i}") for i in DOCUMENTED_IDS]
+
+
+def _documented_entry_not_a_mapping() -> str:
+    entries = [f"  - id: {i}\n    reason: r {i}" for i in DOCUMENTED_IDS[1:]]
+    return "\n".join([f"{DOCUMENTED_KEY}:", f"  - {DOCUMENTED_IDS[0]}", *entries])
+
+
+def _documented_multi_line_reason() -> str:
+    entries = [f"  - id: {i}\n    reason: r {i}" for i in DOCUMENTED_IDS[1:]]
+    block = f"  - id: {DOCUMENTED_IDS[0]}\n    reason: |\n      first line\n      second line"
+    return "\n".join([f"{DOCUMENTED_KEY}:", block, *entries])
+
+
+def _reason_at(index: int, reason: str | None) -> list[tuple[str, str | None]]:
+    documented = _documented_default()
+    documented[index] = (DOCUMENTED_IDS[index], reason)
+    return documented
+
+
+def _registry_decoy_then_reassignment() -> str:
+    decoy = ", ".join(repr(i) for i in ALL_IDS)
+    live = ", ".join(repr(i) for i in [*ALL_IDS, "c37"])
+    return (
+        f"KNOWN_CONTRACT_IDS: frozenset[str] = frozenset({{{decoy}}})\n"
+        f"if True:\n    KNOWN_CONTRACT_IDS = frozenset({{{live}}})\n"
+    )
+
+
+def _registry_bound_in_a_class() -> str:
+    decoy = ", ".join(repr(i) for i in ALL_IDS)
+    return f"class _X:\n    KNOWN_CONTRACT_IDS: frozenset[str] = frozenset({{{decoy}}})\n"
+
+
+#: Every declared outcome token, mapped to a builder that produces a repo tree DRIVING that token's
+#: terminal path in the guard. Each builder takes its own `tmp_path` and returns the root to run `check()`
+#: over, so every case is self-contained: no shared state, no ordering, no dependence on another test.
+#:
+#: The inputs are the same ones the which-token assertions above already use, on purpose -- this mapping
+#: re-drives the guard rather than re-describing it, and if one of those inputs stops producing its token
+#: both that test and this one go red, naming the same token twice instead of leaving a silent gap.
+TOKEN_FIXTURES: dict[str, Callable[[Path], Path]] = {
+    "OK-CLASSIFICATION-COMPLETE": lambda p: _correct(p),
+    "FAIL-CONFIG-MISSING": lambda p: _correct(p, config=None),
+    "FAIL-CONFIG-UNPARSEABLE": lambda p: _correct(p, config="validated_contracts: [a, b\n  - broken: {{\n"),
+    "FAIL-CONFIG-NOT-A-MAPPING": lambda p: _correct(p, config=""),
+    "FAIL-CONFIG-DUPLICATE-KEY": lambda p: _correct(
+        p, config=_config_source() + f"{PINNED_REGISTRY_COUNT}: 1\n"
+    ),
+    "FAIL-PINNED-COUNT-MISSING": lambda p: _correct(p, config=_config_source(omit_pinned=True)),
+    "FAIL-PINNED-COUNT-EMPTY": lambda p: _correct(p, config=_config_source(pinned=None)),
+    "FAIL-PINNED-COUNT-UNPARSEABLE": lambda p: _correct(p, config=_config_source(pinned="thirty-seven")),
+    "FAIL-SEALED-TEST-MISSING": lambda p: _correct(p, sealed=None),
+    "FAIL-SEALED-TEST-UNPARSEABLE": lambda p: _correct(p, sealed="class TestKnownContractIds(:\n"),
+    "FAIL-SEALED-PIN-NOT-FOUND": lambda p: _correct(
+        p, sealed=_sealed_source(37).replace("TestKnownContractIds", "TestRenamed")
+    ),
+    "FAIL-SEALED-PIN-DISAGREES": lambda p: _correct(p, sealed=_sealed_source(36)),
+    "FAIL-REGISTRY-MISSING": lambda p: _correct(p, registry=None),
+    "FAIL-REGISTRY-UNPARSEABLE": lambda p: _correct(p, registry="KNOWN_CONTRACT_IDS = frozenset({})\n"),
+    "FAIL-REGISTRY-REASSIGNED": lambda p: _correct(p, registry=_registry_decoy_then_reassignment()),
+    "FAIL-REGISTRY-NOT-MODULE-LEVEL": lambda p: _correct(p, registry=_registry_bound_in_a_class()),
+    "FAIL-REGISTRY-EMPTY": lambda p: _correct(p, registry=_registry_source([])),
+    "FAIL-REGISTRY-COUNT-MISMATCH": lambda p: _correct(p, registry=_registry_source([*ALL_IDS, "c37"])),
+    "FAIL-VALIDATED-KEY-MISSING": lambda p: _correct(p, config=_config_source(omit_validated=True)),
+    "FAIL-VALIDATED-KEY-WRONG-SHAPE": lambda p: _correct(
+        p, config=_config_source(omit_validated=True) + f"{VALIDATED_KEY}: []\n"
+    ),
+    "FAIL-DOCUMENTED-KEY-MISSING": lambda p: _correct(p, config=_config_source(omit_documented=True)),
+    "FAIL-DOCUMENTED-KEY-WRONG-SHAPE": lambda p: _correct(
+        p, config=_config_source(documented_raw=f"{DOCUMENTED_KEY}: []")
+    ),
+    "FAIL-DOCUMENTED-ENTRY-WRONG-SHAPE": lambda p: _correct(
+        p, config=_config_source(documented_raw=_documented_entry_not_a_mapping())
+    ),
+    "FAIL-REASON-MISSING": lambda p: _correct(p, config=_config_source(documented=_reason_at(3, None))),
+    "FAIL-REASON-EMPTY": lambda p: _correct(p, config=_config_source(documented=_reason_at(5, '"   "'))),
+    "FAIL-REASON-NOT-ONE-LINE": lambda p: _correct(
+        p, config=_config_source(documented_raw=_documented_multi_line_reason())
+    ),
+    "FAIL-DUPLICATE-WITHIN-LIST": lambda p: _correct(
+        p, config=_config_source(documented=[*_documented_default(), (DOCUMENTED_IDS[0], "again")])
+    ),
+    "FAIL-UNKNOWN-ID-CLASSIFIED": lambda p: _correct(
+        p, config=_config_source(documented=[*_documented_default(), ("c14_typo", "typo")])
+    ),
+    "FAIL-CLASSIFIED-TWICE": lambda p: _correct(
+        p, config=_config_source(documented=[*_documented_default(), (VALIDATED_IDS[0], "also documented")])
+    ),
+    "FAIL-UNCLASSIFIED-ID": lambda p: _correct(
+        p, config=_config_source(documented=[(i, f"r {i}") for i in DOCUMENTED_IDS[:-1]])
+    ),
+}
 
 
 class TestOutcomeTokens:
-    def test_every_declared_outcome_token_is_exercised(self) -> None:
-        """"Every terminal path must be separately identifiable" is only worth anything if every one of them
-        is actually reached by a test. A token nobody names here is a path nobody checks."""
-        source = Path(__file__).read_text(encoding="utf-8")
-        unexercised = [token for token in OUTCOME_TOKENS if source.count(token) < 1]
-        assert not unexercised, f"outcome tokens no test in this file names: {unexercised}"
+    def test_every_declared_outcome_token_has_a_driving_fixture(self) -> None:
+        """The exhaustiveness half, as a set equality over DATA rather than over this file's text.
+
+        Both directions are named because they are different mistakes: a declared token with no builder is a
+        terminal path nobody drives, and a builder for a token that is no longer declared is a stale fixture
+        pointing at a path that has gone. Neither is allowed to be silent, and neither depends on any other
+        test having run."""
+        declared, driven = set(OUTCOME_TOKENS), set(TOKEN_FIXTURES)
+        assert declared == driven, (
+            f"declared tokens with no driving fixture: {sorted(declared - driven)}; "
+            f"fixtures for tokens that are no longer declared: {sorted(driven - declared)}"
+        )
+
+    @pytest.mark.parametrize("token", OUTCOME_TOKENS, ids=list(OUTCOME_TOKENS))
+    def test_each_declared_outcome_token_is_actually_raised_by_the_guard(
+        self, token: str, tmp_path: Path
+    ) -> None:
+        """Every declared token is reached by RUNNING the guard, and the token is read off the object the
+        raise site built -- not found in a file.
+
+        This is the check the old text-search version claimed to be. A token that appears in a docstring, a
+        comment or a variable name and nowhere in a code path satisfies nothing here: if the terminal path
+        is gone, or now carries a different token, this case for that token goes red and names it.
+
+        Self-contained by construction (its own tree, its own `tmp_path`), so it gives the same answer run
+        alone, run with the file, or run in any order."""
+        assert token in TOKEN_FIXTURES, f"no driving fixture for {token}"
+        root = TOKEN_FIXTURES[token](tmp_path)
+        if token.startswith("OK-"):
+            lines = check(root)
+            assert lines and lines[0].startswith(token), (
+                f"the success path did not report {token}; got {lines!r}"
+            )
+            return
+        with pytest.raises(ClassificationFailure) as excinfo:
+            check(root)
+        assert excinfo.value.token == token, (
+            f"the input built for {token} drove the guard to {excinfo.value.token} instead. Either that "
+            f"terminal path no longer exists, or the fixture no longer reaches it -- a declared token "
+            f"nothing raises is a path nobody checks."
+        )
 
     def test_the_tokens_are_distinct_and_none_is_a_prefix_of_another(self) -> None:
         """Two failures that read alike prove nothing, and a token that is a prefix of another makes a
