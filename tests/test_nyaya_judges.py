@@ -76,19 +76,50 @@ class TestHousePrompt:
 
 class TestFirstTokenScore:
     def test_softmax_of_established_vs_not(self) -> None:
-        p = p_established_from_top_logprobs({" established": -0.1, " not": -2.5, " F": -6.0})
+        p, clamp = p_established_from_top_logprobs({" established": -0.1, " not": -2.5, " F": -6.0})
         assert p == pytest.approx(1 / (1 + math.exp(-2.4)))
+        assert clamp == "none"
 
     def test_takes_the_max_over_spaced_and_bare_variants(self) -> None:
-        p = p_established_from_top_logprobs({" established": -3.0, "established": -1.0, " not": -1.0, "not": -4.0})
+        p, clamp = p_established_from_top_logprobs(
+            {" established": -3.0, "established": -1.0, " not": -1.0, "not": -4.0}
+        )
         assert p == pytest.approx(0.5)
-
-    def test_absent_not_token_is_minus_infinity(self) -> None:
-        assert p_established_from_top_logprobs({" established": -0.01}) == 1.0
+        assert clamp == "none"
 
     def test_neither_token_is_an_error_not_a_guess(self) -> None:
         with pytest.raises(JudgeOutputError):
             p_established_from_top_logprobs({" F": -0.1, " R": -2.0})
+
+    def test_absent_not_token_returns_a_lower_bound_not_a_clamp_to_one(self) -> None:
+        # G-28 (2026-09-28), Tag's finding: the OLD behaviour clamped this to exactly 1.0. The correct
+        # value is a LOWER bound: neg's true logprob is <= min(top) (-6.0 here, since it's not itself in
+        # top-k), so the bound uses neg=min(top)=-6.0 (its least-negative-possible value, i.e. the
+        # worst case for the bound): p = 1/(1+exp(-6.0 - (-0.1))).
+        top = {" established": -0.1, " F": -6.0}
+        p, clamp = p_established_from_top_logprobs(top)
+        assert clamp == "lower_bound"
+        assert p == pytest.approx(1 / (1 + math.exp(-6.0 - (-0.1))))
+        assert p < 1.0  # never the old hard clamp
+
+    def test_absent_established_token_returns_an_upper_bound_not_a_clamp_to_zero(self) -> None:
+        # Mirror case: est's true logprob is <= min(top) (-6.0), so the bound uses est=-6.0 (its
+        # least-negative-possible value, the worst case for THIS bound, which is an upper bound):
+        # p = 1/(1+exp(-0.1 - (-6.0))).
+        top = {" not": -0.1, " F": -6.0}
+        p, clamp = p_established_from_top_logprobs(top)
+        assert clamp == "upper_bound"
+        assert p == pytest.approx(1 / (1 + math.exp(-0.1 - (-6.0))))
+        assert p > 0.0  # never the old hard clamp
+        assert p <= 0.5  # provable: min(top) <= neg always in this branch (module docstring)
+
+    def test_lower_bound_pinned_numeric_case(self) -> None:
+        # A pinned, hand-checkable case: est=-0.5, min(top)=-8.0 (a token far below either label, e.g.
+        # a stray punctuation token) -> p = 1/(1+exp(-8.0-(-0.5))) = 1/(1+exp(-7.5)) ~= 0.9994472...
+        top = {" established": -0.5, " ,": -8.0}
+        p, clamp = p_established_from_top_logprobs(top)
+        assert clamp == "lower_bound"
+        assert p == pytest.approx(0.9994472213, abs=1e-9)
 
 
 class TestParseHouseFactId:

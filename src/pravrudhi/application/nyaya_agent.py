@@ -732,6 +732,15 @@ class ElementResult:
     #: REFER_TO_LAWYER (`gate1_contradiction`), GATE1-ARM-C-2026-09-26.md. Mutually exclusive with
     #: `gate1_not_entailed` above.
     gate1_contradiction: bool = False
+    #: "none" when both established/not tokens were in the judge's own top-k; "lower_bound" or
+    #: "upper_bound" when one was missing and `p_established` is only a bound on the true value, not
+    #: an exact softmax (2026-09-28, G-28 -- see `nyaya_judges.p_established_from_top_logprobs`'s own
+    #: docstring for the derivation). "none" when there is no anchor at all (missing_element).
+    clamp: Literal["none", "lower_bound", "upper_bound"] = "none"
+    #: True iff a bound above did not itself resolve which side of tau the true value falls on, so the
+    #: element was conservatively decided not_established without actually demonstrating it -- distinct
+    #: from an ordinary tau-miss. See `HouseJudge.judge`'s own decision rule.
+    bound_undetermined: bool = False
 
 
 @dataclass
@@ -1142,7 +1151,8 @@ class NyayaAgent:
             element, is_denial, final_status, claimed, anchor.p_established,
             fact_id, quote, loc.start if loc else None, loc.end if loc else None, loc.reason if loc else None, attempts,
             occurrences=loc.occurrences if loc else 0, offsets_source=loc.offsets_source if loc and loc.valid else None,
-            quote_source=quote_source, binding_leg=final_binding_leg, **second_band, **_gate1_info(anchor),
+            quote_source=quote_source, binding_leg=final_binding_leg, clamp=anchor.clamp,
+            bound_undetermined=anchor.bound_undetermined, **second_band, **_gate1_info(anchor),
         )
         return result, calls
 

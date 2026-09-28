@@ -76,19 +76,19 @@ class TestTypedHouseJudgeAgreesWithHouseJudge:
     def test_established_with_an_unknown_fact_id_has_no_quote_on_both(self) -> None:
         # The fact id itself is still reported (F9, what the model actually wrote) -- only the quote and its
         # source are None, since a fact id not among the real facts gets no quote to accept.
-        o, t = _both_judges({" established": -0.05}, "established F9")
+        o, t = _both_judges({" established": -0.05, " not": -4.0}, "established F9")
         assert o.status == t.status == "established"
         assert (o.fact_id, o.quote, o.quote_source) == (t.fact_id, t.quote, t.quote_source) == ("F9", None, None)
 
     def test_established_with_no_parseable_fact_id_at_all(self) -> None:
-        o, t = _both_judges({" established": -0.05}, "established")
+        o, t = _both_judges({" established": -0.05, " not": -4.0}, "established")
         assert (o.status, o.fact_id) == (t.status, t.fact_id) == ("established", None)
 
     def test_f_narrative_is_rejected_as_evidence_on_both(self) -> None:
         """Both judges share `parse_house_fact_id`: a completion naming the reserved `F_narrative` id (never
         one of the facts either judge's prompt shows, `build_house_prompt` above) must not be accepted as
         evidence by either -- not just excluded from the prompt, but refused as a fact_id too."""
-        o, t = _both_judges({" established": -0.05}, "established F_narrative:0:50")
+        o, t = _both_judges({" established": -0.05, " not": -4.0}, "established F_narrative:0:50")
         assert o.status == t.status == "established"
         assert (o.fact_id, o.quote, o.quote_source) == (t.fact_id, t.quote, t.quote_source) == (None, None, None)
 
