@@ -155,7 +155,7 @@ class SGLangDecoder:
         return self._complete(prompt, max_tokens=max_tokens, temperature=temperature, logprobs=logprobs)
 
 
-def score_decision(result: CompletionResult, field: Field) -> dict[str, float]:
+def score_decision(result: CompletionResult, field: Field) -> tuple[dict[str, float], frozenset[str]]:
     """Decide an enum/bool field by SCORING, never sampling (design principle 1): softmax, over the field's
     options, of each option's best-matching token variant's log-probability at the FIRST generated position
     -- generalizes `nyaya_judges.p_established_from_top_logprobs` from 2 options to N.
@@ -168,7 +168,19 @@ def score_decision(result: CompletionResult, field: Field) -> dict[str, float]:
 
     Raises DecodeError, never returns a guess, when no option's tokens appear in the top-k at all -- that is
     no evidence either way, and an even split would be a number the model never gave.
-    """
+
+    Returns `(scores, missing_options)`. An option in `missing_options` had NONE of its token variants in
+    the top-k -- its raw logprob is unknown, only bounded (<= `min(top.values())`, else it would have been
+    in the top-k itself). Per Tag/Lead-2 (2026-09-28, G-28): the OLD behaviour (until this fix) substituted
+    `-inf` for a missing option's raw logprob, i.e. exactly 0.0 probability mass -- the SAME clamp-to-zero
+    bug `nyaya_judges.p_established_from_top_logprobs` had for its 2-option case (this function generalizes
+    that same softmax to N options, so it inherited the same defect independently). Substituting
+    `min(top.values())` instead (the tightest bound actually available, never a truer-but-unobservable
+    value) gives every OTHER (present) option a valid LOWER bound on its true score, and every MISSING
+    option a valid UPPER bound on its own -- exactly the same asymmetric bound `p_established_from_top_logprobs`
+    derives for its 2-option case (verified algebraically identical there: with one option present and one
+    missing, this reduces to `1/(1+exp(bound-est))`, byte-for-byte the same formula). A caller must never
+    treat a bounded score as exact -- see `TypedHouseJudge.judge`'s own conservative decision rule."""
     if field.kind not in (FieldKind.ENUM, FieldKind.BOOL):
         raise ValueError(f"score_decision is only for enum/bool fields, got {field.kind.value} ({field.name!r})")
     assert field.options is not None  # Field.__post_init__ guarantees this for ENUM/BOOL
@@ -178,7 +190,10 @@ def score_decision(result: CompletionResult, field: Field) -> dict[str, float]:
     raw = {name: max((top[t] for t in variants if t in top), default=-math.inf) for name, variants in field.options.items()}
     if all(v == -math.inf for v in raw.values()):
         raise DecodeError(f"{field.name}: none of the option tokens are among the first token's top logprobs: {dict(top)}")
-    m = max(v for v in raw.values() if v != -math.inf)
-    exps = {k: (math.exp(v - m) if v != -math.inf else 0.0) for k, v in raw.items()}
+    missing = frozenset(name for name, v in raw.items() if v == -math.inf)
+    bound = min(top.values())
+    bounded_raw = {k: (bound if k in missing else v) for k, v in raw.items()}
+    m = max(bounded_raw.values())
+    exps = {k: math.exp(v - m) for k, v in bounded_raw.items()}
     total = sum(exps.values())
-    return {k: v / total for k, v in exps.items()}
+    return {k: v / total for k, v in exps.items()}, missing

@@ -105,6 +105,34 @@ class TestTypedHouseJudgeAgreesWithHouseJudge:
             typed.judge(REQ)
 
 
+class TestTypedHouseJudgeConservativeDecisionRuleAgreesWithHouseJudge:
+    """Per R1's finding on #120 (G-28) and Lead-2's follow-up ask: decoder.score_decision had the
+    identical clamp-to-0/1 bug, independently, and TypedHouseJudge.judge needs the same conservative
+    rule HouseJudge.judge got. These three mirror #120's own judge()-level tests, through BOTH judges
+    at once via _both_judges, confirming the fix landed identically on both."""
+
+    def test_lower_bound_clearing_tau_is_established_on_both(self) -> None:
+        o, t = _both_judges({" established": -0.05, " F": -3.0}, "established F1")
+        assert o.status == t.status == "established"
+        assert o.clamp == t.clamp == "lower_bound"
+        assert o.bound_undetermined is t.bound_undetermined is False
+        assert o.p_established == pytest.approx(t.p_established)
+
+    def test_lower_bound_below_tau_is_not_established_and_flagged_on_both(self) -> None:
+        o, t = _both_judges({" established": -0.05, " F": -0.5}, "established F1")
+        assert o.status == t.status == "not_established"
+        assert o.clamp == t.clamp == "lower_bound"
+        assert o.bound_undetermined is t.bound_undetermined is True
+        assert o.p_established == pytest.approx(t.p_established)
+
+    def test_upper_bound_is_a_genuine_not_established_on_both_never_undetermined(self) -> None:
+        o, t = _both_judges({" not": -0.1, " F": -6.0}, "not")
+        assert o.status == t.status == "not_established"
+        assert o.clamp == t.clamp == "upper_bound"
+        assert o.bound_undetermined is t.bound_undetermined is False
+        assert o.p_established == pytest.approx(t.p_established)
+
+
 class TestTypedHouseJudgeUsesTheSameTrainingPrompt:
     def test_sends_build_house_prompt_verbatim(self) -> None:
         complete = _decoder_transport({" established": -0.05}, "established F1")
