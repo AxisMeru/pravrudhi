@@ -1861,7 +1861,7 @@ class TestHouseFactory:
     model, so no `/models` round-trip)."""
 
     _HOUSE_JUDGE_CFG = {"base_url": "http://h/v1", "model": "m", "statute_chars": 600, "max_tokens": 30,
-                         "top_logprobs": 20, "timeout_s": 5}
+                         "top_logprobs": 20, "timeout_s": 5, "label_mass_floor": 0.5}
 
     def _score_bin(self, tmp_path: Path) -> Path:
         p = tmp_path / "score"

@@ -263,6 +263,29 @@ class TestHouseJudge:
 
         assert captured["auth_header"] == "Bearer test_bearer_key_12345"
 
+    def test_from_config_requires_label_mass_floor(self) -> None:
+        # R1's review of #124: "refuse if it's missing", not a silent module-constant fallback.
+        config = {
+            "statute_chars": 600, "base_url": "http://h/v1", "model": "m",
+            "max_tokens": 30, "top_logprobs": 20, "timeout_s": 60,
+        }
+        with pytest.raises(KeyError, match="label_mass_floor"):
+            HouseJudge.from_config(config, tau=0.74)
+
+    def test_from_config_threads_a_custom_label_mass_floor_into_the_actual_decision(self) -> None:
+        # Not just stored -- proves the CONFIG value is what judge() actually uses: a completion whose
+        # label mass (~0.322) clears a low floor (0.2) but not the module default (0.5).
+        config = {
+            "statute_chars": 600, "base_url": "http://h/v1", "model": "m", "max_tokens": 30,
+            "top_logprobs": 20, "timeout_s": 60, "label_mass_floor": 0.2,
+        }
+        j = HouseJudge.from_config(config, tau=0.74)
+        assert j.label_mass_floor == 0.2
+        fake = _FakeComplete(_completion(" established F1", {" established": -1.3, " not": -3.0}))
+        j._complete = fake  # type: ignore[attr-defined]  # override the built transport, post-construction
+        result = j.judge(REQ)  # would raise JudgeOutputError under the 0.5 default; must not here
+        assert result.status in ("established", "not_established")
+
     def test_fallback_list_from_config(self) -> None:
         """Load judge base_urls with fallback from config."""
         # Mock clients to avoid real network calls
@@ -281,6 +304,7 @@ class TestHouseJudge:
             "max_tokens": 30,
             "top_logprobs": 20,
             "timeout_s": 60,
+            "label_mass_floor": 0.5,
             "base_urls_fallback": [
                 "http://127.0.0.1:8110/v1",
             ],
@@ -304,6 +328,7 @@ class TestHouseJudge:
             "max_tokens": 30,
             "top_logprobs": 20,
             "timeout_s": 60,
+            "label_mass_floor": 0.5,
         }
 
         # Test: env var takes precedence over config

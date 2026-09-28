@@ -193,7 +193,9 @@ def build_house_prompt(request: JudgeRequest, *, statute_chars: int) -> str:
     )
 
 
-def p_established_from_top_logprobs(top: Mapping[str, float]) -> tuple[float, ClampKind]:
+def p_established_from_top_logprobs(
+    top: Mapping[str, float], *, label_mass_floor: float = LABEL_MASS_FLOOR
+) -> tuple[float, ClampKind]:
     """Two-way softmax of the first token's established-vs-not logprobs, returning (p, clamp).
 
     Raises when neither token is in the top-k: that is no evidence either way, and 0.5 would be a
@@ -245,9 +247,9 @@ def p_established_from_top_logprobs(top: Mapping[str, float]) -> tuple[float, Cl
             f"prose, not a decision: {dict(top)}"
         )
     label_mass = (math.exp(est) if est != -math.inf else 0.0) + (math.exp(neg) if neg != -math.inf else 0.0)
-    if label_mass < LABEL_MASS_FLOOR:
+    if label_mass < label_mass_floor:
         raise JudgeOutputError(
-            f"label mass {label_mass:.6f} below floor {LABEL_MASS_FLOOR} -- too little of the "
+            f"label mass {label_mass:.6f} below floor {label_mass_floor} -- too little of the "
             f"distribution is on either label token to trust a decision: {dict(top)}"
         )
     if neg == -math.inf:
@@ -292,12 +294,14 @@ class HouseJudge:
         max_tokens: int = 30,
         top_logprobs: int = 20,
         timeout_s: int = 60,
+        label_mass_floor: float = LABEL_MASS_FLOOR,
         api_key: str | None = None,
         fallback_urls: list[str] | None = None,
         complete: Callable[[str], CompletionResult] | None = None,
     ) -> None:
         self.tau = tau
         self.statute_chars = statute_chars
+        self.label_mass_floor = label_mass_floor
         self.primary_base_url = base_url
         self.fallback_urls = fallback_urls or []
         self.api_key = api_key
@@ -389,6 +393,10 @@ class HouseJudge:
             max_tokens=int(cfg["max_tokens"]),
             top_logprobs=int(cfg["top_logprobs"]),
             timeout_s=int(cfg["timeout_s"]),
+            # Bare subscript, no default (2026-09-28, R1's review of #124): refuses if the config
+            # doesn't set the label-mass safety floor, rather than silently falling back to a module
+            # constant a deployment never actually chose.
+            label_mass_floor=float(cfg["label_mass_floor"]),
             api_key=api_key,
             fallback_urls=cfg.get("base_urls_fallback") or [],
         )
@@ -419,6 +427,7 @@ class HouseJudge:
             max_tokens=int(cfg["max_tokens"]),
             top_logprobs=int(cfg["top_logprobs"]),
             timeout_s=int(cfg["timeout_s"]),
+            label_mass_floor=float(cfg["label_mass_floor"]),
             api_key=api_key,
             fallback_urls=cfg.get("base_urls_fallback") or [],
         )
@@ -427,7 +436,7 @@ class HouseJudge:
         res = self._complete(build_house_prompt(request, statute_chars=self.statute_chars))
         if not res.top_logprobs:
             raise JudgeOutputError("the server returned no logprobs for the first token")
-        p, clamp = p_established_from_top_logprobs(res.top_logprobs[0])
+        p, clamp = p_established_from_top_logprobs(res.top_logprobs[0], label_mass_floor=self.label_mass_floor)
         backend_idx = res.backend_index
         # Conservative decision rule (2026-09-28, G-28): a BOUND (clamp != "none") only ever lets a
         # caller conclude "established" when the bound ITSELF already clears tau -- since the true

@@ -58,6 +58,11 @@ house_judge:
   max_tokens: 30
   # The training prompt truncated the statute to its first 600 characters; the judge sees the same.
   statute_chars: 600
+  # Label-mass guard (2026-09-28, Tag/Lead-2, G-28 follow-up): the combined probability of ' established'
+  # and ' not' (exp(est)+exp(not), true log-probabilities summing to 1 over the whole vocabulary) must
+  # clear this before a decision is trusted at all -- else JudgeOutputError, failing closed to REFER.
+  # Required, not defaulted here: HouseJudge.from_config refuses if this key is absent.
+  label_mass_floor: 0.5
   # How many (contract, element/denial) judge requests one `NyayaAgent.run` call judges at once, bounded by a
   # ThreadPoolExecutor (docs/decisions 2026-09-24). 1 is today's serial behaviour, byte-identical results and
   # audit ordering -- unchanged unless this is raised. NYAYA_JUDGE_MAX_CONCURRENCY overrides.
@@ -102,6 +107,7 @@ retention_days: 7
 #   max_tokens: 30
 #   statute_chars: 600
 #   tau: 0.97
+#   label_mass_floor: 0.5
 
 # The statute text the house judge was trained with (public statute text: IPC 1860 / BNS 2023), keyed by
 # registry contract id. The ONLY statute text the judge ever sees, on every attempt, so it stays in its
