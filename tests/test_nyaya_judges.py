@@ -76,19 +76,91 @@ class TestHousePrompt:
 
 class TestFirstTokenScore:
     def test_softmax_of_established_vs_not(self) -> None:
-        p = p_established_from_top_logprobs({" established": -0.1, " not": -2.5, " F": -6.0})
+        p, clamp = p_established_from_top_logprobs({" established": -0.1, " not": -2.5, " F": -6.0})
         assert p == pytest.approx(1 / (1 + math.exp(-2.4)))
+        assert clamp == "none"
 
     def test_takes_the_max_over_spaced_and_bare_variants(self) -> None:
-        p = p_established_from_top_logprobs({" established": -3.0, "established": -1.0, " not": -1.0, "not": -4.0})
+        p, clamp = p_established_from_top_logprobs(
+            {" established": -3.0, "established": -1.0, " not": -1.0, "not": -4.0}
+        )
         assert p == pytest.approx(0.5)
-
-    def test_absent_not_token_is_minus_infinity(self) -> None:
-        assert p_established_from_top_logprobs({" established": -0.01}) == 1.0
+        assert clamp == "none"
 
     def test_neither_token_is_an_error_not_a_guess(self) -> None:
         with pytest.raises(JudgeOutputError):
             p_established_from_top_logprobs({" F": -0.1, " R": -2.0})
+
+    def test_absent_not_token_returns_a_lower_bound_not_a_clamp_to_one(self) -> None:
+        # G-28 (2026-09-28), Tag's finding: the OLD behaviour clamped this to exactly 1.0. The correct
+        # value is a LOWER bound: neg's true logprob is <= min(top) (-6.0 here, since it's not itself in
+        # top-k), so the bound uses neg=min(top)=-6.0 (its least-negative-possible value, i.e. the
+        # worst case for the bound): p = 1/(1+exp(-6.0 - (-0.1))).
+        top = {" established": -0.1, " F": -6.0}
+        p, clamp = p_established_from_top_logprobs(top)
+        assert clamp == "lower_bound"
+        assert p == pytest.approx(1 / (1 + math.exp(-6.0 - (-0.1))))
+        assert p < 1.0  # never the old hard clamp
+
+    def test_absent_established_token_returns_an_upper_bound_not_a_clamp_to_zero(self) -> None:
+        # Mirror case: est's true logprob is <= min(top) (-6.0), so the bound uses est=-6.0 (its
+        # least-negative-possible value, the worst case for THIS bound, which is an upper bound):
+        # p = 1/(1+exp(-0.1 - (-6.0))).
+        top = {" not": -0.1, " F": -6.0}
+        p, clamp = p_established_from_top_logprobs(top)
+        assert clamp == "upper_bound"
+        assert p == pytest.approx(1 / (1 + math.exp(-0.1 - (-6.0))))
+        assert p > 0.0  # never the old hard clamp
+        assert p <= 0.5  # provable: min(top) <= neg always in this branch (module docstring)
+
+    def test_lower_bound_pinned_numeric_case(self) -> None:
+        # A pinned, hand-checkable case: est=-0.5, min(top)=-8.0 (a token far below either label, e.g.
+        # a stray punctuation token) -> p = 1/(1+exp(-8.0-(-0.5))) = 1/(1+exp(-7.5)) ~= 0.9994472...
+        top = {" established": -0.5, " ,": -8.0}
+        p, clamp = p_established_from_top_logprobs(top)
+        assert clamp == "lower_bound"
+        assert p == pytest.approx(0.9994472213, abs=1e-9)
+
+
+class TestHouseJudgeConservativeDecisionRule:
+    """Per R1's finding on #120 (G-28): hard-coding bound_undetermined=False in HouseJudge.judge
+    failed 0 tests -- these three go through judge() itself (not the bare p_established_from_top_logprobs
+    function), covering all three real decision branches."""
+
+    def test_lower_bound_clearing_tau_is_established_not_undetermined(self) -> None:
+        # ' not' missing; est=-0.05, min(top)=-3.0 -> bound = 1/(1+exp(-3.0-(-0.05))) ~= 0.9503, well
+        # clear of tau=0.74. A valid lower bound >= tau proves the TRUE p is also >= tau (it can only
+        # be higher) -- established, no ambiguity.
+        fake = _FakeComplete(_completion(" established F1:5:22", {" established": -0.05, " F": -3.0}))
+        j = HouseJudge(complete=fake, tau=0.74, statute_chars=600).judge(REQ)
+        assert j.status == "established"
+        assert j.clamp == "lower_bound"
+        assert j.bound_undetermined is False
+        assert j.p_established == pytest.approx(1 / (1 + math.exp(-3.0 - (-0.05))))
+
+    def test_lower_bound_below_tau_is_not_established_and_flagged_bound_undetermined(self) -> None:
+        # ' not' missing; est=-0.05, min(top)=-0.5 -> bound = 1/(1+exp(-0.5-(-0.05))) ~= 0.6108, BELOW
+        # tau=0.74. The bound alone cannot rule establishment in OR out (the true p could be anywhere
+        # from this bound up to 1.0) -- conservative default is not_established, but flagged distinctly
+        # from an ordinary tau-miss.
+        fake = _FakeComplete(_completion(" established F1", {" established": -0.05, " F": -0.5}))
+        j = HouseJudge(complete=fake, tau=0.74, statute_chars=600).judge(REQ)
+        assert j.status == "not_established"
+        assert j.clamp == "lower_bound"
+        assert j.bound_undetermined is True
+        assert 0.5 < j.p_established < 0.74  # the interesting "lower bound < tau < 1.0" zone
+
+    def test_upper_bound_is_a_genuine_not_established_never_undetermined(self) -> None:
+        # ' established' missing; neg=-0.1, min(top)=-6.0 -> bound = 1/(1+exp(-0.1-(-6.0))) ~= 0.0027,
+        # far below any tau >= 0.5. This branch can NEVER manufacture an unresolved case against a
+        # realistic tau (module docstring: min(top) <= neg always here, so the bound itself is <= 0.5)
+        # -- bound_undetermined must be False, not just "happens to be" in this fixture.
+        fake = _FakeComplete(_completion(" not", {" not": -0.1, " F": -6.0}))
+        j = HouseJudge(complete=fake, tau=0.74, statute_chars=600).judge(REQ)
+        assert j.status == "not_established"
+        assert j.clamp == "upper_bound"
+        assert j.bound_undetermined is False
+        assert j.p_established == pytest.approx(1 / (1 + math.exp(-0.1 - (-6.0))))
 
 
 class TestParseHouseFactId:

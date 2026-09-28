@@ -125,6 +125,20 @@ class ElementJudgment:
     #: explicitly contradicts the element, with no entailment requirement at all). None whenever `vetoed_by
     #: != "gate1"`, or Gate 1 was never configured/asked.
     gate1_veto_kind: Literal["not_entailed", "contradiction"] | None = None
+    #: "none" -- both ' established'/' not' tokens were in the top-k, `p_established` is exact.
+    #: "lower_bound" -- ' not' was missing, `p_established` is a LOWER bound on the true value (the
+    #: true value could be anywhere up to 1.0). "upper_bound" -- ' established' was missing,
+    #: `p_established` is an UPPER bound (true value could be anywhere down to 0.0). Appended at the end
+    #: (2026-09-28, G-28, Tag's finding) to keep every existing positional ElementJudgment(...) call site
+    #: byte-for-byte unaffected -- see `p_established_from_top_logprobs`'s own docstring for the bound
+    #: derivation and why the OLD behaviour (clamping to exactly 1.0/0.0) was a real defect.
+    clamp: Literal["none", "lower_bound", "upper_bound"] = "none"
+    #: True iff a bound (`clamp != "none"`) did not itself resolve which side of `tau` the true value
+    #: falls on, so the decision defaulted to not_established conservatively -- NOT because the
+    #: evidence actually showed not-established. Distinct from an ordinary tau-miss: here the model's
+    #: true probability is genuinely unknown, not merely below tau. See `HouseJudge.judge`'s own
+    #: decision rule.
+    bound_undetermined: bool = False
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -167,18 +181,45 @@ def build_house_prompt(request: JudgeRequest, *, statute_chars: int) -> str:
     )
 
 
-def p_established_from_top_logprobs(top: Mapping[str, float]) -> float:
-    """Two-way softmax of the first token's established-vs-not logprobs. Raises when neither token is in the
-    top-k: that is no evidence either way, and 0.5 would be a number the model never gave."""
+def p_established_from_top_logprobs(top: Mapping[str, float]) -> tuple[float, Literal["none", "lower_bound", "upper_bound"]]:
+    """Two-way softmax of the first token's established-vs-not logprobs, returning (p, clamp).
+
+    Raises when neither token is in the top-k: that is no evidence either way, and 0.5 would be a
+    number the model never gave.
+
+    When only one of the two tokens is in the top-k, the OTHER token's true logprob is unknown but
+    bounded: it is strictly less than every logprob actually shown (else it would have been in the
+    top-k itself), so it is <= min(top.values()) (using that as the tightest available bound, not a
+    tighter one we cannot observe). The old code (until 2026-09-28, G-28, Tag's finding) CLAMPED this
+    to 1.0 / 0.0 -- treating "missing" as "logprob -infinity" -- which is wrong in two different ways:
+
+    - ' not' missing: p is DECREASING in neg, so bounding neg <= min(top) gives a LOWER bound on the
+      true p (true neg could be far more negative, pushing true p arbitrarily close to 1.0). The old
+      clamp (exactly 1.0) overstated this -- and because p is a lower bound, not the true value, a
+      caller that clamps it to 1.0 and compares to tau can call something "established" that the
+      evidence does not actually support this strongly. This is the branch that can manufacture an
+      unsupported establishment.
+    - ' established' missing: p is INCREASING in est, so bounding est <= min(top) gives an UPPER bound
+      on the true p (true est could be far more negative, pushing true p arbitrarily close to 0.0). The
+      old clamp (exactly 0.0) understated this. Since ' not' IS present in this branch, min(top) <= neg
+      always, so this upper bound itself is always <= 0.5 -- it can never on its own manufacture a false
+      establishment against any tau >= 0.5 (every tau in this codebase), but reporting an exact 0.0
+      instead of the real (looser) bound can still shift a value that should have landed in a REFER
+      band into a hard not-established instead (`AgentConfig.in_band`, `nyaya_agent.py`).
+
+    Callers must never treat a bound as the true value -- see HouseJudge.judge's own conservative rule
+    (bound_undetermined) for how a bound and tau combine into a decision."""
     est = max((top[t] for t in _EST_TOKENS if t in top), default=-math.inf)
     neg = max((top[t] for t in _NOT_TOKENS if t in top), default=-math.inf)
     if est == -math.inf and neg == -math.inf:
         raise JudgeOutputError(f"neither ' established' nor ' not' among the first token's top logprobs: {dict(top)}")
     if neg == -math.inf:
-        return 1.0
+        bound = min(top.values())
+        return 1.0 / (1.0 + math.exp(bound - est)), "lower_bound"
     if est == -math.inf:
-        return 0.0
-    return 1.0 / (1.0 + math.exp(neg - est))
+        bound = min(top.values())
+        return 1.0 / (1.0 + math.exp(neg - bound)), "upper_bound"
+    return 1.0 / (1.0 + math.exp(neg - est)), "none"
 
 
 def parse_house_fact_id(text: str) -> str | None:
@@ -349,18 +390,31 @@ class HouseJudge:
         res = self._complete(build_house_prompt(request, statute_chars=self.statute_chars))
         if not res.top_logprobs:
             raise JudgeOutputError("the server returned no logprobs for the first token")
-        p = p_established_from_top_logprobs(res.top_logprobs[0])
+        p, clamp = p_established_from_top_logprobs(res.top_logprobs[0])
         backend_idx = res.backend_index
-        if p < self.tau:
-            return ElementJudgment("not_established", p, raw=res.text, backend_used=backend_idx)
+        # Conservative decision rule (2026-09-28, G-28): a BOUND (clamp != "none") only ever lets a
+        # caller conclude "established" when the bound ITSELF already clears tau -- since the true
+        # value can only be further from tau on the safe side in that case (a lower bound >= tau means
+        # the true value, which is >= the bound, is also >= tau; an upper bound < tau means the true
+        # value, which is <= the bound, is also < tau, so "established" is reached below only via the
+        # ordinary p >= tau check, which a valid upper bound never satisfies below tau). The other
+        # direction is UNDETERMINED, not evidence of non-establishment -- decide not_established anyway
+        # (the conservative default; the model never demonstrated establishment) but flag it distinctly.
+        bound_undetermined = (
+            (clamp == "lower_bound" and p < self.tau) or (clamp == "upper_bound" and p >= self.tau)
+        )
+        if p < self.tau or bound_undetermined:
+            return ElementJudgment("not_established", p, raw=res.text, backend_used=backend_idx,
+                                    clamp=clamp, bound_undetermined=bound_undetermined)
         fact_id = parse_house_fact_id(res.text)
         if fact_id is None:
-            return ElementJudgment("established", p, raw=res.text, backend_used=backend_idx)
+            return ElementJudgment("established", p, raw=res.text, backend_used=backend_idx, clamp=clamp)
         # Fact granularity (module doc): the claim is "this fact, whole". A fact id not among the facts gets no
         # quote -- never a nearest-match fact -- so the quote check rejects it as unknown.
         text = dict(request.facts).get(fact_id)
         return ElementJudgment(
-            "established", p, fact_id, text, "whole_fact" if text is not None else None, raw=res.text, backend_used=backend_idx
+            "established", p, fact_id, text, "whole_fact" if text is not None else None, raw=res.text,
+            backend_used=backend_idx, clamp=clamp
         )
 
 

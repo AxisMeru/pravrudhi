@@ -37,7 +37,8 @@ class TestScoreDecisionMatchesHouseJudgeAlgebra:
 
         for est, neg in [(-0.5, -3.0), (-2.0, -0.1), (-1.0, -1.0), (-10.0, -0.001), (-0.001, -10.0), (-5.5, -5.5)]:
             top = {" established": est, " not": neg}
-            original = p_established_from_top_logprobs(top)
+            original, clamp = p_established_from_top_logprobs(top)
+            assert clamp == "none"  # both tokens present in every case here
             generalized = score_decision(_result(top), STATUS)["true"]
             assert abs(original - generalized) <= 1e-12, (est, neg, original, generalized)
 
