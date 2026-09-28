@@ -122,6 +122,47 @@ class TestFirstTokenScore:
         assert p == pytest.approx(0.9994472213, abs=1e-9)
 
 
+class TestHouseJudgeConservativeDecisionRule:
+    """Per R1's finding on #120 (G-28): hard-coding bound_undetermined=False in HouseJudge.judge
+    failed 0 tests -- these three go through judge() itself (not the bare p_established_from_top_logprobs
+    function), covering all three real decision branches."""
+
+    def test_lower_bound_clearing_tau_is_established_not_undetermined(self) -> None:
+        # ' not' missing; est=-0.05, min(top)=-3.0 -> bound = 1/(1+exp(-3.0-(-0.05))) ~= 0.9503, well
+        # clear of tau=0.74. A valid lower bound >= tau proves the TRUE p is also >= tau (it can only
+        # be higher) -- established, no ambiguity.
+        fake = _FakeComplete(_completion(" established F1:5:22", {" established": -0.05, " F": -3.0}))
+        j = HouseJudge(complete=fake, tau=0.74, statute_chars=600).judge(REQ)
+        assert j.status == "established"
+        assert j.clamp == "lower_bound"
+        assert j.bound_undetermined is False
+        assert j.p_established == pytest.approx(1 / (1 + math.exp(-3.0 - (-0.05))))
+
+    def test_lower_bound_below_tau_is_not_established_and_flagged_bound_undetermined(self) -> None:
+        # ' not' missing; est=-0.05, min(top)=-0.5 -> bound = 1/(1+exp(-0.5-(-0.05))) ~= 0.6108, BELOW
+        # tau=0.74. The bound alone cannot rule establishment in OR out (the true p could be anywhere
+        # from this bound up to 1.0) -- conservative default is not_established, but flagged distinctly
+        # from an ordinary tau-miss.
+        fake = _FakeComplete(_completion(" established F1", {" established": -0.05, " F": -0.5}))
+        j = HouseJudge(complete=fake, tau=0.74, statute_chars=600).judge(REQ)
+        assert j.status == "not_established"
+        assert j.clamp == "lower_bound"
+        assert j.bound_undetermined is True
+        assert 0.5 < j.p_established < 0.74  # the interesting "lower bound < tau < 1.0" zone
+
+    def test_upper_bound_is_a_genuine_not_established_never_undetermined(self) -> None:
+        # ' established' missing; neg=-0.1, min(top)=-6.0 -> bound = 1/(1+exp(-0.1-(-6.0))) ~= 0.0027,
+        # far below any tau >= 0.5. This branch can NEVER manufacture an unresolved case against a
+        # realistic tau (module docstring: min(top) <= neg always here, so the bound itself is <= 0.5)
+        # -- bound_undetermined must be False, not just "happens to be" in this fixture.
+        fake = _FakeComplete(_completion(" not", {" not": -0.1, " F": -6.0}))
+        j = HouseJudge(complete=fake, tau=0.74, statute_chars=600).judge(REQ)
+        assert j.status == "not_established"
+        assert j.clamp == "upper_bound"
+        assert j.bound_undetermined is False
+        assert j.p_established == pytest.approx(1 / (1 + math.exp(-0.1 - (-6.0))))
+
+
 class TestParseHouseFactId:
     def test_reads_the_fact_id_and_ignores_the_offsets(self) -> None:
         assert parse_house_fact_id(" established F2:5:30") == "F2"
