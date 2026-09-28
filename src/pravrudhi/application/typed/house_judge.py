@@ -15,6 +15,7 @@ GPU-level check against the 279-prompt calibration/heldout set that is T1's real
 from __future__ import annotations
 
 from pravrudhi.application.nyaya_judges import (
+    ClampKind,
     ElementJudgment,
     JudgeOutputError,
     JudgeRequest,
@@ -55,22 +56,30 @@ class TypedHouseJudge:
         prompt = build_house_prompt(request, statute_chars=self.statute_chars)
         res = self.decoder.complete(prompt, max_tokens=self.max_tokens, temperature=0.0, logprobs=self.top_logprobs)
         try:
-            scores = score_decision(res, _STATUS_FIELD)
+            scores, missing = score_decision(res, _STATUS_FIELD)
         except DecodeError as e:
             # Same failure class HouseJudge itself raises for the same condition (no evidence either way) --
             # a caller that catches JudgeOutputError around either judge sees the same behaviour.
             raise JudgeOutputError(str(e)) from e
         p = scores["true"]
-        if p < self.tau:
-            return ElementJudgment("not_established", p, raw=res.text, backend_used=res.backend_index)
+        # Conservative decision rule (2026-09-28, G-28), mirroring HouseJudge.judge exactly: "false"
+        # missing means p is a LOWER bound on the true score (analogous to nyaya_judges' "' not' missing"
+        # branch) -- established only when the bound itself already clears tau. "true" missing means p is
+        # an UPPER bound (analogous to "' established' missing") -- not_established is definite when the
+        # bound is already below tau, undetermined otherwise. Neither missing: p is exact, ordinary rule.
+        clamp: ClampKind = "lower_bound" if "false" in missing else ("upper_bound" if "true" in missing else "none")
+        bound_undetermined = (clamp == "lower_bound" and p < self.tau) or (clamp == "upper_bound" and p >= self.tau)
+        if p < self.tau or bound_undetermined:
+            return ElementJudgment("not_established", p, raw=res.text, backend_used=res.backend_index,
+                                    clamp=clamp, bound_undetermined=bound_undetermined)
         # Fact granularity (nyaya_judges module doc, unchanged here): the claim is "this fact, whole". The
         # fact id itself is parsed from the greedy completion, exactly like HouseJudge -- not scored like a
         # decision field, since which fact was named is not itself a decision this call makes.
         fact_id = parse_house_fact_id(res.text)
         if fact_id is None:
-            return ElementJudgment("established", p, raw=res.text, backend_used=res.backend_index)
+            return ElementJudgment("established", p, raw=res.text, backend_used=res.backend_index, clamp=clamp)
         text = dict(request.facts).get(fact_id)
         return ElementJudgment(
             "established", p, fact_id, text, "whole_fact" if text is not None else None,
-            raw=res.text, backend_used=res.backend_index,
+            raw=res.text, backend_used=res.backend_index, clamp=clamp,
         )

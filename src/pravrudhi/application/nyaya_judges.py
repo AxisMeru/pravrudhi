@@ -42,6 +42,12 @@ if TYPE_CHECKING:
     from pravrudhi.application.credentials import CredentialStore
 
 Status = Literal["established", "not_established"]
+#: "none" -- both label tokens were in the top-k, the score is exact. "lower_bound"/"upper_bound" --
+#: one was missing, the score is only a bound (see `p_established_from_top_logprobs`'s own docstring).
+#: Defined here (2026-09-28, mypy fix) so every producer of a clamp value -- this module's own
+#: function and the typed layer's `score_decision` -- shares the SAME type, never a plain `str` cast
+#: at a call site.
+ClampKind = Literal["none", "lower_bound", "upper_bound"]
 
 
 class JudgeOutputError(ValueError):
@@ -132,7 +138,7 @@ class ElementJudgment:
     #: (2026-09-28, G-28, Tag's finding) to keep every existing positional ElementJudgment(...) call site
     #: byte-for-byte unaffected -- see `p_established_from_top_logprobs`'s own docstring for the bound
     #: derivation and why the OLD behaviour (clamping to exactly 1.0/0.0) was a real defect.
-    clamp: Literal["none", "lower_bound", "upper_bound"] = "none"
+    clamp: ClampKind = "none"
     #: True iff a bound (`clamp != "none"`) did not itself resolve which side of `tau` the true value
     #: falls on, so the decision defaulted to not_established conservatively -- NOT because the
     #: evidence actually showed not-established. Distinct from an ordinary tau-miss: here the model's
@@ -181,7 +187,7 @@ def build_house_prompt(request: JudgeRequest, *, statute_chars: int) -> str:
     )
 
 
-def p_established_from_top_logprobs(top: Mapping[str, float]) -> tuple[float, Literal["none", "lower_bound", "upper_bound"]]:
+def p_established_from_top_logprobs(top: Mapping[str, float]) -> tuple[float, ClampKind]:
     """Two-way softmax of the first token's established-vs-not logprobs, returning (p, clamp).
 
     Raises when neither token is in the top-k: that is no evidence either way, and 0.5 would be a
