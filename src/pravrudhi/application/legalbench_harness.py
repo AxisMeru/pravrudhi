@@ -2,7 +2,8 @@
 LegalBench's rule-application tasks (`hearsay`, `personal_jurisdiction` first). Binary Yes/No
 classification, not the conduct-with-missing-element shape `nyaya_lean_elements.py`'s `A3E` path checks --
 `load_task` reads a task's own `.tsv` shape (`index`, `answer`, `text`, `slice`), `score_unaided` compares a
-vendor's raw Yes/No answers against gold.
+vendor's raw Yes/No answers against gold. A task file with no `slice` column of its own gets one slice named
+for the task, flagged as such rather than passed off as a slice the data drew.
 
 Every result is labelled `"model-read"` (`result["labelled"]`) so no caller can present this as a
 Lean-checked verdict by omission -- per the amendment, a Lean-checked claim on this corpus needs a per-rule
@@ -35,15 +36,34 @@ class LegalBenchItem:
     answer: str
     text: str
     slice: str
+    slice_is_task_fallback: bool = False
+    """True when the task file carried no `slice` column and `slice` is the task's own name instead --
+    recorded on every item so no caller reads a task-named bucket as a slice the data drew."""
 
 
 def load_task(tsv_path: Path) -> list[LegalBenchItem]:
-    """Read one LegalBench task's `.tsv` (`index`, `answer`, `text`, `slice` columns -- the shape every
-    staged rule-application task file shares)."""
+    """Read one LegalBench task's `.tsv` (`index`, `answer`, `text`, and usually `slice`).
+
+    A task file with no `slice` column (the `diversity_*` files, whose own columns are `index`, `text`,
+    `answer`, `parties_are_diverse`, `aic_is_met`) is neither pooled into an unnamed bucket nor given
+    invented structure: every row gets the single slice named for the task (`tsv_path`'s parent
+    directory), and every item carries `slice_is_task_fallback=True` so a caller -- and any result
+    written from those items -- can tell the task had no slices of its own.
+
+    Only the `slice` column has a fallback. A file with no `answer` or `text` column still raises.
+    """
+    task_name = tsv_path.parent.name
     with tsv_path.open(newline="") as f:
         reader = csv.DictReader(f, delimiter="\t")
+        has_own_slices = "slice" in (reader.fieldnames or [])
         return [
-            LegalBenchItem(index=int(row["index"]), answer=row["answer"], text=row["text"], slice=row["slice"])
+            LegalBenchItem(
+                index=int(row["index"]),
+                answer=row["answer"],
+                text=row["text"],
+                slice=row["slice"] if has_own_slices else task_name,
+                slice_is_task_fallback=not has_own_slices,
+            )
             for row in reader
         ]
 
@@ -60,7 +80,10 @@ def score_unaided(vendor_answers: dict[int, str], items: list[LegalBenchItem]) -
 
     Raises `NoItemsError` if `items` is empty.
 
-    Returns `{"accuracy", "n", "per_slice": {slice: {"correct", "n"}}, "labelled": "model-read"}`.
+    Returns `{"accuracy", "n", "per_slice": {slice: {"correct", "n"}}, "slice_is_task_fallback",
+    "labelled": "model-read"}`. `slice_is_task_fallback` is True when any item's slice is the task's own
+    name because its file had no `slice` column, so a written result never reads as though the breakdown
+    were over slices the data drew.
     """
     if not items:
         raise NoItemsError("no items to score")
@@ -79,5 +102,6 @@ def score_unaided(vendor_answers: dict[int, str], items: list[LegalBenchItem]) -
         "accuracy": total_correct / len(items),
         "n": len(items),
         "per_slice": per_slice,
+        "slice_is_task_fallback": any(item.slice_is_task_fallback for item in items),
         "labelled": "model-read",
     }
