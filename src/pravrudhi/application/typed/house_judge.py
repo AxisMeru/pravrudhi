@@ -15,6 +15,7 @@ GPU-level check against the 279-prompt calibration/heldout set that is T1's real
 from __future__ import annotations
 
 from pravrudhi.application.nyaya_judges import (
+    ClampKind,
     ElementJudgment,
     JudgeOutputError,
     JudgeRequest,
@@ -66,7 +67,7 @@ class TypedHouseJudge:
         # branch) -- established only when the bound itself already clears tau. "true" missing means p is
         # an UPPER bound (analogous to "' established' missing") -- not_established is definite when the
         # bound is already below tau, undetermined otherwise. Neither missing: p is exact, ordinary rule.
-        clamp = "lower_bound" if "false" in missing else ("upper_bound" if "true" in missing else "none")
+        clamp: ClampKind = "lower_bound" if "false" in missing else ("upper_bound" if "true" in missing else "none")
         bound_undetermined = (clamp == "lower_bound" and p < self.tau) or (clamp == "upper_bound" and p >= self.tau)
         if p < self.tau or bound_undetermined:
             return ElementJudgment("not_established", p, raw=res.text, backend_used=res.backend_index,

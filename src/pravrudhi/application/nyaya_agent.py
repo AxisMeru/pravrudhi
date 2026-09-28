@@ -72,7 +72,7 @@ from pathlib import Path
 from typing import Any, Literal, Protocol
 
 from pravrudhi.application import nyaya_lean_registry as reg
-from pravrudhi.application.nyaya_judges import ElementJudgment, Judge, JudgeRequest, SecondJudgeCircuitBreaker
+from pravrudhi.application.nyaya_judges import ClampKind, ElementJudgment, Judge, JudgeRequest, SecondJudgeCircuitBreaker
 from pravrudhi.application.nyaya_quote import QuoteLocation, locate_quote
 
 Outcome = Literal["PROOF", "DENIAL", "ABSTAIN", "REFER_TO_LAWYER"]
@@ -736,7 +736,7 @@ class ElementResult:
     #: "upper_bound" when one was missing and `p_established` is only a bound on the true value, not
     #: an exact softmax (2026-09-28, G-28 -- see `nyaya_judges.p_established_from_top_logprobs`'s own
     #: docstring for the derivation). "none" when there is no anchor at all (missing_element).
-    clamp: Literal["none", "lower_bound", "upper_bound"] = "none"
+    clamp: ClampKind = "none"
     #: True iff a bound above did not itself resolve which side of tau the true value falls on, so the
     #: element was conservatively decided not_established without actually demonstrating it -- distinct
     #: from an ordinary tau-miss. See `HouseJudge.judge`'s own decision rule.
