@@ -17,6 +17,7 @@ import pytest
 
 from pravrudhi.application import panel
 from pravrudhi.application.nyaya_judges import (
+    LABEL_MASS_FLOOR,
     FrontierJudge,
     HouseJudge,
     JudgeOutputError,
@@ -72,6 +73,34 @@ class TestHousePrompt:
             facts=(("F_narrative", REQ.narrative), *REQ.facts),
         )
         assert build_house_prompt(req_with_narrative, statute_chars=600) == build_house_prompt(REQ, statute_chars=600)
+
+
+class TestLabelMassGuard:
+    """Per Tag/Lead-2 (2026-09-28), production-safety: a label token appearing anywhere in the top-k
+    is not itself evidence of a real decision -- a prose completion can still have it by coincidence,
+    at negligible probability."""
+
+    def test_top1_is_prose_raises_even_though_a_label_token_is_present(self) -> None:
+        top = {"Based": -0.1, " established": -8.0, " on": -1.0, " the": -2.0}
+        with pytest.raises(JudgeOutputError, match="not a label token"):
+            p_established_from_top_logprobs(top)
+
+    def test_label_mass_below_floor_raises_even_when_top1_is_a_label_token(self) -> None:
+        # ' established' IS top-1 here, but its own probability (exp(-2.0) ~= 0.135) plus ' not'
+        # (exp(-8.0) ~= 0.0003) is far below the floor -- most of the real distribution went elsewhere.
+        top = {" established": -2.0, " not": -8.0, "prose_a": -2.1, "prose_b": -2.2, "prose_c": -2.3}
+        with pytest.raises(JudgeOutputError, match="label mass"):
+            p_established_from_top_logprobs(top)
+
+    def test_label_mass_clearing_the_floor_passes(self) -> None:
+        # ' not' missing (lower_bound case); exp(est) alone already clears the floor comfortably --
+        # confirms the guard doesn't fire on a genuinely confident, mostly-label completion.
+        top = {" established": -0.05, " F": -6.0}
+        p, clamp = p_established_from_top_logprobs(top)
+        mass = math.exp(-0.05)
+        assert mass >= LABEL_MASS_FLOOR
+        assert p == pytest.approx(1 / (1 + math.exp(-6.0 - (-0.05))))
+        assert clamp == "lower_bound"
 
 
 class TestFirstTokenScore:
@@ -234,6 +263,29 @@ class TestHouseJudge:
 
         assert captured["auth_header"] == "Bearer test_bearer_key_12345"
 
+    def test_from_config_requires_label_mass_floor(self) -> None:
+        # R1's review of #124: "refuse if it's missing", not a silent module-constant fallback.
+        config = {
+            "statute_chars": 600, "base_url": "http://h/v1", "model": "m",
+            "max_tokens": 30, "top_logprobs": 20, "timeout_s": 60,
+        }
+        with pytest.raises(KeyError, match="label_mass_floor"):
+            HouseJudge.from_config(config, tau=0.74)
+
+    def test_from_config_threads_a_custom_label_mass_floor_into_the_actual_decision(self) -> None:
+        # Not just stored -- proves the CONFIG value is what judge() actually uses: a completion whose
+        # label mass (~0.322) clears a low floor (0.2) but not the module default (0.5).
+        config = {
+            "statute_chars": 600, "base_url": "http://h/v1", "model": "m", "max_tokens": 30,
+            "top_logprobs": 20, "timeout_s": 60, "label_mass_floor": 0.2,
+        }
+        j = HouseJudge.from_config(config, tau=0.74)
+        assert j.label_mass_floor == 0.2
+        fake = _FakeComplete(_completion(" established F1", {" established": -1.3, " not": -3.0}))
+        j._complete = fake  # type: ignore[attr-defined]  # override the built transport, post-construction
+        result = j.judge(REQ)  # would raise JudgeOutputError under the 0.5 default; must not here
+        assert result.status in ("established", "not_established")
+
     def test_fallback_list_from_config(self) -> None:
         """Load judge base_urls with fallback from config."""
         # Mock clients to avoid real network calls
@@ -252,6 +304,7 @@ class TestHouseJudge:
             "max_tokens": 30,
             "top_logprobs": 20,
             "timeout_s": 60,
+            "label_mass_floor": 0.5,
             "base_urls_fallback": [
                 "http://127.0.0.1:8110/v1",
             ],
@@ -275,6 +328,7 @@ class TestHouseJudge:
             "max_tokens": 30,
             "top_logprobs": 20,
             "timeout_s": 60,
+            "label_mass_floor": 0.5,
         }
 
         # Test: env var takes precedence over config
