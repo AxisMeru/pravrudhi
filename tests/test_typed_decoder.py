@@ -48,7 +48,10 @@ class TestScoreDecisionMatchesHouseJudgeAlgebra:
     def test_matches_the_original_two_way_softmax_formula_across_many_logprob_pairs(self) -> None:
         from pravrudhi.application.nyaya_judges import p_established_from_top_logprobs
 
-        for est, neg in [(-0.5, -3.0), (-2.0, -0.1), (-1.0, -1.0), (-10.0, -0.001), (-0.001, -10.0), (-5.5, -5.5)]:
+        # Pairs chosen to clear nyaya_judges' own label-mass guard (2026-09-28): exp(est)+exp(neg) >=
+        # 0.5 and the higher of the two is top-1 -- these are realistic, confident-decision logprobs,
+        # not the guard's own edge cases (covered separately in test_nyaya_judges.py).
+        for est, neg in [(-0.5, -3.0), (-2.0, -0.1), (-0.4, -0.4), (-0.1, -3.0), (-3.0, -0.1), (-0.05, -0.6)]:
             top = {" established": est, " not": neg}
             original, clamp = p_established_from_top_logprobs(top)
             assert clamp == "none"  # both tokens present in every case here

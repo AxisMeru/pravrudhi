@@ -17,6 +17,7 @@ import pytest
 
 from pravrudhi.application import panel
 from pravrudhi.application.nyaya_judges import (
+    LABEL_MASS_FLOOR,
     FrontierJudge,
     HouseJudge,
     JudgeOutputError,
@@ -72,6 +73,34 @@ class TestHousePrompt:
             facts=(("F_narrative", REQ.narrative), *REQ.facts),
         )
         assert build_house_prompt(req_with_narrative, statute_chars=600) == build_house_prompt(REQ, statute_chars=600)
+
+
+class TestLabelMassGuard:
+    """Per Tag/Lead-2 (2026-09-28), production-safety: a label token appearing anywhere in the top-k
+    is not itself evidence of a real decision -- a prose completion can still have it by coincidence,
+    at negligible probability."""
+
+    def test_top1_is_prose_raises_even_though_a_label_token_is_present(self) -> None:
+        top = {"Based": -0.1, " established": -8.0, " on": -1.0, " the": -2.0}
+        with pytest.raises(JudgeOutputError, match="not a label token"):
+            p_established_from_top_logprobs(top)
+
+    def test_label_mass_below_floor_raises_even_when_top1_is_a_label_token(self) -> None:
+        # ' established' IS top-1 here, but its own probability (exp(-2.0) ~= 0.135) plus ' not'
+        # (exp(-8.0) ~= 0.0003) is far below the floor -- most of the real distribution went elsewhere.
+        top = {" established": -2.0, " not": -8.0, "prose_a": -2.1, "prose_b": -2.2, "prose_c": -2.3}
+        with pytest.raises(JudgeOutputError, match="label mass"):
+            p_established_from_top_logprobs(top)
+
+    def test_label_mass_clearing_the_floor_passes(self) -> None:
+        # ' not' missing (lower_bound case); exp(est) alone already clears the floor comfortably --
+        # confirms the guard doesn't fire on a genuinely confident, mostly-label completion.
+        top = {" established": -0.05, " F": -6.0}
+        p, clamp = p_established_from_top_logprobs(top)
+        mass = math.exp(-0.05)
+        assert mass >= LABEL_MASS_FLOOR
+        assert p == pytest.approx(1 / (1 + math.exp(-6.0 - (-0.05))))
+        assert clamp == "lower_bound"
 
 
 class TestFirstTokenScore:

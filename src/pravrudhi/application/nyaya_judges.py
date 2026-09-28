@@ -48,6 +48,12 @@ Status = Literal["established", "not_established"]
 #: function and the typed layer's `score_decision` -- shares the SAME type, never a plain `str` cast
 #: at a call site.
 ClampKind = Literal["none", "lower_bound", "upper_bound"]
+#: Label-mass guard floor (2026-09-28, Tag/Lead-2): the combined probability of the two label tokens
+#: (`exp(est) + exp(not)`) must clear this before `p_established_from_top_logprobs` trusts a decision
+#: at all -- else JudgeOutputError, failing closed to REFER. 0.5 chosen as Tag's own example value: a
+#: completion where the label tokens together hold less than half the real probability mass means MORE
+#: than half of it went to something else (prose), which is itself the failure this guard targets.
+LABEL_MASS_FLOOR = 0.5
 
 
 class JudgeOutputError(ValueError):
@@ -214,11 +220,36 @@ def p_established_from_top_logprobs(top: Mapping[str, float]) -> tuple[float, Cl
       band into a hard not-established instead (`AgentConfig.in_band`, `nyaya_agent.py`).
 
     Callers must never treat a bound as the true value -- see HouseJudge.judge's own conservative rule
-    (bound_undetermined) for how a bound and tau combine into a decision."""
+    (bound_undetermined) for how a bound and tau combine into a decision.
+
+    Label-mass guard (2026-09-28, Tag/Lead-2, production-safety): a label token appearing ANYWHERE in
+    the top-k is not, on its own, evidence the model actually meant to answer -- a prose completion
+    ("Based on the facts...") can still have ' established' or ' not' somewhere in its own top-20 by
+    coincidence, at a vanishingly small probability, and #120's bound machinery would still compute (and
+    a caller could still clamp above tau on) a number from it. Raises JudgeOutputError, the same
+    fail-closed path the neither-token case already uses, when EITHER: (a) the top-1 (highest-logprob)
+    token is not itself a label token -- the model's own greediest guess was prose, not a decision; or
+    (b) the combined probability mass of the two label tokens (`exp(est) + exp(not)`, using the API's
+    real log-probabilities, which sum to 1 over the whole vocabulary -- not just the top-k) is below
+    `label_mass_floor`. Logprobs are true log-probabilities, so `math.exp(logprob)` is the token's real
+    probability, not a relative/renormalized figure -- this guard reads the SAME raw values already
+    looked up above, no extra call."""
     est = max((top[t] for t in _EST_TOKENS if t in top), default=-math.inf)
     neg = max((top[t] for t in _NOT_TOKENS if t in top), default=-math.inf)
     if est == -math.inf and neg == -math.inf:
         raise JudgeOutputError(f"neither ' established' nor ' not' among the first token's top logprobs: {dict(top)}")
+    top1_token = max(top, key=lambda t: top[t])
+    if top1_token not in _EST_TOKENS and top1_token not in _NOT_TOKENS:
+        raise JudgeOutputError(
+            f"top-1 token {top1_token!r} is not a label token -- the model's greediest completion was "
+            f"prose, not a decision: {dict(top)}"
+        )
+    label_mass = (math.exp(est) if est != -math.inf else 0.0) + (math.exp(neg) if neg != -math.inf else 0.0)
+    if label_mass < LABEL_MASS_FLOOR:
+        raise JudgeOutputError(
+            f"label mass {label_mass:.6f} below floor {LABEL_MASS_FLOOR} -- too little of the "
+            f"distribution is on either label token to trust a decision: {dict(top)}"
+        )
     if neg == -math.inf:
         bound = min(top.values())
         return 1.0 / (1.0 + math.exp(bound - est)), "lower_bound"
