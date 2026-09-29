@@ -57,6 +57,7 @@ Rules enforced here rather than asked of a judge:
 
 from __future__ import annotations
 
+import difflib
 import hashlib
 import json
 import math
@@ -366,6 +367,10 @@ class Fact:
     id: str
     text: str
     sha256: str
+
+
+def _text_similarity(a: str, b: str) -> float:
+    return round(difflib.SequenceMatcher(None, " ".join(a.split()), " ".join(b.split())).ratio(), 3)
 
 
 def _sha(text: str) -> str:
@@ -778,6 +783,10 @@ class ContractResult:
     #: Elements Gate 1 (Arm C, `mode="contradiction_veto"`) vetoed because the fact explicitly contradicts
     #: the element. Always [] when Gate 1 is not configured, or configured in the default entailment mode.
     gate1_contradiction: list[str] = field(default_factory=list)
+    #: Whitespace-normalised difflib ratio of the two texts (1.0 = same words), so a mismatch that is only
+    #: layout is distinguishable from a judge text that is a short paraphrase of a much longer official one.
+    #: Informational only; nothing gates on it.
+    statute_text_similarity: float | None = None
 
 
 @dataclass
@@ -1271,17 +1280,19 @@ class NyayaAgent:
         training = self.config.judge_statute_text.get(contract_id)
         official = self.registry.source_text(contract_id)
         mismatch = None if training is None else training != official
+        similarity = None if training is None else _text_similarity(training, official)
         audit.step("statute", {"contract_id": contract_id},
                    {"contract_id": contract_id, "judge_statute_source": "config" if training is not None else None,
                     "judge_statute_sha256": _sha(training) if training is not None else None,
-                    "official_statute_sha256": _sha(official), "statute_text_mismatch": mismatch}, _ms(t0))
+                    "official_statute_sha256": _sha(official), "statute_text_mismatch": mismatch,
+                    "statute_text_similarity": similarity}, _ms(t0))
 
         results: list[ElementResult] = []
 
         def finish(outcome: Outcome, reason: str, **kw: Any) -> ContractResult:
             res = ContractResult(contract_id, outcome, reason, results, kw.get("assertions"), kw.get("lean"),
                                  kw.get("lean_outcome"), kw.get("uncertain", []), mismatch,
-                                 kw.get("uncertain_second", []), unavailable_second=kw.get("unavailable_second", []),
+                                 kw.get("uncertain_second", []), statute_text_similarity=similarity, unavailable_second=kw.get("unavailable_second", []),
                                  gate1_unavailable=kw.get("gate1_unavailable", []), gate1_failed=kw.get("gate1_failed", []),
                                  gate1_contradiction=kw.get("gate1_contradiction", []))
             audit.step("outcome", {"contract_id": contract_id, "elements": [asdict(r) for r in results]},
@@ -1290,7 +1301,7 @@ class NyayaAgent:
                         "uncertain_second": res.uncertain_second, "unavailable_second": res.unavailable_second,
                         "gate1_unavailable": res.gate1_unavailable, "gate1_failed": res.gate1_failed,
                         "gate1_contradiction": res.gate1_contradiction,
-                        "statute_text_mismatch": mismatch,
+                        "statute_text_mismatch": mismatch, "statute_text_similarity": similarity,
                         # Issue #37: the per-element truthful status/binding_leg (and every other
                         # ElementResult field) as readable OUTPUT, not just hashed into inputs_sha256 above --
                         # an auditor reading the JSONL directly must be able to see these without a matching
