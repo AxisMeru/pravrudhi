@@ -283,6 +283,8 @@ class HouseJudge:
     The result's `backend_used` field records which URL answered."""
 
     name = "house"
+    #: temperature 0 over an unchanged request: a re-ask returns the same output, so retrying is pointless.
+    deterministic = True
 
     def __init__(
         self,
