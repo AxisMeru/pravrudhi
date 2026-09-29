@@ -222,6 +222,10 @@ def load_agent_config(root: Path) -> AgentConfig:
     # ordered fallback list; both are the host's facts, not the release's.
     if os.environ.get("NYAYA_HOUSE_JUDGE_MODEL"):
         house_judge["model"] = os.environ["NYAYA_HOUSE_JUDGE_MODEL"]
+    # Opt-in: with a model id named above, refuse any answer whose `model` field differs (HouseJudge.enforce_served_model;
+    # fail closed). Off by default so an existing deployment does not change behaviour until it names the switch.
+    if os.environ.get("NYAYA_HOUSE_JUDGE_ENFORCE_SERVED_MODEL", "").strip().lower() in ("1", "true", "yes", "on"):
+        house_judge["enforce_served_model"] = True
     if os.environ.get("NYAYA_HOUSE_JUDGE_FALLBACK_URLS"):
         house_judge["base_urls_fallback"] = [
             u.strip() for u in os.environ["NYAYA_HOUSE_JUDGE_FALLBACK_URLS"].split(",") if u.strip()

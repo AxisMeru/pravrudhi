@@ -61,6 +61,14 @@ class JudgeOutputError(ValueError):
     it never guesses a status from an unreadable reply."""
 
 
+class ServedModelMismatch(RuntimeError):
+    """A judge backend answered under a different model id than the one the deployment pinned.
+
+    Raised only when `enforce_served_model` is on AND `model` was named explicitly, so a swapped or mislabelled model
+    behind a stable served name surfaces as a judge error (fail closed: the element ABSTAINs / REFERs) instead of scoring
+    under a model that was never signed off. It is not transient: it never moves to the next backend."""
+
+
 @dataclass(frozen=True)
 class JudgeRequest:
     """One (contract, element) pair to judge. `facts` are `(fact_id, text)` in prompt order; `statute` is the
@@ -300,8 +308,10 @@ class HouseJudge:
         api_key: str | None = None,
         fallback_urls: list[str] | None = None,
         complete: Callable[[str], CompletionResult] | None = None,
+        enforce_served_model: bool = False,
     ) -> None:
         self.tau = tau
+        self.enforce_served_model = enforce_served_model
         self.statute_chars = statute_chars
         self.label_mass_floor = label_mass_floor
         self.primary_base_url = base_url
@@ -319,6 +329,9 @@ class HouseJudge:
                 for i, url in enumerate([base_url, *self.fallback_urls])
             ]
             self._models: list[str | None] = [model or None] + [None] * len(self.fallback_urls)
+            # The ids the deployment NAMED (the primary's `model`; a fallback's is always resolved from its own /models, so it
+            # is never pinned). Used only when `enforce_served_model` is on.
+            pinned: list[str | None] = list(self._models)
 
             def _model_for(i: int) -> str:
                 if self._models[i] is None:
@@ -352,6 +365,11 @@ class HouseJudge:
                     try:
                         client.model = _model_for(i)
                         result = client.complete(prompt, max_tokens=max_tokens, temperature=0.0, logprobs=top_logprobs)
+                        if self.enforce_served_model and pinned[i] is not None and result.model != pinned[i]:
+                            raise ServedModelMismatch(
+                                f"backend {i} answered as model {result.model!r} but the deployment pins {pinned[i]!r}; "
+                                "refusing to score under an unpinned model"
+                            )
                     except Exception as e:  # noqa: BLE001 -- classified just below, re-raised unless transient
                         if not _transient(e) or i == len(self.clients) - 1:
                             raise RuntimeError(f"judge backend {i} ({client.base_url}) failed: {e}") from e
@@ -401,6 +419,7 @@ class HouseJudge:
             label_mass_floor=float(cfg["label_mass_floor"]),
             api_key=api_key,
             fallback_urls=cfg.get("base_urls_fallback") or [],
+            enforce_served_model=bool(cfg.get("enforce_served_model", False)),
         )
 
     @classmethod
@@ -432,6 +451,7 @@ class HouseJudge:
             label_mass_floor=float(cfg["label_mass_floor"]),
             api_key=api_key,
             fallback_urls=cfg.get("base_urls_fallback") or [],
+            enforce_served_model=bool(cfg.get("enforce_served_model", False)),
         )
 
     def judge(self, request: JudgeRequest) -> ElementJudgment:
