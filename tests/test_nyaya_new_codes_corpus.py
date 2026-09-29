@@ -53,3 +53,13 @@ def test_per_section_manifest_hashes_and_central_scope():
         for doc in data["documents"]:
             for k in ("api_record_sha256", "raw_body_sha256"):
                 assert re.fullmatch(r"[0-9a-f]{64}", doc[k]), (doc["id"], k)
+
+
+def test_murder_sections_rank_first_when_named_and_ipc_equivalent_stays_reachable():
+    c = nyaya.load_corpus()
+    q = "What is the punishment for murder under BNS section 103?"
+    assert c.retrieve(q, k=1)[0][0].id == "BNS/Section 103"
+    q = "What is the definition of murder under BNS section 101?"
+    assert c.retrieve(q, k=1)[0][0].id == "BNS/Section 101"
+    ids = [d.id for d, _ in c.retrieve("punishment for murder", k=25)]
+    assert "IPC/Section 302" in ids and "BNS/Section 103" in ids  # measured at ranks 14 and 17
