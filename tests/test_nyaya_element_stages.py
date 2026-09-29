@@ -6,7 +6,15 @@ from pathlib import Path
 
 from pravrudhi.application.nyaya_agent import ElementResult, NyayaAgent, element_stage
 from pravrudhi.application.nyaya_judges import ElementJudgment
-from tests.test_nyaya_agent_concurrency import CONTRACT, ELEMENTS, FACTS, ConcurrentFakeJudge, FakeRegistry, _config, _script_all_established
+from tests.test_nyaya_agent_concurrency import (
+    CONTRACT,
+    ELEMENTS,
+    FACTS,
+    ConcurrentFakeJudge,
+    FakeRegistry,
+    _config,
+    _script_all_established,
+)
 
 
 def _el(status: str, **kw: object) -> ElementResult:

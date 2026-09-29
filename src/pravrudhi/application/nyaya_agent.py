@@ -373,7 +373,7 @@ def _text_similarity(a: str, b: str) -> float:
     return round(difflib.SequenceMatcher(None, " ".join(a.split()), " ".join(b.split())).ratio(), 3)
 
 
-def element_stage(r: "ElementResult") -> str | None:
+def element_stage(r: ElementResult) -> str | None:
     """Where an element that is not established stopped: `<status>:<leg>`, the leg being the judge leg that bound
     the verdict, or `quote_<reason>` when a claimed element's fact id / quote could not be validated. None for an
     established element. Derived only from fields the element already carries."""
