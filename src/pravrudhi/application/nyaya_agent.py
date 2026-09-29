@@ -1292,7 +1292,8 @@ class NyayaAgent:
         def finish(outcome: Outcome, reason: str, **kw: Any) -> ContractResult:
             res = ContractResult(contract_id, outcome, reason, results, kw.get("assertions"), kw.get("lean"),
                                  kw.get("lean_outcome"), kw.get("uncertain", []), mismatch,
-                                 kw.get("uncertain_second", []), statute_text_similarity=similarity, unavailable_second=kw.get("unavailable_second", []),
+                                 kw.get("uncertain_second", []),
+                                 statute_text_similarity=similarity, unavailable_second=kw.get("unavailable_second", []),
                                  gate1_unavailable=kw.get("gate1_unavailable", []), gate1_failed=kw.get("gate1_failed", []),
                                  gate1_contradiction=kw.get("gate1_contradiction", []))
             audit.step("outcome", {"contract_id": contract_id, "elements": [asdict(r) for r in results]},
