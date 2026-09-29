@@ -373,6 +373,16 @@ def _text_similarity(a: str, b: str) -> float:
     return round(difflib.SequenceMatcher(None, " ".join(a.split()), " ".join(b.split())).ratio(), 3)
 
 
+def element_stage(r: ElementResult) -> str | None:
+    """Where an element that is not established stopped: `<status>:<leg>`, the leg being the judge leg that bound
+    the verdict, or `quote_<reason>` when a claimed element's fact id / quote could not be validated. None for an
+    established element. Derived only from fields the element already carries."""
+    if r.status == "established":
+        return None
+    leg = r.binding_leg or (f"quote_{r.quote_check}" if r.claimed and r.quote_check else "none")
+    return f"{r.status}:{leg}"
+
+
 def _sha(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
@@ -787,6 +797,9 @@ class ContractResult:
     #: layout is distinguishable from a judge text that is a short paraphrase of a much longer official one.
     #: Informational only; nothing gates on it.
     statute_text_similarity: float | None = None
+    #: element -> `element_stage(...)` for every element not established, so the contract-level `reason`
+    #: ("missing_element") can be split by where each element stopped. Informational; no outcome reads it.
+    element_stages: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -1293,7 +1306,9 @@ class NyayaAgent:
             res = ContractResult(contract_id, outcome, reason, results, kw.get("assertions"), kw.get("lean"),
                                  kw.get("lean_outcome"), kw.get("uncertain", []), mismatch,
                                  kw.get("uncertain_second", []),
-                                 statute_text_similarity=similarity, unavailable_second=kw.get("unavailable_second", []),
+                                 statute_text_similarity=similarity,
+                                 element_stages={r.element: st for r in results if (st := element_stage(r))},
+                                 unavailable_second=kw.get("unavailable_second", []),
                                  gate1_unavailable=kw.get("gate1_unavailable", []), gate1_failed=kw.get("gate1_failed", []),
                                  gate1_contradiction=kw.get("gate1_contradiction", []))
             audit.step("outcome", {"contract_id": contract_id, "elements": [asdict(r) for r in results]},
@@ -1303,6 +1318,7 @@ class NyayaAgent:
                         "gate1_unavailable": res.gate1_unavailable, "gate1_failed": res.gate1_failed,
                         "gate1_contradiction": res.gate1_contradiction,
                         "statute_text_mismatch": mismatch, "statute_text_similarity": similarity,
+                        "element_stages": res.element_stages,
                         # Issue #37: the per-element truthful status/binding_leg (and every other
                         # ElementResult field) as readable OUTPUT, not just hashed into inputs_sha256 above --
                         # an auditor reading the JSONL directly must be able to see these without a matching
