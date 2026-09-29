@@ -1566,6 +1566,16 @@ class TestStatuteMismatch:
         cfg = _config(tmp_path, judge_statute_text={"bns69": "RETRIEVED statute text for bns69"})
         run = NyayaAgent(judge, _registry(), cfg).run(TOY_FACTS, contract_ids=["bns69"])
         assert run.contracts[0].statute_text_mismatch is False
+        assert run.contracts[0].statute_text_similarity == 1.0
+
+    def test_similarity_separates_layout_only_from_a_short_paraphrase(self, tmp_path: Path) -> None:
+        judge = ScriptedJudge(_proof_script(TOY_FACTS))
+        cfg = _config(tmp_path, judge_statute_text={"bns69": "RETRIEVED  statute\ntext for bns69"})
+        run = NyayaAgent(judge, _registry(), cfg).run(TOY_FACTS, contract_ids=["bns69"])
+        c = run.contracts[0]
+        assert c.statute_text_mismatch is True and c.statute_text_similarity == 1.0
+        run2, _, _ = _run(tmp_path, _proof_script(TOY_FACTS))
+        assert 0.0 < run2.contracts[0].statute_text_similarity < 1.0
 
 
 class TestAudit:
