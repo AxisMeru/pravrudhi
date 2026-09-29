@@ -1162,6 +1162,10 @@ class NyayaAgent:
                         "offsets_source": loc.offsets_source, "quote_source": quote_source}, _ms(t0))
             if loc.valid:
                 break
+            # A deterministic judge re-asked with the same request repeats itself, and an unresolvable fact id is
+            # never replaced by a nearest match, so further attempts cannot change the outcome.
+            if loc.reason == "unknown_fact" and getattr(judge, "deterministic", False):
+                break
         delta = self.config.second_refer_logit_delta()
         if anchor is None:
             return ElementResult(element, is_denial, "not_established", False, None, None, None, None, None, None,

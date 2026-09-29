@@ -283,6 +283,8 @@ class HouseJudge:
     The result's `backend_used` field records which URL answered."""
 
     name = "house"
+    #: temperature 0 over an unchanged request: a re-ask returns the same output, so retrying is pointless.
+    deterministic = True
 
     def __init__(
         self,
@@ -634,6 +636,10 @@ class AndGateJudge:
         #: it here (or via `from_config`) -- `NyayaAgent.house`'s own `second_judge_breaker` parameter is how
         #: the deployed app shares ONE instance across a whole request's judge_pool, and across requests.
         self.breaker = breaker
+
+    @property
+    def deterministic(self) -> bool:
+        return bool(getattr(self.primary, "deterministic", False))
 
     @classmethod
     def from_config(
@@ -994,6 +1000,10 @@ class Gate1Judge:
         self.threshold = threshold
         self.tau_c = tau_c
         self.name: str = name or str(getattr(inner, "name", "gate1"))
+
+    @property
+    def deterministic(self) -> bool:
+        return bool(getattr(self.inner, "deterministic", False))
 
     def judge(self, request: JudgeRequest) -> ElementJudgment:
         judgment = self.inner.judge(request)
