@@ -69,6 +69,7 @@ class ServedModelMismatch(RuntimeError):
     under a model that was never signed off. It is not transient: it never moves to the next backend."""
 
 
+@dataclass(frozen=True)
 class JudgeRequest:
     """One (contract, element) pair to judge. `facts` are `(fact_id, text)` in prompt order; `statute` is the
     statute text this attempt shows the judge (the agent picks which, see `nyaya_agent`)."""
