@@ -1,6 +1,6 @@
 """Rebuild src/pravrudhi/assets/nyaya/{bns,bnss,bsa}_sections.json from India Code (indiacode.gov.in DSpace API).
 
-Usage: python scripts/build_nyaya_new_codes.py RAW_DIR   (writes RAW_DIR/<CODE>.raw, then the three asset files)
+Usage: python scripts/build_nyaya_new_codes.py RAW_DIR [--reuse]   (writes RAW_DIR/<CODE>.raw, then the three asset files)
 The raw sha256 in each asset's `source` is the hash of RAW_DIR/<CODE>.raw as fetched on the date recorded there."""
 
 from __future__ import annotations
@@ -12,7 +12,6 @@ import re
 import subprocess
 import sys
 import time
-from datetime import date
 from pathlib import Path
 
 LICENCE = (
@@ -29,6 +28,16 @@ ACTS = {
             "AC_CEN_5_23_00049_2023-47_1719292804654", "123456789/496549", 170),
 }
 API = "https://indiacode.gov.in/server/api/discover/search/objects"
+FETCHED_AT = "2026-09-29"
+URI_NOTE = (
+    "records' dc.identifier.uri points at staging host test1.indiacode.nic.in; "
+    "the retrieval URL is `query` on indiacode.gov.in"
+)
+MANIFEST = (
+    "per section: api_record_sha256 = sha256 of the canonical (sorted-key, compact) JSON of the API item; "
+    "raw_body_sha256 = sha256 of the HTML body. raw_sha256 covers the concatenated API pages. "
+    "No Act PDF was fetched."
+)
 DST = Path(__file__).resolve().parent.parent / "src" / "pravrudhi" / "assets" / "nyaya"
 
 
@@ -49,7 +58,9 @@ def _page(act_id: str, page: int) -> bytes:
     raise SystemExit(f"failed {act_id} page {page}")
 
 
-def fetch(code: str, raw_dir: Path) -> bytes:
+def fetch(code: str, raw_dir: Path, reuse: bool) -> bytes:
+    if reuse:
+        return (raw_dir / f"{code}.raw").read_bytes()
     pages, p = [], 0
     while True:
         raw = _page(ACTS[code][3], p)
@@ -68,7 +79,11 @@ def _text(h: str) -> str:
     return re.sub(r"[ \t]+", " ", re.sub(r"\s*\n\s*", "\n", h)).strip()
 
 
-def sections(blob: bytes) -> dict[str, dict[str, str]]:
+def _sha(b: bytes | str) -> str:
+    return hashlib.sha256(b.encode() if isinstance(b, str) else b).hexdigest()
+
+
+def sections(blob: bytes, act_id: str) -> dict[str, dict[str, str]]:
     dec, raw, i, out = json.JSONDecoder(), blob.decode(), 0, {}
     while i < len(raw):
         while i < len(raw) and raw[i].isspace():
@@ -77,23 +92,29 @@ def sections(blob: bytes) -> dict[str, dict[str, str]]:
             break
         page, i = dec.raw_decode(raw, i)
         for o in page["_embedded"]["searchResult"]["_embedded"]["objects"]:
-            m = o["_embedded"]["indexableObject"]["metadata"]
+            item = o["_embedded"]["indexableObject"]
+            m = item["metadata"]
 
             def g(k: str, m: dict = m) -> str | None:  # type: ignore[type-arg]
                 return (m.get(k) or [{}])[0].get("value")
 
+            if g("dc.identifier.act_id") != act_id or g("dc.identifier.collection") != "SECTION":
+                raise SystemExit(f"unexpected record: act_id={g('dc.identifier.act_id')}")
+            body = g("dc.identifier.section_page_note") or ""
             out[g("dc.identifier.section_number") or ""] = {
                 "title": g("dc.title") or "",
-                "text": _text(g("dc.identifier.section_page_note") or ""),
+                "text": _text(body),
+                "api_record_sha256": _sha(json.dumps(item, sort_keys=True, separators=(",", ":"), ensure_ascii=False)),
+                "raw_body_sha256": _sha(body),
             }
     return out
 
 
-def main(raw_dir: Path) -> None:
+def main(raw_dir: Path, reuse: bool) -> None:
     raw_dir.mkdir(parents=True, exist_ok=True)
     for code, (fn, act, num, act_id, handle, expected) in ACTS.items():
-        blob = fetch(code, raw_dir)
-        secs = sections(blob)
+        blob = fetch(code, raw_dir, reuse)
+        secs = sections(blob, act_id)
         if sorted(map(int, secs)) != list(range(1, expected + 1)):
             print(f"MISMATCH {code}: found {len(secs)} sections, expected {expected}", file=sys.stderr)
         docs = [{"id": f"{code}/Section {k}", "act": act, "section": f"Section {k}", **secs[k]}
@@ -105,14 +126,17 @@ def main(raw_dir: Path) -> None:
             "query": (f'GET {API}?query=dc.identifier.act_id:"{act_id}" AND dc.identifier.collection:SECTION'
                       "&size=100&sort=dc.identifier.order_number,asc (pages 0..N)"),
             "act_page": f"https://indiacode.gov.in/handle/{handle}",
-            "fetched_at": date.today().isoformat(),
+            "fetched_at": FETCHED_AT,
+            "act_scope": "central Act only: every record's dc.identifier.act_id equals act_id (asserted while building)",
+            "uri_note": URI_NOTE,
+            "manifest": MANIFEST,
             "raw_sha256": hashlib.sha256(blob).hexdigest(), "raw_bytes": len(blob),
             "sections_expected": expected, "sections_found": len(docs), "licence": LICENCE,
         }
-        out = {"version": 1, "built": date.today().isoformat(), "source": src, "documents": docs}
+        out = {"version": 1, "built": FETCHED_AT, "source": src, "documents": docs}
         (DST / fn).write_text(json.dumps(out, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
         print(code, len(docs), src["raw_sha256"])
 
 
 if __name__ == "__main__":
-    main(Path(sys.argv[1]))
+    main(Path(sys.argv[1]), "--reuse" in sys.argv)

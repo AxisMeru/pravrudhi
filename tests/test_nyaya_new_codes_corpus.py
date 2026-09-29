@@ -44,3 +44,12 @@ def test_a_bns_provision_question_now_retrieves_it_above_the_relevance_floor() -
     assert hits[0][0].id == "BNS/Section 69" and hits[0][1] >= c.min_relevance_score
     plain = c.retrieve("punishment for promise to marry without intention of fulfilling it", k=1)
     assert plain[0][0].id == "BNS/Section 69" and plain[0][1] >= c.min_relevance_score
+
+
+def test_per_section_manifest_hashes_and_central_scope():
+    for fname in EXPECTED:
+        data = json.loads((nyaya.ASSET_DIR / fname).read_text(encoding="utf-8"))
+        assert "act_scope" in data["source"] and "manifest" in data["source"]
+        for doc in data["documents"]:
+            for k in ("api_record_sha256", "raw_body_sha256"):
+                assert re.fullmatch(r"[0-9a-f]{64}", doc[k]), (doc["id"], k)
