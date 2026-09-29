@@ -4,7 +4,7 @@ element is downgraded and no nearest-match fact is ever substituted. A non-deter
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 from pravrudhi.application.nyaya_agent import NyayaAgent
