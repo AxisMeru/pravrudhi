@@ -102,8 +102,12 @@ def test_a_lay_question_reaches_the_homicide_sections_through_the_lexicon() -> N
     c = nyaya.load_corpus()
     q = "A man strikes another on the head with a heavy stick intending grievous hurt; the victim dies two days later."
     ids = [d.id for d, _ in c.retrieve(q, k=8)]
-    assert {"IPC/Section 304", "IPC/Section 300", "IPC/Section 299", "IPC/Section 302"} & set(ids)
-    assert "IPC/Section 325" in ids or "IPC/Section 320" in ids
+    # BNS 2023 sits beside the IPC in the corpus now, so its equivalents (100 culpable homicide, 101 murder,
+    # 103/105 their punishments; 116 grievous hurt, 117 voluntarily causing it) count as reaching the same sections.
+    assert {"IPC/Section 304", "IPC/Section 300", "IPC/Section 299", "IPC/Section 302"} & set(ids) or {
+        "BNS/Section 100", "BNS/Section 101", "BNS/Section 103", "BNS/Section 105"
+    } & set(ids)
+    assert {"IPC/Section 325", "IPC/Section 320", "BNS/Section 116", "BNS/Section 117"} & set(ids)
     assert nyaya.expand("nothing legal here", c.expansions) == "nothing legal here"
     assert [d.id for d, _ in c.retrieve("equality before law", k=1)] == ["COI/Article 14"]
     assert [d.id for d, _ in c.retrieve("right to life and personal liberty", k=1)] == ["COI/Article 21"]
@@ -270,9 +274,10 @@ class TestAdminSessionIsAValidByokProxy:
 
 def test_the_routes_serve_the_product_and_need_the_local_token_to_ask(tmp_path: Path) -> None:
     init_project(tmp_path)
-    fake = _fake({"*": "ANSWER: [IPC/Section 302].\nCITATIONS: IPC/Section 302\nCONFIDENCE: low"})
+    # BNS/Section 101 (Murder) is what "murder" retrieves now that BNS is shipped; IPC/Section 302 falls outside the top k.
+    fake = _fake({"*": "ANSWER: [BNS/Section 101].\nCITATIONS: BNS/Section 101\nCONFIDENCE: low"})
     c = TestClient(create_app(tmp_path, nyaya_ask_fn=fake), base_url="http://127.0.0.1:8008")
-    assert c.get("/api/nyaya/corpus?q=murder").json()["hits"][0]["id"].startswith("IPC/")
+    assert c.get("/api/nyaya/corpus?q=murder").json()["hits"][0]["id"].startswith(("IPC/", "BNS/"))
     vendors = c.get("/api/nyaya/vendors").json()["vendors"]
     assert {v["id"] for v in vendors} == set(nyaya.DEFAULT_VENDORS) and all("available" in v for v in vendors)
     # Regression (2026-09-21): nyaya-p2b-local was added to panel.VENDORS for the arm_c demo but
