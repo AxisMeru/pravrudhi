@@ -47,3 +47,31 @@ def test_nondeterministic_judge_still_retries(tmp_path: Path) -> None:
 def test_house_judge_is_declared_deterministic_and_never_resolves_a_compound_id() -> None:
     assert HouseJudge.deterministic is True
     assert parse_house_fact_id("established F1.2") == "F1.2"
+
+
+class _Gate1Model:
+    def score(self, *a, **k):  # type: ignore[no-untyped-def]
+        raise AssertionError("gate1 must not run on an unresolved element")
+
+
+def test_wrappers_propagate_the_flag() -> None:
+    from pravrudhi.application.nyaya_judges import AndGateJudge, Gate1Judge
+    from pravrudhi.application.typed.house_judge import TypedHouseJudge
+
+    det, non = CountingJudge("F1", True), CountingJudge("F1", False)
+    assert AndGateJudge(det, non).deterministic is True
+    assert AndGateJudge(non, det).deterministic is False
+    assert Gate1Judge(det, _Gate1Model()).deterministic is True  # type: ignore[arg-type]
+    assert Gate1Judge(non, _Gate1Model()).deterministic is False  # type: ignore[arg-type]
+    assert Gate1Judge(AndGateJudge(det, non), _Gate1Model()).deterministic is True  # type: ignore[arg-type]
+    assert TypedHouseJudge.deterministic is True
+
+
+def test_and_gate_is_not_retried_so_second_is_asked_once_not_per_retry(tmp_path: Path) -> None:
+    from pravrudhi.application.nyaya_judges import AndGateJudge
+
+    primary, second = CountingJudge("F1.2", True, "p"), CountingJudge("F1", True, "s")
+    run = _run(tmp_path, AndGateJudge(primary, second))  # type: ignore[arg-type]
+    assert primary.calls == len(ELEMENTS)
+    # the second is asked once with the primary (it runs inside judge(), before the quote check), never again on a retry
+    assert second.calls == len(ELEMENTS) and run.contracts[0].elements[0].quote_check == "unknown_fact"

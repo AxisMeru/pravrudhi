@@ -36,6 +36,7 @@ class TypedHouseJudge:
     class's."""
 
     name = "house-typed"
+    deterministic = True  # judge() always decodes at temperature 0.0
 
     def __init__(
         self,
