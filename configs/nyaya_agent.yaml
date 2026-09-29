@@ -436,6 +436,7 @@ unvalidated_contracts_documented:
 gate1:
   threshold: 0.04074102267622948
   model: "MoritzLaurer/DeBERTa-v3-base-mnli-fever-anli"
+  revision: "6f5cf0a2b59cabb106aca4c287eed12e357e90eb"
   mode: "entailment"
   tau_c: 0.321158230304718
 

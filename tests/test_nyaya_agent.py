@@ -37,6 +37,8 @@ from pravrudhi.application.nyaya_agent import (
     select_contracts,
 )
 from pravrudhi.application.nyaya_judges import (
+    GATE1_MODEL_DEFAULT,
+    GATE1_MODEL_REVISION_DEFAULT,
     GATE1_TAU_C_DEFAULT,
     GATE1_THRESHOLD_DEFAULT,
     AndGateJudge,
@@ -1824,6 +1826,15 @@ class TestConfig:
         assert gate1["threshold"] == GATE1_THRESHOLD_DEFAULT
         assert gate1["tau_c"] == GATE1_TAU_C_DEFAULT
         assert gate1["mode"] == "entailment"
+
+    def test_repo_config_gate1_model_and_revision_equal_the_code_pin(self) -> None:
+        """The yaml carries the Gate 1 model AND its commit-sha revision (constants live in configs/); the code
+        constants are the fallback. They must not drift apart: a yaml edit that changes the revision without
+        the code (or vice versa) would silently change what a deployment scores with."""
+        gate1 = load_agent_config(REPO).gate1
+        assert gate1["model"] == GATE1_MODEL_DEFAULT
+        assert gate1["revision"] == GATE1_MODEL_REVISION_DEFAULT
+        assert len(gate1["revision"]) == 40 and all(c in "0123456789abcdef" for c in gate1["revision"])
 
     def test_gate1_tau_c_and_mode_env_vars_override_a_configured_block(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
