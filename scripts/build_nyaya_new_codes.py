@@ -15,8 +15,10 @@ import time
 from pathlib import Path
 
 LICENCE = (
-    "Indian legislation (public); reproduced under Copyright Act 1957 s.52(1)(q). Text is India Code's "
-    "section_page_note with HTML stripped; otherwise verbatim (source typos such as a doubled full stop are kept)."
+    "Indian Acts (public); reproduced under Copyright Act 1957 s.52(1)(q)(ii), together with original matter "
+    "(retrieval, citation checking, provenance record). Text is India Code's section_page_note with HTML "
+    "stripped; otherwise verbatim (source typos such as a doubled full stop are kept). India Code's own terms "
+    "of use were not separately reviewed."
 )
 # code -> (file, act, act number, India Code act_id, act handle, expected section count)
 ACTS = {
