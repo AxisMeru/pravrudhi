@@ -111,7 +111,11 @@ def test_p2_bounds_are_sound_against_the_full_distribution(probs: list[float], k
 
 
 @PROFILE
-@given(top=first_token_tops(), tau=st.floats(min_value=0.05, max_value=0.95), text=st.sampled_from(["established F1", "established", "not", "Based on"]))
+@given(
+    top=first_token_tops(),
+    tau=st.floats(min_value=0.05, max_value=0.95),
+    text=st.sampled_from(["established F1", "established", "not", "Based on"]),
+)
 def test_p3_house_and_typed_judges_agree(top: dict[str, float], tau: float, text: str) -> None:
     """The #133 regression guard: same JudgeRequest, same server reply, identical outcome -- including
     identical refusals."""

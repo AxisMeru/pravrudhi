@@ -60,7 +60,9 @@ class Field:
             seen: dict[str, str] = {}
             for opt, variants in self.options.items():
                 if not variants or any((not isinstance(t, str)) or t == "" for t in variants):
-                    raise ValueError(f"{self.kind.value} field {self.name!r}: option {opt!r} needs non-empty token variants, got {variants!r}")
+                    raise ValueError(
+                        f"{self.kind.value} field {self.name!r}: option {opt!r} needs non-empty token variants, got {variants!r}"
+                    )
                 for t in variants:
                     if t in seen and seen[t] != opt:
                         raise ValueError(

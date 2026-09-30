@@ -29,6 +29,7 @@ REQ = JudgeRequest(
 )
 GOOD_TOP = {" established": -0.05, " not": -4.0}
 NAN = float("nan")
+NAN_TOPS = [{" established": NAN, " not": -1.0}, {" established": -0.05, " not": NAN}]
 
 
 def _typed(top: dict[str, float], text: str = "established F1") -> TypedHouseJudge:
@@ -124,7 +125,7 @@ def test_f4_the_shared_established_not_fields_still_construct() -> None:
 
 # -- F5: a NaN label logprob yields `established` with p = NaN ----------------------------------------------
 
-@pytest.mark.parametrize("top", [{" established": NAN, " not": -1.0}, {" established": -0.05, " not": NAN}], ids=["nan-est", "nan-not"])
+@pytest.mark.parametrize("top", NAN_TOPS, ids=["nan-est", "nan-not"])
 def test_f5_typed_judge_refuses_a_nan_label_logprob(top: dict[str, float]) -> None:
     """NaN compares False against everything, so `p < tau` and the label-mass floor both 'pass' a NaN: the
     decision falls through to `established` with p=NaN (fail-open). `CompletionResult` accepts NaN (pydantic
@@ -137,7 +138,7 @@ def test_f5_typed_judge_refuses_a_nan_label_logprob(top: dict[str, float]) -> No
     "F5b, NOT fixed on this branch (nyaya_judges.py is outside tag/night-typed scope): HouseJudge itself "
     "returns established with p=NaN for a NaN label logprob. Proposed one-line fix in the findings file. "
     "strict=True: the moment someone fixes it, this xfail turns into a failure and should be deleted."))
-@pytest.mark.parametrize("top", [{" established": NAN, " not": -1.0}, {" established": -0.05, " not": NAN}], ids=["nan-est", "nan-not"])
+@pytest.mark.parametrize("top", NAN_TOPS, ids=["nan-est", "nan-not"])
 def test_f5b_house_judge_refuses_a_nan_label_logprob(top: dict[str, float]) -> None:
     def complete(prompt: str) -> CompletionResult:
         return CompletionResult(text="established F1", model="m", top_logprobs=[top], wall_s=0.0)
@@ -153,7 +154,8 @@ def test_f6_typed_judge_refuses_a_nonsensical_label_mass_floor(bad: float) -> No
     """`mass < NaN` is always False, so a NaN floor (e.g. `NYAYA_SECOND_JUDGE_LABEL_MASS_FLOOR=nan`, which
     `float()` accepts) would disable the guard silently. Refused at construction."""
     with pytest.raises(ValueError, match="label_mass_floor"):
-        TypedHouseJudge(tau=0.74, statute_chars=600, decoder=VLLMDecoder(model="m", complete=lambda *a, **k: None), label_mass_floor=bad)
+        decoder = VLLMDecoder(model="m", complete=lambda *a, **k: None)
+        TypedHouseJudge(tau=0.74, statute_chars=600, decoder=decoder, label_mass_floor=bad)
 
 
 def test_score_decision_is_unchanged_by_the_guard_work() -> None:
