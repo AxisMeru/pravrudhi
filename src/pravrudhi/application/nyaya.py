@@ -106,7 +106,8 @@ _BARE_SECTION = re.compile(r"section\s+([0-9]+[a-z]?)")
 def named_sections(question: str) -> tuple[set[tuple[str, str]], set[str]]:
     """(act, number) pairs the question ties to an Act, and the numbers it gives with no Act ("section 302").
     Qualified mentions are blanked out first so they never fall through to the Act-blind rule (issue #132)."""
-    text, pairs = question.lower(), set()
+    text = question.lower()
+    pairs: set[tuple[str, str]] = set()
     for rx, act_i, num_i in ((_NUMBERS_THEN_ACT, 2, 1), (_ACT_THEN_NUMBER, 1, 2)):
         for m in list(rx.finditer(text)):
             act = _ACT_NAMES[m.group(act_i)]
