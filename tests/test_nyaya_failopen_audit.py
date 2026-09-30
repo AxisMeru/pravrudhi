@@ -587,6 +587,47 @@ class TestDefectH01InvalidLogprobs:
         assert not run.contracts[0].uncertain  # NaN is in no band: `low <= nan < high` is False
         assert outcome(run) == ("PROOF", "all_elements_established")
 
+    @staticmethod
+    def _served(monkeypatch: pytest.MonkeyPatch, body: str) -> HouseJudge:
+        """A HouseJudge over the REAL `ChatClient` parsing stack, with only the socket replaced by a canned body."""
+        import io
+        import urllib.request
+
+        class _Resp(io.BytesIO):
+            def __enter__(self) -> _Resp:
+                return self
+
+            def __exit__(self, *a: object) -> None:
+                return None
+
+        monkeypatch.setattr(urllib.request, "urlopen", lambda req, timeout=None: _Resp(body.encode()))
+        return HouseJudge(tau=0.74, statute_chars=600, base_url="http://127.0.0.1:1/v1", model="m")
+
+    @staticmethod
+    def _body(first_position: str) -> str:
+        return (
+            '{"model": "m", "choices": [{"text": "established F1:0:5", "finish_reason": "length", '
+            '"logprobs": {"top_logprobs": [' + first_position + "]}}]}"
+        )
+
+    def test_characterise_H01_a_NaN_literal_on_the_wire_survives_the_real_client_and_is_established(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # REACHABILITY: stdlib `json.loads` accepts the bare literals NaN / Infinity and `float()` accepts them, so a
+        # server that writes NaN (not null) reaches HouseJudge through the production client, no test double involved.
+        j = self._served(monkeypatch, self._body('{" established": NaN, " not": -0.1}'))
+        out = j.judge(JudgeRequest(CID, "el", False, "s", "n", (("F1", "fact text"),)))
+        assert out.status == "established" and math.isnan(out.p_established)
+
+    def test_H01_control_a_null_logprob_the_pydantic_default_for_NaN_fails_closed_in_the_client(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # A server that serialises NaN as null (pydantic's `ser_json_inf_nan="null"` default) is refused: `float(None)`
+        # raises TypeError inside the client, which HouseJudge re-raises as RuntimeError (an element judge error).
+        j = self._served(monkeypatch, self._body('{" established": null, " not": -0.1}'))
+        with pytest.raises(RuntimeError, match="NoneType"):
+            j.judge(JudgeRequest(CID, "el", False, "s", "n", (("F1", "fact text"),)))
+
     def test_well_formed_logprobs_are_unaffected(self) -> None:
         p, clamp = p_established_from_top_logprobs({" established": -0.05, " not": -3.2})
         assert 0.95 < p < 1.0 and clamp == "none"
