@@ -126,6 +126,8 @@ class PartnerApiConfig:
     #: diagnosing a primary/second disagreement needed a direct Python call because the HTTP response
     #: silently dropped every one of these fields).
     debug_second_judge_fields_enabled: bool = False
+    #: Seconds after which /status stops reporting the last analyse-facts judge observation and says "unknown".
+    judge_seen_ttl_s: float = 600.0
     #: Hours the hosted engine is open. Always reported by GET /api/v1/status when set; analyse-facts refuses
     #: outside it only when `service_window_enforce` is also true, so a local `pravrudhi app` install is
     #: never locked out at night by a hosted-deployment setting.
@@ -167,6 +169,7 @@ def load_partner_api_config(root: Path) -> PartnerApiConfig:
         provision_rate_limit_per_minute=int(body.get("provision_rate_limit_per_minute", 10)),
         second_judge_circuit_breaker_ttl_s=float(body.get("second_judge_circuit_breaker_ttl_s", 60.0)),
         debug_second_judge_fields_enabled=debug_second_judge_fields_enabled,
+        judge_seen_ttl_s=float(body.get("judge_seen_ttl_s", 600.0)),
     )
 
 
@@ -337,6 +340,19 @@ class ContractResultOut(BaseModel):
     assertions: dict[str, bool] | None
     lean: dict[str, Any] | None
     lean_outcome: str | None
+    #: `{binary_sha256, wire_sha256, verdict}` for the pinned Lean checker's scoring of this contract.
+    #: `binary_sha256`: SHA-256 of the pinned Lean `score` binary (same value as the top-level `score_sha256`).
+    #: `wire_sha256`: SHA-256 of the exact REG wire line sent to it (contract id + the Met assertions),
+    #: so anyone can recompute it from `assertions` and see what was scored. `verdict`: the binary's own.
+    #: Attests WHAT was scored and by WHICH binary; it does not attest the assertions are true (the judge
+    #: decided those) and the Lean check is structural, not a verification of the law. Null when no Lean call ran.
+    lean_attestation: dict[str, str] | None = Field(
+        default=None,
+        description="Per-contract attestation of the pinned Lean check: binary_sha256 (the pinned `score` "
+        "binary), wire_sha256 (SHA-256 of the exact REG wire line sent to it, recomputable from `assertions`) "
+        "and verdict. Attests what was scored and by which binary; not that the assertions are true, and the "
+        "Lean check is structural, not a verification.",
+    )
     uncertain: list[str]
     statute_text_mismatch: bool | None
 
@@ -344,7 +360,12 @@ class ContractResultOut(BaseModel):
 class AnalyseFactsResponse(BaseModel):
     run_id: str
     judge: str
-    score_sha256: str
+    #: SHA-256 of the pinned Lean `score` BINARY (not a content hash of this request or result); see each
+    #: contract's `lean_attestation` for the per-contract binding to the exact input scored.
+    score_sha256: str = Field(
+        description="SHA-256 of the pinned Lean `score` BINARY, not a content hash of the request or result. "
+        "See each contract's `lean_attestation` for the binding to the exact input scored.",
+    )
     facts: list[dict[str, str]]
     contracts: list[ContractResultOut]
     provenance: str = Field(default="agama")
@@ -553,7 +574,6 @@ def build_partner_router(
     # serverless judge would itself wake it (spend, outside the serving windows), so /status reports only
     # what real traffic last saw and says "unknown" once that is stale.
     _judge_seen: dict[str, Any] = {}
-    judge_seen_ttl_s = 600.0
 
     def _now() -> datetime:
         return clock() if clock else datetime.now(UTC)
@@ -602,7 +622,8 @@ def build_partner_router(
                 next_open_utc=w.next_open(now).isoformat(timespec="seconds"),
             )
         seen = _judge_seen.get("at")
-        fresh = seen is not None and (now - seen).total_seconds() <= judge_seen_ttl_s
+        ttl = cfg.judge_seen_ttl_s if cfg else PartnerApiConfig.judge_seen_ttl_s
+        fresh = seen is not None and (now - seen).total_seconds() <= ttl
         return ServiceStatusOut(
             engine_version=__version__,
             service_window=window,
@@ -632,7 +653,12 @@ def build_partner_router(
             "this flag or the deployment gate.",
         ),
     ) -> dict[str, Any] | JSONResponse:
-        cfg, rate_limiter, concurrency, _provision_rate_limiter, _breaker = _get_state()
+        try:
+            cfg, rate_limiter, concurrency, _provision_rate_limiter, _breaker = _get_state()
+        except FileNotFoundError:
+            # No partner_api.yaml means no rate limit, concurrency cap or service window to apply: refuse
+            # (fail closed) rather than run the agent unguarded.
+            return JSONResponse(status_code=503, content={"error": "service_config_missing"})
         closed = _window_closed(cfg)
         if closed is not None:
             return closed

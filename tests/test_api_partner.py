@@ -1013,3 +1013,68 @@ def test_status_answers_on_a_root_with_no_partner_config(tmp_path: Path) -> None
     assert body.status_code == 200
     assert body.json()["service_window"] is None
     assert body.json()["judge"]["state"] == "unknown"
+
+
+# -- Issue #141: lean_attestation, judge_seen_ttl_s in config, fail closed with no config -----------------
+
+
+def _wire_by_hand(contract_id: str, met: list[str]) -> str:
+    """Independent of `reg_wire_line`: the wire grammar written out (no reserved characters in these names)."""
+    claims = [f"G_SATISFIES(E(the conduct in the facts,AC),E({e},EL))" for e in met]
+    return "\t".join(["REG", "live", contract_id, *claims])
+
+
+def test_each_contract_carries_a_lean_attestation_a_caller_can_recompute(tmp_path: Path) -> None:
+    import hashlib
+
+    body = _client(tmp_path).post("/api/v1/analyse-facts", json=_req()).json()
+    contract = body["contracts"][0]
+    att = contract["lean_attestation"]
+    assert set(att) == {"binary_sha256", "wire_sha256", "verdict"}
+    assert att["binary_sha256"] == body["score_sha256"] == "scripted-test-registry"
+    assert att["verdict"] == contract["lean"]["verdict"] == "grounded"
+    met = [e for e, v in contract["assertions"].items() if v]
+    expected = hashlib.sha256(_wire_by_hand("bns69", met).encode("utf-8")).hexdigest()
+    assert att["wire_sha256"] == expected == reg.reg_wire_sha256(contract["assertions"], "bns69")
+
+
+def test_same_assertions_same_wire_hash_and_one_changed_assertion_changes_it() -> None:
+    a = {BNS69_EL[0]: True, BNS69_EL[1]: True, BNS69_DENY: False}
+    assert reg.reg_wire_sha256(dict(a), "bns69") == reg.reg_wire_sha256(dict(a), "bns69")
+    b = dict(a, **{BNS69_EL[1]: False})
+    assert reg.reg_wire_sha256(b, "bns69") != reg.reg_wire_sha256(a, "bns69")
+    assert reg.reg_wire_sha256(a, "bns69") != reg.reg_wire_sha256(a, "bns70")
+
+
+def test_an_all_false_assertion_set_is_still_attested_with_its_flagged_verdict(tmp_path: Path) -> None:
+    script = {BNS69_EL[0]: [_not()], BNS69_EL[1]: [_not()], BNS69_DENY: [_not()]}
+    body = _client(tmp_path, script).post("/api/v1/analyse-facts", json=_req()).json()
+    assert body["contracts"][0]["lean_attestation"]["verdict"] == "flagged"
+
+
+def test_judge_seen_ttl_is_config_not_code(tmp_path: Path) -> None:
+    assert load_partner_api_config(Path(__file__).resolve().parent.parent).judge_seen_ttl_s == 600.0
+    now = [_utc(2026, 9, 30, 12, 0)]
+    cfg = PartnerApiConfig(rate_limit_per_minute=1000, max_concurrent=100, trust_proxy_header=False,
+                           judge_seen_ttl_s=30.0)
+    agent = _agent(tmp_path, _proof_script())
+    app = FastAPI()
+    app.include_router(build_partner_router(tmp_path, agent_factory=lambda _r: agent, config=cfg, clock=lambda: now[0]))
+    c = TestClient(app)
+    assert c.post("/api/v1/analyse-facts", json=_req()).status_code == 200
+    now[0] = _utc(2026, 9, 30, 12, 0, 20)
+    assert c.get("/api/v1/status").json()["judge"]["state"] == "ready"
+    now[0] = _utc(2026, 9, 30, 12, 1, 0)
+    assert c.get("/api/v1/status").json()["judge"]["state"] == "unknown"
+
+
+def test_enforce_on_with_no_partner_config_refuses_and_never_reaches_the_agent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("PRAVRUDHI_SERVICE_WINDOW_ENFORCE", "1")
+    assert not (tmp_path / "configs" / "partner_api.yaml").exists()
+    app = FastAPI()
+    app.include_router(build_partner_router(tmp_path, agent_factory=_unreachable_factory))
+    resp = TestClient(app, raise_server_exceptions=False).post("/api/v1/analyse-facts", json=_req())
+    assert resp.status_code == 503
+    assert resp.json() == {"error": "service_config_missing"}

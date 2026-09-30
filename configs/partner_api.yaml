@@ -63,3 +63,7 @@ service_window:
   open: "09:00"
   close: "21:00"
   enforce: false
+
+# Seconds after which GET /api/v1/status stops reporting the last analyse-facts judge observation and says
+# "unknown" (the status is passive: it never probes the judge, so a stale reading is not a reading).
+judge_seen_ttl_s: 600
