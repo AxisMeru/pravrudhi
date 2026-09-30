@@ -667,7 +667,8 @@ class TestDefectH02AndGateDropsDefeaters:
         def pair(primary_denial: ElementJudgment, second_denial: ElementJudgment) -> AndGateJudge:
             primary = ByElementJudge({EL[0]: [est("F1", "kept the bicycle")], EL[1]: [est("F2", "asked twice for it back")],
                                       DENY: [primary_denial]})
-            second = ByElementJudge({EL[0]: [est("F1", "kept the bicycle", hi)], EL[1]: [est("F2", "asked twice for it back", hi)],
+            second = ByElementJudge({EL[0]: [est("F1", "kept the bicycle", hi)],
+                                     EL[1]: [est("F2", "asked twice for it back", hi)],
                                      DENY: [second_denial]})
             return AndGateJudge(primary, second, tau_primary=0.74, tau_second=0.97)
 
