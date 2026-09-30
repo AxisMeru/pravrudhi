@@ -53,3 +53,13 @@ second_judge_circuit_breaker_ttl_s: 60.0
 # (2026-09-25, Lead-2's config-C smoke: diagnosing a primary/second disagreement needed a direct Python call
 # because the HTTP response silently dropped every one of these fields).
 debug_second_judge_fields_enabled: false
+
+# Hours the hosted engine is open (the judges are parked outside them). GET /api/v1/status always reports
+# this; analyse-facts refuses with 503 outside_service_window only when `enforce` is true. The hosted
+# deployment turns enforcement on with PRAVRUDHI_SERVICE_WINDOW_ENFORCE=1; a local install leaves it off.
+# Partner hours will change, so the window lives here and nowhere in code.
+service_window:
+  timezone: Europe/London
+  open: "09:00"
+  close: "21:00"
+  enforce: false

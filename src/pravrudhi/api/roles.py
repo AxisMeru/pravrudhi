@@ -142,7 +142,7 @@ USER_FACING: frozenset[str] = frozenset({
     # see application/nyaya.py's registry_check.
     "/api/nyaya/registry/contracts", "/api/nyaya/registry/{contract_id}/elements", "/api/nyaya/registry/check",
     # L4 partner API (LEG-PLAN-2026-09-23): the agentic loop over the same registry contracts, facts in.
-    "/api/v1/analyse-facts",
+    "/api/v1/analyse-facts", "/api/v1/status",
     # L4 tenancy (application/tenancy.py): org and API-key provisioning. Not admin-only in the ADMIN_ONLY
     # sense above -- these are not surfaces about Pravrudhi improving itself, they are how a partner account
     # is set up -- so each route gates itself internally (partner.py) rather than disappearing entirely on a

@@ -53,6 +53,7 @@ import time
 from collections import OrderedDict
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -61,12 +62,14 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from starlette.responses import JSONResponse
 
+from pravrudhi import __version__
 from pravrudhi.api.identity import CurrentUserDep, User
 from pravrudhi.application import nyaya_lean_registry as reg
 from pravrudhi.application import tenancy
 from pravrudhi.application.config_files import config_file
 from pravrudhi.application.nyaya_agent import RETENTION_NOTICE, BinaryShaMismatch, JudgeMisconfigured, NyayaAgent
 from pravrudhi.application.nyaya_judges import SecondJudgeCircuitBreaker
+from pravrudhi.application.service_window import ServiceWindow
 
 CONFIG_PATH = Path("configs") / "partner_api.yaml"
 
@@ -103,6 +106,11 @@ class PartnerApiConfig:
     #: diagnosing a primary/second disagreement needed a direct Python call because the HTTP response
     #: silently dropped every one of these fields).
     debug_second_judge_fields_enabled: bool = False
+    #: Hours the hosted engine is open. Always reported by GET /api/v1/status when set; analyse-facts refuses
+    #: outside it only when `service_window_enforce` is also true, so a local `pravrudhi app` install is
+    #: never locked out at night by a hosted-deployment setting.
+    service_window: ServiceWindow | None = None
+    service_window_enforce: bool = False
 
     def __post_init__(self) -> None:
         if self.trust_proxy_header and not self.trusted_proxies:
@@ -123,7 +131,14 @@ def load_partner_api_config(root: Path) -> PartnerApiConfig:
     debug_second_judge_fields_enabled = (
         debug_env in ("1", "true", "yes") if debug_env else bool(body.get("debug_second_judge_fields_enabled", False))
     )
+    window_body = body.get("service_window")
+    enforce_env = os.environ.get("PRAVRUDHI_SERVICE_WINDOW_ENFORCE", "").strip().lower()
+    enforce = (
+        enforce_env in ("1", "true", "yes") if enforce_env else bool((window_body or {}).get("enforce", False))
+    )
     return PartnerApiConfig(
+        service_window=ServiceWindow.from_config(window_body) if window_body else None,
+        service_window_enforce=enforce,
         rate_limit_per_minute=int(body["rate_limit_per_minute"]),
         max_concurrent=int(body["max_concurrent"]),
         trust_proxy_header=bool(body["trust_proxy_header"]),
@@ -443,7 +458,11 @@ def _client_ip(request: Request, *, trust_proxy_header: bool, trusted_proxies: t
 
 
 def build_partner_router(
-    root: Path, *, agent_factory: AgentFactory | None = None, config: PartnerApiConfig | None = None
+    root: Path,
+    *,
+    agent_factory: AgentFactory | None = None,
+    config: PartnerApiConfig | None = None,
+    clock: Callable[[], datetime] | None = None,
 ) -> APIRouter:
     """`agent_factory` is injectable (mirrors `nyaya.py`'s `ask_fn` pattern): production leaves it `None` and
     gets the configured house agent (`NyayaAgent.house`, real vLLM judge + real pinned Lean binary); tests
@@ -510,8 +529,63 @@ def build_partner_router(
         )
 
     _key_rate_limiter = tenancy.KeyRateLimiter()
+    # Passive judge observation: the last analyse-facts result, never a probe. A probe of a scaled-to-zero
+    # serverless judge would itself wake it (spend, outside the serving windows), so /status reports only
+    # what real traffic last saw and says "unknown" once that is stale.
+    _judge_seen: dict[str, Any] = {}
+    judge_seen_ttl_s = 600.0
+
+    def _now() -> datetime:
+        return clock() if clock else datetime.now(UTC)
+
+    def _window_closed(cfg: PartnerApiConfig) -> JSONResponse | None:
+        w = cfg.service_window
+        if w is None or not cfg.service_window_enforce:
+            return None
+        now = _now()
+        if w.is_open(now):
+            return None
+        return JSONResponse(
+            status_code=503,
+            content={
+                "error": "outside_service_window",
+                "window": {
+                    "timezone": w.tz,
+                    "open": w.open.isoformat(timespec="minutes"),
+                    "close": w.close.isoformat(timespec="minutes"),
+                },
+                "next_open_utc": w.next_open(now).isoformat(timespec="seconds"),
+            },
+            headers={"Retry-After": str(w.retry_after_seconds(now))},
+        )
 
     router = APIRouter(prefix="/api/v1")
+
+    @router.get("/status")
+    def status_ep() -> dict[str, Any]:
+        cfg = _get_state()[0]
+        now = _now()
+        w = cfg.service_window
+        window: dict[str, Any] | None = None
+        if w is not None:
+            window = {
+                "timezone": w.tz,
+                "open": w.open.isoformat(timespec="minutes"),
+                "close": w.close.isoformat(timespec="minutes"),
+                "enforced": cfg.service_window_enforce,
+                "open_now": w.is_open(now),
+                "next_open_utc": w.next_open(now).isoformat(timespec="seconds"),
+            }
+        seen = _judge_seen.get("at")
+        fresh = seen is not None and (now - seen).total_seconds() <= judge_seen_ttl_s
+        return {
+            "engine_version": __version__,
+            "service_window": window,
+            "judge": {
+                "state": _judge_seen["state"] if fresh else "unknown",
+                "checked_at": seen.isoformat(timespec="seconds") if (fresh and seen) else None,
+            },
+        }
 
     # exclude_unset=True: the debug fields are POPPED from each element dict (never set) when the gate is
     # off, and must actually disappear from the JSON, not reappear as their Pydantic default (None) --
@@ -534,6 +608,9 @@ def build_partner_router(
         ),
     ) -> dict[str, Any] | JSONResponse:
         cfg, rate_limiter, concurrency, _provision_rate_limiter, _breaker = _get_state()
+        closed = _window_closed(cfg)
+        if closed is not None:
+            return closed
         # QUEUE.md 2026-09-27: per-leg second-judge scores are visible to an AUTHENTICATED caller -- a
         # verified Supabase session (`user`) or a valid org API key -- never to an anonymous one, even on a
         # deployment that answers analyse-facts anonymously (`PRAVRUDHI_DEMO_ANON_PATHS`). `principal_from_
@@ -591,7 +668,9 @@ def build_partner_router(
         # touched here, and REFER_TO_LAWYER outcomes are never affected. Mid-run transient blips that the
         # retry loop successfully rode out never reach this reason either; only exhausted retries do.
         if any(c.reason == "judge_error" for c in result.contracts):
+            _judge_seen.update(state="unavailable", at=_now())
             return JSONResponse(status_code=503, content={"error": "judge_unavailable"})
+        _judge_seen.update(state="ready", at=_now())
         body: dict[str, Any] = result.to_dict()
         body.pop("audit_path", None)
         show_second_judge_fields = authenticated or (debug_second_judge and cfg.debug_second_judge_fields_enabled)

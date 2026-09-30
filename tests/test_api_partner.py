@@ -901,3 +901,104 @@ class TestDebugSecondJudgeFieldsConfigLoading:
             assert load_partner_api_config(tmp_path).debug_second_judge_fields_enabled is True
         monkeypatch.setenv("NYAYA_DEBUG_SECOND_JUDGE_FIELDS", "0")
         assert load_partner_api_config(tmp_path).debug_second_judge_fields_enabled is False
+
+
+# --- service window and /status ---------------------------------------------------------------------------
+
+from datetime import UTC, datetime  # noqa: E402
+
+from pravrudhi.application.service_window import ServiceWindow  # noqa: E402
+
+_LONDON = ServiceWindow.from_config({"timezone": "Europe/London", "open": "09:00", "close": "21:00"})
+
+
+def _window_client(tmp_path: Path, now: datetime, *, enforce: bool = True) -> TestClient:
+    cfg = PartnerApiConfig(
+        rate_limit_per_minute=1000, max_concurrent=100, trust_proxy_header=False,
+        service_window=_LONDON, service_window_enforce=enforce,
+    )
+    agent = _agent(tmp_path, _proof_script())
+    app = FastAPI()
+    app.include_router(
+        build_partner_router(tmp_path, agent_factory=lambda _r: agent, config=cfg, clock=lambda: now)
+    )
+    return TestClient(app)
+
+
+def _utc(*a: int) -> datetime:
+    return datetime(*a, tzinfo=UTC)
+
+
+def test_status_reports_open_and_next_open(tmp_path: Path) -> None:
+    body = _window_client(tmp_path, _utc(2026, 9, 30, 12, 0)).get("/api/v1/status").json()  # 13:00 BST
+    w = body["service_window"]
+    assert w["open_now"] is True and w["enforced"] is True and w["timezone"] == "Europe/London"
+    assert body["judge"] == {"state": "unknown", "checked_at": None} and body["engine_version"]
+
+
+def test_status_after_close_names_the_next_opening(tmp_path: Path) -> None:
+    w = _window_client(tmp_path, _utc(2026, 9, 30, 21, 30)).get("/api/v1/status").json()["service_window"]  # 22:30 BST
+    assert w["open_now"] is False and w["next_open_utc"] == "2026-10-01T08:00:00+00:00"  # 09:00 BST
+
+
+def test_analyse_facts_outside_the_window_is_an_immediate_503_naming_it(tmp_path: Path) -> None:
+    r = _window_client(tmp_path, _utc(2026, 9, 30, 23, 0)).post("/api/v1/analyse-facts", json=_req())  # 00:00 BST
+    assert r.status_code == 503
+    assert r.json()["error"] == "outside_service_window"
+    assert r.json()["next_open_utc"] == "2026-10-01T08:00:00+00:00"
+    assert r.json()["window"] == {"timezone": "Europe/London", "open": "09:00", "close": "21:00"}
+    assert int(r.headers["Retry-After"]) == 9 * 3600
+
+
+def test_analyse_facts_inside_the_window_runs(tmp_path: Path) -> None:
+    r = _window_client(tmp_path, _utc(2026, 9, 30, 19, 15)).post("/api/v1/analyse-facts", json=_req())  # 20:15 BST
+    assert r.status_code == 200
+
+
+def test_the_window_edges_open_is_inclusive_close_is_exclusive() -> None:
+    assert _LONDON.is_open(_utc(2026, 9, 30, 8, 0)) is True  # 09:00 BST
+    assert _LONDON.is_open(_utc(2026, 9, 30, 7, 59)) is False
+    assert _LONDON.is_open(_utc(2026, 9, 30, 19, 59)) is True
+    assert _LONDON.is_open(_utc(2026, 9, 30, 20, 0)) is False  # 21:00 BST
+
+
+def test_next_open_follows_the_wall_clock_across_a_dst_change() -> None:
+    # 2026-10-25 01:00 UTC is the end of BST; 09:00 London that day is 09:00 UTC, not 08:00.
+    assert _LONDON.next_open(_utc(2026, 10, 25, 3, 0)).isoformat() == "2026-10-25T09:00:00+00:00"
+
+
+def test_window_that_wraps_midnight() -> None:
+    w = ServiceWindow.from_config({"timezone": "UTC", "open": "22:00", "close": "02:00"})
+    assert w.is_open(_utc(2026, 9, 30, 23, 0)) and w.is_open(_utc(2026, 10, 1, 1, 0))
+    assert not w.is_open(_utc(2026, 10, 1, 3, 0))
+    assert w.next_open(_utc(2026, 10, 1, 3, 0)).isoformat() == "2026-10-01T22:00:00+00:00"
+
+
+def test_a_window_configured_but_not_enforced_reports_yet_never_refuses(tmp_path: Path) -> None:
+    c = _window_client(tmp_path, _utc(2026, 9, 30, 23, 0), enforce=False)
+    assert c.get("/api/v1/status").json()["service_window"]["enforced"] is False
+    assert c.post("/api/v1/analyse-facts", json=_req()).status_code == 200
+
+
+def test_status_reports_the_judge_last_seen_by_real_traffic_and_never_probes(tmp_path: Path) -> None:
+    c = _window_client(tmp_path, _utc(2026, 9, 30, 12, 0))
+    assert c.post("/api/v1/analyse-facts", json=_req()).status_code == 200
+    assert c.get("/api/v1/status").json()["judge"]["state"] == "ready"
+
+
+def test_no_window_configured_means_status_says_null_and_analyse_is_unchanged(tmp_path: Path) -> None:
+    c = _client(tmp_path)
+    assert c.get("/api/v1/status").json()["service_window"] is None
+    assert c.post("/api/v1/analyse-facts", json=_req()).status_code == 200
+
+
+def test_the_shipped_config_defines_the_hosted_window_but_does_not_enforce_it_by_default() -> None:
+    cfg = load_partner_api_config(Path(__file__).resolve().parent.parent)
+    assert cfg.service_window is not None and cfg.service_window.tz == "Europe/London"
+    assert (cfg.service_window.open.hour, cfg.service_window.close.hour) == (9, 21)
+    assert cfg.service_window_enforce is False
+
+
+def test_env_turns_enforcement_on(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PRAVRUDHI_SERVICE_WINDOW_ENFORCE", "1")
+    assert load_partner_api_config(Path(__file__).resolve().parent.parent).service_window_enforce is True
