@@ -30,6 +30,7 @@ import hashlib
 import json
 import math
 import re
+import subprocess
 import uuid
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
@@ -569,6 +570,24 @@ def registry_contract_ids() -> list[str]:
     `checker="lean"` uses) -- disjoint id spaces, disjoint input shapes; see `nyaya_lean_registry`'s
     own module doc for why."""
     return sorted(nyaya_lean_registry.KNOWN_CONTRACT_IDS)
+
+
+def registry_contract_entries(root: Path) -> list[dict[str, Any]]:
+    """`registry_contract_ids()` with, per id, `validated` (in the scorer's own `validated_contracts`
+    allowlist: only these can return PROOF/DENIAL, every other id is REFER `contract_not_validated`) and
+    `sources` (the statute act/section the binary's `--list-contracts` cites; None when the binary is not
+    available here). Read from the same config the scorer uses, so the listing cannot drift from behaviour."""
+    from pravrudhi.application.nyaya_agent import validated_contract_ids
+
+    validated = validated_contract_ids(root)
+    try:
+        sources: dict[str, list[str]] | None = nyaya_lean_registry.list_contracts(root=root)
+    except (OSError, RuntimeError, subprocess.SubprocessError):
+        sources = None
+    return [
+        {"id": cid, "validated": cid in validated, "sources": sources.get(cid) if sources is not None else None}
+        for cid in registry_contract_ids()
+    ]
 
 
 def registry_elements(root: Path, contract_id: str) -> list[str]:
