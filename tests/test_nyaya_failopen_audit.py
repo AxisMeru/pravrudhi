@@ -646,12 +646,37 @@ class TestDefectH02AndGateDropsDefeaters:
                                  DENY: [second_denial]})
         return AndGateJudge(primary, second, tau_primary=0.74, tau_second=0.97)
 
+    # PLANTED TEST FOR WEB'S FIX (AxisMeru/pravrudhi #152). The accepted direction (lead, 2026-09-30): a second-judge
+    # disagreement on a defeater means REFER_TO_LAWYER. This test expresses exactly that and is strict-xfail today, so
+    # it goes green (XPASS -> hard failure -> remove the marker) when Web's fix lands. The reason string is left open
+    # on purpose. This branch does NOT change production behaviour; `src/` is untouched.
     @pytest.mark.xfail(
-        strict=True, reason="DEFECT H-02: a defeater the primary established but the second did not is dropped -> PROOF",
+        strict=True, reason="DEFECT H-02 (#152): a defeater the primary established but the second did not is dropped -> PROOF",
     )
-    def test_DEFECT_H02_split_verdict_on_a_denial_must_not_prove(self, tmp_path: Path) -> None:
-        run = run_agent(tmp_path, self._judge(ElementJudgment("not_established", 0.60)))
-        assert outcome(run)[0] != "PROOF"
+    @pytest.mark.parametrize("second_p", [0.60, 0.30, 0.05])
+    def test_DEFECT_H02_planted_for_web_a_defeater_disagreement_must_refer(self, tmp_path: Path, second_p: float) -> None:
+        run = run_agent(tmp_path, self._judge(ElementJudgment("not_established", second_p), 0.999999))
+        assert outcome(run)[0] == "REFER_TO_LAWYER"
+        # the defeater's record must still show that the primary established it and the second did not
+        den = run.contracts[0].elements[2]
+        assert den.is_denial and den.p_established == 0.95
+
+    def test_H02_controls_for_the_planted_test_unanimous_defeater_calls_keep_their_outcomes(self, tmp_path: Path) -> None:
+        hi = 0.999999
+
+        def pair(primary_denial: ElementJudgment, second_denial: ElementJudgment) -> AndGateJudge:
+            primary = ByElementJudge({EL[0]: [est("F1", "kept the bicycle")], EL[1]: [est("F2", "asked twice for it back")],
+                                      DENY: [primary_denial]})
+            second = ByElementJudge({EL[0]: [est("F1", "kept the bicycle", hi)], EL[1]: [est("F2", "asked twice for it back", hi)],
+                                     DENY: [second_denial]})
+            return AndGateJudge(primary, second, tau_primary=0.74, tau_second=0.97)
+
+        found = est("F2", "was refused", hi)
+        # both found it: still a DENIAL
+        assert outcome(run_agent(tmp_path, pair(est("F2", "was refused", 0.95), found))) == ("DENIAL", "denial_established")
+        # primary says no: the second is never asked (cost saving), so there is no disagreement to detect and no REFER.
+        # Observation for Web: the converse split (primary no, second would say yes) is invisible by construction.
+        assert outcome(run_agent(tmp_path, pair(not_est(), found))) == ("PROOF", "all_elements_established")
 
     def test_characterise_H02_current_outcome_is_proof_and_the_defeater_is_not_on_the_wire(self, tmp_path: Path) -> None:
         r = registry()
