@@ -55,4 +55,4 @@ named test file onto a checkout of `b9f0435` and run it there.
 - Body: `mass < nan` is always False; `NYAYA_SECOND_JUDGE_LABEL_MASS_FLOOR=nan` parses via `float()`. Typed judge now
   refuses a floor outside [0, 1]; `HouseJudge.__init__` has the same hole (no repro test for it, so only the typed side is graded).
 - Repro: `... pytest tests/test_typed_night_defects.py -k f6`
-- Proposed fix: `ValueError` unless `0 <= floor <= 1` (branch `6314f36`); same check for `HouseJudge.__init__` and the env override.
+- Proposed fix: `ValueError` unless `0 <= floor <= 1` (branch `f60e290`); same check for `HouseJudge.__init__` and the env override.
