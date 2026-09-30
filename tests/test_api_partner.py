@@ -1002,3 +1002,14 @@ def test_the_shipped_config_defines_the_hosted_window_but_does_not_enforce_it_by
 def test_env_turns_enforcement_on(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("PRAVRUDHI_SERVICE_WINDOW_ENFORCE", "1")
     assert load_partner_api_config(Path(__file__).resolve().parent.parent).service_window_enforce is True
+
+
+def test_status_answers_on_a_root_with_no_partner_config(tmp_path: Path) -> None:
+    from fastapi.testclient import TestClient
+
+    from pravrudhi.api.server import create_app
+
+    body = TestClient(create_app(tmp_path), base_url="http://127.0.0.1:8008").get("/api/v1/status")
+    assert body.status_code == 200
+    assert body.json()["service_window"] is None
+    assert body.json()["judge"]["state"] == "unknown"

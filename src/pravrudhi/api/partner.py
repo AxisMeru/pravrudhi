@@ -55,7 +55,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
 import yaml
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -72,6 +72,26 @@ from pravrudhi.application.nyaya_judges import SecondJudgeCircuitBreaker
 from pravrudhi.application.service_window import ServiceWindow
 
 CONFIG_PATH = Path("configs") / "partner_api.yaml"
+
+
+class ServiceWindowOut(BaseModel):
+    timezone: str
+    open: str
+    close: str
+    enforced: bool
+    open_now: bool
+    next_open_utc: str
+
+
+class JudgeStateOut(BaseModel):
+    state: Literal["ready", "unavailable", "unknown"]
+    checked_at: str | None
+
+
+class ServiceStatusOut(BaseModel):
+    engine_version: str
+    service_window: ServiceWindowOut | None
+    judge: JudgeStateOut
 
 
 @dataclass(frozen=True)
@@ -561,31 +581,36 @@ def build_partner_router(
 
     router = APIRouter(prefix="/api/v1")
 
-    @router.get("/status")
-    def status_ep() -> dict[str, Any]:
-        cfg = _get_state()[0]
+    @router.get("/status", response_model=ServiceStatusOut)
+    def status_ep() -> ServiceStatusOut:
+        # The one endpoint that must answer on a fresh install: a root with no partner_api.yaml has no
+        # window to report (null), it is not a server error.
+        try:
+            cfg: PartnerApiConfig | None = _get_state()[0]
+        except FileNotFoundError:
+            cfg = None
         now = _now()
-        w = cfg.service_window
-        window: dict[str, Any] | None = None
-        if w is not None:
-            window = {
-                "timezone": w.tz,
-                "open": w.open.isoformat(timespec="minutes"),
-                "close": w.close.isoformat(timespec="minutes"),
-                "enforced": cfg.service_window_enforce,
-                "open_now": w.is_open(now),
-                "next_open_utc": w.next_open(now).isoformat(timespec="seconds"),
-            }
+        w = cfg.service_window if cfg else None
+        window: ServiceWindowOut | None = None
+        if cfg is not None and w is not None:
+            window = ServiceWindowOut(
+                timezone=w.tz,
+                open=w.open.isoformat(timespec="minutes"),
+                close=w.close.isoformat(timespec="minutes"),
+                enforced=cfg.service_window_enforce,
+                open_now=w.is_open(now),
+                next_open_utc=w.next_open(now).isoformat(timespec="seconds"),
+            )
         seen = _judge_seen.get("at")
         fresh = seen is not None and (now - seen).total_seconds() <= judge_seen_ttl_s
-        return {
-            "engine_version": __version__,
-            "service_window": window,
-            "judge": {
-                "state": _judge_seen["state"] if fresh else "unknown",
-                "checked_at": seen.isoformat(timespec="seconds") if (fresh and seen) else None,
-            },
-        }
+        return ServiceStatusOut(
+            engine_version=__version__,
+            service_window=window,
+            judge=JudgeStateOut(
+                state=_judge_seen["state"] if fresh else "unknown",
+                checked_at=seen.isoformat(timespec="seconds") if (fresh and seen) else None,
+            ),
+        )
 
     # exclude_unset=True: the debug fields are POPPED from each element dict (never set) when the gate is
     # off, and must actually disappear from the JSON, not reappear as their Pydantic default (None) --
