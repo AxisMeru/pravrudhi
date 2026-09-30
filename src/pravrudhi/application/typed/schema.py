@@ -54,6 +54,19 @@ class Field:
                 raise ValueError(f"{self.kind.value} field {self.name!r} needs options")
             if len(self.options) < 2:
                 raise ValueError(f"{self.kind.value} field {self.name!r} needs at least two options, got {list(self.options)}")
+            # An option with no token variant can never be observed (it would always read as "missing", i.e. a
+            # bound instead of a score), and a token listed under two options would be counted for both, so the
+            # softmax would split mass the model never split. Both are refused at construction.
+            seen: dict[str, str] = {}
+            for opt, variants in self.options.items():
+                if not variants or any((not isinstance(t, str)) or t == "" for t in variants):
+                    raise ValueError(f"{self.kind.value} field {self.name!r}: option {opt!r} needs non-empty token variants, got {variants!r}")
+                for t in variants:
+                    if t in seen and seen[t] != opt:
+                        raise ValueError(
+                            f"{self.kind.value} field {self.name!r}: token {t!r} is listed under both {seen[t]!r} and {opt!r}"
+                        )
+                    seen[t] = opt
         if self.kind == FieldKind.ID_REF:
             if not self.candidates:
                 raise ValueError(f"id_ref field {self.name!r} needs candidates")
