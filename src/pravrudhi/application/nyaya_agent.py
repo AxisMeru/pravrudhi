@@ -859,6 +859,7 @@ def _build_house_judge(hj_cfg: Mapping[str, Any], *, tau: float, typed: bool, ap
             timeout_s=int(hj_cfg.get("timeout_s", 60)),
             api_key=api_key,
             fallback_urls=hj_cfg.get("base_urls_fallback") or [],
+            enforce_served_model=bool(hj_cfg.get("enforce_served_model", False)),
         )
         return TypedHouseJudge(
             tau=tau,
@@ -866,6 +867,8 @@ def _build_house_judge(hj_cfg: Mapping[str, Any], *, tau: float, typed: bool, ap
             decoder=decoder,
             max_tokens=int(hj_cfg.get("max_tokens", 30)),
             top_logprobs=int(hj_cfg.get("top_logprobs", 20)),
+            # Bare subscript, no default -- same as HouseJudge.from_config (#133).
+            label_mass_floor=float(hj_cfg["label_mass_floor"]),
         )
     from pravrudhi.application.nyaya_judges import HouseJudge
 

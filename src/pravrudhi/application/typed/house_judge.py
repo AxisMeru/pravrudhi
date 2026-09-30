@@ -14,7 +14,10 @@ GPU-level check against the 279-prompt calibration/heldout set that is T1's real
 
 from __future__ import annotations
 
+import math
+
 from pravrudhi.application.nyaya_judges import (
+    LABEL_MASS_FLOOR,
     ClampKind,
     ElementJudgment,
     JudgeOutputError,
@@ -22,7 +25,7 @@ from pravrudhi.application.nyaya_judges import (
     build_house_prompt,
     parse_house_fact_id,
 )
-from pravrudhi.application.typed.decoder import DecodeError, TypedDecoder, score_decision
+from pravrudhi.application.typed.decoder import DecodeError, TypedDecoder, check_label_mass, score_decision
 from pravrudhi.application.typed.schema import bool_field
 
 #: The exact same two options and token surface-form variants nyaya_judges._EST_TOKENS/_NOT_TOKENS use.
@@ -46,7 +49,13 @@ class TypedHouseJudge:
         decoder: TypedDecoder,
         max_tokens: int = 30,
         top_logprobs: int = 20,
+        label_mass_floor: float = LABEL_MASS_FLOOR,
     ) -> None:
+        # Same safety floor HouseJudge takes (#133). Refuse a nonsensical one (NaN / outside [0, 1]): a NaN
+        # floor makes `mass < floor` False for every input, i.e. silently disables the guard.
+        if not (isinstance(label_mass_floor, (int, float)) and 0.0 <= label_mass_floor <= 1.0) or math.isnan(label_mass_floor):
+            raise ValueError(f"label_mass_floor must be a number in [0, 1], got {label_mass_floor!r}")
+        self.label_mass_floor = float(label_mass_floor)
         self.tau = tau
         self.statute_chars = statute_chars
         self.decoder = decoder
@@ -61,6 +70,12 @@ class TypedHouseJudge:
         except DecodeError as e:
             # Same failure class HouseJudge itself raises for the same condition (no evidence either way) --
             # a caller that catches JudgeOutputError around either judge sees the same behaviour.
+            raise JudgeOutputError(str(e)) from e
+        # Label-mass guard (#133): the same two refusals HouseJudge's p_established_from_top_logprobs makes
+        # (top-1 not a label token; label mass below the floor), raised as the same JudgeOutputError.
+        try:
+            check_label_mass(res.top_logprobs[0], _STATUS_FIELD, label_mass_floor=self.label_mass_floor)
+        except DecodeError as e:
             raise JudgeOutputError(str(e)) from e
         p = scores["true"]
         # Conservative decision rule (2026-09-28, G-28), mirroring HouseJudge.judge exactly: "false"
