@@ -44,7 +44,7 @@ def test_a_question_outside_the_shipped_corpus_retrieves_nothing_rather_than_noi
     nonzero score on common words). `MIN_RELEVANCE_SCORE` must cut that noise: a genuinely uncovered question
     retrieves nothing, so a caller gets an honest empty result instead of citations that only look plausible."""
     c = nyaya.load_corpus()
-    assert c.retrieve("What is the applicable statute for bns69?", k=8) == []
+    assert c.retrieve("What is the applicable statute for the flight of migratory birds?", k=8) == []
 
 
 def test_min_relevance_score_is_config_driven(tmp_path: Path) -> None:
@@ -185,7 +185,7 @@ def test_ask_on_an_out_of_corpus_question_shows_the_vendor_no_sources_honestly(t
         text = "I do not know: the provided sources do not cover this."
         return panel.Answer(v.id, v.interface, v.model, "", text, 0.1, None, None)
 
-    rec = nyaya.ask(tmp_path, "What is the applicable statute for bns69?", ("claude-cli",), ask_fn=fn)
+    rec = nyaya.ask(tmp_path, "What is the applicable statute for the flight of migratory birds?", ("claude-cli",), ask_fn=fn)
     assert rec.sources == []
     assert "(no source matched the question)" in seen_prompt["prompt"]
     assert rec.answers[0].verdict == "abstained"
