@@ -4,7 +4,7 @@
 repo's sense (constructed inputs only, scripted judges, no served model, no real `score` binary).
 
 - Branch: `tag/night-harness-failopen` (base `origin/main` @ `b9f0435`). Tests and numbers below were measured at
-  tip `7d0ed03` (tests only; `src/` untouched; later commits on the branch are a test rename, comment wording and these two documents, no logic change); this file was committed after it (see `git log` for the final tip). Nothing merged, nothing pushed to main.
+  tip `c870cf2` (tests only; `src/` untouched; later commits on the branch are a test rename, comment wording and these two documents, no logic change); this file was committed after it (see `git log` for the final tip). Nothing merged, nothing pushed to main.
 - Scope: priority (3) of the operator's night brief. Constructed inputs only; no sealed material, no T3-T9 text,
   no kernel (`pravrudhi_kernel`) edit, no paid API, no `claude -p`, no RunPod, no judge or production traffic.
   `src/` is untouched: every defect has a committed reproducing test and a PROPOSED fix in this file, nothing more.
@@ -37,7 +37,7 @@ runnable test reproduces it (operator rule); anything without one is listed unde
 | low | 8 | H-03, H-06, H-08, H-10, H-11, H-12, H-14, H-15 |
 
 15 defects, 43 strict-xfail reproductions (`tests/test_nyaya_failopen_audit.py` 36, `tests/test_nyaya_quote_adversarial.py` 7,
-both @ `7d0ed03`). Suite at `7d0ed03`: `pytest tests/test_nyaya_failopen_audit.py tests/test_nyaya_quote_adversarial.py`
+both @ `c870cf2`). Suite at `c870cf2`: `pytest tests/test_nyaya_failopen_audit.py tests/test_nyaya_quote_adversarial.py`
 gives 183 passed, 43 xfailed; with `--runxfail` the same 43 fail and the 183 still pass. `pytest tests -k "nyaya or partner"`
 gives 832 passed, 137 skipped, 47 xfailed (4 xfails pre-existing), nothing newly red. Ruff is clean on both new files.
 
@@ -53,7 +53,7 @@ Run: `PYTHONPATH=src:pravrudhi_kernel/src python -m pytest tests/test_nyaya_fail
 
 **On appearance: no.** `locate_quote` (`nyaya_quote.py:41`) is exact `str.find` on Python code points. There is no
 normalisation on either side, so there is no asymmetry. Verified by construction and by test
-(`tests/test_nyaya_quote_adversarial.py` @ `7d0ed03`):
+(`tests/test_nyaya_quote_adversarial.py` @ `c870cf2`):
 
 - Normalisation symmetry, BOTH directions (operator rule), 12 transforms (NFC, NFD, NFKC, NFKD, casefold, upper, zero-width
   strip, whitespace collapse, Cyrillic homoglyphs, fullwidth, mid-string ZWSP, NBSP-for-space): `TestNormalisationSymmetry`.
@@ -161,7 +161,7 @@ Each entry: severity, location, reproducing test, proposed fix (PROPOSAL, not ap
 ### H-02 (high): the AND-gate drops a defeater the primary judge found, and the contract PROVES
 - **Status: CONFIRMED by the lead, filed as AxisMeru/pravrudhi #152 (P0).** The lead read the
   same code, agrees there is no `is_denial` branch, and says a defeater being vetoed into a PROOF is not the intent. Repro credited
-  to this branch at `c9bddb5`.
+  to this branch at `7515604`.
 - **We did not change production behaviour.** `src/` is untouched on this branch. The fix is owned elsewhere. The test below is the PLANTED
   TEST FOR WEB'S FIX: it is `xfail(strict=True)` and expresses the intended behaviour, so it turns into a hard failure (XPASS)
   when the fix lands, which is the signal to remove the marker.
@@ -173,7 +173,7 @@ Each entry: severity, location, reproducing test, proposed fix (PROPOSAL, not ap
   contract returns `PROOF` / `all_elements_established`. For required elements the AND is conservative (a veto means
   ABSTAIN). For defeaters the polarity is inverted: a veto REMOVES a refutation.
 - Why no referral catches it (proved, not asserted; the lead asked for this), all in
-  `test_H02_the_denial_unquotable_referral_does_not_fire_because_claimed_is_the_anded_verdict` and its neighbours @ `7d0ed03`:
+  `test_H02_the_denial_unquotable_referral_does_not_fire_because_claimed_is_the_anded_verdict` and its neighbours @ `c870cf2`:
   - `denial_unquotable` (`:1384`, `r.is_denial and r.claimed and r.status != "established"`): needs `claimed` True; it is
     False. The test asserts `claimed is False`, `status == "not_confirmed"`, `binding_leg == "second"`, `reason ==
     "all_elements_established"` and `reason != "denial_unquotable"`.
