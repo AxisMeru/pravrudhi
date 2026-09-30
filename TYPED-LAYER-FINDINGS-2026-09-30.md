@@ -24,7 +24,8 @@ hold at least `label_mass_floor` of the probability mass. A prose completion ("B
 `HouseJudge` refuses the same reply with `JudgeOutputError`. Latent, not live: `typed_layer` defaults to
 `False` and no shipped config (`configs/`, `deploy/`, `docker/`) turns it on, so no blocker.
 
-Severity counts (Tag's grading): **blocker 0, high 1, medium 3, low 3** (7 defects, F1 to F6 plus F5b).
+Severity counts (Tag's grading): **blocker 0, high 1, medium 3, low 3** (7 defects, F1 to F6 plus F5b). For filing, F5b is handled as H-01 (harness
+workstream), so `DRAFT-ISSUES-TYPED.md` carries 6 issues: high 1, medium 2, low 3.
 
 ## How #133 was reproduced
 
@@ -89,6 +90,9 @@ branch: all pass, the 2 xfails are F5b and are expected).
   server reply, hence medium. Fix on branch: `check_label_mass` refuses a non-finite or NaN mass.
 
 ### F5b (medium): the same NaN fail-open exists in `HouseJudge` itself (NOT fixed here)
+- **Also found by the harness workstream as H-01, which owns the fix.** Removed from `DRAFT-ISSUES-TYPED.md` so it is
+  not filed twice at the 09:05 standup. The F5b test and the one-line proposed fix below stay here as independent
+  corroboration only; H-01 is the issue of record.
 - Test: `test_f5b_house_judge_refuses_a_nan_label_logprob`, `xfail(strict=True)` (documents the defect; turns
   into a failure the moment it is fixed, so it cannot rot).
 - `nyaya_judges.py` is outside `tag/night-typed-*` scope, so no edit. Proposed one-liner for the harness owner,
@@ -118,9 +122,20 @@ File: `tests/test_typed_properties_night.py` @ `8b60b2d`. Result: **6 passed** o
 | P5 | lowering `tau` never turns `established` into `not_established` | pass |
 | P6 | `validate_id_ref` is exact membership over unicode candidates, never a nearest match | pass |
 
-Whole suite on this branch at `8b60b2d` (before the docs commit): `python -m pytest tests -q` gives
-**3786 passed, 147 skipped, 6 xfailed** (4 xfailed pre-existing + F5b's 2). Not run on `b9f0435` as a baseline, so
-"no regression" is Tag's claim, pending verification. `ruff check` on the changed files: clean.
+Whole-suite comparison, same command on both (`python -m pytest tests -q -p no:cacheprovider`, Python 3.13 venv,
+base run from a separate `git worktree` of `b9f0435` with `PYTHONPATH` pointing at that worktree's `src`; confirmed
+the worktree's `pravrudhi.__file__` was loaded):
+
+| Tree | Commit | Result |
+|---|---|---|
+| base (`main`) | `b9f0435` | **3758 passed, 147 skipped, 4 xfailed, 0 failed** (142 s) |
+| this branch | `8b60b2d` (code and tests; later commits are docs only) | **3786 passed, 147 skipped, 6 xfailed, 0 failed** (164 s) |
+
+Difference: +28 passed = the 28 non-xfail tests this branch adds (5 in `test_typed_label_mass_floor_133.py`,
+17 in `test_typed_night_defects.py`, 6 in `test_typed_properties_night.py`); +2 xfailed = F5b's two parametrized
+cases; skipped unchanged at 147. The base has **no pre-existing failures**, so none can be blamed on or hidden by
+this branch. "No regression" is therefore measured, not claimed. (The 147 skips and 4 xfails are identical
+pre-existing ones; not investigated.) `ruff check` on the changed files: clean.
 
 ## Files on the branch
 

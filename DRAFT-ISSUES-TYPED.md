@@ -2,6 +2,8 @@
 
 Every claim is **Tag's claim, pending verification**. Branch `tag/night-typed-133`, code verified at `8b60b2d`,
 base `main` @ `b9f0435`. Constructed inputs only. One issue per defect; each has a committed repro test.
+Note: the HouseJudge-side NaN fail-open (my F5b) is deliberately NOT listed: the harness workstream owns it as H-01.
+Issue 3 below is only the typed-judge half. Numbering in the findings file (F1..F6, F5b) differs from this list.
 Common repro prefix: `PYTHONPATH=src:pravrudhi_kernel/src python -m pytest`. To see a repro FAIL, copy the
 named test file onto a checkout of `b9f0435` and run it there.
 
@@ -31,26 +33,20 @@ named test file onto a checkout of `b9f0435` and run it there.
 - Repro: `... pytest tests/test_typed_night_defects.py -k "f5 and not f5b"`
 - Proposed fix: `check_label_mass` refuses a non-finite mass (`not mass >= floor` form); branch `f60e290`.
 
-## 4. Same NaN fail-open in HouseJudge.p_established_from_top_logprobs (not fixed on branch)
-- Severity: **medium**
-- Body: as issue 3 but in `nyaya_judges.py` (out of `tag/night-typed-*` scope). `+inf` also returns `established p=1.0`.
-- Repro: `... pytest tests/test_typed_night_defects.py -k f5b` (strict xfail: currently reproduces)
-- Proposed fix: after computing `label_mass`: `if not math.isfinite(label_mass) or not label_mass >= label_mass_floor: raise JudgeOutputError(...)`.
-
-## 5. Typed builder defaults timeout_s / max_tokens / top_logprobs that HouseJudge.from_config requires
+## 4. Typed builder defaults timeout_s / max_tokens / top_logprobs that HouseJudge.from_config requires
 - Severity: **low**
 - Body: `_build_house_judge(typed=True)` uses `.get(key, 60/30/20)`; the house path raises `KeyError`. Repo rule: missing input raises.
 - Repro: `... pytest tests/test_typed_night_defects.py -k f3`
 - Proposed fix: bare subscripts (branch `6314f36`).
 
-## 6. Field accepts empty, blank or cross-option-shared token variants
+## 5. Field accepts empty, blank or cross-option-shared token variants
 - Severity: **low**
 - Body: `bool_field("s", true_tokens=(), ...)` constructs, and `score_decision` then always reports that option as
   missing; a token under two options is counted for both (0.5/0.5). `""` accepted as a token.
 - Repro: `... pytest tests/test_typed_night_defects.py -k f4`
 - Proposed fix: validation in `Field.__post_init__` (branch `6314f36`, line-length fix `8b60b2d`).
 
-## 7. NaN or out-of-range label_mass_floor silently disables the guard
+## 6. NaN or out-of-range label_mass_floor silently disables the guard
 - Severity: **low**
 - Body: `mass < nan` is always False; `NYAYA_SECOND_JUDGE_LABEL_MASS_FLOOR=nan` parses via `float()`. Typed judge now
   refuses a floor outside [0, 1]; `HouseJudge.__init__` has the same hole (no repro test for it, so only the typed side is graded).
