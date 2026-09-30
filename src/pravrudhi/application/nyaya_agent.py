@@ -804,6 +804,12 @@ class ContractResult:
     #: element -> `element_stage(...)` for every element not established, so the contract-level `reason`
     #: ("missing_element") can be split by where each element stopped. Informational; no outcome reads it.
     element_stages: dict[str, str] = field(default_factory=dict)
+    #: What the pinned Lean checker was given and returned: `{binary_sha256, wire_sha256, verdict}`.
+    #: `binary_sha256` is the pinned `score` binary; `wire_sha256` is the SHA-256 of the exact REG wire line
+    #: sent to it (recomputable from `assertions` + `contract_id`); `verdict` is the binary's own. It attests
+    #: what was scored and by which binary -- a structural check, not that the assertions are true. None when
+    #: no Lean call was made.
+    lean_attestation: dict[str, str] | None = None
 
 
 @dataclass
@@ -1318,7 +1324,8 @@ class NyayaAgent:
                                  element_stages={r.element: st for r in results if (st := element_stage(r))},
                                  unavailable_second=kw.get("unavailable_second", []),
                                  gate1_unavailable=kw.get("gate1_unavailable", []), gate1_failed=kw.get("gate1_failed", []),
-                                 gate1_contradiction=kw.get("gate1_contradiction", []))
+                                 gate1_contradiction=kw.get("gate1_contradiction", []),
+                                 lean_attestation=kw.get("lean_attestation"))
             audit.step("outcome", {"contract_id": contract_id, "elements": [asdict(r) for r in results]},
                        {"contract_id": contract_id, "outcome": outcome, "reason": reason,
                         "lean_outcome": res.lean_outcome, "uncertain": res.uncertain,
@@ -1356,6 +1363,9 @@ class NyayaAgent:
         audit.step("lean_check", {"contract_id": contract_id, "assertions": assertions, "score_sha256": self.registry.sha256},
                    {"contract_id": contract_id, **lean}, _ms(t0))
         lean_outcome = outcome_from_lean(lean)
+        attestation = {"binary_sha256": self.registry.sha256,
+                       "wire_sha256": reg.reg_wire_sha256(assertions, contract_id),
+                       "verdict": str(lean.get("verdict"))}
         uncertain = [r.element for r in results if r.p_established is not None and self.config.in_band(r.p_established)]
         uncertain_second = [r.element for r in results if r.second_refer_band_fired]
         unavailable_second = [r.element for r in results if r.second_unavailable]
@@ -1363,7 +1373,7 @@ class NyayaAgent:
         gate1_failed = [r.element for r in results if r.gate1_not_entailed]
         gate1_contradiction = [r.element for r in results if r.gate1_contradiction]
         kw: dict[str, Any] = {"assertions": assertions, "lean": lean, "lean_outcome": lean_outcome,
-                              "uncertain": uncertain, "uncertain_second": uncertain_second,
+                              "lean_attestation": attestation, "uncertain": uncertain, "uncertain_second": uncertain_second,
                               "unavailable_second": unavailable_second,
                               "gate1_unavailable": gate1_unavailable, "gate1_failed": gate1_failed,
                               "gate1_contradiction": gate1_contradiction}

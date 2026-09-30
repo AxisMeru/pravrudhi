@@ -20,6 +20,7 @@ Calls prabhasa-nyaya's compiled `score` binary as a subprocess -- never imports 
 
 from __future__ import annotations
 
+import hashlib
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -212,6 +213,21 @@ def describe_contract(contract_id: str, *, root: Path | None = None, score_bin: 
     return describe_contract_detail(contract_id, root=root, score_bin=score_bin).elements
 
 
+def reg_wire_line(assertions: dict[str, bool], contract_id: str) -> str:
+    """The exact `REG` wire line sent to the `score` binary: contract id plus one claim per Met assertion
+    (Not-Met and unaddressed elements are not sent -- absence is how the scorer sees them)."""
+    claims = [
+        f"G_SATISFIES(E({_esc(_CONDUCT)},AC),E({_esc(element)},EL))"
+        for element, met in assertions.items() if met
+    ]
+    return "\t".join(["REG", "live", contract_id, *claims])
+
+
+def reg_wire_sha256(assertions: dict[str, bool], contract_id: str) -> str:
+    """SHA-256 (hex) of `reg_wire_line(...)` as UTF-8: binds an attestation to the exact input scored."""
+    return hashlib.sha256(reg_wire_line(assertions, contract_id).encode("utf-8")).hexdigest()
+
+
 def check_registry(
     assertions: dict[str, bool],
     contract_id: str,
@@ -236,12 +252,7 @@ def check_registry(
         raise UnknownContractError(f"unknown contract_id {contract_id!r}; known ids: {sorted(KNOWN_CONTRACT_IDS)}")
 
     bin_path = score_bin or score_bin_path(root or Path.cwd())
-    claims = [
-        f"G_SATISFIES(E({_esc(_CONDUCT)},AC),E({_esc(element)},EL))"
-        for element, met in assertions.items() if met
-    ]
-    line = "\t".join(["REG", "live", contract_id, *claims])
-    out = _run_scorer(line, bin_path)
+    out = _run_scorer(reg_wire_line(assertions, contract_id), bin_path)
     parts = out.split("\t")
     if len(parts) != 5 or parts[0] == "MALFORMED":
         raise RuntimeError(f"unexpected REG score output: {out!r}")
