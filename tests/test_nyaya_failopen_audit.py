@@ -646,15 +646,15 @@ class TestDefectH02AndGateDropsDefeaters:
                                  DENY: [second_denial]})
         return AndGateJudge(primary, second, tau_primary=0.74, tau_second=0.97)
 
-    # PLANTED TEST FOR WEB'S FIX (AxisMeru/pravrudhi #152). The accepted direction (lead, 2026-09-30): a second-judge
+    # PLANTED TEST FOR THE FIX (AxisMeru/pravrudhi #152). The accepted direction (lead, 2026-09-30): a second-judge
     # disagreement on a defeater means REFER_TO_LAWYER. This test expresses exactly that and is strict-xfail today, so
-    # it goes green (XPASS -> hard failure -> remove the marker) when Web's fix lands. The reason string is left open
+    # it goes green (XPASS -> hard failure -> remove the marker) when the fix lands. The reason string is left open
     # on purpose. This branch does NOT change production behaviour; `src/` is untouched.
     @pytest.mark.xfail(
         strict=True, reason="DEFECT H-02 (#152): a defeater the primary established but the second did not is dropped -> PROOF",
     )
     @pytest.mark.parametrize("second_p", [0.60, 0.30, 0.05])
-    def test_DEFECT_H02_planted_for_web_a_defeater_disagreement_must_refer(self, tmp_path: Path, second_p: float) -> None:
+    def test_DEFECT_H02_planted_for_fix_a_defeater_disagreement_must_refer(self, tmp_path: Path, second_p: float) -> None:
         run = run_agent(tmp_path, self._judge(ElementJudgment("not_established", second_p), 0.999999))
         assert outcome(run)[0] == "REFER_TO_LAWYER"
         # the defeater's record must still show that the primary established it and the second did not
@@ -676,7 +676,7 @@ class TestDefectH02AndGateDropsDefeaters:
         # both found it: still a DENIAL
         assert outcome(run_agent(tmp_path, pair(est("F2", "was refused", 0.95), found))) == ("DENIAL", "denial_established")
         # primary says no: the second is never asked (cost saving), so there is no disagreement to detect and no REFER.
-        # Observation for Web: the converse split (primary no, second would say yes) is invisible by construction.
+        # Observation for the fix owner: the converse split (primary no, second would say yes) is invisible by construction.
         assert outcome(run_agent(tmp_path, pair(not_est(), found))) == ("PROOF", "all_elements_established")
 
     def test_characterise_H02_current_outcome_is_proof_and_the_defeater_is_not_on_the_wire(self, tmp_path: Path) -> None:
