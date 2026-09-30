@@ -101,9 +101,14 @@ def test_a_lay_question_reaches_the_homicide_sections_through_the_lexicon() -> N
     abstained. The gap was vocabulary, so the fix is config: lexicon.json maps lay words to the Code's."""
     c = nyaya.load_corpus()
     q = "A man strikes another on the head with a heavy stick intending grievous hurt; the victim dies two days later."
-    ids = [d.id for d, _ in c.retrieve(q, k=8)]
-    assert {"IPC/Section 304", "IPC/Section 300", "IPC/Section 299", "IPC/Section 302"} & set(ids)
-    assert "IPC/Section 325" in ids or "IPC/Section 320" in ids
+    top8 = [d.id for d, _ in c.retrieve(q, k=8)]
+    top25 = [d.id for d, _ in c.retrieve(q, k=25)]
+    # BNS 2023 now ships beside the IPC and outranks it on this text: the BNS equivalents lead
+    # (117 voluntarily causing grievous hurt first, 101 murder in the top 8) and the IPC equivalents
+    # (325 grievous hurt, 304 culpable homicide) stay reachable, ranked 11 and 19 when measured.
+    assert top8[0] == "BNS/Section 117"
+    assert "BNS/Section 101" in top8
+    assert "IPC/Section 325" in top25 and "IPC/Section 304" in top25
     assert nyaya.expand("nothing legal here", c.expansions) == "nothing legal here"
     assert [d.id for d, _ in c.retrieve("equality before law", k=1)] == ["COI/Article 14"]
     assert [d.id for d, _ in c.retrieve("right to life and personal liberty", k=1)] == ["COI/Article 21"]
@@ -270,9 +275,12 @@ class TestAdminSessionIsAValidByokProxy:
 
 def test_the_routes_serve_the_product_and_need_the_local_token_to_ask(tmp_path: Path) -> None:
     init_project(tmp_path)
-    fake = _fake({"*": "ANSWER: [IPC/Section 302].\nCITATIONS: IPC/Section 302\nCONFIDENCE: low"})
+    fake = _fake({"*": "ANSWER: [BNS/Section 101].\nCITATIONS: BNS/Section 101\nCONFIDENCE: low"})
     c = TestClient(create_app(tmp_path, nyaya_ask_fn=fake), base_url="http://127.0.0.1:8008")
-    assert c.get("/api/nyaya/corpus?q=murder").json()["hits"][0]["id"].startswith("IPC/")
+    hits = [h["id"] for h in c.get("/api/nyaya/corpus?q=murder").json()["hits"]]
+    # BNS 2023 ships beside the IPC: BNS s.101 (murder) is measured at rank 4 for "murder".
+    assert "BNS/Section 101" in hits[:5]
+    assert c.get("/api/nyaya/corpus?q=punishment for murder under section 302").json()["hits"][0]["id"] == "IPC/Section 302"
     vendors = c.get("/api/nyaya/vendors").json()["vendors"]
     assert {v["id"] for v in vendors} == set(nyaya.DEFAULT_VENDORS) and all("available" in v for v in vendors)
     # Regression (2026-09-21): nyaya-p2b-local was added to panel.VENDORS for the arm_c demo but
