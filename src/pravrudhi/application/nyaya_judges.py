@@ -139,7 +139,7 @@ class ElementJudgment:
     #: but the second rejected, or the second was configured and unavailable), "gate1" (both judges
     #: established but the entailment check failed, or the Gate 1 model itself was unavailable), or None
     #: when established (or when a given gate is not configured and so never has an opinion).
-    vetoed_by: Literal["primary", "second", "gate1"] | None = None
+    vetoed_by: Literal["primary", "second", "gate1", "span_relevance"] | None = None
     #: Which Gate 1 MODE produced a `vetoed_by="gate1"` veto -- "not_entailed" (the entailment mode, the
     #: original design) or "contradiction" (Arm C, GATE1-ARM-C-2026-09-26.md: a REFER fired because the fact
     #: explicitly contradicts the element, with no entailment requirement at all). None whenever `vetoed_by
@@ -159,6 +159,12 @@ class ElementJudgment:
     #: true probability is genuinely unknown, not merely below tau. See `HouseJudge.judge`'s own
     #: decision rule.
     bound_undetermined: bool = False
+    #: Span-relevance check (`SpanRelevanceJudge`): the check's own p_established on the cited span alone,
+    #: else None (check off, not asked, or it errored). Appended last so positional call sites are unaffected.
+    span_relevance_p: float | None = None
+    #: `"span_relevance_unavailable: <exception>"` when the check was asked and errored (fail closed: the
+    #: element is NOT established). None whenever the check answered or was never asked.
+    span_relevance_skip_reason: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -1066,4 +1072,47 @@ class Gate1Judge:
         return replace(
             judgment, status="not_established", vetoed_by="gate1", gate1_veto_kind="not_entailed",
             gate1_score=result.score, gate1_disjuncts=result.disjuncts,
+        )
+
+
+class SpanRelevanceJudge:
+    """Inference-time span-relevance check (Obj-1 Fix 2, Option A; default OFF in the agent config).
+
+    Asked ONLY when the wrapped judge says established on a non-denial element: the cited span (the quote,
+    which for the house judge is the whole named fact) is shown to `check` ALONE -- as both scenario and the
+    only fact -- with the same element and statute. If `check` does not say established on the span by
+    itself, the element is demoted to not_established (`vetoed_by="span_relevance"`). This targets the
+    class-a Obj-1 false-proofs, where the judge cited a span that does not itself state the element.
+
+    Denial elements are never checked: demoting a defeater to not_established could only make a PROOF easier
+    to reach. A check that errors fails closed on a non-denial element (not established, reason recorded),
+    which can only remove a proof, never create one. No training; `check` is an ordinary `Judge`."""
+
+    def __init__(self, inner: Judge, check: Judge, *, name: str | None = None) -> None:
+        self.inner = inner
+        self.check = check
+        self.name: str = name or str(getattr(inner, "name", "span_relevance"))
+
+    def judge(self, request: JudgeRequest) -> ElementJudgment:
+        judgment = self.inner.judge(request)
+        if request.is_denial or judgment.status != "established":
+            return judgment
+        span = (judgment.quote or "").strip()
+        if not judgment.fact_id or not span:
+            return judgment  # no resolvable span -- the quote check downstream rejects this anyway
+        probe = JudgeRequest(
+            request.contract_id, request.element, False, request.statute, span,
+            ((judgment.fact_id, span),), skip_second=True,
+        )
+        try:
+            verdict = self.check.judge(probe)
+        except Exception as e:  # noqa: BLE001 -- fail closed on a non-denial element: can only remove a proof
+            return replace(
+                judgment, status="not_established", vetoed_by="span_relevance",
+                span_relevance_skip_reason=f"span_relevance_unavailable: {type(e).__name__}: {e}"[:400],
+            )
+        if verdict.status == "established":
+            return replace(judgment, span_relevance_p=verdict.p_established)
+        return replace(
+            judgment, status="not_established", vetoed_by="span_relevance", span_relevance_p=verdict.p_established,
         )

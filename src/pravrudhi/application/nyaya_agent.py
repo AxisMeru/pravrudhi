@@ -159,6 +159,10 @@ class AgentConfig:
     #: with zero demonstrated false-prove benefit on the only population tested means this must stay off by
     #: default even on a host that has the model/threshold configured, until Lead-2 decides otherwise.
     gate1_enabled: bool = False
+    #: Obj-1 Fix 2 Option A (`SpanRelevanceJudge`): demote an established non-denial element whose cited span
+    #: alone does not state it. Default False -- today's behaviour, byte-identical. Env
+    #: `NYAYA_SPAN_RELEVANCE_ENABLED` or yaml `span_relevance_enabled`. Measured only on a sealed Obj-1b set.
+    span_relevance_enabled: bool = False
     #: Issue #39 (interim posture until a partner onboards): how many days a run's audit record survives
     #: under `audit_dir` before `purge_stale_runs` deletes it. Config-driven, never hardcoded, so the window
     #: can be tightened or loosened with a config edit alone. 7.0 is the operator/Lead-2 decided default.
@@ -331,6 +335,11 @@ def load_agent_config(root: Path) -> AgentConfig:
         gate1["tau_c"] = float(os.environ["NYAYA_GATE1_TAU_C"])
     gate1_enabled_raw = os.environ.get("NYAYA_GATE1_ENABLED", "")
     gate1_enabled = gate1_enabled_raw.strip().lower() in ("1", "true", "yes", "on")
+    span_raw = os.environ.get("NYAYA_SPAN_RELEVANCE_ENABLED")
+    span_relevance_enabled = (
+        span_raw.strip().lower() in ("1", "true", "yes", "on") if span_raw is not None
+        else bool(body.get("span_relevance_enabled", False))
+    )
 
     # Fail-closed allowlist (issue #36): every id here must actually exist in the pinned registry, checked at
     # load time rather than left to surface later as a silently-inert typo -- an id that isn't real can never
@@ -359,6 +368,7 @@ def load_agent_config(root: Path) -> AgentConfig:
         validated_contracts=validated_contracts,
         gate1=gate1,
         gate1_enabled=gate1_enabled,
+        span_relevance_enabled=span_relevance_enabled,
         retention_days=float(body.get("retention_days", 7.0)),
     )
 
@@ -958,6 +968,8 @@ def _truthful_status(
     if claimed and not valid:
         return "not_established", None
     assert anchor is not None  # claimed is False only when anchor.status != "established", so anchor exists
+    if anchor.vetoed_by == "span_relevance":
+        return "not_established", None
     if anchor.vetoed_by == "gate1":
         # A fail-closed Gate 1 error (the model never loaded or errored on this call) gets its own label,
         # never "not_established" (Tag review, 2026-09-26): there is no score to distrust here, unlike a real
@@ -1060,6 +1072,7 @@ class NyayaAgent:
             AndGateJudge,
             Gate1Judge,
             Gate1NLIModel,
+            SpanRelevanceJudge,
         )
 
         # One model instance shared across the whole judge_pool (max_concurrency > 1 builds several judge
@@ -1087,6 +1100,8 @@ class NyayaAgent:
                 )
             else:
                 judge = primary
+            if cfg.span_relevance_enabled:
+                judge = SpanRelevanceJudge(judge, primary)
             if gate1_model is not None:
                 threshold = float(cfg.gate1.get("threshold", GATE1_THRESHOLD_DEFAULT))
                 tau_c = float(cfg.gate1.get("tau_c", GATE1_TAU_C_DEFAULT))
