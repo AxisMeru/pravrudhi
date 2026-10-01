@@ -48,6 +48,21 @@ ASSET_DIR = Path(__file__).resolve().parent.parent / "assets" / "nyaya"
 #: `Corpus.retrieve`'s relevance floor -- see that method's own docstring for how this was measured.
 MIN_RELEVANCE_SCORE = 8.0
 
+#: Issue #51: `MIN_RELEVANCE_SCORE` is an ABSOLUTE BM25 score, and BM25 sums over every matched query term --
+#: it grows with query length/vocabulary diversity regardless of actual relevance, so a longer off-topic
+#: question eventually clears it on generic-word overlap alone (see `retrieve`'s own docstring for the
+#: measurement). This is `retrieve`'s length-aware second gate: the top hit's raw score divided by the
+#: query's own self-score (the query scored against itself, same BM25/idf) -- how much of the query's own
+#: maximum obtainable score the winning document actually captured, which does not grow with query length
+#: the way the raw score does. Chosen from three candidates measured against
+#: `tests/fixtures/nyaya_relevance_calibration.json` (26 hand-labelled questions, sealed before any of the
+#: three were run): at the tightest threshold that still finds every calibration on_topic case (0.2864),
+#: this one cuts the calibration set's off-topic false-citation rate from 11/12 (today's absolute-only floor)
+#: to 3/12; matched-distinct-term coverage only reached 9/12, and top-1/top-2 margin barely moved it (11/12)
+#: -- a verbose off-topic question usually still has ONE clear best-matching document among the noise, so a
+#: large margin over 2nd place is not itself evidence of relevance.
+MIN_RELEVANCE_NORM = 0.28
+
 #: How a source is named in a prompt and cited in a reply. The id is the corpus document id verbatim, so a
 #: citation can be checked by equality and nothing has to be inferred from prose.
 CITE = re.compile(r"\[([A-Za-z]+/(?:Section|Article) [0-9]+[A-Za-z]?(?:\([0-9a-z]+\))?)\]")
@@ -144,6 +159,9 @@ class Corpus:
     #: `load_corpus` -- see `retrieve`'s own docstring for what this floor does and how it was measured.
     #: Defaults to `MIN_RELEVANCE_SCORE` for a `Corpus` built by hand (e.g. a test) with no config to read.
     min_relevance_score: float = MIN_RELEVANCE_SCORE
+    #: Issue #51: `configs/nyaya_corpus.yaml`'s own `min_relevance_norm`, resolved by `load_corpus` the same
+    #: way as `min_relevance_score` -- see `retrieve`'s own docstring for what this gate does.
+    min_relevance_norm: float = MIN_RELEVANCE_NORM
     _df: Counter[str] = field(default_factory=Counter, repr=False)
     _tf: list[Counter[str]] = field(default_factory=list, repr=False)
     _len: list[int] = field(default_factory=list, repr=False)
@@ -175,7 +193,18 @@ class Corpus:
         starts above 12.7 (as low as `k=1` on a short query like "equality before law") -- the configured
         floor (8.0) sits cleanly in that gap. Below it, `retrieve` returns nothing rather than the nearest
         noise, so a caller with no hits (see `grounded_prompt`'s own "(no source matched the question)"
-        fallback) gets an honest empty result instead of citations that only look plausible."""
+        fallback) gets an honest empty result instead of citations that only look plausible.
+
+        `self.min_relevance_norm` (issue #51) -- the absolute floor above is an ABSOLUTE BM25 score, and BM25
+        sums over every matched query term, so it grows with query length/vocabulary diversity regardless of
+        actual relevance: an ordinarily-phrased question that happens to name a couple of unrelated
+        constitutional/statutory terms can clear 8.0 on generic-word overlap alone once it runs past a
+        handful of words. This second gate divides a hit's raw score by `_self_score`, the SAME query scored
+        against itself (same idf, same BM25 shape) -- a length-normalised ceiling for that exact query. A
+        real match captures a large fraction of its own query's obtainable score; a verbose off-topic
+        question's best-matching document typically captures only a fraction of it, no matter how large the
+        query gets. See `MIN_RELEVANCE_NORM`'s own comment for how 0.28 was chosen against the three
+        candidates issue #51 named."""
         n = len(self.documents)
         if n == 0:
             return []
@@ -196,8 +225,32 @@ class Corpus:
             number = d.section.rsplit(" ", 1)[-1].lower()
             if (d.id.split("/", 1)[0], number) in qualified or (number in bare and d.section.lower().startswith("section")):
                 scores[i] += 100.0
+        self_score = self._self_score(q, avg)
         order = sorted(range(n), key=lambda i: -scores[i])
-        return [(self.documents[i], round(scores[i], 4)) for i in order[:k] if scores[i] >= self.min_relevance_score]
+        hits = []
+        for i in order[:k]:
+            if scores[i] < self.min_relevance_score:
+                continue
+            normalized = scores[i] / self_score if self_score > 0 else 0.0
+            if normalized < self.min_relevance_norm:
+                continue
+            hits.append((self.documents[i], round(scores[i], 4)))
+        return hits
+
+    def _self_score(self, q: list[str], avg: float) -> float:
+        """The query's own BM25 score against a pseudo-document that IS the query -- same idf (this corpus'
+        document frequencies), same `avg` document length, so it is directly comparable to a real document's
+        raw score. Used only to normalise `retrieve`'s length-aware gate; not itself a relevance signal."""
+        n = len(self.documents)
+        if n == 0 or not q:
+            return 0.0
+        tf = Counter(q)
+        length = len(q)
+        s = 0.0
+        for t, f in tf.items():
+            idf = math.log(1 + (n - self._df.get(t, 0) + 0.5) / (self._df.get(t, 0) + 0.5))
+            s += idf * (f * 2.5) / (f + 1.5 * (1 - 0.75 + 0.75 * length / avg))
+        return s
 
 
 def _load_file(path: Path) -> tuple[list[Document], dict[str, Any]]:
@@ -229,6 +282,23 @@ def load_min_relevance_score(root: Path | None) -> float:
     return float(body.get("min_relevance_score", MIN_RELEVANCE_SCORE))
 
 
+def load_min_relevance_norm(root: Path | None) -> float:
+    """`configs/nyaya_corpus.yaml`'s own `min_relevance_norm` (issue #51), same precedence and same
+    never-a-required-file reasoning as `load_min_relevance_score`'s own docstring."""
+    if root is None:
+        return MIN_RELEVANCE_NORM
+    import yaml
+
+    from pravrudhi.application.config_files import config_file
+
+    try:
+        path = config_file(Path(root), "nyaya_corpus.yaml")
+    except FileNotFoundError:
+        return MIN_RELEVANCE_NORM
+    body = yaml.safe_load(path.read_text()) or {}
+    return float(body.get("min_relevance_norm", MIN_RELEVANCE_NORM))
+
+
 def load_corpus(root: Path | None = None) -> Corpus:
     """The shipped statutes plus the user's own additions under `research/nyaya/corpus/`."""
     files = sorted(p for p in ASSET_DIR.glob("*.json") if p.name != LEXICON.name)
@@ -242,7 +312,13 @@ def load_corpus(root: Path | None = None) -> Corpus:
         docs.extend(x for x in d if x.id not in seen)
         seen.update(x.id for x in d)
         sources.append(meta)
-    return Corpus(docs, sources, expansions=load_lexicon(), min_relevance_score=load_min_relevance_score(root))
+    return Corpus(
+        docs,
+        sources,
+        expansions=load_lexicon(),
+        min_relevance_score=load_min_relevance_score(root),
+        min_relevance_norm=load_min_relevance_norm(root),
+    )
 
 
 LEXICON = ASSET_DIR / "lexicon.json"

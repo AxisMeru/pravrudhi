@@ -16,3 +16,22 @@
 # Re-measured on the 1,609-document corpus: off-topic top scores rose by 0.2-4 (max 16.97, already above 8.0 before
 # and after -- issue #51), and real short matches did not fall below 16. 8.0 is left unchanged.
 min_relevance_score: 8.0
+
+# Issue #51: min_relevance_score above is an ABSOLUTE BM25 score, and BM25 sums over every matched query
+# term -- it grows with query length/vocabulary diversity regardless of actual relevance, so a longer
+# off-topic question eventually clears it on generic-word overlap alone (the shipped BNS/BNSS corpus made
+# this measurably worse: on a 26-question hand-labelled calibration set, sealed before any candidate rule was
+# run -- tests/fixtures/nyaya_relevance_calibration.json -- the absolute floor alone let 11 of 12 off-topic
+# questions through). This second gate divides a hit's raw score by the query's own self-score (that same
+# query scored against itself, same BM25/idf) -- how much of the query's own maximum obtainable score the
+# winning document actually captured. Below this fraction, retrieve() drops the hit even if it cleared the
+# absolute floor.
+#
+# Selected over two other candidates measured against the same calibration set (matched-distinct-term
+# coverage, and top-1/top-2 margin) by the fixed rule: minimise false citations at recall >= the current
+# recall. At the tightest threshold that still finds every calibration on_topic case (0.2864), this rule
+# cuts the off-topic false-citation rate from 11/12 to 3/12; coverage only reached 9/12, and margin barely
+# moved it (11/12) -- a verbose off-topic question usually still has ONE clear best-matching document among
+# the noise, so a large margin over 2nd place is not itself evidence of relevance. 0.28 keeps a small margin
+# below that 0.2864 boundary.
+min_relevance_norm: 0.28
