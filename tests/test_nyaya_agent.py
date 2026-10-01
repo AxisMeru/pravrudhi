@@ -2268,3 +2268,32 @@ class TestRetentionPolicy:
         assert run.retention_notice == RETENTION_NOTICE
         assert "7 days" in RETENTION_NOTICE
         assert "never" in RETENTION_NOTICE and "training" in RETENTION_NOTICE
+
+
+class TestSecondJudgeNeverVetoesADefeater:
+    """P0 #152, planted: both required elements established by both judges; the DENY defeater established by the
+    primary only. Before the fix the second judge's 'no' dropped the defeater from the wire and the contract
+    came out PROOF; it must be REFER_TO_LAWYER, never PROOF and never a bare DENIAL."""
+
+    def _run(self, tmp_path: Path, second_defeater: ElementJudgment) -> Any:
+        primary = ScriptedJudge(_denial_script(TOY_FACTS))
+        second = ScriptedJudge({
+            BNS69_EL[0]: [_second("established", 0.99)],
+            BNS69_EL[1]: [_second("established", 0.99)],
+            BNS69_DENY: [second_defeater],
+        })
+        gate = AndGateJudge(primary, second, tau_primary=0.74, tau_second=0.97)
+        agent = NyayaAgent(gate, _registry(), _config(tmp_path, second_judge={"tau": 0.97}))
+        return agent.run(TOY_FACTS, narrative="TOY narrative.", contract_ids=["bns69"]).contracts[0]
+
+    def test_defeater_disagreement_is_refer_not_proof(self, tmp_path: Path) -> None:
+        c = self._run(tmp_path, _second("not_established", 0.05))
+        assert c.outcome == "REFER_TO_LAWYER"
+        assert c.reason == "second_judge_defeater_disagreement"
+        defeater = next(e for e in c.elements if e.is_denial)
+        assert defeater.status == "established" and defeater.defeater_second_disagreement is True
+        assert c.assertions[BNS69_DENY] is True  # the primary's defeater stays on the wire
+
+    def test_defeater_both_agree_is_still_a_denial(self, tmp_path: Path) -> None:
+        c = self._run(tmp_path, _second("established", 0.99))
+        assert c.outcome == "DENIAL"

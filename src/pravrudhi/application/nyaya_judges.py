@@ -121,6 +121,9 @@ class ElementJudgment:
     #: The second judge's own fact_id, kept for the record even though the primary's span is what is used.
     second_fact_id: str | None = None
     fact_id_disagreement: bool = False
+    #: P0 #152: the request is a DENY defeater, the primary established it and the second did not. The primary's
+    #: call stands (the second never vetoes a defeater); the agent turns this into REFER_TO_LAWYER.
+    defeater_second_disagreement: bool = False
 
     # -- Gate 1 fields (Gate1Judge, below). All None when Gate 1 is not configured, or was never asked
     # because neither judge above established the element (the same cost-saving convention the second judge
@@ -633,6 +636,12 @@ class AndGateJudge:
     (`nyaya_quote`) decide on that span, never on the second's. A second-reported fact_id that disagrees is
     recorded (`second_fact_id`, `fact_id_disagreement`), never silently dropped and never substituted in.
 
+    A DENY defeater (`request.is_denial`) is the one asymmetric case (P0 #152): the AND exists to stop false
+    affirmatives, and a defeater is a refutation, so a second "no" never erases a primary-established
+    defeater. The element stays established on the primary's call, `defeater_second_disagreement` is set, and
+    `nyaya_agent` refers the contract (`second_judge_defeater_disagreement`). A second that ERRORS on a
+    defeater still fails closed and refers via `second_judge_unavailable`.
+
     A second judge that errors after being asked (all its own transient/fallback retries exhausted, see
     `HouseJudge`'s own primary/fallback rules) never falls back to scoring the primary alone: the element is
     NOT established (fail closed), and `second_skip_reason` / `vetoed_by="second"` record why. The one
@@ -739,9 +748,13 @@ class AndGateJudge:
                 second_skip_reason=f"second_unavailable: {type(e).__name__}: {e}"[:400],
             )
         established = s.status == "established"  # p.status == "established" already, checked above
+        # A defeater is a refutation: the AND gate guards against false affirmatives, so a second "no" must
+        # never erase a primary-established defeater (that turns a DENIAL into a PROOF). Keep the primary's call
+        # and record the disagreement; `nyaya_agent` refers the contract.
+        defeater_disagreement = request.is_denial and not established
         disagreement = bool(p.fact_id and s.fact_id and p.fact_id != s.fact_id)
         return ElementJudgment(
-            status="established" if established else "not_established",
+            status="established" if established or defeater_disagreement else "not_established",
             p_established=p.p_established,
             fact_id=p.fact_id,
             quote=p.quote,
@@ -756,7 +769,8 @@ class AndGateJudge:
             backend_used_second=s.backend_used,
             second_fact_id=s.fact_id,
             fact_id_disagreement=disagreement,
-            vetoed_by=None if established else "second",
+            vetoed_by=None if established or defeater_disagreement else "second",
+            defeater_second_disagreement=defeater_disagreement,
         )
 
 

@@ -258,3 +258,41 @@ class TestSecondJudgeCircuitBreakerFailsClosed:
         out = gate.judge(REQ)
         assert out.status == "established"  # the second WAS asked, and it established -- gate works normally
         assert second.calls == 1
+
+
+DENY_REQ = JudgeRequest(
+    contract_id="bns69",
+    element="the sexual intercourse amounts to the offence of rape",
+    is_denial=True,
+    statute="TOY statute.",
+    narrative="TOY: Arun married Bela in 2019.",
+    facts=(("F1", "TOY: Arun married Bela in 2019."), ("F2", "TOY: Arun beat Bela.")),
+)
+
+
+class TestDefeaterIsNeverVetoedBySecond:
+    """P0 #152: the AND gate exists to stop a false affirmative. Applied to a DENY defeater it ran backwards: a
+    second-judge 'no' erased a primary-established defeater, turning a DENIAL into a PROOF."""
+
+    def test_second_no_does_not_erase_a_primary_established_defeater(self) -> None:
+        primary = _StubJudge("house-4b", _judgment("established", 0.97))
+        second = _StubJudge("house-32b", _judgment("not_established", 0.2))
+        out = AndGateJudge(primary, second, tau_primary=0.74, tau_second=0.97).judge(DENY_REQ)
+        assert out.status == "established"
+        assert out.vetoed_by is None
+        assert out.defeater_second_disagreement is True
+        assert out.second_status == "not_established" and out.p_established_second == 0.2
+        assert (out.fact_id, out.quote) == ("F1", "TOY: Arun married Bela in 2019.")
+
+    def test_second_yes_on_a_defeater_is_not_a_disagreement(self) -> None:
+        primary = _StubJudge("house-4b", _judgment("established", 0.97))
+        second = _StubJudge("house-32b", _judgment("established", 0.99))
+        out = AndGateJudge(primary, second, tau_primary=0.74, tau_second=0.97).judge(DENY_REQ)
+        assert out.status == "established" and out.defeater_second_disagreement is False
+
+    def test_a_required_element_is_still_vetoed_by_second(self) -> None:
+        primary = _StubJudge("house-4b", _judgment("established", 0.97))
+        second = _StubJudge("house-32b", _judgment("not_established", 0.2))
+        out = AndGateJudge(primary, second, tau_primary=0.74, tau_second=0.97).judge(REQ)
+        assert out.status == "not_established" and out.vetoed_by == "second"
+        assert out.defeater_second_disagreement is False
