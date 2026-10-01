@@ -633,9 +633,29 @@ class TestFrontierJudge:
         {" not": math.nan},
         {" established": math.inf, " not": -1.0},
         {" established": -0.1, " not": math.inf},
+        {"established": math.nan, " established": -0.1},
+        {" established": -0.1, "established": math.nan},
+        {" not": -0.1, "not": math.nan},
+        {" established": -0.1, " not": -3.0, "Based": math.nan},
+        {" established": -0.1, " not": -3.0, "Based": math.inf},
     ],
 )
 def test_non_finite_label_logprob_is_a_judge_output_error_not_a_probability(top: dict[str, float]) -> None:
     """#156: NaN made `label_mass < floor` False and returned p=nan; +inf returned established p=1.0."""
     with pytest.raises(JudgeOutputError):
         p_established_from_top_logprobs(top)
+
+
+@pytest.mark.parametrize(
+    "top",
+    [
+        {"established": math.nan, " established": -0.1},
+        {" established": -0.1, " not": -3.0, "Based": math.nan},
+        {" established": math.nan, " not": -1.0},
+    ],
+)
+def test_house_judge_never_establishes_on_a_nan_logprob(top: dict[str, float]) -> None:
+    """R2 on #166: a NaN on a duplicate label variant gave established with p=nan through judge()."""
+    fake = _FakeComplete(_completion(" established F1:5:22", top))
+    with pytest.raises(JudgeOutputError):
+        HouseJudge(complete=fake, tau=0.74, statute_chars=600).judge(REQ)
