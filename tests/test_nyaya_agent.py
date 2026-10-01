@@ -45,6 +45,7 @@ from pravrudhi.application.nyaya_judges import (
     ElementJudgment,
     JudgeOutputError,
     JudgeRequest,
+    SpanRelevanceJudge,
 )
 
 REPO = Path(__file__).resolve().parent.parent
@@ -2297,3 +2298,41 @@ class TestSecondJudgeNeverVetoesADefeater:
     def test_defeater_both_agree_is_still_a_denial(self, tmp_path: Path) -> None:
         c = self._run(tmp_path, _second("established", 0.99))
         assert c.outcome == "DENIAL"
+
+
+class TestSpanRelevanceOverAndGateDefeater:
+    """Issue #162: the production stack is SpanRelevanceJudge(AndGateJudge(...)). Through it, the span check
+    must never probe a DENY defeater, and the #152 rule (second 'no' on a defeater refers, never PROOF) must
+    still hold."""
+
+    def _run(self, tmp_path: Path, second_defeater: ElementJudgment, check: ScriptedJudge) -> Any:
+        primary = ScriptedJudge(_denial_script(TOY_FACTS))
+        second = ScriptedJudge({
+            BNS69_EL[0]: [_second("established", 0.99)],
+            BNS69_EL[1]: [_second("established", 0.99)],
+            BNS69_DENY: [second_defeater],
+        })
+        gate = AndGateJudge(primary, second, tau_primary=0.74, tau_second=0.97)
+        stack = SpanRelevanceJudge(gate, check)
+        agent = NyayaAgent(stack, _registry(), _config(tmp_path, second_judge={"tau": 0.97}))
+        return agent.run(TOY_FACTS, narrative="TOY narrative.", contract_ids=["bns69"]).contracts[0]
+
+    @staticmethod
+    def _check(demote: str | None = None) -> ScriptedJudge:
+        def ans(el: str) -> list[ElementJudgment | Exception]:
+            return [_not()] if el == demote else [ElementJudgment("established", 0.95, "F1", "unused")]
+        return ScriptedJudge({BNS69_EL[0]: ans(BNS69_EL[0]), BNS69_EL[1]: ans(BNS69_EL[1]), BNS69_DENY: ans(BNS69_DENY)})
+
+    def test_span_check_never_probes_the_defeater_and_disagreement_still_refers(self, tmp_path: Path) -> None:
+        check = self._check()
+        c = self._run(tmp_path, _second("not_established", 0.05), check)
+        assert BNS69_DENY not in {r.element for r in check.requests}
+        assert c.outcome == "REFER_TO_LAWYER" and c.reason == "second_judge_defeater_disagreement"
+
+    def test_both_agree_on_the_defeater_stays_a_denial(self, tmp_path: Path) -> None:
+        c = self._run(tmp_path, _second("established", 0.99), self._check())
+        assert c.outcome == "DENIAL"
+
+    def test_span_demotion_of_a_required_element_does_not_hide_the_defeater_disagreement(self, tmp_path: Path) -> None:
+        c = self._run(tmp_path, _second("not_established", 0.05), self._check(demote=BNS69_EL[0]))
+        assert c.outcome == "REFER_TO_LAWYER" and c.reason == "second_judge_defeater_disagreement"
