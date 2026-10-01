@@ -7,10 +7,11 @@ mkdir -p "$UNITS"
 for f in pravrudhi-app.service pravrudhi-update.service pravrudhi-update.timer \
          pravrudhi-heartbeat.service pravrudhi-heartbeat.timer \
          pravrudhi-publish.service pravrudhi-publish.timer \
-         pravrudhi-inbox-sweep.service pravrudhi-inbox-sweep.timer; do
+         pravrudhi-inbox-sweep.service pravrudhi-inbox-sweep.timer \
+         pravrudhi-32b-watchdog.service pravrudhi-32b-watchdog.timer; do
   sed "s#@ROOT@#$ROOT#g" "$ROOT/deploy/systemd/$f" > "$UNITS/$f"
 done
-chmod +x "$ROOT/deploy/systemd/dev-update.sh"
+chmod +x "$ROOT/deploy/systemd/dev-update.sh" "$ROOT/deploy/systemd/check_32b_ready.sh"
 # The service inherits none of the login shell's PATH, so agents installed under nvm or ~/.local (claude, codex)
 # read as "not installed" in the app's survey. Record the installing shell's PATH as a drop-in.
 mkdir -p "$UNITS/pravrudhi-app.service.d"
