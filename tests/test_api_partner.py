@@ -1078,3 +1078,71 @@ def test_enforce_on_with_no_partner_config_refuses_and_never_reaches_the_agent(
     resp = TestClient(app, raise_server_exceptions=False).post("/api/v1/analyse-facts", json=_req())
     assert resp.status_code == 503
     assert resp.json() == {"error": "service_config_missing"}
+
+
+# -- #164: a cold judge is "warming", not a raw judge_unavailable -----------------------------------------
+
+
+def _warming_client(tmp_path: Path, now: list[Any], script: dict[str, list[Any]], grace: float = 240.0) -> TestClient:
+    cfg = PartnerApiConfig(rate_limit_per_minute=1000, max_concurrent=100, trust_proxy_header=False,
+                           judge_warm_grace_s=grace, judge_warm_retry_s=30.0)
+    agent = _agent(tmp_path, script)
+    app = FastAPI()
+    app.include_router(build_partner_router(tmp_path, agent_factory=lambda _r: agent, config=cfg, clock=lambda: now[0]))
+    return TestClient(app)
+
+
+def _dead_primary_script() -> dict[str, list[Any]]:
+    return {
+        BNS69_EL[0]: [ConnectionError("cold")],
+        BNS69_EL[1]: [_est("F3", "Lata had sexual intercourse with Kiran")],
+        BNS69_DENY: [_not()],
+    }
+
+
+class TestJudgesWarming:
+    def test_first_failure_with_no_recent_ready_is_warming_with_retry_after(self, tmp_path: Path) -> None:
+        now = [_utc(2026, 10, 2, 9, 0)]
+        c = _warming_client(tmp_path, now, _dead_primary_script())
+        resp = c.post("/api/v1/analyse-facts", json=_req())
+        assert resp.status_code == 503
+        assert resp.json() == {"error": "judge_unavailable", "reason": "judges_warming", "retry_after_s": 30}
+        assert resp.headers["Retry-After"] == "30"
+
+    def test_status_reports_warming_without_probing(self, tmp_path: Path) -> None:
+        now = [_utc(2026, 10, 2, 9, 0)]
+        c = _warming_client(tmp_path, now, _dead_primary_script())
+        c.post("/api/v1/analyse-facts", json=_req())
+        now[0] = _utc(2026, 10, 2, 9, 1)
+        assert c.get("/api/v1/status").json()["judge"]["state"] == "warming"
+
+    def test_still_failing_after_the_grace_is_a_plain_judge_unavailable(self, tmp_path: Path) -> None:
+        now = [_utc(2026, 10, 2, 9, 0)]
+        c = _warming_client(tmp_path, now, _dead_primary_script())
+        c.post("/api/v1/analyse-facts", json=_req())
+        now[0] = _utc(2026, 10, 2, 9, 5)
+        resp = c.post("/api/v1/analyse-facts", json=_req())
+        assert resp.status_code == 503
+        assert resp.json() == {"error": "judge_unavailable"}
+        assert "Retry-After" not in resp.headers
+        assert c.get("/api/v1/status").json()["judge"]["state"] == "unavailable"
+
+    def test_failure_right_after_a_ready_reading_is_a_fault_not_warming(self, tmp_path: Path) -> None:
+        now = [_utc(2026, 10, 2, 9, 0)]
+        script = _proof_script()
+        c = _warming_client(tmp_path, now, script)
+        assert c.post("/api/v1/analyse-facts", json=_req()).status_code == 200
+        script[BNS69_EL[0]] = [ConnectionError("died")]
+        now[0] = _utc(2026, 10, 2, 9, 1)
+        resp = c.post("/api/v1/analyse-facts", json=_req())
+        assert resp.status_code == 503
+        assert resp.json() == {"error": "judge_unavailable"}
+
+    def test_grace_zero_keeps_the_old_body(self, tmp_path: Path) -> None:
+        now = [_utc(2026, 10, 2, 9, 0)]
+        c = _warming_client(tmp_path, now, _dead_primary_script(), grace=0.0)
+        assert c.post("/api/v1/analyse-facts", json=_req()).json() == {"error": "judge_unavailable"}
+
+    def test_warm_grace_is_config_not_code(self) -> None:
+        cfg = load_partner_api_config(Path(__file__).resolve().parent.parent)
+        assert cfg.judge_warm_grace_s > 0 and cfg.judge_warm_retry_s > 0

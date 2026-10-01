@@ -67,3 +67,9 @@ service_window:
 # Seconds after which GET /api/v1/status stops reporting the last analyse-facts judge observation and says
 # "unknown" (the status is passive: it never probes the judge, so a stale reading is not a reading).
 judge_seen_ttl_s: 600
+
+# Serverless judges scale from zero (~2-3 min cold start). A judge failure with no fresh "ready" reading is
+# reported as `judges_warming` (503 + Retry-After, status state "warming") for judge_warm_grace_s after the
+# first such failure, then as a plain judge_unavailable. 0 turns the distinction off.
+judge_warm_grace_s: 240
+judge_warm_retry_s: 30
