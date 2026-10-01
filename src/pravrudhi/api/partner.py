@@ -84,7 +84,7 @@ class ServiceWindowOut(BaseModel):
 
 
 class JudgeStateOut(BaseModel):
-    state: Literal["ready", "unavailable", "unknown"]
+    state: Literal["ready", "warming", "unavailable", "unknown"]
     checked_at: str | None
 
 
@@ -128,6 +128,12 @@ class PartnerApiConfig:
     debug_second_judge_fields_enabled: bool = False
     #: Seconds after which /status stops reporting the last analyse-facts judge observation and says "unknown".
     judge_seen_ttl_s: float = 600.0
+    #: Serverless judges scale from zero (a cold start takes ~2-3 min). A judge failure with no fresh "ready"
+    #: reading is reported as `judges_warming` (503 + Retry-After) for this many seconds after the FIRST such
+    #: failure, then as a plain `judge_unavailable`. 0 disables the distinction (the pre-#164 behaviour).
+    judge_warm_grace_s: float = 0.0
+    #: Retry-After (seconds) sent with a `judges_warming` 503.
+    judge_warm_retry_s: float = 30.0
     #: Hours the hosted engine is open. Always reported by GET /api/v1/status when set; analyse-facts refuses
     #: outside it only when `service_window_enforce` is also true, so a local `pravrudhi app` install is
     #: never locked out at night by a hosted-deployment setting.
@@ -170,6 +176,8 @@ def load_partner_api_config(root: Path) -> PartnerApiConfig:
         second_judge_circuit_breaker_ttl_s=float(body.get("second_judge_circuit_breaker_ttl_s", 60.0)),
         debug_second_judge_fields_enabled=debug_second_judge_fields_enabled,
         judge_seen_ttl_s=float(body.get("judge_seen_ttl_s", 600.0)),
+        judge_warm_grace_s=float(body.get("judge_warm_grace_s", 0.0)),
+        judge_warm_retry_s=float(body.get("judge_warm_retry_s", 30.0)),
     )
 
 
@@ -580,6 +588,11 @@ def build_partner_router(
     def _now() -> datetime:
         return clock() if clock else datetime.now(UTC)
 
+    def _warming(cfg: PartnerApiConfig | None, now: datetime) -> bool:
+        first = _judge_seen.get("first_failure")
+        grace = cfg.judge_warm_grace_s if cfg else 0.0
+        return first is not None and grace > 0 and (now - first).total_seconds() <= grace
+
     def _window_closed(cfg: PartnerApiConfig) -> JSONResponse | None:
         w = cfg.service_window
         if w is None or not cfg.service_window_enforce:
@@ -626,11 +639,14 @@ def build_partner_router(
         seen = _judge_seen.get("at")
         ttl = cfg.judge_seen_ttl_s if cfg else PartnerApiConfig.judge_seen_ttl_s
         fresh = seen is not None and (now - seen).total_seconds() <= ttl
+        state: Literal["ready", "warming", "unavailable", "unknown"] = _judge_seen["state"] if fresh else "unknown"
+        if state == "unavailable" and _warming(cfg, now):
+            state = "warming"
         return ServiceStatusOut(
             engine_version=__version__,
             service_window=window,
             judge=JudgeStateOut(
-                state=_judge_seen["state"] if fresh else "unknown",
+                state=state,
                 checked_at=seen.isoformat(timespec="seconds") if (fresh and seen) else None,
             ),
         )
@@ -721,9 +737,26 @@ def build_partner_router(
         # touched here, and REFER_TO_LAWYER outcomes are never affected. Mid-run transient blips that the
         # retry loop successfully rode out never reach this reason either; only exhausted retries do.
         if any(c.reason == "judge_error" for c in result.contracts):
-            _judge_seen.update(state="unavailable", at=_now())
+            now = _now()
+            # A failure straight after a fresh "ready" is a fault (the judge was warm); with no fresh reading it
+            # may be a cold start (#164), so the first failure opens a warming window. A run of failures keeps
+            # the window's start; a stale reading (judge idle, scaled to zero again) restarts it.
+            seen_at = _judge_seen.get("at")
+            prev = _judge_seen.get("state") if seen_at and (now - seen_at).total_seconds() <= cfg.judge_seen_ttl_s else None
+            if prev == "ready":
+                _judge_seen["first_failure"] = None
+            elif prev != "unavailable":
+                _judge_seen["first_failure"] = now
+            _judge_seen.update(state="unavailable", at=now)
+            if cfg.judge_warm_grace_s > 0 and _warming(cfg, now):
+                retry = int(cfg.judge_warm_retry_s)
+                return JSONResponse(
+                    status_code=503,
+                    content={"error": "judge_unavailable", "reason": "judges_warming", "retry_after_s": retry},
+                    headers={"Retry-After": str(retry)},
+                )
             return JSONResponse(status_code=503, content={"error": "judge_unavailable"})
-        _judge_seen.update(state="ready", at=_now())
+        _judge_seen.update(state="ready", at=_now(), first_failure=None)
         body: dict[str, Any] = result.to_dict()
         body.pop("audit_path", None)
         show_second_judge_fields = authenticated or (debug_second_judge and cfg.debug_second_judge_fields_enabled)
