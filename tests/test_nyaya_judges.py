@@ -622,3 +622,20 @@ class TestFrontierJudge:
     def test_unusable_reply_is_a_judge_output_error(self, text: str) -> None:
         with pytest.raises(JudgeOutputError):
             FrontierJudge(self.VENDOR, ask_fn=lambda v, p: _answer(text)).judge(REQ)
+
+
+@pytest.mark.parametrize(
+    "top",
+    [
+        {" established": math.nan, " not": -1.0},
+        {" established": -0.1, " not": math.nan},
+        {" established": math.nan},
+        {" not": math.nan},
+        {" established": math.inf, " not": -1.0},
+        {" established": -0.1, " not": math.inf},
+    ],
+)
+def test_non_finite_label_logprob_is_a_judge_output_error_not_a_probability(top: dict[str, float]) -> None:
+    """#156: NaN made `label_mass < floor` False and returned p=nan; +inf returned established p=1.0."""
+    with pytest.raises(JudgeOutputError):
+        p_established_from_top_logprobs(top)

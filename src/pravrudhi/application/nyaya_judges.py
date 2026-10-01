@@ -264,7 +264,7 @@ def p_established_from_top_logprobs(
             f"prose, not a decision: {dict(top)}"
         )
     label_mass = (math.exp(est) if est != -math.inf else 0.0) + (math.exp(neg) if neg != -math.inf else 0.0)
-    if label_mass < label_mass_floor:
+    if not math.isfinite(label_mass) or not label_mass >= label_mass_floor:
         raise JudgeOutputError(
             f"label mass {label_mass:.6f} below floor {label_mass_floor} -- too little of the "
             f"distribution is on either label token to trust a decision: {dict(top)}"
