@@ -731,6 +731,10 @@ class ElementResult:
     #: True iff the second judge cited a different fact_id than the primary (both established, both cited
     #: something) -- `AndGateJudge`'s own computation, reused verbatim, never re-derived here.
     fact_id_disagreement: bool = False
+    #: P0 #152: this DENY defeater was established by the primary and rejected by the second. The defeater
+    #: stays established (the second never vetoes one) and the contract is REFER_TO_LAWYER
+    #: (`second_judge_defeater_disagreement`), never PROOF.
+    defeater_second_disagreement: bool = False
     #: Issue #37 (single-judge fix, #57): which judge's tau this non-established element failed to clear --
     #: "primary" (it rejected outright; also single-judge mode's ONLY possible value, since there is no
     #: second judge to blame instead) or "second" (the primary passed but the second didn't). None whenever
@@ -915,6 +919,7 @@ def _second_band_info(anchor: ElementJudgment | None, delta: float | None) -> di
         "p_established_second": None, "tau_second": None, "second_skip_reason": None,
         "second_logit_distance": None, "second_refer_band_fired": False, "second_unavailable": False,
         "second_fact_id": None, "fact_id_disagreement": False,
+        "defeater_second_disagreement": False,
     }
     if anchor is None:
         return out
@@ -925,6 +930,7 @@ def _second_band_info(anchor: ElementJudgment | None, delta: float | None) -> di
     )
     out["second_fact_id"] = anchor.second_fact_id
     out["fact_id_disagreement"] = anchor.fact_id_disagreement
+    out["defeater_second_disagreement"] = anchor.defeater_second_disagreement
     if anchor.p_established_second is None or anchor.tau_second is None:
         return out
     out["p_established_second"] = anchor.p_established_second
@@ -1384,6 +1390,7 @@ class NyayaAgent:
         uncertain = [r.element for r in results if r.p_established is not None and self.config.in_band(r.p_established)]
         uncertain_second = [r.element for r in results if r.second_refer_band_fired]
         unavailable_second = [r.element for r in results if r.second_unavailable]
+        defeater_disagreement = [r.element for r in results if r.defeater_second_disagreement]
         gate1_unavailable = [r.element for r in results if r.gate1_unavailable]
         gate1_failed = [r.element for r in results if r.gate1_not_entailed]
         gate1_contradiction = [r.element for r in results if r.gate1_contradiction]
@@ -1397,6 +1404,8 @@ class NyayaAgent:
             return finish("ABSTAIN", "assembly_lean_mismatch", **kw)
         if any(r.is_denial and r.claimed and r.status != "established" for r in results):
             return finish("REFER_TO_LAWYER", "denial_unquotable", **kw)
+        if defeater_disagreement:
+            return finish("REFER_TO_LAWYER", "second_judge_defeater_disagreement", **kw)
         if uncertain:
             return finish("REFER_TO_LAWYER", "uncertain", **kw)
         if uncertain_second:

@@ -279,6 +279,7 @@ class AnalyseFactsRequest(BaseModel):
 _SECOND_JUDGE_DEBUG_FIELDS = (
     "p_established_second", "tau_second", "second_skip_reason", "second_logit_distance",
     "second_refer_band_fired", "second_unavailable", "second_fact_id", "fact_id_disagreement",
+    "defeater_second_disagreement",
 )
 
 
@@ -330,6 +331,7 @@ class ElementResultOut(BaseModel):
     #: same "config-C internal, not for a public unauthenticated caller by default" category.
     second_fact_id: str | None = None
     fact_id_disagreement: bool | None = None
+    defeater_second_disagreement: bool | None = None
 
 
 class ContractResultOut(BaseModel):
