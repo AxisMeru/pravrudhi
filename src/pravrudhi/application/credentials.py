@@ -224,11 +224,16 @@ class CredentialStore(Protocol):
 class FileCredentialStore:
     """`CredentialStore` over `<root>/.pravrudhi/credentials/<provider>.key`, one 0600 file per provider."""
 
-    def __init__(self, root: Path, *, tenant_only: bool = False) -> None:
+    def __init__(self, root: Path, *, operator_path: bool = False) -> None:
         self._root = Path(root)
-        #: True for a signed-in caller's store. `panel.Vendor.key` then resolves from this store ALONE: the
-        #: process environment and the operator's credential files belong to the operator, never to a tenant.
-        self.tenant_only = tenant_only
+        #: Closed by default: `panel.Vendor.key` resolves from this store ALONE unless the creator passed
+        #: `operator_path=True`, which only the CLI / local single-operator entrypoints do. Signed-in, anonymous and
+        #: partner-key API requests all get the default: env and the operator credential files are never theirs.
+        self.operator_path = operator_path
+
+    @property
+    def tenant_only(self) -> bool:
+        return not self.operator_path
 
     def _dir(self) -> Path:
         return self._root / ".pravrudhi" / "credentials"
@@ -321,17 +326,19 @@ class CredentialBoundaryError(RuntimeError):
     """Refusing to hand a signed-in user a store rooted at the engine's own project."""
 
 
-def store_for(root: Path, user: User | None) -> CredentialStore:
+def store_for(root: Path, user: User | None, *, operator_path: bool = False) -> CredentialStore:
     """The credential store for this request, for callers that hold only the engine's root.
 
     Prefer `store_for_project`, which knows whose project the request is about. This remains for the local,
     single-operator path where there is no signed-in user and the engine's root is the only project there is.
+    `operator_path=True` is the explicit opt-in a CLI / local entrypoint sets so env and the operator credential
+    file stay reachable; every API-served request leaves it False (closed), anonymous or partner-key included.
     """
     if user is not None:
         raise NotImplementedError(
             "a signed-in caller needs `store_for_project`, which resolves their own workspace"
         )
-    return FileCredentialStore(root)
+    return FileCredentialStore(root, operator_path=operator_path)
 
 
 def store_for_project(
@@ -354,7 +361,7 @@ def store_for_project(
         raise CredentialBoundaryError(
             "A signed-in user's provider keys live in their own workspace, not in the engine's project."
         )
-    return FileCredentialStore(here, tenant_only=user is not None)
+    return FileCredentialStore(here)
 
 
 @dataclass(frozen=True, slots=True)

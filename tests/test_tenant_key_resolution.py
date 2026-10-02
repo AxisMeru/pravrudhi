@@ -10,7 +10,7 @@ import pytest
 
 from pravrudhi.api.identity import User
 from pravrudhi.application import nyaya, panel
-from pravrudhi.application.credentials import store_for_project
+from pravrudhi.application.credentials import store_for, store_for_project
 
 OP_KEY = "sk-op-" + "o" * 30
 TENANT_KEY = "sk-tn-" + "t" * 30
@@ -57,7 +57,7 @@ def test_tenant_does_not_reach_the_operators_credential_file(tmp_path, engine, m
 
 def test_single_operator_path_keeps_env_and_file(tmp_path, engine):
     assert panel.VENDORS["openai-api"].key(tmp_path) == OP_KEY
-    op_store = store_for_project(tmp_path / "engine", engine_root=tmp_path / "engine", user=None)
+    op_store = store_for(tmp_path / "engine", None, operator_path=True)
     assert panel.VENDORS["openai-api"].key(tmp_path, store=op_store) == OP_KEY
 
 
@@ -78,3 +78,41 @@ def test_available_vendors_reports_off_the_tenant_store(tmp_path, engine):
     rows = {r["id"]: r for r in nyaya.available_vendors(
         tmp_path, ("openai-api",), store=tenant_store(tmp_path, TENANT_KEY))}
     assert rows["openai-api"]["available"]
+
+
+def test_anonymous_store_is_closed_by_default(tmp_path, engine):
+    anon = store_for_project(tmp_path / "engine", engine_root=tmp_path / "engine", user=None)
+    assert anon.tenant_only
+    assert panel.VENDORS["openai-api"].key(tmp_path, store=anon) is None
+
+
+def test_partner_key_caller_uses_only_that_orgs_store(tmp_path, engine):
+    org = User(id="org-7", email="org7@example.com", role="authenticated")
+    ws = tmp_path / "org7"
+    ws.mkdir()
+    s = store_for_project(ws, engine_root=tmp_path / "engine", user=org)
+    assert panel.VENDORS["openai-api"].key(tmp_path, store=s) is None
+    s.put("openai", TENANT_KEY)
+    assert panel.VENDORS["openai-api"].key(tmp_path, store=s) == TENANT_KEY
+
+
+def test_cli_opt_in_is_explicit(tmp_path, engine):
+    assert not store_for(tmp_path, None).operator_path
+    assert panel.VENDORS["openai-api"].key(tmp_path, store=store_for(tmp_path, None)) is None
+    assert panel.VENDORS["openai-api"].key(tmp_path, store=store_for(tmp_path, None, operator_path=True)) == OP_KEY
+
+
+def test_anonymous_api_ask_with_vendors_refuses_with_zero_calls(tmp_path, engine, monkeypatch):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from pravrudhi.api.nyaya import build_nyaya_router
+    import pravrudhi.models.openai_compat as oc
+
+    calls = []
+    monkeypatch.setattr(oc.ChatClient, "chat", lambda *a, **k: calls.append(1))
+    app = FastAPI()
+    app.include_router(build_nyaya_router(engine))
+    r = TestClient(app).post("/api/nyaya/ask", json={"question": "q?", "vendors": ["openai-api"]})
+    assert calls == []
+    assert OP_KEY not in r.text
