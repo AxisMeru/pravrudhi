@@ -1146,3 +1146,44 @@ class TestJudgesWarming:
     def test_warm_grace_is_config_not_code(self) -> None:
         cfg = load_partner_api_config(Path(__file__).resolve().parent.parent)
         assert cfg.judge_warm_grace_s > 0 and cfg.judge_warm_retry_s > 0
+
+
+def test_contracts_carry_citations_resolved_against_the_corpus(tmp_path: Path) -> None:
+    """#142: the contract's own source column, checked against the shipped corpus; same whatever the verdict."""
+    proof = _client(tmp_path).post("/api/v1/analyse-facts", json=_req()).json()["contracts"][0]
+    assert proof["citations"] == [
+        {"act": "BNS", "section": "69", "corpus_id": "BNS/Section 69", "in_corpus": True, "title": proof["citations"][0]["title"]}
+    ]
+    assert proof["citations"][0]["title"]
+    no_proof = {BNS69_EL[0]: [_not()], BNS69_EL[1]: [_not()], BNS69_DENY: [_not()]}
+    refer = _client(tmp_path, no_proof).post("/api/v1/analyse-facts", json=_req()).json()["contracts"][0]
+    assert refer["outcome"] != proof["outcome"]
+    assert refer["citations"] == proof["citations"]
+
+
+def test_a_source_absent_from_the_corpus_is_reported_not_dropped(tmp_path: Path) -> None:
+    agent = _agent(tmp_path, _proof_script())
+    agent.registry.sources["bns69"] = ["Bharatiya Nyaya Sanhita §9999"]
+    app = FastAPI()
+    app.include_router(build_partner_router(tmp_path, agent_factory=lambda _root: agent, config=_NO_LIMIT_CONFIG))
+    c = TestClient(app).post("/api/v1/analyse-facts", json=_req()).json()["contracts"][0]
+    assert c["citations"] == [{"act": "BNS", "section": "9999", "corpus_id": None, "in_corpus": False, "title": None}]
+
+
+def test_unreadable_sources_give_null_citations_not_an_error(tmp_path: Path) -> None:
+    agent = _agent(tmp_path, _proof_script())
+
+    real = agent.registry.list_contracts
+    calls: list[int] = []
+
+    def boom() -> dict[str, list[str]]:
+        calls.append(1)
+        if len(calls) > 1:  # the agent's own selection call succeeds; the citations read is the second
+            raise RuntimeError("binary gone")
+        return real()
+
+    agent.registry.list_contracts = boom  # type: ignore[method-assign]
+    app = FastAPI()
+    app.include_router(build_partner_router(tmp_path, agent_factory=lambda _root: agent, config=_NO_LIMIT_CONFIG))
+    r = TestClient(app).post("/api/v1/analyse-facts", json=_req())
+    assert r.status_code == 200 and r.json()["contracts"][0]["citations"] is None
