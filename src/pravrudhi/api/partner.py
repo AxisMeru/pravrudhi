@@ -908,6 +908,8 @@ def build_partner_router(
             store.start(job_id)
             try:
                 out = _run(req, admitted, debug_second_judge)
+                if isinstance(out, dict):
+                    out = AnalyseFactsResponse(**out).model_dump(mode="json", exclude_unset=True)
             except HTTPException as e:
                 if e.status_code == 503 and metered:
                     _record_usage(metered[0], failed=True)
@@ -922,7 +924,7 @@ def build_partner_router(
                     _record_usage(metered[0], failed=True)
                 store.fail(job_id, status_code=out.status_code, body=json.loads(bytes(out.body)))
                 return
-            store.finish(job_id, result=AnalyseFactsResponse(**out).model_dump(mode="json", exclude_unset=True))
+            store.finish(job_id, result=out)
 
         _submit(task)
         return {"job_id": job_id, "status": "pending"}

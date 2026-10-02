@@ -73,3 +73,9 @@ judge_seen_ttl_s: 600
 # first such failure, then as a plain judge_unavailable. 0 turns the distinction off.
 judge_warm_grace_s: 240
 judge_warm_retry_s: 30
+
+# Async jobs (POST /api/v1/analyse-facts/jobs, then poll GET .../jobs/{job_id}). Jobs are in memory and are lost on a
+# restart. A finished job stays collectable for job_retention_s; one key may hold at most
+# job_max_unfinished_per_key unfinished jobs (429 beyond that). Polling is not rate limited.
+job_retention_s: 3600
+job_max_unfinished_per_key: 8
