@@ -74,11 +74,110 @@ def test_missing_allowlist_fails_closed(tmp_path: Path) -> None:
     assert subprocess.run(["bash", str(d / "commit-msg"), str(f)], env=env, capture_output=True).returncode == 1
 
 
-def _push(ref: str) -> int:
+def _push(ref: str, tmp_path: Path) -> int:
     pre = HOOK.parent / "pre-push"
-    return subprocess.run(["bash", str(pre)], input=f"refs/heads/x abc {ref} 0\n", text=True, capture_output=True).returncode
+    repo = _repo(tmp_path)
+    sha = _git(repo, "rev-parse", "HEAD").strip()
+    return subprocess.run(["bash", str(pre)], cwd=repo, input=f"refs/heads/x {sha} {ref} 0\n", text=True, capture_output=True).returncode
 
 
-def test_pre_push_refuses_main_and_allows_branches() -> None:
-    assert _push("refs/heads/main") == 1
-    assert _push("refs/heads/feature") == 0
+def _git(repo: Path, *args: str, env: dict | None = None) -> str:
+    return subprocess.run(["git", *args], cwd=repo, env=os.environ | (env or {}), capture_output=True, text=True, check=True).stdout
+
+
+def _ident(who: tuple[str, str]) -> dict:
+    return {"GIT_AUTHOR_NAME": who[0], "GIT_AUTHOR_EMAIL": who[1], "GIT_COMMITTER_NAME": who[0], "GIT_COMMITTER_EMAIL": who[1]}
+
+
+def _repo(tmp_path: Path) -> Path:
+    """origin (bare) + clone with one pushed team commit; returns the clone."""
+    repo = tmp_path / "clone"
+    if repo.exists():
+        return repo
+    bare = tmp_path / "origin.git"
+    subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(bare)], check=True)
+    subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
+    _git(repo, "remote", "add", "origin", str(bare))
+    (repo / "f").write_text("0")
+    _git(repo, "add", "f")
+    _git(repo, "commit", "-q", "-m", "base", env=_ident(TEAM))
+    _git(repo, "push", "-q", "origin", "main", "--no-verify")
+    _git(repo, "fetch", "-q", "origin")
+    return repo
+
+
+def _commit(repo: Path, who: tuple[str, str], committer: tuple[str, str] | None = None) -> str:
+    (repo / "f").write_text(str(len(list(repo.glob("*"))) + hash(who) % 997))
+    _git(repo, "commit", "-qam", "c", env=_ident(who) | ({"GIT_COMMITTER_NAME": committer[0], "GIT_COMMITTER_EMAIL": committer[1]} if committer else {}))
+    return _git(repo, "rev-parse", "HEAD").strip()
+
+
+def _hook(repo: Path, sha: str, ref: str = "refs/heads/feature", extra_files: dict | None = None) -> subprocess.CompletedProcess:
+    hooks = repo.parent / "hooks"
+    hooks.mkdir(exist_ok=True)
+    for name in ("pre-push", "allowed-identities"):
+        (hooks / name).write_text((HOOK.parent / name).read_text())
+    for name, body in (extra_files or {}).items():
+        (hooks / name).write_text(body)
+    return subprocess.run(["bash", str(hooks / "pre-push")], cwd=repo, input=f"refs/heads/feature {sha} {ref} {'0' * 40}\n", text=True, capture_output=True)
+
+
+def test_pre_push_refuses_main_and_allows_branches(tmp_path: Path) -> None:
+    assert _push("refs/heads/main", tmp_path) == 1
+    assert _push("refs/heads/feature", tmp_path) == 0
+
+
+def test_push_accepts_new_commits_by_listed_identity(tmp_path: Path) -> None:
+    repo = _repo(tmp_path)
+    assert _hook(repo, _commit(repo, TEAM)).returncode == 0
+
+
+def test_push_refuses_unlisted_author(tmp_path: Path) -> None:
+    repo = _repo(tmp_path)
+    r = _hook(repo, _commit(repo, ("Someone Else", "x@y.z")))
+    assert r.returncode == 1 and "Someone Else" in r.stderr
+
+
+def test_push_refuses_cherry_pick_replay_with_foreign_committer(tmp_path: Path) -> None:
+    repo = _repo(tmp_path)
+    r = _hook(repo, _commit(repo, TEAM, committer=("Rebaser", "r@y.z")))
+    assert r.returncode == 1 and "committer 'Rebaser <r@y.z>'" in r.stderr
+
+
+def test_push_checks_every_new_commit_not_only_the_tip(tmp_path: Path) -> None:
+    repo = _repo(tmp_path)
+    _commit(repo, ("Old Personal", "p@y.z"))
+    assert _hook(repo, _commit(repo, TEAM)).returncode == 1
+
+
+def test_push_ignores_commits_already_on_a_remote(tmp_path: Path) -> None:
+    repo = _repo(tmp_path)
+    bad = _commit(repo, ("Old Personal", "p@y.z"))
+    _git(repo, "push", "-q", "origin", "HEAD:refs/heads/legacy", "--no-verify")
+    _git(repo, "fetch", "-q", "origin")
+    assert _hook(repo, _commit(repo, TEAM)).returncode == 0 and bad
+
+
+def test_push_sha_allowlist_exempts_a_listed_legacy_commit(tmp_path: Path) -> None:
+    repo = _repo(tmp_path)
+    bad = _commit(repo, ("Old Personal", "p@y.z"))
+    tip = _commit(repo, TEAM)
+    assert _hook(repo, tip).returncode == 1
+    assert _hook(repo, tip, extra_files={"identity-sha-allowlist": f"# reason\n{bad}\n"}).returncode == 0
+
+
+def test_push_checks_non_main_branches_and_skips_deletes(tmp_path: Path) -> None:
+    repo = _repo(tmp_path)
+    r = subprocess.run(["bash", str(_hook_dir(repo) / "pre-push")], cwd=repo, input=f"(delete) {'0' * 40} refs/heads/gone {'a' * 40}\n", text=True, capture_output=True)
+    assert r.returncode == 0
+
+
+def _hook_dir(repo: Path) -> Path:
+    _hook(repo, _git(repo, "rev-parse", "HEAD").strip())
+    return repo.parent / "hooks"
+
+
+def test_push_fails_closed_on_unreadable_range(tmp_path: Path) -> None:
+    repo = _repo(tmp_path)
+    r = _hook(repo, "f" * 40)
+    assert r.returncode == 1 and "cannot read" in r.stderr
