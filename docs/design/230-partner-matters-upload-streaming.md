@@ -1,6 +1,6 @@
 # Design note #230: partner API matters, document upload and streaming analyse
 
-**Status: revised after Lead-2's answers (section 9); items marked "proposed, pending operator" are not decided. No code until Lead-2 has read this revision and the operator has answered the retention and backup terms.** Public repo: hosts are placeholders
+**Status: revised after Lead-2's and the operator's answers (section 9). No code until Lead-2 has read this revision.** Public repo: hosts are placeholders
 (`https://api.example.com`), no client data, no internal paths.
 
 ## 0. Starting point
@@ -73,16 +73,17 @@ convention.
 * Isolation: the path and every query are keyed by the *authenticated key's* `org_id`, never by an id in the URL
   alone. A matter id belonging to another org is 404 (not 403) so existence does not leak. Tests: org A's key
   against org B's matter, document and run ids on every route.
-* Retention (**proposed, pending operator**): a matter has `expires_at`; default 30 days, ceiling 90, configurable
-  down per matter. (Today's analyse-facts audit record keeps its own 7-day window; the notice text must say which
-  applies to what.) A purge runs opportunistically on each write, as `purge_stale_runs` does now, plus a
+* Retention (**decided by operator 2 Oct**): a matter has `expires_at`; the default is 90 days and 90 is also the
+  ceiling (no per-org extension past 90); a matter may be set shorter. Derived facts and results follow the same
+  90 days. The analyse-facts audit record keeps its own separate 7-day window, and the retention notice states it
+  as such. A purge runs opportunistically on each write, as `purge_stale_runs` does now, plus a
   periodic sweep; the response retention notice is generated from the same config value so it cannot drift.
-* Deletion (**proposed, pending operator**): hard delete on request, immediate, with an audit record of the delete.
+* Deletion (**decided by operator 2 Oct**): hard delete on request, immediate, with an audit record of the delete.
   `DELETE` removes files, extracted text, facts and run records; the audit row keeps
   only ids, hashes and counts (no text) so usage and billing stay checkable. Revoking a key does not delete data;
   deleting an org does (operator route, behind the provisioning secret).
-* Backups (**proposed, pending operator**): client uploads are NOT backed up, so a delete is real; derived
-  facts and results follow the same retention as the matter.
+* Backups (**decided by operator 2 Oct**): client uploads are NOT backed up, so a delete is final; derived
+  facts and results follow the same 90 days as the matter.
 * At rest: volume-level encryption at minimum; per-org keys are a later option.
 
 ## 5. SSE or poll
@@ -105,14 +106,14 @@ result. A dropped stream never cancels a run. Events carry statuses and outcomes
 
 ## 7. Slicing (order set by Lead-2: poll, upload txt/docx, PDF, SSE)
 
-1. This note (revised; Lead-2 reads, operator answers items 4-5 of section 9).
+1. This note (revised; Lead-2 reads on Monday).
 2. Matters + poll route (202, then `GET .../runs/{run}`) on facts the caller already split, with isolation,
    retention, deletion and the CLIENT_DATA guard tests.
 3. Upload for txt and docx, with the limits in section 2.
 4. PDF (text layer, `pdfminer.six`, sandboxed extractor).
 5. SSE.
 
-No slice 2 until Lead-2 has read this revision and the operator has answered the retention and backup terms.
+No slice 2 until Lead-2 has read this revision.
 Each slice is its own PR with its own OpenAPI regeneration and executed examples.
 
 ## 8. Risks
@@ -132,7 +133,10 @@ Answered by Lead-2:
 3. No AV scanner in the MVP; strict allowlist (txt, docx, pdf), content sniffing, no macros, archives or
    embedded-object extraction, sandbox; the docs say "no malware-scanning claim"; revisit if a partner requires it.
 
-Proposed, pending operator (legal/business terms, not engineering decisions):
+Decided by operator 2 Oct (legal/business terms):
 
-4. Retention: default 30 days, ceiling 90, immediate hard delete on request plus an audit record of the delete.
-5. Backups: client uploads are not backed up; derived facts and results follow the same retention.
+4. Retention: default 90 days, which is also the ceiling (no per-org extension past 90); immediate hard delete on
+   request plus an audit record of the delete; the 7-day analyse-facts audit window stays separate and the notice
+   states it as such.
+5. Backups: client uploads are not backed up, so a delete is final; derived facts and results follow the same
+   90 days.
