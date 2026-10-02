@@ -890,7 +890,7 @@ def _build_house_judge(hj_cfg: Mapping[str, Any], *, tau: float, typed: bool, ap
         decoder = VLLMDecoder(
             base_url=str(hj_cfg["base_url"]),
             model=hj_cfg.get("model") or None,
-            timeout_s=int(hj_cfg.get("timeout_s", 60)),
+            timeout_s=int(hj_cfg["timeout_s"]),
             api_key=api_key,
             fallback_urls=hj_cfg.get("base_urls_fallback") or [],
             enforce_served_model=bool(hj_cfg.get("enforce_served_model", False)),
@@ -899,8 +899,8 @@ def _build_house_judge(hj_cfg: Mapping[str, Any], *, tau: float, typed: bool, ap
             tau=tau,
             statute_chars=int(hj_cfg["statute_chars"]),
             decoder=decoder,
-            max_tokens=int(hj_cfg.get("max_tokens", 30)),
-            top_logprobs=int(hj_cfg.get("top_logprobs", 20)),
+            max_tokens=int(hj_cfg["max_tokens"]),
+            top_logprobs=int(hj_cfg["top_logprobs"]),
             label_mass_floor=float(hj_cfg["label_mass_floor"]),
             prompt_template=str(hj_cfg.get("prompt_template", "legacy")),
         )
