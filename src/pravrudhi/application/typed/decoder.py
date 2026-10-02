@@ -187,6 +187,9 @@ def score_decision(result: CompletionResult, field: Field) -> tuple[dict[str, fl
     if not result.top_logprobs:
         raise DecodeError(f"{field.name}: the server returned no logprobs for the first token")
     top: Mapping[str, float] = result.top_logprobs[0]
+    bad = {t: v for t, v in top.items() if math.isnan(v) or v == math.inf}
+    if bad:
+        raise DecodeError(f"{field.name}: non-finite logprob(s) in the first token's top logprobs: {bad}")
     raw = {name: max((top[t] for t in variants if t in top), default=-math.inf) for name, variants in field.options.items()}
     if all(v == -math.inf for v in raw.values()):
         raise DecodeError(f"{field.name}: none of the option tokens are among the first token's top logprobs: {dict(top)}")

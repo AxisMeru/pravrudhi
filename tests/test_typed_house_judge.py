@@ -153,3 +153,45 @@ class TestNyayaJudgesModuleIsUntouched:
 
         source = inspect.getsource(mod)
         assert "application.typed" not in source
+
+
+class TestNonFiniteLogprobsNeverEstablish:
+    """#172: the typed judge must fail closed (JudgeOutputError) on a NaN/+inf logprob, like HouseJudge (#156)."""
+
+    @staticmethod
+    def _typed(top: dict[str, float]) -> TypedHouseJudge:
+        return TypedHouseJudge(
+            tau=0.74, statute_chars=600,
+            decoder=VLLMDecoder(model="m", complete=_decoder_transport(top, " established F1:5:22")),
+        )
+
+    @pytest.mark.parametrize(
+        "top",
+        [
+            {"established": float("nan"), " established": -0.1},
+            {" established": -0.1, " not": -3.0, "Based": float("nan")},
+            {" established": float("nan"), " not": -1.0},
+            {" established": float("inf"), " not": -1.0},
+        ],
+    )
+    def test_nan_or_inf_logprob_raises_judge_output_error(self, top: dict[str, float]) -> None:
+        with pytest.raises(JudgeOutputError):
+            self._typed(top).judge(REQ)
+
+    def test_fuzz_no_non_finite_input_is_ever_established(self) -> None:
+        import random
+
+        rng = random.Random(172)
+        keys = [" established", "established", " not", "not", "Based", " the"]
+        escapes = 0
+        for _ in range(500):
+            top = {k: rng.uniform(-12.0, 0.0) for k in rng.sample(keys, rng.randint(2, len(keys)))}
+            for k in rng.sample(sorted(top), rng.randint(1, len(top))):
+                top[k] = rng.choice([float("nan"), float("inf")])
+            try:
+                j = self._typed(top).judge(REQ)
+            except JudgeOutputError:
+                continue
+            escapes += 1
+            assert j.status != "established"
+        assert escapes == 0

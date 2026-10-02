@@ -14,6 +14,8 @@ GPU-level check against the 279-prompt calibration/heldout set that is T1's real
 
 from __future__ import annotations
 
+import math
+
 from pravrudhi.application.nyaya_judges import (
     ClampKind,
     ElementJudgment,
@@ -63,6 +65,8 @@ class TypedHouseJudge:
             # a caller that catches JudgeOutputError around either judge sees the same behaviour.
             raise JudgeOutputError(str(e)) from e
         p = scores["true"]
+        if not math.isfinite(p):
+            raise JudgeOutputError(f"non-finite established probability {p!r}: {dict(res.top_logprobs[0])}")
         # Conservative decision rule (2026-09-28, G-28), mirroring HouseJudge.judge exactly: "false"
         # missing means p is a LOWER bound on the true score (analogous to nyaya_judges' "' not' missing"
         # branch) -- established only when the bound itself already clears tau. "true" missing means p is
