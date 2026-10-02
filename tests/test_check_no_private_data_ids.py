@@ -89,7 +89,7 @@ def test_binary_and_non_text_suffix_skipped(tmp_path):
 
 
 def test_marker_check_still_works(tmp_path):
-    assert repo(tmp_path, {"docs/a.md": "CLIENT_DATA"})
+    assert repo(tmp_path, {"docs/a.md": G.MARKER})
 
 
 def test_secret_scan_fixtures_dir_is_exempt(tmp_path):
