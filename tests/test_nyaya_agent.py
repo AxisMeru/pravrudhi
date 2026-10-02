@@ -303,14 +303,15 @@ class TestLoop:
         assert TOY_FACTS[1][el0.start : el0.end] == "never to marry Lata"  # type: ignore[misc]
         assert (el0.offsets_source, el0.occurrences) == ("system", 1)
 
-    def test_multiple_occurrences_take_the_first_and_are_counted(self, tmp_path: Path) -> None:
+    def test_an_ambiguous_quote_is_not_established_never_grounded_on_its_first_occurrence(self, tmp_path: Path) -> None:
         script = _proof_script(TOY_FACTS)
         script[BNS69_EL[0]] = [_est("F2", TOY_FACTS[1], "ha")]
         run, _, _ = _run(tmp_path, script)
-        el0 = run.contracts[0].elements[0]
-        assert el0.start == TOY_FACTS[1].find("ha")
-        assert el0.occurrences == TOY_FACTS[1].count("ha")
-        assert el0.occurrences > 1
+        c = run.contracts[0]
+        el0 = c.elements[0]
+        assert (el0.status, el0.quote_check) == ("not_established", "ambiguous_quote")
+        assert el0.start is None and el0.end is None and el0.occurrences == TOY_FACTS[1].count("ha")
+        assert c.outcome == "ABSTAIN"
 
     def test_every_attempt_uses_the_same_training_statute_never_the_binary_text(self, tmp_path: Path) -> None:
         script = _proof_script(TOY_FACTS)

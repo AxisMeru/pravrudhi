@@ -38,15 +38,18 @@ class TestLocateQuote:
         loc = locate_quote(FACTS, fact_id="F2", quote=text)
         assert loc.valid and (loc.start, loc.end) == (0, len(text))
 
-    def test_multiple_occurrences_take_the_first_and_record_the_count(self) -> None:
+    def test_a_quote_occurring_more_than_once_fails_closed_with_the_count(self) -> None:
         loc = locate_quote(FACTS, fact_id="F3", quote="Arun shouted at")
-        assert loc.valid
-        assert (loc.start, loc.end) == (5, 20)
-        assert loc.occurrences == 2
+        assert (loc.valid, loc.reason, loc.occurrences) == (False, "ambiguous_quote", 2)
+        assert loc.start is None and loc.end is None
 
-    def test_occurrences_count_overlapping_matches(self) -> None:
+    def test_a_longer_quote_that_disambiguates_is_valid(self) -> None:
+        loc = locate_quote(FACTS, fact_id="F3", quote="Arun shouted at Bela")
+        assert (loc.valid, loc.start, loc.occurrences) == (True, 5, 1)
+
+    def test_overlapping_occurrences_are_ambiguous(self) -> None:
         loc = locate_quote({"F1": "aaaa"}, fact_id="F1", quote="aa")
-        assert (loc.start, loc.occurrences) == (0, 3)
+        assert (loc.valid, loc.reason, loc.occurrences) == (False, "ambiguous_quote", 3)
 
     def test_non_verbatim_quote_is_rejected(self) -> None:
         loc = locate_quote(FACTS, fact_id="F1", quote="Arun wed Bela")
