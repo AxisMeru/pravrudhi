@@ -40,7 +40,7 @@ def _pct(v: Any) -> float | None:
     return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else None
 
 
-def _load(root: Path) -> dict:
+def _load(root: Path) -> dict[str, Any]:
     try:
         cfg = yaml.safe_load(config_file(root, "usage_gate.yaml").read_text())
     except (OSError, FileNotFoundError, yaml.YAMLError) as exc:
@@ -50,7 +50,7 @@ def _load(root: Path) -> dict:
     return cfg
 
 
-def _need(cfg: dict, *path: str) -> Any:
+def _need(cfg: dict[str, Any], *path: str) -> Any:
     node: Any = cfg
     for k in path:
         if not isinstance(node, dict) or k not in node:
@@ -59,13 +59,13 @@ def _need(cfg: dict, *path: str) -> Any:
     return node
 
 
-def _read_codex(cfg: dict, now: dt.datetime) -> dict:
+def _read_codex(cfg: dict[str, Any], now: dt.datetime) -> dict[str, Any]:
     from pravrudhi.application.codex_usage import read_codex_usage
 
     return read_codex_usage(since=(now - dt.timedelta(days=2)).date(), now=now)
 
 
-def _read_claude(cfg: dict) -> dict:
+def _read_claude(cfg: dict[str, Any]) -> dict[str, Any]:
     path = Path(str(_need(cfg, "claude", "usage_file"))).expanduser()
     try:
         data = json.loads(path.read_text())
@@ -78,14 +78,22 @@ class StaleReading(UsageGateRefused):
     """The reading is refused only because it is old or its window reset, and it is far enough under the limits that
     one bounded refresh call may be tried (codex only). Carries the reading that was judged."""
 
-    def __init__(self, message: str, before: dict, reason: str):
+    def __init__(self, message: str, before: dict[str, Any], reason: str):
         super().__init__(message)
         self.before, self.reason = before, reason
 
 
 def _judge(
-    kind: str, cfg: dict, now: dt.datetime, *, verified: Any, observed: Any, weekly: Any, five: Any, weekly_resets: Any = None
-) -> dict:
+    kind: str,
+    cfg: dict[str, Any],
+    now: dt.datetime,
+    *,
+    verified: Any,
+    observed: Any,
+    weekly: Any,
+    five: Any,
+    weekly_resets: Any = None,
+) -> dict[str, Any]:
     max_age = _need(cfg, "max_age_min", kind)
     wmax, fmax = _need(cfg, kind, "weekly_max_pct"), _need(cfg, kind, "five_hour_max_pct")
     if verified is not True:
@@ -136,7 +144,7 @@ def _judge(
     }
 
 
-def _judge_codex(cfg: dict, now: dt.datetime) -> dict:
+def _judge_codex(cfg: dict[str, Any], now: dt.datetime) -> dict[str, Any]:
     r = _read_codex(cfg, now)
     lim = r.get("latest_rate_limits")
     if not isinstance(lim, dict):
@@ -155,7 +163,7 @@ def _judge_codex(cfg: dict, now: dt.datetime) -> dict:
     return g
 
 
-def _run_refresh(cfg: dict) -> None:
+def _run_refresh(cfg: dict[str, Any]) -> None:
     """One minimal codex call whose answer is discarded; it exists only to advance the rollout's rate-limit reading."""
     from pravrudhi.agents.cli_agents import _run
 
@@ -170,11 +178,11 @@ def _run_refresh(cfg: dict) -> None:
         raise RuntimeError((err or out or f"codex exited {code}")[-200:])
 
 
-def _state_path(cfg: dict) -> Path:
+def _state_path(cfg: dict[str, Any]) -> Path:
     return Path(str(_need(cfg, "codex", "refresh_state_file"))).expanduser()
 
 
-def _claim_refresh(cfg: dict, now: dt.datetime) -> None:
+def _claim_refresh(cfg: dict[str, Any], now: dt.datetime) -> None:
     """At most one refresh per `refresh_min_interval_min`; the claim is written BEFORE the call so a failed or hung
     refresh still counts. A corrupt state file refuses (no refresh)."""
     path, interval = _state_path(cfg), _need(cfg, "codex", "refresh_min_interval_min")
@@ -194,7 +202,7 @@ def _claim_refresh(cfg: dict, now: dt.datetime) -> None:
     path.write_text(json.dumps({"last_refresh_at": now.isoformat().replace("+00:00", "Z")}))
 
 
-def _refreshed(cfg: dict, now: dt.datetime, stale: StaleReading) -> dict:
+def _refreshed(cfg: dict[str, Any], now: dt.datetime, stale: StaleReading) -> dict[str, Any]:
     _claim_refresh(cfg, now)
     try:
         _run_refresh(cfg)
@@ -219,7 +227,7 @@ def _now_after(t: dt.datetime) -> dt.datetime:
     return max(_now(), t)
 
 
-def gate_reading(kind: str, root: Path, *, now: dt.datetime | None = None) -> dict:
+def gate_reading(kind: str, root: Path, *, now: dt.datetime | None = None) -> dict[str, Any]:
     if kind not in GATED_KINDS:
         raise ValueError(f"no usage gate for {kind!r}")
     now = now or _now()
