@@ -210,3 +210,22 @@ def test_bad_leeway_env_falls_back_to_default(monkeypatch: pytest.MonkeyPatch) -
     secret = _hs256_env(monkeypatch)
     monkeypatch.setenv("PRAVRUDHI_JWT_LEEWAY_S", "not-a-number")
     assert identity.verify_token(_hs256_token_with(secret, iat=2.0))["sub"] == "user-skew"
+
+
+def test_leeway_ceiling_is_60s(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
+    monkeypatch.setenv("PRAVRUDHI_JWT_LEEWAY_S", "60")
+    assert identity._jwt_leeway_s() == 60.0
+    for bad in ("61", "3600", "86400"):
+        monkeypatch.setenv("PRAVRUDHI_JWT_LEEWAY_S", bad)
+        caplog.clear()
+        with caplog.at_level("WARNING"):
+            assert identity._jwt_leeway_s() == identity._DEFAULT_JWT_LEEWAY_S
+        assert "PRAVRUDHI_JWT_LEEWAY_S" in caplog.text
+
+
+def test_oversized_leeway_does_not_disable_checks(monkeypatch: pytest.MonkeyPatch) -> None:
+    jwt = pytest.importorskip("jwt")
+    secret = _hs256_env(monkeypatch)
+    monkeypatch.setenv("PRAVRUDHI_JWT_LEEWAY_S", "86400")
+    with pytest.raises(jwt.ExpiredSignatureError):
+        identity.verify_token(_hs256_token_with(secret, exp=-3600.0))

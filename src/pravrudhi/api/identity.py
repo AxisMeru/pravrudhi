@@ -22,6 +22,7 @@ state.
 
 from __future__ import annotations
 
+import logging
 import os
 import time
 from collections.abc import Callable, Mapping
@@ -156,16 +157,24 @@ def _introspect(token: str, fetch: HttpFetch) -> dict[str, Any]:
 
 
 _DEFAULT_JWT_LEEWAY_S = 5.0
+_MAX_JWT_LEEWAY_S = 60.0
 
 
 def _jwt_leeway_s() -> float:
-    """Clock-skew tolerance for exp/nbf/iat, seconds; PRAVRUDHI_JWT_LEEWAY_S overrides, bad values use the default."""
+    """Clock-skew tolerance (s) for exp/nbf/iat; env override only within [0, 60], else warn and default."""
     raw = os.environ.get("PRAVRUDHI_JWT_LEEWAY_S", "").strip()
-    try:
-        value = float(raw) if raw else _DEFAULT_JWT_LEEWAY_S
-    except ValueError:
+    if not raw:
         return _DEFAULT_JWT_LEEWAY_S
-    return value if value >= 0 else _DEFAULT_JWT_LEEWAY_S
+    try:
+        value = float(raw)
+    except ValueError:
+        value = -1.0
+    if not 0.0 <= value <= _MAX_JWT_LEEWAY_S:
+        logging.getLogger(__name__).warning(
+            "PRAVRUDHI_JWT_LEEWAY_S=%r outside [0, %s]; using default %s s", raw, _MAX_JWT_LEEWAY_S, _DEFAULT_JWT_LEEWAY_S
+        )
+        return _DEFAULT_JWT_LEEWAY_S
+    return value
 
 
 def verify_token(token: str, *, fetch: HttpFetch = _default_fetch) -> dict[str, Any]:
