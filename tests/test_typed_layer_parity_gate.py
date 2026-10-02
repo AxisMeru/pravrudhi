@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from pravrudhi.application.nyaya_judges import ElementJudgment, JudgeOutputError
 from pravrudhi.application.typed.parity import MAX_ABS_DP, ParityError, apply_template, run_parity
 from pravrudhi.models.openai_compat import CompletionResult
 
@@ -38,14 +39,28 @@ def test_gate_passes_on_agreeing_recorded_completions() -> None:
     assert rep["max_abs_dp"] <= MAX_ABS_DP
 
 
-def test_prose_top1_is_a_flip_the_gate_catches() -> None:
-    """Production p_established_from_top_logprobs fail-closes when the top-1 token is prose or label mass is
-    below the floor (2026-09-28); the typed path's score_decision has no such guard, so the two disagree: one
-    raises, the other returns a number. The gate must report that as a flip, not skip it."""
-    table = {"prose": ("Based on", {"Based": -0.1, " established": -2.5, " not": -2.6})}
-    rep = run_parity(_rows(table), _fetch_from(table))
+class _Raises:
+    def judge(self, request):
+        raise JudgeOutputError("stub: fail-closed")
+
+
+class _Returns:
+    def judge(self, request):
+        return ElementJudgment("established", 0.9, raw="established")
+
+
+def test_one_judge_raising_while_the_other_returns_counts_as_a_flip() -> None:
+    """Gate logic only, with stub judges (independent of the real typed path and of #177's merge state)."""
+    rep = run_parity(_rows(["est"]), _fetch_from(RECORDED), judges=(_Raises(), _Returns()))
     assert rep["gate"]["status"] == "fail"
     assert len(rep["flips"]) == 1 and rep["flips"][0]["untyped"]["error"] == "JudgeOutputError"
+    assert rep["flips"][0]["typed"]["error"] is None
+
+
+def test_both_judges_raising_is_not_a_flip() -> None:
+    rep = run_parity(_rows(["est", "not"]), _fetch_from(RECORDED), judges=(_Raises(), _Raises()))
+    assert rep["flips"] == [] and rep["n_both_error"] == 2
+    assert rep["gate"]["status"] == "fail"  # nothing compared, so the gate still refuses to pass
 
 
 def test_transport_error_fails_the_gate_and_is_recorded() -> None:

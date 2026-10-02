@@ -62,8 +62,11 @@ def _outcome(j: ElementJudgment) -> Outcome:
     return Outcome(j.status, j.p_established, j.clamp, j.bound_undetermined, j.fact_id)
 
 
-def judge_both(res: CompletionResult, *, tau: float = TAU) -> tuple[Outcome, Outcome]:
-    """Feed one recorded completion to the real `HouseJudge.judge` and the real `TypedHouseJudge.judge`."""
+def judge_both(
+    res: CompletionResult, *, tau: float = TAU, judges: tuple[Any, Any] | None = None
+) -> tuple[Outcome, Outcome]:
+    """Feed one recorded completion to the real `HouseJudge.judge` and the real `TypedHouseJudge.judge`.
+    `judges=(untyped, typed)` substitutes any objects with `.judge(request)` (tests of the gate's own logic)."""
 
     def untyped_complete(prompt: str) -> CompletionResult:
         return res
@@ -71,10 +74,13 @@ def judge_both(res: CompletionResult, *, tau: float = TAU) -> tuple[Outcome, Out
     def typed_complete(prompt: str, *, max_tokens: int, temperature: float, logprobs: int | None) -> CompletionResult:
         return res
 
-    untyped = HouseJudge(tau=tau, statute_chars=STATUTE_CHARS, model=res.model, complete=untyped_complete)
-    typed = TypedHouseJudge(
-        tau=tau, statute_chars=STATUTE_CHARS, decoder=VLLMDecoder(model=res.model, complete=typed_complete)
-    )
+    if judges is not None:
+        untyped, typed = judges
+    else:
+        untyped = HouseJudge(tau=tau, statute_chars=STATUTE_CHARS, model=res.model, complete=untyped_complete)
+        typed = TypedHouseJudge(
+            tau=tau, statute_chars=STATUTE_CHARS, decoder=VLLMDecoder(model=res.model, complete=typed_complete)
+        )
     out: list[Outcome] = []
     for judge in (untyped, typed):
         try:
@@ -96,6 +102,7 @@ def run_parity(
     *,
     template: str | None = None,
     tau: float = TAU,
+    judges: tuple[Any, Any] | None = None,
 ) -> dict[str, Any]:
     """Per row: build the (templated) prompt, fetch ONE completion, score it through both judges. Returns a
     report dict whose `gate` block is the verdict. A fetch failure is recorded and fails the gate; no row is
@@ -113,7 +120,7 @@ def run_parity(
         except Exception as e:  # noqa: BLE001
             transport_errors.append({"row": i, "id": row.get("id"), "error": f"{type(e).__name__}: {e}"})
             continue
-        untyped, typed = judge_both(res, tau=tau)
+        untyped, typed = judge_both(res, tau=tau, judges=judges)
         if differs(untyped, typed):
             flips.append({"row": i, "id": row.get("id"), "untyped": asdict(untyped), "typed": asdict(typed)})
             continue
