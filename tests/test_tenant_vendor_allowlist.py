@@ -1,0 +1,149 @@
+"""#388: the vendor allowlist for API callers. Default-closed, cli vendors never, config not code, CLI untouched."""
+
+from __future__ import annotations
+
+import pytest
+
+from pravrudhi.api.identity import User
+from pravrudhi.application import nyaya, panel, tenant_vendors
+from pravrudhi.application.credentials import serving_api, serving_org, store_for_project
+from pravrudhi.application.tenant_vendors import VendorNotAllowed
+
+USER = User(id="u1", email="t@example.com", role="authenticated")
+
+
+@pytest.fixture
+def api():
+    t = serving_api.set(True)
+    yield
+    serving_api.reset(t)
+
+
+@pytest.fixture
+def calls(monkeypatch):
+    import pravrudhi.agents.cli_agents as ca
+    import pravrudhi.models.openai_compat as oc
+
+    seen: list[str] = []
+    monkeypatch.setattr(ca, "_run", lambda *a, **k: seen.append("cli") or (0, "x", ""))
+    monkeypatch.setattr(oc.ChatClient, "chat", lambda *a, **k: seen.append("api"))
+    return seen
+
+
+def cfg(tmp_path, text):
+    p = tmp_path / "tv.yaml"
+    p.write_text(text)
+    return p
+
+
+def store(tmp_path):
+    ws = tmp_path / "ws"
+    ws.mkdir(exist_ok=True)
+    return store_for_project(ws, engine_root=tmp_path / "engine", user=USER)
+
+
+@pytest.mark.parametrize("vid", ["claude-cli", "codex-cli"])
+def test_anonymous_api_caller_cannot_use_a_cli_vendor_even_if_requested(tmp_path, api, calls, vid):
+    with pytest.raises(VendorNotAllowed):
+        panel.ask_vendor(panel.VENDORS[vid], "p", root=tmp_path, store=store(tmp_path))
+    assert calls == []
+
+
+def test_unlisted_vendor_is_refused_with_zero_calls(tmp_path, api, calls):
+    with pytest.raises(VendorNotAllowed):
+        panel.ask_vendor(panel.VENDORS["glm-local"], "p", root=tmp_path, store=store(tmp_path))
+    assert calls == []
+
+
+def test_listed_vendor_passes_the_gate(tmp_path, api):
+    tenant_vendors.require("openai-api")
+
+
+def test_cli_vendor_in_the_config_is_a_load_error_not_an_opt_in(tmp_path):
+    p = cfg(tmp_path, "default: [openai-api, claude-cli]\n")
+    assert tenant_vendors.allowed_ids(path=p) == frozenset()
+    p = cfg(tmp_path, "default: [openai-api]\norgs:\n  acme:\n    extend: [codex-cli]\n")
+    assert tenant_vendors.allowed_ids("acme", path=p) == frozenset()
+    assert tenant_vendors.allowed_ids("other", path=p) == {"openai-api"}
+
+
+def test_org_override_is_honoured_and_only_for_that_org(tmp_path):
+    p = cfg(tmp_path, "default: [openai-api]\norgs:\n  acme:\n    extend: [qwen-dashscope]\n  solo:\n    allow: [google-api]\n")
+    assert tenant_vendors.allowed_ids(None, path=p) == {"openai-api"}
+    assert tenant_vendors.allowed_ids("acme", path=p) == {"openai-api", "qwen-dashscope"}
+    assert tenant_vendors.allowed_ids("solo", path=p) == {"google-api"}
+    assert tenant_vendors.allowed_ids("unknown", path=p) == {"openai-api"}
+
+
+def test_org_override_reaches_ask_vendor_through_serving_org(tmp_path, api, monkeypatch):
+    p = cfg(tmp_path, "default: [openai-api]\norgs:\n  acme:\n    extend: [qwen-dashscope]\n")
+    monkeypatch.setattr(tenant_vendors, "_default_path", lambda: p)
+    with pytest.raises(VendorNotAllowed):
+        tenant_vendors.require("qwen-dashscope", serving_org.get())
+    t = serving_org.set("acme")
+    try:
+        tenant_vendors.require("qwen-dashscope", serving_org.get())
+    finally:
+        serving_org.reset(t)
+
+
+@pytest.mark.parametrize("text", [None, "", "- a\n- b\n", "default: openai-api\n", "default: [1, 2]\n",
+                                  "default: [openai-api]\norgs: [x]\n", "default: [x\n",
+                                  "default: [openai-api]\norgs:\n  acme: {extend: oops}\n"])
+def test_missing_or_malformed_config_means_closed(tmp_path, text):
+    p = tmp_path / "absent.yaml" if text is None else cfg(tmp_path, text)
+    assert tenant_vendors.allowed_ids("acme", path=p) == frozenset()
+
+
+def test_missing_config_refuses_ask_vendor(tmp_path, api, calls, monkeypatch):
+    monkeypatch.setattr(tenant_vendors, "_default_path", lambda: tmp_path / "absent.yaml")
+    with pytest.raises(VendorNotAllowed):
+        panel.ask_vendor(panel.VENDORS["openai-api"], "p", root=tmp_path, store=store(tmp_path))
+    assert calls == []
+
+
+def test_shipped_config_default_lists_no_cli_vendor_and_is_nonempty():
+    ids = tenant_vendors.allowed_ids()
+    assert ids and not any(panel.VENDORS[i].interface == "cli" for i in ids if i in panel.VENDORS)
+
+
+def test_a_tenants_own_root_cannot_supply_an_allowlist(tmp_path, api, calls):
+    (tmp_path / "configs").mkdir()
+    (tmp_path / "configs" / "tenant_vendors.yaml").write_text("default: [claude-cli, glm-local]\n")
+    with pytest.raises(VendorNotAllowed):
+        panel.ask_vendor(panel.VENDORS["glm-local"], "p", root=tmp_path, store=store(tmp_path))
+    assert calls == []
+
+
+def test_available_vendors_shows_only_allowed_and_keyed_to_an_api_caller(tmp_path, api):
+    s = store(tmp_path)
+    s.put("openai", "sk-tn-" + "t" * 30)
+    out = nyaya.available_vendors(tmp_path, tuple(panel.VENDORS), store=s)
+    assert {v["id"] for v in out} <= tenant_vendors.allowed_ids()
+    assert "claude-cli" not in {v["id"] for v in out} and "codex-cli" not in {v["id"] for v in out}
+    by = {v["id"]: v for v in out}
+    assert by["openai-api"]["available"] is True and by["anthropic-api"]["available"] is False
+
+
+def test_cli_is_unaffected_outside_the_api_context(tmp_path, calls, monkeypatch):
+    monkeypatch.setattr(panel, "_claude_cli_env", lambda: {})
+    assert not serving_api.get()
+    out = nyaya.available_vendors(tmp_path, ("claude-cli", "codex-cli", "qwen-dashscope"))
+    assert [v["id"] for v in out] == ["claude-cli", "codex-cli", "qwen-dashscope"]
+    try:
+        panel.ask_vendor(panel.VENDORS["claude-cli"], "p", root=tmp_path)
+    except Exception as e:  # noqa: BLE001 -- only whether the gate let the call through matters here
+        assert not isinstance(e, VendorNotAllowed)
+    assert calls == ["cli"]
+
+
+def test_providers_vendors_route_hides_unallowed_vendors(tmp_path):
+    from fastapi.testclient import TestClient
+
+    from pravrudhi.api.server import create_app
+
+    app = create_app(tmp_path)
+    r = TestClient(app).get("/api/panel/vendors")
+    if r.status_code == 200:
+        ids = {v["id"] for v in r.json()}
+        assert ids <= tenant_vendors.allowed_ids()
