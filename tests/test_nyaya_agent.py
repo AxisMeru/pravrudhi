@@ -344,6 +344,20 @@ class TestLoop:
         assert (el1.status, el1.p_established, el1.quote) == ("established", 0.97, good.quote)
         assert run.contracts[0].outcome == "PROOF"
 
+    def test_the_proceeding_posture_reaches_every_judge_request(self, tmp_path: Path) -> None:
+        _, judge, _ = _run(tmp_path, _proof_script(TOY_FACTS))
+        assert {r.proceeding_posture for r in judge.requests} == {None}
+        judge2 = ScriptedJudge(_proof_script(TOY_FACTS))
+        NyayaAgent(judge2, _registry(), _config(tmp_path)).run(
+            TOY_FACTS, narrative="TOY narrative.", contract_ids=["bns69"], proceeding_posture="quash")
+        assert {r.proceeding_posture for r in judge2.requests} == {"quash"}
+
+    def test_an_invalid_posture_is_refused_before_any_judge_call(self, tmp_path: Path) -> None:
+        judge = ScriptedJudge(_proof_script(TOY_FACTS))
+        with pytest.raises(ValueError, match="proceeding_posture"):
+            NyayaAgent(judge, _registry(), _config(tmp_path)).run(TOY_FACTS, proceeding_posture="bail")
+        assert judge.requests == []
+
     def test_facts_reach_the_judge_as_numbered_pairs(self, tmp_path: Path) -> None:
         _, judge, _ = _run(tmp_path, _proof_script(TOY_FACTS))
         assert judge.requests[0].facts == tuple((f"F{i + 1}", t) for i, t in enumerate(TOY_FACTS))
@@ -1582,6 +1596,14 @@ class TestStatuteMismatch:
 
 
 class TestAudit:
+    def test_the_standard_is_recorded_even_when_the_judge_never_sees_it(self, tmp_path: Path) -> None:
+        judge = ScriptedJudge(_proof_script(TOY_FACTS))
+        run = NyayaAgent(judge, _registry(), _config(tmp_path)).run(TOY_FACTS, contract_ids=["bns69"], proceeding_posture="quash")
+        row = json.loads(run.audit_path.read_text().splitlines()[0])["output"]
+        got = (row["standard"], row["standard_source"], row["proceeding_posture"])
+        assert got == ("prima_facie_disclosed", "request", "quash")
+        assert row["standard_in_judge_prompt"] is False
+
     def test_every_step_is_a_jsonl_line_with_hashed_inputs(self, tmp_path: Path) -> None:
         run, _, _ = _run(tmp_path, _proof_script(TOY_FACTS))
         lines = [json.loads(x) for x in run.audit_path.read_text().splitlines()]
