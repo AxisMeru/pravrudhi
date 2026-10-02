@@ -68,6 +68,14 @@ house_judge:
   # audit ordering -- unchanged unless this is raised. NYAYA_JUDGE_MAX_CONCURRENCY overrides.
   max_concurrency: 1
 
+# Whether the house judge's prompt states the legal standard (posture/type -> "prima facie disclosed" vs "proved").
+# false = the training prompt, byte for byte. The standard is resolved and recorded in the audit row either way.
+# Probe (explorer, dev stack (local), seen not sealed): inserting the line into the prompt of a 4B NOT trained on it
+# cut NE false proofs 10/122 -> 6/122 (p=0.29) but lost 20 of 111 named-ingredient hits (p=1.9e-6). Turn on only
+# with weights trained on the line (#192).
+judge_prompt:
+  standard_line: false
+
 # Decision threshold on p_established: established iff p >= tau. 0.74 is the dual-signed v0 value
 # (element-judge 4B v0, val-split false-prove sweep, 2026-09-22).
 tau: 0.74
