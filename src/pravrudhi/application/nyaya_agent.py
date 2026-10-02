@@ -167,6 +167,9 @@ class AgentConfig:
     #: under `audit_dir` before `purge_stale_runs` deletes it. Config-driven, never hardcoded, so the window
     #: can be tightened or loosened with a config edit alone. 7.0 is the operator/Lead-2 decided default.
     retention_days: float = 7.0
+    #: Where `tau` came from: "yaml", or "env:NYAYA_HOUSE_JUDGE_TAU" (#134). Recorded in the run's config view only
+    #: when it is not the yaml, so a default run's audit record is unchanged.
+    tau_source: str = "yaml"
 
     def __post_init__(self) -> None:
         low, high = self.refer_band
@@ -195,6 +198,10 @@ class AgentConfig:
             return None
         raw = self.second_judge.get("refer_logit_delta")
         return None if raw is None else float(raw)
+
+
+# The primary the yaml tau was set for. Naming it by env (production does) is a pin, not a swap.
+_YAML_TAU_PRIMARY_MODEL = "nyaya-judge-4b"
 
 
 def load_agent_config(root: Path) -> AgentConfig:
@@ -353,8 +360,29 @@ def load_agent_config(root: Path) -> AgentConfig:
             f"{sorted(unknown)} -- known ids: {sorted(reg.KNOWN_CONTRACT_IDS)}"
         )
 
+    # #134: the primary's tau had no env override, so a sole-judge arm (NYAYA_HOUSE_JUDGE_BASE_URL/_MODEL pointed at a
+    # different model) silently decided at the 4B's yaml tau. Swapping the primary by env now requires an explicit
+    # NYAYA_HOUSE_JUDGE_TAU: a number, or the literal "yaml" to say the yaml tau is intended. refer_band is untouched
+    # (set it in the yaml); AgentConfig validates the tau range, and a non-numeric value raises rather than falling back.
+    tau, tau_source = float(body["tau"]), "yaml"
+    raw_tau = (os.environ.get("NYAYA_HOUSE_JUDGE_TAU") or "").strip()
+    env_model = os.environ.get("NYAYA_HOUSE_JUDGE_MODEL")
+    # Only a different model id is a swap; a base_url alone or the 4B's own id is not.
+    swapped = ["NYAYA_HOUSE_JUDGE_MODEL"] if env_model and env_model != _YAML_TAU_PRIMARY_MODEL else []
+    if raw_tau == "yaml":
+        tau_source = "env:NYAYA_HOUSE_JUDGE_TAU=yaml"
+    elif raw_tau:
+        try:
+            tau, tau_source = float(raw_tau), "env:NYAYA_HOUSE_JUDGE_TAU"
+        except ValueError as e:
+            raise ValueError(f"NYAYA_HOUSE_JUDGE_TAU is not a number ({raw_tau!r}); refusing to start") from e
+    elif swapped:
+        raise ValueError(f"{' and '.join(swapped)} override the primary judge but NYAYA_HOUSE_JUDGE_TAU is not set; "
+                         "set it to the tau for that model, or to 'yaml' to keep the yaml tau; refusing to start")
+
     return AgentConfig(
-        tau=float(body["tau"]),
+        tau=tau,
+        tau_source=tau_source,
         refer_band=(float(low), float(high)),
         max_retries=int(body["max_retries"]),
         audit_dir=root / str(body["audit_dir"]),
@@ -1447,6 +1475,8 @@ class NyayaAgent:
         audit = AuditTrail(Path(self.config.audit_dir) / f"{run_id}.jsonl", run_id)
         cfg_view = {"tau": self.config.tau, "refer_band": list(self.config.refer_band), "max_retries": self.config.max_retries,
                    "second_refer_logit_delta": self.config.second_refer_logit_delta()}
+        if self.config.tau_source != "yaml":
+            cfg_view["tau_source"] = self.config.tau_source
         audit.step("run_start", cfg_view,
                    {"judge": self.judge.name, "score_sha256": self.registry.sha256, "client_data": client_data,
                     **cfg_view}, 0.0)
