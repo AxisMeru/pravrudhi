@@ -379,6 +379,15 @@ class ContractResultOut(BaseModel):
     statute_text_mismatch: bool | None
 
 
+class StandardOut(BaseModel):
+    """#220: which standard of proof this run applied, and where that came from. Unknown values from a newer
+    engine pass through verbatim, so `applied` and `source` are plain strings here."""
+
+    applied: str = Field(description='"proved" or "prima_facie_disclosed".')
+    source: str = Field(description='"proceeding_posture", "proceeding_type" or "default".')
+    proceeding_posture: str | None = Field(default=None, description="The caller's posture, echoed; null if absent.")
+
+
 class AnalyseFactsResponse(BaseModel):
     run_id: str
     judge: str
@@ -394,6 +403,11 @@ class AnalyseFactsResponse(BaseModel):
     #: Issue #39: the exact retention notice text (nyaya_agent.RETENTION_NOTICE), on every response -- a
     #: partner API caller who never sees the web UI still gets this verbatim, not just in documentation.
     retention_notice: str = Field(default=RETENTION_NOTICE)
+    standard: StandardOut | None = Field(
+        default=None,
+        description="Additive (#220): the standard applied, from the same values as the audit row. Under the "
+        "legacy prompt template no standard is consumed, so it reports proved / default.",
+    )
 
 
 AgentFactory = Callable[[Path], AgentLike]
