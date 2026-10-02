@@ -17,8 +17,12 @@ def _run(msg: str, tmp_path: Path, *, author=TEAM, committer=None, allowed: str 
         (d / "allowed-identities").write_text(allowed)
         hook = d / "commit-msg"
     committer = committer or author
-    env = os.environ | {"GIT_AUTHOR_NAME": author[0], "GIT_AUTHOR_EMAIL": author[1],
-                        "GIT_COMMITTER_NAME": committer[0], "GIT_COMMITTER_EMAIL": committer[1]}
+    env = os.environ | {
+        "GIT_AUTHOR_NAME": author[0],
+        "GIT_AUTHOR_EMAIL": author[1],
+        "GIT_COMMITTER_NAME": committer[0],
+        "GIT_COMMITTER_EMAIL": committer[1],
+    }
     p = subprocess.run(["bash", str(hook), str(f)], env=env, capture_output=True, text=True)
     return p.returncode, f.read_text()
 
@@ -59,8 +63,12 @@ def test_name_and_email_must_match_as_a_pair(tmp_path: Path) -> None:
 
 
 def test_commented_identity_is_not_allowed(tmp_path: Path) -> None:
-    rc, _ = _run("x\n", tmp_path, author=("Ext Person", "ext@example.org"),
-                 allowed="# Ext Person <ext@example.org>\nSharathSPhD <admin@axismeru.com>\n")
+    rc, _ = _run(
+        "x\n",
+        tmp_path,
+        author=("Ext Person", "ext@example.org"),
+        allowed="# Ext Person <ext@example.org>\nSharathSPhD <admin@axismeru.com>\n",
+    )
     assert rc == 1
 
 
@@ -78,11 +86,15 @@ def _push(ref: str, tmp_path: Path) -> int:
     pre = HOOK.parent / "pre-push"
     repo = _repo(tmp_path)
     sha = _git(repo, "rev-parse", "HEAD").strip()
-    return subprocess.run(["bash", str(pre)], cwd=repo, input=f"refs/heads/x {sha} {ref} 0\n", text=True, capture_output=True).returncode
+    return subprocess.run(
+        ["bash", str(pre)], cwd=repo, input=f"refs/heads/x {sha} {ref} 0\n", text=True, capture_output=True
+    ).returncode
 
 
 def _git(repo: Path, *args: str, env: dict | None = None) -> str:
-    return subprocess.run(["git", *args], cwd=repo, env=os.environ | (env or {}), capture_output=True, text=True, check=True).stdout
+    return subprocess.run(
+        ["git", *args], cwd=repo, env=os.environ | (env or {}), capture_output=True, text=True, check=True
+    ).stdout
 
 
 def _ident(who: tuple[str, str]) -> dict:
@@ -108,7 +120,13 @@ def _repo(tmp_path: Path) -> Path:
 
 def _commit(repo: Path, who: tuple[str, str], committer: tuple[str, str] | None = None) -> str:
     (repo / "f").write_text(str(len(list(repo.glob("*"))) + hash(who) % 997))
-    _git(repo, "commit", "-qam", "c", env=_ident(who) | ({"GIT_COMMITTER_NAME": committer[0], "GIT_COMMITTER_EMAIL": committer[1]} if committer else {}))
+    _git(
+        repo,
+        "commit",
+        "-qam",
+        "c",
+        env=_ident(who) | ({"GIT_COMMITTER_NAME": committer[0], "GIT_COMMITTER_EMAIL": committer[1]} if committer else {}),
+    )
     return _git(repo, "rev-parse", "HEAD").strip()
 
 
@@ -119,7 +137,13 @@ def _hook(repo: Path, sha: str, ref: str = "refs/heads/feature", extra_files: di
         (hooks / name).write_text((HOOK.parent / name).read_text())
     for name, body in (extra_files or {}).items():
         (hooks / name).write_text(body)
-    return subprocess.run(["bash", str(hooks / "pre-push")], cwd=repo, input=f"refs/heads/feature {sha} {ref} {'0' * 40}\n", text=True, capture_output=True)
+    return subprocess.run(
+        ["bash", str(hooks / "pre-push")],
+        cwd=repo,
+        input=f"refs/heads/feature {sha} {ref} {'0' * 40}\n",
+        text=True,
+        capture_output=True,
+    )
 
 
 def test_pre_push_refuses_main_and_allows_branches(tmp_path: Path) -> None:
@@ -168,7 +192,13 @@ def test_push_sha_allowlist_exempts_a_listed_legacy_commit(tmp_path: Path) -> No
 
 def test_push_checks_non_main_branches_and_skips_deletes(tmp_path: Path) -> None:
     repo = _repo(tmp_path)
-    r = subprocess.run(["bash", str(_hook_dir(repo) / "pre-push")], cwd=repo, input=f"(delete) {'0' * 40} refs/heads/gone {'a' * 40}\n", text=True, capture_output=True)
+    r = subprocess.run(
+        ["bash", str(_hook_dir(repo) / "pre-push")],
+        cwd=repo,
+        input=f"(delete) {'0' * 40} refs/heads/gone {'a' * 40}\n",
+        text=True,
+        capture_output=True,
+    )
     assert r.returncode == 0
 
 
