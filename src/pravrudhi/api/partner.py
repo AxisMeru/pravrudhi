@@ -45,6 +45,7 @@ version's error mapping to a bare 500 -- is now mapped to 503 like every other s
 
 from __future__ import annotations
 
+import functools
 import hmac
 import logging
 import os
@@ -70,6 +71,7 @@ from pravrudhi.application.config_files import config_file
 from pravrudhi.application.nyaya_agent import RETENTION_NOTICE, BinaryShaMismatch, JudgeMisconfigured, NyayaAgent
 from pravrudhi.application.nyaya_judges import SecondJudgeCircuitBreaker
 from pravrudhi.application.service_window import ServiceWindow
+from pravrudhi.application.statute_citations import contract_citations
 
 CONFIG_PATH = Path("configs") / "partner_api.yaml"
 
@@ -342,6 +344,18 @@ class ElementResultOut(BaseModel):
     defeater_second_disagreement: bool | None = None
 
 
+class CitationOut(BaseModel):
+    """A statute reference from the contract's own source column, resolved against the shipped corpus.
+    `in_corpus: false` means the corpus does not hold that provision (corpus_id and title null); it is not a
+    finding about the law. Never derived from model output."""
+
+    act: str
+    section: str | None
+    corpus_id: str | None
+    in_corpus: bool
+    title: str | None
+
+
 class ContractResultOut(BaseModel):
     contract_id: str
     outcome: str
@@ -365,6 +379,11 @@ class ContractResultOut(BaseModel):
     )
     uncertain: list[str]
     statute_text_mismatch: bool | None
+    citations: list[CitationOut] | None = Field(
+        default=None,
+        description="The contract's statute references with a corpus check, identical whatever the verdict. "
+        "Null only when the references or the corpus could not be read on this request.",
+    )
 
 
 class AnalyseFactsResponse(BaseModel):
@@ -506,6 +525,28 @@ def _client_ip(request: Request, *, trust_proxy_header: bool, trusted_proxies: t
         if forwarded:
             return forwarded.split(",")[0].strip()
     return socket_peer
+
+
+@functools.lru_cache(maxsize=1)
+def _shipped_corpus() -> Any:
+    from pravrudhi.application import nyaya
+
+    return nyaya.load_corpus()
+
+
+def _attach_citations(agent: Any, body: dict[str, Any]) -> None:
+    """Add `citations` to each contract result from the contract's own sources (#142). A failure to read the
+    sources or the corpus leaves `citations` null on every contract: a visible gap, never a fabricated list."""
+    try:
+        listed = agent.registry.list_contracts()
+        corpus = _shipped_corpus()
+    except (OSError, RuntimeError, ValueError, AttributeError, KeyError) as e:
+        logging.getLogger(__name__).warning("citations unavailable: %s", type(e).__name__)
+        for contract in body.get("contracts", []):
+            contract["citations"] = None
+        return
+    for contract in body.get("contracts", []):
+        contract["citations"] = contract_citations(list(listed.get(contract["contract_id"], [])), corpus)
 
 
 def build_partner_router(
@@ -759,6 +800,7 @@ def build_partner_router(
         _judge_seen.update(state="ready", at=_now(), first_failure=None)
         body: dict[str, Any] = result.to_dict()
         body.pop("audit_path", None)
+        _attach_citations(agent, body)
         show_second_judge_fields = authenticated or (debug_second_judge and cfg.debug_second_judge_fields_enabled)
         if not show_second_judge_fields:
             for contract in body.get("contracts", []):
