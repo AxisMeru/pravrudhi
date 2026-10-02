@@ -30,10 +30,10 @@ import os
 import re
 import subprocess
 from collections.abc import Callable
+from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
-from contextvars import ContextVar
 
 import httpx
 
