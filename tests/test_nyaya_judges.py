@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import math
+import urllib.error
 from collections.abc import Callable
 from typing import Any
 from unittest import mock
@@ -351,6 +352,214 @@ class TestHouseJudge:
         # Test: config api_key used when env var not set
         j = HouseJudge.from_config(config, tau=0.5)
         assert j.api_key == "config_bearer_key"
+
+    def test_fallback_api_key_env_from_config(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """2026-09-27: `fallback_api_key_env` gives every fallback its own key, distinct from `api_key_env`'s
+        -- opt-in per call (`from_config`'s default is `None`, unchanged for a caller that never asks)."""
+        config = {
+            "statute_chars": 600,
+            "base_url": "https://primary.example/v1",
+            "base_urls_fallback": ["https://fallback.example/v1"],
+            "max_tokens": 30,
+            "top_logprobs": 20,
+            "timeout_s": 60,
+            "api_key": "primary_from_yaml",
+        }
+        # Not asked for (fallback_api_key_env omitted): unchanged "every backend shares api_key" default.
+        j = HouseJudge.from_config(config, tau=0.5)
+        assert j.api_keys == ["primary_from_yaml", "primary_from_yaml"]
+
+        # Asked for, via env:
+        monkeypatch.setenv("NYAYA_SECOND_JUDGE_FALLBACK_API_KEY", "fallback_from_env")
+        j = HouseJudge.from_config(
+            config, tau=0.5, fallback_api_key_env="NYAYA_SECOND_JUDGE_FALLBACK_API_KEY"
+        )
+        assert j.api_keys == ["primary_from_yaml", "fallback_from_env"]
+
+        # Asked for, but env unset -- falls back to the config's own `fallback_api_key` key.
+        monkeypatch.delenv("NYAYA_SECOND_JUDGE_FALLBACK_API_KEY", raising=False)
+        config["fallback_api_key"] = "fallback_from_yaml"
+        j = HouseJudge.from_config(
+            config, tau=0.5, fallback_api_key_env="NYAYA_SECOND_JUDGE_FALLBACK_API_KEY"
+        )
+        assert j.api_keys == ["primary_from_yaml", "fallback_from_yaml"]
+
+    def test_the_fallback_backend_also_receives_the_bearer_key(self) -> None:
+        """2026-09-27 (Lead-2, `docs/decisions/2026-09-27-5090-second-judge-exposure-design.md` sec 2.1,
+        pravrudhi): a fallback backend used to get NO Authorization header at all -- fine for a fallback
+        that never checks one (the class's original "operator's own local vLLM" fallback shape), silently
+        broken for a fallback (a RunPod serverless endpoint) that requires the SAME bearer key the primary
+        does. The primary here fails with a connection error (a real `urllib.error.URLError`, the same
+        exception class a genuinely unreachable host raises) so `_complete_with_fallback` moves to the
+        fallback backend, which is where the header actually gets checked."""
+        captured: dict[str, Any] = {}
+        result = _completion(" established F1:0:5", {" established": -0.1, " not": -2.0})
+
+        def fake_open(req: Any, timeout: float | None = None) -> _Resp:
+            if req.full_url == "http://primary/v1/models":
+                return _Resp({"data": [{"id": "primary-model"}]})
+            if req.full_url == "http://primary/v1/completions":
+                raise urllib.error.URLError("connection refused")
+            if req.full_url == "http://fallback/v1/models":
+                return _Resp({"data": [{"id": "fallback-model"}]})
+            if req.full_url == "http://fallback/v1/completions":
+                captured["auth_header"] = req.get_header("Authorization")
+                return _Resp({
+                    "model": "fallback-model",
+                    "choices": [{
+                        "text": result.text, "finish_reason": "stop",
+                        "logprobs": {"top_logprobs": result.top_logprobs},
+                    }],
+                })
+            raise AssertionError(f"unexpected URL in test: {req.full_url}")
+
+        with mock.patch("urllib.request.urlopen", fake_open):
+            j = HouseJudge(
+                base_url="http://primary/v1",
+                fallback_urls=["http://fallback/v1"],
+                api_key="shared_bearer_key",
+                tau=0.74,
+                statute_chars=600,
+            )
+            out = j.judge(REQ)
+
+        assert captured["auth_header"] == "Bearer shared_bearer_key"
+        assert out.backend_used == 1  # confirms the fallback, not the primary, actually answered
+
+    def _fallback_net(self, captured: dict[str, Any]) -> Callable[[Any, float | None], _Resp]:
+        """A primary that always fails (connection refused) and a fallback that records its own
+        Authorization header -- shared by the per-backend-key tests below."""
+        result = _completion(" established F1:0:5", {" established": -0.1, " not": -2.0})
+
+        def fake_open(req: Any, timeout: float | None = None) -> _Resp:
+            captured.setdefault("auth_by_url", {})
+            if req.full_url == "http://primary/v1/models":
+                return _Resp({"data": [{"id": "primary-model"}]})
+            if req.full_url == "http://primary/v1/completions":
+                captured["auth_by_url"]["primary"] = req.get_header("Authorization")
+                raise urllib.error.URLError("connection refused")
+            if req.full_url == "http://fallback/v1/models":
+                return _Resp({"data": [{"id": "fallback-model"}]})
+            if req.full_url == "http://fallback/v1/completions":
+                captured["auth_by_url"]["fallback"] = req.get_header("Authorization")
+                return _Resp({
+                    "model": "fallback-model",
+                    "choices": [{
+                        "text": result.text, "finish_reason": "stop",
+                        "logprobs": {"top_logprobs": result.top_logprobs},
+                    }],
+                })
+            raise AssertionError(f"unexpected URL in test: {req.full_url}")
+
+        return fake_open
+
+    def test_a_distinct_fallback_api_key_reaches_only_the_fallback(self) -> None:
+        """2026-09-27 (Lead-2, follow-up on the "every backend" fix above): a primary and a fallback in
+        different trust domains (a 5090 tunnel vs a RunPod-serverless endpoint) must never share one
+        secret. `fallback_api_key` gives the fallback its OWN key, distinct from the primary's `api_key`."""
+        captured: dict[str, Any] = {}
+        with mock.patch("urllib.request.urlopen", self._fallback_net(captured)):
+            j = HouseJudge(
+                base_url="http://primary/v1",
+                fallback_urls=["http://fallback/v1"],
+                api_key="primary_secret",
+                fallback_api_key="fallback_secret",
+                tau=0.74,
+                statute_chars=600,
+            )
+            j.judge(REQ)
+
+        assert captured["auth_by_url"]["primary"] == "Bearer primary_secret"
+        assert captured["auth_by_url"]["fallback"] == "Bearer fallback_secret"
+
+    def test_an_explicit_api_keys_list_is_used_verbatim_per_backend(self) -> None:
+        captured: dict[str, Any] = {}
+        with mock.patch("urllib.request.urlopen", self._fallback_net(captured)):
+            j = HouseJudge(
+                base_url="http://primary/v1",
+                fallback_urls=["http://fallback/v1"],
+                api_keys=["primary_secret", "fallback_secret"],
+                tau=0.74,
+                statute_chars=600,
+            )
+            assert j.api_keys == ["primary_secret", "fallback_secret"]
+            j.judge(REQ)
+
+        assert captured["auth_by_url"]["primary"] == "Bearer primary_secret"
+        assert captured["auth_by_url"]["fallback"] == "Bearer fallback_secret"
+
+    def test_an_api_keys_list_of_the_wrong_length_is_refused(self) -> None:
+        """Fail closed on a mismatch: never zip a too-short/too-long list against the backend URLs and
+        guess which key belongs to which one."""
+        with pytest.raises(ValueError, match="2 api_keys for 1 backends"):
+            HouseJudge(
+                base_url="http://primary/v1",
+                fallback_urls=[],
+                api_keys=["primary_secret", "extra_secret"],
+                tau=0.74,
+                statute_chars=600,
+            )
+
+    def test_api_keys_and_fallback_api_key_together_is_refused(self) -> None:
+        """Two different ways to say the same thing, given at once -- refuse rather than silently pick
+        one and ignore the other."""
+        with pytest.raises(ValueError, match="both api_keys and fallback_api_key"):
+            HouseJudge(
+                base_url="http://primary/v1",
+                fallback_urls=["http://fallback/v1"],
+                api_keys=["a", "b"],
+                fallback_api_key="c",
+                tau=0.74,
+                statute_chars=600,
+            )
+
+    def test_neither_per_backend_option_keeps_the_shared_key_default(self) -> None:
+        """No behaviour change for a caller that only ever knew about `api_key` (the 2026-09-27 "every
+        backend" fix, unchanged when neither of the two newer options is used)."""
+        captured: dict[str, Any] = {}
+        with mock.patch("urllib.request.urlopen", self._fallback_net(captured)):
+            j = HouseJudge(
+                base_url="http://primary/v1",
+                fallback_urls=["http://fallback/v1"],
+                api_key="shared_secret",
+                tau=0.74,
+                statute_chars=600,
+            )
+            assert j.api_keys == ["shared_secret", "shared_secret"]
+            j.judge(REQ)
+
+        assert captured["auth_by_url"]["primary"] == "Bearer shared_secret"
+        assert captured["auth_by_url"]["fallback"] == "Bearer shared_secret"
+
+    def test_isolated_fallback_with_no_key_configured_sends_no_authorization_header(self) -> None:
+        """2026-09-27, Lead-2's follow-up decision on #115: an isolated fallback (a different trust domain
+        from the primary) with NO fallback key configured gets NO `Authorization` header at all -- it must
+        NEVER silently fall back to the primary's own key. (Correction, R1's review: a real deployment
+        where that fallback itself checks auth would then see a bare 401, which `_config_fault_status`
+        classifies as a CONFIGURATION fault, not a transient one -- `AndGateJudge`/`nyaya_agent` turn that
+        into `JudgeMisconfigured`, a loud 503, NOT a fail-closed REFER. That is correct for a genuinely
+        broken/missing key, but it means an unauthenticated fallback must never be reached by accident --
+        `nyaya_agent.load_agent_config` now refuses to start with fallback URLs configured and no key
+        anywhere, unless the deployment explicitly opts in (`NYAYA_SECOND_JUDGE_FALLBACK_NO_AUTH=1`); see
+        `tests/test_nyaya_agent.py`'s `TestSecondJudgeFallbackAuthLoadTimeGuard` and
+        `TestJudgeConfigurationFault.test_an_isolated_second_judge_fallback_with_no_key_is_a_config_fault_
+        not_a_refer`. This test itself is unaffected -- it stays at the HTTP-header level, checking only
+        that the key isolation itself works, not what happens to the request afterward.)"""
+        captured: dict[str, Any] = {}
+        with mock.patch("urllib.request.urlopen", self._fallback_net(captured)):
+            j = HouseJudge(
+                base_url="http://primary/v1",
+                fallback_urls=["http://fallback/v1"],
+                api_key="primary_secret",
+                isolate_fallback_key=True,  # fallback_api_key omitted: no key configured for it
+                tau=0.74,
+                statute_chars=600,
+            )
+            assert j.api_keys == ["primary_secret", None]
+            j.judge(REQ)
+
+        assert captured["auth_by_url"]["primary"] == "Bearer primary_secret"
+        assert captured["auth_by_url"]["fallback"] is None
 
     def test_unknown_fact_id_is_reported_with_no_quote(self) -> None:
         fake = _FakeComplete(_completion(" established F_el0:0:40", {" established": -0.05, " not": -3.0}))

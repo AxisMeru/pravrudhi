@@ -316,6 +316,36 @@ def load_agent_config(root: Path) -> AgentConfig:
             if key not in second_judge and key in house_judge:
                 second_judge[key] = house_judge[key]
 
+    # 2026-09-27 (Lead-2, on R1's review of pravrudhi #115): a second-judge FALLBACK with no key configured
+    # is NOT safely fail-closed per request the way it looks at first glance -- R1 showed that a 401 from
+    # an isolated, keyless fallback is classified as a CONFIGURATION fault (`nyaya_judges._config_fault_
+    # status`, any 4xx other than 429), which `AndGateJudge.judge` re-raises rather than treating as a
+    # transient failure. That becomes `JudgeMisconfigured` and a bare 503 for the WHOLE request -- never the
+    # REFER_TO_LAWYER the earlier version of this PR (and the 5090 design doc) claimed. A genuinely wrong
+    # key SHOULD be a loud 503 (it is a real misconfiguration, not evidence about the facts) -- the fix is
+    # not to change that per-request mapping, it is to never let a deployment reach it BY ACCIDENT: if the
+    # second judge has fallback URLs configured and no fallback key is resolvable from anywhere (env or
+    # yaml), refuse to start, unless the deployment explicitly opts into running that fallback with no auth
+    # at all (`NYAYA_SECOND_JUDGE_FALLBACK_NO_AUTH=1`, same truthy-string convention as `NYAYA_DEBUG_SECOND_
+    # JUDGE_FIELDS`) -- a deliberate, load-time choice, never something discovered per request.
+    if second_judge is not None and second_judge.get("base_urls_fallback"):
+        fallback_key_configured = bool(
+            os.environ.get("NYAYA_SECOND_JUDGE_FALLBACK_API_KEY") or second_judge.get("fallback_api_key")
+        )
+        no_auth_opt_in = os.environ.get("NYAYA_SECOND_JUDGE_FALLBACK_NO_AUTH", "").strip().lower() in (
+            "1", "true", "yes",
+        )
+        if not fallback_key_configured and not no_auth_opt_in:
+            raise ValueError(
+                "second_judge has fallback URLs configured "
+                f"({second_judge['base_urls_fallback']!r}) but no fallback key is set -- set "
+                "NYAYA_SECOND_JUDGE_FALLBACK_API_KEY (or the yaml's own second_judge.fallback_api_key) so "
+                "the fallback backend can authenticate, or set NYAYA_SECOND_JUDGE_FALLBACK_NO_AUTH=1 to "
+                "explicitly run it with no auth at all. Refusing to start rather than let a caller "
+                "discover, per request, that an unauthenticated fallback's 401 is a loud 503, not a "
+                "fail-closed REFER."
+            )
+
     # Gate 1 (Track-C, GATE1-PRODUCT-WIRING-SPEC-2026-09-26.md §3/§5): the yaml block (threshold/model) and
     # the enable switch are deliberately independent -- NYAYA_GATE1_THRESHOLD/_MODEL override the block's own
     # values (or introduce it, mirroring the house_judge/second_judge env-override pattern above) whether or
@@ -857,11 +887,19 @@ class AgentRun:
         return d
 
 
-def _build_house_judge(hj_cfg: Mapping[str, Any], *, tau: float, typed: bool, api_key_env: str) -> Judge:
+def _build_house_judge(
+    hj_cfg: Mapping[str, Any], *, tau: float, typed: bool, api_key_env: str,
+    fallback_api_key_env: str | None = None,
+) -> Judge:
     """One judge slot (primary or, for config C, second) from a `house_judge`-shaped config: `HouseJudge` by
     default, or `pravrudhi.application.typed.house_judge.TypedHouseJudge` over a `VLLMDecoder` when `typed`
     is set (T1) -- shared by `NyayaAgent.house` for BOTH slots, so the typed-layer flag and config C's second
-    judge compose instead of the flag silently applying to only one of them."""
+    judge compose instead of the flag silently applying to only one of them.
+
+    `fallback_api_key_env` (2026-09-27, sec 2.1 of the 5090 design doc) only applies to the non-typed
+    (`HouseJudge`) path below -- `VLLMDecoder` (the `typed=True` path) still sends its one `api_key` to
+    every backend (the pre-2026-09-27 behaviour); giving the typed layer its own per-backend keys is a
+    separate change, not made here, since `VLLMDecoder` is a different class with its own fallback wiring."""
     if typed:
         from pravrudhi.application.typed.decoder import VLLMDecoder
         from pravrudhi.application.typed.house_judge import TypedHouseJudge
@@ -883,7 +921,9 @@ def _build_house_judge(hj_cfg: Mapping[str, Any], *, tau: float, typed: bool, ap
         )
     from pravrudhi.application.nyaya_judges import HouseJudge
 
-    return HouseJudge.from_config(hj_cfg, tau=tau, api_key_env=api_key_env)
+    return HouseJudge.from_config(
+        hj_cfg, tau=tau, api_key_env=api_key_env, fallback_api_key_env=fallback_api_key_env
+    )
 
 
 def _clamp_p(p: float) -> float:
@@ -1100,7 +1140,8 @@ class NyayaAgent:
             if cfg.second_judge:
                 second_tau = float(cfg.second_judge["tau"])
                 second = _build_house_judge(cfg.second_judge, tau=second_tau, typed=cfg.typed_layer,
-                                            api_key_env="NYAYA_SECOND_JUDGE_API_KEY")
+                                            api_key_env="NYAYA_SECOND_JUDGE_API_KEY",
+                                            fallback_api_key_env="NYAYA_SECOND_JUDGE_FALLBACK_API_KEY")
                 judge = AndGateJudge(
                     primary, second, tau_primary=cfg.tau, tau_second=second_tau, breaker=second_judge_breaker
                 )
