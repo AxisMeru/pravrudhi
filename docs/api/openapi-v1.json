@@ -197,6 +197,92 @@
         "title": "ApiKeysOut",
         "type": "object"
       },
+      "AuditPageOut": {
+        "properties": {
+          "next_offset": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Offset"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/AuditRowOut"
+            },
+            "title": "Rows",
+            "type": "array"
+          }
+        },
+        "required": [
+          "rows"
+        ],
+        "title": "AuditPageOut",
+        "type": "object"
+      },
+      "AuditRowOut": {
+        "properties": {
+          "contract_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Contract Ids",
+            "type": "array"
+          },
+          "key_id": {
+            "title": "Key Id",
+            "type": "string"
+          },
+          "mode": {
+            "enum": [
+              "sync",
+              "job"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "outcomes": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Outcomes",
+            "type": "object"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Id"
+          },
+          "status_code": {
+            "title": "Status Code",
+            "type": "integer"
+          },
+          "ts": {
+            "title": "Ts",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ts",
+          "key_id",
+          "mode",
+          "status_code",
+          "contract_ids",
+          "outcomes"
+        ],
+        "title": "AuditRowOut",
+        "type": "object"
+      },
       "ContractResultOut": {
         "properties": {
           "assertions": {
@@ -704,6 +790,54 @@
         "title": "HTTPValidationError",
         "type": "object"
       },
+      "JobOut": {
+        "properties": {
+          "error": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "job_id": {
+            "title": "Job Id",
+            "type": "string"
+          },
+          "result": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result"
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "running",
+              "done",
+              "failed"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id",
+          "status"
+        ],
+        "title": "JobOut",
+        "type": "object"
+      },
       "JudgeStateOut": {
         "properties": {
           "checked_at": {
@@ -733,6 +867,37 @@
           "checked_at"
         ],
         "title": "JudgeStateOut",
+        "type": "object"
+      },
+      "KeyUsageOut": {
+        "properties": {
+          "days": {
+            "items": {
+              "$ref": "#/components/schemas/UsageDayOut"
+            },
+            "title": "Days",
+            "type": "array"
+          },
+          "key_id": {
+            "title": "Key Id",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "revoked": {
+            "title": "Revoked",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "key_id",
+          "label",
+          "revoked",
+          "days"
+        ],
+        "title": "KeyUsageOut",
         "type": "object"
       },
       "OrgOut": {
@@ -863,10 +1028,43 @@
         "title": "StandardOut",
         "type": "object"
       },
+      "UsageDayOut": {
+        "properties": {
+          "calls": {
+            "title": "Calls",
+            "type": "integer"
+          },
+          "day": {
+            "title": "Day",
+            "type": "string"
+          },
+          "failed": {
+            "title": "Failed",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "day",
+          "calls",
+          "failed"
+        ],
+        "title": "UsageDayOut",
+        "type": "object"
+      },
       "UsageOut": {
         "properties": {
+          "calls": {
+            "default": 0,
+            "title": "Calls",
+            "type": "integer"
+          },
           "calls_since_process_start": {
             "title": "Calls Since Process Start",
+            "type": "integer"
+          },
+          "failed": {
+            "default": 0,
+            "title": "Failed",
             "type": "integer"
           },
           "key_id": {
@@ -884,6 +1082,27 @@
           "calls_since_process_start"
         ],
         "title": "UsageOut",
+        "type": "object"
+      },
+      "UsageSummaryOut": {
+        "properties": {
+          "keys": {
+            "items": {
+              "$ref": "#/components/schemas/KeyUsageOut"
+            },
+            "title": "Keys",
+            "type": "array"
+          },
+          "org_id": {
+            "title": "Org Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "org_id",
+          "keys"
+        ],
+        "title": "UsageSummaryOut",
         "type": "object"
       },
       "ValidationError": {
@@ -970,6 +1189,105 @@
                 }
               }
             },
+            "description": "Successful analysis.",
+            "headers": {
+              "X-RateLimit-Limit": {
+                "description": "Calls per minute this API key may make.",
+                "schema": {
+                  "type": "integer"
+                }
+              },
+              "X-RateLimit-Remaining": {
+                "description": "Calls left in the current one-minute window after this one.",
+                "schema": {
+                  "type": "integer"
+                }
+              },
+              "X-RateLimit-Reset": {
+                "description": "Seconds until the current window ends and the count resets.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "429": {
+            "description": "Over the rate limit; wait Retry-After seconds.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "type": "integer"
+                }
+              },
+              "X-RateLimit-Limit": {
+                "description": "Calls per minute this API key may make.",
+                "schema": {
+                  "type": "integer"
+                }
+              },
+              "X-RateLimit-Remaining": {
+                "description": "Calls left in the current one-minute window after this one.",
+                "schema": {
+                  "type": "integer"
+                }
+              },
+              "X-RateLimit-Reset": {
+                "description": "Seconds until the current window ends and the count resets.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Analyse Facts Ep"
+      }
+    },
+    "/api/v1/analyse-facts/jobs": {
+      "post": {
+        "operationId": "submit_job_ep_api_v1_analyse_facts_jobs_post",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "debug_second_judge",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Debug Second Judge",
+              "type": "boolean"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AnalyseFactsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobOut"
+                }
+              }
+            },
             "description": "Successful Response"
           },
           "422": {
@@ -983,7 +1301,99 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Analyse Facts Ep"
+        "summary": "Submit Job Ep"
+      }
+    },
+    "/api/v1/analyse-facts/jobs/{job_id}": {
+      "get": {
+        "operationId": "get_job_ep_api_v1_analyse_facts_jobs__job_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Job Ep"
+      }
+    },
+    "/api/v1/audit": {
+      "get": {
+        "operationId": "audit_ep_api_v1_audit_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditPageOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Audit Ep"
       }
     },
     "/api/v1/orgs": {
@@ -1195,6 +1605,57 @@
           }
         },
         "summary": "Usage Ep"
+      }
+    },
+    "/api/v1/orgs/{org_id}/usage/summary": {
+      "get": {
+        "operationId": "usage_summary_ep_api_v1_orgs__org_id__usage_summary_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org_id",
+            "required": true,
+            "schema": {
+              "title": "Org Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "days",
+            "required": false,
+            "schema": {
+              "default": 30,
+              "maximum": 366,
+              "minimum": 1,
+              "title": "Days",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UsageSummaryOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Usage Summary Ep"
       }
     },
     "/api/v1/status": {
