@@ -25,7 +25,8 @@ def test_clean_response_passes() -> None:
 
 def test_missing_or_wrong_standard_fails() -> None:
     assert smoke.check_response({"results": []}, None) == ["standard missing"]
-    bad = {"applied": "prima_facie_disclosed", "source": "proceeding_posture", "proceeding_posture": "quash", "in_judge_prompt": False}
+    bad = {"applied": "prima_facie_disclosed", "source": "proceeding_posture",
+           "proceeding_posture": "quash", "in_judge_prompt": False}
     assert any("proved/default" in f for f in smoke.check_response(_resp(bad, []), None))
     assert any("!= sent" in f for f in smoke.check_response(_resp(bad, []), "trial"))
 
