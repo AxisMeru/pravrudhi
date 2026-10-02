@@ -46,12 +46,14 @@ version's error mapping to a bare 500 -- is now mapped to 503 like every other s
 from __future__ import annotations
 
 import hmac
+import json
 import logging
 import os
 import threading
 import time
 from collections import OrderedDict
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -67,6 +69,7 @@ from pravrudhi.api.identity import CurrentUserDep, User
 from pravrudhi.application import nyaya_lean_registry as reg
 from pravrudhi.application import tenancy
 from pravrudhi.application.config_files import config_file
+from pravrudhi.application.jobs import JobStore
 from pravrudhi.application.nyaya_agent import RETENTION_NOTICE, BinaryShaMismatch, JudgeMisconfigured, NyayaAgent
 from pravrudhi.application.nyaya_judges import SecondJudgeCircuitBreaker
 from pravrudhi.application.service_window import ServiceWindow
@@ -139,6 +142,10 @@ class PartnerApiConfig:
     #: never locked out at night by a hosted-deployment setting.
     service_window: ServiceWindow | None = None
     service_window_enforce: bool = False
+    #: Async jobs (#146): seconds a FINISHED job stays collectable, and how many unfinished jobs one key may
+    #: hold at once.
+    job_retention_s: float = 3600.0
+    job_max_unfinished_per_key: int = 8
 
     def __post_init__(self) -> None:
         if self.trust_proxy_header and not self.trusted_proxies:
@@ -178,6 +185,8 @@ def load_partner_api_config(root: Path) -> PartnerApiConfig:
         judge_seen_ttl_s=float(body.get("judge_seen_ttl_s", 600.0)),
         judge_warm_grace_s=float(body.get("judge_warm_grace_s", 0.0)),
         judge_warm_retry_s=float(body.get("judge_warm_retry_s", 30.0)),
+        job_retention_s=float(body.get("job_retention_s", 3600.0)),
+        job_max_unfinished_per_key=int(body.get("job_max_unfinished_per_key", 8)),
     )
 
 
@@ -268,6 +277,13 @@ class AgentLike(Protocol):
         sections: list[str] | None = None,
         client_data: bool = True,
     ) -> Any: ...
+
+
+@dataclass(frozen=True)
+class _Admitted:
+    cfg: PartnerApiConfig
+    concurrency: ConcurrencyLimiter
+    authenticated: bool
 
 
 class AnalyseFactsRequest(BaseModel):
@@ -423,6 +439,15 @@ class ApiKeysOut(BaseModel):
     keys: list[ApiKeyOut]
 
 
+class JobOut(BaseModel):
+    job_id: str
+    status: Literal["pending", "running", "done", "failed"]
+    #: Present once `status` is `done`: exactly the body POST /analyse-facts returns for the same request.
+    result: dict[str, Any] | None = None
+    #: Present once `status` is `failed`: the HTTP status and body the synchronous call would have returned.
+    error: dict[str, Any] | None = None
+
+
 class UsageOut(BaseModel):
     key_id: str
     org_id: str
@@ -518,6 +543,7 @@ def build_partner_router(
     agent_factory: AgentFactory | None = None,
     config: PartnerApiConfig | None = None,
     clock: Callable[[], datetime] | None = None,
+    job_executor: Callable[[Callable[[], None]], Any] | None = None,
 ) -> APIRouter:
     """`agent_factory` is injectable (mirrors `nyaya.py`'s `ask_fn` pattern): production leaves it `None` and
     gets the configured house agent (`NyayaAgent.house`, real vLLM judge + real pinned Lean binary); tests
@@ -699,6 +725,16 @@ def build_partner_router(
         debug_second_judge: bool,
         metered: list[str],
     ) -> dict[str, Any] | JSONResponse:
+        admitted = _admit(req, request, user, metered)
+        if isinstance(admitted, JSONResponse):
+            return admitted
+        return _run(req, admitted, debug_second_judge)
+
+    def _admit(
+        req: AnalyseFactsRequest, request: Request, user: User | None, metered: list[str]
+    ) -> _Admitted | JSONResponse:
+        """Everything that decides whether a call may run at all (window, limits, metering, validation), shared
+        by the synchronous route and job submission so a job is admitted by exactly the same rules."""
         try:
             cfg, rate_limiter, concurrency, _provision_rate_limiter, _breaker = _get_state()
         except FileNotFoundError:
@@ -740,7 +776,10 @@ def build_partner_router(
         for f in req.facts:
             if len(f) > 4000:
                 raise HTTPException(422, "a fact may not exceed 4000 characters")
+        return _Admitted(cfg, concurrency, authenticated)
 
+    def _run(req: AnalyseFactsRequest, admitted: _Admitted, debug_second_judge: bool) -> dict[str, Any] | JSONResponse:
+        cfg, concurrency, authenticated = admitted.cfg, admitted.concurrency, admitted.authenticated
         if not concurrency.acquire():
             raise HTTPException(503, "the nyaya agent is at capacity; retry shortly")
         try:
@@ -807,6 +846,98 @@ def build_partner_router(
                     for field in _SECOND_JUDGE_DEBUG_FIELDS:
                         element.pop(field, None)
         return body
+
+    # --- async job mode (#146): same admission, same agent run, collected by polling -------------------------
+    _jobs_lock = threading.Lock()
+    _jobs_holder: dict[str, JobStore] = {}
+    _pool: dict[str, ThreadPoolExecutor] = {}
+
+    def _job_store(cfg: PartnerApiConfig) -> JobStore:
+        with _jobs_lock:
+            if "s" not in _jobs_holder:
+                _jobs_holder["s"] = JobStore(
+                    retention_s=cfg.job_retention_s, clock=clock, max_unfinished_per_key=cfg.job_max_unfinished_per_key
+                )
+            return _jobs_holder["s"]
+
+    def _submit(task: Callable[[], None]) -> None:
+        if job_executor is not None:
+            job_executor(task)
+            return
+        with _jobs_lock:
+            pool = _pool.setdefault("p", ThreadPoolExecutor(max_workers=4, thread_name_prefix="analyse-job"))
+        pool.submit(task)
+
+    def _job_principal(request: Request) -> tenancy.OrgPrincipal:
+        principal = tenancy.principal_from_headers(engine_root, request.headers)
+        if principal is None:
+            raise HTTPException(401, "jobs require an API key (X-Pravrudhi-Api-Key)")
+        return principal
+
+    @router.post("/analyse-facts/jobs", status_code=202, response_model=JobOut, response_model_exclude_none=True)
+    def submit_job_ep(
+        req: AnalyseFactsRequest,
+        request: Request,
+        user: User | None = CurrentUserDep,
+        debug_second_judge: bool = Query(False),
+    ) -> dict[str, Any] | JSONResponse:
+        principal = _job_principal(request)
+        try:
+            cfg = _get_state()[0]
+        except FileNotFoundError:
+            return JSONResponse(status_code=503, content={"error": "service_config_missing"})
+        store = _job_store(cfg)
+        job_id = store.create(principal.key_id)
+        if job_id is None:
+            return JSONResponse(
+                status_code=429,
+                content={"detail": "too many unfinished jobs for this key"},
+                headers={"Retry-After": "30"},
+            )
+        metered: list[str] = []
+        try:
+            admitted = _admit(req, request, user, metered)
+        except HTTPException:
+            store.discard(job_id)
+            raise
+        if isinstance(admitted, JSONResponse):
+            store.discard(job_id)
+            return admitted
+
+        def task() -> None:
+            store.start(job_id)
+            try:
+                out = _run(req, admitted, debug_second_judge)
+            except HTTPException as e:
+                if e.status_code == 503 and metered:
+                    _record_usage(metered[0], failed=True)
+                store.fail(job_id, status_code=e.status_code, body={"detail": e.detail})
+                return
+            except Exception:
+                _logger.exception("analyse-facts job %s crashed", job_id)
+                store.fail(job_id, status_code=500, body={"detail": "internal error"})
+                return
+            if isinstance(out, JSONResponse):
+                if out.status_code == 503 and metered:
+                    _record_usage(metered[0], failed=True)
+                store.fail(job_id, status_code=out.status_code, body=json.loads(bytes(out.body)))
+                return
+            store.finish(job_id, result=AnalyseFactsResponse(**out).model_dump(mode="json", exclude_unset=True))
+
+        _submit(task)
+        return {"job_id": job_id, "status": "pending"}
+
+    @router.get("/analyse-facts/jobs/{job_id}", response_model=JobOut, response_model_exclude_none=True)
+    def get_job_ep(job_id: str, request: Request) -> dict[str, Any]:
+        principal = _job_principal(request)
+        try:
+            cfg = _get_state()[0]
+        except FileNotFoundError:
+            raise HTTPException(503, "service_config_missing") from None
+        job = _job_store(cfg).get(principal.key_id, job_id)
+        if job is None:
+            raise HTTPException(404, "no such job")
+        return {"job_id": job.job_id, "status": job.status, "result": job.result, "error": job.error}
 
     @router.post("/orgs", response_model=OrgOut)
     def create_org_ep(
