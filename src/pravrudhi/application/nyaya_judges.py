@@ -253,6 +253,9 @@ def p_established_from_top_logprobs(
     `label_mass_floor`. Logprobs are true log-probabilities, so `math.exp(logprob)` is the token's real
     probability, not a relative/renormalized figure -- this guard reads the SAME raw values already
     looked up above, no extra call."""
+    bad = {t: v for t, v in top.items() if math.isnan(v) or v == math.inf}
+    if bad:
+        raise JudgeOutputError(f"non-finite logprob(s) in the first token's top logprobs: {bad}")
     est = max((top[t] for t in _EST_TOKENS if t in top), default=-math.inf)
     neg = max((top[t] for t in _NOT_TOKENS if t in top), default=-math.inf)
     if est == -math.inf and neg == -math.inf:
@@ -264,7 +267,7 @@ def p_established_from_top_logprobs(
             f"prose, not a decision: {dict(top)}"
         )
     label_mass = (math.exp(est) if est != -math.inf else 0.0) + (math.exp(neg) if neg != -math.inf else 0.0)
-    if label_mass < label_mass_floor:
+    if not math.isfinite(label_mass) or not label_mass >= label_mass_floor:
         raise JudgeOutputError(
             f"label mass {label_mass:.6f} below floor {label_mass_floor} -- too little of the "
             f"distribution is on either label token to trust a decision: {dict(top)}"
@@ -468,6 +471,8 @@ class HouseJudge:
         if not res.top_logprobs:
             raise JudgeOutputError("the server returned no logprobs for the first token")
         p, clamp = p_established_from_top_logprobs(res.top_logprobs[0], label_mass_floor=self.label_mass_floor)
+        if not math.isfinite(p):
+            raise JudgeOutputError(f"non-finite established probability {p!r}: {dict(res.top_logprobs[0])}")
         backend_idx = res.backend_index
         # Conservative decision rule (2026-09-28, G-28): a BOUND (clamp != "none") only ever lets a
         # caller conclude "established" when the bound ITSELF already clears tau -- since the true
