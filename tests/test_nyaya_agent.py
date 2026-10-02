@@ -1582,6 +1582,30 @@ class TestStatuteMismatch:
 
 
 class TestAudit:
+    def test_run_start_records_version_models_host_class_and_score_sha(self, tmp_path: Path) -> None:
+        import pravrudhi
+
+        cfg = _config(
+            tmp_path,
+            house_judge={"base_url": "https://api.runpod.ai/v2/ep1/openai/v1", "model": "nyaya-judge-4b"},
+            second_judge={"base_url": "http://127.0.0.1:8112/v1", "model": "judge32b"},
+        )
+        run = NyayaAgent(ScriptedJudge(_proof_script(TOY_FACTS)), _registry(), cfg).run(TOY_FACTS, contract_ids=["bns69"])
+        out = json.loads(run.audit_path.read_text().splitlines()[0])["output"]
+        assert out["engine_version"] == pravrudhi.__version__
+        assert out["primary_judge_model"] == "nyaya-judge-4b"
+        assert out["second_judge_model"] == "judge32b"
+        assert out["primary_judge_host_class"] == "serverless"
+        assert out["second_judge_host_class"] == "local"
+        assert out["score_sha256"] == _registry().sha256
+        assert "runpod" not in json.dumps(out) and "127.0.0.1" not in json.dumps(out)
+
+    def test_run_start_without_a_second_judge_or_pinned_model_says_so(self, tmp_path: Path) -> None:
+        run, _, _ = _run(tmp_path, _proof_script(TOY_FACTS))
+        out = json.loads(run.audit_path.read_text().splitlines()[0])["output"]
+        assert out["second_judge_model"] is None and out["second_judge_host_class"] is None
+        assert "primary_judge_model" in out and "engine_version" in out
+
     def test_every_step_is_a_jsonl_line_with_hashed_inputs(self, tmp_path: Path) -> None:
         run, _, _ = _run(tmp_path, _proof_script(TOY_FACTS))
         lines = [json.loads(x) for x in run.audit_path.read_text().splitlines()]
