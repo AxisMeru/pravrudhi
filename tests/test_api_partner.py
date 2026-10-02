@@ -1178,10 +1178,11 @@ class TestProceedingPosture:
         assert c.post("/api/v1/analyse-facts", json=_req(proceeding_posture=bad)).status_code == 422
         assert judge.requests == []
 
-    def test_under_legacy_the_posture_changes_nothing_in_the_response(self, tmp_path: Path) -> None:
+    def test_under_legacy_the_posture_changes_nothing_but_the_standard_object(self, tmp_path: Path) -> None:
         def body(posture: str | None) -> dict[str, Any]:
             c, _ = self._client_with_judge(tmp_path / str(posture))
             out = c.post("/api/v1/analyse-facts", json=_req() if posture is None else _req(proceeding_posture=posture)).json()
+            out.pop("standard", None)
             for k in ("run_id", "audit_run_id", "audit_path", "wall_ms"):
                 out.pop(k, None)
             return out  # type: ignore[no-any-return]
@@ -1226,17 +1227,22 @@ class TestStandardInResponse:
         body, row = self._run(tmp_path, posture)
         std = body["standard"]
         assert std["applied"] == row["standard"]
+        assert std["in_judge_prompt"] is row["standard_in_judge_prompt"] is True
         assert std["proceeding_posture"] == row["proceeding_posture"] == posture
         assert (std["source"], row["standard_source"]) == ("proceeding_posture", "request")
 
     def test_absent_posture_is_proved_by_default(self, tmp_path: Path) -> None:
         body, row = self._run(tmp_path, None)
-        assert body["standard"] == {"applied": "proved", "source": "default", "proceeding_posture": None}
+        assert body["standard"] == {"applied": "proved", "source": "default", "proceeding_posture": None, "in_judge_prompt": True}
         assert row["standard"] == "proved" and row["standard_source"] == "default_proved"
 
-    def test_legacy_template_reports_proved_default_and_echoes_nothing(self, tmp_path: Path) -> None:
-        body, _ = self._run(tmp_path, "quash", template=False)
-        assert body["standard"] == {"applied": "proved", "source": "default", "proceeding_posture": None}
+    def test_legacy_template_records_the_basis_but_says_the_judge_never_saw_it(self, tmp_path: Path) -> None:
+        body, row = self._run(tmp_path, "quash", template=False)
+        assert body["standard"] == {
+            "applied": "prima_facie_disclosed", "source": "proceeding_posture",
+            "proceeding_posture": "quash", "in_judge_prompt": False,
+        }
+        assert row["standard"] == "prima_facie_disclosed" and row["standard_in_judge_prompt"] is False
 
     def test_openapi_documents_standard_as_optional_object(self, tmp_path: Path) -> None:
         c = _client(tmp_path)
@@ -1245,5 +1251,5 @@ class TestStandardInResponse:
         assert "standard" not in resp.get("required", [])
         assert "StandardOut" in str(resp["properties"]["standard"])
         out = schemas["StandardOut"]
-        assert set(out["properties"]) == {"applied", "source", "proceeding_posture"}
-        assert set(out["required"]) == {"applied", "source"}
+        assert set(out["properties"]) == {"applied", "source", "proceeding_posture", "in_judge_prompt"}
+        assert set(out["required"]) == {"applied", "source", "in_judge_prompt"}

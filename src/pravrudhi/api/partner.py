@@ -386,6 +386,10 @@ class StandardOut(BaseModel):
     applied: str = Field(description='"proved" or "prima_facie_disclosed".')
     source: str = Field(description='"proceeding_posture", "proceeding_type" or "default".')
     proceeding_posture: str | None = Field(default=None, description="The caller's posture, echoed; null if absent.")
+    in_judge_prompt: bool = Field(
+        description="True only when the house judge's prompt stated this standard (judge_prompt.standard_line on). "
+        "False means the basis is recorded but the judge never saw it."
+    )
 
 
 class AnalyseFactsResponse(BaseModel):

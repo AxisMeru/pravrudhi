@@ -226,6 +226,16 @@ def load_agent_config(root: Path) -> AgentConfig:
         score_bin = score_bin_path(root)
     low, high = body["refer_band"]
     house_judge = dict(body.get("house_judge") or {})
+    # The only knob that puts the standard line into the house prompt (default false: the training prompt,
+    # byte for byte). The standard is resolved and audited either way; this decides only whether the judge sees it.
+    standard_line = bool((body.get("judge_prompt") or {}).get("standard_line", False))
+    derived_template = "standard_line_v1" if standard_line else "legacy"
+    if house_judge.get("prompt_template", derived_template) != derived_template:
+        raise ValueError(
+            f"house_judge.prompt_template={house_judge['prompt_template']!r} conflicts with "
+            f"judge_prompt.standard_line={standard_line}; set judge_prompt.standard_line only"
+        )
+    house_judge["prompt_template"] = derived_template
     # Allow env override for judge base_url (container deployments)
     if os.environ.get("NYAYA_HOUSE_JUDGE_BASE_URL"):
         house_judge["base_url"] = os.environ["NYAYA_HOUSE_JUDGE_BASE_URL"]
@@ -1467,15 +1477,16 @@ class NyayaAgent:
         audit = AuditTrail(Path(self.config.audit_dir) / f"{run_id}.jsonl", run_id)
         cfg_view = {"tau": self.config.tau, "refer_band": list(self.config.refer_band), "max_retries": self.config.max_retries,
                    "second_refer_logit_delta": self.config.second_refer_logit_delta()}
-        standard_view = (
-            {"proceeding_posture": proceeding_posture, "standard": standard, "standard_source": standard_source}
-            if getattr(self.judge, "prompt_template", "legacy") != "legacy" else {}
-        )
-        non_legacy = getattr(self.judge, "prompt_template", "legacy") != "legacy"
+        in_prompt = getattr(self.judge, "prompt_template", "legacy") != "legacy"
+        standard_view = {
+            "proceeding_posture": proceeding_posture, "standard": standard, "standard_source": standard_source,
+            "standard_in_judge_prompt": in_prompt,
+        }
         standard_out = {
-            "applied": standard if non_legacy else "proved",
-            "source": ("proceeding_posture" if standard_source == "request" else "default") if non_legacy else "default",
-            "proceeding_posture": proceeding_posture if non_legacy else None,
+            "applied": standard,
+            "source": "proceeding_posture" if standard_source == "request" else "default",
+            "proceeding_posture": proceeding_posture,
+            "in_judge_prompt": in_prompt,
         }
         audit.step("run_start", cfg_view,
                    {"judge": self.judge.name, "score_sha256": self.registry.sha256, "client_data": client_data,
