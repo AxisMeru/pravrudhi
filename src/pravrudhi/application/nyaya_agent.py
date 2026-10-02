@@ -312,7 +312,7 @@ def load_agent_config(root: Path) -> AgentConfig:
     # inherited set -- both judges share the same safety threshold by default, same as the prompt-shape
     # params, rather than needing a distinct required env var like tau/timeout_s do.
     if second_judge is not None:
-        for key in ("statute_chars", "top_logprobs", "max_tokens", "label_mass_floor"):
+        for key in ("statute_chars", "top_logprobs", "max_tokens", "label_mass_floor", "prompt_template"):
             if key not in second_judge and key in house_judge:
                 second_judge[key] = house_judge[key]
 
@@ -880,6 +880,7 @@ def _build_house_judge(hj_cfg: Mapping[str, Any], *, tau: float, typed: bool, ap
             decoder=decoder,
             max_tokens=int(hj_cfg.get("max_tokens", 30)),
             top_logprobs=int(hj_cfg.get("top_logprobs", 20)),
+            prompt_template=str(hj_cfg.get("prompt_template", "legacy")),
         )
     from pravrudhi.application.nyaya_judges import HouseJudge
 
@@ -1029,6 +1030,8 @@ class NyayaAgent:
     ) -> None:
         self.judge = judge
         self.registry = registry
+        #: (contract_id, element) -> legal standard, filled from `describe` before any element is judged.
+        self._element_standards: dict[tuple[str, str], str] = {}
         self.config = config
         #: One independent judge stack per concurrent worker (own HouseJudge, own ChatClients): a HouseJudge's
         #: `complete` mutates its client's `.model` attribute per call (see nyaya_judges.HouseJudge, the
@@ -1146,6 +1149,7 @@ class NyayaAgent:
         request = JudgeRequest(
             contract_id, element, is_denial, statute, narrative, tuple((f.id, f.text) for f in facts),
             skip_second=contract_id not in self.config.validated_contracts,
+            standard=self._element_standards.get((contract_id, element)),
         )
         anchor: ElementJudgment | None = None
         fact_id: str | None = None
@@ -1320,6 +1324,7 @@ class NyayaAgent:
     ) -> ContractResult:
         t0 = time.monotonic()
         contract = self.registry.describe(contract_id)
+        self._element_standards.update({(contract_id, e): s for e, s in contract.standards.items()})
         audit.step("describe", {"contract_id": contract_id}, asdict(contract), _ms(t0))
 
         # The judge sees ONLY its training statute text; the binary's official text is read for the audit

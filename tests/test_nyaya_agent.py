@@ -344,6 +344,15 @@ class TestLoop:
         assert (el1.status, el1.p_established, el1.quote) == ("established", 0.97, good.quote)
         assert run.contracts[0].outcome == "PROOF"
 
+    def test_the_element_standard_from_the_registry_reaches_the_judge_request(self, tmp_path: Path) -> None:
+        _, judge, _ = _run(tmp_path, _proof_script(TOY_FACTS))
+        assert {r.standard for r in judge.requests} == {None}  # the toy registry supplies no standards
+        judge2, registry = ScriptedJudge(_proof_script(TOY_FACTS)), _registry()
+        registry.contracts["bns69"] = replace(registry.contracts["bns69"], standards={BNS69_EL[0]: "proved"})
+        NyayaAgent(judge2, registry, _config(tmp_path)).run(TOY_FACTS, narrative="TOY narrative.", contract_ids=["bns69"])
+        by_el = {r.element: r.standard for r in judge2.requests}
+        assert by_el[BNS69_EL[0]] == "proved" and by_el[BNS69_EL[1]] is None
+
     def test_facts_reach_the_judge_as_numbered_pairs(self, tmp_path: Path) -> None:
         _, judge, _ = _run(tmp_path, _proof_script(TOY_FACTS))
         assert judge.requests[0].facts == tuple((f"F{i + 1}", t) for i, t in enumerate(TOY_FACTS))

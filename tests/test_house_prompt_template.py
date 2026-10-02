@@ -1,0 +1,76 @@
+"""#192: the element-judge prompt may state the legal standard, behind `prompt_template` (default legacy).
+
+Toy text only. The legacy prompt is the training prompt and must stay byte-identical.
+"""
+
+from __future__ import annotations
+
+import pytest
+
+from pravrudhi.application.nyaya_judges import STANDARD_LINES, HouseJudge, JudgeRequest, build_house_prompt
+
+
+def _req(standard: str | None = None) -> JudgeRequest:
+    facts = (("F1", "TOY fact one."),)
+    return JudgeRequest("c1", "el one", False, "TOY statute text.", "TOY narrative.", facts, standard=standard)
+
+
+LEGACY = (
+    "Statute: TOY statute text.\nScenario: TOY narrative.\nElement to judge: el one\n"
+    "Available facts:\n[F1] TOY fact one.\nAnswer:"
+)
+
+
+def test_legacy_prompt_is_byte_identical_whatever_the_standard() -> None:
+    assert build_house_prompt(_req(), statute_chars=600) == LEGACY
+    assert build_house_prompt(_req("proved"), statute_chars=600) == LEGACY
+    assert build_house_prompt(_req("proved"), statute_chars=600, prompt_template="legacy") == LEGACY
+
+
+def test_the_standard_strings_are_pinned() -> None:
+    assert STANDARD_LINES == {
+        "prima_facie_disclosed": "Take the allegations and material as true and complete, without weighing defences or evidence. "
+        "Does the record, on its face, disclose this element?",
+        "proved": "Judge whether the evidence in the record establishes this element beyond reasonable doubt. "
+        "Allegations alone, or suspicion, do not establish it.",
+    }
+
+
+@pytest.mark.parametrize("standard", ["prima_facie_disclosed", "proved"])
+def test_standard_line_v1_adds_exactly_one_line_after_the_element(standard: str) -> None:
+    out = build_house_prompt(_req(standard), statute_chars=600, prompt_template="standard_line_v1")
+    assert out == LEGACY.replace("el one\n", f"el one\nStandard: {STANDARD_LINES[standard]}\n")
+
+
+@pytest.mark.parametrize("standard", [None, "", "balance_of_probabilities"])
+def test_standard_line_v1_without_a_known_standard_raises(standard: str | None) -> None:
+    with pytest.raises(ValueError, match="standard_line_v1"):
+        build_house_prompt(_req(standard), statute_chars=600, prompt_template="standard_line_v1")
+
+
+def test_an_unknown_template_raises() -> None:
+    with pytest.raises(ValueError, match="prompt_template"):
+        build_house_prompt(_req(), statute_chars=600, prompt_template="v2")
+
+
+_CFG = {"statute_chars": 600, "base_url": "http://localhost:1/v1", "max_tokens": 30, "top_logprobs": 20, "timeout_s": 5,
+        "label_mass_floor": 0.5}
+
+
+def test_the_judge_defaults_to_legacy_and_reads_the_config_flag() -> None:
+    assert HouseJudge.from_config(_CFG, tau=0.5).prompt_template == "legacy"
+    assert HouseJudge.from_config({**_CFG, "prompt_template": "standard_line_v1"}, tau=0.5).prompt_template == "standard_line_v1"
+    with pytest.raises(ValueError):
+        HouseJudge.from_config({**_CFG, "prompt_template": "nope"}, tau=0.5)
+
+
+def test_the_shipped_config_default_is_legacy() -> None:
+    from pathlib import Path
+
+    import yaml
+
+    from pravrudhi.application import nyaya_agent
+
+    path = Path(nyaya_agent.__file__).parents[3] / "configs" / "nyaya_agent.yaml"
+    cfg = yaml.safe_load(path.read_text())
+    assert cfg["house_judge"]["prompt_template"] == "legacy"

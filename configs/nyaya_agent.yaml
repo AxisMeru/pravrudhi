@@ -63,6 +63,9 @@ house_judge:
   # clear this before a decision is trusted at all -- else JudgeOutputError, failing closed to REFER.
   # Required, not defaulted here: HouseJudge.from_config refuses if this key is absent.
   label_mass_floor: 0.5
+  # Prompt template: legacy (the training prompt, byte for byte; the default) | standard_line_v1 (adds a line
+  # stating the legal standard). standard_line_v1 ships ONLY with judge weights retrained on it (#192).
+  prompt_template: legacy
   # How many (contract, element/denial) judge requests one `NyayaAgent.run` call judges at once, bounded by a
   # ThreadPoolExecutor (docs/decisions 2026-09-24). 1 is today's serial behaviour, byte-identical results and
   # audit ordering -- unchanged unless this is raised. NYAYA_JUDGE_MAX_CONCURRENCY overrides.
