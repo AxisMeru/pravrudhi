@@ -2336,3 +2336,46 @@ class TestSpanRelevanceOverAndGateDefeater:
     def test_span_demotion_of_a_required_element_does_not_hide_the_defeater_disagreement(self, tmp_path: Path) -> None:
         c = self._run(tmp_path, _second("not_established", 0.05), self._check(demote=BNS69_EL[0]))
         assert c.outcome == "REFER_TO_LAWYER" and c.reason == "second_judge_defeater_disagreement"
+
+
+class TestPrimaryTauEnvOverride134:
+    """#134: the primary tau must be settable from env, and swapping the primary judge by env must not silently keep the yaml tau."""
+
+    @pytest.fixture(autouse=True)
+    def _clean(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        for k in ("NYAYA_HOUSE_JUDGE_TAU", "NYAYA_HOUSE_JUDGE_BASE_URL", "NYAYA_HOUSE_JUDGE_MODEL"):
+            monkeypatch.delenv(k, raising=False)
+
+    def test_default_is_yaml_tau_and_source(self) -> None:
+        cfg = load_agent_config(REPO)
+        assert cfg.tau_source == "yaml" and 0 < cfg.tau <= 1
+
+    def test_env_tau_overrides_yaml(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("NYAYA_HOUSE_JUDGE_TAU", "0.97")
+        cfg = load_agent_config(REPO)
+        assert cfg.tau == 0.97 and cfg.tau_source == "env:NYAYA_HOUSE_JUDGE_TAU"
+
+    def test_swapping_primary_model_without_tau_refuses(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("NYAYA_HOUSE_JUDGE_MODEL", "judge32b")
+        with pytest.raises(ValueError, match="NYAYA_HOUSE_JUDGE_TAU"):
+            load_agent_config(REPO)
+
+    def test_base_url_alone_or_the_4b_id_is_not_a_swap(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("NYAYA_HOUSE_JUDGE_BASE_URL", "http://h/v1")
+        monkeypatch.setenv("NYAYA_HOUSE_JUDGE_MODEL", "nyaya-judge-4b")
+        assert load_agent_config(REPO).tau_source == "yaml"
+
+    def test_swapping_primary_with_explicit_tau_or_yaml_ok(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        yaml_tau = load_agent_config(REPO).tau
+        monkeypatch.setenv("NYAYA_HOUSE_JUDGE_MODEL", "judge32b")
+        monkeypatch.setenv("NYAYA_HOUSE_JUDGE_TAU", "0.9")
+        assert load_agent_config(REPO).tau == 0.9
+        monkeypatch.setenv("NYAYA_HOUSE_JUDGE_TAU", "yaml")
+        cfg = load_agent_config(REPO)
+        assert cfg.tau == yaml_tau and cfg.tau_source.endswith("=yaml")
+
+    @pytest.mark.parametrize("bad", ["abc", "0", "1.5", "-0.1"])
+    def test_bad_tau_refuses(self, monkeypatch: pytest.MonkeyPatch, bad: str) -> None:
+        monkeypatch.setenv("NYAYA_HOUSE_JUDGE_TAU", bad)
+        with pytest.raises(ValueError):
+            load_agent_config(REPO)
