@@ -50,3 +50,15 @@ OPERATOR_ENV = ("TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID", "PRAVRUDHI_CLAUDE_CONF
 def _without_the_operators_live_configuration(monkeypatch: pytest.MonkeyPatch) -> None:
     for name in OPERATOR_ENV:
         monkeypatch.delenv(name, raising=False)
+
+
+@pytest.fixture(autouse=True)
+def _claude_seat_is_seat2_unless_testing_the_check(request, monkeypatch):
+    """`panel.ask_vendor` asserts `claude auth status --json` shows the seat-2 email before every claude call. No
+    test may shell out to the real CLI for that, so the lookup is stubbed to the expected seat; the module that
+    tests the check itself (test_ask_vendor_gaps.py) opts out and drives it with its own stand-ins."""
+    if request.module.__name__.endswith("test_ask_vendor_gaps"):
+        return
+    from pravrudhi.application import panel
+
+    monkeypatch.setattr(panel, "_claude_auth_email", lambda env: panel.CLAUDE_CLI_EXPECTED_EMAIL)
