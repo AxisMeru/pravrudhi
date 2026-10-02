@@ -85,7 +85,14 @@ def _method_index() -> dict[str, set[types.FunctionType]]:
 
 
 def _reaches_targets(endpoint: Any, methods: dict[str, set[types.FunctionType]]) -> set[str]:
-    """Transitive, name-based reachability from a route endpoint. Free functions and classes resolve through the
+    """LIMIT, NOT COMPLETE COVERAGE: this is a name-based static walk, not a dispatch-aware one. A method call on
+    an instance (`agent.run(...)`, `judge.judge(...)`) is followed only when exactly one class in pravrudhi
+    defines that method name, so any route that reaches vendor code through an ambiguous method name is
+    invisible here. The routes this cannot see are covered by hand: `/api/v1/analyse-facts` is exercised
+    behaviourally in `test_analyse_facts_*` below. Treat a green static test as "no NEW direct path", never
+    as proof that no path exists.
+
+    Transitive, name-based reachability from a route endpoint. Free functions and classes resolve through the
     function's globals and closure; a method call on an instance is followed only when exactly one class in
     pravrudhi defines that name (an ambiguous name would drag in every route, so it is not followed)."""
     seen: set[Any] = set()
@@ -174,3 +181,70 @@ def test_guarded_route_makes_no_vendor_call_and_never_reports_the_operator_key(
     assert calls == []
     assert OP_KEY not in r.text
     assert "key in environment" not in r.text
+
+
+# -- /api/v1/analyse-facts: reached through instance-method dispatch the static walk cannot follow -------------
+
+
+def _partner_client(engine: Path, agent: Any, caller: str) -> tuple[TestClient, dict[str, str]]:
+    from fastapi import FastAPI
+
+    from pravrudhi.api.partner import PartnerApiConfig, build_partner_router
+    from pravrudhi.application.credentials import ServingApiMiddleware
+
+    app = FastAPI()
+    app.add_middleware(ServingApiMiddleware)
+    cfg = PartnerApiConfig(rate_limit_per_minute=1000, max_concurrent=100, trust_proxy_header=False)
+    app.include_router(build_partner_router(engine, agent_factory=lambda _root: agent, config=cfg))
+    headers: dict[str, str] = {}
+    if caller == "partner-key":
+        tenancy.create_org(engine, "acme", "Acme")
+        headers[tenancy.API_KEY_HEADER] = tenancy.create_key(engine, "acme", label="t").secret
+    return TestClient(app, base_url="http://localhost", raise_server_exceptions=False), headers
+
+
+def _frontier_agent(tmp_path: Path) -> Any:
+    """An agent whose judge is a `FrontierJudge` over the real `panel.ask_vendor` with NO store handed in: the
+    shape that would reach a vendor with the operator's key if the serving-API guard were absent. No config
+    builds this today (`NyayaAgent.house` only builds `HouseJudge`); the test pins that a future one is safe."""
+    from pravrudhi.application import panel
+    from pravrudhi.application.nyaya_agent import AgentConfig, NyayaAgent
+    from pravrudhi.application.nyaya_judges import FrontierJudge
+    from tests.test_api_partner import ScriptedRegistry
+
+    config = AgentConfig(
+        tau=0.74,
+        refer_band=(0.5, 0.74),
+        max_retries=1,
+        audit_dir=tmp_path / "audit",
+        judge_statute_text={"bns69": "TRAINING statute text for bns69"},
+        validated_contracts=frozenset({"bns69"}),
+    )
+    return NyayaAgent(FrontierJudge(panel.VENDORS["openai-api"], root=tmp_path), ScriptedRegistry(), config)
+
+
+@pytest.mark.parametrize("caller", ["anonymous", "partner-key"])
+def test_analyse_facts_with_a_frontier_judge_makes_no_vendor_call(
+    tmp_path: Path, engine: Path, monkeypatch: pytest.MonkeyPatch, caller: str
+) -> None:
+    import pravrudhi.models.openai_compat as oc
+    from tests.test_api_partner import _req
+
+    calls: list[int] = []
+    monkeypatch.setattr(oc.ChatClient, "chat", lambda *a, **k: calls.append(1))
+    client, headers = _partner_client(engine, _frontier_agent(tmp_path), caller)
+    r = client.post("/api/v1/analyse-facts", json=_req(), headers=headers)
+    assert r.status_code not in (404, 405, 421), r.text
+    assert calls == []
+    assert OP_KEY not in r.text
+    assert "key in environment" not in r.text
+
+
+@pytest.mark.parametrize("caller", ["anonymous", "partner-key"])
+def test_analyse_facts_house_judge_path_still_works_with_fake_judges(tmp_path: Path, engine: Path, caller: str) -> None:
+    from tests.test_api_partner import _agent, _proof_script, _req
+
+    client, headers = _partner_client(engine, _agent(tmp_path, _proof_script()), caller)
+    r = client.post("/api/v1/analyse-facts", json=_req(), headers=headers)
+    assert r.status_code == 200, r.text
+    assert OP_KEY not in r.text
