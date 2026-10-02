@@ -82,6 +82,23 @@ class TestLocateQuote:
         loc = locate_quote(facts, fact_id="F1", quote=quote)
         assert not loc.valid and loc.reason == "empty_quote"
 
+    @pytest.mark.parametrize("quote", ["A", "a", "2", ".", ",", "-", "...", "—", "A.", "1)", "(.)", "\u0964"])
+    def test_a_single_character_or_punctuation_only_quote_is_not_evidence(self, quote: str) -> None:
+        """A verbatim substring, but carrying (almost) no content: it must not count as the evidence."""
+        facts = {"F1": "TOY: A. a, 2 - Arun married Bela in 2019 (.) (see 1) ... \u2014 \u0964"}
+        assert quote in facts["F1"]
+        loc = locate_quote(facts, fact_id="F1", quote=quote)
+        assert not loc.valid and loc.reason == "non_evidential_quote" and loc.start is None
+
+    @pytest.mark.parametrize("quote", ["Arun", "in 2019", "Bela", "\u0928\u094d\u092f\u093e\u092f"])
+    def test_a_quote_with_real_content_still_passes(self, quote: str) -> None:
+        facts = {"F1": "TOY: Arun married Bela in 2019. \u0928\u094d\u092f\u093e\u092f"}
+        assert locate_quote(facts, fact_id="F1", quote=quote).valid
+
+    def test_the_content_check_comes_after_the_fact_and_presence_checks(self) -> None:
+        assert locate_quote(FACTS, fact_id="F9", quote=".").reason == "unknown_fact"
+        assert locate_quote(FACTS, fact_id="F1", quote=" ").reason == "empty_quote"
+
 
 class TestCheckJudgment:
     def _judgment(self, **over: Any) -> dict[str, Any]:
