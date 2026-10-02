@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# Client-side guard: refuses any `git push` whose REMOTE ref is refs/heads/main from a normal command-line push.
+# Merges to main go through a pull request. Same hook as prabhasa-nyaya's.
+#
+# WHAT THIS DOES NOT STOP. It is a client-side hook: it runs on the pusher's own machine, using
+# whatever `core.hooksPath` that checkout has configured. A push via the GitHub API/web UI, a push
+# from a checkout that never ran `make init`, or `git push --no-verify` all bypass it entirely --
+# hence layers 2 (the server-side main-push-has-pr alarm) and 3 (the daily audit) existing at all.
+# A real merge (GitHub's own "Merge pull request" button, or the API `PUT /pulls/{n}/merge`) is
+# NOT a `git push` from any local checkout, so this hook never sees it and never blocks a merge.
+set -euo pipefail
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+  if [[ "$remote_ref" == "refs/heads/main" ]]; then
+    echo "pre-push: REFUSED -- direct push to main." >&2
+    echo "  Merges to main go through a pull request (GitHub's own merge button or the API)," >&2
+    echo "  never a direct 'git push'. If this push is itself a legitimate merge commit already" >&2
+    echo "  produced by a PR merge (rare: re-pushing a ref after a rebase of an already-merged" >&2
+    echo "  branch), do it through the GitHub UI/API instead of from this checkout." >&2
+    exit 1
+  fi
+done
+
+exit 0
