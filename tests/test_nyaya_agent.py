@@ -22,6 +22,7 @@ import pytest
 
 from pravrudhi.application import nyaya_lean_registry as reg
 from pravrudhi.application.nyaya_agent import (
+    ELEMENT_STATUSES,
     RETENTION_NOTICE,
     AgentConfig,
     BinaryRegistry,
@@ -1455,6 +1456,25 @@ class TestBindingLegDiscriminatorReadsConfigNotTauSecond:
         el0 = run.contracts[0].elements[0]
         assert el0.status == "not_confirmed"
         assert el0.binding_leg == "primary"
+
+
+class TestElementStatusesArePinned:
+    """A wire-format contract with pravrudhi-app's own exhaustive switch over the same five statuses
+    (pravrudhi-app#8, "pure element-status presentation mapping with exhaustive four-state handling" --
+    extended to five by `not_evaluated_gate1_unavailable`). If this fails, the app's own switch needs the
+    same change FIRST, deployed, before this set may change here (issue #72: enabling a status-emitting path
+    -- e.g. gate1 -- the app cannot handle yet is exactly the failure this test exists to catch before a
+    config flip does it in production instead of a red CI check)."""
+
+    def test_the_exact_set_the_engine_can_emit(self) -> None:
+        assert set(ELEMENT_STATUSES) == {
+            "established", "not_confirmed", "not_established",
+            "not_evaluated_second_unavailable", "not_evaluated_gate1_unavailable",
+        }, (
+            "ELEMENT_STATUSES changed -- pravrudhi-app's own exhaustive switch (pravrudhi-app#8 or its "
+            "successor) must be updated to handle the new/removed status and DEPLOYED before this set may "
+            "change here; see issue #72 and docs/decisions/TEAM-RULES.md's release checklist."
+        )
 
 
 class TestGate1ReferWiring:
