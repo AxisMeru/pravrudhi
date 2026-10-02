@@ -92,7 +92,8 @@ def ask(
     headers = {"Authorization": f"Bearer {secret.reveal()}", "Content-Type": "application/json"}
     started = time.monotonic()
     failure: str | None = None
-    status, payload = 0, {}
+    status = 0
+    payload: Mapping[str, Any] = {}
     try:
         status, payload = transport(BASE_URL + "/chat/completions", headers, body)
     except Exception as e:  # noqa: BLE001 - re-raised below, outside the except block, with the key redacted
