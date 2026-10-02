@@ -103,7 +103,7 @@ def _main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
     raw = json.loads(args.elements.read_text())
     obj = {"contract_id": "cli", "elements": raw, "denials": []} if isinstance(raw, list) else raw
-    cs = contract_schema(DescribedContract(obj.get("contract_id", "cli"), list(obj["elements"]), list(obj.get("denials", []))))
+    cs = contract_schema(DescribedContract(str(obj.get("contract_id", "cli")), list(obj["elements"]), list(obj.get("denials", []))))
     records = build_records(cs, state=args.state_file.read_text(), max_questions=args.max_questions)
     print(json.dumps(records, ensure_ascii=False, indent=2))
     return 0
