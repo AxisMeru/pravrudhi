@@ -1,7 +1,8 @@
 # Which panel vendors an API caller (a request served inside `credentials.serving_api`) may use.
 # Default-closed: a vendor not listed here is refused with zero calls. A missing or unreadable file means nothing
-# is allowed. The cli vendors (claude-cli, codex-cli) run on the operator's own seat and are refused for every
-# API caller in code (`application/tenant_vendors.py`); listing one here is a load error, not an opt-in.
+# is allowed. The cli vendors (claude-cli, codex-cli) run on the operator's own seat: listing one under `default`
+# or an org is a load error (everything closes), and the `studio:` section below is read only when the deployment
+# itself is the Studio edition (PRAVRUDHI_EDITION=studio, not an installed release), never from the request.
 # The CLI and research entrypoints (outside serving_api) are not affected by this file.
 
 # Bring-your-own-key vendors only: each resolves its key from the caller's own store.
@@ -17,3 +18,9 @@ default:
 #   acme:
 #     extend: [nyaya-p2b-local]
 orgs: {}
+
+# Added to the allowed set only in the Studio edition (the operator's localhost-only deployment). Ignored in the
+# product edition, where the cli vendors are never allowed whatever this file says.
+studio:
+  - claude-cli
+  - codex-cli

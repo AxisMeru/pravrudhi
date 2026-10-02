@@ -147,3 +147,79 @@ def test_providers_vendors_route_hides_unallowed_vendors(tmp_path):
     if r.status_code == 200:
         ids = {v["id"] for v in r.json()}
         assert ids <= tenant_vendors.allowed_ids()
+
+
+# --- edition-keyed cli carve-out: the deployment decides, never the request ---
+
+ADMIN = User(id="admin", email="op@example.com", role="admin")
+
+
+@pytest.fixture
+def edition(monkeypatch):
+    def set_(v):
+        if v is None:
+            monkeypatch.delenv("PRAVRUDHI_EDITION", raising=False)
+        else:
+            monkeypatch.setenv("PRAVRUDHI_EDITION", v)
+
+    monkeypatch.setattr("pravrudhi.api.edition.is_release_install", lambda: False)
+    return set_
+
+
+@pytest.mark.parametrize("vid", ["claude-cli", "codex-cli"])
+def test_product_edition_refuses_cli_even_for_an_admin_caller(tmp_path, api, calls, edition, vid, monkeypatch):
+    monkeypatch.setenv("PRAVRUDHI_ADMINS", ADMIN.email)
+    edition("product")
+    from pravrudhi.api.roles import ADMIN as ADMIN_ROLE
+    from pravrudhi.api.roles import role_of
+
+    assert role_of(ADMIN) is ADMIN_ROLE
+    with pytest.raises(VendorNotAllowed):
+        panel.ask_vendor(panel.VENDORS[vid], "x", root=tmp_path, store=store(tmp_path))
+    assert calls == []
+    assert vid not in tenant_vendors.allowed_ids()
+
+
+@pytest.mark.parametrize("vid", ["claude-cli", "codex-cli"])
+def test_studio_edition_allows_cli_vendors_from_the_studio_section(edition, vid):
+    edition("studio")
+    assert vid in tenant_vendors.allowed_ids()
+    tenant_vendors.require(vid)
+
+
+@pytest.mark.parametrize("declared", [None, "", "Studi0", "staging", "both", "prod"])
+def test_missing_or_unknown_edition_is_product_so_closed(edition, declared):
+    edition(declared)
+    assert not tenant_vendors.is_studio_edition()
+    assert not {"claude-cli", "codex-cli"} & tenant_vendors.allowed_ids()
+
+
+def test_an_installed_release_is_never_studio_even_if_the_env_says_so(edition, monkeypatch):
+    edition("studio")
+    monkeypatch.setattr("pravrudhi.api.edition.is_release_install", lambda: True)
+    assert not {"claude-cli", "codex-cli"} & tenant_vendors.allowed_ids()
+
+
+def test_studio_section_is_ignored_in_product_and_cli_in_default_still_closes(tmp_path, edition):
+    p = cfg(tmp_path, "default: [openai-api]\nstudio: [claude-cli]\n")
+    edition("product")
+    assert tenant_vendors.allowed_ids(path=p) == {"openai-api"}
+    edition("studio")
+    assert tenant_vendors.allowed_ids(path=p) == {"openai-api", "claude-cli"}
+    bad = cfg(tmp_path, "default: [openai-api, claude-cli]\nstudio: [claude-cli]\n")
+    assert tenant_vendors.allowed_ids(path=bad) == frozenset()
+
+
+@pytest.mark.parametrize("studio", ["claude-cli", "{a: 1}", "[1, 2]"])
+def test_malformed_studio_section_closes_everything_in_studio(tmp_path, edition, studio):
+    edition("studio")
+    assert tenant_vendors.allowed_ids(path=cfg(tmp_path, f"default: [openai-api]\nstudio: {studio}\n")) == frozenset()
+
+
+def test_shipped_config_studio_section_lists_exactly_the_cli_vendors(edition):
+    import yaml
+
+    shipped = yaml.safe_load(tenant_vendors._default_path().read_text())
+    assert set(shipped["studio"]) == {"claude-cli", "codex-cli"}
+    edition("product")
+    assert not {"claude-cli", "codex-cli"} & tenant_vendors.allowed_ids()
