@@ -129,7 +129,8 @@ def test_the_walkthrough_uses_only_placeholder_hosts() -> None:
 
 def test_the_walkthrough_says_what_the_contract_lacks() -> None:
     text = DOC.read_text()
-    for absent in ("Matters", "Server-side document upload", "Streaming (SSE)", "Async job"):
+    for absent in ("Matters", "Server-side document upload", "Streaming (SSE)"):
         assert absent in text
     paths = json.loads((ROOT / "docs/api/openapi-v1.json").read_text())["paths"]
-    assert not [p for p in paths if re.search(r"matter|upload|stream|jobs", p)], "contract grew a route; update the doc"
+    assert not [p for p in paths if re.search(r"matter|upload|stream", p)], "contract grew a route; update the doc"
+    assert "/api/v1/analyse-facts/jobs" in paths and "/analyse-facts/jobs" in text

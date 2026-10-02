@@ -11,14 +11,13 @@ a real judge's outcomes are a different thing from the stand-in's.
 
 ## What this contract does not have
 
-The partner API is a synchronous JSON API. These are **not** in it, and the sample does not pretend otherwise:
+The partner API is JSON. `POST /analyse-facts` is synchronous; `POST /analyse-facts/jobs` (202, then poll `GET /analyse-facts/jobs/{job_id}`) is the async form of the same call, and this sample does not use it. These are **not** in it, and the sample does not pretend otherwise:
 
 | Not in the contract | What to do instead |
 |---|---|
 | Matters (a server-side object grouping documents and runs) | Keep your own matter records; send the facts with each call |
 | Server-side document upload | Read the file yourself and split it into facts on your side (the "upload" below is that step) |
 | Streaming (SSE) responses | Call `POST /analyse-facts` and wait for the JSON reply |
-| Async job submit/poll | Not available in this contract |
 
 Limits that do exist: 1-8 facts per call, each at most 4000 characters, 1-5 `contract_ids`.
 
