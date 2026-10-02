@@ -46,27 +46,30 @@ version's error mapping to a bare 500 -- is now mapped to 503 like every other s
 from __future__ import annotations
 
 import hmac
+import json
 import logging
 import os
 import threading
 import time
 from collections import OrderedDict
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal, Protocol
 
 import yaml
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field
 from starlette.responses import JSONResponse
 
 from pravrudhi import __version__
 from pravrudhi.api.identity import CurrentUserDep, User
+from pravrudhi.application import audit, tenancy
 from pravrudhi.application import nyaya_lean_registry as reg
-from pravrudhi.application import tenancy
 from pravrudhi.application.config_files import config_file
+from pravrudhi.application.jobs import JobStore
 from pravrudhi.application.nyaya_agent import (
     RETENTION_NOTICE,
     BinaryShaMismatch,
@@ -147,6 +150,12 @@ class PartnerApiConfig:
     #: never locked out at night by a hosted-deployment setting.
     service_window: ServiceWindow | None = None
     service_window_enforce: bool = False
+    #: Async jobs (#146): seconds a FINISHED job stays collectable, and how many unfinished jobs one key may
+    #: hold at once.
+    job_retention_s: float = 3600.0
+    job_max_unfinished_per_key: int = 8
+    #: Audit rows (#148) older than this are dropped on write and never served.
+    audit_retention_s: float = 90 * 86400.0
 
     def __post_init__(self) -> None:
         if self.trust_proxy_header and not self.trusted_proxies:
@@ -186,7 +195,20 @@ def load_partner_api_config(root: Path) -> PartnerApiConfig:
         judge_seen_ttl_s=float(body.get("judge_seen_ttl_s", 600.0)),
         judge_warm_grace_s=float(body.get("judge_warm_grace_s", 0.0)),
         judge_warm_retry_s=float(body.get("judge_warm_retry_s", 30.0)),
+        job_retention_s=float(body.get("job_retention_s", 3600.0)),
+        job_max_unfinished_per_key=int(body.get("job_max_unfinished_per_key", 8)),
+        audit_retention_s=float(body.get("audit_retention_s", 90 * 86400.0)),
     )
+
+
+_RATE_LIMIT_HEADER_DOCS: dict[str, Any] = {
+    "X-RateLimit-Limit": {"description": "Calls per minute this API key may make.", "schema": {"type": "integer"}},
+    "X-RateLimit-Remaining": {"description": "Calls left in the current one-minute window after this one.",
+                              "schema": {"type": "integer"}},
+    "X-RateLimit-Reset": {"description": "Seconds until the current window ends and the count resets.",
+                          "schema": {"type": "integer"}},
+}
+_RETRY_AFTER_DOC: dict[str, Any] = {"description": "Seconds to wait before retrying.", "schema": {"type": "integer"}}
 
 
 class RateLimiter:
@@ -277,6 +299,13 @@ class AgentLike(Protocol):
         client_data: bool = True,
         proceeding_posture: str | None = None,
     ) -> Any: ...
+
+
+@dataclass(frozen=True)
+class _Admitted:
+    cfg: PartnerApiConfig
+    concurrency: ConcurrencyLimiter
+    authenticated: bool
 
 
 class AnalyseFactsRequest(BaseModel):
@@ -461,10 +490,56 @@ class ApiKeysOut(BaseModel):
     keys: list[ApiKeyOut]
 
 
+class JobOut(BaseModel):
+    job_id: str
+    status: Literal["pending", "running", "done", "failed"]
+    #: Present once `status` is `done`: exactly the body POST /analyse-facts returns for the same request.
+    result: dict[str, Any] | None = None
+    #: Present once `status` is `failed`: the HTTP status and body the synchronous call would have returned.
+    error: dict[str, Any] | None = None
+
+
+class AuditRowOut(BaseModel):
+    ts: str
+    key_id: str
+    mode: Literal["sync", "job"]
+    status_code: int
+    run_id: str | None = None
+    contract_ids: list[str]
+    outcomes: dict[str, str]
+
+
+class AuditPageOut(BaseModel):
+    rows: list[AuditRowOut]
+    next_offset: int | None = None
+
+
+class UsageDayOut(BaseModel):
+    day: str
+    calls: int
+    failed: int
+
+
+class KeyUsageOut(BaseModel):
+    key_id: str
+    label: str
+    revoked: bool
+    days: list[UsageDayOut]
+
+
+class UsageSummaryOut(BaseModel):
+    org_id: str
+    keys: list[KeyUsageOut]
+
+
 class UsageOut(BaseModel):
     key_id: str
     org_id: str
     calls_since_process_start: int
+    #: Persistent (survives restart): analyse-facts calls admitted for this key (including those that
+    #: then failed), and `failed`, the 503s among them. A call refused with 429 is in neither.
+    calls: int = 0
+    failed: int = 0
 
 
 _logger = logging.getLogger(__name__)
@@ -552,6 +627,7 @@ def build_partner_router(
     agent_factory: AgentFactory | None = None,
     config: PartnerApiConfig | None = None,
     clock: Callable[[], datetime] | None = None,
+    job_executor: Callable[[Callable[[], None]], Any] | None = None,
 ) -> APIRouter:
     """`agent_factory` is injectable (mirrors `nyaya.py`'s `ask_fn` pattern): production leaves it `None` and
     gets the configured house agent (`NyayaAgent.house`, real vLLM judge + real pinned Lean binary); tests
@@ -695,10 +771,56 @@ def build_partner_router(
     # regardless of what the source dict contained. Safe for every other field: each of those is always
     # present as an explicit key in `body` (even when its value is None, e.g. `fact_id`), and a key that IS
     # present counts as "set" for exclude_unset's purposes, so nothing else in the response shape changes.
-    @router.post("/analyse-facts", response_model=AnalyseFactsResponse, response_model_exclude_unset=True)
+    def _record_usage(key_id: str, *, failed: bool = False) -> None:
+        try:
+            tenancy.record_usage(engine_root, key_id, failed=failed, now=_now())
+        except OSError:
+            _logger.exception("usage metering write failed for key %s", key_id)
+
+    def _rate_headers(key_id: str, per_minute: int) -> dict[str, str]:
+        limit, remaining, reset = _key_rate_limiter.snapshot(key_id, per_minute)
+        return {"X-RateLimit-Limit": str(limit), "X-RateLimit-Remaining": str(remaining), "X-RateLimit-Reset": str(reset)}
+
+    def _audit(
+        metered: list[str],
+        req: AnalyseFactsRequest,
+        mode: str,
+        *,
+        status_code: int,
+        out: dict[str, Any] | None = None,
+    ) -> None:
+        """One audit row per key-admitted call. Failure to write is logged, never allowed to change the answer."""
+        if not metered:
+            return
+        try:
+            cfg = _get_state()[0]
+            outcomes = {c["contract_id"]: str(c["outcome"]) for c in (out or {}).get("contracts", [])}
+            audit.record(
+                engine_root,
+                key_id=metered[0],
+                mode=mode,
+                status_code=status_code,
+                contract_ids=req.contract_ids,
+                run_id=(out or {}).get("run_id"),
+                outcomes=outcomes,
+                retention_s=cfg.audit_retention_s,
+                now=_now(),
+            )
+        except Exception:
+            _logger.exception("audit write failed for key %s", metered[0])
+
+    @router.post(
+        "/analyse-facts", response_model=AnalyseFactsResponse, response_model_exclude_unset=True,
+        responses={
+            200: {"description": "Successful analysis.", "headers": _RATE_LIMIT_HEADER_DOCS},
+            429: {"description": "Over the rate limit; wait Retry-After seconds.",
+                  "headers": {**_RATE_LIMIT_HEADER_DOCS, "Retry-After": _RETRY_AFTER_DOC}},
+        },
+    )
     def analyse_facts_ep(
         req: AnalyseFactsRequest,
         request: Request,
+        response: Response,
         user: User | None = CurrentUserDep,
         debug_second_judge: bool = Query(
             False,
@@ -709,6 +831,43 @@ def build_partner_router(
             "this flag or the deployment gate.",
         ),
     ) -> dict[str, Any] | JSONResponse:
+        metered: list[str] = []
+        per_minute: list[int] = []
+        try:
+            out = _analyse_facts(req, request, user, debug_second_judge, metered, per_minute)
+        except HTTPException as e:
+            if metered and e.status_code == 503:
+                _record_usage(metered[0], failed=True)
+            _audit(metered, req, "sync", status_code=e.status_code)
+            raise
+        if metered and isinstance(out, JSONResponse) and out.status_code == 503:
+            _record_usage(metered[0], failed=True)
+        if metered and isinstance(out, dict):
+            response.headers.update(_rate_headers(metered[0], per_minute[0]))
+        if isinstance(out, JSONResponse):
+            _audit(metered, req, "sync", status_code=out.status_code)
+        else:
+            _audit(metered, req, "sync", status_code=200, out=out)
+        return out
+
+    def _analyse_facts(
+        req: AnalyseFactsRequest,
+        request: Request,
+        user: User | None,
+        debug_second_judge: bool,
+        metered: list[str],
+        per_minute: list[int],
+    ) -> dict[str, Any] | JSONResponse:
+        admitted = _admit(req, request, user, metered, per_minute)
+        if isinstance(admitted, JSONResponse):
+            return admitted
+        return _run(req, admitted, debug_second_judge)
+
+    def _admit(
+        req: AnalyseFactsRequest, request: Request, user: User | None, metered: list[str], per_minute: list[int]
+    ) -> _Admitted | JSONResponse:
+        """Everything that decides whether a call may run at all (window, limits, metering, validation), shared
+        by the synchronous route and job submission so a job is admitted by exactly the same rules."""
         try:
             cfg, rate_limiter, concurrency, _provision_rate_limiter, _breaker = _get_state()
         except FileNotFoundError:
@@ -732,12 +891,30 @@ def build_partner_router(
                 content={"detail": "rate limit exceeded"},
                 headers={"Retry-After": str(rate_limiter.retry_after_seconds())},
             )
+        if principal is not None:
+            key = next((k for k in tenancy.keys_for_org(engine_root, principal.org_id)
+                        if k.key_id == principal.key_id), None)
+            if key is None:
+                raise HTTPException(401, "Invalid or revoked API key")
+            if not _key_rate_limiter.allow(key.key_id, key.rate_limit_per_minute):
+                return JSONResponse(
+                    status_code=429,
+                    content={"detail": "rate limit exceeded"},
+                    headers={**_rate_headers(key.key_id, key.rate_limit_per_minute),
+                             "Retry-After": str(_key_rate_limiter.retry_after_seconds())},
+                )
+            metered.append(key.key_id)
+            per_minute.append(key.rate_limit_per_minute)
+            _record_usage(key.key_id)
         if not any(f.strip() for f in req.facts):
             raise HTTPException(422, "at least one non-empty fact is required")
         for f in req.facts:
             if len(f) > 4000:
                 raise HTTPException(422, "a fact may not exceed 4000 characters")
+        return _Admitted(cfg, concurrency, authenticated)
 
+    def _run(req: AnalyseFactsRequest, admitted: _Admitted, debug_second_judge: bool) -> dict[str, Any] | JSONResponse:
+        cfg, concurrency, authenticated = admitted.cfg, admitted.concurrency, admitted.authenticated
         if not concurrency.acquire():
             raise HTTPException(503, "the nyaya agent is at capacity; retry shortly")
         try:
@@ -807,6 +984,120 @@ def build_partner_router(
                         element.pop(field, None)
         return body
 
+    # --- async job mode (#146): same admission, same agent run, collected by polling -------------------------
+    _jobs_lock = threading.Lock()
+    _jobs_holder: dict[str, JobStore] = {}
+    _pool: dict[str, ThreadPoolExecutor] = {}
+
+    def _job_store(cfg: PartnerApiConfig) -> JobStore:
+        with _jobs_lock:
+            if "s" not in _jobs_holder:
+                _jobs_holder["s"] = JobStore(
+                    retention_s=cfg.job_retention_s, clock=clock, max_unfinished_per_key=cfg.job_max_unfinished_per_key
+                )
+            return _jobs_holder["s"]
+
+    def _submit(task: Callable[[], None]) -> None:
+        if job_executor is not None:
+            job_executor(task)
+            return
+        with _jobs_lock:
+            pool = _pool.setdefault("p", ThreadPoolExecutor(max_workers=4, thread_name_prefix="analyse-job"))
+        pool.submit(task)
+
+    def _job_principal(request: Request) -> tenancy.OrgPrincipal:
+        principal = tenancy.principal_from_headers(engine_root, request.headers)
+        if principal is None:
+            raise HTTPException(401, "jobs require an API key (X-Pravrudhi-Api-Key)")
+        return principal
+
+    @router.post("/analyse-facts/jobs", status_code=202, response_model=JobOut, response_model_exclude_none=True)
+    def submit_job_ep(
+        req: AnalyseFactsRequest,
+        request: Request,
+        user: User | None = CurrentUserDep,
+        debug_second_judge: bool = Query(False),
+    ) -> dict[str, Any] | JSONResponse:
+        principal = _job_principal(request)
+        try:
+            cfg = _get_state()[0]
+        except FileNotFoundError:
+            return JSONResponse(status_code=503, content={"error": "service_config_missing"})
+        store = _job_store(cfg)
+        job_id = store.create(principal.key_id)
+        if job_id is None:
+            return JSONResponse(
+                status_code=429,
+                content={"detail": "too many unfinished jobs for this key"},
+                headers={"Retry-After": "30"},
+            )
+        metered: list[str] = []
+        try:
+            admitted = _admit(req, request, user, metered, [])
+        except HTTPException:
+            store.discard(job_id)
+            raise
+        if isinstance(admitted, JSONResponse):
+            store.discard(job_id)
+            return admitted
+
+        def task() -> None:
+            store.start(job_id)
+            try:
+                out = _run(req, admitted, debug_second_judge)
+                if isinstance(out, dict):
+                    out = AnalyseFactsResponse(**out).model_dump(mode="json", exclude_unset=True)
+            except HTTPException as e:
+                if e.status_code == 503 and metered:
+                    _record_usage(metered[0], failed=True)
+                _audit(metered, req, "job", status_code=e.status_code)
+                store.fail(job_id, status_code=e.status_code, body={"detail": e.detail})
+                return
+            except Exception:
+                _logger.exception("analyse-facts job %s crashed", job_id)
+                _audit(metered, req, "job", status_code=500)
+                store.fail(job_id, status_code=500, body={"detail": "internal error"})
+                return
+            if isinstance(out, JSONResponse):
+                if out.status_code == 503 and metered:
+                    _record_usage(metered[0], failed=True)
+                _audit(metered, req, "job", status_code=out.status_code)
+                store.fail(job_id, status_code=out.status_code, body=json.loads(bytes(out.body)))
+                return
+            _audit(metered, req, "job", status_code=200, out=out)
+            store.finish(job_id, result=out)
+
+        _submit(task)
+        return {"job_id": job_id, "status": "pending"}
+
+    @router.get("/analyse-facts/jobs/{job_id}", response_model=JobOut, response_model_exclude_none=True)
+    def get_job_ep(job_id: str, request: Request) -> dict[str, Any]:
+        principal = _job_principal(request)
+        try:
+            cfg = _get_state()[0]
+        except FileNotFoundError:
+            raise HTTPException(503, "service_config_missing") from None
+        job = _job_store(cfg).get(principal.key_id, job_id)
+        if job is None:
+            raise HTTPException(404, "no such job")
+        return {"job_id": job.job_id, "status": job.status, "result": job.result, "error": job.error}
+
+    @router.get("/audit", response_model=AuditPageOut)
+    def audit_ep(
+        request: Request, offset: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=audit.MAX_PAGE)
+    ) -> dict[str, Any]:
+        principal = tenancy.principal_from_headers(engine_root, request.headers)
+        if principal is None:
+            raise HTTPException(401, "the audit log requires an API key (X-Pravrudhi-Api-Key)")
+        try:
+            cfg = _get_state()[0]
+        except FileNotFoundError:
+            raise HTTPException(503, "service_config_missing") from None
+        rows, nxt = audit.page(
+            engine_root, principal.key_id, offset=offset, limit=limit, retention_s=cfg.audit_retention_s, now=_now
+        )
+        return {"rows": rows, "next_offset": nxt}
+
     @router.post("/orgs", response_model=OrgOut)
     def create_org_ep(
         req: CreateOrgRequest, request: Request, user: User | None = CurrentUserDep
@@ -861,6 +1152,22 @@ def build_partner_router(
             raise HTTPException(404, f"key {key_id!r} does not exist under org {org_id!r}")
         return record.to_public_dict()
 
+    @router.get("/orgs/{org_id}/usage/summary", response_model=UsageSummaryOut)
+    def usage_summary_ep(
+        org_id: str, request: Request, user: User | None = CurrentUserDep, days: int = Query(30, ge=1, le=366)
+    ) -> dict[str, Any] | JSONResponse:
+        if (limited := _provision_rate_limit(request)) is not None:
+            return limited
+        # Admin or provisioning credential only. No credential or a partner key is refused 401, a valid non-admin session 403:
+        # a partner key reads its own key's /usage, never an org-wide view, and an anonymous caller gets nothing.
+        if not tenancy.is_tenancy_admin(user, request.headers):
+            if user is None:
+                raise HTTPException(401, "usage summary requires the admin or provisioning credential")
+            raise HTTPException(403, "usage summary requires an allowlisted admin identity")
+        if tenancy.get_org(engine_root, org_id) is None:
+            raise HTTPException(404, f"org {org_id!r} does not exist")
+        return {"org_id": org_id, "keys": tenancy.usage_summary(engine_root, org_id, now=_now(), days=days)}
+
     @router.get("/orgs/{org_id}/usage", response_model=UsageOut)
     def usage_ep(
         org_id: str, request: Request, user: User | None = CurrentUserDep
@@ -889,10 +1196,13 @@ def build_partner_router(
                 content={"detail": "rate limit exceeded"},
                 headers={"Retry-After": str(_key_rate_limiter.retry_after_seconds())},
             )
+        calls, failed = tenancy.usage_counts(engine_root, key.key_id)
         return UsageOut(
             key_id=key.key_id,
             org_id=key.org_id,
             calls_since_process_start=_key_rate_limiter.usage_total(key.key_id),
+            calls=calls,
+            failed=failed,
         ).model_dump()
 
     return router
