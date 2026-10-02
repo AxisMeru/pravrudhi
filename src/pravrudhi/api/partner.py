@@ -66,8 +66,8 @@ from starlette.responses import JSONResponse
 
 from pravrudhi import __version__
 from pravrudhi.api.identity import CurrentUserDep, User
+from pravrudhi.application import audit, tenancy
 from pravrudhi.application import nyaya_lean_registry as reg
-from pravrudhi.application import tenancy
 from pravrudhi.application.config_files import config_file
 from pravrudhi.application.jobs import JobStore
 from pravrudhi.application.nyaya_agent import RETENTION_NOTICE, BinaryShaMismatch, JudgeMisconfigured, NyayaAgent
@@ -146,6 +146,8 @@ class PartnerApiConfig:
     #: hold at once.
     job_retention_s: float = 3600.0
     job_max_unfinished_per_key: int = 8
+    #: Audit rows (#148) older than this are dropped on write and never served.
+    audit_retention_s: float = 90 * 86400.0
 
     def __post_init__(self) -> None:
         if self.trust_proxy_header and not self.trusted_proxies:
@@ -187,6 +189,7 @@ def load_partner_api_config(root: Path) -> PartnerApiConfig:
         judge_warm_retry_s=float(body.get("judge_warm_retry_s", 30.0)),
         job_retention_s=float(body.get("job_retention_s", 3600.0)),
         job_max_unfinished_per_key=int(body.get("job_max_unfinished_per_key", 8)),
+        audit_retention_s=float(body.get("audit_retention_s", 90 * 86400.0)),
     )
 
 
@@ -448,6 +451,21 @@ class JobOut(BaseModel):
     error: dict[str, Any] | None = None
 
 
+class AuditRowOut(BaseModel):
+    ts: str
+    key_id: str
+    mode: Literal["sync", "job"]
+    status_code: int
+    run_id: str | None = None
+    contract_ids: list[str]
+    outcomes: dict[str, str]
+
+
+class AuditPageOut(BaseModel):
+    rows: list[AuditRowOut]
+    next_offset: int | None = None
+
+
 class UsageOut(BaseModel):
     key_id: str
     org_id: str
@@ -693,6 +711,34 @@ def build_partner_router(
         except OSError:
             _logger.exception("usage metering write failed for key %s", key_id)
 
+    def _audit(
+        metered: list[str],
+        req: AnalyseFactsRequest,
+        mode: str,
+        *,
+        status_code: int,
+        out: dict[str, Any] | None = None,
+    ) -> None:
+        """One audit row per key-admitted call. Failure to write is logged, never allowed to change the answer."""
+        if not metered:
+            return
+        try:
+            cfg = _get_state()[0]
+            outcomes = {c["contract_id"]: str(c["outcome"]) for c in (out or {}).get("contracts", [])}
+            audit.record(
+                engine_root,
+                key_id=metered[0],
+                mode=mode,
+                status_code=status_code,
+                contract_ids=req.contract_ids,
+                run_id=(out or {}).get("run_id"),
+                outcomes=outcomes,
+                retention_s=cfg.audit_retention_s,
+                now=_now(),
+            )
+        except Exception:
+            _logger.exception("audit write failed for key %s", metered[0])
+
     @router.post("/analyse-facts", response_model=AnalyseFactsResponse, response_model_exclude_unset=True)
     def analyse_facts_ep(
         req: AnalyseFactsRequest,
@@ -713,9 +759,14 @@ def build_partner_router(
         except HTTPException as e:
             if metered and e.status_code == 503:
                 _record_usage(metered[0], failed=True)
+            _audit(metered, req, "sync", status_code=e.status_code)
             raise
         if metered and isinstance(out, JSONResponse) and out.status_code == 503:
             _record_usage(metered[0], failed=True)
+        if isinstance(out, JSONResponse):
+            _audit(metered, req, "sync", status_code=out.status_code)
+        else:
+            _audit(metered, req, "sync", status_code=200, out=out)
         return out
 
     def _analyse_facts(
@@ -913,17 +964,21 @@ def build_partner_router(
             except HTTPException as e:
                 if e.status_code == 503 and metered:
                     _record_usage(metered[0], failed=True)
+                _audit(metered, req, "job", status_code=e.status_code)
                 store.fail(job_id, status_code=e.status_code, body={"detail": e.detail})
                 return
             except Exception:
                 _logger.exception("analyse-facts job %s crashed", job_id)
+                _audit(metered, req, "job", status_code=500)
                 store.fail(job_id, status_code=500, body={"detail": "internal error"})
                 return
             if isinstance(out, JSONResponse):
                 if out.status_code == 503 and metered:
                     _record_usage(metered[0], failed=True)
+                _audit(metered, req, "job", status_code=out.status_code)
                 store.fail(job_id, status_code=out.status_code, body=json.loads(bytes(out.body)))
                 return
+            _audit(metered, req, "job", status_code=200, out=out)
             store.finish(job_id, result=out)
 
         _submit(task)
@@ -940,6 +995,22 @@ def build_partner_router(
         if job is None:
             raise HTTPException(404, "no such job")
         return {"job_id": job.job_id, "status": job.status, "result": job.result, "error": job.error}
+
+    @router.get("/audit", response_model=AuditPageOut)
+    def audit_ep(
+        request: Request, offset: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=audit.MAX_PAGE)
+    ) -> dict[str, Any]:
+        principal = tenancy.principal_from_headers(engine_root, request.headers)
+        if principal is None:
+            raise HTTPException(401, "the audit log requires an API key (X-Pravrudhi-Api-Key)")
+        try:
+            cfg = _get_state()[0]
+        except FileNotFoundError:
+            raise HTTPException(503, "service_config_missing") from None
+        rows, nxt = audit.page(
+            engine_root, principal.key_id, offset=offset, limit=limit, retention_s=cfg.audit_retention_s, now=_now
+        )
+        return {"rows": rows, "next_offset": nxt}
 
     @router.post("/orgs", response_model=OrgOut)
     def create_org_ep(
