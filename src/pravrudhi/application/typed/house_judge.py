@@ -14,6 +14,8 @@ GPU-level check against the 279-prompt calibration/heldout set that is T1's real
 
 from __future__ import annotations
 
+import math
+
 from pravrudhi.application.nyaya_judges import (
     ClampKind,
     ElementJudgment,
@@ -46,12 +48,14 @@ class TypedHouseJudge:
         decoder: TypedDecoder,
         max_tokens: int = 30,
         top_logprobs: int = 20,
+        constrain_fact_id: bool = False,
     ) -> None:
         self.tau = tau
         self.statute_chars = statute_chars
         self.decoder = decoder
         self.max_tokens = max_tokens
         self.top_logprobs = top_logprobs
+        self.constrain_fact_id = constrain_fact_id
 
     def judge(self, request: JudgeRequest) -> ElementJudgment:
         prompt = build_house_prompt(request, statute_chars=self.statute_chars)
@@ -77,6 +81,8 @@ class TypedHouseJudge:
         # fact id itself is parsed from the greedy completion, exactly like HouseJudge -- not scored like a
         # decision field, since which fact was named is not itself a decision this call makes.
         fact_id = parse_house_fact_id(res.text)
+        if self.constrain_fact_id and fact_id is not None:
+            fact_id = self._constrained_fact_id(prompt, request, fact_id)
         if fact_id is None:
             return ElementJudgment("established", p, raw=res.text, backend_used=res.backend_index, clamp=clamp)
         text = dict(request.facts).get(fact_id)
@@ -84,3 +90,35 @@ class TypedHouseJudge:
             "established", p, fact_id, text, "whole_fact" if text is not None else None,
             raw=res.text, backend_used=res.backend_index, clamp=clamp,
         )
+
+    def _constrained_fact_id(self, prompt: str, request: JudgeRequest, greedy_id: str) -> str | None:
+        """#197: choose the fact id by walking the completion after `established`, at each position taking the
+        best-scoring token that keeps the text a prefix of one of the request's own ids (never `F_narrative`),
+        instead of trusting the free-text greedy token. Works for ids split across tokens (a live 4B emits
+        ` F` then `2`). Once the text equals an id, a token that extends another id (F1 vs F10) must beat
+        every non-extending token to continue; otherwise the id ends there. The greedy id is kept only when
+        it is a candidate AND the walk reaches the same id; an unknown id, a disagreement, an exhausted
+        walk or an empty step returns None, which the caller reports as established with no fact and no
+        quote -- fail closed."""
+        ids = [fid for fid, _ in request.facts if fid != "F_narrative"]
+        if greedy_id not in ids:
+            return None
+        res = self.decoder.complete(
+            prompt + "established", max_tokens=max(map(len, ids)) + 1, temperature=0.0, logprobs=self.top_logprobs
+        )
+        text = ""
+        for top in res.top_logprobs:
+            ext: dict[str, float] = {}
+            stop = -math.inf
+            for token, lp in top.items():
+                t = token.strip()
+                if t and any(c.startswith(text + t) and c != text for c in ids):
+                    ext[t] = max(lp, ext.get(t, -math.inf))
+                else:
+                    stop = max(stop, lp)
+            if text in ids and (not ext or max(ext.values()) <= stop):
+                break
+            if not ext:
+                return None
+            text += max(ext, key=lambda k: ext[k])
+        return text if text in ids and text == greedy_id else None
