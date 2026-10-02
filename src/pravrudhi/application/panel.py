@@ -420,6 +420,11 @@ def ask_vendor(
 
     if store is None and serving_api.get():
         raise RuntimeError(API_WITHOUT_TENANT_STORE)
+    if serving_api.get():
+        from pravrudhi.application import tenant_vendors
+        from pravrudhi.application.credentials import serving_org
+
+        tenant_vendors.require(vendor.id, serving_org.get())
     if vendor.interface == "cli":
         from pravrudhi.agents.cli_agents import _run, _usage
 

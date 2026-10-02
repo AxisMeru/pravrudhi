@@ -282,12 +282,13 @@ def test_the_routes_serve_the_product_and_need_the_local_token_to_ask(tmp_path: 
     assert "BNS/Section 101" in hits[:5]
     assert c.get("/api/nyaya/corpus?q=punishment for murder under section 302").json()["hits"][0]["id"] == "IPC/Section 302"
     vendors = c.get("/api/nyaya/vendors").json()["vendors"]
-    assert {v["id"] for v in vendors} == set(nyaya.DEFAULT_VENDORS) and all("available" in v for v in vendors)
-    # Regression (2026-09-21): nyaya-p2b-local was added to panel.VENDORS for the arm_c demo but
-    # never added to nyaya.DEFAULT_VENDORS, so /api/nyaya/vendors never listed it and the /nyaya
-    # UI couldn't offer it -- a hardcoded expectation, not compared against the same constant
-    # being tested, so a future accidental removal is actually caught.
-    assert "nyaya-p2b-local" in {v["id"] for v in vendors}
+    # #388: an API caller is offered only the allowlisted vendors (configs/tenant_vendors.yaml), never the cli
+    # vendors (the operator's seat) or the operator's own host shims.
+    from pravrudhi.application import tenant_vendors
+
+    assert {v["id"] for v in vendors} == set(nyaya.DEFAULT_VENDORS) & tenant_vendors.allowed_ids()
+    assert all("available" in v for v in vendors)
+    assert not {"claude-cli", "codex-cli", "nyaya-p2b-local"} & {v["id"] for v in vendors}
     assert c.post("/api/nyaya/ask", json={"question": "murder"}).status_code in (401, 403)  # no local token
     r = c.post(
         "/api/nyaya/ask", json={"question": "murder", "vendors": ["claude-cli"]}, headers={TOKEN_HEADER: app_token(tmp_path)}

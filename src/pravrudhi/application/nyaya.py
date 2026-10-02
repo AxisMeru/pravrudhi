@@ -385,8 +385,15 @@ def available_vendors(
     """
     import shutil
 
+    from pravrudhi.application import tenant_vendors
+    from pravrudhi.application.credentials import serving_api, serving_org
+
+    api = serving_api.get()
+    permitted = tenant_vendors.allowed_ids(serving_org.get()) if api else None
     out: list[dict[str, Any]] = []
     for vid in ids:
+        if permitted is not None and vid not in permitted:
+            continue
         v = panel.VENDORS[vid]
         why = None
         if v.interface == "cli" and shutil.which(v.model) is None:

@@ -686,6 +686,10 @@ def build_partner_router(
         # headers` raises 401 itself when a key header WAS sent but does not verify, the same as `usage_ep`;
         # it never treats a bad key as "no key" (a caller who supplied a bad key is never silently anonymous).
         principal = tenancy.principal_from_headers(engine_root, request.headers)
+        if principal is not None:
+            from pravrudhi.application.credentials import serving_org
+
+            serving_org.set(principal.org_id)
         authenticated = user is not None or principal is not None
         ip = _client_ip(request, trust_proxy_header=cfg.trust_proxy_header, trusted_proxies=cfg.trusted_proxies)
         if not rate_limiter.allow(ip):
