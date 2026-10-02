@@ -153,7 +153,7 @@ USER_FACING: frozenset[str] = frozenset({
     # local single-operator machine and would otherwise let anyone reach a self-hosted deployment's demo
     # config and mint a partner's first live API key.
     "/api/v1/orgs", "/api/v1/orgs/{org_id}/keys", "/api/v1/orgs/{org_id}/keys/{key_id}/revoke",
-    "/api/v1/orgs/{org_id}/usage",
+    "/api/v1/orgs/{org_id}/usage", "/api/v1/orgs/{org_id}/usage/summary",
     "/api/doctor",
     "/api/health", "/api/status",
     # RunPod serverless load-balancer liveness (outside /api; no identity asked, carries no state).
