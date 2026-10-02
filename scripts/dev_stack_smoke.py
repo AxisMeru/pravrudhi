@@ -42,12 +42,14 @@ def check_response(resp: dict[str, Any], posture: str | None) -> list[str]:
     std = resp.get("standard")
     if not isinstance(std, dict):
         return ["standard missing"]
-    if set(std) != {"applied", "source", "proceeding_posture"}:
+    if set(std) != {"applied", "source", "proceeding_posture", "in_judge_prompt"}:
         fails.append(f"standard keys {sorted(std)}")
     if std.get("applied") not in STAND_ALONE:
         fails.append(f"standard.applied {std.get('applied')!r}")
     if std.get("proceeding_posture") not in (None, posture):
         fails.append(f"standard.proceeding_posture {std.get('proceeding_posture')!r} != sent {posture!r}")
+    if not isinstance(std.get("in_judge_prompt"), bool):
+        fails.append(f"standard.in_judge_prompt {std.get('in_judge_prompt')!r} is not a bool")
     if posture is None and (std.get("applied"), std.get("source")) != ("proved", "default"):
         fails.append(f"absent posture must give proved/default, got {std}")
     for res in resp.get("results", []):
