@@ -44,17 +44,40 @@ def _load(path: Path | None) -> dict[str, Any] | None:
     return raw if isinstance(raw, dict) else None
 
 
+STUDIO_ENV = "PRAVRUDHI_EDITION"
+LOOPBACK_ONLY_ENV = "PRAVRUDHI_STUDIO_LOOPBACK_ONLY"
+_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
+_bind_host: str | None = None
+
+
+def record_bind(host: str | None) -> None:
+    """Called by the server entrypoints with the address the API was started on."""
+    global _bind_host
+    _bind_host = host
+
+
+def _loopback_only() -> bool:
+    """The Studio API is reachable only from this machine.
+
+    Either the process was started on a loopback address, or the deployment asserts it with
+    `PRAVRUDHI_STUDIO_LOOPBACK_ONLY=1`. The second is for the Studio container, which binds 0.0.0.0 inside and
+    is published only on the host's 127.0.0.1: the process cannot see that restriction, so the run script states
+    it. An unrecorded or non-loopback bind with no assertion is not loopback-only.
+    """
+    if os.environ.get(LOOPBACK_ONLY_ENV, "").strip() == "1":
+        return True
+    return _bind_host is not None and _bind_host.strip().lower() in _LOOPBACK_HOSTS
+
+
 def is_studio_edition() -> bool:
-    """True only when the deployment says `studio` outright and is not an installed release.
+    """True only when the deployment says `studio` outright AND the API is reachable only from this machine.
 
     Deliberately not `edition.engine_edition()`: that one calls an unlabelled development checkout Studio, which
     is right for naming the product and wrong for a security carve-out, where a missing or unknown value must be
-    closed.
+    closed. The env value alone is not enough either: a hosted engine on a public bind that claims `studio`
+    stays closed.
     """
-    from pravrudhi.api import edition
-
-    declared = os.environ.get(edition.EDITION_ENV, "").strip().lower()
-    return declared == "studio" and not edition.is_release_install()
+    return os.environ.get(STUDIO_ENV, "").strip().lower() == "studio" and _loopback_only()
 
 
 def _ids(v: Any) -> set[str] | None:

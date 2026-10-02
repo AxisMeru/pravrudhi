@@ -162,7 +162,8 @@ def edition(monkeypatch):
         else:
             monkeypatch.setenv("PRAVRUDHI_EDITION", v)
 
-    monkeypatch.setattr("pravrudhi.api.edition.is_release_install", lambda: False)
+    monkeypatch.delenv("PRAVRUDHI_STUDIO_LOOPBACK_ONLY", raising=False)
+    monkeypatch.setattr(tenant_vendors, "_bind_host", "127.0.0.1")
     return set_
 
 
@@ -194,10 +195,50 @@ def test_missing_or_unknown_edition_is_product_so_closed(edition, declared):
     assert not {"claude-cli", "codex-cli"} & tenant_vendors.allowed_ids()
 
 
-def test_an_installed_release_is_never_studio_even_if_the_env_says_so(edition, monkeypatch):
+@pytest.mark.parametrize("host", ["0.0.0.0", "192.168.1.5", "example.com", "", None])
+def test_studio_env_on_a_non_loopback_or_unknown_bind_is_closed(edition, monkeypatch, host):
     edition("studio")
-    monkeypatch.setattr("pravrudhi.api.edition.is_release_install", lambda: True)
+    monkeypatch.setattr(tenant_vendors, "_bind_host", host)
     assert not {"claude-cli", "codex-cli"} & tenant_vendors.allowed_ids()
+
+
+@pytest.mark.parametrize("host", ["127.0.0.1", "::1", "localhost"])
+def test_studio_on_loopback_allows_and_product_on_loopback_refuses(edition, monkeypatch, host):
+    monkeypatch.setattr(tenant_vendors, "_bind_host", host)
+    edition("studio")
+    assert {"claude-cli", "codex-cli"} <= tenant_vendors.allowed_ids()
+    edition("product")
+    assert not {"claude-cli", "codex-cli"} & tenant_vendors.allowed_ids()
+
+
+def test_container_asserts_loopback_only_because_it_binds_all_interfaces_inside(edition, monkeypatch):
+    edition("studio")
+    monkeypatch.setattr(tenant_vendors, "_bind_host", "0.0.0.0")
+    monkeypatch.setenv("PRAVRUDHI_STUDIO_LOOPBACK_ONLY", "1")
+    assert {"claude-cli", "codex-cli"} <= tenant_vendors.allowed_ids()
+    edition("product")  # the assertion alone never makes a product engine Studio
+    assert not {"claude-cli", "codex-cli"} & tenant_vendors.allowed_ids()
+    monkeypatch.setenv("PRAVRUDHI_STUDIO_LOOPBACK_ONLY", "true")  # only the exact value counts
+    edition("studio")
+    assert not {"claude-cli", "codex-cli"} & tenant_vendors.allowed_ids()
+
+
+def test_serve_entrypoints_record_the_bind_host(monkeypatch, tmp_path):
+    import sys
+    import types
+
+    from pravrudhi.api import server
+    from pravrudhi.application import app_serve
+
+    fake = types.SimpleNamespace(run=lambda *a, **k: None)
+    monkeypatch.setitem(sys.modules, "uvicorn", fake)
+    monkeypatch.setattr(server, "create_app", lambda root: None)
+    monkeypatch.setattr(app_serve, "build_app", lambda root: None)
+    monkeypatch.setattr(tenant_vendors, "_bind_host", None)
+    server.serve(tmp_path, host="0.0.0.0")
+    assert tenant_vendors._bind_host == "0.0.0.0"
+    app_serve.serve(tmp_path, host="127.0.0.1", open_browser=False)
+    assert tenant_vendors._bind_host == "127.0.0.1"
 
 
 def test_studio_section_is_ignored_in_product_and_cli_in_default_still_closes(tmp_path, edition):

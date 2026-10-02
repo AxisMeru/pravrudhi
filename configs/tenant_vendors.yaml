@@ -2,7 +2,8 @@
 # Default-closed: a vendor not listed here is refused with zero calls. A missing or unreadable file means nothing
 # is allowed. The cli vendors (claude-cli, codex-cli) run on the operator's own seat: listing one under `default`
 # or an org is a load error (everything closes), and the `studio:` section below is read only when the deployment
-# itself is the Studio edition (PRAVRUDHI_EDITION=studio, not an installed release), never from the request.
+# itself is the Studio edition (PRAVRUDHI_EDITION=studio AND the API reachable only from this machine: a loopback
+# bind, or PRAVRUDHI_STUDIO_LOOPBACK_ONLY=1 for the container), never from the request.
 # The CLI and research entrypoints (outside serving_api) are not affected by this file.
 
 # Bring-your-own-key vendors only: each resolves its key from the caller's own store.

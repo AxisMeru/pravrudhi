@@ -1316,6 +1316,9 @@ def create_app(root: Path, *, nyaya_ask_fn: Any | None = None) -> FastAPI:
 def serve(root: Path, host: str = "127.0.0.1", port: int = 8765) -> None:
     import uvicorn
 
+    from pravrudhi.application import tenant_vendors
+
+    tenant_vendors.record_bind(host)
     uvicorn.run(create_app(root), host=host, port=port, log_level="info")
 
 
