@@ -48,6 +48,7 @@ from __future__ import annotations
 import hmac
 import logging
 import os
+import sqlite3
 import threading
 import time
 from collections import OrderedDict
@@ -70,6 +71,7 @@ from pravrudhi.application.config_files import config_file
 from pravrudhi.application.nyaya_agent import RETENTION_NOTICE, BinaryShaMismatch, JudgeMisconfigured, NyayaAgent
 from pravrudhi.application.nyaya_judges import SecondJudgeCircuitBreaker
 from pravrudhi.application.service_window import ServiceWindow
+from pravrudhi.application.verify import verify as verify_citation
 
 CONFIG_PATH = Path("configs") / "partner_api.yaml"
 
@@ -268,6 +270,25 @@ class AgentLike(Protocol):
         sections: list[str] | None = None,
         client_data: bool = True,
     ) -> Any: ...
+
+
+class VerifyCitationRequest(BaseModel):
+    citation: str = Field(min_length=1, max_length=500)
+    quote: str = Field(min_length=1, max_length=4000)
+
+
+class VerifyCitationResponse(BaseModel):
+    result: str
+    note: str
+
+
+_VERIFY_NOTES = {
+    "VERIFIED": "The citation resolves to an indexed case and the quote appears in its text.",
+    "EXISTS_QUOTE_NOT_FOUND": "The citation resolves to an indexed case but the quote was not found in its text.",
+    "NOT_IN_INDEX": "The index holds no evidence either way: this is not a finding that the citation is fake.",
+    "MALFORMED": "Exactly one parseable citation is required.",
+    "CONFLICT": "The citation maps to conflicting indexed cases; verify by hand.",
+}
 
 
 class AnalyseFactsRequest(BaseModel):
@@ -514,8 +535,11 @@ def build_partner_router(
     agent_factory: AgentFactory | None = None,
     config: PartnerApiConfig | None = None,
     clock: Callable[[], datetime] | None = None,
+    citation_index_path: Path | None = None,
 ) -> APIRouter:
-    """`agent_factory` is injectable (mirrors `nyaya.py`'s `ask_fn` pattern): production leaves it `None` and
+    """`citation_index_path` (default: env `PRAVRUDHI_CITATION_INDEX`) is the case-law index
+    `POST /api/v1/verify-citations` reads; unset or missing means that route answers 503.
+    `agent_factory` is injectable (mirrors `nyaya.py`'s `ask_fn` pattern): production leaves it `None` and
     gets the configured house agent (`NyayaAgent.house`, real vLLM judge + real pinned Lean binary); tests
     supply a factory returning an agent built from scripted test doubles, the same shape `test_nyaya_agent.py`
     itself uses, so this router's own tests cover HTTP wiring only, not re-proving the agent's decision logic.
@@ -766,6 +790,35 @@ def build_partner_router(
                     for field in _SECOND_JUDGE_DEBUG_FIELDS:
                         element.pop(field, None)
         return body
+
+    @router.post("/verify-citations", response_model=VerifyCitationResponse)
+    def verify_citations_ep(req: VerifyCitationRequest, request: Request) -> dict[str, str] | JSONResponse:
+        try:
+            cfg, rate_limiter, _c, _p, _b = _get_state()
+        except FileNotFoundError:
+            return JSONResponse(status_code=503, content={"error": "service_config_missing"})
+        ip = _client_ip(request, trust_proxy_header=cfg.trust_proxy_header, trusted_proxies=cfg.trusted_proxies)
+        if not rate_limiter.allow(ip):
+            return JSONResponse(
+                status_code=429,
+                content={"detail": "rate limit exceeded"},
+                headers={"Retry-After": str(rate_limiter.retry_after_seconds())},
+            )
+        env_path = os.environ.get("PRAVRUDHI_CITATION_INDEX")
+        path = citation_index_path or (Path(env_path) if env_path else None)
+        if path is None or not Path(path).is_file():
+            return JSONResponse(status_code=503, content={"error": "citation_index_unavailable"})
+        try:
+            conn = sqlite3.connect(f"file:{Path(path).resolve()}?mode=ro", uri=True)
+        except sqlite3.Error:
+            return JSONResponse(status_code=503, content={"error": "citation_index_unavailable"})
+        try:
+            result = verify_citation(conn, req.citation, req.quote)
+        except sqlite3.Error:
+            return JSONResponse(status_code=503, content={"error": "citation_index_unavailable"})
+        finally:
+            conn.close()
+        return {"result": result.value, "note": _VERIFY_NOTES[result.value]}
 
     @router.post("/orgs", response_model=OrgOut)
     def create_org_ep(
