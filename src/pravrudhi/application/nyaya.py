@@ -96,7 +96,10 @@ _ACT = "|".join(re.escape(n) for n in sorted(_ACT_NAMES, key=len, reverse=True))
 _UNIT = r"(?:sections?|secs?|articles?|art|ss?)[\s.]*"  # "section 5", "sections.5", "s.5", "art. 5"
 _BASE = r"[0-9]+[a-z]?"
 _NUM = rf"{_BASE}(?:\([0-9a-z]+\))*"  # "189(2)" names section 189
-_ACT_THEN_NUMBER = re.compile(rf"(?<![a-z0-9])({_ACT})[\s,:-]*(?:{_UNIT})?({_NUM})(?![a-z0-9])")
+# An Act's year ("BNSS, 2023 section 528") is skipped only when a section marker follows it, so "BNS 2023" alone
+# still reads 2023 as a number, as before.
+_ACT_YEAR = rf"(?:(?:18|19|20)[0-9]{{2}}[\s,:-]*(?={_UNIT}[0-9]))?"
+_ACT_THEN_NUMBER = re.compile(rf"(?<![a-z0-9])({_ACT})[\s,:-]*{_ACT_YEAR}(?:{_UNIT})?({_NUM})(?![a-z0-9])")
 _NUMBERS_THEN_ACT = re.compile(
     rf"(?<![a-z0-9]){_UNIT}({_NUM}(?:\s*(?:,|and|&|or)\s*{_NUM})*)\s+(?:of\s+)?(?:the\s+)?({_ACT})(?![a-z0-9])"
 )

@@ -297,6 +297,7 @@ class AgentLike(Protocol):
         contract_ids: list[str] | None = None,
         sections: list[str] | None = None,
         client_data: bool = True,
+        proceeding_posture: str | None = None,
     ) -> Any: ...
 
 
@@ -316,6 +317,17 @@ class AnalyseFactsRequest(BaseModel):
     #: dozens of GPU calls) for one anonymous request. 1-5 explicit ids only.
     contract_ids: list[str] = Field(min_length=1, max_length=5)
     sections: list[str] | None = None
+    #: The proceeding stage the analysis is for. Optional: absent means the engine's stricter default
+    #: ("proved"), recorded as standard_source=default_proved. An unknown value is a 422 (the Literal).
+    #: It changes the judge prompt only when the deployment's `prompt_template` is not `legacy` (the default).
+    proceeding_posture: Literal["quash", "discharge", "trial", "appeal"] | None = Field(
+        default=None,
+        description=(
+            "Stage of the proceeding: quash/discharge judge whether the record prima facie discloses each element; "
+            "trial/appeal judge whether the evidence proves it. Omit for the stricter default (proved). "
+            "No effect unless the engine runs a standard-aware prompt template."
+        ),
+    )
 
 
 #: The exact keys `analyse_facts_ep` strips out of each element's dict when the debug gate is off -- listed
@@ -404,6 +416,19 @@ class ContractResultOut(BaseModel):
     statute_text_mismatch: bool | None
 
 
+class StandardOut(BaseModel):
+    """#220: which standard of proof this run applied, and where that came from. Unknown values from a newer
+    engine pass through verbatim, so `applied` and `source` are plain strings here."""
+
+    applied: str = Field(description='"proved" or "prima_facie_disclosed".')
+    source: str = Field(description='"proceeding_posture", "proceeding_type" or "default".')
+    proceeding_posture: str | None = Field(default=None, description="The caller's posture, echoed; null if absent.")
+    in_judge_prompt: bool = Field(
+        description="True only when the house judge's prompt stated this standard (judge_prompt.standard_line on). "
+        "False means the basis is recorded but the judge never saw it."
+    )
+
+
 class AnalyseFactsResponse(BaseModel):
     run_id: str
     judge: str
@@ -419,6 +444,11 @@ class AnalyseFactsResponse(BaseModel):
     #: Issue #39: the exact retention notice text (nyaya_agent.RETENTION_NOTICE), on every response -- a
     #: partner API caller who never sees the web UI still gets this verbatim, not just in documentation.
     retention_notice: str = Field(default=RETENTION_NOTICE)
+    standard: StandardOut | None = Field(
+        default=None,
+        description="Additive (#220): the standard applied, from the same values as the audit row. Under the "
+        "legacy prompt template no standard is consumed, so it reports proved / default.",
+    )
 
 
 AgentFactory = Callable[[Path], AgentLike]
@@ -893,9 +923,11 @@ def build_partner_router(
             # public, unauthenticated endpoint (module docstring), so every run through it is exactly the
             # anonymous-submission case the retention/training-corpus guard exists for -- a reader should
             # never have to check NyayaAgent.run's own default to know that.
+            # Passed only when stated, so an agent that predates the argument keeps working unchanged.
+            posture = {"proceeding_posture": req.proceeding_posture} if req.proceeding_posture is not None else {}
             result = agent.run(
                 req.facts, narrative=req.narrative, contract_ids=req.contract_ids, sections=req.sections,
-                client_data=True,
+                client_data=True, **posture,
             )
         except ValueError as e:
             raise HTTPException(422, str(e)) from e

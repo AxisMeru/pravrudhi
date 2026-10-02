@@ -47,8 +47,9 @@ def locate_quote(facts: Mapping[str, str], *, fact_id: str | None, quote: str | 
         return QuoteLocation(False, "unknown_fact")
     if quote is None:
         return QuoteLocation(False, "no_quote")
-    if quote == "":
-        # `str.find("")` is 0: an empty quote would otherwise "match" every fact.
+    if quote.strip() == "":
+        # `str.find("")` is 0: an empty quote would otherwise "match" every fact; a whitespace-only one
+        # matches any multi-word fact and is just as empty of evidence.
         return QuoteLocation(False, "empty_quote")
     text = facts[fact_id]
     start = text.find(quote)

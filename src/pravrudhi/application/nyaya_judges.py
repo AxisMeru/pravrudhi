@@ -89,6 +89,9 @@ class JudgeRequest:
     #: contract path. Default False so every OTHER caller (a test double, a request built by hand) is
     #: unaffected.
     skip_second: bool = False
+    #: The proceeding stage the user is asking about (`POSTURE_STANDARD` keys); None means "not stated".
+    #: Only read by the `standard_line_v1` prompt template, where it selects the legal standard.
+    proceeding_posture: str | None = None
 
 
 @dataclass(frozen=True)
@@ -196,15 +199,60 @@ _HOUSE_FACT = re.compile(r"^\s*established\s+([^\s:]+)")
 _NARRATIVE_FACT_ID = "F_narrative"
 
 
-def build_house_prompt(request: JudgeRequest, *, statute_chars: int) -> str:
+#: The two prompt templates. `legacy` is the training prompt byte for byte and the production default;
+#: `standard_line_v1` adds one line stating the legal standard and ships ONLY with weights retrained on it.
+PROMPT_TEMPLATES = ("legacy", "standard_line_v1")
+STANDARD_LINES = {
+    "prima_facie_disclosed": (
+        "Take the allegations and material as true and complete, without weighing defences or evidence. "
+        "Does the record, on its face, disclose this element?"
+    ),
+    "proved": (
+        "Judge whether the evidence in the record establishes this element beyond reasonable doubt. "
+        "Allegations alone, or suspicion, do not establish it."
+    ),
+}
+
+
+#: The legal standard is a property of the proceeding stage, not of the element (how training derives it).
+POSTURE_STANDARD = {
+    "quash": "prima_facie_disclosed",
+    "discharge": "prima_facie_disclosed",
+    "trial": "proved",
+    "appeal": "proved",
+}
+#: With no posture the STRICTER standard applies: it can only reduce PROOFs, so it fails safe.
+DEFAULT_STANDARD = "proved"
+
+
+def standard_for_posture(posture: str | None) -> tuple[str, str]:
+    """(standard, standard_source) for a proceeding posture; an unknown posture raises, never defaults."""
+    if posture is None:
+        return DEFAULT_STANDARD, "default_proved"
+    if posture not in POSTURE_STANDARD:
+        raise ValueError(f"proceeding_posture must be one of {tuple(POSTURE_STANDARD)}, got {posture!r}")
+    return POSTURE_STANDARD[posture], "request"
+
+
+def check_prompt_template(prompt_template: str) -> str:
+    if prompt_template not in PROMPT_TEMPLATES:
+        raise ValueError(f"prompt_template must be one of {PROMPT_TEMPLATES}, got {prompt_template!r}")
+    return prompt_template
+
+
+def build_house_prompt(request: JudgeRequest, *, statute_chars: int, prompt_template: str = "legacy") -> str:
     """The element judge's training prompt, byte for byte (no few-shots). `request.facts` may carry a
     `F_narrative` row (see `_NARRATIVE_FACT_ID`); it is excluded from `Available facts:` here, never shown
     twice with `Scenario:`."""
     facts_block = "\n".join(f"[{fid}] {text}" for fid, text in request.facts if fid != _NARRATIVE_FACT_ID)
+    standard_line = ""
+    if check_prompt_template(prompt_template) == "standard_line_v1":
+        standard_line = f"Standard: {STANDARD_LINES[standard_for_posture(request.proceeding_posture)[0]]}\n"
     return (
         f"Statute: {request.statute[:statute_chars]}\n"
         f"Scenario: {request.narrative}\n"
         f"Element to judge: {request.element}\n"
+        f"{standard_line}"
         f"Available facts:\n{facts_block}\n"
         "Answer:"
     )
@@ -321,8 +369,10 @@ class HouseJudge:
         fallback_urls: list[str] | None = None,
         complete: Callable[[str], CompletionResult] | None = None,
         enforce_served_model: bool = False,
+        prompt_template: str = "legacy",
     ) -> None:
         self.tau = tau
+        self.prompt_template = check_prompt_template(prompt_template)
         self.enforce_served_model = enforce_served_model
         self.statute_chars = statute_chars
         self.label_mass_floor = label_mass_floor
@@ -432,6 +482,7 @@ class HouseJudge:
             api_key=api_key,
             fallback_urls=cfg.get("base_urls_fallback") or [],
             enforce_served_model=bool(cfg.get("enforce_served_model", False)),
+            prompt_template=str(cfg.get("prompt_template", "legacy")),
         )
 
     @classmethod
@@ -464,10 +515,11 @@ class HouseJudge:
             api_key=api_key,
             fallback_urls=cfg.get("base_urls_fallback") or [],
             enforce_served_model=bool(cfg.get("enforce_served_model", False)),
+            prompt_template=str(cfg.get("prompt_template", "legacy")),
         )
 
     def judge(self, request: JudgeRequest) -> ElementJudgment:
-        res = self._complete(build_house_prompt(request, statute_chars=self.statute_chars))
+        res = self._complete(build_house_prompt(request, statute_chars=self.statute_chars, prompt_template=self.prompt_template))
         if not res.top_logprobs:
             raise JudgeOutputError("the server returned no logprobs for the first token")
         p, clamp = p_established_from_top_logprobs(res.top_logprobs[0], label_mass_floor=self.label_mass_floor)
