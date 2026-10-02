@@ -466,6 +466,24 @@ class AuditPageOut(BaseModel):
     next_offset: int | None = None
 
 
+class UsageDayOut(BaseModel):
+    day: str
+    calls: int
+    failed: int
+
+
+class KeyUsageOut(BaseModel):
+    key_id: str
+    label: str
+    revoked: bool
+    days: list[UsageDayOut]
+
+
+class UsageSummaryOut(BaseModel):
+    org_id: str
+    keys: list[KeyUsageOut]
+
+
 class UsageOut(BaseModel):
     key_id: str
     org_id: str
@@ -707,7 +725,7 @@ def build_partner_router(
     # present counts as "set" for exclude_unset's purposes, so nothing else in the response shape changes.
     def _record_usage(key_id: str, *, failed: bool = False) -> None:
         try:
-            tenancy.record_usage(engine_root, key_id, failed=failed)
+            tenancy.record_usage(engine_root, key_id, failed=failed, now=_now())
         except OSError:
             _logger.exception("usage metering write failed for key %s", key_id)
 
@@ -1065,6 +1083,22 @@ def build_partner_router(
             # which org it actually belongs to) -- an admin's typo must not become an info leak either.
             raise HTTPException(404, f"key {key_id!r} does not exist under org {org_id!r}")
         return record.to_public_dict()
+
+    @router.get("/orgs/{org_id}/usage/summary", response_model=UsageSummaryOut)
+    def usage_summary_ep(
+        org_id: str, request: Request, user: User | None = CurrentUserDep, days: int = Query(30, ge=1, le=366)
+    ) -> dict[str, Any] | JSONResponse:
+        if (limited := _provision_rate_limit(request)) is not None:
+            return limited
+        # Admin or provisioning credential only. No credential or a partner key is refused 401, a valid non-admin session 403:
+        # a partner key reads its own key's /usage, never an org-wide view, and an anonymous caller gets nothing.
+        if not tenancy.is_tenancy_admin(user, request.headers):
+            if user is None:
+                raise HTTPException(401, "usage summary requires the admin or provisioning credential")
+            raise HTTPException(403, "usage summary requires an allowlisted admin identity")
+        if tenancy.get_org(engine_root, org_id) is None:
+            raise HTTPException(404, f"org {org_id!r} does not exist")
+        return {"org_id": org_id, "keys": tenancy.usage_summary(engine_root, org_id, now=_now(), days=days)}
 
     @router.get("/orgs/{org_id}/usage", response_model=UsageOut)
     def usage_ep(
