@@ -1,0 +1,1 @@
+Trimmed recorded fixtures (recorded 2026-10-02 from three trivial codex smoke calls, pravrudhi PR #209). Only `turn_context` (reduced to turn_id and model), `token_usage_record` and `event_msg`/`token_count` lines are kept; all prompt and response text lines were removed. Tests that need other days, models or text canaries build constructed rollouts in tmp_path and say so.
