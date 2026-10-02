@@ -87,6 +87,15 @@ PROVIDERS: dict[str, Provider] = {
         openai_compatible=False,
         probe_model="claude-3-5-haiku-20241022",
     ),
+    "openrouter": Provider(
+        id="openrouter",
+        title="OpenRouter (bring your own key)",
+        base_url="https://openrouter.ai/api/v1",
+        key_env="OPENROUTER_API_KEY",
+        key_prefix="sk-or-",
+        openai_compatible=True,
+        probe_model="",
+    ),
     "google": Provider(
         id="google",
         title="Google (Gemini)",
