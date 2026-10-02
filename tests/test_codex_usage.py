@@ -79,7 +79,7 @@ def test_recorded_fixture_totals_and_model():
 def test_recorded_fixture_rate_limits():
     rl = cu.read_codex_usage(codex_home=FIX)["rate_limits"]["codex"]
     assert rl["five_hour_used_pct"] == 1.0 and rl["weekly_used_pct"] == 64.0
-    assert rl["observed_at"].startswith("2026-10-02T12:58") and rl["plan_type"] == "plus"
+    assert rl["observed_at"].startswith("2026-10-02T12:58") and rl["plan_type"] == "example-plan"
     assert rl["five_hour_resets_at"].endswith("+00:00") and rl["weekly_resets_at"].endswith("+00:00")
 
 
