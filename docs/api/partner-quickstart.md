@@ -6,6 +6,8 @@ error codes. **Every `example:` block below is executed by `tests/test_partner_o
 with a stub judge**, so a documented request, status and response field cannot drift from the code. The facts
 are invented ("TOY:"); responses show the fields a caller can rely on, not every field.
 
+A runnable client and a curl walkthrough: [`partner-quickstart-client.md`](partner-quickstart-client.md).
+
 Claim tier of this page: unit-tested against a stub judge, not run live. A real judge's outcomes are a
 different thing and are not shown here.
 

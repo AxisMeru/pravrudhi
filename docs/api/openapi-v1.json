@@ -27,6 +27,24 @@
             "title": "Narrative",
             "type": "string"
           },
+          "proceeding_posture": {
+            "anyOf": [
+              {
+                "enum": [
+                  "quash",
+                  "discharge",
+                  "trial",
+                  "appeal"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Stage of the proceeding: quash/discharge judge whether the record prima facie discloses each element; trial/appeal judge whether the evidence proves it. Omit for the stricter default (proved). No effect unless the engine runs a standard-aware prompt template.",
+            "title": "Proceeding Posture"
+          },
           "sections": {
             "anyOf": [
               {
@@ -90,6 +108,17 @@
             "description": "SHA-256 of the pinned Lean `score` BINARY, not a content hash of the request or result. See each contract's `lean_attestation` for the binding to the exact input scored.",
             "title": "Score Sha256",
             "type": "string"
+          },
+          "standard": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StandardOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Additive (#220): the standard applied, from the same values as the audit row. Under the legacy prompt template no standard is consumed, so it reports proved / default."
           }
         },
         "required": [
@@ -793,6 +822,45 @@
           "next_open_utc"
         ],
         "title": "ServiceWindowOut",
+        "type": "object"
+      },
+      "StandardOut": {
+        "description": "#220: which standard of proof this run applied, and where that came from. Unknown values from a newer\nengine pass through verbatim, so `applied` and `source` are plain strings here.",
+        "properties": {
+          "applied": {
+            "description": "\"proved\" or \"prima_facie_disclosed\".",
+            "title": "Applied",
+            "type": "string"
+          },
+          "in_judge_prompt": {
+            "description": "True only when the house judge's prompt stated this standard (judge_prompt.standard_line on). False means the basis is recorded but the judge never saw it.",
+            "title": "In Judge Prompt",
+            "type": "boolean"
+          },
+          "proceeding_posture": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The caller's posture, echoed; null if absent.",
+            "title": "Proceeding Posture"
+          },
+          "source": {
+            "description": "\"proceeding_posture\", \"proceeding_type\" or \"default\".",
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "applied",
+          "source",
+          "in_judge_prompt"
+        ],
+        "title": "StandardOut",
         "type": "object"
       },
       "UsageOut": {
