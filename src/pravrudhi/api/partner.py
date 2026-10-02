@@ -1090,10 +1090,12 @@ def build_partner_router(
     ) -> dict[str, Any] | JSONResponse:
         if (limited := _provision_rate_limit(request)) is not None:
             return limited
-        # Admin or provisioning credential only. A partner key (valid or not) or no credential is refused 401:
+        # Admin or provisioning credential only. No credential or a partner key is refused 401, a valid non-admin session 403:
         # a partner key reads its own key's /usage, never an org-wide view, and an anonymous caller gets nothing.
         if not tenancy.is_tenancy_admin(user, request.headers):
-            raise HTTPException(401, "usage summary requires the admin or provisioning credential")
+            if user is None:
+                raise HTTPException(401, "usage summary requires the admin or provisioning credential")
+            raise HTTPException(403, "usage summary requires an allowlisted admin identity")
         if tenancy.get_org(engine_root, org_id) is None:
             raise HTTPException(404, f"org {org_id!r} does not exist")
         return {"org_id": org_id, "keys": tenancy.usage_summary(engine_root, org_id, now=_now(), days=days)}

@@ -99,3 +99,20 @@ def test_a_revoked_key_still_shows_its_history_flagged_revoked(monkeypatch: Any,
     (k,) = c.get("/api/v1/orgs/acme/usage/summary", headers=ADM).json()["keys"]
     assert k["revoked"] is True and k["days"][0]["calls"] == 1
     assert "secret" not in str(k) and "hash" not in str(k)
+
+
+def test_a_signed_in_non_admin_is_403_an_allowlisted_admin_session_is_200_and_no_secret_leaks(
+    monkeypatch: Any, tmp_path: Path
+) -> None:
+    from pravrudhi.api import roles
+
+    c = _client(tmp_path, Clock(datetime(2026, 3, 1, tzinfo=UTC)), monkeypatch)
+    _, secret = _org_key(c, "acme")
+    monkeypatch.setenv(roles.ADMIN_ENV, "boss@example.test")
+    url = "/api/v1/orgs/acme/usage/summary"
+    c.app.dependency_overrides[identity.current_user] = lambda: identity.User("u1", "user@example.test", "user")
+    assert c.get(url).status_code == 403
+    c.app.dependency_overrides[identity.current_user] = lambda: identity.User("u2", "boss@example.test", "user")
+    r = c.get(url)
+    assert r.status_code == 200
+    assert secret not in r.text and "secret" not in r.json()["keys"][0]
