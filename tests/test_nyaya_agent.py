@@ -1596,6 +1596,14 @@ class TestStatuteMismatch:
 
 
 class TestAudit:
+    def test_the_standard_is_recorded_even_when_the_judge_never_sees_it(self, tmp_path: Path) -> None:
+        judge = ScriptedJudge(_proof_script(TOY_FACTS))
+        run = NyayaAgent(judge, _registry(), _config(tmp_path)).run(TOY_FACTS, contract_ids=["bns69"], proceeding_posture="quash")
+        row = json.loads(run.audit_path.read_text().splitlines()[0])["output"]
+        got = (row["standard"], row["standard_source"], row["proceeding_posture"])
+        assert got == ("prima_facie_disclosed", "request", "quash")
+        assert row["standard_in_judge_prompt"] is False
+
     def test_every_step_is_a_jsonl_line_with_hashed_inputs(self, tmp_path: Path) -> None:
         run, _, _ = _run(tmp_path, _proof_script(TOY_FACTS))
         lines = [json.loads(x) for x in run.audit_path.read_text().splitlines()]
