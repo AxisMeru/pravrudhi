@@ -522,10 +522,29 @@ class KeyRateLimiter:
             return self._usage_total.get(key_id, 0)
 
 
+def record_usage(root: Path, key_id: str, *, failed: bool = False) -> None:
+    """Persist one analyse-facts call against `key_id` (`failed=True` additionally counts that call's 503; every
+    admitted call is in `calls` first, so failed <= calls).
+    Survives a restart and is shared by replicas on one volume, unlike `KeyRateLimiter`."""
+
+    def mutate(rows: dict[str, dict[str, Any]]) -> None:
+        row = rows.setdefault(key_id, {"calls": 0, "failed": 0})
+        row["failed" if failed else "calls"] = int(row.get("failed" if failed else "calls", 0)) + 1
+
+    _with_store(root, "usage", mutate)
+
+
+def usage_counts(root: Path, key_id: str) -> tuple[int, int]:
+    """(admitted calls, of which failed 503s) for this key, from the persistent store."""
+    row = _read_store(root, "usage").get(key_id, {})
+    return int(row.get("calls", 0)), int(row.get("failed", 0))
+
+
 __all__ = [
     "API_KEY_HEADER", "ApiKeyRecord", "CreatedApiKey", "InvalidApiKey", "KeyRateLimiter", "MEMBER_ROLES",
     "MIN_PROVISION_SECRET_LENGTH", "Membership", "Org", "OrgPrincipal", "TENANCY_PROVISION_HEADER",
     "TENANCY_PROVISION_SECRET_ENV", "TenancyError", "add_member", "create_key", "create_org", "get_org",
     "is_tenancy_admin", "keys_for_org", "list_orgs", "membership_role", "memberships_for_org",
-    "principal_from_headers", "require_org_access", "require_tenancy_admin", "revoke_key", "verify_key",
+    "principal_from_headers", "require_org_access", "require_tenancy_admin", "record_usage", "revoke_key",
+    "usage_counts", "verify_key",
 ]
