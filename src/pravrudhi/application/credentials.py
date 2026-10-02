@@ -224,8 +224,11 @@ class CredentialStore(Protocol):
 class FileCredentialStore:
     """`CredentialStore` over `<root>/.pravrudhi/credentials/<provider>.key`, one 0600 file per provider."""
 
-    def __init__(self, root: Path) -> None:
+    def __init__(self, root: Path, *, tenant_only: bool = False) -> None:
         self._root = Path(root)
+        #: True for a signed-in caller's store. `panel.Vendor.key` then resolves from this store ALONE: the
+        #: process environment and the operator's credential files belong to the operator, never to a tenant.
+        self.tenant_only = tenant_only
 
     def _dir(self) -> Path:
         return self._root / ".pravrudhi" / "credentials"
@@ -351,7 +354,7 @@ def store_for_project(
         raise CredentialBoundaryError(
             "A signed-in user's provider keys live in their own workspace, not in the engine's project."
         )
-    return FileCredentialStore(here)
+    return FileCredentialStore(here, tenant_only=user is not None)
 
 
 @dataclass(frozen=True, slots=True)

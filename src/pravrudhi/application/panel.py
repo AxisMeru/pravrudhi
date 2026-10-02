@@ -71,6 +71,10 @@ class Vendor:
         """
         if not self.credential:
             return None
+        if store is not None and getattr(store, "tenant_only", False):
+            # A signed-in tenant: their own stored key or nothing. Never the operator's env or credential file.
+            stored = store.get(self.provider) if self.provider else None
+            return stored.reveal() if stored else None
         from_env = os.environ.get(self.credential)
         if from_env:
             return from_env
