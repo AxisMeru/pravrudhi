@@ -3,9 +3,6 @@ environment variable or credential file. The single-operator path (no user) keep
 
 from __future__ import annotations
 
-import os
-from pathlib import Path
-
 import pytest
 
 from pravrudhi.api.identity import User
@@ -106,8 +103,8 @@ def test_anonymous_api_ask_with_vendors_refuses_with_zero_calls(tmp_path, engine
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
 
-    from pravrudhi.api.nyaya import build_nyaya_router
     import pravrudhi.models.openai_compat as oc
+    from pravrudhi.api.nyaya import build_nyaya_router
 
     calls = []
     monkeypatch.setattr(oc.ChatClient, "chat", lambda *a, **k: calls.append(1))
@@ -122,8 +119,8 @@ def test_api_request_reaching_ask_vendor_with_no_store_raises_with_zero_calls(tm
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
 
-    from pravrudhi.application.credentials import ServingApiMiddleware
     import pravrudhi.models.openai_compat as oc
+    from pravrudhi.application.credentials import ServingApiMiddleware
 
     calls = []
     monkeypatch.setattr(oc.ChatClient, "chat", lambda *a, **k: calls.append(1))
