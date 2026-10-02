@@ -67,7 +67,15 @@ from pravrudhi.api.identity import CurrentUserDep, User
 from pravrudhi.application import nyaya_lean_registry as reg
 from pravrudhi.application import tenancy
 from pravrudhi.application.config_files import config_file
-from pravrudhi.application.nyaya_agent import RETENTION_NOTICE, BinaryShaMismatch, JudgeMisconfigured, NyayaAgent
+from pravrudhi.application.nyaya_agent import (
+    RETENTION_NOTICE,
+    BinaryShaMismatch,
+    ContractReason,
+    ElementStatus,
+    JudgeMisconfigured,
+    NyayaAgent,
+    Outcome,
+)
 from pravrudhi.application.nyaya_judges import SecondJudgeCircuitBreaker
 from pravrudhi.application.service_window import ServiceWindow
 
@@ -306,7 +314,7 @@ _SECOND_JUDGE_DEBUG_FIELDS = (
 class ElementResultOut(BaseModel):
     element: str
     is_denial: bool
-    status: str
+    status: ElementStatus
     claimed: bool
     p_established: float | None
     fact_id: str | None
@@ -356,12 +364,12 @@ class ElementResultOut(BaseModel):
 
 class ContractResultOut(BaseModel):
     contract_id: str
-    outcome: str
-    reason: str
+    outcome: Outcome
+    reason: ContractReason
     elements: list[ElementResultOut]
     assertions: dict[str, bool] | None
     lean: dict[str, Any] | None
-    lean_outcome: str | None
+    lean_outcome: Outcome | None
     #: `{binary_sha256, wire_sha256, verdict}` for the pinned Lean checker's scoring of this contract.
     #: `binary_sha256`: SHA-256 of the pinned Lean `score` binary (same value as the top-level `score_sha256`).
     #: `wire_sha256`: SHA-256 of the exact REG wire line sent to it (contract id + the Met assertions),
