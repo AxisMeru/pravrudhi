@@ -77,6 +77,15 @@ from pravrudhi.application.nyaya_judges import ClampKind, ElementJudgment, Judge
 from pravrudhi.application.nyaya_quote import QuoteLocation, locate_quote
 
 Outcome = Literal["PROOF", "DENIAL", "ABSTAIN", "REFER_TO_LAWYER"]
+
+#: Every `reason` a contract result can carry. `finish()` takes this type, so a new reason string that is not
+#: listed here fails mypy, and the partner API's published OpenAPI enum cannot drift from what the agent emits.
+ContractReason = Literal[
+    "all_elements_established", "denial_established", "missing_element", "no_training_statute_text",
+    "judge_error", "assembly_lean_mismatch", "denial_unquotable", "second_judge_defeater_disagreement",
+    "uncertain", "uncertain_second_judge", "second_judge_unavailable", "gate1_unavailable",
+    "gate1_not_entailed", "gate1_contradiction", "contract_not_validated",
+]
 CONFIG_PATH = Path("configs") / "nyaya_agent.yaml"
 
 
@@ -1337,7 +1346,7 @@ class NyayaAgent:
 
         results: list[ElementResult] = []
 
-        def finish(outcome: Outcome, reason: str, **kw: Any) -> ContractResult:
+        def finish(outcome: Outcome, reason: ContractReason, **kw: Any) -> ContractResult:
             res = ContractResult(contract_id, outcome, reason, results, kw.get("assertions"), kw.get("lean"),
                                  kw.get("lean_outcome"), kw.get("uncertain", []), mismatch,
                                  kw.get("uncertain_second", []),
@@ -1426,7 +1435,10 @@ class NyayaAgent:
         # genuinely missing-element case still ABSTAINs untouched.
         if lean_outcome in ("PROOF", "DENIAL") and contract_id not in self.config.validated_contracts:
             return finish("REFER_TO_LAWYER", "contract_not_validated", **kw)
-        reason = {"PROOF": "all_elements_established", "DENIAL": "denial_established", "ABSTAIN": "missing_element"}[lean_outcome]
+        reasons: dict[str, ContractReason] = {
+            "PROOF": "all_elements_established", "DENIAL": "denial_established", "ABSTAIN": "missing_element",
+        }
+        reason = reasons[lean_outcome]
         return finish(lean_outcome, reason, **kw)
 
     def run(
