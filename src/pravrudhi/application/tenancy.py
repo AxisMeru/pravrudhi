@@ -515,6 +515,14 @@ class KeyRateLimiter:
     def retry_after_seconds(self) -> int:
         return 60 - int(self._now() % 60)
 
+    def snapshot(self, key_id: str, per_minute: int) -> tuple[int, int, int]:
+        """(limit, remaining calls in this window, seconds until the window resets). Read-only: admits nothing."""
+        window = int(self._now() // 60)
+        with self._lock:
+            start, count = self._windows.get(key_id, (window, 0))
+            used = count if start == window else 0
+        return per_minute, max(per_minute - used, 0), self.retry_after_seconds()
+
     def usage_total(self, key_id: str) -> int:
         """Calls admitted for this key since process start -- an in-memory counter, not a ledger claim: it
         resets on restart and exists only to answer `/usage` cheaply, not as billing evidence."""

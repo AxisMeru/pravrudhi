@@ -58,7 +58,7 @@ from pathlib import Path
 from typing import Any, Literal, Protocol
 
 import yaml
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field
 from starlette.responses import JSONResponse
 
@@ -179,6 +179,16 @@ def load_partner_api_config(root: Path) -> PartnerApiConfig:
         judge_warm_grace_s=float(body.get("judge_warm_grace_s", 0.0)),
         judge_warm_retry_s=float(body.get("judge_warm_retry_s", 30.0)),
     )
+
+
+_RATE_LIMIT_HEADER_DOCS: dict[str, Any] = {
+    "X-RateLimit-Limit": {"description": "Calls per minute this API key may make.", "schema": {"type": "integer"}},
+    "X-RateLimit-Remaining": {"description": "Calls left in the current one-minute window after this one.",
+                              "schema": {"type": "integer"}},
+    "X-RateLimit-Reset": {"description": "Seconds until the current window ends and the count resets.",
+                          "schema": {"type": "integer"}},
+}
+_RETRY_AFTER_DOC: dict[str, Any] = {"description": "Seconds to wait before retrying.", "schema": {"type": "integer"}}
 
 
 class RateLimiter:
@@ -667,10 +677,22 @@ def build_partner_router(
         except OSError:
             _logger.exception("usage metering write failed for key %s", key_id)
 
-    @router.post("/analyse-facts", response_model=AnalyseFactsResponse, response_model_exclude_unset=True)
+    def _rate_headers(key_id: str, per_minute: int) -> dict[str, str]:
+        limit, remaining, reset = _key_rate_limiter.snapshot(key_id, per_minute)
+        return {"X-RateLimit-Limit": str(limit), "X-RateLimit-Remaining": str(remaining), "X-RateLimit-Reset": str(reset)}
+
+    @router.post(
+        "/analyse-facts", response_model=AnalyseFactsResponse, response_model_exclude_unset=True,
+        responses={
+            200: {"description": "Successful analysis.", "headers": _RATE_LIMIT_HEADER_DOCS},
+            429: {"description": "Over the rate limit; wait Retry-After seconds.",
+                  "headers": {**_RATE_LIMIT_HEADER_DOCS, "Retry-After": _RETRY_AFTER_DOC}},
+        },
+    )
     def analyse_facts_ep(
         req: AnalyseFactsRequest,
         request: Request,
+        response: Response,
         user: User | None = CurrentUserDep,
         debug_second_judge: bool = Query(
             False,
@@ -682,14 +704,17 @@ def build_partner_router(
         ),
     ) -> dict[str, Any] | JSONResponse:
         metered: list[str] = []
+        per_minute: list[int] = []
         try:
-            out = _analyse_facts(req, request, user, debug_second_judge, metered)
+            out = _analyse_facts(req, request, user, debug_second_judge, metered, per_minute)
         except HTTPException as e:
             if metered and e.status_code == 503:
                 _record_usage(metered[0], failed=True)
             raise
         if metered and isinstance(out, JSONResponse) and out.status_code == 503:
             _record_usage(metered[0], failed=True)
+        if metered and isinstance(out, dict):
+            response.headers.update(_rate_headers(metered[0], per_minute[0]))
         return out
 
     def _analyse_facts(
@@ -698,6 +723,7 @@ def build_partner_router(
         user: User | None,
         debug_second_judge: bool,
         metered: list[str],
+        per_minute: list[int],
     ) -> dict[str, Any] | JSONResponse:
         try:
             cfg, rate_limiter, concurrency, _provision_rate_limiter, _breaker = _get_state()
@@ -731,9 +757,11 @@ def build_partner_router(
                 return JSONResponse(
                     status_code=429,
                     content={"detail": "rate limit exceeded"},
-                    headers={"Retry-After": str(_key_rate_limiter.retry_after_seconds())},
+                    headers={**_rate_headers(key.key_id, key.rate_limit_per_minute),
+                             "Retry-After": str(_key_rate_limiter.retry_after_seconds())},
                 )
             metered.append(key.key_id)
+            per_minute.append(key.rate_limit_per_minute)
             _record_usage(key.key_id)
         if not any(f.strip() for f in req.facts):
             raise HTTPException(422, "at least one non-empty fact is required")
