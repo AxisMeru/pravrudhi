@@ -132,8 +132,6 @@ class DescribedContract:
     contract_id: str
     elements: list[str]
     denials: list[str] = field(default_factory=list)
-    #: element -> legal standard (`nyaya_judges.STANDARD_LINES` key). Empty until the registry supplies it.
-    standards: dict[str, str] = field(default_factory=dict)
 
 
 def parse_describe_output(contract_id: str, stdout: str) -> DescribedContract:

@@ -89,9 +89,9 @@ class JudgeRequest:
     #: contract path. Default False so every OTHER caller (a test double, a request built by hand) is
     #: unaffected.
     skip_second: bool = False
-    #: The legal standard this element is judged under (`STANDARD_LINES` keys), taken from the contract
-    #: element. Only read by the `standard_line_v1` prompt template; None under `legacy`.
-    standard: str | None = None
+    #: The proceeding stage the user is asking about (`POSTURE_STANDARD` keys); None means "not stated".
+    #: Only read by the `standard_line_v1` prompt template, where it selects the legal standard.
+    proceeding_posture: str | None = None
 
 
 @dataclass(frozen=True)
@@ -214,6 +214,26 @@ STANDARD_LINES = {
 }
 
 
+#: The legal standard is a property of the proceeding stage, not of the element (how training derives it).
+POSTURE_STANDARD = {
+    "quash": "prima_facie_disclosed",
+    "discharge": "prima_facie_disclosed",
+    "trial": "proved",
+    "appeal": "proved",
+}
+#: With no posture the STRICTER standard applies: it can only reduce PROOFs, so it fails safe.
+DEFAULT_STANDARD = "proved"
+
+
+def standard_for_posture(posture: str | None) -> tuple[str, str]:
+    """(standard, standard_source) for a proceeding posture; an unknown posture raises, never defaults."""
+    if posture is None:
+        return DEFAULT_STANDARD, "default_proved"
+    if posture not in POSTURE_STANDARD:
+        raise ValueError(f"proceeding_posture must be one of {tuple(POSTURE_STANDARD)}, got {posture!r}")
+    return POSTURE_STANDARD[posture], "request"
+
+
 def check_prompt_template(prompt_template: str) -> str:
     if prompt_template not in PROMPT_TEMPLATES:
         raise ValueError(f"prompt_template must be one of {PROMPT_TEMPLATES}, got {prompt_template!r}")
@@ -227,10 +247,7 @@ def build_house_prompt(request: JudgeRequest, *, statute_chars: int, prompt_temp
     facts_block = "\n".join(f"[{fid}] {text}" for fid, text in request.facts if fid != _NARRATIVE_FACT_ID)
     standard_line = ""
     if check_prompt_template(prompt_template) == "standard_line_v1":
-        # Missing input raises: a guessed standard would silently change what the judge is asked.
-        if request.standard not in STANDARD_LINES:
-            raise ValueError(f"standard_line_v1 needs request.standard in {tuple(STANDARD_LINES)}, got {request.standard!r}")
-        standard_line = f"Standard: {STANDARD_LINES[request.standard]}\n"
+        standard_line = f"Standard: {STANDARD_LINES[standard_for_posture(request.proceeding_posture)[0]]}\n"
     return (
         f"Statute: {request.statute[:statute_chars]}\n"
         f"Scenario: {request.narrative}\n"

@@ -1,4 +1,4 @@
-"""#192: the element-judge prompt may state the legal standard, behind `prompt_template` (default legacy).
+"""#192: the house prompt may state the legal standard (from the proceeding posture), behind `prompt_template` (default legacy).
 
 Toy text only. The legacy prompt is the training prompt and must stay byte-identical.
 """
@@ -7,12 +7,18 @@ from __future__ import annotations
 
 import pytest
 
-from pravrudhi.application.nyaya_judges import STANDARD_LINES, HouseJudge, JudgeRequest, build_house_prompt
+from pravrudhi.application.nyaya_judges import (
+    STANDARD_LINES,
+    HouseJudge,
+    JudgeRequest,
+    build_house_prompt,
+    standard_for_posture,
+)
 
 
-def _req(standard: str | None = None) -> JudgeRequest:
+def _req(posture: str | None = None) -> JudgeRequest:
     facts = (("F1", "TOY fact one."),)
-    return JudgeRequest("c1", "el one", False, "TOY statute text.", "TOY narrative.", facts, standard=standard)
+    return JudgeRequest("c1", "el one", False, "TOY statute text.", "TOY narrative.", facts, proceeding_posture=posture)
 
 
 LEGACY = (
@@ -36,16 +42,28 @@ def test_the_standard_strings_are_pinned() -> None:
     }
 
 
-@pytest.mark.parametrize("standard", ["prima_facie_disclosed", "proved"])
-def test_standard_line_v1_adds_exactly_one_line_after_the_element(standard: str) -> None:
-    out = build_house_prompt(_req(standard), statute_chars=600, prompt_template="standard_line_v1")
+@pytest.mark.parametrize(
+    ("posture", "standard"),
+    [("quash", "prima_facie_disclosed"), ("discharge", "prima_facie_disclosed"), ("trial", "proved"), ("appeal", "proved")],
+)
+def test_each_posture_maps_to_its_standard_line(posture: str, standard: str) -> None:
+    assert standard_for_posture(posture) == (standard, "request")
+    out = build_house_prompt(_req(posture), statute_chars=600, prompt_template="standard_line_v1")
     assert out == LEGACY.replace("el one\n", f"el one\nStandard: {STANDARD_LINES[standard]}\n")
 
 
-@pytest.mark.parametrize("standard", [None, "", "balance_of_probabilities"])
-def test_standard_line_v1_without_a_known_standard_raises(standard: str | None) -> None:
-    with pytest.raises(ValueError, match="standard_line_v1"):
-        build_house_prompt(_req(standard), statute_chars=600, prompt_template="standard_line_v1")
+def test_an_absent_posture_is_the_stricter_proved_and_says_so() -> None:
+    assert standard_for_posture(None) == ("proved", "default_proved")
+    out = build_house_prompt(_req(None), statute_chars=600, prompt_template="standard_line_v1")
+    assert out == LEGACY.replace("el one\n", f"el one\nStandard: {STANDARD_LINES['proved']}\n")
+
+
+@pytest.mark.parametrize("posture", ["", "bail", "TRIAL"])
+def test_an_invalid_posture_raises(posture: str) -> None:
+    with pytest.raises(ValueError, match="proceeding_posture"):
+        standard_for_posture(posture)
+    with pytest.raises(ValueError, match="proceeding_posture"):
+        build_house_prompt(_req(posture), statute_chars=600, prompt_template="standard_line_v1")
 
 
 def test_an_unknown_template_raises() -> None:

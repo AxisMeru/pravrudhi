@@ -73,7 +73,14 @@ from pathlib import Path
 from typing import Any, Literal, Protocol
 
 from pravrudhi.application import nyaya_lean_registry as reg
-from pravrudhi.application.nyaya_judges import ClampKind, ElementJudgment, Judge, JudgeRequest, SecondJudgeCircuitBreaker
+from pravrudhi.application.nyaya_judges import (
+    ClampKind,
+    ElementJudgment,
+    Judge,
+    JudgeRequest,
+    SecondJudgeCircuitBreaker,
+    standard_for_posture,
+)
 from pravrudhi.application.nyaya_quote import QuoteLocation, locate_quote
 
 Outcome = Literal["PROOF", "DENIAL", "ABSTAIN", "REFER_TO_LAWYER"]
@@ -1030,8 +1037,6 @@ class NyayaAgent:
     ) -> None:
         self.judge = judge
         self.registry = registry
-        #: (contract_id, element) -> legal standard, filled from `describe` before any element is judged.
-        self._element_standards: dict[tuple[str, str], str] = {}
         self.config = config
         #: One independent judge stack per concurrent worker (own HouseJudge, own ChatClients): a HouseJudge's
         #: `complete` mutates its client's `.model` attribute per call (see nyaya_judges.HouseJudge, the
@@ -1136,6 +1141,7 @@ class NyayaAgent:
         statute: str,
         facts: tuple[Fact, ...],
         narrative: str,
+        proceeding_posture: str | None = None,
     ) -> tuple[ElementResult, list[JudgeCallRecord]]:
         """Attempt 1 decides the element's status and p_established. If it says established but its quote is
         not verbatim in the named fact, up to `max_retries` re-asks follow -- the SAME request, same training
@@ -1149,7 +1155,7 @@ class NyayaAgent:
         request = JudgeRequest(
             contract_id, element, is_denial, statute, narrative, tuple((f.id, f.text) for f in facts),
             skip_second=contract_id not in self.config.validated_contracts,
-            standard=self._element_standards.get((contract_id, element)),
+            proceeding_posture=proceeding_posture,
         )
         anchor: ElementJudgment | None = None
         fact_id: str | None = None
@@ -1229,6 +1235,7 @@ class NyayaAgent:
         statute: str,
         facts: tuple[Fact, ...],
         narrative: str,
+        proceeding_posture: str | None = None,
     ) -> tuple[list[ElementResult], list[JudgeCallRecord]]:
         """Judges every `(element_or_denial, is_denial)` task of one contract. `max_concurrency <= 1` (the
         default) or a single task runs them one at a time, writing straight to `audit` -- byte-for-byte the
@@ -1248,7 +1255,8 @@ class NyayaAgent:
         the serial path already does."""
         if self.config.max_concurrency <= 1 or len(tasks) <= 1:
             pairs = [
-                self._judge_element(self.judge, audit, contract_id, name, is_denial, statute, facts, narrative)
+                self._judge_element(
+                    self.judge, audit, contract_id, name, is_denial, statute, facts, narrative, proceeding_posture)
                 for name, is_denial in tasks
             ]
             return [r for r, _ in pairs], [c for _, calls in pairs for c in calls]
@@ -1273,7 +1281,8 @@ class NyayaAgent:
             j = work_queue.get()
             try:
                 name, is_denial = tasks[i]
-                return self._judge_element(j, buffers[i], contract_id, name, is_denial, statute, facts, narrative)
+                return self._judge_element(
+                    j, buffers[i], contract_id, name, is_denial, statute, facts, narrative, proceeding_posture)
             finally:
                 work_queue.put(j)
 
@@ -1321,10 +1330,10 @@ class NyayaAgent:
         narrative: str,
         *,
         call_records_out: list[JudgeCallRecord] | None = None,
+        proceeding_posture: str | None = None,
     ) -> ContractResult:
         t0 = time.monotonic()
         contract = self.registry.describe(contract_id)
-        self._element_standards.update({(contract_id, e): s for e, s in contract.standards.items()})
         audit.step("describe", {"contract_id": contract_id}, asdict(contract), _ms(t0))
 
         # The judge sees ONLY its training statute text; the binary's official text is read for the audit
@@ -1371,7 +1380,8 @@ class NyayaAgent:
             return finish("ABSTAIN", "no_training_statute_text")
 
         tasks = [(e, False) for e in contract.elements] + [(d, True) for d in contract.denials]
-        elem_results, call_records = self._judge_elements(audit, contract_id, tasks, training, facts, narrative)
+        elem_results, call_records = self._judge_elements(
+            audit, contract_id, tasks, training, facts, narrative, proceeding_posture)
         results += elem_results
         if call_records_out is not None:
             call_records_out.extend(call_records)
@@ -1442,19 +1452,25 @@ class NyayaAgent:
         contract_ids: Iterable[str] | None = None,
         sections: Iterable[str] | None = None,
         client_data: bool = True,
+        proceeding_posture: str | None = None,
     ) -> AgentRun:
         # Issue #39's TTL purge: opportunistic, on every new run (the same lazy-eviction discipline
         # `partner.py`'s own RateLimiter already uses) rather than a separate background process or cron --
         # no new infrastructure, and a request that never comes still means nothing accumulates unbounded
         # only because nothing new is being written either.
+        standard, standard_source = standard_for_posture(proceeding_posture)  # an invalid posture raises before any work
         purge_stale_runs(Path(self.config.audit_dir), self.config.retention_days)
         run_id = f"nyaya-agent-{uuid.uuid4().hex[:10]}"
         audit = AuditTrail(Path(self.config.audit_dir) / f"{run_id}.jsonl", run_id)
         cfg_view = {"tau": self.config.tau, "refer_band": list(self.config.refer_band), "max_retries": self.config.max_retries,
                    "second_refer_logit_delta": self.config.second_refer_logit_delta()}
+        standard_view = (
+            {"proceeding_posture": proceeding_posture, "standard": standard, "standard_source": standard_source}
+            if getattr(self.judge, "prompt_template", "legacy") != "legacy" else {}
+        )
         audit.step("run_start", cfg_view,
                    {"judge": self.judge.name, "score_sha256": self.registry.sha256, "client_data": client_data,
-                    **cfg_view}, 0.0)
+                    **cfg_view, **standard_view}, 0.0)
 
         t0 = time.monotonic()
         ingested = ingest_facts(facts)
@@ -1470,7 +1486,11 @@ class NyayaAgent:
                    {"selected": chosen}, _ms(t0))
 
         call_records: list[JudgeCallRecord] = []
-        results = [self._run_contract(audit, cid, ingested, narrative, call_records_out=call_records) for cid in chosen]
+        results = [
+            self._run_contract(audit, cid, ingested, narrative, call_records_out=call_records,
+                               proceeding_posture=proceeding_posture)
+            for cid in chosen
+        ]
         accounting = _judge_accounting(call_records)
         audit.step("judge_accounting", {"run_id": run_id}, accounting, 0.0)
         audit.step("run_end", {"run_id": run_id}, {c.contract_id: c.outcome for c in results}, 0.0)

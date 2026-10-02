@@ -344,14 +344,19 @@ class TestLoop:
         assert (el1.status, el1.p_established, el1.quote) == ("established", 0.97, good.quote)
         assert run.contracts[0].outcome == "PROOF"
 
-    def test_the_element_standard_from_the_registry_reaches_the_judge_request(self, tmp_path: Path) -> None:
+    def test_the_proceeding_posture_reaches_every_judge_request(self, tmp_path: Path) -> None:
         _, judge, _ = _run(tmp_path, _proof_script(TOY_FACTS))
-        assert {r.standard for r in judge.requests} == {None}  # the toy registry supplies no standards
-        judge2, registry = ScriptedJudge(_proof_script(TOY_FACTS)), _registry()
-        registry.contracts["bns69"] = replace(registry.contracts["bns69"], standards={BNS69_EL[0]: "proved"})
-        NyayaAgent(judge2, registry, _config(tmp_path)).run(TOY_FACTS, narrative="TOY narrative.", contract_ids=["bns69"])
-        by_el = {r.element: r.standard for r in judge2.requests}
-        assert by_el[BNS69_EL[0]] == "proved" and by_el[BNS69_EL[1]] is None
+        assert {r.proceeding_posture for r in judge.requests} == {None}
+        judge2 = ScriptedJudge(_proof_script(TOY_FACTS))
+        NyayaAgent(judge2, _registry(), _config(tmp_path)).run(
+            TOY_FACTS, narrative="TOY narrative.", contract_ids=["bns69"], proceeding_posture="quash")
+        assert {r.proceeding_posture for r in judge2.requests} == {"quash"}
+
+    def test_an_invalid_posture_is_refused_before_any_judge_call(self, tmp_path: Path) -> None:
+        judge = ScriptedJudge(_proof_script(TOY_FACTS))
+        with pytest.raises(ValueError, match="proceeding_posture"):
+            NyayaAgent(judge, _registry(), _config(tmp_path)).run(TOY_FACTS, proceeding_posture="bail")
+        assert judge.requests == []
 
     def test_facts_reach_the_judge_as_numbered_pairs(self, tmp_path: Path) -> None:
         _, judge, _ = _run(tmp_path, _proof_script(TOY_FACTS))
