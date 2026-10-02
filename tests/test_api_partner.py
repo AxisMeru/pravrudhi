@@ -1178,10 +1178,11 @@ class TestProceedingPosture:
         assert c.post("/api/v1/analyse-facts", json=_req(proceeding_posture=bad)).status_code == 422
         assert judge.requests == []
 
-    def test_under_legacy_the_posture_changes_nothing_in_the_response(self, tmp_path: Path) -> None:
+    def test_under_legacy_the_posture_changes_nothing_but_the_standard_object(self, tmp_path: Path) -> None:
         def body(posture: str | None) -> dict[str, Any]:
             c, _ = self._client_with_judge(tmp_path / str(posture))
             out = c.post("/api/v1/analyse-facts", json=_req() if posture is None else _req(proceeding_posture=posture)).json()
+            out.pop("standard", None)
             for k in ("run_id", "audit_run_id", "audit_path", "wall_ms"):
                 out.pop(k, None)
             return out  # type: ignore[no-any-return]
@@ -1196,3 +1197,59 @@ class TestProceedingPosture:
         enums = [b["enum"] for b in prop.get("anyOf", [prop]) if "enum" in b]
         assert enums == [["quash", "discharge", "trial", "appeal"]]
         assert "stricter default" in prop["description"]
+
+
+class _HouseTemplateJudge(ScriptedJudge):
+    prompt_template = "house"
+
+
+class TestStandardInResponse:
+    """#220: response.standard is the resolved standard, equal to the run_start audit row's fields."""
+
+    @staticmethod
+    def _run(tmp_path: Path, posture: str | None, *, template: bool = True) -> tuple[dict[str, Any], dict[str, Any]]:
+        agent = _agent(tmp_path, _proof_script())
+        if template:
+            agent.judge = _HouseTemplateJudge(_proof_script())
+        app = FastAPI()
+        app.include_router(build_partner_router(tmp_path, agent_factory=lambda _root: agent, config=_NO_LIMIT_CONFIG))
+        body = TestClient(app).post(
+            "/api/v1/analyse-facts", json=_req() if posture is None else _req(proceeding_posture=posture)
+        ).json()
+        import json as _json
+
+        rows = [_json.loads(x) for x in (tmp_path / "audit" / f"{body['run_id']}.jsonl").read_text().splitlines()]
+        start = next(r for r in rows if r["step"] == "run_start")
+        return body, start.get("output", start)
+
+    @pytest.mark.parametrize("posture", ["quash", "discharge", "trial", "appeal"])
+    def test_standard_equals_the_audit_row(self, tmp_path: Path, posture: str) -> None:
+        body, row = self._run(tmp_path, posture)
+        std = body["standard"]
+        assert std["applied"] == row["standard"]
+        assert std["in_judge_prompt"] is row["standard_in_judge_prompt"] is True
+        assert std["proceeding_posture"] == row["proceeding_posture"] == posture
+        assert (std["source"], row["standard_source"]) == ("proceeding_posture", "request")
+
+    def test_absent_posture_is_proved_by_default(self, tmp_path: Path) -> None:
+        body, row = self._run(tmp_path, None)
+        assert body["standard"] == {"applied": "proved", "source": "default", "proceeding_posture": None, "in_judge_prompt": True}
+        assert row["standard"] == "proved" and row["standard_source"] == "default_proved"
+
+    def test_legacy_template_records_the_basis_but_says_the_judge_never_saw_it(self, tmp_path: Path) -> None:
+        body, row = self._run(tmp_path, "quash", template=False)
+        assert body["standard"] == {
+            "applied": "prima_facie_disclosed", "source": "proceeding_posture",
+            "proceeding_posture": "quash", "in_judge_prompt": False,
+        }
+        assert row["standard"] == "prima_facie_disclosed" and row["standard_in_judge_prompt"] is False
+
+    def test_openapi_documents_standard_as_optional_object(self, tmp_path: Path) -> None:
+        c = _client(tmp_path)
+        schemas = c.get("/openapi.json").json()["components"]["schemas"]
+        resp = schemas["AnalyseFactsResponse"]
+        assert "standard" not in resp.get("required", [])
+        assert "StandardOut" in str(resp["properties"]["standard"])
+        out = schemas["StandardOut"]
+        assert set(out["properties"]) == {"applied", "source", "proceeding_posture", "in_judge_prompt"}
+        assert set(out["required"]) == {"applied", "source", "in_judge_prompt"}
