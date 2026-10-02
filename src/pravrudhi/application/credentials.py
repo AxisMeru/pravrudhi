@@ -33,6 +33,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
+from contextvars import ContextVar
 
 import httpx
 
@@ -320,6 +321,30 @@ def validate(
     if response.status_code in (401, 403):
         return False, "key rejected by provider"
     return False, redact(f"probe returned status {response.status_code}")
+
+
+#: True while an API request is being served. Inside it a vendor call with no tenant store is an error: env and the
+#: operator credential file are the operator's, and only CLI / research entrypoints (outside this context) may use them.
+serving_api: ContextVar[bool] = ContextVar("serving_api", default=False)
+
+API_WITHOUT_TENANT_STORE = "API call without tenant store"
+
+
+class ServingApiMiddleware:
+    """Pure-ASGI middleware that marks every HTTP/websocket request as API-served (`serving_api`)."""
+
+    def __init__(self, app: Any) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
+        if scope["type"] not in ("http", "websocket"):
+            await self.app(scope, receive, send)
+            return
+        token = serving_api.set(True)
+        try:
+            await self.app(scope, receive, send)
+        finally:
+            serving_api.reset(token)
 
 
 class CredentialBoundaryError(RuntimeError):

@@ -71,6 +71,11 @@ class Vendor:
         """
         if not self.credential:
             return None
+        if store is None:
+            from pravrudhi.application.credentials import API_WITHOUT_TENANT_STORE, serving_api
+
+            if serving_api.get():
+                raise RuntimeError(API_WITHOUT_TENANT_STORE)
         if store is not None and getattr(store, "tenant_only", False):
             # A signed-in tenant: their own stored key or nothing. Never the operator's env or credential file.
             stored = store.get(self.provider) if self.provider else None
@@ -136,7 +141,7 @@ class Vendor:
                 return account_status()
             return True, "ready"
         if self.interface == "openai_compat" and self.credential:
-            if os.environ.get(self.credential):
+            if not getattr(store, "tenant_only", False) and os.environ.get(self.credential):
                 return True, "key in environment"
             if self.provider and self.key(root, store=store) and not self.credential_file:
                 return True, f"key stored for provider {self.provider}"
@@ -411,6 +416,10 @@ def ask_vendor(
     (`application.nyaya.ask`, resolved from a signed-in account's own project) passes its own `store` so the
     OpenAI-compatible client below is built with that caller's key, never a bystander's.
     """
+    from pravrudhi.application.credentials import API_WITHOUT_TENANT_STORE, serving_api
+
+    if store is None and serving_api.get():
+        raise RuntimeError(API_WITHOUT_TENANT_STORE)
     if vendor.interface == "cli":
         from pravrudhi.agents.cli_agents import _run, _usage
 

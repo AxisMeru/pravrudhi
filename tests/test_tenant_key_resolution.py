@@ -116,3 +116,45 @@ def test_anonymous_api_ask_with_vendors_refuses_with_zero_calls(tmp_path, engine
     r = TestClient(app).post("/api/nyaya/ask", json={"question": "q?", "vendors": ["openai-api"]})
     assert calls == []
     assert OP_KEY not in r.text
+
+
+def test_api_request_reaching_ask_vendor_with_no_store_raises_with_zero_calls(tmp_path, engine, monkeypatch):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from pravrudhi.application.credentials import ServingApiMiddleware
+    import pravrudhi.models.openai_compat as oc
+
+    calls = []
+    monkeypatch.setattr(oc.ChatClient, "chat", lambda *a, **k: calls.append(1))
+    app = FastAPI()
+    app.add_middleware(ServingApiMiddleware)
+    seen = {}
+
+    @app.get("/x")
+    def x():
+        try:
+            panel.ask_vendor(panel.VENDORS["openai-api"], "p", root=tmp_path, store=None)
+        except RuntimeError as e:
+            seen["err"] = str(e)
+        try:
+            panel.VENDORS["openai-api"].key(tmp_path)
+        except RuntimeError as e:
+            seen["key"] = str(e)
+        return {}
+
+    TestClient(app).get("/x")
+    assert calls == [] and seen == {"err": "API call without tenant store", "key": "API call without tenant store"}
+    assert panel.VENDORS["openai-api"].key(tmp_path) == OP_KEY  # outside the API: unchanged
+
+
+def test_create_app_installs_the_serving_api_middleware(tmp_path):
+    from pravrudhi.api.server import create_app
+    from pravrudhi.application.credentials import ServingApiMiddleware
+
+    assert any(m.cls is ServingApiMiddleware for m in create_app(tmp_path).user_middleware)
+
+
+def test_reachable_in_for_a_tenant_never_reports_the_operator_env(tmp_path, engine):
+    ok, why = panel.VENDORS["openai-api"].reachable_in(tmp_path, store=tenant_store(tmp_path))
+    assert not ok and "environment" not in why.split("none of")[0]
