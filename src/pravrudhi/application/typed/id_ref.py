@@ -3,7 +3,7 @@
 `TypedHouseJudge` decides established/not by SCORING, but reads the fact id by parsing the greedy completion
 (`nyaya_judges.parse_house_fact_id`), so a hallucinated or near-miss id is never constrained. Here the id is an
 ID_REF field decided the same way the decision is: each candidate id (the request's fact ids, never
-`F_narrative`) is scored as a continuation of `prompt + " established "`, and the choice is the softmax over
+`F_narrative`) is scored as the continuation `" <id>:"` of `prompt + " established"`, and the choice is the softmax over
 candidates. Nothing is repaired: non-finite or impossible logprobs, an exact tie, or too little probability mass
 on the candidate set (the model wanted some other string) raise `IdRefDecodeError`.
 
@@ -30,6 +30,10 @@ from pravrudhi.application.typed.schema import Field, FieldKind
 Scorer = Callable[[str, str], float]
 
 TERMINATOR = ":"
+#: The model writes `established F1:` with the space belonging to the id's first token (" F"), so the space goes in
+#: the continuation, not the prefix (live check against the dev 4B, 2026-10-02: a prefix ending in a space makes the
+#: first token straddle the boundary).
+LEAD = " "
 
 
 class IdRefDecodeError(ValueError):
@@ -44,7 +48,9 @@ class IdRefChoice:
     margin: float  # best minus runner-up probability (1.0 when there is a single candidate)
 
 
-def score_id_ref(field: Field, *, prefix: str, scorer: Scorer, mass_floor: float, terminator: str = TERMINATOR) -> IdRefChoice:
+def score_id_ref(
+    field: Field, *, prefix: str, scorer: Scorer, mass_floor: float, terminator: str = TERMINATOR, lead: str = LEAD
+) -> IdRefChoice:
     """Decide an ID_REF field by scoring each candidate (+ terminator) after `prefix`."""
     if field.kind != FieldKind.ID_REF or not field.candidates:
         raise ValueError(f"score_id_ref is only for id_ref fields with candidates, got {field.kind.value} ({field.name!r})")
@@ -52,7 +58,7 @@ def score_id_ref(field: Field, *, prefix: str, scorer: Scorer, mass_floor: float
         raise ValueError(f"mass_floor must be in [0, 1], got {mass_floor!r}")
     lps: dict[str, float] = {}
     for cand in field.candidates:
-        lp = scorer(prefix, cand + terminator)
+        lp = scorer(prefix, lead + cand + terminator)
         if not isinstance(lp, (int, float)) or isinstance(lp, bool) or not math.isfinite(lp) or lp > 0:
             raise IdRefDecodeError(f"{field.name}: logprob for {cand!r} is not a finite value <= 0: {lp!r}")
         lps[cand] = float(lp)
@@ -84,15 +90,17 @@ def rescore_fact_id(
     if not candidates:
         return judgment, None
     field = Field("fact_id", FieldKind.ID_REF, candidates=candidates)
-    choice = score_id_ref(field, prefix=prompt + " established ", scorer=scorer, mass_floor=mass_floor)
+    choice = score_id_ref(field, prefix=prompt + " established", scorer=scorer, mass_floor=mass_floor)
     text = dict(request.facts)[choice.best]
     return dataclasses.replace(judgment, fact_id=choice.best, quote=text, quote_source="whole_fact"), choice
 
 
-def continuation_logprob_from_echo(resp: Mapping[str, Any], *, prefix_len: int) -> float:
-    """Total logprob of the text after `prefix_len` characters, from an OpenAI/vLLM `/completions` reply made with
-    `echo=true, logprobs=0`: sums `token_logprobs` of tokens whose `text_offset >= prefix_len`. A token that
-    straddles the boundary, a null logprob inside the continuation, or an empty continuation raises."""
+def continuation_logprob_from_echo(resp: Mapping[str, Any], *, prefix_len: int, end_len: int) -> float:
+    """Total logprob of the text in `[prefix_len, end_len)` characters, from an OpenAI/vLLM `/completions` reply made
+    with `echo=true, logprobs=0`: sums `token_logprobs` of tokens whose `text_offset` lies in that range. The server
+    also appends the token(s) it GENERATES (max_tokens >= 1) after the echoed prompt (seen live); `end_len`
+    excludes them. A token straddling either boundary, a null logprob inside the continuation, or an empty
+    continuation raises."""
     try:
         lg = resp["choices"][0]["logprobs"]
         tokens, lps, offs = lg["tokens"], lg["token_logprobs"], lg["text_offset"]
@@ -104,7 +112,9 @@ def continuation_logprob_from_echo(resp: Mapping[str, Any], *, prefix_len: int) 
     for tok, lp, off in zip(tokens, lps, offs, strict=True):
         if off < prefix_len < off + len(tok):
             raise IdRefDecodeError(f"token {tok!r} straddles the prefix boundary at {prefix_len}")
-        if off >= prefix_len:
+        if off < end_len < off + len(tok):
+            raise IdRefDecodeError(f"token {tok!r} straddles the continuation end at {end_len}")
+        if prefix_len <= off < end_len:
             if lp is None:
                 raise IdRefDecodeError(f"null logprob for continuation token {tok!r}")
             total += lp
