@@ -33,9 +33,11 @@ import os
 import re
 import subprocess
 from collections.abc import Callable, Iterable, Sequence
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+
+from pravrudhi.application import usage_gate
 
 if TYPE_CHECKING:
     from pravrudhi.application.credentials import CredentialStore
@@ -178,6 +180,9 @@ class Answer:
     #: Every model the CLI billed (claude: the `modelUsage` keys), so an auxiliary Haiku call is visible
     #: rather than silently dropped by taking only the first key.
     billed_models: tuple[str, ...] = ()
+    #: The usage-gate reading (value, observed_at, thresholds) that let a codex/claude CLI call through
+    #: (`usage_gate.gate_reading`); `None` for vendors that are not gated.
+    usage_gate: dict[str, Any] | None = None
 
 
 # Reachable today. `claude` and `codex` are agentic CLIs in print mode; the operator's judgement is that this
@@ -607,6 +612,8 @@ def ask_vendor(
         from pravrudhi.agents.cli_agents import _run, _usage
 
         env: dict[str, str] = {}
+        # Before any seat check, env build or subprocess: a closed gate means no call is made at all.
+        gate = usage_gate.gate_reading("claude" if vendor.model == "claude" else "codex", root or Path.cwd())
         if vendor.model == "claude":
             # The operator's personal login was the original problem (2026-09-10: its weekly limit ran out
             # mid-panel during gate A1.1, 68 of 80 prompts answered, 12 recorded as gaps). This path now
@@ -636,7 +643,7 @@ def ask_vendor(
         if vendor.model != "claude":
             if code != 0:
                 raise RuntimeError((err or out or f"{model} exited {code}")[-400:])
-            return _codex_answer(vendor, model, out, wall)
+            return replace(_codex_answer(vendor, model, out, wall), usage_gate=gate)
 
         # A quota/limit notice prints to stdout with exit 0 (the 2026-09-26 incident that contaminated 847
         # audit rows before this was caught) -- exit 0 is not itself success here. An unparseable envelope, an
@@ -656,7 +663,7 @@ def ask_vendor(
         resolved_model, billed = _check_claude_models(model, envelope.get("modelUsage"))
         tokens, cache_read, cache_write = _usage(envelope)
         return Answer(vendor.id, vendor.interface, model, "", text, wall, tokens, None, resolved_model,
-                      cache_read, cache_write, _cost(envelope.get("total_cost_usd")), billed)
+                      cache_read, cache_write, _cost(envelope.get("total_cost_usd")), billed, gate)
 
     if vendor.interface == "openai_compat":
         from pravrudhi.models.openai_compat import ChatClient
@@ -744,7 +751,9 @@ def run_panel(
                     row = Answer(vendor.id, vendor.interface, answer.model, pid, answer.text,
                                  answer.wall_s, answer.tokens, None, answer.resolved_model,
                                  answer.cache_read_tokens, answer.cache_write_tokens,
-                                 answer.cost_usd, answer.billed_models)
+                                 answer.cost_usd, answer.billed_models, answer.usage_gate)
+                except usage_gate.UsageGateRefused:
+                    raise
                 except Exception as exc:  # noqa: BLE001 - a vendor that cannot answer is data, not a crash
                     row = Answer(vendor.id, vendor.interface, vendor.model, pid, "", 0.0, None, str(exc)[:400])
                 answers.append(row)
