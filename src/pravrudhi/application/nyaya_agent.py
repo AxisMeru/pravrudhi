@@ -197,6 +197,20 @@ class AgentConfig:
         return None if raw is None else float(raw)
 
 
+def validated_contract_ids(root: Path) -> frozenset[str]:
+    """The `validated_contracts` allowlist from `configs/nyaya_agent.yaml` -- the same set `load_agent_config`
+    gives the scorer -- without needing the score binary or a judge to be configured."""
+    import yaml
+
+    from pravrudhi.application.config_files import config_file
+
+    try:
+        body = yaml.safe_load(config_file(Path(root), "nyaya_agent.yaml").read_text()) or {}
+    except FileNotFoundError:
+        return frozenset()  # no scorer config here: the scorer cannot run, so nothing is validated
+    return frozenset(str(c) for c in (body.get("validated_contracts") or []))
+
+
 def load_agent_config(root: Path) -> AgentConfig:
     """`configs/nyaya_agent.yaml` under `root`, else the copy the wheel ships (`config_files.config_file`);
     relative paths resolve against `root`. The score binary path

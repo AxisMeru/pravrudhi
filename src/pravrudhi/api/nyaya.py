@@ -122,6 +122,12 @@ class NyayaAsksResponse(BaseModel):
     asks: list[NyayaAskResponse]
 
 
+class NyayaRegistryContractEntry(BaseModel):
+    id: str
+    validated: bool
+    sources: list[str] | None = None
+
+
 class NyayaRegistryContractsResponse(BaseModel):
     #: The twenty-one BNS/IPC registry contract ids in KNOWN_CONTRACT_IDS (two BNSS 187 contracts
     #: excluded due to Lean-side defects) -- a DIFFERENT family from `AskRequest.contract_id`/
@@ -130,6 +136,10 @@ class NyayaRegistryContractsResponse(BaseModel):
     #: per-element assertions, never free text, so they cannot be a `checker` value on the existing
     #: ask/audit path (see `registry_check` below).
     contracts: list[str]
+    #: Same ids, with `validated` (true only for ids in the scorer's `validated_contracts`; every other id
+    #: can only ever return REFER_TO_LAWYER `contract_not_validated`) and `sources` (the statute act/section
+    #: the Lean binary cites; null if the binary is not available). Added alongside `contracts`, not instead.
+    entries: list[NyayaRegistryContractEntry] = []
 
 
 class NyayaRegistryElementsResponse(BaseModel):
@@ -242,7 +252,7 @@ def build_nyaya_router(root: Path, ask_fn: panel.AskFn | None = None) -> APIRout
     @router.get("/registry/contracts", response_model=NyayaRegistryContractsResponse)
     def registry_contracts_ep(user: User | None = CurrentUserDep) -> dict[str, Any]:
         del user  # auth-gated like every other route below; the id list itself carries nothing per-user
-        return {"contracts": nyaya.registry_contract_ids()}
+        return {"contracts": nyaya.registry_contract_ids(), "entries": nyaya.registry_contract_entries(engine_root)}
 
     @router.get("/registry/{contract_id}/elements", response_model=NyayaRegistryElementsResponse)
     def registry_elements_ep(
