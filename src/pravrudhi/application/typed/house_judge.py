@@ -92,23 +92,33 @@ class TypedHouseJudge:
         )
 
     def _constrained_fact_id(self, prompt: str, request: JudgeRequest, greedy_id: str) -> str | None:
-        """#197: score the fact id as a choice over the request's own ids (never `F_narrative`) at the position
-        after `established`. The greedy id is kept only when it is a candidate AND the scored choice picks it;
-        anything else (unknown id, disagreement, no unambiguous token mass) returns None, which the caller
-        reports as established with no fact and no quote -- fail closed. A candidate gets mass only from a
-        token equal to its whole id that no other candidate extends, so multi-token ids resolve to None."""
+        """#197: choose the fact id by walking the completion after `established`, at each position taking the
+        best-scoring token that keeps the text a prefix of one of the request's own ids (never `F_narrative`),
+        instead of trusting the free-text greedy token. Works for ids split across tokens (a live 4B emits
+        ` F` then `2`). Once the text equals an id, a token that extends another id (F1 vs F10) must beat
+        every non-extending token to continue; otherwise the id ends there. The greedy id is kept only when
+        it is a candidate AND the walk reaches the same id; an unknown id, a disagreement, an exhausted
+        walk or an empty step returns None, which the caller reports as established with no fact and no
+        quote -- fail closed."""
         ids = [fid for fid, _ in request.facts if fid != "F_narrative"]
         if greedy_id not in ids:
             return None
-        res = self.decoder.complete(prompt + "established", max_tokens=1, temperature=0.0, logprobs=self.top_logprobs)
-        if not res.top_logprobs:
-            return None
-        mass = dict.fromkeys(ids, 0.0)
-        for token, lp in res.top_logprobs[0].items():
-            t = token.strip()
-            if t in mass and not any(o != t and o.startswith(t) for o in ids):
-                mass[t] += math.exp(lp)
-        best = max(mass, key=lambda i: mass[i])
-        if mass[best] <= 0.0 or best != greedy_id:
-            return None
-        return best
+        res = self.decoder.complete(
+            prompt + "established", max_tokens=max(map(len, ids)) + 1, temperature=0.0, logprobs=self.top_logprobs
+        )
+        text = ""
+        for top in res.top_logprobs:
+            ext: dict[str, float] = {}
+            stop = -math.inf
+            for token, lp in top.items():
+                t = token.strip()
+                if t and any(c.startswith(text + t) and c != text for c in ids):
+                    ext[t] = max(lp, ext.get(t, -math.inf))
+                else:
+                    stop = max(stop, lp)
+            if text in ids and (not ext or max(ext.values()) <= stop):
+                break
+            if not ext:
+                return None
+            text += max(ext, key=lambda k: ext[k])
+        return text if text in ids and text == greedy_id else None

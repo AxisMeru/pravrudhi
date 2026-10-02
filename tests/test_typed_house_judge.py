@@ -194,7 +194,7 @@ class TestFactIdAsConstrainedChoice:
         assert len(complete.calls) == 2  # type: ignore[attr-defined]
         prompt, max_tokens, temperature, _ = complete.calls[1]  # type: ignore[attr-defined]
         assert prompt == build_house_prompt(REQ, statute_chars=600) + "established"
-        assert (max_tokens, temperature) == (1, 0.0)
+        assert (max_tokens, temperature) == (len("F2") + 1, 0.0)
 
     def test_greedy_id_outside_the_request_ids_fails_closed(self) -> None:
         j, _ = _constrained("established F9", {" F1": -3.0, " F2": -0.1})
@@ -230,3 +230,43 @@ class TestFactIdAsConstrainedChoice:
             tau=0.74, statute_chars=600, decoder=VLLMDecoder(model="m", complete=complete), constrain_fact_id=True
         ).judge(REQ)
         assert j.status == "not_established" and len(complete.calls) == 1  # type: ignore[attr-defined]
+
+
+def _walk(req: JudgeRequest, greedy: str, steps: list[dict[str, float]]):
+    complete = _two_call_decoder((EST, greedy), {})
+    inner = complete
+
+    def wrapped(prompt: str, *, max_tokens: int, temperature: float, logprobs: int | None) -> CompletionResult:
+        if len(inner.calls) == 1:  # type: ignore[attr-defined]
+            inner.calls.append((prompt, max_tokens, temperature, logprobs))  # type: ignore[attr-defined]
+            return CompletionResult(text=" F", model="m", top_logprobs=steps, wall_s=0.1)
+        return inner(prompt, max_tokens=max_tokens, temperature=temperature, logprobs=logprobs)
+
+    return TypedHouseJudge(
+        tau=0.74, statute_chars=600, decoder=VLLMDecoder(model="m", complete=wrapped), constrain_fact_id=True
+    ).judge(req)
+
+
+class TestFactIdAcrossTokens:
+    """The live 4B splits ids: ` F` then `2` then `:`."""
+
+    def test_split_id_chain_resolves(self) -> None:
+        steps = [{" F": -0.0004, "<|im_end|>": -8.5}, {"2": -0.0005, "1": -7.6}, {":": -0.002, ":F": -6.0}]
+        j = _walk(REQ, "established F2:0:101", steps)
+        assert (j.fact_id, j.quote_source) == ("F2", "whole_fact")
+
+    def test_walk_restricted_to_candidates_overrides_a_non_candidate_argmax(self) -> None:
+        # Global argmax at step 1 is "9" (not a candidate); the walk takes the best allowed token, "2", which
+        # then disagrees with a greedy "F1" -> fail closed.
+        steps = [{" F": -0.0004}, {"9": -0.01, "2": -2.0, "1": -5.0}, {":": -0.01}]
+        j = _walk(REQ, "established F1", steps)
+        assert (j.fact_id, j.quote_source) == (None, None)
+
+    def test_f1_versus_f10_is_decided_by_the_continuation(self) -> None:
+        req = JudgeRequest(REQ.contract_id, REQ.element, False, REQ.statute, REQ.narrative,
+                           (("F1", "TOY a."), ("F10", "TOY b.")))
+        ends = [{" F": -0.0}, {"1": -0.0}, {":": -0.1, "0": -3.0}]
+        cont = [{" F": -0.0}, {"1": -0.0}, {"0": -0.1, ":": -3.0}, {":": -0.1}]
+        assert _walk(req, "established F1:0:5", ends).fact_id == "F1"
+        assert _walk(req, "established F10:0:5", cont).fact_id == "F10"
+        assert _walk(req, "established F1:0:5", cont).fact_id is None
