@@ -15,7 +15,9 @@ import json
 import os
 import sys
 from collections import Counter
+from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 from zoneinfo import ZoneInfo
 
 _USAGE_KEYS = (
@@ -26,11 +28,11 @@ _USAGE_KEYS = (
 )
 
 
-def _home(codex_home) -> Path:
+def _home(codex_home: str | os.PathLike[str] | None) -> Path:
     return Path(codex_home) if codex_home else Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex")
 
 
-def _ts(s) -> dt.datetime | None:
+def _ts(s: Any) -> dt.datetime | None:
     try:
         t = dt.datetime.fromisoformat(str(s).replace("Z", "+00:00"))
     except ValueError:
@@ -38,11 +40,11 @@ def _ts(s) -> dt.datetime | None:
     return t if t.tzinfo else t.replace(tzinfo=dt.UTC)
 
 
-def _int(v) -> int:
+def _int(v: Any) -> int:
     return v if isinstance(v, int) and not isinstance(v, bool) and v >= 0 else 0
 
 
-def _window(rl: dict, minutes: int) -> dict | None:
+def _window(rl: dict[str, Any], minutes: int) -> dict[str, Any] | None:
     for k in ("primary", "secondary"):
         w = rl.get(k)
         if isinstance(w, dict) and w.get("window_minutes") == minutes:
@@ -50,8 +52,8 @@ def _window(rl: dict, minutes: int) -> dict | None:
     return None
 
 
-def _limits(ts: dt.datetime, rl: dict) -> dict:
-    def reset(w):
+def _limits(ts: dt.datetime, rl: dict[str, Any]) -> dict[str, Any]:
+    def reset(w: dict[str, Any] | None) -> str | None:
         r = w.get("resets_at") if w else None
         return dt.datetime.fromtimestamp(r, dt.UTC).isoformat() if isinstance(r, (int, float)) else None
 
@@ -66,7 +68,7 @@ def _limits(ts: dt.datetime, rl: dict) -> dict:
     }
 
 
-def _files(sessions: Path, since, until):
+def _files(sessions: Path, since: dt.date | None, until: dt.date | None) -> Iterator[Path]:
     for f in sorted(sessions.glob("*/*/*/rollout-*.jsonl")):
         try:
             d = dt.date(int(f.parts[-4]), int(f.parts[-3]), int(f.parts[-2]))
@@ -81,15 +83,15 @@ def read_codex_usage(
     since: dt.date | None = None,
     until: dt.date | None = None,
     *,
-    codex_home=None,
+    codex_home: str | os.PathLike[str] | None = None,
     tz: dt.tzinfo = dt.UTC,
     now: dt.datetime | None = None,
-) -> dict:
+) -> dict[str, Any]:
     home = _home(codex_home)
     sessions = home / "sessions"
     now = now or dt.datetime.now(dt.UTC)
     skipped = Counter(files_unreadable=0, lines_bad=0)
-    out = {
+    out: dict[str, Any] = {
         "source": "codex rollout files",
         "codex_home": str(home),
         "as_of": now.isoformat().replace("+00:00", "Z"),
@@ -102,9 +104,12 @@ def read_codex_usage(
     }
     if not sessions.is_dir():
         return out
-    records, seen, newest = [], set(), {}
+    records: list[Any] = []
+    seen: set[Any] = set()
+    newest: dict[str, Any] = {}
     for f in _files(sessions, since, until):
-        models, recs = {}, []
+        models: dict[Any, str] = {}
+        recs: list[Any] = []
         try:
             with f.open(encoding="utf-8", errors="replace") as fh:
                 for line in fh:
@@ -137,7 +142,7 @@ def read_codex_usage(
                     continue
                 seen.add(key)
             records.append((ts, p.get("thread_id"), p.get("turn_id"), models.get(p.get("turn_id"), "unknown"), u))
-    days: dict[str, dict] = {}
+    days: dict[str, dict[str, Any]] = {}
     for ts, thread, turn, model, u in records:
         day = ts.astimezone(tz).date()
         if since and day < since or until and day > until:
@@ -174,7 +179,7 @@ def read_codex_usage(
     return out
 
 
-def main(argv=None) -> int:
+def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="Print codex usage from rollout files as JSON (read-only).")
     ap.add_argument("--since", type=dt.date.fromisoformat)
     ap.add_argument("--until", type=dt.date.fromisoformat)
