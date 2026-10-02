@@ -427,6 +427,10 @@ class UsageOut(BaseModel):
     key_id: str
     org_id: str
     calls_since_process_start: int
+    #: Persistent (survives restart): analyse-facts calls admitted for this key (including those that
+    #: then failed), and `failed`, the 503s among them. A call refused with 429 is in neither.
+    calls: int = 0
+    failed: int = 0
 
 
 _logger = logging.getLogger(__name__)
@@ -657,6 +661,12 @@ def build_partner_router(
     # regardless of what the source dict contained. Safe for every other field: each of those is always
     # present as an explicit key in `body` (even when its value is None, e.g. `fact_id`), and a key that IS
     # present counts as "set" for exclude_unset's purposes, so nothing else in the response shape changes.
+    def _record_usage(key_id: str, *, failed: bool = False) -> None:
+        try:
+            tenancy.record_usage(engine_root, key_id, failed=failed)
+        except OSError:
+            _logger.exception("usage metering write failed for key %s", key_id)
+
     @router.post("/analyse-facts", response_model=AnalyseFactsResponse, response_model_exclude_unset=True)
     def analyse_facts_ep(
         req: AnalyseFactsRequest,
@@ -670,6 +680,24 @@ def build_partner_router(
             "authenticated caller (Supabase session or org API key) always gets these fields regardless of "
             "this flag or the deployment gate.",
         ),
+    ) -> dict[str, Any] | JSONResponse:
+        metered: list[str] = []
+        try:
+            out = _analyse_facts(req, request, user, debug_second_judge, metered)
+        except HTTPException as e:
+            if metered and e.status_code == 503:
+                _record_usage(metered[0], failed=True)
+            raise
+        if metered and isinstance(out, JSONResponse) and out.status_code == 503:
+            _record_usage(metered[0], failed=True)
+        return out
+
+    def _analyse_facts(
+        req: AnalyseFactsRequest,
+        request: Request,
+        user: User | None,
+        debug_second_judge: bool,
+        metered: list[str],
     ) -> dict[str, Any] | JSONResponse:
         try:
             cfg, rate_limiter, concurrency, _provision_rate_limiter, _breaker = _get_state()
@@ -694,6 +722,19 @@ def build_partner_router(
                 content={"detail": "rate limit exceeded"},
                 headers={"Retry-After": str(rate_limiter.retry_after_seconds())},
             )
+        if principal is not None:
+            key = next((k for k in tenancy.keys_for_org(engine_root, principal.org_id)
+                        if k.key_id == principal.key_id), None)
+            if key is None:
+                raise HTTPException(401, "Invalid or revoked API key")
+            if not _key_rate_limiter.allow(key.key_id, key.rate_limit_per_minute):
+                return JSONResponse(
+                    status_code=429,
+                    content={"detail": "rate limit exceeded"},
+                    headers={"Retry-After": str(_key_rate_limiter.retry_after_seconds())},
+                )
+            metered.append(key.key_id)
+            _record_usage(key.key_id)
         if not any(f.strip() for f in req.facts):
             raise HTTPException(422, "at least one non-empty fact is required")
         for f in req.facts:
@@ -849,10 +890,13 @@ def build_partner_router(
                 content={"detail": "rate limit exceeded"},
                 headers={"Retry-After": str(_key_rate_limiter.retry_after_seconds())},
             )
+        calls, failed = tenancy.usage_counts(engine_root, key.key_id)
         return UsageOut(
             key_id=key.key_id,
             org_id=key.org_id,
             calls_since_process_start=_key_rate_limiter.usage_total(key.key_id),
+            calls=calls,
+            failed=failed,
         ).model_dump()
 
     return router
