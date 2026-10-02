@@ -20,7 +20,15 @@ REPO = Path(__file__).resolve().parent.parent
 
 CFG = {
     "max_age_min": {"codex": 60, "claude": 30},
-    "codex": {"weekly_max_pct": 60, "five_hour_max_pct": 70},
+    "codex": {
+        "weekly_max_pct": 60,
+        "five_hour_max_pct": 70,
+        "refresh_margin_pp": 5,
+        "refresh_min_interval_min": 60,
+        "refresh_timeout_s": 10,
+        "refresh_prompt": "constructed refresh prompt",
+        "refresh_state_file": "refresh_state.json",
+    },
     "claude": {
         "seat_key": "Claude-Axismeru",
         "weekly_max_pct": 60,
@@ -74,6 +82,7 @@ def root(tmp_path):
     (tmp_path / "configs").mkdir()
     cfg = json.loads(json.dumps(CFG))
     cfg["claude"]["usage_file"] = str(tmp_path / "claude_usage.json")
+    cfg["codex"]["refresh_state_file"] = str(tmp_path / "refresh_state.json")
     (tmp_path / "configs" / "usage_gate.yaml").write_text(yaml.safe_dump(cfg))
     return tmp_path
 
@@ -109,7 +118,7 @@ class TestCodexGate:
         assert usage_gate.gate_reading("codex", root, now=NOW)["passed"]
 
     def test_stale_reading_refuses_fail_closed(self, root, monkeypatch):
-        _codex(monkeypatch, codex_reading(weekly=10.0, age=61))
+        _codex(monkeypatch, codex_reading(weekly=58.0, age=61))
         with pytest.raises(usage_gate.UsageGateRefused, match="older than 60 min"):
             usage_gate.gate_reading("codex", root, now=NOW)
 
@@ -117,7 +126,7 @@ class TestCodexGate:
         cfg = yaml.safe_load((root / "configs" / "usage_gate.yaml").read_text())
         cfg["max_age_min"]["codex"] = 5
         (root / "configs" / "usage_gate.yaml").write_text(yaml.safe_dump(cfg))
-        _codex(monkeypatch, codex_reading(age=6))
+        _codex(monkeypatch, codex_reading(weekly=58.0, age=6))
         with pytest.raises(usage_gate.UsageGateRefused, match="older than 5 min"):
             usage_gate.gate_reading("codex", root, now=NOW)
 
@@ -137,15 +146,156 @@ class TestCodexGate:
         with pytest.raises(usage_gate.UsageGateRefused, match="missing"):
             usage_gate.gate_reading("codex", root, now=NOW)
 
-    def test_window_reset_since_reading_refuses(self, root, monkeypatch):
-        _codex(monkeypatch, codex_reading(weekly=10.0, age=5, weekly_resets_in_h=-1))
-        with pytest.raises(usage_gate.UsageGateRefused, match="reset"):
-            usage_gate.gate_reading("codex", root, now=NOW)
-
     def test_future_observed_at_refuses(self, root, monkeypatch):
         _codex(monkeypatch, codex_reading(age=-30))
         with pytest.raises(usage_gate.UsageGateRefused, match="future"):
             usage_gate.gate_reading("codex", root, now=NOW)
+
+
+class TestCodexRefresh:
+    """One bounded refresh call (Lead-2, 2 Oct), codex only. `_run_refresh` is stubbed; no CLI runs."""
+
+    @pytest.fixture
+    def refresh(self, monkeypatch):
+        state = {"calls": 0, "next": None}
+
+        def run(cfg):
+            state["calls"] += 1
+            if state["next"] == "boom":
+                raise RuntimeError("codex exited 1")
+            _codex(monkeypatch, state["next"])
+
+        monkeypatch.setattr(usage_gate, "_run_refresh", run)
+        monkeypatch.setattr(usage_gate, "_now", lambda: NOW)
+        return state
+
+    def test_stale_with_last_64_refuses_without_refresh(self, root, monkeypatch, refresh):
+        _codex(monkeypatch, codex_reading(weekly=64.0, age=120))
+        with pytest.raises(usage_gate.UsageGateRefused, match="older than"):
+            usage_gate.gate_reading("codex", root, now=NOW)
+        assert refresh["calls"] == 0
+
+    def test_stale_inside_the_margin_refuses_without_refresh(self, root, monkeypatch, refresh):
+        _codex(monkeypatch, codex_reading(weekly=56.0, age=120))  # 60 - 5 = 55 is the last eligible value
+        with pytest.raises(usage_gate.UsageGateRefused):
+            usage_gate.gate_reading("codex", root, now=NOW)
+        assert refresh["calls"] == 0
+
+    def test_five_hour_inside_the_margin_refuses_without_refresh(self, root, monkeypatch, refresh):
+        _codex(monkeypatch, codex_reading(weekly=10.0, five=66.0, age=120))
+        with pytest.raises(usage_gate.UsageGateRefused):
+            usage_gate.gate_reading("codex", root, now=NOW)
+        assert refresh["calls"] == 0
+
+    def test_stale_with_last_50_refreshes_once_then_passes_on_the_fresh_value(self, root, monkeypatch, refresh):
+        _codex(monkeypatch, codex_reading(weekly=50.0, age=120))
+        refresh["next"] = codex_reading(weekly=52.0, five=8.0, age=0)
+        g = usage_gate.gate_reading("codex", root, now=NOW)
+        assert refresh["calls"] == 1 and g["passed"] and g["weekly_used_pct"] == 52.0
+        r = g["refresh"]
+        assert r["reason"] == "stale" and r["before"]["weekly_used_pct"] == 50.0
+        assert r["after"]["weekly_used_pct"] == 52.0 and r["refreshed_at"].startswith("2026-10-05")
+        assert (root / "refresh_state.json").exists()
+
+    def test_exactly_threshold_minus_margin_is_eligible(self, root, monkeypatch, refresh):
+        _codex(monkeypatch, codex_reading(weekly=55.0, five=65.0, age=120))
+        refresh["next"] = codex_reading(weekly=55.0, age=0)
+        assert usage_gate.gate_reading("codex", root, now=NOW)["refresh"]
+
+    def test_refresh_that_shows_over_the_limit_refuses(self, root, monkeypatch, refresh):
+        _codex(monkeypatch, codex_reading(weekly=50.0, age=120))
+        refresh["next"] = codex_reading(weekly=61.0, age=0)
+        with pytest.raises(usage_gate.UsageGateRefused, match=r"weekly.*61.*60"):
+            usage_gate.gate_reading("codex", root, now=NOW)
+        assert refresh["calls"] == 1
+
+    def test_refresh_that_leaves_the_reading_stale_refuses(self, root, monkeypatch, refresh):
+        _codex(monkeypatch, codex_reading(weekly=50.0, age=120))
+        refresh["next"] = codex_reading(weekly=50.0, age=120)
+        with pytest.raises(usage_gate.UsageGateRefused, match="still stale"):
+            usage_gate.gate_reading("codex", root, now=NOW)
+
+    def test_a_failed_refresh_call_refuses_and_still_counts(self, root, monkeypatch, refresh):
+        _codex(monkeypatch, codex_reading(weekly=50.0, age=120))
+        refresh["next"] = "boom"
+        with pytest.raises(usage_gate.UsageGateRefused, match="refresh call failed"):
+            usage_gate.gate_reading("codex", root, now=NOW)
+        with pytest.raises(usage_gate.UsageGateRefused, match="already ran"):
+            usage_gate.gate_reading("codex", root, now=NOW)
+        assert refresh["calls"] == 1
+
+    def test_window_reset_since_the_reading_refreshes_even_from_64(self, root, monkeypatch, refresh):
+        _codex(monkeypatch, codex_reading(weekly=64.0, age=5, weekly_resets_in_h=-1))
+        refresh["next"] = codex_reading(weekly=2.0, age=0)
+        g = usage_gate.gate_reading("codex", root, now=NOW)
+        assert refresh["calls"] == 1 and g["weekly_used_pct"] == 2.0
+        assert g["refresh"]["reason"] == "weekly window reset" and g["refresh"]["before"]["weekly_used_pct"] == 64.0
+
+    def test_a_second_refresh_inside_the_interval_refuses(self, root, monkeypatch, refresh):
+        _codex(monkeypatch, codex_reading(weekly=50.0, age=120))
+        refresh["next"] = codex_reading(weekly=50.0, age=0)
+        usage_gate.gate_reading("codex", root, now=NOW)
+        _codex(monkeypatch, codex_reading(weekly=50.0, age=120))
+        with pytest.raises(usage_gate.UsageGateRefused, match="at most one per 60 min"):
+            usage_gate.gate_reading("codex", root, now=NOW + dt.timedelta(minutes=59))
+        assert refresh["calls"] == 1
+
+    def test_a_refresh_is_allowed_again_after_the_interval(self, root, monkeypatch, refresh):
+        _codex(monkeypatch, codex_reading(weekly=50.0, age=120))
+        refresh["next"] = codex_reading(weekly=50.0, age=0)
+        usage_gate.gate_reading("codex", root, now=NOW)
+        later = NOW + dt.timedelta(minutes=61)
+        monkeypatch.setattr(usage_gate, "_now", lambda: later)
+        _codex(monkeypatch, codex_reading(weekly=50.0, age=120 + 61))
+        refresh["next"] = {
+            **codex_reading(weekly=50.0, age=0),
+            "latest_rate_limits": {**codex_reading(weekly=50.0, age=0)["latest_rate_limits"], "observed_at": later.isoformat()},
+        }
+        usage_gate.gate_reading("codex", root, now=later)
+        assert refresh["calls"] == 2
+
+    def test_the_interval_comes_from_config(self, root, monkeypatch, refresh):
+        cfg = yaml.safe_load((root / "configs" / "usage_gate.yaml").read_text())
+        cfg["codex"]["refresh_min_interval_min"] = 5
+        (root / "configs" / "usage_gate.yaml").write_text(yaml.safe_dump(cfg))
+        (root / "refresh_state.json").write_text(json.dumps({"last_refresh_at": iso(6)}))
+        _codex(monkeypatch, codex_reading(weekly=50.0, age=120))
+        refresh["next"] = codex_reading(weekly=50.0, age=0)
+        assert usage_gate.gate_reading("codex", root, now=NOW)["refresh"]
+
+    def test_corrupt_state_file_refuses_without_refresh(self, root, monkeypatch, refresh):
+        (root / "refresh_state.json").write_text("{nope")
+        _codex(monkeypatch, codex_reading(weekly=50.0, age=120))
+        with pytest.raises(usage_gate.UsageGateRefused, match="unreadable"):
+            usage_gate.gate_reading("codex", root, now=NOW)
+        assert refresh["calls"] == 0
+
+    @pytest.mark.parametrize(
+        "reading",
+        [
+            codex_reading(weekly=10.0, age=120, verified=False),
+            {"verified": True, "latest_rate_limits": None},
+            codex_reading(weekly=None, five=1.0, age=120),
+            codex_reading(weekly=10.0, age=-30),
+        ],
+        ids=["unverified", "no-reading", "missing-percentage", "future"],
+    )
+    def test_never_refreshes_on_an_unverified_or_corrupt_reading(self, root, monkeypatch, refresh, reading):
+        _codex(monkeypatch, reading)
+        with pytest.raises(usage_gate.UsageGateRefused):
+            usage_gate.gate_reading("codex", root, now=NOW)
+        assert refresh["calls"] == 0
+
+    def test_a_fresh_passing_reading_never_refreshes(self, root, monkeypatch, refresh):
+        _codex(monkeypatch, codex_reading(weekly=10.0, age=5))
+        assert "refresh" not in usage_gate.gate_reading("codex", root, now=NOW)
+        assert refresh["calls"] == 0
+
+    def test_claude_is_never_refreshed(self, root, monkeypatch, refresh):
+        claude_file(root, weekly=10.0, age=120)
+        with pytest.raises(usage_gate.UsageGateRefused, match="older than 30 min"):
+            usage_gate.gate_reading("claude", root, now=NOW)
+        assert refresh["calls"] == 0
 
 
 class TestClaudeGate:
@@ -206,6 +356,7 @@ class TestConfig:
         for kind in ("codex", "claude"):
             assert cfg[kind]["weekly_max_pct"] == 60 and cfg[kind]["five_hour_max_pct"] == 70
             assert cfg["max_age_min"][kind] > 0
+        assert cfg["codex"]["refresh_margin_pp"] == 5 and cfg["codex"]["refresh_min_interval_min"] == 60
         assert cfg["claude"]["seat_key"] == "Claude-Axismeru"  # seat 2 in claude_usage.json (sharath.sathish)
 
 

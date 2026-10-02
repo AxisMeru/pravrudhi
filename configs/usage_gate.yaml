@@ -12,6 +12,16 @@ max_age_min:
 codex:
   weekly_max_pct: 60
   five_hour_max_pct: 70
+  # Bounded refresh: when the codex reading is ONLY stale (or its weekly window reset since) and both windows were at
+  # least `refresh_margin_pp` under their thresholds (a reset waives the margin), `ask_vendor` makes ONE minimal
+  # codex call with `refresh_prompt` (answer discarded) and re-reads the gate; it proceeds only if the fresh reading
+  # passes. At most one per `refresh_min_interval_min`, tracked in `refresh_state_file`. Never on an unverified,
+  # missing, corrupt or future reading. Claude has no refresh: its collector goes unverified, never silently stale.
+  refresh_margin_pp: 5
+  refresh_min_interval_min: 60
+  refresh_timeout_s: 120
+  refresh_prompt: "Reply with the single word: ok"
+  refresh_state_file: ~/.local/state/pravrudhi/codex_usage_gate_refresh.json
 claude:
   seat_key: Claude-Axismeru
   weekly_max_pct: 60
