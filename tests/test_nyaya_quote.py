@@ -13,6 +13,8 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
+
 from pravrudhi.application.nyaya_quote import check_judgment, locate_quote
 
 FACTS = {
@@ -72,6 +74,13 @@ class TestLocateQuote:
     def test_empty_quote_is_rejected_not_found_at_zero(self) -> None:
         """`str.find("")` is 0 -- an empty quote would otherwise 'match' every fact."""
         assert locate_quote(FACTS, fact_id="F1", quote="").reason == "empty_quote"
+
+    @pytest.mark.parametrize("quote", [" ", "   ", "\t", "\n", "\u00a0", " \n "])
+    def test_whitespace_only_quote_is_empty_not_evidence(self, quote: str) -> None:
+        """A blank quote carries no content: a single space is a substring of every multi-word fact."""
+        facts = {"F1": "Arun married Bela\u00a0 and\tleft.\n"}
+        loc = locate_quote(facts, fact_id="F1", quote=quote)
+        assert not loc.valid and loc.reason == "empty_quote"
 
 
 class TestCheckJudgment:

@@ -21,6 +21,7 @@ from pravrudhi.application.nyaya_judges import (
     JudgeOutputError,
     JudgeRequest,
     build_house_prompt,
+    check_prompt_template,
     parse_house_fact_id,
 )
 from pravrudhi.application.typed.decoder import DecodeError, TypedDecoder, check_label_mass, score_decision
@@ -48,18 +49,20 @@ class TypedHouseJudge:
         max_tokens: int = 30,
         top_logprobs: int = 20,
         label_mass_floor: float = LABEL_MASS_FLOOR,
+        prompt_template: str = "legacy",
     ) -> None:
         if not (isinstance(label_mass_floor, (int, float)) and 0.0 <= label_mass_floor <= 1.0):
             raise ValueError(f"label_mass_floor must be a number in [0, 1], got {label_mass_floor!r}")
         self.label_mass_floor = float(label_mass_floor)
         self.tau = tau
+        self.prompt_template = check_prompt_template(prompt_template)
         self.statute_chars = statute_chars
         self.decoder = decoder
         self.max_tokens = max_tokens
         self.top_logprobs = top_logprobs
 
     def judge(self, request: JudgeRequest) -> ElementJudgment:
-        prompt = build_house_prompt(request, statute_chars=self.statute_chars)
+        prompt = build_house_prompt(request, statute_chars=self.statute_chars, prompt_template=self.prompt_template)
         res = self.decoder.complete(prompt, max_tokens=self.max_tokens, temperature=0.0, logprobs=self.top_logprobs)
         try:
             scores, missing = score_decision(res, _STATUS_FIELD)
