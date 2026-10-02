@@ -1,0 +1,3 @@
+# One `Name <email>` per line. The commit-msg hook requires the author AND the committer to be listed.
+# External contributors are added here by PR, with Lead-2 approval.
+SharathSPhD <admin@axismeru.com>
