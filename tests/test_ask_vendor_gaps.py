@@ -324,7 +324,7 @@ def _rollout(home, thread_id, model, *, day="2026/10/02"):
     (d / f"rollout-2026-10-02T13-57-06-{thread_id}.jsonl").write_text("\n".join(json.dumps(x) for x in lines))
 
 
-TID = "01a0fcb0-974b-7080-a4fe-f8bf6f3a4e23"
+TID = "00000000-0000-4000-8000-000000000010"
 
 
 class TestCodexModelIdFromRollout:

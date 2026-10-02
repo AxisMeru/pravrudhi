@@ -6,7 +6,7 @@
   "--skip-git-repo-check",
   "--json"
  ],
- "stdout": "{\"type\":\"thread.started\",\"thread_id\":\"01a0fcb1-429a-72c3-bfb0-ca1db72569b9\"}\n{\"type\":\"turn.started\"}\n{\"type\":\"item.completed\",\"item\":{\"id\":\"item_0\",\"type\":\"agent_message\",\"text\":\"pong\"}}\n{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":14098,\"cached_input_tokens\":12160,\"cache_write_input_tokens\":0,\"output_tokens\":5,\"reasoning_output_tokens\":0}}\n",
+ "stdout": "{\"type\":\"thread.started\",\"thread_id\":\"00000000-0000-4000-8000-000000000008\"}\n{\"type\":\"turn.started\"}\n{\"type\":\"item.completed\",\"item\":{\"id\":\"item_0\",\"type\":\"agent_message\",\"text\":\"pong\"}}\n{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":14098,\"cached_input_tokens\":12160,\"cache_write_input_tokens\":0,\"output_tokens\":5,\"reasoning_output_tokens\":0}}\n",
  "rollout_turn_context_trimmed": {
   "type": "turn_context",
   "payload": {
