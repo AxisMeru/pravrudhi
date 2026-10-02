@@ -11,12 +11,15 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 import pytest
 import yaml
 
 from pravrudhi.agents import account
 from pravrudhi.application import availability
+
+REPO = Path(__file__).resolve().parent.parent
 
 
 @pytest.fixture(autouse=True)
@@ -385,3 +388,153 @@ class TestClaudeEnvIsTheScriptedSeatZero:
         monkeypatch.setenv(account.SCRIPTED_CLAUDE_HOME_ENV, str(home))
         assert account.claude_env()["CLAUDE_CONFIG_DIR"] == str(home)
         del root  # registry exists only to prove it is ignored
+
+
+def _seat_with_activation(root: Path, tmp_path: Path) -> Path:
+    """A two-seat registry matching the real v2 shape: primary always eligible, fallback gated on
+    `SeatActivation` (primary's own 5h reading and fallback's own weekly reading)."""
+    _seat_dir(tmp_path / "primary", email="one@example.com", refresh="r-one")
+    _seat_dir(tmp_path / "fallback", email="two@example.com", refresh="r-two")
+    (root / "configs").mkdir(parents=True, exist_ok=True)
+    (root / "configs" / "seats.yaml").write_text(yaml.safe_dump({
+        "version": 2,
+        "seats": [
+            {"id": "primary", "email": "one@example.com", "config_dir": str(tmp_path / "primary")},
+            {
+                "id": "fallback", "email": "two@example.com", "config_dir": str(tmp_path / "fallback"),
+                "activation": {
+                    "depends_on_seat": "primary",
+                    "other_seat_5h_pct_at_least": 90,
+                    "self_weekly_pct_below": 80,
+                },
+            },
+        ],
+    }))
+    return root
+
+
+def _write_usage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, usage: dict[str, Any]) -> None:
+    path = tmp_path / "seat-usage.json"
+    path.write_text(json.dumps(usage))
+    monkeypatch.setenv(account.SEAT_USAGE_FILE_ENV, str(path))
+
+
+class TestFallbackSeatActivation:
+    """Lead-2, 2026-09-27: seat 2 is genuine overflow, never a default -- reachable only while seat 0 (here,
+    the test's `primary`) is running hot AND seat 2 itself has weekly headroom left. Fails CLOSED on missing
+    usage data: a watchdog outage must never look like permission to spend the reserve."""
+
+    def _root(self, tmp_path: Path) -> Path:
+        root = tmp_path / "repo"
+        root.mkdir()
+        return _seat_with_activation(root, tmp_path)
+
+    def test_primary_is_chosen_while_it_can_serve_regardless_of_usage_data(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        root = self._root(tmp_path)
+        monkeypatch.delenv(account.SEAT_USAGE_FILE_ENV, raising=False)
+        chosen = account.select_seat(root)
+        assert chosen is not None and chosen.id == "primary"
+
+    def test_fallback_is_never_offered_with_no_usage_data_at_all(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Fail closed: primary unprovisioned (cannot serve) and no usage file at all -- a real watchdog
+        outage -- must resolve to NO seat, never a silent fall back to seat 2."""
+        root = self._root(tmp_path)
+        (tmp_path / "primary" / ".credentials.json").unlink()
+        monkeypatch.delenv(account.SEAT_USAGE_FILE_ENV, raising=False)
+        assert account.select_seat(root) is None
+
+    def test_fallback_is_offered_when_the_gate_is_met(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        root = self._root(tmp_path)
+        (tmp_path / "primary" / ".credentials.json").unlink()  # primary itself cannot serve
+        _write_usage(tmp_path, monkeypatch, {
+            "primary": {"five_hour_pct": 91}, "fallback": {"weekly_pct": 40},
+        })
+        chosen = account.select_seat(root)
+        assert chosen is not None and chosen.id == "fallback"
+
+    def test_fallback_is_refused_when_primary_is_not_actually_hot(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        root = self._root(tmp_path)
+        (tmp_path / "primary" / ".credentials.json").unlink()
+        _write_usage(tmp_path, monkeypatch, {
+            "primary": {"five_hour_pct": 50}, "fallback": {"weekly_pct": 40},
+        })
+        assert account.select_seat(root) is None
+
+    def test_fallback_is_refused_when_its_own_weekly_usage_is_too_high(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Spending the reserve into its own limit would just move the problem, not solve it."""
+        root = self._root(tmp_path)
+        (tmp_path / "primary" / ".credentials.json").unlink()
+        _write_usage(tmp_path, monkeypatch, {
+            "primary": {"five_hour_pct": 95}, "fallback": {"weekly_pct": 85},
+        })
+        assert account.select_seat(root) is None
+
+    def test_fallback_is_refused_when_only_half_the_usage_data_is_present(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        root = self._root(tmp_path)
+        (tmp_path / "primary" / ".credentials.json").unlink()
+        _write_usage(tmp_path, monkeypatch, {"primary": {"five_hour_pct": 95}})  # fallback's own reading missing
+        assert account.select_seat(root) is None
+
+    def test_fallback_still_needs_its_own_credential_even_when_the_gate_is_met(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        root = self._root(tmp_path)
+        (tmp_path / "primary" / ".credentials.json").unlink()
+        (tmp_path / "fallback" / ".credentials.json").unlink()
+        _write_usage(tmp_path, monkeypatch, {
+            "primary": {"five_hour_pct": 95}, "fallback": {"weekly_pct": 40},
+        })
+        assert account.select_seat(root) is None
+
+
+class TestSelectSeatVerifiesTheAccountEmail:
+    """Issue #82/#83's verification, reused rather than restated (Lead-2, 2026-09-27): a live token in a
+    seat's directory is not enough -- it must belong to the account THAT SEAT declares."""
+
+    def test_a_seat_whose_cached_profile_names_a_different_account_is_skipped(
+        self, tmp_path: Path
+    ) -> None:
+        root = _two_seats(tmp_path)
+        _seat_dir(tmp_path / "primary", email="someone-else@example.com", refresh="r-one")
+        chosen = account.select_seat(root)
+        assert chosen is not None and chosen.id == "fallback"
+
+    def test_a_seat_with_no_cached_profile_yet_is_still_chosen(self, tmp_path: Path) -> None:
+        """Same discipline as `claude_env`'s own check: no `.claude.json` yet is not a mismatch, since there
+        is nothing recorded to disagree with the declared account."""
+        root = _two_seats(tmp_path)
+        (tmp_path / "primary" / ".claude.json").unlink()
+        chosen = account.select_seat(root)
+        assert chosen is not None and chosen.id == "primary"
+
+
+class TestShippedSeatsRegistry:
+    """The real `configs/seats.yaml` this project ships, pinned so a hand-edit cannot silently reintroduce
+    seat 2 as a default or bring claude-admin back into automated dispatch (Lead-2, 2026-09-27)."""
+
+    def test_primary_is_the_seat_zero_colab_account(self) -> None:
+        declared = account.seats(REPO)
+        assert declared[0].id == "primary"
+        assert declared[0].email == "sharath.ai.colab@gmail.com"
+        assert declared[0].activation is None
+
+    def test_fallback_is_seat_two_gated_never_a_default(self) -> None:
+        declared = account.seats(REPO)
+        fallback = next(s for s in declared if s.id == "fallback")
+        assert fallback.email == "sharath.sathish@gmail.com"
+        assert fallback.activation == account.SeatActivation(
+            depends_on_seat="primary", other_seat_5h_pct_at_least=90, self_weekly_pct_below=80,
+        )
+
+    def test_claude_admin_is_not_in_the_registry_at_all(self) -> None:
+        assert all(s.email != "admin@axismeru.com" for s in account.seats(REPO))

@@ -1,43 +1,49 @@
 # Which Claude seat the command line spends, and what happens when it stops being spendable.
 #
-# Operator instruction, 2026-09-11: *"admin@axismeru.com will be always available the other seat may drop on
-# and off....always use the other seat (sharath.sathish@gmail.com) for the cli to balance the usage load..if
-# it drops off the premium and cli returns error/something else enable the router/config to automatically
-# switch to admin account (but it should not use admin cli account if the other seat is active)"*.
+# v2 (Lead-2, 2026-09-27): TEAM-RULES.md's own Claude usage cost rules (2026-09-26) settled which seat every
+# scripted or agentic dispatch spends by default -- seat 0 (sharath.ai.colab@gmail.com), never seat 2
+# (sathish, the operator's personal-domain team seat) as a default, and seat 1 (admin@axismeru.com) never at
+# all for automated/agentic dispatch (it is the lead seats' own login, out of this registry entirely now).
 #
-# `account.py` already pinned CLAUDE_CONFIG_DIR so an invocation could not pick up an account by accident.
-# That settled WHICH account, on the assumption there was one. There are two, they are not interchangeable,
-# and the instruction gives them an order: spend the seat that comes and goes while it is there, and keep the
-# one that is always there in reserve. A seat is therefore no longer a constant in a module; it is a list with
-# a precedence, which is what this file is.
+# Seat 2 stays available as GENUINE OVERFLOW ONLY: this project may still spend it, but only while seat 0 is
+# running hot AND seat 2 itself has real headroom left -- see `fallback`'s own `activation` block and
+# `account.SeatActivation`'s docstring. Absent live usage data, the fallback is NEVER offered (fail closed --
+# `account._activation_met`), so a watchdog outage means "seat 0 or nothing", never "silently spend seat 2".
 #
 # ORDER IN THIS LIST IS THE PRECEDENCE. First entry is tried first. There is no `priority:` integer on
 # purpose -- two entries can be given the same integer and then the order is whatever the YAML loader did,
 # which is exactly the kind of "depending on" the account module was written to eliminate.
 #
-# A seat is skipped ONLY when it cannot serve: no credential in its directory, or it is inside a usage-limit
-# cooldown. An ordinary failure does NOT advance to the next seat -- a prompt the model botched will be
+# A seat is skipped for four reasons (`account.select_seat`): no credential in its directory; it is inside a
+# usage-limit cooldown; its cached profile names a different account than its own declared `email` below
+# (issue #82/#83's verification, reused here); or (fallback only) its `activation` condition does not
+# currently hold. An ordinary failure does NOT advance to the next seat -- a prompt the model botched will be
 # botched by the reserve seat too, and spending the always-available account on it is the opposite of
 # balancing load. That distinction is `availability.classify`'s, and it is made there rather than here.
-version: 1
-updated: 2026-09-11
+version: 2
+updated: 2026-09-27
 
 seats:
-  # The seat to spend. A second premium seat on the same Axis Meru team plan, held so that CLI load does not
-  # all land on one account. It is the one the operator describes as dropping on and off premium, so it is
-  # also the one the failover below exists for.
+  # The seat every scripted and agentic dispatch spends by default (TEAM-RULES.md, 2026-09-26). Always
+  # eligible once provisioned and not cooling -- no `activation` block, same as every seat before this
+  # feature.
   - id: primary
+    email: sharath.ai.colab@gmail.com
+    config_dir: ~/.config/pravrudhi/claude-colab
+
+  # Genuine overflow, not a default: a second premium seat on the same Axis Meru team plan, held so seat 0's
+  # own 5-hour window running hot does not stall dispatch entirely. Reachable ONLY while seat 0 is at or above
+  # 90% on its rolling 5-hour usage AND this seat's own weekly usage is still under 80% -- spending the
+  # reserve into its own limit would just move the problem, not solve it. NEVER offered as a plain default,
+  # and never chosen ahead of seat 0 while seat 0 can still serve.
+  - id: fallback
     email: sharath.sathish@gmail.com
     config_dir: ~/.claude
+    activation:
+      depends_on_seat: primary
+      other_seat_5h_pct_at_least: 90
+      self_weekly_pct_below: 80
 
-  # The reserve. Always available, and therefore never chosen while `primary` can serve -- if this were tried
-  # first it would absorb the whole load and the instruction would be inverted. It is the desktop app's login
-  # as well, which is a further reason not to spend it on the loop's behalf without cause.
-  #
-  # Provisioned 2026-09-11 by the operator, in its own directory and its own browser session. The two seats
-  # hold genuinely independent credentials -- distinct refresh tokens, and `claude auth status --json`
-  # reports each directory separately -- so logging this one in did not sign the other out, which is the
-  # property the whole CLAUDE_CONFIG_DIR arrangement exists to hold.
-  - id: fallback
-    email: admin@axismeru.com
-    config_dir: ~/.config/pravrudhi/claude-admin
+  # claude-admin (admin@axismeru.com) is DELIBERATELY not in this registry (Lead-2, 2026-09-27): it is the
+  # lead seats' own login, never spent by automated or agentic dispatch. It was the reserve here under the
+  # 2026-09-11 two-seat design, superseded by seat 0's introduction.
