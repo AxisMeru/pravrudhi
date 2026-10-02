@@ -23,8 +23,12 @@ from pravrudhi.application import panel
 
 def _env(result="ANSWER: A", models=None, cost=0.0123, is_error=False):
     models = models if models is not None else {"claude-sonnet-5": {"outputTokens": 4}}
-    d = {"result": result, "is_error": is_error, "modelUsage": models,
-         "usage": {"input_tokens": 2, "output_tokens": 4, "cache_read_input_tokens": 10, "cache_creation_input_tokens": 20}}
+    d = {
+        "result": result,
+        "is_error": is_error,
+        "modelUsage": models,
+        "usage": {"input_tokens": 2, "output_tokens": 4, "cache_read_input_tokens": 10, "cache_creation_input_tokens": 20},
+    }
     if cost is not None:
         d["total_cost_usd"] = cost
     return json.dumps(d)
@@ -145,14 +149,27 @@ class TestSlimFlagsEnforced:
 
     def test_slim_flag_set_is_exactly_the_house_rule(self):
         assert panel.CLAUDE_CLI_SLIM_FLAGS == (
-            "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}',
-            "--setting-sources", "", "--disable-slash-commands", "--tools", "")
+            "--strict-mcp-config",
+            "--mcp-config",
+            '{"mcpServers":{}}',
+            "--setting-sources",
+            "",
+            "--disable-slash-commands",
+            "--tools",
+            "",
+        )
 
 
 class TestQuotaTextIsAnError:
-    @pytest.mark.parametrize("notice", [
-        "You've hit your session limit. Resets 9pm.", "Claude usage limit reached", "Rate limit exceeded, try again later",
-        "You're out of extra usage"])
+    @pytest.mark.parametrize(
+        "notice",
+        [
+            "You've hit your session limit. Resets 9pm.",
+            "Claude usage limit reached",
+            "Rate limit exceeded, try again later",
+            "You're out of extra usage",
+        ],
+    )
     def test_quota_notice_in_a_zero_exit_result_is_an_error(self, seat, monkeypatch, notice):
         with pytest.raises(RuntimeError, match="quota/limit notice"):
             _ask_claude(monkeypatch, _env(result=notice))
@@ -213,16 +230,19 @@ class TestSeatAssert:
         assert seen["env"]["CLAUDE_CONFIG_DIR"] == "/x/loop"
 
     def test_unparseable_auth_status_is_none_and_so_refused(self, monkeypatch):
-        monkeypatch.setattr(panel.subprocess, "run",
-                            lambda cmd, **kw: subprocess.CompletedProcess(cmd, 1, stdout="not json", stderr=""))
+        monkeypatch.setattr(
+            panel.subprocess, "run", lambda cmd, **kw: subprocess.CompletedProcess(cmd, 1, stdout="not json", stderr="")
+        )
         assert panel._claude_auth_email({}) is None
 
 
 #: CONSTRUCTED. `agent_message`/`turn.completed` follow the recorded stream; where the model id sits is a guess.
 def _stream(*, text="ANSWER: A", model=None, model_in="thread.started", extra=()):
-    ev = [{"type": "thread.started", "thread_id": "th_1"},
-          {"type": "item.completed", "item": {"type": "agent_message", "text": text}},
-          {"type": "turn.completed", "usage": {"input_tokens": 15296, "cached_input_tokens": 12160, "output_tokens": 5}}]
+    ev = [
+        {"type": "thread.started", "thread_id": "th_1"},
+        {"type": "item.completed", "item": {"type": "agent_message", "text": text}},
+        {"type": "turn.completed", "usage": {"input_tokens": 15296, "cached_input_tokens": 12160, "output_tokens": 5}},
+    ]
     if model:
         ev[0 if model_in == "thread.started" else 2]["model"] = model
     return "\n".join(json.dumps(e) for e in [*ev, *extra])
@@ -300,8 +320,7 @@ def _recorded(name):
 def _rollout(home, thread_id, model, *, day="2026/10/02"):
     d = home / "sessions" / day
     d.mkdir(parents=True, exist_ok=True)
-    lines = [{"type": "session_meta", "payload": {"id": thread_id}},
-             {"type": "turn_context", "payload": {"model": model}}]
+    lines = [{"type": "session_meta", "payload": {"id": thread_id}}, {"type": "turn_context", "payload": {"model": model}}]
     (d / f"rollout-2026-10-02T13-57-06-{thread_id}.jsonl").write_text("\n".join(json.dumps(x) for x in lines))
 
 
