@@ -91,4 +91,49 @@ def test_the_shipped_config_default_is_legacy() -> None:
 
     path = Path(nyaya_agent.__file__).parents[3] / "configs" / "nyaya_agent.yaml"
     cfg = yaml.safe_load(path.read_text())
-    assert cfg["house_judge"]["prompt_template"] == "legacy"
+    assert "prompt_template" not in cfg["house_judge"]
+
+
+def _body_cfg(tmp_path, extra: str, house_extra: str = ""):
+    from pathlib import Path
+
+    import yaml
+
+    from pravrudhi.application import nyaya_agent
+
+    path = Path(nyaya_agent.__file__).parents[3] / "configs" / "nyaya_agent.yaml"
+    body = yaml.safe_load(path.read_text())
+    body.update(yaml.safe_load(extra) or {})
+    body["house_judge"].update(yaml.safe_load(house_extra) or {})
+    root = tmp_path / "root"
+    (root / "configs").mkdir(parents=True)
+    (root / "configs" / "nyaya_agent.yaml").write_text(yaml.safe_dump(body))
+    return nyaya_agent, root
+
+
+def test_shipped_judge_prompt_flag_is_false_and_prompt_is_the_legacy_bytes(tmp_path) -> None:
+    from pathlib import Path
+
+    import yaml
+
+    from pravrudhi.application import nyaya_agent
+
+    path = Path(nyaya_agent.__file__).parents[3] / "configs" / "nyaya_agent.yaml"
+    assert yaml.safe_load(path.read_text())["judge_prompt"] == {"standard_line": False}
+    mod, root = _body_cfg(tmp_path, "")
+    hj = mod.load_agent_config(root).house_judge
+    assert hj["prompt_template"] == "legacy"
+    assert build_house_prompt(_req("quash"), statute_chars=600, prompt_template=hj["prompt_template"]) == build_house_prompt(
+        _req("quash"), statute_chars=600
+    )
+
+
+def test_the_flag_alone_selects_the_standard_line_template(tmp_path) -> None:
+    mod, root = _body_cfg(tmp_path, "judge_prompt: {standard_line: true}")
+    assert mod.load_agent_config(root).house_judge["prompt_template"] == "standard_line_v1"
+
+
+def test_a_conflicting_explicit_prompt_template_is_refused(tmp_path) -> None:
+    mod, root = _body_cfg(tmp_path, "", "prompt_template: standard_line_v1")
+    with pytest.raises(ValueError, match="judge_prompt.standard_line"):
+        mod.load_agent_config(root)
