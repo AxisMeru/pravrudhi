@@ -502,14 +502,43 @@ def _cost(value: Any) -> float | None:
 _CODEX_TEXT_ITEMS = ("agent_message", "assistant_message")
 
 
+def _codex_rollout_models(thread_id: Any) -> set[str]:
+    """The model id(s) on the `turn_context` lines of this thread's codex rollout file; empty if not found."""
+    import glob
+
+    if not isinstance(thread_id, str) or not re.fullmatch(r"[0-9a-fA-F-]{8,64}", thread_id):
+        return set()
+    home = Path(os.environ.get("CODEX_HOME") or "~/.codex").expanduser()
+    models: set[str] = set()
+    for path in glob.glob(str(home / "sessions" / "*" / "*" / "*" / f"rollout-*-{thread_id}.jsonl")):
+        try:
+            with open(path, encoding="utf-8") as fh:
+                for line in fh:
+                    if '"turn_context"' not in line:
+                        continue
+                    try:
+                        ev = json.loads(line)
+                    except ValueError:
+                        continue
+                    m = (ev.get("payload") or {}).get("model") if ev.get("type") == "turn_context" else None
+                    if isinstance(m, str) and m:
+                        models.add(m)
+        except OSError:
+            continue
+    return models
+
+
 def _codex_answer(vendor: Vendor, model: str, out: str, wall: float) -> Answer:
     """Parse a `codex exec --json` event stream into an Answer, or raise.
 
-    The answer is the last completed agent message; the model id is whatever the stream reports under a `model`
-    key (the exact event is unverified until the pre-registered 25-call probe, so any event may carry it, and a
-    stream naming two different ids is an error). With `params["codex_model"]` pinned the stream MUST report
-    that id: absence is an error, not a pass. A quota/limit notice, an `error`/`turn.failed` event, or an empty
-    answer is an ERROR. No cost field exists in the stream, so `cost_usd` stays None ("unobserved").
+    The answer is the last completed agent message. OBSERVED 2026-10-02 (codex-cli 0.153.4): the `--json` stream
+    (thread.started, turn.started, item.completed/agent_message, turn.completed) carries NO model id. The id is
+    in codex's own session rollout, `<CODEX_HOME>/sessions/Y/M/D/rollout-<ts>-<thread_id>.jsonl`, on the
+    `turn_context` line's `payload.model`; `thread_id` comes from the stream's `thread.started`. That is the
+    source of `resolved_model`. A `model` key in the stream, if a later codex adds one, must agree with it. With
+    `params["codex_model"]` pinned the resolved id MUST equal it: an unreadable rollout is an error, not a pass.
+    A quota/limit notice, an `error`/`turn.failed` event, or an empty answer is an ERROR.
+    No cost field exists in the stream, so `cost_usd` stays None ("unobserved").
     """
     from pravrudhi.agents.cli_agents import _codex_usage
 
@@ -551,8 +580,11 @@ def _codex_answer(vendor: Vendor, model: str, out: str, wall: float) -> Answer:
                 walk(v)
 
     walk(events)
+    thread_id = next((e.get("thread_id") for e in events if e.get("type") == "thread.started"), None)
+    from_rollout = _codex_rollout_models(thread_id)
+    seen |= from_rollout
     if len(seen) > 1:
-        raise RuntimeError(f"model mismatch: codex stream names several models {sorted(seen)}")
+        raise RuntimeError(f"model mismatch: codex reports several models {sorted(seen)}")
     resolved = next(iter(seen), None)
     pinned = vendor.params.get("codex_model")
     if pinned and resolved != pinned:

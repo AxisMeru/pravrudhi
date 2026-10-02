@@ -1,12 +1,11 @@
 """`panel.ask_vendor` gaps closed before the #306 head-to-head (pravrudhi #206).
 
-Every envelope here is CONSTRUCTED, not recorded: the claude envelope's keys follow the real shape used in
-test_cli_prompt_stdin.py; the codex stream's `agent_message` and `turn.completed` events follow the recorded
-stream in test_astra_cost.py, but the event that carries a codex MODEL ID has never been observed (it is read
-from the live 25-call probe), so the codex model-bearing fixtures below are labelled constructed and the parser
-is deliberately permissive about WHERE the id sits and strict about what it does with it. Nothing here calls a
-live model; `cli_agents._run` and `subprocess.run` are stubbed. This module opts out of the conftest stub of
-`_claude_auth_email` so the real seat check is exercised.
+Envelopes in the first classes are CONSTRUCTED (labelled as such). The codex model id lives in the rollout file,
+not in the --json stream (observed 2026-10-02), so `TestCodexEnvelopeArmD` keeps its stream-key cases as constructed
+forward-compat and `TestCodexModelIdFromRollout` covers the real source. `TestRecordedEnvelopes` replays RECORDED
+envelopes from tests/fixtures/ask_vendor_envelopes (trivial prompts, no eval items). Nothing here calls a live model;
+`cli_agents._run` and `subprocess.run` are stubbed. This module opts out of the conftest stub of `_claude_auth_email`
+so the real seat check is exercised.
 """
 
 from __future__ import annotations
@@ -289,3 +288,82 @@ class TestCodexEnvelopeArmD:
     def test_manifest_records_the_codex_pin(self):
         m = panel.panel_manifest([{"id": "1", "prompt": "p"}], [_codex_vendor(codex_model="gpt-x-1")])
         assert m["vendors"][0]["codex_pinned_model"] == "gpt-x-1"
+
+
+FIXTURES = Path(__file__).parent / "fixtures" / "ask_vendor_envelopes"
+
+
+def _recorded(name):
+    return json.loads((FIXTURES / name).read_text())
+
+
+def _rollout(home, thread_id, model, *, day="2026/10/02"):
+    d = home / "sessions" / day
+    d.mkdir(parents=True, exist_ok=True)
+    lines = [{"type": "session_meta", "payload": {"id": thread_id}},
+             {"type": "turn_context", "payload": {"model": model}}]
+    (d / f"rollout-2026-10-02T13-57-06-{thread_id}.jsonl").write_text("\n".join(json.dumps(x) for x in lines))
+
+
+TID = "01a0fcb0-974b-7080-a4fe-f8bf6f3a4e23"
+
+
+class TestCodexModelIdFromRollout:
+    """The codex --json stream carries no model id (observed 2026-10-02); the id is the rollout's turn_context."""
+
+    def _stream_tid(self, **kw):
+        return _stream(**kw).replace("th_1", TID)
+
+    def test_resolved_model_is_read_from_the_rollout_file(self, monkeypatch, tmp_path):
+        _rollout(tmp_path, TID, "gpt-6-astra")
+        monkeypatch.setenv("CODEX_HOME", str(tmp_path))
+        ans, _ = _ask_codex(monkeypatch, self._stream_tid())
+        assert ans.resolved_model == "gpt-6-astra" and ans.billed_models == ("gpt-6-astra",)
+
+    def test_pin_matching_the_rollout_passes_and_a_different_one_is_an_error(self, monkeypatch, tmp_path):
+        _rollout(tmp_path, TID, "gpt-6-astra")
+        monkeypatch.setenv("CODEX_HOME", str(tmp_path))
+        ans, _ = _ask_codex(monkeypatch, self._stream_tid(), _codex_vendor(codex_model="gpt-6-astra"))
+        assert ans.resolved_model == "gpt-6-astra"
+        with pytest.raises(RuntimeError, match="model mismatch"):
+            _ask_codex(monkeypatch, self._stream_tid(), _codex_vendor(codex_model="gpt-x-1"))
+
+    def test_pin_with_no_rollout_found_is_an_error_not_a_pass(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("CODEX_HOME", str(tmp_path))
+        with pytest.raises(RuntimeError, match="model mismatch"):
+            _ask_codex(monkeypatch, self._stream_tid(), _codex_vendor(codex_model="gpt-6-astra"))
+
+    def test_stream_model_disagreeing_with_rollout_is_an_error(self, monkeypatch, tmp_path):
+        _rollout(tmp_path, TID, "gpt-6-astra")
+        monkeypatch.setenv("CODEX_HOME", str(tmp_path))
+        with pytest.raises(RuntimeError, match="several models"):
+            _ask_codex(monkeypatch, self._stream_tid(model="gpt-y-2"))
+
+    def test_hostile_thread_id_cannot_widen_the_glob(self, monkeypatch, tmp_path):
+        _rollout(tmp_path, TID, "gpt-6-astra")
+        monkeypatch.setenv("CODEX_HOME", str(tmp_path))
+        assert panel._codex_rollout_models("*") == set()
+        assert panel._codex_rollout_models("../../x") == set()
+
+
+class TestRecordedEnvelopes:
+    """RECORDED (not constructed) 2026-10-02 from real trivial-prompt calls; pins the observed shapes."""
+
+    @pytest.mark.parametrize("n", [0, 1, 2])
+    def test_real_claude_envelope_parses(self, seat, monkeypatch, n):
+        rec = _recorded(f"claude_{n}.json")
+        ans, _ = _ask_claude(monkeypatch, rec["stdout"], _claude_vendor(model="claude-sonnet-5"))
+        assert ans.resolved_model == "claude-sonnet-5" and ans.billed_models == ("claude-sonnet-5",)
+        assert ans.cost_usd is not None and ans.cost_usd > 0 and ans.text
+
+    @pytest.mark.parametrize("n", [0, 1, 2])
+    def test_real_codex_stream_has_no_model_and_rollout_supplies_it(self, monkeypatch, tmp_path, n):
+        rec = _recorded(f"codex_{n}.json")
+        kinds = [json.loads(line)["type"] for line in rec["stdout"].splitlines() if line.strip()]
+        assert kinds == ["thread.started", "turn.started", "item.completed", "turn.completed"]
+        assert all('"model"' not in line for line in rec["stdout"].splitlines())
+        tid = json.loads(rec["stdout"].splitlines()[0])["thread_id"]
+        _rollout(tmp_path, tid, rec["rollout_turn_context_trimmed"]["payload"]["model"])
+        monkeypatch.setenv("CODEX_HOME", str(tmp_path))
+        ans, _ = _ask_codex(monkeypatch, rec["stdout"])
+        assert ans.resolved_model == "gpt-6-astra" and ans.cost_usd is None and ans.text
