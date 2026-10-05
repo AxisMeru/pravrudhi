@@ -46,11 +46,13 @@ def _sender(tmp_path: Path, edition: str, monkeypatch: pytest.MonkeyPatch) -> An
     monkeypatch.setenv("PRAVRUDHI_EDITION", edition)
     client = TestClient(create_app(tmp_path), base_url="http://localhost", raise_server_exceptions=False)
 
-    def send(method: str, path: str, token: str | None, body: dict | None) -> int:
+    def send(method: str, path: str, token: str | None, body: dict | None, want_json: bool) -> tuple[int, dict | None]:
         headers = {TOKEN_HEADER: app_token(tmp_path)}
         if token:
             headers["Authorization"] = f"Bearer {token}"
-        return client.request(method, path, headers=headers, json=body).status_code
+        r = client.request(method, path, headers=headers, json=body)
+        parsed = r.json() if want_json and r.headers.get("content-type", "").startswith("application/json") else None
+        return r.status_code, parsed if isinstance(parsed, dict) else None
 
     return send
 
@@ -80,22 +82,83 @@ def test_a_missing_gate_is_reported_as_a_failure(
     assert code == 1 and "FAIL" in out and "POST /api/runs" in out and "FAILED:" in out
 
 
-def test_the_probe_never_sends_the_admin_token_to_a_state_changing_route() -> None:
+def _recording(status: int = 200, body: dict | None = None) -> tuple[list[tuple[str, str, str | None]], Any]:
     sent: list[tuple[str, str, str | None]] = []
 
-    def send(method: str, path: str, token: str | None, body: dict | None) -> int:
+    def send(method: str, path: str, token: str | None, req: dict | None, want_json: bool) -> tuple[int, dict | None]:
         sent.append((method, path, token))
-        return 200
+        return status, body
 
-    probe.run(send, "product", "w", {"admin": "A", "user": "U", "anonymous": None})
+    return sent, send
+
+
+def test_the_probe_never_sends_the_admin_token_to_a_state_changing_route() -> None:
+    sent, send = _recording(200, {"access": "admin"})
+    probe.run(send, "product", "w", {"admin": "A", "user": "U", "anonymous": None}, allow_cli_ask=True)
     assert sent and all(t != "A" for m, _p, t in sent if m != "GET")
     assert [p for m, p, t in sent if t == "A"] == ["/api/me"]  # the admin token only ever reads /api/me
 
 
+def test_the_cli_ask_probes_are_opt_in_and_not_sent_by_default(capsys: pytest.CaptureFixture[str]) -> None:
+    sent, send = _recording()
+    probe.run(send, "product", "w", {"admin": "A", "user": "U", "anonymous": None})
+    assert not [p for _m, p, _t in sent if p.startswith("/api/nyaya/ask")]
+    sent_on, send_on = _recording()
+    probe.run(send_on, "product", "w", {"admin": "A", "user": "U", "anonymous": None}, allow_cli_ask=True)
+    assert len([p for _m, p, _t in sent_on if p.startswith("/api/nyaya/ask")]) == 2
+    # through main: skipped lines are reported as SKIP and do not count
+    probe.main(_env_for("product"), send)
+    out = capsys.readouterr().out
+    assert out.count("SKIP") == 2 and "PROBE_ALLOW_CLI_ASK=1" in out and "(2 skipped)" in out
+
+
+def test_the_default_probes_name_no_workspace_and_use_a_nonexistent_objective() -> None:
+    first = [c for c in probe.checks("product", "w") if not c.opt_in]
+    assert not [c for c in first if "workspace=" in c.path]
+    ghost = next(c for c in first if c.path.endswith("/subagents"))
+    again = next(c for c in probe.checks("product", "w") if c.path.endswith("/subagents"))
+    assert "release-probe-nonexistent-" in ghost.path and ghost.path != again.path  # a fresh unguessable id each run
+
+
+def test_the_admin_token_must_really_be_an_admin_and_the_access_word_is_never_printed(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _sent, member = _recording(200, {"access": "member"})
+    results = probe.run(member, "product", "w", {"admin": "A", "user": "U", "anonymous": None})
+    assert not results[0][2]  # status 200 but not admin: the first check fails
+    _sent2, admin = _recording(200, {"access": "admin"})
+    assert probe.run(admin, "product", "w", {"admin": "A", "user": "U", "anonymous": None})[0][2]
+    probe.main(_env_for("product"), member)
+    assert "member" not in capsys.readouterr().out
+
+
+def test_the_non_admin_must_not_be_reported_as_admin_on_a_product_engine() -> None:
+    _sent, everyone_admin = _recording(200, {"access": "admin"})
+    ran = probe.run(everyone_admin, "product", "w", {"admin": "A", "user": "U", "anonymous": None})
+    results = {c.name: ok for c, _s, ok in ran}
+    assert results["product serves a non-admin /api/me, not as admin"] is False
+
+
+def test_the_report_names_the_target_and_label(capsys: pytest.CaptureFixture[str]) -> None:
+    _sent, send = _recording(200, {"access": "admin"})
+    probe.main({**_env_for("product"), "PROBE_TARGET_LABEL": "worker"}, send)
+    first = capsys.readouterr().out.splitlines()[0]
+    assert first == "target: https://engine.example.test (worker), edition product"
+
+
+def test_any_unexpected_error_is_exit_2_with_no_traceback(capsys: pytest.CaptureFixture[str]) -> None:
+    def boom(*a: Any) -> tuple[int, dict | None]:
+        raise RuntimeError("secret-looking detail Bearer abc")
+
+    assert probe.main(_env_for("product"), boom) == 2
+    err = capsys.readouterr().err
+    assert "RuntimeError" in err and "Traceback" not in err and "Bearer" not in err
+
+
 def test_every_write_probe_carries_an_invalid_body_or_no_body() -> None:
     for c in probe.checks("product", "w"):
-        if c.method in ("POST", "PUT") and c.who != "admin":
-            assert c.body is None or c.body in (probe.INVALID_RUN, probe.INVALID_UPDATE, probe.ASK_CLI, {"channel": "x"})
+        if c.method in ("POST", "PUT") and c.who != "admin" and not c.opt_in:
+            assert c.body is None or c.body in (probe.INVALID_RUN, probe.INVALID_UPDATE, {"channel": "x"})
     assert probe.INVALID_RUN["target"] not in ("model", "harness")
 
 
@@ -110,20 +173,20 @@ def test_every_write_probe_carries_an_invalid_body_or_no_body() -> None:
     ],
 )
 def test_configuration_errors_exit_2_and_say_why(env: dict[str, str], capsys: pytest.CaptureFixture[str]) -> None:
-    assert probe.main(env, lambda *a: 200) == 2
+    assert probe.main(env, lambda *a: (200, None)) == 2
     assert "CONFIG ERROR" in capsys.readouterr().err
 
 
 def test_http_is_allowed_for_loopback_only(capsys: pytest.CaptureFixture[str]) -> None:
     ok = {"PROBE_BASE_URL": "http://127.0.0.1:8765", "PROBE_ADMIN_TOKEN": "a", "PROBE_USER_TOKEN": "b"}
-    assert probe.main(ok, lambda *a: 200) in (0, 1)  # configuration accepted (the stub answers 200 to everything)
-    assert probe.main({**ok, "PROBE_BASE_URL": "http://10.0.0.5"}, lambda *a: 200) == 2
+    assert probe.main(ok, lambda *a: (200, None)) in (0, 1)  # configuration accepted (the stub answers 200 to everything)
+    assert probe.main({**ok, "PROBE_BASE_URL": "http://10.0.0.5"}, lambda *a: (200, None)) == 2
 
 
 def test_an_unreachable_engine_is_exit_2_not_a_pass(capsys: pytest.CaptureFixture[str]) -> None:
     import urllib.error
 
-    def down(*a: Any) -> int:
+    def down(*a: Any) -> tuple[int, dict | None]:
         raise urllib.error.URLError("refused")
 
     assert probe.main(_env_for("product"), down) == 2
