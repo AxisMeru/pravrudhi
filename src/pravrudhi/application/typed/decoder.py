@@ -16,6 +16,7 @@ import urllib.error
 from collections.abc import Callable, Mapping
 from typing import Protocol
 
+from pravrudhi.application.nyaya_judges import ServedModelMismatch
 from pravrudhi.application.typed.schema import Field, FieldKind
 from pravrudhi.models.openai_compat import ChatClient, CompletionResult, HTTPStatusError
 
@@ -46,7 +47,13 @@ def _is_transient(e: BaseException) -> bool:
 
 
 def _client_complete(
-    *, base_url: str, model: str | None, timeout_s: int, api_key: str | None, fallback_urls: list[str] | None = None
+    *,
+    base_url: str,
+    model: str | None,
+    timeout_s: int,
+    api_key: str | None,
+    fallback_urls: list[str] | None = None,
+    enforce_served_model: bool = False,
 ) -> tuple[str, _CompleteFn]:
     """The shared transport both adapters below wrap: an OpenAI-compatible ChatClient per backend (primary
     plus `fallback_urls`), with the model id read from each backend's own `/models` when none is configured
@@ -62,6 +69,8 @@ def _client_complete(
         for i, u in enumerate(urls)
     ]
     resolved: list[str | None] = [model or None] + [None] * (len(urls) - 1)
+    # Only the primary's configured `model` is ever pinned; a fallback's id is resolved from its own /models.
+    pinned: list[str | None] = list(resolved)
 
     def _model_for(i: int) -> str:
         if resolved[i] is None:
@@ -80,6 +89,11 @@ def _client_complete(
             try:
                 client.model = _model_for(i)
                 result = client.complete(prompt, max_tokens=max_tokens, temperature=temperature, logprobs=logprobs)
+                if enforce_served_model and pinned[i] is not None and result.model != pinned[i]:
+                    raise ServedModelMismatch(
+                        f"backend {i} answered as model {result.model!r} but the deployment pins {pinned[i]!r}; "
+                        "refusing to score under an unpinned model"
+                    )
             except Exception as e:  # noqa: BLE001 -- classified by _is_transient, re-raised unless transient
                 if not _is_transient(e) or i == len(clients) - 1:
                     raise RuntimeError(f"typed-decoder backend {i} ({client.base_url}) failed: {e}") from e
@@ -107,12 +121,14 @@ class VLLMDecoder:
         api_key: str | None = None,
         fallback_urls: list[str] | None = None,
         complete: _CompleteFn | None = None,
+        enforce_served_model: bool = False,
     ) -> None:
         if complete is None:
             if base_url is None:
                 raise ValueError("VLLMDecoder needs a base_url or an injected complete transport")
             self.model, complete = _client_complete(
-                base_url=base_url, model=model, timeout_s=timeout_s, api_key=api_key, fallback_urls=fallback_urls
+                base_url=base_url, model=model, timeout_s=timeout_s, api_key=api_key, fallback_urls=fallback_urls,
+                enforce_served_model=enforce_served_model,
             )
         else:
             self.model = model or "injected"
@@ -140,12 +156,14 @@ class SGLangDecoder:
         api_key: str | None = None,
         fallback_urls: list[str] | None = None,
         complete: _CompleteFn | None = None,
+        enforce_served_model: bool = False,
     ) -> None:
         if complete is None:
             if base_url is None:
                 raise ValueError("SGLangDecoder needs a base_url or an injected complete transport")
             self.model, complete = _client_complete(
-                base_url=base_url, model=model, timeout_s=timeout_s, api_key=api_key, fallback_urls=fallback_urls
+                base_url=base_url, model=model, timeout_s=timeout_s, api_key=api_key, fallback_urls=fallback_urls,
+                enforce_served_model=enforce_served_model,
             )
         else:
             self.model = model or "injected"
