@@ -6,6 +6,7 @@ Endpoints: /health, /status, /candidates, /candidates/{id}, /observations, /inbo
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import subprocess
@@ -232,8 +233,11 @@ def _warm_up_house_judge_in_background(root: Path) -> None:
             return
         api_key = os.environ.get("NYAYA_HOUSE_JUDGE_API_KEY") or hj.get("api_key") or None
         start_house_judge_warmup(base_url=str(base_url), api_key=api_key, timeout_s=float(hj.get("timeout_s", 60)))
+    except FileNotFoundError:
+        return  # no nyaya config here: a deployment that does not use Nyaya at all
     except Exception:  # noqa: BLE001 -- a warm-up that can't even be started is not a reason to refuse to serve
-        pass
+        # Loud, not silent: this is where a refused judge config (an unnamed judge model, #237) first shows.
+        logging.getLogger(__name__).exception("house judge warm-up not started: the agent config did not load")
 
 
 def create_app(root: Path, *, nyaya_ask_fn: Any | None = None) -> FastAPI:

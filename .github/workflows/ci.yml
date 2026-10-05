@@ -97,6 +97,10 @@ jobs:
         run: lake build
 
       - name: verify the built binary's sha256 against pinned_score_sha256 -- fail loud on any mismatch
+        # A sha check, not a serving path: it loads the packaged config only to read pinned_score_sha256, so it
+        # runs as the development edition (the judge model pin, #237, is enforced for every other edition).
+        env:
+          PRAVRUDHI_EDITION: dev
         run: uv run python scripts/verify_score_bin_sha.py "$RUNNER_TEMP/prabhasa-nyaya/lean/.lake/build/bin/score"
 
       - uses: actions/upload-artifact@v4
