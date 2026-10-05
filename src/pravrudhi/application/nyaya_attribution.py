@@ -341,14 +341,52 @@ def _group_after(quote: str, cands: list[Candidate], start: int) -> list[Candida
     return group
 
 
-def _decide(quote: str, accused: AccusedRef, cands: list[Candidate]) -> AttributionResult:
+class _Pred:
+    """Stands in for a regex match of the act verb when the predicate is read from the sentence instead of a lexicon."""
+
+    def __init__(self, start: int, end: int, text: str) -> None:
+        self._s, self._e, self._t = start, end, text
+
+    def start(self) -> int:
+        return self._s
+
+    def end(self) -> int:
+        return self._e
+
+    def group(self, _: int = 0) -> str:
+        return self._t
+
+
+def _open_predicate(quote: str, cands: list[Candidate]) -> _Pred | None:
+    """Baseline "open verb": the first word after the leading candidate group that is not a bridge word. Used only by the
+    measurement baseline (`open_verbs=True`); never by default."""
+    if not cands:
+        return None
+    group = [cands[0]]
+    for c in cands[1:]:
+        if _CONNECTOR.match(quote[group[-1].end : c.start]):
+            group.append(c)
+        else:
+            break
+    pos = group[-1].end
+    for m in re.finditer(r"[A-Za-z']+", quote[pos:]):
+        if m.group(0).lower() not in _BRIDGE_WORDS:
+            return _Pred(pos + m.start(), pos + m.end(), m.group(0))
+    return None
+
+
+def _decide(quote: str, accused: AccusedRef, cands: list[Candidate], open_verbs: bool = False) -> AttributionResult:
     base: dict[str, Any] = {
         "n_candidates": len(cands),
         "candidates": tuple(
             {"text": c.text, "start": c.start, "end": c.end, "role": c.role, "identity": c.identity} for c in cands
         ),
     }
-    vm = _VERB.search(quote)
+    vm: Any = _VERB.search(quote)
+    if open_verbs:  # baseline: an earlier open predicate wins over a later lexicon verb ("pinched and slapped")
+        op = _open_predicate(quote, cands)
+        if op is not None and (vm is None or op.start() < vm.start()):
+            vm = op
     if vm is None:
         return AttributionResult(False, REASON_UNRESOLVED, rule="R1", **base)
     verb = vm.group(0)
@@ -405,14 +443,14 @@ def _veto(quote: str, accused: AccusedRef) -> str | None:
     return None
 
 
-def check_attribution(quote: str | None, accused: AccusedRef | None) -> AttributionResult:
+def check_attribution(quote: str | None, accused: AccusedRef | None, *, open_verbs: bool = False) -> AttributionResult:
     """R0..R5 on one quoted fact, then the hard vetoes. Never raises: any error is a refusal (R5)."""
     if accused is None:
         return AttributionResult(False, REASON_NOT_SPECIFIED, rule="R0")
     try:
         if not isinstance(quote, str) or not quote.strip() or len(quote) > MAX_QUOTE_CHARS:
             return AttributionResult(False, REASON_UNRESOLVED, rule="R1", error="empty or oversized quote")
-        res = _decide(quote, accused, extract_candidates(quote, accused))
+        res = _decide(quote, accused, extract_candidates(quote, accused), open_verbs)
         # V2 (a short-alias range) is collective whatever else was found; V1 turns a pass or an unresolved refusal into a
         # collective refusal, while a specific R2/R3 refusal keeps its own rule.
         veto = _veto(quote, accused)
