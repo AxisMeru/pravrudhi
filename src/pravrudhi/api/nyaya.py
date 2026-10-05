@@ -18,6 +18,7 @@ from pravrudhi.api.identity import CurrentUserDep, User
 from pravrudhi.api.workspace_root import RootError, root_for
 from pravrudhi.application import nyaya, panel
 from pravrudhi.application.credentials import CredentialStore, store_for_session
+from pravrudhi.application.tenant_vendors import VendorNotAllowed
 
 
 class AskRequest(BaseModel):
@@ -228,6 +229,8 @@ def build_nyaya_router(root: Path, ask_fn: panel.AskFn | None = None) -> APIRout
                 project, req.question, tuple(req.vendors), k=req.k, checker=req.checker,
                 contract_id=req.contract_id, ask_fn=ask_fn, store=store,
             )
+        except VendorNotAllowed as e:
+            raise HTTPException(403, str(e)) from e
         except (KeyError, ValueError) as e:
             raise HTTPException(422, str(e)) from e
         return rec.to_dict()

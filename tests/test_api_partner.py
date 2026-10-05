@@ -50,8 +50,10 @@ def _not(p: float = 0.03) -> ElementJudgment:
 class ScriptedJudge:
     def __init__(self, script: dict[str, list[ElementJudgment | Exception]]) -> None:
         self.script = script
+        self.requests: list[JudgeRequest] = []
 
     def judge(self, request: JudgeRequest) -> ElementJudgment:
+        self.requests.append(request)
         queue = self.script[request.element]
         item = queue.pop(0) if len(queue) > 1 else queue[0]
         if isinstance(item, Exception):
@@ -1078,3 +1080,119 @@ def test_enforce_on_with_no_partner_config_refuses_and_never_reaches_the_agent(
     resp = TestClient(app, raise_server_exceptions=False).post("/api/v1/analyse-facts", json=_req())
     assert resp.status_code == 503
     assert resp.json() == {"error": "service_config_missing"}
+
+
+# -- #164: a cold judge is "warming", not a raw judge_unavailable -----------------------------------------
+
+
+def _warming_client(tmp_path: Path, now: list[Any], script: dict[str, list[Any]], grace: float = 240.0) -> TestClient:
+    cfg = PartnerApiConfig(rate_limit_per_minute=1000, max_concurrent=100, trust_proxy_header=False,
+                           judge_warm_grace_s=grace, judge_warm_retry_s=30.0)
+    agent = _agent(tmp_path, script)
+    app = FastAPI()
+    app.include_router(build_partner_router(tmp_path, agent_factory=lambda _r: agent, config=cfg, clock=lambda: now[0]))
+    return TestClient(app)
+
+
+def _dead_primary_script() -> dict[str, list[Any]]:
+    return {
+        BNS69_EL[0]: [ConnectionError("cold")],
+        BNS69_EL[1]: [_est("F3", "Lata had sexual intercourse with Kiran")],
+        BNS69_DENY: [_not()],
+    }
+
+
+class TestJudgesWarming:
+    def test_first_failure_with_no_recent_ready_is_warming_with_retry_after(self, tmp_path: Path) -> None:
+        now = [_utc(2026, 10, 2, 9, 0)]
+        c = _warming_client(tmp_path, now, _dead_primary_script())
+        resp = c.post("/api/v1/analyse-facts", json=_req())
+        assert resp.status_code == 503
+        assert resp.json() == {"error": "judge_unavailable", "reason": "judges_warming", "retry_after_s": 30}
+        assert resp.headers["Retry-After"] == "30"
+
+    def test_status_reports_warming_without_probing(self, tmp_path: Path) -> None:
+        now = [_utc(2026, 10, 2, 9, 0)]
+        c = _warming_client(tmp_path, now, _dead_primary_script())
+        c.post("/api/v1/analyse-facts", json=_req())
+        now[0] = _utc(2026, 10, 2, 9, 1)
+        assert c.get("/api/v1/status").json()["judge"]["state"] == "warming"
+
+    def test_still_failing_after_the_grace_is_a_plain_judge_unavailable(self, tmp_path: Path) -> None:
+        now = [_utc(2026, 10, 2, 9, 0)]
+        c = _warming_client(tmp_path, now, _dead_primary_script())
+        c.post("/api/v1/analyse-facts", json=_req())
+        now[0] = _utc(2026, 10, 2, 9, 5)
+        resp = c.post("/api/v1/analyse-facts", json=_req())
+        assert resp.status_code == 503
+        assert resp.json() == {"error": "judge_unavailable"}
+        assert "Retry-After" not in resp.headers
+        assert c.get("/api/v1/status").json()["judge"]["state"] == "unavailable"
+
+    def test_failure_right_after_a_ready_reading_is_a_fault_not_warming(self, tmp_path: Path) -> None:
+        now = [_utc(2026, 10, 2, 9, 0)]
+        script = _proof_script()
+        c = _warming_client(tmp_path, now, script)
+        assert c.post("/api/v1/analyse-facts", json=_req()).status_code == 200
+        script[BNS69_EL[0]] = [ConnectionError("died")]
+        now[0] = _utc(2026, 10, 2, 9, 1)
+        resp = c.post("/api/v1/analyse-facts", json=_req())
+        assert resp.status_code == 503
+        assert resp.json() == {"error": "judge_unavailable"}
+
+    def test_grace_zero_keeps_the_old_body(self, tmp_path: Path) -> None:
+        now = [_utc(2026, 10, 2, 9, 0)]
+        c = _warming_client(tmp_path, now, _dead_primary_script(), grace=0.0)
+        assert c.post("/api/v1/analyse-facts", json=_req()).json() == {"error": "judge_unavailable"}
+
+    def test_warm_grace_is_config_not_code(self) -> None:
+        cfg = load_partner_api_config(Path(__file__).resolve().parent.parent)
+        assert cfg.judge_warm_grace_s > 0 and cfg.judge_warm_retry_s > 0
+
+
+class TestProceedingPosture:
+    """#204: optional `proceeding_posture` on analyse-facts; 422 on an unknown value; no effect under legacy."""
+
+    @staticmethod
+    def _client_with_judge(tmp_path: Path) -> tuple[TestClient, Any]:
+        agent = _agent(tmp_path, _proof_script())
+        app = FastAPI()
+        app.include_router(build_partner_router(tmp_path, agent_factory=lambda _root: agent, config=_NO_LIMIT_CONFIG))
+        return TestClient(app), agent.judge
+
+    @pytest.mark.parametrize("posture", ["quash", "discharge", "trial", "appeal"])
+    def test_a_valid_posture_reaches_every_judge_request(self, tmp_path: Path, posture: str) -> None:
+        c, judge = self._client_with_judge(tmp_path)
+        resp = c.post("/api/v1/analyse-facts", json=_req(proceeding_posture=posture))
+        assert resp.status_code == 200
+        assert judge.requests and {r.proceeding_posture for r in judge.requests} == {posture}
+
+    def test_an_absent_posture_stays_unset_for_the_engine_default(self, tmp_path: Path) -> None:
+        c, judge = self._client_with_judge(tmp_path)
+        assert c.post("/api/v1/analyse-facts", json=_req()).status_code == 200
+        assert {r.proceeding_posture for r in judge.requests} == {None}
+
+    @pytest.mark.parametrize("bad", ["bail", "", "TRIAL", 3, ["trial"]])
+    def test_an_invalid_posture_is_a_422_before_any_judge_call(self, tmp_path: Path, bad: object) -> None:
+        c, judge = self._client_with_judge(tmp_path)
+        assert c.post("/api/v1/analyse-facts", json=_req(proceeding_posture=bad)).status_code == 422
+        assert judge.requests == []
+
+    def test_under_legacy_the_posture_changes_nothing_in_the_response(self, tmp_path: Path) -> None:
+        def body(posture: str | None) -> dict[str, Any]:
+            c, _ = self._client_with_judge(tmp_path / str(posture))
+            out = c.post("/api/v1/analyse-facts", json=_req() if posture is None else _req(proceeding_posture=posture)).json()
+            for k in ("run_id", "audit_run_id", "audit_path", "wall_ms"):
+                out.pop(k, None)
+            return out  # type: ignore[no-any-return]
+
+        assert body("quash") == body(None) == body("trial")
+
+    def test_openapi_documents_the_enum_as_optional(self, tmp_path: Path) -> None:
+        c, _ = self._client_with_judge(tmp_path)
+        schema = c.get("/openapi.json").json()["components"]["schemas"]["AnalyseFactsRequest"]
+        prop = schema["properties"]["proceeding_posture"]
+        assert "proceeding_posture" not in schema.get("required", [])
+        enums = [b["enum"] for b in prop.get("anyOf", [prop]) if "enum" in b]
+        assert enums == [["quash", "discharge", "trial", "appeal"]]
+        assert "stricter default" in prop["description"]
