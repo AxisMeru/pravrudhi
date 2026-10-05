@@ -106,10 +106,10 @@ def test_the_cli_ask_probes_are_opt_in_and_not_sent_by_default(capsys: pytest.Ca
     sent_on, send_on = _recording()
     probe.run(send_on, "product", "w", {"admin": "A", "user": "U", "anonymous": None}, allow_cli_ask=True)
     assert len([p for _m, p, _t in sent_on if p.startswith("/api/nyaya/ask")]) == 2
-    # through main: skipped lines are reported as SKIP and do not count
+    # through main: skipped lines are reported as SKIPPED and do not count
     probe.main(_env_for("product"), send)
     out = capsys.readouterr().out
-    assert out.count("SKIP") == 2 and "PROBE_ALLOW_CLI_ASK=1" in out and "(2 skipped)" in out
+    assert out.count("SKIPPED") == 2 and "PROBE_ALLOW_CLI_ASK=1" in out and "(2 skipped)" in out
 
 
 def test_the_default_probes_name_no_workspace_and_use_a_nonexistent_objective() -> None:
@@ -274,3 +274,89 @@ def test_a_base_url_with_a_path_query_or_fragment_is_refused_without_echoing_it(
 def test_a_plain_origin_is_still_accepted(url: str, capsys: pytest.CaptureFixture[str]) -> None:
     probe.main({**_env_for("product"), "PROBE_BASE_URL": url}, lambda *a: (200, {"access": "admin"}))
     assert "CONFIG ERROR" not in capsys.readouterr().err
+
+
+def _without_admin() -> dict[str, str]:
+    env = _env_for("product")
+    del env["PROBE_ADMIN_TOKEN"]
+    return env
+
+
+def test_without_an_admin_token_the_admin_checks_are_skipped_explicitly_and_the_rest_runs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    sent: list[tuple[str, str, str | None]] = []
+    real = _sender(tmp_path, "product", monkeypatch)
+
+    def send(method: str, path: str, token: str | None, body: dict | None, want_json: bool) -> tuple[int, dict | None]:
+        sent.append((method, path, token))
+        return real(method, path, token, body, want_json)
+
+    code = probe.main(_without_admin(), send)
+    out = capsys.readouterr().out
+    assert code == 3, out  # INCOMPLETE: never 0, so CI cannot read a skipped admin half as green
+    skipped_admin = [line for line in out.splitlines() if line.startswith("SKIPPED") and "no PROBE_ADMIN_TOKEN" in line]
+    assert len(skipped_admin) == 1 and "admin token is really an admin" in skipped_admin[0]
+    assert "INCOMPLETE: 1 admin check(s) were SKIPPED" in out and "not a full pass" in out
+    # the non-admin and anonymous half still ran, and nothing was sent with an admin token
+    assert [p for m, p, t in sent if t == USER_TOKEN] and [p for m, p, t in sent if t is None]
+    assert not [1 for _m, _p, t in sent if t == ADMIN_TOKEN]
+    assert "FAIL" not in out and ADMIN_TOKEN not in out
+
+
+def test_a_skipped_admin_check_is_never_counted_as_a_pass() -> None:
+    sent, send = _recording(200, {"access": "member"})
+    ran = probe.run(send, "product", "w", {"admin": None, "user": "U", "anonymous": None})
+    admin = [(c, s) for c, s, _ok in ran if c.who == "admin"]
+    assert admin and all(status is None for _c, status in admin)  # not run: no status, so no pass is reported
+    assert not [1 for _m, _p, t in sent if t == "A"]
+
+
+def test_without_an_admin_token_a_real_failure_in_the_remaining_half_still_exits_1(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(roles, "gate", lambda app: [])  # an engine that forgot the operator gates
+    code = probe.main(_without_admin(), _sender(tmp_path, "product", monkeypatch))
+    out = capsys.readouterr().out
+    assert code == 1 and "FAIL" in out and "INCOMPLETE" in out
+
+
+def test_require_admin_restores_the_old_behaviour(capsys: pytest.CaptureFixture[str]) -> None:
+    env = {**_without_admin(), "PROBE_REQUIRE_ADMIN": "1"}
+    assert probe.main(env, lambda *a: (200, None)) == 2
+    assert "PROBE_REQUIRE_ADMIN" in capsys.readouterr().err
+
+
+def test_the_user_token_is_still_required_and_an_empty_admin_token_means_absent(capsys: pytest.CaptureFixture[str]) -> None:
+    assert probe.main({"PROBE_BASE_URL": "https://e.example.test", "PROBE_ADMIN_TOKEN": "a"}, lambda *a: (200, None)) == 2
+    sent, send = _recording(200, {"access": "member"})
+    probe.main({**_env_for("product"), "PROBE_ADMIN_TOKEN": "  "}, send)
+    assert "INCOMPLETE" in capsys.readouterr().out
+
+
+def test_the_four_exit_codes_and_their_precedence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    good = _sender(tmp_path, "product", monkeypatch)
+    assert probe.main(_env_for("product"), good) == 0  # a full run, all passed
+    assert probe.main(_without_admin(), good) == 3  # admin half skipped, everything that ran passed
+    assert probe.main({**_without_admin(), "PROBE_REQUIRE_ADMIN": "1"}, good) == 2  # strict: a missing admin token is config
+    assert probe.main({"PROBE_BASE_URL": "https://e.example.test"}, good) == 2  # config error
+    monkeypatch.setattr(roles, "gate", lambda app: [])  # a missing gate: a real failure
+    broken = _sender(tmp_path / "b", "product", monkeypatch)
+    assert probe.main(_env_for("product"), broken) == 1  # a failure with the admin half run
+    assert probe.main(_without_admin(), broken) == 1  # a failure AND a skipped admin half: 1 wins over 3
+    out = capsys.readouterr().out
+    assert out.count("INCOMPLETE") == 2  # the incomplete marker is still printed when 1 wins
+
+
+def test_the_opt_in_ask_probes_left_off_do_not_make_a_run_incomplete(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert probe.main(_env_for("product"), _sender(tmp_path, "product", monkeypatch)) == 0  # 2 opt-in checks skipped, still 0
+
+
+def test_the_docstring_documents_all_four_codes() -> None:
+    doc = probe.__doc__ or ""
+    for fragment in ("0  every check ran and passed", "1  a check failed", "2  configuration error", "3  INCOMPLETE"):
+        assert fragment in doc
