@@ -62,3 +62,16 @@ def _claude_seat_is_seat2_unless_testing_the_check(request, monkeypatch):
     from pravrudhi.application import panel
 
     monkeypatch.setattr(panel, "_claude_auth_email", lambda env: panel.CLAUDE_CLI_EXPECTED_EMAIL)
+
+
+@pytest.fixture(autouse=True)
+def _stub_usage_gate(request, monkeypatch):
+    """`panel.ask_vendor` gates every codex/claude call on the seat's live usage (`usage_gate`); no other test may
+    depend on the real seats' numbers. test_usage_gate.py opts out and drives the gate with constructed readings."""
+    if request.module.__name__.endswith("test_usage_gate"):
+        return
+    from pravrudhi.application import usage_gate
+
+    monkeypatch.setattr(
+        usage_gate, "gate_reading", lambda kind, root, now=None: {"vendor_kind": kind, "passed": True, "constructed": True}
+    )

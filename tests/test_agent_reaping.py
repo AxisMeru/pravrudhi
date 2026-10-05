@@ -19,11 +19,34 @@ from pravrudhi.agents.cli_agents import _run
 
 
 def _alive(pid: int) -> bool:
+    """True while the process can still run. A killed process whose parent never reaps it (PID 1 in a container
+    without an init) stays a zombie: `os.kill(pid, 0)` still succeeds for it, but it holds no work and bills nothing."""
     try:
         os.kill(pid, 0)
     except (ProcessLookupError, PermissionError):
         return False
-    return True
+    try:
+        # comm may contain spaces/parens; the state is the first field after the LAST ")".
+        state = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0]
+    except (FileNotFoundError, ProcessLookupError):
+        return False
+    except OSError:  # no /proc (non-Linux): fall back to the signal probe above
+        return True
+    return state not in ("Z", "X")
+
+
+def test_a_zombie_is_not_alive_but_a_running_process_is() -> None:
+    sleeper = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(600)"])
+    try:
+        assert _alive(sleeper.pid)
+        sleeper.kill()
+        for _ in range(50):  # killed but not yet waited on: a zombie
+            if Path(f"/proc/{sleeper.pid}/stat").read_text().rsplit(")", 1)[1].split()[0] == "Z":
+                break
+            time.sleep(0.05)
+        assert not _alive(sleeper.pid)
+    finally:
+        sleeper.wait()
 
 
 def test_a_timed_out_agent_takes_its_children_with_it(tmp_path: Path) -> None:

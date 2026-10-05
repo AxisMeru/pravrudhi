@@ -41,7 +41,7 @@ def _claude_vendor(**params):
 
 def _codex_vendor(**params):
     base = panel.VENDORS["codex-cli"]
-    return replace(base, params={**base.params, **params})
+    return replace(base, params={**base.params, "codex_model": "gpt-x-1", **params})
 
 
 @pytest.fixture
@@ -114,13 +114,50 @@ class TestModelCap:
         with pytest.raises(ValueError, match="not a sonnet/haiku"):
             panel.ask_vendor(_claude_vendor(model=model), "q")
 
-    def test_opus_at_effort_low_is_allowed_and_passes_the_flag(self, seat, monkeypatch):
-        v = _claude_vendor(model="opus", effort="low")
+    def test_opus_at_effort_low_with_a_budgeted_arm_is_allowed_and_passes_the_flag(self, seat, monkeypatch):
+        from pravrudhi.application import usage_gate
+
+        claimed = []
+        monkeypatch.setattr(
+            usage_gate, "claim_opus_call",
+            lambda root, arm, gate: claimed.append(arm) or {"arm": arm, "call_number": 1, "call_cap": 10},
+        )
+        v = _claude_vendor(model="opus", effort="low", m4_arm="m4-phase1-config-a")
         ans, run = _ask_claude(monkeypatch, _env(models={"claude-opus-5-5": {"outputTokens": 4}}), v)
         cmd = run.calls[0]["cmd"]
         assert cmd[cmd.index("--model") + 1] == "opus"
         assert cmd[cmd.index("--effort") + 1] == "low"
         assert ans.resolved_model == "claude-opus-5-5"
+        assert claimed == ["m4-phase1-config-a"] and ans.usage_gate["opus_m4"]["call_number"] == 1
+
+    def test_opus_at_effort_low_without_an_m4_arm_makes_no_call(self, seat, monkeypatch):
+        from pravrudhi.application import usage_gate
+
+        run = _Run(_env())
+        monkeypatch.setattr(cli_agents, "_run", run)
+        with pytest.raises(usage_gate.UsageGateRefused, match="m4_arm"):
+            panel.ask_vendor(_claude_vendor(model="opus", effort="low"), "q")
+        assert run.calls == []
+
+    def test_a_spent_opus_cap_makes_no_call(self, seat, monkeypatch):
+        from pravrudhi.application import usage_gate
+
+        def spent(root, arm, gate):
+            raise usage_gate.UsageGateRefused("refusing: opus call cap for arm 'x' is spent (1 of 1)")
+
+        monkeypatch.setattr(usage_gate, "claim_opus_call", spent)
+        run = _Run(_env())
+        monkeypatch.setattr(cli_agents, "_run", run)
+        with pytest.raises(usage_gate.UsageGateRefused, match="spent"):
+            panel.ask_vendor(_claude_vendor(model="opus", effort="low", m4_arm="x"), "q")
+        assert run.calls == []
+
+    def test_sonnet_is_never_counted_against_the_opus_budget(self, seat, monkeypatch):
+        from pravrudhi.application import usage_gate
+
+        monkeypatch.setattr(usage_gate, "claim_opus_call", lambda *a: pytest.fail("sonnet must not claim opus budget"))
+        ans, _ = _ask_claude(monkeypatch, _env())
+        assert "opus_m4" not in (ans.usage_gate or {})
 
     def test_effort_is_validated_and_omitted_when_unset(self, seat, monkeypatch):
         _, run = _ask_claude(monkeypatch, _env())
@@ -158,6 +195,72 @@ class TestSlimFlagsEnforced:
             "--tools",
             "",
         )
+
+
+#: Every real limit/quota notice text we have recorded (tests/test_claude_session_limit.py, test_limit_reset.py,
+#: test_sentinel_fallback.py, test_heartbeat.py, limits.yaml phrases, this file), plus curly-apostrophe variants.
+REAL_NOTICES = [
+    "You've hit your session limit · resets 3:20am",
+    "You\u2019ve hit your session limit \u00b7 resets 3:20am",
+    "You've hit your weekly limit · resets Sep 29, 5pm",
+    "You\u2019ve hit your weekly limit · resets 5pm",
+    "You've hit your usage limit · resets 11am",
+    "You\u2019ve hit your usage limit",
+    "You've hit your session limit. Resets 9pm.",
+    "ERROR: You've hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro) or try again at 3:51 PM.",
+    "Claude usage limit reached. Your limit will reset at 3pm",
+    "Claude usage limit reached",
+    "5-hour limit reached \u2219 resets 3pm",
+    "Rate limit exceeded, try again later",
+    "Rate limit reached, try again later",
+    "agent exited non-zero: rate limited (429), try again later",
+    "You're out of extra usage",
+    "You're out of usage \u00b7 resets 4pm",
+    "You exceeded your current quota, please check your plan and billing details.",
+    'API Error: "type":"rate_limit_error","message":"This request would exceed your rate limit"',
+    "Error code: insufficient_quota",
+    "overloaded_error: Overloaded",
+    "429 Too Many Requests",
+]
+SHORT_LEGIT = [
+    "The quota for sugar imports is 500 tonnes.",
+    "Quota",
+    "The limitation period resets in 2027.",
+    "ESTABLISHED. The allowance resets at midnight under s. 4.",
+    "Please try again later with more facts.",
+    "The server was overloaded with facts, so the answer is partial.",
+    "NOT_ESTABLISHED: the rate limit in clause 4 is not an element.",
+    "Your weekly limit on withdrawals is 500 GBP.",
+    "Set the session limit to 30 minutes in the config.",
+    "The usage of the word limit is ambiguous.",
+]
+
+
+class TestQuotaRegexIsAnchored:
+    @pytest.mark.parametrize("notice", REAL_NOTICES)
+    def test_every_recorded_real_notice_is_still_a_quota_error(self, notice):
+        assert panel._looks_like_quota(notice)
+
+    @pytest.mark.parametrize("answer", SHORT_LEGIT)
+    def test_a_short_legitimate_answer_is_not_misread(self, answer):
+        assert not panel._looks_like_quota(answer)
+
+    @pytest.mark.parametrize(
+        "unseen",
+        [
+            "Capacity is exhausted for this plan until Friday.",
+            "Your allowance for this period is used up. Come back after the reset.",
+            "Service busy. Retry in a few minutes.",
+        ],
+    )
+    def test_an_unseen_notice_the_regex_misses_still_raises_with_no_model_usage(self, seat, monkeypatch, unseen):
+        """Second line of defence: a notice has no `modelUsage`, so `_check_claude_models` refuses it even though
+        the narrowed regex does not recognise the wording."""
+        assert not panel._looks_like_quota(unseen)
+        raw = json.loads(_env(result=unseen))
+        del raw["modelUsage"]
+        with pytest.raises(RuntimeError, match="model unverifiable"):
+            _ask_claude(monkeypatch, json.dumps(raw))
 
 
 class TestQuotaTextIsAnError:
@@ -251,7 +354,7 @@ def _stream(*, text="ANSWER: A", model=None, model_in="thread.started", extra=()
 def _ask_codex(monkeypatch, out, vendor=None, **kw):
     run = _Run(out, **kw)
     monkeypatch.setattr(cli_agents, "_run", run)
-    return panel.ask_vendor(vendor or panel.VENDORS["codex-cli"], "q"), run
+    return panel.ask_vendor(vendor or _codex_vendor(), "q"), run
 
 
 class TestCodexEnvelopeArmD:
@@ -260,12 +363,36 @@ class TestCodexEnvelopeArmD:
             ans, run = _ask_codex(monkeypatch, _stream(model="gpt-x-1", model_in=where))
             assert (ans.text, ans.resolved_model, ans.billed_models) == ("ANSWER: A", "gpt-x-1", ("gpt-x-1",))
             assert ans.tokens == 15296 + 5 and ans.cache_read_tokens == 12160
-            assert "--json" in run.calls[0]["cmd"] and "-m" not in run.calls[0]["cmd"]
+            assert "--json" in run.calls[0]["cmd"] and run.calls[0]["cmd"][run.calls[0]["cmd"].index("-m") + 1] == "gpt-x-1"
             assert ans.cost_usd is None
 
-    def test_probe_without_a_pin_records_no_id_when_the_stream_has_none(self, monkeypatch):
-        ans, _ = _ask_codex(monkeypatch, _stream())
-        assert ans.resolved_model is None and ans.billed_models == ()
+    def test_an_unpinned_codex_call_is_refused_before_any_call(self, monkeypatch):
+        run = _Run(_stream(model="gpt-x-1"))
+        monkeypatch.setattr(cli_agents, "_run", run)
+        for pin in (None, "", "  "):
+            with pytest.raises(RuntimeError, match="model unverifiable"):
+                panel.ask_vendor(_codex_vendor(codex_model=pin), "q")
+        with pytest.raises(RuntimeError, match="model unverifiable"):
+            panel.ask_vendor(panel.VENDORS["codex-cli"], "q")
+        assert run.calls == []
+
+    @pytest.mark.parametrize(
+        "unseen",
+        [
+            "Capacity is exhausted for this plan until Friday.",
+            "Your allowance for this period is used up. Come back after the reset.",
+        ],
+    )
+    def test_an_unseen_limit_notice_with_no_resolved_model_is_an_error_not_an_answer(self, monkeypatch, unseen):
+        """R2 (#221): a notice the quota regex does not recognise, in an agent message with no model id anywhere
+        in the stream or rollout, used to come back as an ANSWER with resolved=None."""
+        assert not panel._looks_like_quota(unseen)
+        with pytest.raises(RuntimeError, match="model unverifiable"):
+            _ask_codex(monkeypatch, _stream(text=unseen))
+
+    def test_a_pinned_call_with_no_resolved_model_is_an_error(self, monkeypatch):
+        with pytest.raises(RuntimeError, match="model unverifiable"):
+            _ask_codex(monkeypatch, _stream())
 
     def test_pin_passes_dash_m_and_must_be_confirmed_by_the_stream(self, monkeypatch):
         v = _codex_vendor(codex_model="gpt-x-1")
@@ -277,7 +404,7 @@ class TestCodexEnvelopeArmD:
         v = _codex_vendor(codex_model="gpt-x-1")
         with pytest.raises(RuntimeError, match="model mismatch"):
             _ask_codex(monkeypatch, _stream(model="gpt-y-2"), v)
-        with pytest.raises(RuntimeError, match="model mismatch"):
+        with pytest.raises(RuntimeError, match="model unverifiable"):
             _ask_codex(monkeypatch, _stream(), v)
 
     def test_a_stream_naming_two_models_is_an_error(self, monkeypatch):
@@ -336,7 +463,7 @@ class TestCodexModelIdFromRollout:
     def test_resolved_model_is_read_from_the_rollout_file(self, monkeypatch, tmp_path):
         _rollout(tmp_path, TID, "gpt-6-astra")
         monkeypatch.setenv("CODEX_HOME", str(tmp_path))
-        ans, _ = _ask_codex(monkeypatch, self._stream_tid())
+        ans, _ = _ask_codex(monkeypatch, self._stream_tid(), _codex_vendor(codex_model="gpt-6-astra"))
         assert ans.resolved_model == "gpt-6-astra" and ans.billed_models == ("gpt-6-astra",)
 
     def test_pin_matching_the_rollout_passes_and_a_different_one_is_an_error(self, monkeypatch, tmp_path):
@@ -349,7 +476,7 @@ class TestCodexModelIdFromRollout:
 
     def test_pin_with_no_rollout_found_is_an_error_not_a_pass(self, monkeypatch, tmp_path):
         monkeypatch.setenv("CODEX_HOME", str(tmp_path))
-        with pytest.raises(RuntimeError, match="model mismatch"):
+        with pytest.raises(RuntimeError, match="model unverifiable"):
             _ask_codex(monkeypatch, self._stream_tid(), _codex_vendor(codex_model="gpt-6-astra"))
 
     def test_stream_model_disagreeing_with_rollout_is_an_error(self, monkeypatch, tmp_path):
@@ -384,5 +511,5 @@ class TestRecordedEnvelopes:
         tid = json.loads(rec["stdout"].splitlines()[0])["thread_id"]
         _rollout(tmp_path, tid, rec["rollout_turn_context_trimmed"]["payload"]["model"])
         monkeypatch.setenv("CODEX_HOME", str(tmp_path))
-        ans, _ = _ask_codex(monkeypatch, rec["stdout"])
+        ans, _ = _ask_codex(monkeypatch, rec["stdout"], _codex_vendor(codex_model="gpt-6-astra"))
         assert ans.resolved_model == "gpt-6-astra" and ans.cost_usd is None and ans.text
