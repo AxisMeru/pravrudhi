@@ -146,10 +146,31 @@ studio_auth_guard() {
   fi
 }
 
+# Read the running Studio container's PRAVRUDHI_AUTH back and require `required`. The value is asked twice, once
+# more after a short wait, before the answer is trusted: a container that has only just started can fail the exec once.
+studio_auth_readback() {
+  local name=$1 v
+  v="$(docker exec "$name" printenv PRAVRUDHI_AUTH 2>/dev/null || true)"
+  if [ "$v" != required ]; then
+    sleep "${STUDIO_READBACK_WAIT:-2}"
+    v="$(docker exec "$name" printenv PRAVRUDHI_AUTH 2>/dev/null || true)"
+  fi
+  [ "$v" = required ]
+}
+
 ensure_engine() {
   local edition=$1 name="pravrudhi-engine-$1" port; port=$(port_of "$1")
-  if docker ps --format '{{.Names}} {{.Image}}' | grep -q "^$name pravrudhi-engine:$PRAVRUDHI_VERSION$"; then return; fi
-  if [ "$edition" = studio ]; then studio_auth_guard || exit 1; fi
+  if docker ps --format '{{.Names}} {{.Image}}' | grep -q "^$name pravrudhi-engine:$PRAVRUDHI_VERSION$"; then
+    # The right image is already running: a restart of this script must not skip the Studio check just because
+    # nothing needed building. An open Studio is taken down and its tunnel is never registered (return 1).
+    if [ "$edition" = studio ] && ! studio_auth_readback "$name"; then
+      echo "STUDIO REFUSED: the running Studio container does not report PRAVRUDHI_AUTH=required; removing it." >&2
+      docker rm -f "$name" >/dev/null 2>&1 || true
+      return 1
+    fi
+    return 0
+  fi
+  if [ "$edition" = studio ]; then studio_auth_guard || return 1; fi
   docker rm -f "$name" >/dev/null 2>&1 || true
   # Studio's hosted engine serves THE Studio: the operator's real root, with its ledger, requests and the local
   # loop's work, not a fresh root of its own (operator, 2026-09-12: "earlier studio was on rsi...what happened").
@@ -177,16 +198,32 @@ ensure_engine() {
     ${NYAYA_JUDGE_NETWORK:+--network "$NYAYA_JUDGE_NETWORK"} \
     "${extra[@]}" \
     "pravrudhi-engine:$PRAVRUDHI_VERSION" >/dev/null
-  if [ "$edition" = studio ]; then
+  if [ "$edition" = studio ] && ! studio_auth_readback "$name"; then
     # Belt and braces: read back what the running container actually has, and take it down rather than serve Studio open.
-    if [ "$(docker exec "$name" printenv PRAVRUDHI_AUTH 2>/dev/null || true)" != required ]; then
-      echo "REFUSING: the running Studio container does not report PRAVRUDHI_AUTH=required; removing it." >&2
-      docker rm -f "$name" >/dev/null 2>&1 || true
+    echo "STUDIO REFUSED: the Studio container does not report PRAVRUDHI_AUTH=required; removing it." >&2
+    docker rm -f "$name" >/dev/null 2>&1 || true
+    return 1
+  fi
+  for _ in $(seq 1 60); do curl -sf "http://127.0.0.1:$port/api/health" >/dev/null 2>&1 && return 0; sleep 1; done
+  echo "engine $edition did not answer on $port" >&2; docker logs --tail 20 "$name" >&2; return 1
+}
+
+# Studio first, then the product. A Studio refusal or failure is logged loudly, its tunnel is never registered, and the
+# product still comes up (its container and tunnel are not touched by Studio's problem); the function returns 1 so the
+# caller exits non-zero at the end. A product failure still stops everything, as before.
+bring_up_engines() {
+  local studio_failed=""
+  for edition in studio product; do
+    if ensure_engine "$edition"; then
+      tunnel "$edition"
+    elif [ "$edition" = studio ]; then
+      studio_failed=1
+      echo "################ STUDIO NOT REGISTERED (see above); continuing with the product edition ################" >&2
+    else
       exit 1
     fi
-  fi
-  for _ in $(seq 1 60); do curl -sf "http://127.0.0.1:$port/api/health" >/dev/null 2>&1 && return; sleep 1; done
-  echo "engine $edition did not answer on $port" >&2; docker logs --tail 20 "$name" >&2; exit 1
+  done
+  [ -z "$studio_failed" ]
 }
 
 PIDS=()
@@ -219,11 +256,16 @@ esac
 : "${CF_KV_ID:?run --setup first}"
 trap 'kill "${PIDS[@]}" 2>/dev/null || true' EXIT INT TERM
 ensure_image
-for edition in studio product; do ensure_engine "$edition"; tunnel "$edition"; done
-echo "gateway up; both engines registered"
+STUDIO_FAILED=""
+bring_up_engines || STUDIO_FAILED=1
+if [ -n "$STUDIO_FAILED" ]; then
+  echo "gateway up for the PRODUCT edition only; Studio was refused and is not registered" >&2
+else
+  echo "gateway up; both engines registered"
+fi
 # A quick tunnel can die on its own; its KV entry would then point at a hostname Cloudflare no longer knows (530,
 # error 1033) for as long as the other tunnel lived. Exit on the first death so systemd restarts the whole serve
 # loop and re-registers both.
 wait -n
 echo "a tunnel exited; restarting to re-register" >&2
-exit 1
+exit 1  # also the exit status when Studio was refused: a non-zero end is what tells systemd and the operator
