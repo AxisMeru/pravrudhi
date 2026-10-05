@@ -60,7 +60,7 @@ from pathlib import Path
 from typing import Any, Literal, Protocol
 
 import yaml
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field
 from starlette.responses import JSONResponse
 
@@ -70,7 +70,15 @@ from pravrudhi.application import audit, tenancy
 from pravrudhi.application import nyaya_lean_registry as reg
 from pravrudhi.application.config_files import config_file
 from pravrudhi.application.jobs import JobStore
-from pravrudhi.application.nyaya_agent import RETENTION_NOTICE, BinaryShaMismatch, JudgeMisconfigured, NyayaAgent
+from pravrudhi.application.nyaya_agent import (
+    RETENTION_NOTICE,
+    BinaryShaMismatch,
+    ContractReason,
+    ElementStatus,
+    JudgeMisconfigured,
+    NyayaAgent,
+    Outcome,
+)
 from pravrudhi.application.nyaya_judges import SecondJudgeCircuitBreaker
 from pravrudhi.application.service_window import ServiceWindow
 
@@ -191,6 +199,16 @@ def load_partner_api_config(root: Path) -> PartnerApiConfig:
         job_max_unfinished_per_key=int(body.get("job_max_unfinished_per_key", 8)),
         audit_retention_s=float(body.get("audit_retention_s", 90 * 86400.0)),
     )
+
+
+_RATE_LIMIT_HEADER_DOCS: dict[str, Any] = {
+    "X-RateLimit-Limit": {"description": "Calls per minute this API key may make.", "schema": {"type": "integer"}},
+    "X-RateLimit-Remaining": {"description": "Calls left in the current one-minute window after this one.",
+                              "schema": {"type": "integer"}},
+    "X-RateLimit-Reset": {"description": "Seconds until the current window ends and the count resets.",
+                          "schema": {"type": "integer"}},
+}
+_RETRY_AFTER_DOC: dict[str, Any] = {"description": "Seconds to wait before retrying.", "schema": {"type": "integer"}}
 
 
 class RateLimiter:
@@ -325,7 +343,7 @@ _SECOND_JUDGE_DEBUG_FIELDS = (
 class ElementResultOut(BaseModel):
     element: str
     is_denial: bool
-    status: str
+    status: ElementStatus
     claimed: bool
     p_established: float | None
     fact_id: str | None
@@ -375,12 +393,12 @@ class ElementResultOut(BaseModel):
 
 class ContractResultOut(BaseModel):
     contract_id: str
-    outcome: str
-    reason: str
+    outcome: Outcome
+    reason: ContractReason
     elements: list[ElementResultOut]
     assertions: dict[str, bool] | None
     lean: dict[str, Any] | None
-    lean_outcome: str | None
+    lean_outcome: Outcome | None
     #: `{binary_sha256, wire_sha256, verdict}` for the pinned Lean checker's scoring of this contract.
     #: `binary_sha256`: SHA-256 of the pinned Lean `score` binary (same value as the top-level `score_sha256`).
     #: `wire_sha256`: SHA-256 of the exact REG wire line sent to it (contract id + the Met assertions),
@@ -398,6 +416,28 @@ class ContractResultOut(BaseModel):
     statute_text_mismatch: bool | None
 
 
+class StandardOut(BaseModel):
+    """#220: the standard of proof the request asked for, whether the judge was told it, and where it came from.
+    Unknown values from a newer engine pass through verbatim, so `requested`, `applied` and `source` are plain
+    strings here."""
+
+    requested: str = Field(
+        description='The standard the posture asks for: "proved" or "prima_facie_disclosed". Recorded in the audit '
+        "row whether or not the judge was told it."
+    )
+    applied: str | None = Field(
+        description="The standard actually stated in the judge's prompt: the same value as `requested` when "
+        "`in_judge_prompt` is true, and null when it is false (the judge never saw a standard, so none was applied)."
+    )
+    source: str = Field(description='"proceeding_posture", "proceeding_type" or "default".')
+    proceeding_posture: str | None = Field(default=None, description="The caller's posture, echoed; null if absent.")
+    in_judge_prompt: bool = Field(
+        description="True only when the house judge's prompt stated the requested standard "
+        "(judge_prompt.standard_line on). False means the basis is recorded (`requested`) but the judge never saw "
+        "it, so `applied` is null."
+    )
+
+
 class AnalyseFactsResponse(BaseModel):
     run_id: str
     judge: str
@@ -413,6 +453,12 @@ class AnalyseFactsResponse(BaseModel):
     #: Issue #39: the exact retention notice text (nyaya_agent.RETENTION_NOTICE), on every response -- a
     #: partner API caller who never sees the web UI still gets this verbatim, not just in documentation.
     retention_notice: str = Field(default=RETENTION_NOTICE)
+    standard: StandardOut | None = Field(
+        default=None,
+        description="Additive (#220): the standard the request asked for (`requested`) and the standard the judge's "
+        "prompt actually stated (`applied`, null under the legacy prompt template, where the judge is never told "
+        "a standard), from the same values as the audit row.",
+    )
 
 
 AgentFactory = Callable[[Path], AgentLike]
@@ -741,6 +787,10 @@ def build_partner_router(
         except OSError:
             _logger.exception("usage metering write failed for key %s", key_id)
 
+    def _rate_headers(key_id: str, per_minute: int) -> dict[str, str]:
+        limit, remaining, reset = _key_rate_limiter.snapshot(key_id, per_minute)
+        return {"X-RateLimit-Limit": str(limit), "X-RateLimit-Remaining": str(remaining), "X-RateLimit-Reset": str(reset)}
+
     def _audit(
         metered: list[str],
         req: AnalyseFactsRequest,
@@ -769,10 +819,18 @@ def build_partner_router(
         except Exception:
             _logger.exception("audit write failed for key %s", metered[0])
 
-    @router.post("/analyse-facts", response_model=AnalyseFactsResponse, response_model_exclude_unset=True)
+    @router.post(
+        "/analyse-facts", response_model=AnalyseFactsResponse, response_model_exclude_unset=True,
+        responses={
+            200: {"description": "Successful analysis.", "headers": _RATE_LIMIT_HEADER_DOCS},
+            429: {"description": "Over the rate limit; wait Retry-After seconds.",
+                  "headers": {**_RATE_LIMIT_HEADER_DOCS, "Retry-After": _RETRY_AFTER_DOC}},
+        },
+    )
     def analyse_facts_ep(
         req: AnalyseFactsRequest,
         request: Request,
+        response: Response,
         user: User | None = CurrentUserDep,
         debug_second_judge: bool = Query(
             False,
@@ -784,8 +842,9 @@ def build_partner_router(
         ),
     ) -> dict[str, Any] | JSONResponse:
         metered: list[str] = []
+        per_minute: list[int] = []
         try:
-            out = _analyse_facts(req, request, user, debug_second_judge, metered)
+            out = _analyse_facts(req, request, user, debug_second_judge, metered, per_minute)
         except HTTPException as e:
             if metered and e.status_code == 503:
                 _record_usage(metered[0], failed=True)
@@ -793,6 +852,8 @@ def build_partner_router(
             raise
         if metered and isinstance(out, JSONResponse) and out.status_code == 503:
             _record_usage(metered[0], failed=True)
+        if metered and isinstance(out, dict):
+            response.headers.update(_rate_headers(metered[0], per_minute[0]))
         if isinstance(out, JSONResponse):
             _audit(metered, req, "sync", status_code=out.status_code)
         else:
@@ -805,14 +866,15 @@ def build_partner_router(
         user: User | None,
         debug_second_judge: bool,
         metered: list[str],
+        per_minute: list[int],
     ) -> dict[str, Any] | JSONResponse:
-        admitted = _admit(req, request, user, metered)
+        admitted = _admit(req, request, user, metered, per_minute)
         if isinstance(admitted, JSONResponse):
             return admitted
         return _run(req, admitted, debug_second_judge)
 
     def _admit(
-        req: AnalyseFactsRequest, request: Request, user: User | None, metered: list[str]
+        req: AnalyseFactsRequest, request: Request, user: User | None, metered: list[str], per_minute: list[int]
     ) -> _Admitted | JSONResponse:
         """Everything that decides whether a call may run at all (window, limits, metering, validation), shared
         by the synchronous route and job submission so a job is admitted by exactly the same rules."""
@@ -852,9 +914,11 @@ def build_partner_router(
                 return JSONResponse(
                     status_code=429,
                     content={"detail": "rate limit exceeded"},
-                    headers={"Retry-After": str(_key_rate_limiter.retry_after_seconds())},
+                    headers={**_rate_headers(key.key_id, key.rate_limit_per_minute),
+                             "Retry-After": str(_key_rate_limiter.retry_after_seconds())},
                 )
             metered.append(key.key_id)
+            per_minute.append(key.rate_limit_per_minute)
             _record_usage(key.key_id)
         if not any(f.strip() for f in req.facts):
             raise HTTPException(422, "at least one non-empty fact is required")
@@ -983,7 +1047,7 @@ def build_partner_router(
             )
         metered: list[str] = []
         try:
-            admitted = _admit(req, request, user, metered)
+            admitted = _admit(req, request, user, metered, [])
         except HTTPException:
             store.discard(job_id)
             raise
