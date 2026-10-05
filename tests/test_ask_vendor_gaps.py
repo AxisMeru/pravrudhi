@@ -41,7 +41,7 @@ def _claude_vendor(**params):
 
 def _codex_vendor(**params):
     base = panel.VENDORS["codex-cli"]
-    return replace(base, params={**base.params, **params})
+    return replace(base, params={**base.params, "codex_model": "gpt-x-1", **params})
 
 
 @pytest.fixture
@@ -354,7 +354,7 @@ def _stream(*, text="ANSWER: A", model=None, model_in="thread.started", extra=()
 def _ask_codex(monkeypatch, out, vendor=None, **kw):
     run = _Run(out, **kw)
     monkeypatch.setattr(cli_agents, "_run", run)
-    return panel.ask_vendor(vendor or panel.VENDORS["codex-cli"], "q"), run
+    return panel.ask_vendor(vendor or _codex_vendor(), "q"), run
 
 
 class TestCodexEnvelopeArmD:
@@ -363,12 +363,36 @@ class TestCodexEnvelopeArmD:
             ans, run = _ask_codex(monkeypatch, _stream(model="gpt-x-1", model_in=where))
             assert (ans.text, ans.resolved_model, ans.billed_models) == ("ANSWER: A", "gpt-x-1", ("gpt-x-1",))
             assert ans.tokens == 15296 + 5 and ans.cache_read_tokens == 12160
-            assert "--json" in run.calls[0]["cmd"] and "-m" not in run.calls[0]["cmd"]
+            assert "--json" in run.calls[0]["cmd"] and run.calls[0]["cmd"][run.calls[0]["cmd"].index("-m") + 1] == "gpt-x-1"
             assert ans.cost_usd is None
 
-    def test_probe_without_a_pin_records_no_id_when_the_stream_has_none(self, monkeypatch):
-        ans, _ = _ask_codex(monkeypatch, _stream())
-        assert ans.resolved_model is None and ans.billed_models == ()
+    def test_an_unpinned_codex_call_is_refused_before_any_call(self, monkeypatch):
+        run = _Run(_stream(model="gpt-x-1"))
+        monkeypatch.setattr(cli_agents, "_run", run)
+        for pin in (None, "", "  "):
+            with pytest.raises(RuntimeError, match="model unverifiable"):
+                panel.ask_vendor(_codex_vendor(codex_model=pin), "q")
+        with pytest.raises(RuntimeError, match="model unverifiable"):
+            panel.ask_vendor(panel.VENDORS["codex-cli"], "q")
+        assert run.calls == []
+
+    @pytest.mark.parametrize(
+        "unseen",
+        [
+            "Capacity is exhausted for this plan until Friday.",
+            "Your allowance for this period is used up. Come back after the reset.",
+        ],
+    )
+    def test_an_unseen_limit_notice_with_no_resolved_model_is_an_error_not_an_answer(self, monkeypatch, unseen):
+        """R2 (#221): a notice the quota regex does not recognise, in an agent message with no model id anywhere
+        in the stream or rollout, used to come back as an ANSWER with resolved=None."""
+        assert not panel._looks_like_quota(unseen)
+        with pytest.raises(RuntimeError, match="model unverifiable"):
+            _ask_codex(monkeypatch, _stream(text=unseen))
+
+    def test_a_pinned_call_with_no_resolved_model_is_an_error(self, monkeypatch):
+        with pytest.raises(RuntimeError, match="model unverifiable"):
+            _ask_codex(monkeypatch, _stream())
 
     def test_pin_passes_dash_m_and_must_be_confirmed_by_the_stream(self, monkeypatch):
         v = _codex_vendor(codex_model="gpt-x-1")
@@ -380,7 +404,7 @@ class TestCodexEnvelopeArmD:
         v = _codex_vendor(codex_model="gpt-x-1")
         with pytest.raises(RuntimeError, match="model mismatch"):
             _ask_codex(monkeypatch, _stream(model="gpt-y-2"), v)
-        with pytest.raises(RuntimeError, match="model mismatch"):
+        with pytest.raises(RuntimeError, match="model unverifiable"):
             _ask_codex(monkeypatch, _stream(), v)
 
     def test_a_stream_naming_two_models_is_an_error(self, monkeypatch):
@@ -439,7 +463,7 @@ class TestCodexModelIdFromRollout:
     def test_resolved_model_is_read_from_the_rollout_file(self, monkeypatch, tmp_path):
         _rollout(tmp_path, TID, "gpt-6-astra")
         monkeypatch.setenv("CODEX_HOME", str(tmp_path))
-        ans, _ = _ask_codex(monkeypatch, self._stream_tid())
+        ans, _ = _ask_codex(monkeypatch, self._stream_tid(), _codex_vendor(codex_model="gpt-6-astra"))
         assert ans.resolved_model == "gpt-6-astra" and ans.billed_models == ("gpt-6-astra",)
 
     def test_pin_matching_the_rollout_passes_and_a_different_one_is_an_error(self, monkeypatch, tmp_path):
@@ -452,7 +476,7 @@ class TestCodexModelIdFromRollout:
 
     def test_pin_with_no_rollout_found_is_an_error_not_a_pass(self, monkeypatch, tmp_path):
         monkeypatch.setenv("CODEX_HOME", str(tmp_path))
-        with pytest.raises(RuntimeError, match="model mismatch"):
+        with pytest.raises(RuntimeError, match="model unverifiable"):
             _ask_codex(monkeypatch, self._stream_tid(), _codex_vendor(codex_model="gpt-6-astra"))
 
     def test_stream_model_disagreeing_with_rollout_is_an_error(self, monkeypatch, tmp_path):
@@ -487,5 +511,5 @@ class TestRecordedEnvelopes:
         tid = json.loads(rec["stdout"].splitlines()[0])["thread_id"]
         _rollout(tmp_path, tid, rec["rollout_turn_context_trimmed"]["payload"]["model"])
         monkeypatch.setenv("CODEX_HOME", str(tmp_path))
-        ans, _ = _ask_codex(monkeypatch, rec["stdout"])
+        ans, _ = _ask_codex(monkeypatch, rec["stdout"], _codex_vendor(codex_model="gpt-6-astra"))
         assert ans.resolved_model == "gpt-6-astra" and ans.cost_usd is None and ans.text

@@ -45,9 +45,10 @@ CLAUDE_JSON_ENVELOPE = json.dumps({
 
 
 #: CONSTRUCTED codex `--json` stream (the agent_message/turn.completed shapes match the recorded stream in
-#: test_astra_cost.py; the model-bearing event is NOT recorded -- see test_ask_vendor_gaps.py).
+#: test_astra_cost.py; the model-bearing `model` key is CONSTRUCTED -- see test_ask_vendor_gaps.py -- because
+#: every codex call now needs a pinned AND resolved model).
 CODEX_JSONL = "\n".join(json.dumps(e) for e in [
-    {"type": "thread.started", "thread_id": "th_1"},
+    {"type": "thread.started", "thread_id": "th_1", "model": "gpt-x-1"},
     {"type": "item.completed", "item": {"type": "agent_message", "text": "ANSWER: A"}},
     {"type": "turn.completed", "usage": {"input_tokens": 100, "cached_input_tokens": 60, "output_tokens": 5}},
 ])
@@ -148,6 +149,8 @@ class TestPanelAskVendorEndToEnd:
         assert home.exists()
 
     def test_codex_prompt_goes_on_stdin_not_argv(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        from dataclasses import replace
+
         from pravrudhi.application import panel
 
         report = tmp_path / "report.json"
@@ -156,12 +159,13 @@ class TestPanelAskVendorEndToEnd:
         monkeypatch.chdir(tmp_path)
         prompt = _big_prompt()
 
-        ans = panel.ask_vendor(panel.VENDORS["codex-cli"], prompt)
+        base = panel.VENDORS["codex-cli"]
+        ans = panel.ask_vendor(replace(base, params={**base.params, "codex_model": "gpt-x-1"}), prompt)
 
         seen = json.loads(report.read_text(encoding="utf-8"))
         assert seen["stdin"] == prompt
         assert all(prompt not in a for a in seen["argv"])
-        assert seen["argv"][1:] == ["exec", "--skip-git-repo-check", "--json"]
+        assert seen["argv"][1:] == ["exec", "--skip-git-repo-check", "--json", "-m", "gpt-x-1"]
         assert ans.text == "ANSWER: A"
         assert ans.tokens == 105 and ans.cache_read_tokens == 60
 
