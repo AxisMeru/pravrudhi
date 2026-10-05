@@ -128,9 +128,28 @@ ensure_image() {
   rm -rf "$build_ctx"
 }
 
+# Studio admits only the operator, which is only true when the engine authenticates (PRAVRUDHI_AUTH=required): with
+# authentication off every caller is the operator by construction. The image defaults to required, but the gateway's
+# own environment (gateway.env) or the container env file (chat.env) could override that, so refuse to START a Studio
+# container unless the value that would reach it is `required`. Called BEFORE the existing container is touched, so a
+# refusal leaves what is running as it is.
+studio_auth_guard() {
+  local line v="${PRAVRUDHI_AUTH-required}"
+  if [ -f "$CONF/chat.env" ]; then
+    line="$(grep -E '^[[:space:]]*(export[[:space:]]+)?PRAVRUDHI_AUTH=' "$CONF/chat.env" | tail -1 || true)"
+    if [ -n "$line" ]; then v="${line#*=}"; v="${v%\"}"; v="${v#\"}"; v="${v%\'}"; v="${v#\'}"; fi
+  fi
+  if [ "$v" != required ]; then
+    echo "REFUSING to start the Studio container: PRAVRUDHI_AUTH would be '$v', not 'required' (gateway.env / chat.env)." >&2
+    echo "With authentication off every caller is the operator. Fix the setting, then re-run." >&2
+    return 1
+  fi
+}
+
 ensure_engine() {
   local edition=$1 name="pravrudhi-engine-$1" port; port=$(port_of "$1")
   if docker ps --format '{{.Names}} {{.Image}}' | grep -q "^$name pravrudhi-engine:$PRAVRUDHI_VERSION$"; then return; fi
+  if [ "$edition" = studio ]; then studio_auth_guard || exit 1; fi
   docker rm -f "$name" >/dev/null 2>&1 || true
   # Studio's hosted engine serves THE Studio: the operator's real root, with its ledger, requests and the local
   # loop's work, not a fresh root of its own (operator, 2026-09-12: "earlier studio was on rsi...what happened").
@@ -140,7 +159,7 @@ ensure_engine() {
   if [ "$edition" = studio ]; then
     data="${STUDIO_ROOT:-$STATE/studio}"
     # Binds 0.0.0.0 in the container but is published only on 127.0.0.1 (-p below): say so, or the engine cannot see it.
-    extra=(-e "PRAVRUDHI_STUDIO_LOOPBACK_ONLY=1" -e "PRAVRUDHI_ADMINS=$PRAVRUDHI_ADMINS" --user "$(id -u):$(id -g)" -e HOME=/tmp)   # Studio admits only the operator
+    extra=(-e "PRAVRUDHI_AUTH=required" -e "PRAVRUDHI_STUDIO_LOOPBACK_ONLY=1" -e "PRAVRUDHI_ADMINS=$PRAVRUDHI_ADMINS" --user "$(id -u):$(id -g)" -e HOME=/tmp)   # Studio admits only the operator
   fi
   # The anonymous-demo allowance (identity.DEMO_ANON_CAPABLE) is for the product edition only: Studio stays login-only.
   if [ "$edition" = product ] && [ -n "${PRODUCT_DEMO_ANON_PATHS:-}" ]; then
@@ -158,6 +177,14 @@ ensure_engine() {
     ${NYAYA_JUDGE_NETWORK:+--network "$NYAYA_JUDGE_NETWORK"} \
     "${extra[@]}" \
     "pravrudhi-engine:$PRAVRUDHI_VERSION" >/dev/null
+  if [ "$edition" = studio ]; then
+    # Belt and braces: read back what the running container actually has, and take it down rather than serve Studio open.
+    if [ "$(docker exec "$name" printenv PRAVRUDHI_AUTH 2>/dev/null || true)" != required ]; then
+      echo "REFUSING: the running Studio container does not report PRAVRUDHI_AUTH=required; removing it." >&2
+      docker rm -f "$name" >/dev/null 2>&1 || true
+      exit 1
+    fi
+  fi
   for _ in $(seq 1 60); do curl -sf "http://127.0.0.1:$port/api/health" >/dev/null 2>&1 && return; sleep 1; done
   echo "engine $edition did not answer on $port" >&2; docker logs --tail 20 "$name" >&2; exit 1
 }
