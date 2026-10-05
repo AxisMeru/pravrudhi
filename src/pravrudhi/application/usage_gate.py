@@ -9,7 +9,6 @@ never an assumed zero. Thresholds and the maximum age come from `configs/usage_g
 from __future__ import annotations
 
 import datetime as dt
-import fcntl
 import json
 import math
 from pathlib import Path
@@ -18,6 +17,7 @@ from typing import Any
 import yaml
 
 from pravrudhi.application.config_files import config_file
+from pravrudhi.application.portable_lock import exclusive_lock
 
 GATED_KINDS = ("codex", "claude")
 
@@ -190,14 +190,11 @@ def claim_opus_call(root: Path, arm: Any, gate: dict[str, Any]) -> dict[str, Any
     if five > pause:
         raise UsageGateRefused(f"refusing: seat five-hour window {five:g}% is above the M4 pause line {pause}%")
     path = Path(str(_need(cfg, "opus_m4", "counter_file"))).expanduser()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a+") as fh:
-        fcntl.flock(fh, fcntl.LOCK_EX)
-        fh.seek(0)
-        raw = fh.read()
+    with exclusive_lock(path.with_name(path.name + ".lock")):
         try:
+            raw = path.read_text() if path.exists() else ""
             counts = json.loads(raw) if raw.strip() else {}
-        except ValueError as exc:
+        except (OSError, ValueError) as exc:
             raise UsageGateRefused(f"refusing: opus call counter {path} is unreadable") from exc
         n = counts.get(arm, 0) if isinstance(counts, dict) else None
         if not isinstance(n, int) or isinstance(n, bool) or n < 0:
@@ -205,9 +202,7 @@ def claim_opus_call(root: Path, arm: Any, gate: dict[str, Any]) -> dict[str, Any
         if n >= cap:
             raise UsageGateRefused(f"refusing: opus call cap for arm {arm!r} is spent ({n} of {cap})")
         counts[arm] = n + 1
-        fh.seek(0)
-        fh.truncate()
-        fh.write(json.dumps(counts))
+        path.write_text(json.dumps(counts))
     return {"arm": arm, "call_number": n + 1, "call_cap": cap, "five_hour_pause_pct": pause}
 
 
