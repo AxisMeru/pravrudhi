@@ -67,10 +67,11 @@ curl -s -X POST https://api.example.com/api/v1/analyse-facts \
 * `contracts[].outcome` is `PROOF`, `DENIAL`, `ABSTAIN` or `REFER_TO_LAWYER`, with a `reason`. **`REFER_TO_LAWYER`
   and `ABSTAIN` are refusals to give a verdict, not findings about the law.** The sample prints a line for
   `REFER_TO_LAWYER` so it is not read as a result.
-* `standard` says which standard of proof was applied: `applied` (`proved` or `prima_facie_disclosed`),
-  `source` (`proceeding_posture`, `proceeding_type` or `default`), and `in_judge_prompt`.
-  **`in_judge_prompt` false means the standard is recorded but the judge was never told it**, so the verdict did
-  not depend on it. Say that to your users instead of describing the posture as having shaped the result.
+* `standard` says which standard of proof the request asked for and whether it was applied: `requested`
+  (`proved` or `prima_facie_disclosed`), `applied` (the same value, or `null`), `source` (`proceeding_posture`,
+  `proceeding_type` or `default`), and `in_judge_prompt`.
+  **`in_judge_prompt` false means the standard is recorded as `requested` but the judge was never told it**, so
+  `applied` is `null` and the verdict did not depend on it. Say that to your users instead of describing the posture as having shaped the result.
   `proceeding_posture` is optional; omitting it applies the stricter `proved` default.
 * Errors: 401 (bad or revoked key), 422 (input refused), 429 (over the rate limit; wait `Retry-After`), 503
   (outside the service window, judge unavailable). The sample raises `ApiError` carrying the status, body and

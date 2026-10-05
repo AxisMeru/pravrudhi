@@ -213,6 +213,40 @@ class AgentConfig:
         return None if raw is None else float(raw)
 
 
+def _host_class(base_url: Any) -> str | None:
+    """`local` (loopback, private or .local host), `serverless` (RunPod) or `remote`; never the URL itself."""
+    import ipaddress
+    from urllib.parse import urlparse
+
+    host = (urlparse(str(base_url)).hostname or "").lower() if base_url else ""
+    if not host:
+        return None
+    if host.endswith("runpod.ai") or host.endswith("runpod.io"):
+        return "serverless"
+    if host == "localhost" or host.endswith(".local"):
+        return "local"
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return "remote"
+    return "local" if ip.is_loopback or ip.is_private else "remote"
+
+
+def _judge_provenance(config: AgentConfig) -> dict[str, Any]:
+    """What produced the verdicts, for the audit trail: engine version, judge model ids (None when the config
+    does not pin one) and where each judge runs. Host class only, so the audit never carries an endpoint."""
+    from pravrudhi import __version__
+
+    hj, sj = config.house_judge or {}, config.second_judge or {}
+    return {
+        "engine_version": __version__,
+        "primary_judge_model": hj.get("model") or None,
+        "primary_judge_host_class": _host_class(hj.get("base_url")),
+        "second_judge_model": sj.get("model") or None,
+        "second_judge_host_class": _host_class(sj.get("base_url")),
+    }
+
+
 def load_agent_config(root: Path) -> AgentConfig:
     """`configs/nyaya_agent.yaml` under `root`, else the copy the wheel ships (`config_files.config_file`);
     relative paths resolve against `root`. The score binary path
@@ -877,7 +911,8 @@ class AgentRun:
     #: its own copy.
     retention_notice: str = RETENTION_NOTICE
     #: #220: the standard this run applied, from the same resolved values the `run_start` audit row carries.
-    #: `{"applied", "source", "proceeding_posture"}`; None only for a hand-built run.
+    #: `{"requested", "applied", "source", "proceeding_posture", "in_judge_prompt"}`; `applied` is None when the
+    #: judge's prompt did not state the standard. None only for a hand-built run.
     standard: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
@@ -1495,14 +1530,15 @@ class NyayaAgent:
             "standard_in_judge_prompt": in_prompt,
         }
         standard_out = {
-            "applied": standard,
+            "requested": standard,
+            "applied": standard if in_prompt else None,
             "source": "proceeding_posture" if standard_source == "request" else "default",
             "proceeding_posture": proceeding_posture,
             "in_judge_prompt": in_prompt,
         }
         audit.step("run_start", cfg_view,
                    {"judge": self.judge.name, "score_sha256": self.registry.sha256, "client_data": client_data,
-                    **cfg_view, **standard_view}, 0.0)
+                    **_judge_provenance(self.config), **cfg_view, **standard_view}, 0.0)
 
         t0 = time.monotonic()
         ingested = ingest_facts(facts)

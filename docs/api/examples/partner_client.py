@@ -93,8 +93,11 @@ def provision(send: Send, tenancy_secret: str, org_id: str) -> str:
 
 def summarise(result: dict[str, Any]) -> list[str]:
     std = result.get("standard") or {}
-    seen = "given to the judge" if std.get("in_judge_prompt") else "stated, but NOT given to the judge"
-    lines = [f"standard: {std.get('applied')} (source: {std.get('source')}; {seen})"]
+    if std.get("in_judge_prompt"):
+        lines = [f"standard: {std.get('applied')} (given to the judge; source: {std.get('source')})"]
+    else:
+        lines = [f"standard requested: {std.get('requested')}, NOT applied: the judge was never told it "
+                 f"(source: {std.get('source')})"]
     for c in result.get("contracts", []):
         lines.append(f"{c['contract_id']}: {c['outcome']} ({c['reason']})")
         if c["outcome"] == "REFER_TO_LAWYER":
