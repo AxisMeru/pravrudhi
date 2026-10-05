@@ -206,6 +206,16 @@ class AgentConfig:
             raise ValueError(f"second_judge.refer_logit_delta must be >= 0, got {delta}")
         if self.max_concurrency < 1:
             raise ValueError(f"max_concurrency must be >= 1, got {self.max_concurrency}")
+        pc = self.second_judge_positive_control or {}
+        if pc.get("record_path"):
+            from pravrudhi.application.second_judge_positive_control import valid_max_age_hours
+
+            if not valid_max_age_hours(pc.get("max_age_hours")):
+                raise ValueError(
+                    f"second_judge_positive_control.max_age_hours={pc.get('max_age_hours')!r} must be a finite number > 0 "
+                    "when record_path is set (a missing, zero, negative or non-finite window would make a stale record "
+                    "valid forever or never valid)"
+                )
 
     def in_band(self, p: float) -> bool:
         low, high = self.refer_band

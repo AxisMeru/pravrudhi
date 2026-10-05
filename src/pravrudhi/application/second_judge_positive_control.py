@@ -26,7 +26,8 @@ logic in the judge itself. This module only decides `available: bool`; wiring th
 second_judge config is an operational action, not code here.
 
 TRIGGER WIRING (Lead-2, 2026-09-26; OFF BY DEFAULT since 5 Oct -- the gate is active only when
-`second_judge_positive_control.record_path` is set, so an engine with no record keeps serving): when on, the engine refuses to let a real second-judge call happen at all unless
+`second_judge_positive_control.record_path` is set, so an engine with no record keeps serving): when on,
+the engine refuses to let a real second-judge call happen at all unless
 a RECORD of a passing live check exists, is younger than `second_judge_positive_control.max_age_hours`, and
 names the CURRENT `second_judge.endpoint_id` / `second_judge.adapter_sha` -- no record, a stale record, or a
 mismatched record all fail closed the same way, closing the loop without depending on anyone remembering to
@@ -40,6 +41,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import re
 import statistics
@@ -673,13 +675,38 @@ def write_record(
     tmp.replace(path)
 
 
-def read_record(path: Path) -> dict[str, Any] | None:
-    """None for "no record" (file absent, or unreadable/malformed) -- a missing or corrupt record is exactly
-    as fail-closed-worthy as a stale one, never an error that crashes the caller."""
+def read_record_checked(path: Path) -> tuple[dict[str, Any] | None, str]:
+    """(record, reason). record is None whenever there is no usable record, and `reason` says WHY in words an audit reader
+    can use: absent file, unreadable file, not UTF-8, not valid JSON, or JSON that is not an object. Never raises for a bad
+    record."""
     try:
-        return json.loads(path.read_text())
-    except (FileNotFoundError, json.JSONDecodeError):
-        return None
+        raw = path.read_bytes()
+    except FileNotFoundError:
+        return None, "no record (file absent)"
+    except OSError as e:
+        return None, f"record unreadable ({type(e).__name__})"
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return None, "record unreadable: not valid UTF-8"
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        return None, "record unreadable: not valid JSON"
+    if not isinstance(parsed, dict):
+        return None, "record unreadable: JSON is not an object"
+    return parsed, "ok"
+
+
+def read_record(path: Path) -> dict[str, Any] | None:
+    """None for "no record" (file absent, or unreadable/malformed/non-UTF-8) -- a missing or corrupt record is exactly
+    as fail-closed-worthy as a stale one, never an error that crashes the caller. See `read_record_checked` for the reason."""
+    return read_record_checked(path)[0]
+
+
+def valid_max_age_hours(value: Any) -> bool:
+    """True only for a finite number > 0 (a bool, NaN, inf, zero or a negative window is not a usable max age)."""
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) and value > 0
 
 
 def check_record(
@@ -689,6 +716,10 @@ def check_record(
     """(ok, reason). ok=False for: no record, a record whose own `available` was False, a record older than
     `max_age_hours`, or a record naming a different endpoint_id/adapter_sha -- all four are indistinguishable
     to the caller (RecordGatedJudge raises the same way for any of them), but the reason string says which."""
+    if not valid_max_age_hours(max_age_hours):
+        return False, (
+            f"max_age_hours={max_age_hours!r} is not a finite number > 0: refusing (never an unbounded or zero window)"
+        )
     if record is None:
         return False, "no record"
     # Explicit `is not True` rather than `.get("available", False)`: a missing/malformed "available" key
@@ -702,7 +733,12 @@ def check_record(
             "(never treat an unset expected identity as matching an unset recorded one)"
         )
     now = now if now is not None else time.time()
-    age_hours = (now - record["timestamp"]) / 3600.0
+    ts = record.get("timestamp")
+    if not isinstance(ts, (int, float)) or isinstance(ts, bool) or not math.isfinite(ts):
+        return False, f"record timestamp {ts!r} is missing or not a finite number"
+    age_hours = (now - ts) / 3600.0
+    if age_hours < 0:
+        return False, f"record is future-dated ({-age_hours:.2f}h ahead of now): invalid"
     if age_hours > max_age_hours:
         return False, f"record is {age_hours:.1f}h old, max_age_hours={max_age_hours}"
     if record.get("endpoint_id") != expected_endpoint_id:
@@ -720,9 +756,11 @@ class RecordGatedJudge:
     `AndGateJudge` itself -- the gate lives entirely in this wrapper."""
 
     def __init__(
-        self, inner, *, record_path: Path, max_age_hours: float, expected_endpoint_id: str | None,
+        self, inner: Any, *, record_path: Path, max_age_hours: float, expected_endpoint_id: str | None,
         expected_adapter_sha: str | None,
     ) -> None:
+        if not valid_max_age_hours(max_age_hours):
+            raise ValueError(f"max_age_hours={max_age_hours!r} must be a finite number > 0")
         self.inner = inner
         self.record_path = record_path
         self.max_age_hours = max_age_hours
@@ -730,9 +768,9 @@ class RecordGatedJudge:
         self.expected_adapter_sha = expected_adapter_sha
         self.name = getattr(inner, "name", "second")
 
-    def judge(self, request):
-        record = read_record(self.record_path)
-        ok, reason = check_record(
+    def judge(self, request: Any) -> Any:
+        record, read_reason = read_record_checked(self.record_path)
+        ok, reason = (False, read_reason) if record is None else check_record(
             record, max_age_hours=self.max_age_hours, expected_endpoint_id=self.expected_endpoint_id,
             expected_adapter_sha=self.expected_adapter_sha,
         )

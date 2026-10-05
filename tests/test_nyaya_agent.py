@@ -2071,6 +2071,13 @@ class TestHouseFactory:
         assert _judge_provenance(on)["second_judge_record_gate"] == "on"
         assert _judge_provenance(none)["second_judge_record_gate"] is None
 
+    @pytest.mark.parametrize("bad", [None, 0, -1, float("nan"), float("inf")])
+    def test_record_path_with_a_bad_or_missing_max_age_refuses_at_construction(self, tmp_path: Path, bad) -> None:
+        second_cfg = {**self._HOUSE_JUDGE_CFG, "base_url": "http://s/v1", "model": "m2", "tau": 0.97}
+        pc = {"record_path": str(tmp_path / "r.json")} | ({} if bad is None else {"max_age_hours": bad})
+        with pytest.raises(ValueError, match="max_age_hours"):
+            _config(tmp_path, house_judge=self._HOUSE_JUDGE_CFG, second_judge=second_cfg, second_judge_positive_control=pc)
+
     def test_second_judge_with_record_path_starts_and_wraps(self, tmp_path: Path) -> None:
         from pravrudhi.application.nyaya_judges import AndGateJudge
         from pravrudhi.application.second_judge_positive_control import RecordGatedJudge
