@@ -130,13 +130,34 @@ ADMIN_ONLY: frozenset[str] = frozenset({
     "/api/sandboxes",
     "/api/search",
     "/api/swarm", "/api/swarm/live",
+})
+
+# Operator-only in EVERY edition, product included (P0 hotfix, R2): these surfaces are engine-wide or spend the
+# engine's own hardware and secrets, so a signed-in account that merely reaches the engine must not use them. Unlike
+# ADMIN_ONLY, which a product install does not have at all (404), these exist in both editions and answer a
+# non-admin 403 (and an anonymous caller 401 where identity is required). With authentication off the local caller
+# is the operator by construction (`role_of`), so a single-operator install is unaffected.
+ADMIN_IN_BOTH_EDITIONS: frozenset[str] = frozenset({
+    # The engine's local write token: reading it let any signed-in caller satisfy the local write guard.
+    "/api/app-token",
+    # Starting, stopping and watching a night spawns `python -m pravrudhi ...` on the engine host.
+    "/api/runs", "/api/runs/{run_id}", "/api/runs/{run_id}/stop", "/api/runs/{run_id}/events",
+    # Applying or rolling back an engine update replaces the running engine.
     "/api/update/apply", "/api/update/rollback",
 })
+
+# A top-level route (not one inside an included router) cannot have its dependant rebuilt after the fact, so the
+# one such route in `ADMIN_IN_BOTH_EDITIONS` declares the dependency where it is registered.
+ADMIN_GATED_AT_REGISTRATION: frozenset[str] = frozenset({"/api/app-token"})
+
+# Routes whose READ is the product's but whose WRITE is engine-wide: the same path under two methods. Only the
+# methods below the safe set are operator-only; `GET /api/update/config` stays user-facing.
+ADMIN_WRITES_IN_BOTH_EDITIONS: frozenset[str] = frozenset({"/api/update/config"})
+SAFE_METHODS: frozenset[str] = frozenset({"GET", "HEAD", "OPTIONS"})
 
 # What the product is. A user's own goals, workspaces, conversation, memory, keys and models, plus the plain
 # facts about the engine they are running and whether an update is waiting for them.
 USER_FACING: frozenset[str] = frozenset({
-    "/api/app-token",
     "/api/chat", "/api/chat/stream", "/api/chat/threads", "/api/chat/threads/{thread_id}",
     # prabhasa-nyaya: a legal question answered from sources and checked. The product's first domain surface.
     "/api/nyaya/ask", "/api/nyaya/audit", "/api/nyaya/corpus", "/api/nyaya/vendors", "/api/nyaya/asks",
@@ -175,11 +196,6 @@ USER_FACING: frozenset[str] = frozenset({
     "/api/tools",
     "/api/update", "/api/update/config", "/api/update/last-check",
     "/api/workspaces",
-    # Starting work is the product. These were the operator's while `RunManager` was constructed once with the
-    # engine's own root, because a run begun through it spent the operator's hardware under the operator's keys
-    # whoever asked. There is a manager per project now, and the same refusal that governs every other
-    # user-facing surface governs these: a user must name their workspace and nobody falls back to another's.
-    "/api/runs", "/api/runs/{run_id}", "/api/runs/{run_id}/stop", "/api/runs/{run_id}/events",
     # What this project's loop produced, read from the project the caller is asking about.
     "/api/models",
 })
@@ -217,7 +233,15 @@ def gate(app: object) -> list[str]:
     gated: list[str] = []
     for route in walk(app.routes):  # type: ignore[attr-defined]
         if route.path in ADMIN_ONLY:
-            route.dependencies.append(Depends(_admin_dependency if studio else _not_in_this_edition))
+            route.dependencies.append(Depends(admin_dependency if studio else _not_in_this_edition))
+            route.dependant = None  # type: ignore[assignment]
+            gated.append(route.path)
+        elif route.path in ADMIN_GATED_AT_REGISTRATION:
+            gated.append(route.path)  # its own registration already carries the dependency (see server.py)
+        elif route.path in ADMIN_IN_BOTH_EDITIONS or (
+            route.path in ADMIN_WRITES_IN_BOTH_EDITIONS and not (route.methods and route.methods <= SAFE_METHODS)
+        ):
+            route.dependencies.append(Depends(admin_dependency))
             route.dependant = None  # type: ignore[assignment]
             gated.append(route.path)
     return sorted(set(gated))
@@ -229,7 +253,7 @@ async def _not_in_this_edition() -> None:
     raise HTTPException(status_code=404, detail="Not Found")
 
 
-async def _admin_dependency(request: Request) -> None:
+async def admin_dependency(request: Request) -> None:
     """Resolve the caller the same way every other route does, then apply the allowlist."""
     from pravrudhi.api.identity import current_user
 
@@ -237,7 +261,8 @@ async def _admin_dependency(request: Request) -> None:
 
 
 __all__ = [
-    "ACCESS_VALUES", "ADMIN", "ADMIN_ENV", "ADMIN_ONLY", "USER", "USER_FACING", "Role",
+    "ACCESS_VALUES", "ADMIN", "ADMIN_ENV", "ADMIN_IN_BOTH_EDITIONS", "ADMIN_ONLY", "ADMIN_WRITES_IN_BOTH_EDITIONS",
+    "USER", "USER_FACING", "Role",
     "access_for", "admin_ids", "gate", "is_admin", "require_admin", "role_of",
 ]
 
