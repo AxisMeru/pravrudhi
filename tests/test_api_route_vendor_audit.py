@@ -248,3 +248,75 @@ def test_analyse_facts_house_judge_path_still_works_with_fake_judges(tmp_path: P
     r = client.post("/api/v1/analyse-facts", json=_req(), headers=headers)
     assert r.status_code == 200, r.text
     assert OP_KEY not in r.text
+
+
+# -- /api/nyaya/ask runs each vendor in a pool thread: the guards must hold there too (R2, #227) -----------------
+
+CLI_ASK = {"question": "q?", "vendors": ["claude-cli", "codex-cli"]}
+
+
+@pytest.fixture
+def cli_calls(monkeypatch: pytest.MonkeyPatch) -> list[list[str]]:
+    import pravrudhi.agents.cli_agents as ca
+    from pravrudhi.application import tenant_vendors
+
+    seen: list[list[str]] = []
+    monkeypatch.setattr(ca, "_run", lambda cmd, *a, **k: seen.append(cmd) or (0, "answer", "", 0.1))
+    monkeypatch.setattr(tenant_vendors, "_bind_host", None)
+    monkeypatch.delenv("PRAVRUDHI_EDITION", raising=False)
+    monkeypatch.delenv("PRAVRUDHI_STUDIO_LOOPBACK_ONLY", raising=False)
+    return seen
+
+
+@pytest.mark.parametrize("caller", ["anonymous", "signed-in", "partner-key"])
+@pytest.mark.parametrize("edition", ["product", "studio-without-loopback"])
+def test_ask_with_cli_vendors_is_refused_and_runs_nothing(
+    engine: Path, monkeypatch: pytest.MonkeyPatch, cli_calls: list[list[str]], caller: str, edition: str
+) -> None:
+    if edition != "product":
+        monkeypatch.setenv("PRAVRUDHI_EDITION", "studio")
+    client, headers = _client(engine, caller)
+    params = {"workspace": "w1"} if caller == "signed-in" else {}
+    r = client.post("/api/nyaya/ask", headers=headers, params=params, json=CLI_ASK)
+    assert r.status_code == 403, r.text
+    assert "vendor not allowed" in r.text
+    assert cli_calls == []
+
+
+@pytest.mark.parametrize("caller", ["anonymous", "signed-in", "partner-key"])
+def test_ask_with_a_cli_vendor_runs_only_in_the_loopback_studio(
+    engine: Path, monkeypatch: pytest.MonkeyPatch, cli_calls: list[list[str]], caller: str
+) -> None:
+    monkeypatch.setenv("PRAVRUDHI_EDITION", "studio")
+    monkeypatch.setenv("PRAVRUDHI_STUDIO_LOOPBACK_ONLY", "1")
+    client, headers = _client(engine, caller)
+    params = {"workspace": "w1"} if caller == "signed-in" else {}
+    r = client.post("/api/nyaya/ask", headers=headers, params=params, json={"question": "q?", "vendors": ["codex-cli"]})
+    assert r.status_code == 200, r.text
+    assert [c[0] for c in cli_calls] == ["codex"]
+
+
+def test_a_pool_thread_inherits_the_serving_guards(engine: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The thread case: a worker sees the request's serving ContextVars, and with no store a BYOK vendor in the
+    worker never falls back to the operator key."""
+    import pravrudhi.models.openai_compat as oc
+    from pravrudhi.application import nyaya, panel
+    from pravrudhi.application.credentials import serving_api, serving_org
+
+    seen: list[tuple[bool, str | None]] = []
+
+    def probe(v: panel.Vendor, p: str) -> panel.Answer:
+        seen.append((serving_api.get(), serving_org.get()))
+        return panel.Answer(v.id, v.interface, v.model, "", "answer", 0.1, None, None)
+
+    chat: list[int] = []
+    monkeypatch.setattr(oc.ChatClient, "chat", lambda *a, **k: chat.append(1))
+    t1, t2 = serving_api.set(True), serving_org.set("acme")
+    try:
+        nyaya.ask(engine, "q?", ("openai-api", "anthropic-api"), ask_fn=probe)
+        assert seen == [(True, "acme")] * 2
+        rec = nyaya.ask(engine, "q?", ("openai-api",), store=None)
+    finally:
+        serving_org.reset(t2)
+        serving_api.reset(t1)
+    assert chat == [] and rec.answers[0].error and OP_KEY not in rec.answers[0].error

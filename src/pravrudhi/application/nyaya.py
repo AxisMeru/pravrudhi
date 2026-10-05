@@ -26,6 +26,7 @@ same sources, so a verdict can be reproduced.
 
 from __future__ import annotations
 
+import contextvars
 import hashlib
 import json
 import math
@@ -464,6 +465,12 @@ def ask(
     hits = [d for d, _ in corpus.retrieve(question, k=k)]
     prompt = grounded_prompt(question, hits)
     chosen = panel.load_vendors(vendors)
+    from pravrudhi.application import tenant_vendors
+    from pravrudhi.application.credentials import serving_api, serving_org
+
+    if serving_api.get():
+        for v in chosen:
+            tenant_vendors.require(v.id, serving_org.get())
 
     def _default_ask(v: panel.Vendor, p: str) -> panel.Answer:
         return panel.ask_vendor(v, p, root=Path(root), store=store)
@@ -481,8 +488,11 @@ def ask(
         cites, verdict, conf = check_answer(text, hits, corpus)
         return VendorAnswer(v.id, v.model, text, round(wall, 2), cites, verdict, conf)
 
+    # Each worker runs in a copy of THIS thread's context, taken here: a pool thread starts with the serving
+    # ContextVars unset, which would turn the API guards in `panel.ask_vendor` off for exactly these calls.
+    ctxs = [contextvars.copy_context() for _ in chosen]
     with ThreadPoolExecutor(max_workers=max(1, len(chosen))) as pool:
-        answers = list(pool.map(one, chosen))
+        answers = list(pool.map(lambda cv: cv[0].run(one, cv[1]), zip(ctxs, chosen, strict=True)))
 
     if checker == "lean":
         if contract_id is None:
