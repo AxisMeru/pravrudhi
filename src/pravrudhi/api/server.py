@@ -1048,7 +1048,13 @@ def create_app(root: Path, *, nyaya_ask_fn: Any | None = None) -> FastAPI:
 
         project = _project(user, workspace)
         rows: list[dict[str, Any]] = []
+        from pravrudhi.application import tenant_vendors
+        from pravrudhi.application.credentials import serving_org
+
+        permitted = tenant_vendors.allowed_ids(serving_org.get())
         for vendor in tuned(list(VENDORS.values()), config=project / PANEL_CONFIG):
+            if vendor.id not in permitted:
+                continue
             # `reachable` resolves a stored key against the CALLER's project, not the engine's root, so one
             # user's configured key never shows as another's.
             ok, detail = vendor.reachable_in(project, store=_keys(user, workspace))
@@ -1310,6 +1316,9 @@ def create_app(root: Path, *, nyaya_ask_fn: Any | None = None) -> FastAPI:
 def serve(root: Path, host: str = "127.0.0.1", port: int = 8765) -> None:
     import uvicorn
 
+    from pravrudhi.application import tenant_vendors
+
+    tenant_vendors.record_bind(host)
     uvicorn.run(create_app(root), host=host, port=port, log_level="info")
 
 

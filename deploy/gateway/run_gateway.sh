@@ -136,7 +136,8 @@ ensure_engine() {
   local data="$STATE/$edition" extra=()
   if [ "$edition" = studio ]; then
     data="${STUDIO_ROOT:-$STATE/studio}"
-    extra=(-e "PRAVRUDHI_ADMINS=$PRAVRUDHI_ADMINS" --user "$(id -u):$(id -g)" -e HOME=/tmp)   # Studio admits only the operator
+    # Binds 0.0.0.0 in the container but is published only on 127.0.0.1 (-p below): say so, or the engine cannot see it.
+    extra=(-e "PRAVRUDHI_STUDIO_LOOPBACK_ONLY=1" -e "PRAVRUDHI_ADMINS=$PRAVRUDHI_ADMINS" --user "$(id -u):$(id -g)" -e HOME=/tmp)   # Studio admits only the operator
   fi
   # The anonymous-demo allowance (identity.DEMO_ANON_CAPABLE) is for the product edition only: Studio stays login-only.
   if [ "$edition" = product ] && [ -n "${PRODUCT_DEMO_ANON_PATHS:-}" ]; then

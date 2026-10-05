@@ -327,6 +327,10 @@ def validate(
 #: operator credential file are the operator's, and only CLI / research entrypoints (outside this context) may use them.
 serving_api: ContextVar[bool] = ContextVar("serving_api", default=False)
 
+#: The org the API request belongs to, when the partner API resolved one (`tenancy.principal_from_headers`); selects
+#: the per-org vendor allowlist. None for an anonymous or session caller, who gets the default list.
+serving_org: ContextVar[str | None] = ContextVar("serving_org", default=None)
+
 API_WITHOUT_TENANT_STORE = "API call without tenant store"
 
 
