@@ -249,6 +249,9 @@ def create_app(root: Path, *, nyaya_ask_fn: Any | None = None) -> FastAPI:
     # api/localguard.py. Cross-origin access is off unless the operator names the origins.
     # In `required` mode nobody anonymous reaches a route; added before the guard so CORS wraps its 401s.
     app.add_middleware(RequireIdentity)
+    # Added after RequireIdentity, so it is the outer of the two: in the Studio edition every non-admin is refused
+    # (403) before any route runs, whatever the loopback flag says (roles.RequireStudioAdmin).
+    app.add_middleware(roles.RequireStudioAdmin)
     from pravrudhi.application.credentials import ServingApiMiddleware
 
     app.add_middleware(ServingApiMiddleware)

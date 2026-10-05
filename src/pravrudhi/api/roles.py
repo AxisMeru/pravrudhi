@@ -26,8 +26,11 @@ import os
 from enum import StrEnum
 
 from fastapi import HTTPException, Request
+from starlette.requests import HTTPConnection
+from starlette.responses import JSONResponse
+from starlette.types import ASGIApp, Receive, Scope, Send
 
-from pravrudhi.api.identity import AuthMode, User, auth_mode
+from pravrudhi.api.identity import PUBLIC_PATHS, AuthMode, User, _with_query_token, auth_mode, user_from_headers
 
 
 class Role(StrEnum):
@@ -237,3 +240,64 @@ __all__ = [
     "ACCESS_VALUES", "ADMIN", "ADMIN_ENV", "ADMIN_ONLY", "USER", "USER_FACING", "Role",
     "access_for", "admin_ids", "gate", "is_admin", "require_admin", "role_of",
 ]
+
+
+class RequireStudioAdmin:
+    """ASGI middleware: in the Studio edition, no `/api` route outside `PUBLIC_PATHS` answers a non-admin.
+
+    The product and Studio share one identity provider, so any signed-in product account can reach a Studio engine
+    through its tunnel. Per-route role guards only cover the routes that remembered to ask; this is the whole-surface
+    gate, evaluated before any route code runs (no vendor call, no ledger write, nothing a handler does).
+
+    * Edition: read exactly as `tenant_vendors` reads it (`PRAVRUDHI_EDITION` == "studio"). An unset or any other
+      value is not a Studio gate, so a development checkout and the product keep their behaviour. Loopback does
+      not matter here: a loopback Studio is gated the same.
+    * Authentication off (`PRAVRUDHI_AUTH` disabled, the local operator's own machine): nobody to identify, the local
+      caller is the operator by construction (`role_of`), so it passes, exactly as before.
+    * Otherwise the caller is resolved from the same headers every route uses (`PRAVRUDHI_IDENTITY_HEADER` and the
+      `?access_token=` query fallback included, and websockets), and must be on `PRAVRUDHI_ADMINS` by id or email.
+      No identity is 401 (websocket close 4401); a signed-in non-admin is 403 (close 4403). An empty or unset
+      allowlist names nobody, so every signed-in caller is refused.
+    * A partner-key caller (`X-Pravrudhi-Api-Key`) is not an operator: 403 even with no bearer token.
+    * Preflight (OPTIONS), `PUBLIC_PATHS` (the liveness check) and every non-`/api` path (the static interface, `/ping`,
+      `/docs`, `/openapi.json`, which carry no state) stay open.
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] in ("http", "websocket") and _studio_edition() and auth_mode() is not AuthMode.DISABLED:
+            path: str = scope.get("path", "")
+            if path.startswith("/api/") and path not in PUBLIC_PATHS and scope.get("method") != "OPTIONS":
+                refusal = _studio_refusal(HTTPConnection(scope))
+                if refusal is not None:
+                    status, detail = refusal
+                    if scope["type"] == "http":
+                        await JSONResponse({"detail": detail}, status_code=status)(scope, receive, send)
+                    else:
+                        await send({"type": "websocket.close", "code": 4400 + status % 100, "reason": detail})
+                    return
+        await self.app(scope, receive, send)
+
+
+def _studio_edition() -> bool:
+    from pravrudhi.application.tenant_vendors import STUDIO_ENV
+
+    return os.environ.get(STUDIO_ENV, "").strip().lower() == "studio"
+
+
+def _studio_refusal(conn: HTTPConnection) -> tuple[int, str] | None:
+    from pravrudhi.application.tenancy import API_KEY_HEADER
+
+    if API_KEY_HEADER in conn.headers:
+        return 403, "This surface belongs to the engine's operator."
+    try:
+        user = user_from_headers(_with_query_token(conn))
+    except HTTPException as exc:
+        return exc.status_code, str(exc.detail)
+    if user is None:
+        return 401, "Sign in as the engine's operator."
+    if not is_admin(user):
+        return 403, "This surface belongs to the engine's operator."
+    return None
