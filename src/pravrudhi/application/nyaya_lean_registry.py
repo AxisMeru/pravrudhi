@@ -215,7 +215,12 @@ def describe_contract(contract_id: str, *, root: Path | None = None, score_bin: 
 
 def reg_wire_line(assertions: dict[str, bool], contract_id: str) -> str:
     """The exact `REG` wire line sent to the `score` binary: contract id plus one claim per Met assertion
-    (Not-Met and unaddressed elements are not sent -- absence is how the scorer sees them)."""
+    (Not-Met and unaddressed elements are not sent -- absence is how the scorer sees them).
+
+    Grammar, tab-separated: `REG<TAB>live<TAB><contract_id>` then, for each Met assertion in the caller's
+    order, `<TAB>G_SATISFIES(E(<conduct>,AC),E(<element>,EL))` with conduct fixed to `the conduct in the
+    facts` and both names percent-escaped (`%`->`%25`, `(`->`%28`, `)`->`%29`, `,`->`%2C`, in that order).
+    `wire_sha256` = SHA-256 hex of this line as UTF-8, without the trailing newline sent on stdin."""
     claims = [
         f"G_SATISFIES(E({_esc(_CONDUCT)},AC),E({_esc(element)},EL))"
         for element, met in assertions.items() if met
