@@ -211,3 +211,16 @@ def test_push_fails_closed_on_unreadable_range(tmp_path: Path) -> None:
     repo = _repo(tmp_path)
     r = _hook(repo, "f" * 40)
     assert r.returncode == 1 and "cannot read" in r.stderr
+
+
+def test_push_sha_allowlist_is_honoured_when_the_list_is_larger_than_a_pipe_buffer(tmp_path: Path) -> None:
+    """`grep -v ... | grep -q` under `set -o pipefail` fails the pipeline with SIGPIPE (141) when grep -q exits on an early match
+    while the writer still has more than a pipe buffer (~64 KB) to send, so a listed legacy sha stopped being honoured on a long list."""
+    repo = _repo(tmp_path)
+    bad = _commit(repo, ("Old Personal", "p@y.z"))
+    tip = _commit(repo, TEAM)
+    filler = "".join(f"{i:040x}\n" for i in range(3000))  # 3,000 lines = 123 KB, the listed sha is FIRST so grep -q exits early
+    body = f"# reason\n{bad}\n{filler}"
+    assert len(body.splitlines()) > 2000 and len(body) > 65536
+    assert _hook(repo, tip, extra_files={"identity-sha-allowlist": body}).returncode == 0
+    assert _hook(repo, tip, extra_files={"identity-sha-allowlist": f"# reason\n{filler}"}).returncode == 1  # an unlisted sha is still refused
