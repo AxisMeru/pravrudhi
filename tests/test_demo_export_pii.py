@@ -131,3 +131,51 @@ def test_write_demo_refuses_a_snapshot_that_still_carries_personal_data(monkeypa
     monkeypatch.setattr(demo_export, "build_demo", lambda root: {"note": "/home/ss/leak"})
     with pytest.raises(SecretInSnapshot, match="home-path"):
         demo_export.write_demo(root=None, dest=None)  # type: ignore[arg-type]
+
+
+# -- statute text (Lead-2, 2026-10-05; licence memo on s.52(1)(q)(ii)) -----------------------------------------
+
+_PROMPT = (
+    "You are answering a question of Indian law.\\n\\nSOURCES (the only authorities you may rely on):\\n"
+    "[IPC/Section 320] Indian Penal Code, 1860, Section 320 -- Grievous hurt: The following kinds of hurt "
+    "only are designated as \\\"grievous\\\" (First)  -  Emasculation.\\n(Secondly) Permanent privation.\\n"
+    "[IPC/Section 326] Indian Penal Code, 1860, Section 326 -- Grievous hurt by weapons: Whoever, except in "
+    "the case provided for by section 335, voluntarily causes grievous hurt shall be punished.\\n\\n"
+    "QUESTION:\\nA man strikes another."
+)
+
+
+def _snapshot(*texts: str) -> str:
+    return '{\n  "text": "' + '",\n  "more": "'.join(texts) + '"\n}\n'
+
+
+def test_statute_text_in_a_sources_block_is_replaced_but_the_id_and_title_stay() -> None:
+    import json
+
+    out = redact_secrets(_snapshot(_PROMPT))
+    body = json.loads(out)["text"]  # still valid JSON
+    assert "Emasculation" not in body and "Whoever, except" not in body
+    kept = "[IPC/Section 320] Indian Penal Code, 1860, Section 320 -- Grievous hurt: "
+    assert kept + "[statute text removed; see India Code]" in body
+    assert "[IPC/Section 326] Indian Penal Code, 1860, Section 326 -- Grievous hurt by weapons: [statute text removed" in body
+    assert "QUESTION:\nA man strikes another." in body  # the rest of the prompt is untouched
+    assert still_carries(out) == []  # a second pass finds nothing left, so the exporter does not refuse its own output
+
+
+def test_a_truncated_300_character_copy_is_scrubbed_too() -> None:
+    import json
+
+    cut = _PROMPT[:230]  # ends inside the first provision's text, no QUESTION and no next entry
+    body = json.loads(redact_secrets(_snapshot(cut)))["text"]
+    assert "Emasculation" not in body
+    assert body.endswith("[statute text removed; see India Code]")
+
+
+def test_a_citation_example_and_ordinary_bracketed_text_are_not_touched() -> None:
+    plain = "Cite each one inline, e.g. [IPC/Section 302]. Do not cite anything else. See [1] and [A/B] here."
+    assert redact_secrets(_snapshot(plain)) == _snapshot(plain)
+
+
+def test_redacting_twice_changes_nothing() -> None:
+    once = redact_secrets(_snapshot(_PROMPT))
+    assert redact_secrets(once) == once

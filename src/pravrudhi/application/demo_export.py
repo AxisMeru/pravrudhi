@@ -549,6 +549,21 @@ _PII_SHAPES: tuple[tuple[str, re.Pattern[str], str], ...] = (
     # a real tag), kept anyway as a backstop. Same rule as above, not a bare-token strip: consumes from
     # wherever the token starts through the enclosing JSON string's own boundary, so nothing trails after the
     # marker -- the exact defect R1 found in the first version, generalized to this shape too.
+    # Statute text is shown only beside our own analysis, with the India Code notice (Lead-2, 2026-10-05; licence
+    # memo on s.52(1)(q)(ii)). A recorded grounded prompt carries a `SOURCES (...)` block, one entry per line:
+    # `[IPC/Section 320] Indian Penal Code, 1860, Section 320 -- Grievous hurt: <verbatim provision text>`. The id,
+    # act, section and title are kept; the provision text is replaced. Matched on the serialised JSON, where a
+    # newline is the two characters `\n`: an entry ends at the next entry's `\n[ID] `, at the block's
+    # `\n\nQUESTION:`, or at the string's own closing quote (a 300-character copy is cut mid-text). The negative
+    # lookahead keeps an already-scrubbed entry from matching again, so `still_carries` is false afterwards.
+    (
+        "statute-text",
+        re.compile(
+            r'(\\n\[[A-Za-z]+/[^\]"\\]+\] (?:\\.|[^"\\:])*: )(?!\[statute text removed; see India Code\])'
+            r'(?:\\.|[^"\\])+?(?=\\n\[[A-Za-z]+/[^\]"\\]+\] |\\n\\nQUESTION:|")'
+        ),
+        r"\g<1>[statute text removed; see India Code]",
+    ),
     (
         "internal-marker-residue",
         re.compile(r'(?:cross-session-message|cc-socks)(?:\\.|[^"\\])*'),
