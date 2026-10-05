@@ -69,3 +69,30 @@ def test_a_veto_never_creates_a_pass_and_is_recorded() -> None:
     assert not r.passed and r.rule == "V1"
     r2 = check_attribution("TOY: A-9 to A-17 abused Nila.", AccusedRef("a17", ("A17",)))
     assert not r2.passed and r2.rule == "V2"
+
+
+@pytest.mark.parametrize(
+    "link",
+    ["with the help of", "in concert with", "as well as", "aided by", "assisted by", "accompanied by", "in collusion with",
+     "jointly with", "with the assistance of", "abetted by"],
+)
+@pytest.mark.parametrize("who", ["Gopal Rao", "Accused No.9", "her husband"])
+def test_v1_link_phrases_bring_in_a_second_actor(link: str, who: str) -> None:
+    from pravrudhi.application.nyaya_attribution import AccusedRef, _veto
+
+    ref = AccusedRef("a1", ("Accused No.3",), (("Accused No.9",), ("her husband",)))
+    assert _veto(f"TOY: Accused No.3 {link} {who} beat Nila.", ref) == "V1"
+
+
+@pytest.mark.parametrize(
+    "sentence",
+    [
+        "TOY: Accused No.3 beat Nila with a hockey stick.",
+        "TOY: Accused No.3 beat Nila with the help of a stick.",
+        "TOY: Accused No.3 beat Nila, as well as she could not leave the house.",
+    ],
+)
+def test_v1_link_phrases_do_not_fire_without_a_second_actor(sentence: str) -> None:
+    from pravrudhi.application.nyaya_attribution import AccusedRef, _veto
+
+    assert _veto(sentence, AccusedRef("a1", ("Accused No.3",), ())) is None

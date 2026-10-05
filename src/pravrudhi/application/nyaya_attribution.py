@@ -421,8 +421,18 @@ def _decide(quote: str, accused: AccusedRef, cands: list[Candidate], open_verbs:
 _SHORT_RANGE = re.compile(
     r"(?<![A-Za-z0-9])[AP][\s.\-]*\d{1,3}\s*(?:to|[-\u2013\u2014]|and|&|,)\s*[AP]?[\s.\-]*\d{1,3}(?![A-Za-z0-9])", re.I
 )
-#: V1: after the accused, "together with / along with / alongwith" followed by a name (capitalised word), a role or a short alias.
-_JOINED = re.compile(r"\b(?:together|along)[\s-]*with\s+(?:[A-Z][a-z]+|(?i:accused\b|petitioners?\b)|(?i:[AP])[\s.\-]*\d)")
+#: V1: a LINK phrase after the accused that brings in a second actor ("together with", "along with", "with the help of", "in concert
+#: with", "as well as", "aided by", ...), followed by a name (capitalised word), a role, a short alias or a kin/group noun.
+_LINK = (
+    r"(?:(?:together|along)[\s-]*with|jointly\s+with|as\s+well\s+as|in\s+(?:concert|collusion|conspiracy|company)\s+with"
+    r"|in\s+the\s+company\s+of|(?:aided|assisted|abetted|accompanied|joined|helped|supported)\s+by"
+    r"|with\s+the\s+(?:help|assistance|aid|support|connivance|participation)\s+of)"
+)
+_LINK_TARGET = (
+    r"(?:[A-Z][a-z]+|(?i:accused\b|petitioners?\b|respondents?\b)|(?i:[AP])[\s.\-]*\d"
+    r"|(?i:(?:her|his|their|the)\s+(?:husband|wife|father|mother|brother|sister|in-laws?|[\w-]+-in-law|family|relatives|parents|friends?)))"
+)
+_JOINED = re.compile(rf"\b{_LINK}\s+{_LINK_TARGET}")
 #: V1: "and" / "&" straight after the accused and before the act verb, followed by a capitalised name.
 _AND_NAME = re.compile(r"^\s*,?\s*(?:and|&)\s+(?!Accused\b|Petitioner|Respondent|Complainant)[A-Z][a-z]+")
 _SENTENCE_END = re.compile(r"(?<!\bNo)(?<!\bNos)\.\s+(?=[A-Z])")

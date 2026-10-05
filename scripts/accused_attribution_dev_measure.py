@@ -49,6 +49,10 @@ ACTS_OUTSIDE_LEXICON = [
     "turned {v} out of the house",
     "stopped {v} from meeting {v}'s parents",
 ]
+LINKS = [
+    "along with", "together with", "jointly with", "as well as", "in collusion with", "in conspiracy with", "in the company of",
+    "with the help of", "with the assistance of", "aided by", "abetted by", "joined by", "helped by",
+]
 WHEN = ["On 12.03.2019", "On 04.07.2018, at about 9 pm", "In March 2017", "Thereafter", "After the marriage", ""]
 
 
@@ -143,7 +147,11 @@ NEGATIVE = {
         lambda rng, n, m, v, man, w: _lead(w, f"Accused Nos.{n} to {n + 3} {_pick(rng, ACTS_IN_LEXICON, v)}.")
     ),
     "N5 'X along with Y'": _cell(
-        lambda rng, n, m, v, man, w: _lead(w, f"Accused No.{n} along with Accused No.{m} {_pick(rng, ACTS_IN_LEXICON, v)}.")
+        lambda rng, n, m, v, man, w: _lead(
+            w,
+            f"Accused No.{n} {rng.choice(LINKS)} {rng.choice([f'Accused No.{m}', man, 'her husband'])} "
+            f"{_pick(rng, ACTS_IN_LEXICON, v)}.",
+        )
     ),
     "N6 in-laws": _cell(lambda rng, n, m, v, man, w: _lead(w, f"Her in-laws {_pick(rng, ACTS_IN_LEXICON, v)}.")),
     "N7 'they'": _cell(lambda rng, n, m, v, man, w: f"They {_pick(rng, ACTS_IN_LEXICON, v)}."),
