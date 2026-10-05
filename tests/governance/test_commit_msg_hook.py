@@ -17,8 +17,12 @@ def _run(msg: str, tmp_path: Path, *, author=TEAM, committer=None, allowed: str 
         (d / "allowed-identities").write_text(allowed)
         hook = d / "commit-msg"
     committer = committer or author
-    env = os.environ | {"GIT_AUTHOR_NAME": author[0], "GIT_AUTHOR_EMAIL": author[1],
-                        "GIT_COMMITTER_NAME": committer[0], "GIT_COMMITTER_EMAIL": committer[1]}
+    env = os.environ | {
+        "GIT_AUTHOR_NAME": author[0],
+        "GIT_AUTHOR_EMAIL": author[1],
+        "GIT_COMMITTER_NAME": committer[0],
+        "GIT_COMMITTER_EMAIL": committer[1],
+    }
     p = subprocess.run(["bash", str(hook), str(f)], env=env, capture_output=True, text=True)
     return p.returncode, f.read_text()
 
@@ -59,8 +63,12 @@ def test_name_and_email_must_match_as_a_pair(tmp_path: Path) -> None:
 
 
 def test_commented_identity_is_not_allowed(tmp_path: Path) -> None:
-    rc, _ = _run("x\n", tmp_path, author=("Ext Person", "ext@example.org"),
-                 allowed="# Ext Person <ext@example.org>\nSharathSPhD <admin@axismeru.com>\n")
+    rc, _ = _run(
+        "x\n",
+        tmp_path,
+        author=("Ext Person", "ext@example.org"),
+        allowed="# Ext Person <ext@example.org>\nSharathSPhD <admin@axismeru.com>\n",
+    )
     assert rc == 1
 
 
