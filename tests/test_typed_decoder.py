@@ -145,3 +145,44 @@ class TestSGLangDecoder:
     def test_needs_a_base_url_or_an_injected_transport(self) -> None:
         with pytest.raises(ValueError, match="base_url"):
             SGLangDecoder()
+
+
+class TestScoreDecisionNonFiniteLogprobs:
+    """#172 (same fail-open as #156): a NaN or +inf in the first token's top logprobs must raise, never become a score."""
+
+    @pytest.mark.parametrize(
+        "top",
+        [
+            {" established": math.nan, " not": -1.0},
+            {" established": -0.1, " not": math.nan},
+            {"established": math.nan, " established": -0.1},
+            {" established": -0.1, " not": -3.0, "Based": math.nan},
+            {" established": math.inf, " not": -1.0},
+            {" established": -0.1, " not": -3.0, "Based": math.inf},
+        ],
+    )
+    def test_nan_or_positive_infinity_is_a_decode_error_not_a_score(self, top: dict[str, float]) -> None:
+        with pytest.raises(DecodeError):
+            score_decision(_result(top), STATUS)
+
+    def test_negative_infinity_alone_is_still_just_an_absent_token(self) -> None:
+        scores, missing = score_decision(_result({" established": -0.1, " not": -math.inf}), STATUS)
+        assert math.isfinite(scores["true"]) and "false" in missing
+
+    def test_fuzz_no_non_finite_input_escapes_as_a_score(self) -> None:
+        import random
+
+        rng = random.Random(172)
+        keys = [" established", "established", " not", "not", "Based", " the", "x"]
+        escapes = 0
+        for _ in range(2000):
+            top = {k: rng.uniform(-12.0, 0.0) for k in rng.sample(keys, rng.randint(2, len(keys)))}
+            bad_keys = rng.sample(sorted(top), rng.randint(1, len(top)))
+            for k in bad_keys:
+                top[k] = rng.choice([math.nan, math.inf])
+            try:
+                scores, _ = score_decision(_result(top), STATUS)
+            except DecodeError:
+                continue
+            escapes += 1
+        assert escapes == 0
