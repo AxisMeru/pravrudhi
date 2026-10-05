@@ -16,6 +16,9 @@
 #   gateway.env     PRAVRUDHI_ADMINS (the operator's Supabase account, Studio admits only this),
 #                   PRAVRUDHI_VERSION (the release both containers run), STUDIO_ROOT (the real Studio root the
 #                   hosted Studio engine serves; default a fresh root), optional STUDIO_ORIGIN / PRODUCT_ORIGIN
+#                   NYAYA_HOUSE_JUDGE_MODEL (and NYAYA_SECOND_JUDGE_MODEL when a second judge is configured):
+#                   the served judge model ids (nyaya-judge-4b / judge32b). REQUIRED for the engine containers:
+#                   a product or studio engine refuses to load its judge config with no model named (#237)
 #                   optional NYAYA_HOUSE_JUDGE_BASE_URL + NYAYA_JUDGE_NETWORK: the element-judge server the
 #                   /api/v1/analyse-facts agent calls, reached by container name on a shared docker network
 #                   (e.g. http://vllm-judge:8000/v1 on network nyaya-judge) -- the host's 127.0.0.1 is not
@@ -150,6 +153,8 @@ ensure_engine() {
     -e PRAVRUDHI_EDITION="$edition" -e SUPABASE_URL="$SUPABASE_URL" \
     -e PRAVRUDHI_ALLOWED_ORIGINS="$(origin_of "$edition")" \
     ${NYAYA_HOUSE_JUDGE_BASE_URL:+-e "NYAYA_HOUSE_JUDGE_BASE_URL=$NYAYA_HOUSE_JUDGE_BASE_URL"} \
+    ${NYAYA_HOUSE_JUDGE_MODEL:+-e "NYAYA_HOUSE_JUDGE_MODEL=$NYAYA_HOUSE_JUDGE_MODEL"} \
+    ${NYAYA_SECOND_JUDGE_MODEL:+-e "NYAYA_SECOND_JUDGE_MODEL=$NYAYA_SECOND_JUDGE_MODEL"} \
     ${NYAYA_JUDGE_NETWORK:+--network "$NYAYA_JUDGE_NETWORK"} \
     "${extra[@]}" \
     "pravrudhi-engine:$PRAVRUDHI_VERSION" >/dev/null

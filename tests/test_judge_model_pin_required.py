@@ -130,3 +130,20 @@ def test_the_dev_32b_listing_order_never_decides_a_deployed_judge(tmp_path: Path
         nyaya_agent.load_agent_config(_root(tmp_path / "a"))
     cfg = nyaya_agent.load_agent_config(_root(tmp_path / "b", {"model": "judge32b"}))
     assert cfg.house_judge["model"] == "judge32b" and cfg.house_judge["model"] != base
+
+
+def test_the_server_warmup_logs_a_refused_judge_config_instead_of_swallowing_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    from pravrudhi.api.server import _warm_up_house_judge_in_background
+
+    monkeypatch.setenv("PRAVRUDHI_EDITION", "product")
+    (tmp_path / "configs").mkdir()
+    (tmp_path / "configs" / "nyaya_agent.yaml").write_text((REPO / "configs" / "nyaya_agent.yaml").read_text())
+    with caplog.at_level("ERROR"):
+        _warm_up_house_judge_in_background(tmp_path)  # must not raise: it never blocks startup
+    assert "house judge warm-up not started" in caplog.text and "house_judge.model is not set" in caplog.text
+    caplog.clear()
+    with caplog.at_level("ERROR"):
+        _warm_up_house_judge_in_background(tmp_path / "nowhere")  # no config at all: quiet, as before
+    assert "warm-up not started" not in caplog.text
