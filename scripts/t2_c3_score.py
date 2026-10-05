@@ -52,20 +52,23 @@ def score_row(raw: dict[str, Any]) -> dict[str, Any]:
     """p and status/fact_id for both arms on one raw row. Mirrors `t2_c3_ab_run.py`'s own scoring exactly
     (same functions), just applied after the fact to the sealed raw completions rather than live."""
     free_top = raw["free_text"]["top_logprobs"]
-    p_free = p_established_from_top_logprobs(free_top[0])[0] if free_top else None
+    p_free, clamp_free = p_established_from_top_logprobs(free_top[0]) if free_top else (None, None)
     fid_free = parse_house_fact_id(raw["free_text"]["text"]) if p_free is not None and p_free >= TAU else None
 
     typed_top = raw["typed"]["top_logprobs"]
     p_typed = None
     fid_typed = None
+    typed_bounded = None
     if typed_top:
         res = CompletionResult(text=raw["typed"]["text"], model="x", top_logprobs=typed_top, wall_s=0.0)
-        p_typed = score_decision(res, _STATUS_FIELD)[0]["true"]
+        scores, missing = score_decision(res, _STATUS_FIELD)
+        p_typed, typed_bounded = scores["true"], bool(missing)
         fid_typed = parse_house_fact_id(raw["typed"]["text"]) if p_typed >= TAU else None
 
     return {
         "id": raw["id"], "gold": raw["gold"], "half": raw["half"], "arm_run_first": raw["arm_run_first"],
-        "p_free": p_free, "fid_free": fid_free, "status_free": _status(p_free),
+        "p_free": p_free, "fid_free": fid_free, "status_free": _status(p_free), "clamp_free": clamp_free,
+        "typed_bounded": typed_bounded,
         "p_typed": p_typed, "fid_typed": fid_typed, "status_typed": _status(p_typed),
     }
 
@@ -216,6 +219,8 @@ def main() -> int:
             "n": n_planned,
             "parse_rate_free": parse_rate(scored, "p_free"),
             "parse_rate_typed": parse_rate(scored, "p_typed"),
+            "n_bounded_free": sum(1 for s in scored if s["clamp_free"] not in (None, "none")),
+            "n_bounded_typed": sum(1 for s in scored if s["typed_bounded"]),
             "flips": sum(1 for s in scored if is_flip(s)),
             "false_establish_free": false_establish(scored, "p_free", "status_free"),
             "false_establish_typed": false_establish(scored, "p_typed", "status_typed"),
