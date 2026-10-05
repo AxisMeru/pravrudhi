@@ -308,13 +308,13 @@ def test_the_cheap_check_does_not_spawn_a_subprocess(tmp_path: Path, monkeypatch
     assert called != []
 
 
-class TestClaudeEnvIsTheScriptedSeatZero:
+class TestClaudeEnvIsTheScriptedSeatTwo:
     """Issue #82 (Tag/Lead-2, 2026-09-26 -- stopped Track-A's audit run over this): `claude_env` used to
     resolve through the registry `select_seat` walks (primary=sathish/seat 2), the right rotation for real
     agentic coding dispatch but the wrong account for a one-shot SCRIPTED `claude -p` call, which TEAM-
-    RULES.md's own Claude usage cost rules require to bill seat 0 (sharath.ai.colab@gmail.com). `claude_env`
+    RULES.md's own Claude usage cost rules require to bill the scripted seat (seat 2, sharath.sathish@gmail.com since the operator's 2026-09-27 ruling). `claude_env`
     now resolves independently of the registry entirely -- these tests use `SCRIPTED_CLAUDE_HOME_ENV` to
-    redirect at a throwaway directory rather than asserting on the real, live, machine-specific seat-0
+    redirect at a throwaway directory rather than asserting on the real, live, machine-specific seat-2
     directory (same discipline as the panel.py `_claude_cli_env` tests this mirrors)."""
 
     def test_defaults_to_the_seat_two_claude_loop_directory(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -334,6 +334,20 @@ class TestClaudeEnvIsTheScriptedSeatZero:
         with pytest.raises(account.ScriptedSeatMismatch, match="auth status"):
             account.claude_env(live=True)
 
+    def test_live_check_refuses_when_there_is_no_recorded_email_to_cross_check(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        home = tmp_path / "seat2"
+        home.mkdir()
+        (home / ".credentials.json").write_text("{}")  # logged in, but no cached profile: recorded email is None
+        monkeypatch.setenv(account.SCRIPTED_CLAUDE_HOME_ENV, str(home))
+        monkeypatch.setattr(
+            account, "_auth_status", lambda d: {"loggedIn": True, "email": account.SCRIPTED_CLAUDE_EMAIL}
+        )
+        with pytest.raises(account.ScriptedSeatMismatch, match="no recorded account email"):
+            account.claude_env(live=True)
+        assert account.claude_env()["CLAUDE_CONFIG_DIR"] == str(home)  # the cached-profile default is unchanged
+
     def test_live_check_accepts_the_expected_email(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         home = _seat_dir(tmp_path / "loop", email=account.SCRIPTED_CLAUDE_EMAIL, refresh="r-loop")
         monkeypatch.setenv(account.SCRIPTED_CLAUDE_HOME_ENV, str(home))
@@ -351,12 +365,12 @@ class TestClaudeEnvIsTheScriptedSeatZero:
         account.claude_env()
 
     def test_env_var_redirects_it(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        redirected = tmp_path / "redirected-seat-0"
+        redirected = tmp_path / "redirected-seat-2"
         monkeypatch.setenv(account.SCRIPTED_CLAUDE_HOME_ENV, str(redirected))
         assert account.scripted_claude_home() == redirected
 
     def test_a_provisioned_correct_seat_is_accepted(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        home = _seat_dir(tmp_path / "seat0", email=account.SCRIPTED_CLAUDE_EMAIL, refresh="r-seat0")
+        home = _seat_dir(tmp_path / "seat2", email=account.SCRIPTED_CLAUDE_EMAIL, refresh="r-seat2")
         monkeypatch.setenv(account.SCRIPTED_CLAUDE_HOME_ENV, str(home))
         assert account.claude_env()["CLAUDE_CONFIG_DIR"] == str(home)
 
@@ -376,7 +390,7 @@ class TestClaudeEnvIsTheScriptedSeatZero:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Issue #82's second requirement: verify the account, don't just check a credential file exists."""
-        home = _seat_dir(tmp_path / "seat0", email="sharath.ai.colab@gmail.com", refresh="r-wrong")
+        home = _seat_dir(tmp_path / "wrong-seat", email="sharath.ai.colab@gmail.com", refresh="r-wrong")
         monkeypatch.setenv(account.SCRIPTED_CLAUDE_HOME_ENV, str(home))
         with pytest.raises(account.ScriptedSeatMismatch, match="sharath.ai.colab@gmail.com"):
             account.claude_env()
@@ -386,7 +400,7 @@ class TestClaudeEnvIsTheScriptedSeatZero:
     ) -> None:
         """`require=False` excuses a MISSING credential (a status listing must not crash over one), never a
         credential for the WRONG account -- that is a live, silent-billing risk, not an absent-file question."""
-        home = _seat_dir(tmp_path / "seat0", email="sharath.ai.colab@gmail.com", refresh="r-wrong")
+        home = _seat_dir(tmp_path / "wrong-seat", email="sharath.ai.colab@gmail.com", refresh="r-wrong")
         monkeypatch.setenv(account.SCRIPTED_CLAUDE_HOME_ENV, str(home))
         with pytest.raises(account.ScriptedSeatMismatch):
             account.claude_env(require=False)
@@ -396,7 +410,7 @@ class TestClaudeEnvIsTheScriptedSeatZero:
     ) -> None:
         """A live credential with no `.claude.json` yet (freshly logged in, no command has re-fetched the
         profile) must not be refused -- there is nothing to disagree with the expected account yet."""
-        home = tmp_path / "seat0"
+        home = tmp_path / "seat2"
         home.mkdir()
         (home / ".credentials.json").write_text("{}")
         monkeypatch.setenv(account.SCRIPTED_CLAUDE_HOME_ENV, str(home))
@@ -410,7 +424,7 @@ class TestClaudeEnvIsTheScriptedSeatZero:
         root = _two_seats(tmp_path)  # a fully provisioned, valid registry -- must be ignored
         pinned = _seat_dir(tmp_path / "isolated", email="one@example.com", refresh="r-pin")
         monkeypatch.setenv(account.HOME_ENV, str(pinned))
-        home = _seat_dir(tmp_path / "seat0", email=account.SCRIPTED_CLAUDE_EMAIL, refresh="r-seat0")
+        home = _seat_dir(tmp_path / "seat2", email=account.SCRIPTED_CLAUDE_EMAIL, refresh="r-seat2")
         monkeypatch.setenv(account.SCRIPTED_CLAUDE_HOME_ENV, str(home))
         assert account.claude_env()["CLAUDE_CONFIG_DIR"] == str(home)
         del root  # registry exists only to prove it is ignored
