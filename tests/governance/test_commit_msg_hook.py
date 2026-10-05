@@ -223,4 +223,16 @@ def test_push_sha_allowlist_is_honoured_when_the_list_is_larger_than_a_pipe_buff
     body = f"# reason\n{bad}\n{filler}"
     assert len(body.splitlines()) > 2000 and len(body) > 65536
     assert _hook(repo, tip, extra_files={"identity-sha-allowlist": body}).returncode == 0
-    assert _hook(repo, tip, extra_files={"identity-sha-allowlist": f"# reason\n{filler}"}).returncode == 1  # an unlisted sha is still refused
+    assert (
+        _hook(repo, tip, extra_files={"identity-sha-allowlist": f"# reason\n{filler}"}).returncode == 1
+    )  # an unlisted sha is still refused
+
+
+def test_shipped_allowlist_accepts_the_org_handle_spelling_of_the_team_identity(tmp_path: Path) -> None:
+    rc, _ = _run("fix: z\n", tmp_path, author=("AxisMeru", "admin@axismeru.com"))
+    assert rc == 0
+
+
+def test_shipped_allowlist_still_requires_the_pair_for_the_org_handle(tmp_path: Path) -> None:
+    rc, _ = _run("fix: z\n", tmp_path, author=("AxisMeru", "someone@else.example"))
+    assert rc == 1

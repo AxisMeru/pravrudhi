@@ -1,3 +1,5 @@
 # One `Name <email>` per line. The commit-msg hook requires the author AND the committer to be listed.
 # External contributors are added here by PR, with Lead-2 approval.
 SharathSPhD <admin@axismeru.com>
+# The same account under the GitHub org-handle spelling: 18 commits on 26-27 Sep used it. Same email; history is not rewritten.
+AxisMeru <admin@axismeru.com>
