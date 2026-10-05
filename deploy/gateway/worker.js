@@ -41,8 +41,24 @@ function isRunPodMode(env) {
   return env.UPSTREAM_KIND === "runpod" && env.RUNPOD_API_KEY;
 }
 
+// Interim containment (2026-10-05, Lead-2): engine run-spawn and update-config writes are not safe for any
+// signed-in caller until the engine's admin gate ships. Decode before matching so %72uns cannot slip past.
+const BLOCKED_WRITE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+function isBlockedWrite(request) {
+  if (!BLOCKED_WRITE_METHODS.has(request.method)) return false;
+  let path = new URL(request.url).pathname;
+  try { path = decodeURIComponent(path); } catch (e) { return true; }
+  path = path.toLowerCase();
+  return path.startsWith("/api/runs") || path.startsWith("/api/update");
+}
+
 export default {
   async fetch(request, env) {
+    if (isBlockedWrite(request)) {
+      return new Response(JSON.stringify({ error: "temporarily disabled" }), {
+        status: 403, headers: { "content-type": "application/json" },
+      });
+    }
     const backend = await backendFor(env);
     if (!backend) {
       return new Response(JSON.stringify({ error: "engine not registered", edition: env.EDITION }), {
