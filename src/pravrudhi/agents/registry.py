@@ -7,6 +7,7 @@ reported as unavailable with the reason, rather than being handed a task that wi
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -46,8 +47,32 @@ def build_registry(root: Path, *, include_orca: bool = True) -> dict[str, Any]:
     return agents
 
 
+HOSTED_IMAGE_ENV = "PRAVRUDHI_HOSTED_IMAGE"
+HOSTED_AGENT_REASON = "hosted image: agents run on the host"
+
+
+def hosted_image() -> bool:
+    """True inside the hosted engine image, which ships no agent CLIs by design (codex, claude-code, opencode, hermes,
+    orca and xvfb-run are all absent): the coding agents run on the host loop, not in the container. The image sets
+    `PRAVRUDHI_HOSTED_IMAGE=1`; images built before the marker are recognised by their other defaults (a container
+    with the local write guard disabled, which the hosted image sets and a local install does not)."""
+    if os.environ.get(HOSTED_IMAGE_ENV, "").strip() == "1":
+        return True
+    return os.environ.get("PRAVRUDHI_DISABLE_LOCAL_GUARD", "").strip() == "1" and Path("/.dockerenv").exists()
+
+
 def survey(root: Path, *, include_orca: bool = True) -> list[AgentStatus]:
-    """One line per agent: usable now, or the specific reason it is not."""
+    """One line per agent: usable now, or the specific reason it is not.
+
+    In the hosted image an unavailable agent is not a missing install, so it says what is true instead of
+    "CLI not installed" or "needs xvfb"."""
+    out = _survey(root, include_orca=include_orca)
+    if hosted_image():
+        out = [a if a.available else AgentStatus(a.name, False, HOSTED_AGENT_REASON) for a in out]
+    return out
+
+
+def _survey(root: Path, *, include_orca: bool = True) -> list[AgentStatus]:
     out: list[AgentStatus] = []
     for name, a in build_registry(root, include_orca=include_orca).items():
         if isinstance(a, CodexAgent):
