@@ -204,7 +204,7 @@ def test_a_url_with_credentials_is_refused_and_neither_user_nor_password_is_ever
 
 
 def test_the_target_line_is_hostname_and_port_only(capsys: pytest.CaptureFixture[str]) -> None:
-    env = {**_env_for("studio"), "PROBE_BASE_URL": "https://engine.example.test:8443/ignored/path?q=1"}
+    env = {**_env_for("studio"), "PROBE_BASE_URL": "https://engine.example.test:8443"}
     probe.main(env, lambda *a: (200, {"access": "admin"}))
     first = capsys.readouterr().out.splitlines()[0]
     assert first == "target: https://engine.example.test:8443, edition studio"
@@ -236,3 +236,41 @@ def test_an_ipv6_host_is_bracketed_in_the_target_line(capsys: pytest.CaptureFixt
     env = {**_env_for("product"), "PROBE_BASE_URL": "http://[::1]:8765"}
     probe.main(env, lambda *a: (200, {"access": "admin"}))
     assert capsys.readouterr().out.splitlines()[0] == "target: http://[::1]:8765, edition product"
+
+
+def test_a_url_with_credentials_query_and_fragment_leaks_none_of_them_to_stdout_or_stderr(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    url = "https://u:p@engine.example.test/?token=s3cr3tq#zzfragzz"
+    code = probe.main({**_env_for("product"), "PROBE_BASE_URL": url}, lambda *a: (200, {"access": "admin"}))
+    out = capsys.readouterr()
+    assert code == 2
+    text = out.out + out.err
+    for leaked in ("u:p", "p@", "s3cr3tq", "zzfragzz", "token=", "u:p@engine"):
+        assert leaked not in text, leaked
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://engine.example.test/api",
+        "https://engine.example.test/api/v1/",
+        "https://engine.example.test/?token=s3cr3tq",
+        "https://engine.example.test?x=1",
+        "https://engine.example.test/#zzfragzz",
+        "https://engine.example.test/;params",
+    ],
+)
+def test_a_base_url_with_a_path_query_or_fragment_is_refused_without_echoing_it(
+    url: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    code = probe.main({**_env_for("product"), "PROBE_BASE_URL": url}, lambda *a: (200, {"access": "admin"}))
+    out = capsys.readouterr()
+    assert code == 2 and "origin only" in out.err
+    assert "s3cr3tq" not in out.out + out.err and "zzfragzz" not in out.out + out.err and "/api" not in out.out + out.err
+
+
+@pytest.mark.parametrize("url", ["https://engine.example.test", "https://engine.example.test/", "http://127.0.0.1:8765/"])
+def test_a_plain_origin_is_still_accepted(url: str, capsys: pytest.CaptureFixture[str]) -> None:
+    probe.main({**_env_for("product"), "PROBE_BASE_URL": url}, lambda *a: (200, {"access": "admin"}))
+    assert "CONFIG ERROR" not in capsys.readouterr().err

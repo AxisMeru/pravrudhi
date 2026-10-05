@@ -6,7 +6,8 @@ Run it against a deployment after a release (or against a local engine) to check
 everything comes from the environment, and tokens are never printed (only status codes).
 
 Environment
-  PROBE_BASE_URL       engine base URL, e.g. https://engine.example.test (http only for loopback)
+  PROBE_BASE_URL       engine ORIGIN only, e.g. https://engine.example.test[:port] (http only for loopback); a path,
+                       query, fragment or credentials in it are refused
   PROBE_ADMIN_TOKEN    a bearer token for an administrator (PRAVRUDHI_ADMINS)
   PROBE_USER_TOKEN     a bearer token for a NON-admin test account (never a real user's token)
   PROBE_EDITION        product | studio (default product): a Studio refuses a non-admin on every /api route
@@ -167,6 +168,8 @@ def main(env: dict[str, str] | None = None, send: Send | None = None) -> int:
         return config_error("PROBE_BASE_URL is not a valid URL")
     if not hostname:
         return config_error("PROBE_BASE_URL has no host")
+    if parsed.path not in ("", "/") or parsed.query or parsed.fragment or parsed.params:
+        return config_error("PROBE_BASE_URL must be an origin only (scheme, host, port): no path, query or fragment")
     if has_credentials:
         return config_error("PROBE_BASE_URL must not carry credentials (user:password@); pass tokens by environment")
     if parsed.scheme != "https" and (parsed.scheme != "http" or hostname not in LOOPBACK):
