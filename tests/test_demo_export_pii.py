@@ -226,6 +226,8 @@ def test_only_the_demo_removes_the_project_email_and_the_public_handle_stays() -
 
 def _write(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, data: object, redact: bool = True) -> Path:
     monkeypatch.setattr(demo_export, "build_demo", lambda root: data)
+    monkeypatch.setattr(demo_export, "ASSETS_DIR", tmp_path / "no-assets")  # only the fixture corpus counts here
+    monkeypatch.setattr(demo_export, "MIN_CORPUS_DOCUMENTS", 1)
     if not redact:
         monkeypatch.setattr(demo_export, "demo_pipeline", lambda text: text)
     return demo_export.write_demo(_root_with_corpus(tmp_path), tmp_path / "out" / "demo.json")
@@ -253,11 +255,6 @@ def test_a_kept_heading_and_short_overlap_are_not_statute_text(monkeypatch: pyte
     heading = f"[IPC/Section 498] Indian Penal Code, Section 498 -- {_TITLE}"
     out = _write(monkeypatch, tmp_path, {"x": heading, "y": _PROVISION[:40]})
     assert json.loads(out.read_text())["x"] == heading
-
-
-def test_a_snapshot_with_no_corpus_present_has_nothing_of_it_to_leak(tmp_path: Path) -> None:
-    assert demo_export.corpus_windows(tmp_path) == set()
-    assert demo_export.corpus_overlap('{"x": "anything at all"}', set()) == 0
 
 
 # -- internal team vocabulary, any case (Lead-2, 2026-10-05) -------------------------------------------------------
@@ -290,3 +287,72 @@ def test_write_demo_cannot_emit_team_chatter_in_any_case(monkeypatch: pytest.Mon
     body = out.read_text()
     assert demo_export.private_markers_left(body) == []
     assert json.loads(body)["requests"][-1] == {"text": "an ordinary ask"}
+
+def test_the_shipped_corpus_alone_is_enough_for_the_backstop(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """A clean clone or CI has no research/ corpus: the packaged provisions must still be compared against."""
+    windows, documents = demo_export.corpus_windows(tmp_path)  # a root with no research corpus at all
+    assert documents >= demo_export.MIN_CORPUS_DOCUMENTS and windows
+    shipped = json.loads((demo_export.ASSETS_DIR / "bns_sections.json").read_text())["documents"]
+    provision = max((d["text"] for d in shipped), key=len)
+    monkeypatch.setattr(demo_export, "build_demo", lambda root: {"x": provision})
+    with pytest.raises(SecretInSnapshot, match="statute text"):
+        demo_export.write_demo(tmp_path, tmp_path / "out" / "demo.json")
+
+
+def test_a_root_with_no_corpus_fails_closed(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(demo_export, "ASSETS_DIR", tmp_path / "no-assets")
+    monkeypatch.setattr(demo_export, "build_demo", lambda root: {"x": "anything"})
+    assert demo_export.corpus_windows(tmp_path) == (set(), 0)
+    with pytest.raises(SecretInSnapshot, match="cannot vouch"):
+        demo_export.write_demo(tmp_path, tmp_path / "out" / "demo.json")
+    assert not (tmp_path / "out" / "demo.json").exists()
+
+
+def test_an_empty_or_too_small_corpus_fails_closed(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    d = tmp_path / "research" / "nyaya" / "corpus"
+    d.mkdir(parents=True)
+    (d / "x.json").write_text(json.dumps({"documents": []}))
+    monkeypatch.setattr(demo_export, "ASSETS_DIR", tmp_path / "no-assets")
+    monkeypatch.setattr(demo_export, "build_demo", lambda root: {"x": "anything"})
+    with pytest.raises(SecretInSnapshot, match="cannot vouch"):
+        demo_export.write_demo(tmp_path, tmp_path / "out" / "demo.json")
+    small = _root_with_corpus(tmp_path / "small")  # one document: below the real minimum
+    monkeypatch.setattr(demo_export, "MIN_CORPUS_DOCUMENTS", 2)
+    with pytest.raises(SecretInSnapshot, match="cannot vouch"):
+        demo_export.write_demo(small, tmp_path / "out" / "demo.json")
+
+
+# -- machine and network identifiers (R2, 2026-10-05) --------------------------------------------------------------
+
+_IDENTIFIERS = [
+    "ss@ss-Fusion-75:~/x", "host ss-Fusion-75 is up", "ssh nsharath@sharaths-Mac-mini", "sharaths-Mac-mini",
+    "dvs-builder@U22-I3-B08-02-2",
+    "session dir -home-ss-projects-pravrudhi-", "scratch /tmp/claude-1000/x/y", "gateway 192.168.0.12:8080",
+    "endpoint 7j7ipedmwi8z1w", "endpoint VWBRFGYIEL1HAQ", "id v7alta6t9ytcga",
+]
+
+
+@pytest.mark.parametrize("raw", _IDENTIFIERS)
+def test_machine_and_network_identifiers_are_removed_and_the_json_stays_valid(raw: str) -> None:
+    out = demo_export.demo_pipeline(json.dumps({"x": raw, "y": "prefix\n" + raw, "z": "a\t" + raw}))
+    body = json.loads(out)  # a substitution must never eat the backslash of a neighbouring escape
+    assert demo_export.private_markers_left(out) == [], out
+    assert body["y"].startswith("prefix\n") and body["z"].startswith("a\t")
+
+
+def test_a_newline_before_user_at_host_is_kept_not_swallowed() -> None:
+    out = demo_export.demo_pipeline(json.dumps({"x": "Login successful.\nss@ss-Fusion-75:~$ claude"}))
+    assert json.loads(out)["x"] == "Login successful.\n<redacted:user-at-host>:~$ claude"
+
+
+def test_ordinary_text_with_at_signs_and_digits_is_untouched() -> None:
+    text = "humaneval+ pass@1 0.579; 10.0.0.1; version 1.2.3; at-home-office"
+    clean = json.dumps({"x": text}, indent=2, sort_keys=True) + "\n"
+    assert demo_export.demo_pipeline(clean) == clean
+
+
+def test_write_demo_refuses_a_snapshot_the_redaction_left_unparseable(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(demo_export, "build_demo", lambda root: {"a": "b"})
+    monkeypatch.setattr(demo_export, "demo_pipeline", lambda text: text[:-5])  # a truncated, invalid document
+    with pytest.raises(SecretInSnapshot, match="unparseable"):
+        demo_export.write_demo(_root_with_corpus(tmp_path), tmp_path / "out" / "demo.json")
