@@ -57,6 +57,7 @@ Rules enforced here rather than asked of a judge:
 
 from __future__ import annotations
 
+import contextvars
 import difflib
 import hashlib
 import json
@@ -1408,7 +1409,9 @@ class NyayaAgent:
         after_fault_indices: set[int] = set()
         fault: JudgeMisconfigured | None = None
         with ThreadPoolExecutor(max_workers=workers) as pool:
-            futures = {pool.submit(_run, i): i for i in range(len(tasks))}
+            # Each worker runs in a copy of this thread's context (the serving guards are ContextVars a pool thread
+            # would not otherwise see), copied here on the calling thread.
+            futures = {pool.submit(contextvars.copy_context().run, _run, i): i for i in range(len(tasks))}
             try:
                 for fut in as_completed(futures):
                     i = futures[fut]
