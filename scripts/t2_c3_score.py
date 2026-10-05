@@ -52,7 +52,7 @@ def score_row(raw: dict[str, Any]) -> dict[str, Any]:
     """p and status/fact_id for both arms on one raw row. Mirrors `t2_c3_ab_run.py`'s own scoring exactly
     (same functions), just applied after the fact to the sealed raw completions rather than live."""
     free_top = raw["free_text"]["top_logprobs"]
-    p_free = p_established_from_top_logprobs(free_top[0]) if free_top else None
+    p_free = p_established_from_top_logprobs(free_top[0])[0] if free_top else None
     fid_free = parse_house_fact_id(raw["free_text"]["text"]) if p_free is not None and p_free >= TAU else None
 
     typed_top = raw["typed"]["top_logprobs"]
@@ -60,7 +60,7 @@ def score_row(raw: dict[str, Any]) -> dict[str, Any]:
     fid_typed = None
     if typed_top:
         res = CompletionResult(text=raw["typed"]["text"], model="x", top_logprobs=typed_top, wall_s=0.0)
-        p_typed = score_decision(res, _STATUS_FIELD)["true"]
+        p_typed = score_decision(res, _STATUS_FIELD)[0]["true"]
         fid_typed = parse_house_fact_id(raw["typed"]["text"]) if p_typed >= TAU else None
 
     return {
@@ -68,6 +68,18 @@ def score_row(raw: dict[str, Any]) -> dict[str, Any]:
         "p_free": p_free, "fid_free": fid_free, "status_free": _status(p_free),
         "p_typed": p_typed, "fid_typed": fid_typed, "status_typed": _status(p_typed),
     }
+
+
+def score_split(name: str, rows: list[dict[str, Any]]) -> tuple[int, list[dict[str, Any]]]:
+    """`(n_planned, scored)` for one split. `n_planned` is the pre-scoring row count and is what a result block's
+    `n` must report; a row that does not come back from `score_row` (None, or a short list) raises instead of
+    letting the headline denominator shrink to the rows that survived (#91)."""
+    n_planned = len(rows)
+    scored = [score_row(r) for r in rows]
+    kept = [s for s in scored if s is not None]
+    if len(kept) != n_planned:
+        raise ValueError(f"{name}: planned {n_planned} rows but only {len(kept)} scored; refusing to report a short n")
+    return n_planned, kept
 
 
 def _status(p: float | None) -> str | None:
@@ -189,19 +201,19 @@ def main() -> int:
             heldout_unique.append(r)
     print(f"raw sha256 confirmed. calib_v1={len(calib)}, heldout_v1 all={len(heldout_all)} unique={len(heldout_unique)}")
 
-    calib_scored = [score_row(r) for r in calib]
-    heldout_all_scored = [score_row(r) for r in heldout_all]
-    heldout_unique_scored = [score_row(r) for r in heldout_unique]
+    n_calib, calib_scored = score_split("calib_v1", calib)
+    n_heldout_all, heldout_all_scored = score_split("heldout_v1_with_dups_SENSITIVITY", heldout_all)
+    n_heldout_unique, heldout_unique_scored = score_split("heldout_v1_unique_PRIMARY", heldout_unique)
 
     result: dict[str, Any] = {"raw_sha256": digest, "tau": TAU}
 
-    for name, scored, n_bins in [
-        ("calib_v1", calib_scored, 4),
-        ("heldout_v1_unique_PRIMARY", heldout_unique_scored, 2),
-        ("heldout_v1_with_dups_SENSITIVITY", heldout_all_scored, 2),
+    for name, n_planned, scored, n_bins in [
+        ("calib_v1", n_calib, calib_scored, 4),
+        ("heldout_v1_unique_PRIMARY", n_heldout_unique, heldout_unique_scored, 2),
+        ("heldout_v1_with_dups_SENSITIVITY", n_heldout_all, heldout_all_scored, 2),
     ]:
         result[name] = {
-            "n": len(scored),
+            "n": n_planned,
             "parse_rate_free": parse_rate(scored, "p_free"),
             "parse_rate_typed": parse_rate(scored, "p_typed"),
             "flips": sum(1 for s in scored if is_flip(s)),
