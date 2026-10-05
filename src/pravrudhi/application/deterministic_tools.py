@@ -2,7 +2,11 @@
 (40 significant digits, so 1/3 is rounded, not exact) over a closed grammar (no eval), calendar-day arithmetic over
 ISO dates, no clock and no network, so a result is reproducible and an unparseable input is an error, never a
 guessed answer. Month arithmetic clamps to the last day of a shorter month (31 Jan + 1 month = 28/29 Feb): state
-that convention wherever a limitation period is computed from it."""
+that convention wherever a limitation period is computed from it.
+
+Two conventions to state wherever a figure from `calculate` is quoted: a numeric literal is read from its SOURCE TEXT
+(`1234567890123456.78` is exactly that, never routed through a binary float), and `%` follows Decimal's rule, where
+the result takes the sign of the DIVIDEND (`-7 % 3` is `-1`, not Python's `2`)."""
 
 from __future__ import annotations
 
@@ -12,7 +16,7 @@ import datetime as dt
 import operator
 import re
 from collections.abc import Callable
-from decimal import Decimal, InvalidOperation, localcontext
+from decimal import Decimal, DecimalException, localcontext
 
 from pravrudhi.application.tool_runner import ToolRunner, ToolSpec
 
@@ -30,14 +34,28 @@ _BIN: dict[type[ast.operator], Callable[[Decimal, Decimal], Decimal]] = {
 }
 
 
-def _eval(node: ast.expr) -> Decimal:
+def _literal(node: ast.Constant, source: str) -> Decimal:
+    """A number as the caller WROTE it. An int is exact already; a float literal is rebuilt from its source text
+    (`str(float)` would round `1234567890123456.78` to `1234567890123456.8` and change a rupee amount)."""
+    if isinstance(node.value, int):
+        return Decimal(node.value)
+    text = ast.get_source_segment(source, node)
+    if text is None:
+        raise ValueError("could not read the number as written")
+    try:
+        return Decimal(text.replace("_", ""))
+    except DecimalException as e:
+        raise ValueError(f"not a plain decimal number: {text!r}") from e
+
+
+def _eval(node: ast.expr, source: str) -> Decimal:
     if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)) and not isinstance(node.value, bool):
-        return Decimal(str(node.value))
+        return _literal(node, source)
     if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.USub, ast.UAdd)):
-        v = _eval(node.operand)
+        v = _eval(node.operand, source)
         return -v if isinstance(node.op, ast.USub) else v
     if isinstance(node, ast.BinOp) and type(node.op) in _BIN:
-        left, right = _eval(node.left), _eval(node.right)
+        left, right = _eval(node.left, source), _eval(node.right, source)
         if isinstance(node.op, ast.Pow) and (right != right.to_integral_value() or abs(right) > MAX_EXPONENT):
             raise ValueError("exponent must be an integer no larger than 1000")
         return _BIN[type(node.op)](left, right)
@@ -47,18 +65,19 @@ def _eval(node: ast.expr) -> Decimal:
 def calculate(expression: str) -> str:
     if not expression.strip() or len(expression) > MAX_EXPR_CHARS:
         raise ValueError(f"expression must be 1..{MAX_EXPR_CHARS} characters")
+    source = expression.strip()
     try:
-        tree = ast.parse(expression.strip(), mode="eval")
+        tree = ast.parse(source, mode="eval")
     except SyntaxError as e:
         raise ValueError("not an arithmetic expression") from e
     try:
         with localcontext() as ctx:
             ctx.prec = _PREC
-            result = _eval(tree.body)
+            result = _eval(tree.body, source)
             if not result.is_finite():
                 raise ValueError("result is not a finite number")
             text = format(result.normalize(), "f")
-    except (InvalidOperation, ZeroDivisionError, OverflowError) as e:
+    except (DecimalException, ZeroDivisionError, OverflowError) as e:  # DecimalException: InvalidOperation, Overflow, ...
         raise ValueError(f"arithmetic error: {type(e).__name__}") from e
     return text
 
