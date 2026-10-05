@@ -105,8 +105,8 @@ def run_parity(
     judges: tuple[Any, Any] | None = None,
 ) -> dict[str, Any]:
     """Per row: build the (templated) prompt, fetch ONE completion, score it through both judges. Returns a
-    report dict whose `gate` block is the verdict. A fetch failure is recorded and fails the gate; no row is
-    skipped silently."""
+    report dict whose `gate` block is the verdict. The gate passes only when EVERY prompt was compared: a fetch
+    failure, a flip, a both-error row or any other shortfall fails it; no row is skipped silently."""
     flips: list[dict[str, Any]] = []
     transport_errors: list[dict[str, Any]] = []
     both_error = 0
@@ -141,8 +141,14 @@ def run_parity(
         failures.append(f"max|dp| {max_dp:.3e} > {MAX_ABS_DP:.0e}")
     if transport_errors:
         failures.append(f"{len(transport_errors)} transport error(s)")
+    # A pass must mean every prompt was compared: a row with no usable output on both judges (e.g. no logprobs)
+    # and a row dropped for any other reason are gaps, not agreement. No floor is pre-stated, so none exists.
+    if both_error:
+        failures.append(f"{both_error} prompt(s) produced no usable output on both judges (not compared)")
     if n_compared == 0:
         failures.append("no prompt was compared")
+    elif n_compared < len(rows):
+        failures.append(f"only {n_compared}/{len(rows)} prompts were compared")
     return {
         "n_prompts": len(rows),
         "n_compared": n_compared,

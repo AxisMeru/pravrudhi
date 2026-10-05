@@ -32,11 +32,38 @@ def _rows(keys):
     return [{"id": k, "prompt": k} for k in keys]
 
 
-def test_gate_passes_on_agreeing_recorded_completions() -> None:
-    rep = run_parity(_rows(RECORDED), _fetch_from(RECORDED))
+AGREEING = [k for k in RECORDED if k != "none"]
+
+
+def test_gate_passes_only_when_every_prompt_is_compared_and_agrees() -> None:
+    rep = run_parity(_rows(AGREEING), _fetch_from(RECORDED))
     assert rep["gate"]["status"] == "pass", rep
-    assert (rep["flips"], rep["n_both_error"], rep["n_compared"]) == ([], 1, 5)
+    assert (rep["flips"], rep["n_both_error"], rep["n_compared"], rep["n_prompts"]) == ([], 0, 5, 5)
     assert rep["max_abs_dp"] <= MAX_ABS_DP
+
+
+def test_one_both_error_row_fails_the_gate_even_with_every_other_row_agreeing() -> None:
+    rep = run_parity(_rows(RECORDED), _fetch_from(RECORDED))
+    assert (rep["flips"], rep["n_both_error"], rep["n_compared"]) == ([], 1, 5)
+    assert rep["gate"]["status"] == "fail"
+    assert any("no usable output on both judges" in f for f in rep["gate"]["failures"])
+    assert any("only 5/6 prompts were compared" in f for f in rep["gate"]["failures"])
+
+
+def test_278_rows_without_logprobs_and_one_clean_row_does_not_pass() -> None:
+    """R2's reproduction (review 5411685321): the gate used to pass this vacuously, compared 1/279."""
+    table = {**RECORDED, **{f"nolp{i}": ("?", {}) for i in range(278)}}
+
+    def fetch(prompt: str) -> CompletionResult:
+        text, top = table[prompt]
+        return CompletionResult(text=text, model="m", top_logprobs=[top] if top else [], wall_s=0.1)
+
+    rep = run_parity(_rows(["est", *[f"nolp{i}" for i in range(278)]]), fetch)
+    assert (rep["n_prompts"], rep["n_compared"], rep["n_both_error"]) == (279, 1, 278)
+    assert rep["flips"] == [] and rep["transport_errors"] == []
+    assert rep["gate"]["status"] == "fail"
+    assert any("278 prompt(s)" in f for f in rep["gate"]["failures"])
+    assert any("only 1/279" in f for f in rep["gate"]["failures"])
 
 
 class _Raises:
