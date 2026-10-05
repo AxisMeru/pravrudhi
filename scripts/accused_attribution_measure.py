@@ -103,6 +103,8 @@ def score(rows: list[dict], check) -> dict:
                 "reason": res.reason,
                 "rule": res.rule,
                 "actor_p": getattr(res, "actor_p", None),
+                "mass_ratio": getattr(res, "mass_ratio", None),
+                "actor_span": res.actor_span,
             }
         )
     out: dict = {"cells": {n: {**c, "reasons": dict(c["reasons"]), "rules": dict(c["rules"])} for n, c in cells.items()}}

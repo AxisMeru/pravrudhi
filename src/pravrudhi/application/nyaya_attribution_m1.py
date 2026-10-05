@@ -222,6 +222,16 @@ def _joined_to_other(quote: str, cands: list[Candidate], chosen: Candidate) -> b
     return False
 
 
+def _resolve_apposition(quote: str, cands: list[Candidate], chosen: Candidate) -> Candidate:
+    """ "Her husband, Accused No.2, beat her": the model may pick either expression; they name ONE person, so a chosen kin
+    phrase that
+    is followed by a comma and a named party stands for that named party."""
+    after = [c for c in cands if c.start >= chosen.end]
+    if after and _is_apposition(quote, chosen, quote[chosen.end : after[0].start], after[0]):
+        return after[0]
+    return chosen
+
+
 def check_attribution_m1(quote: str | None, accused: AccusedRef | None, selector: ActorSelector) -> AttributionResult:
     """The M1 decision. Never raises: any error is a refusal (R5)."""
     v = "M1"
@@ -246,7 +256,7 @@ def check_attribution_m1(quote: str | None, accused: AccusedRef | None, selector
         sel = selector.select(quote, [c.text for c in cands])
         if sel.index is None:
             return AttributionResult(False, REASON_UNRESOLVED, rule=f"M1-{sel.reason or 'unresolved'}", **base)
-        chosen = cands[sel.index]
+        chosen = _resolve_apposition(quote, cands, cands[sel.index])
         common = {"actor_span": chosen.text, "actor_start": chosen.start, "actor_end": chosen.end, **base}
         res: AttributionResult
         if chosen.role in ("collective", "generic"):

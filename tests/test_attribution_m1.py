@@ -200,3 +200,10 @@ def test_kin_apposition_before_the_chosen_party_is_not_a_second_actor_in_m1() ->
     assert ok.passed
     bad = M.check_attribution_m1("TOY: Accused No.1 and her husband, Accused No.2, demanded money.", _ref(), Pick("Accused No.2"))
     assert not bad.passed and bad.reason == "accused_attribution_collective"
+
+
+def test_a_chosen_kin_phrase_followed_by_the_named_party_stands_for_that_party() -> None:
+    sent = "TOY: Her husband, Accused No.2, demanded money from Nila."
+    assert M.check_attribution_m1(sent, _ref(), Pick("Her husband")).passed  # the model picked the kin phrase: same person
+    other = M.check_attribution_m1("TOY: Her husband, Accused No.1, demanded money.", _ref(), Pick("Her husband"))
+    assert not other.passed and other.reason == "accused_attribution_not_matched"

@@ -78,3 +78,10 @@ def test_d0b_resolves_a_verb_outside_the_lexicon_that_d0_cannot(tmp_path: Path) 
     s = "Accused No.2 whipped Nila."
     assert not d0(s, ref).passed and d0b(s, ref).passed
     assert not d0b("Accused No.1 whipped Nila.", ref).passed
+
+
+def test_row_details_carry_the_selector_probability_fields(tmp_path: Path) -> None:
+    out = tmp_path / "o.json"
+    aam.main(["--set", str(_write(tmp_path)), "--variant", "d0", "--ledger", str(tmp_path / "l.jsonl"), "--out", str(out)])
+    row = json.loads(out.read_text())["rows"][0]
+    assert {"actor_p", "mass_ratio", "actor_span", "rule", "reason"} <= set(row)
