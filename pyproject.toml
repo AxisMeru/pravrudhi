@@ -66,6 +66,7 @@ include = ["src/pravrudhi/assets/**"]
 "configs/nyaya_agent.yaml" = "pravrudhi/assets/configs/nyaya_agent.yaml"
 "configs/partner_api.yaml" = "pravrudhi/assets/configs/partner_api.yaml"
 "configs/nyaya_corpus.yaml" = "pravrudhi/assets/configs/nyaya_corpus.yaml"
+"configs/tenant_vendors.yaml" = "pravrudhi/assets/configs/tenant_vendors.yaml"
 
 # The built web interface lives outside src/, so neither `packages` nor `include` reaches it. Without this mapping
 # an installed wheel serves the API with no interface at all, which is the silent degradation `frontend_dir()`
