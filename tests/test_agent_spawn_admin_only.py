@@ -121,22 +121,43 @@ def test_the_request_cannot_name_the_agent_for_a_plan_dispatch() -> None:
 
 
 def test_every_host_agent_spawn_path_in_the_api_is_gated() -> None:
-    """The routes that reach `build_agent`/`dispatch_plan`/`dispatchboard.run_next` are exactly the gated ones, so a new
-    route that starts agents without being classified fails here."""
+    """Every route handler under `src/pravrudhi/api/` (sync or `async def`, in any module) that reaches
+    `build_agent`/`dispatch_plan`/`run_next` is one of the two gated routes, so a new spawning route, in any API
+    module, fails here until it is reviewed and classified."""
     import ast
-    import inspect
+    from pathlib import Path
 
-    from pravrudhi.api import roles, server
+    from pravrudhi.api import roles
 
-    tree = ast.parse(inspect.getsource(server))
-    spawning: set[str] = set()
-    for fn in ast.walk(tree):
-        if isinstance(fn, ast.FunctionDef) and fn.decorator_list:  # a route handler (`@api.post(...)`)
-            names = {n.id for n in ast.walk(fn) if isinstance(n, ast.Name)} | {
-                n.attr for n in ast.walk(fn) if isinstance(n, ast.Attribute)
-            }
-            if names & {"build_agent", "dispatch_plan", "run_next"}:
-                spawning.add(fn.name)
-    assert spawning == {"submit_job", "objective_dispatch"}, f"a new host-agent spawning route: {sorted(spawning)}"
+    api_dir = Path(roles.__file__).parent
+    spawning: set[tuple[str, str]] = set()
+    scanned = 0
+    for path in sorted(api_dir.glob("*.py")):
+        scanned += 1
+        for fn in ast.walk(ast.parse(path.read_text())):
+            if isinstance(fn, ast.FunctionDef | ast.AsyncFunctionDef) and fn.decorator_list:  # a route handler
+                names = {n.id for n in ast.walk(fn) if isinstance(n, ast.Name)} | {
+                    n.attr for n in ast.walk(fn) if isinstance(n, ast.Attribute)
+                }
+                if names & {"build_agent", "dispatch_plan", "run_next"}:
+                    spawning.add((path.name, fn.name))
+    assert scanned >= 10, "the scan should cover every module under api/"
+    assert spawning == {("server.py", "submit_job"), ("server.py", "objective_dispatch")}, (
+        f"a new host-agent spawning route: {sorted(spawning)}"
+    )
     assert "/api/jobs" in roles.ADMIN_ONLY
     assert "/api/objectives/{oid}/subagents" in roles.ADMIN_WRITES_IN_BOTH_EDITIONS
+
+
+def test_the_tripwire_itself_sees_async_routes_and_other_modules(tmp_path: Path) -> None:
+    """The scan's own logic, on a synthetic module: an `async def` route in another file is found."""
+    import ast
+
+    src = (
+        "@router.post('/x')\nasync def sneaky():\n"
+        "    from pravrudhi.agents.registry import build_agent\n    build_agent(1, 'codex')\n"
+    )
+    fn = next(n for n in ast.walk(ast.parse(src)) if isinstance(n, ast.FunctionDef | ast.AsyncFunctionDef))
+    assert isinstance(fn, ast.AsyncFunctionDef) and fn.decorator_list
+    names = {n.id for n in ast.walk(fn) if isinstance(n, ast.Name)}
+    assert "build_agent" in names

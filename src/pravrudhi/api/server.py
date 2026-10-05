@@ -952,7 +952,11 @@ def create_app(root: Path, *, nyaya_ask_fn: Any | None = None) -> FastAPI:
     def objective_dispatch(
         oid: str, workspace: str | None = None, user: User | None = CurrentUserDep
     ) -> dict[str, Any]:
-        """Hand the plan's tasks to the swarm in the background. Everything they produce is a proposal."""
+        """Hand the plan's tasks to the swarm in the background. Everything they produce is a proposal.
+
+        Operator-only in every edition (#257). Note for the operator: the objective's text, including a
+        user-authored objective in a user's workspace, becomes the brief the host coding agents run on this machine
+        under the engine's own logins. Review an objective you did not write before dispatching it."""
         import threading
 
         from pravrudhi.agents.registry import build_agent
