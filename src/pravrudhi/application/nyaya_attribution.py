@@ -150,7 +150,10 @@ _PRON_SINGLE = re.compile(r"\b(?:he|she)\b", re.I)
 _VERB = re.compile(
     r"\b(?:harass\w*|tortur\w*|beat\w*|assault\w*|abus\w*|taunt\w*|demand\w*|ill[\s-]*treat\w*|mistreat\w*|treat(?:ed|s)?|threat\w*|"
     r"subject(?:ed|s)?|slap\w*|hit(?:s|ting)?|kick\w*|punch\w*|throw\w*|threw|thrown|drove|driven|forc(?:e|ed|es|ing)|insult\w*|humiliat\w*|"
-    r"starv\w*|confin\w*|pressur\w*|coerc\w*|misbehav\w*|scold\w*|quarrel\w*|cause[ds]?|inflict\w*|attack\w*|strangl\w*|burn(?:ed|t|s)?)\b",
+    r"starv\w*|confin\w*|pressur\w*|coerc\w*|misbehav\w*|scold\w*|quarrel\w*|cause[ds]?|inflict\w*|attack\w*|strangl\w*|burn(?:ed|t|s)?|"
+    r"lock(?:ed|s|ing)?|push(?:ed|es|ing)?|shov(?:e|ed|es|ing)|snatch\w*|pull(?:ed|s|ing)?|drag(?:ged|s|ging)?|spit(?:s|ting)?|spat|"
+    r"refus(?:e|ed|es|ing)|deprive\w*|neglect\w*|evict\w*|expel\w*|turn(?:ed|s|ing)?\s+(?:\w+\s+){1,2}out|"
+    r"stop(?:ped|s|ping)|restrain\w*|restrict\w*|throttl\w*|hurt\w*|injur\w*|curs(?:e|ed|es|ing)|shout\w*|yell\w*)\b",
     re.I,
 )
 _BRIDGE_WORDS = {
@@ -284,6 +287,16 @@ def _bridge_ok(gap: str) -> bool:
     return len(words) <= 8 and all(w.lower() in _BRIDGE_WORDS for w in words) and not re.search(r"[.;:!?]", gap)
 
 
+def _is_apposition(quote: str, c: Candidate, gap: str, named: Candidate) -> bool:
+    """A singular kin phrase ("her husband") followed only by a comma and a NAMED party ("..., Accused No.2,") describes that
+    person: it is not a second actor. Any "and"/"along with" or a second numbered party still makes the group collective."""
+    return (
+        named.role in ("self", "other")
+        and bool(re.fullmatch(r"\s*,\s*", gap))
+        and bool(_KIN_SINGULAR.fullmatch(quote[c.start : c.end]))
+    )
+
+
 def _group_before(quote: str, cands: list[Candidate], boundary: int) -> list[Candidate]:
     """The run of candidates ending right before `boundary` (a verb start), joined by connectors; [] if the nearest one is not
     adjacent."""
@@ -294,9 +307,15 @@ def _group_before(quote: str, cands: list[Candidate], boundary: int) -> list[Can
     if not _bridge_ok(quote[last.end : boundary]):
         return []
     group = [last]
+    left = last.start  # where the group (plus any absorbed apposition) begins
     for c in reversed(before[:-1]):
-        if _CONNECTOR.match(quote[c.end : group[0].start]):
+        gap = quote[c.end : left]
+        if _is_apposition(quote, c, gap, group[0]):
+            left = c.start  # "her husband, Accused No.2, beat": the kin phrase describes the named person, not a second actor
+            continue
+        if _CONNECTOR.match(gap):
             group.insert(0, c)
+            left = c.start
         else:
             break
     return group

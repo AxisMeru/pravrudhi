@@ -526,3 +526,47 @@ def test_the_shipped_config_key_matches_the_registrys_own_element_wording_and_on
         "subjects the woman to cruelty (s.86(a) or (b))",
     )
     assert not any(key.lower() in o.lower() for o in others)
+
+
+# -- dev measurement findings (5 Oct): apposition and the wider act-verb lexicon -------------------------------------------------
+
+
+@pytest.mark.parametrize("seed", range(1, 6))
+def test_kin_apposition_before_the_named_party_is_one_actor(seed: int) -> None:
+    n, m, _ = _nums(seed)
+    ok = _res(f"TOY: Her husband, Accused No.{n}, beat Nila.", n)
+    assert ok.passed and ok.actor_span.endswith(f"Accused No.{n}")
+    other = _res(f"TOY: Her husband, Accused No.{m}, beat Nila.", n)
+    assert not other.passed and other.reason == "accused_attribution_not_matched"
+
+
+@pytest.mark.parametrize(
+    "sentence",
+    [
+        "TOY: Accused No.1 and her husband, Accused No.2, beat Nila.",
+        "TOY: Accused No.1, her husband, Accused No.2 beat Nila.",
+        "TOY: Her husband, Accused No.2, along with Accused No.1 beat Nila.",
+        "TOY: Her husband and Accused No.2 beat Nila.",
+    ],
+)
+def test_apposition_does_not_hide_a_second_actor(sentence: str) -> None:
+    assert not _res(sentence, 2).passed
+
+
+@pytest.mark.parametrize(
+    "act",
+    [
+        "locked Nila in a room",
+        "pushed Nila down the stairs",
+        "snatched Nila's jewellery",
+        "pulled Nila's hair",
+        "refused to give Nila food",
+        "spat at Nila",
+        "turned Nila out of the house",
+        "stopped Nila from meeting her parents",
+    ],
+)
+def test_wider_act_verbs_resolve_the_actor(act: str) -> None:
+    assert _res(f"TOY: Accused No.3 {act}.", 3).passed
+    other = _res(f"TOY: Accused No.4 {act}.", 3)
+    assert not other.passed and other.reason == "accused_attribution_not_matched"
