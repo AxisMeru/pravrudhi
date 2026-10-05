@@ -1,0 +1,154 @@
+{
+ "label": "constructed, dev stack (local); FROZEN before the held-out v2 run",
+ "chosen": {
+  "theta": 0.5,
+  "mass_floor": 0.7,
+  "pos_refused": 5,
+  "n_pos": 480,
+  "pos_refusal": 0.0104,
+  "neg_misses": 0,
+  "n_neg": 280
+ },
+ "rule": "zero dev negative false passes, then lowest refusal on dev positives, then higher theta, then higher floor (scripts/m1_choose_threshold.py)",
+ "dev_set_sha256": "93244ba3a7bcc6f676bbdddd65958b246f33b9d71c38ef1b9308dbaef3c88507",
+ "dev_result_sha256": "4e79c1b2bb417c4b53057092482a02eae3326baa5fae96f81796fd669ac6811b",
+ "dev_code_sha": "d34b23a9",
+ "base_model": "/hub/models--Qwen--Qwen2.5-32B/snapshots/1818d35814b8319459f4bd55ed1ac8709630f003 (dev Spark, :8132, no adapter)",
+ "table": [
+  {
+   "theta": 0.5,
+   "mass_floor": 0.3,
+   "pos_refused": 5,
+   "n_pos": 480,
+   "pos_refusal": 0.0104,
+   "neg_misses": 0,
+   "n_neg": 280
+  },
+  {
+   "theta": 0.5,
+   "mass_floor": 0.5,
+   "pos_refused": 5,
+   "n_pos": 480,
+   "pos_refusal": 0.0104,
+   "neg_misses": 0,
+   "n_neg": 280
+  },
+  {
+   "theta": 0.5,
+   "mass_floor": 0.7,
+   "pos_refused": 5,
+   "n_pos": 480,
+   "pos_refusal": 0.0104,
+   "neg_misses": 0,
+   "n_neg": 280
+  },
+  {
+   "theta": 0.6,
+   "mass_floor": 0.3,
+   "pos_refused": 27,
+   "n_pos": 480,
+   "pos_refusal": 0.0563,
+   "neg_misses": 0,
+   "n_neg": 280
+  },
+  {
+   "theta": 0.6,
+   "mass_floor": 0.5,
+   "pos_refused": 27,
+   "n_pos": 480,
+   "pos_refusal": 0.0563,
+   "neg_misses": 0,
+   "n_neg": 280
+  },
+  {
+   "theta": 0.6,
+   "mass_floor": 0.7,
+   "pos_refused": 27,
+   "n_pos": 480,
+   "pos_refusal": 0.0563,
+   "neg_misses": 0,
+   "n_neg": 280
+  },
+  {
+   "theta": 0.7,
+   "mass_floor": 0.3,
+   "pos_refused": 39,
+   "n_pos": 480,
+   "pos_refusal": 0.0813,
+   "neg_misses": 0,
+   "n_neg": 280
+  },
+  {
+   "theta": 0.7,
+   "mass_floor": 0.5,
+   "pos_refused": 39,
+   "n_pos": 480,
+   "pos_refusal": 0.0813,
+   "neg_misses": 0,
+   "n_neg": 280
+  },
+  {
+   "theta": 0.7,
+   "mass_floor": 0.7,
+   "pos_refused": 39,
+   "n_pos": 480,
+   "pos_refusal": 0.0813,
+   "neg_misses": 0,
+   "n_neg": 280
+  },
+  {
+   "theta": 0.8,
+   "mass_floor": 0.3,
+   "pos_refused": 40,
+   "n_pos": 480,
+   "pos_refusal": 0.0833,
+   "neg_misses": 0,
+   "n_neg": 280
+  },
+  {
+   "theta": 0.8,
+   "mass_floor": 0.5,
+   "pos_refused": 40,
+   "n_pos": 480,
+   "pos_refusal": 0.0833,
+   "neg_misses": 0,
+   "n_neg": 280
+  },
+  {
+   "theta": 0.8,
+   "mass_floor": 0.7,
+   "pos_refused": 40,
+   "n_pos": 480,
+   "pos_refusal": 0.0833,
+   "neg_misses": 0,
+   "n_neg": 280
+  },
+  {
+   "theta": 0.9,
+   "mass_floor": 0.3,
+   "pos_refused": 40,
+   "n_pos": 480,
+   "pos_refusal": 0.0833,
+   "neg_misses": 0,
+   "n_neg": 280
+  },
+  {
+   "theta": 0.9,
+   "mass_floor": 0.5,
+   "pos_refused": 40,
+   "n_pos": 480,
+   "pos_refusal": 0.0833,
+   "neg_misses": 0,
+   "n_neg": 280
+  },
+  {
+   "theta": 0.9,
+   "mass_floor": 0.7,
+   "pos_refused": 40,
+   "n_pos": 480,
+   "pos_refusal": 0.0833,
+   "neg_misses": 0,
+   "n_neg": 280
+  }
+ ]
+}
