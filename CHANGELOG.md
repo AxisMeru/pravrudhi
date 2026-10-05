@@ -45,9 +45,29 @@ and the RunPod worker template from 0.5.44; do not rely on a pip upgrade or a re
 
 - **Hosted image: unavailable agents say "hosted image: agents run on the host"** instead of "CLI not installed" / "needs xvfb".
   The image sets `PRAVRUDHI_HOSTED_IMAGE=1`. (#277)
+- **Request context reaches the worker threads.** The ContextVars of a request (the serving organisation and the like) are
+  carried into the async-job pool and the agent's judge pool, so the serving guards hold inside those threads. (#256, #236;
+  `api/partner.py`, `application/nyaya_agent.py`)
+- **Tri-state element status in the agent.** The per-element map that feeds the assertions is now tri-state (`True`,
+  `False`, `None`): an element nobody evaluated (`not_evaluated_second_unavailable`) can no longer read as a verdict.
+  This changes `nyaya_agent`'s per-element status handling only; the wire format and the `assertions` the API returns are
+  still booleans, so #56 is not closed for callers that read `assertions`. (#60)
+- **Demo-snapshot export refuses to publish private or licensed text.** `demo-export` (`application/demo_export.py`) now
+  refuses to write the snapshot if it still carries a private marker (home paths, personal and project emails, seat names,
+  relay and team-session text, hostnames and addresses, endpoint ids; any case), or any 64-character window of statute text
+  from the corpus; statute text in recorded prompts is replaced by a marker and team chatter strings are dropped whole.
+  The public `demo.json` was regenerated with it. (#290, #292, #293)
 
-### Tooling
+### Tooling (not in the image)
+
+Only three source files change the engine image in this release: `api/partner.py` and `application/nyaya_agent.py` (#256,
+#60) and `application/demo_export.py` (#290, #292). The items below are scripts and CI and do not ship in the image.
 
 - **Release probe** (`scripts/release_probe.py`): `PROBE_ADMIN_TOKEN` is optional; the admin checks print `SKIPPED` and a run
   without them exits `3` (INCOMPLETE). Exit codes: 0 all passed, 1 a check failed (wins over 3), 2 configuration error or
   unreachable, 3 incomplete. The probe never prints a token, and `PROBE_BASE_URL` must be an origin only. (#278)
+- **Partner API smoke script** (`scripts/partner_smoke.py`): anonymous demo paths and a non-admin test key only, read-only
+  or deliberately invalid requests, exit codes as the probe. Note that with a key the empty-fact request is metered before
+  its 422, and the product Worker may refuse POSTs under its write block. (#288)
+- **Scheduled whole-tree guard audit** with an alert that fails closed. (#88)
+- **Fail-closed Hugging Face revision verifier** for the house judge. (#117)
