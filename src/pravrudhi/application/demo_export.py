@@ -602,10 +602,29 @@ def still_carries(text: str) -> list[str]:
 #: Literal markers the published snapshot must never carry, checked on the final text independently of the shapes
 #: above (a second, format-independent line: a shape that stops matching because the data changed cannot let one through).
 PRIVATE_MARKERS: tuple[str, ...] = (
-    "/home/", "/Users/", "@gmail", "@axismeru", "cross-session", "cc-socks", "uds:", "CLAUDE_CONFIG_DIR",
+    "/home/", "/Users/", "@gmail", "@axismeru", "cross-session", "cross session", "cc-socks", "uds:", "CLAUDE_CONFIG_DIR",
+    # Internal agent-team vocabulary (Lead-2, 2026-10-05): rows that mention it are team chatter, not product record.
+    "-on-seat", "lead-2", "sendmessage", "idle notice", "goal-context", "remote control", "claude.md",
 )
+#: The markers whose whole string value is dropped (`drop_internal_text`): team chatter. Paths and emails are not
+#: here: they are substituted in place by the redaction shapes, which keeps the rest of the row readable.
+DROP_MARKERS: tuple[str, ...] = (
+    "cross-session", "cross session", "cc-socks", "uds:",
+    "-on-seat", "lead-2", "sendmessage", "idle notice", "goal-context", "remote control", "claude.md",
+)
+#: What replaces a string value that mentions one of the markers above.
+INTERNAL_TEXT_MARKER = "<redacted:internal-text>"
 #: A seat or account name (`sharath.sathish`, `sharath.ai.colab`). The public handle `sharathsphd` is not matched.
-PRIVATE_PATTERNS: tuple[re.Pattern[str], ...] = (re.compile(r"sharath\.[a-z]+"),)
+PRIVATE_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"sharath\.[a-z]+", re.IGNORECASE),
+    re.compile(r"ss-Fusion-\d+", re.IGNORECASE),
+    re.compile(r"[\w-]*-Mac-mini", re.IGNORECASE),
+    re.compile(r"\b[\w.-]+@[\w]+-[\w-]+\b"),  # a hyphenated user@host
+    re.compile(r"-home-[a-z0-9]+-"),
+    re.compile(r"/tmp/claude-\d+/"),
+    re.compile(r"192\.168\.\d+\.\d+"),
+    re.compile(r"7j7ipedmwi8z1w|vwbrfgyiel1haq|v7alta6t9ytcga", re.IGNORECASE),
+)
 
 #: Applied to the demo snapshot ONLY (not by `redact_secrets`, which keeps the project's git identity for its other
 #: callers): the published snapshot names no account, seat or config variable (Lead-2 P0, 2026-10-05).
@@ -613,6 +632,20 @@ _DEMO_ONLY_SHAPES: tuple[tuple[str, re.Pattern[str], str], ...] = (
     ("project-email", re.compile(r"\badmin@axismeru\.com\b"), "<redacted:project-email>"),
     ("seat-name", re.compile(r"sharath\.[a-z]+(?:\.[a-z]+)*"), "<redacted:seat-name>"),
     ("config-env-name", re.compile(r"CLAUDE_CONFIG_DIR"), "<redacted:env-name>"),
+    # Machine and network identifiers (R2, 2026-10-05). `user@host` first, so the host inside it is not left half-redacted.
+    # In the serialised JSON a newline is the two characters backslash-n, so an optional escape is captured and kept:
+    # otherwise `\nss@host` would lose the n with the user name and leave a dangling backslash (invalid JSON).
+    ("user-at-host",
+     re.compile(r"(?:(\\[nrt])|(?<![A-Za-z0-9_]))[A-Za-z0-9._-]+@(?:ss-Fusion-\d+|[A-Za-z0-9]+-Mac-mini|[A-Za-z0-9]+-[A-Za-z0-9-]+)\b"),
+     r"\g<1><redacted:user-at-host>"),
+    ("fusion-host", re.compile(r"\bss-Fusion-\d+\b", re.IGNORECASE), "<redacted:host>"),
+    ("mac-mini-host", re.compile(r"(?:(\\[nrt])|(?<![\w-]))[A-Za-z0-9-]*-Mac-mini\b", re.IGNORECASE), r"\g<1><redacted:host>"),
+    # `/home/ss/projects/x` became `-home-ss-projects-x` in tool session directory names; a scratch path under /tmp.
+    ("encoded-home-path", re.compile(r"-home-[a-z0-9]+-"), "-redacted-"),
+    ("scratch-path", re.compile(r"/tmp/claude-\d+/"), "/tmp/redacted-session/"),
+    ("lan-ip", re.compile(r"\b192\.168\.\d+\.\d+\b"), "<redacted:lan-ip>"),
+    ("runpod-endpoint-id", re.compile(r"\b(?:7j7ipedmwi8z1w|vwbrfgyiel1haq|v7alta6t9ytcga)\b", re.IGNORECASE),
+     "<redacted:endpoint-id>"),
 )
 
 #: Length of the corpus window the backstop compares. A statute passage of this many characters (whitespace
@@ -695,12 +728,42 @@ def redact_for_demo(text: str) -> str:
     return text
 
 
+def _drop_marked(value: Any) -> Any:
+    if isinstance(value, str):
+        low = value.casefold()
+        return INTERNAL_TEXT_MARKER if any(m in low for m in DROP_MARKERS) else value
+    if isinstance(value, dict):
+        return {k: _drop_marked(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_drop_marked(v) for v in value]
+    return value
+
+
+def drop_internal_text(text: str) -> str:
+    """Replace every JSON string value that mentions a `DROP_MARKERS` entry (any case) with `INTERNAL_TEXT_MARKER`, as the
+    26 Sep snapshot did for team chatter. Whole values, not substrings: half a relayed message is still a relayed
+    message. Layout (indent, key order) is the exporter's own, so an unmarked snapshot is returned unchanged."""
+    return json.dumps(_drop_marked(json.loads(text)), indent=2, sort_keys=True, default=str) + "\n"
+
+
+def demo_pipeline(text: str) -> str:
+    """Everything `write_demo` does to the serialised snapshot before its checks: drop team-chatter strings, then
+    redact the rest."""
+    return redact_for_demo(drop_internal_text(text))
+
+
 def private_markers_left(text: str) -> list[str]:
-    return [m for m in PRIVATE_MARKERS if m in text] + [p.pattern for p in PRIVATE_PATTERNS if p.search(text)]
+    """Every marker still present, compared case-insensitively."""
+    low = text.casefold()
+    return [m for m in PRIVATE_MARKERS if m.casefold() in low] + [p.pattern for p in PRIVATE_PATTERNS if p.search(text)]
 
 
 def write_demo(root: Path, dest: Path) -> Path:
-    text = redact_for_demo(json.dumps(build_demo(root), indent=2, sort_keys=True, default=str) + "\n")
+    text = demo_pipeline(json.dumps(build_demo(root), indent=2, sort_keys=True, default=str) + "\n")
+    try:
+        json.loads(text)
+    except ValueError as e:  # a substitution that breaks an escape must never be published as a "redacted" snapshot
+        raise SecretInSnapshot(f"redaction left the snapshot unparseable ({e}); refusing to write it") from e
     left = still_carries(text) + [f"marker {m!r}" for m in private_markers_left(text)]
     if left:
         raise SecretInSnapshot(f"snapshot still carries {', '.join(left)} after redaction; refusing to write it")

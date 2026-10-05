@@ -212,7 +212,7 @@ def _root_with_corpus(tmp_path: Path) -> Path:
     "seat sharath.ai.colab", "Commit as <admin@axismeru.com>",
 ])
 def test_the_demo_redaction_leaves_none_of_the_private_markers(raw: str) -> None:
-    out = demo_export.redact_for_demo(raw)
+    out = demo_export.demo_pipeline(json.dumps({"x": raw}))
     assert demo_export.private_markers_left(out) == [], out
     assert demo_export.still_carries(out) == []
 
@@ -229,7 +229,7 @@ def _write(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, data: object, redact
     monkeypatch.setattr(demo_export, "ASSETS_DIR", tmp_path / "no-assets")  # only the fixture corpus counts here
     monkeypatch.setattr(demo_export, "MIN_CORPUS_DOCUMENTS", 1)
     if not redact:
-        monkeypatch.setattr(demo_export, "redact_for_demo", lambda text: text)
+        monkeypatch.setattr(demo_export, "demo_pipeline", lambda text: text)
     return demo_export.write_demo(_root_with_corpus(tmp_path), tmp_path / "out" / "demo.json")
 
 
@@ -256,6 +256,37 @@ def test_a_kept_heading_and_short_overlap_are_not_statute_text(monkeypatch: pyte
     out = _write(monkeypatch, tmp_path, {"x": heading, "y": _PROVISION[:40]})
     assert json.loads(out.read_text())["x"] == heading
 
+
+# -- internal team vocabulary, any case (Lead-2, 2026-10-05) -------------------------------------------------------
+
+_CHATTER = [
+    "[Cross-session idle notice] the session went idle", "ask LEAD-2 to decide", "then SendMessage the owner",
+    "Web-on-seat2 reports", "goal-context said so", "see Remote Control", "per CLAUDE.md", "Lead-2-assistant merges",
+    "relayed by CROSS-SESSION peers", "an idle NOTICE arrived",
+]
+
+
+@pytest.mark.parametrize("raw", _CHATTER)
+def test_a_string_that_mentions_team_vocabulary_is_dropped_whole(raw: str) -> None:
+    out = json.loads(demo_export.demo_pipeline(json.dumps({"keep": "a plain row", "x": [raw, {"y": raw}]})))
+    assert out == {"keep": "a plain row", "x": [demo_export.INTERNAL_TEXT_MARKER, {"y": demo_export.INTERNAL_TEXT_MARKER}]}
+
+
+def test_unmarked_text_and_the_layout_are_returned_unchanged() -> None:
+    clean = json.dumps({"b": 1, "a": ["Sharathsphd made this", "plain"]}, indent=2, sort_keys=True) + "\n"
+    assert demo_export.drop_internal_text(clean) == clean
+
+
+@pytest.mark.parametrize("raw", _CHATTER + ["Seat SHARATH.Sathish", "/HOME/x", "@GMAIL.com", "UDS:/x", "claude_config_dir"])
+def test_the_backstop_compares_case_insensitively(raw: str) -> None:
+    assert demo_export.private_markers_left(raw), raw
+
+
+def test_write_demo_cannot_emit_team_chatter_in_any_case(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    out = _write(monkeypatch, tmp_path, {"requests": [{"text": t} for t in _CHATTER] + [{"text": "an ordinary ask"}]})
+    body = out.read_text()
+    assert demo_export.private_markers_left(body) == []
+    assert json.loads(body)["requests"][-1] == {"text": "an ordinary ask"}
 
 def test_the_shipped_corpus_alone_is_enough_for_the_backstop(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """A clean clone or CI has no research/ corpus: the packaged provisions must still be compared against."""
@@ -289,3 +320,39 @@ def test_an_empty_or_too_small_corpus_fails_closed(monkeypatch: pytest.MonkeyPat
     monkeypatch.setattr(demo_export, "MIN_CORPUS_DOCUMENTS", 2)
     with pytest.raises(SecretInSnapshot, match="cannot vouch"):
         demo_export.write_demo(small, tmp_path / "out" / "demo.json")
+
+
+# -- machine and network identifiers (R2, 2026-10-05) --------------------------------------------------------------
+
+_IDENTIFIERS = [
+    "ss@ss-Fusion-75:~/x", "host ss-Fusion-75 is up", "ssh nsharath@sharaths-Mac-mini", "sharaths-Mac-mini",
+    "dvs-builder@U22-I3-B08-02-2",
+    "session dir -home-ss-projects-pravrudhi-", "scratch /tmp/claude-1000/x/y", "gateway 192.168.0.12:8080",
+    "endpoint 7j7ipedmwi8z1w", "endpoint VWBRFGYIEL1HAQ", "id v7alta6t9ytcga",
+]
+
+
+@pytest.mark.parametrize("raw", _IDENTIFIERS)
+def test_machine_and_network_identifiers_are_removed_and_the_json_stays_valid(raw: str) -> None:
+    out = demo_export.demo_pipeline(json.dumps({"x": raw, "y": "prefix\n" + raw, "z": "a\t" + raw}))
+    body = json.loads(out)  # a substitution must never eat the backslash of a neighbouring escape
+    assert demo_export.private_markers_left(out) == [], out
+    assert body["y"].startswith("prefix\n") and body["z"].startswith("a\t")
+
+
+def test_a_newline_before_user_at_host_is_kept_not_swallowed() -> None:
+    out = demo_export.demo_pipeline(json.dumps({"x": "Login successful.\nss@ss-Fusion-75:~$ claude"}))
+    assert json.loads(out)["x"] == "Login successful.\n<redacted:user-at-host>:~$ claude"
+
+
+def test_ordinary_text_with_at_signs_and_digits_is_untouched() -> None:
+    text = "humaneval+ pass@1 0.579; 10.0.0.1; version 1.2.3; at-home-office"
+    clean = json.dumps({"x": text}, indent=2, sort_keys=True) + "\n"
+    assert demo_export.demo_pipeline(clean) == clean
+
+
+def test_write_demo_refuses_a_snapshot_the_redaction_left_unparseable(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(demo_export, "build_demo", lambda root: {"a": "b"})
+    monkeypatch.setattr(demo_export, "demo_pipeline", lambda text: text[:-5])  # a truncated, invalid document
+    with pytest.raises(SecretInSnapshot, match="unparseable"):
+        demo_export.write_demo(_root_with_corpus(tmp_path), tmp_path / "out" / "demo.json")
