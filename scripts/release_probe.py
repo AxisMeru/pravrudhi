@@ -158,15 +158,24 @@ def main(env: dict[str, str] | None = None, send: Send | None = None) -> int:
         return config_error("PROBE_EDITION must be product or studio")
     if admin == user:
         return config_error("the admin and the non-admin token are the same: that proves nothing")
-    parsed = urllib.parse.urlparse(base)
-    if parsed.username is not None or parsed.password is not None:
+    try:
+        parsed = urllib.parse.urlparse(base)
+        port = parsed.port  # raises ValueError on a malformed port
+        hostname = parsed.hostname or ""
+        has_credentials = parsed.username is not None or parsed.password is not None
+    except ValueError:
+        return config_error("PROBE_BASE_URL is not a valid URL")
+    if not hostname:
+        return config_error("PROBE_BASE_URL has no host")
+    if has_credentials:
         return config_error("PROBE_BASE_URL must not carry credentials (user:password@); pass tokens by environment")
-    if parsed.scheme != "https" and (parsed.scheme != "http" or (parsed.hostname or "") not in LOOPBACK):
+    if parsed.scheme != "https" and (parsed.scheme != "http" or hostname not in LOOPBACK):
         return config_error("PROBE_BASE_URL must be https (http only for loopback)")
     transport = send or http_sender(base, env.get("PROBE_IDENTITY_HEADER", "authorization").strip().lower(),
                                     env.get("PROBE_LOCAL_TOKEN", "").strip() or None)
     label = env.get("PROBE_TARGET_LABEL", "").strip()  # fail-open-ok: a display label only, not a measurement
-    host = (parsed.hostname or "") + (f":{parsed.port}" if parsed.port else "")  # never netloc: it can carry userinfo
+    shown = f"[{hostname}]" if ":" in hostname else hostname  # an IPv6 literal is bracketed
+    host = shown + (f":{port}" if port else "")  # never netloc: it can carry userinfo
     print(f"target: {parsed.scheme}://{host}" + (f" ({label})" if label else "") + f", edition {edition}")
     try:
         results = run(transport, edition, env.get("PROBE_WORKSPACE", "release-probe"),

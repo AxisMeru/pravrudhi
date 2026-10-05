@@ -223,3 +223,16 @@ def test_a_real_member_word_passes_the_non_admin_check() -> None:
     _sent, send = _recording(200, {"access": "member"})
     ran = probe.run(send, "product", "w", {"admin": "A", "user": "U", "anonymous": None})
     assert {c.name: ok for c, _s, ok in ran}["product serves a non-admin /api/me, not as admin"] is True
+
+
+@pytest.mark.parametrize("url", ["https://engine.example.test:notaport", "https://engine.example.test:99999999", "https://[::1", "https://"])
+def test_a_malformed_url_is_exit_2_with_no_traceback(url: str, capsys: pytest.CaptureFixture[str]) -> None:
+    code = probe.main({**_env_for("product"), "PROBE_BASE_URL": url}, lambda *a: (200, {"access": "admin"}))
+    err = capsys.readouterr().err
+    assert code == 2 and "Traceback" not in err and "CONFIG ERROR" in err
+
+
+def test_an_ipv6_host_is_bracketed_in_the_target_line(capsys: pytest.CaptureFixture[str]) -> None:
+    env = {**_env_for("product"), "PROBE_BASE_URL": "http://[::1]:8765"}
+    probe.main(env, lambda *a: (200, {"access": "admin"}))
+    assert capsys.readouterr().out.splitlines()[0] == "target: http://[::1]:8765, edition product"
