@@ -52,7 +52,10 @@ ACTS_OUTSIDE_LEXICON = [
 LINKS = [
     "along with", "together with", "jointly with", "as well as", "in collusion with", "in conspiracy with", "in the company of",
     "with the help of", "with the assistance of", "aided by", "abetted by", "joined by", "helped by",
+    "hand in glove with", "in league with", "in connivance with", "jointly and severally with", "and",
+    "in furtherance of the common intention shared with", "sharing the common intention with",
 ]
+COACTORS = ["Accused No.{m}", "{man}", "her husband", "his mother", "her sister-in-law", "A-{m}"]
 WHEN = ["On 12.03.2019", "On 04.07.2018, at about 9 pm", "In March 2017", "Thereafter", "After the marriage", ""]
 
 
@@ -89,6 +92,17 @@ def _sing(alias: str):
 
 
 POSITIVE = {
+    "P14 object list with 'and' (should PASS)": _cell(
+        lambda rng, n, m, v, man, w: _lead(
+            w, f"Accused No.{n} abused {v} and {rng.choice(['her mother', 'her sister', 'her children'])} in filthy language."
+        )
+    ),
+    "P15 victim with a full name, passive (should PASS)": _cell(
+        lambda rng, n, m, v, man, w: _lead(w, f"{v} Sharma was {rng.choice(['beaten', 'slapped', 'abused'])} by Accused No.{n}.")
+    ),
+    "P16 instrument 'with' phrase (should PASS)": _cell(
+        lambda rng, n, m, v, man, w: _lead(w, f"Accused No.{n} beat {v} with {rng.choice(['a hockey stick', 'an iron rod', 'a belt'])}.")
+    ),
     "P01 'Accused No.n' + lexicon verb": _cell(_sing("Accused No.{n}")),
     "P02 'A n' short form": _cell(_sing("A{n}")),
     "P03 'Petitioner No.n'": _cell(_sing("Petitioner No.{n}")),
@@ -151,6 +165,17 @@ NEGATIVE = {
             w,
             f"Accused No.{n} {rng.choice(LINKS)} {rng.choice([f'Accused No.{m}', man, 'her husband'])} "
             f"{_pick(rng, ACTS_IN_LEXICON, v)}.",
+        )
+    ),
+    "N5b co-actor before OR after the verb": _cell(
+        lambda rng, n, m, v, man, w: _lead(
+            w,
+            (
+                f"Accused No.{n} {rng.choice(LINKS)} {rng.choice(COACTORS).format(m=m, man=man)} {_pick(rng, ACTS_IN_LEXICON, v)}."
+                if rng.random() < 0.5
+                else f"Accused No.{n} {_pick(rng, ACTS_IN_LEXICON, v)} {rng.choice(['jointly with', 'in league with', 'along with'])} "
+                f"{rng.choice(COACTORS).format(m=m, man=man)}."
+            ),
         )
     ),
     "N6 in-laws": _cell(lambda rng, n, m, v, man, w: _lead(w, f"Her in-laws {_pick(rng, ACTS_IN_LEXICON, v)}.")),

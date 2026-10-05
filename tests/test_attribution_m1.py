@@ -65,7 +65,7 @@ def test_decision_follows_the_selected_party(chosen: str | None, sentence: str, 
 
 def test_a_listed_party_joined_to_the_chosen_actor_is_collective_even_if_the_model_picks_the_accused() -> None:
     r = M.check_attribution_m1("TOY: Accused No.2 and Accused No.1 beat Nila.", _ref(), Pick("Accused No.2"))
-    assert not r.passed and r.reason == "accused_attribution_collective" and r.rule == "M1-R3"
+    assert not r.passed and r.reason == "accused_attribution_collective" and r.rule in ("V3", "M1-R3")
     ok = M.check_attribution_m1("TOY: Accused No.2 beat Nila in front of Accused No.1.", _ref(), Pick("Accused No.2"))
     assert ok.passed
 

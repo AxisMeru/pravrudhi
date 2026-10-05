@@ -96,3 +96,40 @@ def test_v1_link_phrases_do_not_fire_without_a_second_actor(sentence: str) -> No
     from pravrudhi.application.nyaya_attribution import AccusedRef, _veto
 
     assert _veto(sentence, AccusedRef("a1", ("Accused No.3",), ())) is None
+
+
+@pytest.mark.parametrize(
+    "sentence",
+    [
+        "TOY: Accused No.3, hand in glove with Gopal Rao, beat Nila.",
+        "TOY: Accused No.3 in league with Naresh beat Nila.",
+        "TOY: Accused No.3 beat Nila jointly and severally with his mother.",
+        "TOY: Accused No.3 and Gopal Rao beat Nila.",
+        "TOY: Accused No.3 in furtherance of the common intention shared with Sri Gopal beat Nila.",
+        "TOY: Nila was beaten by Gopal Rao together with Accused No.3.",
+    ],
+)
+def test_v3_structural_veto_refuses_a_second_actor_in_the_clause(sentence: str) -> None:
+    from pravrudhi.application.nyaya_attribution import AccusedRef
+    from pravrudhi.application.nyaya_attribution_m1 import _structural_veto
+
+    assert _structural_veto(sentence, AccusedRef("a1", ("Accused No.3",), (("Accused No.9",),)))
+
+
+@pytest.mark.parametrize(
+    "sentence",
+    [
+        "TOY: Accused No.3 beat Nila with a hockey stick.",
+        "TOY: Accused No.3 abused Nila and her mother in filthy language.",
+        "TOY: Nila Sharma was slapped by Accused No.3.",
+        "TOY: Her husband, Accused No.3, beat Nila.",
+        "TOY: Accused No.3 beat Nila with her husband's belt.",
+        "TOY: Accused No.3 abused Nila in front of her in-laws.",
+        "TOY: Accused No.3 came home drunk and he beat Nila.",
+    ],
+)
+def test_v3_structural_veto_leaves_objects_victims_and_instruments_alone(sentence: str) -> None:
+    from pravrudhi.application.nyaya_attribution import AccusedRef
+    from pravrudhi.application.nyaya_attribution_m1 import _structural_veto
+
+    assert not _structural_veto(sentence, AccusedRef("a1", ("Accused No.3",), (("Accused No.9",),)))

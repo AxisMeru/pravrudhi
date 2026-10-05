@@ -48,6 +48,8 @@ from pravrudhi.application.nyaya_attribution import (
     AttributionResult,
     Candidate,
     _is_apposition,
+    _SENTENCE_END,
+    _VERB,
     _veto,
     extract_candidates,
 )
@@ -232,6 +234,71 @@ def _resolve_apposition(quote: str, cands: list[Candidate], chosen: Candidate) -
     return chosen
 
 
+# -- V3: structural same-clause co-actor veto (no phrase list for the link itself) -----------------------------------------
+#: A kin/group noun phrase that can be a second actor ("his mother", "her step-sister", "their relatives"); possessive use
+#: ("her husband's belt") is excluded where it is applied.
+_CO_KIN = re.compile(
+    r"\b(?:her|his|their)\s+(?:[\w-]+\s+)?(?:mother|father|sister|brother|step-\w+|[\w-]+-in-law|uncle|aunt|cousin|friends?|relatives|"
+    r"parents|family|husband|wife)\b",
+    re.I,
+)
+#: Words that, between a second actor and the accused, make them act TOGETHER ("with", "along", "jointly", "league", ...).
+_AGENT_LINK = re.compile(
+    r"\b(?:with|along|together|jointly|severally|league|glove|connivance|concert|collusion|conspiracy|company|intention|"
+    r"complicity|abetment|abetting|furtherance|(?:aided|assisted|abetted|accompanied|joined|helped|supported)\s+by|"
+    r"(?:help|assistance|aid|support|participation)\s+of|as\s+well\s+as)\b",
+    re.I,
+)
+#: Backstop for a second actor that is a single capitalised first name (not a candidate): a togetherness word, then within a few
+#: characters "with / by / of / as", then a capitalised name (optionally titled). Link words are CATEGORIES (togetherness, aid,
+#: common intention), not a list of phrasings.
+_LINKED_NAME = re.compile(
+    r"\b(?:along|together|jointly|severally|league|glove|connivance|concert|collusion|conspiracy|company|intention|shared|"
+    r"furtherance|aided|assisted|abetted|accompanied|joined|helped|supported|help|assistance|aid|support|participation|well)\b"
+    r"[^.;]{0,25}?\b(?:with|by|of|as)\s+(?:(?:Mr|Mrs|Ms|Smt|Shri|Sri|Dr|Kum)\.?\s+)?([A-Z][a-z]{2,})"
+)
+_PLAIN_AND = re.compile(r"(?:\band\b|&)", re.I)
+_POSSESSIVE_NEXT = re.compile(r"^['\u2019]s\b")
+
+
+def _structural_veto(quote: str, accused: AccusedRef) -> bool:
+    """True when a second actor-like expression sits in the same clause as the accused and is not clearly an object or a victim.
+    Link-agnostic: a second actor is a listed other party, a collective, a numbered party, an unlisted name or a kin phrase whose
+    gap to the accused contains an agentive link word ("with", "jointly", "league", "aided by", ...), or a plain "and"/"&" when the
+    second actor stands BEFORE the act verb (subject coordination). After the verb a plain "and" is an object list and is left to
+    the model. Possessives ("her husband's belt") are never actors."""
+    cands = list(extract_options(quote, accused))
+    taken = [(c.start, c.end) for c in cands]
+    for m in _CO_KIN.finditer(quote):
+        if not any(m.start() < e and s < m.end() for s, e in taken):
+            cands.append(Candidate(m.start(), m.end(), m.group(0), "other", f"KIN:{m.group(0).lower()}"))
+    selfs = [c for c in cands if c.role == "self"]
+    if not selfs:
+        return False
+    chosen = selfs[0]
+    clause = _SENTENCE_END.split(quote[chosen.end :], maxsplit=1)[0]
+    for m in _LINKED_NAME.finditer(clause):
+        if m.group(1).lower() not in _NOT_NAMES and m.group(1) not in ("Accused", "Petitioner", "Respondent"):
+            return True
+    vm = _VERB.search(quote)
+    verb_at = vm.start() if vm else None
+    for c in cands:
+        if c.role in ("self", "pronoun") or (c.start, c.end) == (chosen.start, chosen.end):
+            continue
+        if _POSSESSIVE_NEXT.match(quote[c.end : c.end + 3]):
+            continue
+        lo, hi = (c.end, chosen.start) if c.end <= chosen.start else (chosen.end, c.start)
+        gap = quote[lo:hi]
+        if _SENTENCE_END.search(gap) or ";" in gap:
+            continue
+        if _AGENT_LINK.search(gap):
+            return True
+        before_verb = verb_at is None or c.start < verb_at
+        if before_verb and _PLAIN_AND.search(gap) and not (vm and lo <= vm.start() < hi):
+            return True
+    return False
+
+
 def check_attribution_m1(quote: str | None, accused: AccusedRef | None, selector: ActorSelector) -> AttributionResult:
     """The M1 decision. Never raises: any error is a refusal (R5)."""
     v = "M1"
@@ -243,6 +310,8 @@ def check_attribution_m1(quote: str | None, accused: AccusedRef | None, selector
         veto = _veto(quote, accused)
         if veto is not None:
             return AttributionResult(False, REASON_COLLECTIVE, variant=v, rule=veto)
+        if _structural_veto(quote, accused):
+            return AttributionResult(False, REASON_COLLECTIVE, variant=v, rule="V3")
         cands = extract_options(quote, accused)
         base: dict[str, Any] = {
             "variant": v,
