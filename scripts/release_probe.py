@@ -36,8 +36,13 @@ workspace, so a missing gate answers "name a workspace" (400) and creates no wor
 probes do use PROBE_WORKSPACE, and a missing gate there creates that test account's (empty) workspace, so point it
 at an existing test workspace.
 
-Exit: 0 every check passed, 1 a check failed, 2 configuration error, the engine unreachable, or any unexpected error
-(reported by type only, no traceback).
+Exit codes
+  0  every check ran and passed
+  1  a check failed (takes precedence over 3: a real failure is never reported as merely incomplete)
+  2  configuration error, the engine unreachable, or any unexpected error (reported by type only, no traceback);
+     also a missing PROBE_ADMIN_TOKEN when PROBE_REQUIRE_ADMIN=1
+  3  INCOMPLETE: every check that ran passed, but the admin checks were SKIPPED (no PROBE_ADMIN_TOKEN), so CI cannot
+     read a skipped admin half as green. Opt-in checks left off (PROBE_ALLOW_CLI_ASK) do not make a run incomplete.
 """
 
 from __future__ import annotations
@@ -218,7 +223,9 @@ def main(env: dict[str, str] | None = None, send: Send | None = None) -> int:
     print(f"\n{ran - len(failed)}/{ran} passed ({len(results) - ran} skipped){tail}")
     if admin_skipped:
         print(f"INCOMPLETE: {admin_skipped} admin check(s) were SKIPPED (no PROBE_ADMIN_TOKEN); this is not a full pass")
-    return 1 if failed else 0
+    if failed:
+        return 1
+    return 3 if admin_skipped else 0
 
 
 if __name__ == "__main__":
