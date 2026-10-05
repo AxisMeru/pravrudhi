@@ -303,14 +303,15 @@ class TestLoop:
         assert TOY_FACTS[1][el0.start : el0.end] == "never to marry Lata"  # type: ignore[misc]
         assert (el0.offsets_source, el0.occurrences) == ("system", 1)
 
-    def test_multiple_occurrences_take_the_first_and_are_counted(self, tmp_path: Path) -> None:
+    def test_an_ambiguous_quote_is_not_established_never_grounded_on_its_first_occurrence(self, tmp_path: Path) -> None:
         script = _proof_script(TOY_FACTS)
-        script[BNS69_EL[0]] = [_est("F2", TOY_FACTS[1], "a")]
+        script[BNS69_EL[0]] = [_est("F2", TOY_FACTS[1], "ha")]
         run, _, _ = _run(tmp_path, script)
-        el0 = run.contracts[0].elements[0]
-        assert el0.start == TOY_FACTS[1].find("a")
-        assert el0.occurrences == TOY_FACTS[1].count("a")
-        assert el0.occurrences > 1
+        c = run.contracts[0]
+        el0 = c.elements[0]
+        assert (el0.status, el0.quote_check) == ("not_established", "ambiguous_quote")
+        assert el0.start is None and el0.end is None and el0.occurrences == TOY_FACTS[1].count("ha")
+        assert c.outcome == "ABSTAIN"
 
     def test_every_attempt_uses_the_same_training_statute_never_the_binary_text(self, tmp_path: Path) -> None:
         script = _proof_script(TOY_FACTS)
@@ -343,6 +344,20 @@ class TestLoop:
         el1 = run.contracts[0].elements[1]
         assert (el1.status, el1.p_established, el1.quote) == ("established", 0.97, good.quote)
         assert run.contracts[0].outcome == "PROOF"
+
+    def test_the_proceeding_posture_reaches_every_judge_request(self, tmp_path: Path) -> None:
+        _, judge, _ = _run(tmp_path, _proof_script(TOY_FACTS))
+        assert {r.proceeding_posture for r in judge.requests} == {None}
+        judge2 = ScriptedJudge(_proof_script(TOY_FACTS))
+        NyayaAgent(judge2, _registry(), _config(tmp_path)).run(
+            TOY_FACTS, narrative="TOY narrative.", contract_ids=["bns69"], proceeding_posture="quash")
+        assert {r.proceeding_posture for r in judge2.requests} == {"quash"}
+
+    def test_an_invalid_posture_is_refused_before_any_judge_call(self, tmp_path: Path) -> None:
+        judge = ScriptedJudge(_proof_script(TOY_FACTS))
+        with pytest.raises(ValueError, match="proceeding_posture"):
+            NyayaAgent(judge, _registry(), _config(tmp_path)).run(TOY_FACTS, proceeding_posture="bail")
+        assert judge.requests == []
 
     def test_facts_reach_the_judge_as_numbered_pairs(self, tmp_path: Path) -> None:
         _, judge, _ = _run(tmp_path, _proof_script(TOY_FACTS))
@@ -1582,6 +1597,38 @@ class TestStatuteMismatch:
 
 
 class TestAudit:
+    def test_run_start_records_version_models_host_class_and_score_sha(self, tmp_path: Path) -> None:
+        import pravrudhi
+
+        cfg = _config(
+            tmp_path,
+            house_judge={"base_url": "https://api.runpod.ai/v2/ep1/openai/v1", "model": "nyaya-judge-4b"},
+            second_judge={"base_url": "http://127.0.0.1:8112/v1", "model": "judge32b"},
+        )
+        run = NyayaAgent(ScriptedJudge(_proof_script(TOY_FACTS)), _registry(), cfg).run(TOY_FACTS, contract_ids=["bns69"])
+        out = json.loads(run.audit_path.read_text().splitlines()[0])["output"]
+        assert out["engine_version"] == pravrudhi.__version__
+        assert out["primary_judge_model"] == "nyaya-judge-4b"
+        assert out["second_judge_model"] == "judge32b"
+        assert out["primary_judge_host_class"] == "serverless"
+        assert out["second_judge_host_class"] == "local"
+        assert out["score_sha256"] == _registry().sha256
+        assert "runpod" not in json.dumps(out) and "127.0.0.1" not in json.dumps(out)
+
+    def test_run_start_without_a_second_judge_or_pinned_model_says_so(self, tmp_path: Path) -> None:
+        run, _, _ = _run(tmp_path, _proof_script(TOY_FACTS))
+        out = json.loads(run.audit_path.read_text().splitlines()[0])["output"]
+        assert out["second_judge_model"] is None and out["second_judge_host_class"] is None
+        assert "primary_judge_model" in out and "engine_version" in out
+
+    def test_the_standard_is_recorded_even_when_the_judge_never_sees_it(self, tmp_path: Path) -> None:
+        judge = ScriptedJudge(_proof_script(TOY_FACTS))
+        run = NyayaAgent(judge, _registry(), _config(tmp_path)).run(TOY_FACTS, contract_ids=["bns69"], proceeding_posture="quash")
+        row = json.loads(run.audit_path.read_text().splitlines()[0])["output"]
+        got = (row["standard"], row["standard_source"], row["proceeding_posture"])
+        assert got == ("prima_facie_disclosed", "request", "quash")
+        assert row["standard_in_judge_prompt"] is False
+
     def test_every_step_is_a_jsonl_line_with_hashed_inputs(self, tmp_path: Path) -> None:
         run, _, _ = _run(tmp_path, _proof_script(TOY_FACTS))
         lines = [json.loads(x) for x in run.audit_path.read_text().splitlines()]
