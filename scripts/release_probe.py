@@ -106,7 +106,8 @@ def run(
         ok = status in c.expect
         if ok and c.access is not None:
             word = body.get("access") if isinstance(body, dict) else None
-            ok = (word == "admin") if c.access == "admin" else (word != "admin")
+            # An empty or unparseable body proves nothing: only a real, non-empty access word can pass either check.
+            ok = word == "admin" if c.access == "admin" else (isinstance(word, str) and bool(word) and word != "admin")
         results.append((c, status, ok))
     return results
 
@@ -158,12 +159,15 @@ def main(env: dict[str, str] | None = None, send: Send | None = None) -> int:
     if admin == user:
         return config_error("the admin and the non-admin token are the same: that proves nothing")
     parsed = urllib.parse.urlparse(base)
+    if parsed.username is not None or parsed.password is not None:
+        return config_error("PROBE_BASE_URL must not carry credentials (user:password@); pass tokens by environment")
     if parsed.scheme != "https" and (parsed.scheme != "http" or (parsed.hostname or "") not in LOOPBACK):
         return config_error("PROBE_BASE_URL must be https (http only for loopback)")
     transport = send or http_sender(base, env.get("PROBE_IDENTITY_HEADER", "authorization").strip().lower(),
                                     env.get("PROBE_LOCAL_TOKEN", "").strip() or None)
     label = env.get("PROBE_TARGET_LABEL", "").strip()  # fail-open-ok: a display label only, not a measurement
-    print(f"target: {parsed.scheme}://{parsed.netloc}" + (f" ({label})" if label else "") + f", edition {edition}")
+    host = (parsed.hostname or "") + (f":{parsed.port}" if parsed.port else "")  # never netloc: it can carry userinfo
+    print(f"target: {parsed.scheme}://{host}" + (f" ({label})" if label else "") + f", edition {edition}")
     try:
         results = run(transport, edition, env.get("PROBE_WORKSPACE", "release-probe"),
                       {"admin": admin, "user": user, "anonymous": None}, env.get("PROBE_ALLOW_CLI_ASK") == "1")

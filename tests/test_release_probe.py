@@ -191,3 +191,35 @@ def test_an_unreachable_engine_is_exit_2_not_a_pass(capsys: pytest.CaptureFixtur
 
     assert probe.main(_env_for("product"), down) == 2
     assert "could not be reached" in capsys.readouterr().err
+
+
+def test_a_url_with_credentials_is_refused_and_neither_user_nor_password_is_ever_printed(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    env = {**_env_for("product"), "PROBE_BASE_URL": "https://opuser:hunter2pass@engine.example.test:8443"}
+    assert probe.main(env, lambda *a: (200, {"access": "admin"})) == 2
+    out = capsys.readouterr()
+    for secret in ("opuser", "hunter2pass", "hunter2"):
+        assert secret not in out.out and secret not in out.err
+
+
+def test_the_target_line_is_hostname_and_port_only(capsys: pytest.CaptureFixture[str]) -> None:
+    env = {**_env_for("studio"), "PROBE_BASE_URL": "https://engine.example.test:8443/ignored/path?q=1"}
+    probe.main(env, lambda *a: (200, {"access": "admin"}))
+    first = capsys.readouterr().out.splitlines()[0]
+    assert first == "target: https://engine.example.test:8443, edition studio"
+
+
+@pytest.mark.parametrize("body", [None, {}, {"access": ""}, {"access": None}, {"access": 7}, {"other": "member"}])
+def test_the_non_admin_access_check_fails_on_an_empty_or_unparseable_body(body: dict | None) -> None:
+    _sent, send = _recording(200, body)
+    ran = probe.run(send, "product", "w", {"admin": "A", "user": "U", "anonymous": None})
+    results = {c.name: ok for c, _s, ok in ran}
+    assert results["product serves a non-admin /api/me, not as admin"] is False
+    assert results["admin token is really an admin (/api/me)"] is False
+
+
+def test_a_real_member_word_passes_the_non_admin_check() -> None:
+    _sent, send = _recording(200, {"access": "member"})
+    ran = probe.run(send, "product", "w", {"admin": "A", "user": "U", "anonymous": None})
+    assert {c.name: ok for c, _s, ok in ran}["product serves a non-admin /api/me, not as admin"] is True
