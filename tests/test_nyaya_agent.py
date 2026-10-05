@@ -305,11 +305,11 @@ class TestLoop:
 
     def test_multiple_occurrences_take_the_first_and_are_counted(self, tmp_path: Path) -> None:
         script = _proof_script(TOY_FACTS)
-        script[BNS69_EL[0]] = [_est("F2", TOY_FACTS[1], "a")]
+        script[BNS69_EL[0]] = [_est("F2", TOY_FACTS[1], "ha")]
         run, _, _ = _run(tmp_path, script)
         el0 = run.contracts[0].elements[0]
-        assert el0.start == TOY_FACTS[1].find("a")
-        assert el0.occurrences == TOY_FACTS[1].count("a")
+        assert el0.start == TOY_FACTS[1].find("ha")
+        assert el0.occurrences == TOY_FACTS[1].count("ha")
         assert el0.occurrences > 1
 
     def test_every_attempt_uses_the_same_training_statute_never_the_binary_text(self, tmp_path: Path) -> None:
