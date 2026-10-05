@@ -152,7 +152,12 @@ ADMIN_GATED_AT_REGISTRATION: frozenset[str] = frozenset({"/api/app-token"})
 
 # Routes whose READ is the product's but whose WRITE is engine-wide: the same path under two methods. Only the
 # methods below the safe set are operator-only; `GET /api/update/config` stays user-facing.
-ADMIN_WRITES_IN_BOTH_EDITIONS: frozenset[str] = frozenset({"/api/update/config"})
+ADMIN_WRITES_IN_BOTH_EDITIONS: frozenset[str] = frozenset({
+    "/api/update/config",
+    # Dispatching a plan builds and runs host coding agents (codex, claude-code, orca, opencode, hosted) under the
+    # engine process's own CLI logins; its GET (preview and past runs) stays the user's.
+    "/api/objectives/{oid}/subagents",
+})
 SAFE_METHODS: frozenset[str] = frozenset({"GET", "HEAD", "OPTIONS"})
 
 # What the product is. A user's own goals, workspaces, conversation, memory, keys and models, plus the plain
