@@ -68,20 +68,23 @@ def main() -> int:
         res_1 = judge_1._complete(prompt)  # noqa: SLF001 -- exactly (b)'s call shape, on two separate instances
         res_2 = judge_2._complete(prompt)  # noqa: SLF001
 
-        p_1 = p_established_from_top_logprobs(res_1.top_logprobs[0]) if res_1.top_logprobs else None
-        p_2 = p_established_from_top_logprobs(res_2.top_logprobs[0]) if res_2.top_logprobs else None
+        p_1, clamp_1 = p_established_from_top_logprobs(res_1.top_logprobs[0]) if res_1.top_logprobs else (None, None)
+        p_2, clamp_2 = p_established_from_top_logprobs(res_2.top_logprobs[0]) if res_2.top_logprobs else (None, None)
         if p_1 is None or p_2 is None:
             continue
         delta = abs(p_1 - p_2)
         if delta > 1e-6:
-            large_deltas.append({"row": i, "id": row.get("id"), "delta": delta, "p_1": p_1, "p_2": p_2})
+            large_deltas.append(
+                {"row": i, "id": row.get("id"), "delta": delta, "p_1": p_1, "p_2": p_2,
+                 "clamp_1": clamp_1, "clamp_2": clamp_2}
+            )
         max_abs_delta = max(max_abs_delta, delta)
         status_1 = "established" if p_1 >= TAU else "not_established"
         status_2 = "established" if p_2 >= TAU else "not_established"
         fid_1 = parse_house_fact_id(res_1.text) if status_1 == "established" else None
         fid_2 = parse_house_fact_id(res_2.text) if status_2 == "established" else None
         if status_1 != status_2 or fid_1 != fid_2:
-            flips.append({"row": i, "id": row.get("id"), "p_1": p_1, "p_2": p_2})
+            flips.append({"row": i, "id": row.get("id"), "p_1": p_1, "p_2": p_2, "clamp_1": clamp_1, "clamp_2": clamp_2})
         if (i + 1) % 50 == 0:
             print(f"  {i + 1}/{len(rows)}  max|dp| so far: {max_abs_delta:.3e}  flips: {len(flips)}")
 
