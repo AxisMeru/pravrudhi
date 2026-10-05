@@ -334,7 +334,15 @@ def _group_after(quote: str, cands: list[Candidate], start: int) -> list[Candida
     return group
 
 
-def _decide(quote: str, accused: AccusedRef, cands: list[Candidate]) -> AttributionResult:
+def _pronoun_resolves_to_self(cands: list[Candidate], pronoun: Candidate) -> bool:
+    """R4 relaxation (default off): a he/she subject resolves to the accused under review only when the candidates before it in
+    the same sentence are all that accused: at least one, and no other party, collective, generic or kin phrase named anywhere
+    before the pronoun (stricter than "between", because "A3 told A2 that he beat her" is ambiguous)."""
+    before = [c for c in cands if c.end <= pronoun.start and c.role != "pronoun"]
+    return bool(before) and all(c.role == "self" for c in before)
+
+
+def _decide(quote: str, accused: AccusedRef, cands: list[Candidate], pronoun_rule: bool = False) -> AttributionResult:
     base: dict[str, Any] = {
         "n_candidates": len(cands),
         "candidates": tuple(
@@ -362,20 +370,22 @@ def _decide(quote: str, accused: AccusedRef, cands: list[Candidate]) -> Attribut
         return AttributionResult(False, REASON_COLLECTIVE, rule="R3", **common)
     only = group[0]
     if only.role == "pronoun":
+        if pronoun_rule and _pronoun_resolves_to_self(cands, only):
+            return AttributionResult(True, None, rule="R4r", **common)
         return AttributionResult(False, REASON_UNRESOLVED, rule="R4", **common)
     if only.role == "self":
         return AttributionResult(True, None, rule=None, **common)
     return AttributionResult(False, REASON_NOT_MATCHED, rule="R2", **common)
 
 
-def check_attribution(quote: str | None, accused: AccusedRef | None) -> AttributionResult:
+def check_attribution(quote: str | None, accused: AccusedRef | None, *, pronoun_rule: bool = False) -> AttributionResult:
     """R0..R5 on one quoted fact. Never raises: any error is a refusal (R5)."""
     if accused is None:
         return AttributionResult(False, REASON_NOT_SPECIFIED, rule="R0")
     try:
         if not isinstance(quote, str) or not quote.strip() or len(quote) > MAX_QUOTE_CHARS:
             return AttributionResult(False, REASON_UNRESOLVED, rule="R1", error="empty or oversized quote")
-        return _decide(quote, accused, extract_candidates(quote, accused))
+        return _decide(quote, accused, extract_candidates(quote, accused), pronoun_rule)
     except Exception as e:  # noqa: BLE001 -- fail closed: an error is a refusal, never a pass
         return AttributionResult(False, REASON_UNRESOLVED, rule="R5", error=f"{type(e).__name__}: {e}"[:300])
 
@@ -394,12 +404,12 @@ class AttributedJudgeRequest(JudgeRequest):
 
 class AccusedAttributionJudge:
     """Wraps a `Judge` (placed right after `SpanRelevanceJudge`). Asked only when the wrapped judge says established on a
-    non-denial
-    element that requires an actor and has a resolvable span; never changes the status. The result is attached as
+    non-denial element that requires an actor and has a resolvable span; never changes the status. The result is attached as
     `ElementJudgment.attribution`; a refusal is `attribution["passed"] is False` and the agent turns it into REFER_TO_LAWYER."""
 
-    def __init__(self, inner: Judge, *, name: str | None = None) -> None:
+    def __init__(self, inner: Judge, *, name: str | None = None, pronoun_rule: bool = False) -> None:
         self.inner = inner
+        self.pronoun_rule = pronoun_rule
         self.name: str = name or str(getattr(inner, "name", "accused_attribution"))
 
     def judge(self, request: JudgeRequest) -> ElementJudgment:
@@ -409,5 +419,5 @@ class AccusedAttributionJudge:
         quote = (judgment.quote or "").strip()
         if not judgment.fact_id or not quote:
             return judgment  # no resolvable span: the quote check downstream rejects this anyway
-        result = check_attribution(quote, getattr(request, "accused", None))
+        result = check_attribution(quote, getattr(request, "accused", None), pronoun_rule=self.pronoun_rule)
         return replace(judgment, attribution=result.as_dict())

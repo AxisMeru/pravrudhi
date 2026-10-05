@@ -166,7 +166,7 @@ def cp_upper(k: int, n: int, a: float = 0.05) -> float:
     return hi
 
 
-def run(n_per_cell: int, seed: int) -> dict:
+def run(n_per_cell: int, seed: int, pronoun_rule: bool = False) -> dict:
     rng = random.Random(seed)
     out: dict = {
         "seed": seed,
@@ -180,7 +180,7 @@ def run(n_per_cell: int, seed: int) -> dict:
             for _ in range(n_per_cell):
                 n, m = rng.sample(range(1, 9), 2)
                 sentence, ref = build(rng, n, m)
-                r = check_attribution(sentence, ref)
+                r = check_attribution(sentence, ref, pronoun_rule=pronoun_rule)
                 if not r.passed:
                     refused += 1
                     reasons[r.reason] = reasons.get(r.reason, 0) + 1
@@ -213,9 +213,10 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--n-per-cell", type=int, default=40)
     ap.add_argument("--seed", type=int, default=20261005)
+    ap.add_argument("--pronoun-rule", action="store_true", help="measure with the R4 relaxation on (default off)")
     ap.add_argument("--json", default=None)
     a = ap.parse_args(argv)
-    res = run(a.n_per_cell, a.seed)
+    res = run(a.n_per_cell, a.seed, a.pronoun_rule)
     print(res["label"])
     for name, c in res["cells"].items():
         print(f"  [{c['group'][:3]}] {name:55s} refused {c['refused']:3d}/{c['n']}  {c['reasons']}")

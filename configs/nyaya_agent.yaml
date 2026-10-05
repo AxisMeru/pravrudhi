@@ -111,6 +111,7 @@ retention_days: 7
 # NYAYA_ACCUSED_ATTRIBUTION_ENABLED. Each value is a list of case-insensitive substrings identifying the element; VERIFY it against
 # `score --describe-contract <contract>` before enabling (a key matching no element fails closed, `accused_attribution_config_unmatched`).
 accused_attribution_enabled: false
+accused_attribution_pronoun_rule: false  # R4 relaxation, separate pre-registered change; env NYAYA_ACCUSED_ATTRIBUTION_PRONOUN_RULE
 accused_attribution_requires_actor:
   bns85:
     - "specific acts of cruelty to this accused"

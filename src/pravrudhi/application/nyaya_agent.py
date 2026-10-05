@@ -190,6 +190,10 @@ class AgentConfig:
     #: from before the feature existed (golden-tested). Env `NYAYA_ACCUSED_ATTRIBUTION_ENABLED` or yaml
     #: `accused_attribution_enabled`. When on, only the elements named in `requires_actor` are checked.
     accused_attribution_enabled: bool = False
+    #: R4 relaxation (separate pre-registered change, default OFF; env `NYAYA_ACCUSED_ATTRIBUTION_PRONOUN_RULE` or yaml
+    #: `accused_attribution_pronoun_rule`): a he/she subject after the named accused resolves to them when no other party is
+    #: named before it. Only read while `accused_attribution_enabled` is on.
+    accused_attribution_pronoun_rule: bool = False
     #: contract id -> substrings (case-insensitive) identifying the element(s) that require a specific act by the accused. v1:
     #: bns85's element 3. VERIFY a key against `score --describe <contract>` before enabling; a key that matches no element of
     #: its contract fails closed to REFER (`accused_attribution_config_unmatched`), it never silently disables the check.
@@ -474,6 +478,11 @@ def load_agent_config(root: Path) -> AgentConfig:
         attr_raw.strip().lower() in ("1", "true", "yes", "on") if attr_raw is not None
         else bool(body.get("accused_attribution_enabled", False))
     )
+    pron_raw = os.environ.get("NYAYA_ACCUSED_ATTRIBUTION_PRONOUN_RULE")
+    accused_attribution_pronoun_rule = (
+        pron_raw.strip().lower() in ("1", "true", "yes", "on") if pron_raw is not None
+        else bool(body.get("accused_attribution_pronoun_rule", False))
+    )
     requires_actor_raw = body.get("accused_attribution_requires_actor") or {}
     if not isinstance(requires_actor_raw, Mapping) or any(
         not isinstance(v, (list, tuple)) or not v or any(not isinstance(x, str) or not x.strip() for x in v)
@@ -517,6 +526,7 @@ def load_agent_config(root: Path) -> AgentConfig:
         gate1_enabled=gate1_enabled,
         span_relevance_enabled=span_relevance_enabled,
         accused_attribution_enabled=accused_attribution_enabled,
+        accused_attribution_pronoun_rule=accused_attribution_pronoun_rule,
         requires_actor=requires_actor,
         retention_days=float(body.get("retention_days", 7.0)),
     )
@@ -1289,7 +1299,7 @@ class NyayaAgent:
             if cfg.span_relevance_enabled:
                 judge = SpanRelevanceJudge(judge, primary)
             if cfg.accused_attribution_enabled:
-                judge = AccusedAttributionJudge(judge)
+                judge = AccusedAttributionJudge(judge, pronoun_rule=cfg.accused_attribution_pronoun_rule)
             if gate1_model is not None:
                 threshold = float(cfg.gate1.get("threshold", GATE1_THRESHOLD_DEFAULT))
                 tau_c = float(cfg.gate1.get("tau_c", GATE1_TAU_C_DEFAULT))
