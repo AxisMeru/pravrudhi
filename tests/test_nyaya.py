@@ -293,6 +293,10 @@ def test_the_routes_serve_the_product_and_need_the_local_token_to_ask(tmp_path: 
     r = c.post(
         "/api/nyaya/ask", json={"question": "murder", "vendors": ["claude-cli"]}, headers={TOKEN_HEADER: app_token(tmp_path)}
     )
+    assert r.status_code == 403 and "vendor not allowed" in r.text  # a cli vendor is the operator's seat (#388)
+    r = c.post(
+        "/api/nyaya/ask", json={"question": "murder", "vendors": ["openai-api"]}, headers={TOKEN_HEADER: app_token(tmp_path)}
+    )
     assert r.status_code == 200 and r.json()["answers"][0]["verdict"] == "licensed"
     r = c.post("/api/nyaya/ask", json={"question": "murder", "vendors": ["nope"]}, headers={TOKEN_HEADER: app_token(tmp_path)})
     assert r.status_code == 422
