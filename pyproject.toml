@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "pravrudhi"
-version = "0.5.41"
+version = "0.5.43"
 description = "Recursive self-improvement engine for language-model systems: run a budgeted night over your own model and harness."
 readme = "README.md"
 requires-python = ">=3.13,<3.14"
@@ -66,6 +66,8 @@ include = ["src/pravrudhi/assets/**"]
 "configs/nyaya_agent.yaml" = "pravrudhi/assets/configs/nyaya_agent.yaml"
 "configs/partner_api.yaml" = "pravrudhi/assets/configs/partner_api.yaml"
 "configs/nyaya_corpus.yaml" = "pravrudhi/assets/configs/nyaya_corpus.yaml"
+"configs/usage_gate.yaml" = "pravrudhi/assets/configs/usage_gate.yaml"
+"configs/tenant_vendors.yaml" = "pravrudhi/assets/configs/tenant_vendors.yaml"
 
 # The built web interface lives outside src/, so neither `packages` nor `include` reaches it. Without this mapping
 # an installed wheel serves the API with no interface at all, which is the silent degradation `frontend_dir()`

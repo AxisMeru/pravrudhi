@@ -37,12 +37,15 @@ from pravrudhi.application.nyaya_agent import (
     select_contracts,
 )
 from pravrudhi.application.nyaya_judges import (
+    GATE1_MODEL_DEFAULT,
+    GATE1_MODEL_REVISION_DEFAULT,
     GATE1_TAU_C_DEFAULT,
     GATE1_THRESHOLD_DEFAULT,
     AndGateJudge,
     ElementJudgment,
     JudgeOutputError,
     JudgeRequest,
+    SpanRelevanceJudge,
 )
 
 REPO = Path(__file__).resolve().parent.parent
@@ -300,14 +303,15 @@ class TestLoop:
         assert TOY_FACTS[1][el0.start : el0.end] == "never to marry Lata"  # type: ignore[misc]
         assert (el0.offsets_source, el0.occurrences) == ("system", 1)
 
-    def test_multiple_occurrences_take_the_first_and_are_counted(self, tmp_path: Path) -> None:
+    def test_an_ambiguous_quote_is_not_established_never_grounded_on_its_first_occurrence(self, tmp_path: Path) -> None:
         script = _proof_script(TOY_FACTS)
-        script[BNS69_EL[0]] = [_est("F2", TOY_FACTS[1], "a")]
+        script[BNS69_EL[0]] = [_est("F2", TOY_FACTS[1], "ha")]
         run, _, _ = _run(tmp_path, script)
-        el0 = run.contracts[0].elements[0]
-        assert el0.start == TOY_FACTS[1].find("a")
-        assert el0.occurrences == TOY_FACTS[1].count("a")
-        assert el0.occurrences > 1
+        c = run.contracts[0]
+        el0 = c.elements[0]
+        assert (el0.status, el0.quote_check) == ("not_established", "ambiguous_quote")
+        assert el0.start is None and el0.end is None and el0.occurrences == TOY_FACTS[1].count("ha")
+        assert c.outcome == "ABSTAIN"
 
     def test_every_attempt_uses_the_same_training_statute_never_the_binary_text(self, tmp_path: Path) -> None:
         script = _proof_script(TOY_FACTS)
@@ -340,6 +344,20 @@ class TestLoop:
         el1 = run.contracts[0].elements[1]
         assert (el1.status, el1.p_established, el1.quote) == ("established", 0.97, good.quote)
         assert run.contracts[0].outcome == "PROOF"
+
+    def test_the_proceeding_posture_reaches_every_judge_request(self, tmp_path: Path) -> None:
+        _, judge, _ = _run(tmp_path, _proof_script(TOY_FACTS))
+        assert {r.proceeding_posture for r in judge.requests} == {None}
+        judge2 = ScriptedJudge(_proof_script(TOY_FACTS))
+        NyayaAgent(judge2, _registry(), _config(tmp_path)).run(
+            TOY_FACTS, narrative="TOY narrative.", contract_ids=["bns69"], proceeding_posture="quash")
+        assert {r.proceeding_posture for r in judge2.requests} == {"quash"}
+
+    def test_an_invalid_posture_is_refused_before_any_judge_call(self, tmp_path: Path) -> None:
+        judge = ScriptedJudge(_proof_script(TOY_FACTS))
+        with pytest.raises(ValueError, match="proceeding_posture"):
+            NyayaAgent(judge, _registry(), _config(tmp_path)).run(TOY_FACTS, proceeding_posture="bail")
+        assert judge.requests == []
 
     def test_facts_reach_the_judge_as_numbered_pairs(self, tmp_path: Path) -> None:
         _, judge, _ = _run(tmp_path, _proof_script(TOY_FACTS))
@@ -1185,6 +1203,74 @@ class TestSecondJudgeReferBand:
         assert registry.checks == []  # no Lean call at all
 
 
+class TestFactIdDisagreementPropagation:
+    """2026-09-27: `second_fact_id`/`fact_id_disagreement` are computed by `AndGateJudge` (`ElementJudgment`'s
+    own fields) but were being discarded before ever reaching `ElementResult` -- found investigating the
+    fact-id convention skew (no sealed run's response ever recorded a disagreement, though the audit log's
+    `judgment.as_dict()` always has). Behaviour-neutral: propagating them changes no verdict, quote, or
+    outcome -- every assertion below about `status`/`outcome` is unchanged from what `TestSecondJudgeReferBand`
+    already established; only the two new fields are new here."""
+
+    TAU2 = 0.97
+
+    def _run(
+        self, tmp_path: Path, primary_script: dict[str, list[Any]], second_script: dict[str, list[Any]],
+    ) -> Any:
+        primary = ScriptedJudge(primary_script)
+        second = ScriptedJudge(second_script)
+        gate = AndGateJudge(primary, second, tau_primary=0.74, tau_second=self.TAU2)
+        config = _config(tmp_path, second_judge={"tau": self.TAU2})
+        agent = NyayaAgent(gate, _registry(), config)
+        return agent.run(TOY_FACTS, narrative="TOY narrative.", contract_ids=["bns69"]).contracts[0]
+
+    def test_propagates_when_both_judges_run_and_cite_different_facts(self, tmp_path: Path) -> None:
+        primary_script = _proof_script(TOY_FACTS)
+        second_script = {
+            BNS69_EL[0]: [ElementJudgment("established", 0.99, fact_id="Fdifferent", quote="unused")],
+            BNS69_EL[1]: [_second("established", 0.99)],  # cites "Fx", still != primary's "F3" -- also a
+                                                           # disagreement, checked on el0 below for clarity
+        }
+        c = self._run(tmp_path, primary_script, second_script)
+        el0 = c.elements[0]
+        # primary cited "F2" (_proof_script); second cited "Fdifferent" -- a genuine disagreement
+        assert el0.fact_id == "F2"
+        assert el0.second_fact_id == "Fdifferent"
+        assert el0.fact_id_disagreement is True
+        # verdict/outcome untouched by this feature: same as TestSecondJudgeReferBand's own established case
+        assert el0.status == "established"
+        assert c.outcome == "PROOF"
+
+    def test_no_disagreement_when_both_judges_cite_the_same_fact(self, tmp_path: Path) -> None:
+        primary_script = _proof_script(TOY_FACTS)
+        second_script = {
+            BNS69_EL[0]: [ElementJudgment("established", 0.99, fact_id="F2", quote="unused")],
+            BNS69_EL[1]: [ElementJudgment("established", 0.99, fact_id="F3", quote="unused")],
+        }
+        c = self._run(tmp_path, primary_script, second_script)
+        el0 = c.elements[0]
+        assert el0.second_fact_id == "F2"
+        assert el0.fact_id_disagreement is False
+        el1 = c.elements[1]
+        assert el1.second_fact_id == "F3"
+        assert el1.fact_id_disagreement is False
+
+    def test_absent_when_the_second_judge_is_skipped(self, tmp_path: Path) -> None:
+        """The primary rejects outright (`_not()`), so the second is never asked (cost-saving skip) --
+        `second_fact_id`/`fact_id_disagreement` must read as None/False, the same convention every other
+        second-judge field on `ElementResult` already follows."""
+        primary_script = _proof_script(TOY_FACTS)
+        primary_script[BNS69_EL[0]] = [_not()]
+        second_script = {
+            BNS69_EL[1]: [_second("established", 0.99)],
+            BNS69_DENY: [_second("not_established", 0.02)],
+        }
+        c = self._run(tmp_path, primary_script, second_script)
+        el0 = c.elements[0]
+        assert el0.status != "established"
+        assert el0.second_fact_id is None
+        assert el0.fact_id_disagreement is False
+
+
 class TestTruthfulElementStatus:
     """Issue #37 (Tag's review): a gold-established element that leans toward established (p >= 0.5 on
     every judge that actually ran) but didn't clear a served tau must never be labelled the same as one a
@@ -1498,9 +1584,51 @@ class TestStatuteMismatch:
         cfg = _config(tmp_path, judge_statute_text={"bns69": "RETRIEVED statute text for bns69"})
         run = NyayaAgent(judge, _registry(), cfg).run(TOY_FACTS, contract_ids=["bns69"])
         assert run.contracts[0].statute_text_mismatch is False
+        assert run.contracts[0].statute_text_similarity == 1.0
+
+    def test_similarity_separates_layout_only_from_a_short_paraphrase(self, tmp_path: Path) -> None:
+        judge = ScriptedJudge(_proof_script(TOY_FACTS))
+        cfg = _config(tmp_path, judge_statute_text={"bns69": "RETRIEVED  statute\ntext for bns69"})
+        run = NyayaAgent(judge, _registry(), cfg).run(TOY_FACTS, contract_ids=["bns69"])
+        c = run.contracts[0]
+        assert c.statute_text_mismatch is True and c.statute_text_similarity == 1.0
+        run2, _, _ = _run(tmp_path, _proof_script(TOY_FACTS))
+        assert 0.0 < run2.contracts[0].statute_text_similarity < 1.0
 
 
 class TestAudit:
+    def test_run_start_records_version_models_host_class_and_score_sha(self, tmp_path: Path) -> None:
+        import pravrudhi
+
+        cfg = _config(
+            tmp_path,
+            house_judge={"base_url": "https://api.runpod.ai/v2/ep1/openai/v1", "model": "nyaya-judge-4b"},
+            second_judge={"base_url": "http://127.0.0.1:8112/v1", "model": "judge32b"},
+        )
+        run = NyayaAgent(ScriptedJudge(_proof_script(TOY_FACTS)), _registry(), cfg).run(TOY_FACTS, contract_ids=["bns69"])
+        out = json.loads(run.audit_path.read_text().splitlines()[0])["output"]
+        assert out["engine_version"] == pravrudhi.__version__
+        assert out["primary_judge_model"] == "nyaya-judge-4b"
+        assert out["second_judge_model"] == "judge32b"
+        assert out["primary_judge_host_class"] == "serverless"
+        assert out["second_judge_host_class"] == "local"
+        assert out["score_sha256"] == _registry().sha256
+        assert "runpod" not in json.dumps(out) and "127.0.0.1" not in json.dumps(out)
+
+    def test_run_start_without_a_second_judge_or_pinned_model_says_so(self, tmp_path: Path) -> None:
+        run, _, _ = _run(tmp_path, _proof_script(TOY_FACTS))
+        out = json.loads(run.audit_path.read_text().splitlines()[0])["output"]
+        assert out["second_judge_model"] is None and out["second_judge_host_class"] is None
+        assert "primary_judge_model" in out and "engine_version" in out
+
+    def test_the_standard_is_recorded_even_when_the_judge_never_sees_it(self, tmp_path: Path) -> None:
+        judge = ScriptedJudge(_proof_script(TOY_FACTS))
+        run = NyayaAgent(judge, _registry(), _config(tmp_path)).run(TOY_FACTS, contract_ids=["bns69"], proceeding_posture="quash")
+        row = json.loads(run.audit_path.read_text().splitlines()[0])["output"]
+        got = (row["standard"], row["standard_source"], row["proceeding_posture"])
+        assert got == ("prima_facie_disclosed", "request", "quash")
+        assert row["standard_in_judge_prompt"] is False
+
     def test_every_step_is_a_jsonl_line_with_hashed_inputs(self, tmp_path: Path) -> None:
         run, _, _ = _run(tmp_path, _proof_script(TOY_FACTS))
         lines = [json.loads(x) for x in run.audit_path.read_text().splitlines()]
@@ -1747,6 +1875,15 @@ class TestConfig:
         assert gate1["tau_c"] == GATE1_TAU_C_DEFAULT
         assert gate1["mode"] == "entailment"
 
+    def test_repo_config_gate1_model_and_revision_equal_the_code_pin(self) -> None:
+        """The yaml carries the Gate 1 model AND its commit-sha revision (constants live in configs/); the code
+        constants are the fallback. They must not drift apart: a yaml edit that changes the revision without
+        the code (or vice versa) would silently change what a deployment scores with."""
+        gate1 = load_agent_config(REPO).gate1
+        assert gate1["model"] == GATE1_MODEL_DEFAULT
+        assert gate1["revision"] == GATE1_MODEL_REVISION_DEFAULT
+        assert len(gate1["revision"]) == 40 and all(c in "0123456789abcdef" for c in gate1["revision"])
+
     def test_gate1_tau_c_and_mode_env_vars_override_a_configured_block(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -1793,7 +1930,7 @@ class TestHouseFactory:
     model, so no `/models` round-trip)."""
 
     _HOUSE_JUDGE_CFG = {"base_url": "http://h/v1", "model": "m", "statute_chars": 600, "max_tokens": 30,
-                         "top_logprobs": 20, "timeout_s": 5}
+                         "top_logprobs": 20, "timeout_s": 5, "label_mass_floor": 0.5}
 
     def _score_bin(self, tmp_path: Path) -> Path:
         p = tmp_path / "score"
@@ -2179,3 +2316,70 @@ class TestRetentionPolicy:
         assert run.retention_notice == RETENTION_NOTICE
         assert "7 days" in RETENTION_NOTICE
         assert "never" in RETENTION_NOTICE and "training" in RETENTION_NOTICE
+
+
+class TestSecondJudgeNeverVetoesADefeater:
+    """P0 #152, planted: both required elements established by both judges; the DENY defeater established by the
+    primary only. Before the fix the second judge's 'no' dropped the defeater from the wire and the contract
+    came out PROOF; it must be REFER_TO_LAWYER, never PROOF and never a bare DENIAL."""
+
+    def _run(self, tmp_path: Path, second_defeater: ElementJudgment) -> Any:
+        primary = ScriptedJudge(_denial_script(TOY_FACTS))
+        second = ScriptedJudge({
+            BNS69_EL[0]: [_second("established", 0.99)],
+            BNS69_EL[1]: [_second("established", 0.99)],
+            BNS69_DENY: [second_defeater],
+        })
+        gate = AndGateJudge(primary, second, tau_primary=0.74, tau_second=0.97)
+        agent = NyayaAgent(gate, _registry(), _config(tmp_path, second_judge={"tau": 0.97}))
+        return agent.run(TOY_FACTS, narrative="TOY narrative.", contract_ids=["bns69"]).contracts[0]
+
+    def test_defeater_disagreement_is_refer_not_proof(self, tmp_path: Path) -> None:
+        c = self._run(tmp_path, _second("not_established", 0.05))
+        assert c.outcome == "REFER_TO_LAWYER"
+        assert c.reason == "second_judge_defeater_disagreement"
+        defeater = next(e for e in c.elements if e.is_denial)
+        assert defeater.status == "established" and defeater.defeater_second_disagreement is True
+        assert c.assertions[BNS69_DENY] is True  # the primary's defeater stays on the wire
+
+    def test_defeater_both_agree_is_still_a_denial(self, tmp_path: Path) -> None:
+        c = self._run(tmp_path, _second("established", 0.99))
+        assert c.outcome == "DENIAL"
+
+
+class TestSpanRelevanceOverAndGateDefeater:
+    """Issue #162: the production stack is SpanRelevanceJudge(AndGateJudge(...)). Through it, the span check
+    must never probe a DENY defeater, and the #152 rule (second 'no' on a defeater refers, never PROOF) must
+    still hold."""
+
+    def _run(self, tmp_path: Path, second_defeater: ElementJudgment, check: ScriptedJudge) -> Any:
+        primary = ScriptedJudge(_denial_script(TOY_FACTS))
+        second = ScriptedJudge({
+            BNS69_EL[0]: [_second("established", 0.99)],
+            BNS69_EL[1]: [_second("established", 0.99)],
+            BNS69_DENY: [second_defeater],
+        })
+        gate = AndGateJudge(primary, second, tau_primary=0.74, tau_second=0.97)
+        stack = SpanRelevanceJudge(gate, check)
+        agent = NyayaAgent(stack, _registry(), _config(tmp_path, second_judge={"tau": 0.97}))
+        return agent.run(TOY_FACTS, narrative="TOY narrative.", contract_ids=["bns69"]).contracts[0]
+
+    @staticmethod
+    def _check(demote: str | None = None) -> ScriptedJudge:
+        def ans(el: str) -> list[ElementJudgment | Exception]:
+            return [_not()] if el == demote else [ElementJudgment("established", 0.95, "F1", "unused")]
+        return ScriptedJudge({BNS69_EL[0]: ans(BNS69_EL[0]), BNS69_EL[1]: ans(BNS69_EL[1]), BNS69_DENY: ans(BNS69_DENY)})
+
+    def test_span_check_never_probes_the_defeater_and_disagreement_still_refers(self, tmp_path: Path) -> None:
+        check = self._check()
+        c = self._run(tmp_path, _second("not_established", 0.05), check)
+        assert BNS69_DENY not in {r.element for r in check.requests}
+        assert c.outcome == "REFER_TO_LAWYER" and c.reason == "second_judge_defeater_disagreement"
+
+    def test_both_agree_on_the_defeater_stays_a_denial(self, tmp_path: Path) -> None:
+        c = self._run(tmp_path, _second("established", 0.99), self._check())
+        assert c.outcome == "DENIAL"
+
+    def test_span_demotion_of_a_required_element_does_not_hide_the_defeater_disagreement(self, tmp_path: Path) -> None:
+        c = self._run(tmp_path, _second("not_established", 0.05), self._check(demote=BNS69_EL[0]))
+        assert c.outcome == "REFER_TO_LAWYER" and c.reason == "second_judge_defeater_disagreement"

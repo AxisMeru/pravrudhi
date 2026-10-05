@@ -146,3 +146,86 @@ def test_jwks_es256_verification_via_injected_fetch(monkeypatch: pytest.MonkeyPa
     assert claims["sub"] == "user-es256"
     assert claims["email"] == "es@example.com"
     assert calls, "the injected fetch must be used instead of a real network call"
+
+
+def _hs256_token_with(secret: str, **claim_offsets: float) -> str:
+    jwt = pytest.importorskip("jwt")
+    now = time.time()
+    claims: dict[str, Any] = {
+        "sub": "user-skew",
+        "role": "authenticated",
+        "aud": "authenticated",
+        "exp": now + 300,
+    }
+    claims.update({k: now + v for k, v in claim_offsets.items()})
+    return jwt.encode(claims, secret, algorithm="HS256")
+
+
+def _hs256_env(monkeypatch: pytest.MonkeyPatch, secret: str = "skew-secret") -> str:
+    monkeypatch.setenv("SUPABASE_JWT_SECRET", secret)
+    monkeypatch.delenv("SUPABASE_URL", raising=False)
+    monkeypatch.delenv("PRAVRUDHI_JWT_LEEWAY_S", raising=False)
+    return secret
+
+
+def test_iat_slightly_in_future_is_accepted_within_default_leeway(monkeypatch: pytest.MonkeyPatch) -> None:
+    secret = _hs256_env(monkeypatch)
+    token = _hs256_token_with(secret, iat=2.0)
+    assert identity.verify_token(token)["sub"] == "user-skew"
+
+
+def test_nbf_slightly_in_future_is_accepted_within_default_leeway(monkeypatch: pytest.MonkeyPatch) -> None:
+    secret = _hs256_env(monkeypatch)
+    token = _hs256_token_with(secret, nbf=2.0)
+    assert identity.verify_token(token)["sub"] == "user-skew"
+
+
+def test_iat_far_in_future_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    jwt = pytest.importorskip("jwt")
+    secret = _hs256_env(monkeypatch)
+    token = _hs256_token_with(secret, iat=120.0)
+    with pytest.raises(jwt.InvalidTokenError):
+        identity.verify_token(token)
+
+
+def test_expired_beyond_leeway_still_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    jwt = pytest.importorskip("jwt")
+    secret = _hs256_env(monkeypatch)
+    token = _hs256_token_with(secret, exp=-60.0)
+    with pytest.raises(jwt.ExpiredSignatureError):
+        identity.verify_token(token)
+
+
+def test_leeway_is_configurable_by_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    jwt = pytest.importorskip("jwt")
+    secret = _hs256_env(monkeypatch)
+    token = _hs256_token_with(secret, iat=30.0)
+    with pytest.raises(jwt.InvalidTokenError):
+        identity.verify_token(token)
+    monkeypatch.setenv("PRAVRUDHI_JWT_LEEWAY_S", "60")
+    assert identity.verify_token(token)["sub"] == "user-skew"
+
+
+def test_bad_leeway_env_falls_back_to_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    secret = _hs256_env(monkeypatch)
+    monkeypatch.setenv("PRAVRUDHI_JWT_LEEWAY_S", "not-a-number")
+    assert identity.verify_token(_hs256_token_with(secret, iat=2.0))["sub"] == "user-skew"
+
+
+def test_leeway_ceiling_is_60s(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
+    monkeypatch.setenv("PRAVRUDHI_JWT_LEEWAY_S", "60")
+    assert identity._jwt_leeway_s() == 60.0
+    for bad in ("61", "3600", "86400"):
+        monkeypatch.setenv("PRAVRUDHI_JWT_LEEWAY_S", bad)
+        caplog.clear()
+        with caplog.at_level("WARNING"):
+            assert identity._jwt_leeway_s() == identity._DEFAULT_JWT_LEEWAY_S
+        assert "PRAVRUDHI_JWT_LEEWAY_S" in caplog.text
+
+
+def test_oversized_leeway_does_not_disable_checks(monkeypatch: pytest.MonkeyPatch) -> None:
+    jwt = pytest.importorskip("jwt")
+    secret = _hs256_env(monkeypatch)
+    monkeypatch.setenv("PRAVRUDHI_JWT_LEEWAY_S", "86400")
+    with pytest.raises(jwt.ExpiredSignatureError):
+        identity.verify_token(_hs256_token_with(secret, exp=-3600.0))

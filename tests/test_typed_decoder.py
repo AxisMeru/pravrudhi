@@ -6,6 +6,8 @@ throughout; no model is called.
 
 from __future__ import annotations
 
+import math
+
 import pytest
 
 from pravrudhi.application.typed.decoder import DecodeError, SGLangDecoder, VLLMDecoder, score_decision
@@ -24,27 +26,45 @@ class TestScoreDecisionMatchesHouseJudgeAlgebra:
     the exact 2-option established/not_established case it must reproduce the same softmax, since T1's pass
     bar is 0 decision flips and max|Δp| <= 1e-6 against the current HouseJudge."""
 
-    def test_only_established_token_present_scores_true_at_1(self) -> None:
-        scores = score_decision(_result({" established": -0.1}), STATUS)
-        assert scores == {"true": pytest.approx(1.0), "false": pytest.approx(0.0)}
+    def test_only_established_token_present_returns_a_lower_bound_not_a_clamp_to_one(self) -> None:
+        # G-28 (2026-09-28): the OLD behaviour clamped this to exactly 1.0. Correct value is a LOWER
+        # bound: "false"'s true logprob is <= min(top) (-2.0 here), so bounded there (its
+        # least-negative-possible, worst-case value): scores["true"] = 1/(1+exp(-2.0-(-0.1))).
+        top = {" established": -0.1, " F": -2.0}
+        scores, missing = score_decision(_result(top), STATUS)
+        assert missing == frozenset({"false"})
+        assert scores["true"] == pytest.approx(1 / (1 + math.exp(-2.0 - (-0.1))))
+        assert scores["true"] < 1.0  # never the old hard clamp
 
-    def test_only_not_token_present_scores_true_at_0(self) -> None:
-        scores = score_decision(_result({" not": -0.1}), STATUS)
-        assert scores == {"true": pytest.approx(0.0), "false": pytest.approx(1.0)}
+    def test_only_not_token_present_returns_an_upper_bound_not_a_clamp_to_zero(self) -> None:
+        # Mirror case: ' established' missing, true's true logprob is <= min(top) (-2.0), bound there:
+        # scores["true"] = 1/(1+exp(-0.1-(-2.0))).
+        top = {" not": -0.1, " F": -2.0}
+        scores, missing = score_decision(_result(top), STATUS)
+        assert missing == frozenset({"true"})
+        assert scores["true"] == pytest.approx(1 / (1 + math.exp(-0.1 - (-2.0))))
+        assert scores["true"] > 0.0  # never the old hard clamp
 
     def test_matches_the_original_two_way_softmax_formula_across_many_logprob_pairs(self) -> None:
         from pravrudhi.application.nyaya_judges import p_established_from_top_logprobs
 
-        for est, neg in [(-0.5, -3.0), (-2.0, -0.1), (-1.0, -1.0), (-10.0, -0.001), (-0.001, -10.0), (-5.5, -5.5)]:
+        # R1's correction (2026-09-28): only (-5.5, -5.5) actually trips the label-mass guard
+        # (exp(-5.5)*2 ~= 0.0082 < 0.5 floor) -- the other 5 original pairs all clear it comfortably
+        # (both are label tokens in every pair here, so top-1-not-a-label never fires regardless).
+        # Restored those 5; replaced only the tripping pair with (-0.3, -0.3) (still a near-tie case,
+        # exp(-0.3)*2 ~= 1.48, clears the floor).
+        for est, neg in [(-0.5, -3.0), (-2.0, -0.1), (-1.0, -1.0), (-10.0, -0.001), (-0.001, -10.0), (-0.3, -0.3)]:
             top = {" established": est, " not": neg}
-            original = p_established_from_top_logprobs(top)
-            generalized = score_decision(_result(top), STATUS)["true"]
-            assert abs(original - generalized) <= 1e-12, (est, neg, original, generalized)
+            original, clamp = p_established_from_top_logprobs(top)
+            assert clamp == "none"  # both tokens present in every case here
+            scores, missing = score_decision(_result(top), STATUS)
+            assert missing == frozenset()
+            assert abs(original - scores["true"]) <= 1e-12, (est, neg, original, scores["true"])
 
     def test_prefers_the_leading_space_variant_and_the_bare_variant_equally(self) -> None:
         # Either surface form of "established" is read, exactly like the original's max() over both.
-        a = score_decision(_result({"established": -0.2, " not": -1.0}), STATUS)["true"]
-        b = score_decision(_result({" established": -0.2, " not": -1.0}), STATUS)["true"]
+        a = score_decision(_result({"established": -0.2, " not": -1.0}), STATUS)[0]["true"]
+        b = score_decision(_result({" established": -0.2, " not": -1.0}), STATUS)[0]["true"]
         assert a == pytest.approx(b)
 
     def test_neither_option_token_present_raises_rather_than_guessing(self) -> None:
@@ -69,13 +89,19 @@ class TestScoreDecisionGeneralizesBeyondTwoOptions:
     )
 
     def test_three_options_sum_to_one(self) -> None:
-        scores = score_decision(_result({"proof": -0.2, "denial": -1.5, "abstain": -3.0}), self.THREE_WAY)
+        scores, missing = score_decision(_result({"proof": -0.2, "denial": -1.5, "abstain": -3.0}), self.THREE_WAY)
+        assert missing == frozenset()
         assert sum(scores.values()) == pytest.approx(1.0)
         assert scores["proof"] > scores["denial"] > scores["abstain"]
 
-    def test_an_absent_option_scores_zero_not_an_error_if_another_option_is_present(self) -> None:
-        scores = score_decision(_result({"proof": -0.2, "denial": -1.5}), self.THREE_WAY)
-        assert scores["abstain"] == 0.0
+    def test_an_absent_option_gets_a_bound_not_a_clamp_to_zero(self) -> None:
+        # G-28 (2026-09-28): the OLD behaviour scored a missing option exactly 0.0. "abstain"'s true
+        # logprob is <= min(top) (-1.5, "denial"'s own value here) -- bounded there, tying it with
+        # "denial" exactly, not zeroed out.
+        scores, missing = score_decision(_result({"proof": -0.2, "denial": -1.5}), self.THREE_WAY)
+        assert missing == frozenset({"abstain"})
+        assert scores["abstain"] == pytest.approx(scores["denial"])
+        assert scores["abstain"] > 0.0  # never the old hard clamp
 
 
 class TestVLLMDecoder:
@@ -119,3 +145,44 @@ class TestSGLangDecoder:
     def test_needs_a_base_url_or_an_injected_transport(self) -> None:
         with pytest.raises(ValueError, match="base_url"):
             SGLangDecoder()
+
+
+class TestScoreDecisionNonFiniteLogprobs:
+    """#172 (same fail-open as #156): a NaN or +inf in the first token's top logprobs must raise, never become a score."""
+
+    @pytest.mark.parametrize(
+        "top",
+        [
+            {" established": math.nan, " not": -1.0},
+            {" established": -0.1, " not": math.nan},
+            {"established": math.nan, " established": -0.1},
+            {" established": -0.1, " not": -3.0, "Based": math.nan},
+            {" established": math.inf, " not": -1.0},
+            {" established": -0.1, " not": -3.0, "Based": math.inf},
+        ],
+    )
+    def test_nan_or_positive_infinity_is_a_decode_error_not_a_score(self, top: dict[str, float]) -> None:
+        with pytest.raises(DecodeError):
+            score_decision(_result(top), STATUS)
+
+    def test_negative_infinity_alone_is_still_just_an_absent_token(self) -> None:
+        scores, missing = score_decision(_result({" established": -0.1, " not": -math.inf}), STATUS)
+        assert math.isfinite(scores["true"]) and "false" in missing
+
+    def test_fuzz_no_non_finite_input_escapes_as_a_score(self) -> None:
+        import random
+
+        rng = random.Random(172)
+        keys = [" established", "established", " not", "not", "Based", " the", "x"]
+        escapes = 0
+        for _ in range(2000):
+            top = {k: rng.uniform(-12.0, 0.0) for k in rng.sample(keys, rng.randint(2, len(keys)))}
+            bad_keys = rng.sample(sorted(top), rng.randint(1, len(top)))
+            for k in bad_keys:
+                top[k] = rng.choice([math.nan, math.inf])
+            try:
+                scores, _ = score_decision(_result(top), STATUS)
+            except DecodeError:
+                continue
+            escapes += 1
+        assert escapes == 0
