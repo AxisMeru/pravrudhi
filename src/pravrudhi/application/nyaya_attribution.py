@@ -35,7 +35,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field, replace
-from typing import Any
+from typing import Any, Protocol
 
 from pravrudhi.application.nyaya_judges import ElementJudgment, Judge, JudgeRequest
 
@@ -486,15 +486,29 @@ class AttributedJudgeRequest(JudgeRequest):
     requires_actor: bool = False
 
 
+class AttributionChecker(Protocol):
+    """A whole-decision checker (the REFER-on-any-co-actor fallback): `check` returns the final `AttributionResult`. Distinct from
+    an `nyaya_attribution_m1.ActorSelector`, which only picks the actor and leaves the decision to the M1 rules."""
+
+    name: str
+
+    def check(self, quote: str | None, accused: AccusedRef | None) -> AttributionResult: ...
+
+
 class AccusedAttributionJudge:
     """Wraps a `Judge` (placed right after `SpanRelevanceJudge`). Asked only when the wrapped judge says established on a
     non-denial
     element that requires an actor and has a resolvable span; never changes the status. The result is attached as
     `ElementJudgment.attribution`; a refusal is `attribution["passed"] is False` and the agent turns it into REFER_TO_LAWYER."""
 
-    def __init__(self, inner: Judge, *, name: str | None = None, selector: Any = None) -> None:
+    def __init__(
+        self, inner: Judge, *, name: str | None = None, selector: Any = None, checker: AttributionChecker | None = None
+    ) -> None:
+        if selector is not None and checker is not None:
+            raise ValueError("pass a selector (M1) or a checker (fallback), not both")
         self.inner = inner
         self.selector = selector  # None = D0; an `nyaya_attribution_m1.ActorSelector` = M1
+        self.checker = checker  # None unless the fallback is selected
         self.name: str = name or str(getattr(inner, "name", "accused_attribution"))
 
     def judge(self, request: JudgeRequest) -> ElementJudgment:
@@ -504,8 +518,8 @@ class AccusedAttributionJudge:
         quote = (judgment.quote or "").strip()
         if not judgment.fact_id or not quote:
             return judgment  # no resolvable span: the quote check downstream rejects this anyway
-        if self.selector is not None and hasattr(self.selector, "check"):
-            result = self.selector.check(quote, getattr(request, "accused", None))  # fallback: REFER on any co-actor marker
+        if self.checker is not None:
+            result = self.checker.check(quote, getattr(request, "accused", None))  # fallback: REFER on any co-actor marker
         elif self.selector is not None:
             from pravrudhi.application.nyaya_attribution_m1 import check_attribution_m1
 

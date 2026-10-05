@@ -7,20 +7,22 @@ import pytest
 from pravrudhi.application.nyaya_attribution import AccusedRef
 from pravrudhi.application.nyaya_attribution_fallback import check_attribution_fallback, item_has_multiple_accused
 
-REF = AccusedRef("a3", ("Accused No.3", "A3", "Pet. No.3"), (("Accused No.9", "A9"), ("her husband",)))
+REF = AccusedRef("a3", ("Accused No.3", "A3", "Pet. No.3"), (("her husband",),))
+REF_MULTI = AccusedRef("a3", ("Accused No.3", "A3", "Pet. No.3"), (("Accused No.9", "A9"), ("her husband",)))
 
 
 @pytest.mark.parametrize(
     "s",
     [
-        "TOY: Accused No.3 beat Nila with a hockey stick.",
-        "TOY: Nila was slapped by Accused No.3.",
-        "TOY: Her husband, Accused No.3, beat Nila.",
-        "TOY: Pet. No.3 abused Nila in filthy language.",
-        "TOY: When Nila protested, Accused No.3 slapped her.",
+        "TOY: Accused No.3 beat her with a hockey stick.",
+        "TOY: She was slapped by Accused No.3.",
+        "TOY: Her husband, Accused No.3, beat her.",
+        "TOY: Pet. No.3 abused her in filthy language.",
+        "TOY: When she protested, Accused No.3 slapped her.",
     ],
 )
 def test_single_actor_sentences_pass(s: str) -> None:
+    """Named victims ("Nila") are refused by the bare-name rule (a documented cost), so these use "she/her"."""
     r = check_attribution_fallback(s, REF)
     assert r.passed, (s, r.rule, r.actor_span)
 
@@ -59,22 +61,27 @@ def test_no_accused_and_errors_refuse() -> None:
     assert not check_attribution_fallback(None, REF).passed
 
 
-def test_item_level_rule_f1() -> None:
-    assert item_has_multiple_accused(REF)
-    assert not item_has_multiple_accused(AccusedRef("a", ("Accused No.3",), (("her husband",),)))
+def test_item_level_rule_f1_is_applied_by_the_check_and_can_be_switched_off_for_measurement() -> None:
+    r = check_attribution_fallback("TOY: Accused No.3 beat her with a stick.", REF_MULTI)
+    assert not r.passed and r.rule == "F1"
+    assert check_attribution_fallback("TOY: Accused No.3 beat her with a stick.", REF_MULTI, item_level=False).passed
+    assert item_has_multiple_accused(REF_MULTI)
+    assert not item_has_multiple_accused(REF)
     assert not item_has_multiple_accused(None)
 
 
 def test_the_agent_builds_the_fallback_selector_and_the_judge_uses_it() -> None:
     from types import SimpleNamespace
 
-    from pravrudhi.application.nyaya_agent import _build_actor_selector
+    from pravrudhi.application.nyaya_agent import _build_actor_selector, _build_attribution_checker
     from pravrudhi.application.nyaya_attribution import AccusedAttributionJudge
     from pravrudhi.application.nyaya_attribution_fallback import FallbackChecker
     from pravrudhi.application.nyaya_judges import ElementJudgment, JudgeRequest
 
-    sel = _build_actor_selector(SimpleNamespace(accused_attribution_selector="fallback"))  # type: ignore[arg-type]
+    cfg = SimpleNamespace(accused_attribution_selector="fallback")
+    sel = _build_attribution_checker(cfg)  # type: ignore[arg-type]
     assert isinstance(sel, FallbackChecker) and sel.name == "fallback"
+    assert _build_actor_selector(cfg) is None  # type: ignore[arg-type]
 
     class Inner:
         name = "inner"
@@ -87,5 +94,44 @@ def test_the_agent_builds_the_fallback_selector_and_the_judge_uses_it() -> None:
         is_denial = False
         accused = REF
 
-    out = AccusedAttributionJudge(Inner(), selector=sel).judge(Req())  # type: ignore[arg-type]
+    out = AccusedAttributionJudge(Inner(), checker=sel).judge(Req())  # type: ignore[arg-type]
     assert out.attribution["passed"] is False and out.attribution["variant"] == "FALLBACK"
+
+
+@pytest.mark.parametrize(
+    "s",
+    [
+        "TOY: Accused No.3 beat Nila. Her sister-in-law, Meena, held her arms.",
+        "TOY: Accused No.3 beat Nila.\nLater the same night he threw her out, and Ramu helped him.",
+    ],
+)
+def test_multi_sentence_quotes_are_never_passed(s: str) -> None:
+    r = check_attribution_fallback(s, REF)
+    assert not r.passed and r.rule == "F5"
+
+
+@pytest.mark.parametrize(
+    "s",
+    [
+        "TOY: Accused No.3 beat Nila while Ramu held her arms.",
+        "TOY: Accused No.3 beat Nila and Ramu too.",
+        "TOY: When Ramu arrived and joined, Accused No.3 beat Nila.",
+        "TOY: Ramu held her down and Accused No.3 beat her.",
+        "TOY: Accused No.3 beat Nila with the husband's aunt looking on.",
+        "TOY: Accused No.3 beat Nila, as did the husband's aunt.",
+    ],
+)
+def test_bare_first_names_and_x_kin_refuse(s: str) -> None:
+    r = check_attribution_fallback(s, REF)
+    assert not r.passed, s
+
+
+def test_the_judge_holds_the_fallback_as_an_explicit_checker_and_rejects_both() -> None:
+    from pravrudhi.application.nyaya_attribution import AccusedAttributionJudge
+    from pravrudhi.application.nyaya_attribution_fallback import FallbackChecker
+
+    class Inner:
+        name = "inner"
+
+    with pytest.raises(ValueError, match="not both"):
+        AccusedAttributionJudge(Inner(), selector=object(), checker=FallbackChecker())  # type: ignore[arg-type]

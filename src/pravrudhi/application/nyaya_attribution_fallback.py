@@ -5,9 +5,12 @@ shipped fallback is a plain, broad, deterministic refusal. It never proves attri
 mentions anyone besides the accused under review.
 
   F0 no accused given            -> `accused_not_specified`
-  F1 item level (caller side)    -> `item_has_multiple_accused(accused)`: REFER at item level when MORE THAN ONE accused is
-                                    listed in the item's parties. Only numbered accused labels in `other_parties` can be told apart
-                                    from the husband etc.; an unnumbered, named co-accused is not detected here.
+  F1 item level                  -> `item_has_multiple_accused(accused)`: REFER at item level when MORE THAN ONE accused is
+                                    listed in the item's parties (applied inside `check_attribution_fallback`, so the judge path
+                                    uses it). Only numbered accused labels in `other_parties` can be told apart from the husband
+                                    etc.; an unnumbered, named co-accused is not detected here. It would REFER most real cruelty
+                                    FIRs (husband plus in-laws): default OFF, re-decide with the retrained 32B.
+  F5 multi-sentence quote        -> never passed: a second sentence can carry the co-actor.
   F2 accused not named           -> the quote does not name the accused under review (a pronoun-only sentence, another party's
                                     name): `accused_attribution_unresolved`
   F3 co-actor or group marker    -> any listed other party, numbered/short alias of another party, kin phrase, unlisted name,
@@ -80,6 +83,28 @@ _LEADING_FUNCTION_WORDS = {
     "when", "after", "thereafter", "during", "on", "in", "some", "as", "it", "the", "according", "before", "while", "since", "then",
     "later", "once", "if", "because", "although", "she", "he", "her", "his", "their", "thereupon", "subsequently", "about",
 }
+#: Capitalised tokens that are not a person's name (statute words, courts, places-by-role, units, months, days).
+_NOT_PERSON_CAPS = {
+    "accused", "accd", "acc", "petitioner", "petitioners", "pet", "respondent", "resp", "complainant", "no", "nos", "number", "pw",
+    "section", "sections", "ipc", "bns", "crpc", "bnss", "act", "code", "fir", "court", "high", "supreme", "police", "station",
+    "india", "indian", "rs", "dowry", "prohibition", "hon", "ble", "judge", "magistrate", "sessions", "criminal", "procedure",
+    "january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december",
+    "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday", "i", "a", "p",
+}
+#: Sentence-initial words that are not names.
+_SENTENCE_STARTERS = {
+    "the", "a", "an", "on", "in", "at", "after", "before", "when", "while", "thereafter", "during", "she", "he", "they", "it", "her",
+    "his", "their", "as", "according", "since", "some", "several", "later", "then", "however", "thereupon", "subsequently", "this",
+    "that", "once", "if", "about", "she", "after", "by", "from", "with", "and", "but", "it's", "there", "para", "paragraph", "fir",
+    "many", "months", "years", "days", "one", "two", "three", "also", "further", "again", "soon", "finally", "although", "because",
+    "so", "to", "for", "of", "per", "not", "no", "all", "any", "each", "every", "whenever", "wherever", "until", "now",
+}
+_CAP_TOKEN = re.compile(r"(?<![A-Za-z0-9'\u2019])[A-Z][a-z]{2,}(?![A-Za-z0-9])")
+_X_KIN = re.compile(
+    r"\b(?:the\s+)?(?:husband|wife)['\u2019]s\s+(?:[\w-]+\s+)?(?:mother|father|sister|brother|uncle|aunt|nephew|niece|cousin|friend|relative|"
+    r"[\w-]+-in-law)\b",
+    re.I,
+)
 _POSSESSIVE = re.compile(r"^['’]s\b")
 #: A sentence end that is not an abbreviation dot ("Pet. No.4", "Mrs. Radhika", "Accd. No.3").
 _SENT_END = re.compile(
@@ -115,10 +140,31 @@ def _apposed(text: str, c: Any, selfs: list[Any]) -> bool:
     return False
 
 
-def check_attribution_fallback(quote: str | None, accused: AccusedRef | None) -> AttributionResult:
+def _bare_name(sentence: str, taken: list[tuple[int, int]], accused: AccusedRef) -> str | None:
+    """Any capitalised token that is not a statute/court/month word, not a sentence-starter and not part of an own-alias mention is
+    treated as a possible second person ("while Ramu held her arms", "Ramu too"). Cost: place names and defined terms also refuse."""
+    alias_words = {w.lower() for a in accused.aliases for w in re.findall(r"[A-Za-z]+", a)}
+    for m in _CAP_TOKEN.finditer(sentence):
+        w = m.group(0).lower()
+        if any(m.start() < e and s < m.end() for s, e in taken) or w in _NOT_PERSON_CAPS or w in alias_words:
+            continue
+        at_start = not sentence[: m.start()].strip(" \"'([")
+        if at_start and w in _SENTENCE_STARTERS:
+            continue
+        if w in _SENTENCE_STARTERS and sentence[: m.start()].rstrip().endswith((",", ";", ":")):
+            continue
+        if w in _SENTENCE_STARTERS:
+            continue
+        return f"bare_name:{m.group(0)}"
+    return None
+
+
+def check_attribution_fallback(quote: str | None, accused: AccusedRef | None, *, item_level: bool = True) -> AttributionResult:
     """The fallback decision on ONE quoted fact. Never raises: any error is a refusal."""
     if accused is None:
         return AttributionResult(False, REASON_NOT_SPECIFIED, variant=VARIANT, rule="F0")
+    if item_level and item_has_multiple_accused(accused):
+        return AttributionResult(False, REASON_COLLECTIVE, variant=VARIANT, rule="F1", actor_span="more than one accused listed")
     try:
         if not isinstance(quote, str) or not quote.strip() or len(quote) > MAX_QUOTE_CHARS:
             return AttributionResult(False, REASON_UNRESOLVED, variant=VARIANT, rule="F4", error="empty or oversized quote")
@@ -127,12 +173,12 @@ def check_attribution_fallback(quote: str | None, accused: AccusedRef | None) ->
         if not selfs:
             return AttributionResult(False, REASON_UNRESOLVED, variant=VARIANT, rule="F2")
         first = selfs[0]
-        # the act sentence: the sentence that holds the accused's first mention
-        starts = [0] + [m.end() for m in _SENT_END.finditer(quote)]
-        lo = max(s for s in starts if s <= first.start)
-        nxt = [s for s in starts if s > first.start]
-        sentence = quote[lo : (nxt[0] if nxt else len(quote))]
-        off = lo
+        # F5: a multi-sentence quote is never passed (the whole quote is the act text; a second sentence can carry the co-actor)
+        if any(part.strip() for part in _SENT_END.split(quote.strip())[1:]):
+            return AttributionResult(False, REASON_COLLECTIVE, variant=VARIANT, rule="F5", actor_span="multi-sentence quote")
+        lo = 0
+        sentence = quote
+        off = 0
         taken = [(c.start - off, c.end - off) for c in selfs]
 
         def outside_self(a: int, b: int) -> bool:
@@ -174,6 +220,13 @@ def check_attribution_fallback(quote: str | None, accused: AccusedRef | None) ->
                     hit = f"person_after:{m.group(0)}"
                     break
         if hit is None:
+            for m in _X_KIN.finditer(sentence):
+                if outside_self(m.start(), m.end()):
+                    hit = f"x_kin:{m.group(0)}"
+                    break
+        if hit is None:
+            hit = _bare_name(sentence, taken, accused)
+        if hit is None:
             for pat in (_TITLE_NAME, _FULL_NAME):
                 for m in pat.finditer(sentence):
                     words = [w.lower().strip(".") for w in m.group(0).split()]
@@ -194,7 +247,7 @@ def check_attribution_fallback(quote: str | None, accused: AccusedRef | None) ->
 
 
 class FallbackChecker:
-    """Selector-shaped wrapper so the agent's judge can hold it where it holds an `ActorSelector` (it has `.check`)."""
+    """An `AttributionChecker` (see nyaya_attribution): the fallback decision, F1 included."""
 
     name = "fallback"
 

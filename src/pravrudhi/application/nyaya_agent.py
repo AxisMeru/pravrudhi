@@ -1085,12 +1085,17 @@ def _build_house_judge(hj_cfg: Mapping[str, Any], *, tau: float, typed: bool, ap
     return HouseJudge.from_config(hj_cfg, tau=tau, api_key_env=api_key_env)
 
 
+def _build_attribution_checker(cfg: AgentConfig) -> Any:
+    """The whole-decision fallback checker when the config selects `fallback`, else None."""
+    if cfg.accused_attribution_selector != "fallback":
+        return None
+    from pravrudhi.application.nyaya_attribution_fallback import FallbackChecker
+
+    return FallbackChecker()
+
+
 def _build_actor_selector(cfg: AgentConfig) -> Any:
     """The M1 actor selector when the config asks for it, else None (D0). A missing backend never silently falls back to D0."""
-    if cfg.accused_attribution_selector == "fallback":
-        from pravrudhi.application.nyaya_attribution_fallback import FallbackChecker
-
-        return FallbackChecker()
     if cfg.accused_attribution_selector != "m1":
         return None
     from pravrudhi.application.nyaya_attribution_m1 import LlmActorSelector
@@ -1324,7 +1329,7 @@ class NyayaAgent:
             if cfg.span_relevance_enabled:
                 judge = SpanRelevanceJudge(judge, primary)
             if cfg.accused_attribution_enabled:
-                judge = AccusedAttributionJudge(judge, selector=_build_actor_selector(cfg))
+                judge = AccusedAttributionJudge(judge, selector=_build_actor_selector(cfg), checker=_build_attribution_checker(cfg))
             if gate1_model is not None:
                 threshold = float(cfg.gate1.get("threshold", GATE1_THRESHOLD_DEFAULT))
                 tau_c = float(cfg.gate1.get("tau_c", GATE1_TAU_C_DEFAULT))
