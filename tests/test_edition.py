@@ -116,12 +116,10 @@ class TestARunningReleaseKnowsItIsOne:
     machines behave correctly rather than only the next one, and nobody has to remember to set a flag."""
 
     def test_a_release_path_is_recognised(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from pravrudhi import deployment
         from pravrudhi.api import edition as mod
 
-        monkeypatch.setattr(
-            mod, "is_release_install",
-            lambda: True,
-        )
+        monkeypatch.setattr(deployment, "is_release_install", lambda: True)
         monkeypatch.delenv("PRAVRUDHI_EDITION", raising=False)
         monkeypatch.setenv("PRAVRUDHI_AUTH", "disabled")
         assert mod.edition_for(None) == PRODUCT
@@ -143,9 +141,10 @@ class TestARunningReleaseKnowsItIsOne:
 
     def test_an_explicit_studio_marker_still_wins(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """So the operator can run a release as Studio deliberately, rather than being locked out of their own."""
+        from pravrudhi import deployment
         from pravrudhi.api import edition as mod
 
-        monkeypatch.setattr(mod, "is_release_install", lambda: True)
+        monkeypatch.setattr(deployment, "is_release_install", lambda: True)
         monkeypatch.setenv("PRAVRUDHI_EDITION", "studio")
         monkeypatch.setenv("PRAVRUDHI_AUTH", "disabled")
         assert mod.edition_for(None) == STUDIO

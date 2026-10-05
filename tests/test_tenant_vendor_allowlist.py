@@ -188,11 +188,22 @@ def test_studio_edition_allows_cli_vendors_from_the_studio_section(edition, vid)
     tenant_vendors.require(vid)
 
 
-@pytest.mark.parametrize("declared", [None, "", "Studi0", "staging", "both", "prod"])
-def test_missing_or_unknown_edition_is_product_so_closed(edition, declared):
+@pytest.mark.parametrize("declared", [None, "", "product", "dev"])
+def test_missing_or_non_studio_edition_is_closed(edition, declared):
     edition(declared)
     assert not tenant_vendors.is_studio_edition()
     assert not {"claude-cli", "codex-cli"} & tenant_vendors.allowed_ids()
+
+
+@pytest.mark.parametrize("declared", ["Studi0", "staging", "both", "prod"])
+def test_an_unknown_edition_is_refused_not_guessed_and_never_opens_the_cli_vendors(edition, declared):
+    from pravrudhi.deployment import DeploymentConfigError
+
+    edition(declared)
+    with pytest.raises(DeploymentConfigError):
+        tenant_vendors.is_studio_edition()  # fail to start / fail the call: it is never the permissive answer
+    with pytest.raises(DeploymentConfigError):
+        tenant_vendors.allowed_ids()
 
 
 @pytest.mark.parametrize("host", ["0.0.0.0", "192.168.1.5", "example.com", "", None])

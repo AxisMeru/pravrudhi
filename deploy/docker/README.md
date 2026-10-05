@@ -47,7 +47,7 @@ Environment the container needs:
 | variable | value | why |
 |---|---|---|
 | `PRAVRUDHI_EDITION` | `studio` or `product` | which surfaces `api/roles.py` exposes and what the engine calls itself |
-| `PRAVRUDHI_AUTH` | `required` (image default) | every request carries a verified Supabase token; the engine is on the internet |
+| `PRAVRUDHI_AUTH` | `required` (image default) | every request carries a verified Supabase token; the engine is on the internet. A hosted image (identified by the file `/etc/pravrudhi/hosted-image` baked in by the Dockerfile, which no environment value can switch off) REFUSES TO START with it unset, blank or `disabled` (only `required` and `optional` are allowed there), and any engine refuses an unrecognised value (`requried`, `off`, `true`): only `disabled`, `optional` and `required` are accepted. An unrecognised `PRAVRUDHI_EDITION` or `PRAVRUDHI_HOSTED_IMAGE` also refuses to start |
 | `PRAVRUDHI_DISABLE_LOCAL_GUARD` | `1` (image default) | the loopback and same-origin token guard is for a local install |
 | `PRAVRUDHI_ALLOWED_ORIGINS` | the web app's origin, e.g. `https://pravrudhi-app.vercel.app` | CORS for the browser that serves the interface |
 | `SUPABASE_URL` | the project URL | JWKS and introspection for token verification |

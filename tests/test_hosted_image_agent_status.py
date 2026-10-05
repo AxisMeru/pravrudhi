@@ -14,7 +14,8 @@ from pravrudhi.agents.registry import HOSTED_AGENT_REASON, AgentStatus, hosted_i
 def _clean(monkeypatch: pytest.MonkeyPatch) -> None:
     for v in (registry.HOSTED_IMAGE_ENV, "PRAVRUDHI_DISABLE_LOCAL_GUARD"):
         monkeypatch.delenv(v, raising=False)
-    monkeypatch.setattr(registry.Path, "exists", lambda self: False if str(self) == "/.dockerenv" else Path.exists(self))
+    real_exists = Path.exists
+    monkeypatch.setattr(Path, "exists", lambda self: False if str(self) == "/.dockerenv" else real_exists(self))
 
 
 @pytest.fixture
@@ -58,7 +59,7 @@ def test_the_marker_is_exactly_one_and_an_older_image_is_recognised_by_its_defau
     monkeypatch.delenv(registry.HOSTED_IMAGE_ENV)
     monkeypatch.setenv("PRAVRUDHI_DISABLE_LOCAL_GUARD", "1")
     assert not hosted_image()  # not in a container: a local install that disabled the guard is not the hosted image
-    monkeypatch.setattr(registry.Path, "exists", lambda self: str(self) == "/.dockerenv")
+    monkeypatch.setattr(Path, "exists", lambda self: str(self) == "/.dockerenv")
     assert hosted_image()  # in a container with the hosted image's guard default
 
 
@@ -76,6 +77,7 @@ def test_the_settings_route_reports_the_hosted_reason(tmp_path: Path, monkeypatc
     one = [AgentStatus("codex", False, "codex CLI not installed")]
     monkeypatch.setattr(registry, "_survey", lambda root, include_orca=True: one)
     monkeypatch.setenv("PRAVRUDHI_AUTH", "disabled")
+    monkeypatch.setenv("PRAVRUDHI_EDITION", "studio")  # a hosted image defaults to the product, which has no /api/agents
     client = TestClient(create_app(tmp_path), base_url="http://localhost")
     agents = client.get("/api/agents").json()
     assert agents and all(a["reason"] == HOSTED_AGENT_REASON for a in agents if not a["available"])
@@ -86,7 +88,7 @@ def test_an_explicit_or_unrecognised_marker_beats_the_older_image_fallback(
     monkeypatch: pytest.MonkeyPatch, value: str
 ) -> None:
     monkeypatch.setenv("PRAVRUDHI_DISABLE_LOCAL_GUARD", "1")
-    monkeypatch.setattr(registry.Path, "exists", lambda self: str(self) == "/.dockerenv")  # a container with the guard off
+    monkeypatch.setattr(Path, "exists", lambda self: str(self) == "/.dockerenv")  # a container with the guard off
     monkeypatch.setenv(registry.HOSTED_IMAGE_ENV, value)
     assert not hosted_image()  # a local container that says so is never labelled hosted
 
@@ -101,5 +103,5 @@ def test_an_empty_marker_falls_back_to_the_default_detection(monkeypatch: pytest
     monkeypatch.setenv(registry.HOSTED_IMAGE_ENV, "")
     assert not hosted_image()
     monkeypatch.setenv("PRAVRUDHI_DISABLE_LOCAL_GUARD", "1")
-    monkeypatch.setattr(registry.Path, "exists", lambda self: str(self) == "/.dockerenv")
+    monkeypatch.setattr(Path, "exists", lambda self: str(self) == "/.dockerenv")
     assert hosted_image()

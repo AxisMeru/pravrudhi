@@ -41,7 +41,7 @@ def test_the_packaged_yaml_no_longer_ships_a_null_model() -> None:
     assert "model: null" not in (REPO / "configs" / "nyaya_agent.yaml").read_text()
 
 
-@pytest.mark.parametrize("edition", ["product", "studio", "Product", " STUDIO ", "prod", "null", "stage", ""])
+@pytest.mark.parametrize("edition", ["product", "studio", "Product", " STUDIO ", ""])
 def test_a_deployed_edition_refuses_an_unset_house_model(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, edition: str
 ) -> None:
@@ -98,10 +98,10 @@ def test_only_an_explicit_dev_edition_on_a_development_checkout_may_leave_it_uns
 def test_a_release_install_counts_as_product_with_the_env_unset_or_dev(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from pravrudhi.api import edition
+    from pravrudhi import deployment
 
-    monkeypatch.setattr(edition, "is_release_install", lambda: True)
-    with pytest.raises(ValueError, match="in the pravrudhi edition"):
+    monkeypatch.setattr(deployment, "is_release_install", lambda: True)
+    with pytest.raises(ValueError, match="in the product edition"):
         nyaya_agent.load_agent_config(_root(tmp_path / "a"))
     monkeypatch.setenv("PRAVRUDHI_EDITION", "dev")  # a release install is not a development checkout
     with pytest.raises(ValueError, match="house_judge.model is not set"):
@@ -147,3 +147,14 @@ def test_the_server_warmup_logs_a_refused_judge_config_instead_of_swallowing_it(
     with caplog.at_level("ERROR"):
         _warm_up_house_judge_in_background(tmp_path / "nowhere")  # no config at all: quiet, as before
     assert "warm-up not started" not in caplog.text
+
+
+@pytest.mark.parametrize("edition", ["prod", "null", "stage", "Studi0"])
+def test_a_mislabelled_edition_does_not_load_the_judge_config_at_all(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, edition: str
+) -> None:
+    from pravrudhi.deployment import DeploymentConfigError
+
+    monkeypatch.setenv("PRAVRUDHI_EDITION", edition)
+    with pytest.raises(DeploymentConfigError, match="PRAVRUDHI_EDITION"):
+        nyaya_agent.load_agent_config(_root(tmp_path))

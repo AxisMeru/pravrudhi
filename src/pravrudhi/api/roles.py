@@ -283,7 +283,8 @@ class RequireStudioAdmin:
     through its tunnel. Per-route role guards only cover the routes that remembered to ask; this is the whole-surface
     gate, evaluated before any route code runs (no vendor call, no ledger write, nothing a handler does).
 
-    * Edition: read exactly as `tenant_vendors` reads it (`PRAVRUDHI_EDITION` == "studio"). An unset or any other
+    * Edition: the one resolved edition (`pravrudhi.deployment.resolved_edition`, shared with `engine_edition` and
+      `tenant_vendors`) must be `studio`. An unset or any other
       value is not a Studio gate, so a development checkout and the product keep their behaviour. Loopback does
       not matter here: a loopback Studio is gated the same.
     * Authentication off (`PRAVRUDHI_AUTH` disabled, the local operator's own machine): nobody to identify, the local
@@ -318,9 +319,9 @@ class RequireStudioAdmin:
 
 
 def _studio_edition() -> bool:
-    from pravrudhi.application.tenant_vendors import STUDIO_ENV
+    from pravrudhi.deployment import resolved_edition
 
-    return os.environ.get(STUDIO_ENV, "").strip().lower() == "studio"
+    return resolved_edition() == "studio"
 
 
 def _studio_refusal(conn: HTTPConnection) -> tuple[int, str] | None:

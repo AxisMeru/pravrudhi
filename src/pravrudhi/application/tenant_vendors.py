@@ -44,7 +44,9 @@ def _load(path: Path | None) -> dict[str, Any] | None:
     return raw if isinstance(raw, dict) else None
 
 
-STUDIO_ENV = "PRAVRUDHI_EDITION"
+from pravrudhi.deployment import EDITION_ENV as STUDIO_ENV  # noqa: E402,F401 -- kept for importers
+from pravrudhi.deployment import resolved_edition  # noqa: E402
+
 LOOPBACK_ONLY_ENV = "PRAVRUDHI_STUDIO_LOOPBACK_ONLY"
 _LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
 _bind_host: str | None = None
@@ -76,7 +78,7 @@ def guard_studio_boot() -> None:
     published on 127.0.0.1) is fine, and so is any authentication mode other than `disabled`."""
     from pravrudhi.api.identity import AuthMode, auth_mode
 
-    if os.environ.get(STUDIO_ENV, "").strip().lower() == "studio" and auth_mode() is AuthMode.DISABLED and not _loopback_only():
+    if resolved_edition() == "studio" and auth_mode() is AuthMode.DISABLED and not _loopback_only():
         raise RuntimeError(
             "PRAVRUDHI_EDITION=studio with PRAVRUDHI_AUTH disabled on an API that is not loopback-only: every caller "
             "would be the operator. Bind 127.0.0.1, set PRAVRUDHI_STUDIO_LOOPBACK_ONLY=1 for a loopback-published "
@@ -92,7 +94,7 @@ def is_studio_edition() -> bool:
     closed. The env value alone is not enough either: a hosted engine on a public bind that claims `studio`
     stays closed.
     """
-    return os.environ.get(STUDIO_ENV, "").strip().lower() == "studio" and _loopback_only()
+    return resolved_edition() == "studio" and _loopback_only()
 
 
 def _ids(v: Any) -> set[str] | None:
