@@ -193,3 +193,10 @@ def test_config_selector_defaults_to_d0_validates_and_m1_needs_a_backend(monkeyp
     monkeypatch.setenv("NYAYA_ACCUSED_ATTRIBUTION_M1_MODEL", "base-model")
     got = load_agent_config(root)
     assert got.accused_attribution_m1 == {"base_url": "http://x/v1", "model": "base-model"}
+
+
+def test_kin_apposition_before_the_chosen_party_is_not_a_second_actor_in_m1() -> None:
+    ok = M.check_attribution_m1("TOY: Her husband, Accused No.2, demanded money from Nila.", _ref(), Pick("Accused No.2"))
+    assert ok.passed
+    bad = M.check_attribution_m1("TOY: Accused No.1 and her husband, Accused No.2, demanded money.", _ref(), Pick("Accused No.2"))
+    assert not bad.passed and bad.reason == "accused_attribution_collective"

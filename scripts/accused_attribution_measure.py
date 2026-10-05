@@ -51,7 +51,7 @@ def code_sha() -> str | None:
     return p.stdout.strip() or None
 
 
-def make_checker(variant: str, base_url: str | None, model: str | None, threshold: float):
+def make_checker(variant: str, base_url: str | None, model: str | None, threshold: float, mass_floor: float = 0.5):
     if variant == "d0":
         return lambda q, ref: check_attribution(q, ref)
     if variant == "d0b":
@@ -62,7 +62,9 @@ def make_checker(variant: str, base_url: str | None, model: str | None, threshol
         from pravrudhi.application.nyaya_attribution_m1 import LlmActorSelector, check_attribution_m1
         from pravrudhi.application.typed.decoder import VLLMDecoder
 
-        sel = LlmActorSelector(VLLMDecoder(base_url=base_url, model=model, timeout_s=120), threshold=threshold)
+        sel = LlmActorSelector(
+            VLLMDecoder(base_url=base_url, model=model, timeout_s=120), threshold=threshold, mass_floor=mass_floor
+        )
         return lambda q, ref: check_attribution_m1(q, ref, sel)
     raise SystemExit(f"unknown variant {variant!r}")
 
@@ -134,6 +136,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--base-url")
     ap.add_argument("--model")
     ap.add_argument("--threshold", type=float, default=0.6)
+    ap.add_argument("--mass-floor", type=float, default=0.5)
     ap.add_argument("--ledger", type=Path, required=True)
     ap.add_argument("--allow-repeat", action="store_true")
     ap.add_argument("--out", type=Path, required=True)
@@ -148,13 +151,15 @@ def main(argv: list[str] | None = None) -> int:
             f"refusing: {a.variant} was already scored on set {set_sha[:12]} (measure once; --allow-repeat records a repeat)"
         )
     rows = [json.loads(line) for line in raw.decode().splitlines() if line.strip()]
-    res = score(rows, make_checker(a.variant, a.base_url, a.model, a.threshold))
+    res = score(rows, make_checker(a.variant, a.base_url, a.model, a.threshold, a.mass_floor))
     res["summary"].update(
         set_sha256=set_sha,
         n_rows=len(rows),
         variant=a.variant,
         code_sha=code_sha(),
-        m1_backend={"base_url": a.base_url, "model": a.model, "threshold": a.threshold} if a.variant == "m1" else None,
+        m1_backend={"base_url": a.base_url, "model": a.model, "threshold": a.threshold, "mass_floor": a.mass_floor}
+        if a.variant == "m1"
+        else None,
         repeat=any(e["set_sha256"] == set_sha and e["variant"] == a.variant for e in seen),
     )
     a.out.write_text(json.dumps(res, indent=1))

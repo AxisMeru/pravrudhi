@@ -47,6 +47,7 @@ from pravrudhi.application.nyaya_attribution import (
     AccusedRef,
     AttributionResult,
     Candidate,
+    _is_apposition,
     _veto,
     extract_candidates,
 )
@@ -137,6 +138,7 @@ class Selection:
     index: int | None  # index into the offered options, None = "none of these" or unresolved
     p: float | None
     reason: str | None = None  # why unresolved, when index is None
+    mass_ratio: float | None = None  # probability mass on the offered letters / all top-k mass
 
 
 class ActorSelector(Protocol):
@@ -169,15 +171,16 @@ class LlmActorSelector:
                 mass[t] = mass.get(t, 0.0) + math.exp(lp)
         total_all = sum(math.exp(lp) for lp in top.values() if math.isfinite(lp))
         total = sum(mass.values())
-        if total <= 0 or total_all <= 0 or total / total_all < self.mass_floor:
-            return Selection(None, None, "low_mass_on_options")
+        ratio = total / total_all if total_all > 0 else 0.0
+        if total <= 0 or total_all <= 0 or ratio < self.mass_floor:
+            return Selection(None, None, "low_mass_on_options", ratio)
         best = max(mass, key=lambda k: mass[k])
         p = mass[best] / total
         if p < self.threshold:
-            return Selection(None, p, "low_confidence")
+            return Selection(None, p, "low_confidence", ratio)
         if best == NONE_LETTER:
-            return Selection(None, p, "none_of_these")
-        return Selection(letters.index(best), p)
+            return Selection(None, p, "none_of_these", ratio)
+        return Selection(letters.index(best), p, None, ratio)
 
 
 def extract_options(quote: str, accused: AccusedRef) -> list[Candidate]:
@@ -198,19 +201,24 @@ def extract_options(quote: str, accused: AccusedRef) -> list[Candidate]:
 
 
 def _joined_to_other(quote: str, cands: list[Candidate], chosen: Candidate) -> bool:
-    """A listed other party, collective or generic joined to the chosen actor by a bare connector (", and, along with, ...")."""
-    for c in cands:
-        if c is chosen or c.role not in ("other", "collective", "generic"):
+    """A listed other party, collective or generic chained to the chosen actor by bare connectors (", and, along with, ...").
+    A kin phrase followed by a comma and the chosen party ("her husband, Accused No.2,") is an apposition: it is skipped, and the
+    chain continues from its start ("Accused No.1 and her husband, Accused No.2" is still joined)."""
+    before = [c for c in cands if c.end <= chosen.start]
+    left = chosen.start
+    for c in reversed(before):
+        gap = quote[c.end : left]
+        if _is_apposition(quote, c, gap, chosen):
+            left = c.start
             continue
-        gap = (
-            quote[c.end : chosen.start]
-            if c.end <= chosen.start
-            else quote[chosen.end : c.start]
-            if chosen.end <= c.start
-            else None
-        )
-        if gap is not None and _CONNECTOR.match(gap):
+        if _CONNECTOR.match(gap) and c.role in ("other", "collective", "generic"):
             return True
+        break
+    right = chosen.end
+    for c in (c for c in cands if c.start >= chosen.end):
+        if _CONNECTOR.match(quote[right : c.start]) and c.role in ("other", "collective", "generic"):
+            return True
+        break
     return False
 
 
@@ -250,6 +258,6 @@ def check_attribution_m1(quote: str | None, accused: AccusedRef | None, selector
                 res = AttributionResult(True, None, rule=None, **common)
         else:
             res = AttributionResult(False, REASON_NOT_MATCHED, rule="M1-R2", **common)
-        return replace(res, actor_p=sel.p)
+        return replace(res, actor_p=sel.p, mass_ratio=sel.mass_ratio)
     except Exception as e:  # noqa: BLE001 -- fail closed: an error is a refusal, never a pass
         return AttributionResult(False, REASON_UNRESOLVED, variant=v, rule="R5", error=f"{type(e).__name__}: {e}"[:300])

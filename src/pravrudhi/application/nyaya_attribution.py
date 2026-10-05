@@ -101,11 +101,14 @@ class AttributionResult:
     candidates: tuple[dict[str, Any], ...] = field(default_factory=tuple)
     error: str | None = None
     actor_p: float | None = None  # M1 only: the selector's probability for the chosen party
+    mass_ratio: float | None = None  # M1 only: probability mass on the offered letters / all top-k mass
 
     def as_dict(self) -> dict[str, Any]:
         d = self._base_dict()
         if self.actor_p is not None:
             d["actor_p"] = self.actor_p
+        if self.mass_ratio is not None:
+            d["mass_ratio"] = self.mass_ratio
         return d
 
     def _base_dict(self) -> dict[str, Any]:

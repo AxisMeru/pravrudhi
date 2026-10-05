@@ -209,12 +209,42 @@ def run(n_per_cell: int, seed: int) -> dict:
     return out
 
 
+def dump_rows(n_per_cell: int, seed: int) -> list[dict]:
+    """The same constructed sentences as `run`, as rows for accused_attribution_measure.py (a DEV set: tuned-on, not held out)."""
+    rng = random.Random(seed)
+    rows: list[dict] = []
+    for kind, cells in (("positive", POSITIVE), ("negative", NEGATIVE)):
+        for name, build in cells.items():
+            for i in range(n_per_cell):
+                n, m = rng.sample(range(1, 9), 2)
+                sentence, ref = build(rng, n, m)
+                rows.append(
+                    {
+                        "id": f"dev-{name[:3].strip()}-{i:03d}",
+                        "cell": name.split(" ")[0] + "_" + name.split(" ", 1)[1][:24].replace(" ", "_"),
+                        "sentence": sentence,
+                        "kind": kind,
+                        "expected": ("refuse" if name in BY_DESIGN or kind == "negative" else "pass"),
+                        "accused_ref": {
+                            "id": ref.id,
+                            "aliases": list(ref.aliases),
+                            "other_parties": [list(g) for g in ref.other_parties],
+                        },
+                    }
+                )
+    return rows
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--n-per-cell", type=int, default=40)
     ap.add_argument("--seed", type=int, default=20261005)
     ap.add_argument("--json", default=None)
+    ap.add_argument("--dump-jsonl", default=None, help="write the constructed dev sentences as measure rows and exit")
     a = ap.parse_args(argv)
+    if a.dump_jsonl:
+        Path(a.dump_jsonl).write_text("".join(json.dumps(r) + "\n" for r in dump_rows(a.n_per_cell, a.seed)))
+        return 0
     res = run(a.n_per_cell, a.seed)
     print(res["label"])
     for name, c in res["cells"].items():
