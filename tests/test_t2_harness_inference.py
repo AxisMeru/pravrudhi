@@ -132,7 +132,27 @@ def test_a_complete_run_seals_the_canonical_file_and_exits_zero(
     assert meta["n_scored"] == 5
     assert meta["n_error"] == 0
     assert meta["complete"] is True
-    assert meta["raw_output_sha256"] == hashlib.sha256(out_path.read_bytes()).hexdigest()
+    # Expected bytes are built here from the known fake outputs, not by re-reading what the script wrote.
+    expected = "".join(
+        json.dumps(
+            {
+                "item_id": f"item-{i}", "element_id": f"el-{i}", "contract_id": f"contract-{i}", "partition": "test",
+                "gold_status": "established", "frozen_p_established": 0.9,
+                "free_text": {"text": "established F1:0:5", "top_logprobs": {" established": -0.1, " not": -3.0}},
+                "typed": {"text": "established F1:0:5", "top_logprobs": {"true": -0.1, "false": -3.0}},
+            }
+        )
+        + "\n"
+        for i in range(5)
+    )
+    assert out_path.read_bytes() == expected.encode()
+    assert meta["raw_output_sha256"] == hashlib.sha256(expected.encode()).hexdigest()
+    # (a) the input artefacts are recorded with their own digests
+    assert meta["input_eval_items_path"] == str(tmp_path / "eval_items.jsonl")
+    assert meta["input_eval_items_sha256"] == hashlib.sha256((tmp_path / "eval_items.jsonl").read_bytes()).hexdigest()
+    assert meta["input_eval_logit_scores_sha256"] == hashlib.sha256(
+        (tmp_path / "eval_logit_scores.jsonl").read_bytes()
+    ).hexdigest()
 
 
 def test_a_latency_circuit_breaker_trip_seals_nothing_under_the_canonical_name(
@@ -153,7 +173,8 @@ def test_a_latency_circuit_breaker_trip_seals_nothing_under_the_canonical_name(
     assert len(rows) == 3
     assert len(rows) < 10
 
-    meta = json.loads((results_dir / "t2_harness_inference_RUN-METADATA.json").read_text())
+    meta = json.loads((results_dir / "t2_harness_inference_RUN-METADATA.TRUNCATED.json").read_text())
+    assert not (results_dir / "t2_harness_inference_RUN-METADATA.json").exists()
     assert meta["n_planned"] == 10
     assert meta["n_scored"] == 3
     assert meta["complete"] is False
@@ -177,7 +198,7 @@ def test_a_per_item_error_is_counted_and_still_truncates_the_seal(
     rows = [json.loads(line) for line in truncated.read_text().splitlines() if line.strip()]
     assert len(rows) == 5
 
-    meta = json.loads((results_dir / "t2_harness_inference_RUN-METADATA.json").read_text())
+    meta = json.loads((results_dir / "t2_harness_inference_RUN-METADATA.TRUNCATED.json").read_text())
     assert meta["n_planned"] == 6
     assert meta["n_scored"] == 5
     assert meta["n_error"] == 1
@@ -189,3 +210,53 @@ def test_refuses_without_required_env_vars(monkeypatch: pytest.MonkeyPatch) -> N
     monkeypatch.delenv("PRAVRUDHI_T2_EVAL_LOGIT_SCORES", raising=False)
     monkeypatch.delenv("PRAVRUDHI_T2_RESULTS_DIR", raising=False)
     assert mod.main() == 2
+
+
+def test_an_empty_plan_refuses_instead_of_sealing_an_empty_file(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # The real pin is left in place: the empty plan must be refused on its own, not because the pin mismatched.
+    items_path = tmp_path / "eval_items.jsonl"
+    items_path.write_text("")
+    scores_path = tmp_path / "eval_logit_scores.jsonl"
+    scores_path.write_text("")
+    results_dir = tmp_path / "results"
+    monkeypatch.setenv("PRAVRUDHI_T2_EVAL_ITEMS", str(items_path))
+    monkeypatch.setenv("PRAVRUDHI_T2_EVAL_LOGIT_SCORES", str(scores_path))
+    monkeypatch.setenv("PRAVRUDHI_T2_RESULTS_DIR", str(results_dir))
+
+    assert mod.main() == 2
+    assert "n_planned == 0" in capsys.readouterr().err
+    assert list(results_dir.iterdir()) == []
+
+
+def test_a_truncated_run_never_overwrites_a_complete_runs_sidecar(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    results_dir = _configure_env(monkeypatch, tmp_path, n_items=4)
+    monkeypatch.setattr(mod, "HouseJudge", lambda **kw: _FakeHouse())
+    monkeypatch.setattr(mod, "VLLMDecoder", lambda **kw: _FakeDecoder())
+    assert mod.main() == 0
+    complete_sidecar = results_dir / "t2_harness_inference_RUN-METADATA.json"
+    before = complete_sidecar.read_bytes()
+
+    monkeypatch.setattr(mod, "HouseJudge", lambda **kw: _FakeHouse(latency_fail_at=2))
+    assert mod.main() != 0
+
+    assert complete_sidecar.read_bytes() == before
+    assert json.loads((results_dir / "t2_harness_inference_RUN-METADATA.TRUNCATED.json").read_text())["complete"] is False
+
+
+def test_row_assembly_failure_is_counted_not_fatal(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    results_dir = _configure_env(monkeypatch, tmp_path, n_items=3)
+    items_path = Path(tmp_path / "eval_items.jsonl")
+    rows = [json.loads(line) for line in items_path.read_text().splitlines()]
+    del rows[1]["partition"]  # a malformed item surfaces at row assembly, after both model calls
+    items_path.write_text("\n".join(json.dumps(r) for r in rows) + "\n")
+    monkeypatch.setattr(mod, "EVAL_ITEMS_SHA", hashlib.sha256(items_path.read_bytes()).hexdigest())
+    monkeypatch.setattr(mod, "HouseJudge", lambda **kw: _FakeHouse())
+    monkeypatch.setattr(mod, "VLLMDecoder", lambda **kw: _FakeDecoder())
+
+    assert mod.main() == 2
+    meta = json.loads((results_dir / "t2_harness_inference_RUN-METADATA.TRUNCATED.json").read_text())
+    assert meta["n_error"] == 1 and meta["n_scored"] == 2 and meta["complete"] is False

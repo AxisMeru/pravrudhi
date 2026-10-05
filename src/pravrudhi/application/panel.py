@@ -30,6 +30,8 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
+import subprocess
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -71,6 +73,15 @@ class Vendor:
         """
         if not self.credential:
             return None
+        if store is None:
+            from pravrudhi.application.credentials import API_WITHOUT_TENANT_STORE, serving_api
+
+            if serving_api.get():
+                raise RuntimeError(API_WITHOUT_TENANT_STORE)
+        if store is not None and getattr(store, "tenant_only", False):
+            # A signed-in tenant: their own stored key or nothing. Never the operator's env or credential file.
+            stored = store.get(self.provider) if self.provider else None
+            return stored.reveal() if stored else None
         from_env = os.environ.get(self.credential)
         if from_env:
             return from_env
@@ -132,7 +143,7 @@ class Vendor:
                 return account_status()
             return True, "ready"
         if self.interface == "openai_compat" and self.credential:
-            if os.environ.get(self.credential):
+            if not getattr(store, "tenant_only", False) and os.environ.get(self.credential):
                 return True, "key in environment"
             if self.provider and self.key(root, store=store) and not self.credential_file:
                 return True, f"key stored for provider {self.provider}"
@@ -171,6 +182,11 @@ class Answer:
     #: cache write 47,852 against output 4), and `tokens` alone would hide that.
     cache_read_tokens: int | None = None
     cache_write_tokens: int | None = None
+    #: The envelope's own `total_cost_usd`; `None` when the vendor reported none ("unobserved", never 0.0).
+    cost_usd: float | None = None
+    #: Every model the CLI billed (claude: the `modelUsage` keys), so an auxiliary Haiku call is visible
+    #: rather than silently dropped by taking only the first key.
+    billed_models: tuple[str, ...] = ()
 
 
 # Reachable today. `claude` and `codex` are agentic CLIs in print mode; the operator's judgement is that this
@@ -206,7 +222,26 @@ CLAUDE_CLI_SLIM_FLAGS = (
 #: Config-driven (env var, matching `account.py`'s own `PRAVRUDHI_CLAUDE_CONFIG_DIR` convention) rather than
 #: hardcoded, so this can be redirected without a code change.
 CLAUDE_CLI_CONFIG_DIR_ENV = "PRAVRUDHI_CLAUDE_CLI_CONFIG_DIR"
-CLAUDE_CLI_CONFIG_DIR_DEFAULT = Path("~/.config/pravrudhi/claude-colab")
+#: Seat rule (operator 2026-09-27, supersedes the 09-26 colab-dir rule): every scripted `claude -p` runs on TEAM
+#: SEAT 2 via the `claude-loop` dir, and `claude auth status --json` must show this email before any call
+#: (refuse on mismatch; a login is never switched here). Seat 0 (`claude-colab`) is R1/R2 only.
+CLAUDE_CLI_CONFIG_DIR_DEFAULT = Path("~/.config/pravrudhi/claude-loop")
+CLAUDE_CLI_EXPECTED_EMAIL = "sharath.sathish@gmail.com"
+
+#: Model cap (Lead-2 2026-09-26): nothing above Sonnet. Aliases `sonnet`/`haiku` or an exact
+#: `claude-sonnet-*`/`claude-haiku-*` id. Opus is allowed only for the pre-registered M4 comparison, which must
+#: also say `params["effort"] == "low"`. Anything else (the default, fable, a typo) is refused, not passed on.
+_CLAUDE_MODEL_OK = re.compile(r"(sonnet|haiku|claude-(sonnet|haiku)-[A-Za-z0-9._-]+)")
+_CLAUDE_OPUS = re.compile(r"(opus|claude-opus-[A-Za-z0-9._-]+)")
+CLAUDE_EFFORTS = ("low", "medium", "high", "xhigh", "max")
+
+#: A quota/limit notice prints with exit 0 (2026-09-26: 847 audit rows contaminated). Same pattern as
+#: `scripts/adversarial_reviewer.py`. It is only applied to SHORT results: a real judgement that happens to
+#: mention a "rate limit" is long; a notice is one line.
+QUOTA_RE = re.compile(
+    r"session limit|hit your|usage limit|rate limit|limit reached|resets? (at|in)|out of (extra )?usage|"
+    r"quota|try again later|overloaded", re.I)
+QUOTA_MAX_CHARS = 400
 
 
 class ClaudeCliNotProvisioned(RuntimeError):
@@ -243,7 +278,70 @@ def _claude_cli_pinned_model(vendor: Vendor) -> str:
             f"vendor {vendor.id!r} params['model'] is {requested!r} -- omit the key to use the default "
             f"({CLAUDE_CLI_MODEL_DEFAULT!r}), or give it a real model id"
         )
-    return str(requested)
+    model = str(requested)
+    if _CLAUDE_MODEL_OK.fullmatch(model):
+        return model
+    if _CLAUDE_OPUS.fullmatch(model):
+        if vendor.params.get("effort") != "low":
+            raise ValueError(
+                f"vendor {vendor.id!r}: opus is allowed only for the pre-registered M4 comparison at "
+                f"params['effort'] == 'low' (got {vendor.params.get('effort')!r})")
+        return model
+    raise ValueError(
+        f"vendor {vendor.id!r} params['model'] {model!r} is not a sonnet/haiku alias or id (the model cap is "
+        f"Sonnet; opus needs effort 'low')")
+
+
+def _claude_cli_effort(vendor: Vendor) -> str | None:
+    effort = vendor.params.get("effort")
+    if effort is None:
+        return None
+    if effort not in CLAUDE_EFFORTS:
+        raise ValueError(f"vendor {vendor.id!r} params['effort'] {effort!r} not in {CLAUDE_EFFORTS}")
+    return str(effort)
+
+
+def _claude_auth_email(env: dict[str, str]) -> str | None:
+    """The email `claude auth status --json` reports for this config dir (the only truth for the seat)."""
+    p = subprocess.run(["claude", "auth", "status", "--json"], env={**os.environ, **env},
+                       capture_output=True, text=True, timeout=60)
+    try:
+        email = json.loads(p.stdout).get("email")
+    except (ValueError, AttributeError):
+        return None
+    return email if isinstance(email, str) else None
+
+
+def _assert_claude_seat(env: dict[str, str]) -> None:
+    email = _claude_auth_email(env)
+    if email != CLAUDE_CLI_EXPECTED_EMAIL:
+        raise ClaudeCliNotProvisioned(
+            f"refusing: claude auth status shows {email!r}, not {CLAUDE_CLI_EXPECTED_EMAIL!r} "
+            f"(config dir {env.get('CLAUDE_CONFIG_DIR')})")
+
+
+def _model_in_family(pinned: str, key: str) -> bool:
+    """Does a billed `modelUsage` key belong to what `--model` pinned? An alias matches its family prefix; an
+    exact id matches itself (a `[1m]`-style suffix is ignored)."""
+    key = key.split("[", 1)[0]
+    if pinned in ("sonnet", "haiku", "opus"):
+        return key.startswith(f"claude-{pinned}")
+    return key == pinned.split("[", 1)[0]
+
+
+def _check_claude_models(pinned: str, model_usage: Any) -> tuple[str, tuple[str, ...]]:
+    """`(resolved_model, all billed models)`, or RuntimeError. The pinned family must be billed, and the only
+    other model allowed beside it is Haiku (the CLI's own auxiliary call) -- same rule as the reviewer script."""
+    if not isinstance(model_usage, dict) or not model_usage:
+        raise RuntimeError(f"model unverifiable: envelope has no modelUsage (pinned {pinned!r})")
+    keys = tuple(model_usage)
+    matched = [k for k in keys if _model_in_family(pinned, k)]
+    if not matched:
+        raise RuntimeError(f"model mismatch: CLI billed {sorted(keys)}, pinned {pinned!r}")
+    extra = [k for k in keys if k not in matched]
+    if any(not k.startswith("claude-haiku") for k in extra):
+        raise RuntimeError(f"model mismatch: unexpected models {sorted(extra)} beside pinned {pinned!r}")
+    return matched[0], keys
 
 
 # Declared before any key exists, on the operator's instruction, so that when a key lands nothing has to be
@@ -398,6 +496,113 @@ def load_vendors(ids: Iterable[str]) -> list[Vendor]:
     return out
 
 
+def _looks_like_quota(text: str) -> bool:
+    return (len(text) <= QUOTA_MAX_CHARS and bool(QUOTA_RE.search(text))
+            and not text.lstrip().startswith(("{", "`")))
+
+
+def _cost(value: Any) -> float | None:
+    try:
+        return None if value is None else float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+_CODEX_TEXT_ITEMS = ("agent_message", "assistant_message")
+
+
+def _codex_rollout_models(thread_id: Any) -> set[str]:
+    """The model id(s) on the `turn_context` lines of this thread's codex rollout file; empty if not found."""
+    import glob
+
+    if not isinstance(thread_id, str) or not re.fullmatch(r"[0-9a-fA-F-]{8,64}", thread_id):
+        return set()
+    home = Path(os.environ.get("CODEX_HOME") or "~/.codex").expanduser()
+    models: set[str] = set()
+    for path in glob.glob(str(home / "sessions" / "*" / "*" / "*" / f"rollout-*-{thread_id}.jsonl")):
+        try:
+            with open(path, encoding="utf-8") as fh:
+                for line in fh:
+                    if '"turn_context"' not in line:
+                        continue
+                    try:
+                        ev = json.loads(line)
+                    except ValueError:
+                        continue
+                    m = (ev.get("payload") or {}).get("model") if ev.get("type") == "turn_context" else None
+                    if isinstance(m, str) and m:
+                        models.add(m)
+        except OSError:
+            continue
+    return models
+
+
+def _codex_answer(vendor: Vendor, model: str, out: str, wall: float) -> Answer:
+    """Parse a `codex exec --json` event stream into an Answer, or raise.
+
+    The answer is the last completed agent message. OBSERVED 2026-10-02 (codex-cli 0.153.4): the `--json` stream
+    (thread.started, turn.started, item.completed/agent_message, turn.completed) carries NO model id. The id is
+    in codex's own session rollout, `<CODEX_HOME>/sessions/Y/M/D/rollout-<ts>-<thread_id>.jsonl`, on the
+    `turn_context` line's `payload.model`; `thread_id` comes from the stream's `thread.started`. That is the
+    source of `resolved_model`. A `model` key in the stream, if a later codex adds one, must agree with it. With
+    `params["codex_model"]` pinned the resolved id MUST equal it: an unreadable rollout is an error, not a pass.
+    A quota/limit notice, an `error`/`turn.failed` event, or an empty answer is an ERROR.
+    No cost field exists in the stream, so `cost_usd` stays None ("unobserved").
+    """
+    from pravrudhi.agents.cli_agents import _codex_usage
+
+    events: list[dict[str, Any]] = []
+    for line in (out or "").splitlines():
+        line = line.strip()
+        if line.startswith("{"):
+            try:
+                ev = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(ev, dict):
+                events.append(ev)
+    if not events:
+        raise RuntimeError(f"codex produced no JSON event stream: {(out or '')[:120]!r}")
+    for ev in events:
+        if ev.get("type") in ("error", "turn.failed"):
+            raise RuntimeError(f"codex reported an error: {json.dumps(ev)[:300]}")
+    text = ""
+    for ev in events:
+        item = ev.get("item")
+        if ev.get("type") == "item.completed" and isinstance(item, dict) and item.get("type") in _CODEX_TEXT_ITEMS:
+            text = str(item.get("text", "")).strip()
+    if not text:
+        raise RuntimeError("codex produced no completed agent message")
+    if _looks_like_quota(text):
+        raise RuntimeError(f"quota/limit notice (ERROR, not an answer): {text[:120]!r}")
+    seen: set[str] = set()
+
+    def walk(node: Any) -> None:
+        if isinstance(node, dict):
+            for k, v in node.items():
+                if k == "model" and isinstance(v, str) and v:
+                    seen.add(v)
+                else:
+                    walk(v)
+        elif isinstance(node, list):
+            for v in node:
+                walk(v)
+
+    walk(events)
+    thread_id = next((e.get("thread_id") for e in events if e.get("type") == "thread.started"), None)
+    from_rollout = _codex_rollout_models(thread_id)
+    seen |= from_rollout
+    if len(seen) > 1:
+        raise RuntimeError(f"model mismatch: codex reports several models {sorted(seen)}")
+    resolved = next(iter(seen), None)
+    pinned = vendor.params.get("codex_model")
+    if pinned and resolved != pinned:
+        raise RuntimeError(f"model mismatch: codex reported {resolved!r}, pinned {pinned!r}")
+    tokens, cache_read, cache_write = _codex_usage(out)
+    return Answer(vendor.id, vendor.interface, model, "", text, wall, tokens, None, resolved,
+                  cache_read, cache_write, None, (resolved,) if resolved else ())
+
+
 def ask_vendor(
     vendor: Vendor, prompt: str, *, root: Path | None = None, store: CredentialStore | None = None
 ) -> Answer:
@@ -407,6 +612,15 @@ def ask_vendor(
     (`application.nyaya.ask`, resolved from a signed-in account's own project) passes its own `store` so the
     OpenAI-compatible client below is built with that caller's key, never a bystander's.
     """
+    from pravrudhi.application.credentials import API_WITHOUT_TENANT_STORE, serving_api
+
+    if store is None and serving_api.get():
+        raise RuntimeError(API_WITHOUT_TENANT_STORE)
+    if serving_api.get():
+        from pravrudhi.application import tenant_vendors
+        from pravrudhi.application.credentials import serving_org
+
+        tenant_vendors.require(vendor.id, serving_org.get())
     if vendor.interface == "cli":
         from pravrudhi.agents.cli_agents import _run, _usage
 
@@ -421,10 +635,17 @@ def ask_vendor(
             # `--output-format json` (Tag review, 2026-09-26), not `text`: the JSON envelope carries the
             # resolved model (`modelUsage`) and the real usage breakdown that `text` throws away.
             cmd = ["claude", "-p", "--output-format", "json", *CLAUDE_CLI_SLIM_FLAGS, "--model", model]
+            effort = _claude_cli_effort(vendor)
+            if effort:
+                cmd += ["--effort", effort]
             env = _claude_cli_env()
+            _assert_claude_seat(env)
         else:
             model = vendor.model
-            cmd = ["codex", "exec", "--skip-git-repo-check"]
+            # `--json` for the event stream (model id, usage, errors); `-m` only when a model id is pinned.
+            cmd = ["codex", "exec", "--skip-git-repo-check", "--json"]
+            if vendor.params.get("codex_model"):
+                cmd += ["-m", str(vendor.params["codex_model"])]
         # The prompt rides on stdin, never argv: a >128 KiB prompt is refused by the kernel as an argv string
         # (E2BIG) before the CLI starts. Both CLIs read the prompt from stdin when none is given positionally.
         code, out, err, wall = _run(
@@ -433,7 +654,7 @@ def ask_vendor(
         if vendor.model != "claude":
             if code != 0:
                 raise RuntimeError((err or out or f"{model} exited {code}")[-400:])
-            return Answer(vendor.id, vendor.interface, model, "", out.strip(), wall, None, None)
+            return _codex_answer(vendor, model, out, wall)
 
         # A quota/limit notice prints to stdout with exit 0 (the 2026-09-26 incident that contaminated 847
         # audit rows before this was caught) -- exit 0 is not itself success here. An unparseable envelope, an
@@ -448,12 +669,12 @@ def ask_vendor(
         text = str(envelope.get("result", "")).strip()
         if not text:
             raise RuntimeError(f"{model} exited 0 with an empty result (a quota/limit notice looks exactly like this)")
-        resolved_model: str | None = None
-        model_usage = envelope.get("modelUsage")
-        if isinstance(model_usage, dict) and model_usage:
-            resolved_model = next(iter(model_usage))
+        if _looks_like_quota(text):
+            raise RuntimeError(f"quota/limit notice (ERROR, not an answer): {text[:120]!r}")
+        resolved_model, billed = _check_claude_models(model, envelope.get("modelUsage"))
         tokens, cache_read, cache_write = _usage(envelope)
-        return Answer(vendor.id, vendor.interface, model, "", text, wall, tokens, None, resolved_model, cache_read, cache_write)
+        return Answer(vendor.id, vendor.interface, model, "", text, wall, tokens, None, resolved_model,
+                      cache_read, cache_write, _cost(envelope.get("total_cost_usd")), billed)
 
     if vendor.interface == "openai_compat":
         from pravrudhi.models.openai_compat import ChatClient
@@ -496,6 +717,11 @@ def panel_manifest(prompts: Sequence[dict[str, str]], vendors: Sequence[Vendor])
                 # explicit null/empty override, so a bad config is caught building the manifest, not 40 calls
                 # into a run.
                 "pinned_model": _claude_cli_pinned_model(v) if v.interface == "cli" and v.model == "claude" else None,
+                # What the call will actually look like, so a manifest shows the enforced invocation and seat.
+                "claude_effort": _claude_cli_effort(v) if v.interface == "cli" and v.model == "claude" else None,
+                "claude_slim_flags": list(CLAUDE_CLI_SLIM_FLAGS) if v.interface == "cli" and v.model == "claude" else None,
+                "claude_expected_seat_email": CLAUDE_CLI_EXPECTED_EMAIL if v.interface == "cli" and v.model == "claude" else None,
+                "codex_pinned_model": v.params.get("codex_model") if v.interface == "cli" and v.model == "codex" else None,
             }
             for v in vendors
         ],
@@ -535,7 +761,8 @@ def run_panel(
                     # actually pinned to, and `answer.resolved_model` is what the vendor billed it as.
                     row = Answer(vendor.id, vendor.interface, answer.model, pid, answer.text,
                                  answer.wall_s, answer.tokens, None, answer.resolved_model,
-                                 answer.cache_read_tokens, answer.cache_write_tokens)
+                                 answer.cache_read_tokens, answer.cache_write_tokens,
+                                 answer.cost_usd, answer.billed_models)
                 except Exception as exc:  # noqa: BLE001 - a vendor that cannot answer is data, not a crash
                     row = Answer(vendor.id, vendor.interface, vendor.model, pid, "", 0.0, None, str(exc)[:400])
                 answers.append(row)
