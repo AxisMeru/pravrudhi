@@ -450,7 +450,12 @@
               "gate1_unavailable",
               "gate1_not_entailed",
               "gate1_contradiction",
-              "contract_not_validated"
+              "contract_not_validated",
+              "accused_not_specified",
+              "accused_attribution_unresolved",
+              "accused_attribution_not_matched",
+              "accused_attribution_collective",
+              "accused_attribution_config_unmatched"
             ],
             "title": "Reason",
             "type": "string"
