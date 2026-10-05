@@ -27,6 +27,7 @@ from pravrudhi.application.nyaya_agent import (
     BinaryRegistry,
     BinaryShaMismatch,
     NyayaAgent,
+    _established_tristate,
     _truthful_status,
     assemble_assertions,
     expected_outcome,
@@ -269,6 +270,33 @@ class TestAssembly:
     )
     def test_expected_outcome_mirrors_the_element_first_harness(self, established: dict[str, bool], outcome: str) -> None:
         assert expected_outcome(self.C, assemble_assertions(self.C, established)) == outcome
+
+    def test_established_tristate_maps_each_status(self) -> None:
+        """Issue #56: True only for "established"; None for either `not_evaluated_*` gap (the second judge
+        never answering, or issue #57/#63/#72's Gate 1 model never answering) -- both are "nobody reached a
+        verdict", not a judge's own negative one; the two genuinely-judged negatives (`not_confirmed`,
+        `not_established`) both collapse to plain False -- they drive the identical outcome (module doc /
+        issue #37), so neither is a gap the way the two `not_evaluated_*` statuses are."""
+        assert _established_tristate("established") is True
+        assert _established_tristate("not_confirmed") is False
+        assert _established_tristate("not_established") is False
+        assert _established_tristate("not_evaluated_second_unavailable") is None
+        assert _established_tristate("not_evaluated_gate1_unavailable") is None
+
+    def test_a_none_entry_can_never_manufacture_a_denial_or_a_met_claim(self) -> None:
+        """Issue #56's own safety property, tested directly against `assemble_assertions` (not just the
+        tristate mapping above): a None entry (the second judge never evaluated this element/denial at all)
+        degrades to `False` in the Lean wire -- NEVER to `True`. A None on the DENY defeater must never
+        become an asserted (True) denial the Lean check could read as DENIAL; a None on a required element
+        must never be silently promoted to True either (which is what would let a PROOF slip through on a
+        gap instead of real evidence)."""
+        a = assemble_assertions(self.C, {BNS69_EL[0]: True, BNS69_EL[1]: True, BNS69_DENY: None})
+        assert BNS69_DENY not in a  # never asserted True; an unproven defeater is simply absent, not sent
+        assert expected_outcome(self.C, a) == "PROOF"  # a missing denial verdict never blocks a real PROOF
+
+        a = assemble_assertions(self.C, {BNS69_EL[0]: True, BNS69_EL[1]: None, BNS69_DENY: False})
+        assert a[BNS69_EL[1]] is False
+        assert expected_outcome(self.C, a) == "ABSTAIN"  # a missing element verdict can only BLOCK a PROOF
 
     def test_outcome_from_lean(self) -> None:
         assert (
@@ -1379,6 +1407,28 @@ class TestTruthfulElementStatus:
         c2 = self._run(tmp_path, established_script, {})
         assert c1.elements[0].status != c2.elements[0].status  # the labels really do differ
         assert c1.outcome == c2.outcome  # but the outcome never does
+
+    def test_a_none_verdict_on_the_denial_can_never_manufacture_a_denial_end_to_end(self, tmp_path: Path) -> None:
+        """Issue #56's own safety property, exercised through the REAL agent loop rather than
+        `assemble_assertions` in isolation: the DENY defeater's primary judge claims it present (a quote that
+        verifies), but the second judge is unreachable, so its truthful status is
+        `not_evaluated_second_unavailable` -- `_established_tristate` maps that to None, and
+        `assemble_assertions` degrades a None to False, NEVER to True. If that degradation ever broke (a
+        None accidentally read as True), this defeater would assert `True` to the Lean check and the
+        contract would come back DENIAL -- a false, manufactured negative the caller would see as a definite
+        answer instead of a case that needs a lawyer. Confirming the outcome chain already REFERs (never
+        DENIAL) here is exactly the pre-existing invariant issue #56 must never break: `unavailable_second`
+        REFERs unconditionally before `assemble_assertions`'s own True/False choice could ever matter to the
+        final outcome (`_run_contract` checks `unavailable_second` ahead of the allowlist/PROOF/DENIAL read)."""
+        script = _proof_script(TOY_FACTS)
+        script[BNS69_DENY] = [_est("F3", TOY_FACTS[2], "sexual intercourse")]
+        c = self._run(tmp_path, script, {BNS69_EL[0]: [_second("established", 0.99)],
+                                          BNS69_EL[1]: [_second("established", 0.99)],
+                                          BNS69_DENY: [ConnectionError("second judge unreachable")]})
+        deny = next(r for r in c.elements if r.element == BNS69_DENY)
+        assert deny.status == "not_evaluated_second_unavailable"
+        assert c.assertions is not None and BNS69_DENY not in c.assertions  # None -> never asserted True
+        assert c.outcome == "REFER_TO_LAWYER" and c.reason == "second_judge_unavailable"  # never "DENIAL"
 
 
 class TestBindingLegInSingleJudgeMode:

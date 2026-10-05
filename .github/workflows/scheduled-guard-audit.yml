@@ -1,0 +1,143 @@
+# Scheduled whole-tree guard audit.
+#
+# WHY A SECOND WORKFLOW RATHER THAN A JOB IN ci.yml. The checks in `ci.yml` are scoped to a pull
+# request's own diff, which by construction cannot see what has already landed: a commit that is
+# already on `main` appears in no later PR's diff, so no PR gate will ever report it. That is a
+# general design rule for every guard in these repos rather than a quirk of one. This workflow is
+# the other half -- the same guards run over the WHOLE tree and the WHOLE history, on a schedule,
+# so a problem that predates a guard is still found. It is deliberately separate so that nothing
+# here can change the timing, permissions or required-check status of `ci.yml`'s jobs.
+#
+# THE FAILURE MODE THIS IS BUILT AROUND. On 2026-09-26 a guard did fire on a push to `main`, the
+# red status was overwritten by the next push, and nobody saw it for the rest of the day. A nightly
+# job that goes red in a tab nobody opens is that same failure on a schedule. So a failing run here
+# opens or refreshes an issue labelled `guard-failure`, which is watched. The alert path is built to
+# FAIL CLOSED: see the notify step.
+#
+# GITHUB DISABLES SCHEDULED WORKFLOWS IN A REPOSITORY AFTER 60 DAYS WITH NO ACTIVITY, and it does
+# so silently -- a quiet repository's nightly audit simply stops, with no red run and no issue,
+# which looks exactly like "nothing is wrong". `workflow_dispatch` is here partly so the schedule
+# can be re-armed by hand, but the durable answer is to check on the Actions tab that this workflow
+# has run recently. The cron minute is offset from the sibling repository's so the two do not fire
+# into the same minute.
+
+name: scheduled-guard-audit
+
+on:
+  schedule:
+    # 03:17 UTC nightly. Staggered against AxisMeru/prabhasa-nyaya's 03:47 rather than both firing
+    # on the hour, which is also the busiest minute on GitHub's shared scheduler.
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+# Least privilege, declared explicitly rather than inherited: read the tree, write issues, nothing
+# wider. In particular no `contents: write` -- this audit never pushes, and no `pull-requests`
+# scope -- it never comments on a PR.
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: scheduled-guard-audit
+  cancel-in-progress: false
+
+jobs:
+  whole-tree-audit:
+    runs-on: ubuntu-latest
+    steps:
+      # fetch-depth: 0. The default is 1, and in a depth-1 clone `git log` reports exactly one
+      # commit -- a full-history check would then inspect one commit and exit 0, which is worse than
+      # not running it, because it looks like coverage. The trailer check below refuses to run in a
+      # shallow clone for that reason; this is what gives it real history.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: astral-sh/setup-uv@v6
+        with: { python-version: "3.13" }
+
+      - run: uv sync --all-groups --frozen
+
+      # ONE step running every check, rather than one step per check. A failing `run:` step stops
+      # the rest of its job by default, so as separate steps the first failure would hide the
+      # others and a single nightly run would report one problem at a time. This collects every
+      # check's exit status and then exits non-zero if ANY of them failed -- so the job is red for
+      # the same reason, but the issue that gets filed lists everything that is wrong.
+      #
+      # There is deliberately NO `continue-on-error` on this step, at any level. With it, the job
+      # would go green while the audit failed, and the notify step below would never fire.
+      - name: whole-tree secret scan + full-history attribution-trailer check
+        id: audit
+        run: |
+          set -uo pipefail
+          FAILED=""
+
+          run_check() {
+            local name="$1"; shift
+            echo "::group::$name"
+            if "$@"; then
+              echo "--- PASS: $name"
+            else
+              echo "--- FAIL: $name (exit $?)"
+              FAILED="${FAILED}${FAILED:+$'\n'}- ${name}"
+            fi
+            echo "::endgroup::"
+          }
+
+          # 1. Secret scan, WHOLE TREE (--all-tracked), not the diff gate. The diff gate in ci.yml
+          #    cannot see a secret that merged before it existed; this can.
+          #
+          #    scripts/check_no_secrets_in_diff.py arrives with PR #79, which is still open at the
+          #    time this branch was cut. A MISSING scanner is a hard failure here, never a skip: a
+          #    silently-absent check is precisely the shape of failure this whole workflow exists
+          #    to prevent. If this file lands on main before #79 does, the first scheduled run will
+          #    correctly go red naming the missing script -- so merge this one second.
+          if [ -f scripts/check_no_secrets_in_diff.py ]; then
+            run_check "secret scan (whole tree, --all-tracked)" \
+              uv run python scripts/check_no_secrets_in_diff.py --all-tracked
+          else
+            echo "::error title=scanner missing::scripts/check_no_secrets_in_diff.py is not present in this tree. It lands with PR #79; this workflow must merge after it. Failing rather than skipping: a check that quietly is not there is not a check."
+            FAILED="${FAILED}${FAILED:+$'\n'}- secret scan (whole tree): scripts/check_no_secrets_in_diff.py is MISSING from this tree (arrives with PR #79)"
+          fi
+
+          # 2. The other two static guards already on main, also whole-tree by construction. Cheap,
+          #    and a scheduled audit that runs a subset of the guards is a misleading green tick.
+          run_check "no private data in the tree" \
+            uv run python scripts/check_no_private_data.py
+          run_check "no secret-shaped Dockerfile ARG/ENV declarations" \
+            uv run python scripts/check_no_secret_dockerfile_args.py
+
+          # 3. Full-history attribution-trailer check against the committed allowlist. Needs the
+          #    fetch-depth: 0 above; it refuses to run shallow rather than passing vacuously.
+          run_check "full-history attribution trailers (allowlisted)" \
+            uv run python scripts/check_no_attribution_trailers_in_history.py
+
+          # Hand the list of failures to the notify step, which puts it in the issue body so the
+          # issue is actionable without opening the run -- which matters most once the run's logs
+          # have aged out.
+          {
+            echo "GUARD_AUDIT_SUMMARY<<GUARD_AUDIT_SUMMARY_EOF"
+            if [ -n "$FAILED" ]; then printf '%s\n' "$FAILED"; else echo "(nothing)"; fi
+            echo "GUARD_AUDIT_SUMMARY_EOF"
+          } >> "$GITHUB_ENV"
+
+          if [ -n "$FAILED" ]; then
+            echo
+            echo "FAILED CHECKS:"
+            printf '%s\n' "$FAILED"
+            exit 1
+          fi
+          echo "all checks passed"
+
+      # `if: failure()` is what makes the alert path safe. It runs only because a step above has
+      # ALREADY failed the job, so the job's red status is established independently of this step
+      # and cannot be rescued by it. And with no `continue-on-error` here either, a failure of the
+      # notification itself adds a SECOND red step -- so "the audit failed" and "we could not tell
+      # anyone" are two separately visible events. The script prints its own `::error::` annotation
+      # for that case.
+      - name: open or refresh the guard-failure issue
+        if: failure()
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # GUARD_AUDIT_SUMMARY comes in through $GITHUB_ENV, set by the step above.
+        run: python3 .github/scripts/notify_guard_failure.py
