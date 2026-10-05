@@ -195,6 +195,7 @@ ensure_engine() {
   docker run -d --name "$name" --restart unless-stopped --memory 3g \
     -p "127.0.0.1:$port:8765" -v "$data:/data" \
     --env-file "$CONF/chat.env" \
+    -e PRAVRUDHI_AUTH=required \
     -e PRAVRUDHI_EDITION="$edition" -e SUPABASE_URL="$SUPABASE_URL" \
     -e PRAVRUDHI_ALLOWED_ORIGINS="$(origin_of "$edition")" \
     ${NYAYA_HOUSE_JUDGE_BASE_URL:+-e "NYAYA_HOUSE_JUDGE_BASE_URL=$NYAYA_HOUSE_JUDGE_BASE_URL"} \
