@@ -169,3 +169,44 @@ def test_check_503s_cleanly_when_the_lean_binary_is_unreachable(tmp_path: Path, 
         headers=_token_header(tmp_path),
     )
     assert resp.status_code == 503
+
+
+_REPO_CFG = Path(__file__).resolve().parent.parent / "configs" / "nyaya_agent.yaml"
+
+
+def _with_repo_config(tmp_path: Path) -> TestClient:
+    import shutil
+
+    (tmp_path / "configs").mkdir(exist_ok=True)
+    shutil.copy(_REPO_CFG, tmp_path / "configs" / "nyaya_agent.yaml")
+    return _client(tmp_path)
+
+
+def test_listing_without_scorer_config_marks_nothing_validated(tmp_path: Path) -> None:
+    entries = _client(tmp_path).get("/api/nyaya/registry/contracts").json()["entries"]
+    assert len(entries) == 37 and not any(e["validated"] for e in entries)
+
+
+def test_listing_marks_validated_ids_from_the_scorers_own_config(tmp_path: Path) -> None:
+    from pravrudhi.application.nyaya_agent import load_agent_config
+
+    body = _with_repo_config(tmp_path).get("/api/nyaya/registry/contracts").json()
+    assert body["contracts"] == [e["id"] for e in body["entries"]]  # existing field unchanged, same order
+    got = {e["id"] for e in body["entries"] if e["validated"]}
+    assert got == set(load_agent_config(tmp_path).validated_contracts)
+    assert got and got < set(body["contracts"])
+
+
+def test_adding_an_id_to_the_config_flips_only_that_entry(tmp_path: Path) -> None:
+    import yaml
+
+    c = _with_repo_config(tmp_path)
+    before = {e["id"]: e["validated"] for e in c.get("/api/nyaya/registry/contracts").json()["entries"]}
+    target = next(i for i, v in before.items() if not v)
+    cfg = tmp_path / "configs" / "nyaya_agent.yaml"
+    body = yaml.safe_load(_REPO_CFG.read_text())
+    body["validated_contracts"] = [*body["validated_contracts"], target]
+    cfg.write_text(yaml.safe_dump(body))
+    after = {e["id"]: e["validated"] for e in c.get("/api/nyaya/registry/contracts").json()["entries"]}
+    assert after[target] is True
+    assert {k: v for k, v in after.items() if k != target} == {k: v for k, v in before.items() if k != target}
