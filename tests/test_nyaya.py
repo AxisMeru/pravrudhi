@@ -90,6 +90,11 @@ def test_min_relevance_norm_is_config_driven(tmp_path: Path) -> None:
     assert c.retrieve("equality before law", k=1) == []
 
 
+@pytest.mark.xfail(
+    strict=True,
+    reason="the question names bns69 and the shipped corpus now HAS BNS s.69, so the named-section boost (+100) "
+    "returns it; no BM25 length gate can cut a section the asker named. See issue #51 and the calibration test.",
+)
 def test_a_moderately_worded_off_topic_question_is_still_cut_by_the_relevance_floor() -> None:
     """Issue #33 (follow-up from PR #30) surfaced a real gap, not just a confirmation: `MIN_RELEVANCE_SCORE`
     is an ABSOLUTE BM25 score, and BM25 sums over every matched query term -- it grows with query
@@ -106,10 +111,12 @@ def test_a_moderately_worded_off_topic_question_is_still_cut_by_the_relevance_fl
 
     An ordinarily-phrased question that happens to mention a couple of unrelated terms used to get a
     false-positive citation almost immediately. Issue #51's length-aware second gate (`min_relevance_norm`,
-    `Corpus._self_score`) fixes it: this question's top hit captures only a small fraction of its own query's
-    obtainable BM25 score, well under the configured norm floor, even though the raw score alone clears
-    `min_relevance_score`. This test used to be `xfail(strict=True)` -- the marker is gone now that the
-    behaviour it encoded is real, per that marker's own reason text."""
+    `Corpus._self_score`) addresses that for BM25-scored hits. This SPECIFIC question, though, names `bns69`, and
+    BNS s.69 is in the shipped corpus again (it was absent when this test was written, hence "off-topic"): the
+    named-section boost (+100) returns it whatever the length gate says. So the test stays `xfail(strict=True)`
+    for the new reason in the marker; the three `bns69` calibration cases are named residual leaks for the same
+    cause (tests/test_nyaya_relevance_calibration.py)."""
+
     c = nyaya.load_corpus()
     q = "What is the applicable statute for bns69, considering the Governor and the President?"
     assert c.retrieve(q, k=8) == []

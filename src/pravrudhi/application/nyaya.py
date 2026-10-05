@@ -62,7 +62,9 @@ MIN_RELEVANCE_SCORE = 8.0
 #: this one cuts the calibration set's off-topic false-citation rate from 11/12 (today's absolute-only floor)
 #: to 3/12; matched-distinct-term coverage only reached 9/12, and top-1/top-2 margin barely moved it (11/12)
 #: -- a verbose off-topic question usually still has ONE clear best-matching document among the noise, so a
-#: large margin over 2nd place is not itself evidence of relevance.
+#: large margin over 2nd place is not itself evidence of relevance. (Re-measured 2026-10-05 on main @3402450b,
+#: same sealed set: 12/12 -> 5/12 at recall 13/14, coverage now tied at 5/12; see
+#: tests/test_nyaya_relevance_calibration.py.)
 MIN_RELEVANCE_NORM = 0.28
 
 #: How a source is named in a prompt and cited in a reply. The id is the corpus document id verbatim, so a

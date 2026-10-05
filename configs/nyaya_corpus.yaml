@@ -27,6 +27,10 @@ min_relevance_score: 8.0
 # winning document actually captured. Below this fraction, retrieve() drops the hit even if it cleared the
 # absolute floor.
 #
+# (Re-measured 2026-10-05 on main @3402450b, same sealed set: absolute floor 12/12 false citations at recall 13/14;
+# this gate 5/12 at 13/14, with matched-distinct-term coverage now tied at 5/12 and margin at 12/12; the figures
+# below are the 2026-09-26 comparison. 0.28 sits inside the 0.24-0.3047 recall plateau.)
+#
 # Selected over two other candidates measured against the same calibration set (matched-distinct-term
 # coverage, and top-1/top-2 margin) by the fixed rule: minimise false citations at recall >= the current
 # recall. At the tightest threshold that still finds every calibration on_topic case (0.2864), this rule

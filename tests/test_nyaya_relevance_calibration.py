@@ -1,34 +1,35 @@
-"""Issue #51's own calibration set (tests/fixtures/nyaya_relevance_calibration.json), run against the shipped
-retrieve(). This is the artefact of the issue's own required process: the set was hand-built and sealed
-BEFORE any candidate length-aware rule was measured against it (see the fixture's own `_provenance` and the
-commits that introduced it), and the selection rule (minimise false citations at recall >= the current
-recall) was written down before the comparison ran. `min_relevance_norm`'s own value (`configs/nyaya_corpus.
-yaml`) is the winner of that comparison; this test is what keeps it honest against regression -- a future
-change to the corpus, the BM25 shape, or the norm threshold that quietly drops calibration recall or lets
-more off-topic noise through fails here first.
+"""Issue #51's calibration set (tests/fixtures/nyaya_relevance_calibration.json), run against the shipped
+retrieve(). The set was hand-built and sealed BEFORE any candidate length-aware rule was measured against it
+(see the fixture's own `_provenance` and commit 55f88914); the selection rule (minimise false citations at
+recall >= the current recall) was written into the issue before the comparison ran. This test keeps
+`min_relevance_norm` honest against regression: a change to the corpus, the BM25 shape or the threshold that
+quietly drops recall or lets more off-topic noise through fails here first.
 
-**v2 (2026-09-26, Tag/Lead-2 decision):** the BNS/BNSS statute text v1 measured against was withdrawn
-(pravrudhi PR #55 -- fetched from indiacode.gov.in, whose Terms of Use/Copyright Policy conflict with
-shipping it as a package asset; held pending lawyer's review). The set was recalibrated honestly against the
-IPC+COI-only corpus that actually ships -- see the fixture's own `_provenance` for the full relabeling
-record. Two genuine, real recall misses survive this relabeling (`KNOWN_ON_TOPIC_MISSES` below): removing
-~800 BNS/BNSS documents shifted this corpus's idf statistics enough that two otherwise-correct IPC/COI
-answers now marginally miss `min_relevance_norm`'s floor, even though neither the doctrine nor the threshold
-changed. Reported, not hidden by loosening a floor or re-labeling ground truth to match current behaviour --
-that would defeat the point of a calibration set built independently of the implementation it measures.
+**v3 (2026-10-05, measured on main @3402450b):** the fixture is again the ORIGINAL sealed set. The v2 relabel
+(kept beside it as `nyaya_relevance_calibration_v2_ipc_coi_only.json`, not run) existed only because the BNS/BNSS
+text was withdrawn from the package for a licence review; it is shipped again (1,609 provisions), so v2's labels
+(three "uncovered" questions whose answers are in BNS/BNSS again) no longer describe the corpus and v1's do.
+Nothing in the sealed set was edited; the `split` assignment of v2 is read from the v2 file by case id.
 
-Every case also carries a `split`: `"tune"|"report"` field (stratified by kind, seeded), addressing R1's
-in-sample-measurement concern: `test_the_held_out_report_split_recall_and_false_citation_rate` computes the
-PR's own headline numbers from the `report` half alone, which was not used to decide any label by eyeballing
-retrieval scores.
+Measured on today's ranking (scripts/nyaya_relevance_calibration_run.py), 14 on_topic / 12 off_topic cases:
 
-The three off_topic_verbose cases this file names as `KNOWN_RESIDUAL_LEAKS` are a real, measured gap, not
-swept under an aggregate pass: at the tightest norm threshold that still finds every on_topic case, those
-three verbose questions' single best-matching document still clears both gates (see MIN_RELEVANCE_NORM's own
-comment in nyaya.py for the exact 3/12 vs. 9/12 vs. 11/12 comparison across all three candidates -- this one
-was the strict winner, not a perfect fix). Naming them here means a change that fixes one of them is a
-welcome surprise this test will catch (strict equality, not "at most 3"), and a change that adds a FOURTH
-leak is caught as a real regression rather than hiding inside a loosened aggregate threshold."""
+| rule | recall | false citations |
+|---|---|---|
+| absolute floor only (main) | 13/14 | 12/12 |
+| score / query self-score >= 0.28 (shipped) | 13/14 | 5/12 |
+| matched-distinct-term coverage (best, >= 0.36..0.3833) | 13/14 | 5/12 |
+| top-1/top-2 margin (best, > 0) | 13/14 | 12/12 |
+
+The rule as written picks the minimum false citations at recall >= the baseline: self-score normalisation and
+coverage now TIE at 5/12 (on 2026-09-26 it was 3/12 vs 9/12; main's ranking has since changed). The shipped rule
+stays as the incumbent of a tie; its plateau is 0.24-0.3047 (recall 13/14, 5/12), 0.28 sits inside it, and at
+0.31 recall drops to 12/14. The baseline's one on_topic miss (`medium-on-topic-bns-deceit-marriage`: the top hit
+is not an expected id) is a ranking miss, not a floor effect. Of the 5 residual leaks, THREE are `bns69` questions
+that name a section the corpus now has, so the named-section boost (+100) returns it and no length gate can cut it;
+the other two (`uk-parliament`, `holiday-planning`) are real BM25 noise above the norm floor.
+
+Named, not hidden: `KNOWN_RESIDUAL_LEAKS` and `KNOWN_ON_TOPIC_MISSES` are exact-match, so a newly leaking case
+fails and so does a fixed one silently staying in the tolerated set."""
 
 from __future__ import annotations
 
@@ -37,32 +38,31 @@ from pathlib import Path
 
 from pravrudhi.application import nyaya
 
-CALIBRATION_PATH = Path(__file__).parent / "fixtures" / "nyaya_relevance_calibration.json"
+FIXTURES = Path(__file__).parent / "fixtures"
+CALIBRATION_PATH = FIXTURES / "nyaya_relevance_calibration.json"
+SPLIT_PATH = FIXTURES / "nyaya_relevance_calibration_v2_ipc_coi_only.json"  # only its `split` field is read
 
-#: The exact off_topic_verbose cases whose top hit still clears both gates today -- see this module's own
-#: docstring for why these three are named rather than folded into an aggregate "false citation rate" number.
+#: The off_topic / off_topic_verbose cases whose top hit still clears both gates today (see the module docstring).
 KNOWN_RESIDUAL_LEAKS = frozenset(
     {
+        "short-off-topic-bns69-bare",
+        "verbose-off-topic-bns69-governor-president",
         "verbose-off-topic-bns69-more-constitutional-terms",
         "verbose-off-topic-uk-parliament-with-coi-vocab",
         "verbose-off-topic-holiday-planning-with-conspiracy-vocab",
     }
 )
 
-#: v2 (2026-09-26): the exact on_topic cases that now genuinely miss -- a real, measured side effect of
-#: removing ~800 BNS/BNSS documents (idf shift), not a doctrine change and not a threshold change. Named
-#: explicitly, exact-match (not "at most 2"), same discipline as KNOWN_RESIDUAL_LEAKS above: a newly-missing
-#: THIRD case is a real regression, and a fixed one silently staying tolerated forever is also caught.
-KNOWN_ON_TOPIC_MISSES = frozenset(
-    {
-        "long-on-topic-conspiracy-story",
-        "medium-on-topic-remedies-fundamental-rights",
-    }
-)
+#: The on_topic cases that miss on today's ranking, with or without the norm gate.
+KNOWN_ON_TOPIC_MISSES = frozenset({"medium-on-topic-bns-deceit-marriage"})
 
 
 def _cases() -> list[dict]:
     return json.loads(CALIBRATION_PATH.read_text())["cases"]
+
+
+def _splits() -> dict[str, str]:
+    return {c["id"]: c["split"] for c in json.loads(SPLIT_PATH.read_text())["cases"]}
 
 
 def _top_id(c: nyaya.Corpus, question: str) -> str | None:
@@ -70,66 +70,69 @@ def _top_id(c: nyaya.Corpus, question: str) -> str | None:
     return hits[0][0].id if hits else None
 
 
-def test_every_on_topic_calibration_case_still_finds_its_match() -> None:
-    """Recall must not regress beyond the two known, real misses this file names explicitly -- the selection
-    rule issue #51 fixed before measuring any candidate: minimise false citations at recall >= current."""
-    c = nyaya.load_corpus()
-    misses = set()
+def test_the_calibration_set_is_the_original_sealed_one() -> None:
+    kinds = {}
     for case in _cases():
-        if case["kind"] != "on_topic":
-            continue
-        top_id = _top_id(c, case["question"])
-        if top_id not in case["expected_ids"]:
-            misses.add(case["id"])
+        kinds[case["kind"]] = kinds.get(case["kind"], 0) + 1
+    assert kinds == {"on_topic": 14, "off_topic": 5, "off_topic_verbose": 7}
+    assert set(_splits()) == {case["id"] for case in _cases()}
+
+
+def test_every_on_topic_calibration_case_still_finds_its_match_except_the_named_miss() -> None:
+    c = nyaya.load_corpus()
+    misses = {
+        case["id"] for case in _cases() if case["kind"] == "on_topic" and _top_id(c, case["question"]) not in case["expected_ids"]
+    }
     assert misses == KNOWN_ON_TOPIC_MISSES, f"on_topic recall changed: {sorted(misses)}"
 
 
-def test_on_topic_uncovered_cases_return_nothing() -> None:
-    """`kind: on_topic_uncovered` (v2): a real, in-domain legal question this specific shipped corpus
-    genuinely has no text for (no CrPC/BNSS shipped at all; no textual IPC clause covers the deceit-marriage
-    question) -- unlike `KNOWN_RESIDUAL_LEAKS` above, there is no tolerated leak here at all: retrieve() must
-    return nothing for every one of these, full stop. This is the exact 'don't cite what isn't there'
-    behaviour the withdrawn BNS/BNSS package asset itself violated."""
-    c = nyaya.load_corpus()
-    leaking = [case["id"] for case in _cases() if case["kind"] == "on_topic_uncovered" and c.retrieve(case["question"], k=8)]
-    assert leaking == []
-
-
 def test_off_topic_calibration_cases_are_cut_except_the_named_residual_gap() -> None:
-    """The false-citation rate this length-aware gate actually achieves: every off_topic/off_topic_verbose
-    calibration case returns nothing EXCEPT the three named in KNOWN_RESIDUAL_LEAKS. A newly-leaking case
-    (fourth+) fails this test; so does a fixed one silently staying in the tolerated set forever, since the
-    set comparison below is exact, not "at most"."""
     c = nyaya.load_corpus()
-    leaking = set()
-    for case in _cases():
-        if case["kind"] == "on_topic":
-            continue
-        if c.retrieve(case["question"], k=8):
-            leaking.add(case["id"])
+    leaking = {case["id"] for case in _cases() if case["kind"] != "on_topic" and c.retrieve(case["question"], k=8)}
     assert leaking == KNOWN_RESIDUAL_LEAKS
 
 
-def test_the_held_out_report_split_recall_and_false_citation_rate() -> None:
-    """The PR's own headline numbers, computed on the `report` half alone (Lead-2, 2026-09-26, addressing
-    R1's in-sample-measurement concern): this half was not used to decide any label by eyeballing a retrieval
-    score -- every expected_ids entry was set from the shipped document's own TEXT (see the fixture's
-    `_provenance`), and the tune/report split was assigned afterwards, stratified by kind, seeded, before this
-    test was ever run. If these numbers ever need to change, they must change here, not just in a PR
-    description someone forgot to update."""
+def test_the_norm_gate_costs_no_recall_against_the_absolute_floor_alone() -> None:
+    """The selection rule's constraint: recall >= the current recall. The same corpus with the norm gate off is
+    the baseline; the shipped gate must not lose a single on_topic hit that the baseline finds."""
+    gated, base = nyaya.load_corpus(), nyaya.load_corpus()
+    base.min_relevance_norm = -1.0
+    on_topic = [case for case in _cases() if case["kind"] == "on_topic"]
+    found = lambda c: {x["id"] for x in on_topic if _top_id(c, x["question"]) in x["expected_ids"]}  # noqa: E731
+    assert found(gated) == found(base) and len(found(base)) == 13
+
+
+def test_the_norm_gate_removes_most_of_the_false_citations_the_absolute_floor_lets_through() -> None:
+    gated, base = nyaya.load_corpus(), nyaya.load_corpus()
+    base.min_relevance_norm = -1.0
+    noisy = [case for case in _cases() if case["kind"] != "on_topic"]
+    leaks = lambda c: {x["id"] for x in noisy if c.retrieve(x["question"], k=8)}  # noqa: E731
+    assert len(leaks(base)) == 12 and len(leaks(gated)) == 5
+
+
+def test_the_shipped_threshold_sits_inside_the_recall_plateau() -> None:
+    """0.28 is inside the 0.24-0.3047 plateau; just above it (0.31) one more on_topic case is lost, so the
+    threshold is not parked on a cliff edge."""
+    on_topic = [case for case in _cases() if case["kind"] == "on_topic"]
+
+    def recall(norm: float) -> int:
+        c = nyaya.load_corpus()
+        c.min_relevance_norm = norm
+        return sum(1 for x in on_topic if _top_id(c, x["question"]) in x["expected_ids"])
+
+    assert recall(0.24) == recall(0.28) == recall(0.30) == 13
+    assert recall(0.31) == 12
+
+
+def test_the_held_out_report_split_numbers() -> None:
+    """The `report` half (assigned by the v2 stratified, seeded split before any of this was run): 6/6 on_topic
+    hits (the named miss is in the tune half) and 2 false citations out of 5 noisy cases. No threshold was
+    retuned in this pass: 0.28 is unchanged."""
     c = nyaya.load_corpus()
-    report = [case for case in _cases() if case["split"] == "report"]
-
-    on_topic = [case for case in report if case["kind"] == "on_topic"]
-    on_topic_misses = {case["id"] for case in on_topic if _top_id(c, case["question"]) not in case["expected_ids"]}
-    assert on_topic_misses == KNOWN_ON_TOPIC_MISSES  # both known misses landed in the report split
-    assert len(on_topic) == 5 and len(on_topic_misses) == 2  # 3/5 recall on the held-out on_topic report cases
-
-    uncovered = [case for case in report if case["kind"] == "on_topic_uncovered"]
-    assert not any(c.retrieve(case["question"], k=8) for case in uncovered)
-    assert len(uncovered) == 1
-
-    noisy = [case for case in report if case["kind"] in ("off_topic", "off_topic_verbose")]
-    leaks = {case["id"] for case in noisy if c.retrieve(case["question"], k=8)}
-    assert leaks == (KNOWN_RESIDUAL_LEAKS & {case["id"] for case in noisy})
-    assert len(noisy) == 5 and len(leaks) == 1  # 1/5 false citations on the held-out noise report cases
+    splits = _splits()
+    report = [case for case in _cases() if splits[case["id"]] == "report"]
+    on_topic = [x for x in report if x["kind"] == "on_topic"]
+    assert len(on_topic) == 6 and all(_top_id(c, x["question"]) in x["expected_ids"] for x in on_topic)
+    noisy = [x for x in report if x["kind"] != "on_topic"]
+    leaks = {x["id"] for x in noisy if c.retrieve(x["question"], k=8)}
+    assert len(noisy) == 5 and leaks == {"short-off-topic-bns69-bare", "verbose-off-topic-uk-parliament-with-coi-vocab"}
