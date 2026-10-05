@@ -18,6 +18,10 @@ EDITION_ENV = "PRAVRUDHI_EDITION"
 AUTH_ENV = "PRAVRUDHI_AUTH"
 HOSTED_IMAGE_ENV = "PRAVRUDHI_HOSTED_IMAGE"
 RELEASE_MARKER = ".pravrudhi/releases/"
+HOSTED_FILE = Path("/etc/pravrudhi/hosted-image")
+"""Baked into the hosted image by the Dockerfile. Unlike an environment variable it cannot be switched off by the
+deployment's own environment (`PRAVRUDHI_HOSTED_IMAGE=0`, blank, or missing), and it does not depend on `/.dockerenv`
+(absent on containerd, Kubernetes and RunPod): its presence IS the proof that this is the hosted image."""
 
 EDITIONS = frozenset({"studio", "product", "dev"})
 AUTH_MODES = frozenset({"disabled", "optional", "required"})
@@ -30,13 +34,16 @@ class DeploymentConfigError(RuntimeError):
 
 
 def hosted_image() -> bool:
-    """True inside the hosted engine image, which ships no agent CLIs by design (the coding agents run on the host loop).
+    """The DISPLAY (and edition-resolution) answer: True inside the hosted engine image, which ships no agent CLIs by
+    design (the coding agents run on the host loop).
 
     `PRAVRUDHI_HOSTED_IMAGE` decides when it says anything: a true value (the image sets `1`) is hosted and an explicit
     false value (`0`, `false`, `no`, `off`) is NOT, whatever else is set, so a local container can always opt out. An
     unset or empty marker falls back to the older images' defaults: a container (`/.dockerenv`) with
     `PRAVRUDHI_DISABLE_LOCAL_GUARD=1`, which the hosted image sets and a local install does not. Any other value is
     not trusted as a label and counts as not hosted."""
+    if HOSTED_FILE.exists():
+        return True
     marker = os.environ.get(HOSTED_IMAGE_ENV, "").strip().lower()
     if marker in _TRUE:
         return True
@@ -46,17 +53,23 @@ def hosted_image() -> bool:
 
 
 def hosted_marker_or_raise() -> bool:
-    """The strict answer for the boot and auth path: is this a hosted image? Unlike `hosted_image` (a display label,
-    where an unrecognised value just means "not hosted"), an unrecognised `PRAVRUDHI_HOSTED_IMAGE` raises
-    `DeploymentConfigError`, so a typo in the marker (`yess`, `treu`, `2`) cannot quietly re-open the
-    "unset PRAVRUDHI_AUTH means disabled" path of a hosted image."""
+    """The strict answer for the boot and auth path: is this the hosted image?
+
+    Decided by the baked-in file (`HOSTED_FILE`), which wins over everything: when it exists this is the hosted image
+    whatever the environment says (`PRAVRUDHI_HOSTED_IMAGE=0`, blank or garbage cannot switch the guard off). Without
+    the file, a true `PRAVRUDHI_HOSTED_IMAGE` (an operator asking for the strict rules) is hosted. An unrecognised
+    value raises `DeploymentConfigError`, so a typo in the marker (`yess`, `treu`, `2`) cannot quietly reopen the
+    "unset PRAVRUDHI_AUTH means disabled" path. The older-image heuristic of `hosted_image` (a container with the local
+    guard off) is deliberately NOT used here: a local development container must never be refused by a guess."""
+    if HOSTED_FILE.exists():
+        return True
     marker = os.environ.get(HOSTED_IMAGE_ENV, "").strip().lower()
     if marker and marker not in _TRUE and marker not in _FALSE:
         raise DeploymentConfigError(
             f"{HOSTED_IMAGE_ENV}={os.environ.get(HOSTED_IMAGE_ENV)!r} is not a recognised value "
             f"({sorted(_TRUE)} or {sorted(_FALSE)}); a mislabelled marker is not guessed at. Refusing to start."
         )
-    return hosted_image()
+    return marker in _TRUE
 
 
 def is_release_install() -> bool:
@@ -107,8 +120,13 @@ def validate() -> None:
             f"{AUTH_ENV}={os.environ.get(AUTH_ENV)!r} is not one of {sorted(AUTH_MODES)}; an unrecognised value used to mean "
             "`disabled` (every caller the operator). Refusing to start."
         )
-    if setting is None and hosted:
+    if hosted and setting is None:
         raise DeploymentConfigError(
             f"{AUTH_ENV} is unset on a hosted image. Unset means `disabled` only on a local install: name it "
             "(the image default is `required`). Refusing to start."
+        )
+    if hosted and setting == "disabled":
+        raise DeploymentConfigError(
+            f"{AUTH_ENV}=disabled on a hosted image: every caller would be the operator. A hosted image runs `required` or "
+            "`optional` only; there is no opt-in for `disabled` here. Refusing to start."
         )

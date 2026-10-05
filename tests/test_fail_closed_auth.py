@@ -25,7 +25,8 @@ ENV = ("PRAVRUDHI_AUTH", "PRAVRUDHI_EDITION", "PRAVRUDHI_HOSTED_IMAGE", "PRAVRUD
 
 
 @pytest.fixture(autouse=True)
-def _clean(monkeypatch: pytest.MonkeyPatch) -> None:
+def _clean(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(deployment, "HOSTED_FILE", tmp_path / "no-such-hosted-image-file")
     for v in ENV:
         monkeypatch.delenv(v, raising=False)
     real = Path.exists
@@ -120,18 +121,97 @@ def test_a_hosted_image_with_auth_unset_or_blank_refuses_to_start(monkeypatch: p
         validate()
 
 
-def test_an_older_hosted_image_without_the_marker_is_recognised_by_its_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_boot_does_not_use_the_dockerenv_heuristic_so_a_local_dev_container_is_never_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     _container(monkeypatch)
     monkeypatch.setenv("PRAVRUDHI_DISABLE_LOCAL_GUARD", "1")
-    with pytest.raises(DeploymentConfigError, match="unset on a hosted image"):
+    validate()  # AUTH unset in a container with the guard off, no file, no marker: a local container, not refused
+    assert hosted_marker_or_raise() is False
+    assert hosted_image() is True  # the heuristic still drives the display label and the edition resolution
+
+
+@pytest.mark.parametrize("auth", ["required", "optional", "Required", " optional "])
+def test_a_hosted_image_that_names_required_or_optional_starts(monkeypatch: pytest.MonkeyPatch, auth: str) -> None:
+    monkeypatch.setenv("PRAVRUDHI_HOSTED_IMAGE", "1")
+    monkeypatch.setenv("PRAVRUDHI_AUTH", auth)
+    validate()
+
+
+@pytest.mark.parametrize("auth", ["disabled", "Disabled", " DISABLED "])
+def test_a_hosted_image_refuses_disabled_with_no_second_opt_in(monkeypatch: pytest.MonkeyPatch, auth: str) -> None:
+    monkeypatch.setenv("PRAVRUDHI_HOSTED_IMAGE", "1")
+    monkeypatch.setenv("PRAVRUDHI_AUTH", auth)
+    with pytest.raises(DeploymentConfigError, match="disabled on a hosted image"):
+        validate()
+    with pytest.raises(DeploymentConfigError):
+        identity.guard_boot()
+    for optin in ("PRAVRUDHI_ALLOW_DISABLED_AUTH", "PRAVRUDHI_ALLOW_UNAUTHENTICATED", "PRAVRUDHI_DEV"):
+        monkeypatch.setenv(optin, "1")  # no environment opt-in exists
+    with pytest.raises(DeploymentConfigError):
         validate()
 
 
-@pytest.mark.parametrize("auth", ["required", "optional", "disabled"])
-def test_a_hosted_image_that_names_its_auth_mode_starts(monkeypatch: pytest.MonkeyPatch, auth: str) -> None:
+def test_optional_auth_with_an_anonymous_caller_is_never_admin(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PRAVRUDHI_AUTH", "optional")
+    monkeypatch.setenv("PRAVRUDHI_ADMINS", "op-1")
+    assert roles.role_of(None) is roles.USER and not roles.is_admin(None)
     monkeypatch.setenv("PRAVRUDHI_HOSTED_IMAGE", "1")
-    monkeypatch.setenv("PRAVRUDHI_AUTH", auth)
-    validate()  # (an explicit `disabled` is the operator's decision; the Studio loopback guard still applies to it)
+    assert roles.role_of(None) is roles.USER
+
+
+# -- the baked-in file is the unforgeable marker ---------------------------------------------------------------------
+
+
+@pytest.fixture
+def hosted_file(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
+    marker = tmp_path / "etc-pravrudhi-hosted-image"
+    marker.write_text("hosted image\n")
+    monkeypatch.setattr(deployment, "HOSTED_FILE", marker)
+    return marker
+
+
+@pytest.mark.parametrize("env", [None, "", "0", "false", "no", "off", "FALSE", "yess", "2"])
+def test_the_baked_in_file_makes_it_hosted_whatever_the_environment_says(
+    hosted_file: Path, monkeypatch: pytest.MonkeyPatch, env: str | None
+) -> None:
+    if env is not None:
+        monkeypatch.setenv("PRAVRUDHI_HOSTED_IMAGE", env)
+    assert hosted_marker_or_raise() is True and hosted_image() is True
+    assert resolved_edition() == "product"  # and an unlabelled hosted image is the product
+    with pytest.raises(DeploymentConfigError, match="unset on a hosted image"):
+        validate()  # AUTH unset: refuses, with the env marker switched off, blank, missing or garbage
+
+
+@pytest.mark.parametrize("env", [None, "", "0", "false"])
+def test_the_baked_in_file_also_refuses_disabled(hosted_file: Path, monkeypatch: pytest.MonkeyPatch, env: str | None) -> None:
+    if env is not None:
+        monkeypatch.setenv("PRAVRUDHI_HOSTED_IMAGE", env)
+    monkeypatch.setenv("PRAVRUDHI_AUTH", "disabled")
+    with pytest.raises(DeploymentConfigError, match="disabled on a hosted image"):
+        validate()
+    monkeypatch.setenv("PRAVRUDHI_AUTH", "required")
+    validate()
+
+
+def test_without_the_file_and_without_a_container_it_is_a_local_install(monkeypatch: pytest.MonkeyPatch) -> None:
+    assert not deployment.HOSTED_FILE.exists()
+    assert hosted_marker_or_raise() is False
+    validate()  # AUTH unset: a local install, as before
+
+
+def test_the_file_works_where_there_is_no_dockerenv(hosted_file: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """containerd, Kubernetes and RunPod have no /.dockerenv: the file does not depend on it."""
+    assert not Path("/.dockerenv").exists()  # the autouse fixture hides it
+    assert hosted_marker_or_raise() is True
+
+
+def test_the_dockerfile_bakes_the_file_in_and_the_path_matches() -> None:
+    text = (Path(__file__).parent.parent / "deploy" / "docker" / "Dockerfile").read_text()
+    path = "/etc/pravrudhi/hosted-image"
+    assert path in text  # the Dockerfile bakes the file...
+    assert f'HOSTED_FILE = Path("{path}")' in (Path(deployment.__file__)).read_text()  # ...at the path the engine checks
+    assert "PRAVRUDHI_HOSTED_IMAGE=1" in text  # the env marker stays as the display label
 
 
 @pytest.mark.parametrize("value", ["0", "false", "no", "off", "FALSE"])
