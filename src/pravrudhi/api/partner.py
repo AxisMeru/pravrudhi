@@ -398,6 +398,28 @@ class ContractResultOut(BaseModel):
     statute_text_mismatch: bool | None
 
 
+class StandardOut(BaseModel):
+    """#220: the standard of proof the request asked for, whether the judge was told it, and where it came from.
+    Unknown values from a newer engine pass through verbatim, so `requested`, `applied` and `source` are plain
+    strings here."""
+
+    requested: str = Field(
+        description='The standard the posture asks for: "proved" or "prima_facie_disclosed". Recorded in the audit '
+        "row whether or not the judge was told it."
+    )
+    applied: str | None = Field(
+        description="The standard actually stated in the judge's prompt: the same value as `requested` when "
+        "`in_judge_prompt` is true, and null when it is false (the judge never saw a standard, so none was applied)."
+    )
+    source: str = Field(description='"proceeding_posture", "proceeding_type" or "default".')
+    proceeding_posture: str | None = Field(default=None, description="The caller's posture, echoed; null if absent.")
+    in_judge_prompt: bool = Field(
+        description="True only when the house judge's prompt stated the requested standard "
+        "(judge_prompt.standard_line on). False means the basis is recorded (`requested`) but the judge never saw "
+        "it, so `applied` is null."
+    )
+
+
 class AnalyseFactsResponse(BaseModel):
     run_id: str
     judge: str
@@ -413,6 +435,12 @@ class AnalyseFactsResponse(BaseModel):
     #: Issue #39: the exact retention notice text (nyaya_agent.RETENTION_NOTICE), on every response -- a
     #: partner API caller who never sees the web UI still gets this verbatim, not just in documentation.
     retention_notice: str = Field(default=RETENTION_NOTICE)
+    standard: StandardOut | None = Field(
+        default=None,
+        description="Additive (#220): the standard the request asked for (`requested`) and the standard the judge's "
+        "prompt actually stated (`applied`, null under the legacy prompt template, where the judge is never told "
+        "a standard), from the same values as the audit row.",
+    )
 
 
 AgentFactory = Callable[[Path], AgentLike]

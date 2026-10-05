@@ -901,6 +901,10 @@ class AgentRun:
     #: engine, the partner API response, and a future frontend that reads this field instead of hardcoding
     #: its own copy.
     retention_notice: str = RETENTION_NOTICE
+    #: #220: the standard this run applied, from the same resolved values the `run_start` audit row carries.
+    #: `{"requested", "applied", "source", "proceeding_posture", "in_judge_prompt"}`; `applied` is None when the
+    #: judge's prompt did not state the standard. None only for a hand-built run.
+    standard: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
@@ -1508,9 +1512,17 @@ class NyayaAgent:
         audit = AuditTrail(Path(self.config.audit_dir) / f"{run_id}.jsonl", run_id)
         cfg_view = {"tau": self.config.tau, "refer_band": list(self.config.refer_band), "max_retries": self.config.max_retries,
                    "second_refer_logit_delta": self.config.second_refer_logit_delta()}
+        in_prompt = getattr(self.judge, "prompt_template", "legacy") != "legacy"
         standard_view = {
             "proceeding_posture": proceeding_posture, "standard": standard, "standard_source": standard_source,
-            "standard_in_judge_prompt": getattr(self.judge, "prompt_template", "legacy") != "legacy",
+            "standard_in_judge_prompt": in_prompt,
+        }
+        standard_out = {
+            "requested": standard,
+            "applied": standard if in_prompt else None,
+            "source": "proceeding_posture" if standard_source == "request" else "default",
+            "proceeding_posture": proceeding_posture,
+            "in_judge_prompt": in_prompt,
         }
         audit.step("run_start", cfg_view,
                    {"judge": self.judge.name, "score_sha256": self.registry.sha256, "client_data": client_data,
@@ -1540,4 +1552,4 @@ class NyayaAgent:
         audit.step("run_end", {"run_id": run_id}, {c.contract_id: c.outcome for c in results}, 0.0)
         return AgentRun(run_id, self.judge.name, self.registry.sha256,
                         [{"id": f.id, "sha256": f.sha256} for f in ingested], results, audit.path,
-                        judge_accounting=accounting, client_data=client_data)
+                        judge_accounting=accounting, client_data=client_data, standard=standard_out)
