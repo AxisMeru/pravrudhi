@@ -287,6 +287,7 @@ class AgentLike(Protocol):
         contract_ids: list[str] | None = None,
         sections: list[str] | None = None,
         client_data: bool = True,
+        proceeding_posture: str | None = None,
     ) -> Any: ...
 
 
@@ -306,6 +307,17 @@ class AnalyseFactsRequest(BaseModel):
     #: dozens of GPU calls) for one anonymous request. 1-5 explicit ids only.
     contract_ids: list[str] = Field(min_length=1, max_length=5)
     sections: list[str] | None = None
+    #: The proceeding stage the analysis is for. Optional: absent means the engine's stricter default
+    #: ("proved"), recorded as standard_source=default_proved. An unknown value is a 422 (the Literal).
+    #: It changes the judge prompt only when the deployment's `prompt_template` is not `legacy` (the default).
+    proceeding_posture: Literal["quash", "discharge", "trial", "appeal"] | None = Field(
+        default=None,
+        description=(
+            "Stage of the proceeding: quash/discharge judge whether the record prima facie discloses each element; "
+            "trial/appeal judge whether the evidence proves it. Omit for the stricter default (proved). "
+            "No effect unless the engine runs a standard-aware prompt template."
+        ),
+    )
 
 
 #: The exact keys `analyse_facts_ep` strips out of each element's dict when the debug gate is off -- listed
@@ -827,6 +839,10 @@ def build_partner_router(
         # headers` raises 401 itself when a key header WAS sent but does not verify, the same as `usage_ep`;
         # it never treats a bad key as "no key" (a caller who supplied a bad key is never silently anonymous).
         principal = tenancy.principal_from_headers(engine_root, request.headers)
+        if principal is not None:
+            from pravrudhi.application.credentials import serving_org
+
+            serving_org.set(principal.org_id)
         authenticated = user is not None or principal is not None
         ip = _client_ip(request, trust_proxy_header=cfg.trust_proxy_header, trusted_proxies=cfg.trusted_proxies)
         if not rate_limiter.allow(ip):
@@ -865,9 +881,11 @@ def build_partner_router(
             # public, unauthenticated endpoint (module docstring), so every run through it is exactly the
             # anonymous-submission case the retention/training-corpus guard exists for -- a reader should
             # never have to check NyayaAgent.run's own default to know that.
+            # Passed only when stated, so an agent that predates the argument keeps working unchanged.
+            posture = {"proceeding_posture": req.proceeding_posture} if req.proceeding_posture is not None else {}
             result = agent.run(
                 req.facts, narrative=req.narrative, contract_ids=req.contract_ids, sections=req.sections,
-                client_data=True,
+                client_data=True, **posture,
             )
         except ValueError as e:
             raise HTTPException(422, str(e)) from e

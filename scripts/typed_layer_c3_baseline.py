@@ -74,8 +74,10 @@ def main() -> int:
     by_split: dict[str, list[dict[str, object]]] = {}
     for i, row in enumerate(rows):
         res = house._complete(row["prompt"])  # noqa: SLF001 -- current production HouseJudge's own transport
-        p = p_established_from_top_logprobs(res.top_logprobs[0]) if res.top_logprobs else None
-        by_split.setdefault(str(row["split"]), []).append({"id": row.get("id"), "gold": row["gold"], "p": p})
+        p, clamp = p_established_from_top_logprobs(res.top_logprobs[0]) if res.top_logprobs else (None, None)
+        by_split.setdefault(str(row["split"]), []).append(
+            {"id": row.get("id"), "gold": row["gold"], "p": p, "clamp": clamp}
+        )
         if (i + 1) % 50 == 0:
             print(f"  {i + 1}/{len(rows)}")
 
@@ -88,8 +90,10 @@ def main() -> int:
         rate = fp / n_neg if n_neg else float("nan")
         upper = cp_upper(fp, n_neg)
         print(f"{split}: n={len(split_rows)}, n_neg={n_neg}, fp={fp}, false_establish_rate={rate:.4f}, cp_upper_95={upper:.4f}")
+        n_bounded = sum(1 for r in split_rows if r["clamp"] not in (None, "none"))
         result["splits"][split] = {  # type: ignore[index]
             "n": len(split_rows), "n_neg": n_neg, "fp": fp, "false_establish_rate": rate, "cp_upper_95": upper,
+            "n_bounded_p": n_bounded,
         }
 
     out_path = results_dir / "typed_layer_c3_baseline_result.json"

@@ -317,9 +317,38 @@ class TestClaudeEnvIsTheScriptedSeatZero:
     redirect at a throwaway directory rather than asserting on the real, live, machine-specific seat-0
     directory (same discipline as the panel.py `_claude_cli_env` tests this mirrors)."""
 
-    def test_defaults_to_the_seat_zero_directory(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_defaults_to_the_seat_two_claude_loop_directory(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv(account.SCRIPTED_CLAUDE_HOME_ENV, raising=False)
         assert account.scripted_claude_home() == account.SCRIPTED_CLAUDE_HOME_DEFAULT.expanduser()
+        assert Path("~/.config/pravrudhi/claude-loop") == account.SCRIPTED_CLAUDE_HOME_DEFAULT
+        assert account.SCRIPTED_CLAUDE_EMAIL == "sharath.sathish@gmail.com"
+
+    @pytest.mark.parametrize("wrong", ["sharath.ai.colab@gmail.com", "admin@axismeru.com", None])
+    def test_live_check_refuses_on_email_mismatch(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, wrong: str | None
+    ) -> None:
+        home = _seat_dir(tmp_path / "loop", email=account.SCRIPTED_CLAUDE_EMAIL, refresh="r-loop")
+        monkeypatch.setenv(account.SCRIPTED_CLAUDE_HOME_ENV, str(home))
+        status = {"loggedIn": True, "email": wrong} if wrong else None
+        monkeypatch.setattr(account, "_auth_status", lambda d: status)
+        with pytest.raises(account.ScriptedSeatMismatch, match="auth status"):
+            account.claude_env(live=True)
+
+    def test_live_check_accepts_the_expected_email(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        home = _seat_dir(tmp_path / "loop", email=account.SCRIPTED_CLAUDE_EMAIL, refresh="r-loop")
+        monkeypatch.setenv(account.SCRIPTED_CLAUDE_HOME_ENV, str(home))
+        seen: list[Path] = []
+        monkeypatch.setattr(
+            account, "_auth_status", lambda d: seen.append(d) or {"loggedIn": True, "email": account.SCRIPTED_CLAUDE_EMAIL}
+        )
+        assert account.claude_env(live=True) == {"CLAUDE_CONFIG_DIR": str(home)}
+        assert seen == [home]
+
+    def test_default_never_shells_out(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        home = _seat_dir(tmp_path / "loop", email=account.SCRIPTED_CLAUDE_EMAIL, refresh="r-loop")
+        monkeypatch.setenv(account.SCRIPTED_CLAUDE_HOME_ENV, str(home))
+        monkeypatch.setattr(account, "_auth_status", lambda d: pytest.fail("claude_env() must not shell out by default"))
+        account.claude_env()
 
     def test_env_var_redirects_it(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         redirected = tmp_path / "redirected-seat-0"
@@ -347,9 +376,9 @@ class TestClaudeEnvIsTheScriptedSeatZero:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Issue #82's second requirement: verify the account, don't just check a credential file exists."""
-        home = _seat_dir(tmp_path / "seat0", email="sharath.sathish@gmail.com", refresh="r-wrong")
+        home = _seat_dir(tmp_path / "seat0", email="sharath.ai.colab@gmail.com", refresh="r-wrong")
         monkeypatch.setenv(account.SCRIPTED_CLAUDE_HOME_ENV, str(home))
-        with pytest.raises(account.ScriptedSeatMismatch, match="sharath.sathish@gmail.com"):
+        with pytest.raises(account.ScriptedSeatMismatch, match="sharath.ai.colab@gmail.com"):
             account.claude_env()
 
     def test_a_wrong_account_is_refused_even_with_require_false(
@@ -357,7 +386,7 @@ class TestClaudeEnvIsTheScriptedSeatZero:
     ) -> None:
         """`require=False` excuses a MISSING credential (a status listing must not crash over one), never a
         credential for the WRONG account -- that is a live, silent-billing risk, not an absent-file question."""
-        home = _seat_dir(tmp_path / "seat0", email="sharath.sathish@gmail.com", refresh="r-wrong")
+        home = _seat_dir(tmp_path / "seat0", email="sharath.ai.colab@gmail.com", refresh="r-wrong")
         monkeypatch.setenv(account.SCRIPTED_CLAUDE_HOME_ENV, str(home))
         with pytest.raises(account.ScriptedSeatMismatch):
             account.claude_env(require=False)

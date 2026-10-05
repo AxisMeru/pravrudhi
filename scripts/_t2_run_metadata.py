@@ -93,6 +93,8 @@ class RunMetadata:
         self.data["inter_call_delay_s"] = self.delay_s
 
     def finish(self, *, extra: dict[str, Any] | None = None) -> None:
+        if not extra or "complete" not in extra:
+            raise ValueError("RunMetadata.finish requires extra['complete']: the completeness record cannot be omitted")
         self.data["end_utc"] = datetime.now(UTC).isoformat()
         self.data["elapsed_s"] = time.monotonic() - self._t0
         self.data["nvidia_smi_after"] = nvidia_smi_snapshot()
