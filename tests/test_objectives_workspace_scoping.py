@@ -115,8 +115,9 @@ def test_plan_loom_and_subagents_read_the_callers_own_workspace_not_the_root(tmp
         missing_in_root = c.get(path, headers=auth)  # no workspace: must not fall back to reading root
         assert missing_in_root.status_code in (400, 404), f"{path} answered from root without a workspace"
 
+    # Dispatching host coding agents is the operator's in every edition (#257): a signed-in non-admin is refused.
     started = c.post("/api/objectives/shared-oid/subagents?workspace=mine", headers={**auth, **tok})
-    assert started.status_code == 200, started.text
+    assert started.status_code == 403, started.text
 
 
 def test_every_objectives_route_that_touches_project_state_takes_a_workspace_parameter(tmp_path: Path, monkeypatch) -> None:

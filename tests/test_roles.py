@@ -180,23 +180,24 @@ class TestEveryRouteIsClassified:
         return {r.path for r in walk(create_app(Path(".")).routes)}
 
     def test_no_route_is_left_unclassified(self) -> None:
-        from pravrudhi.api.roles import ADMIN_ONLY, USER_FACING
+        from pravrudhi.api.roles import ADMIN_IN_BOTH_EDITIONS, ADMIN_ONLY, USER_FACING
 
-        missing = sorted(self._paths() - ADMIN_ONLY - USER_FACING)
+        missing = sorted(self._paths() - ADMIN_ONLY - USER_FACING - ADMIN_IN_BOTH_EDITIONS)
         assert not missing, (
             f"these routes belong to neither audience; add each to ADMIN_ONLY or USER_FACING: {missing}"
         )
 
     def test_no_route_is_claimed_by_both(self) -> None:
-        from pravrudhi.api.roles import ADMIN_ONLY, USER_FACING
+        from pravrudhi.api.roles import ADMIN_IN_BOTH_EDITIONS, ADMIN_ONLY, USER_FACING
 
         assert not (ADMIN_ONLY & USER_FACING)
+        assert not (ADMIN_IN_BOTH_EDITIONS & (ADMIN_ONLY | USER_FACING))
 
     def test_the_lists_name_no_route_that_has_gone(self) -> None:
         """A stale entry is how a list stops describing the application it claims to describe."""
-        from pravrudhi.api.roles import ADMIN_ONLY, USER_FACING
+        from pravrudhi.api.roles import ADMIN_IN_BOTH_EDITIONS, ADMIN_ONLY, ADMIN_WRITES_IN_BOTH_EDITIONS, USER_FACING
 
-        stale = sorted((ADMIN_ONLY | USER_FACING) - self._paths())
+        stale = sorted((ADMIN_ONLY | USER_FACING | ADMIN_IN_BOTH_EDITIONS | ADMIN_WRITES_IN_BOTH_EDITIONS) - self._paths())
         assert not stale, f"these are classified but no longer exist: {stale}"
 
     def test_the_engine_improving_itself_is_never_user_facing(self) -> None:

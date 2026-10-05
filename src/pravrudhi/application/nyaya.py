@@ -26,10 +26,12 @@ same sources, so a verdict can be reproduced.
 
 from __future__ import annotations
 
+import contextvars
 import hashlib
 import json
 import math
 import re
+import subprocess
 import uuid
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
@@ -96,7 +98,10 @@ _ACT = "|".join(re.escape(n) for n in sorted(_ACT_NAMES, key=len, reverse=True))
 _UNIT = r"(?:sections?|secs?|articles?|art|ss?)[\s.]*"  # "section 5", "sections.5", "s.5", "art. 5"
 _BASE = r"[0-9]+[a-z]?"
 _NUM = rf"{_BASE}(?:\([0-9a-z]+\))*"  # "189(2)" names section 189
-_ACT_THEN_NUMBER = re.compile(rf"(?<![a-z0-9])({_ACT})[\s,:-]*(?:{_UNIT})?({_NUM})(?![a-z0-9])")
+# An Act's year ("BNSS, 2023 section 528") is skipped only when a section marker follows it, so "BNS 2023" alone
+# still reads 2023 as a number, as before.
+_ACT_YEAR = rf"(?:(?:18|19|20)[0-9]{{2}}[\s,:-]*(?={_UNIT}[0-9]))?"
+_ACT_THEN_NUMBER = re.compile(rf"(?<![a-z0-9])({_ACT})[\s,:-]*{_ACT_YEAR}(?:{_UNIT})?({_NUM})(?![a-z0-9])")
 _NUMBERS_THEN_ACT = re.compile(
     rf"(?<![a-z0-9]){_UNIT}({_NUM}(?:\s*(?:,|and|&|or)\s*{_NUM})*)\s+(?:of\s+)?(?:the\s+)?({_ACT})(?![a-z0-9])"
 )
@@ -382,8 +387,15 @@ def available_vendors(
     """
     import shutil
 
+    from pravrudhi.application import tenant_vendors
+    from pravrudhi.application.credentials import serving_api, serving_org
+
+    api = serving_api.get()
+    permitted = tenant_vendors.allowed_ids(serving_org.get()) if api else None
     out: list[dict[str, Any]] = []
     for vid in ids:
+        if permitted is not None and vid not in permitted:
+            continue
         v = panel.VENDORS[vid]
         why = None
         if v.interface == "cli" and shutil.which(v.model) is None:
@@ -454,6 +466,12 @@ def ask(
     hits = [d for d, _ in corpus.retrieve(question, k=k)]
     prompt = grounded_prompt(question, hits)
     chosen = panel.load_vendors(vendors)
+    from pravrudhi.application import tenant_vendors
+    from pravrudhi.application.credentials import serving_api, serving_org
+
+    if serving_api.get():
+        for v in chosen:
+            tenant_vendors.require(v.id, serving_org.get())
 
     def _default_ask(v: panel.Vendor, p: str) -> panel.Answer:
         return panel.ask_vendor(v, p, root=Path(root), store=store)
@@ -471,8 +489,11 @@ def ask(
         cites, verdict, conf = check_answer(text, hits, corpus)
         return VendorAnswer(v.id, v.model, text, round(wall, 2), cites, verdict, conf)
 
+    # Each worker runs in a copy of THIS thread's context, taken here: a pool thread starts with the serving
+    # ContextVars unset, which would turn the API guards in `panel.ask_vendor` off for exactly these calls.
+    ctxs = [contextvars.copy_context() for _ in chosen]
     with ThreadPoolExecutor(max_workers=max(1, len(chosen))) as pool:
-        answers = list(pool.map(one, chosen))
+        answers = list(pool.map(lambda cv: cv[0].run(one, cv[1]), zip(ctxs, chosen, strict=True)))
 
     if checker == "lean":
         if contract_id is None:
@@ -569,6 +590,24 @@ def registry_contract_ids() -> list[str]:
     `checker="lean"` uses) -- disjoint id spaces, disjoint input shapes; see `nyaya_lean_registry`'s
     own module doc for why."""
     return sorted(nyaya_lean_registry.KNOWN_CONTRACT_IDS)
+
+
+def registry_contract_entries(root: Path) -> list[dict[str, Any]]:
+    """`registry_contract_ids()` with, per id, `validated` (in the scorer's own `validated_contracts`
+    allowlist: only these can return PROOF/DENIAL, every other id is REFER `contract_not_validated`) and
+    `sources` (the statute act/section the binary's `--list-contracts` cites; None when the binary is not
+    available here). Read from the same config the scorer uses, so the listing cannot drift from behaviour."""
+    from pravrudhi.application.nyaya_agent import validated_contract_ids
+
+    validated = validated_contract_ids(root)
+    try:
+        sources: dict[str, list[str]] | None = nyaya_lean_registry.list_contracts(root=root)
+    except (OSError, RuntimeError, subprocess.SubprocessError):
+        sources = None
+    return [
+        {"id": cid, "validated": cid in validated, "sources": sources.get(cid) if sources is not None else None}
+        for cid in registry_contract_ids()
+    ]
 
 
 def registry_elements(root: Path, contract_id: str) -> list[str]:

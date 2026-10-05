@@ -10,6 +10,7 @@ binary.
 from __future__ import annotations
 
 import os
+import subprocess
 import threading
 import time
 from pathlib import Path
@@ -50,8 +51,10 @@ def _not(p: float = 0.03) -> ElementJudgment:
 class ScriptedJudge:
     def __init__(self, script: dict[str, list[ElementJudgment | Exception]]) -> None:
         self.script = script
+        self.requests: list[JudgeRequest] = []
 
     def judge(self, request: JudgeRequest) -> ElementJudgment:
+        self.requests.append(request)
         queue = self.script[request.element]
         item = queue.pop(0) if len(queue) > 1 else queue[0]
         if isinstance(item, Exception):
@@ -1146,3 +1149,189 @@ class TestJudgesWarming:
     def test_warm_grace_is_config_not_code(self) -> None:
         cfg = load_partner_api_config(Path(__file__).resolve().parent.parent)
         assert cfg.judge_warm_grace_s > 0 and cfg.judge_warm_retry_s > 0
+
+
+def test_contracts_carry_citations_resolved_against_the_corpus(tmp_path: Path) -> None:
+    """#142: the contract's own source column, checked against the shipped corpus; same whatever the verdict."""
+    proof = _client(tmp_path).post("/api/v1/analyse-facts", json=_req()).json()["contracts"][0]
+    assert proof["citations"] == [
+        {"act": "BNS", "section": "69", "corpus_id": "BNS/Section 69", "in_corpus": True, "title": proof["citations"][0]["title"]}
+    ]
+    assert proof["citations"][0]["title"]
+    no_proof = {BNS69_EL[0]: [_not()], BNS69_EL[1]: [_not()], BNS69_DENY: [_not()]}
+    refer = _client(tmp_path, no_proof).post("/api/v1/analyse-facts", json=_req()).json()["contracts"][0]
+    assert refer["outcome"] != proof["outcome"]
+    assert refer["citations"] == proof["citations"]
+
+
+def test_a_source_absent_from_the_corpus_is_reported_not_dropped(tmp_path: Path) -> None:
+    agent = _agent(tmp_path, _proof_script())
+    agent.registry.sources["bns69"] = ["Bharatiya Nyaya Sanhita §9999"]
+    app = FastAPI()
+    app.include_router(build_partner_router(tmp_path, agent_factory=lambda _root: agent, config=_NO_LIMIT_CONFIG))
+    c = TestClient(app).post("/api/v1/analyse-facts", json=_req()).json()["contracts"][0]
+    assert c["citations"] == [{"act": "BNS", "section": "9999", "corpus_id": None, "in_corpus": False, "title": None}]
+
+
+def _citations_client(tmp_path: Path, agent: Any) -> TestClient:
+    app = FastAPI()
+    app.include_router(build_partner_router(tmp_path, agent_factory=lambda _root: agent, config=_NO_LIMIT_CONFIG))
+    return TestClient(app)
+
+
+def test_citations_reuse_the_sources_the_run_already_read_one_registry_call_per_request(tmp_path: Path) -> None:
+    agent = _agent(tmp_path, _proof_script())
+    real = agent.registry.list_contracts
+    calls: list[int] = []
+
+    def counting() -> dict[str, list[str]]:
+        calls.append(1)
+        return real()
+
+    agent.registry.list_contracts = counting  # type: ignore[method-assign]
+    r = _citations_client(tmp_path, agent).post("/api/v1/analyse-facts", json=_req())
+    assert r.status_code == 200 and r.json()["contracts"][0]["citations"][0]["in_corpus"] is True
+    assert calls == [1]
+    assert "listed_sources" not in r.json()
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        subprocess.CalledProcessError(1, ["score", "--list-contracts"]),
+        subprocess.TimeoutExpired(["score", "--list-contracts"], 30),
+        RuntimeError("binary gone"),
+    ],
+    ids=["CalledProcessError", "TimeoutExpired", "RuntimeError"],
+)
+def test_a_failing_sources_read_gives_null_citations_and_a_200_never_a_500(tmp_path: Path, error: Exception) -> None:
+    """The fallback read (a run that carries no sources) fails: an already-completed analysis is still returned."""
+    agent = _agent(tmp_path, _proof_script())
+    real_run, real_list = agent.run, agent.registry.list_contracts
+    calls: list[int] = []
+
+    def run_without_sources(*a: Any, **k: Any) -> Any:
+        out = real_run(*a, **k)
+        out.listed_sources = None
+        return out
+
+    def flaky() -> dict[str, list[str]]:
+        calls.append(1)
+        if len(calls) > 1:  # the run's own selection read succeeds; the fallback read in the router fails
+            raise error
+        return real_list()
+
+    agent.run = run_without_sources  # type: ignore[method-assign]
+    agent.registry.list_contracts = flaky  # type: ignore[method-assign]
+    r = _citations_client(tmp_path, agent).post("/api/v1/analyse-facts", json=_req())
+    assert r.status_code == 200, r.text
+    assert r.json()["contracts"][0]["citations"] is None and r.json()["contracts"][0]["outcome"]
+
+
+class TestProceedingPosture:
+    """#204: optional `proceeding_posture` on analyse-facts; 422 on an unknown value; no effect under legacy."""
+
+    @staticmethod
+    def _client_with_judge(tmp_path: Path) -> tuple[TestClient, Any]:
+        agent = _agent(tmp_path, _proof_script())
+        app = FastAPI()
+        app.include_router(build_partner_router(tmp_path, agent_factory=lambda _root: agent, config=_NO_LIMIT_CONFIG))
+        return TestClient(app), agent.judge
+
+    @pytest.mark.parametrize("posture", ["quash", "discharge", "trial", "appeal"])
+    def test_a_valid_posture_reaches_every_judge_request(self, tmp_path: Path, posture: str) -> None:
+        c, judge = self._client_with_judge(tmp_path)
+        resp = c.post("/api/v1/analyse-facts", json=_req(proceeding_posture=posture))
+        assert resp.status_code == 200
+        assert judge.requests and {r.proceeding_posture for r in judge.requests} == {posture}
+
+    def test_an_absent_posture_stays_unset_for_the_engine_default(self, tmp_path: Path) -> None:
+        c, judge = self._client_with_judge(tmp_path)
+        assert c.post("/api/v1/analyse-facts", json=_req()).status_code == 200
+        assert {r.proceeding_posture for r in judge.requests} == {None}
+
+    @pytest.mark.parametrize("bad", ["bail", "", "TRIAL", 3, ["trial"]])
+    def test_an_invalid_posture_is_a_422_before_any_judge_call(self, tmp_path: Path, bad: object) -> None:
+        c, judge = self._client_with_judge(tmp_path)
+        assert c.post("/api/v1/analyse-facts", json=_req(proceeding_posture=bad)).status_code == 422
+        assert judge.requests == []
+
+    def test_under_legacy_the_posture_changes_nothing_but_the_standard_object(self, tmp_path: Path) -> None:
+        def body(posture: str | None) -> dict[str, Any]:
+            c, _ = self._client_with_judge(tmp_path / str(posture))
+            out = c.post("/api/v1/analyse-facts", json=_req() if posture is None else _req(proceeding_posture=posture)).json()
+            out.pop("standard", None)
+            for k in ("run_id", "audit_run_id", "audit_path", "wall_ms"):
+                out.pop(k, None)
+            return out  # type: ignore[no-any-return]
+
+        assert body("quash") == body(None) == body("trial")
+
+    def test_openapi_documents_the_enum_as_optional(self, tmp_path: Path) -> None:
+        c, _ = self._client_with_judge(tmp_path)
+        schema = c.get("/openapi.json").json()["components"]["schemas"]["AnalyseFactsRequest"]
+        prop = schema["properties"]["proceeding_posture"]
+        assert "proceeding_posture" not in schema.get("required", [])
+        enums = [b["enum"] for b in prop.get("anyOf", [prop]) if "enum" in b]
+        assert enums == [["quash", "discharge", "trial", "appeal"]]
+        assert "stricter default" in prop["description"]
+
+
+class _HouseTemplateJudge(ScriptedJudge):
+    prompt_template = "house"
+
+
+class TestStandardInResponse:
+    """#220: response.standard is the resolved standard, equal to the run_start audit row's fields."""
+
+    @staticmethod
+    def _run(tmp_path: Path, posture: str | None, *, template: bool = True) -> tuple[dict[str, Any], dict[str, Any]]:
+        agent = _agent(tmp_path, _proof_script())
+        if template:
+            agent.judge = _HouseTemplateJudge(_proof_script())
+        app = FastAPI()
+        app.include_router(build_partner_router(tmp_path, agent_factory=lambda _root: agent, config=_NO_LIMIT_CONFIG))
+        body = TestClient(app).post(
+            "/api/v1/analyse-facts", json=_req() if posture is None else _req(proceeding_posture=posture)
+        ).json()
+        import json as _json
+
+        rows = [_json.loads(x) for x in (tmp_path / "audit" / f"{body['run_id']}.jsonl").read_text().splitlines()]
+        start = next(r for r in rows if r["step"] == "run_start")
+        return body, start.get("output", start)
+
+    @pytest.mark.parametrize("posture", ["quash", "discharge", "trial", "appeal"])
+    def test_standard_equals_the_audit_row(self, tmp_path: Path, posture: str) -> None:
+        body, row = self._run(tmp_path, posture)
+        std = body["standard"]
+        assert std["requested"] == std["applied"] == row["standard"]
+        assert std["in_judge_prompt"] is row["standard_in_judge_prompt"] is True
+        assert std["proceeding_posture"] == row["proceeding_posture"] == posture
+        assert (std["source"], row["standard_source"]) == ("proceeding_posture", "request")
+
+    def test_absent_posture_is_proved_by_default(self, tmp_path: Path) -> None:
+        body, row = self._run(tmp_path, None)
+        assert body["standard"] == {
+            "requested": "proved", "applied": "proved", "source": "default", "proceeding_posture": None,
+            "in_judge_prompt": True,
+        }
+        assert row["standard"] == "proved" and row["standard_source"] == "default_proved"
+
+    def test_legacy_template_records_the_basis_but_says_the_judge_never_saw_it(self, tmp_path: Path) -> None:
+        body, row = self._run(tmp_path, "quash", template=False)
+        assert body["standard"] == {
+            "requested": "prima_facie_disclosed", "applied": None, "source": "proceeding_posture",
+            "proceeding_posture": "quash", "in_judge_prompt": False,
+        }
+        assert row["standard"] == "prima_facie_disclosed" and row["standard_in_judge_prompt"] is False
+
+    def test_openapi_documents_standard_as_optional_object(self, tmp_path: Path) -> None:
+        c = _client(tmp_path)
+        schemas = c.get("/openapi.json").json()["components"]["schemas"]
+        resp = schemas["AnalyseFactsResponse"]
+        assert "standard" not in resp.get("required", [])
+        assert "StandardOut" in str(resp["properties"]["standard"])
+        out = schemas["StandardOut"]
+        assert set(out["properties"]) == {"requested", "applied", "source", "proceeding_posture", "in_judge_prompt"}
+        assert set(out["required"]) == {"requested", "applied", "source", "in_judge_prompt"}
+        assert {"type": "null"} in out["properties"]["applied"]["anyOf"]

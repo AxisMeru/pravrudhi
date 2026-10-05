@@ -27,6 +27,7 @@ from pravrudhi.application.nyaya_agent import (
     BinaryRegistry,
     BinaryShaMismatch,
     NyayaAgent,
+    _established_tristate,
     _truthful_status,
     assemble_assertions,
     expected_outcome,
@@ -270,6 +271,33 @@ class TestAssembly:
     def test_expected_outcome_mirrors_the_element_first_harness(self, established: dict[str, bool], outcome: str) -> None:
         assert expected_outcome(self.C, assemble_assertions(self.C, established)) == outcome
 
+    def test_established_tristate_maps_each_status(self) -> None:
+        """Issue #56: True only for "established"; None for either `not_evaluated_*` gap (the second judge
+        never answering, or issue #57/#63/#72's Gate 1 model never answering) -- both are "nobody reached a
+        verdict", not a judge's own negative one; the two genuinely-judged negatives (`not_confirmed`,
+        `not_established`) both collapse to plain False -- they drive the identical outcome (module doc /
+        issue #37), so neither is a gap the way the two `not_evaluated_*` statuses are."""
+        assert _established_tristate("established") is True
+        assert _established_tristate("not_confirmed") is False
+        assert _established_tristate("not_established") is False
+        assert _established_tristate("not_evaluated_second_unavailable") is None
+        assert _established_tristate("not_evaluated_gate1_unavailable") is None
+
+    def test_a_none_entry_can_never_manufacture_a_denial_or_a_met_claim(self) -> None:
+        """Issue #56's own safety property, tested directly against `assemble_assertions` (not just the
+        tristate mapping above): a None entry (the second judge never evaluated this element/denial at all)
+        degrades to `False` in the Lean wire -- NEVER to `True`. A None on the DENY defeater must never
+        become an asserted (True) denial the Lean check could read as DENIAL; a None on a required element
+        must never be silently promoted to True either (which is what would let a PROOF slip through on a
+        gap instead of real evidence)."""
+        a = assemble_assertions(self.C, {BNS69_EL[0]: True, BNS69_EL[1]: True, BNS69_DENY: None})
+        assert BNS69_DENY not in a  # never asserted True; an unproven defeater is simply absent, not sent
+        assert expected_outcome(self.C, a) == "PROOF"  # a missing denial verdict never blocks a real PROOF
+
+        a = assemble_assertions(self.C, {BNS69_EL[0]: True, BNS69_EL[1]: None, BNS69_DENY: False})
+        assert a[BNS69_EL[1]] is False
+        assert expected_outcome(self.C, a) == "ABSTAIN"  # a missing element verdict can only BLOCK a PROOF
+
     def test_outcome_from_lean(self) -> None:
         assert (
             outcome_from_lean({"verdict": "grounded", "denied_claims": [], "unlicensed_claims": [], "omitted_claims": []})
@@ -303,14 +331,15 @@ class TestLoop:
         assert TOY_FACTS[1][el0.start : el0.end] == "never to marry Lata"  # type: ignore[misc]
         assert (el0.offsets_source, el0.occurrences) == ("system", 1)
 
-    def test_multiple_occurrences_take_the_first_and_are_counted(self, tmp_path: Path) -> None:
+    def test_an_ambiguous_quote_is_not_established_never_grounded_on_its_first_occurrence(self, tmp_path: Path) -> None:
         script = _proof_script(TOY_FACTS)
-        script[BNS69_EL[0]] = [_est("F2", TOY_FACTS[1], "a")]
+        script[BNS69_EL[0]] = [_est("F2", TOY_FACTS[1], "ha")]
         run, _, _ = _run(tmp_path, script)
-        el0 = run.contracts[0].elements[0]
-        assert el0.start == TOY_FACTS[1].find("a")
-        assert el0.occurrences == TOY_FACTS[1].count("a")
-        assert el0.occurrences > 1
+        c = run.contracts[0]
+        el0 = c.elements[0]
+        assert (el0.status, el0.quote_check) == ("not_established", "ambiguous_quote")
+        assert el0.start is None and el0.end is None and el0.occurrences == TOY_FACTS[1].count("ha")
+        assert c.outcome == "ABSTAIN"
 
     def test_every_attempt_uses_the_same_training_statute_never_the_binary_text(self, tmp_path: Path) -> None:
         script = _proof_script(TOY_FACTS)
@@ -343,6 +372,20 @@ class TestLoop:
         el1 = run.contracts[0].elements[1]
         assert (el1.status, el1.p_established, el1.quote) == ("established", 0.97, good.quote)
         assert run.contracts[0].outcome == "PROOF"
+
+    def test_the_proceeding_posture_reaches_every_judge_request(self, tmp_path: Path) -> None:
+        _, judge, _ = _run(tmp_path, _proof_script(TOY_FACTS))
+        assert {r.proceeding_posture for r in judge.requests} == {None}
+        judge2 = ScriptedJudge(_proof_script(TOY_FACTS))
+        NyayaAgent(judge2, _registry(), _config(tmp_path)).run(
+            TOY_FACTS, narrative="TOY narrative.", contract_ids=["bns69"], proceeding_posture="quash")
+        assert {r.proceeding_posture for r in judge2.requests} == {"quash"}
+
+    def test_an_invalid_posture_is_refused_before_any_judge_call(self, tmp_path: Path) -> None:
+        judge = ScriptedJudge(_proof_script(TOY_FACTS))
+        with pytest.raises(ValueError, match="proceeding_posture"):
+            NyayaAgent(judge, _registry(), _config(tmp_path)).run(TOY_FACTS, proceeding_posture="bail")
+        assert judge.requests == []
 
     def test_facts_reach_the_judge_as_numbered_pairs(self, tmp_path: Path) -> None:
         _, judge, _ = _run(tmp_path, _proof_script(TOY_FACTS))
@@ -1365,6 +1408,28 @@ class TestTruthfulElementStatus:
         assert c1.elements[0].status != c2.elements[0].status  # the labels really do differ
         assert c1.outcome == c2.outcome  # but the outcome never does
 
+    def test_a_none_verdict_on_the_denial_can_never_manufacture_a_denial_end_to_end(self, tmp_path: Path) -> None:
+        """Issue #56's own safety property, exercised through the REAL agent loop rather than
+        `assemble_assertions` in isolation: the DENY defeater's primary judge claims it present (a quote that
+        verifies), but the second judge is unreachable, so its truthful status is
+        `not_evaluated_second_unavailable` -- `_established_tristate` maps that to None, and
+        `assemble_assertions` degrades a None to False, NEVER to True. If that degradation ever broke (a
+        None accidentally read as True), this defeater would assert `True` to the Lean check and the
+        contract would come back DENIAL -- a false, manufactured negative the caller would see as a definite
+        answer instead of a case that needs a lawyer. Confirming the outcome chain already REFERs (never
+        DENIAL) here is exactly the pre-existing invariant issue #56 must never break: `unavailable_second`
+        REFERs unconditionally before `assemble_assertions`'s own True/False choice could ever matter to the
+        final outcome (`_run_contract` checks `unavailable_second` ahead of the allowlist/PROOF/DENIAL read)."""
+        script = _proof_script(TOY_FACTS)
+        script[BNS69_DENY] = [_est("F3", TOY_FACTS[2], "sexual intercourse")]
+        c = self._run(tmp_path, script, {BNS69_EL[0]: [_second("established", 0.99)],
+                                          BNS69_EL[1]: [_second("established", 0.99)],
+                                          BNS69_DENY: [ConnectionError("second judge unreachable")]})
+        deny = next(r for r in c.elements if r.element == BNS69_DENY)
+        assert deny.status == "not_evaluated_second_unavailable"
+        assert c.assertions is not None and BNS69_DENY not in c.assertions  # None -> never asserted True
+        assert c.outcome == "REFER_TO_LAWYER" and c.reason == "second_judge_unavailable"  # never "DENIAL"
+
 
 class TestBindingLegInSingleJudgeMode:
     """Issue #57 (Tag's review of #37): `binding_leg` is documented as `"primary" | "second" | None`, but a
@@ -1582,6 +1647,38 @@ class TestStatuteMismatch:
 
 
 class TestAudit:
+    def test_run_start_records_version_models_host_class_and_score_sha(self, tmp_path: Path) -> None:
+        import pravrudhi
+
+        cfg = _config(
+            tmp_path,
+            house_judge={"base_url": "https://api.runpod.ai/v2/ep1/openai/v1", "model": "nyaya-judge-4b"},
+            second_judge={"base_url": "http://127.0.0.1:8112/v1", "model": "judge32b"},
+        )
+        run = NyayaAgent(ScriptedJudge(_proof_script(TOY_FACTS)), _registry(), cfg).run(TOY_FACTS, contract_ids=["bns69"])
+        out = json.loads(run.audit_path.read_text().splitlines()[0])["output"]
+        assert out["engine_version"] == pravrudhi.__version__
+        assert out["primary_judge_model"] == "nyaya-judge-4b"
+        assert out["second_judge_model"] == "judge32b"
+        assert out["primary_judge_host_class"] == "serverless"
+        assert out["second_judge_host_class"] == "local"
+        assert out["score_sha256"] == _registry().sha256
+        assert "runpod" not in json.dumps(out) and "127.0.0.1" not in json.dumps(out)
+
+    def test_run_start_without_a_second_judge_or_pinned_model_says_so(self, tmp_path: Path) -> None:
+        run, _, _ = _run(tmp_path, _proof_script(TOY_FACTS))
+        out = json.loads(run.audit_path.read_text().splitlines()[0])["output"]
+        assert out["second_judge_model"] is None and out["second_judge_host_class"] is None
+        assert "primary_judge_model" in out and "engine_version" in out
+
+    def test_the_standard_is_recorded_even_when_the_judge_never_sees_it(self, tmp_path: Path) -> None:
+        judge = ScriptedJudge(_proof_script(TOY_FACTS))
+        run = NyayaAgent(judge, _registry(), _config(tmp_path)).run(TOY_FACTS, contract_ids=["bns69"], proceeding_posture="quash")
+        row = json.loads(run.audit_path.read_text().splitlines()[0])["output"]
+        got = (row["standard"], row["standard_source"], row["proceeding_posture"])
+        assert got == ("prima_facie_disclosed", "request", "quash")
+        assert row["standard_in_judge_prompt"] is False
+
     def test_every_step_is_a_jsonl_line_with_hashed_inputs(self, tmp_path: Path) -> None:
         run, _, _ = _run(tmp_path, _proof_script(TOY_FACTS))
         lines = [json.loads(x) for x in run.audit_path.read_text().splitlines()]
@@ -2343,8 +2440,28 @@ class TestPrimaryTauEnvOverride134:
 
     @pytest.fixture(autouse=True)
     def _clean(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        for k in ("NYAYA_HOUSE_JUDGE_TAU", "NYAYA_HOUSE_JUDGE_BASE_URL", "NYAYA_HOUSE_JUDGE_MODEL"):
+        for k in ("NYAYA_HOUSE_JUDGE_TAU", "NYAYA_HOUSE_JUDGE_BASE_URL", "NYAYA_HOUSE_JUDGE_MODEL", "NYAYA_HOUSE_JUDGE_TAU_ALLOW_LOWER"):
             monkeypatch.delenv(k, raising=False)
+
+    def test_env_tau_below_yaml_refused_without_the_second_flag(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        yaml_tau = load_agent_config(REPO).tau
+        monkeypatch.setenv("NYAYA_HOUSE_JUDGE_MODEL", "nyaya-judge-4b")  # the production id: not a swap, so only the floor stops it
+        monkeypatch.setenv("NYAYA_HOUSE_JUDGE_TAU", str(yaml_tau - 0.1))
+        with pytest.raises(ValueError, match="below the yaml tau"):
+            load_agent_config(REPO)
+
+    def test_env_tau_below_yaml_allowed_with_the_flag_and_recorded(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        yaml_tau = load_agent_config(REPO).tau
+        monkeypatch.setenv("NYAYA_HOUSE_JUDGE_TAU", str(yaml_tau - 0.1))
+        monkeypatch.setenv("NYAYA_HOUSE_JUDGE_TAU_ALLOW_LOWER", "1")
+        cfg = load_agent_config(REPO)
+        assert cfg.tau == pytest.approx(yaml_tau - 0.1) and "lower-than-yaml" in cfg.tau_source
+
+    def test_env_tau_equal_or_above_yaml_needs_no_flag(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        yaml_tau = load_agent_config(REPO).tau
+        for v in (yaml_tau, 0.99):
+            monkeypatch.setenv("NYAYA_HOUSE_JUDGE_TAU", str(v))
+            assert load_agent_config(REPO).tau == v
 
     def test_default_is_yaml_tau_and_source(self) -> None:
         cfg = load_agent_config(REPO)
