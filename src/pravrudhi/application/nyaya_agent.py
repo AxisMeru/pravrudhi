@@ -483,8 +483,8 @@ def load_agent_config(root: Path) -> AgentConfig:
     )
     selector_name = os.environ.get("NYAYA_ACCUSED_ATTRIBUTION_SELECTOR") or str(body.get("accused_attribution_selector", "d0"))
     selector_name = selector_name.strip().lower()
-    if selector_name not in ("d0", "m1"):
-        raise ValueError(f"accused_attribution_selector must be 'd0' or 'm1', got {selector_name!r}")
+    if selector_name not in ("d0", "m1", "fallback"):
+        raise ValueError(f"accused_attribution_selector must be 'd0', 'm1' or 'fallback', got {selector_name!r}")
     m1_cfg = dict(body.get("accused_attribution_m1") or {})
     for env, key in (("NYAYA_ACCUSED_ATTRIBUTION_M1_BASE_URL", "base_url"), ("NYAYA_ACCUSED_ATTRIBUTION_M1_MODEL", "model")):
         if os.environ.get(env):
@@ -1087,6 +1087,10 @@ def _build_house_judge(hj_cfg: Mapping[str, Any], *, tau: float, typed: bool, ap
 
 def _build_actor_selector(cfg: AgentConfig) -> Any:
     """The M1 actor selector when the config asks for it, else None (D0). A missing backend never silently falls back to D0."""
+    if cfg.accused_attribution_selector == "fallback":
+        from pravrudhi.application.nyaya_attribution_fallback import FallbackChecker
+
+        return FallbackChecker()
     if cfg.accused_attribution_selector != "m1":
         return None
     from pravrudhi.application.nyaya_attribution_m1 import LlmActorSelector

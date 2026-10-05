@@ -182,7 +182,7 @@ def test_config_selector_defaults_to_d0_validates_and_m1_needs_a_backend(monkeyp
     cfg = load_agent_config(root)
     assert cfg.accused_attribution_selector == "d0" and cfg.accused_attribution_enabled is False
     monkeypatch.setenv("NYAYA_ACCUSED_ATTRIBUTION_SELECTOR", "bogus")
-    with pytest.raises(ValueError, match="must be 'd0' or 'm1'"):
+    with pytest.raises(ValueError, match="must be 'd0', 'm1' or 'fallback'"):
         load_agent_config(root)
     monkeypatch.setenv("NYAYA_ACCUSED_ATTRIBUTION_SELECTOR", "m1")
     assert load_agent_config(root).accused_attribution_selector == "m1"  # enabled is off: no backend needed yet

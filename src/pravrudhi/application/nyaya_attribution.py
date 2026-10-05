@@ -504,7 +504,9 @@ class AccusedAttributionJudge:
         quote = (judgment.quote or "").strip()
         if not judgment.fact_id or not quote:
             return judgment  # no resolvable span: the quote check downstream rejects this anyway
-        if self.selector is not None:
+        if self.selector is not None and hasattr(self.selector, "check"):
+            result = self.selector.check(quote, getattr(request, "accused", None))  # fallback: REFER on any co-actor marker
+        elif self.selector is not None:
             from pravrudhi.application.nyaya_attribution_m1 import check_attribution_m1
 
             result = check_attribution_m1(quote, getattr(request, "accused", None), self.selector)
