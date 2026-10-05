@@ -45,11 +45,21 @@ function isRunPodMode(env) {
 // signed-in caller until the engine's admin gate ships. Decode before matching so %72uns cannot slip past.
 const BLOCKED_WRITE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 function isBlockedWrite(request) {
-  if (!BLOCKED_WRITE_METHODS.has(request.method)) return false;
+  if (!BLOCKED_WRITE_METHODS.has(request.method.toUpperCase())) return false;
   let path = new URL(request.url).pathname;
-  try { path = decodeURIComponent(path); } catch (e) { return true; }
-  path = path.toLowerCase();
-  return path.startsWith("/api/runs") || path.startsWith("/api/update");
+  const forms = [path];
+  for (let i = 0; i < 3; i++) {
+    let next;
+    try { next = decodeURIComponent(path); } catch (e) { return true; }
+    if (next === path) break;
+    path = next;
+    forms.push(path);
+  }
+  if (path.includes("%")) return true;  // still encoded after 3 rounds: fail closed
+  return forms.some((f) => {
+    const n = f.toLowerCase().replace(/\/{2,}/g, "/");
+    return n.startsWith("/api/runs") || n.startsWith("/api/update");
+  });
 }
 
 export default {
@@ -69,7 +79,8 @@ export default {
     const target = backend.replace(/\/$/, "") + url.pathname + url.search;
     const headers = new Headers(request.headers);
     headers.delete("host");
-    headers.delete("x-pravrudhi-client-ip");  // never trust a caller-supplied client IP (#248)
+    headers.delete("x-pravrudhi-client-ip");  // never trust a caller-supplied client IP or its secret (#248)
+    headers.delete("x-pravrudhi-client-ip-secret");
 
     // Ensure User-Agent is set: RunPod's Cloudflare proxy returns 403 (error 1010) to urllib's default
     if (!headers.get("user-agent")) {
