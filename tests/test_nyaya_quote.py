@@ -13,6 +13,8 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
+
 from pravrudhi.application.nyaya_quote import check_judgment, locate_quote
 
 FACTS = {
@@ -36,15 +38,18 @@ class TestLocateQuote:
         loc = locate_quote(FACTS, fact_id="F2", quote=text)
         assert loc.valid and (loc.start, loc.end) == (0, len(text))
 
-    def test_multiple_occurrences_take_the_first_and_record_the_count(self) -> None:
+    def test_a_quote_occurring_more_than_once_fails_closed_with_the_count(self) -> None:
         loc = locate_quote(FACTS, fact_id="F3", quote="Arun shouted at")
-        assert loc.valid
-        assert (loc.start, loc.end) == (5, 20)
-        assert loc.occurrences == 2
+        assert (loc.valid, loc.reason, loc.occurrences) == (False, "ambiguous_quote", 2)
+        assert loc.start is None and loc.end is None
 
-    def test_occurrences_count_overlapping_matches(self) -> None:
+    def test_a_longer_quote_that_disambiguates_is_valid(self) -> None:
+        loc = locate_quote(FACTS, fact_id="F3", quote="Arun shouted at Bela")
+        assert (loc.valid, loc.start, loc.occurrences) == (True, 5, 1)
+
+    def test_overlapping_occurrences_are_ambiguous(self) -> None:
         loc = locate_quote({"F1": "aaaa"}, fact_id="F1", quote="aa")
-        assert (loc.start, loc.occurrences) == (0, 3)
+        assert (loc.valid, loc.reason, loc.occurrences) == (False, "ambiguous_quote", 3)
 
     def test_non_verbatim_quote_is_rejected(self) -> None:
         loc = locate_quote(FACTS, fact_id="F1", quote="Arun wed Bela")
@@ -72,6 +77,30 @@ class TestLocateQuote:
     def test_empty_quote_is_rejected_not_found_at_zero(self) -> None:
         """`str.find("")` is 0 -- an empty quote would otherwise 'match' every fact."""
         assert locate_quote(FACTS, fact_id="F1", quote="").reason == "empty_quote"
+
+    @pytest.mark.parametrize("quote", [" ", "   ", "\t", "\n", "\u00a0", " \n "])
+    def test_whitespace_only_quote_is_empty_not_evidence(self, quote: str) -> None:
+        """A blank quote carries no content: a single space is a substring of every multi-word fact."""
+        facts = {"F1": "Arun married Bela\u00a0 and\tleft.\n"}
+        loc = locate_quote(facts, fact_id="F1", quote=quote)
+        assert not loc.valid and loc.reason == "empty_quote"
+
+    @pytest.mark.parametrize("quote", ["A", "a", "2", ".", ",", "-", "...", "—", "A.", "1)", "(.)", "\u0964"])
+    def test_a_single_character_or_punctuation_only_quote_is_not_evidence(self, quote: str) -> None:
+        """A verbatim substring, but carrying (almost) no content: it must not count as the evidence."""
+        facts = {"F1": "TOY: A. a, 2 - Arun married Bela in 2019 (.) (see 1) ... \u2014 \u0964"}
+        assert quote in facts["F1"]
+        loc = locate_quote(facts, fact_id="F1", quote=quote)
+        assert not loc.valid and loc.reason == "non_evidential_quote" and loc.start is None
+
+    @pytest.mark.parametrize("quote", ["Arun", "in 2019", "Bela", "\u0928\u094d\u092f\u093e\u092f"])
+    def test_a_quote_with_real_content_still_passes(self, quote: str) -> None:
+        facts = {"F1": "TOY: Arun married Bela in 2019. \u0928\u094d\u092f\u093e\u092f"}
+        assert locate_quote(facts, fact_id="F1", quote=quote).valid
+
+    def test_the_content_check_comes_after_the_fact_and_presence_checks(self) -> None:
+        assert locate_quote(FACTS, fact_id="F9", quote=".").reason == "unknown_fact"
+        assert locate_quote(FACTS, fact_id="F1", quote=" ").reason == "empty_quote"
 
 
 class TestCheckJudgment:

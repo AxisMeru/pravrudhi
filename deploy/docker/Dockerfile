@@ -78,9 +78,13 @@ RUN set -eu; \
         echo "         a redeploy includes it. See deploy/docker/README.md." >&2; \
     fi
 
+# The unforgeable hosted-image marker: the engine's boot refuses PRAVRUDHI_AUTH unset or `disabled` whenever this file exists,
+# whatever the environment says (pravrudhi/deployment.py HOSTED_FILE; PRAVRUDHI_HOSTED_IMAGE below is only a display label).
+RUN mkdir -p /etc/pravrudhi && printf 'hosted image\n' > /etc/pravrudhi/hosted-image
 VOLUME /data
 ENV PRAVRUDHI_DISABLE_LOCAL_GUARD=1 \
     PRAVRUDHI_AUTH=required \
+    PRAVRUDHI_HOSTED_IMAGE=1 \
     PORT=8765 \
     PRABHASA_NYAYA_SCORE_BIN=/opt/nyaya/score
 EXPOSE 8765

@@ -15,6 +15,11 @@ Trust lives in the engine, not the edge: `PRAVRUDHI_AUTH=required` verifies ever
 admit only the operator, `PRAVRUDHI_ALLOWED_ORIGINS` names the one web origin. The Worker forwards headers
 untouched.
 
+`run_gateway.sh` passes `-e PRAVRUDHI_AUTH=required` to BOTH containers (product and Studio) instead of relying on the image
+ENV alone: an explicit `-e` wins over `--env-file`, so a stray `PRAVRUDHI_AUTH` line in `chat.env` cannot weaken either one, and
+a hosted image with `PRAVRUDHI_AUTH` unset or `disabled` now refuses to boot (0.5.44). The Studio container additionally goes
+through `studio_auth_guard` and a read-back after start. Do not quote values in `chat.env` (docker keeps the quote characters).
+
 ## Live since 2026-09-11
 
 | edition | web app | Worker (permanent) | engine |

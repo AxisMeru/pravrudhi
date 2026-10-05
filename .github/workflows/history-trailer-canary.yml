@@ -1,0 +1,85 @@
+name: history-trailer-canary
+# Manual-only canary for the full-history trailer scan (Lead-2 + Tag, 2026-09-27, after #77 v1).
+#
+# This started as `ci.yml`'s own `main-history-trailer-scan` job, made runnable via `workflow_dispatch` so
+# it could be exercised on demand. That was wrong: adding `workflow_dispatch` to `ci.yml` meant a dispatch
+# run on ANY branch head produced a `guards` check-run with conclusion SKIPPED -- and a required status
+# context is satisfied by SKIPPED just as much as by SUCCESS. That is a real bypass of `main`'s branch
+# protection (which requires only `guards`): dispatch the workflow on a head that never touched `guards`
+# at all, and the required check reports green anyway.
+#
+# Fix: this canary lives in its OWN workflow file, triggered by `workflow_dispatch` ONLY, with exactly ONE
+# job, named `history-trailer-canary` -- a name that is not, and must never become, a required status
+# context in this repo's branch protection settings. `ci.yml` no longer accepts `workflow_dispatch` at all,
+# so no job defined there (`guards` included) can ever report SKIPPED-as-satisfying from a dispatch of
+# this file; the two workflows share no job name and this file is entirely independent of the other's
+# triggers.
+#
+# Deliberately duplicates rather than shares the scan logic with `ci.yml`'s `main-history-trailer-scan`
+# job (which still runs the same check on every real push to main): a `workflow_call` or composite action
+# would let a future edit to one silently diverge from the other's actual behavior without either file's
+# diff showing it. Keeping the logic as an inline copy in each file means whoever edits one sees the whole
+# thing and is more likely to update both.
+on:
+  workflow_dispatch:
+
+jobs:
+  history-trailer-canary:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: no attribution trailers anywhere in main's full history (except the allowlist below)
+        run: |
+          # Split by mechanism, each with its own reason -- not one undifferentiated list.
+          #
+          # Agent-written trailers in a squash body (added by an agent following a harness attribution
+          # reminder without checking this repo's no-trailer house rule first):
+          AGENT_WRITTEN=(
+            "dbdf47a989634e1a4800d0b4209f4470daf62299"
+            "e57f0ae8585ad774540ec4e430a0eca7c00472dc"
+            "09c0c334c1a643c5e8899152ab6bea2e958b8198"
+          )
+          # GitHub-composed Co-authored-by (GitHub itself composes this on a squash merge when the PR
+          # opener differs from the commits' authors -- fixed going forward per TEAM-RULES.md Merging:
+          # rebase-merge when possible, else an explicit trailer-free commit_message):
+          GITHUB_COMPOSED=(
+            "5bdc4e4bc2d0fefede2543e3a51b1baf5cf08bc7"
+          )
+          ALLOWLISTED_SHAS=("${AGENT_WRITTEN[@]}" "${GITHUB_COMPOSED[@]}")
+          # Direct shallow-clone guard (Lead-2, 2026-09-27, R1 finding on #77): the actual regression this
+          # job exists to catch is a shallow checkout, so check for that directly instead of only inferring
+          # it from a commit count. The count floor below is the backstop, not the primary guard.
+          if [ "$(git rev-parse --is-shallow-repository)" = "true" ]; then
+            echo "checkout is shallow -- full-history scan cannot run, refusing to pass"
+            exit 1
+          fi
+          # Pinned floor (Lead-2, 2026-09-27, corrected after R1 caught the original 109 as wrong by ~9x):
+          # main had 955 commits at #77's true merge-base 73936b3 (`git rev-list --count origin/main` run
+          # there), 959 on main as of that fix. Valid only because history on protected main only grows --
+          # never derived from the checkout itself, that would be circular with the shallow-clone guard
+          # above. Printing the scanned count and refusing anything under this floor catches a future
+          # regression of the exact #74 shape (a shallow clone silently checking almost nothing) by count,
+          # not just by re-reading the fetch-depth line and trusting it's still there.
+          PINNED_MIN_COMMITS=955
+          BAD=0
+          SCANNED=0
+          while read -r sha; do
+            SCANNED=$((SCANNED + 1))
+            skip=0
+            for allowed in "${ALLOWLISTED_SHAS[@]}"; do
+              [[ "$sha" == "$allowed" ]] && skip=1 && break
+            done
+            [[ "$skip" == 1 ]] && continue
+            if git log -1 --format=%B "$sha" | grep -qiE '^(Co-Authored-By|Claude-Session):'; then
+              echo "attribution trailer found in commit $sha, not on the allowlist"
+              BAD=1
+            fi
+          done < <(git log --format=%H)
+          echo "full-history scan: $SCANNED commit(s) scanned (pinned floor: $PINNED_MIN_COMMITS)"
+          if [ "$SCANNED" -lt "$PINNED_MIN_COMMITS" ]; then
+            echo "scanned fewer commits ($SCANNED) than the pinned floor ($PINNED_MIN_COMMITS) -- the scan is shallower than expected, refusing to pass"
+            exit 1
+          fi
+          exit "$BAD"

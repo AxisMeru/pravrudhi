@@ -42,11 +42,31 @@ if TYPE_CHECKING:
     from pravrudhi.application.credentials import CredentialStore
 
 Status = Literal["established", "not_established"]
+#: "none" -- both label tokens were in the top-k, the score is exact. "lower_bound"/"upper_bound" --
+#: one was missing, the score is only a bound (see `p_established_from_top_logprobs`'s own docstring).
+#: Defined here (2026-09-28, mypy fix) so every producer of a clamp value -- this module's own
+#: function and the typed layer's `score_decision` -- shares the SAME type, never a plain `str` cast
+#: at a call site.
+ClampKind = Literal["none", "lower_bound", "upper_bound"]
+#: Label-mass guard floor (2026-09-28, Tag/Lead-2): the combined probability of the two label tokens
+#: (`exp(est) + exp(not)`) must clear this before `p_established_from_top_logprobs` trusts a decision
+#: at all -- else JudgeOutputError, failing closed to REFER. 0.5 chosen as Tag's own example value: a
+#: completion where the label tokens together hold less than half the real probability mass means MORE
+#: than half of it went to something else (prose), which is itself the failure this guard targets.
+LABEL_MASS_FLOOR = 0.5
 
 
 class JudgeOutputError(ValueError):
     """A judge's reply could not be read as a judgment. The agent retries, then records the element failed --
     it never guesses a status from an unreadable reply."""
+
+
+class ServedModelMismatch(RuntimeError):
+    """A judge backend answered under a different model id than the one the deployment pinned.
+
+    Raised only when `enforce_served_model` is on AND `model` was named explicitly, so a swapped or mislabelled model
+    behind a stable served name surfaces as a judge error (fail closed: the element ABSTAINs / REFERs) instead of scoring
+    under a model that was never signed off. It is not transient: it never moves to the next backend."""
 
 
 @dataclass(frozen=True)
@@ -69,6 +89,9 @@ class JudgeRequest:
     #: contract path. Default False so every OTHER caller (a test double, a request built by hand) is
     #: unaffected.
     skip_second: bool = False
+    #: The proceeding stage the user is asking about (`POSTURE_STANDARD` keys); None means "not stated".
+    #: Only read by the `standard_line_v1` prompt template, where it selects the legal standard.
+    proceeding_posture: str | None = None
 
 
 @dataclass(frozen=True)
@@ -101,6 +124,9 @@ class ElementJudgment:
     #: The second judge's own fact_id, kept for the record even though the primary's span is what is used.
     second_fact_id: str | None = None
     fact_id_disagreement: bool = False
+    #: P0 #152: the request is a DENY defeater, the primary established it and the second did not. The primary's
+    #: call stands (the second never vetoes a defeater); the agent turns this into REFER_TO_LAWYER.
+    defeater_second_disagreement: bool = False
 
     # -- Gate 1 fields (Gate1Judge, below). All None when Gate 1 is not configured, or was never asked
     # because neither judge above established the element (the same cost-saving convention the second judge
@@ -119,12 +145,32 @@ class ElementJudgment:
     #: but the second rejected, or the second was configured and unavailable), "gate1" (both judges
     #: established but the entailment check failed, or the Gate 1 model itself was unavailable), or None
     #: when established (or when a given gate is not configured and so never has an opinion).
-    vetoed_by: Literal["primary", "second", "gate1"] | None = None
+    vetoed_by: Literal["primary", "second", "gate1", "span_relevance"] | None = None
     #: Which Gate 1 MODE produced a `vetoed_by="gate1"` veto -- "not_entailed" (the entailment mode, the
     #: original design) or "contradiction" (Arm C, GATE1-ARM-C-2026-09-26.md: a REFER fired because the fact
     #: explicitly contradicts the element, with no entailment requirement at all). None whenever `vetoed_by
     #: != "gate1"`, or Gate 1 was never configured/asked.
     gate1_veto_kind: Literal["not_entailed", "contradiction"] | None = None
+    #: "none" -- both ' established'/' not' tokens were in the top-k, `p_established` is exact.
+    #: "lower_bound" -- ' not' was missing, `p_established` is a LOWER bound on the true value (the
+    #: true value could be anywhere up to 1.0). "upper_bound" -- ' established' was missing,
+    #: `p_established` is an UPPER bound (true value could be anywhere down to 0.0). Appended at the end
+    #: (2026-09-28, G-28, Tag's finding) to keep every existing positional ElementJudgment(...) call site
+    #: byte-for-byte unaffected -- see `p_established_from_top_logprobs`'s own docstring for the bound
+    #: derivation and why the OLD behaviour (clamping to exactly 1.0/0.0) was a real defect.
+    clamp: ClampKind = "none"
+    #: True iff a bound (`clamp != "none"`) did not itself resolve which side of `tau` the true value
+    #: falls on, so the decision defaulted to not_established conservatively -- NOT because the
+    #: evidence actually showed not-established. Distinct from an ordinary tau-miss: here the model's
+    #: true probability is genuinely unknown, not merely below tau. See `HouseJudge.judge`'s own
+    #: decision rule.
+    bound_undetermined: bool = False
+    #: Span-relevance check (`SpanRelevanceJudge`): the check's own p_established on the cited span alone,
+    #: else None (check off, not asked, or it errored). Appended last so positional call sites are unaffected.
+    span_relevance_p: float | None = None
+    #: `"span_relevance_unavailable: <exception>"` when the check was asked and errored (fail closed: the
+    #: element is NOT established). None whenever the check answered or was never asked.
+    span_relevance_skip_reason: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -153,32 +199,134 @@ _HOUSE_FACT = re.compile(r"^\s*established\s+([^\s:]+)")
 _NARRATIVE_FACT_ID = "F_narrative"
 
 
-def build_house_prompt(request: JudgeRequest, *, statute_chars: int) -> str:
+#: The two prompt templates. `legacy` is the training prompt byte for byte and the production default;
+#: `standard_line_v1` adds one line stating the legal standard and ships ONLY with weights retrained on it.
+PROMPT_TEMPLATES = ("legacy", "standard_line_v1")
+STANDARD_LINES = {
+    "prima_facie_disclosed": (
+        "Take the allegations and material as true and complete, without weighing defences or evidence. "
+        "Does the record, on its face, disclose this element?"
+    ),
+    "proved": (
+        "Judge whether the evidence in the record establishes this element beyond reasonable doubt. "
+        "Allegations alone, or suspicion, do not establish it."
+    ),
+}
+
+
+#: The legal standard is a property of the proceeding stage, not of the element (how training derives it).
+POSTURE_STANDARD = {
+    "quash": "prima_facie_disclosed",
+    "discharge": "prima_facie_disclosed",
+    "trial": "proved",
+    "appeal": "proved",
+}
+#: With no posture the STRICTER standard applies: it can only reduce PROOFs, so it fails safe.
+DEFAULT_STANDARD = "proved"
+
+
+def standard_for_posture(posture: str | None) -> tuple[str, str]:
+    """(standard, standard_source) for a proceeding posture; an unknown posture raises, never defaults."""
+    if posture is None:
+        return DEFAULT_STANDARD, "default_proved"
+    if posture not in POSTURE_STANDARD:
+        raise ValueError(f"proceeding_posture must be one of {tuple(POSTURE_STANDARD)}, got {posture!r}")
+    return POSTURE_STANDARD[posture], "request"
+
+
+def check_prompt_template(prompt_template: str) -> str:
+    if prompt_template not in PROMPT_TEMPLATES:
+        raise ValueError(f"prompt_template must be one of {PROMPT_TEMPLATES}, got {prompt_template!r}")
+    return prompt_template
+
+
+def build_house_prompt(request: JudgeRequest, *, statute_chars: int, prompt_template: str = "legacy") -> str:
     """The element judge's training prompt, byte for byte (no few-shots). `request.facts` may carry a
     `F_narrative` row (see `_NARRATIVE_FACT_ID`); it is excluded from `Available facts:` here, never shown
     twice with `Scenario:`."""
     facts_block = "\n".join(f"[{fid}] {text}" for fid, text in request.facts if fid != _NARRATIVE_FACT_ID)
+    standard_line = ""
+    if check_prompt_template(prompt_template) == "standard_line_v1":
+        standard_line = f"Standard: {STANDARD_LINES[standard_for_posture(request.proceeding_posture)[0]]}\n"
     return (
         f"Statute: {request.statute[:statute_chars]}\n"
         f"Scenario: {request.narrative}\n"
         f"Element to judge: {request.element}\n"
+        f"{standard_line}"
         f"Available facts:\n{facts_block}\n"
         "Answer:"
     )
 
 
-def p_established_from_top_logprobs(top: Mapping[str, float]) -> float:
-    """Two-way softmax of the first token's established-vs-not logprobs. Raises when neither token is in the
-    top-k: that is no evidence either way, and 0.5 would be a number the model never gave."""
+def p_established_from_top_logprobs(
+    top: Mapping[str, float], *, label_mass_floor: float = LABEL_MASS_FLOOR
+) -> tuple[float, ClampKind]:
+    """Two-way softmax of the first token's established-vs-not logprobs, returning (p, clamp).
+
+    Raises when neither token is in the top-k: that is no evidence either way, and 0.5 would be a
+    number the model never gave.
+
+    When only one of the two tokens is in the top-k, the OTHER token's true logprob is unknown but
+    bounded: it is strictly less than every logprob actually shown (else it would have been in the
+    top-k itself), so it is <= min(top.values()) (using that as the tightest available bound, not a
+    tighter one we cannot observe). The old code (until 2026-09-28, G-28, Tag's finding) CLAMPED this
+    to 1.0 / 0.0 -- treating "missing" as "logprob -infinity" -- which is wrong in two different ways:
+
+    - ' not' missing: p is DECREASING in neg, so bounding neg <= min(top) gives a LOWER bound on the
+      true p (true neg could be far more negative, pushing true p arbitrarily close to 1.0). The old
+      clamp (exactly 1.0) overstated this -- and because p is a lower bound, not the true value, a
+      caller that clamps it to 1.0 and compares to tau can call something "established" that the
+      evidence does not actually support this strongly. This is the branch that can manufacture an
+      unsupported establishment.
+    - ' established' missing: p is INCREASING in est, so bounding est <= min(top) gives an UPPER bound
+      on the true p (true est could be far more negative, pushing true p arbitrarily close to 0.0). The
+      old clamp (exactly 0.0) understated this. Since ' not' IS present in this branch, min(top) <= neg
+      always, so this upper bound itself is always <= 0.5 -- it can never on its own manufacture a false
+      establishment against any tau >= 0.5 (every tau in this codebase), but reporting an exact 0.0
+      instead of the real (looser) bound can still shift a value that should have landed in a REFER
+      band into a hard not-established instead (`AgentConfig.in_band`, `nyaya_agent.py`).
+
+    Callers must never treat a bound as the true value -- see HouseJudge.judge's own conservative rule
+    (bound_undetermined) for how a bound and tau combine into a decision.
+
+    Label-mass guard (2026-09-28, Tag/Lead-2, production-safety): a label token appearing ANYWHERE in
+    the top-k is not, on its own, evidence the model actually meant to answer -- a prose completion
+    ("Based on the facts...") can still have ' established' or ' not' somewhere in its own top-20 by
+    coincidence, at a vanishingly small probability, and #120's bound machinery would still compute (and
+    a caller could still clamp above tau on) a number from it. Raises JudgeOutputError, the same
+    fail-closed path the neither-token case already uses, when EITHER: (a) the top-1 (highest-logprob)
+    token is not itself a label token -- the model's own greediest guess was prose, not a decision; or
+    (b) the combined probability mass of the two label tokens (`exp(est) + exp(not)`, using the API's
+    real log-probabilities, which sum to 1 over the whole vocabulary -- not just the top-k) is below
+    `label_mass_floor`. Logprobs are true log-probabilities, so `math.exp(logprob)` is the token's real
+    probability, not a relative/renormalized figure -- this guard reads the SAME raw values already
+    looked up above, no extra call."""
+    bad = {t: v for t, v in top.items() if math.isnan(v) or v == math.inf}
+    if bad:
+        raise JudgeOutputError(f"non-finite logprob(s) in the first token's top logprobs: {bad}")
     est = max((top[t] for t in _EST_TOKENS if t in top), default=-math.inf)
     neg = max((top[t] for t in _NOT_TOKENS if t in top), default=-math.inf)
     if est == -math.inf and neg == -math.inf:
         raise JudgeOutputError(f"neither ' established' nor ' not' among the first token's top logprobs: {dict(top)}")
+    top1_token = max(top, key=lambda t: top[t])
+    if top1_token not in _EST_TOKENS and top1_token not in _NOT_TOKENS:
+        raise JudgeOutputError(
+            f"top-1 token {top1_token!r} is not a label token -- the model's greediest completion was "
+            f"prose, not a decision: {dict(top)}"
+        )
+    label_mass = (math.exp(est) if est != -math.inf else 0.0) + (math.exp(neg) if neg != -math.inf else 0.0)
+    if not math.isfinite(label_mass) or not label_mass >= label_mass_floor:
+        raise JudgeOutputError(
+            f"label mass {label_mass:.6f} below floor {label_mass_floor} -- too little of the "
+            f"distribution is on either label token to trust a decision: {dict(top)}"
+        )
     if neg == -math.inf:
-        return 1.0
+        bound = min(top.values())
+        return 1.0 / (1.0 + math.exp(bound - est)), "lower_bound"
     if est == -math.inf:
-        return 0.0
-    return 1.0 / (1.0 + math.exp(neg - est))
+        bound = min(top.values())
+        return 1.0 / (1.0 + math.exp(neg - bound)), "upper_bound"
+    return 1.0 / (1.0 + math.exp(neg - est)), "none"
 
 
 def parse_house_fact_id(text: str) -> str | None:
@@ -203,6 +351,8 @@ class HouseJudge:
     The result's `backend_used` field records which URL answered."""
 
     name = "house"
+    #: temperature 0 over an unchanged request: a re-ask returns the same output, so retrying is pointless.
+    deterministic = True
 
     def __init__(
         self,
@@ -214,12 +364,18 @@ class HouseJudge:
         max_tokens: int = 30,
         top_logprobs: int = 20,
         timeout_s: int = 60,
+        label_mass_floor: float = LABEL_MASS_FLOOR,
         api_key: str | None = None,
         fallback_urls: list[str] | None = None,
         complete: Callable[[str], CompletionResult] | None = None,
+        enforce_served_model: bool = False,
+        prompt_template: str = "legacy",
     ) -> None:
         self.tau = tau
+        self.prompt_template = check_prompt_template(prompt_template)
+        self.enforce_served_model = enforce_served_model
         self.statute_chars = statute_chars
+        self.label_mass_floor = label_mass_floor
         self.primary_base_url = base_url
         self.fallback_urls = fallback_urls or []
         self.api_key = api_key
@@ -235,6 +391,9 @@ class HouseJudge:
                 for i, url in enumerate([base_url, *self.fallback_urls])
             ]
             self._models: list[str | None] = [model or None] + [None] * len(self.fallback_urls)
+            # The ids the deployment NAMED (the primary's `model`; a fallback's is always resolved from its own /models, so it
+            # is never pinned). Used only when `enforce_served_model` is on.
+            pinned: list[str | None] = list(self._models)
 
             def _model_for(i: int) -> str:
                 if self._models[i] is None:
@@ -268,6 +427,11 @@ class HouseJudge:
                     try:
                         client.model = _model_for(i)
                         result = client.complete(prompt, max_tokens=max_tokens, temperature=0.0, logprobs=top_logprobs)
+                        if self.enforce_served_model and pinned[i] is not None and result.model != pinned[i]:
+                            raise ServedModelMismatch(
+                                f"backend {i} answered as model {result.model!r} but the deployment pins {pinned[i]!r}; "
+                                "refusing to score under an unpinned model"
+                            )
                     except Exception as e:  # noqa: BLE001 -- classified just below, re-raised unless transient
                         if not _transient(e) or i == len(self.clients) - 1:
                             raise RuntimeError(f"judge backend {i} ({client.base_url}) failed: {e}") from e
@@ -311,8 +475,14 @@ class HouseJudge:
             max_tokens=int(cfg["max_tokens"]),
             top_logprobs=int(cfg["top_logprobs"]),
             timeout_s=int(cfg["timeout_s"]),
+            # Bare subscript, no default (2026-09-28, R1's review of #124): refuses if the config
+            # doesn't set the label-mass safety floor, rather than silently falling back to a module
+            # constant a deployment never actually chose.
+            label_mass_floor=float(cfg["label_mass_floor"]),
             api_key=api_key,
             fallback_urls=cfg.get("base_urls_fallback") or [],
+            enforce_served_model=bool(cfg.get("enforce_served_model", False)),
+            prompt_template=str(cfg.get("prompt_template", "legacy")),
         )
 
     @classmethod
@@ -341,26 +511,44 @@ class HouseJudge:
             max_tokens=int(cfg["max_tokens"]),
             top_logprobs=int(cfg["top_logprobs"]),
             timeout_s=int(cfg["timeout_s"]),
+            label_mass_floor=float(cfg["label_mass_floor"]),
             api_key=api_key,
             fallback_urls=cfg.get("base_urls_fallback") or [],
+            enforce_served_model=bool(cfg.get("enforce_served_model", False)),
+            prompt_template=str(cfg.get("prompt_template", "legacy")),
         )
 
     def judge(self, request: JudgeRequest) -> ElementJudgment:
-        res = self._complete(build_house_prompt(request, statute_chars=self.statute_chars))
+        res = self._complete(build_house_prompt(request, statute_chars=self.statute_chars, prompt_template=self.prompt_template))
         if not res.top_logprobs:
             raise JudgeOutputError("the server returned no logprobs for the first token")
-        p = p_established_from_top_logprobs(res.top_logprobs[0])
+        p, clamp = p_established_from_top_logprobs(res.top_logprobs[0], label_mass_floor=self.label_mass_floor)
+        if not math.isfinite(p):
+            raise JudgeOutputError(f"non-finite established probability {p!r}: {dict(res.top_logprobs[0])}")
         backend_idx = res.backend_index
-        if p < self.tau:
-            return ElementJudgment("not_established", p, raw=res.text, backend_used=backend_idx)
+        # Conservative decision rule (2026-09-28, G-28): a BOUND (clamp != "none") only ever lets a
+        # caller conclude "established" when the bound ITSELF already clears tau -- since the true
+        # value can only be further from tau on the safe side in that case (a lower bound >= tau means
+        # the true value, which is >= the bound, is also >= tau; an upper bound < tau means the true
+        # value, which is <= the bound, is also < tau, so "established" is reached below only via the
+        # ordinary p >= tau check, which a valid upper bound never satisfies below tau). The other
+        # direction is UNDETERMINED, not evidence of non-establishment -- decide not_established anyway
+        # (the conservative default; the model never demonstrated establishment) but flag it distinctly.
+        bound_undetermined = (
+            (clamp == "lower_bound" and p < self.tau) or (clamp == "upper_bound" and p >= self.tau)
+        )
+        if p < self.tau or bound_undetermined:
+            return ElementJudgment("not_established", p, raw=res.text, backend_used=backend_idx,
+                                    clamp=clamp, bound_undetermined=bound_undetermined)
         fact_id = parse_house_fact_id(res.text)
         if fact_id is None:
-            return ElementJudgment("established", p, raw=res.text, backend_used=backend_idx)
+            return ElementJudgment("established", p, raw=res.text, backend_used=backend_idx, clamp=clamp)
         # Fact granularity (module doc): the claim is "this fact, whole". A fact id not among the facts gets no
         # quote -- never a nearest-match fact -- so the quote check rejects it as unknown.
         text = dict(request.facts).get(fact_id)
         return ElementJudgment(
-            "established", p, fact_id, text, "whole_fact" if text is not None else None, raw=res.text, backend_used=backend_idx
+            "established", p, fact_id, text, "whole_fact" if text is not None else None, raw=res.text,
+            backend_used=backend_idx, clamp=clamp
         )
 
 
@@ -505,6 +693,12 @@ class AndGateJudge:
     (`nyaya_quote`) decide on that span, never on the second's. A second-reported fact_id that disagrees is
     recorded (`second_fact_id`, `fact_id_disagreement`), never silently dropped and never substituted in.
 
+    A DENY defeater (`request.is_denial`) is the one asymmetric case (P0 #152): the AND exists to stop false
+    affirmatives, and a defeater is a refutation, so a second "no" never erases a primary-established
+    defeater. The element stays established on the primary's call, `defeater_second_disagreement` is set, and
+    `nyaya_agent` refers the contract (`second_judge_defeater_disagreement`). A second that ERRORS on a
+    defeater still fails closed and refers via `second_judge_unavailable`.
+
     A second judge that errors after being asked (all its own transient/fallback retries exhausted, see
     `HouseJudge`'s own primary/fallback rules) never falls back to scoring the primary alone: the element is
     NOT established (fail closed), and `second_skip_reason` / `vetoed_by="second"` record why. The one
@@ -534,6 +728,10 @@ class AndGateJudge:
         #: it here (or via `from_config`) -- `NyayaAgent.house`'s own `second_judge_breaker` parameter is how
         #: the deployed app shares ONE instance across a whole request's judge_pool, and across requests.
         self.breaker = breaker
+
+    @property
+    def deterministic(self) -> bool:
+        return bool(getattr(self.primary, "deterministic", False))
 
     @classmethod
     def from_config(
@@ -607,9 +805,13 @@ class AndGateJudge:
                 second_skip_reason=f"second_unavailable: {type(e).__name__}: {e}"[:400],
             )
         established = s.status == "established"  # p.status == "established" already, checked above
+        # A defeater is a refutation: the AND gate guards against false affirmatives, so a second "no" must
+        # never erase a primary-established defeater (that turns a DENIAL into a PROOF). Keep the primary's call
+        # and record the disagreement; `nyaya_agent` refers the contract.
+        defeater_disagreement = request.is_denial and not established
         disagreement = bool(p.fact_id and s.fact_id and p.fact_id != s.fact_id)
         return ElementJudgment(
-            status="established" if established else "not_established",
+            status="established" if established or defeater_disagreement else "not_established",
             p_established=p.p_established,
             fact_id=p.fact_id,
             quote=p.quote,
@@ -624,7 +826,8 @@ class AndGateJudge:
             backend_used_second=s.backend_used,
             second_fact_id=s.fact_id,
             fact_id_disagreement=disagreement,
-            vetoed_by=None if established else "second",
+            vetoed_by=None if established or defeater_disagreement else "second",
+            defeater_second_disagreement=defeater_disagreement,
         )
 
 
@@ -895,6 +1098,10 @@ class Gate1Judge:
         self.tau_c = tau_c
         self.name: str = name or str(getattr(inner, "name", "gate1"))
 
+    @property
+    def deterministic(self) -> bool:
+        return bool(getattr(self.inner, "deterministic", False))
+
     def judge(self, request: JudgeRequest) -> ElementJudgment:
         judgment = self.inner.judge(request)
         if judgment.status != "established":
@@ -936,4 +1143,47 @@ class Gate1Judge:
         return replace(
             judgment, status="not_established", vetoed_by="gate1", gate1_veto_kind="not_entailed",
             gate1_score=result.score, gate1_disjuncts=result.disjuncts,
+        )
+
+
+class SpanRelevanceJudge:
+    """Inference-time span-relevance check (Obj-1 Fix 2, Option A; default OFF in the agent config).
+
+    Asked ONLY when the wrapped judge says established on a non-denial element: the cited span (the quote,
+    which for the house judge is the whole named fact) is shown to `check` ALONE -- as both scenario and the
+    only fact -- with the same element and statute. If `check` does not say established on the span by
+    itself, the element is demoted to not_established (`vetoed_by="span_relevance"`). This targets the
+    class-a Obj-1 false-proofs, where the judge cited a span that does not itself state the element.
+
+    Denial elements are never checked: demoting a defeater to not_established could only make a PROOF easier
+    to reach. A check that errors fails closed on a non-denial element (not established, reason recorded),
+    which can only remove a proof, never create one. No training; `check` is an ordinary `Judge`."""
+
+    def __init__(self, inner: Judge, check: Judge, *, name: str | None = None) -> None:
+        self.inner = inner
+        self.check = check
+        self.name: str = name or str(getattr(inner, "name", "span_relevance"))
+
+    def judge(self, request: JudgeRequest) -> ElementJudgment:
+        judgment = self.inner.judge(request)
+        if request.is_denial or judgment.status != "established":
+            return judgment
+        span = (judgment.quote or "").strip()
+        if not judgment.fact_id or not span:
+            return judgment  # no resolvable span -- the quote check downstream rejects this anyway
+        probe = JudgeRequest(
+            request.contract_id, request.element, False, request.statute, span,
+            ((judgment.fact_id, span),), skip_second=True,
+        )
+        try:
+            verdict = self.check.judge(probe)
+        except Exception as e:  # noqa: BLE001 -- fail closed on a non-denial element: can only remove a proof
+            return replace(
+                judgment, status="not_established", vetoed_by="span_relevance",
+                span_relevance_skip_reason=f"span_relevance_unavailable: {type(e).__name__}: {e}"[:400],
+            )
+        if verdict.status == "established":
+            return replace(judgment, span_relevance_p=verdict.p_established)
+        return replace(
+            judgment, status="not_established", vetoed_by="span_relevance", span_relevance_p=verdict.p_established,
         )

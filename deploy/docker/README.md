@@ -47,11 +47,13 @@ Environment the container needs:
 | variable | value | why |
 |---|---|---|
 | `PRAVRUDHI_EDITION` | `studio` or `product` | which surfaces `api/roles.py` exposes and what the engine calls itself |
-| `PRAVRUDHI_AUTH` | `required` (image default) | every request carries a verified Supabase token; the engine is on the internet |
+| `PRAVRUDHI_AUTH` | `required` (image default) | every request carries a verified Supabase token; the engine is on the internet. A hosted image (identified by the file `/etc/pravrudhi/hosted-image` baked in by the Dockerfile, which no environment value can switch off) REFUSES TO START with it unset, blank or `disabled` (only `required` and `optional` are allowed there), and any engine refuses an unrecognised value (`requried`, `off`, `true`): only `disabled`, `optional` and `required` are accepted. An unrecognised `PRAVRUDHI_EDITION` or `PRAVRUDHI_HOSTED_IMAGE` also refuses to start |
 | `PRAVRUDHI_DISABLE_LOCAL_GUARD` | `1` (image default) | the loopback and same-origin token guard is for a local install |
 | `PRAVRUDHI_ALLOWED_ORIGINS` | the web app's origin, e.g. `https://pravrudhi-app.vercel.app` | CORS for the browser that serves the interface |
 | `SUPABASE_URL` | the project URL | JWKS and introspection for token verification |
 | `PRAVRUDHI_ADMINS` (Studio) | the operator's account email | Studio admits only the operator (`api/roles.py` `ADMIN_ENV`) |
+| `PRAVRUDHI_CHAT_RATE_PER_MINUTE` | default `10` | chat turns per signed-in user per minute (`/api/chat`, `/api/chat/stream`); each turn spends the operator's `PRAVRUDHI_CHAT_API_KEY`; `0` = off; a breach is HTTP 429 with `Retry-After` |
+| `PRAVRUDHI_CHAT_DAILY_CAP` | default `200` | chat turns per signed-in user per UTC day; `0` = off. Administrators (`PRAVRUDHI_ADMINS`) are exempt. Counters are per process, so a restart resets them |
 | vendor keys | per `configs/panel.yaml` | the models the engine routes to; each is a cost the operator has accepted |
 
 The web app then gets `NEXT_PUBLIC_API_BASE=https://<engine host>` in its Vercel project environment.

@@ -28,9 +28,11 @@ from typing import Any
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
+from _p_scoring import typed_p  # noqa: E402
+
 from pravrudhi.application.nyaya_judges import HouseJudge, p_established_from_top_logprobs, parse_house_fact_id  # noqa: E402
-from pravrudhi.application.typed.decoder import VLLMDecoder, score_decision  # noqa: E402
-from pravrudhi.application.typed.house_judge import _STATUS_FIELD, TypedHouseJudge  # noqa: E402
+from pravrudhi.application.typed.decoder import VLLMDecoder  # noqa: E402
+from pravrudhi.application.typed.house_judge import TypedHouseJudge  # noqa: E402
 from pravrudhi.models.openai_compat import ChatClient  # noqa: E402
 
 # No host path is committed here. Set PRAVRUDHI_T1_PARITY_PROMPTS to the 279-prompt file; the script refuses
@@ -99,8 +101,10 @@ def main() -> int:
                 if diff:
                     body_mismatches.append({"row": i, "diff": diff})
 
-            p_house = p_established_from_top_logprobs(res_house.top_logprobs[0]) if res_house.top_logprobs else None
-            p_typed = score_decision(res_typed, _STATUS_FIELD)["true"] if res_typed.top_logprobs else None
+            p_house, clamp_house = (
+                p_established_from_top_logprobs(res_house.top_logprobs[0]) if res_house.top_logprobs else (None, None)
+            )
+            p_typed = typed_p(res_typed) if res_typed.top_logprobs else None
             if p_house is None or p_typed is None:
                 continue
             delta = abs(p_house - p_typed)
@@ -108,6 +112,7 @@ def main() -> int:
                 large_deltas.append(
                     {
                         "row": i, "id": row.get("id"), "delta": delta, "p_house": p_house, "p_typed": p_typed,
+                        "clamp_house": clamp_house,
                         "text_house": res_house.text, "text_typed": res_typed.text,
                         "top_house": res_house.top_logprobs[0] if res_house.top_logprobs else None,
                         "top_typed": res_typed.top_logprobs[0] if res_typed.top_logprobs else None,
@@ -119,7 +124,9 @@ def main() -> int:
             fid_house = parse_house_fact_id(res_house.text) if status_house == "established" else None
             fid_typed = parse_house_fact_id(res_typed.text) if status_typed == "established" else None
             if status_house != status_typed or fid_house != fid_typed:
-                flips_b.append({"row": i, "id": row.get("id"), "p_house": p_house, "p_typed": p_typed})
+                flips_b.append(
+                    {"row": i, "id": row.get("id"), "p_house": p_house, "p_typed": p_typed, "clamp_house": clamp_house}
+                )
             if (i + 1) % 50 == 0:
                 print(f"  (b) {i + 1}/{len(rows)}  max|dp| so far: {max_abs_delta_b:.3e}  flips: {len(flips_b)}")
 
@@ -128,6 +135,7 @@ def main() -> int:
         # (b), where house/typed calls for the SAME prompt are separated by a call for a DIFFERENT prompt.
         max_abs_delta_c = 0.0
         n_noise_sampled = 0
+        n_bounded_c = 0
         for i, row in enumerate(rows):
             if i % SAMPLE_EVERY != 0:
                 continue
@@ -135,10 +143,11 @@ def main() -> int:
             r2 = house._complete(row["prompt"])  # noqa: SLF001
             if not r1.top_logprobs or not r2.top_logprobs:
                 continue
-            p1 = p_established_from_top_logprobs(r1.top_logprobs[0])
-            p2 = p_established_from_top_logprobs(r2.top_logprobs[0])
+            p1, clamp1 = p_established_from_top_logprobs(r1.top_logprobs[0])
+            p2, clamp2 = p_established_from_top_logprobs(r2.top_logprobs[0])
             max_abs_delta_c = max(max_abs_delta_c, abs(p1 - p2))
             n_noise_sampled += 1
+            n_bounded_c += clamp1 != "none" or clamp2 != "none"
 
         # -- (c2) noise floor, interleaved: HouseJudge vs itself, with an unrelated prompt in between ------
         # Emulates (b)'s own access pattern exactly (house_i, [other call], house_i again) using ONLY
@@ -147,6 +156,7 @@ def main() -> int:
         # actual difference between the two code paths (absent here by construction: same object, same call).
         max_abs_delta_c2 = 0.0
         n_noise_sampled_c2 = 0
+        n_bounded_c2 = 0
         for i, row in enumerate(rows):
             if i % SAMPLE_EVERY != 0 or i + 1 >= len(rows):
                 continue
@@ -155,10 +165,11 @@ def main() -> int:
             r2 = house._complete(row["prompt"])  # noqa: SLF001
             if not r1.top_logprobs or not r2.top_logprobs:
                 continue
-            p1 = p_established_from_top_logprobs(r1.top_logprobs[0])
-            p2 = p_established_from_top_logprobs(r2.top_logprobs[0])
+            p1, clamp1 = p_established_from_top_logprobs(r1.top_logprobs[0])
+            p2, clamp2 = p_established_from_top_logprobs(r2.top_logprobs[0])
             max_abs_delta_c2 = max(max_abs_delta_c2, abs(p1 - p2))
             n_noise_sampled_c2 += 1
+            n_bounded_c2 += clamp1 != "none" or clamp2 != "none"
     finally:
         ChatClient.complete = _orig_complete  # type: ignore[method-assign]
 
@@ -180,6 +191,8 @@ def main() -> int:
         "b_body_mismatches": body_mismatches,
         "c_max_abs_delta_p_noise_floor": max_abs_delta_c,
         "c_n_sampled": n_noise_sampled,
+        "c_n_bounded": n_bounded_c,
+        "c2_n_bounded": n_bounded_c2,
         "house_model": house.model,
         "typed_model": typed_house.decoder.model,
         "passed": passed,

@@ -57,6 +57,8 @@ Rules enforced here rather than asked of a judge:
 
 from __future__ import annotations
 
+import contextvars
+import difflib
 import hashlib
 import json
 import logging
@@ -73,10 +75,26 @@ from pathlib import Path
 from typing import Any, Literal, Protocol
 
 from pravrudhi.application import nyaya_lean_registry as reg
-from pravrudhi.application.nyaya_judges import ElementJudgment, Judge, JudgeRequest, SecondJudgeCircuitBreaker
+from pravrudhi.application.nyaya_judges import (
+    ClampKind,
+    ElementJudgment,
+    Judge,
+    JudgeRequest,
+    SecondJudgeCircuitBreaker,
+    standard_for_posture,
+)
 from pravrudhi.application.nyaya_quote import QuoteLocation, locate_quote
 
 Outcome = Literal["PROOF", "DENIAL", "ABSTAIN", "REFER_TO_LAWYER"]
+
+#: Every `reason` a contract result can carry. `finish()` takes this type, so a new reason string that is not
+#: listed here fails mypy, and the partner API's published OpenAPI enum cannot drift from what the agent emits.
+ContractReason = Literal[
+    "all_elements_established", "denial_established", "missing_element", "no_training_statute_text",
+    "judge_error", "assembly_lean_mismatch", "denial_unquotable", "second_judge_defeater_disagreement",
+    "uncertain", "uncertain_second_judge", "second_judge_unavailable", "gate1_unavailable",
+    "gate1_not_entailed", "gate1_contradiction", "contract_not_validated",
+]
 CONFIG_PATH = Path("configs") / "nyaya_agent.yaml"
 
 
@@ -161,6 +179,10 @@ class AgentConfig:
     #: with zero demonstrated false-prove benefit on the only population tested means this must stay off by
     #: default even on a host that has the model/threshold configured, until Lead-2 decides otherwise.
     gate1_enabled: bool = False
+    #: Obj-1 Fix 2 Option A (`SpanRelevanceJudge`): demote an established non-denial element whose cited span
+    #: alone does not state it. Default False -- today's behaviour, byte-identical. Env
+    #: `NYAYA_SPAN_RELEVANCE_ENABLED` or yaml `span_relevance_enabled`. Measured only on a sealed Obj-1b set.
+    span_relevance_enabled: bool = False
     #: Issue #39 (interim posture until a partner onboards): how many days a run's audit record survives
     #: under `audit_dir` before `purge_stale_runs` deletes it. Config-driven, never hardcoded, so the window
     #: can be tightened or loosened with a config edit alone. 7.0 is the operator/Lead-2 decided default.
@@ -184,26 +206,6 @@ class AgentConfig:
             raise ValueError(f"second_judge.refer_logit_delta must be >= 0, got {delta}")
         if self.max_concurrency < 1:
             raise ValueError(f"max_concurrency must be >= 1, got {self.max_concurrency}")
-        # Issue #44 (Lead-2, 2026-09-26): a configured second_judge MUST have a positive-control record gate
-        # -- the day someone re-enables second_judge and forgets record_path is exactly the "must exist
-        # before the 32B returns to serving" rule failing silently. One escape: an explicit, logged
-        # disabled_reason -- tests are the only intended user of it.
-        if self.second_judge and not self.second_judge_positive_control.get("record_path"):
-            disabled_reason = self.second_judge_positive_control.get("disabled_reason")
-            if not disabled_reason:
-                raise ValueError(
-                    "second_judge is configured but second_judge_positive_control.record_path is not set -- "
-                    "issue #44: the second judge must never serve without a positive-control record gate. "
-                    "Set record_path, or set second_judge_positive_control.disabled_reason to an explicit "
-                    "reason to bypass this deliberately (logged loudly at startup and recorded in every "
-                    "audit trail row)."
-                )
-            _logger.warning(
-                "second_judge_positive_control record gate is DISABLED for a configured second_judge "
-                "(disabled_reason=%r) -- the second judge will serve with NO positive-control record gate. "
-                "Issue #44's rule (\"must exist before the 32B returns to serving\") is NOT enforced while "
-                "this escape hatch is set.", disabled_reason,
-            )
 
     def in_band(self, p: float) -> bool:
         low, high = self.refer_band
@@ -218,6 +220,96 @@ class AgentConfig:
             return None
         raw = self.second_judge.get("refer_logit_delta")
         return None if raw is None else float(raw)
+
+
+_UNSET_MODEL_STRINGS = frozenset({"", "null", "none", "~"})
+
+
+def _model_pin_required() -> str | None:
+    """The edition name when the judge model must be pinned, else None.
+
+    Required for every edition except an explicit `PRAVRUDHI_EDITION=dev` on a development checkout: a release
+    install is the product whatever the env says, and an unset, unknown or mislabelled value (`prod`, `null`)
+    is enforced, never waved through."""
+    from pravrudhi.deployment import declared_edition, resolved_edition
+
+    resolved = resolved_edition()
+    if declared_edition() == "dev" and resolved == "dev":
+        return None  # an explicit dev edition on a development checkout (never on a release install or hosted image)
+    return "studio" if resolved == "dev" else resolved
+
+
+def _require_pinned_judge_models(house_judge: Mapping[str, Any], second_judge: Mapping[str, Any] | None) -> None:
+    """Every judge block must name its model, except under an explicit development edition.
+
+    An unset model resolves to the first id the server's /v1/models lists, which on the dev 32B host is the BASE
+    snapshot path, so a null there silently judges with base Qwen2.5-32B instead of the fine-tuned judge. The
+    strings "null", "none" and blanks are refused like a real null. Never defaulted: a missing value raises."""
+    edition = _model_pin_required()
+    if edition is None:
+        return
+    blocks = {"house_judge": house_judge, **({"second_judge": second_judge} if second_judge is not None else {})}
+    for name, block in blocks.items():
+        model = block.get("model")
+        if not isinstance(model, str) or model.strip().lower() in _UNSET_MODEL_STRINGS:
+            env = "NYAYA_HOUSE_JUDGE_MODEL" if name == "house_judge" else "NYAYA_SECOND_JUDGE_MODEL"
+            raise ValueError(
+                f"{name}.model is not set ({model!r}): in the {edition} edition a null model would resolve to the "
+                f"first id the server lists (the base snapshot on the dev 32B). Name the served model id in the "
+                f"config or set {env}; only PRAVRUDHI_EDITION=dev on a development checkout may leave it unset"
+            )
+
+
+def validated_contract_ids(root: Path) -> frozenset[str]:
+    """The `validated_contracts` allowlist from `configs/nyaya_agent.yaml` -- the same set `load_agent_config`
+    gives the scorer -- without needing the score binary or a judge to be configured."""
+    import yaml
+
+    from pravrudhi.application.config_files import config_file
+
+    try:
+        body = yaml.safe_load(config_file(Path(root), "nyaya_agent.yaml").read_text()) or {}
+    except FileNotFoundError:
+        return frozenset()  # no scorer config here: the scorer cannot run, so nothing is validated
+    return frozenset(str(c) for c in (body.get("validated_contracts") or []))
+
+
+def _host_class(base_url: Any) -> str | None:
+    """`local` (loopback, private or .local host), `serverless` (RunPod) or `remote`; never the URL itself."""
+    import ipaddress
+    from urllib.parse import urlparse
+
+    host = (urlparse(str(base_url)).hostname or "").lower() if base_url else ""
+    if not host:
+        return None
+    if host.endswith("runpod.ai") or host.endswith("runpod.io"):
+        return "serverless"
+    if host == "localhost" or host.endswith(".local"):
+        return "local"
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return "remote"
+    return "local" if ip.is_loopback or ip.is_private else "remote"
+
+
+def _judge_provenance(config: AgentConfig) -> dict[str, Any]:
+    """What produced the verdicts, for the audit trail: engine version, judge model ids (None when the config
+    does not pin one) and where each judge runs. Host class only, so the audit never carries an endpoint."""
+    from pravrudhi import __version__
+
+    hj, sj = config.house_judge or {}, config.second_judge or {}
+    return {
+        "engine_version": __version__,
+        "primary_judge_model": hj.get("model") or None,
+        "primary_judge_host_class": _host_class(hj.get("base_url")),
+        "second_judge_model": sj.get("model") or None,
+        "second_judge_host_class": _host_class(sj.get("base_url")),
+        # Issue #44: whether the positive-control record gate wraps the second judge. OFF unless record_path is set.
+        "second_judge_record_gate": (
+            None if not sj else ("on" if (config.second_judge_positive_control or {}).get("record_path") else "off")
+        ),
+    }
 
 
 def load_agent_config(root: Path) -> AgentConfig:
@@ -242,6 +334,16 @@ def load_agent_config(root: Path) -> AgentConfig:
         score_bin = score_bin_path(root)
     low, high = body["refer_band"]
     house_judge = dict(body.get("house_judge") or {})
+    # The only knob that puts the standard line into the house prompt (default false: the training prompt,
+    # byte for byte). The standard is resolved and audited either way; this decides only whether the judge sees it.
+    standard_line = bool((body.get("judge_prompt") or {}).get("standard_line", False))
+    derived_template = "standard_line_v1" if standard_line else "legacy"
+    if house_judge.get("prompt_template", derived_template) != derived_template:
+        raise ValueError(
+            f"house_judge.prompt_template={house_judge['prompt_template']!r} conflicts with "
+            f"judge_prompt.standard_line={standard_line}; set judge_prompt.standard_line only"
+        )
+    house_judge["prompt_template"] = derived_template
     # Allow env override for judge base_url (container deployments)
     if os.environ.get("NYAYA_HOUSE_JUDGE_BASE_URL"):
         house_judge["base_url"] = os.environ["NYAYA_HOUSE_JUDGE_BASE_URL"]
@@ -249,6 +351,10 @@ def load_agent_config(root: Path) -> AgentConfig:
     # ordered fallback list; both are the host's facts, not the release's.
     if os.environ.get("NYAYA_HOUSE_JUDGE_MODEL"):
         house_judge["model"] = os.environ["NYAYA_HOUSE_JUDGE_MODEL"]
+    # Opt-in: with a model id named above, refuse any answer whose `model` field differs (HouseJudge.enforce_served_model;
+    # fail closed). Off by default so an existing deployment does not change behaviour until it names the switch.
+    if os.environ.get("NYAYA_HOUSE_JUDGE_ENFORCE_SERVED_MODEL", "").strip().lower() in ("1", "true", "yes", "on"):
+        house_judge["enforce_served_model"] = True
     if os.environ.get("NYAYA_HOUSE_JUDGE_FALLBACK_URLS"):
         house_judge["base_urls_fallback"] = [
             u.strip() for u in os.environ["NYAYA_HOUSE_JUDGE_FALLBACK_URLS"].split(",") if u.strip()
@@ -285,6 +391,7 @@ def load_agent_config(root: Path) -> AgentConfig:
     _second_override("NYAYA_SECOND_JUDGE_STATUTE_CHARS", "statute_chars", int)
     _second_override("NYAYA_SECOND_JUDGE_TOP_LOGPROBS", "top_logprobs", int)
     _second_override("NYAYA_SECOND_JUDGE_MAX_TOKENS", "max_tokens", int)
+    _second_override("NYAYA_SECOND_JUDGE_LABEL_MASS_FLOOR", "label_mass_floor", float)
     # The second-judge REFER band (logit distance, not probability -- module doc): off (None) unless a
     # `refer_logit_delta:` key is in the yaml's `second_judge:` block or this env var is set. Reachable even
     # with no `second_judge:` yaml block, exactly like the overrides above -- though it is inert without a
@@ -292,35 +399,60 @@ def load_agent_config(root: Path) -> AgentConfig:
     # `second_judge` mapping, and `_run_contract` only ever sees a non-None `p_established_second` when config C
     # is on).
     _second_override("NYAYA_SECOND_JUDGE_REFER_LOGIT_DELTA", "refer_logit_delta", float)
+    # 2026-09-27 (Lead-2, the 5090-second-judge-exposure design, docs/decisions/2026-09-27-5090-second-
+    # judge-exposure-design.md sec 2.2): the house judge has had NYAYA_HOUSE_JUDGE_FALLBACK_URLS since
+    # 2026-09-24 (above); the second judge never got the equivalent, so its own `base_urls_fallback` could
+    # only ever be set by editing configs/nyaya_agent.yaml's second_judge: block -- a same-day image
+    # rebuild for every fallback-endpoint change, unlike every OTHER second_judge setting in production
+    # today (set purely via NYAYA_SECOND_JUDGE_* env, per the 0.5.41 ledger row). Not folded into
+    # `_second_override` (that helper's `cast` is a bare type constructor; this needs list-splitting AND
+    # validation). Fail-closed, deliberately stricter than the house-judge sibling above (which silently
+    # accepts and filters a malformed value): an env var that is SET but produces zero URLs after
+    # stripping, or contains an entry with no http(s) scheme, is refused outright with a raised
+    # ValueError rather than silently running with an empty or broken fallback list -- a caller that
+    # believes a fallback is configured must never silently get none.
+    raw_second_fallback = os.environ.get("NYAYA_SECOND_JUDGE_FALLBACK_URLS")
+    if raw_second_fallback:
+        second_fallback_urls = [u.strip() for u in raw_second_fallback.split(",") if u.strip()]
+        if not second_fallback_urls or any(
+            not u.startswith(("http://", "https://")) for u in second_fallback_urls
+        ):
+            raise ValueError(
+                "NYAYA_SECOND_JUDGE_FALLBACK_URLS is set but malformed "
+                f"({raw_second_fallback!r}): every comma-separated entry must be a non-empty http(s) "
+                "URL -- refusing to start with a broken second-judge fallback list."
+            )
+        second_judge = dict(second_judge or {})
+        second_judge["base_urls_fallback"] = second_fallback_urls
 
-    # An env-built second_judge inherits statute_chars/top_logprobs/max_tokens from the primary house_judge
-    # block, unless the caller set them explicitly (in the yaml's own second_judge: block, or via the three
-    # NYAYA_SECOND_JUDGE_* overrides just above). `HouseJudge.from_config` requires all three (`cfg["..."]`,
-    # no default) -- a second_judge built from NYAYA_SECOND_JUDGE_BASE_URL/_TAU alone, with no yaml
-    # second_judge: block at all, used to crash with KeyError the first time NyayaAgent.house() ran; this is
-    # what makes a purely env-driven switch-on possible (2026-09-25, the RunPod endpoint is configured this
-    # way). Inheriting from house_judge, not a hardcoded default, keeps the second judge's prompt shape
-    # identical to the primary's unless a deployment deliberately diverges.
+    # An env-built second_judge inherits statute_chars/top_logprobs/max_tokens/label_mass_floor from the
+    # primary house_judge block, unless the caller set them explicitly (in the yaml's own second_judge:
+    # block, or via the NYAYA_SECOND_JUDGE_* overrides just above). `HouseJudge.from_config` requires all
+    # four (`cfg["..."]`, no default) -- a second_judge built from NYAYA_SECOND_JUDGE_BASE_URL/_TAU alone,
+    # with no yaml second_judge: block at all, used to crash with KeyError the first time
+    # NyayaAgent.house() ran; this is what makes a purely env-driven switch-on possible (2026-09-25, the
+    # RunPod endpoint is configured this way). Inheriting from house_judge, not a hardcoded default, keeps
+    # the second judge's prompt shape (and its safety floor) identical to the primary's unless a
+    # deployment deliberately diverges. label_mass_floor (2026-09-28, G-28 follow-up) added to this same
+    # inherited set -- both judges share the same safety threshold by default, same as the prompt-shape
+    # params, rather than needing a distinct required env var like tau/timeout_s do.
     if second_judge is not None:
-        for key in ("statute_chars", "top_logprobs", "max_tokens"):
+        for key in ("statute_chars", "top_logprobs", "max_tokens", "label_mass_floor", "prompt_template"):
             if key not in second_judge and key in house_judge:
                 second_judge[key] = house_judge[key]
 
     second_judge_positive_control = dict(body.get("second_judge_positive_control") or {})
     # Issue #44: env overrides mirror the house_judge/second_judge/gate1 pattern above -- NYAYA_SECOND_
-    # JUDGE_POSITIVE_CONTROL_RECORD_PATH/_MAX_AGE_HOURS/_DISABLED_REASON override or introduce the block's
-    # own values. _DISABLED_REASON is the deliberate-escape env path (e.g. for a one-off env-only test host
-    # or an emergency override) -- same loudness/audit-row requirement as the yaml key.
+    # JUDGE_POSITIVE_CONTROL_RECORD_PATH/_MAX_AGE_HOURS override or introduce the block's
+    # own values. The gate is OFF unless record_path is set (Lead-2, 5 Oct): an engine with second_judge
+    # configured and no record must keep serving, never REFER every case; run_start records which state it is in.
     if os.environ.get("NYAYA_SECOND_JUDGE_POSITIVE_CONTROL_RECORD_PATH"):
         second_judge_positive_control["record_path"] = os.environ["NYAYA_SECOND_JUDGE_POSITIVE_CONTROL_RECORD_PATH"]
     if os.environ.get("NYAYA_SECOND_JUDGE_POSITIVE_CONTROL_MAX_AGE_HOURS"):
         second_judge_positive_control["max_age_hours"] = float(
             os.environ["NYAYA_SECOND_JUDGE_POSITIVE_CONTROL_MAX_AGE_HOURS"]
         )
-    if os.environ.get("NYAYA_SECOND_JUDGE_POSITIVE_CONTROL_DISABLED_REASON"):
-        second_judge_positive_control["disabled_reason"] = os.environ[
-            "NYAYA_SECOND_JUDGE_POSITIVE_CONTROL_DISABLED_REASON"
-        ]
+    _require_pinned_judge_models(house_judge, second_judge)
 
     # Gate 1 (Track-C, GATE1-PRODUCT-WIRING-SPEC-2026-09-26.md §3/§5): the yaml block (threshold/model) and
     # the enable switch are deliberately independent -- NYAYA_GATE1_THRESHOLD/_MODEL override the block's own
@@ -341,6 +473,11 @@ def load_agent_config(root: Path) -> AgentConfig:
         gate1["tau_c"] = float(os.environ["NYAYA_GATE1_TAU_C"])
     gate1_enabled_raw = os.environ.get("NYAYA_GATE1_ENABLED", "")
     gate1_enabled = gate1_enabled_raw.strip().lower() in ("1", "true", "yes", "on")
+    span_raw = os.environ.get("NYAYA_SPAN_RELEVANCE_ENABLED")
+    span_relevance_enabled = (
+        span_raw.strip().lower() in ("1", "true", "yes", "on") if span_raw is not None
+        else bool(body.get("span_relevance_enabled", False))
+    )
 
     # Fail-closed allowlist (issue #36): every id here must actually exist in the pinned registry, checked at
     # load time rather than left to surface later as a silently-inert typo -- an id that isn't real can never
@@ -370,6 +507,7 @@ def load_agent_config(root: Path) -> AgentConfig:
         validated_contracts=validated_contracts,
         gate1=gate1,
         gate1_enabled=gate1_enabled,
+        span_relevance_enabled=span_relevance_enabled,
         retention_days=float(body.get("retention_days", 7.0)),
     )
 
@@ -382,6 +520,20 @@ class Fact:
     id: str
     text: str
     sha256: str
+
+
+def _text_similarity(a: str, b: str) -> float:
+    return round(difflib.SequenceMatcher(None, " ".join(a.split()), " ".join(b.split())).ratio(), 3)
+
+
+def element_stage(r: ElementResult) -> str | None:
+    """Where an element that is not established stopped: `<status>:<leg>`, the leg being the judge leg that bound
+    the verdict, or `quote_<reason>` when a claimed element's fact id / quote could not be validated. None for an
+    established element. Derived only from fields the element already carries."""
+    if r.status == "established":
+        return None
+    leg = r.binding_leg or (f"quote_{r.quote_check}" if r.claimed and r.quote_check else "none")
+    return f"{r.status}:{leg}"
 
 
 def _sha(text: str) -> str:
@@ -479,13 +631,24 @@ def select_contracts(
 # -- assembly ----------------------------------------------------------------------------------------------
 
 
-def assemble_assertions(contract: reg.DescribedContract, established: Mapping[str, bool]) -> dict[str, bool]:
+def assemble_assertions(contract: reg.DescribedContract, established: Mapping[str, bool | None]) -> dict[str, bool]:
     """The REG wire's assertions, deterministically: every required element in the Contract's order with its
     judged status, then each DENY defeater ONLY when established (asserting a defeater is a refutation; an
-    absent one is simply not sent). Mirrors `element_first_harness.assemble_wire`'s claim set."""
-    out = {e: bool(established.get(e, False)) for e in contract.elements}
+    absent one is simply not sent). Mirrors `element_first_harness.assemble_wire`'s claim set.
+
+    `established` is tri-state (issue #56): True (established), False (a judge genuinely scored the element
+    unmet), or None (never evaluated at all -- `not_evaluated_second_unavailable` or, issue #57/#63/#72,
+    `not_evaluated_gate1_unavailable`). The Lean wire itself only ever carries True/False, so a None here
+    degrades to False, NEVER to True -- `val is True` is the only way into the wire's `True`. This
+    degradation is safe by construction, not merely convenient: a DENIAL only ever arises when a denial
+    record's assertion is True, and a PROOF only when every element's is True, so a missing (None) answer can
+    only ever BLOCK a PROOF/DENIAL that genuine evidence would otherwise have produced -- it can never
+    MANUFACTURE one. The contract for an element either `not_evaluated_*` status names is referred
+    unconditionally anyway (`_run_contract`'s `unavailable_second` and `gate1_unavailable` checks), entirely
+    independent of what this function does with the None."""
+    out = {e: established.get(e) is True for e in contract.elements}
     for d in contract.denials:
-        if established.get(d, False):
+        if established.get(d) is True:
             out[d] = True
     return out
 
@@ -555,17 +718,13 @@ def purge_stale_runs(audit_dir: Path, retention_days: float, *, now: float | Non
 
 
 class AuditTrail:
-    """One JSONL line per step: `{run_id, seq, ts, step, inputs_sha256, output, wall_ms}`, plus whatever
-    `extra` names (merged into every line -- issue #44's own `second_judge_positive_control_disabled_reason`
-    is the reason this exists: when the record-gate escape hatch is in use, every audit row must show it,
-    not just a one-off startup log line someone could miss). Inputs are hashed, never copied; outputs are
-    recorded as produced."""
+    """One JSONL line per step: `{run_id, seq, ts, step, inputs_sha256, output, wall_ms}`. Inputs are hashed,
+    never copied; outputs are recorded as produced."""
 
-    def __init__(self, path: Path, run_id: str, *, extra: Mapping[str, Any] | None = None) -> None:
+    def __init__(self, path: Path, run_id: str) -> None:
         self.path = path
         self.run_id = run_id
         self._seq = 0
-        self._extra = dict(extra) if extra else {}
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("")
 
@@ -578,7 +737,6 @@ class AuditTrail:
             "inputs_sha256": _hash_obj(inputs),
             "output": output,
             "wall_ms": round(float(wall_ms), 3),
-            **self._extra,
         }
         self._seq += 1
         with self.path.open("a", encoding="utf-8") as f:
@@ -672,12 +830,30 @@ def _judge_accounting(records: Sequence[JudgeCallRecord]) -> dict[str, Any]:
 #: score -- there IS no score here, only a model that couldn't answer, the same distinction
 #: `not_evaluated_second_unavailable` already draws for the second judge) -- four previously-collapsed cases
 #: now have four distinct labels below, alongside the original "established". `assemble_assertions` and every
-#: other outcome check still treats every non-"established" value identically (`status == "established"`);
-#: this ONLY changes what a caller sees, never what the contract's outcome is.
+#: other outcome check still treats every non-"established" value identically (via `_established_tristate`
+#: below); this ONLY changes what a caller sees, never what the contract's outcome is.
 ElementStatus = Literal[
     "established", "not_confirmed", "not_established",
     "not_evaluated_second_unavailable", "not_evaluated_gate1_unavailable",
 ]
+
+
+def _established_tristate(status: ElementStatus) -> bool | None:
+    """Issue #56: `assemble_assertions`' input must distinguish a judge's genuine "not met" from "nobody
+    actually evaluated this" -- collapsing both to a bare `False` (what `status == "established"` did before
+    this) let a caller of the assertions dict not tell the two apart. True only for "established"; None for
+    either `not_evaluated_*` status -- `not_evaluated_second_unavailable` (the second judge never answered)
+    and `not_evaluated_gate1_unavailable` (issue #57/#63/#72: Gate 1's own model never answered, so the
+    element was never even taken to the judges) are both "nobody reached a verdict", not a judge's own
+    negative one -- so there is no verdict at all, only a gap; `not_confirmed` and `not_established` both map
+    to False -- both are a judge's own, evaluated verdict of "not met" (module doc / issue #37: identical
+    outcome either way, only the label differs), so neither is a gap the way the two `not_evaluated_*`
+    statuses are."""
+    if status == "established":
+        return True
+    if status in ("not_evaluated_second_unavailable", "not_evaluated_gate1_unavailable"):
+        return None
+    return False
 
 
 @dataclass
@@ -710,6 +886,23 @@ class ElementResult:
     #: in this case). Lead-2, 2026-09-24: a second-judge error must surface as REFER_TO_LAWYER, not silently
     #: become an ordinary not-established fact that can drive a false DENIAL.
     second_unavailable: bool = False
+    #: The second judge's own fact_id, kept for the record even though `fact_id` above (the primary's span)
+    #: is what the quote check and the Lean wire use -- AndGateJudge never substitutes it in
+    #: (`nyaya_judges.AndGateJudge`'s own docstring). Behaviour-neutral: propagating these two fields changes
+    #: no verdict, quote, or outcome; they only make an existing `ElementJudgment`-level signal visible past
+    #: the judge call, where it was previously computed and then discarded (found 2026-09-27 investigating
+    #: the fact-id convention skew: `judgment.as_dict()` already carries both fields into the audit log, but
+    #: neither ever reached `ElementResult`, so no sealed run's response ever recorded a disagreement).
+    #: None/False whenever the second judge was never asked (single-judge mode, or the primary already
+    #: rejected) -- same convention as every other second-judge field above.
+    second_fact_id: str | None = None
+    #: True iff the second judge cited a different fact_id than the primary (both established, both cited
+    #: something) -- `AndGateJudge`'s own computation, reused verbatim, never re-derived here.
+    fact_id_disagreement: bool = False
+    #: P0 #152: this DENY defeater was established by the primary and rejected by the second. The defeater
+    #: stays established (the second never vetoes one) and the contract is REFER_TO_LAWYER
+    #: (`second_judge_defeater_disagreement`), never PROOF.
+    defeater_second_disagreement: bool = False
     #: Issue #37 (single-judge fix, #57): which judge's tau this non-established element failed to clear --
     #: "primary" (it rejected outright; also single-judge mode's ONLY possible value, since there is no
     #: second judge to blame instead) or "second" (the primary passed but the second didn't). None whenever
@@ -744,6 +937,15 @@ class ElementResult:
     #: REFER_TO_LAWYER (`gate1_contradiction`), GATE1-ARM-C-2026-09-26.md. Mutually exclusive with
     #: `gate1_not_entailed` above.
     gate1_contradiction: bool = False
+    #: "none" when both established/not tokens were in the judge's own top-k; "lower_bound" or
+    #: "upper_bound" when one was missing and `p_established` is only a bound on the true value, not
+    #: an exact softmax (2026-09-28, G-28 -- see `nyaya_judges.p_established_from_top_logprobs`'s own
+    #: docstring for the derivation). "none" when there is no anchor at all (missing_element).
+    clamp: ClampKind = "none"
+    #: True iff a bound above did not itself resolve which side of tau the true value falls on, so the
+    #: element was conservatively decided not_established without actually demonstrating it -- distinct
+    #: from an ordinary tau-miss. See `HouseJudge.judge`'s own decision rule.
+    bound_undetermined: bool = False
 
 
 @dataclass
@@ -777,6 +979,19 @@ class ContractResult:
     #: Elements Gate 1 (Arm C, `mode="contradiction_veto"`) vetoed because the fact explicitly contradicts
     #: the element. Always [] when Gate 1 is not configured, or configured in the default entailment mode.
     gate1_contradiction: list[str] = field(default_factory=list)
+    #: Whitespace-normalised difflib ratio of the two texts (1.0 = same words), so a mismatch that is only
+    #: layout is distinguishable from a judge text that is a short paraphrase of a much longer official one.
+    #: Informational only; nothing gates on it.
+    statute_text_similarity: float | None = None
+    #: element -> `element_stage(...)` for every element not established, so the contract-level `reason`
+    #: ("missing_element") can be split by where each element stopped. Informational; no outcome reads it.
+    element_stages: dict[str, str] = field(default_factory=dict)
+    #: What the pinned Lean checker was given and returned: `{binary_sha256, wire_sha256, verdict}`.
+    #: `binary_sha256` is the pinned `score` binary; `wire_sha256` is the SHA-256 of the exact REG wire line
+    #: sent to it (recomputable from `assertions` + `contract_id`); `verdict` is the binary's own. It attests
+    #: what was scored and by which binary -- a structural check, not that the assertions are true. None when
+    #: no Lean call was made.
+    lean_attestation: dict[str, str] | None = None
 
 
 @dataclass
@@ -803,9 +1018,18 @@ class AgentRun:
     #: engine, the partner API response, and a future frontend that reads this field instead of hardcoding
     #: its own copy.
     retention_notice: str = RETENTION_NOTICE
+    #: #220: the standard this run applied, from the same resolved values the `run_start` audit row carries.
+    #: `{"requested", "applied", "source", "proceeding_posture", "in_judge_prompt"}`; `applied` is None when the
+    #: judge's prompt did not state the standard. None only for a hand-built run.
+    standard: dict[str, Any] | None = None
+    #: The contract -> source map this run already read from `--list-contracts` for selection, kept so a caller
+    #: that needs the sources (the partner API's citations) does not spawn a second subprocess. Never part of
+    #: a response: `to_dict` drops it.
+    listed_sources: dict[str, list[str]] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
+        d.pop("listed_sources", None)
         d["audit_path"] = str(self.audit_path)
         return d
 
@@ -823,16 +1047,19 @@ def _build_house_judge(hj_cfg: Mapping[str, Any], *, tau: float, typed: bool, ap
         decoder = VLLMDecoder(
             base_url=str(hj_cfg["base_url"]),
             model=hj_cfg.get("model") or None,
-            timeout_s=int(hj_cfg.get("timeout_s", 60)),
+            timeout_s=int(hj_cfg["timeout_s"]),
             api_key=api_key,
             fallback_urls=hj_cfg.get("base_urls_fallback") or [],
+            enforce_served_model=bool(hj_cfg.get("enforce_served_model", False)),
         )
         return TypedHouseJudge(
             tau=tau,
             statute_chars=int(hj_cfg["statute_chars"]),
             decoder=decoder,
-            max_tokens=int(hj_cfg.get("max_tokens", 30)),
-            top_logprobs=int(hj_cfg.get("top_logprobs", 20)),
+            max_tokens=int(hj_cfg["max_tokens"]),
+            top_logprobs=int(hj_cfg["top_logprobs"]),
+            label_mass_floor=float(hj_cfg["label_mass_floor"]),
+            prompt_template=str(hj_cfg.get("prompt_template", "legacy")),
         )
     from pravrudhi.application.nyaya_judges import HouseJudge
 
@@ -862,10 +1089,17 @@ def _second_band_info(anchor: ElementJudgment | None, delta: float | None) -> di
     `second_skip_reason` starting with `"second_unavailable"` when the second judge errored (not a config
     fault -- those raise) and the element failed closed. That element has no `p_established_second` to band
     on, but it must still surface as a REFER, not an ordinary not-established fact -- `_run_contract` checks
-    this flag unconditionally, independent of whether `delta` is even configured."""
+    this flag unconditionally, independent of whether `delta` is even configured.
+
+    `second_fact_id` / `fact_id_disagreement` (2026-09-27): read straight off `anchor` -- `AndGateJudge`
+    already computed them, this function never re-derives the comparison. Behaviour-neutral: neither field
+    feeds any decision here or in `_truthful_status`; they exist only so a caller can SEE the second judge's
+    own citation and whether it matched the primary's, which the verdict itself has never depended on."""
     out: dict[str, Any] = {
         "p_established_second": None, "tau_second": None, "second_skip_reason": None,
         "second_logit_distance": None, "second_refer_band_fired": False, "second_unavailable": False,
+        "second_fact_id": None, "fact_id_disagreement": False,
+        "defeater_second_disagreement": False,
     }
     if anchor is None:
         return out
@@ -874,6 +1108,9 @@ def _second_band_info(anchor: ElementJudgment | None, delta: float | None) -> di
     out["second_unavailable"] = bool(
         anchor.second_skip_reason and anchor.second_skip_reason.startswith("second_unavailable")
     )
+    out["second_fact_id"] = anchor.second_fact_id
+    out["fact_id_disagreement"] = anchor.fact_id_disagreement
+    out["defeater_second_disagreement"] = anchor.defeater_second_disagreement
     if anchor.p_established_second is None or anchor.tau_second is None:
         return out
     out["p_established_second"] = anchor.p_established_second
@@ -917,6 +1154,8 @@ def _truthful_status(
     if claimed and not valid:
         return "not_established", None
     assert anchor is not None  # claimed is False only when anchor.status != "established", so anchor exists
+    if anchor.vetoed_by == "span_relevance":
+        return "not_established", None
     if anchor.vetoed_by == "gate1":
         # A fail-closed Gate 1 error (the model never loaded or errored on this call) gets its own label,
         # never "not_established" (Tag review, 2026-09-26): there is no score to distrust here, unlike a real
@@ -1019,6 +1258,7 @@ class NyayaAgent:
             AndGateJudge,
             Gate1Judge,
             Gate1NLIModel,
+            SpanRelevanceJudge,
         )
 
         # One model instance shared across the whole judge_pool (max_concurrency > 1 builds several judge
@@ -1063,6 +1303,8 @@ class NyayaAgent:
                 )
             else:
                 judge = primary
+            if cfg.span_relevance_enabled:
+                judge = SpanRelevanceJudge(judge, primary)
             if gate1_model is not None:
                 threshold = float(cfg.gate1.get("threshold", GATE1_THRESHOLD_DEFAULT))
                 tau_c = float(cfg.gate1.get("tau_c", GATE1_TAU_C_DEFAULT))
@@ -1088,6 +1330,7 @@ class NyayaAgent:
         statute: str,
         facts: tuple[Fact, ...],
         narrative: str,
+        proceeding_posture: str | None = None,
     ) -> tuple[ElementResult, list[JudgeCallRecord]]:
         """Attempt 1 decides the element's status and p_established. If it says established but its quote is
         not verbatim in the named fact, up to `max_retries` re-asks follow -- the SAME request, same training
@@ -1101,6 +1344,7 @@ class NyayaAgent:
         request = JudgeRequest(
             contract_id, element, is_denial, statute, narrative, tuple((f.id, f.text) for f in facts),
             skip_second=contract_id not in self.config.validated_contracts,
+            proceeding_posture=proceeding_posture,
         )
         anchor: ElementJudgment | None = None
         fact_id: str | None = None
@@ -1148,6 +1392,10 @@ class NyayaAgent:
                         "offsets_source": loc.offsets_source, "quote_source": quote_source}, _ms(t0))
             if loc.valid:
                 break
+            # A deterministic judge re-asked with the same request repeats itself, and an unresolvable fact id is
+            # never replaced by a nearest match, so further attempts cannot change the outcome.
+            if loc.reason == "unknown_fact" and getattr(judge, "deterministic", False):
+                break
         delta = self.config.second_refer_logit_delta()
         if anchor is None:
             return ElementResult(element, is_denial, "not_established", False, None, None, None, None, None, None,
@@ -1163,7 +1411,8 @@ class NyayaAgent:
             element, is_denial, final_status, claimed, anchor.p_established,
             fact_id, quote, loc.start if loc else None, loc.end if loc else None, loc.reason if loc else None, attempts,
             occurrences=loc.occurrences if loc else 0, offsets_source=loc.offsets_source if loc and loc.valid else None,
-            quote_source=quote_source, binding_leg=final_binding_leg, **second_band, **_gate1_info(anchor),
+            quote_source=quote_source, binding_leg=final_binding_leg, clamp=anchor.clamp,
+            bound_undetermined=anchor.bound_undetermined, **second_band, **_gate1_info(anchor),
         )
         return result, calls
 
@@ -1175,6 +1424,7 @@ class NyayaAgent:
         statute: str,
         facts: tuple[Fact, ...],
         narrative: str,
+        proceeding_posture: str | None = None,
     ) -> tuple[list[ElementResult], list[JudgeCallRecord]]:
         """Judges every `(element_or_denial, is_denial)` task of one contract. `max_concurrency <= 1` (the
         default) or a single task runs them one at a time, writing straight to `audit` -- byte-for-byte the
@@ -1194,7 +1444,8 @@ class NyayaAgent:
         the serial path already does."""
         if self.config.max_concurrency <= 1 or len(tasks) <= 1:
             pairs = [
-                self._judge_element(self.judge, audit, contract_id, name, is_denial, statute, facts, narrative)
+                self._judge_element(
+                    self.judge, audit, contract_id, name, is_denial, statute, facts, narrative, proceeding_posture)
                 for name, is_denial in tasks
             ]
             return [r for r, _ in pairs], [c for _, calls in pairs for c in calls]
@@ -1219,7 +1470,8 @@ class NyayaAgent:
             j = work_queue.get()
             try:
                 name, is_denial = tasks[i]
-                return self._judge_element(j, buffers[i], contract_id, name, is_denial, statute, facts, narrative)
+                return self._judge_element(
+                    j, buffers[i], contract_id, name, is_denial, statute, facts, narrative, proceeding_posture)
             finally:
                 work_queue.put(j)
 
@@ -1227,7 +1479,9 @@ class NyayaAgent:
         after_fault_indices: set[int] = set()
         fault: JudgeMisconfigured | None = None
         with ThreadPoolExecutor(max_workers=workers) as pool:
-            futures = {pool.submit(_run, i): i for i in range(len(tasks))}
+            # Each worker runs in a copy of this thread's context (the serving guards are ContextVars a pool thread
+            # would not otherwise see), copied here on the calling thread.
+            futures = {pool.submit(contextvars.copy_context().run, _run, i): i for i in range(len(tasks))}
             try:
                 for fut in as_completed(futures):
                     i = futures[fut]
@@ -1267,6 +1521,7 @@ class NyayaAgent:
         narrative: str,
         *,
         call_records_out: list[JudgeCallRecord] | None = None,
+        proceeding_posture: str | None = None,
     ) -> ContractResult:
         t0 = time.monotonic()
         contract = self.registry.describe(contract_id)
@@ -1278,26 +1533,33 @@ class NyayaAgent:
         training = self.config.judge_statute_text.get(contract_id)
         official = self.registry.source_text(contract_id)
         mismatch = None if training is None else training != official
+        similarity = None if training is None else _text_similarity(training, official)
         audit.step("statute", {"contract_id": contract_id},
                    {"contract_id": contract_id, "judge_statute_source": "config" if training is not None else None,
                     "judge_statute_sha256": _sha(training) if training is not None else None,
-                    "official_statute_sha256": _sha(official), "statute_text_mismatch": mismatch}, _ms(t0))
+                    "official_statute_sha256": _sha(official), "statute_text_mismatch": mismatch,
+                    "statute_text_similarity": similarity}, _ms(t0))
 
         results: list[ElementResult] = []
 
-        def finish(outcome: Outcome, reason: str, **kw: Any) -> ContractResult:
+        def finish(outcome: Outcome, reason: ContractReason, **kw: Any) -> ContractResult:
             res = ContractResult(contract_id, outcome, reason, results, kw.get("assertions"), kw.get("lean"),
                                  kw.get("lean_outcome"), kw.get("uncertain", []), mismatch,
-                                 kw.get("uncertain_second", []), unavailable_second=kw.get("unavailable_second", []),
+                                 kw.get("uncertain_second", []),
+                                 statute_text_similarity=similarity,
+                                 element_stages={r.element: st for r in results if (st := element_stage(r))},
+                                 unavailable_second=kw.get("unavailable_second", []),
                                  gate1_unavailable=kw.get("gate1_unavailable", []), gate1_failed=kw.get("gate1_failed", []),
-                                 gate1_contradiction=kw.get("gate1_contradiction", []))
+                                 gate1_contradiction=kw.get("gate1_contradiction", []),
+                                 lean_attestation=kw.get("lean_attestation"))
             audit.step("outcome", {"contract_id": contract_id, "elements": [asdict(r) for r in results]},
                        {"contract_id": contract_id, "outcome": outcome, "reason": reason,
                         "lean_outcome": res.lean_outcome, "uncertain": res.uncertain,
                         "uncertain_second": res.uncertain_second, "unavailable_second": res.unavailable_second,
                         "gate1_unavailable": res.gate1_unavailable, "gate1_failed": res.gate1_failed,
                         "gate1_contradiction": res.gate1_contradiction,
-                        "statute_text_mismatch": mismatch,
+                        "statute_text_mismatch": mismatch, "statute_text_similarity": similarity,
+                        "element_stages": res.element_stages,
                         # Issue #37: the per-element truthful status/binding_leg (and every other
                         # ElementResult field) as readable OUTPUT, not just hashed into inputs_sha256 above --
                         # an auditor reading the JSONL directly must be able to see these without a matching
@@ -1309,7 +1571,8 @@ class NyayaAgent:
             return finish("ABSTAIN", "no_training_statute_text")
 
         tasks = [(e, False) for e in contract.elements] + [(d, True) for d in contract.denials]
-        elem_results, call_records = self._judge_elements(audit, contract_id, tasks, training, facts, narrative)
+        elem_results, call_records = self._judge_elements(
+            audit, contract_id, tasks, training, facts, narrative, proceeding_posture)
         results += elem_results
         if call_records_out is not None:
             call_records_out.extend(call_records)
@@ -1318,7 +1581,7 @@ class NyayaAgent:
             return finish("ABSTAIN", "judge_error")
 
         t0 = time.monotonic()
-        assertions = assemble_assertions(contract, {r.element: r.status == "established" for r in results})
+        assertions = assemble_assertions(contract, {r.element: _established_tristate(r.status) for r in results})
         local = expected_outcome(contract, assertions)
         audit.step("assemble", {"contract_id": contract_id, "elements": [asdict(r) for r in results]},
                    {"contract_id": contract_id, "assertions": assertions, "expected_outcome": local}, _ms(t0))
@@ -1327,14 +1590,18 @@ class NyayaAgent:
         audit.step("lean_check", {"contract_id": contract_id, "assertions": assertions, "score_sha256": self.registry.sha256},
                    {"contract_id": contract_id, **lean}, _ms(t0))
         lean_outcome = outcome_from_lean(lean)
+        attestation = {"binary_sha256": self.registry.sha256,
+                       "wire_sha256": reg.reg_wire_sha256(assertions, contract_id),
+                       "verdict": str(lean.get("verdict"))}
         uncertain = [r.element for r in results if r.p_established is not None and self.config.in_band(r.p_established)]
         uncertain_second = [r.element for r in results if r.second_refer_band_fired]
         unavailable_second = [r.element for r in results if r.second_unavailable]
+        defeater_disagreement = [r.element for r in results if r.defeater_second_disagreement]
         gate1_unavailable = [r.element for r in results if r.gate1_unavailable]
         gate1_failed = [r.element for r in results if r.gate1_not_entailed]
         gate1_contradiction = [r.element for r in results if r.gate1_contradiction]
         kw: dict[str, Any] = {"assertions": assertions, "lean": lean, "lean_outcome": lean_outcome,
-                              "uncertain": uncertain, "uncertain_second": uncertain_second,
+                              "lean_attestation": attestation, "uncertain": uncertain, "uncertain_second": uncertain_second,
                               "unavailable_second": unavailable_second,
                               "gate1_unavailable": gate1_unavailable, "gate1_failed": gate1_failed,
                               "gate1_contradiction": gate1_contradiction}
@@ -1343,6 +1610,8 @@ class NyayaAgent:
             return finish("ABSTAIN", "assembly_lean_mismatch", **kw)
         if any(r.is_denial and r.claimed and r.status != "established" for r in results):
             return finish("REFER_TO_LAWYER", "denial_unquotable", **kw)
+        if defeater_disagreement:
+            return finish("REFER_TO_LAWYER", "second_judge_defeater_disagreement", **kw)
         if uncertain:
             return finish("REFER_TO_LAWYER", "uncertain", **kw)
         if uncertain_second:
@@ -1363,7 +1632,10 @@ class NyayaAgent:
         # genuinely missing-element case still ABSTAINs untouched.
         if lean_outcome in ("PROOF", "DENIAL") and contract_id not in self.config.validated_contracts:
             return finish("REFER_TO_LAWYER", "contract_not_validated", **kw)
-        reason = {"PROOF": "all_elements_established", "DENIAL": "denial_established", "ABSTAIN": "missing_element"}[lean_outcome]
+        reasons: dict[str, ContractReason] = {
+            "PROOF": "all_elements_established", "DENIAL": "denial_established", "ABSTAIN": "missing_element",
+        }
+        reason = reasons[lean_outcome]
         return finish(lean_outcome, reason, **kw)
 
     def run(
@@ -1374,24 +1646,33 @@ class NyayaAgent:
         contract_ids: Iterable[str] | None = None,
         sections: Iterable[str] | None = None,
         client_data: bool = True,
+        proceeding_posture: str | None = None,
     ) -> AgentRun:
         # Issue #39's TTL purge: opportunistic, on every new run (the same lazy-eviction discipline
         # `partner.py`'s own RateLimiter already uses) rather than a separate background process or cron --
         # no new infrastructure, and a request that never comes still means nothing accumulates unbounded
         # only because nothing new is being written either.
+        standard, standard_source = standard_for_posture(proceeding_posture)  # an invalid posture raises before any work
         purge_stale_runs(Path(self.config.audit_dir), self.config.retention_days)
         run_id = f"nyaya-agent-{uuid.uuid4().hex[:10]}"
-        # Issue #44: when the record-gate escape hatch (second_judge_positive_control.disabled_reason) is in
-        # use, every row of every run's audit trail carries it -- not just a startup log line someone could
-        # miss.
-        disabled_reason = self.config.second_judge_positive_control.get("disabled_reason")
-        audit_extra = {"second_judge_positive_control_disabled_reason": disabled_reason} if disabled_reason else None
-        audit = AuditTrail(Path(self.config.audit_dir) / f"{run_id}.jsonl", run_id, extra=audit_extra)
+        audit = AuditTrail(Path(self.config.audit_dir) / f"{run_id}.jsonl", run_id)
         cfg_view = {"tau": self.config.tau, "refer_band": list(self.config.refer_band), "max_retries": self.config.max_retries,
                    "second_refer_logit_delta": self.config.second_refer_logit_delta()}
+        in_prompt = getattr(self.judge, "prompt_template", "legacy") != "legacy"
+        standard_view = {
+            "proceeding_posture": proceeding_posture, "standard": standard, "standard_source": standard_source,
+            "standard_in_judge_prompt": in_prompt,
+        }
+        standard_out = {
+            "requested": standard,
+            "applied": standard if in_prompt else None,
+            "source": "proceeding_posture" if standard_source == "request" else "default",
+            "proceeding_posture": proceeding_posture,
+            "in_judge_prompt": in_prompt,
+        }
         audit.step("run_start", cfg_view,
                    {"judge": self.judge.name, "score_sha256": self.registry.sha256, "client_data": client_data,
-                    **cfg_view}, 0.0)
+                    **_judge_provenance(self.config), **cfg_view, **standard_view}, 0.0)
 
         t0 = time.monotonic()
         ingested = ingest_facts(facts)
@@ -1407,10 +1688,15 @@ class NyayaAgent:
                    {"selected": chosen}, _ms(t0))
 
         call_records: list[JudgeCallRecord] = []
-        results = [self._run_contract(audit, cid, ingested, narrative, call_records_out=call_records) for cid in chosen]
+        results = [
+            self._run_contract(audit, cid, ingested, narrative, call_records_out=call_records,
+                               proceeding_posture=proceeding_posture)
+            for cid in chosen
+        ]
         accounting = _judge_accounting(call_records)
         audit.step("judge_accounting", {"run_id": run_id}, accounting, 0.0)
         audit.step("run_end", {"run_id": run_id}, {c.contract_id: c.outcome for c in results}, 0.0)
         return AgentRun(run_id, self.judge.name, self.registry.sha256,
                         [{"id": f.id, "sha256": f.sha256} for f in ingested], results, audit.path,
-                        judge_accounting=accounting, client_data=client_data)
+                        judge_accounting=accounting, client_data=client_data, standard=standard_out,
+                        listed_sources={cid: list(srcs) for cid, srcs in listed.items()})

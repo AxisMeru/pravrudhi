@@ -1,118 +1,100 @@
-"""T1 pass bar (docs/decisions/TYPED-LAYER-PLAN-2026-09-24.md): on the 279-prompt judge parity set
-(tmp_scratch/lead2/eval14b/prompts.jsonl, sha256 d56c449f...), the typed path vs current HouseJudge on the
-SAME 5090 vLLM backend gives 0 decision flips and max|delta p| <= 1e-6.
+"""T1 typed-layer parity gate, one command (pravrudhi #196). Exit 0 = gate pass, 1 = gate fail, 2 = refusal.
 
-One completion call per prompt (temperature 0, the model's trained shape, max_tokens/top_logprobs/tau exactly
-`configs/nyaya_agent.yaml`'s production values), then BOTH scoring paths read the SAME `CompletionResult`:
-`nyaya_judges.p_established_from_top_logprobs` (today's production math) and
-`pravrudhi.application.typed.decoder.score_decision` (T1's re-expression) over the identical bool field
-`TypedHouseJudge` uses. `parse_house_fact_id` is literally the same imported function on both sides, so a
-fact-id disagreement is not possible by construction; this script's real question is whether the two
-probability computations agree on live model logprobs, not just on the unit-test fixture range.
+    PRAVRUDHI_T1_PARITY_PROMPTS=<279-prompt jsonl> PRAVRUDHI_T2_RESULTS_DIR=<dir> \
+        uv run python scripts/typed_layer_parity.py [--base-url URL] [--prompt-template FILE]
 
-Usage: PYTHONPATH=src:pravrudhi_kernel/src .venv/bin/python scripts/typed_layer_parity.py
+One live completion per prompt is fed to both `HouseJudge` and `TypedHouseJudge`; the gate is 0 decision flips
+and max|dp| <= 1e-6. Writes `typed_layer_parity_result.json`. Results on a local endpoint are labelled
+"dev stack (local)". `--prompt-template FILE` wraps every prompt (file must contain `{prompt}` once) for the
+standard-line variant (#192); the report records the template sha256. See application/typed/parity.py.
 """
 
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
 import os
+import subprocess
 import sys
 from pathlib import Path
+from urllib.parse import urlparse
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
-from pravrudhi.application.nyaya_judges import p_established_from_top_logprobs, parse_house_fact_id  # noqa: E402
-from pravrudhi.application.typed.decoder import score_decision  # noqa: E402
-from pravrudhi.application.typed.house_judge import _STATUS_FIELD  # noqa: E402
-from pravrudhi.models.openai_compat import ChatClient  # noqa: E402
+from pravrudhi.application.nyaya_judges import HouseJudge  # noqa: E402
+from pravrudhi.application.typed.parity import (  # noqa: E402
+    MAX_TOKENS,
+    PROMPTS_SHA256,
+    TAU,
+    TOP_LOGPROBS,
+    ParityError,
+    run_parity,
+    sha256_text,
+)
 
-# No host path is committed here. Set PRAVRUDHI_T1_PARITY_PROMPTS to the 279-prompt file; the script refuses
-# with a clear message when unset, and hash-checks whatever it points to before using it either way.
-EXPECTED_SHA = "d56c449f9332f22a85176b1008974c1f147a7b8d45e4f5cea0e5ed08a01935cf"
-
-BASE_URL = "http://127.0.0.1:8110/v1"
-TAU = 0.74
-MAX_TOKENS = 30
-TOP_LOGPROBS = 20
+DEFAULT_BASE_URL = "http://127.0.0.1:8110/v1"
 
 
-def main() -> int:
-    env_path = os.environ.get("PRAVRUDHI_T1_PARITY_PROMPTS")
-    if not env_path:
-        print("REFUSING: PRAVRUDHI_T1_PARITY_PROMPTS is not set (no host-path default)", file=sys.stderr)
+def main(argv: list[str] | None = None) -> int:
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--prompts", default=os.environ.get("PRAVRUDHI_T1_PARITY_PROMPTS"))
+    ap.add_argument("--results-dir", default=os.environ.get("PRAVRUDHI_T2_RESULTS_DIR"))
+    ap.add_argument("--base-url", default=DEFAULT_BASE_URL)
+    ap.add_argument("--prompt-template", default=None, help="file containing {prompt} exactly once")
+    args = ap.parse_args(argv)
+    if not args.prompts:
+        print("REFUSING: PRAVRUDHI_T1_PARITY_PROMPTS / --prompts is not set (no host-path default)", file=sys.stderr)
         return 2
-    results_dir_env = os.environ.get("PRAVRUDHI_T2_RESULTS_DIR")
-    if not results_dir_env:
-        print("REFUSING: PRAVRUDHI_T2_RESULTS_DIR is not set (results never write inside the repo)", file=sys.stderr)
+    if not args.results_dir:
+        print("REFUSING: PRAVRUDHI_T2_RESULTS_DIR / --results-dir is not set (no results inside the repo)", file=sys.stderr)
         return 2
-    results_dir = Path(results_dir_env)
-    results_dir.mkdir(parents=True, exist_ok=True)
-    prompts = Path(env_path)
-    digest = hashlib.sha256(prompts.read_bytes()).hexdigest()
-    if digest != EXPECTED_SHA:
-        print(f"REFUSING: {prompts} sha256 {digest} != expected {EXPECTED_SHA}", file=sys.stderr)
+    prompts_path = Path(args.prompts)
+    digest = hashlib.sha256(prompts_path.read_bytes()).hexdigest()
+    if digest != PROMPTS_SHA256:
+        print(f"REFUSING: {prompts_path} sha256 {digest} != expected {PROMPTS_SHA256}", file=sys.stderr)
         return 2
-    rows = [json.loads(line) for line in prompts.read_text().splitlines() if line.strip()]
-    print(f"{len(rows)} prompts, sha256 confirmed. Backend: {BASE_URL}")
+    template = Path(args.prompt_template).read_text() if args.prompt_template else None
+    rows = [json.loads(line) for line in prompts_path.read_text().splitlines() if line.strip()]
 
-    client = ChatClient(base_url=BASE_URL, model="", timeout_s=60)
-    listed = client.list_models()
-    if not listed:
-        print(f"REFUSING: {BASE_URL}/models lists no model", file=sys.stderr)
+    judge = HouseJudge(
+        tau=TAU, statute_chars=600, base_url=args.base_url, max_tokens=MAX_TOKENS, top_logprobs=TOP_LOGPROBS, timeout_s=60
+    )
+    print(f"{len(rows)} prompts, sha256 confirmed. Backend {args.base_url}, model {judge.model}, concurrency 1.")
+    try:
+        report = run_parity(rows, judge._complete, template=template)  # noqa: SLF001 -- the raw single-completion call
+    except ParityError as e:
+        print(f"REFUSING: {e}", file=sys.stderr)
         return 2
-    client.model = listed[0]
-    print(f"model: {client.model}")
 
-    flips: list[dict[str, object]] = []
-    max_abs_delta = 0.0
-    n_no_evidence = 0
-    for i, row in enumerate(rows):
-        res = client.complete(row["prompt"], max_tokens=MAX_TOKENS, temperature=0.0, logprobs=TOP_LOGPROBS)
-        if not res.top_logprobs:
-            n_no_evidence += 1
-            continue
-        p_old = p_established_from_top_logprobs(res.top_logprobs[0])
-        p_new = score_decision(res, _STATUS_FIELD)["true"]
-        delta = abs(p_old - p_new)
-        max_abs_delta = max(max_abs_delta, delta)
-
-        status_old = "established" if p_old >= TAU else "not_established"
-        status_new = "established" if p_new >= TAU else "not_established"
-        fact_id_old = parse_house_fact_id(res.text) if status_old == "established" else None
-        fact_id_new = parse_house_fact_id(res.text) if status_new == "established" else None
-        if status_old != status_new or fact_id_old != fact_id_new:
-            flips.append(
-                {"row": i, "id": row.get("id"), "p_old": p_old, "p_new": p_new,
-                 "status_old": status_old, "status_new": status_new}
-            )
-        if (i + 1) % 50 == 0:
-            print(f"  {i + 1}/{len(rows)} (max|delta p| so far: {max_abs_delta:.3e}, flips so far: {len(flips)})")
-
-    print()
-    print(f"rows scored: {len(rows) - n_no_evidence}/{len(rows)} (no-evidence rows skipped: {n_no_evidence})")
-    print(f"decision flips: {len(flips)}")
-    print(f"max|delta p|: {max_abs_delta:.3e}")
-    out = {
-        "n_prompts": len(rows),
-        "n_no_evidence": n_no_evidence,
-        "n_flips": len(flips),
-        "max_abs_delta_p": max_abs_delta,
-        "flips": flips,
-        "prompts_sha256": digest,
-        "backend": BASE_URL,
-        "model": client.model,
-        "tau": TAU,
-    }
-    out_path = results_dir / "typed_layer_parity_result.json"
-    out_path.write_text(json.dumps(out, indent=2))
-    print(f"result: {out_path}")
-
-    passed = len(flips) == 0 and max_abs_delta <= 1e-6
-    print("PASS" if passed else "FAIL")
-    return 0 if passed else 1
+    host = urlparse(args.base_url).hostname
+    try:
+        runner_sha = subprocess.run(
+            ["git", "-C", str(ROOT), "rev-parse", "HEAD"], capture_output=True, text=True, timeout=10
+        ).stdout.strip() or None
+    except (OSError, subprocess.SubprocessError):
+        runner_sha = None
+    report.update(
+        label="dev stack (local)" if host in ("127.0.0.1", "localhost", "::1") else "non-local endpoint",
+        base_url=args.base_url,
+        model=judge.model,
+        prompts_sha256=digest,
+        prompt_template_sha256=sha256_text(template) if template is not None else None,
+        tau=TAU,
+        runner_git_sha=runner_sha,
+    )
+    out = Path(args.results_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    out_path = out / "typed_layer_parity_result.json"
+    out_path.write_text(json.dumps(report, indent=2))
+    g = report["gate"]
+    print(f"T1 parity: {g['status'].upper()}  flips={len(report['flips'])}  max|dp|={report['max_abs_dp']:.3e}  "
+          f"compared={report['n_compared']}/{report['n_prompts']}  both_error={report['n_both_error']}")
+    for f in g["failures"]:
+        print(f"  FAIL: {f}", file=sys.stderr)
+    print(f"report: {out_path}")
+    return 0 if g["status"] == "pass" else 1
 
 
 if __name__ == "__main__":

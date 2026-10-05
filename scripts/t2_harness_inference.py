@@ -75,15 +75,20 @@ def main() -> int:
     results_dir.mkdir(parents=True, exist_ok=True)
 
     items_path = Path(eval_items_env)
-    digest = hashlib.sha256(items_path.read_bytes()).hexdigest()
+    items_bytes = items_path.read_bytes()
+    items = [json.loads(line) for line in items_bytes.decode().splitlines() if line.strip()]
+    if not items:
+        print(f"REFUSING: n_planned == 0 ({items_path} holds no items); an empty run is not a complete run", file=sys.stderr)
+        return 2
+    digest = hashlib.sha256(items_bytes).hexdigest()
     if digest != EVAL_ITEMS_SHA:
         print(f"REFUSING: {items_path} sha256 {digest} != expected {EVAL_ITEMS_SHA}", file=sys.stderr)
         return 2
-    items = [json.loads(line) for line in items_path.read_text().splitlines() if line.strip()]
 
     scores_path = Path(eval_scores_env)
-    scores_sha = hashlib.sha256(scores_path.read_bytes()).hexdigest()
-    frozen_scores = [json.loads(line) for line in scores_path.read_text().splitlines() if line.strip()]
+    scores_bytes = scores_path.read_bytes()
+    scores_sha = hashlib.sha256(scores_bytes).hexdigest()
+    frozen_scores = [json.loads(line) for line in scores_bytes.decode().splitlines() if line.strip()]
     if len(frozen_scores) != len(items):
         print(f"REFUSING: {len(frozen_scores)} frozen scores != {len(items)} eval items", file=sys.stderr)
         return 2
@@ -123,45 +128,93 @@ def main() -> int:
         time.sleep(INTER_CALL_DELAY_S)
         return res
 
+    n_planned = len(items)
+    n_error = 0
+    truncated_reason: str | None = None
     raw_rows: list[dict[str, Any]] = []
     try:
         for i, item in enumerate(items):
-            req = JudgeRequest(
-                contract_id=item["contract_id"], element=item["element_desc"], is_denial=False,
-                statute=item["statute"], narrative=item["narrative"],
-                facts=tuple((f["id"], f["text"]) for f in item["facts"]),
-            )
-            prompt = build_house_prompt(req, statute_chars=STATUTE_CHARS)
-            res_free = _timed(house._complete, prompt)  # noqa: SLF001
-            res_typed = _timed(decoder.complete, prompt, max_tokens=MAX_TOKENS, temperature=0.0, logprobs=TOP_LOGPROBS)
-            raw_rows.append(
-                {
+            try:
+                req = JudgeRequest(
+                    contract_id=item["contract_id"], element=item["element_desc"], is_denial=False,
+                    statute=item["statute"], narrative=item["narrative"],
+                    facts=tuple((f["id"], f["text"]) for f in item["facts"]),
+                )
+                prompt = build_house_prompt(req, statute_chars=STATUTE_CHARS)
+                res_free = _timed(house._complete, prompt)  # noqa: SLF001
+                res_typed = _timed(
+                    decoder.complete, prompt, max_tokens=MAX_TOKENS, temperature=0.0, logprobs=TOP_LOGPROBS
+                )
+                row = {
                     "item_id": item["item_id"], "element_id": item["element_id"], "contract_id": item["contract_id"],
                     "partition": item["partition"], "gold_status": item["gold_status"],
                     "frozen_p_established": frozen_scores[i]["p_established"],
                     "free_text": {"text": res_free.text, "top_logprobs": res_free.top_logprobs},
                     "typed": {"text": res_typed.text, "top_logprobs": res_typed.top_logprobs},
                 }
-            )
+            except LatencyDegraded:
+                raise
+            except Exception as e:  # noqa: BLE001 -- one item's failure must not crash the whole run
+                n_error += 1
+                print(f"ERROR on item {i} ({item.get('item_id')}): {e}", file=sys.stderr)
+                continue
+            raw_rows.append(row)
             if (i + 1) % 100 == 0:
                 print(f"  {i + 1}/{len(items)}")
     except LatencyDegraded as e:
+        truncated_reason = str(e)
         print(f"ABORTING: {e}", file=sys.stderr)
         print(f"completed {len(raw_rows)}/{len(items)} rows before stopping", file=sys.stderr)
 
-    raw_path = results_dir / "t2_harness_raw_outputs.jsonl"
-    with raw_path.open("w") as f:
+    n_scored = len(raw_rows)
+    complete = n_scored == n_planned
+
+    canonical_name = "t2_harness_raw_outputs.jsonl"
+    out_path = results_dir / (canonical_name if complete else canonical_name + ".TRUNCATED")
+    with out_path.open("w") as f:
         for r in raw_rows:
             f.write(json.dumps(r) + "\n")
-    raw_sha = hashlib.sha256(raw_path.read_bytes()).hexdigest()
+    raw_sha = hashlib.sha256(out_path.read_bytes()).hexdigest()
     print()
-    print(f"RAW OUTPUTS SEALED: {raw_path}, sha256 {raw_sha}, {len(raw_rows)} rows")
-    print("This sha must reach R2 before any scoring pass, per the sealed prereg.")
+    if complete:
+        print(f"RAW OUTPUTS SEALED: {out_path}, sha256 {raw_sha}, {len(raw_rows)} rows")
+        print("This sha must reach R2 before any scoring pass, per the sealed prereg.")
+    else:
+        print(
+            f"TRUNCATED OUTPUT WRITTEN, NOT SEALED: {out_path}, sha256 {raw_sha}, "
+            f"n_scored={n_scored} != n_planned={n_planned}",
+            file=sys.stderr,
+        )
 
-    meta.finish(extra={"raw_output_sha256": raw_sha, "n_rows": len(raw_rows)})
-    meta_path = results_dir / "t2_harness_inference_RUN-METADATA.json"
+    meta.finish(
+        extra={
+            "raw_output_sha256": raw_sha,
+            "output_path": str(out_path),
+            "input_eval_items_path": str(items_path),
+            "input_eval_items_sha256": digest,
+            "input_eval_logit_scores_path": str(scores_path),
+            "input_eval_logit_scores_sha256": scores_sha,
+            "n_planned": n_planned,
+            "n_scored": n_scored,
+            "n_error": n_error,
+            "complete": complete,
+            "truncated_reason": truncated_reason,
+        }
+    )
+    # A truncated run gets its own sidecar name so it can never overwrite the complete run's record.
+    meta_path = results_dir / (
+        "t2_harness_inference_RUN-METADATA.json" if complete else "t2_harness_inference_RUN-METADATA.TRUNCATED.json"
+    )
     meta.write(meta_path)
     print(f"RUN-METADATA written: {meta_path}")
+
+    if not complete:
+        print(
+            f"REFUSING TO SEAL: n_scored ({n_scored}) != n_planned ({n_planned}); "
+            f"wrote {out_path} instead of the canonical filename",
+            file=sys.stderr,
+        )
+        return 2
 
     # Lead-2's protocol note (2026-09-24): no aggregate/headline numbers computed here, even as a "quick
     # sanity check" -- everything downstream of the raw seal, including the free-arm vs frozen-score
