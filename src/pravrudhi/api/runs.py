@@ -56,19 +56,46 @@ _CLOSED = re.compile(r"^(?:harness )?night (?P<night>\d+) (?P<status>closed|abor
 _CHILD_ENV_NAMES = frozenset({
     "PATH", "HOME", "USER", "LOGNAME", "SHELL", "LANG", "LANGUAGE", "TERM", "TZ", "TMPDIR", "TEMP", "TMP",
     "PYTHONPATH", "PYTHONHOME", "VIRTUAL_ENV", "LD_LIBRARY_PATH", "CUDA_HOME", "CUDA_VISIBLE_DEVICES", "PRAVRUDHI_CLI",
-    "PRAVRUDHI_ROOT", "HF_HOME", "HF_HUB_OFFLINE", "TRANSFORMERS_OFFLINE", "TRITON_CACHE_DIR", "TORCHINDUCTOR_CACHE_DIR",
+    "PRAVRUDHI_ROOT", "HF_HUB_OFFLINE", "TRANSFORMERS_OFFLINE", "TRITON_CACHE_DIR", "TORCHINDUCTOR_CACHE_DIR",
+    # uv: where its caches and interpreter live, by exact name. Never a prefix: UV_INDEX_URL and UV_EXTRA_INDEX_URL
+    # (and the other UV_INDEX* / UV_*TOKEN names) can carry credentials in the URL.
+    "UV_CACHE_DIR", "UV_PYTHON", "UV_PYTHON_INSTALL_DIR", "UV_PYTHON_PREFERENCE", "UV_PROJECT_ENVIRONMENT",
+    "UV_NO_SYNC", "UV_OFFLINE", "UV_LINK_MODE", "UV_COMPILE_BYTECODE",
 })
-_CHILD_ENV_PREFIXES = ("LC_", "XDG_", "NVIDIA_", "CUDA_", "NCCL_", "OMP_", "MKL_", "UV_")
+_CHILD_ENV_PREFIXES = ("LC_", "XDG_", "NVIDIA_", "CUDA_", "NCCL_", "OMP_", "MKL_")
 _SECRET_NAME = re.compile(r"(KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|AUTH|COOKIE|SESSION|DSN)", re.IGNORECASE)
+
+PASSTHROUGH_ENV = "PRAVRUDHI_RUN_ENV_PASSTHROUGH"
+#: What an operator-started run also gets by default: where the judge and proposer servers are and which models they
+#: serve, and the Hugging Face cache location. No secrets: a name is added only by the deployment's own config.
+DEFAULT_PASSTHROUGH = (
+    "NYAYA_HOUSE_JUDGE_BASE_URL", "NYAYA_HOUSE_JUDGE_MODEL", "NYAYA_SECOND_JUDGE_BASE_URL", "NYAYA_SECOND_JUDGE_MODEL",
+    "HF_HOME",
+)
+
+
+def passthrough_names() -> list[str]:
+    """The extra environment names a run child receives: `PRAVRUDHI_RUN_ENV_PASSTHROUGH` (comma-separated, set by the
+    deployment, never read from a request) when set, else the defaults above. Naming a variable there is the
+    operator's explicit decision, so it is passed even if it looks secret; only names that are plain identifiers
+    are accepted."""
+    raw = os.environ.get(PASSTHROUGH_ENV)
+    if raw is None:
+        return list(DEFAULT_PASSTHROUGH)
+    return [n for n in (part.strip() for part in raw.split(",")) if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", n)]
 
 
 def child_env() -> dict[str, str]:
-    """The environment a run child gets: an explicit allowlist, never `{**os.environ}`, and no secret-looking name
-    even when it matches an allowed prefix."""
+    """The environment a run child gets: an explicit allowlist, never `{**os.environ}`, no secret-looking name even
+    when it matches an allowed prefix, plus the operator's named pass-through (`passthrough_names`). Runs are
+    started only by an administrator (`roles.ADMIN_IN_BOTH_EDITIONS`), so the pass-through is theirs."""
     env = {
         k: v for k, v in os.environ.items()
         if (k in _CHILD_ENV_NAMES or k.startswith(_CHILD_ENV_PREFIXES)) and not _SECRET_NAME.search(k)
     }
+    for name in passthrough_names():
+        if name in os.environ:
+            env[name] = os.environ[name]
     env["PYTHONUNBUFFERED"] = "1"
     return env
 

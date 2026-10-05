@@ -239,7 +239,7 @@ def gate(app: object) -> list[str]:
         elif route.path in ADMIN_GATED_AT_REGISTRATION:
             gated.append(route.path)  # its own registration already carries the dependency (see server.py)
         elif route.path in ADMIN_IN_BOTH_EDITIONS or (
-            route.path in ADMIN_WRITES_IN_BOTH_EDITIONS and not route.methods <= SAFE_METHODS
+            route.path in ADMIN_WRITES_IN_BOTH_EDITIONS and not (route.methods and route.methods <= SAFE_METHODS)
         ):
             route.dependencies.append(Depends(admin_dependency))
             route.dependant = None  # type: ignore[assignment]

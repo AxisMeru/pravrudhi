@@ -17,7 +17,15 @@ from fastapi.testclient import TestClient
 
 from pravrudhi.api import identity
 from pravrudhi.api.localguard import TOKEN_HEADER, app_token
-from pravrudhi.api.runs import RunManager, RunRequest, child_env, proposer_endpoint_allowed
+from pravrudhi.api.runs import (
+    DEFAULT_PASSTHROUGH,
+    PASSTHROUGH_ENV,
+    RunManager,
+    RunRequest,
+    child_env,
+    passthrough_names,
+    proposer_endpoint_allowed,
+)
 from pravrudhi.api.server import create_app
 
 TOKENS = {
@@ -98,11 +106,14 @@ def test_a_refused_update_write_leaves_update_yaml_byte_for_byte_unchanged(
     assert _sha(cfg) != before  # the operator can still change it
 
 
-@pytest.mark.parametrize("edition", EDITIONS)
-def test_reading_the_update_status_stays_user_facing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, edition: str) -> None:
+@pytest.mark.parametrize(("edition", "who"), [("product", "plain"), ("product", "admin"), ("studio", "admin")])
+def test_reading_the_update_status_stays_user_facing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, edition: str, who: str
+) -> None:
+    # (Studio admits administrators only as a whole, #246, so the non-admin read is the product's.)
     c = _client(tmp_path, edition, monkeypatch)
     for path in ("/api/update", "/api/update/config", "/api/update/last-check"):
-        assert _call(c, tmp_path, "GET", path, None, "plain").status_code == 200, path
+        assert _call(c, tmp_path, "GET", path, None, who).status_code == 200, path
 
 
 @pytest.mark.parametrize("edition", EDITIONS)
@@ -145,6 +156,48 @@ def test_child_env_is_an_allowlist_with_no_secret_looking_name(monkeypatch: pyte
     assert env["PYTHONUNBUFFERED"] == "1" and env["PATH"] == os.environ["PATH"]
     assert env["CUDA_VISIBLE_DEVICES"] == "0" and env["LC_ALL"] == "C.UTF-8"
     assert set(env) <= set(os.environ) | {"PYTHONUNBUFFERED"}
+
+
+@pytest.mark.parametrize("name", [
+    "UV_INDEX_URL", "UV_EXTRA_INDEX_URL", "UV_DEFAULT_INDEX", "UV_INDEX", "UV_PUBLISH_TOKEN", "UV_HTTP_TIMEOUT_TOKEN_X",
+])
+def test_a_credentialed_uv_index_url_is_dropped(monkeypatch: pytest.MonkeyPatch, name: str) -> None:
+    monkeypatch.setenv(name, "https://user:pw-" + "x" * 12 + "@pypi.example.org/simple")
+    monkeypatch.setenv("UV_CACHE_DIR", "/home/user/.cache/uv")
+    env = child_env()
+    assert name not in env and not [v for v in env.values() if "pw-" in v]
+    assert env["UV_CACHE_DIR"] == "/home/user/.cache/uv"  # the exact uv names a child needs still pass
+
+
+def test_the_default_passthrough_is_the_judge_urls_and_model_pins_and_hf_home_and_no_secret(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv(PASSTHROUGH_ENV, raising=False)
+    assert passthrough_names() == list(DEFAULT_PASSTHROUGH)
+    assert not [n for n in DEFAULT_PASSTHROUGH if "KEY" in n or "TOKEN" in n or "SECRET" in n]
+    for n in DEFAULT_PASSTHROUGH:
+        monkeypatch.setenv(n, f"value-of-{n}")
+    monkeypatch.setenv("NYAYA_HOUSE_JUDGE_API_KEY", "judge-key-value")
+    env = child_env()
+    assert all(env[n] == f"value-of-{n}" for n in DEFAULT_PASSTHROUGH)
+    assert "NYAYA_HOUSE_JUDGE_API_KEY" not in env
+
+
+def test_the_passthrough_is_the_deployments_config_not_a_request_and_only_plain_names(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(PASSTHROUGH_ENV, "MY_RUN_FLAG, HF_TOKEN, bad name, A=B, ,1X")
+    monkeypatch.setenv("MY_RUN_FLAG", "on")
+    monkeypatch.setenv("HF_TOKEN", "hf_" + "t" * 30)
+    monkeypatch.setenv("HF_HOME", "/data/hf")
+    assert passthrough_names() == ["MY_RUN_FLAG", "HF_TOKEN"]
+    env = child_env()
+    assert env["MY_RUN_FLAG"] == "on" and env["HF_TOKEN"].startswith("hf_")  # an explicit operator decision
+    assert "HF_HOME" not in env  # the list replaces the default; it is the deployment's to widen or narrow
+    monkeypatch.setenv(PASSTHROUGH_ENV, "")
+    assert passthrough_names() == [] and "MY_RUN_FLAG" not in child_env()
+
+
+def test_the_run_request_cannot_choose_the_passthrough() -> None:
+    assert "env" not in RunRequest.model_fields and "passthrough" not in RunRequest.model_fields
 
 
 def test_the_spawned_run_child_really_gets_that_environment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
