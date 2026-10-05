@@ -226,6 +226,8 @@ def test_only_the_demo_removes_the_project_email_and_the_public_handle_stays() -
 
 def _write(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, data: object, redact: bool = True) -> Path:
     monkeypatch.setattr(demo_export, "build_demo", lambda root: data)
+    monkeypatch.setattr(demo_export, "ASSETS_DIR", tmp_path / "no-assets")  # only the fixture corpus counts here
+    monkeypatch.setattr(demo_export, "MIN_CORPUS_DOCUMENTS", 1)
     if not redact:
         monkeypatch.setattr(demo_export, "redact_for_demo", lambda text: text)
     return demo_export.write_demo(_root_with_corpus(tmp_path), tmp_path / "out" / "demo.json")
@@ -255,6 +257,35 @@ def test_a_kept_heading_and_short_overlap_are_not_statute_text(monkeypatch: pyte
     assert json.loads(out.read_text())["x"] == heading
 
 
-def test_a_snapshot_with_no_corpus_present_has_nothing_of_it_to_leak(tmp_path: Path) -> None:
-    assert demo_export.corpus_windows(tmp_path) == set()
-    assert demo_export.corpus_overlap('{"x": "anything at all"}', set()) == 0
+def test_the_shipped_corpus_alone_is_enough_for_the_backstop(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """A clean clone or CI has no research/ corpus: the packaged provisions must still be compared against."""
+    windows, documents = demo_export.corpus_windows(tmp_path)  # a root with no research corpus at all
+    assert documents >= demo_export.MIN_CORPUS_DOCUMENTS and windows
+    shipped = json.loads((demo_export.ASSETS_DIR / "bns_sections.json").read_text())["documents"]
+    provision = max((d["text"] for d in shipped), key=len)
+    monkeypatch.setattr(demo_export, "build_demo", lambda root: {"x": provision})
+    with pytest.raises(SecretInSnapshot, match="statute text"):
+        demo_export.write_demo(tmp_path, tmp_path / "out" / "demo.json")
+
+
+def test_a_root_with_no_corpus_fails_closed(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(demo_export, "ASSETS_DIR", tmp_path / "no-assets")
+    monkeypatch.setattr(demo_export, "build_demo", lambda root: {"x": "anything"})
+    assert demo_export.corpus_windows(tmp_path) == (set(), 0)
+    with pytest.raises(SecretInSnapshot, match="cannot vouch"):
+        demo_export.write_demo(tmp_path, tmp_path / "out" / "demo.json")
+    assert not (tmp_path / "out" / "demo.json").exists()
+
+
+def test_an_empty_or_too_small_corpus_fails_closed(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    d = tmp_path / "research" / "nyaya" / "corpus"
+    d.mkdir(parents=True)
+    (d / "x.json").write_text(json.dumps({"documents": []}))
+    monkeypatch.setattr(demo_export, "ASSETS_DIR", tmp_path / "no-assets")
+    monkeypatch.setattr(demo_export, "build_demo", lambda root: {"x": "anything"})
+    with pytest.raises(SecretInSnapshot, match="cannot vouch"):
+        demo_export.write_demo(tmp_path, tmp_path / "out" / "demo.json")
+    small = _root_with_corpus(tmp_path / "small")  # one document: below the real minimum
+    monkeypatch.setattr(demo_export, "MIN_CORPUS_DOCUMENTS", 2)
+    with pytest.raises(SecretInSnapshot, match="cannot vouch"):
+        demo_export.write_demo(small, tmp_path / "out" / "demo.json")

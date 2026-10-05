@@ -638,34 +638,44 @@ def _windows(t: str) -> set[int]:
     return {hash(t[i:i + CORPUS_CHUNK]) for i in range(max(0, len(t) - CORPUS_CHUNK + 1))}
 
 
-def corpus_windows(root: Path) -> set[int]:
-    """Hashes of every CORPUS_CHUNK-character window of every shipped corpus provision (`research/nyaya/corpus`),
-    minus the windows of the headings we deliberately keep (`Act, Section N -- Title`, and the title alone): a
-    heading is not provision text, and another provision's text may quote it. An absent corpus gives an empty set:
-    there is then nothing of it to leak."""
+#: The provisions that ship with the package; the research corpus (gitignored, absent in CI and on a clean clone)
+#: adds to them. The backstop reads both, so a clean checkout still checks against every shipped provision.
+ASSETS_DIR = Path(__file__).resolve().parents[1] / "assets" / "nyaya"
+
+#: Fewer documents than this and the backstop has nothing meaningful to compare against, which must not read as
+#: "clean": the write is refused instead (the shipped corpus alone is 1,609 provisions).
+MIN_CORPUS_DOCUMENTS = 1000
+
+
+def corpus_windows(root: Path) -> tuple[set[int], int]:
+    """`(window hashes, document count)` over every shipped provision (`ASSETS_DIR`) and every research-corpus
+    provision (`<root>/research/nyaya/corpus`): the hashes of every CORPUS_CHUNK-character window, minus the
+    windows of the headings we deliberately keep (`Act, Section N -- Title`, and the title alone), since a heading
+    is not provision text and another provision's text may quote it."""
     text: set[int] = set()
     headings: set[int] = set()
-    for f in sorted((Path(root) / "research" / "nyaya" / "corpus").glob("*.json")):
+    docs_seen = 0
+    files = sorted(ASSETS_DIR.glob("*.json")) + sorted((Path(root) / "research" / "nyaya" / "corpus").glob("*.json"))
+    for f in files:
         try:
             docs = json.loads(f.read_text()).get("documents", [])
         except (OSError, ValueError, AttributeError):
             continue
-        for doc in docs:
+        for doc in docs if isinstance(docs, list) else []:
             if not isinstance(doc, dict):
                 continue
+            docs_seen += 1
             text |= _windows(_norm(str(doc.get("text", ""))))
             title = str(doc.get("title", ""))
             headings |= _windows(_norm(title))
             headings |= _windows(_norm(f"[{doc.get('id', '')}] {doc.get('act', '')}, {doc.get('section', '')} -- {title}"))
             headings |= _windows(_norm(f"{doc.get('act', '')}, {doc.get('section', '')} -- {title}"))
-    return text - headings
+    return text - headings, docs_seen
 
 
 def corpus_overlap(text: str, windows: set[int]) -> int:
     """How many CORPUS_CHUNK windows of the snapshot's own strings (parsed from the JSON, so escaping and layout do
     not matter) are a window of a corpus provision. Zero is clean."""
-    if not windows:
-        return 0
     try:
         strings = _flatten_strings(json.loads(text))
     except ValueError:
@@ -694,7 +704,13 @@ def write_demo(root: Path, dest: Path) -> Path:
     left = still_carries(text) + [f"marker {m!r}" for m in private_markers_left(text)]
     if left:
         raise SecretInSnapshot(f"snapshot still carries {', '.join(left)} after redaction; refusing to write it")
-    leaked = corpus_overlap(text, corpus_windows(root))
+    windows, documents = corpus_windows(root)
+    if documents < MIN_CORPUS_DOCUMENTS or not windows:
+        raise SecretInSnapshot(
+            f"the corpus backstop found {documents} provisions (needs {MIN_CORPUS_DOCUMENTS}); it cannot vouch for the "
+            "snapshot, so refusing to write it"
+        )
+    leaked = corpus_overlap(text, windows)
     if leaked:
         raise SecretInSnapshot(
             f"snapshot carries {leaked} {CORPUS_CHUNK}-character window(s) of statute text from the corpus; refusing to write it"
