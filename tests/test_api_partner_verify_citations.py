@@ -96,3 +96,105 @@ def test_rate_limited(tmp_path: Path) -> None:
     c = TestClient(app)
     assert _post(c).status_code == 200
     assert _post(c).status_code == 429
+
+
+# -- R1 review fixes (#181): bounded, gated, metered and audited ---------------------------------------------------
+
+import sqlite3  # noqa: E402
+from typing import Any  # noqa: E402
+
+from pravrudhi.api import identity  # noqa: E402
+from pravrudhi.api import partner as partner_module  # noqa: E402
+from pravrudhi.api.identity import User  # noqa: E402
+from pravrudhi.application import tenancy  # noqa: E402
+from pravrudhi.application import verify as verify_module  # noqa: E402
+
+_ADMIN = User(id="op-1", email="op@example.com", role="authenticated")
+_H = tenancy.API_KEY_HEADER
+
+
+def _keyed_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cfg: PartnerApiConfig = _CFG) -> tuple[TestClient, str]:
+    monkeypatch.setenv("PRAVRUDHI_ADMINS", _ADMIN.id)
+    app = FastAPI()
+    app.include_router(build_partner_router(tmp_path, config=cfg, citation_index_path=_index(tmp_path)))
+    app.dependency_overrides[identity.current_user] = lambda: _ADMIN
+    c = TestClient(app)
+    c.post("/api/v1/orgs", json={"org_id": "acme", "name": "acme"})
+    secret = str(c.post("/api/v1/orgs/acme/keys", json={"rate_limit_per_minute": 3}).json()["secret"])
+    return c, secret
+
+
+def test_a_keyed_lookup_is_metered_audited_and_has_rate_limit_headers(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    c, secret = _keyed_client(tmp_path, monkeypatch)
+    body = {"citation": "(1977) 3 SCC 247", "quote": "time is not ordinarily of the essence"}
+    r = c.post("/api/v1/verify-citations", json=body, headers={_H: secret})
+    assert r.status_code == 200 and r.json()["result"] == "VERIFIED"
+    assert {"x-ratelimit-limit", "x-ratelimit-remaining", "x-ratelimit-reset"} <= set(r.headers)
+    assert c.get("/api/v1/orgs/acme/usage", headers={_H: secret}).json()["calls"] == 1
+    rows = c.get("/api/v1/audit", headers={_H: secret}).json()["rows"]
+    assert [(x["mode"], x["status_code"], x["outcomes"]) for x in rows] == [("verify", 200, {"verify": "VERIFIED"})]
+    assert "SCC 247" not in str(rows) and "essence" not in str(rows)  # no citation or quote text in the audit
+
+
+def test_a_keyed_lookup_is_rate_limited_per_key(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    c, secret = _keyed_client(tmp_path, monkeypatch)
+    body = {"citation": "(1977) 3 SCC 247", "quote": "time is not ordinarily"}
+    codes = [c.post("/api/v1/verify-citations", json=body, headers={_H: secret}).status_code for _ in range(5)]
+    assert codes[:3] == [200, 200, 200] and set(codes[3:]) == {429}
+
+
+def test_an_invalid_key_is_401_never_anonymous(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    c, _secret = _keyed_client(tmp_path, monkeypatch)
+    r = c.post("/api/v1/verify-citations", json={"citation": "(1977) 3 SCC 247", "quote": "x"}, headers={_H: "not-a-real-key"})
+    assert r.status_code == 401
+
+
+def test_lookups_are_capped_by_a_non_blocking_gate(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    cfg = PartnerApiConfig(rate_limit_per_minute=1000, max_concurrent=100, trust_proxy_header=False, verify_max_concurrent=1)
+    c = _client_with(tmp_path, cfg)
+    seen: dict[str, Any] = {}
+
+    def slow_verify(conn: sqlite3.Connection, citation: str, quote: str) -> Any:
+        seen["inner"] = _post(c)  # a second lookup while the first holds the only slot
+        return verify_module.VerifyResult.NOT_IN_INDEX
+
+    monkeypatch.setattr(partner_module, "verify_citation", slow_verify)
+    outer = _post(c)
+    assert outer.status_code == 200
+    assert seen["inner"].status_code == 503 and seen["inner"].json() == {"error": "verify_at_capacity"}
+    assert _post(c).status_code == 200  # the slot was released
+
+
+def test_a_lookup_that_runs_past_the_time_bound_is_aborted_with_503(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    cfg = PartnerApiConfig(rate_limit_per_minute=1000, max_concurrent=100, trust_proxy_header=False, verify_timeout_s=0.05)
+    c = _client_with(tmp_path, cfg)
+
+    def forever(conn: sqlite3.Connection, citation: str, quote: str) -> Any:
+        conn.execute("WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM n) SELECT count(*) FROM n").fetchone()
+
+    monkeypatch.setattr(partner_module, "verify_citation", forever)
+    r = _post(c)
+    assert r.status_code == 503 and r.json() == {"error": "verify_timeout"}
+
+
+def _client_with(tmp_path: Path, cfg: PartnerApiConfig) -> TestClient:
+    app = FastAPI()
+    app.include_router(build_partner_router(tmp_path, config=cfg, citation_index_path=_index(tmp_path)))
+    return TestClient(app)
+
+
+def test_the_fuzzy_title_scan_never_reads_the_text_column_for_every_case(tmp_path: Path) -> None:
+    conn = open_index(tmp_path / "big.sqlite3")
+    for i in range(50):
+        title = f"Unrelated Party {i} v Other {i}"
+        insert_case(conn, CaseRecord(f"c{i}", title, "Supreme Court", 2000, "sc_pdf", "/x", "T" * 1000))
+    hit = CaseRecord("hit", "Narandas Karsondas vs S A Kamtam", "Supreme Court", 1977, "sc_pdf", "/y", "the real text")
+    insert_case(conn, hit)
+    conn.commit()
+    conn.row_factory = sqlite3.Row
+    statements: list[str] = []
+    conn.set_trace_callback(statements.append)
+    rows = verify_module._fuzzy_confirm(conn, "Narandas Karsondas", "S A Kamtam")
+    assert [r["case_id"] for r in rows] == ["hit"] and rows[0]["text"] == "the real text"
+    scans = [s for s in statements if "FROM cases" in s and "WHERE" not in s]
+    assert scans and all("text" not in s.lower() for s in scans), scans

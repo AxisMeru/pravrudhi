@@ -1,0 +1,40 @@
+# Usage gates for scripted vendor calls (`panel.ask_vendor`), operator rules 2026-09-26/27. A call is refused when the
+# seat's latest reading is at or above a threshold, unverified, missing, or older than `max_age_min`. Nothing here has
+# a default in code: a missing key is a refusal.
+#
+# codex: percentages come from the newest `token_count` event in the codex rollout files (`codex_usage.py`). Those
+# only advance when codex runs, so a long-idle codex seat reads as stale and is refused until a reading is refreshed.
+# claude: the seat-2 entry (`Claude-Axismeru` is the collector's name for seat 2, sharath.sathish) of the telemetry
+# collector's claude_usage.json (15-minute cadence). Other seats' numbers are never used.
+max_age_min:
+  codex: 60
+  claude: 30
+codex:
+  weekly_max_pct: 60
+  five_hour_max_pct: 70
+  # Bounded refresh: when the codex reading is ONLY stale (or its weekly window reset since) and both windows were at
+  # least `refresh_margin_pp` under their thresholds (a reset waives the margin), `ask_vendor` makes ONE minimal
+  # codex call with `refresh_prompt` (answer discarded) and re-reads the gate; it proceeds only if the fresh reading
+  # passes. At most one per `refresh_min_interval_min`, tracked in `refresh_state_file`. Never on an unverified,
+  # missing, corrupt or future reading. Claude has no refresh: its collector goes unverified, never silently stale.
+  refresh_margin_pp: 5
+  refresh_min_interval_min: 60
+  refresh_timeout_s: 120
+  refresh_prompt: "Reply with the single word: ok"
+  refresh_state_file: ~/.local/state/pravrudhi/codex_usage_gate_refresh.json
+claude:
+  seat_key: Claude-Axismeru
+  weekly_max_pct: 60
+  five_hour_max_pct: 70
+  usage_file: ~/runpod-telemetry/claude_usage.json
+# Opus is allowed only for the M4 frontier comparison, within its pre-registered budget (house model-cap rule;
+# PREREGISTRATION_M4_head_to_head_v0.5.md section 2.5): a hard call cap per arm and a pause when the seat's five-hour
+# window is above 70%. `ask_vendor` needs `params["m4_arm"]` to name an arm below; an arm that is not listed is
+# refused. Only the Phase 1 preflight (10 seeded instances: 10 Config A + 500 Config C calls) is pre-registered;
+# Phase 2 has its own separate go and is deliberately NOT listed. Counted before each call, persisted in counter_file.
+opus_m4:
+  five_hour_pause_pct: 70
+  counter_file: ~/.local/state/pravrudhi/opus_m4_calls.json
+  call_cap_per_arm:
+    m4-phase1-config-a: 10
+    m4-phase1-config-c: 500

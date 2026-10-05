@@ -44,10 +44,13 @@ pinned_score_sha256: 700de3aadf50b482f4cf23499a03fd518cf72734bf8f51b950b5983555d
 pinned_registry_count: 37
 
 # The house element judge: an OpenAI-compatible vLLM server serving the fine-tuned element judge.
-# `model: null` means "the first id the server's own /v1/models lists".
+# `model` names the served model id and is REQUIRED in every edition except an explicit PRAVRUDHI_EDITION=dev
+# on a development checkout (a release install is the product; an unset, unknown or mislabelled edition is
+# enforced too): a missing, null or "null" model raises at config load, because an unset model resolves to the
+# first id the server's own /v1/models lists, which is the BASE snapshot on the dev 32B. Set
+# NYAYA_HOUSE_JUDGE_MODEL (the host's fact, e.g. nyaya-judge-4b).
 house_judge:
   base_url: http://127.0.0.1:8110/v1
-  model: null
   # 60s is right for the always-warm 5090. A serverless deployment (no warm workers) needs far more: the
   # judge's own cold start alone runs ~200s. NYAYA_HOUSE_JUDGE_TIMEOUT_S overrides this per-deployment
   # (2026-09-24: a fully-cold demo visit hit ABSTAIN/judge_error every time before this was raised).
@@ -67,6 +70,14 @@ house_judge:
   # ThreadPoolExecutor (docs/decisions 2026-09-24). 1 is today's serial behaviour, byte-identical results and
   # audit ordering -- unchanged unless this is raised. NYAYA_JUDGE_MAX_CONCURRENCY overrides.
   max_concurrency: 1
+
+# Whether the house judge's prompt states the legal standard (posture/type -> "prima facie disclosed" vs "proved").
+# false = the training prompt, byte for byte. The standard is resolved and recorded in the audit row either way.
+# Probe (explorer, dev stack (local), seen not sealed): inserting the line into the prompt of a 4B NOT trained on it
+# cut NE false proofs 10/122 -> 6/122 (p=0.29) but lost 20 of 111 named-ingredient hits (p=1.9e-6). Turn on only
+# with weights trained on the line (#192).
+judge_prompt:
+  standard_line: false
 
 # Decision threshold on p_established: established iff p >= tau. 0.74 is the dual-signed v0 value
 # (element-judge 4B v0, val-split false-prove sweep, 2026-09-22).
@@ -101,7 +112,7 @@ retention_days: 7
 # read directly (never merged into this block), same pattern as NYAYA_HOUSE_JUDGE_API_KEY.
 # second_judge:
 #   base_url: http://127.0.0.1:8111/v1
-#   model: null
+#   model: <served model id>   # required unless PRAVRUDHI_EDITION=dev (NYAYA_SECOND_JUDGE_MODEL)
 #   timeout_s: 60
 #   top_logprobs: 20
 #   max_tokens: 30

@@ -29,7 +29,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from pravrudhi.api.identity import CurrentUserDep, User
 from pravrudhi.api.schemas import (
@@ -51,6 +51,77 @@ _ROUND = re.compile(r"^round (?P<round>\d+): (?P<selected>\d+) selected, (?P<rem
 _CLOSED = re.compile(r"^(?:harness )?night (?P<night>\d+) (?P<status>closed|aborted)")
 
 
+#: What a night child needs from the engine's environment, and nothing else. The engine's own environment holds the
+#: operator's secrets (API keys, tokens, the Supabase and gateway settings), and a run is started from a request.
+_CHILD_ENV_NAMES = frozenset({
+    "PATH", "HOME", "USER", "LOGNAME", "SHELL", "LANG", "LANGUAGE", "TERM", "TZ", "TMPDIR", "TEMP", "TMP",
+    "PYTHONPATH", "PYTHONHOME", "VIRTUAL_ENV", "LD_LIBRARY_PATH", "CUDA_HOME", "CUDA_VISIBLE_DEVICES", "PRAVRUDHI_CLI",
+    "PRAVRUDHI_ROOT", "HF_HUB_OFFLINE", "TRANSFORMERS_OFFLINE", "TRITON_CACHE_DIR", "TORCHINDUCTOR_CACHE_DIR",
+    # uv: where its caches and interpreter live, by exact name. Never a prefix: UV_INDEX_URL and UV_EXTRA_INDEX_URL
+    # (and the other UV_INDEX* / UV_*TOKEN names) can carry credentials in the URL.
+    "UV_CACHE_DIR", "UV_PYTHON", "UV_PYTHON_INSTALL_DIR", "UV_PYTHON_PREFERENCE", "UV_PROJECT_ENVIRONMENT",
+    "UV_NO_SYNC", "UV_OFFLINE", "UV_LINK_MODE", "UV_COMPILE_BYTECODE",
+})
+_CHILD_ENV_PREFIXES = ("LC_", "XDG_", "NVIDIA_", "CUDA_", "NCCL_", "OMP_", "MKL_")
+_SECRET_NAME = re.compile(r"(KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|AUTH|COOKIE|SESSION|DSN)", re.IGNORECASE)
+
+PASSTHROUGH_ENV = "PRAVRUDHI_RUN_ENV_PASSTHROUGH"
+#: What an operator-started run also gets by default: where the judge and proposer servers are and which models they
+#: serve, and the Hugging Face cache location. No secrets: a name is added only by the deployment's own config.
+DEFAULT_PASSTHROUGH = (
+    "NYAYA_HOUSE_JUDGE_BASE_URL", "NYAYA_HOUSE_JUDGE_MODEL", "NYAYA_SECOND_JUDGE_BASE_URL", "NYAYA_SECOND_JUDGE_MODEL",
+    "HF_HOME",
+)
+
+
+def passthrough_names() -> list[str]:
+    """The extra environment names a run child receives: `PRAVRUDHI_RUN_ENV_PASSTHROUGH` (comma-separated, set by the
+    deployment, never read from a request) when set, else the defaults above. Naming a variable there is the
+    operator's explicit decision, so it is passed even if it looks secret; only names that are plain identifiers
+    are accepted."""
+    raw = os.environ.get(PASSTHROUGH_ENV)
+    if raw is None:
+        return list(DEFAULT_PASSTHROUGH)
+    return [n for n in (part.strip() for part in raw.split(",")) if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", n)]
+
+
+def child_env() -> dict[str, str]:
+    """The environment a run child gets: an explicit allowlist, never `{**os.environ}`, no secret-looking name even
+    when it matches an allowed prefix, plus the operator's named pass-through (`passthrough_names`). Runs are
+    started only by an administrator (`roles.ADMIN_IN_BOTH_EDITIONS`), so the pass-through is theirs."""
+    env = {
+        k: v for k, v in os.environ.items()
+        if (k in _CHILD_ENV_NAMES or k.startswith(_CHILD_ENV_PREFIXES)) and not _SECRET_NAME.search(k)
+    }
+    for name in passthrough_names():
+        if name in os.environ:
+            env[name] = os.environ[name]
+    env["PYTHONUNBUFFERED"] = "1"
+    return env
+
+
+PROPOSER_HOSTS_ENV = "PRAVRUDHI_PROPOSER_ENDPOINT_HOSTS"
+_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
+
+
+def proposer_endpoint_allowed(endpoint: str) -> bool:
+    """A proposer endpoint is an http(s) URL on loopback or on a host the deployment names in
+    `PRAVRUDHI_PROPOSER_ENDPOINT_HOSTS` (comma-separated hostnames); anything else is refused, so a request cannot
+    point the engine at an arbitrary server."""
+    from urllib.parse import urlparse
+
+    try:
+        parsed = urlparse(endpoint)
+        host = (parsed.hostname or "").lower()
+        port = parsed.port  # noqa: F841 -- raises on a malformed port
+    except ValueError:
+        return False
+    if parsed.scheme not in ("http", "https") or not host or parsed.username or parsed.password:
+        return False
+    named = {h.strip().lower() for h in os.environ.get(PROPOSER_HOSTS_ENV, "").split(",") if h.strip()}
+    return host in _LOOPBACK_HOSTS or host in named
+
+
 class RunRequest(BaseModel):
     target: str = Field(pattern="^(model|harness)$")
     bench: str = ""
@@ -59,6 +130,15 @@ class RunRequest(BaseModel):
     policy: str = Field(default="efe", pattern="^(efe|greedy|thompson|random)$")
     proposer_gguf: str = ""
     proposer_endpoint: str = ""
+
+    @field_validator("proposer_endpoint")
+    @classmethod
+    def _endpoint_must_be_allowed(cls, value: str) -> str:
+        if value and not proposer_endpoint_allowed(value):
+            raise ValueError(
+                f"proposer_endpoint must be an http(s) URL on loopback or a host named in {PROPOSER_HOSTS_ENV}"
+            )
+        return value
 
 
 @dataclass
@@ -151,7 +231,7 @@ class RunManager:
             night = next_night(self.root, track)
             run = Run(id=uuid.uuid4().hex[:12], target=req.target, night=night, request=req.model_dump(),
                       started_at=time.time())
-            env = {**os.environ, "PYTHONUNBUFFERED": "1"}
+            env = child_env()
             run.proc = subprocess.Popen(
                 self._command(req, night), cwd=self.root, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                 text=True, bufsize=1, env=env, start_new_session=True,

@@ -73,3 +73,14 @@ judge_seen_ttl_s: 600
 # first such failure, then as a plain judge_unavailable. 0 turns the distinction off.
 judge_warm_grace_s: 240
 judge_warm_retry_s: 30
+
+# Async jobs (POST /api/v1/analyse-facts/jobs, then poll GET .../jobs/{job_id}). Jobs are in memory and are lost on a
+# restart. A finished job stays collectable for job_retention_s; one key may hold at most
+# job_max_unfinished_per_key unfinished jobs (429 beyond that). Polling is not rate limited.
+job_retention_s: 3600
+job_max_unfinished_per_key: 8
+
+# Audit log (GET /api/v1/audit, the calling key's own rows only): one row per key-admitted analyse-facts call, with
+# key id, time, run id, contract ids, outcome labels and HTTP status; never fact text. Rows older than this are
+# dropped on write and never served (default 90 days).
+audit_retention_s: 7776000
