@@ -6,6 +6,7 @@
 # and a vendor comparison whose numbers cannot be reproduced is an anecdote.
 vendors:
   claude-cli: {temperature: 0.0, max_tokens: 2048, timeout_s: 900}
+  # codex_model intentionally unset; pinned per-run by prereg. Every codex call is refused until one is pinned.
   codex-cli: {temperature: 0.0, max_tokens: 2048, timeout_s: 900}
   qwen-dashscope: {temperature: 0.0, max_tokens: 2048, top_p: 1.0, seed: 0}
   # Declared before any key exists, on the operator's instruction, so that nothing is designed under time
