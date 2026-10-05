@@ -902,7 +902,8 @@ class AgentRun:
     #: its own copy.
     retention_notice: str = RETENTION_NOTICE
     #: #220: the standard this run applied, from the same resolved values the `run_start` audit row carries.
-    #: `{"applied", "source", "proceeding_posture"}`; None only for a hand-built run.
+    #: `{"requested", "applied", "source", "proceeding_posture", "in_judge_prompt"}`; `applied` is None when the
+    #: judge's prompt did not state the standard. None only for a hand-built run.
     standard: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
@@ -1517,7 +1518,8 @@ class NyayaAgent:
             "standard_in_judge_prompt": in_prompt,
         }
         standard_out = {
-            "applied": standard,
+            "requested": standard,
+            "applied": standard if in_prompt else None,
             "source": "proceeding_posture" if standard_source == "request" else "default",
             "proceeding_posture": proceeding_posture,
             "in_judge_prompt": in_prompt,

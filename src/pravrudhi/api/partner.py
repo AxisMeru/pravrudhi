@@ -399,15 +399,24 @@ class ContractResultOut(BaseModel):
 
 
 class StandardOut(BaseModel):
-    """#220: which standard of proof this run applied, and where that came from. Unknown values from a newer
-    engine pass through verbatim, so `applied` and `source` are plain strings here."""
+    """#220: the standard of proof the request asked for, whether the judge was told it, and where it came from.
+    Unknown values from a newer engine pass through verbatim, so `requested`, `applied` and `source` are plain
+    strings here."""
 
-    applied: str = Field(description='"proved" or "prima_facie_disclosed".')
+    requested: str = Field(
+        description='The standard the posture asks for: "proved" or "prima_facie_disclosed". Recorded in the audit '
+        "row whether or not the judge was told it."
+    )
+    applied: str | None = Field(
+        description="The standard actually stated in the judge's prompt: the same value as `requested` when "
+        "`in_judge_prompt` is true, and null when it is false (the judge never saw a standard, so none was applied)."
+    )
     source: str = Field(description='"proceeding_posture", "proceeding_type" or "default".')
     proceeding_posture: str | None = Field(default=None, description="The caller's posture, echoed; null if absent.")
     in_judge_prompt: bool = Field(
-        description="True only when the house judge's prompt stated this standard (judge_prompt.standard_line on). "
-        "False means the basis is recorded but the judge never saw it."
+        description="True only when the house judge's prompt stated the requested standard "
+        "(judge_prompt.standard_line on). False means the basis is recorded (`requested`) but the judge never saw "
+        "it, so `applied` is null."
     )
 
 
@@ -428,8 +437,9 @@ class AnalyseFactsResponse(BaseModel):
     retention_notice: str = Field(default=RETENTION_NOTICE)
     standard: StandardOut | None = Field(
         default=None,
-        description="Additive (#220): the standard applied, from the same values as the audit row. Under the "
-        "legacy prompt template no standard is consumed, so it reports proved / default.",
+        description="Additive (#220): the standard the request asked for (`requested`) and the standard the judge's "
+        "prompt actually stated (`applied`, null under the legacy prompt template, where the judge is never told "
+        "a standard), from the same values as the audit row.",
     )
 
 
