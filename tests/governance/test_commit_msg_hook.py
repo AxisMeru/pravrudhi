@@ -237,3 +237,14 @@ def test_shipped_allowlist_accepts_the_org_handle_spelling_of_the_team_identity(
 def test_shipped_allowlist_still_requires_the_pair_for_the_org_handle(tmp_path: Path) -> None:
     rc, _ = _run("fix: z\n", tmp_path, author=("AxisMeru", "someone@else.example"))
     assert rc == 1
+
+
+def test_commit_msg_honours_a_listed_identity_on_an_allowlist_larger_than_a_pipe_buffer(tmp_path: Path) -> None:
+    """Same SIGPIPE-under-pipefail pattern as pre-push: the listed identity is FIRST, followed by ~123 KB of other lines."""
+    filler = "".join(f"Person{i} <p{i}@example.org>\n" for i in range(4000))
+    allowed = f"SharathSPhD <admin@axismeru.com>\n{filler}"
+    assert len(allowed) > 65536 and len(allowed.splitlines()) > 2000
+    rc, _ = _run("fix: big list\n", tmp_path, allowed=allowed)
+    assert rc == 0
+    rc2, _ = _run("fix: big list\n", tmp_path, author=("Nobody", "nobody@example.org"), allowed=allowed)
+    assert rc2 == 1
