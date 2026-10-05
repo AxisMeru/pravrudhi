@@ -10,6 +10,7 @@ binary.
 from __future__ import annotations
 
 import os
+import subprocess
 import threading
 import time
 from pathlib import Path
@@ -1148,6 +1149,83 @@ class TestJudgesWarming:
     def test_warm_grace_is_config_not_code(self) -> None:
         cfg = load_partner_api_config(Path(__file__).resolve().parent.parent)
         assert cfg.judge_warm_grace_s > 0 and cfg.judge_warm_retry_s > 0
+
+
+def test_contracts_carry_citations_resolved_against_the_corpus(tmp_path: Path) -> None:
+    """#142: the contract's own source column, checked against the shipped corpus; same whatever the verdict."""
+    proof = _client(tmp_path).post("/api/v1/analyse-facts", json=_req()).json()["contracts"][0]
+    assert proof["citations"] == [
+        {"act": "BNS", "section": "69", "corpus_id": "BNS/Section 69", "in_corpus": True, "title": proof["citations"][0]["title"]}
+    ]
+    assert proof["citations"][0]["title"]
+    no_proof = {BNS69_EL[0]: [_not()], BNS69_EL[1]: [_not()], BNS69_DENY: [_not()]}
+    refer = _client(tmp_path, no_proof).post("/api/v1/analyse-facts", json=_req()).json()["contracts"][0]
+    assert refer["outcome"] != proof["outcome"]
+    assert refer["citations"] == proof["citations"]
+
+
+def test_a_source_absent_from_the_corpus_is_reported_not_dropped(tmp_path: Path) -> None:
+    agent = _agent(tmp_path, _proof_script())
+    agent.registry.sources["bns69"] = ["Bharatiya Nyaya Sanhita §9999"]
+    app = FastAPI()
+    app.include_router(build_partner_router(tmp_path, agent_factory=lambda _root: agent, config=_NO_LIMIT_CONFIG))
+    c = TestClient(app).post("/api/v1/analyse-facts", json=_req()).json()["contracts"][0]
+    assert c["citations"] == [{"act": "BNS", "section": "9999", "corpus_id": None, "in_corpus": False, "title": None}]
+
+
+def _citations_client(tmp_path: Path, agent: Any) -> TestClient:
+    app = FastAPI()
+    app.include_router(build_partner_router(tmp_path, agent_factory=lambda _root: agent, config=_NO_LIMIT_CONFIG))
+    return TestClient(app)
+
+
+def test_citations_reuse_the_sources_the_run_already_read_one_registry_call_per_request(tmp_path: Path) -> None:
+    agent = _agent(tmp_path, _proof_script())
+    real = agent.registry.list_contracts
+    calls: list[int] = []
+
+    def counting() -> dict[str, list[str]]:
+        calls.append(1)
+        return real()
+
+    agent.registry.list_contracts = counting  # type: ignore[method-assign]
+    r = _citations_client(tmp_path, agent).post("/api/v1/analyse-facts", json=_req())
+    assert r.status_code == 200 and r.json()["contracts"][0]["citations"][0]["in_corpus"] is True
+    assert calls == [1]
+    assert "listed_sources" not in r.json()
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        subprocess.CalledProcessError(1, ["score", "--list-contracts"]),
+        subprocess.TimeoutExpired(["score", "--list-contracts"], 30),
+        RuntimeError("binary gone"),
+    ],
+    ids=["CalledProcessError", "TimeoutExpired", "RuntimeError"],
+)
+def test_a_failing_sources_read_gives_null_citations_and_a_200_never_a_500(tmp_path: Path, error: Exception) -> None:
+    """The fallback read (a run that carries no sources) fails: an already-completed analysis is still returned."""
+    agent = _agent(tmp_path, _proof_script())
+    real_run, real_list = agent.run, agent.registry.list_contracts
+    calls: list[int] = []
+
+    def run_without_sources(*a: Any, **k: Any) -> Any:
+        out = real_run(*a, **k)
+        out.listed_sources = None
+        return out
+
+    def flaky() -> dict[str, list[str]]:
+        calls.append(1)
+        if len(calls) > 1:  # the run's own selection read succeeds; the fallback read in the router fails
+            raise error
+        return real_list()
+
+    agent.run = run_without_sources  # type: ignore[method-assign]
+    agent.registry.list_contracts = flaky  # type: ignore[method-assign]
+    r = _citations_client(tmp_path, agent).post("/api/v1/analyse-facts", json=_req())
+    assert r.status_code == 200, r.text
+    assert r.json()["contracts"][0]["citations"] is None and r.json()["contracts"][0]["outcome"]
 
 
 class TestProceedingPosture:
