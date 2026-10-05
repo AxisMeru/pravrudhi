@@ -16,19 +16,20 @@ _ACTS: tuple[tuple[str, str], ...] = (
     ("indian penal code", "IPC"),
     ("constitution of india", "COI"),
 )
-_REF = re.compile(r"^(?P<act>.*?)\s*(?:§|section|article)\s*(?P<num>\d+)", re.IGNORECASE)
+_REF = re.compile(r"^(?P<act>.*?)\s*(?:§|section|article)\s*(?P<num>\d+[A-Za-z]*)", re.IGNORECASE)
 
 
 def parse_source(source: str) -> tuple[str, str] | None:
     """`"Bharatiya Nyaya Sanhita §69"` -> `("BNS", "69")`. An act this module does not know keeps its own name;
-    a source with no section number returns None."""
+    a source with no section number returns None. The section keeps its letter suffix (`354A` is not `354`), so a
+    suffixed provision is never resolved to the plain section number."""
     m = _REF.match(source.strip())
     if not m:
         return None
     name = m.group("act").strip().rstrip(",")
     low = name.lower()
     abbr = next((a for prefix, a in _ACTS if low.startswith(prefix)), name)
-    return abbr, m.group("num")
+    return abbr, m.group("num").upper()
 
 
 def _corpus_id(act: str, section: str) -> str:

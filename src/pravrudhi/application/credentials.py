@@ -30,6 +30,7 @@ import os
 import re
 import subprocess
 from collections.abc import Callable
+from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
@@ -224,8 +225,16 @@ class CredentialStore(Protocol):
 class FileCredentialStore:
     """`CredentialStore` over `<root>/.pravrudhi/credentials/<provider>.key`, one 0600 file per provider."""
 
-    def __init__(self, root: Path) -> None:
+    def __init__(self, root: Path, *, operator_path: bool = False) -> None:
         self._root = Path(root)
+        #: Closed by default: `panel.Vendor.key` resolves from this store ALONE unless the creator passed
+        #: `operator_path=True`, which only the CLI / local single-operator entrypoints do. Signed-in, anonymous and
+        #: partner-key API requests all get the default: env and the operator credential files are never theirs.
+        self.operator_path = operator_path
+
+    @property
+    def tenant_only(self) -> bool:
+        return not self.operator_path
 
     def _dir(self) -> Path:
         return self._root / ".pravrudhi" / "credentials"
@@ -314,21 +323,51 @@ def validate(
     return False, redact(f"probe returned status {response.status_code}")
 
 
+#: True while an API request is being served. Inside it a vendor call with no tenant store is an error: env and the
+#: operator credential file are the operator's, and only CLI / research entrypoints (outside this context) may use them.
+serving_api: ContextVar[bool] = ContextVar("serving_api", default=False)
+
+#: The org the API request belongs to, when the partner API resolved one (`tenancy.principal_from_headers`); selects
+#: the per-org vendor allowlist. None for an anonymous or session caller, who gets the default list.
+serving_org: ContextVar[str | None] = ContextVar("serving_org", default=None)
+
+API_WITHOUT_TENANT_STORE = "API call without tenant store"
+
+
+class ServingApiMiddleware:
+    """Pure-ASGI middleware that marks every HTTP/websocket request as API-served (`serving_api`)."""
+
+    def __init__(self, app: Any) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
+        if scope["type"] not in ("http", "websocket"):
+            await self.app(scope, receive, send)
+            return
+        token = serving_api.set(True)
+        try:
+            await self.app(scope, receive, send)
+        finally:
+            serving_api.reset(token)
+
+
 class CredentialBoundaryError(RuntimeError):
     """Refusing to hand a signed-in user a store rooted at the engine's own project."""
 
 
-def store_for(root: Path, user: User | None) -> CredentialStore:
+def store_for(root: Path, user: User | None, *, operator_path: bool = False) -> CredentialStore:
     """The credential store for this request, for callers that hold only the engine's root.
 
     Prefer `store_for_project`, which knows whose project the request is about. This remains for the local,
     single-operator path where there is no signed-in user and the engine's root is the only project there is.
+    `operator_path=True` is the explicit opt-in a CLI / local entrypoint sets so env and the operator credential
+    file stay reachable; every API-served request leaves it False (closed), anonymous or partner-key included.
     """
     if user is not None:
         raise NotImplementedError(
             "a signed-in caller needs `store_for_project`, which resolves their own workspace"
         )
-    return FileCredentialStore(root)
+    return FileCredentialStore(root, operator_path=operator_path)
 
 
 def store_for_project(

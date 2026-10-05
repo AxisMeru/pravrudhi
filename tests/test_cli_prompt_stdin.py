@@ -44,6 +44,16 @@ CLAUDE_JSON_ENVELOPE = json.dumps({
 })
 
 
+#: CONSTRUCTED codex `--json` stream (the agent_message/turn.completed shapes match the recorded stream in
+#: test_astra_cost.py; the model-bearing `model` key is CONSTRUCTED -- see test_ask_vendor_gaps.py -- because
+#: every codex call now needs a pinned AND resolved model).
+CODEX_JSONL = "\n".join(json.dumps(e) for e in [
+    {"type": "thread.started", "thread_id": "th_1", "model": "gpt-x-1"},
+    {"type": "item.completed", "item": {"type": "agent_message", "text": "ANSWER: A"}},
+    {"type": "turn.completed", "usage": {"input_tokens": 100, "cached_input_tokens": 60, "output_tokens": 5}},
+])
+
+
 def _stand_in(bin_dir: Path, name: str, report: Path, *, json_envelope: bool = False) -> None:
     """An executable named like the vendor CLI that records its argv and stdin, then answers.
 
@@ -53,7 +63,8 @@ def _stand_in(bin_dir: Path, name: str, report: Path, *, json_envelope: bool = F
     """
     bin_dir.mkdir(parents=True, exist_ok=True)
     exe = bin_dir / name
-    answer_line = f"print({CLAUDE_JSON_ENVELOPE!r})" if json_envelope else "print('ANSWER: A')"
+    answer_line = (f"print({CLAUDE_JSON_ENVELOPE!r})" if json_envelope
+                   else f"print({CODEX_JSONL!r})" if name == "codex" else "print('ANSWER: A')")
     exe.write_text(
         f"#!{sys.executable}\n"
         "import json, sys\n"
@@ -138,6 +149,8 @@ class TestPanelAskVendorEndToEnd:
         assert home.exists()
 
     def test_codex_prompt_goes_on_stdin_not_argv(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        from dataclasses import replace
+
         from pravrudhi.application import panel
 
         report = tmp_path / "report.json"
@@ -146,13 +159,15 @@ class TestPanelAskVendorEndToEnd:
         monkeypatch.chdir(tmp_path)
         prompt = _big_prompt()
 
-        ans = panel.ask_vendor(panel.VENDORS["codex-cli"], prompt)
+        base = panel.VENDORS["codex-cli"]
+        ans = panel.ask_vendor(replace(base, params={**base.params, "codex_model": "gpt-x-1"}), prompt)
 
         seen = json.loads(report.read_text(encoding="utf-8"))
         assert seen["stdin"] == prompt
         assert all(prompt not in a for a in seen["argv"])
-        assert seen["argv"][1:] == ["exec", "--skip-git-repo-check"]
+        assert seen["argv"][1:] == ["exec", "--skip-git-repo-check", "--json", "-m", "gpt-x-1"]
         assert ans.text == "ANSWER: A"
+        assert ans.tokens == 105 and ans.cache_read_tokens == 60
 
 
 class _Capture:
@@ -264,9 +279,8 @@ class TestPanelSlimClaudeCliFlags:
     def test_vendor_param_can_override_the_pinned_model(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """The team-rules cap is on the DEFAULT, not a hard ceiling a caller can never move past -- a vendor
-        that sets its own `model` param (e.g. a tuned panel config) still gets the slim flags, just with its
-        own model in the `--model` slot instead of `sonnet`."""
+        """A vendor may pick its own model within the Sonnet cap (an exact id here); opus without the
+        pre-registered `effort: low` is refused -- see test_ask_vendor_gaps.py."""
         from dataclasses import replace
 
         from pravrudhi.application import panel
@@ -274,14 +288,14 @@ class TestPanelSlimClaudeCliFlags:
         _provision_claude_cli(tmp_path, monkeypatch)
         cap = _Capture()
         monkeypatch.setattr(cli_agents, "_run", cap)
-        vendor = replace(panel.VENDORS["claude-cli"], params={**panel.VENDORS["claude-cli"].params, "model": "opus"})
+        vendor = replace(panel.VENDORS["claude-cli"], params={**panel.VENDORS["claude-cli"].params, "model": "claude-sonnet-5"})
 
         panel.ask_vendor(vendor, "hello")
 
         (call,) = cap.calls
         cmd = call["cmd"]
         assert isinstance(cmd, list)
-        assert cmd[-2:] == ["--model", "opus"]
+        assert cmd[-2:] == ["--model", "claude-sonnet-5"]
         for flag in self.SLIM_FLAGS:
             assert flag in cmd
 
