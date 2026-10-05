@@ -944,6 +944,7 @@ def _build_house_judge(hj_cfg: Mapping[str, Any], *, tau: float, typed: bool, ap
             decoder=decoder,
             max_tokens=int(hj_cfg.get("max_tokens", 30)),
             top_logprobs=int(hj_cfg.get("top_logprobs", 20)),
+            label_mass_floor=float(hj_cfg["label_mass_floor"]),
             prompt_template=str(hj_cfg.get("prompt_template", "legacy")),
         )
     from pravrudhi.application.nyaya_judges import HouseJudge
