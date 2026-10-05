@@ -417,15 +417,24 @@ class ContractResultOut(BaseModel):
 
 
 class StandardOut(BaseModel):
-    """#220: which standard of proof this run applied, and where that came from. Unknown values from a newer
-    engine pass through verbatim, so `applied` and `source` are plain strings here."""
+    """#220: the standard of proof the request asked for, whether the judge was told it, and where it came from.
+    Unknown values from a newer engine pass through verbatim, so `requested`, `applied` and `source` are plain
+    strings here."""
 
-    applied: str = Field(description='"proved" or "prima_facie_disclosed".')
+    requested: str = Field(
+        description='The standard the posture asks for: "proved" or "prima_facie_disclosed". Recorded in the audit '
+        "row whether or not the judge was told it."
+    )
+    applied: str | None = Field(
+        description="The standard actually stated in the judge's prompt: the same value as `requested` when "
+        "`in_judge_prompt` is true, and null when it is false (the judge never saw a standard, so none was applied)."
+    )
     source: str = Field(description='"proceeding_posture", "proceeding_type" or "default".')
     proceeding_posture: str | None = Field(default=None, description="The caller's posture, echoed; null if absent.")
     in_judge_prompt: bool = Field(
-        description="True only when the house judge's prompt stated this standard (judge_prompt.standard_line on). "
-        "False means the basis is recorded but the judge never saw it."
+        description="True only when the house judge's prompt stated the requested standard "
+        "(judge_prompt.standard_line on). False means the basis is recorded (`requested`) but the judge never saw "
+        "it, so `applied` is null."
     )
 
 
@@ -446,8 +455,9 @@ class AnalyseFactsResponse(BaseModel):
     retention_notice: str = Field(default=RETENTION_NOTICE)
     standard: StandardOut | None = Field(
         default=None,
-        description="Additive (#220): the standard applied, from the same values as the audit row. Under the "
-        "legacy prompt template no standard is consumed, so it reports proved / default.",
+        description="Additive (#220): the standard the request asked for (`requested`) and the standard the judge's "
+        "prompt actually stated (`applied`, null under the legacy prompt template, where the judge is never told "
+        "a standard), from the same values as the audit row.",
     )
 
 
@@ -883,6 +893,10 @@ def build_partner_router(
         # headers` raises 401 itself when a key header WAS sent but does not verify, the same as `usage_ep`;
         # it never treats a bad key as "no key" (a caller who supplied a bad key is never silently anonymous).
         principal = tenancy.principal_from_headers(engine_root, request.headers)
+        if principal is not None:
+            from pravrudhi.application.credentials import serving_org
+
+            serving_org.set(principal.org_id)
         authenticated = user is not None or principal is not None
         ip = _client_ip(request, trust_proxy_header=cfg.trust_proxy_header, trusted_proxies=cfg.trusted_proxies)
         if not rate_limiter.allow(ip):
