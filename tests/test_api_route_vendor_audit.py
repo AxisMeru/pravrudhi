@@ -326,3 +326,91 @@ def test_a_pool_thread_inherits_the_serving_guards(engine: Path, monkeypatch: py
         serving_org.reset(t2)
         serving_api.reset(t1)
     assert chat == [] and rec.answers[0].error and OP_KEY not in rec.answers[0].error
+
+
+# -- Studio BYOK env keys: opt-in under exactly the cli carve-out's condition (#238) ----------------------------
+
+DEPLOYMENTS = {
+    # name: (PRAVRUDHI_EDITION, PRAVRUDHI_STUDIO_LOOPBACK_ONLY, operator env keys reach the caller)
+    "product": ("product", None, False),
+    "studio-without-loopback": ("studio", None, False),
+    "studio-with-loopback": ("studio", "1", True),
+    "runpod-product-engine": ("product", "1", False),  # the loopback assertion alone never opens the product
+}
+
+
+@pytest.mark.parametrize("caller", ["anonymous", "signed-in", "partner-key"])
+@pytest.mark.parametrize("deployment", sorted(DEPLOYMENTS))
+def test_operator_env_keys_reach_an_api_caller_only_in_the_loopback_studio(
+    engine: Path, monkeypatch: pytest.MonkeyPatch, cli_calls: list[list[str]], caller: str, deployment: str
+) -> None:
+    import pravrudhi.models.openai_compat as oc
+
+    edition, loopback, reaches = DEPLOYMENTS[deployment]
+    monkeypatch.setenv("PRAVRUDHI_EDITION", edition)
+    if loopback:
+        monkeypatch.setenv("PRAVRUDHI_STUDIO_LOOPBACK_ONLY", loopback)
+    keys: list[str | None] = []
+    monkeypatch.setattr(oc.ChatClient, "chat", lambda self, *a, **k: keys.append(self.api_key) or "answer")
+    client, headers = _client(engine, caller)
+    params = {"workspace": "w1"} if caller == "signed-in" else {}
+    r = client.post(
+        "/api/nyaya/ask", headers=headers, params=params, json={"question": "q?", "vendors": ["openai-api"]}
+    )
+    assert r.status_code == 200, r.text
+    assert OP_KEY not in r.text
+    if reaches:
+        assert keys and set(keys) == {OP_KEY}
+    else:
+        assert keys == []
+
+
+def test_the_studio_opt_in_is_read_from_the_deployment_never_the_request(
+    engine: Path, monkeypatch: pytest.MonkeyPatch, cli_calls: list[list[str]]
+) -> None:
+    import pravrudhi.models.openai_compat as oc
+
+    keys: list[str | None] = []
+    monkeypatch.setattr(oc.ChatClient, "chat", lambda self, *a, **k: keys.append(self.api_key) or "answer")
+    monkeypatch.setenv("PRAVRUDHI_EDITION", "product")
+    client, headers = _client(engine, "anonymous")
+    headers.update({"x-pravrudhi-edition": "studio", "x-forwarded-host": "127.0.0.1"})
+    r = client.post("/api/nyaya/ask", headers=headers, json={"question": "q?", "vendors": ["openai-api"]})
+    assert r.status_code == 200 and keys == []
+
+
+@pytest.mark.parametrize("loopback", [False, True], ids=["studio", "studio-loopback"])
+@pytest.mark.parametrize(("who", "status"), [("anonymous", 401), ("plain", 403), ("admin", 200)])
+def test_with_the_studio_admin_gate_only_the_admin_reaches_the_operator_keys(
+    engine: Path, monkeypatch: pytest.MonkeyPatch, cli_calls: list[list[str]], loopback: bool, who: str, status: int
+) -> None:
+    import pravrudhi.models.openai_compat as oc
+
+    tokens = {
+        "admin": {"sub": "op-1", "email": "op@example.com", "role": "authenticated"},
+        "plain": {"sub": "u-2", "email": "someone@example.com", "role": "authenticated"},
+    }
+    monkeypatch.setattr(identity, "verify_token", lambda token, **_k: tokens[token])
+    monkeypatch.setenv("PRAVRUDHI_AUTH", "required")
+    monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
+    monkeypatch.setenv("PRAVRUDHI_ADMINS", "op-1")
+    monkeypatch.setenv("PRAVRUDHI_EDITION", "studio")
+    if loopback:
+        monkeypatch.setenv("PRAVRUDHI_STUDIO_LOOPBACK_ONLY", "1")
+    keys: list[str | None] = []
+    monkeypatch.setattr(oc.ChatClient, "chat", lambda self, *a, **k: keys.append(self.api_key) or "answer")
+    app = create_app(engine)
+    headers = {TOKEN_HEADER: app_token(engine)}
+    if who != "anonymous":
+        headers["Authorization"] = f"Bearer {who}"
+    r = TestClient(app, base_url="http://localhost", raise_server_exceptions=False).post(
+        "/api/nyaya/ask", headers=headers, params={"workspace": "w1"} if who != "anonymous" else {},
+        json={"question": "q?", "vendors": ["openai-api"]},
+    )
+    assert r.status_code == (status if status != 200 else r.status_code)
+    if status != 200:
+        assert keys == [] and OP_KEY not in r.text
+    elif loopback:
+        assert r.status_code == 200 and set(keys) == {OP_KEY}
+    else:
+        assert r.status_code == 200 and keys == []

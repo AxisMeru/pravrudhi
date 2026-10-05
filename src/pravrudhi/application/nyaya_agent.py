@@ -213,6 +213,44 @@ class AgentConfig:
         return None if raw is None else float(raw)
 
 
+_UNSET_MODEL_STRINGS = frozenset({"", "null", "none", "~"})
+
+
+def _model_pin_required() -> str | None:
+    """The edition name when the judge model must be pinned, else None.
+
+    Required for every edition except an explicit `PRAVRUDHI_EDITION=dev` on a development checkout: a release
+    install is the product whatever the env says, and an unset, unknown or mislabelled value (`prod`, `null`)
+    is enforced, never waved through."""
+    from pravrudhi.api.edition import EDITION_ENV, engine_edition, is_release_install
+
+    declared = os.environ.get(EDITION_ENV, "").strip().lower()
+    if declared == "dev" and not is_release_install():
+        return None
+    return declared if declared in ("product", "studio") else engine_edition().lower()
+
+
+def _require_pinned_judge_models(house_judge: Mapping[str, Any], second_judge: Mapping[str, Any] | None) -> None:
+    """Every judge block must name its model, except under an explicit development edition.
+
+    An unset model resolves to the first id the server's /v1/models lists, which on the dev 32B host is the BASE
+    snapshot path, so a null there silently judges with base Qwen2.5-32B instead of the fine-tuned judge. The
+    strings "null", "none" and blanks are refused like a real null. Never defaulted: a missing value raises."""
+    edition = _model_pin_required()
+    if edition is None:
+        return
+    blocks = {"house_judge": house_judge, **({"second_judge": second_judge} if second_judge is not None else {})}
+    for name, block in blocks.items():
+        model = block.get("model")
+        if not isinstance(model, str) or model.strip().lower() in _UNSET_MODEL_STRINGS:
+            env = "NYAYA_HOUSE_JUDGE_MODEL" if name == "house_judge" else "NYAYA_SECOND_JUDGE_MODEL"
+            raise ValueError(
+                f"{name}.model is not set ({model!r}): in the {edition} edition a null model would resolve to the "
+                f"first id the server lists (the base snapshot on the dev 32B). Name the served model id in the "
+                f"config or set {env}; only PRAVRUDHI_EDITION=dev on a development checkout may leave it unset"
+            )
+
+
 def validated_contract_ids(root: Path) -> frozenset[str]:
     """The `validated_contracts` allowlist from `configs/nyaya_agent.yaml` -- the same set `load_agent_config`
     gives the scorer -- without needing the score binary or a judge to be configured."""
@@ -389,6 +427,8 @@ def load_agent_config(root: Path) -> AgentConfig:
         for key in ("statute_chars", "top_logprobs", "max_tokens", "label_mass_floor", "prompt_template"):
             if key not in second_judge and key in house_judge:
                 second_judge[key] = house_judge[key]
+
+    _require_pinned_judge_models(house_judge, second_judge)
 
     # Gate 1 (Track-C, GATE1-PRODUCT-WIRING-SPEC-2026-09-26.md §3/§5): the yaml block (threshold/model) and
     # the enable switch are deliberately independent -- NYAYA_GATE1_THRESHOLD/_MODEL override the block's own

@@ -267,6 +267,10 @@ __all__ = [
 ]
 
 
+STUDIO_SCHEMA_PATHS: frozenset[str] = frozenset({"/openapi.json", "/docs", "/docs/oauth2-redirect", "/redoc"})
+"""The generated API schema and its docs pages: they describe every route, so on Studio they are the operator's too."""
+
+
 class RequireStudioAdmin:
     """ASGI middleware: in the Studio edition, no `/api` route outside `PUBLIC_PATHS` answers a non-admin.
 
@@ -284,8 +288,9 @@ class RequireStudioAdmin:
       No identity is 401 (websocket close 4401); a signed-in non-admin is 403 (close 4403). An empty or unset
       allowlist names nobody, so every signed-in caller is refused.
     * A partner-key caller (`X-Pravrudhi-Api-Key`) is not an operator: 403 even with no bearer token.
-    * Preflight (OPTIONS), `PUBLIC_PATHS` (the liveness check) and every non-`/api` path (the static interface, `/ping`,
-      `/docs`, `/openapi.json`, which carry no state) stay open.
+    * The schema and docs pages (`STUDIO_SCHEMA_PATHS`: `/openapi.json`, `/docs`, `/redoc`) are gated like `/api`.
+    * Preflight (OPTIONS), `PUBLIC_PATHS` (the liveness check) and every other non-`/api` path (the static
+      interface and `/ping`, which carry no state) stay open.
     """
 
     def __init__(self, app: ASGIApp) -> None:
@@ -294,7 +299,8 @@ class RequireStudioAdmin:
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] in ("http", "websocket") and _studio_edition() and auth_mode() is not AuthMode.DISABLED:
             path: str = scope.get("path", "")
-            if path.startswith("/api/") and path not in PUBLIC_PATHS and scope.get("method") != "OPTIONS":
+            gated = path.startswith("/api/") or path in STUDIO_SCHEMA_PATHS
+            if gated and path not in PUBLIC_PATHS and scope.get("method") != "OPTIONS":
                 refusal = _studio_refusal(HTTPConnection(scope))
                 if refusal is not None:
                     status, detail = refusal

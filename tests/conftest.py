@@ -42,6 +42,8 @@ _ISOLATED_HOME = Path(tempfile.mkdtemp(prefix="pravrudhi-test-home-"))
 (_ISOLATED_HOME / ".config").mkdir()
 os.environ["HOME"] = str(_ISOLATED_HOME)
 os.environ["XDG_CONFIG_HOME"] = str(_ISOLATED_HOME / ".config")
+# The judge model pin (#237) is enforced for every edition but an explicit development one, so the suite says so.
+os.environ.setdefault("PRAVRUDHI_EDITION", "dev")
 
 OPERATOR_ENV = ("TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID", "PRAVRUDHI_CLAUDE_CONFIG_DIR")
 
