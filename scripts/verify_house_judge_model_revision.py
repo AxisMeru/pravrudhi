@@ -17,6 +17,11 @@ own MODEL_NAME/MODEL_REVISION (the exact env var names the 4B endpoint already u
 still resolves to what it should, without needing to change this script's own logic once the wiring
 decision lands.
 
+What a pass proves, and what it does not: for a pinned revision it proves the pin is a REAL commit of the
+repo on the hub (a full 40-character sha is the production form; 8 or more lowercase hex characters are
+accepted as a prefix). It does NOT prove the running endpoint loaded that revision: check that from the
+endpoint's own MODEL_REVISION env and its worker logs.
+
 Single merged repo, no LoRA adapter -- unlike the 32B's base+adapter shape, the house judge is one
 repo/revision pair.
 
@@ -28,6 +33,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import sys
 from collections.abc import Callable
 from typing import Protocol, cast
@@ -51,6 +57,14 @@ def _default_model_info_fn(repo: str, revision: str) -> _ResolvedModelInfo:
     return cast(_ResolvedModelInfo, HfApi().model_info(repo, revision=revision))
 
 
+_PIN = re.compile(r"[0-9a-f]{8,40}")
+
+
+class InvalidPin(ValueError):
+    """The pin is not lowercase hex of 8-40 characters (a branch or tag name, uppercase, empty, too short or
+    too long) -- refused before any lookup, because a weak prefix such as "8" matches almost any sha."""
+
+
 class RevisionMismatch(RuntimeError):
     """The repo's resolved commit sha does not start with the pinned revision -- fail closed, never a
     silent pass."""
@@ -60,6 +74,8 @@ def verify_revision(repo: str, revision: str, *, model_info_fn: ModelInfoFn = _d
     """Returns the resolved sha on success. Raises `RevisionMismatch` on a mismatch or an empty/missing
     `sha` -- this function never returns a falsy value to signal failure, so a caller cannot accidentally
     treat a failure as success by forgetting to check a return value."""
+    if not _PIN.fullmatch(revision):
+        raise InvalidPin(f"pinned revision {revision!r} must be lowercase hex of 8 to 40 characters (full 40 preferred)")
     info = model_info_fn(repo, revision)
     sha = info.sha
     if not sha or not sha.startswith(revision):
@@ -92,6 +108,9 @@ def main(argv: list[str] | None = None) -> int:
         # default) so tests can monkeypatch this module's `_default_model_info_fn` and have `main` actually
         # see the replacement -- a default *parameter* value would stay bound to the original function.
         sha = verify_revision(args.repo, args.revision, model_info_fn=_default_model_info_fn)
+    except InvalidPin as e:
+        print(f"FATAL: {e}", file=sys.stderr)
+        return 2
     except RevisionMismatch as e:
         print(f"FATAL: {e}", file=sys.stderr)
         return 1

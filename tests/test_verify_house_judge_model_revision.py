@@ -14,7 +14,7 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
-from verify_house_judge_model_revision import RevisionMismatch, main, verify_revision  # noqa: E402
+from verify_house_judge_model_revision import InvalidPin, RevisionMismatch, main, verify_revision  # noqa: E402
 
 
 class _Info(NamedTuple):
@@ -46,23 +46,23 @@ class TestVerifyRevision:
 
     def test_a_mismatched_sha_raises_revision_mismatch(self) -> None:
         with pytest.raises(RevisionMismatch, match="does not match pinned revision"):
-            verify_revision("repo/x", "8ead9b1", model_info_fn=_fixed("f6512880deadbeef"))
+            verify_revision("repo/x", "8ead9b1d", model_info_fn=_fixed("f6512880deadbeef"))
 
     def test_a_none_sha_raises_rather_than_silently_passing(self) -> None:
         """A resolved-but-empty sha is a failure, not a `None == None`-style accidental pass."""
         with pytest.raises(RevisionMismatch):
-            verify_revision("repo/x", "8ead9b1", model_info_fn=_fixed(None))
+            verify_revision("repo/x", "8ead9b1d", model_info_fn=_fixed(None))
 
     def test_an_empty_string_sha_also_raises(self) -> None:
         with pytest.raises(RevisionMismatch):
-            verify_revision("repo/x", "8ead9b1", model_info_fn=_fixed(""))
+            verify_revision("repo/x", "8ead9b1d", model_info_fn=_fixed(""))
 
     def test_a_resolution_error_propagates_out_of_verify_revision(self) -> None:
         """`verify_revision` itself does not catch resolution failures (network, unknown repo/revision) --
         `main`'s own broad except is where those become a FATAL exit; a caller of `verify_revision` directly
         gets the real exception, not a swallowed one."""
         with pytest.raises(RuntimeError, match="repo not found"):
-            verify_revision("repo/x", "8ead9b1", model_info_fn=_raising(RuntimeError("repo not found")))
+            verify_revision("repo/x", "8ead9b1d", model_info_fn=_raising(RuntimeError("repo not found")))
 
 
 class TestMainCLI:
@@ -84,7 +84,7 @@ class TestMainCLI:
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
         self._patch_model_info(monkeypatch, _fixed("f6512880deadbeef"))
-        code = main(["--repo", "repo/x", "--revision", "8ead9b1"])
+        code = main(["--repo", "repo/x", "--revision", "8ead9b1d"])
         assert code == 1
         assert "FATAL:" in capsys.readouterr().err
 
@@ -94,7 +94,7 @@ class TestMainCLI:
         """The broad except in `main` -- a network failure or an unknown repo/revision must never look like
         success just because no RevisionMismatch was specifically raised."""
         self._patch_model_info(monkeypatch, _raising(ConnectionError("could not reach huggingface.co")))
-        code = main(["--repo", "repo/x", "--revision", "8ead9b1"])
+        code = main(["--repo", "repo/x", "--revision", "8ead9b1d"])
         assert code == 1
         assert "FATAL:" in capsys.readouterr().err
 
@@ -114,7 +114,7 @@ class TestMainCLI:
     ) -> None:
         monkeypatch.delenv("MODEL_NAME", raising=False)
         monkeypatch.delenv("MODEL_REVISION", raising=False)
-        code = main(["--revision", "8ead9b1"])
+        code = main(["--revision", "8ead9b1d"])
         assert code == 2
         assert "MODEL_NAME" in capsys.readouterr().err
 
@@ -143,3 +143,30 @@ class TestMainCLI:
         code = main(["--repo", "AxisMeru/prabhasa-nyaya-element-judge-4b-v0", "--revision", full])
         assert code == 0
         assert captured == {"repo": "AxisMeru/prabhasa-nyaya-element-judge-4b-v0", "revision": full}
+
+
+class TestPinFormat:
+    """R1 (review 5417648996): a weak pin such as "8" is a prefix of almost any sha and must not pass."""
+
+    @pytest.mark.parametrize(
+        "pin",
+        ["", "8", "abc", "8ead9b1", "ABCDEF12", "main", "v1.0", "8ead9b1d95d843ae0d0883f97995a110274de1a8a", " 8ead9b1d"],
+    )
+    def test_a_weak_or_malformed_pin_is_refused_before_any_lookup(self, pin):
+        def boom(repo: str, revision: str):
+            raise AssertionError("model_info must not be called for an invalid pin")
+
+        with pytest.raises(InvalidPin):
+            verify_revision("repo/x", pin, model_info_fn=boom)
+
+    @pytest.mark.parametrize("pin", ["8ead9b1d", "8ead9b1d95d843ae0d0883f97995a110274de1a8"])
+    def test_eight_to_forty_lowercase_hex_is_accepted(self, pin):
+        full = "8ead9b1d95d843ae0d0883f97995a110274de1a8"
+        assert verify_revision("repo/x", pin, model_info_fn=_fixed(full)) == full
+
+    def test_main_exits_2_with_fatal_on_a_weak_pin(self, monkeypatch, capsys):
+        import verify_house_judge_model_revision as m
+
+        monkeypatch.setattr(m, "_default_model_info_fn", lambda r, v: (_ for _ in ()).throw(AssertionError("no lookup")))
+        assert main(["--repo", "repo/x", "--revision", "8"]) == 2
+        assert "FATAL" in capsys.readouterr().err
