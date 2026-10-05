@@ -108,6 +108,17 @@
             "description": "SHA-256 of the pinned Lean `score` BINARY, not a content hash of the request or result. See each contract's `lean_attestation` for the binding to the exact input scored.",
             "title": "Score Sha256",
             "type": "string"
+          },
+          "standard": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StandardOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Additive (#220): the standard the request asked for (`requested`) and the standard the judge's prompt actually stated (`applied`, null under the legacy prompt template, where the judge is never told a standard), from the same values as the audit row."
           }
         },
         "required": [
@@ -976,6 +987,58 @@
           "next_open_utc"
         ],
         "title": "ServiceWindowOut",
+        "type": "object"
+      },
+      "StandardOut": {
+        "description": "#220: the standard of proof the request asked for, whether the judge was told it, and where it came from.\nUnknown values from a newer engine pass through verbatim, so `requested`, `applied` and `source` are plain\nstrings here.",
+        "properties": {
+          "applied": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The standard actually stated in the judge's prompt: the same value as `requested` when `in_judge_prompt` is true, and null when it is false (the judge never saw a standard, so none was applied).",
+            "title": "Applied"
+          },
+          "in_judge_prompt": {
+            "description": "True only when the house judge's prompt stated the requested standard (judge_prompt.standard_line on). False means the basis is recorded (`requested`) but the judge never saw it, so `applied` is null.",
+            "title": "In Judge Prompt",
+            "type": "boolean"
+          },
+          "proceeding_posture": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The caller's posture, echoed; null if absent.",
+            "title": "Proceeding Posture"
+          },
+          "requested": {
+            "description": "The standard the posture asks for: \"proved\" or \"prima_facie_disclosed\". Recorded in the audit row whether or not the judge was told it.",
+            "title": "Requested",
+            "type": "string"
+          },
+          "source": {
+            "description": "\"proceeding_posture\", \"proceeding_type\" or \"default\".",
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "requested",
+          "applied",
+          "source",
+          "in_judge_prompt"
+        ],
+        "title": "StandardOut",
         "type": "object"
       },
       "UsageDayOut": {
