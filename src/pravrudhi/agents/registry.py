@@ -51,13 +51,24 @@ HOSTED_IMAGE_ENV = "PRAVRUDHI_HOSTED_IMAGE"
 HOSTED_AGENT_REASON = "hosted image: agents run on the host"
 
 
+_TRUE = frozenset({"1", "true", "yes", "on"})
+_FALSE = frozenset({"0", "false", "no", "off"})
+
+
 def hosted_image() -> bool:
     """True inside the hosted engine image, which ships no agent CLIs by design (codex, claude-code, opencode, hermes,
-    orca and xvfb-run are all absent): the coding agents run on the host loop, not in the container. The image sets
-    `PRAVRUDHI_HOSTED_IMAGE=1`; images built before the marker are recognised by their other defaults (a container
-    with the local write guard disabled, which the hosted image sets and a local install does not)."""
-    if os.environ.get(HOSTED_IMAGE_ENV, "").strip() == "1":
+    orca and xvfb-run are all absent): the coding agents run on the host loop, not in the container.
+
+    `PRAVRUDHI_HOSTED_IMAGE` decides when it says anything: a true value (the image sets `1`) is hosted and an explicit
+    false value (`0`, `false`, `no`, `off`) is NOT, whatever else is set, so a local container can always opt out. An
+    unset or empty marker falls back to the older images' defaults: a container (`/.dockerenv`) with
+    `PRAVRUDHI_DISABLE_LOCAL_GUARD=1`, which the hosted image sets and a local install does not. Any other value is
+    not trusted as a label and counts as not hosted."""
+    marker = os.environ.get(HOSTED_IMAGE_ENV, "").strip().lower()
+    if marker in _TRUE:
         return True
+    if marker:
+        return False  # an explicit false, or an unrecognised value: never labelled hosted by accident
     return os.environ.get("PRAVRUDHI_DISABLE_LOCAL_GUARD", "").strip() == "1" and Path("/.dockerenv").exists()
 
 

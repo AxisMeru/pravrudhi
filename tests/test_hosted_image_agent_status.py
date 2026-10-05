@@ -79,3 +79,27 @@ def test_the_settings_route_reports_the_hosted_reason(tmp_path: Path, monkeypatc
     client = TestClient(create_app(tmp_path), base_url="http://localhost")
     agents = client.get("/api/agents").json()
     assert agents and all(a["reason"] == HOSTED_AGENT_REASON for a in agents if not a["available"])
+
+
+@pytest.mark.parametrize("value", ["0", "false", "no", "off", "FALSE", " 0 ", "maybe", "2", "hosted"])
+def test_an_explicit_or_unrecognised_marker_beats_the_older_image_fallback(
+    monkeypatch: pytest.MonkeyPatch, value: str
+) -> None:
+    monkeypatch.setenv("PRAVRUDHI_DISABLE_LOCAL_GUARD", "1")
+    monkeypatch.setattr(registry.Path, "exists", lambda self: str(self) == "/.dockerenv")  # a container with the guard off
+    monkeypatch.setenv(registry.HOSTED_IMAGE_ENV, value)
+    assert not hosted_image()  # a local container that says so is never labelled hosted
+
+
+@pytest.mark.parametrize("value", ["1", "true", "yes", "on", "TRUE", " 1 "])
+def test_the_true_values_are_hosted_even_outside_a_container(monkeypatch: pytest.MonkeyPatch, value: str) -> None:
+    monkeypatch.setenv(registry.HOSTED_IMAGE_ENV, value)
+    assert hosted_image()
+
+
+def test_an_empty_marker_falls_back_to_the_default_detection(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(registry.HOSTED_IMAGE_ENV, "")
+    assert not hosted_image()
+    monkeypatch.setenv("PRAVRUDHI_DISABLE_LOCAL_GUARD", "1")
+    monkeypatch.setattr(registry.Path, "exists", lambda self: str(self) == "/.dockerenv")
+    assert hosted_image()
