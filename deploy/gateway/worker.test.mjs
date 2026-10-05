@@ -7,6 +7,10 @@ const cases = [
  ["POST","/api/runs",403],["PUT","/api/update/config",403],["PATCH","/api/runs/1",403],["DELETE","/api/runs/1",403],
  ["POST","/api/%72uns",403],["PUT","/api/UPDATE/config",403],["POST","/api/runs/abc/stop",403],["POST","/api/update/apply",403],
  ["POST","/api/%zz/runs",403],["POST","/api/%2572uns",403],["POST","/%2561pi/runs",403],["POST","//api/runs",403],["POST","///api/update/config",403],["POST","/api//runs",403],["PUT","/api/%25252572uns",403],["post","/api/runs",403],["patch","/api/update/config",403],["POST","/api/x%25252525y",403],["GET","//api/runs",200],["GET","/api/runs",200],["GET","/api/update/config",200],["OPTIONS","/api/runs",200],
+ ["POST","/api\\runs",403],["POST","/api\\update\\config",403],["POST","/api/./runs",403],["POST","/api/x/../runs",403],["PUT","/api/x/../update/config",403],
+ ["POST","/api/%5cruns",403],["POST","/api/%5Cupdate/config",403],["POST","/api%5Cruns",403],["POST","/api/%2e/runs",403],["POST","/api/%2e%2e/runs",200],
+ ["POST","/api/%252e/runs",403],["POST","/api/x/%252e%252e/runs",403],["POST","/api/%255cruns",403],["POST","/api/runs/../health",200],["POST","/api/./update/apply",403],
+ ["POST","/api/..%2fapi/runs",403],["POST","/api/%2e%2e/api/runs",403],["POST","/../api/runs",403],["POST","/api/x/%2e%2e%2f..%2fapi/runs",403],
  ["GET","/api/health",200],["POST","/api/v1/analyse-facts",200],["POST","/api/chat",200],["GET","/api/app-token",200],["POST","/api/memory/notes",200],
 ];
 let bad = 0;

@@ -57,9 +57,25 @@ function isBlockedWrite(request) {
   }
   if (path.includes("%")) return true;  // still encoded after 3 rounds: fail closed
   return forms.some((f) => {
-    const n = f.toLowerCase().replace(/\/{2,}/g, "/");
-    return n.startsWith("/api/runs") || n.startsWith("/api/update");
+    // The engine's server may read a backslash as a separator and resolves dot segments, so each decoded form is
+    // mapped (\ to /), lowercased and has its slashes collapsed and its ./.. segments resolved before matching.
+    // Both the resolved and the merely separator-normalised forms are checked, so neither a ../ that climbs into
+    // /api/runs nor one that would climb out of it can hide the prefix (a superset: it only ever blocks more).
+    return [canonicalPath(f, true), canonicalPath(f, false)].some(
+      (n) => n.startsWith("/api/runs") || n.startsWith("/api/update"),
+    );
   });
+}
+
+function canonicalPath(p, resolveDots) {
+  const parts = [];
+  for (const seg of p.toLowerCase().replace(/\\/g, "/").split("/")) {
+    if (seg === "") continue;
+    if (resolveDots && seg === ".") continue;
+    if (resolveDots && seg === "..") { parts.pop(); continue; }  // above the root clamps to the root
+    parts.push(seg);
+  }
+  return "/" + parts.join("/");
 }
 
 export default {
