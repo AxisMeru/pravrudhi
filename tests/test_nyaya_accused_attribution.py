@@ -26,6 +26,13 @@ GOLDEN = Path(__file__).parent / "fixtures" / "nyaya_attribution_flag_off_golden
 EL1 = "the accused is the husband, or a relative of the husband, of the woman"
 EL2 = "subjects the woman to cruelty (s.86(a) or (b))"
 EL3 = "the facts attribute specific acts to this accused, not only a general or omnibus allegation"
+#: The registry's own wording of bns85 element 3, as `score --describe-contract bns85` prints it (statute-derived, public).
+EL3_REAL = (
+    "the facts attribute specific acts of cruelty to this accused (a particular act, role or occasion), "
+    "not only a general or omnibus allegation against the husband's family"
+)
+SHIPPED_KEY = "specific acts of cruelty to this accused"
+TOY_KEY = "specific acts to this accused"
 ELS = [EL1, EL2, EL3]
 FACTS = [
     "TOY: Dev is the husband of Nila.",
@@ -317,7 +324,7 @@ def test_result_dict_carries_offsets_and_candidates() -> None:
 
 # -- the judge wrapper and the agent ---------------------------------------------------------------------------------------------
 def _on_cfg(tmp_path: Path, **over: Any):
-    return _cfg(tmp_path, accused_attribution_enabled=True, requires_actor={"bns85": ("specific acts to this accused",)}, **over)
+    return _cfg(tmp_path, accused_attribution_enabled=True, requires_actor={"bns85": (TOY_KEY,)}, **over)
 
 
 def _script_with(el3_quote_fact: str, quote: str) -> dict[str, list[ElementJudgment | Exception]]:
@@ -447,7 +454,7 @@ def test_config_defaults_off_and_yaml_default_lists_bns85(monkeypatch: pytest.Mo
     root = Path(__file__).resolve().parents[1]
     monkeypatch.delenv("NYAYA_ACCUSED_ATTRIBUTION_ENABLED", raising=False)
     cfg = load_agent_config(root)
-    assert cfg.accused_attribution_enabled is False and cfg.requires_actor == {"bns85": ("specific acts to this accused",)}
+    assert cfg.accused_attribution_enabled is False and cfg.requires_actor == {"bns85": (SHIPPED_KEY,)}
     monkeypatch.setenv("NYAYA_ACCUSED_ATTRIBUTION_ENABLED", "1")
     assert load_agent_config(root).accused_attribution_enabled is True
 
@@ -504,3 +511,18 @@ def test_house_wires_the_check_after_the_span_check_only_when_on(tmp_path: Path)
     )
     assert isinstance(on.judge, AccusedAttributionJudge) and isinstance(on.judge.inner, SpanRelevanceJudge)
     assert isinstance(on.judge.inner.inner, HouseJudge)
+
+
+def test_the_shipped_config_key_matches_the_registrys_own_element_wording_and_only_element_3() -> None:
+    """The key was first written from an analysis note and matched nothing; pin it to the wording the pinned binary
+    reports (`score --describe-contract bns85`, verified 5 Oct on the binary with sha256 cca4d963...)."""
+    import yaml
+
+    cfg = yaml.safe_load((Path(__file__).resolve().parent.parent / "configs" / "nyaya_agent.yaml").read_text())
+    (key,) = cfg["accused_attribution_requires_actor"]["bns85"]
+    assert key == SHIPPED_KEY and key.lower() in EL3_REAL.lower()
+    others = (
+        "the accused is the husband, or a relative of the husband, of the woman",
+        "subjects the woman to cruelty (s.86(a) or (b))",
+    )
+    assert not any(key.lower() in o.lower() for o in others)
