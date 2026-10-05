@@ -82,3 +82,13 @@ def _push(ref: str) -> int:
 def test_pre_push_refuses_main_and_allows_branches() -> None:
     assert _push("refs/heads/main") == 1
     assert _push("refs/heads/feature") == 0
+
+
+def test_shipped_allowlist_accepts_the_org_handle_spelling_of_the_team_identity(tmp_path: Path) -> None:
+    rc, _ = _run("fix: z\n", tmp_path, author=("AxisMeru", "admin@axismeru.com"))
+    assert rc == 0
+
+
+def test_shipped_allowlist_still_requires_the_pair_for_the_org_handle(tmp_path: Path) -> None:
+    rc, _ = _run("fix: z\n", tmp_path, author=("AxisMeru", "someone@else.example"))
+    assert rc == 1
