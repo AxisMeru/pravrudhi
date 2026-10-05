@@ -162,7 +162,7 @@ def main(env: dict[str, str] | None = None, send: Send | None = None) -> int:
         return config_error("PROBE_BASE_URL must be https (http only for loopback)")
     transport = send or http_sender(base, env.get("PROBE_IDENTITY_HEADER", "authorization").strip().lower(),
                                     env.get("PROBE_LOCAL_TOKEN", "").strip() or None)
-    label = env.get("PROBE_TARGET_LABEL", "").strip()
+    label = env.get("PROBE_TARGET_LABEL", "").strip()  # fail-open-ok: a display label only, not a measurement
     print(f"target: {parsed.scheme}://{parsed.netloc}" + (f" ({label})" if label else "") + f", edition {edition}")
     try:
         results = run(transport, edition, env.get("PROBE_WORKSPACE", "release-probe"),
