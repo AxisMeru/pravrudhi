@@ -312,7 +312,8 @@ class TestClaudeEnvIsTheScriptedSeatTwo:
     """Issue #82 (Tag/Lead-2, 2026-09-26 -- stopped Track-A's audit run over this): `claude_env` used to
     resolve through the registry `select_seat` walks (primary=sathish/seat 2), the right rotation for real
     agentic coding dispatch but the wrong account for a one-shot SCRIPTED `claude -p` call, which TEAM-
-    RULES.md's own Claude usage cost rules require to bill the scripted seat (seat 2, sharath.sathish@gmail.com since the operator's 2026-09-27 ruling). `claude_env`
+    RULES.md's own Claude usage cost rules require to bill the scripted seat (seat 2, sharath.sathish@gmail.com
+    since the operator's 2026-09-27 ruling). `claude_env`
     now resolves independently of the registry entirely -- these tests use `SCRIPTED_CLAUDE_HOME_ENV` to
     redirect at a throwaway directory rather than asserting on the real, live, machine-specific seat-2
     directory (same discipline as the panel.py `_claude_cli_env` tests this mirrors)."""
