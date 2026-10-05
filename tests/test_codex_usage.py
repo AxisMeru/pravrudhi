@@ -163,6 +163,25 @@ def test_missing_home_is_unverified(tmp_path):
     assert r["verified"] is False and r["days"] == [] and r["rate_limits"] == {} and r["latest_rate_limits"] is None
 
 
+def test_empty_sessions_dir_is_unverified(tmp_path):
+    (tmp_path / "sessions").mkdir()
+    r = cu.read_codex_usage(codex_home=tmp_path)
+    assert r["verified"] is False and r["latest_rate_limits"] is None
+    rollout(tmp_path, "2026/10/02", "rollout-blank.jsonl", ["", "   "])
+    assert cu.read_codex_usage(codex_home=tmp_path)["verified"] is False
+
+
+def test_all_garbage_sessions_dir_is_unverified(tmp_path):
+    rollout(tmp_path, "2026/10/02", "rollout-a.jsonl", ["{not json", "123", "[1, 2]", "null", '"text"'])
+    r = cu.read_codex_usage(codex_home=tmp_path)
+    assert r["verified"] is False and r["skipped"]["lines_bad"] == 5 and r["days"] == []
+
+
+def test_one_parseable_record_among_garbage_is_verified(tmp_path):
+    rollout(tmp_path, "2026/10/02", "rollout-a.jsonl", ["{not json", usage("2026-10-02T10:00:00Z", "u", "r", 1, 0, 1)])
+    assert cu.read_codex_usage(codex_home=tmp_path)["verified"] is True
+
+
 def test_unreadable_file_makes_unverified_and_bad_lines_counted(tmp_path):
     rollout(tmp_path, "2026/10/02", "rollout-a.jsonl", ["{not json", usage("2026-10-02T10:00:00Z", "u", "r", 1, 0, 1)])
     r = cu.read_codex_usage(codex_home=tmp_path)

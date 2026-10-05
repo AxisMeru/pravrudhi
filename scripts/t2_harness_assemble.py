@@ -32,15 +32,35 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "scripts"))
 
+from _p_scoring import typed_p  # noqa: E402
 from _t2_run_metadata import RunMetadata, nvidia_smi_snapshot  # noqa: E402
 
 from pravrudhi.application.nyaya_judges import p_established_from_top_logprobs  # noqa: E402
-from pravrudhi.application.typed.decoder import score_decision  # noqa: E402
-from pravrudhi.application.typed.house_judge import _STATUS_FIELD  # noqa: E402
 from pravrudhi.models.openai_compat import CompletionResult  # noqa: E402
 
 HARNESS_RAW_SHA256 = "f9be2b3e32dac264bedec48fcf33ce47e71c45c745d20e4ea111e172536d7d16"
 T0 = 0.74  # config A's threshold, the only one T2 needs (4B/product path)
+
+
+def load_p_by_key(
+    raw_rows: list[dict[str, Any]],
+) -> tuple[dict[tuple[str, str], tuple[float | None, float | None]], list[list[str]]]:
+    """`({(item, element): (p_free, p_typed)}, bounded_free)`. A free-arm p that is only a bound is kept but
+    listed in `bounded_free` (`[item, element, clamp]`); a typed-arm bound raises (`typed_p`)."""
+    p_by_key: dict[tuple[str, str], tuple[float | None, float | None]] = {}
+    bounded_free: list[list[str]] = []
+    for r in raw_rows:
+        free_top = r["free_text"]["top_logprobs"]
+        p_free, clamp_free = p_established_from_top_logprobs(free_top[0]) if free_top else (None, None)
+        if clamp_free not in (None, "none"):
+            bounded_free.append([r["item_id"], r["element_id"], clamp_free])
+        typed_top = r["typed"]["top_logprobs"]
+        p_typed = None
+        if typed_top:
+            res = CompletionResult(text=r["typed"]["text"], model="x", top_logprobs=typed_top, wall_s=0.0)
+            p_typed = typed_p(res)
+        p_by_key[(r["item_id"], r["element_id"])] = (p_free, p_typed)
+    return p_by_key, bounded_free
 
 
 def main() -> int:
@@ -124,16 +144,7 @@ def main() -> int:
         return 2
     raw_rows = [json.loads(line) for line in raw_bytes.decode().splitlines() if line.strip()]
 
-    p_by_key: dict[tuple[str, str], tuple[float | None, float | None]] = {}
-    for r in raw_rows:
-        free_top = r["free_text"]["top_logprobs"]
-        p_free = p_established_from_top_logprobs(free_top[0]) if free_top else None
-        typed_top = r["typed"]["top_logprobs"]
-        p_typed = None
-        if typed_top:
-            res = CompletionResult(text=r["typed"]["text"], model="x", top_logprobs=typed_top, wall_s=0.0)
-            p_typed = score_decision(res, _STATUS_FIELD)["true"]
-        p_by_key[(r["item_id"], r["element_id"])] = (p_free, p_typed)
+    p_by_key, bounded_free = load_p_by_key(raw_rows)
 
     items_path = Path(eval_items_env)  # type: ignore[arg-type]
     items = [json.loads(line) for line in items_path.read_text().splitlines() if line.strip()]
@@ -188,6 +199,7 @@ def main() -> int:
     if missing:
         print(f"WARNING: {len(missing)} phase-1 scores never used by the assembler: {list(missing)[:5]}...", file=sys.stderr)
 
+    meta.data["free_arm_bounded_p"] = bounded_free
     meta.data["end_utc"] = datetime.now(UTC).isoformat()
     meta.data["nvidia_smi_after"] = nvidia_smi_snapshot()
     meta_path = results_dir / "t2_harness_assemble_RUN-METADATA.json"

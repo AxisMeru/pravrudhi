@@ -204,27 +204,76 @@ class AgentConfig:
         return None if raw is None else float(raw)
 
 
-_PINNED_MODEL_EDITIONS = ("product", "studio")
+_UNSET_MODEL_STRINGS = frozenset({"", "null", "none", "~"})
+
+
+def _model_pin_required() -> str | None:
+    """The edition name when the judge model must be pinned, else None.
+
+    Required for every edition except an explicit `PRAVRUDHI_EDITION=dev` on a development checkout: a release
+    install is the product whatever the env says, and an unset, unknown or mislabelled value (`prod`, `null`)
+    is enforced, never waved through."""
+    from pravrudhi.api.edition import EDITION_ENV, engine_edition, is_release_install
+
+    declared = os.environ.get(EDITION_ENV, "").strip().lower()
+    if declared == "dev" and not is_release_install():
+        return None
+    return declared if declared in ("product", "studio") else engine_edition().lower()
 
 
 def _require_pinned_judge_models(house_judge: Mapping[str, Any], second_judge: Mapping[str, Any] | None) -> None:
-    """In a deployed edition (`PRAVRUDHI_EDITION` = product or studio) every judge block must name its model.
+    """Every judge block must name its model, except under an explicit development edition.
 
     An unset model resolves to the first id the server's /v1/models lists, which on the dev 32B host is the BASE
-    snapshot path, so a null there silently judges with base Qwen2.5-32B instead of the fine-tuned judge. An
-    unlabelled development checkout keeps the old behaviour. Never defaulted: a missing value raises."""
-    edition = os.environ.get("PRAVRUDHI_EDITION", "").strip().lower()
-    if edition not in _PINNED_MODEL_EDITIONS:
+    snapshot path, so a null there silently judges with base Qwen2.5-32B instead of the fine-tuned judge. The
+    strings "null", "none" and blanks are refused like a real null. Never defaulted: a missing value raises."""
+    edition = _model_pin_required()
+    if edition is None:
         return
     blocks = {"house_judge": house_judge, **({"second_judge": second_judge} if second_judge is not None else {})}
     for name, block in blocks.items():
         model = block.get("model")
-        if not isinstance(model, str) or not model.strip():
+        if not isinstance(model, str) or model.strip().lower() in _UNSET_MODEL_STRINGS:
             env = "NYAYA_HOUSE_JUDGE_MODEL" if name == "house_judge" else "NYAYA_SECOND_JUDGE_MODEL"
             raise ValueError(
-                f"{name}.model is not set: in the {edition} edition a null model would resolve to the first id the "
-                f"server lists (the base snapshot on the dev 32B). Name the served model id in the config or set {env}"
+                f"{name}.model is not set ({model!r}): in the {edition} edition a null model would resolve to the "
+                f"first id the server lists (the base snapshot on the dev 32B). Name the served model id in the "
+                f"config or set {env}; only PRAVRUDHI_EDITION=dev on a development checkout may leave it unset"
             )
+
+
+def _host_class(base_url: Any) -> str | None:
+    """`local` (loopback, private or .local host), `serverless` (RunPod) or `remote`; never the URL itself."""
+    import ipaddress
+    from urllib.parse import urlparse
+
+    host = (urlparse(str(base_url)).hostname or "").lower() if base_url else ""
+    if not host:
+        return None
+    if host.endswith("runpod.ai") or host.endswith("runpod.io"):
+        return "serverless"
+    if host == "localhost" or host.endswith(".local"):
+        return "local"
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return "remote"
+    return "local" if ip.is_loopback or ip.is_private else "remote"
+
+
+def _judge_provenance(config: AgentConfig) -> dict[str, Any]:
+    """What produced the verdicts, for the audit trail: engine version, judge model ids (None when the config
+    does not pin one) and where each judge runs. Host class only, so the audit never carries an endpoint."""
+    from pravrudhi import __version__
+
+    hj, sj = config.house_judge or {}, config.second_judge or {}
+    return {
+        "engine_version": __version__,
+        "primary_judge_model": hj.get("model") or None,
+        "primary_judge_host_class": _host_class(hj.get("base_url")),
+        "second_judge_model": sj.get("model") or None,
+        "second_judge_host_class": _host_class(sj.get("base_url")),
+    }
 
 
 def load_agent_config(root: Path) -> AgentConfig:
@@ -1505,7 +1554,7 @@ class NyayaAgent:
         }
         audit.step("run_start", cfg_view,
                    {"judge": self.judge.name, "score_sha256": self.registry.sha256, "client_data": client_data,
-                    **cfg_view, **standard_view}, 0.0)
+                    **_judge_provenance(self.config), **cfg_view, **standard_view}, 0.0)
 
         t0 = time.monotonic()
         ingested = ingest_facts(facts)

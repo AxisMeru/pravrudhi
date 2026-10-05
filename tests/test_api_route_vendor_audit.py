@@ -289,6 +289,12 @@ def test_ask_with_a_cli_vendor_runs_only_in_the_loopback_studio(
 ) -> None:
     monkeypatch.setenv("PRAVRUDHI_EDITION", "studio")
     monkeypatch.setenv("PRAVRUDHI_STUDIO_LOOPBACK_ONLY", "1")
+    from dataclasses import replace
+
+    from pravrudhi.application import panel
+
+    base = panel.VENDORS["codex-cli"]
+    monkeypatch.setitem(panel.VENDORS, "codex-cli", replace(base, params={**base.params, "codex_model": "gpt-x-1"}))
     client, headers = _client(engine, caller)
     params = {"workspace": "w1"} if caller == "signed-in" else {}
     r = client.post("/api/nyaya/ask", headers=headers, params=params, json={"question": "q?", "vendors": ["codex-cli"]})

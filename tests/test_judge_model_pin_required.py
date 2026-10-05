@@ -1,5 +1,5 @@
-"""#237: in the product and studio editions a null judge model fails closed at config load; it never resolves
-to the first id the server lists (the dev 32B lists the BASE snapshot first)."""
+"""#237: a null judge model fails closed at config load in every edition but an explicit development one; it never
+resolves to the first id the server lists (the dev 32B lists the BASE snapshot first)."""
 
 from __future__ import annotations
 
@@ -41,7 +41,7 @@ def test_the_packaged_yaml_no_longer_ships_a_null_model() -> None:
     assert "model: null" not in (REPO / "configs" / "nyaya_agent.yaml").read_text()
 
 
-@pytest.mark.parametrize("edition", ["product", "studio", "Product", " STUDIO "])
+@pytest.mark.parametrize("edition", ["product", "studio", "Product", " STUDIO ", "prod", "null", "stage", ""])
 def test_a_deployed_edition_refuses_an_unset_house_model(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, edition: str
 ) -> None:
@@ -52,9 +52,9 @@ def test_a_deployed_edition_refuses_an_unset_house_model(
 
 def test_an_explicit_null_or_blank_model_is_refused_too(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("PRAVRUDHI_EDITION", "product")
-    for bad in (None, "", "   "):
+    for i, bad in enumerate((None, "", "   ")):
         with pytest.raises(ValueError, match="house_judge.model is not set"):
-            nyaya_agent.load_agent_config(_root(tmp_path / f"r{bad!r}", {"model": bad}))
+            nyaya_agent.load_agent_config(_root(tmp_path / f"r{i}", {"model": bad}))
 
 
 def test_the_env_var_or_the_yaml_can_name_the_model(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -85,8 +85,39 @@ def test_an_env_built_second_judge_without_a_model_is_refused(tmp_path: Path, mo
         nyaya_agent.load_agent_config(_root(tmp_path))
 
 
-def test_an_unlabelled_development_checkout_keeps_the_old_behaviour(tmp_path: Path) -> None:
-    assert nyaya_agent.load_agent_config(_root(tmp_path)).house_judge.get("model") is None
+def test_only_an_explicit_dev_edition_on_a_development_checkout_may_leave_it_unset(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("PRAVRUDHI_EDITION", "dev")
+    assert nyaya_agent.load_agent_config(_root(tmp_path / "a")).house_judge.get("model") is None
+    monkeypatch.delenv("PRAVRUDHI_EDITION")  # unlabelled is not "dev": enforced
+    with pytest.raises(ValueError, match="house_judge.model is not set"):
+        nyaya_agent.load_agent_config(_root(tmp_path / "b"))
+
+
+def test_a_release_install_counts_as_product_with_the_env_unset_or_dev(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from pravrudhi.api import edition
+
+    monkeypatch.setattr(edition, "is_release_install", lambda: True)
+    with pytest.raises(ValueError, match="in the pravrudhi edition"):
+        nyaya_agent.load_agent_config(_root(tmp_path / "a"))
+    monkeypatch.setenv("PRAVRUDHI_EDITION", "dev")  # a release install is not a development checkout
+    with pytest.raises(ValueError, match="house_judge.model is not set"):
+        nyaya_agent.load_agent_config(_root(tmp_path / "b"))
+
+
+@pytest.mark.parametrize("bad", ["null", "NULL", "None", "none", "~", " null "])
+def test_the_literal_string_null_is_refused_like_a_real_null(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, bad: str
+) -> None:
+    monkeypatch.setenv("PRAVRUDHI_EDITION", "product")
+    with pytest.raises(ValueError, match="house_judge.model is not set"):
+        nyaya_agent.load_agent_config(_root(tmp_path, {"model": bad}))
+    monkeypatch.setenv("NYAYA_HOUSE_JUDGE_MODEL", bad)
+    with pytest.raises(ValueError, match="house_judge.model is not set"):
+        nyaya_agent.load_agent_config(_root(tmp_path / "env"))
 
 
 def test_the_dev_32b_listing_order_never_decides_a_deployed_judge(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

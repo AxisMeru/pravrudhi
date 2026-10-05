@@ -44,10 +44,11 @@ pinned_score_sha256: 700de3aadf50b482f4cf23499a03fd518cf72734bf8f51b950b5983555d
 pinned_registry_count: 37
 
 # The house element judge: an OpenAI-compatible vLLM server serving the fine-tuned element judge.
-# `model` names the served model id and is REQUIRED in the product and studio editions (PRAVRUDHI_EDITION):
-# there, a missing model raises at config load, because an unset model resolves to the first id the server's own
-# /v1/models lists, which is the BASE snapshot on the dev 32B. Set NYAYA_HOUSE_JUDGE_MODEL (the host's fact,
-# e.g. nyaya-judge-4b). Only an unlabelled development checkout may leave it unset.
+# `model` names the served model id and is REQUIRED in every edition except an explicit PRAVRUDHI_EDITION=dev
+# on a development checkout (a release install is the product; an unset, unknown or mislabelled edition is
+# enforced too): a missing, null or "null" model raises at config load, because an unset model resolves to the
+# first id the server's own /v1/models lists, which is the BASE snapshot on the dev 32B. Set
+# NYAYA_HOUSE_JUDGE_MODEL (the host's fact, e.g. nyaya-judge-4b).
 house_judge:
   base_url: http://127.0.0.1:8110/v1
   # 60s is right for the always-warm 5090. A serverless deployment (no warm workers) needs far more: the
@@ -111,7 +112,7 @@ retention_days: 7
 # read directly (never merged into this block), same pattern as NYAYA_HOUSE_JUDGE_API_KEY.
 # second_judge:
 #   base_url: http://127.0.0.1:8111/v1
-#   model: <served model id>   # required in the product and studio editions (NYAYA_SECOND_JUDGE_MODEL)
+#   model: <served model id>   # required unless PRAVRUDHI_EDITION=dev (NYAYA_SECOND_JUDGE_MODEL)
 #   timeout_s: 60
 #   top_logprobs: 20
 #   max_tokens: 30
