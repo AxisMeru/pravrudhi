@@ -214,8 +214,9 @@ def test_push_fails_closed_on_unreadable_range(tmp_path: Path) -> None:
 
 
 def test_push_sha_allowlist_is_honoured_when_the_list_is_larger_than_a_pipe_buffer(tmp_path: Path) -> None:
-    """`grep -v ... | grep -q` under `set -o pipefail` fails the pipeline with SIGPIPE (141) when grep -q exits on an early match
-    while the writer still has more than a pipe buffer (~64 KB) to send, so a listed legacy sha stopped being honoured on a long list."""
+    """`grep -v ... | grep -q` under `set -o pipefail` fails the pipeline with SIGPIPE (141) when grep -q exits on an
+    early match while the writer still has more than a pipe buffer (~64 KB) to send, so a listed legacy sha stopped
+    being honoured on a long list."""
     repo = _repo(tmp_path)
     bad = _commit(repo, ("Old Personal", "p@y.z"))
     tip = _commit(repo, TEAM)
