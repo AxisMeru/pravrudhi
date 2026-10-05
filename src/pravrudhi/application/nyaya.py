@@ -57,13 +57,13 @@ MIN_RELEVANCE_SCORE = 8.0
 #: query's own self-score (the query scored against itself, same BM25/idf) -- how much of the query's own
 #: maximum obtainable score the winning document actually captured, which does not grow with query length
 #: the way the raw score does. Chosen from three candidates measured against
-#: `tests/fixtures/nyaya_relevance_calibration.json` (26 hand-labelled questions, sealed before any of the
+#: `tests/fixtures/nyaya_relevance_calibration.json` (26 hand-labelled questions, a TUNING set, built before any of the
 #: three were run): at the tightest threshold that still finds every calibration on_topic case (0.2864),
 #: this one cuts the calibration set's off-topic false-citation rate from 11/12 (today's absolute-only floor)
 #: to 3/12; matched-distinct-term coverage only reached 9/12, and top-1/top-2 margin barely moved it (11/12)
 #: -- a verbose off-topic question usually still has ONE clear best-matching document among the noise, so a
 #: large margin over 2nd place is not itself evidence of relevance. (Re-measured 2026-10-05 on main @3402450b,
-#: same sealed set: 12/12 -> 5/12 at recall 13/14, coverage now tied at 5/12; see
+#: same tuning set (in-sample): 12/12 -> 5/12 at recall 13/14, coverage now tied at 5/12; see
 #: tests/test_nyaya_relevance_calibration.py.)
 MIN_RELEVANCE_NORM = 0.28
 

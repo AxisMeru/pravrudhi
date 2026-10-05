@@ -20,14 +20,14 @@ min_relevance_score: 8.0
 # Issue #51: min_relevance_score above is an ABSOLUTE BM25 score, and BM25 sums over every matched query
 # term -- it grows with query length/vocabulary diversity regardless of actual relevance, so a longer
 # off-topic question eventually clears it on generic-word overlap alone (the shipped BNS/BNSS corpus made
-# this measurably worse: on a 26-question hand-labelled calibration set, sealed before any candidate rule was
+# this measurably worse: on a 26-question hand-labelled calibration set, built before any candidate rule was (a TUNING set, see its `_provenance`; the numbers here are in-sample, and five ids were widened 2m20s after the first commit)
 # run -- tests/fixtures/nyaya_relevance_calibration.json -- the absolute floor alone let 11 of 12 off-topic
 # questions through). This second gate divides a hit's raw score by the query's own self-score (that same
 # query scored against itself, same BM25/idf) -- how much of the query's own maximum obtainable score the
 # winning document actually captured. Below this fraction, retrieve() drops the hit even if it cleared the
 # absolute floor.
 #
-# (Re-measured 2026-10-05 on main @3402450b, same sealed set: absolute floor 12/12 false citations at recall 13/14;
+# (Re-measured 2026-10-05 on main @3402450b, same tuning set, in-sample: absolute floor 12/12 false citations at recall 13/14;
 # this gate 5/12 at 13/14, with matched-distinct-term coverage now tied at 5/12 and margin at 12/12; the figures
 # below are the 2026-09-26 comparison. 0.28 sits inside the 0.24-0.3047 recall plateau.)
 #

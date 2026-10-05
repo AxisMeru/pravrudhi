@@ -1,32 +1,31 @@
-"""Issue #51's calibration set (tests/fixtures/nyaya_relevance_calibration.json), run against the shipped
-retrieve(). The set was hand-built and sealed BEFORE any candidate length-aware rule was measured against it
-(see the fixture's own `_provenance` and commit 55f88914); the selection rule (minimise false citations at
-recall >= the current recall) was written into the issue before the comparison ran. This test keeps
-`min_relevance_norm` honest against regression: a change to the corpus, the BM25 shape or the threshold that
-quietly drops recall or lets more off-topic noise through fails here first.
+"""Issue #51's calibration TUNING set (tests/fixtures/nyaya_relevance_calibration.json), run against the shipped
+retrieve(). It is a tuning set, not an evaluation set: `min_relevance_norm` and the choice of rule were fit on it, so
+every number below is IN-SAMPLE and is a regression guard for that tuned threshold, not evidence about retrieval quality
+on new questions. Its provenance (including that five expected_ids were widened 2m20s after the first commit, b4553b48
+vs 55f88914) is in the fixture's own `_provenance`. A fresh evaluation set, written before any run, is a backlog item.
+This test keeps `min_relevance_norm` honest against regression: a change to the corpus, the BM25 shape or the
+threshold that quietly drops recall or lets more off-topic noise through fails here first.
 
-**v3 (2026-10-05, measured on main @3402450b):** the fixture is again the ORIGINAL sealed set. The v2 relabel
-(kept beside it as `nyaya_relevance_calibration_v2_ipc_coi_only.json`, not run) existed only because the BNS/BNSS
-text was withdrawn from the package for a licence review; it is shipped again (1,609 provisions), so v2's labels
-(three "uncovered" questions whose answers are in BNS/BNSS again) no longer describe the corpus and v1's do.
-Nothing in the sealed set was edited; the `split` assignment of v2 is read from the v2 file by case id.
+**v3 (2026-10-05, measured on main @3402450b):** the fixture is again the ORIGINAL 26-question set (widened version).
+The v2 relabel (kept beside it as `nyaya_relevance_calibration_v2_ipc_coi_only.json`, not run) existed only because the
+BNS/BNSS text was withdrawn from the package for a licence review; it is shipped again (1,609 provisions), so v2's labels
+no longer describe the corpus. The `split` assignment of v2 is read from the v2 file by case id (the split is NOT a
+held-out evaluation: the threshold was fit on all 26 cases).
 
-Measured on today's ranking (scripts/nyaya_relevance_calibration_run.py), 14 on_topic / 12 off_topic cases:
+Measured on today's ranking (scripts/nyaya_relevance_calibration_run.py), 14 on_topic / 12 off_topic cases, IN-SAMPLE:
 
 | rule | recall | false citations |
 |---|---|---|
 | absolute floor only (main) | 13/14 | 12/12 |
-| score / query self-score >= 0.28 (shipped) | 13/14 | 5/12 |
+| score / query self-score >= 0.28 (shipped, tuned here) | 13/14 | 5/12 |
 | matched-distinct-term coverage (best, >= 0.36..0.3833) | 13/14 | 5/12 |
 | top-1/top-2 margin (best, > 0) | 13/14 | 12/12 |
 
-The rule as written picks the minimum false citations at recall >= the baseline: self-score normalisation and
-coverage now TIE at 5/12 (on 2026-09-26 it was 3/12 vs 9/12; main's ranking has since changed). The shipped rule
-stays as the incumbent of a tie; its plateau is 0.24-0.3047 (recall 13/14, 5/12), 0.28 sits inside it, and at
-0.31 recall drops to 12/14. The baseline's one on_topic miss (`medium-on-topic-bns-deceit-marriage`: the top hit
-is not an expected id) is a ranking miss, not a floor effect. Of the 5 residual leaks, THREE are `bns69` questions
-that name a section the corpus now has, so the named-section boost (+100) returns it and no length gate can cut it;
-the other two (`uk-parliament`, `holiday-planning`) are real BM25 noise above the norm floor.
+Self-score normalisation and coverage TIE at 5/12 (on 2026-09-26 it was 3/12 vs 9/12; main's ranking has since
+changed); the shipped rule stays as the incumbent. Its plateau on this set is 0.24-0.3047 (recall 13/14, 5/12); 0.28
+sits inside it, and at 0.31 recall drops to 12/14. The baseline's one on_topic miss (`medium-on-topic-bns-deceit-marriage`)
+is a ranking miss, not a floor effect. Of the 5 residual leaks, THREE are `bns69` questions that name a section the corpus
+now has, so the named-section boost (+100) returns it and no length gate can cut it; the other two are real BM25 noise.
 
 Named, not hidden: `KNOWN_RESIDUAL_LEAKS` and `KNOWN_ON_TOPIC_MISSES` are exact-match, so a newly leaking case
 fails and so does a fixed one silently staying in the tolerated set."""
@@ -70,7 +69,7 @@ def _top_id(c: nyaya.Corpus, question: str) -> str | None:
     return hits[0][0].id if hits else None
 
 
-def test_the_calibration_set_is_the_original_sealed_one() -> None:
+def test_the_calibration_set_is_the_26_case_tuning_set() -> None:
     kinds = {}
     for case in _cases():
         kinds[case["kind"]] = kinds.get(case["kind"], 0) + 1
@@ -124,10 +123,10 @@ def test_the_shipped_threshold_sits_inside_the_recall_plateau() -> None:
     assert recall(0.31) == 12
 
 
-def test_the_held_out_report_split_numbers() -> None:
-    """The `report` half (assigned by the v2 stratified, seeded split before any of this was run): 6/6 on_topic
-    hits (the named miss is in the tune half) and 2 false citations out of 5 noisy cases. No threshold was
-    retuned in this pass: 0.28 is unchanged."""
+def test_the_report_split_numbers_in_sample() -> None:
+    """The `report` half of the v2 split, IN-SAMPLE (the threshold was fit on all 26 cases, so this is not a held-out
+    measurement): 6/6 on_topic hits (the named miss is in the other half) and 2 false citations out of 5 noisy cases.
+    No threshold was retuned in this pass: 0.28 is unchanged."""
     c = nyaya.load_corpus()
     splits = _splits()
     report = [case for case in _cases() if splits[case["id"]] == "report"]
