@@ -114,13 +114,50 @@ class TestModelCap:
         with pytest.raises(ValueError, match="not a sonnet/haiku"):
             panel.ask_vendor(_claude_vendor(model=model), "q")
 
-    def test_opus_at_effort_low_is_allowed_and_passes_the_flag(self, seat, monkeypatch):
-        v = _claude_vendor(model="opus", effort="low")
+    def test_opus_at_effort_low_with_a_budgeted_arm_is_allowed_and_passes_the_flag(self, seat, monkeypatch):
+        from pravrudhi.application import usage_gate
+
+        claimed = []
+        monkeypatch.setattr(
+            usage_gate, "claim_opus_call",
+            lambda root, arm, gate: claimed.append(arm) or {"arm": arm, "call_number": 1, "call_cap": 10},
+        )
+        v = _claude_vendor(model="opus", effort="low", m4_arm="m4-phase1-config-a")
         ans, run = _ask_claude(monkeypatch, _env(models={"claude-opus-5-5": {"outputTokens": 4}}), v)
         cmd = run.calls[0]["cmd"]
         assert cmd[cmd.index("--model") + 1] == "opus"
         assert cmd[cmd.index("--effort") + 1] == "low"
         assert ans.resolved_model == "claude-opus-5-5"
+        assert claimed == ["m4-phase1-config-a"] and ans.usage_gate["opus_m4"]["call_number"] == 1
+
+    def test_opus_at_effort_low_without_an_m4_arm_makes_no_call(self, seat, monkeypatch):
+        from pravrudhi.application import usage_gate
+
+        run = _Run(_env())
+        monkeypatch.setattr(cli_agents, "_run", run)
+        with pytest.raises(usage_gate.UsageGateRefused, match="m4_arm"):
+            panel.ask_vendor(_claude_vendor(model="opus", effort="low"), "q")
+        assert run.calls == []
+
+    def test_a_spent_opus_cap_makes_no_call(self, seat, monkeypatch):
+        from pravrudhi.application import usage_gate
+
+        def spent(root, arm, gate):
+            raise usage_gate.UsageGateRefused("refusing: opus call cap for arm 'x' is spent (1 of 1)")
+
+        monkeypatch.setattr(usage_gate, "claim_opus_call", spent)
+        run = _Run(_env())
+        monkeypatch.setattr(cli_agents, "_run", run)
+        with pytest.raises(usage_gate.UsageGateRefused, match="spent"):
+            panel.ask_vendor(_claude_vendor(model="opus", effort="low", m4_arm="x"), "q")
+        assert run.calls == []
+
+    def test_sonnet_is_never_counted_against_the_opus_budget(self, seat, monkeypatch):
+        from pravrudhi.application import usage_gate
+
+        monkeypatch.setattr(usage_gate, "claim_opus_call", lambda *a: pytest.fail("sonnet must not claim opus budget"))
+        ans, _ = _ask_claude(monkeypatch, _env())
+        assert "opus_m4" not in (ans.usage_gate or {})
 
     def test_effort_is_validated_and_omitted_when_unset(self, seat, monkeypatch):
         _, run = _ask_claude(monkeypatch, _env())
@@ -158,6 +195,72 @@ class TestSlimFlagsEnforced:
             "--tools",
             "",
         )
+
+
+#: Every real limit/quota notice text we have recorded (tests/test_claude_session_limit.py, test_limit_reset.py,
+#: test_sentinel_fallback.py, test_heartbeat.py, limits.yaml phrases, this file), plus curly-apostrophe variants.
+REAL_NOTICES = [
+    "You've hit your session limit · resets 3:20am",
+    "You\u2019ve hit your session limit \u00b7 resets 3:20am",
+    "You've hit your weekly limit · resets Sep 29, 5pm",
+    "You\u2019ve hit your weekly limit · resets 5pm",
+    "You've hit your usage limit · resets 11am",
+    "You\u2019ve hit your usage limit",
+    "You've hit your session limit. Resets 9pm.",
+    "ERROR: You've hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro) or try again at 3:51 PM.",
+    "Claude usage limit reached. Your limit will reset at 3pm",
+    "Claude usage limit reached",
+    "5-hour limit reached \u2219 resets 3pm",
+    "Rate limit exceeded, try again later",
+    "Rate limit reached, try again later",
+    "agent exited non-zero: rate limited (429), try again later",
+    "You're out of extra usage",
+    "You're out of usage \u00b7 resets 4pm",
+    "You exceeded your current quota, please check your plan and billing details.",
+    'API Error: "type":"rate_limit_error","message":"This request would exceed your rate limit"',
+    "Error code: insufficient_quota",
+    "overloaded_error: Overloaded",
+    "429 Too Many Requests",
+]
+SHORT_LEGIT = [
+    "The quota for sugar imports is 500 tonnes.",
+    "Quota",
+    "The limitation period resets in 2027.",
+    "ESTABLISHED. The allowance resets at midnight under s. 4.",
+    "Please try again later with more facts.",
+    "The server was overloaded with facts, so the answer is partial.",
+    "NOT_ESTABLISHED: the rate limit in clause 4 is not an element.",
+    "Your weekly limit on withdrawals is 500 GBP.",
+    "Set the session limit to 30 minutes in the config.",
+    "The usage of the word limit is ambiguous.",
+]
+
+
+class TestQuotaRegexIsAnchored:
+    @pytest.mark.parametrize("notice", REAL_NOTICES)
+    def test_every_recorded_real_notice_is_still_a_quota_error(self, notice):
+        assert panel._looks_like_quota(notice)
+
+    @pytest.mark.parametrize("answer", SHORT_LEGIT)
+    def test_a_short_legitimate_answer_is_not_misread(self, answer):
+        assert not panel._looks_like_quota(answer)
+
+    @pytest.mark.parametrize(
+        "unseen",
+        [
+            "Capacity is exhausted for this plan until Friday.",
+            "Your allowance for this period is used up. Come back after the reset.",
+            "Service busy. Retry in a few minutes.",
+        ],
+    )
+    def test_an_unseen_notice_the_regex_misses_still_raises_with_no_model_usage(self, seat, monkeypatch, unseen):
+        """Second line of defence: a notice has no `modelUsage`, so `_check_claude_models` refuses it even though
+        the narrowed regex does not recognise the wording."""
+        assert not panel._looks_like_quota(unseen)
+        raw = json.loads(_env(result=unseen))
+        del raw["modelUsage"]
+        with pytest.raises(RuntimeError, match="model unverifiable"):
+            _ask_claude(monkeypatch, json.dumps(raw))
 
 
 class TestQuotaTextIsAnError:
