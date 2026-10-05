@@ -283,6 +283,61 @@
         "title": "AuditRowOut",
         "type": "object"
       },
+      "CitationOut": {
+        "description": "A statute reference from the contract's own source column, resolved against the shipped corpus.\n`in_corpus: false` means the corpus does not hold that provision (corpus_id and title null); it is not a\nfinding about the law. Never derived from model output.",
+        "properties": {
+          "act": {
+            "title": "Act",
+            "type": "string"
+          },
+          "corpus_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Corpus Id"
+          },
+          "in_corpus": {
+            "title": "In Corpus",
+            "type": "boolean"
+          },
+          "section": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Section"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          }
+        },
+        "required": [
+          "act",
+          "section",
+          "corpus_id",
+          "in_corpus",
+          "title"
+        ],
+        "title": "CitationOut",
+        "type": "object"
+      },
       "ContractResultOut": {
         "properties": {
           "assertions": {
@@ -298,6 +353,21 @@
               }
             ],
             "title": "Assertions"
+          },
+          "citations": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/CitationOut"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The contract's statute references with a corpus check, identical whatever the verdict. Taken from the contract sources the run already read once for selection (no second registry call). Null only when those sources or the corpus could not be read on this request.",
+            "title": "Citations"
           },
           "contract_id": {
             "title": "Contract Id",

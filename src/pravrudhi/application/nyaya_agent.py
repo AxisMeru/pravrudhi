@@ -251,6 +251,20 @@ def _require_pinned_judge_models(house_judge: Mapping[str, Any], second_judge: M
             )
 
 
+def validated_contract_ids(root: Path) -> frozenset[str]:
+    """The `validated_contracts` allowlist from `configs/nyaya_agent.yaml` -- the same set `load_agent_config`
+    gives the scorer -- without needing the score binary or a judge to be configured."""
+    import yaml
+
+    from pravrudhi.application.config_files import config_file
+
+    try:
+        body = yaml.safe_load(config_file(Path(root), "nyaya_agent.yaml").read_text()) or {}
+    except FileNotFoundError:
+        return frozenset()  # no scorer config here: the scorer cannot run, so nothing is validated
+    return frozenset(str(c) for c in (body.get("validated_contracts") or []))
+
+
 def _host_class(base_url: Any) -> str | None:
     """`local` (loopback, private or .local host), `serverless` (RunPod) or `remote`; never the URL itself."""
     import ipaddress
@@ -954,9 +968,14 @@ class AgentRun:
     #: `{"requested", "applied", "source", "proceeding_posture", "in_judge_prompt"}`; `applied` is None when the
     #: judge's prompt did not state the standard. None only for a hand-built run.
     standard: dict[str, Any] | None = None
+    #: The contract -> source map this run already read from `--list-contracts` for selection, kept so a caller
+    #: that needs the sources (the partner API's citations) does not spawn a second subprocess. Never part of
+    #: a response: `to_dict` drops it.
+    listed_sources: dict[str, list[str]] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
+        d.pop("listed_sources", None)
         d["audit_path"] = str(self.audit_path)
         return d
 
@@ -974,16 +993,18 @@ def _build_house_judge(hj_cfg: Mapping[str, Any], *, tau: float, typed: bool, ap
         decoder = VLLMDecoder(
             base_url=str(hj_cfg["base_url"]),
             model=hj_cfg.get("model") or None,
-            timeout_s=int(hj_cfg.get("timeout_s", 60)),
+            timeout_s=int(hj_cfg["timeout_s"]),
             api_key=api_key,
             fallback_urls=hj_cfg.get("base_urls_fallback") or [],
+            enforce_served_model=bool(hj_cfg.get("enforce_served_model", False)),
         )
         return TypedHouseJudge(
             tau=tau,
             statute_chars=int(hj_cfg["statute_chars"]),
             decoder=decoder,
-            max_tokens=int(hj_cfg.get("max_tokens", 30)),
-            top_logprobs=int(hj_cfg.get("top_logprobs", 20)),
+            max_tokens=int(hj_cfg["max_tokens"]),
+            top_logprobs=int(hj_cfg["top_logprobs"]),
+            label_mass_floor=float(hj_cfg["label_mass_floor"]),
             prompt_template=str(hj_cfg.get("prompt_template", "legacy")),
         )
     from pravrudhi.application.nyaya_judges import HouseJudge
@@ -1604,4 +1625,5 @@ class NyayaAgent:
         audit.step("run_end", {"run_id": run_id}, {c.contract_id: c.outcome for c in results}, 0.0)
         return AgentRun(run_id, self.judge.name, self.registry.sha256,
                         [{"id": f.id, "sha256": f.sha256} for f in ingested], results, audit.path,
-                        judge_accounting=accounting, client_data=client_data, standard=standard_out)
+                        judge_accounting=accounting, client_data=client_data, standard=standard_out,
+                        listed_sources={cid: list(srcs) for cid, srcs in listed.items()})
