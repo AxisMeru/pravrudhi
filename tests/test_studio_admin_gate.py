@@ -80,7 +80,7 @@ def test_studio_refuses_anonymous_401_non_admin_403_and_admits_the_admin(
     assert _call(c, engine, method, path, "admin-token").status_code not in (401, 403)
 
 
-@pytest.mark.parametrize("edition", ["product", None, "dev", "Studio-ish"])
+@pytest.mark.parametrize("edition", ["product", None, "dev"])
 def test_other_editions_are_not_gated(engine: Path, monkeypatch: pytest.MonkeyPatch, edition: str | None) -> None:
     if edition:
         monkeypatch.setenv("PRAVRUDHI_EDITION", edition)
@@ -191,3 +191,14 @@ def test_the_schema_and_docs_pages_are_the_operators_on_studio(engine: Path, mon
     assert c.get(path, headers={"Authorization": "Bearer admin-token"}).status_code == 200
     monkeypatch.setenv("PRAVRUDHI_EDITION", "product")  # the product keeps serving its schema
     assert _client(engine).get(path).status_code == 200
+
+
+@pytest.mark.parametrize("edition", ["Studio-ish", "prod", "staging"])
+def test_an_unrecognised_edition_refuses_to_start_instead_of_serving_ungated(
+    engine: Path, monkeypatch: pytest.MonkeyPatch, edition: str
+) -> None:
+    from pravrudhi.deployment import DeploymentConfigError, validate
+
+    monkeypatch.setenv("PRAVRUDHI_EDITION", edition)
+    with pytest.raises(DeploymentConfigError):
+        validate()

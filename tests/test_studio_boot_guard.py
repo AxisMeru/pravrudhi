@@ -23,7 +23,7 @@ def _boot(host: str) -> None:
 
 def test_studio_with_auth_disabled_on_a_public_bind_refuses(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("PRAVRUDHI_EDITION", "studio")
-    for auth in (None, "disabled", "bogus"):  # an unset or unknown mode is `disabled`
+    for auth in (None, "disabled", ""):  # an unset or blank mode is `disabled` (an unknown one is not: see test_fail_closed_auth)
         if auth:
             monkeypatch.setenv("PRAVRUDHI_AUTH", auth)
         for host in ("0.0.0.0", "10.0.0.5", "::", "example.internal"):

@@ -68,11 +68,16 @@ class User:
 
 
 def auth_mode() -> AuthMode:
-    raw = os.environ.get("PRAVRUDHI_AUTH", "disabled").strip().lower()
+    """The authentication mode. Unset or blank is `disabled` (a local single-operator install; `guard_boot` refuses it on
+    a hosted image). An unrecognised value is NEVER `disabled`: it is `required` (fail closed), and `guard_boot` refuses
+    to start with it at all."""
+    raw = os.environ.get("PRAVRUDHI_AUTH", "").strip().lower()
+    if not raw:
+        return AuthMode.DISABLED
     try:
         return AuthMode(raw)
     except ValueError:
-        return AuthMode.DISABLED
+        return AuthMode.REQUIRED
 
 
 def _supabase_url() -> str:
@@ -98,6 +103,9 @@ def guard_boot() -> None:
     that cannot verify anything would reject every request, which is a worse failure than refusing to
     start.
     """
+    from pravrudhi.deployment import validate
+
+    validate()  # an unknown PRAVRUDHI_AUTH / PRAVRUDHI_EDITION, or an unset auth on a hosted image, refuses to start
     mode = auth_mode()
     if mode == AuthMode.REQUIRED and not _supabase_url():
         raise RuntimeError(

@@ -222,12 +222,12 @@ def _model_pin_required() -> str | None:
     Required for every edition except an explicit `PRAVRUDHI_EDITION=dev` on a development checkout: a release
     install is the product whatever the env says, and an unset, unknown or mislabelled value (`prod`, `null`)
     is enforced, never waved through."""
-    from pravrudhi.api.edition import EDITION_ENV, engine_edition, is_release_install
+    from pravrudhi.deployment import declared_edition, resolved_edition
 
-    declared = os.environ.get(EDITION_ENV, "").strip().lower()
-    if declared == "dev" and not is_release_install():
-        return None
-    return declared if declared in ("product", "studio") else engine_edition().lower()
+    resolved = resolved_edition()
+    if declared_edition() == "dev" and resolved == "dev":
+        return None  # an explicit dev edition on a development checkout (never on a release install or hosted image)
+    return "studio" if resolved == "dev" else resolved
 
 
 def _require_pinned_judge_models(house_judge: Mapping[str, Any], second_judge: Mapping[str, Any] | None) -> None:
