@@ -28,11 +28,11 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "scripts"))
 
+from _p_scoring import typed_p  # noqa: E402
 from _t2_run_metadata import RunMetadata  # noqa: E402
 
 from pravrudhi.application.nyaya_judges import HouseJudge, p_established_from_top_logprobs, parse_house_fact_id  # noqa: E402
-from pravrudhi.application.typed.decoder import VLLMDecoder, score_decision  # noqa: E402
-from pravrudhi.application.typed.house_judge import _STATUS_FIELD  # noqa: E402
+from pravrudhi.application.typed.decoder import VLLMDecoder  # noqa: E402
 
 EXPECTED_SHA = "d56c449f9332f22a85176b1008974c1f147a7b8d45e4f5cea0e5ed08a01935cf"
 BASE_URL = "http://127.0.0.1:8110/v1"
@@ -51,18 +51,19 @@ class LatencyDegraded(RuntimeError):
     pass
 
 
-def _score_house(res: Any) -> tuple[float | None, str | None]:
+def _score_house(res: Any) -> tuple[float | None, str | None, str | None]:
+    """`(p, fact_id, clamp)`; `clamp` is "none" for a measured p, else "lower_bound"/"upper_bound"."""
     if not res.top_logprobs:
-        return None, None
-    p = p_established_from_top_logprobs(res.top_logprobs[0])
+        return None, None, None
+    p, clamp = p_established_from_top_logprobs(res.top_logprobs[0])
     fact_id = parse_house_fact_id(res.text) if p >= TAU else None
-    return p, fact_id
+    return p, fact_id, clamp
 
 
 def _score_typed(res: Any) -> tuple[float | None, str | None]:
     if not res.top_logprobs:
         return None, None
-    p = score_decision(res, _STATUS_FIELD)["true"]
+    p = typed_p(res)
     fact_id = parse_house_fact_id(res.text) if p >= TAU else None
     return p, fact_id
 
