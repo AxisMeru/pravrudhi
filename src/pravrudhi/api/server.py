@@ -14,7 +14,7 @@ import time
 from pathlib import Path
 from typing import Any, Literal
 
-from fastapi import APIRouter, FastAPI, Header, HTTPException
+from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException
 from fastapi.routing import APIRoute
 from pydantic import BaseModel
 
@@ -257,7 +257,10 @@ def create_app(root: Path, *, nyaya_ask_fn: Any | None = None) -> FastAPI:
     for route in app.routes:
         if isinstance(route, APIRoute) and route.path == "/api/app-token":
             app.router.routes.remove(route)
-            app.add_api_route(route.path, route.endpoint, methods=["GET"], response_model=TokenResponse)
+            app.add_api_route(
+                route.path, route.endpoint, methods=["GET"], response_model=TokenResponse,
+                dependencies=[Depends(roles.admin_dependency)],
+            )
             break
     ledger = root / "research" / "ledger.jsonl"
     # Guards /update/apply and /update/rollback: both run for real, in-process, on the threadpool FastAPI already
