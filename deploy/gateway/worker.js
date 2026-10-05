@@ -69,6 +69,7 @@ export default {
     const target = backend.replace(/\/$/, "") + url.pathname + url.search;
     const headers = new Headers(request.headers);
     headers.delete("host");
+    headers.delete("x-pravrudhi-client-ip");  // never trust a caller-supplied client IP (#248)
 
     // Ensure User-Agent is set: RunPod's Cloudflare proxy returns 403 (error 1010) to urllib's default
     if (!headers.get("user-agent")) {

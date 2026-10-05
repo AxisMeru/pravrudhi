@@ -15,4 +15,14 @@ for (const [m,p,exp] of cases) {
   const ok = r.status === exp; if(!ok) bad++;
   console.log(ok?"ok  ":"FAIL", m, p, r.status, exp===403? await r.clone().text():"");
 }
+
+// caller-supplied x-pravrudhi-client-ip must not reach the engine (#248)
+{
+  let seen = null;
+  globalThis.fetch = async (u, o) => { seen = o.headers; return new Response("ok", {status: 200}); };
+  await w.fetch(new Request("https://x.example/api/health", {headers: {"x-pravrudhi-client-ip": "1.2.3.4"}}), env);
+  const ok = seen && !seen.has("x-pravrudhi-client-ip");
+  console.log(ok ? "ok  " : "FAIL", "client-ip header stripped");
+  if (!ok) bad++;
+}
 console.log("proxied:", proxied.length, "bad:", bad); process.exit(bad?1:0);
