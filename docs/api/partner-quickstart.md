@@ -125,7 +125,8 @@ opening time:
 |---|---|---|
 | 401 | key header present but invalid or revoked | `{"detail": "Invalid or revoked API key"}` |
 | 422 | input refused (no non-empty fact, a fact over 4000 characters, unknown contract) | `{"detail": "..."}` |
-| 429 | over the rate limit; wait `Retry-After` seconds | `{"detail": "rate limit exceeded"}` |
+| 404 | jobs only: no such job for this key | `{"detail": "no such job"}` |
+| 429 | over the rate limit; wait `Retry-After` seconds. On `POST /analyse-facts/jobs` it means too many unfinished jobs for this key | `{"detail": "rate limit exceeded"}` or `{"detail": "too many unfinished jobs for this key"}` |
 | 503 | `outside_service_window`, `judge_unavailable` (optionally `reason: judges_warming` with `retry_after_s`), `service_config_missing`, or the agent at capacity | see below |
 
 ```json example:invalid-key
@@ -231,3 +232,47 @@ opening time:
 ```
 
 A 503 is an infrastructure state, never a legal outcome: retry after `Retry-After`.
+
+## 5. What a reply also carries
+
+Beyond `contracts[].outcome` and `reason`, a 200 carries these fields (all in the contract; the examples above
+show only the ones they assert):
+
+* `standard`: the standard of proof the request asked for and whether the judge was told it
+  (`requested`, `applied`, `source`, `in_judge_prompt`, `proceeding_posture`). `in_judge_prompt` false means the
+  standard is recorded but the verdict did not depend on it. Say that to your users. The request field
+  `proceeding_posture` is optional; omitting it applies the stricter `proved` default.
+  [`partner-quickstart-client.md`](partner-quickstart-client.md) section 3 has the full reading.
+* `contracts[].citations`: the statute sources listed for the contract, or `null` when they could not be read.
+* `contracts[].lean_attestation`: the pinned Lean binary and the exact input it scored, for the contract's
+  `lean_outcome`. The top-level `score_sha256` is the binary's SHA-256.
+* `run_id`: identifies the run; an authenticated caller can look it up in the audit log (section 6).
+* `retention_notice`: how long the engine keeps the request. **Show it to your users verbatim.**
+* The request field `sections` optionally limits the statute sections considered; omit it for the contract's own.
+
+Every call made with an API key also returns `X-RateLimit-Limit` (calls per minute for the key),
+`X-RateLimit-Remaining` (left in the current one-minute window) and `X-RateLimit-Reset` (seconds until the
+window ends), on the 200 and on the 429. A 429 adds `Retry-After`. Anonymous calls are limited per client IP
+and carry no key headers.
+
+## 6. Asynchronous jobs, audit and usage
+
+All of these need an API key (`X-Pravrudhi-Api-Key`); without one they answer 401.
+
+* `POST /api/v1/analyse-facts/jobs` takes the same body as `analyse-facts` and answers **202**
+  `{"job_id": "...", "status": "pending"}`. `GET /api/v1/analyse-facts/jobs/{job_id}` then returns
+  `status` (`pending`, `running`, `done`, `failed`). On `done`, `result` is exactly the body the synchronous
+  call would have returned; on `failed`, `error` carries the HTTP status and body it would have returned. A
+  job id belongs to the key that made it (another key gets 404). A key may have only a few unfinished jobs: past
+  that, a 429 with `Retry-After`.
+* `GET /api/v1/audit?offset=0&limit=50` pages the key's own call log (`rows`, `next_offset`), within the
+  deployment's retention window.
+* `GET /api/v1/orgs/{org_id}/usage` is a key's own usage counters. `GET /api/v1/orgs/{org_id}/usage/summary`
+  and `POST /api/v1/orgs/{org_id}/keys/{key_id}/revoke` are operator routes (admin or provisioning credential);
+  a partner key is refused.
+
+## 7. Versions
+
+`info.version` in the contract (`v1`) is the API version: it changes only when the request or response shape
+breaks. The engine release (for example 0.5.44) is `GET /api/v1/status`'s `engine_version`; pin to `/api/v1`, not to
+the engine release.

@@ -14,6 +14,7 @@
           },
           "facts": {
             "items": {
+              "maxLength": 4000,
               "type": "string"
             },
             "maxItems": 8,
@@ -1294,6 +1295,9 @@
               }
             }
           },
+          "401": {
+            "description": "The API key is invalid or revoked."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -1332,6 +1336,9 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "Outside the service window, judges warming (retry_after_s), service config missing, or the engine at capacity."
           }
         },
         "summary": "Analyse Facts Ep"
@@ -1373,6 +1380,9 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "description": "Jobs require a valid API key."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -1382,6 +1392,20 @@
               }
             },
             "description": "Validation Error"
+          },
+          "429": {
+            "description": "Too many unfinished jobs for this key; wait Retry-After seconds.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service config missing, or the engine is unavailable."
           }
         },
         "summary": "Submit Job Ep"
@@ -1412,6 +1436,12 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "description": "Jobs require a valid API key."
+          },
+          "404": {
+            "description": "No such job for this key."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -1421,6 +1451,9 @@
               }
             },
             "description": "Validation Error"
+          },
+          "503": {
+            "description": "Service config missing."
           }
         },
         "summary": "Get Job Ep"

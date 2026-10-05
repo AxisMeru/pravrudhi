@@ -314,7 +314,11 @@ class _Admitted:
 class AnalyseFactsRequest(BaseModel):
     #: At most 8 facts, each at most 4,000 characters -- an anonymous caller cannot ask this route to judge
     #: an unbounded amount of text (reviewer 1, point (b)).
-    facts: list[str] = Field(min_length=1, max_length=8)
+    #: The per-fact cap is enforced in `_admit` (a 422 after metering), not by validation, so the contract
+    #: states it through `json_schema_extra` and the error shape stays what clients already see.
+    facts: list[str] = Field(
+        min_length=1, max_length=8, json_schema_extra={"items": {"type": "string", "maxLength": 4000}}
+    )
     narrative: str = Field(default="", max_length=4000)
     #: Required, not optional: omitting this used to mean "every contract the registry knows" (23 of them,
     #: dozens of GPU calls) for one anonymous request. 1-5 explicit ids only.
@@ -872,8 +876,11 @@ def build_partner_router(
         "/analyse-facts", response_model=AnalyseFactsResponse, response_model_exclude_unset=True,
         responses={
             200: {"description": "Successful analysis.", "headers": _RATE_LIMIT_HEADER_DOCS},
+            401: {"description": "The API key is invalid or revoked."},
             429: {"description": "Over the rate limit; wait Retry-After seconds.",
                   "headers": {**_RATE_LIMIT_HEADER_DOCS, "Retry-After": _RETRY_AFTER_DOC}},
+            503: {"description": "Outside the service window, judges warming (retry_after_s), service "
+                  "config missing, or the engine at capacity."},
         },
     )
     def analyse_facts_ep(
@@ -1075,7 +1082,15 @@ def build_partner_router(
             raise HTTPException(401, "jobs require an API key (X-Pravrudhi-Api-Key)")
         return principal
 
-    @router.post("/analyse-facts/jobs", status_code=202, response_model=JobOut, response_model_exclude_none=True)
+    @router.post(
+        "/analyse-facts/jobs", status_code=202, response_model=JobOut, response_model_exclude_none=True,
+        responses={
+            401: {"description": "Jobs require a valid API key."},
+            429: {"description": "Too many unfinished jobs for this key; wait Retry-After seconds.",
+                  "headers": {"Retry-After": _RETRY_AFTER_DOC}},
+            503: {"description": "Service config missing, or the engine is unavailable."},
+        },
+    )
     def submit_job_ep(
         req: AnalyseFactsRequest,
         request: Request,
@@ -1134,7 +1149,14 @@ def build_partner_router(
         _submit(task)
         return {"job_id": job_id, "status": "pending"}
 
-    @router.get("/analyse-facts/jobs/{job_id}", response_model=JobOut, response_model_exclude_none=True)
+    @router.get(
+        "/analyse-facts/jobs/{job_id}", response_model=JobOut, response_model_exclude_none=True,
+        responses={
+            401: {"description": "Jobs require a valid API key."},
+            404: {"description": "No such job for this key."},
+            503: {"description": "Service config missing."},
+        },
+    )
     def get_job_ep(job_id: str, request: Request) -> dict[str, Any]:
         principal = _job_principal(request)
         try:
