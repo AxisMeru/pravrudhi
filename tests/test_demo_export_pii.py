@@ -131,3 +131,161 @@ def test_write_demo_refuses_a_snapshot_that_still_carries_personal_data(monkeypa
     monkeypatch.setattr(demo_export, "build_demo", lambda root: {"note": "/home/ss/leak"})
     with pytest.raises(SecretInSnapshot, match="home-path"):
         demo_export.write_demo(root=None, dest=None)  # type: ignore[arg-type]
+
+
+# -- statute text (Lead-2, 2026-10-05; licence memo on s.52(1)(q)(ii)) -----------------------------------------
+
+_PROMPT = (
+    "You are answering a question of Indian law.\\n\\nSOURCES (the only authorities you may rely on):\\n"
+    "[IPC/Section 320] Indian Penal Code, 1860, Section 320 -- Grievous hurt: The following kinds of hurt "
+    "only are designated as \\\"grievous\\\" (First)  -  Emasculation.\\n(Secondly) Permanent privation.\\n"
+    "[IPC/Section 326] Indian Penal Code, 1860, Section 326 -- Grievous hurt by weapons: Whoever, except in "
+    "the case provided for by section 335, voluntarily causes grievous hurt shall be punished.\\n\\n"
+    "QUESTION:\\nA man strikes another."
+)
+
+
+def _snapshot(*texts: str) -> str:
+    return '{\n  "text": "' + '",\n  "more": "'.join(texts) + '"\n}\n'
+
+
+def test_statute_text_in_a_sources_block_is_replaced_but_the_id_and_title_stay() -> None:
+    import json
+
+    out = redact_secrets(_snapshot(_PROMPT))
+    body = json.loads(out)["text"]  # still valid JSON
+    assert "Emasculation" not in body and "Whoever, except" not in body
+    kept = "[IPC/Section 320] Indian Penal Code, 1860, Section 320 -- Grievous hurt: "
+    assert kept + "[statute text removed; see India Code]" in body
+    assert "[IPC/Section 326] Indian Penal Code, 1860, Section 326 -- Grievous hurt by weapons: [statute text removed" in body
+    assert "QUESTION:\nA man strikes another." in body  # the rest of the prompt is untouched
+    assert still_carries(out) == []  # a second pass finds nothing left, so the exporter does not refuse its own output
+
+
+def test_a_truncated_300_character_copy_is_scrubbed_too() -> None:
+    import json
+
+    cut = _PROMPT[:230]  # ends inside the first provision's text, no QUESTION and no next entry
+    body = json.loads(redact_secrets(_snapshot(cut)))["text"]
+    assert "Emasculation" not in body
+    assert body.endswith("[statute text removed; see India Code]")
+
+
+def test_a_citation_example_and_ordinary_bracketed_text_are_not_touched() -> None:
+    plain = "Cite each one inline, e.g. [IPC/Section 302]. Do not cite anything else. See [1] and [A/B] here."
+    assert redact_secrets(_snapshot(plain)) == _snapshot(plain)
+
+
+def test_redacting_twice_changes_nothing() -> None:
+    once = redact_secrets(_snapshot(_PROMPT))
+    assert redact_secrets(once) == once
+
+
+# -- the demo snapshot's own backstop (Lead-2 P0, 2026-10-05) ----------------------------------------------------
+
+import json  # noqa: E402
+from pathlib import Path  # noqa: E402
+
+from pravrudhi.application import demo_export  # noqa: E402
+
+_PROVISION = (
+    "Whoever takes or entices away any woman who is and whom he knows or has reason to believe to be the wife "
+    "of any other man, from that man, with intent that she may have illicit intercourse with any person, shall be punished."
+)
+
+
+_TITLE = "Enticing or taking away or detaining with criminal intent a married woman."
+
+
+def _root_with_corpus(tmp_path: Path) -> Path:
+    d = tmp_path / "research" / "nyaya" / "corpus"
+    d.mkdir(parents=True, exist_ok=True)
+    doc = {"id": "IPC/Section 498", "act": "Indian Penal Code", "section": "Section 498",
+           "title": _TITLE, "text": _PROVISION}
+    (d / "ipc.json").write_text(json.dumps({"documents": [doc]}))
+    return tmp_path
+
+
+@pytest.mark.parametrize("raw", [
+    "/home/ss/projects/x", "/Users/someone/y", "note to sharath.sathish@gmail.com", "uds:/run/user/1000/cc-socks/1.sock",
+    "<cross-session-message>x</cross-session-message>", "a held cross-session message", "set CLAUDE_CONFIG_DIR=/x",
+    "seat sharath.ai.colab", "Commit as <admin@axismeru.com>",
+])
+def test_the_demo_redaction_leaves_none_of_the_private_markers(raw: str) -> None:
+    out = demo_export.redact_for_demo(raw)
+    assert demo_export.private_markers_left(out) == [], out
+    assert demo_export.still_carries(out) == []
+
+
+def test_only_the_demo_removes_the_project_email_and_the_public_handle_stays() -> None:
+    assert "admin@axismeru.com" in redact_secrets("<admin@axismeru.com>")
+    assert "axismeru" not in demo_export.redact_for_demo("<admin@axismeru.com>")
+    assert "SharathSPhD" in demo_export.redact_for_demo("author SharathSPhD")
+    assert demo_export.private_markers_left("author sharathsphd") == []
+
+
+def _write(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, data: object, redact: bool = True) -> Path:
+    monkeypatch.setattr(demo_export, "build_demo", lambda root: data)
+    monkeypatch.setattr(demo_export, "ASSETS_DIR", tmp_path / "no-assets")  # only the fixture corpus counts here
+    monkeypatch.setattr(demo_export, "MIN_CORPUS_DOCUMENTS", 1)
+    if not redact:
+        monkeypatch.setattr(demo_export, "redact_for_demo", lambda text: text)
+    return demo_export.write_demo(_root_with_corpus(tmp_path), tmp_path / "out" / "demo.json")
+
+
+def test_a_marker_that_survives_redaction_refuses_the_write(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    with pytest.raises(SecretInSnapshot, match="/home/"):
+        _write(monkeypatch, tmp_path, {"a": "see /home/ss/x"}, redact=False)
+    assert not (tmp_path / "out" / "demo.json").exists()
+    with pytest.raises(SecretInSnapshot, match="sharath"):
+        _write(monkeypatch, tmp_path, {"a": "seat sharath.sathish"}, redact=False)
+
+
+def test_a_corpus_passage_in_any_layout_refuses_the_write(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    quoted = _PROVISION[20:110]
+    layouts = ({"x": quoted}, {"x": ["a", {"deep": "lead-in " + quoted.upper() + " tail"}]},
+               {"x": quoted.replace(" ", "\n  ")})
+    for data in layouts:
+        with pytest.raises(SecretInSnapshot, match="statute text"):
+            _write(monkeypatch, tmp_path, data)
+    assert not (tmp_path / "out" / "demo.json").exists()
+
+
+def test_a_kept_heading_and_short_overlap_are_not_statute_text(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    heading = f"[IPC/Section 498] Indian Penal Code, Section 498 -- {_TITLE}"
+    out = _write(monkeypatch, tmp_path, {"x": heading, "y": _PROVISION[:40]})
+    assert json.loads(out.read_text())["x"] == heading
+
+
+def test_the_shipped_corpus_alone_is_enough_for_the_backstop(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """A clean clone or CI has no research/ corpus: the packaged provisions must still be compared against."""
+    windows, documents = demo_export.corpus_windows(tmp_path)  # a root with no research corpus at all
+    assert documents >= demo_export.MIN_CORPUS_DOCUMENTS and windows
+    shipped = json.loads((demo_export.ASSETS_DIR / "bns_sections.json").read_text())["documents"]
+    provision = max((d["text"] for d in shipped), key=len)
+    monkeypatch.setattr(demo_export, "build_demo", lambda root: {"x": provision})
+    with pytest.raises(SecretInSnapshot, match="statute text"):
+        demo_export.write_demo(tmp_path, tmp_path / "out" / "demo.json")
+
+
+def test_a_root_with_no_corpus_fails_closed(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(demo_export, "ASSETS_DIR", tmp_path / "no-assets")
+    monkeypatch.setattr(demo_export, "build_demo", lambda root: {"x": "anything"})
+    assert demo_export.corpus_windows(tmp_path) == (set(), 0)
+    with pytest.raises(SecretInSnapshot, match="cannot vouch"):
+        demo_export.write_demo(tmp_path, tmp_path / "out" / "demo.json")
+    assert not (tmp_path / "out" / "demo.json").exists()
+
+
+def test_an_empty_or_too_small_corpus_fails_closed(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    d = tmp_path / "research" / "nyaya" / "corpus"
+    d.mkdir(parents=True)
+    (d / "x.json").write_text(json.dumps({"documents": []}))
+    monkeypatch.setattr(demo_export, "ASSETS_DIR", tmp_path / "no-assets")
+    monkeypatch.setattr(demo_export, "build_demo", lambda root: {"x": "anything"})
+    with pytest.raises(SecretInSnapshot, match="cannot vouch"):
+        demo_export.write_demo(tmp_path, tmp_path / "out" / "demo.json")
+    small = _root_with_corpus(tmp_path / "small")  # one document: below the real minimum
+    monkeypatch.setattr(demo_export, "MIN_CORPUS_DOCUMENTS", 2)
+    with pytest.raises(SecretInSnapshot, match="cannot vouch"):
+        demo_export.write_demo(small, tmp_path / "out" / "demo.json")
