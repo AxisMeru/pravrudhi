@@ -204,6 +204,29 @@ class AgentConfig:
         return None if raw is None else float(raw)
 
 
+_PINNED_MODEL_EDITIONS = ("product", "studio")
+
+
+def _require_pinned_judge_models(house_judge: Mapping[str, Any], second_judge: Mapping[str, Any] | None) -> None:
+    """In a deployed edition (`PRAVRUDHI_EDITION` = product or studio) every judge block must name its model.
+
+    An unset model resolves to the first id the server's /v1/models lists, which on the dev 32B host is the BASE
+    snapshot path, so a null there silently judges with base Qwen2.5-32B instead of the fine-tuned judge. An
+    unlabelled development checkout keeps the old behaviour. Never defaulted: a missing value raises."""
+    edition = os.environ.get("PRAVRUDHI_EDITION", "").strip().lower()
+    if edition not in _PINNED_MODEL_EDITIONS:
+        return
+    blocks = {"house_judge": house_judge, **({"second_judge": second_judge} if second_judge is not None else {})}
+    for name, block in blocks.items():
+        model = block.get("model")
+        if not isinstance(model, str) or not model.strip():
+            env = "NYAYA_HOUSE_JUDGE_MODEL" if name == "house_judge" else "NYAYA_SECOND_JUDGE_MODEL"
+            raise ValueError(
+                f"{name}.model is not set: in the {edition} edition a null model would resolve to the first id the "
+                f"server lists (the base snapshot on the dev 32B). Name the served model id in the config or set {env}"
+            )
+
+
 def load_agent_config(root: Path) -> AgentConfig:
     """`configs/nyaya_agent.yaml` under `root`, else the copy the wheel ships (`config_files.config_file`);
     relative paths resolve against `root`. The score binary path
@@ -332,6 +355,8 @@ def load_agent_config(root: Path) -> AgentConfig:
         for key in ("statute_chars", "top_logprobs", "max_tokens", "label_mass_floor", "prompt_template"):
             if key not in second_judge and key in house_judge:
                 second_judge[key] = house_judge[key]
+
+    _require_pinned_judge_models(house_judge, second_judge)
 
     # Gate 1 (Track-C, GATE1-PRODUCT-WIRING-SPEC-2026-09-26.md §3/§5): the yaml block (threshold/model) and
     # the enable switch are deliberately independent -- NYAYA_GATE1_THRESHOLD/_MODEL override the block's own
