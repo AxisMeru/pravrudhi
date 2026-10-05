@@ -22,6 +22,7 @@ from pravrudhi.application.nyaya_judges import (
     JudgeOutputError,
     JudgeRequest,
     build_house_prompt,
+    check_prompt_template,
     parse_house_fact_id,
 )
 from pravrudhi.application.typed.decoder import DecodeError, TypedDecoder, score_decision
@@ -49,8 +50,10 @@ class TypedHouseJudge:
         max_tokens: int = 30,
         top_logprobs: int = 20,
         constrain_fact_id: bool = False,
+        prompt_template: str = "legacy",
     ) -> None:
         self.tau = tau
+        self.prompt_template = check_prompt_template(prompt_template)
         self.statute_chars = statute_chars
         self.decoder = decoder
         self.max_tokens = max_tokens
@@ -58,7 +61,7 @@ class TypedHouseJudge:
         self.constrain_fact_id = constrain_fact_id
 
     def judge(self, request: JudgeRequest) -> ElementJudgment:
-        prompt = build_house_prompt(request, statute_chars=self.statute_chars)
+        prompt = build_house_prompt(request, statute_chars=self.statute_chars, prompt_template=self.prompt_template)
         res = self.decoder.complete(prompt, max_tokens=self.max_tokens, temperature=0.0, logprobs=self.top_logprobs)
         try:
             scores, missing = score_decision(res, _STATUS_FIELD)
