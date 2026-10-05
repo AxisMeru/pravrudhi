@@ -111,6 +111,8 @@ retention_days: 7
 # NYAYA_ACCUSED_ATTRIBUTION_ENABLED. Each value is a list of case-insensitive substrings identifying the element; VERIFY it against
 # `score --describe-contract <contract>` before enabling (a key matching no element fails closed, `accused_attribution_config_unmatched`).
 accused_attribution_enabled: false
+accused_attribution_selector: d0   # d0 | m1; env NYAYA_ACCUSED_ATTRIBUTION_SELECTOR. m1 needs accused_attribution_m1 below
+# accused_attribution_m1: {base_url: ..., model: <the BASE model id, not the judge adapter>, timeout_s: 60, threshold: 0.6, mass_floor: 0.5}
 accused_attribution_requires_actor:
   bns85:
     - "specific acts of cruelty to this accused"

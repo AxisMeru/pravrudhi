@@ -49,6 +49,13 @@ ACTS_OUTSIDE_LEXICON = [
     "turned {v} out of the house",
     "stopped {v} from meeting {v}'s parents",
 ]
+LINKS = [
+    "along with", "together with", "jointly with", "as well as", "in collusion with", "in conspiracy with", "in the company of",
+    "with the help of", "with the assistance of", "aided by", "abetted by", "joined by", "helped by",
+    "hand in glove with", "in league with", "in connivance with", "jointly and severally with", "and",
+    "in furtherance of the common intention shared with", "sharing the common intention with",
+]
+COACTORS = ["Accused No.{m}", "{man}", "her husband", "his mother", "her sister-in-law", "A-{m}"]
 WHEN = ["On 12.03.2019", "On 04.07.2018, at about 9 pm", "In March 2017", "Thereafter", "After the marriage", ""]
 
 
@@ -85,6 +92,17 @@ def _sing(alias: str):
 
 
 POSITIVE = {
+    "P14 object list with 'and' (should PASS)": _cell(
+        lambda rng, n, m, v, man, w: _lead(
+            w, f"Accused No.{n} abused {v} and {rng.choice(['her mother', 'her sister', 'her children'])} in filthy language."
+        )
+    ),
+    "P15 victim with a full name, passive (should PASS)": _cell(
+        lambda rng, n, m, v, man, w: _lead(w, f"{v} Sharma was {rng.choice(['beaten', 'slapped', 'abused'])} by Accused No.{n}.")
+    ),
+    "P16 instrument 'with' phrase (should PASS)": _cell(
+        lambda rng, n, m, v, man, w: _lead(w, f"Accused No.{n} beat {v} with {rng.choice(['a hockey stick', 'an iron rod', 'a belt'])}.")
+    ),
     "P01 'Accused No.n' + lexicon verb": _cell(_sing("Accused No.{n}")),
     "P02 'A n' short form": _cell(_sing("A{n}")),
     "P03 'Petitioner No.n'": _cell(_sing("Petitioner No.{n}")),
@@ -143,7 +161,22 @@ NEGATIVE = {
         lambda rng, n, m, v, man, w: _lead(w, f"Accused Nos.{n} to {n + 3} {_pick(rng, ACTS_IN_LEXICON, v)}.")
     ),
     "N5 'X along with Y'": _cell(
-        lambda rng, n, m, v, man, w: _lead(w, f"Accused No.{n} along with Accused No.{m} {_pick(rng, ACTS_IN_LEXICON, v)}.")
+        lambda rng, n, m, v, man, w: _lead(
+            w,
+            f"Accused No.{n} {rng.choice(LINKS)} {rng.choice([f'Accused No.{m}', man, 'her husband'])} "
+            f"{_pick(rng, ACTS_IN_LEXICON, v)}.",
+        )
+    ),
+    "N5b co-actor before OR after the verb": _cell(
+        lambda rng, n, m, v, man, w: _lead(
+            w,
+            (
+                f"Accused No.{n} {rng.choice(LINKS)} {rng.choice(COACTORS).format(m=m, man=man)} {_pick(rng, ACTS_IN_LEXICON, v)}."
+                if rng.random() < 0.5
+                else f"Accused No.{n} {_pick(rng, ACTS_IN_LEXICON, v)} {rng.choice(['jointly with', 'in league with', 'along with'])} "
+                f"{rng.choice(COACTORS).format(m=m, man=man)}."
+            ),
+        )
     ),
     "N6 in-laws": _cell(lambda rng, n, m, v, man, w: _lead(w, f"Her in-laws {_pick(rng, ACTS_IN_LEXICON, v)}.")),
     "N7 'they'": _cell(lambda rng, n, m, v, man, w: f"They {_pick(rng, ACTS_IN_LEXICON, v)}."),
@@ -209,12 +242,42 @@ def run(n_per_cell: int, seed: int) -> dict:
     return out
 
 
+def dump_rows(n_per_cell: int, seed: int) -> list[dict]:
+    """The same constructed sentences as `run`, as rows for accused_attribution_measure.py (a DEV set: tuned-on, not held out)."""
+    rng = random.Random(seed)
+    rows: list[dict] = []
+    for kind, cells in (("positive", POSITIVE), ("negative", NEGATIVE)):
+        for name, build in cells.items():
+            for i in range(n_per_cell):
+                n, m = rng.sample(range(1, 9), 2)
+                sentence, ref = build(rng, n, m)
+                rows.append(
+                    {
+                        "id": f"dev-{name[:3].strip()}-{i:03d}",
+                        "cell": name.split(" ")[0] + "_" + name.split(" ", 1)[1][:24].replace(" ", "_"),
+                        "sentence": sentence,
+                        "kind": kind,
+                        "expected": ("refuse" if name in BY_DESIGN or kind == "negative" else "pass"),
+                        "accused_ref": {
+                            "id": ref.id,
+                            "aliases": list(ref.aliases),
+                            "other_parties": [list(g) for g in ref.other_parties],
+                        },
+                    }
+                )
+    return rows
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--n-per-cell", type=int, default=40)
     ap.add_argument("--seed", type=int, default=20261005)
     ap.add_argument("--json", default=None)
+    ap.add_argument("--dump-jsonl", default=None, help="write the constructed dev sentences as measure rows and exit")
     a = ap.parse_args(argv)
+    if a.dump_jsonl:
+        Path(a.dump_jsonl).write_text("".join(json.dumps(r) + "\n" for r in dump_rows(a.n_per_cell, a.seed)))
+        return 0
     res = run(a.n_per_cell, a.seed)
     print(res["label"])
     for name, c in res["cells"].items():

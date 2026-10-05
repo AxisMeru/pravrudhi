@@ -1,0 +1,342 @@
+"""Accused-attribution check, variant M1 (hybrid): a MODEL picks the actor from deterministic candidates; deterministic rules
+decide.
+
+D0 found the actor with a closed verb lexicon, which does not generalise (held-out v1: 61% of true proofs refused). M1 keeps what
+is
+deterministic and moves the one judgement that needs language understanding to a model, as a typed choice:
+
+  1. Hard vetoes first (`nyaya_attribution._veto`: an unlisted co-actor after together with / along with / and; a short-alias
+  range).
+     A veto refuses with no model call.
+  2. Candidates: every actor-like expression in the quote with offsets (the accused's aliases, the other parties the caller names,
+     collective forms, kin phrases, and unlisted personal names). Pronouns are NOT offered: the model names the PARTY, so a same-
+     sentence
+     "he" is resolved by the model, never by a rule.
+  3. Selection: `ActorSelector.select` returns the index of the party that performs the act, or None. The shipped selector asks a
+  base
+     language model (Qwen2.5-32B on the dev Spark; no adapter) for ONE letter and reads the first-token top-k logprobs, so the
+     answer is
+     always one of the offered options, never free text. Below a probability floor, or with little mass on the options, the answer
+     is
+     "unresolved".
+  4. Decision on the SELECTED candidate with the same deterministic rules as D0: the accused's own alias passes (unless a listed
+  party
+     is joined to it by a connector); another party refuses (`..._not_matched`); a collective or generic refuses
+     (`..._collective`);
+     none, a low-confidence pick or an error refuses (`..._unresolved`). Never a pass on an error.
+
+A refusal never changes the element's status; the agent turns it into REFER_TO_LAWYER exactly as for D0. Everything is default
+OFF.
+No model is called when the answer is already determined (no accused, a veto, no candidate).
+"""
+
+from __future__ import annotations
+
+import math
+import re
+from dataclasses import dataclass, replace
+from typing import Any, Protocol
+
+from pravrudhi.application.nyaya_attribution import (
+    _CONNECTOR,
+    MAX_QUOTE_CHARS,
+    REASON_COLLECTIVE,
+    REASON_NOT_MATCHED,
+    REASON_NOT_SPECIFIED,
+    REASON_UNRESOLVED,
+    AccusedRef,
+    AttributionResult,
+    Candidate,
+    _is_apposition,
+    _SENTENCE_END,
+    _VERB,
+    _veto,
+    extract_candidates,
+)
+
+LETTERS = "ABCDEFGHIJKL"
+NONE_LETTER = "N"
+MAX_OPTIONS = len(LETTERS)
+
+_TITLE_NAME = re.compile(r"\b(?:Mr|Mrs|Ms|Smt|Shri|Sri|Dr|Kum)\.?\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*")
+_FULL_NAME = re.compile(r"\b[A-Z][a-z]{2,}(?:\s+[A-Z][a-z]{2,})+\b")
+_NOT_NAMES = {
+    "accused",
+    "petitioner",
+    "petitioners",
+    "respondent",
+    "complainant",
+    "court",
+    "section",
+    "sections",
+    "act",
+    "code",
+    "police",
+    "station",
+    "india",
+    "indian",
+    "penal",
+    "high",
+    "supreme",
+    "january",
+    "february",
+    "march",
+    "april",
+    "may",
+    "june",
+    "july",
+    "august",
+    "september",
+    "october",
+    "november",
+    "december",
+    "monday",
+    "tuesday",
+    "wednesday",
+    "thursday",
+    "friday",
+    "saturday",
+    "sunday",
+    "hon",
+    "ble",
+    "judge",
+    "magistrate",
+    "sessions",
+    "criminal",
+    "procedure",
+    "dowry",
+    "prohibition",
+}
+
+PROMPT_HEADER = (
+    "Task: each item is a sentence from a court record. Choose the party that PERFORMS the harmful act it describes "
+    "(the harassment, cruelty, beating, threat or demand). Answer with the letter of that party. "
+    f"If the sentence does not say who performs it, answer {NONE_LETTER}.\n\n"
+)
+FEW_SHOT = (
+    ("Dev kicked Nila and abused her in front of the neighbours.", ["Dev", "the neighbours"], "A"),
+    ("Nila was slapped by her brother-in-law on several evenings.", ["Nila", "her brother-in-law"], "B"),
+    ("Her father-in-law, Mohan, demanded two lakh rupees from her parents.", ["her father-in-law", "Mohan", "her parents"], "B"),
+    ("The family members taunted her daily and Rani joined them.", ["The family members", "Rani"], "A"),
+    ("It is alleged that she was harassed for dowry.", ["she"], NONE_LETTER),
+    ("When Anil and Kavita argued, Anil threw a plate at her.", ["Anil", "Kavita"], "A"),
+)
+
+
+def _options_text(options: list[str]) -> str:
+    return "  ".join(f"{LETTERS[i]}. {o}" for i, o in enumerate(options))
+
+
+def build_prompt(quote: str, options: list[str]) -> str:
+    shots = "".join(
+        f"Sentence: {s}\nParties: {_options_text(o)}  {NONE_LETTER}. none of these\nAnswer: {a}\n\n" for s, o, a in FEW_SHOT
+    )
+    tail = f"Sentence: {quote.strip()}\nParties: {_options_text(options)}  {NONE_LETTER}. none of these\nAnswer:"
+    return f"{PROMPT_HEADER}{shots}{tail}"
+
+
+@dataclass(frozen=True)
+class Selection:
+    index: int | None  # index into the offered options, None = "none of these" or unresolved
+    p: float | None
+    reason: str | None = None  # why unresolved, when index is None
+    mass_ratio: float | None = None  # probability mass on the offered letters / all top-k mass
+
+
+class ActorSelector(Protocol):
+    name: str
+
+    def select(self, quote: str, options: list[str]) -> Selection: ...
+
+
+class LlmActorSelector:
+    """One first-token letter from a completions backend (`TypedDecoder.complete`), read as a distribution over the offered
+    letters."""
+
+    def __init__(self, decoder: Any, *, threshold: float = 0.6, mass_floor: float = 0.5, top_logprobs: int = 20) -> None:
+        self.decoder = decoder
+        self.name = f"llm:{getattr(decoder, 'name', 'decoder')}"
+        self.threshold, self.mass_floor, self.top_logprobs = threshold, mass_floor, top_logprobs
+
+    def select(self, quote: str, options: list[str]) -> Selection:
+        if not options or len(options) > MAX_OPTIONS:
+            return Selection(None, None, "no_options" if not options else "too_many_options")
+        res = self.decoder.complete(build_prompt(quote, options), max_tokens=1, temperature=0.0, logprobs=self.top_logprobs)
+        if not res.top_logprobs:
+            return Selection(None, None, "no_logprobs")
+        top = res.top_logprobs[0]
+        letters = [*LETTERS[: len(options)], NONE_LETTER]
+        mass: dict[str, float] = {}
+        for tok, lp in top.items():
+            t = tok.strip()
+            if t in letters and math.isfinite(lp):
+                mass[t] = mass.get(t, 0.0) + math.exp(lp)
+        total_all = sum(math.exp(lp) for lp in top.values() if math.isfinite(lp))
+        total = sum(mass.values())
+        ratio = total / total_all if total_all > 0 else 0.0
+        if total <= 0 or total_all <= 0 or ratio < self.mass_floor:
+            return Selection(None, None, "low_mass_on_options", ratio)
+        best = max(mass, key=lambda k: mass[k])
+        p = mass[best] / total
+        if p < self.threshold:
+            return Selection(None, p, "low_confidence", ratio)
+        if best == NONE_LETTER:
+            return Selection(None, p, "none_of_these", ratio)
+        return Selection(letters.index(best), p, None, ratio)
+
+
+def extract_options(quote: str, accused: AccusedRef) -> list[Candidate]:
+    """D0's candidates minus pronouns and bare "they", plus unlisted personal names. Sorted by position."""
+    cands = [c for c in extract_candidates(quote, accused) if c.role != "pronoun" and c.text.lower() not in ("they", "them")]
+    taken = [(c.start, c.end) for c in cands]
+
+    def free(m: re.Match[str]) -> bool:
+        return not any(m.start() < e and s < m.end() for s, e in taken)
+
+    for pat in (_TITLE_NAME, _FULL_NAME):
+        for m in pat.finditer(quote):
+            words = [w.lower().strip(".") for w in m.group(0).split()]
+            if free(m) and not any(w in _NOT_NAMES for w in words):
+                cands.append(Candidate(m.start(), m.end(), m.group(0), "other", f"NAME:{' '.join(words)}"))
+                taken.append((m.start(), m.end()))
+    return sorted(cands, key=lambda c: c.start)
+
+
+def _joined_to_other(quote: str, cands: list[Candidate], chosen: Candidate) -> bool:
+    """A listed other party, collective or generic chained to the chosen actor by bare connectors (", and, along with, ...").
+    A kin phrase followed by a comma and the chosen party ("her husband, Accused No.2,") is an apposition: it is skipped, and the
+    chain continues from its start ("Accused No.1 and her husband, Accused No.2" is still joined)."""
+    before = [c for c in cands if c.end <= chosen.start]
+    left = chosen.start
+    for c in reversed(before):
+        gap = quote[c.end : left]
+        if _is_apposition(quote, c, gap, chosen):
+            left = c.start
+            continue
+        if _CONNECTOR.match(gap) and c.role in ("other", "collective", "generic"):
+            return True
+        break
+    right = chosen.end
+    for c in (c for c in cands if c.start >= chosen.end):
+        if _CONNECTOR.match(quote[right : c.start]) and c.role in ("other", "collective", "generic"):
+            return True
+        break
+    return False
+
+
+def _resolve_apposition(quote: str, cands: list[Candidate], chosen: Candidate) -> Candidate:
+    """ "Her husband, Accused No.2, beat her": the model may pick either expression; they name ONE person, so a chosen kin
+    phrase that
+    is followed by a comma and a named party stands for that named party."""
+    after = [c for c in cands if c.start >= chosen.end]
+    if after and _is_apposition(quote, chosen, quote[chosen.end : after[0].start], after[0]):
+        return after[0]
+    return chosen
+
+
+# -- V3: structural same-clause co-actor veto (no phrase list for the link itself) -----------------------------------------
+#: A kin/group noun phrase that can be a second actor ("his mother", "her step-sister", "their relatives"); possessive use
+#: ("her husband's belt") is excluded where it is applied.
+_CO_KIN = re.compile(
+    r"\b(?:her|his|their)\s+(?:[\w-]+\s+)?(?:mother|father|sister|brother|step-\w+|[\w-]+-in-law|uncle|aunt|cousin|friends?|relatives|"
+    r"parents|family|husband|wife)\b",
+    re.I,
+)
+#: Words that, between a second actor and the accused, make them act TOGETHER ("with", "along", "jointly", "league", ...).
+_AGENT_LINK = re.compile(
+    r"\b(?:with|along|together|jointly|severally|league|glove|connivance|concert|collusion|conspiracy|company|intention|"
+    r"complicity|abetment|abetting|furtherance|(?:aided|assisted|abetted|accompanied|joined|helped|supported)\s+by|"
+    r"(?:help|assistance|aid|support|participation)\s+of|as\s+well\s+as)\b",
+    re.I,
+)
+#: Backstop for a second actor that is a single capitalised first name (not a candidate): a togetherness word, then within a few
+#: characters "with / by / of / as", then a capitalised name (optionally titled). Link words are CATEGORIES (togetherness, aid,
+#: common intention), not a list of phrasings.
+_LINKED_NAME = re.compile(
+    r"\b(?:along|together|jointly|severally|league|glove|connivance|concert|collusion|conspiracy|company|intention|shared|"
+    r"furtherance|aided|assisted|abetted|accompanied|joined|helped|supported|help|assistance|aid|support|participation|well)\b"
+    r"[^.;]{0,25}?\b(?:with|by|of|as)\s+(?:(?:Mr|Mrs|Ms|Smt|Shri|Sri|Dr|Kum)\.?\s+)?([A-Z][a-z]{2,})"
+)
+_PLAIN_AND = re.compile(r"(?:\band\b|&)", re.I)
+_POSSESSIVE_NEXT = re.compile(r"^['\u2019]s\b")
+
+
+def _structural_veto(quote: str, accused: AccusedRef) -> bool:
+    """True when a second actor-like expression sits in the same clause as the accused and is not clearly an object or a victim.
+    Link-agnostic: a second actor is a listed other party, a collective, a numbered party, an unlisted name or a kin phrase whose
+    gap to the accused contains an agentive link word ("with", "jointly", "league", "aided by", ...), or a plain "and"/"&" when the
+    second actor stands BEFORE the act verb (subject coordination). After the verb a plain "and" is an object list and is left to
+    the model. Possessives ("her husband's belt") are never actors."""
+    cands = list(extract_options(quote, accused))
+    taken = [(c.start, c.end) for c in cands]
+    for m in _CO_KIN.finditer(quote):
+        if not any(m.start() < e and s < m.end() for s, e in taken):
+            cands.append(Candidate(m.start(), m.end(), m.group(0), "other", f"KIN:{m.group(0).lower()}"))
+    selfs = [c for c in cands if c.role == "self"]
+    if not selfs:
+        return False
+    chosen = selfs[0]
+    clause = _SENTENCE_END.split(quote[chosen.end :], maxsplit=1)[0]
+    for m in _LINKED_NAME.finditer(clause):
+        if m.group(1).lower() not in _NOT_NAMES and m.group(1) not in ("Accused", "Petitioner", "Respondent"):
+            return True
+    vm = _VERB.search(quote)
+    verb_at = vm.start() if vm else None
+    for c in cands:
+        if c.role in ("self", "pronoun") or (c.start, c.end) == (chosen.start, chosen.end):
+            continue
+        if _POSSESSIVE_NEXT.match(quote[c.end : c.end + 3]):
+            continue
+        lo, hi = (c.end, chosen.start) if c.end <= chosen.start else (chosen.end, c.start)
+        gap = quote[lo:hi]
+        if _SENTENCE_END.search(gap) or ";" in gap:
+            continue
+        if _AGENT_LINK.search(gap):
+            return True
+        before_verb = verb_at is None or c.start < verb_at
+        if before_verb and _PLAIN_AND.search(gap) and not (vm and lo <= vm.start() < hi):
+            return True
+    return False
+
+
+def check_attribution_m1(quote: str | None, accused: AccusedRef | None, selector: ActorSelector) -> AttributionResult:
+    """The M1 decision. Never raises: any error is a refusal (R5)."""
+    v = "M1"
+    if accused is None:
+        return AttributionResult(False, REASON_NOT_SPECIFIED, variant=v, rule="R0")
+    try:
+        if not isinstance(quote, str) or not quote.strip() or len(quote) > MAX_QUOTE_CHARS:
+            return AttributionResult(False, REASON_UNRESOLVED, variant=v, rule="R1", error="empty or oversized quote")
+        veto = _veto(quote, accused)
+        if veto is not None:
+            return AttributionResult(False, REASON_COLLECTIVE, variant=v, rule=veto)
+        if _structural_veto(quote, accused):
+            return AttributionResult(False, REASON_COLLECTIVE, variant=v, rule="V3")
+        cands = extract_options(quote, accused)
+        base: dict[str, Any] = {
+            "variant": v,
+            "n_candidates": len(cands),
+            "candidates": tuple(
+                {"text": c.text, "start": c.start, "end": c.end, "role": c.role, "identity": c.identity} for c in cands
+            ),
+        }
+        if not cands:
+            return AttributionResult(False, REASON_UNRESOLVED, rule="M1-no-candidate", **base)
+        sel = selector.select(quote, [c.text for c in cands])
+        if sel.index is None:
+            return AttributionResult(False, REASON_UNRESOLVED, rule=f"M1-{sel.reason or 'unresolved'}", **base)
+        chosen = _resolve_apposition(quote, cands, cands[sel.index])
+        common = {"actor_span": chosen.text, "actor_start": chosen.start, "actor_end": chosen.end, **base}
+        res: AttributionResult
+        if chosen.role in ("collective", "generic"):
+            res = AttributionResult(False, REASON_COLLECTIVE, rule="M1-R3", **common)
+        elif chosen.role == "self":
+            if _joined_to_other(quote, cands, chosen):
+                res = AttributionResult(False, REASON_COLLECTIVE, rule="M1-R3", **common)
+            else:
+                res = AttributionResult(True, None, rule=None, **common)
+        else:
+            res = AttributionResult(False, REASON_NOT_MATCHED, rule="M1-R2", **common)
+        return replace(res, actor_p=sel.p, mass_ratio=sel.mass_ratio)
+    except Exception as e:  # noqa: BLE001 -- fail closed: an error is a refusal, never a pass
+        return AttributionResult(False, REASON_UNRESOLVED, variant=v, rule="R5", error=f"{type(e).__name__}: {e}"[:300])

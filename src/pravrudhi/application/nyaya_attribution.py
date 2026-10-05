@@ -100,8 +100,18 @@ class AttributionResult:
     n_candidates: int = 0
     candidates: tuple[dict[str, Any], ...] = field(default_factory=tuple)
     error: str | None = None
+    actor_p: float | None = None  # M1 only: the selector's probability for the chosen party
+    mass_ratio: float | None = None  # M1 only: probability mass on the offered letters / all top-k mass
 
     def as_dict(self) -> dict[str, Any]:
+        d = self._base_dict()
+        if self.actor_p is not None:
+            d["actor_p"] = self.actor_p
+        if self.mass_ratio is not None:
+            d["mass_ratio"] = self.mass_ratio
+        return d
+
+    def _base_dict(self) -> dict[str, Any]:
         return {
             "variant": self.variant,
             "passed": self.passed,
@@ -334,14 +344,52 @@ def _group_after(quote: str, cands: list[Candidate], start: int) -> list[Candida
     return group
 
 
-def _decide(quote: str, accused: AccusedRef, cands: list[Candidate]) -> AttributionResult:
+class _Pred:
+    """Stands in for a regex match of the act verb when the predicate is read from the sentence instead of a lexicon."""
+
+    def __init__(self, start: int, end: int, text: str) -> None:
+        self._s, self._e, self._t = start, end, text
+
+    def start(self) -> int:
+        return self._s
+
+    def end(self) -> int:
+        return self._e
+
+    def group(self, _: int = 0) -> str:
+        return self._t
+
+
+def _open_predicate(quote: str, cands: list[Candidate]) -> _Pred | None:
+    """Baseline "open verb": the first word after the leading candidate group that is not a bridge word. Used only by the
+    measurement baseline (`open_verbs=True`); never by default."""
+    if not cands:
+        return None
+    group = [cands[0]]
+    for c in cands[1:]:
+        if _CONNECTOR.match(quote[group[-1].end : c.start]):
+            group.append(c)
+        else:
+            break
+    pos = group[-1].end
+    for m in re.finditer(r"[A-Za-z']+", quote[pos:]):
+        if m.group(0).lower() not in _BRIDGE_WORDS:
+            return _Pred(pos + m.start(), pos + m.end(), m.group(0))
+    return None
+
+
+def _decide(quote: str, accused: AccusedRef, cands: list[Candidate], open_verbs: bool = False) -> AttributionResult:
     base: dict[str, Any] = {
         "n_candidates": len(cands),
         "candidates": tuple(
             {"text": c.text, "start": c.start, "end": c.end, "role": c.role, "identity": c.identity} for c in cands
         ),
     }
-    vm = _VERB.search(quote)
+    vm: Any = _VERB.search(quote)
+    if open_verbs:  # baseline: an earlier open predicate wins over a later lexicon verb ("pinched and slapped")
+        op = _open_predicate(quote, cands)
+        if op is not None and (vm is None or op.start() < vm.start()):
+            vm = op
     if vm is None:
         return AttributionResult(False, REASON_UNRESOLVED, rule="R1", **base)
     verb = vm.group(0)
@@ -368,14 +416,60 @@ def _decide(quote: str, accused: AccusedRef, cands: list[Candidate]) -> Attribut
     return AttributionResult(False, REASON_NOT_MATCHED, rule="R2", **common)
 
 
-def check_attribution(quote: str | None, accused: AccusedRef | None) -> AttributionResult:
-    """R0..R5 on one quoted fact. Never raises: any error is a refusal (R5)."""
+# -- hard vetoes (apply whatever the actor rules say) ---------------------------------------------------------------------
+#: V2: a range written with short aliases ("A-9 to A-17", "A1-A5", "P.2 and P.4") before the first act verb is a collective actor.
+_SHORT_RANGE = re.compile(
+    r"(?<![A-Za-z0-9])[AP][\s.\-]*\d{1,3}\s*(?:to|[-\u2013\u2014]|and|&|,)\s*[AP]?[\s.\-]*\d{1,3}(?![A-Za-z0-9])", re.I
+)
+#: V1: a LINK phrase after the accused that brings in a second actor ("together with", "along with", "with the help of", "in concert
+#: with", "as well as", "aided by", ...), followed by a name (capitalised word), a role, a short alias or a kin/group noun.
+_LINK = (
+    r"(?:(?:together|along)[\s-]*with|jointly\s+with|as\s+well\s+as|in\s+(?:concert|collusion|conspiracy|company)\s+with"
+    r"|in\s+the\s+company\s+of|(?:aided|assisted|abetted|accompanied|joined|helped|supported)\s+by"
+    r"|with\s+the\s+(?:help|assistance|aid|support|connivance|participation)\s+of)"
+)
+_LINK_TARGET = (
+    r"(?:[A-Z][a-z]+|(?i:accused\b|petitioners?\b|respondents?\b)|(?i:[AP])[\s.\-]*\d"
+    r"|(?i:(?:her|his|their|the)\s+(?:husband|wife|father|mother|brother|sister|in-laws?|[\w-]+-in-law|family|relatives|parents|friends?)))"
+)
+_JOINED = re.compile(rf"\b{_LINK}\s+{_LINK_TARGET}")
+#: V1: "and" / "&" straight after the accused and before the act verb, followed by a capitalised name.
+_AND_NAME = re.compile(r"^\s*,?\s*(?:and|&)\s+(?!Accused\b|Petitioner|Respondent|Complainant)[A-Z][a-z]+")
+_SENTENCE_END = re.compile(r"(?<!\bNo)(?<!\bNos)\.\s+(?=[A-Z])")
+
+
+def _veto(quote: str, accused: AccusedRef) -> str | None:
+    """`"V1"` / `"V2"` when a hard veto fires, else None. Deterministic; it overrides any pass or other refusal reason."""
+    vm = _VERB.search(quote)
+    before = quote[: vm.start()] if vm else quote
+    if _SHORT_RANGE.search(before):
+        return "V2"
+    selfs = [c for c in extract_candidates(quote, accused) if c.role == "self"]
+    if not selfs:
+        return None
+    end = selfs[0].end
+    clause = _SENTENCE_END.split(quote[end:], maxsplit=1)[0]
+    if _JOINED.search(clause):
+        return "V1"
+    if vm is not None and vm.start() > end and _AND_NAME.match(quote[end : vm.start()]):
+        return "V1"
+    return None
+
+
+def check_attribution(quote: str | None, accused: AccusedRef | None, *, open_verbs: bool = False) -> AttributionResult:
+    """R0..R5 on one quoted fact, then the hard vetoes. Never raises: any error is a refusal (R5)."""
     if accused is None:
         return AttributionResult(False, REASON_NOT_SPECIFIED, rule="R0")
     try:
         if not isinstance(quote, str) or not quote.strip() or len(quote) > MAX_QUOTE_CHARS:
             return AttributionResult(False, REASON_UNRESOLVED, rule="R1", error="empty or oversized quote")
-        return _decide(quote, accused, extract_candidates(quote, accused))
+        res = _decide(quote, accused, extract_candidates(quote, accused), open_verbs)
+        # V2 (a short-alias range) is collective whatever else was found; V1 turns a pass or an unresolved refusal into a
+        # collective refusal, while a specific R2/R3 refusal keeps its own rule.
+        veto = _veto(quote, accused)
+        if veto == "V2" or (veto == "V1" and (res.passed or res.reason == REASON_UNRESOLVED)):
+            return AttributionResult(False, REASON_COLLECTIVE, rule=veto)
+        return res
     except Exception as e:  # noqa: BLE001 -- fail closed: an error is a refusal, never a pass
         return AttributionResult(False, REASON_UNRESOLVED, rule="R5", error=f"{type(e).__name__}: {e}"[:300])
 
@@ -398,8 +492,9 @@ class AccusedAttributionJudge:
     element that requires an actor and has a resolvable span; never changes the status. The result is attached as
     `ElementJudgment.attribution`; a refusal is `attribution["passed"] is False` and the agent turns it into REFER_TO_LAWYER."""
 
-    def __init__(self, inner: Judge, *, name: str | None = None) -> None:
+    def __init__(self, inner: Judge, *, name: str | None = None, selector: Any = None) -> None:
         self.inner = inner
+        self.selector = selector  # None = D0; an `nyaya_attribution_m1.ActorSelector` = M1
         self.name: str = name or str(getattr(inner, "name", "accused_attribution"))
 
     def judge(self, request: JudgeRequest) -> ElementJudgment:
@@ -409,5 +504,10 @@ class AccusedAttributionJudge:
         quote = (judgment.quote or "").strip()
         if not judgment.fact_id or not quote:
             return judgment  # no resolvable span: the quote check downstream rejects this anyway
-        result = check_attribution(quote, getattr(request, "accused", None))
+        if self.selector is not None:
+            from pravrudhi.application.nyaya_attribution_m1 import check_attribution_m1
+
+            result = check_attribution_m1(quote, getattr(request, "accused", None), self.selector)
+        else:
+            result = check_attribution(quote, getattr(request, "accused", None))
         return replace(judgment, attribution=result.as_dict())
