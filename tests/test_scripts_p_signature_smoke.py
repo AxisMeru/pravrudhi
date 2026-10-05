@@ -20,6 +20,7 @@ if SCRIPTS_DIR not in sys.path:
 
 import _p_scoring as ps  # type: ignore[import-not-found]  # noqa: E402
 import t2_c3_ab_run as c3_ab  # type: ignore[import-not-found]  # noqa: E402
+import t2_c3_score as c3_score  # type: ignore[import-not-found]  # noqa: E402
 import t2_harness_assemble as assemble  # type: ignore[import-not-found]  # noqa: E402
 import typed_layer_c3_baseline as baseline  # type: ignore[import-not-found]  # noqa: E402
 import typed_layer_parity_c_prime as c_prime  # type: ignore[import-not-found]  # noqa: E402
@@ -154,3 +155,50 @@ def test_typed_layer_parity_e2e_measured_p_passes(monkeypatch: pytest.MonkeyPatc
     assert e2e.main() == 0
     data = json.loads(next(results.glob("*.json")).read_text())
     assert data["passed"] is True and data["c_n_bounded"] == 0
+
+
+def test_t2_c3_score_records_the_clamp_and_keeps_the_numbers() -> None:
+    def raw(free: dict[str, float], typed: dict[str, float]) -> dict[str, Any]:
+        return {"id": "r", "gold": "established", "half": "even", "arm_run_first": "free_text",
+                "free_text": {"text": "established F1:0:5", "top_logprobs": [free]},
+                "typed": {"text": "true", "top_logprobs": [typed]}}
+
+    ok = c3_score.score_row(raw(FREE, TYPED))
+    assert ok["clamp_free"] == "none" and ok["typed_bounded"] is False and 0.9 < ok["p_free"] < 1.0
+    bounded = c3_score.score_row(raw(FREE_BOUNDED, TYPED_BOUNDED))
+    assert bounded["clamp_free"] == "lower_bound" and bounded["typed_bounded"] is True
+    assert bounded["p_free"] is not None and bounded["p_typed"] is not None  # numbers as sealed, now flagged
+
+
+# Scripts that call the two functions but are covered by a smoke test above, or are owned by another change.
+COVERED = {
+    "t2_c3_ab_run.py", "t2_c3_score.py", "t2_harness_assemble.py", "typed_layer_c3_baseline.py",
+    "typed_layer_parity_c_prime.py", "typed_layer_parity_e2e.py",
+}
+OWNED_ELSEWHERE = {"typed_layer_parity.py": "pravrudhi#198 rewrites the T1 parity gate; remove this entry when it lands"}
+GUARDED_NAMES = {"p_established_from_top_logprobs", "score_decision"}
+
+
+def _scripts_calling_the_guarded_functions() -> set[str]:
+    import ast
+
+    found: set[str] = set()
+    for path in Path(SCRIPTS_DIR).glob("*.py"):
+        if path.name == "_p_scoring.py":
+            continue
+        tree = ast.parse(path.read_text())
+        for node in ast.walk(tree):
+            if (isinstance(node, ast.Name) and node.id in GUARDED_NAMES) or (
+                isinstance(node, ast.Attribute) and node.attr in GUARDED_NAMES
+            ):
+                found.add(path.name)
+                break
+    return found
+
+
+def test_every_script_that_calls_the_two_functions_is_smoke_tested_or_explicitly_owned() -> None:
+    found = _scripts_calling_the_guarded_functions()
+    uncovered = found - COVERED - OWNED_ELSEWHERE.keys()
+    assert not uncovered, f"script(s) call the (p, clamp)/(scores, missing) functions with no smoke test: {sorted(uncovered)}"
+    stale = (COVERED | OWNED_ELSEWHERE.keys()) - found
+    assert not stale, f"COVERED/OWNED_ELSEWHERE lists script(s) that no longer call them: {sorted(stale)}"
