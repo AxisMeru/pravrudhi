@@ -3,10 +3,12 @@
 
 THE FAILURE IT TARGETS. For an element that requires a specific act BY the accused under review (v1: bns85's "the facts attribute
 specific acts to this accused ..."), the judge can cite a fact that states cruelty perfectly well but about a CO-ACCUSED, or about
-"the accused" / "the in-laws" collectively. The span-relevance check cannot see that: it only asks whether the span, alone, states the
+"the accused" / "the in-laws" collectively. The span-relevance check cannot see that: it only asks whether the span, alone,
+states the
 element. This check asks WHO did the quoted act.
 
-HOW (D0, fully deterministic, no model call). Candidate actor expressions are found in the quoted fact by regex, each with character
+HOW (D0, fully deterministic, no model call). Candidate actor expressions are found in the quoted fact by regex, each with
+character
 offsets: the accused under review's own aliases, other named parties, collective forms, kin, pronouns. The ACTOR is the group of
 candidates immediately before the first act verb (or, in a simple passive, after "by"). Then:
 
@@ -20,7 +22,8 @@ candidates immediately before the first act verb (or, in a simple passive, after
   R5 any error       refuses (unresolved, with the error recorded); there is no pass-on-error path
   R0 no accused      no `AccusedRef` was given -> `accused_not_specified`
 
-Collective words in OBJECT position ("... beat her in front of her in-laws") are not the actor and do not refuse. A refusal does not
+Collective words in OBJECT position ("... beat her in front of her in-laws") are not the actor and do not refuse. A refusal does
+not
 change the element's status: the established call and its quote stay visible and the agent turns the refusal into REFER_TO_LAWYER
 (never not_established: we refuse to prove, we do not assert a denial). Everything here is OFF unless
 `accused_attribution_enabled` is set, and then only elements the config lists under `requires_actor` are checked.
@@ -51,8 +54,10 @@ MAX_QUOTE_CHARS = 5000
 @dataclass(frozen=True)
 class AccusedRef:
     """The accused under review. `aliases` are the spellings the case documents use for this person (e.g. "Accused No.2", "A2",
-    "Petitioner No.2", a name); `other_parties` are alias groups of other named parties (co-accused, the husband, ...), one tuple per
-    person. Matching is case-insensitive and tolerant of spacing/punctuation ("Accused No. 2" == "accused no 2"); it is never fuzzy."""
+    "Petitioner No.2", a name); `other_parties` are alias groups of other named parties (co-accused, the husband, ...), one
+    tuple per
+    person. Matching is case-insensitive and tolerant of spacing/punctuation ("Accused No. 2" == "accused no 2"); it is never
+    fuzzy."""
 
     id: str
     aliases: tuple[str, ...]
@@ -61,10 +66,13 @@ class AccusedRef:
     def __post_init__(self) -> None:
         def bad(x: Any) -> bool:
             return not isinstance(x, str) or not x.strip() or len(x) > MAX_ALIAS_CHARS
+
         if not isinstance(self.id, str) or not self.id.strip():
             raise ValueError("AccusedRef.id must be a non-empty string")
         if not self.aliases or len(self.aliases) > MAX_ALIASES or any(bad(a) for a in self.aliases):
-            raise ValueError(f"AccusedRef.aliases must be 1..{MAX_ALIASES} non-empty strings of at most {MAX_ALIAS_CHARS} characters")
+            raise ValueError(
+                f"AccusedRef.aliases must be 1..{MAX_ALIASES} non-empty strings of at most {MAX_ALIAS_CHARS} characters"
+            )
         for grp in self.other_parties:
             if not grp or len(grp) > MAX_ALIASES or any(bad(a) for a in grp):
                 raise ValueError("AccusedRef.other_parties entries must be non-empty alias tuples of valid strings")
@@ -95,26 +103,47 @@ class AttributionResult:
 
     def as_dict(self) -> dict[str, Any]:
         return {
-            "variant": self.variant, "passed": self.passed, "reason": self.reason, "rule": self.rule, "actor_span": self.actor_span,
-            "actor_start": self.actor_start, "actor_end": self.actor_end, "verb": self.verb, "n_candidates": self.n_candidates,
-            "candidates": [dict(c) for c in self.candidates], "error": self.error,
+            "variant": self.variant,
+            "passed": self.passed,
+            "reason": self.reason,
+            "rule": self.rule,
+            "actor_span": self.actor_span,
+            "actor_start": self.actor_start,
+            "actor_end": self.actor_end,
+            "verb": self.verb,
+            "n_candidates": self.n_candidates,
+            "candidates": [dict(c) for c in self.candidates],
+            "error": self.error,
         }
 
 
-# -- lexicons (public, hand-written, synthetic knowledge of English legal prose; versioned with this file) --------------------------------
+# -- lexicons (public, hand-written, synthetic knowledge of English legal prose; versioned with this file) -----------------------
 _NUM = r"(?:no|nos|number|numbers)\.?"
 _ROLE = r"(?:accused|petitioners?|applicants?|respondents?|co-accused|co\s+accused)"
 _RANGE = re.compile(rf"\b{_ROLE}[\W_]*{_NUM}?[\W_]*\d+(?:[\W_]*(?:to|and|&|-|,)[\W_]*\d+)+", re.I)
 _NUMBERED = re.compile(rf"\b{_ROLE}[\W_]*(?:{_NUM}[\W_]*)?\d+(?![A-Za-z0-9])", re.I)
 _SHORT_NUMBERED = re.compile(r"(?<![A-Za-z0-9])[AP][\s.-]?\d{1,3}(?![A-Za-z0-9])", re.I)  # "A2", "P-3"
 _COLLECTIVE_PATTERNS = [
-    r"\ball\s+(?:the\s+)?accused\b", r"\baccused\s+persons?\b", r"\bpetitioners\b", r"\bapplicants\b", r"\brespondents\b",
-    r"\bin[\s-]*laws?\b", r"\bparents[\s-]*in[\s-]*law\b", r"\bfamily\s+members\b", r"\brelatives\b",
-    r"\b(?:his|her|their)\s+(?:parents|family|sisters|brothers|relatives)\b", r"\band\s+others\b", r"\ball\s+of\s+them\b", r"\bothers\b",
+    r"\ball\s+(?:the\s+)?accused\b",
+    r"\baccused\s+persons?\b",
+    r"\bpetitioners\b",
+    r"\bapplicants\b",
+    r"\brespondents\b",
+    r"\bin[\s-]*laws?\b",
+    r"\bparents[\s-]*in[\s-]*law\b",
+    r"\bfamily\s+members\b",
+    r"\brelatives\b",
+    r"\b(?:his|her|their)\s+(?:parents|family|sisters|brothers|relatives)\b",
+    r"\band\s+others\b",
+    r"\ball\s+of\s+them\b",
+    r"\bothers\b",
 ]
 _COLLECTIVE = [re.compile(p, re.I) for p in _COLLECTIVE_PATTERNS]
-_GENERIC = [re.compile(r"\bthe\s+accused\b(?![\W_]*(?:" + _NUM + r"|\d))", re.I), re.compile(r"\bthe\s+petitioner\b(?![\W_]*(?:" + _NUM + r"|\d))", re.I),
-            re.compile(r"\bco-accused\b", re.I)]
+_GENERIC = [
+    re.compile(r"\bthe\s+accused\b(?![\W_]*(?:" + _NUM + r"|\d))", re.I),
+    re.compile(r"\bthe\s+petitioner\b(?![\W_]*(?:" + _NUM + r"|\d))", re.I),
+    re.compile(r"\bco-accused\b", re.I),
+]
 _KIN_SINGULAR = re.compile(r"\b(?:his|her)\s+(?:mother|father|sister|brother|uncle|aunt|cousin|husband|wife)\b", re.I)
 _PRON_THEY = re.compile(r"\b(?:they|them)\b", re.I)
 _PRON_SINGLE = re.compile(r"\b(?:he|she)\b", re.I)
@@ -125,14 +154,72 @@ _VERB = re.compile(
     re.I,
 )
 _BRIDGE_WORDS = {
-    "allegedly", "also", "then", "thereafter", "used", "to", "would", "had", "has", "have", "started", "began", "repeatedly", "always",
-    "regularly", "again", "further", "even", "often", "continuously", "subsequently", "immediately", "himself", "herself", "was", "were",
-    "being", "been", "not", "never", "did", "do", "does", "so", "soon", "later", "habitually", "constantly", "frequently", "openly",
-    "physically", "mentally", "only", "just", "all", "the", "a", "an", "kept", "continued", "will", "shall", "may", "might",
-    "could", "can", "and", "who", "which", "that", "when",
+    "allegedly",
+    "also",
+    "then",
+    "thereafter",
+    "used",
+    "to",
+    "would",
+    "had",
+    "has",
+    "have",
+    "started",
+    "began",
+    "repeatedly",
+    "always",
+    "regularly",
+    "again",
+    "further",
+    "even",
+    "often",
+    "continuously",
+    "subsequently",
+    "immediately",
+    "himself",
+    "herself",
+    "was",
+    "were",
+    "being",
+    "been",
+    "not",
+    "never",
+    "did",
+    "do",
+    "does",
+    "so",
+    "soon",
+    "later",
+    "habitually",
+    "constantly",
+    "frequently",
+    "openly",
+    "physically",
+    "mentally",
+    "only",
+    "just",
+    "all",
+    "the",
+    "a",
+    "an",
+    "kept",
+    "continued",
+    "will",
+    "shall",
+    "may",
+    "might",
+    "could",
+    "can",
+    "and",
+    "who",
+    "which",
+    "that",
+    "when",
 }
 _CONNECTOR = re.compile(r"^\W*(?:,|and|&|/|along\s*with|alongwith|together\s+with|with|and\s+also)?\W*$", re.I)
-_PASSIVE_BEFORE_VERB = re.compile(r"\b(?:was|were|been|being)\s+(?:(?:also|then|allegedly|repeatedly|physically|mentally|often|again)\s+)*$", re.I)
+_PASSIVE_BEFORE_VERB = re.compile(
+    r"\b(?:was|were|been|being)\s+(?:(?:also|then|allegedly|repeatedly|physically|mentally|often|again)\s+)*$", re.I
+)
 _AGENT = re.compile(r"^\s*(?:\w+\s+){0,6}?by\s+", re.I)
 
 
@@ -198,16 +285,17 @@ def _bridge_ok(gap: str) -> bool:
 
 
 def _group_before(quote: str, cands: list[Candidate], boundary: int) -> list[Candidate]:
-    """The run of candidates ending right before `boundary` (a verb start), joined by connectors; [] if the nearest one is not adjacent."""
+    """The run of candidates ending right before `boundary` (a verb start), joined by connectors; [] if the nearest one is not
+    adjacent."""
     before = [c for c in cands if c.end <= boundary]
     if not before:
         return []
     last = before[-1]
-    if not _bridge_ok(quote[last.end:boundary]):
+    if not _bridge_ok(quote[last.end : boundary]):
         return []
     group = [last]
     for c in reversed(before[:-1]):
-        if _CONNECTOR.match(quote[c.end:group[0].start]):
+        if _CONNECTOR.match(quote[c.end : group[0].start]):
             group.insert(0, c)
         else:
             break
@@ -216,11 +304,11 @@ def _group_before(quote: str, cands: list[Candidate], boundary: int) -> list[Can
 
 def _group_after(quote: str, cands: list[Candidate], start: int) -> list[Candidate]:
     after = [c for c in cands if c.start >= start]
-    if not after or quote[start:after[0].start].strip() != "":
+    if not after or quote[start : after[0].start].strip() != "":
         return []
     group = [after[0]]
     for c in after[1:]:
-        if _CONNECTOR.match(quote[group[-1].end:c.start]):
+        if _CONNECTOR.match(quote[group[-1].end : c.start]):
             group.append(c)
         else:
             break
@@ -228,15 +316,20 @@ def _group_after(quote: str, cands: list[Candidate], start: int) -> list[Candida
 
 
 def _decide(quote: str, accused: AccusedRef, cands: list[Candidate]) -> AttributionResult:
-    base: dict[str, Any] = {"n_candidates": len(cands), "candidates": tuple({"text": c.text, "start": c.start, "end": c.end, "role": c.role, "identity": c.identity} for c in cands)}
+    base: dict[str, Any] = {
+        "n_candidates": len(cands),
+        "candidates": tuple(
+            {"text": c.text, "start": c.start, "end": c.end, "role": c.role, "identity": c.identity} for c in cands
+        ),
+    }
     vm = _VERB.search(quote)
     if vm is None:
         return AttributionResult(False, REASON_UNRESOLVED, rule="R1", **base)
     verb = vm.group(0)
     group: list[Candidate] = []
-    passive = bool(_PASSIVE_BEFORE_VERB.search(quote[:vm.start()]))
+    passive = bool(_PASSIVE_BEFORE_VERB.search(quote[: vm.start()]))
     if passive:
-        m = _AGENT.match(quote[vm.end():])
+        m = _AGENT.match(quote[vm.end() :])
         if m:
             group = _group_after(quote, cands, vm.end() + m.end())
     if not group:
@@ -268,18 +361,21 @@ def check_attribution(quote: str | None, accused: AccusedRef | None) -> Attribut
         return AttributionResult(False, REASON_UNRESOLVED, rule="R5", error=f"{type(e).__name__}: {e}"[:300])
 
 
-# -- the judge wrapper -----------------------------------------------------------------------------------------------------------------
+# -- the judge wrapper -----------------------------------------------------------------------------------------------------------
 @dataclass(frozen=True)
 class AttributedJudgeRequest(JudgeRequest):
-    """A `JudgeRequest` that also carries the accused under review. The agent builds this class ONLY when the feature is on and the
-    element requires an actor, so with the feature off no request, audit record or result differs from before the feature existed."""
+    """A `JudgeRequest` that also carries the accused under review. The agent builds this class ONLY when the feature is on and
+    the
+    element requires an actor, so with the feature off no request, audit record or result differs from before the feature
+    existed."""
 
     accused: AccusedRef | None = None
     requires_actor: bool = False
 
 
 class AccusedAttributionJudge:
-    """Wraps a `Judge` (placed right after `SpanRelevanceJudge`). Asked only when the wrapped judge says established on a non-denial
+    """Wraps a `Judge` (placed right after `SpanRelevanceJudge`). Asked only when the wrapped judge says established on a
+    non-denial
     element that requires an actor and has a resolvable span; never changes the status. The result is attached as
     `ElementJudgment.attribution`; a refusal is `attribution["passed"] is False` and the agent turns it into REFER_TO_LAWYER."""
 

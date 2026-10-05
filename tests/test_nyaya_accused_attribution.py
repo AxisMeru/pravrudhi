@@ -46,13 +46,20 @@ def _registry() -> ScriptedRegistry:
 
 
 def _cfg(tmp_path: Path, **over: Any):
-    return _config(tmp_path, judge_statute_text={"bns85": "TRAINING statute text for bns85"},
-                   validated_contracts=frozenset({"bns85"}), **over)
+    return _config(
+        tmp_path,
+        judge_statute_text={"bns85": "TRAINING statute text for bns85"},
+        validated_contracts=frozenset({"bns85"}),
+        **over,
+    )
 
 
 def _script(facts: list[str] = FACTS) -> dict[str, list[ElementJudgment | Exception]]:
-    return {EL1: [_est("F1", "the husband of Nila")], EL2: [_est("F2", "beat Nila on several evenings")],
-            EL3: [_est("F2", "Dev beat Nila")]}
+    return {
+        EL1: [_est("F1", "the husband of Nila")],
+        EL2: [_est("F2", "beat Nila on several evenings")],
+        EL3: [_est("F2", "Dev beat Nila")],
+    }
 
 
 def _strip(o: Any) -> Any:
@@ -74,18 +81,34 @@ def _snapshot(run: Any) -> dict[str, Any]:
 def _golden_runs(tmp_path: Path, **cfg_over: Any) -> dict[str, Any]:
     out: dict[str, Any] = {}
     # 1: plain single judge, PROOF
-    out["proof"] = _snapshot(NyayaAgent(ScriptedJudge(_script()), _registry(), _cfg(tmp_path / "a", **cfg_over)).run(FACTS, narrative="TOY.", contract_ids=["bns85"]))
+    out["proof"] = _snapshot(
+        NyayaAgent(ScriptedJudge(_script()), _registry(), _cfg(tmp_path / "a", **cfg_over)).run(
+            FACTS, narrative="TOY.", contract_ids=["bns85"]
+        )
+    )
     # 2: an element not established (ABSTAIN)
     s = _script()
     s[EL3] = [ElementJudgment("not_established", 0.03)]
-    out["abstain"] = _snapshot(NyayaAgent(ScriptedJudge(s), _registry(), _cfg(tmp_path / "b", **cfg_over)).run(FACTS, narrative="TOY.", contract_ids=["bns85"]))
+    out["abstain"] = _snapshot(
+        NyayaAgent(ScriptedJudge(s), _registry(), _cfg(tmp_path / "b", **cfg_over)).run(
+            FACTS, narrative="TOY.", contract_ids=["bns85"]
+        )
+    )
     # 3: span-relevance stack demotes element 3
     check = ScriptedJudge({EL1: [_est("F1", "x")], EL2: [_est("F1", "x")], EL3: [ElementJudgment("not_established", 0.1)]})
-    out["span_demoted"] = _snapshot(NyayaAgent(SpanRelevanceJudge(ScriptedJudge(_script()), check), _registry(), _cfg(tmp_path / "c", **cfg_over)).run(FACTS, narrative="TOY.", contract_ids=["bns85"]))
+    out["span_demoted"] = _snapshot(
+        NyayaAgent(SpanRelevanceJudge(ScriptedJudge(_script()), check), _registry(), _cfg(tmp_path / "c", **cfg_over)).run(
+            FACTS, narrative="TOY.", contract_ids=["bns85"]
+        )
+    )
     # 4: a quote that is not in the named fact (quote check rejects)
     s = _script()
     s[EL3] = [_est("F2", "this text is not in the fact")]
-    out["bad_quote"] = _snapshot(NyayaAgent(ScriptedJudge(s), _registry(), _cfg(tmp_path / "d", **cfg_over)).run(FACTS, narrative="TOY.", contract_ids=["bns85"]))
+    out["bad_quote"] = _snapshot(
+        NyayaAgent(ScriptedJudge(s), _registry(), _cfg(tmp_path / "d", **cfg_over)).run(
+            FACTS, narrative="TOY.", contract_ids=["bns85"]
+        )
+    )
     return out
 
 
@@ -99,9 +122,9 @@ def test_flag_off_results_and_audit_are_byte_identical_to_the_pre_feature_golden
     assert json.dumps(_golden_runs(tmp_path), indent=1, sort_keys=True) + "\n" == GOLDEN.read_text()
 
 
-# =====================================================================================================================================
+# ================================================================================================================================
 # Part 2: the D0 rules on CONSTRUCTED contrast pairs (accused numbering randomised per pair), then the agent wiring.
-# =====================================================================================================================================
+# ================================================================================================================================
 import random  # noqa: E402
 
 from pravrudhi.application import nyaya_attribution as A  # noqa: E402
@@ -134,10 +157,14 @@ def _res(sentence: str, n: int, **kw: Any) -> A.AttributionResult:
 @pytest.mark.parametrize("seed", SEEDS)
 def test_correct_named_accused_passes_in_every_spelling(seed: int) -> None:
     n, m, _ = _nums(seed)
-    for s in (f"TOY: Accused No.{n} beat the complainant on several evenings.", f"TOY: Accused No. {n} beat the complainant.",
-              f"TOY: accused no {n} threatened the complainant.", f"TOY: A{n} harassed the complainant for money.",
-              f"TOY: Petitioner No.{n} demanded cash from the complainant.",
-              f"TOY: Accused No.{n} allegedly used to taunt the complainant repeatedly."):
+    for s in (
+        f"TOY: Accused No.{n} beat the complainant on several evenings.",
+        f"TOY: Accused No. {n} beat the complainant.",
+        f"TOY: accused no {n} threatened the complainant.",
+        f"TOY: A{n} harassed the complainant for money.",
+        f"TOY: Petitioner No.{n} demanded cash from the complainant.",
+        f"TOY: Accused No.{n} allegedly used to taunt the complainant repeatedly.",
+    ):
         r = _res(s, n)
         assert r.passed and r.reason is None, (s, r.as_dict())
 
@@ -145,8 +172,11 @@ def test_correct_named_accused_passes_in_every_spelling(seed: int) -> None:
 @pytest.mark.parametrize("seed", SEEDS)
 def test_co_accused_act_is_not_matched(seed: int) -> None:
     n, m, _ = _nums(seed)
-    for s in (f"TOY: Accused No.{m} beat the complainant on several evenings.", f"TOY: A{m} harassed the complainant.",
-              f"TOY: Petitioner No.{m} demanded cash from the complainant."):
+    for s in (
+        f"TOY: Accused No.{m} beat the complainant on several evenings.",
+        f"TOY: A{m} harassed the complainant.",
+        f"TOY: Petitioner No.{m} demanded cash from the complainant.",
+    ):
         r = _res(s, n)
         assert not r.passed and r.reason == A.REASON_NOT_MATCHED and r.rule == "R2", (s, r.as_dict())
 
@@ -185,9 +215,13 @@ def test_collective_and_plural_forms_are_refused(seed: int) -> None:
 @pytest.mark.parametrize("seed", SEEDS)
 def test_pronoun_only_and_subjectless_quotes_are_unresolved_never_guessed(seed: int) -> None:
     n, _, _ = _nums(seed)
-    for s in ("TOY: He demanded cash from the complainant.", "TOY: She threatened the complainant repeatedly.",
-              "TOY: subjected her to cruelty and demanded dowry.", "TOY: The complainant was beaten repeatedly.",
-              f"TOY: Accused No.{n} was present at the house."):
+    for s in (
+        "TOY: He demanded cash from the complainant.",
+        "TOY: She threatened the complainant repeatedly.",
+        "TOY: subjected her to cruelty and demanded dowry.",
+        "TOY: The complainant was beaten repeatedly.",
+        f"TOY: Accused No.{n} was present at the house.",
+    ):
         r = _res(s, n)
         assert not r.passed and r.reason == A.REASON_UNRESOLVED, (s, r.as_dict())
     assert _res("TOY: He demanded cash.", n).rule == "R4"
@@ -197,9 +231,11 @@ def test_pronoun_only_and_subjectless_quotes_are_unresolved_never_guessed(seed: 
 def test_object_position_collective_does_not_refuse(seed: int) -> None:
     """A collective word AFTER the verb is not the actor: the accused is still the only one who acted."""
     n, m, _ = _nums(seed)
-    for s in (f"TOY: Accused No.{n} beat the complainant in front of her in-laws.",
-              f"TOY: Accused No.{n} threatened the complainant and told the family members about it.",
-              f"TOY: Accused No.{n} harassed the complainant while the accused persons watched."):
+    for s in (
+        f"TOY: Accused No.{n} beat the complainant in front of her in-laws.",
+        f"TOY: Accused No.{n} threatened the complainant and told the family members about it.",
+        f"TOY: Accused No.{n} harassed the complainant while the accused persons watched.",
+    ):
         r = _res(s, n)
         assert r.passed, (s, r.as_dict())
 
@@ -261,8 +297,14 @@ def test_r5_any_error_refuses_never_passes(monkeypatch: pytest.MonkeyPatch) -> N
 
 
 def test_accused_ref_validation() -> None:
-    for bad in (dict(id="", aliases=("A1",)), dict(id="x", aliases=()), dict(id="x", aliases=("",)), dict(id="x", aliases=("a" * 81,)),
-                dict(id="x", aliases=tuple(f"a{i}" for i in range(21))), dict(id="x", aliases=("A1",), other_parties=((),))):
+    for bad in (
+        dict(id="", aliases=("A1",)),
+        dict(id="x", aliases=()),
+        dict(id="x", aliases=("",)),
+        dict(id="x", aliases=("a" * 81,)),
+        dict(id="x", aliases=tuple(f"a{i}" for i in range(21))),
+        dict(id="x", aliases=("A1",), other_parties=((),)),
+    ):
         with pytest.raises(ValueError):
             AccusedRef(**bad)  # type: ignore[arg-type]
 
@@ -273,7 +315,7 @@ def test_result_dict_carries_offsets_and_candidates() -> None:
     assert d["actor_start"] == 5 and d["actor_end"] == 17 and d["verb"] == "beat" and d["n_candidates"] >= 1
 
 
-# -- the judge wrapper and the agent --------------------------------------------------------------------------------------------------
+# -- the judge wrapper and the agent ---------------------------------------------------------------------------------------------
 def _on_cfg(tmp_path: Path, **over: Any):
     return _cfg(tmp_path, accused_attribution_enabled=True, requires_actor={"bns85": ("specific acts to this accused",)}, **over)
 
@@ -312,7 +354,9 @@ def test_agent_proof_when_the_quote_names_the_accused(tmp_path: Path, seed: int)
 @pytest.mark.parametrize("seed", range(8))
 def test_agent_refers_a_co_accused_quote_status_stays_established(tmp_path: Path, seed: int) -> None:
     n, m, _ = _nums(seed)
-    run, _ = _run_on(tmp_path, _facts(f"TOY: Accused No.{m} beat Nila on several evenings."), f"Accused No.{m} beat Nila", _ref(n))
+    run, _ = _run_on(
+        tmp_path, _facts(f"TOY: Accused No.{m} beat Nila on several evenings."), f"Accused No.{m} beat Nila", _ref(n)
+    )
     c = run.contracts[0]
     assert (c.outcome, c.reason) == ("REFER_TO_LAWYER", "accused_attribution_not_matched")
     el3 = next(e for e in c.elements if e.element == EL3)
@@ -322,9 +366,16 @@ def test_agent_refers_a_co_accused_quote_status_stays_established(tmp_path: Path
 
 def test_agent_refers_collective_unresolved_and_not_specified(tmp_path: Path) -> None:
     n = 5
-    cases = [("TOY: The accused persons beat Nila on several evenings.", "The accused persons beat Nila", _ref(n), "accused_attribution_collective"),
-             ("TOY: He beat Nila on several evenings.", "He beat Nila", _ref(n), "accused_attribution_unresolved"),
-             (f"TOY: Accused No.{n} beat Nila on several evenings.", f"Accused No.{n} beat Nila", None, "accused_not_specified")]
+    cases = [
+        (
+            "TOY: The accused persons beat Nila on several evenings.",
+            "The accused persons beat Nila",
+            _ref(n),
+            "accused_attribution_collective",
+        ),
+        ("TOY: He beat Nila on several evenings.", "He beat Nila", _ref(n), "accused_attribution_unresolved"),
+        (f"TOY: Accused No.{n} beat Nila on several evenings.", f"Accused No.{n} beat Nila", None, "accused_not_specified"),
+    ]
     for i, (sent, quote, ref, reason) in enumerate(cases):
         run, _ = _run_on(tmp_path / f"c{i}", _facts(sent), quote, ref)
         c = run.contracts[0]
@@ -343,7 +394,9 @@ def test_agent_refer_is_never_not_established_and_audit_records_the_check(tmp_pa
 def test_agent_unmatched_config_key_fails_closed_before_any_judge_call(tmp_path: Path) -> None:
     inner = ScriptedJudge(_script())
     cfg = _cfg(tmp_path, accused_attribution_enabled=True, requires_actor={"bns85": ("a phrase no element contains",)})
-    run = NyayaAgent(AccusedAttributionJudge(inner), _registry(), cfg).run(FACTS, narrative="TOY.", contract_ids=["bns85"], accused=_ref(1))
+    run = NyayaAgent(AccusedAttributionJudge(inner), _registry(), cfg).run(
+        FACTS, narrative="TOY.", contract_ids=["bns85"], accused=_ref(1)
+    )
     c = run.contracts[0]
     assert (c.outcome, c.reason) == ("REFER_TO_LAWYER", "accused_attribution_config_unmatched") and inner.requests == []
 
@@ -374,7 +427,9 @@ def test_denial_elements_and_non_established_elements_are_never_checked() -> Non
 
 def test_flag_off_ignores_an_accused_and_stays_byte_identical_to_the_golden(tmp_path: Path) -> None:
     golden = json.loads(GOLDEN.read_text())
-    run = NyayaAgent(ScriptedJudge(_script()), _registry(), _cfg(tmp_path / "a")).run(FACTS, narrative="TOY.", contract_ids=["bns85"], accused=_ref(2))
+    run = NyayaAgent(ScriptedJudge(_script()), _registry(), _cfg(tmp_path / "a")).run(
+        FACTS, narrative="TOY.", contract_ids=["bns85"], accused=_ref(2)
+    )
     assert _snapshot(run) == golden["proof"]
     assert json.dumps(_snapshot(run), sort_keys=True) == json.dumps(golden["proof"], sort_keys=True)
 
@@ -386,7 +441,7 @@ def test_flag_off_plain_requests_and_no_attribution_keys_anywhere(tmp_path: Path
     assert "attribution" not in json.dumps(run.to_dict()) and "attribution" not in run.audit_path.read_text()
 
 
-# -- configuration ---------------------------------------------------------------------------------------------------------------------
+# -- configuration ---------------------------------------------------------------------------------------------------------------
 def test_config_defaults_off_and_yaml_default_lists_bns85(monkeypatch: pytest.MonkeyPatch) -> None:
     assert AgentConfig.__dataclass_fields__["accused_attribution_enabled"].default is False
     root = Path(__file__).resolve().parents[1]
@@ -401,7 +456,10 @@ def test_config_rejects_malformed_or_unknown_requires_actor(tmp_path: Path) -> N
     import shutil
 
     root = Path(__file__).resolve().parents[1]
-    for bad, why in (("accused_attribution_requires_actor:\n  bns85: []\n", "non-empty"), ("accused_attribution_requires_actor:\n  not_a_real_contract: [x]\n", "pinned registry")):
+    for bad, why in (
+        ("accused_attribution_requires_actor:\n  bns85: []\n", "non-empty"),
+        ("accused_attribution_requires_actor:\n  not_a_real_contract: [x]\n", "pinned registry"),
+    ):
         d = tmp_path / why.replace(" ", "_")
         (d / "configs").mkdir(parents=True)
         text = (root / "configs" / "nyaya_agent.yaml").read_text()
@@ -417,12 +475,32 @@ def test_config_rejects_malformed_or_unknown_requires_actor(tmp_path: Path) -> N
 def test_house_wires_the_check_after_the_span_check_only_when_on(tmp_path: Path) -> None:
     from pravrudhi.application.nyaya_judges import HouseJudge
 
-    hj = {"base_url": "http://h/v1", "model": "m", "statute_chars": 600, "max_tokens": 30, "top_logprobs": 20, "timeout_s": 5, "label_mass_floor": 0.5}
+    hj = {
+        "base_url": "http://h/v1",
+        "model": "m",
+        "statute_chars": 600,
+        "max_tokens": 30,
+        "top_logprobs": 20,
+        "timeout_s": 5,
+        "label_mass_floor": 0.5,
+    }
     sb = tmp_path / "score"
     sb.write_bytes(b"fake binary")
-    off = NyayaAgent.house(tmp_path, config=_cfg(tmp_path, house_judge=hj, score_bin=sb, pinned_score_sha256=None, span_relevance_enabled=True))
+    off = NyayaAgent.house(
+        tmp_path, config=_cfg(tmp_path, house_judge=hj, score_bin=sb, pinned_score_sha256=None, span_relevance_enabled=True)
+    )
     assert isinstance(off.judge, SpanRelevanceJudge)
-    on = NyayaAgent.house(tmp_path, config=_cfg(tmp_path, house_judge=hj, score_bin=sb, pinned_score_sha256=None, span_relevance_enabled=True,
-                                                accused_attribution_enabled=True, requires_actor={"bns85": ("specific acts",)}))
+    on = NyayaAgent.house(
+        tmp_path,
+        config=_cfg(
+            tmp_path,
+            house_judge=hj,
+            score_bin=sb,
+            pinned_score_sha256=None,
+            span_relevance_enabled=True,
+            accused_attribution_enabled=True,
+            requires_actor={"bns85": ("specific acts",)},
+        ),
+    )
     assert isinstance(on.judge, AccusedAttributionJudge) and isinstance(on.judge.inner, SpanRelevanceJudge)
     assert isinstance(on.judge.inner.inner, HouseJudge)

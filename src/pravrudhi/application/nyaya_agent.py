@@ -73,6 +73,11 @@ from pathlib import Path
 from typing import Any, Literal, Protocol
 
 from pravrudhi.application import nyaya_lean_registry as reg
+from pravrudhi.application.nyaya_attribution import (
+    AccusedAttributionJudge,
+    AccusedRef,
+    AttributedJudgeRequest,
+)
 from pravrudhi.application.nyaya_judges import (
     ClampKind,
     ElementJudgment,
@@ -80,12 +85,6 @@ from pravrudhi.application.nyaya_judges import (
     JudgeRequest,
     SecondJudgeCircuitBreaker,
     standard_for_posture,
-)
-from pravrudhi.application.nyaya_attribution import (
-    REASON_CONFIG_UNMATCHED,
-    AccusedAttributionJudge,
-    AccusedRef,
-    AttributedJudgeRequest,
 )
 from pravrudhi.application.nyaya_quote import QuoteLocation, locate_quote
 
@@ -484,7 +483,10 @@ def load_agent_config(root: Path) -> AgentConfig:
     requires_actor = {str(k): tuple(str(x) for x in v) for k, v in requires_actor_raw.items()}
     unknown_actor = set(requires_actor) - reg.KNOWN_CONTRACT_IDS
     if unknown_actor:
-        raise ValueError(f"accused_attribution_requires_actor names contract ids not in the pinned registry: {sorted(unknown_actor)}")
+        raise ValueError(
+            f"accused_attribution_requires_actor names contract ids not in the pinned registry: "
+            f"{sorted(unknown_actor)}"
+        )
 
     # Fail-closed allowlist (issue #36): every id here must actually exist in the pinned registry, checked at
     # load time rather than left to surface later as a silently-inert typo -- an id that isn't real can never
@@ -925,7 +927,8 @@ class ElementResult:
     #: element was conservatively decided not_established without actually demonstrating it -- distinct
     #: from an ordinary tau-miss. See `HouseJudge.judge`'s own decision rule.
     bound_undetermined: bool = False
-    #: Accused-attribution check result for this element (`nyaya_attribution`), else None (feature off, element not checked, or not
+    #: Accused-attribution check result for this element (`nyaya_attribution`), else None (feature off, element not checked, or
+    #: not
     #: established). `passed` False means the contract is REFER_TO_LAWYER with `reason`; the status above is NOT changed.
     attribution: dict[str, Any] | None = None
 
@@ -1020,7 +1023,8 @@ class AgentRun:
 
 
 def _drop_unset_attribution(o: Any) -> Any:
-    """Removes the accused-attribution keys while they are unset (None / empty list), so every result and audit record is byte-identical
+    """Removes the accused-attribution keys while they are unset (None / empty list), so every result and audit record is
+    byte-identical
     to its pre-feature form unless the feature actually produced something (golden-tested)."""
     if isinstance(o, dict):
         return {k: _drop_unset_attribution(v) for k, v in o.items()
@@ -1302,7 +1306,8 @@ class NyayaAgent:
         return cls(judge, registry, cfg, judge_pool=judge_pool)
 
     def _requires_actor(self, contract_id: str, element: str, is_denial: bool) -> bool:
-        """True iff the accused-attribution feature is on and `element` of `contract_id` matches a configured `requires_actor` key."""
+        """True iff the accused-attribution feature is on and `element` of `contract_id` matches a configured `requires_actor`
+        key."""
         if not self.config.accused_attribution_enabled or is_denial:
             return False
         keys = self.config.requires_actor.get(contract_id, ())
@@ -1573,7 +1578,8 @@ class NyayaAgent:
 
         if (self.config.accused_attribution_enabled and self.config.requires_actor.get(contract_id)
                 and not any(self._requires_actor(contract_id, e, False) for e in contract.elements)):
-            # A configured key that matches no element would silently turn the safety check off: refuse instead, before any judge call.
+            # A configured key that matches no element would silently turn the safety check off: refuse instead, before any
+            # judge call.
             return finish("REFER_TO_LAWYER", "accused_attribution_config_unmatched")
 
         tasks = [(e, False) for e in contract.elements] + [(d, True) for d in contract.denials]
