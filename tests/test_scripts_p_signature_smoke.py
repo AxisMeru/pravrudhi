@@ -175,7 +175,7 @@ COVERED = {
     "t2_c3_ab_run.py", "t2_c3_score.py", "t2_harness_assemble.py", "typed_layer_c3_baseline.py",
     "typed_layer_parity_c_prime.py", "typed_layer_parity_e2e.py",
 }
-OWNED_ELSEWHERE = {"typed_layer_parity.py": "pravrudhi#198 rewrites the T1 parity gate; remove this entry when it lands"}
+OWNED_ELSEWHERE: dict[str, str] = {}
 GUARDED_NAMES = {"p_established_from_top_logprobs", "score_decision"}
 
 
