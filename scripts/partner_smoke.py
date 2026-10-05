@@ -3,8 +3,12 @@
 
 Run it after a release or a batched deploy against the engine origin (or the product Worker). It never takes an
 admin token, a password or a provisioning secret, and prints no secret: the target host, one line per check with
-the HTTP status, and a summary. Every request is read-only or deliberately INVALID (so nothing is judged,
-metered as a success or written); the one request that does run the judge is opt-in.
+the HTTP status, and a summary. Every request is read-only or deliberately INVALID, so nothing is judged; the one
+request that does run the judge is opt-in. Two things are NOT free of side effects, though:
+  * with SMOKE_API_KEY, the empty-fact POST is metered BEFORE its 422 (the key is admitted first), so every run
+    adds one usage row (and an audit row) to the e2e organisation. Without a key the anonymous 422 is not metered.
+  * the product Worker may refuse POSTs under its write block (403 before the engine sees them), so a POST check
+    run against the Worker can fail for that reason, not because the engine is wrong. Prefer the engine origin.
 
 Environment
   SMOKE_BASE_URL      engine origin only, e.g. https://engine.example.test (http only for loopback)
