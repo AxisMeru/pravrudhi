@@ -617,6 +617,7 @@ INTERNAL_TEXT_MARKER = "<redacted:internal-text>"
 #: A seat or account name (`sharath.sathish`, `sharath.ai.colab`). The public handle `sharathsphd` is not matched.
 PRIVATE_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"sharath\.[a-z]+", re.IGNORECASE),
+    re.compile(r"\bsharath\b(?!sphd)", re.IGNORECASE),
     re.compile(r"ss-Fusion-\d+", re.IGNORECASE),
     re.compile(r"[\w-]*-Mac-mini", re.IGNORECASE),
     re.compile(r"\b[\w.-]+@[\w]+-[\w-]+\b"),  # a hyphenated user@host
@@ -631,6 +632,9 @@ PRIVATE_PATTERNS: tuple[re.Pattern[str], ...] = (
 _DEMO_ONLY_SHAPES: tuple[tuple[str, re.Pattern[str], str], ...] = (
     ("project-email", re.compile(r"\badmin@axismeru\.com\b"), "<redacted:project-email>"),
     ("seat-name", re.compile(r"sharath\.[a-z]+(?:\.[a-z]+)*"), "<redacted:seat-name>"),
+    # The bare given name (`sharath gmail`, `sharath axismeru`: an operator ask naming a seat). The public handle
+    # `sharathsphd` has letters straight after, so `\b` never matches it.
+    ("given-name", re.compile(r"\bsharath\b(?!sphd)", re.IGNORECASE), "<redacted:name>"),
     ("config-env-name", re.compile(r"CLAUDE_CONFIG_DIR"), "<redacted:env-name>"),
     # Machine and network identifiers (R2, 2026-10-05). `user@host` first, so the host inside it is not left half-redacted.
     # In the serialised JSON a newline is the two characters backslash-n, so an optional escape is captured and kept:
@@ -677,7 +681,21 @@ ASSETS_DIR = Path(__file__).resolve().parents[1] / "assets" / "nyaya"
 
 #: Fewer documents than this and the backstop has nothing meaningful to compare against, which must not read as
 #: "clean": the write is refused instead (the shipped corpus alone is 1,609 provisions).
-MIN_CORPUS_DOCUMENTS = 1000
+MIN_CORPUS_DOCUMENTS = 1609
+
+
+def unloaded_assets() -> list[str]:
+    """Shipped corpus files that do not load as a document list: a half-read corpus must not vouch for a snapshot."""
+    bad: list[str] = []
+    for f in sorted(ASSETS_DIR.glob("*.json")):
+        try:
+            data = json.loads(f.read_text())
+        except (OSError, ValueError):
+            bad.append(f.name)
+            continue
+        if isinstance(data, dict) and "documents" in data and not isinstance(data["documents"], list):
+            bad.append(f.name)
+    return bad
 
 
 def corpus_windows(root: Path) -> tuple[set[int], int]:
@@ -768,6 +786,8 @@ def write_demo(root: Path, dest: Path) -> Path:
     if left:
         raise SecretInSnapshot(f"snapshot still carries {', '.join(left)} after redaction; refusing to write it")
     windows, documents = corpus_windows(root)
+    if unloaded_assets():
+        raise SecretInSnapshot(f"shipped corpus file(s) failed to load: {', '.join(unloaded_assets())}; refusing to write it")
     if documents < MIN_CORPUS_DOCUMENTS or not windows:
         raise SecretInSnapshot(
             f"the corpus backstop found {documents} provisions (needs {MIN_CORPUS_DOCUMENTS}); it cannot vouch for the "

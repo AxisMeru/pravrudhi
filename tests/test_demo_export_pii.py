@@ -356,3 +356,39 @@ def test_write_demo_refuses_a_snapshot_the_redaction_left_unparseable(monkeypatc
     monkeypatch.setattr(demo_export, "demo_pipeline", lambda text: text[:-5])  # a truncated, invalid document
     with pytest.raises(SecretInSnapshot, match="unparseable"):
         demo_export.write_demo(_root_with_corpus(tmp_path), tmp_path / "out" / "demo.json")
+
+
+# -- corpus floor and the bare given name (Lead-2, 5 Oct) ---------------------------------------------------------
+
+
+def test_the_corpus_floor_is_the_shipped_corpus_and_every_asset_loads() -> None:
+    _windows, documents = demo_export.corpus_windows(Path("/nonexistent-root"))
+    assert demo_export.MIN_CORPUS_DOCUMENTS >= 1609
+    assert documents >= demo_export.MIN_CORPUS_DOCUMENTS
+    assert demo_export.unloaded_assets() == []
+
+
+def test_a_shipped_corpus_file_that_does_not_load_refuses_the_write(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    broken = tmp_path / "assets"
+    broken.mkdir()
+    (broken / "bad.json").write_text("{not json")
+    (broken / "worse.json").write_text(json.dumps({"documents": "oops"}))
+    monkeypatch.setattr(demo_export, "ASSETS_DIR", broken)
+    assert demo_export.unloaded_assets() == ["bad.json", "worse.json"]
+    monkeypatch.setattr(demo_export, "MIN_CORPUS_DOCUMENTS", 0)
+    monkeypatch.setattr(demo_export, "build_demo", lambda root: {"a": "b"})
+    with pytest.raises(SecretInSnapshot, match="failed to load"):
+        demo_export.write_demo(_root_with_corpus(tmp_path), tmp_path / "out" / "demo.json")
+
+
+@pytest.mark.parametrize("raw", ["the 2nd seat (sharath gmail)", "login with Sharath axismeru", "SHARATH said", "ask sharath."])
+def test_the_bare_given_name_is_removed_and_refused(raw: str) -> None:
+    assert demo_export.private_markers_left(raw), raw
+    out = demo_export.demo_pipeline(json.dumps({"x": raw}))
+    assert demo_export.private_markers_left(out) == [] and "sharath" not in out.lower()
+
+
+def test_the_public_handle_is_not_the_given_name() -> None:
+    for ok in ("SharathSPhD", "sharathsphd", "by sharathsphd today"):
+        assert demo_export.private_markers_left(ok) == [], ok
+        assert json.loads(demo_export.demo_pipeline(json.dumps({"x": ok})))["x"] == ok
