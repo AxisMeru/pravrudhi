@@ -24,7 +24,10 @@
 #                   (e.g. http://vllm-judge:8000/v1 on network nyaya-judge) -- the host's 127.0.0.1 is not
 #                   reachable from an engine container, and docker0 -> host is firewalled on this box
 #                   optional STUDIO_HOLD_KV=1: start the Studio tunnel but do NOT write engine_url_studio to KV (the URL is
-#                   only logged), so a blank key kept as containment survives a gateway restart
+#                   only logged), so a blank key kept as containment survives a gateway restart. The flag is read from the
+#                   gateway's environment on EVERY start: keep it in gateway.env (or an `Environment=STUDIO_HOLD_KV=1` line
+#                   in the systemd unit, see pravrudhi-gateway.service), and add it to the restart checklist, or a restart
+#                   silently drops the hold and the next start writes engine_url_studio again
 #                   optional PRODUCT_DEMO_ANON_PATHS: comma list passed to the PRODUCT engine only as
 #                   PRAVRUDHI_DEMO_ANON_PATHS (anonymous demo routes; the engine refuses any outside its fixed set)
 #                   optional PRODUCT_UPSTREAM=runpod: the product edition has cut over to RunPod serverless
