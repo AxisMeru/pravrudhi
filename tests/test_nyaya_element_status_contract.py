@@ -92,7 +92,6 @@ GATE1_UNAVAILABLE_STATUS = "not_evaluated_gate1_unavailable"
 XFAIL_TRI_STATE_ASSERTIONS = "awaits #56 tri-state assertions (PR #60)"
 #: Issue #78, "API response model must constrain element status to the declared set and refuse empty or
 #: unknown values" -- filed 2026-09-26 off this suite's own findings 3 and 4, and covering both of them.
-XFAIL_RESPONSE_MODEL = "awaits #78: API response model must constrain status to the declared set and refuse empty"
 
 Script = dict[str, list[ElementJudgment | Exception]]
 
@@ -525,14 +524,13 @@ class TestExhaustiveness:
         """Fail-closed must not become fail-everything: each of the four real statuses validates through."""
         assert ElementResultOut(**_out_kwargs(status=status)).status == status
 
-    @pytest.mark.xfail(strict=True, reason=XFAIL_RESPONSE_MODEL)
     def test_the_response_model_constrains_status_to_the_declared_set(self) -> None:
         """The serialisation boundary is the only presentation layer this repo ships, so it is where a status
         the code does not know must be refused. `ElementResultOut.status` is a bare `str`, so an unknown
         status is serialised to a caller verbatim and unflagged -- and `AnalyseFactsResponse` is the response
         model for the whole route, so nothing downstream of it re-checks.
 
-        XFAIL (strict), awaiting #78. The non-vacuity guard is the never-marked
+        Adopted by #145 (`ElementResultOut.status` is the `ElementStatus` Literal). The non-vacuity guard is the never-marked
         `test_every_declared_status_survives_the_response_model` above: a `pytest.raises(Exception)` test
         XPASSes on ANY exception, so a `_out_kwargs` payload gone stale against the model (a field added or
         removed) would raise about something else entirely and read exactly like adoption. That test
@@ -554,9 +552,8 @@ class TestUnknownStatusFailsClosed:
         with pytest.raises(Exception):  # noqa: B017 -- pydantic.ValidationError
             ElementResultOut(**kwargs)
 
-    @pytest.mark.xfail(strict=True, reason=XFAIL_RESPONSE_MODEL)
     def test_an_empty_status_is_refused(self) -> None:
-        """The blank case specifically: `status: ""` renders as nothing at all. XFAIL (strict), awaiting #78
+        """The blank case specifically: `status: ""` renders as nothing at all. Adopted by #145 (the `ElementStatus` Literal)
         with the test above, and guarded against a stale-payload XPASS the same way it is."""
         with pytest.raises(Exception):  # noqa: B017 -- pydantic.ValidationError
             ElementResultOut(**_out_kwargs(status=""))
@@ -564,5 +561,5 @@ class TestUnknownStatusFailsClosed:
     def test_an_unknown_status_is_never_treated_as_established(self) -> None:
         """Whatever a build does with a status it does not know, it must not be the favourable reading. This
         is the invariant every outcome check in `nyaya_agent` relies on (`status == "established"`)."""
-        out = ElementResultOut(**_out_kwargs(status="a_status_this_build_does_not_know"))
-        assert out.status != "established"
+        with pytest.raises(Exception):  # noqa: B017 -- pydantic.ValidationError: refused, so never "established"
+            ElementResultOut(**_out_kwargs(status="a_status_this_build_does_not_know"))

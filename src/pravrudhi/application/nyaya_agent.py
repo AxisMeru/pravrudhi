@@ -84,6 +84,15 @@ from pravrudhi.application.nyaya_judges import (
 from pravrudhi.application.nyaya_quote import QuoteLocation, locate_quote
 
 Outcome = Literal["PROOF", "DENIAL", "ABSTAIN", "REFER_TO_LAWYER"]
+
+#: Every `reason` a contract result can carry. `finish()` takes this type, so a new reason string that is not
+#: listed here fails mypy, and the partner API's published OpenAPI enum cannot drift from what the agent emits.
+ContractReason = Literal[
+    "all_elements_established", "denial_established", "missing_element", "no_training_statute_text",
+    "judge_error", "assembly_lean_mismatch", "denial_unquotable", "second_judge_defeater_disagreement",
+    "uncertain", "uncertain_second_judge", "second_judge_unavailable", "gate1_unavailable",
+    "gate1_not_entailed", "gate1_contradiction", "contract_not_validated",
+]
 CONFIG_PATH = Path("configs") / "nyaya_agent.yaml"
 
 
@@ -915,6 +924,10 @@ class AgentRun:
     #: engine, the partner API response, and a future frontend that reads this field instead of hardcoding
     #: its own copy.
     retention_notice: str = RETENTION_NOTICE
+    #: #220: the standard this run applied, from the same resolved values the `run_start` audit row carries.
+    #: `{"requested", "applied", "source", "proceeding_posture", "in_judge_prompt"}`; `applied` is None when the
+    #: judge's prompt did not state the standard. None only for a hand-built run.
+    standard: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
@@ -1409,7 +1422,7 @@ class NyayaAgent:
 
         results: list[ElementResult] = []
 
-        def finish(outcome: Outcome, reason: str, **kw: Any) -> ContractResult:
+        def finish(outcome: Outcome, reason: ContractReason, **kw: Any) -> ContractResult:
             res = ContractResult(contract_id, outcome, reason, results, kw.get("assertions"), kw.get("lean"),
                                  kw.get("lean_outcome"), kw.get("uncertain", []), mismatch,
                                  kw.get("uncertain_second", []),
@@ -1499,7 +1512,10 @@ class NyayaAgent:
         # genuinely missing-element case still ABSTAINs untouched.
         if lean_outcome in ("PROOF", "DENIAL") and contract_id not in self.config.validated_contracts:
             return finish("REFER_TO_LAWYER", "contract_not_validated", **kw)
-        reason = {"PROOF": "all_elements_established", "DENIAL": "denial_established", "ABSTAIN": "missing_element"}[lean_outcome]
+        reasons: dict[str, ContractReason] = {
+            "PROOF": "all_elements_established", "DENIAL": "denial_established", "ABSTAIN": "missing_element",
+        }
+        reason = reasons[lean_outcome]
         return finish(lean_outcome, reason, **kw)
 
     def run(
@@ -1522,9 +1538,17 @@ class NyayaAgent:
         audit = AuditTrail(Path(self.config.audit_dir) / f"{run_id}.jsonl", run_id)
         cfg_view = {"tau": self.config.tau, "refer_band": list(self.config.refer_band), "max_retries": self.config.max_retries,
                    "second_refer_logit_delta": self.config.second_refer_logit_delta()}
+        in_prompt = getattr(self.judge, "prompt_template", "legacy") != "legacy"
         standard_view = {
             "proceeding_posture": proceeding_posture, "standard": standard, "standard_source": standard_source,
-            "standard_in_judge_prompt": getattr(self.judge, "prompt_template", "legacy") != "legacy",
+            "standard_in_judge_prompt": in_prompt,
+        }
+        standard_out = {
+            "requested": standard,
+            "applied": standard if in_prompt else None,
+            "source": "proceeding_posture" if standard_source == "request" else "default",
+            "proceeding_posture": proceeding_posture,
+            "in_judge_prompt": in_prompt,
         }
         audit.step("run_start", cfg_view,
                    {"judge": self.judge.name, "score_sha256": self.registry.sha256, "client_data": client_data,
@@ -1554,4 +1578,4 @@ class NyayaAgent:
         audit.step("run_end", {"run_id": run_id}, {c.contract_id: c.outcome for c in results}, 0.0)
         return AgentRun(run_id, self.judge.name, self.registry.sha256,
                         [{"id": f.id, "sha256": f.sha256} for f in ingested], results, audit.path,
-                        judge_accounting=accounting, client_data=client_data)
+                        judge_accounting=accounting, client_data=client_data, standard=standard_out)

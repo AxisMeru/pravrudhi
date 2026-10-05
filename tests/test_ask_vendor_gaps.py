@@ -208,6 +208,8 @@ REAL_NOTICES = [
     "You\u2019ve hit your usage limit",
     "You've hit your session limit. Resets 9pm.",
     "ERROR: You've hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro) or try again at 3:51 PM.",
+    "ERROR: You've hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), visit "
+    "https://chatgpt.com/codex/settings/usage to purchase more credits or try again at 3:51 PM.",
     "Claude usage limit reached. Your limit will reset at 3pm",
     "Claude usage limit reached",
     "5-hour limit reached \u2219 resets 3pm",
@@ -389,6 +391,36 @@ class TestCodexEnvelopeArmD:
         assert not panel._looks_like_quota(unseen)
         with pytest.raises(RuntimeError, match="model unverifiable"):
             _ask_codex(monkeypatch, _stream(text=unseen))
+
+    @pytest.mark.parametrize(
+        "unseen",
+        [
+            "Capacity is exhausted for this plan until Friday.",
+            "Your allowance for this period is used up. Come back after the reset.",
+        ],
+    )
+    @pytest.mark.parametrize("usage", [{}, {"output_tokens": 0}, {"output_tokens": None}, {"output_tokens": True}])
+    def test_an_unseen_notice_under_the_pinned_model_with_no_output_tokens_is_an_error(
+        self, monkeypatch, tmp_path, unseen, usage
+    ):
+        """R2's residual case (#241): the rollout's turn_context carries the PINNED model, the agent message is a
+        notice the regex does not know, and the turn reports no output tokens."""
+        assert not panel._looks_like_quota(unseen)
+        _rollout(tmp_path, TID, "gpt-x-1")
+        monkeypatch.setenv("CODEX_HOME", str(tmp_path))
+        out = _stream(text=unseen).replace("th_1", TID).replace(
+            '"usage": {"input_tokens": 15296, "cached_input_tokens": 12160, "output_tokens": 5}',
+            f'"usage": {json.dumps(usage)}',
+        )
+        assert '"output_tokens": 5' not in out
+        with pytest.raises(RuntimeError, match="model unverifiable.*no output tokens"):
+            _ask_codex(monkeypatch, out)
+
+    def test_the_same_stream_with_output_tokens_is_an_answer(self, monkeypatch, tmp_path):
+        _rollout(tmp_path, TID, "gpt-x-1")
+        monkeypatch.setenv("CODEX_HOME", str(tmp_path))
+        ans, _ = _ask_codex(monkeypatch, _stream().replace("th_1", TID))
+        assert ans.text == "ANSWER: A" and ans.resolved_model == "gpt-x-1"
 
     def test_a_pinned_call_with_no_resolved_model_is_an_error(self, monkeypatch):
         with pytest.raises(RuntimeError, match="model unverifiable"):
