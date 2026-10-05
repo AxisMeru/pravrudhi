@@ -155,6 +155,35 @@ class SGLangDecoder:
         return self._complete(prompt, max_tokens=max_tokens, temperature=temperature, logprobs=logprobs)
 
 
+def check_label_mass(top: Mapping[str, float], field: Field, *, label_mass_floor: float) -> None:
+    """The label-mass guard `nyaya_judges.p_established_from_top_logprobs` applies, generalised to any
+    enum/bool `field` (#133). Raises `DecodeError` (never returns a guess) when EITHER (a) the top-1
+    (highest-logprob) first token is not one of the field's own option tokens -- the model's greediest
+    completion was prose, not a decision -- or (b) the options' combined probability mass
+    (`sum(exp(best variant logprob))`, true log-probabilities over the whole vocabulary) is below
+    `label_mass_floor`. Keyword-only and required: a caller that does not name a floor cannot silently get
+    none. Same comparison as HouseJudge's (`mass < floor` raises), plus a NaN guard: a non-finite top-1 or
+    mass is refused rather than compared (a NaN compares False against everything, i.e. it would pass)."""
+    if not top:
+        raise DecodeError(f"{field.name}: empty first-token top logprobs")
+    assert field.options is not None
+    tokens = {t for variants in field.options.values() for t in variants}
+    top1 = max(top, key=lambda t: top[t])
+    if top1 not in tokens:
+        raise DecodeError(
+            f"{field.name}: top-1 token {top1!r} is not an option token -- the model's greediest completion "
+            f"was prose, not a decision: {dict(top)}"
+        )
+    mass = sum(
+        math.exp(max((top[t] for t in variants if t in top), default=-math.inf)) for variants in field.options.values()
+    )
+    if not math.isfinite(mass) or not mass >= label_mass_floor:
+        raise DecodeError(
+            f"{field.name}: label mass {mass:.6f} is not at or above floor {label_mass_floor} -- too little of the "
+            f"distribution is on the option tokens to trust a decision: {dict(top)}"
+        )
+
+
 def score_decision(result: CompletionResult, field: Field) -> tuple[dict[str, float], frozenset[str]]:
     """Decide an enum/bool field by SCORING, never sampling (design principle 1): softmax, over the field's
     options, of each option's best-matching token variant's log-probability at the FIRST generated position

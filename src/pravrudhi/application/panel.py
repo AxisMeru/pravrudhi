@@ -560,6 +560,17 @@ def _codex_pinned_model(vendor: Vendor) -> str:
     return pinned
 
 
+def _codex_output_tokens(events: list[dict[str, Any]]) -> int:
+    """Output tokens the stream reports for the turn: the last `turn.completed` usage, 0 when absent or malformed."""
+    n = 0
+    for ev in events:
+        usage = ev.get("usage")
+        if ev.get("type") == "turn.completed" and isinstance(usage, dict):
+            v = usage.get("output_tokens")
+            n = v if isinstance(v, int) and not isinstance(v, bool) and v > 0 else 0
+    return n
+
+
 def _codex_answer(vendor: Vendor, model: str, out: str, wall: float) -> Answer:
     """Parse a `codex exec --json` event stream into an Answer, or raise.
 
@@ -626,6 +637,13 @@ def _codex_answer(vendor: Vendor, model: str, out: str, wall: float) -> Answer:
         )
     if resolved != pinned:
         raise RuntimeError(f"model mismatch: codex reported {resolved!r}, pinned {pinned!r}")
+    # The pinned model on the rollout's turn_context proves the session started, not that the model answered: an
+    # unseen limit notice can sit in an agent message under the right model id. Real model output is the evidence.
+    if _codex_output_tokens(events) <= 0:
+        raise RuntimeError(
+            f"model unverifiable: the stream reports no output tokens for the turn (pinned {pinned!r}); "
+            f"a message with no model output is never returned as an answer"
+        )
     tokens, cache_read, cache_write = _codex_usage(out)
     return Answer(vendor.id, vendor.interface, model, "", text, wall, tokens, None, resolved,
                   cache_read, cache_write, None, (resolved,) if resolved else ())
