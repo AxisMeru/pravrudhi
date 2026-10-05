@@ -25,7 +25,7 @@ def _config(tmp_path: Path, **over: object) -> AgentConfig:
         "score_bin": score_bin,
         "house_judge": {
             "base_url": "http://fake.invalid/v1", "model": "m", "statute_chars": 600, "max_tokens": 30,
-            "top_logprobs": 20, "timeout_s": 60,
+            "top_logprobs": 20, "timeout_s": 60, "label_mass_floor": 0.5,
         },
     }
     base.update(over)

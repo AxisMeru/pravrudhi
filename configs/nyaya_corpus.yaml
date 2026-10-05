@@ -11,6 +11,10 @@
 # corpus: a genuinely off-topic question's best score tops out around 7.1, while every real match in
 # tests/test_nyaya.py's own suite starts above 12.7 (as low as k=1 on a short query like "equality before
 # law"). 8.0 sits cleanly in that gap.
+#
+# Update 2026-09-29: BNS, BNSS and BSA 2023 (India Code) now ship beside the IPC, so the bns69 case above is covered.
+# Re-measured on the 1,609-document corpus: off-topic top scores rose by 0.2-4 (max 16.97, already above 8.0 before
+# and after -- issue #51), and real short matches did not fall below 16. 8.0 is left unchanged.
 min_relevance_score: 8.0
 
 # Issue #51: min_relevance_score above is an ABSOLUTE BM25 score, and BM25 sums over every matched query

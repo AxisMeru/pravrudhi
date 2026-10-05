@@ -17,6 +17,7 @@ import pytest
 
 from pravrudhi.application import panel
 from pravrudhi.application.nyaya_judges import (
+    LABEL_MASS_FLOOR,
     FrontierJudge,
     HouseJudge,
     JudgeOutputError,
@@ -74,21 +75,121 @@ class TestHousePrompt:
         assert build_house_prompt(req_with_narrative, statute_chars=600) == build_house_prompt(REQ, statute_chars=600)
 
 
+class TestLabelMassGuard:
+    """Per Tag/Lead-2 (2026-09-28), production-safety: a label token appearing anywhere in the top-k
+    is not itself evidence of a real decision -- a prose completion can still have it by coincidence,
+    at negligible probability."""
+
+    def test_top1_is_prose_raises_even_though_a_label_token_is_present(self) -> None:
+        top = {"Based": -0.1, " established": -8.0, " on": -1.0, " the": -2.0}
+        with pytest.raises(JudgeOutputError, match="not a label token"):
+            p_established_from_top_logprobs(top)
+
+    def test_label_mass_below_floor_raises_even_when_top1_is_a_label_token(self) -> None:
+        # ' established' IS top-1 here, but its own probability (exp(-2.0) ~= 0.135) plus ' not'
+        # (exp(-8.0) ~= 0.0003) is far below the floor -- most of the real distribution went elsewhere.
+        top = {" established": -2.0, " not": -8.0, "prose_a": -2.1, "prose_b": -2.2, "prose_c": -2.3}
+        with pytest.raises(JudgeOutputError, match="label mass"):
+            p_established_from_top_logprobs(top)
+
+    def test_label_mass_clearing_the_floor_passes(self) -> None:
+        # ' not' missing (lower_bound case); exp(est) alone already clears the floor comfortably --
+        # confirms the guard doesn't fire on a genuinely confident, mostly-label completion.
+        top = {" established": -0.05, " F": -6.0}
+        p, clamp = p_established_from_top_logprobs(top)
+        mass = math.exp(-0.05)
+        assert mass >= LABEL_MASS_FLOOR
+        assert p == pytest.approx(1 / (1 + math.exp(-6.0 - (-0.05))))
+        assert clamp == "lower_bound"
+
+
 class TestFirstTokenScore:
     def test_softmax_of_established_vs_not(self) -> None:
-        p = p_established_from_top_logprobs({" established": -0.1, " not": -2.5, " F": -6.0})
+        p, clamp = p_established_from_top_logprobs({" established": -0.1, " not": -2.5, " F": -6.0})
         assert p == pytest.approx(1 / (1 + math.exp(-2.4)))
+        assert clamp == "none"
 
     def test_takes_the_max_over_spaced_and_bare_variants(self) -> None:
-        p = p_established_from_top_logprobs({" established": -3.0, "established": -1.0, " not": -1.0, "not": -4.0})
+        p, clamp = p_established_from_top_logprobs(
+            {" established": -3.0, "established": -1.0, " not": -1.0, "not": -4.0}
+        )
         assert p == pytest.approx(0.5)
-
-    def test_absent_not_token_is_minus_infinity(self) -> None:
-        assert p_established_from_top_logprobs({" established": -0.01}) == 1.0
+        assert clamp == "none"
 
     def test_neither_token_is_an_error_not_a_guess(self) -> None:
         with pytest.raises(JudgeOutputError):
             p_established_from_top_logprobs({" F": -0.1, " R": -2.0})
+
+    def test_absent_not_token_returns_a_lower_bound_not_a_clamp_to_one(self) -> None:
+        # G-28 (2026-09-28), Tag's finding: the OLD behaviour clamped this to exactly 1.0. The correct
+        # value is a LOWER bound: neg's true logprob is <= min(top) (-6.0 here, since it's not itself in
+        # top-k), so the bound uses neg=min(top)=-6.0 (its least-negative-possible value, i.e. the
+        # worst case for the bound): p = 1/(1+exp(-6.0 - (-0.1))).
+        top = {" established": -0.1, " F": -6.0}
+        p, clamp = p_established_from_top_logprobs(top)
+        assert clamp == "lower_bound"
+        assert p == pytest.approx(1 / (1 + math.exp(-6.0 - (-0.1))))
+        assert p < 1.0  # never the old hard clamp
+
+    def test_absent_established_token_returns_an_upper_bound_not_a_clamp_to_zero(self) -> None:
+        # Mirror case: est's true logprob is <= min(top) (-6.0), so the bound uses est=-6.0 (its
+        # least-negative-possible value, the worst case for THIS bound, which is an upper bound):
+        # p = 1/(1+exp(-0.1 - (-6.0))).
+        top = {" not": -0.1, " F": -6.0}
+        p, clamp = p_established_from_top_logprobs(top)
+        assert clamp == "upper_bound"
+        assert p == pytest.approx(1 / (1 + math.exp(-0.1 - (-6.0))))
+        assert p > 0.0  # never the old hard clamp
+        assert p <= 0.5  # provable: min(top) <= neg always in this branch (module docstring)
+
+    def test_lower_bound_pinned_numeric_case(self) -> None:
+        # A pinned, hand-checkable case: est=-0.5, min(top)=-8.0 (a token far below either label, e.g.
+        # a stray punctuation token) -> p = 1/(1+exp(-8.0-(-0.5))) = 1/(1+exp(-7.5)) ~= 0.9994472...
+        top = {" established": -0.5, " ,": -8.0}
+        p, clamp = p_established_from_top_logprobs(top)
+        assert clamp == "lower_bound"
+        assert p == pytest.approx(0.9994472213, abs=1e-9)
+
+
+class TestHouseJudgeConservativeDecisionRule:
+    """Per R1's finding on #120 (G-28): hard-coding bound_undetermined=False in HouseJudge.judge
+    failed 0 tests -- these three go through judge() itself (not the bare p_established_from_top_logprobs
+    function), covering all three real decision branches."""
+
+    def test_lower_bound_clearing_tau_is_established_not_undetermined(self) -> None:
+        # ' not' missing; est=-0.05, min(top)=-3.0 -> bound = 1/(1+exp(-3.0-(-0.05))) ~= 0.9503, well
+        # clear of tau=0.74. A valid lower bound >= tau proves the TRUE p is also >= tau (it can only
+        # be higher) -- established, no ambiguity.
+        fake = _FakeComplete(_completion(" established F1:5:22", {" established": -0.05, " F": -3.0}))
+        j = HouseJudge(complete=fake, tau=0.74, statute_chars=600).judge(REQ)
+        assert j.status == "established"
+        assert j.clamp == "lower_bound"
+        assert j.bound_undetermined is False
+        assert j.p_established == pytest.approx(1 / (1 + math.exp(-3.0 - (-0.05))))
+
+    def test_lower_bound_below_tau_is_not_established_and_flagged_bound_undetermined(self) -> None:
+        # ' not' missing; est=-0.05, min(top)=-0.5 -> bound = 1/(1+exp(-0.5-(-0.05))) ~= 0.6108, BELOW
+        # tau=0.74. The bound alone cannot rule establishment in OR out (the true p could be anywhere
+        # from this bound up to 1.0) -- conservative default is not_established, but flagged distinctly
+        # from an ordinary tau-miss.
+        fake = _FakeComplete(_completion(" established F1", {" established": -0.05, " F": -0.5}))
+        j = HouseJudge(complete=fake, tau=0.74, statute_chars=600).judge(REQ)
+        assert j.status == "not_established"
+        assert j.clamp == "lower_bound"
+        assert j.bound_undetermined is True
+        assert 0.5 < j.p_established < 0.74  # the interesting "lower bound < tau < 1.0" zone
+
+    def test_upper_bound_is_a_genuine_not_established_never_undetermined(self) -> None:
+        # ' established' missing; neg=-0.1, min(top)=-6.0 -> bound = 1/(1+exp(-0.1-(-6.0))) ~= 0.0027,
+        # far below any tau >= 0.5. This branch can NEVER manufacture an unresolved case against a
+        # realistic tau (module docstring: min(top) <= neg always here, so the bound itself is <= 0.5)
+        # -- bound_undetermined must be False, not just "happens to be" in this fixture.
+        fake = _FakeComplete(_completion(" not", {" not": -0.1, " F": -6.0}))
+        j = HouseJudge(complete=fake, tau=0.74, statute_chars=600).judge(REQ)
+        assert j.status == "not_established"
+        assert j.clamp == "upper_bound"
+        assert j.bound_undetermined is False
+        assert j.p_established == pytest.approx(1 / (1 + math.exp(-0.1 - (-6.0))))
 
 
 class TestParseHouseFactId:
@@ -162,6 +263,29 @@ class TestHouseJudge:
 
         assert captured["auth_header"] == "Bearer test_bearer_key_12345"
 
+    def test_from_config_requires_label_mass_floor(self) -> None:
+        # R1's review of #124: "refuse if it's missing", not a silent module-constant fallback.
+        config = {
+            "statute_chars": 600, "base_url": "http://h/v1", "model": "m",
+            "max_tokens": 30, "top_logprobs": 20, "timeout_s": 60,
+        }
+        with pytest.raises(KeyError, match="label_mass_floor"):
+            HouseJudge.from_config(config, tau=0.74)
+
+    def test_from_config_threads_a_custom_label_mass_floor_into_the_actual_decision(self) -> None:
+        # Not just stored -- proves the CONFIG value is what judge() actually uses: a completion whose
+        # label mass (~0.322) clears a low floor (0.2) but not the module default (0.5).
+        config = {
+            "statute_chars": 600, "base_url": "http://h/v1", "model": "m", "max_tokens": 30,
+            "top_logprobs": 20, "timeout_s": 60, "label_mass_floor": 0.2,
+        }
+        j = HouseJudge.from_config(config, tau=0.74)
+        assert j.label_mass_floor == 0.2
+        fake = _FakeComplete(_completion(" established F1", {" established": -1.3, " not": -3.0}))
+        j._complete = fake  # type: ignore[attr-defined]  # override the built transport, post-construction
+        result = j.judge(REQ)  # would raise JudgeOutputError under the 0.5 default; must not here
+        assert result.status in ("established", "not_established")
+
     def test_fallback_list_from_config(self) -> None:
         """Load judge base_urls with fallback from config."""
         # Mock clients to avoid real network calls
@@ -180,6 +304,7 @@ class TestHouseJudge:
             "max_tokens": 30,
             "top_logprobs": 20,
             "timeout_s": 60,
+            "label_mass_floor": 0.5,
             "base_urls_fallback": [
                 "http://127.0.0.1:8110/v1",
             ],
@@ -203,6 +328,7 @@ class TestHouseJudge:
             "max_tokens": 30,
             "top_logprobs": 20,
             "timeout_s": 60,
+            "label_mass_floor": 0.5,
         }
 
         # Test: env var takes precedence over config
@@ -496,3 +622,40 @@ class TestFrontierJudge:
     def test_unusable_reply_is_a_judge_output_error(self, text: str) -> None:
         with pytest.raises(JudgeOutputError):
             FrontierJudge(self.VENDOR, ask_fn=lambda v, p: _answer(text)).judge(REQ)
+
+
+@pytest.mark.parametrize(
+    "top",
+    [
+        {" established": math.nan, " not": -1.0},
+        {" established": -0.1, " not": math.nan},
+        {" established": math.nan},
+        {" not": math.nan},
+        {" established": math.inf, " not": -1.0},
+        {" established": -0.1, " not": math.inf},
+        {"established": math.nan, " established": -0.1},
+        {" established": -0.1, "established": math.nan},
+        {" not": -0.1, "not": math.nan},
+        {" established": -0.1, " not": -3.0, "Based": math.nan},
+        {" established": -0.1, " not": -3.0, "Based": math.inf},
+    ],
+)
+def test_non_finite_label_logprob_is_a_judge_output_error_not_a_probability(top: dict[str, float]) -> None:
+    """#156: NaN made `label_mass < floor` False and returned p=nan; +inf returned established p=1.0."""
+    with pytest.raises(JudgeOutputError):
+        p_established_from_top_logprobs(top)
+
+
+@pytest.mark.parametrize(
+    "top",
+    [
+        {"established": math.nan, " established": -0.1},
+        {" established": -0.1, " not": -3.0, "Based": math.nan},
+        {" established": math.nan, " not": -1.0},
+    ],
+)
+def test_house_judge_never_establishes_on_a_nan_logprob(top: dict[str, float]) -> None:
+    """R2 on #166: a NaN on a duplicate label variant gave established with p=nan through judge()."""
+    fake = _FakeComplete(_completion(" established F1:5:22", top))
+    with pytest.raises(JudgeOutputError):
+        HouseJudge(complete=fake, tau=0.74, statute_chars=600).judge(REQ)

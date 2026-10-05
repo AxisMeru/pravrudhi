@@ -1,0 +1,52 @@
+# Accounts authorised to apply the `workflow-change` label, for
+# scripts/check_workflow_change_label.py.
+#
+# THE RULE (Lead-2, 2026-09-27): a pull request that edits CI or guard machinery
+# (.github/workflows/**, scripts/check_*.py, scripts/uncollected_test_baseline.txt, .githooks/**)
+# FAILS unless it carries the `workflow-change` label, and only an authorised account may set that
+# label, and only after reading the diff.
+#
+# WHAT THIS FILE ENFORCES AND WHAT IT CANNOT. The guard reads the pull request's timeline, finds
+# the most recent `labeled` event for `workflow-change`, resolves that event's ACTOR through
+# `GET /users/{login}`, and requires the resolved login to be listed below. So the ACCOUNT is
+# enforced. WHICH PERSON acted as that account is not knowable from here: Lead-2,
+# Lead-2-assistant and every agent holding the token are all `AxisMeru`, so per-person
+# accountability is process and review, never something this file or the guard can prove. The
+# "and only after reading the diff" half is NOT enforceable and is not enforced either: nothing in
+# the GitHub API distinguishes a label applied after reading a diff from one applied without
+# looking. A green tick from this guard means "the authorised account applied the label", never
+# "a named human reviewed the workflow change".
+#
+# FORMAT: `<github-login>  <reason>`, one per line. `#` comments and blank lines are ignored.
+# Comparison is case-insensitive, because GitHub logins are.
+#
+# AN ENTRY WITH NO REASON AUTHORISES NOBODY -- the guard reports it and keeps failing. Same rule
+# and same wording as prabhasa-nyaya's scripts/data_change_label_setters.txt. A permission nobody
+# can read is a permission nobody re-reads. Every entry's reason is printed when it is used.
+#
+# AN EMPTY FILE AUTHORISES NOBODY EITHER, and that is the deliberate fail-closed direction: a CI
+# change then cannot be cleared by anyone until a login is added here with a reason. It fails
+# loudly rather than passing quietly.
+#
+# THIS FILE IS READ FROM THE BASE BRANCH, never from the pull request's own tree (see
+# `fetch_allowlist_at_base`). A pull request that edited this file could not thereby authorise
+# itself. It is also itself a protected path, so such an edit goes red like any other.
+#
+# ADDING AN ENTRY IS NOT ROUTINE. It hands an account the power to clear any CI or guard change in
+# this repository, including one it opened itself. Keep this list to the one account confirmed by
+# the lead.
+#
+# DELIBERATELY ABSENT: `claude[bot]`, and any other agent account. An agent that can label its own
+# pull request can clear its own workflow edit, which is the whole guard undone in one API call. If
+# an agent needs a CI change landed, a human labels it. (A bracketed app login is additionally not
+# a `/users/` resource at all, so `resolve_actor` 404s on one and the job goes red -- belt as well
+# as braces, in the safe direction.)
+
+AxisMeru  Repository owner. `GET /repos/AxisMeru/pravrudhi` reports `owner.login == "AxisMeru"`, and this is the same account prabhasa-nyaya's scripts/data_change_label_setters.txt lists for its `data-change` label, so the two guards authorise the same account by construction. This is the shared account Lead-2 and Lead-2-assistant both act as; listing it identifies the ACCOUNT, never which of them acted.
+
+# ONE ENTRY IS THE INTENDED STATE, NOT A PLACEHOLDER. `SharathSPhD` -- the git author NAME this
+# repository's .githooks/commit-msg requires on every commit -- is NOT a candidate as it stands:
+# that is free text in a commit header, not proof of a GitHub login, and listing an unverified
+# string risks authorising a stranger who happens to hold it. An authorised account that is not
+# listed is merely denied, which is the safe direction and is what the guard's error message tells
+# the reader to fix.

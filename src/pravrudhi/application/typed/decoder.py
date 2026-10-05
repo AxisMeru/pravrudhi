@@ -16,6 +16,7 @@ import urllib.error
 from collections.abc import Callable, Mapping
 from typing import Protocol
 
+from pravrudhi.application.nyaya_judges import ServedModelMismatch
 from pravrudhi.application.typed.schema import Field, FieldKind
 from pravrudhi.models.openai_compat import ChatClient, CompletionResult, HTTPStatusError
 
@@ -46,7 +47,13 @@ def _is_transient(e: BaseException) -> bool:
 
 
 def _client_complete(
-    *, base_url: str, model: str | None, timeout_s: int, api_key: str | None, fallback_urls: list[str] | None = None
+    *,
+    base_url: str,
+    model: str | None,
+    timeout_s: int,
+    api_key: str | None,
+    fallback_urls: list[str] | None = None,
+    enforce_served_model: bool = False,
 ) -> tuple[str, _CompleteFn]:
     """The shared transport both adapters below wrap: an OpenAI-compatible ChatClient per backend (primary
     plus `fallback_urls`), with the model id read from each backend's own `/models` when none is configured
@@ -62,6 +69,8 @@ def _client_complete(
         for i, u in enumerate(urls)
     ]
     resolved: list[str | None] = [model or None] + [None] * (len(urls) - 1)
+    # Only the primary's configured `model` is ever pinned; a fallback's id is resolved from its own /models.
+    pinned: list[str | None] = list(resolved)
 
     def _model_for(i: int) -> str:
         if resolved[i] is None:
@@ -80,6 +89,11 @@ def _client_complete(
             try:
                 client.model = _model_for(i)
                 result = client.complete(prompt, max_tokens=max_tokens, temperature=temperature, logprobs=logprobs)
+                if enforce_served_model and pinned[i] is not None and result.model != pinned[i]:
+                    raise ServedModelMismatch(
+                        f"backend {i} answered as model {result.model!r} but the deployment pins {pinned[i]!r}; "
+                        "refusing to score under an unpinned model"
+                    )
             except Exception as e:  # noqa: BLE001 -- classified by _is_transient, re-raised unless transient
                 if not _is_transient(e) or i == len(clients) - 1:
                     raise RuntimeError(f"typed-decoder backend {i} ({client.base_url}) failed: {e}") from e
@@ -107,12 +121,14 @@ class VLLMDecoder:
         api_key: str | None = None,
         fallback_urls: list[str] | None = None,
         complete: _CompleteFn | None = None,
+        enforce_served_model: bool = False,
     ) -> None:
         if complete is None:
             if base_url is None:
                 raise ValueError("VLLMDecoder needs a base_url or an injected complete transport")
             self.model, complete = _client_complete(
-                base_url=base_url, model=model, timeout_s=timeout_s, api_key=api_key, fallback_urls=fallback_urls
+                base_url=base_url, model=model, timeout_s=timeout_s, api_key=api_key, fallback_urls=fallback_urls,
+                enforce_served_model=enforce_served_model,
             )
         else:
             self.model = model or "injected"
@@ -140,12 +156,14 @@ class SGLangDecoder:
         api_key: str | None = None,
         fallback_urls: list[str] | None = None,
         complete: _CompleteFn | None = None,
+        enforce_served_model: bool = False,
     ) -> None:
         if complete is None:
             if base_url is None:
                 raise ValueError("SGLangDecoder needs a base_url or an injected complete transport")
             self.model, complete = _client_complete(
-                base_url=base_url, model=model, timeout_s=timeout_s, api_key=api_key, fallback_urls=fallback_urls
+                base_url=base_url, model=model, timeout_s=timeout_s, api_key=api_key, fallback_urls=fallback_urls,
+                enforce_served_model=enforce_served_model,
             )
         else:
             self.model = model or "injected"
@@ -155,7 +173,36 @@ class SGLangDecoder:
         return self._complete(prompt, max_tokens=max_tokens, temperature=temperature, logprobs=logprobs)
 
 
-def score_decision(result: CompletionResult, field: Field) -> dict[str, float]:
+def check_label_mass(top: Mapping[str, float], field: Field, *, label_mass_floor: float) -> None:
+    """The label-mass guard `nyaya_judges.p_established_from_top_logprobs` applies, generalised to any
+    enum/bool `field` (#133). Raises `DecodeError` (never returns a guess) when EITHER (a) the top-1
+    (highest-logprob) first token is not one of the field's own option tokens -- the model's greediest
+    completion was prose, not a decision -- or (b) the options' combined probability mass
+    (`sum(exp(best variant logprob))`, true log-probabilities over the whole vocabulary) is below
+    `label_mass_floor`. Keyword-only and required: a caller that does not name a floor cannot silently get
+    none. Same comparison as HouseJudge's (`mass < floor` raises), plus a NaN guard: a non-finite top-1 or
+    mass is refused rather than compared (a NaN compares False against everything, i.e. it would pass)."""
+    if not top:
+        raise DecodeError(f"{field.name}: empty first-token top logprobs")
+    assert field.options is not None
+    tokens = {t for variants in field.options.values() for t in variants}
+    top1 = max(top, key=lambda t: top[t])
+    if top1 not in tokens:
+        raise DecodeError(
+            f"{field.name}: top-1 token {top1!r} is not an option token -- the model's greediest completion "
+            f"was prose, not a decision: {dict(top)}"
+        )
+    mass = sum(
+        math.exp(max((top[t] for t in variants if t in top), default=-math.inf)) for variants in field.options.values()
+    )
+    if not math.isfinite(mass) or not mass >= label_mass_floor:
+        raise DecodeError(
+            f"{field.name}: label mass {mass:.6f} is not at or above floor {label_mass_floor} -- too little of the "
+            f"distribution is on the option tokens to trust a decision: {dict(top)}"
+        )
+
+
+def score_decision(result: CompletionResult, field: Field) -> tuple[dict[str, float], frozenset[str]]:
     """Decide an enum/bool field by SCORING, never sampling (design principle 1): softmax, over the field's
     options, of each option's best-matching token variant's log-probability at the FIRST generated position
     -- generalizes `nyaya_judges.p_established_from_top_logprobs` from 2 options to N.
@@ -168,17 +215,35 @@ def score_decision(result: CompletionResult, field: Field) -> dict[str, float]:
 
     Raises DecodeError, never returns a guess, when no option's tokens appear in the top-k at all -- that is
     no evidence either way, and an even split would be a number the model never gave.
-    """
+
+    Returns `(scores, missing_options)`. An option in `missing_options` had NONE of its token variants in
+    the top-k -- its raw logprob is unknown, only bounded (<= `min(top.values())`, else it would have been
+    in the top-k itself). Per Tag/Lead-2 (2026-09-28, G-28): the OLD behaviour (until this fix) substituted
+    `-inf` for a missing option's raw logprob, i.e. exactly 0.0 probability mass -- the SAME clamp-to-zero
+    bug `nyaya_judges.p_established_from_top_logprobs` had for its 2-option case (this function generalizes
+    that same softmax to N options, so it inherited the same defect independently). Substituting
+    `min(top.values())` instead (the tightest bound actually available, never a truer-but-unobservable
+    value) gives every OTHER (present) option a valid LOWER bound on its true score, and every MISSING
+    option a valid UPPER bound on its own -- exactly the same asymmetric bound `p_established_from_top_logprobs`
+    derives for its 2-option case (verified algebraically identical there: with one option present and one
+    missing, this reduces to `1/(1+exp(bound-est))`, byte-for-byte the same formula). A caller must never
+    treat a bounded score as exact -- see `TypedHouseJudge.judge`'s own conservative decision rule."""
     if field.kind not in (FieldKind.ENUM, FieldKind.BOOL):
         raise ValueError(f"score_decision is only for enum/bool fields, got {field.kind.value} ({field.name!r})")
     assert field.options is not None  # Field.__post_init__ guarantees this for ENUM/BOOL
     if not result.top_logprobs:
         raise DecodeError(f"{field.name}: the server returned no logprobs for the first token")
     top: Mapping[str, float] = result.top_logprobs[0]
+    bad = {t: v for t, v in top.items() if math.isnan(v) or v == math.inf}
+    if bad:
+        raise DecodeError(f"{field.name}: non-finite logprob(s) in the first token's top logprobs: {bad}")
     raw = {name: max((top[t] for t in variants if t in top), default=-math.inf) for name, variants in field.options.items()}
     if all(v == -math.inf for v in raw.values()):
         raise DecodeError(f"{field.name}: none of the option tokens are among the first token's top logprobs: {dict(top)}")
-    m = max(v for v in raw.values() if v != -math.inf)
-    exps = {k: (math.exp(v - m) if v != -math.inf else 0.0) for k, v in raw.items()}
+    missing = frozenset(name for name, v in raw.items() if v == -math.inf)
+    bound = min(top.values())
+    bounded_raw = {k: (bound if k in missing else v) for k, v in raw.items()}
+    m = max(bounded_raw.values())
+    exps = {k: math.exp(v - m) for k, v in bounded_raw.items()}
     total = sum(exps.values())
-    return {k: v / total for k, v in exps.items()}
+    return {k: v / total for k, v in exps.items()}, missing

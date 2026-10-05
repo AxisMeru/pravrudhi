@@ -22,6 +22,7 @@ state.
 
 from __future__ import annotations
 
+import logging
 import os
 import time
 from collections.abc import Callable, Mapping
@@ -67,11 +68,16 @@ class User:
 
 
 def auth_mode() -> AuthMode:
-    raw = os.environ.get("PRAVRUDHI_AUTH", "disabled").strip().lower()
+    """The authentication mode. Unset or blank is `disabled` (a local single-operator install; `guard_boot` refuses it on
+    a hosted image). An unrecognised value is NEVER `disabled`: it is `required` (fail closed), and `guard_boot` refuses
+    to start with it at all."""
+    raw = os.environ.get("PRAVRUDHI_AUTH", "").strip().lower()
+    if not raw:
+        return AuthMode.DISABLED
     try:
         return AuthMode(raw)
     except ValueError:
-        return AuthMode.DISABLED
+        return AuthMode.REQUIRED
 
 
 def _supabase_url() -> str:
@@ -97,6 +103,9 @@ def guard_boot() -> None:
     that cannot verify anything would reject every request, which is a worse failure than refusing to
     start.
     """
+    from pravrudhi.deployment import validate
+
+    validate()  # an unknown PRAVRUDHI_AUTH / PRAVRUDHI_EDITION, or an unset auth on a hosted image, refuses to start
     mode = auth_mode()
     if mode == AuthMode.REQUIRED and not _supabase_url():
         raise RuntimeError(
@@ -155,6 +164,27 @@ def _introspect(token: str, fetch: HttpFetch) -> dict[str, Any]:
     return dict(claims)
 
 
+_DEFAULT_JWT_LEEWAY_S = 5.0
+_MAX_JWT_LEEWAY_S = 60.0
+
+
+def _jwt_leeway_s() -> float:
+    """Clock-skew tolerance (s) for exp/nbf/iat; env override only within [0, 60], else warn and default."""
+    raw = os.environ.get("PRAVRUDHI_JWT_LEEWAY_S", "").strip()
+    if not raw:
+        return _DEFAULT_JWT_LEEWAY_S
+    try:
+        value = float(raw)
+    except ValueError:
+        value = -1.0
+    if not 0.0 <= value <= _MAX_JWT_LEEWAY_S:
+        logging.getLogger(__name__).warning(
+            "PRAVRUDHI_JWT_LEEWAY_S=%r outside [0, %s]; using default %s s", raw, _MAX_JWT_LEEWAY_S, _DEFAULT_JWT_LEEWAY_S
+        )
+        return _DEFAULT_JWT_LEEWAY_S
+    return value
+
+
 def verify_token(token: str, *, fetch: HttpFetch = _default_fetch) -> dict[str, Any]:
     """Verify a Supabase-issued bearer token and return its claims. Raises on failure.
 
@@ -180,12 +210,14 @@ def verify_token(token: str, *, fetch: HttpFetch = _default_fetch) -> dict[str, 
         if key_data is None:
             raise HTTPException(status_code=401, detail="Unknown signing key")
         key = PyJWK.from_dict(key_data).key
-        result: dict[str, Any] = pyjwt.decode(token, key=key, algorithms=[alg], audience="authenticated")
+        result: dict[str, Any] = pyjwt.decode(token, key=key, algorithms=[alg], audience="authenticated", leeway=_jwt_leeway_s())
         return result
 
     secret = os.environ.get("SUPABASE_JWT_SECRET", "")
     if alg == "HS256" and secret:
-        hs_result: dict[str, Any] = pyjwt.decode(token, key=secret, algorithms=["HS256"], audience="authenticated")
+        hs_result: dict[str, Any] = pyjwt.decode(
+            token, key=secret, algorithms=["HS256"], audience="authenticated", leeway=_jwt_leeway_s()
+        )
         return hs_result
 
     return _introspect(token, fetch)

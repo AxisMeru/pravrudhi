@@ -44,7 +44,7 @@ def test_a_question_outside_the_shipped_corpus_retrieves_nothing_rather_than_noi
     nonzero score on common words). `MIN_RELEVANCE_SCORE` must cut that noise: a genuinely uncovered question
     retrieves nothing, so a caller gets an honest empty result instead of citations that only look plausible."""
     c = nyaya.load_corpus()
-    assert c.retrieve("What is the applicable statute for bns69?", k=8) == []
+    assert c.retrieve("What is the applicable statute for the flight of migratory birds?", k=8) == []
 
 
 def test_min_relevance_score_is_config_driven(tmp_path: Path) -> None:
@@ -120,9 +120,14 @@ def test_a_lay_question_reaches_the_homicide_sections_through_the_lexicon() -> N
     abstained. The gap was vocabulary, so the fix is config: lexicon.json maps lay words to the Code's."""
     c = nyaya.load_corpus()
     q = "A man strikes another on the head with a heavy stick intending grievous hurt; the victim dies two days later."
-    ids = [d.id for d, _ in c.retrieve(q, k=8)]
-    assert {"IPC/Section 304", "IPC/Section 300", "IPC/Section 299", "IPC/Section 302"} & set(ids)
-    assert "IPC/Section 325" in ids or "IPC/Section 320" in ids
+    top8 = [d.id for d, _ in c.retrieve(q, k=8)]
+    top25 = [d.id for d, _ in c.retrieve(q, k=25)]
+    # BNS 2023 now ships beside the IPC and outranks it on this text: the BNS equivalents lead
+    # (117 voluntarily causing grievous hurt first, 101 murder in the top 8) and the IPC equivalents
+    # (325 grievous hurt, 304 culpable homicide) stay reachable, ranked 11 and 19 when measured.
+    assert top8[0] == "BNS/Section 117"
+    assert "BNS/Section 101" in top8
+    assert "IPC/Section 325" in top25 and "IPC/Section 304" in top25
     assert nyaya.expand("nothing legal here", c.expansions) == "nothing legal here"
     assert [d.id for d, _ in c.retrieve("equality before law", k=1)] == ["COI/Article 14"]
     assert [d.id for d, _ in c.retrieve("right to life and personal liberty", k=1)] == ["COI/Article 21"]
@@ -199,7 +204,7 @@ def test_ask_on_an_out_of_corpus_question_shows_the_vendor_no_sources_honestly(t
         text = "I do not know: the provided sources do not cover this."
         return panel.Answer(v.id, v.interface, v.model, "", text, 0.1, None, None)
 
-    rec = nyaya.ask(tmp_path, "What is the applicable statute for bns69?", ("claude-cli",), ask_fn=fn)
+    rec = nyaya.ask(tmp_path, "What is the applicable statute for the flight of migratory birds?", ("claude-cli",), ask_fn=fn)
     assert rec.sources == []
     assert "(no source matched the question)" in seen_prompt["prompt"]
     assert rec.answers[0].verdict == "abstained"
@@ -289,19 +294,27 @@ class TestAdminSessionIsAValidByokProxy:
 
 def test_the_routes_serve_the_product_and_need_the_local_token_to_ask(tmp_path: Path) -> None:
     init_project(tmp_path)
-    fake = _fake({"*": "ANSWER: [IPC/Section 302].\nCITATIONS: IPC/Section 302\nCONFIDENCE: low"})
+    fake = _fake({"*": "ANSWER: [BNS/Section 101].\nCITATIONS: BNS/Section 101\nCONFIDENCE: low"})
     c = TestClient(create_app(tmp_path, nyaya_ask_fn=fake), base_url="http://127.0.0.1:8008")
-    assert c.get("/api/nyaya/corpus?q=murder").json()["hits"][0]["id"].startswith("IPC/")
+    hits = [h["id"] for h in c.get("/api/nyaya/corpus?q=murder").json()["hits"]]
+    # BNS 2023 ships beside the IPC: BNS s.101 (murder) is measured at rank 4 for "murder".
+    assert "BNS/Section 101" in hits[:5]
+    assert c.get("/api/nyaya/corpus?q=punishment for murder under section 302").json()["hits"][0]["id"] == "IPC/Section 302"
     vendors = c.get("/api/nyaya/vendors").json()["vendors"]
-    assert {v["id"] for v in vendors} == set(nyaya.DEFAULT_VENDORS) and all("available" in v for v in vendors)
-    # Regression (2026-09-21): nyaya-p2b-local was added to panel.VENDORS for the arm_c demo but
-    # never added to nyaya.DEFAULT_VENDORS, so /api/nyaya/vendors never listed it and the /nyaya
-    # UI couldn't offer it -- a hardcoded expectation, not compared against the same constant
-    # being tested, so a future accidental removal is actually caught.
-    assert "nyaya-p2b-local" in {v["id"] for v in vendors}
+    # #388: an API caller is offered only the allowlisted vendors (configs/tenant_vendors.yaml), never the cli
+    # vendors (the operator's seat) or the operator's own host shims.
+    from pravrudhi.application import tenant_vendors
+
+    assert {v["id"] for v in vendors} == set(nyaya.DEFAULT_VENDORS) & tenant_vendors.allowed_ids()
+    assert all("available" in v for v in vendors)
+    assert not {"claude-cli", "codex-cli", "nyaya-p2b-local"} & {v["id"] for v in vendors}
     assert c.post("/api/nyaya/ask", json={"question": "murder"}).status_code in (401, 403)  # no local token
     r = c.post(
         "/api/nyaya/ask", json={"question": "murder", "vendors": ["claude-cli"]}, headers={TOKEN_HEADER: app_token(tmp_path)}
+    )
+    assert r.status_code == 403 and "vendor not allowed" in r.text  # a cli vendor is the operator's seat (#388)
+    r = c.post(
+        "/api/nyaya/ask", json={"question": "murder", "vendors": ["openai-api"]}, headers={TOKEN_HEADER: app_token(tmp_path)}
     )
     assert r.status_code == 200 and r.json()["answers"][0]["verdict"] == "licensed"
     r = c.post("/api/nyaya/ask", json={"question": "murder", "vendors": ["nope"]}, headers={TOKEN_HEADER: app_token(tmp_path)})
