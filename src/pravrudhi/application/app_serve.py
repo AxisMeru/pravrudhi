@@ -94,6 +94,7 @@ def serve(root: Path, *, host: str = "127.0.0.1", port: int = DEFAULT_PORT, open
     from pravrudhi.application import tenant_vendors
 
     tenant_vendors.record_bind(host)
+    tenant_vendors.guard_studio_boot()
     app = build_app(root)
     if open_browser:
         webbrowser.open(f"http://{host}:{port}/")

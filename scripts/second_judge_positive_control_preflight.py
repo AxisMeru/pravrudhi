@@ -21,6 +21,9 @@ passed" from "the control never ran", which is the one failure a positive contro
 Both 1 and 2 are non-zero, so a caller that only checks `!= 0` fails closed on all three of issue #100's
 required behaviours without having to understand the distinction.
 
+Needs PRAVRUDHI_EDITION=dev, or NYAYA_HOUSE_JUDGE_MODEL (and NYAYA_SECOND_JUDGE_MODEL) set: it loads the agent
+config, which refuses an unnamed judge model in every edition but an explicit development one (#237).
+
 Cross-repo: the sealed control sets and their source eval_items.jsonl live in prabhasa-nyaya.
   PRAVRUDHI_ROOT (default: this repo's root) -- for configs/nyaya_agent.yaml.
   PRABHASA_NYAYA_ROOT (required) -- for research/gates/P2b/{element_judgment_v1/eval_items.jsonl,

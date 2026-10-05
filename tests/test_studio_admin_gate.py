@@ -127,8 +127,7 @@ def test_health_preflight_and_non_api_paths_stay_open(engine: Path, monkeypatch:
     assert c.get("/api/health").status_code == 200
     preflight = {"Origin": "http://localhost", "Access-Control-Request-Method": "POST"}
     assert c.options("/api/nyaya/ask", headers=preflight).status_code != 403
-    for path in ("/ping", "/openapi.json"):
-        assert c.get(path).status_code not in (401, 403), path
+    assert c.get("/ping").status_code not in (401, 403)
 
 
 def test_refusal_happens_before_the_route_runs_no_vendor_call(engine: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -181,3 +180,14 @@ def test_a_websocket_is_gated_not_just_the_header_path(engine: Path, monkeypatch
         with pytest.raises(WebSocketDisconnect) as e, c.websocket_connect(f"/api/anything{query}"):
             pass
         assert e.value.code == code
+
+
+@pytest.mark.parametrize("path", ["/openapi.json", "/docs", "/redoc"])
+def test_the_schema_and_docs_pages_are_the_operators_on_studio(engine: Path, monkeypatch: pytest.MonkeyPatch, path: str) -> None:
+    _studio(monkeypatch, loopback=False)
+    c = _client(engine)
+    assert c.get(path).status_code == 401
+    assert c.get(path, headers={"Authorization": "Bearer plain-token"}).status_code == 403
+    assert c.get(path, headers={"Authorization": "Bearer admin-token"}).status_code == 200
+    monkeypatch.setenv("PRAVRUDHI_EDITION", "product")  # the product keeps serving its schema
+    assert _client(engine).get(path).status_code == 200
