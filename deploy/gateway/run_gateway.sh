@@ -23,6 +23,8 @@
 #                   /api/v1/analyse-facts agent calls, reached by container name on a shared docker network
 #                   (e.g. http://vllm-judge:8000/v1 on network nyaya-judge) -- the host's 127.0.0.1 is not
 #                   reachable from an engine container, and docker0 -> host is firewalled on this box
+#                   optional STUDIO_HOLD_KV=1: start the Studio tunnel but do NOT write engine_url_studio to KV (the URL is
+#                   only logged), so a blank key kept as containment survives a gateway restart
 #                   optional PRODUCT_DEMO_ANON_PATHS: comma list passed to the PRODUCT engine only as
 #                   PRAVRUDHI_DEMO_ANON_PATHS (anonymous demo routes; the engine refuses any outside its fixed set)
 #                   optional PRODUCT_UPSTREAM=runpod: the product edition has cut over to RunPod serverless
@@ -241,6 +243,14 @@ tunnel() {
   kv_key="engine_url_$edition"
   if [ "$edition" = "product" ] && [ "${PRODUCT_UPSTREAM:-}" = "runpod" ]; then
     kv_key="engine_url_product_rollback"
+  fi
+  # An operator who keeps `engine_url_studio` blank as a containment layer (Studio offline behind its Worker) can hold
+  # it across a gateway restart: with STUDIO_HOLD_KV=1 the Studio tunnel is still started and its URL is logged, but
+  # nothing is written to KV, so the Worker keeps answering 503. Only the exact value 1 holds; the default is unchanged,
+  # and the product edition is never held.
+  if [ "$edition" = studio ] && [ "${STUDIO_HOLD_KV:-}" = 1 ]; then
+    echo "$edition: $url -> KV write HELD (STUDIO_HOLD_KV=1); $kv_key not written, the URL is only in this log"
+    return 0
   fi
   curl -sf "${auth[@]}" -X PUT "$API/storage/kv/namespaces/$CF_KV_ID/values/$kv_key" --data "$url" >/dev/null
   echo "$edition: $url -> KV $kv_key"
