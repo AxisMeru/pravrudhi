@@ -27,12 +27,30 @@ pinned_score_sha256: 700de3aadf50b482f4cf23499a03fd518cf72734bf8f51b950b5983555d
 # never separately, or CI will build a binary that (correctly, loudly) fails to match the pin.
 # Verified locally, 2026-09-26 (web-on-seat0): `lake build` at this exact commit reproduces
 # 700de3aadf50b482f4cf23499a03fd518cf72734bf8f51b950b5983555dea229 byte-for-byte.
+#
+# How many registry contract ids that pinned binary has (Lead-2, 2026-09-27). Deliberately HERE, on the line
+# after the sha it belongs to, and not as a constant inside a checker: the id count is a property of the
+# pinned binary, so a re-pin has to touch both lines in the same diff, on purpose. Read by
+# `scripts/check_contract_classification.py` (a required step in the `guards` job), which asserts
+# `len(nyaya_lean_registry.KNOWN_CONTRACT_IDS)` EQUALS this number -- an exact equality in both directions,
+# not a floor, because a floor would silently accept a registry that shrank. Absent, empty or non-integer
+# fails that check rather than defaulting to anything.
+#
+# The same number is also the digest seal's `EXPECTED_N` in
+# `tests/test_sealed_set_digests.py::TestKnownContractIds` (which pins the count AND a sha256 over the sorted
+# ids, and is the real protection against a registry edit). Two copies of one truth drift, so that guard
+# reads both and REFUSES if they disagree. A re-pin updates this line, the seal's EXPECTED_N and
+# EXPECTED_DIGEST, and the classification lists further down, together, in one commit.
+pinned_registry_count: 37
 
 # The house element judge: an OpenAI-compatible vLLM server serving the fine-tuned element judge.
-# `model: null` means "the first id the server's own /v1/models lists".
+# `model` names the served model id and is REQUIRED in every edition except an explicit PRAVRUDHI_EDITION=dev
+# on a development checkout (a release install is the product; an unset, unknown or mislabelled edition is
+# enforced too): a missing, null or "null" model raises at config load, because an unset model resolves to the
+# first id the server's own /v1/models lists, which is the BASE snapshot on the dev 32B. Set
+# NYAYA_HOUSE_JUDGE_MODEL (the host's fact, e.g. nyaya-judge-4b).
 house_judge:
   base_url: http://127.0.0.1:8110/v1
-  model: null
   # 60s is right for the always-warm 5090. A serverless deployment (no warm workers) needs far more: the
   # judge's own cold start alone runs ~200s. NYAYA_HOUSE_JUDGE_TIMEOUT_S overrides this per-deployment
   # (2026-09-24: a fully-cold demo visit hit ABSTAIN/judge_error every time before this was raised).
@@ -43,10 +61,23 @@ house_judge:
   max_tokens: 30
   # The training prompt truncated the statute to its first 600 characters; the judge sees the same.
   statute_chars: 600
+  # Label-mass guard (2026-09-28, Tag/Lead-2, G-28 follow-up): the combined probability of ' established'
+  # and ' not' (exp(est)+exp(not), true log-probabilities summing to 1 over the whole vocabulary) must
+  # clear this before a decision is trusted at all -- else JudgeOutputError, failing closed to REFER.
+  # Required, not defaulted here: HouseJudge.from_config refuses if this key is absent.
+  label_mass_floor: 0.5
   # How many (contract, element/denial) judge requests one `NyayaAgent.run` call judges at once, bounded by a
   # ThreadPoolExecutor (docs/decisions 2026-09-24). 1 is today's serial behaviour, byte-identical results and
   # audit ordering -- unchanged unless this is raised. NYAYA_JUDGE_MAX_CONCURRENCY overrides.
   max_concurrency: 1
+
+# Whether the house judge's prompt states the legal standard (posture/type -> "prima facie disclosed" vs "proved").
+# false = the training prompt, byte for byte. The standard is resolved and recorded in the audit row either way.
+# Probe (explorer, dev stack (local), seen not sealed): inserting the line into the prompt of a 4B NOT trained on it
+# cut NE false proofs 10/122 -> 6/122 (p=0.29) but lost 20 of 111 named-ingredient hits (p=1.9e-6). Turn on only
+# with weights trained on the line (#192).
+judge_prompt:
+  standard_line: false
 
 # Decision threshold on p_established: established iff p >= tau. 0.74 is the dual-signed v0 value
 # (element-judge 4B v0, val-split false-prove sweep, 2026-09-22).
@@ -81,12 +112,13 @@ retention_days: 7
 # read directly (never merged into this block), same pattern as NYAYA_HOUSE_JUDGE_API_KEY.
 # second_judge:
 #   base_url: http://127.0.0.1:8111/v1
-#   model: null
+#   model: <served model id>   # required unless PRAVRUDHI_EDITION=dev (NYAYA_SECOND_JUDGE_MODEL)
 #   timeout_s: 60
 #   top_logprobs: 20
 #   max_tokens: 30
 #   statute_chars: 600
 #   tau: 0.97
+#   label_mass_floor: 0.5
 
 # The statute text the house judge was trained with (public statute text: IPC 1860 / BNS 2023), keyed by
 # registry contract id. The ONLY statute text the judge ever sees, on every attempt, so it stays in its
@@ -318,6 +350,77 @@ validated_contracts:
 #   - contract56_supervening
 #   - contract56_compensation
 
+# CLASSIFICATION, THE OTHER HALF OF THE ALLOWLIST (Lead-2, 2026-09-27, P2 hardening).
+#
+# READ BY CI ONLY -- NEVER BY THE ENGINE. `load_agent_config` does not read this key and must not start:
+# `tests/test_contract_classification_key_is_ci_only.py` asserts that nothing under `src/` so much as
+# mentions `unvalidated_contracts_documented`, and that test is the guard on this comment. Wiring this list
+# back into the runtime would recreate the fail-OPEN deny-list `validated_contracts:` replaced (issue #36) --
+# an id missing from a deny-list is validated by default, which is the exact shape the release rule now bars.
+# The runtime gate is, and stays, the allowlist above: unlisted means REFER, by construction.
+#
+# WHAT IT IS FOR. The allowlist fails closed, but it does not make the DECISION visible: a pin bump that adds
+# ids to `nyaya_lean_registry.KNOWN_CONTRACT_IDS` changes nothing here, so every config-side test still
+# passes while the new contracts have been classified by default rather than by anyone.
+# `scripts/check_contract_classification.py`, a required step in the `guards` job, asserts every registry id
+# is in EXACTLY ONE of `validated_contracts:` and this list, each entry here carrying a one-line reason. An
+# id in neither fails the build; an id in both fails the build. So the next pin bump cannot merge until
+# somebody writes down, per new id, which side it is on and why.
+#
+# This supersedes the historical `unvalidated_contracts` comment block above as the MACHINE-CHECKED record;
+# that block is kept for its longer per-contract prose, which does not fit on one line.
+#
+# A list of `- id:` / `reason:` mappings, not an `id: reason` mapping: YAML silently keeps only the LAST of
+# two duplicate keys, so a mapping would hide a duplicated id, and the guard's whole argument is that these
+# two lists PARTITION the registry.
+unvalidated_contracts_documented:
+  - id: bns316_misappropriation
+    reason: BNS 2023 successor to IPC 405; the element judge has never been trained or measured on it.
+  - id: bns316_use_or_disposal
+    reason: BNS 2023 successor to IPC 405; the element judge has never been trained or measured on it.
+  - id: bns316_wilfully_suffers
+    reason: BNS 2023 successor to IPC 405; the element judge has never been trained or measured on it.
+  - id: bns318_property
+    reason: BNS 2023 successor to IPC 415; the element judge has never been trained or measured on it.
+  - id: bns318_damaging_act
+    reason: BNS 2023 successor to IPC 415; the element judge has never been trained or measured on it.
+  - id: bns217_misdirected_act
+    reason: BNS 2023 successor to IPC 182; the element judge has never been trained or measured on it.
+  - id: bns217_abuse_of_power
+    reason: BNS 2023 successor to IPC 182; the element judge has never been trained or measured on it.
+  - id: bns80
+    reason: Dowry death; added in the 0.5.28 pin and never covered by a signed eval of the M2-trained judge.
+  - id: bns108
+    reason: Abetment of suicide; added in the 0.5.28 pin and never covered by a signed eval of the judge.
+  - id: bnss187_extended_serious
+    reason: Extended detention, serious branch; conduct-entity defect fixed in 8d9f0af but judge uncovered.
+  - id: bnss187_extended_other
+    reason: Extended detention, other branch; conduct-entity defect fixed in 8d9f0af but judge uncovered.
+  - id: ni138
+    reason: NI Act 138 cheque dishonour; in the pinned registry, no signed eval of the judge covers it.
+  - id: bnss528
+    reason: Reachable through this branch's pin, but the judge has never been trained or measured on it.
+  - id: bsa63
+    reason: One of the eleven ids added by the 2026-09-26 37-contract pin; judge coverage does not exist yet.
+  - id: ibc7_application
+    reason: One of the eleven ids added by the 2026-09-26 37-contract pin; judge coverage does not exist yet.
+  - id: ibc7_admission
+    reason: One of the eleven ids added by the 2026-09-26 37-contract pin; judge coverage does not exist yet.
+  - id: ibc9_application
+    reason: One of the eleven ids added by the 2026-09-26 37-contract pin; judge coverage does not exist yet.
+  - id: ibc9_admission
+    reason: One of the eleven ids added by the 2026-09-26 37-contract pin; judge coverage does not exist yet.
+  - id: contract73
+    reason: Judge uncovered AND a known statute-text defect (glued footnotes/page numbers) must be fixed first.
+  - id: contract74
+    reason: One of the eleven ids added by the 2026-09-26 37-contract pin; judge coverage does not exist yet.
+  - id: contract56_initial_impossibility
+    reason: One of the eleven ids added by the 2026-09-26 37-contract pin; judge coverage does not exist yet.
+  - id: contract56_supervening
+    reason: One of the eleven ids added by the 2026-09-26 37-contract pin; judge coverage does not exist yet.
+  - id: contract56_compensation
+    reason: One of the eleven ids added by the 2026-09-26 37-contract pin; judge coverage does not exist yet.
+
 # Gate 1 (Track-C, GATE1-PRODUCT-WIRING-SPEC-2026-09-26.md): a third gate, pure NLI entailment check, run
 # only on an element the judge(s) above already established. This block configures the threshold and model
 # but does NOT turn the gate on -- only NYAYA_GATE1_ENABLED does that (unset/false = today's behaviour,
@@ -348,5 +451,65 @@ validated_contracts:
 gate1:
   threshold: 0.04074102267622948
   model: "MoritzLaurer/DeBERTa-v3-base-mnli-fever-anli"
+  revision: "6f5cf0a2b59cabb106aca4c287eed12e357e90eb"
   mode: "entailment"
   tau_c: 0.321158230304718
+
+# Issue #44 (standing second-judge positive control) + its 2026-09-26 amendment from Tag/Lead-2: a PRESENT-
+# and-WRONG second judge is not caught by availability monitoring alone (the endpoint answers, so it reads
+# as healthy even if silently miscalibrated or serving the wrong weights). Two fixed control sets, sealed
+# BEFORE any scoring (research/gates/P2b/configC/second_judge_positive_control/ in prabhasa-nyaya, this
+# session): `established_200.json` (200 gold-established v1 elements, stratified sample, seed=44) and
+# `ne_discrimination_71.json` (71 gold-not_established v1 elements -- the 60 NE elements of the 30
+# two-NE-element negative instances, plus the 11 single-NE instances where the 4B itself scored
+# p_established>=0.74 -- selection reads ONLY gold status and the 4B's own score, never the 32B's).
+#
+# SPEC CLARIFIED AFTER DRY-RUN by Lead-2, 2026-09-26 (declared as a deviation, not silent): the original
+# `established_agreement_floor: 0.98` was ambiguous about agreement with WHAT, and a floor of 98% agreement
+# with GOLD was never reachable by this model -- the dry-run measured 191/200 (95.5%), and Lead-2's own
+# independent count over ALL 1264 established v1 elements confirms this is the model's known baseline
+# (1172/1264 = 92.7% have p>=0.5). The INTENT was always serving integrity (catching a broken deployment --
+# a wrong adapter, template drift, a bad merge_and_unload -- not measuring the model's own established-
+# element recall). Re-split into three checks. The NE discrimination safety floor is UNCHANGED.
+#
+# 1. PARITY (serving integrity, the real 98% gate): the LIVE 32B's own tau-decisions (p>=ne_discrimination_
+#    tau or not) on all 271 control elements (200+71) must agree with the SEALED reference decisions
+#    (research/gates/P2b/configC/second_judge_positive_control/'s sealed_reference_p, captured from
+#    sxm_parity_scores_32b_final.jsonl, endpoint bmps0hbfupilz7, adapter nyaya-element-judge-32b-v0@0cb1d508)
+#    on >=parity_floor, AND median(|p_live - p_sealed|) <= parity_median_abs_dp. Trivially 100%/0 by
+#    construction against itself -- only meaningful live, against a running endpoint.
+# 2. NE DISCRIMINATION vs GOLD (safety, UNCHANGED): the live 32B must score p<ne_discrimination_tau on
+#    >=ne_discrimination_min of the 71 NE elements. Dry-run: 70/71, ZERO slack (the closest item sits right
+#    at the tau -- item id and exact margin are PRIVATE, sealed in prabhasa-nyaya, not this public repo).
+#    One more fooled element fails this closed -- the safe direction.
+# 3. Established accuracy vs GOLD: RECORDED every run (count with p>=0.5 and count with p>=tau, out of 200),
+#    NEVER a gate -- a miss on a gold-established element fails safe (not_confirmed -> REFER, a coverage
+#    loss, never a false proof). Alert (not fail-closed) if it drops more than est_accuracy_alert_drop
+#    percentage points below the sealed baseline (191/200 = 95.5%, this dry-run) on the same 200 elements.
+#
+# Below the parity floor OR the NE discrimination floor: the second judge is treated as unavailable (same
+# fail-closed-to-REFER path as an absent/errored endpoint -- AndGateJudge's existing second_judge_unavailable
+# handling, no new decision logic in the judge itself), and Lead-2 is alerted. Trigger: every (re)deploy or
+# config change of the second-judge endpoint, every engine release, and on a schedule -- always a preflight,
+# never through the public analyse-facts path.
+#
+# KNOWN LIMITATION OF THE PARITY CHECK (recorded on Lead-2's instruction, 2026-09-27, issue #100).
+# PARITY MEASURES DRIFT FROM THE SEALED STATE, NOT CORRECTNESS. It compares the live judge's scores against
+# `sealed_reference_p`, which is the second judge's OWN earlier serving output -- so a judge that was
+# already wrong when it was sealed passes parity at 100%, and parity would not notice. It answers "is this
+# still the model that was sealed", never "is the model right about the law". NE discrimination (check 2) is
+# the only gate in this control measured against GOLD, and its floor sits at the dry-run value with zero
+# slack. Treat a green parity result as evidence of serving integrity only.
+#
+# COMPLETENESS OF THE CONTROL SETS (issue #100). Both sealed sets are verified at load time against the row
+# count and sha256 pinned in `configs/sealed_control_manifest.yaml`, and the verdict re-checks the number of
+# elements actually evaluated against those pinned counts as an identity. A truncated or emptied set, or a
+# run that evaluated nothing, yields available=False and a non-zero exit -- never a pass. The digests in
+# that manifest are UNPINNED today, which means the control REFUSES TO RUN until whoever holds the sealed
+# files fills them in; see that file's header.
+second_judge_positive_control:
+  parity_floor: 0.98
+  parity_median_abs_dp: 0.02
+  ne_discrimination_min: 70
+  ne_discrimination_tau: 0.97
+  est_accuracy_alert_drop: 3

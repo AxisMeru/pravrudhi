@@ -38,12 +38,15 @@ from pravrudhi.application.nyaya_agent import (
     select_contracts,
 )
 from pravrudhi.application.nyaya_judges import (
+    GATE1_MODEL_DEFAULT,
+    GATE1_MODEL_REVISION_DEFAULT,
     GATE1_TAU_C_DEFAULT,
     GATE1_THRESHOLD_DEFAULT,
     AndGateJudge,
     ElementJudgment,
     JudgeOutputError,
     JudgeRequest,
+    SpanRelevanceJudge,
 )
 
 REPO = Path(__file__).resolve().parent.parent
@@ -301,14 +304,15 @@ class TestLoop:
         assert TOY_FACTS[1][el0.start : el0.end] == "never to marry Lata"  # type: ignore[misc]
         assert (el0.offsets_source, el0.occurrences) == ("system", 1)
 
-    def test_multiple_occurrences_take_the_first_and_are_counted(self, tmp_path: Path) -> None:
+    def test_an_ambiguous_quote_is_not_established_never_grounded_on_its_first_occurrence(self, tmp_path: Path) -> None:
         script = _proof_script(TOY_FACTS)
-        script[BNS69_EL[0]] = [_est("F2", TOY_FACTS[1], "a")]
+        script[BNS69_EL[0]] = [_est("F2", TOY_FACTS[1], "ha")]
         run, _, _ = _run(tmp_path, script)
-        el0 = run.contracts[0].elements[0]
-        assert el0.start == TOY_FACTS[1].find("a")
-        assert el0.occurrences == TOY_FACTS[1].count("a")
-        assert el0.occurrences > 1
+        c = run.contracts[0]
+        el0 = c.elements[0]
+        assert (el0.status, el0.quote_check) == ("not_established", "ambiguous_quote")
+        assert el0.start is None and el0.end is None and el0.occurrences == TOY_FACTS[1].count("ha")
+        assert c.outcome == "ABSTAIN"
 
     def test_every_attempt_uses_the_same_training_statute_never_the_binary_text(self, tmp_path: Path) -> None:
         script = _proof_script(TOY_FACTS)
@@ -341,6 +345,20 @@ class TestLoop:
         el1 = run.contracts[0].elements[1]
         assert (el1.status, el1.p_established, el1.quote) == ("established", 0.97, good.quote)
         assert run.contracts[0].outcome == "PROOF"
+
+    def test_the_proceeding_posture_reaches_every_judge_request(self, tmp_path: Path) -> None:
+        _, judge, _ = _run(tmp_path, _proof_script(TOY_FACTS))
+        assert {r.proceeding_posture for r in judge.requests} == {None}
+        judge2 = ScriptedJudge(_proof_script(TOY_FACTS))
+        NyayaAgent(judge2, _registry(), _config(tmp_path)).run(
+            TOY_FACTS, narrative="TOY narrative.", contract_ids=["bns69"], proceeding_posture="quash")
+        assert {r.proceeding_posture for r in judge2.requests} == {"quash"}
+
+    def test_an_invalid_posture_is_refused_before_any_judge_call(self, tmp_path: Path) -> None:
+        judge = ScriptedJudge(_proof_script(TOY_FACTS))
+        with pytest.raises(ValueError, match="proceeding_posture"):
+            NyayaAgent(judge, _registry(), _config(tmp_path)).run(TOY_FACTS, proceeding_posture="bail")
+        assert judge.requests == []
 
     def test_facts_reach_the_judge_as_numbered_pairs(self, tmp_path: Path) -> None:
         _, judge, _ = _run(tmp_path, _proof_script(TOY_FACTS))
@@ -707,10 +725,30 @@ class TestUnclassifiedRegistryIdIsGated:
         assert unknown == frozenset(), f"validated_contracts entries the registry does not list: {sorted(unknown)}"
 
     def test_the_ids_no_list_denies_are_exactly_the_signed_fourteen(self) -> None:
-        """Must pass EITHER WAY, and the guard the fail-open gap actually needs in CI: the set treated as
-        validated must be the fourteen the signed eval covers -- no more. The day a pin bump adds an id
-        nobody classifies, this test fails, instead of that id shipping as validated-by-default. Reads the
-        allowlist directly now that the deny-list complement it used to fall back to is gone."""
+        """Must pass EITHER WAY: the set treated as validated must be the fourteen the signed eval covers --
+        no more. Reads the allowlist directly now that the deny-list complement it used to fall back to is
+        gone.
+
+        WHAT THIS TEST DOES NOT DO (corrected 2026-09-27; it used to claim "the day a pin bump adds an id
+        nobody classifies, this test fails", which was false). A pin bump changes
+        `nyaya_lean_registry.KNOWN_CONTRACT_IDS`, not `validated_contracts:`, so the assertion below still
+        compares fourteen against fourteen and still passes while the new ids sit unclassified. This test
+        catches an unreviewed addition to the ALLOWLIST, and only that.
+
+        The two checks that actually cover the pin bump, both outside this file:
+
+          * the DIGEST SEAL over the registry id set --
+            `tests/test_sealed_set_digests.py::TestKnownContractIds` (`EXPECTED_N = 37` plus a sha256 over
+            the sorted ids). A bump that adds or renames an id fails there until someone updates the count
+            and the digest in the same commit. That is the protection against a silent registry change.
+          * the CLASSIFICATION CHECK -- `scripts/check_contract_classification.py`, a required step in the
+            `guards` job, which asserts every registry id is in exactly one of `validated_contracts:` and
+            `unvalidated_contracts_documented:`, the latter with a one-line reason per entry. That is the
+            protection against an id nobody classifies.
+
+        The runtime direction is safe either way: `validated_contracts:` is an allowlist, so an unclassified
+        id is REFER by construction, never validated-by-default.
+        """
         config = load_agent_config(REPO)
         treated_as_validated = frozenset(config.validated_contracts)
         assert treated_as_validated == V1_VALIDATED_CONTRACTS, (
@@ -781,6 +819,29 @@ def _second(status: str, p: float) -> ElementJudgment:
     """A second-judge reply as a bare `Judge` double would give it -- fact_id/quote are never read from the
     second (AndGateJudge always keeps the primary's span), so they are dummy values here."""
     return ElementJudgment(status, p, fact_id="Fx", quote="unused")
+
+
+def _denial_script(facts: list[str]) -> dict[str, list[ElementJudgment | Exception]]:
+    """`_proof_script` with the DENY defeater established TOO: the wire this assembles has a denied claim, so
+    the Lean answer is DENIAL (`outcome_from_lean`'s `denied_claims` branch), not PROOF and not ABSTAIN.
+
+    Needed because every existing second-judge test is proof-shaped (`_proof_script` leaves the defeater
+    `_not()`), so their Lean answer is never DENIAL -- the one shape that matters for "can an element nobody
+    answered for end up inside an affirmative negative finding"."""
+    script = _proof_script(facts)
+    script[BNS69_DENY] = [_est("F3", facts[2], "sexual intercourse with Kiran")]
+    return script
+
+
+def _second_answers_everything() -> dict[str, list[ElementJudgment | Exception]]:
+    """A second judge that answers "established" for all three tasks of `bns69` (2 elements + the defeater),
+    comfortably clear of tau 0.97's logit-distance band -- so a referral in any test below comes from the
+    unavailability rule, never from the band."""
+    return {
+        BNS69_EL[0]: [_second("established", 0.99)],
+        BNS69_EL[1]: [_second("established", 0.99)],
+        BNS69_DENY: [_second("established", 0.99)],
+    }
 
 
 class TestSecondJudgeReferBand:
@@ -973,6 +1034,242 @@ class TestSecondJudgeReferBand:
     def test_env_var_absent_by_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("NYAYA_SECOND_JUDGE_REFER_LOGIT_DELTA", raising=False)
         assert load_agent_config(REPO).second_judge is None
+
+    # -- DENIAL x an element the second judge never answered for (Tag's release-blocking question,
+    # -- 2026-09-26) ---------------------------------------------------------------------------------------
+    #
+    # The question: can a DENIAL -- an affirmative finding that the offence is NOT made out -- derive from an
+    # element the second judge never answered for? Such an element is `not_evaluated_second_unavailable`, and
+    # `_run_contract`'s assertions map is built as `{r.element: r.status == "established"}`, so it reaches
+    # Lean as a bare `False`, indistinguishable there from an element a judge genuinely scored unmet.
+    #
+    # The answer is NO, and it rests on TWO independent guarantees:
+    #   (a) ORDERING: `_run_contract` refers on `unavailable_second` BEFORE it acts on the Lean outcome, and
+    #       that list is built over every result (elements AND defeaters), so ONE unanswered element among
+    #       answered ones is enough -- the referral is per element, not per contract and not "the second
+    #       judge is wholly down".
+    #   (b) DIRECTION: the flattening is one-way. Only "established" maps to True, so a missing answer can
+    #       only ever WITHDRAW support -- it can never manufacture the established defeater a DENIAL needs
+    #       (`assemble_assertions` omits a non-established defeater from the wire entirely).
+    #
+    # Neither guarantee had a test over the conjunction before this block: the three
+    # `test_second_unavailable_*` cases above are all proof-shaped (Lean says ABSTAIN or PROOF, never
+    # DENIAL), and `TestLoop.test_denial_established_is_a_denial` runs single-judge with no AND gate at all.
+    # These cases assert behaviour that already works -- they are a regression guard, not a change request.
+
+    def test_denial_shaped_script_reaches_denial_through_the_and_gate(self, tmp_path: Path) -> None:
+        """THE CONTROL, and the most important case in this block: with every task answered by both judges,
+        a `_denial_script` really does come out as a DENIAL through the real `AndGateJudge`. Without this,
+        every referral assertion below would pass vacuously on a fixture that simply never denies."""
+        c = self._run(tmp_path, _denial_script(TOY_FACTS), _second_answers_everything(), delta=None)
+        assert c.outcome == "DENIAL"
+        assert c.reason == "denial_established"
+        assert c.lean_outcome == "DENIAL"
+        assert c.assertions[BNS69_DENY] is True
+        assert c.unavailable_second == []
+
+    def test_denial_with_one_element_the_second_never_answered_refers(self, tmp_path: Path) -> None:
+        """Guarantee (a), the case the whole question was about: the defeater is fully answered by BOTH
+        judges and established -- so Lean itself still says DENIAL -- while ONE required element's second
+        judge is unreachable. The contract must come out REFER_TO_LAWYER / `second_judge_unavailable`, not
+        DENIAL: the referral is per element, and one unanswered element among answered ones is enough."""
+        second = _second_answers_everything()
+        second[BNS69_EL[1]] = [ConnectionError("second judge unreachable")]
+        c = self._run(tmp_path, _denial_script(TOY_FACTS), second, delta=None)
+        assert c.lean_outcome == "DENIAL"  # Lean's own answer is unchanged...
+        assert c.outcome == "REFER_TO_LAWYER"  # ...but the chain never gets there
+        assert c.reason == "second_judge_unavailable"
+        assert c.unavailable_second == [BNS69_EL[1]]
+        assert c.elements[1].status == "not_evaluated_second_unavailable"
+        assert c.assertions[BNS69_EL[1]] is False  # flattened to false, exactly as the question feared
+        assert c.assertions[BNS69_DENY] is True  # and the defeater really was established
+
+    def test_denial_defeater_the_second_never_answered_is_not_asserted_at_all(self, tmp_path: Path) -> None:
+        """Guarantee (b) on the defeater itself: when the DEFEATER is the task the second judge never
+        answered for, it is not sent to Lean as `False` -- `assemble_assertions` omits a non-established
+        defeater from the wire entirely, so it is ABSENT from the assertions map. Lean would have answered
+        PROOF on what remains; the contract refers instead."""
+        second = _second_answers_everything()
+        second[BNS69_DENY] = [ConnectionError("second judge unreachable")]
+        c = self._run(tmp_path, _denial_script(TOY_FACTS), second, delta=None)
+        assert c.elements[2].status == "not_evaluated_second_unavailable"
+        assert BNS69_DENY not in c.assertions  # absent, never present-as-false
+        assert c.lean_outcome == "PROOF"
+        assert c.outcome == "REFER_TO_LAWYER"
+        assert c.reason == "second_judge_unavailable"
+        assert c.unavailable_second == [BNS69_DENY]
+
+    @pytest.mark.parametrize(
+        "reply",
+        ["no JSON object in the reply: ''", "the server returned no logprobs for the first token"],
+    )
+    def test_denial_with_an_unreadable_second_reply_takes_the_same_path(
+        self, tmp_path: Path, reply: str,
+    ) -> None:
+        """A second judge that is configured and reachable but answers unparseably (or emptily) for ONE
+        element is the SAME fail-closed path as an unreachable one, not a fall-through to a status that
+        flattens to a silent `False`: `HouseJudge` raises `JudgeOutputError`, which is not an HTTP 4xx, so
+        `AndGateJudge` records it under the `second_unavailable` prefix like any other transient failure."""
+        second = _second_answers_everything()
+        second[BNS69_EL[1]] = [JudgeOutputError(reply)]
+        c = self._run(tmp_path, _denial_script(TOY_FACTS), second, delta=None)
+        assert c.lean_outcome == "DENIAL"
+        assert c.outcome == "REFER_TO_LAWYER"
+        assert c.reason == "second_judge_unavailable"
+        assert c.elements[1].status == "not_evaluated_second_unavailable"
+        assert c.elements[1].second_unavailable is True
+
+    def test_denial_with_a_per_element_second_timeout_takes_the_same_path(self, tmp_path: Path) -> None:
+        """A timeout on ONE element rather than on the whole call: the exception shape is the one
+        `HouseJudge._complete_with_fallback` actually raises once its own fallbacks are exhausted. The other
+        two tasks answer normally, so this pins the per-element granularity, not a whole-run failure."""
+        second = _second_answers_everything()
+        second[BNS69_EL[1]] = [
+            RuntimeError("judge backend 0 (http://127.0.0.1:8111/v1) failed: ReadTimeout: timed out")
+        ]
+        c = self._run(tmp_path, _denial_script(TOY_FACTS), second, delta=None)
+        assert c.lean_outcome == "DENIAL"
+        assert c.outcome == "REFER_TO_LAWYER"
+        assert c.reason == "second_judge_unavailable"
+        assert c.elements[1].status == "not_evaluated_second_unavailable"
+        assert c.elements[0].status == "established"  # the other elements answered normally
+        assert c.elements[2].status == "established"
+
+    @pytest.mark.parametrize(
+        ("status", "asserted"),
+        [
+            ("established", True),
+            ("not_confirmed", False),
+            ("not_established", False),
+            ("not_evaluated_second_unavailable", False),
+        ],
+    )
+    def test_only_established_flattens_to_true_in_the_lean_wire(
+        self, tmp_path: Path, status: str, asserted: bool,
+    ) -> None:
+        """Guarantee (b) over every `ElementStatus` reachable WITHOUT Gate 1: each of the four statuses the
+        judge(s) alone can produce, made end to end by the real gate, and what each one becomes in the
+        assertions map Lean is checked against. Only "established" maps to True; all three non-established
+        labels -- including the "nobody answered" one -- map to False. There is no status a missing answer
+        flattens to True, which is why a missing answer can never manufacture the established defeater a
+        DENIAL requires, nor the all-elements-true a PROOF requires.
+
+        `ElementStatus`'s fifth value, `not_evaluated_gate1_unavailable` (#63), is deliberately NOT covered
+        here: producing it needs a Gate 1 score model, which this class has no double for, and its referral
+        is a separate rule (`gate1_unavailable`) from the second judge's. It flattens the same way -- the
+        expression is `status == "established"`, so every non-established label is False by construction --
+        but it is asserted where Gate 1's own doubles live, not here. `TestGate1ReferWiring` is the natural
+        home if that case is ever wanted end to end.
+
+        Proof-shaped here on purpose: `lean_outcome` then separates the two directions cleanly (PROOF when
+        the element is True, ABSTAIN when it is False). The contract's FINAL outcome is deliberately not
+        asserted -- `not_confirmed`'s p=0.6 sits in the primary's own `refer_band`, so that row refers for a
+        different and unrelated reason, which is not what this case is about."""
+        primary = _proof_script(TOY_FACTS)
+        second: dict[str, list[ElementJudgment | Exception]] = {
+            BNS69_EL[0]: [_second("established", 0.99)], BNS69_EL[1]: [_second("established", 0.99)],
+        }
+        if status == "not_confirmed":
+            primary[BNS69_EL[0]] = [_not(0.6)]  # leans established (p >= 0.5), never clears tau 0.74
+        elif status == "not_established":
+            primary[BNS69_EL[0]] = [_not(0.2)]  # genuinely scored unmet
+        elif status == "not_evaluated_second_unavailable":
+            second[BNS69_EL[0]] = [ConnectionError("second judge unreachable")]
+        c = self._run(tmp_path, primary, second, delta=None)
+        assert c.elements[0].status == status
+        assert c.assertions[BNS69_EL[0]] is asserted
+        assert c.lean_outcome == ("PROOF" if asserted else "ABSTAIN")
+
+    def test_denial_shaped_script_whose_primary_never_answers_abstains_without_a_lean_call(
+        self, tmp_path: Path,
+    ) -> None:
+        """The neighbouring path, for completeness: when the PRIMARY judge never answers for an element (every
+        attempt raised), the second judge is never reached, so there is no `second_unavailable` flag to refer
+        on. A DENIAL still cannot come out -- `_run_contract`'s `judge_error` check runs before the assertions
+        map is built at all, so the contract ABSTAINs and Lean is never called on a wire containing an element
+        nobody judged. Asserts only today's outcome; the LABEL such an element carries is a separate
+        question, deliberately not pinned here."""
+        primary_script = _denial_script(TOY_FACTS)
+        primary_script[BNS69_EL[1]] = [ConnectionError("house judge unreachable")]
+        primary = ScriptedJudge(primary_script)
+        second = ScriptedJudge(_second_answers_everything())
+        gate = AndGateJudge(primary, second, tau_primary=0.74, tau_second=self.TAU2)
+        registry = _registry()
+        agent = NyayaAgent(gate, registry, _config(tmp_path))
+        c = agent.run(TOY_FACTS, narrative="TOY narrative.", contract_ids=["bns69"]).contracts[0]
+        assert c.outcome == "ABSTAIN"
+        assert c.reason == "judge_error"
+        assert c.elements[1].error is not None
+        assert c.assertions is None and c.lean is None and c.lean_outcome is None
+        assert registry.checks == []  # no Lean call at all
+
+
+class TestFactIdDisagreementPropagation:
+    """2026-09-27: `second_fact_id`/`fact_id_disagreement` are computed by `AndGateJudge` (`ElementJudgment`'s
+    own fields) but were being discarded before ever reaching `ElementResult` -- found investigating the
+    fact-id convention skew (no sealed run's response ever recorded a disagreement, though the audit log's
+    `judgment.as_dict()` always has). Behaviour-neutral: propagating them changes no verdict, quote, or
+    outcome -- every assertion below about `status`/`outcome` is unchanged from what `TestSecondJudgeReferBand`
+    already established; only the two new fields are new here."""
+
+    TAU2 = 0.97
+
+    def _run(
+        self, tmp_path: Path, primary_script: dict[str, list[Any]], second_script: dict[str, list[Any]],
+    ) -> Any:
+        primary = ScriptedJudge(primary_script)
+        second = ScriptedJudge(second_script)
+        gate = AndGateJudge(primary, second, tau_primary=0.74, tau_second=self.TAU2)
+        config = _config(tmp_path, second_judge={"tau": self.TAU2})
+        agent = NyayaAgent(gate, _registry(), config)
+        return agent.run(TOY_FACTS, narrative="TOY narrative.", contract_ids=["bns69"]).contracts[0]
+
+    def test_propagates_when_both_judges_run_and_cite_different_facts(self, tmp_path: Path) -> None:
+        primary_script = _proof_script(TOY_FACTS)
+        second_script = {
+            BNS69_EL[0]: [ElementJudgment("established", 0.99, fact_id="Fdifferent", quote="unused")],
+            BNS69_EL[1]: [_second("established", 0.99)],  # cites "Fx", still != primary's "F3" -- also a
+                                                           # disagreement, checked on el0 below for clarity
+        }
+        c = self._run(tmp_path, primary_script, second_script)
+        el0 = c.elements[0]
+        # primary cited "F2" (_proof_script); second cited "Fdifferent" -- a genuine disagreement
+        assert el0.fact_id == "F2"
+        assert el0.second_fact_id == "Fdifferent"
+        assert el0.fact_id_disagreement is True
+        # verdict/outcome untouched by this feature: same as TestSecondJudgeReferBand's own established case
+        assert el0.status == "established"
+        assert c.outcome == "PROOF"
+
+    def test_no_disagreement_when_both_judges_cite_the_same_fact(self, tmp_path: Path) -> None:
+        primary_script = _proof_script(TOY_FACTS)
+        second_script = {
+            BNS69_EL[0]: [ElementJudgment("established", 0.99, fact_id="F2", quote="unused")],
+            BNS69_EL[1]: [ElementJudgment("established", 0.99, fact_id="F3", quote="unused")],
+        }
+        c = self._run(tmp_path, primary_script, second_script)
+        el0 = c.elements[0]
+        assert el0.second_fact_id == "F2"
+        assert el0.fact_id_disagreement is False
+        el1 = c.elements[1]
+        assert el1.second_fact_id == "F3"
+        assert el1.fact_id_disagreement is False
+
+    def test_absent_when_the_second_judge_is_skipped(self, tmp_path: Path) -> None:
+        """The primary rejects outright (`_not()`), so the second is never asked (cost-saving skip) --
+        `second_fact_id`/`fact_id_disagreement` must read as None/False, the same convention every other
+        second-judge field on `ElementResult` already follows."""
+        primary_script = _proof_script(TOY_FACTS)
+        primary_script[BNS69_EL[0]] = [_not()]
+        second_script = {
+            BNS69_EL[1]: [_second("established", 0.99)],
+            BNS69_DENY: [_second("not_established", 0.02)],
+        }
+        c = self._run(tmp_path, primary_script, second_script)
+        el0 = c.elements[0]
+        assert el0.status != "established"
+        assert el0.second_fact_id is None
+        assert el0.fact_id_disagreement is False
 
 
 class TestTruthfulElementStatus:
@@ -1307,9 +1604,51 @@ class TestStatuteMismatch:
         cfg = _config(tmp_path, judge_statute_text={"bns69": "RETRIEVED statute text for bns69"})
         run = NyayaAgent(judge, _registry(), cfg).run(TOY_FACTS, contract_ids=["bns69"])
         assert run.contracts[0].statute_text_mismatch is False
+        assert run.contracts[0].statute_text_similarity == 1.0
+
+    def test_similarity_separates_layout_only_from_a_short_paraphrase(self, tmp_path: Path) -> None:
+        judge = ScriptedJudge(_proof_script(TOY_FACTS))
+        cfg = _config(tmp_path, judge_statute_text={"bns69": "RETRIEVED  statute\ntext for bns69"})
+        run = NyayaAgent(judge, _registry(), cfg).run(TOY_FACTS, contract_ids=["bns69"])
+        c = run.contracts[0]
+        assert c.statute_text_mismatch is True and c.statute_text_similarity == 1.0
+        run2, _, _ = _run(tmp_path, _proof_script(TOY_FACTS))
+        assert 0.0 < run2.contracts[0].statute_text_similarity < 1.0
 
 
 class TestAudit:
+    def test_run_start_records_version_models_host_class_and_score_sha(self, tmp_path: Path) -> None:
+        import pravrudhi
+
+        cfg = _config(
+            tmp_path,
+            house_judge={"base_url": "https://api.runpod.ai/v2/ep1/openai/v1", "model": "nyaya-judge-4b"},
+            second_judge={"base_url": "http://127.0.0.1:8112/v1", "model": "judge32b"},
+        )
+        run = NyayaAgent(ScriptedJudge(_proof_script(TOY_FACTS)), _registry(), cfg).run(TOY_FACTS, contract_ids=["bns69"])
+        out = json.loads(run.audit_path.read_text().splitlines()[0])["output"]
+        assert out["engine_version"] == pravrudhi.__version__
+        assert out["primary_judge_model"] == "nyaya-judge-4b"
+        assert out["second_judge_model"] == "judge32b"
+        assert out["primary_judge_host_class"] == "serverless"
+        assert out["second_judge_host_class"] == "local"
+        assert out["score_sha256"] == _registry().sha256
+        assert "runpod" not in json.dumps(out) and "127.0.0.1" not in json.dumps(out)
+
+    def test_run_start_without_a_second_judge_or_pinned_model_says_so(self, tmp_path: Path) -> None:
+        run, _, _ = _run(tmp_path, _proof_script(TOY_FACTS))
+        out = json.loads(run.audit_path.read_text().splitlines()[0])["output"]
+        assert out["second_judge_model"] is None and out["second_judge_host_class"] is None
+        assert "primary_judge_model" in out and "engine_version" in out
+
+    def test_the_standard_is_recorded_even_when_the_judge_never_sees_it(self, tmp_path: Path) -> None:
+        judge = ScriptedJudge(_proof_script(TOY_FACTS))
+        run = NyayaAgent(judge, _registry(), _config(tmp_path)).run(TOY_FACTS, contract_ids=["bns69"], proceeding_posture="quash")
+        row = json.loads(run.audit_path.read_text().splitlines()[0])["output"]
+        got = (row["standard"], row["standard_source"], row["proceeding_posture"])
+        assert got == ("prima_facie_disclosed", "request", "quash")
+        assert row["standard_in_judge_prompt"] is False
+
     def test_every_step_is_a_jsonl_line_with_hashed_inputs(self, tmp_path: Path) -> None:
         run, _, _ = _run(tmp_path, _proof_script(TOY_FACTS))
         lines = [json.loads(x) for x in run.audit_path.read_text().splitlines()]
@@ -1380,7 +1719,7 @@ class TestConfig:
 
     def test_second_judge_env_vars_are_absent_by_default_too(self, monkeypatch: pytest.MonkeyPatch) -> None:
         for var in ("NYAYA_SECOND_JUDGE_BASE_URL", "NYAYA_SECOND_JUDGE_MODEL", "NYAYA_SECOND_JUDGE_TAU",
-                    "NYAYA_SECOND_JUDGE_TIMEOUT_S"):
+                    "NYAYA_SECOND_JUDGE_TIMEOUT_S", "NYAYA_SECOND_JUDGE_FALLBACK_URLS"):
             monkeypatch.delenv(var, raising=False)
         assert load_agent_config(REPO).second_judge is None
 
@@ -1410,6 +1749,83 @@ class TestConfig:
         assert sj is not None
         assert sj["base_url"] == "http://from-yaml/v1"  # untouched: no env var for it
         assert sj["tau"] == 0.97  # env override wins
+
+    def test_second_judge_fallback_urls_env_introduces_the_block(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """2026-09-27 (Lead-2, 5090-second-judge-exposure design sec 2.2): mirrors house_judge's own
+        NYAYA_HOUSE_JUDGE_FALLBACK_URLS -- can introduce second_judge on its own, exactly like the other
+        NYAYA_SECOND_JUDGE_* overrides above (though a real deployment would also set base_url/tau)."""
+        monkeypatch.setenv("NYAYA_SECOND_JUDGE_FALLBACK_URLS", "https://a40-fallback.example/v1")
+        sj = load_agent_config(REPO).second_judge
+        assert sj is not None
+        assert sj["base_urls_fallback"] == ["https://a40-fallback.example/v1"]
+
+    def test_second_judge_fallback_urls_env_splits_strips_and_filters_a_comma_list(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv(
+            "NYAYA_SECOND_JUDGE_FALLBACK_URLS", " https://a.example/v1 , https://b.example/v1,, "
+        )
+        sj = load_agent_config(REPO).second_judge
+        assert sj is not None
+        assert sj["base_urls_fallback"] == ["https://a.example/v1", "https://b.example/v1"]
+
+    def test_second_judge_fallback_urls_env_overrides_a_configured_block(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import yaml
+
+        cfg_dir = tmp_path / "configs"
+        cfg_dir.mkdir()
+        body = yaml.safe_load((REPO / "configs" / "nyaya_agent.yaml").read_text())
+        body["second_judge"] = {
+            "base_url": "http://from-yaml/v1", "tau": 0.97, "statute_chars": 600, "max_tokens": 30,
+            "top_logprobs": 20, "timeout_s": 60, "base_urls_fallback": ["http://from-yaml-fallback/v1"],
+        }
+        (cfg_dir / "nyaya_agent.yaml").write_text(yaml.safe_dump(body))
+        monkeypatch.setenv("NYAYA_SECOND_JUDGE_FALLBACK_URLS", "https://env-fallback.example/v1")
+        sj = load_agent_config(tmp_path).second_judge
+        assert sj is not None
+        assert sj["base_urls_fallback"] == ["https://env-fallback.example/v1"]  # env wins over yaml
+
+    def test_second_judge_fallback_urls_env_unset_leaves_a_yaml_configured_list_untouched(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Neither this override nor the api-key-every-backend fix may change behaviour when the new env
+        var is unset (Lead-2's own condition on both follow-ons)."""
+        import yaml
+
+        monkeypatch.delenv("NYAYA_SECOND_JUDGE_FALLBACK_URLS", raising=False)
+        cfg_dir = tmp_path / "configs"
+        cfg_dir.mkdir()
+        body = yaml.safe_load((REPO / "configs" / "nyaya_agent.yaml").read_text())
+        body["second_judge"] = {
+            "base_url": "http://from-yaml/v1", "tau": 0.97, "statute_chars": 600, "max_tokens": 30,
+            "top_logprobs": 20, "timeout_s": 60, "base_urls_fallback": ["http://from-yaml-fallback/v1"],
+        }
+        (cfg_dir / "nyaya_agent.yaml").write_text(yaml.safe_dump(body))
+        sj = load_agent_config(tmp_path).second_judge
+        assert sj is not None
+        assert sj["base_urls_fallback"] == ["http://from-yaml-fallback/v1"]
+
+    @pytest.mark.parametrize(
+        "raw", ["   ", ",,,", "not-a-url", "https://ok.example/v1, ftp://bad.example/v1"]
+    )
+    def test_second_judge_fallback_urls_env_fails_closed_on_a_malformed_value(
+        self, raw: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A set-but-broken value must never be silently accepted (empty list) or silently filtered down
+        to fewer URLs than the operator believes are configured -- refuse to boot instead. (A genuinely
+        empty string is treated as unset, the same convention every other NYAYA_*_URL override in this
+        module already uses -- `if os.environ.get(...):` -- so it is not one of the malformed cases here.)"""
+        monkeypatch.setenv("NYAYA_SECOND_JUDGE_FALLBACK_URLS", raw)
+        with pytest.raises(ValueError, match="NYAYA_SECOND_JUDGE_FALLBACK_URLS"):
+            load_agent_config(REPO)
+
+    def test_second_judge_fallback_urls_env_empty_string_is_treated_as_unset(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("NYAYA_SECOND_JUDGE_FALLBACK_URLS", "")
+        assert load_agent_config(REPO).second_judge is None
 
     def test_env_only_second_judge_inherits_prompt_shape_from_house_judge(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Lead-2, 2026-09-25: a second_judge built purely from NYAYA_SECOND_JUDGE_* env vars (no yaml
@@ -1464,7 +1880,8 @@ class TestConfig:
         at all must still be byte-identical to before this change (None, no house_judge leakage)."""
         for var in ("NYAYA_SECOND_JUDGE_BASE_URL", "NYAYA_SECOND_JUDGE_MODEL", "NYAYA_SECOND_JUDGE_TAU",
                     "NYAYA_SECOND_JUDGE_TIMEOUT_S", "NYAYA_SECOND_JUDGE_STATUTE_CHARS",
-                    "NYAYA_SECOND_JUDGE_TOP_LOGPROBS", "NYAYA_SECOND_JUDGE_MAX_TOKENS"):
+                    "NYAYA_SECOND_JUDGE_TOP_LOGPROBS", "NYAYA_SECOND_JUDGE_MAX_TOKENS",
+                    "NYAYA_SECOND_JUDGE_FALLBACK_URLS"):
             monkeypatch.delenv(var, raising=False)
         assert load_agent_config(REPO).second_judge is None
 
@@ -1477,6 +1894,15 @@ class TestConfig:
         assert gate1["threshold"] == GATE1_THRESHOLD_DEFAULT
         assert gate1["tau_c"] == GATE1_TAU_C_DEFAULT
         assert gate1["mode"] == "entailment"
+
+    def test_repo_config_gate1_model_and_revision_equal_the_code_pin(self) -> None:
+        """The yaml carries the Gate 1 model AND its commit-sha revision (constants live in configs/); the code
+        constants are the fallback. They must not drift apart: a yaml edit that changes the revision without
+        the code (or vice versa) would silently change what a deployment scores with."""
+        gate1 = load_agent_config(REPO).gate1
+        assert gate1["model"] == GATE1_MODEL_DEFAULT
+        assert gate1["revision"] == GATE1_MODEL_REVISION_DEFAULT
+        assert len(gate1["revision"]) == 40 and all(c in "0123456789abcdef" for c in gate1["revision"])
 
     def test_gate1_tau_c_and_mode_env_vars_override_a_configured_block(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -1524,7 +1950,7 @@ class TestHouseFactory:
     model, so no `/models` round-trip)."""
 
     _HOUSE_JUDGE_CFG = {"base_url": "http://h/v1", "model": "m", "statute_chars": 600, "max_tokens": 30,
-                         "top_logprobs": 20, "timeout_s": 5}
+                         "top_logprobs": 20, "timeout_s": 5, "label_mass_floor": 0.5}
 
     def _score_bin(self, tmp_path: Path) -> Path:
         p = tmp_path / "score"
@@ -1910,3 +2336,70 @@ class TestRetentionPolicy:
         assert run.retention_notice == RETENTION_NOTICE
         assert "7 days" in RETENTION_NOTICE
         assert "never" in RETENTION_NOTICE and "training" in RETENTION_NOTICE
+
+
+class TestSecondJudgeNeverVetoesADefeater:
+    """P0 #152, planted: both required elements established by both judges; the DENY defeater established by the
+    primary only. Before the fix the second judge's 'no' dropped the defeater from the wire and the contract
+    came out PROOF; it must be REFER_TO_LAWYER, never PROOF and never a bare DENIAL."""
+
+    def _run(self, tmp_path: Path, second_defeater: ElementJudgment) -> Any:
+        primary = ScriptedJudge(_denial_script(TOY_FACTS))
+        second = ScriptedJudge({
+            BNS69_EL[0]: [_second("established", 0.99)],
+            BNS69_EL[1]: [_second("established", 0.99)],
+            BNS69_DENY: [second_defeater],
+        })
+        gate = AndGateJudge(primary, second, tau_primary=0.74, tau_second=0.97)
+        agent = NyayaAgent(gate, _registry(), _config(tmp_path, second_judge={"tau": 0.97}))
+        return agent.run(TOY_FACTS, narrative="TOY narrative.", contract_ids=["bns69"]).contracts[0]
+
+    def test_defeater_disagreement_is_refer_not_proof(self, tmp_path: Path) -> None:
+        c = self._run(tmp_path, _second("not_established", 0.05))
+        assert c.outcome == "REFER_TO_LAWYER"
+        assert c.reason == "second_judge_defeater_disagreement"
+        defeater = next(e for e in c.elements if e.is_denial)
+        assert defeater.status == "established" and defeater.defeater_second_disagreement is True
+        assert c.assertions[BNS69_DENY] is True  # the primary's defeater stays on the wire
+
+    def test_defeater_both_agree_is_still_a_denial(self, tmp_path: Path) -> None:
+        c = self._run(tmp_path, _second("established", 0.99))
+        assert c.outcome == "DENIAL"
+
+
+class TestSpanRelevanceOverAndGateDefeater:
+    """Issue #162: the production stack is SpanRelevanceJudge(AndGateJudge(...)). Through it, the span check
+    must never probe a DENY defeater, and the #152 rule (second 'no' on a defeater refers, never PROOF) must
+    still hold."""
+
+    def _run(self, tmp_path: Path, second_defeater: ElementJudgment, check: ScriptedJudge) -> Any:
+        primary = ScriptedJudge(_denial_script(TOY_FACTS))
+        second = ScriptedJudge({
+            BNS69_EL[0]: [_second("established", 0.99)],
+            BNS69_EL[1]: [_second("established", 0.99)],
+            BNS69_DENY: [second_defeater],
+        })
+        gate = AndGateJudge(primary, second, tau_primary=0.74, tau_second=0.97)
+        stack = SpanRelevanceJudge(gate, check)
+        agent = NyayaAgent(stack, _registry(), _config(tmp_path, second_judge={"tau": 0.97}))
+        return agent.run(TOY_FACTS, narrative="TOY narrative.", contract_ids=["bns69"]).contracts[0]
+
+    @staticmethod
+    def _check(demote: str | None = None) -> ScriptedJudge:
+        def ans(el: str) -> list[ElementJudgment | Exception]:
+            return [_not()] if el == demote else [ElementJudgment("established", 0.95, "F1", "unused")]
+        return ScriptedJudge({BNS69_EL[0]: ans(BNS69_EL[0]), BNS69_EL[1]: ans(BNS69_EL[1]), BNS69_DENY: ans(BNS69_DENY)})
+
+    def test_span_check_never_probes_the_defeater_and_disagreement_still_refers(self, tmp_path: Path) -> None:
+        check = self._check()
+        c = self._run(tmp_path, _second("not_established", 0.05), check)
+        assert BNS69_DENY not in {r.element for r in check.requests}
+        assert c.outcome == "REFER_TO_LAWYER" and c.reason == "second_judge_defeater_disagreement"
+
+    def test_both_agree_on_the_defeater_stays_a_denial(self, tmp_path: Path) -> None:
+        c = self._run(tmp_path, _second("established", 0.99), self._check())
+        assert c.outcome == "DENIAL"
+
+    def test_span_demotion_of_a_required_element_does_not_hide_the_defeater_disagreement(self, tmp_path: Path) -> None:
+        c = self._run(tmp_path, _second("not_established", 0.05), self._check(demote=BNS69_EL[0]))
+        assert c.outcome == "REFER_TO_LAWYER" and c.reason == "second_judge_defeater_disagreement"

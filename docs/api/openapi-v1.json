@@ -1,0 +1,1763 @@
+{
+  "components": {
+    "schemas": {
+      "AnalyseFactsRequest": {
+        "properties": {
+          "contract_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 5,
+            "minItems": 1,
+            "title": "Contract Ids",
+            "type": "array"
+          },
+          "facts": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 8,
+            "minItems": 1,
+            "title": "Facts",
+            "type": "array"
+          },
+          "narrative": {
+            "default": "",
+            "maxLength": 4000,
+            "title": "Narrative",
+            "type": "string"
+          },
+          "proceeding_posture": {
+            "anyOf": [
+              {
+                "enum": [
+                  "quash",
+                  "discharge",
+                  "trial",
+                  "appeal"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Stage of the proceeding: quash/discharge judge whether the record prima facie discloses each element; trial/appeal judge whether the evidence proves it. Omit for the stricter default (proved). No effect unless the engine runs a standard-aware prompt template.",
+            "title": "Proceeding Posture"
+          },
+          "sections": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sections"
+          }
+        },
+        "required": [
+          "facts",
+          "contract_ids"
+        ],
+        "title": "AnalyseFactsRequest",
+        "type": "object"
+      },
+      "AnalyseFactsResponse": {
+        "properties": {
+          "contracts": {
+            "items": {
+              "$ref": "#/components/schemas/ContractResultOut"
+            },
+            "title": "Contracts",
+            "type": "array"
+          },
+          "facts": {
+            "items": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "title": "Facts",
+            "type": "array"
+          },
+          "judge": {
+            "title": "Judge",
+            "type": "string"
+          },
+          "provenance": {
+            "default": "agama",
+            "title": "Provenance",
+            "type": "string"
+          },
+          "retention_notice": {
+            "default": "Don't submit real names or case details; anonymous submissions are kept up to 7 days for audit and are never used for training or evaluation.",
+            "title": "Retention Notice",
+            "type": "string"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "score_sha256": {
+            "description": "SHA-256 of the pinned Lean `score` BINARY, not a content hash of the request or result. See each contract's `lean_attestation` for the binding to the exact input scored.",
+            "title": "Score Sha256",
+            "type": "string"
+          },
+          "standard": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StandardOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Additive (#220): the standard the request asked for (`requested`) and the standard the judge's prompt actually stated (`applied`, null under the legacy prompt template, where the judge is never told a standard), from the same values as the audit row."
+          }
+        },
+        "required": [
+          "run_id",
+          "judge",
+          "score_sha256",
+          "facts",
+          "contracts"
+        ],
+        "title": "AnalyseFactsResponse",
+        "type": "object"
+      },
+      "ApiKeyOut": {
+        "properties": {
+          "created": {
+            "title": "Created",
+            "type": "string"
+          },
+          "key_id": {
+            "title": "Key Id",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "org_id": {
+            "title": "Org Id",
+            "type": "string"
+          },
+          "rate_limit_per_minute": {
+            "title": "Rate Limit Per Minute",
+            "type": "integer"
+          },
+          "revoked": {
+            "title": "Revoked",
+            "type": "boolean"
+          },
+          "revoked_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revoked At"
+          }
+        },
+        "required": [
+          "key_id",
+          "org_id",
+          "label",
+          "created",
+          "revoked",
+          "revoked_at",
+          "rate_limit_per_minute"
+        ],
+        "title": "ApiKeyOut",
+        "type": "object"
+      },
+      "ApiKeysOut": {
+        "properties": {
+          "keys": {
+            "items": {
+              "$ref": "#/components/schemas/ApiKeyOut"
+            },
+            "title": "Keys",
+            "type": "array"
+          }
+        },
+        "required": [
+          "keys"
+        ],
+        "title": "ApiKeysOut",
+        "type": "object"
+      },
+      "AuditPageOut": {
+        "properties": {
+          "next_offset": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Offset"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/AuditRowOut"
+            },
+            "title": "Rows",
+            "type": "array"
+          }
+        },
+        "required": [
+          "rows"
+        ],
+        "title": "AuditPageOut",
+        "type": "object"
+      },
+      "AuditRowOut": {
+        "properties": {
+          "contract_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Contract Ids",
+            "type": "array"
+          },
+          "key_id": {
+            "title": "Key Id",
+            "type": "string"
+          },
+          "mode": {
+            "enum": [
+              "sync",
+              "job"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "outcomes": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Outcomes",
+            "type": "object"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Id"
+          },
+          "status_code": {
+            "title": "Status Code",
+            "type": "integer"
+          },
+          "ts": {
+            "title": "Ts",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ts",
+          "key_id",
+          "mode",
+          "status_code",
+          "contract_ids",
+          "outcomes"
+        ],
+        "title": "AuditRowOut",
+        "type": "object"
+      },
+      "CitationOut": {
+        "description": "A statute reference from the contract's own source column, resolved against the shipped corpus.\n`in_corpus: false` means the corpus does not hold that provision (corpus_id and title null); it is not a\nfinding about the law. Never derived from model output.",
+        "properties": {
+          "act": {
+            "title": "Act",
+            "type": "string"
+          },
+          "corpus_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Corpus Id"
+          },
+          "in_corpus": {
+            "title": "In Corpus",
+            "type": "boolean"
+          },
+          "section": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Section"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          }
+        },
+        "required": [
+          "act",
+          "section",
+          "corpus_id",
+          "in_corpus",
+          "title"
+        ],
+        "title": "CitationOut",
+        "type": "object"
+      },
+      "ContractResultOut": {
+        "properties": {
+          "assertions": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "boolean"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assertions"
+          },
+          "citations": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/CitationOut"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The contract's statute references with a corpus check, identical whatever the verdict. Taken from the contract sources the run already read once for selection (no second registry call). Null only when those sources or the corpus could not be read on this request.",
+            "title": "Citations"
+          },
+          "contract_id": {
+            "title": "Contract Id",
+            "type": "string"
+          },
+          "elements": {
+            "items": {
+              "$ref": "#/components/schemas/ElementResultOut"
+            },
+            "title": "Elements",
+            "type": "array"
+          },
+          "lean": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lean"
+          },
+          "lean_attestation": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Per-contract attestation of the pinned Lean check: binary_sha256 (the pinned `score` binary), wire_sha256 (SHA-256 of the exact REG wire line sent to it, recomputable from `assertions`) and verdict. Attests what was scored and by which binary; not that the assertions are true, and the Lean check is structural, not a verification.",
+            "title": "Lean Attestation"
+          },
+          "lean_outcome": {
+            "anyOf": [
+              {
+                "enum": [
+                  "PROOF",
+                  "DENIAL",
+                  "ABSTAIN",
+                  "REFER_TO_LAWYER"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lean Outcome"
+          },
+          "outcome": {
+            "enum": [
+              "PROOF",
+              "DENIAL",
+              "ABSTAIN",
+              "REFER_TO_LAWYER"
+            ],
+            "title": "Outcome",
+            "type": "string"
+          },
+          "reason": {
+            "enum": [
+              "all_elements_established",
+              "denial_established",
+              "missing_element",
+              "no_training_statute_text",
+              "judge_error",
+              "assembly_lean_mismatch",
+              "denial_unquotable",
+              "second_judge_defeater_disagreement",
+              "uncertain",
+              "uncertain_second_judge",
+              "second_judge_unavailable",
+              "gate1_unavailable",
+              "gate1_not_entailed",
+              "gate1_contradiction",
+              "contract_not_validated"
+            ],
+            "title": "Reason",
+            "type": "string"
+          },
+          "statute_text_mismatch": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Statute Text Mismatch"
+          },
+          "uncertain": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Uncertain",
+            "type": "array"
+          }
+        },
+        "required": [
+          "contract_id",
+          "outcome",
+          "reason",
+          "elements",
+          "assertions",
+          "lean",
+          "lean_outcome",
+          "uncertain",
+          "statute_text_mismatch"
+        ],
+        "title": "ContractResultOut",
+        "type": "object"
+      },
+      "CreateKeyRequest": {
+        "properties": {
+          "label": {
+            "default": "",
+            "maxLength": 200,
+            "title": "Label",
+            "type": "string"
+          },
+          "rate_limit_per_minute": {
+            "default": 60,
+            "maximum": 100000.0,
+            "minimum": 1.0,
+            "title": "Rate Limit Per Minute",
+            "type": "integer"
+          }
+        },
+        "title": "CreateKeyRequest",
+        "type": "object"
+      },
+      "CreateOrgRequest": {
+        "properties": {
+          "name": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "org_id": {
+            "maxLength": 63,
+            "minLength": 2,
+            "title": "Org Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "org_id",
+          "name"
+        ],
+        "title": "CreateOrgRequest",
+        "type": "object"
+      },
+      "CreatedKeyOut": {
+        "properties": {
+          "created": {
+            "title": "Created",
+            "type": "string"
+          },
+          "key_id": {
+            "title": "Key Id",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "org_id": {
+            "title": "Org Id",
+            "type": "string"
+          },
+          "rate_limit_per_minute": {
+            "title": "Rate Limit Per Minute",
+            "type": "integer"
+          },
+          "revoked": {
+            "title": "Revoked",
+            "type": "boolean"
+          },
+          "revoked_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revoked At"
+          },
+          "secret": {
+            "title": "Secret",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key_id",
+          "org_id",
+          "label",
+          "created",
+          "revoked",
+          "revoked_at",
+          "rate_limit_per_minute",
+          "secret"
+        ],
+        "title": "CreatedKeyOut",
+        "type": "object"
+      },
+      "ElementResultOut": {
+        "properties": {
+          "attempts": {
+            "title": "Attempts",
+            "type": "integer"
+          },
+          "binding_leg": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Binding Leg"
+          },
+          "claimed": {
+            "title": "Claimed",
+            "type": "boolean"
+          },
+          "defeater_second_disagreement": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Defeater Second Disagreement"
+          },
+          "element": {
+            "title": "Element",
+            "type": "string"
+          },
+          "end": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "fact_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fact Id"
+          },
+          "fact_id_disagreement": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fact Id Disagreement"
+          },
+          "is_denial": {
+            "title": "Is Denial",
+            "type": "boolean"
+          },
+          "occurrences": {
+            "title": "Occurrences",
+            "type": "integer"
+          },
+          "offsets_source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Offsets Source"
+          },
+          "p_established": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "P Established"
+          },
+          "p_established_second": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "P Established Second"
+          },
+          "quote": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quote"
+          },
+          "quote_check": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quote Check"
+          },
+          "quote_source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quote Source"
+          },
+          "second_fact_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Second Fact Id"
+          },
+          "second_logit_distance": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Second Logit Distance"
+          },
+          "second_refer_band_fired": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Second Refer Band Fired"
+          },
+          "second_skip_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Second Skip Reason"
+          },
+          "second_unavailable": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Second Unavailable"
+          },
+          "start": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start"
+          },
+          "status": {
+            "enum": [
+              "established",
+              "not_confirmed",
+              "not_established",
+              "not_evaluated_second_unavailable",
+              "not_evaluated_gate1_unavailable"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "tau_second": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tau Second"
+          }
+        },
+        "required": [
+          "element",
+          "is_denial",
+          "status",
+          "claimed",
+          "p_established",
+          "fact_id",
+          "quote",
+          "start",
+          "end",
+          "quote_check",
+          "attempts",
+          "occurrences",
+          "offsets_source",
+          "quote_source",
+          "error"
+        ],
+        "title": "ElementResultOut",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "JobOut": {
+        "properties": {
+          "error": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "job_id": {
+            "title": "Job Id",
+            "type": "string"
+          },
+          "result": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result"
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "running",
+              "done",
+              "failed"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id",
+          "status"
+        ],
+        "title": "JobOut",
+        "type": "object"
+      },
+      "JudgeStateOut": {
+        "properties": {
+          "checked_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checked At"
+          },
+          "state": {
+            "enum": [
+              "ready",
+              "warming",
+              "unavailable",
+              "unknown"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "state",
+          "checked_at"
+        ],
+        "title": "JudgeStateOut",
+        "type": "object"
+      },
+      "KeyUsageOut": {
+        "properties": {
+          "days": {
+            "items": {
+              "$ref": "#/components/schemas/UsageDayOut"
+            },
+            "title": "Days",
+            "type": "array"
+          },
+          "key_id": {
+            "title": "Key Id",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "revoked": {
+            "title": "Revoked",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "key_id",
+          "label",
+          "revoked",
+          "days"
+        ],
+        "title": "KeyUsageOut",
+        "type": "object"
+      },
+      "OrgOut": {
+        "properties": {
+          "created": {
+            "title": "Created",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "created"
+        ],
+        "title": "OrgOut",
+        "type": "object"
+      },
+      "ServiceStatusOut": {
+        "properties": {
+          "engine_version": {
+            "title": "Engine Version",
+            "type": "string"
+          },
+          "judge": {
+            "$ref": "#/components/schemas/JudgeStateOut"
+          },
+          "service_window": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ServiceWindowOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "engine_version",
+          "service_window",
+          "judge"
+        ],
+        "title": "ServiceStatusOut",
+        "type": "object"
+      },
+      "ServiceWindowOut": {
+        "properties": {
+          "close": {
+            "title": "Close",
+            "type": "string"
+          },
+          "enforced": {
+            "title": "Enforced",
+            "type": "boolean"
+          },
+          "next_open_utc": {
+            "title": "Next Open Utc",
+            "type": "string"
+          },
+          "open": {
+            "title": "Open",
+            "type": "string"
+          },
+          "open_now": {
+            "title": "Open Now",
+            "type": "boolean"
+          },
+          "timezone": {
+            "title": "Timezone",
+            "type": "string"
+          }
+        },
+        "required": [
+          "timezone",
+          "open",
+          "close",
+          "enforced",
+          "open_now",
+          "next_open_utc"
+        ],
+        "title": "ServiceWindowOut",
+        "type": "object"
+      },
+      "StandardOut": {
+        "description": "#220: the standard of proof the request asked for, whether the judge was told it, and where it came from.\nUnknown values from a newer engine pass through verbatim, so `requested`, `applied` and `source` are plain\nstrings here.",
+        "properties": {
+          "applied": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The standard actually stated in the judge's prompt: the same value as `requested` when `in_judge_prompt` is true, and null when it is false (the judge never saw a standard, so none was applied).",
+            "title": "Applied"
+          },
+          "in_judge_prompt": {
+            "description": "True only when the house judge's prompt stated the requested standard (judge_prompt.standard_line on). False means the basis is recorded (`requested`) but the judge never saw it, so `applied` is null.",
+            "title": "In Judge Prompt",
+            "type": "boolean"
+          },
+          "proceeding_posture": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The caller's posture, echoed; null if absent.",
+            "title": "Proceeding Posture"
+          },
+          "requested": {
+            "description": "The standard the posture asks for: \"proved\" or \"prima_facie_disclosed\". Recorded in the audit row whether or not the judge was told it.",
+            "title": "Requested",
+            "type": "string"
+          },
+          "source": {
+            "description": "\"proceeding_posture\", \"proceeding_type\" or \"default\".",
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "requested",
+          "applied",
+          "source",
+          "in_judge_prompt"
+        ],
+        "title": "StandardOut",
+        "type": "object"
+      },
+      "UsageDayOut": {
+        "properties": {
+          "calls": {
+            "title": "Calls",
+            "type": "integer"
+          },
+          "day": {
+            "title": "Day",
+            "type": "string"
+          },
+          "failed": {
+            "title": "Failed",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "day",
+          "calls",
+          "failed"
+        ],
+        "title": "UsageDayOut",
+        "type": "object"
+      },
+      "UsageOut": {
+        "properties": {
+          "calls": {
+            "default": 0,
+            "title": "Calls",
+            "type": "integer"
+          },
+          "calls_since_process_start": {
+            "title": "Calls Since Process Start",
+            "type": "integer"
+          },
+          "failed": {
+            "default": 0,
+            "title": "Failed",
+            "type": "integer"
+          },
+          "key_id": {
+            "title": "Key Id",
+            "type": "string"
+          },
+          "org_id": {
+            "title": "Org Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key_id",
+          "org_id",
+          "calls_since_process_start"
+        ],
+        "title": "UsageOut",
+        "type": "object"
+      },
+      "UsageSummaryOut": {
+        "properties": {
+          "keys": {
+            "items": {
+              "$ref": "#/components/schemas/KeyUsageOut"
+            },
+            "title": "Keys",
+            "type": "array"
+          },
+          "org_id": {
+            "title": "Org Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "org_id",
+          "keys"
+        ],
+        "title": "UsageSummaryOut",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "title": "Pravrudhi partner API",
+    "version": "v1"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/v1/analyse-facts": {
+      "post": {
+        "operationId": "analyse_facts_ep_api_v1_analyse_facts_post",
+        "parameters": [
+          {
+            "description": "Include config-C second-judge diagnostic fields per element even when not authenticated. Only takes effect when this deployment's own debug_second_judge_fields_enabled is also set -- a caller cannot turn this on for a deployment that hasn't opted in. An authenticated caller (Supabase session or org API key) always gets these fields regardless of this flag or the deployment gate.",
+            "in": "query",
+            "name": "debug_second_judge",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Include config-C second-judge diagnostic fields per element even when not authenticated. Only takes effect when this deployment's own debug_second_judge_fields_enabled is also set -- a caller cannot turn this on for a deployment that hasn't opted in. An authenticated caller (Supabase session or org API key) always gets these fields regardless of this flag or the deployment gate.",
+              "title": "Debug Second Judge",
+              "type": "boolean"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AnalyseFactsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalyseFactsResponse"
+                }
+              }
+            },
+            "description": "Successful analysis.",
+            "headers": {
+              "X-RateLimit-Limit": {
+                "description": "Calls per minute this API key may make.",
+                "schema": {
+                  "type": "integer"
+                }
+              },
+              "X-RateLimit-Remaining": {
+                "description": "Calls left in the current one-minute window after this one.",
+                "schema": {
+                  "type": "integer"
+                }
+              },
+              "X-RateLimit-Reset": {
+                "description": "Seconds until the current window ends and the count resets.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "429": {
+            "description": "Over the rate limit; wait Retry-After seconds.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "type": "integer"
+                }
+              },
+              "X-RateLimit-Limit": {
+                "description": "Calls per minute this API key may make.",
+                "schema": {
+                  "type": "integer"
+                }
+              },
+              "X-RateLimit-Remaining": {
+                "description": "Calls left in the current one-minute window after this one.",
+                "schema": {
+                  "type": "integer"
+                }
+              },
+              "X-RateLimit-Reset": {
+                "description": "Seconds until the current window ends and the count resets.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Analyse Facts Ep"
+      }
+    },
+    "/api/v1/analyse-facts/jobs": {
+      "post": {
+        "operationId": "submit_job_ep_api_v1_analyse_facts_jobs_post",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "debug_second_judge",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Debug Second Judge",
+              "type": "boolean"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AnalyseFactsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Submit Job Ep"
+      }
+    },
+    "/api/v1/analyse-facts/jobs/{job_id}": {
+      "get": {
+        "operationId": "get_job_ep_api_v1_analyse_facts_jobs__job_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Job Ep"
+      }
+    },
+    "/api/v1/audit": {
+      "get": {
+        "operationId": "audit_ep_api_v1_audit_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditPageOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Audit Ep"
+      }
+    },
+    "/api/v1/orgs": {
+      "post": {
+        "operationId": "create_org_ep_api_v1_orgs_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateOrgRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrgOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Org Ep"
+      }
+    },
+    "/api/v1/orgs/{org_id}/keys": {
+      "get": {
+        "operationId": "list_keys_ep_api_v1_orgs__org_id__keys_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org_id",
+            "required": true,
+            "schema": {
+              "title": "Org Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiKeysOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Keys Ep"
+      },
+      "post": {
+        "operationId": "create_key_ep_api_v1_orgs__org_id__keys_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org_id",
+            "required": true,
+            "schema": {
+              "title": "Org Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateKeyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreatedKeyOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Key Ep"
+      }
+    },
+    "/api/v1/orgs/{org_id}/keys/{key_id}/revoke": {
+      "post": {
+        "operationId": "revoke_key_ep_api_v1_orgs__org_id__keys__key_id__revoke_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org_id",
+            "required": true,
+            "schema": {
+              "title": "Org Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "key_id",
+            "required": true,
+            "schema": {
+              "title": "Key Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiKeyOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Revoke Key Ep"
+      }
+    },
+    "/api/v1/orgs/{org_id}/usage": {
+      "get": {
+        "operationId": "usage_ep_api_v1_orgs__org_id__usage_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org_id",
+            "required": true,
+            "schema": {
+              "title": "Org Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UsageOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Usage Ep"
+      }
+    },
+    "/api/v1/orgs/{org_id}/usage/summary": {
+      "get": {
+        "operationId": "usage_summary_ep_api_v1_orgs__org_id__usage_summary_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org_id",
+            "required": true,
+            "schema": {
+              "title": "Org Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "days",
+            "required": false,
+            "schema": {
+              "default": 30,
+              "maximum": 366,
+              "minimum": 1,
+              "title": "Days",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UsageSummaryOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Usage Summary Ep"
+      }
+    },
+    "/api/v1/status": {
+      "get": {
+        "operationId": "status_ep_api_v1_status_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceStatusOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Status Ep"
+      }
+    }
+  }
+}

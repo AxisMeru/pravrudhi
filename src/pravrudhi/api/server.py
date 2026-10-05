@@ -6,6 +6,7 @@ Endpoints: /health, /status, /candidates, /candidates/{id}, /observations, /inbo
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import subprocess
@@ -14,7 +15,7 @@ import time
 from pathlib import Path
 from typing import Any, Literal
 
-from fastapi import APIRouter, FastAPI, Header, HTTPException
+from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException
 from fastapi.routing import APIRoute
 from pydantic import BaseModel
 
@@ -232,8 +233,11 @@ def _warm_up_house_judge_in_background(root: Path) -> None:
             return
         api_key = os.environ.get("NYAYA_HOUSE_JUDGE_API_KEY") or hj.get("api_key") or None
         start_house_judge_warmup(base_url=str(base_url), api_key=api_key, timeout_s=float(hj.get("timeout_s", 60)))
+    except FileNotFoundError:
+        return  # no nyaya config here: a deployment that does not use Nyaya at all
     except Exception:  # noqa: BLE001 -- a warm-up that can't even be started is not a reason to refuse to serve
-        pass
+        # Loud, not silent: this is where a refused judge config (an unnamed judge model, #237) first shows.
+        logging.getLogger(__name__).exception("house judge warm-up not started: the agent config did not load")
 
 
 def create_app(root: Path, *, nyaya_ask_fn: Any | None = None) -> FastAPI:
@@ -249,12 +253,21 @@ def create_app(root: Path, *, nyaya_ask_fn: Any | None = None) -> FastAPI:
     # api/localguard.py. Cross-origin access is off unless the operator names the origins.
     # In `required` mode nobody anonymous reaches a route; added before the guard so CORS wraps its 401s.
     app.add_middleware(RequireIdentity)
+    # Added after RequireIdentity, so it is the outer of the two: in the Studio edition every non-admin is refused
+    # (403) before any route runs, whatever the loopback flag says (roles.RequireStudioAdmin).
+    app.add_middleware(roles.RequireStudioAdmin)
+    from pravrudhi.application.credentials import ServingApiMiddleware
+
+    app.add_middleware(ServingApiMiddleware)
     install_local_guard(app, root, enforce=os.environ.get("PRAVRUDHI_DISABLE_LOCAL_GUARD") != "1")
     # The guard returns a JSONResponse directly; declaring its resource leaves token handling intact.
     for route in app.routes:
         if isinstance(route, APIRoute) and route.path == "/api/app-token":
             app.router.routes.remove(route)
-            app.add_api_route(route.path, route.endpoint, methods=["GET"], response_model=TokenResponse)
+            app.add_api_route(
+                route.path, route.endpoint, methods=["GET"], response_model=TokenResponse,
+                dependencies=[Depends(roles.admin_dependency)],
+            )
             break
     ledger = root / "research" / "ledger.jsonl"
     # Guards /update/apply and /update/rollback: both run for real, in-process, on the threadpool FastAPI already
@@ -939,7 +952,11 @@ def create_app(root: Path, *, nyaya_ask_fn: Any | None = None) -> FastAPI:
     def objective_dispatch(
         oid: str, workspace: str | None = None, user: User | None = CurrentUserDep
     ) -> dict[str, Any]:
-        """Hand the plan's tasks to the swarm in the background. Everything they produce is a proposal."""
+        """Hand the plan's tasks to the swarm in the background. Everything they produce is a proposal.
+
+        Operator-only in every edition (#257). Note for the operator: the objective's text, including a
+        user-authored objective in a user's workspace, becomes the brief the host coding agents run on this machine
+        under the engine's own logins. Review an objective you did not write before dispatching it."""
         import threading
 
         from pravrudhi.agents.registry import build_agent
@@ -1045,10 +1062,16 @@ def create_app(root: Path, *, nyaya_ask_fn: Any | None = None) -> FastAPI:
 
         project = _project(user, workspace)
         rows: list[dict[str, Any]] = []
+        from pravrudhi.application import tenant_vendors
+        from pravrudhi.application.credentials import serving_org
+
+        permitted = tenant_vendors.allowed_ids(serving_org.get())
         for vendor in tuned(list(VENDORS.values()), config=project / PANEL_CONFIG):
+            if vendor.id not in permitted:
+                continue
             # `reachable` resolves a stored key against the CALLER's project, not the engine's root, so one
             # user's configured key never shows as another's.
-            ok, detail = vendor.reachable_in(project)
+            ok, detail = vendor.reachable_in(project, store=_keys(user, workspace))
             rows.append({
                 "id": vendor.id, "interface": vendor.interface, "model": vendor.model,
                 "provider": vendor.provider or None, "credential_env": vendor.credential or None,
@@ -1307,6 +1330,10 @@ def create_app(root: Path, *, nyaya_ask_fn: Any | None = None) -> FastAPI:
 def serve(root: Path, host: str = "127.0.0.1", port: int = 8765) -> None:
     import uvicorn
 
+    from pravrudhi.application import tenant_vendors
+
+    tenant_vendors.record_bind(host)
+    tenant_vendors.guard_studio_boot()
     uvicorn.run(create_app(root), host=host, port=port, log_level="info")
 
 

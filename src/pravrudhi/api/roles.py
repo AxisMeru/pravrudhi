@@ -26,8 +26,11 @@ import os
 from enum import StrEnum
 
 from fastapi import HTTPException, Request
+from starlette.requests import HTTPConnection
+from starlette.responses import JSONResponse
+from starlette.types import ASGIApp, Receive, Scope, Send
 
-from pravrudhi.api.identity import AuthMode, User, auth_mode
+from pravrudhi.api.identity import PUBLIC_PATHS, AuthMode, User, _with_query_token, auth_mode, user_from_headers
 
 
 class Role(StrEnum):
@@ -127,13 +130,39 @@ ADMIN_ONLY: frozenset[str] = frozenset({
     "/api/sandboxes",
     "/api/search",
     "/api/swarm", "/api/swarm/live",
+})
+
+# Operator-only in EVERY edition, product included (P0 hotfix, R2): these surfaces are engine-wide or spend the
+# engine's own hardware and secrets, so a signed-in account that merely reaches the engine must not use them. Unlike
+# ADMIN_ONLY, which a product install does not have at all (404), these exist in both editions and answer a
+# non-admin 403 (and an anonymous caller 401 where identity is required). With authentication off the local caller
+# is the operator by construction (`role_of`), so a single-operator install is unaffected.
+ADMIN_IN_BOTH_EDITIONS: frozenset[str] = frozenset({
+    # The engine's local write token: reading it let any signed-in caller satisfy the local write guard.
+    "/api/app-token",
+    # Starting, stopping and watching a night spawns `python -m pravrudhi ...` on the engine host.
+    "/api/runs", "/api/runs/{run_id}", "/api/runs/{run_id}/stop", "/api/runs/{run_id}/events",
+    # Applying or rolling back an engine update replaces the running engine.
     "/api/update/apply", "/api/update/rollback",
 })
+
+# A top-level route (not one inside an included router) cannot have its dependant rebuilt after the fact, so the
+# one such route in `ADMIN_IN_BOTH_EDITIONS` declares the dependency where it is registered.
+ADMIN_GATED_AT_REGISTRATION: frozenset[str] = frozenset({"/api/app-token"})
+
+# Routes whose READ is the product's but whose WRITE is engine-wide: the same path under two methods. Only the
+# methods below the safe set are operator-only; `GET /api/update/config` stays user-facing.
+ADMIN_WRITES_IN_BOTH_EDITIONS: frozenset[str] = frozenset({
+    "/api/update/config",
+    # Dispatching a plan builds and runs host coding agents (codex, claude-code, orca, opencode, hosted) under the
+    # engine process's own CLI logins; its GET (preview and past runs) stays the user's.
+    "/api/objectives/{oid}/subagents",
+})
+SAFE_METHODS: frozenset[str] = frozenset({"GET", "HEAD", "OPTIONS"})
 
 # What the product is. A user's own goals, workspaces, conversation, memory, keys and models, plus the plain
 # facts about the engine they are running and whether an update is waiting for them.
 USER_FACING: frozenset[str] = frozenset({
-    "/api/app-token",
     "/api/chat", "/api/chat/stream", "/api/chat/threads", "/api/chat/threads/{thread_id}",
     # prabhasa-nyaya: a legal question answered from sources and checked. The product's first domain surface.
     "/api/nyaya/ask", "/api/nyaya/audit", "/api/nyaya/corpus", "/api/nyaya/vendors", "/api/nyaya/asks",
@@ -142,7 +171,8 @@ USER_FACING: frozenset[str] = frozenset({
     # see application/nyaya.py's registry_check.
     "/api/nyaya/registry/contracts", "/api/nyaya/registry/{contract_id}/elements", "/api/nyaya/registry/check",
     # L4 partner API (LEG-PLAN-2026-09-23): the agentic loop over the same registry contracts, facts in.
-    "/api/v1/analyse-facts",
+    "/api/v1/analyse-facts", "/api/v1/status",
+    "/api/v1/analyse-facts/jobs", "/api/v1/analyse-facts/jobs/{job_id}", "/api/v1/audit",
     # L4 tenancy (application/tenancy.py): org and API-key provisioning. Not admin-only in the ADMIN_ONLY
     # sense above -- these are not surfaces about Pravrudhi improving itself, they are how a partner account
     # is set up -- so each route gates itself internally (partner.py) rather than disappearing entirely on a
@@ -152,7 +182,7 @@ USER_FACING: frozenset[str] = frozenset({
     # local single-operator machine and would otherwise let anyone reach a self-hosted deployment's demo
     # config and mint a partner's first live API key.
     "/api/v1/orgs", "/api/v1/orgs/{org_id}/keys", "/api/v1/orgs/{org_id}/keys/{key_id}/revoke",
-    "/api/v1/orgs/{org_id}/usage",
+    "/api/v1/orgs/{org_id}/usage", "/api/v1/orgs/{org_id}/usage/summary",
     "/api/doctor",
     "/api/health", "/api/status",
     # RunPod serverless load-balancer liveness (outside /api; no identity asked, carries no state).
@@ -171,11 +201,6 @@ USER_FACING: frozenset[str] = frozenset({
     "/api/tools",
     "/api/update", "/api/update/config", "/api/update/last-check",
     "/api/workspaces",
-    # Starting work is the product. These were the operator's while `RunManager` was constructed once with the
-    # engine's own root, because a run begun through it spent the operator's hardware under the operator's keys
-    # whoever asked. There is a manager per project now, and the same refusal that governs every other
-    # user-facing surface governs these: a user must name their workspace and nobody falls back to another's.
-    "/api/runs", "/api/runs/{run_id}", "/api/runs/{run_id}/stop", "/api/runs/{run_id}/events",
     # What this project's loop produced, read from the project the caller is asking about.
     "/api/models",
 })
@@ -213,7 +238,15 @@ def gate(app: object) -> list[str]:
     gated: list[str] = []
     for route in walk(app.routes):  # type: ignore[attr-defined]
         if route.path in ADMIN_ONLY:
-            route.dependencies.append(Depends(_admin_dependency if studio else _not_in_this_edition))
+            route.dependencies.append(Depends(admin_dependency if studio else _not_in_this_edition))
+            route.dependant = None  # type: ignore[assignment]
+            gated.append(route.path)
+        elif route.path in ADMIN_GATED_AT_REGISTRATION:
+            gated.append(route.path)  # its own registration already carries the dependency (see server.py)
+        elif route.path in ADMIN_IN_BOTH_EDITIONS or (
+            route.path in ADMIN_WRITES_IN_BOTH_EDITIONS and not (route.methods and route.methods <= SAFE_METHODS)
+        ):
+            route.dependencies.append(Depends(admin_dependency))
             route.dependant = None  # type: ignore[assignment]
             gated.append(route.path)
     return sorted(set(gated))
@@ -225,7 +258,7 @@ async def _not_in_this_edition() -> None:
     raise HTTPException(status_code=404, detail="Not Found")
 
 
-async def _admin_dependency(request: Request) -> None:
+async def admin_dependency(request: Request) -> None:
     """Resolve the caller the same way every other route does, then apply the allowlist."""
     from pravrudhi.api.identity import current_user
 
@@ -233,6 +266,75 @@ async def _admin_dependency(request: Request) -> None:
 
 
 __all__ = [
-    "ACCESS_VALUES", "ADMIN", "ADMIN_ENV", "ADMIN_ONLY", "USER", "USER_FACING", "Role",
+    "ACCESS_VALUES", "ADMIN", "ADMIN_ENV", "ADMIN_IN_BOTH_EDITIONS", "ADMIN_ONLY", "ADMIN_WRITES_IN_BOTH_EDITIONS",
+    "USER", "USER_FACING", "Role",
     "access_for", "admin_ids", "gate", "is_admin", "require_admin", "role_of",
 ]
+
+
+STUDIO_SCHEMA_PATHS: frozenset[str] = frozenset({"/openapi.json", "/docs", "/docs/oauth2-redirect", "/redoc"})
+"""The generated API schema and its docs pages: they describe every route, so on Studio they are the operator's too."""
+
+
+class RequireStudioAdmin:
+    """ASGI middleware: in the Studio edition, no `/api` route outside `PUBLIC_PATHS` answers a non-admin.
+
+    The product and Studio share one identity provider, so any signed-in product account can reach a Studio engine
+    through its tunnel. Per-route role guards only cover the routes that remembered to ask; this is the whole-surface
+    gate, evaluated before any route code runs (no vendor call, no ledger write, nothing a handler does).
+
+    * Edition: the one resolved edition (`pravrudhi.deployment.resolved_edition`, shared with `engine_edition` and
+      `tenant_vendors`) must be `studio`. An unset or any other
+      value is not a Studio gate, so a development checkout and the product keep their behaviour. Loopback does
+      not matter here: a loopback Studio is gated the same.
+    * Authentication off (`PRAVRUDHI_AUTH` disabled, the local operator's own machine): nobody to identify, the local
+      caller is the operator by construction (`role_of`), so it passes, exactly as before.
+    * Otherwise the caller is resolved from the same headers every route uses (`PRAVRUDHI_IDENTITY_HEADER` and the
+      `?access_token=` query fallback included, and websockets), and must be on `PRAVRUDHI_ADMINS` by id or email.
+      No identity is 401 (websocket close 4401); a signed-in non-admin is 403 (close 4403). An empty or unset
+      allowlist names nobody, so every signed-in caller is refused.
+    * A partner-key caller (`X-Pravrudhi-Api-Key`) is not an operator: 403 even with no bearer token.
+    * The schema and docs pages (`STUDIO_SCHEMA_PATHS`: `/openapi.json`, `/docs`, `/redoc`) are gated like `/api`.
+    * Preflight (OPTIONS), `PUBLIC_PATHS` (the liveness check) and every other non-`/api` path (the static
+      interface and `/ping`, which carry no state) stay open.
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] in ("http", "websocket") and _studio_edition() and auth_mode() is not AuthMode.DISABLED:
+            path: str = scope.get("path", "")
+            gated = path.startswith("/api/") or path in STUDIO_SCHEMA_PATHS
+            if gated and path not in PUBLIC_PATHS and scope.get("method") != "OPTIONS":
+                refusal = _studio_refusal(HTTPConnection(scope))
+                if refusal is not None:
+                    status, detail = refusal
+                    if scope["type"] == "http":
+                        await JSONResponse({"detail": detail}, status_code=status)(scope, receive, send)
+                    else:
+                        await send({"type": "websocket.close", "code": 4400 + status % 100, "reason": detail})
+                    return
+        await self.app(scope, receive, send)
+
+
+def _studio_edition() -> bool:
+    from pravrudhi.deployment import resolved_edition
+
+    return resolved_edition() == "studio"
+
+
+def _studio_refusal(conn: HTTPConnection) -> tuple[int, str] | None:
+    from pravrudhi.application.tenancy import API_KEY_HEADER
+
+    if API_KEY_HEADER in conn.headers:
+        return 403, "This surface belongs to the engine's operator."
+    try:
+        user = user_from_headers(_with_query_token(conn))
+    except HTTPException as exc:
+        return exc.status_code, str(exc.detail)
+    if user is None:
+        return 401, "Sign in as the engine's operator."
+    if not is_admin(user):
+        return 403, "This surface belongs to the engine's operator."
+    return None

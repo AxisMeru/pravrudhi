@@ -18,6 +18,7 @@ from pravrudhi.api.identity import CurrentUserDep, User
 from pravrudhi.api.workspace_root import RootError, root_for
 from pravrudhi.application import nyaya, panel
 from pravrudhi.application.credentials import CredentialStore, store_for_session
+from pravrudhi.application.tenant_vendors import VendorNotAllowed
 
 
 class AskRequest(BaseModel):
@@ -122,6 +123,12 @@ class NyayaAsksResponse(BaseModel):
     asks: list[NyayaAskResponse]
 
 
+class NyayaRegistryContractEntry(BaseModel):
+    id: str
+    validated: bool
+    sources: list[str] | None = None
+
+
 class NyayaRegistryContractsResponse(BaseModel):
     #: The twenty-one BNS/IPC registry contract ids in KNOWN_CONTRACT_IDS (two BNSS 187 contracts
     #: excluded due to Lean-side defects) -- a DIFFERENT family from `AskRequest.contract_id`/
@@ -130,6 +137,10 @@ class NyayaRegistryContractsResponse(BaseModel):
     #: per-element assertions, never free text, so they cannot be a `checker` value on the existing
     #: ask/audit path (see `registry_check` below).
     contracts: list[str]
+    #: Same ids, with `validated` (true only for ids in the scorer's `validated_contracts`; every other id
+    #: can only ever return REFER_TO_LAWYER `contract_not_validated`) and `sources` (the statute act/section
+    #: the Lean binary cites; null if the binary is not available). Added alongside `contracts`, not instead.
+    entries: list[NyayaRegistryContractEntry] = []
 
 
 class NyayaRegistryElementsResponse(BaseModel):
@@ -218,6 +229,8 @@ def build_nyaya_router(root: Path, ask_fn: panel.AskFn | None = None) -> APIRout
                 project, req.question, tuple(req.vendors), k=req.k, checker=req.checker,
                 contract_id=req.contract_id, ask_fn=ask_fn, store=store,
             )
+        except VendorNotAllowed as e:
+            raise HTTPException(403, str(e)) from e
         except (KeyError, ValueError) as e:
             raise HTTPException(422, str(e)) from e
         return rec.to_dict()
@@ -242,7 +255,7 @@ def build_nyaya_router(root: Path, ask_fn: panel.AskFn | None = None) -> APIRout
     @router.get("/registry/contracts", response_model=NyayaRegistryContractsResponse)
     def registry_contracts_ep(user: User | None = CurrentUserDep) -> dict[str, Any]:
         del user  # auth-gated like every other route below; the id list itself carries nothing per-user
-        return {"contracts": nyaya.registry_contract_ids()}
+        return {"contracts": nyaya.registry_contract_ids(), "entries": nyaya.registry_contract_entries(engine_root)}
 
     @router.get("/registry/{contract_id}/elements", response_model=NyayaRegistryElementsResponse)
     def registry_elements_ep(

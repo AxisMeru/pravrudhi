@@ -150,7 +150,7 @@ class ClaudeCodeAgent(GitWorktreeMixin):
         the model botched will be botched by the reserve too, and spending the always-available account on it
         inverts the instruction (`configs/seats.yaml`, 2026-09-11).
         """
-        from pravrudhi.agents.account import AGENT_ID, claude_env, select_seat
+        from pravrudhi.agents.account import AGENT_ID, refuse_no_seat_available, select_seat
         from pravrudhi.application import availability
 
         # The prompt goes on stdin (`claude -p` reads it there when no positional prompt is given): see `_run`.
@@ -172,7 +172,7 @@ class ClaudeCodeAgent(GitWorktreeMixin):
             availability.mark_limited(self.root, seat.cooldown_key, until=availability.reset_at(whole))
 
         if last is None:
-            claude_env(root=self.root)  # no seat can serve: raise the documented refusal rather than guess
+            refuse_no_seat_available(self.root)  # no seat can serve: raise the documented refusal rather than guess
         return last  # type: ignore[return-value]
 
     def _attempt(self, cmd: list[str], workspace: Path, timeout_s: int, env: dict[str, str], prompt: str) -> AgentRun:

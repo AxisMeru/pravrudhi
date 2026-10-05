@@ -11,6 +11,10 @@ ExecStart=%h/projects/pravrudhi/deploy/gateway/run_gateway.sh
 Restart=always
 RestartSec=20
 Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+# Hold the Studio KV write across restarts (run_gateway.sh STUDIO_HOLD_KV): while Studio is kept offline behind its Worker
+# (engine_url_studio blank), uncomment this OR set STUDIO_HOLD_KV=1 in ~/.config/pravrudhi/gateway.env. The flag is read on
+# every start; if it lives in neither place, a restart registers the Studio tunnel again. Remove it to bring Studio back.
+#Environment=STUDIO_HOLD_KV=1
 
 [Install]
 WantedBy=default.target

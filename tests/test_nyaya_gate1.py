@@ -555,14 +555,21 @@ class TestGate1JudgeContradictionVetoMode:
         assert model.contradiction_calls == []
 
 
-class TestArmCOutOfSampleFixtures:
-    """The 13 out-of-sample negation items (12 negation probes + Gate 0's mutation (d)) at Arm C's frozen
+class TestArmCOutOfSampleStoredNumberRegression:
+    """Stored-number regression over sealed Arm C scores -- does not exercise the model, gate, or Lean.
+
+    The 13 out-of-sample negation items (12 negation probes + Gate 0's mutation (d)) at Arm C's frozen
     tau_c -- NOT new data, their (id, max_contra score, expected veto) come straight from
-    GATE1-ARM-C-2026-09-26.md's own sealed `arm_c_eval_summary.json` (this session's real measurement
-    against the real model), pinned here as a regression fixture for the threshold decision boundary. Only
-    `bns318-scope` is expected to leak through (max_contra=0.159, well below tau_c) -- explained in that
-    doc as a partial-disjunct negation (the fact negates only one of the element's two disjuncts), the same
-    class of gap as the bns46 elements themselves (GATE1-ARM-C-ROBUSTNESS-2026-09-26.md)."""
+    GATE1-ARM-C-2026-09-26.md's own sealed `arm_c_eval_summary.json` (a real measurement against the
+    real model, made in that prior session, not by this test). This class asserts pinned constants
+    against tau_c in pure Python arithmetic; it never loads the model, never calls Gate1Judge, and
+    never touches Lean, so it would pass unchanged even if any of the three were broken -- it only
+    catches a future edit to tau_c or to these 13 constants moving the decision boundary, nothing
+    about the pipeline that produced them (Tag's finding, relabeled here per #101's inventory in
+    prabhasa-nyaya, no behaviour change). Only `bns318-scope` is expected to leak through
+    (max_contra=0.159, well below tau_c) -- explained in that doc as a partial-disjunct negation (the
+    fact negates only one of the element's two disjuncts), the same class of gap as the bns46 elements
+    themselves (GATE1-ARM-C-ROBUSTNESS-2026-09-26.md)."""
 
     OOS_RESULTS = (
         ("bns85-plain", 0.9974810481071472, True),
