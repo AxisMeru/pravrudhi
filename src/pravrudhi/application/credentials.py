@@ -222,6 +222,16 @@ class CredentialStore(Protocol):
     def configured(self) -> list[str]: ...
 
 
+def studio_operator_keys() -> bool:
+    """True only in the Studio edition reachable from this machine alone (PRAVRUDHI_EDITION=studio AND a loopback
+    bind or PRAVRUDHI_STUDIO_LOOPBACK_ONLY=1): the one deployment where the operator's env and credential-file keys
+    are the caller's own. It is the same condition as the cli-vendor carve-out in `tenant_vendors`, read from the
+    deployment, never from the request; every other deployment stays tenant-only (default-closed)."""
+    from pravrudhi.application import tenant_vendors
+
+    return tenant_vendors.is_studio_edition()
+
+
 class FileCredentialStore:
     """`CredentialStore` over `<root>/.pravrudhi/credentials/<provider>.key`, one 0600 file per provider."""
 
@@ -234,7 +244,7 @@ class FileCredentialStore:
 
     @property
     def tenant_only(self) -> bool:
-        return not self.operator_path
+        return not (self.operator_path or studio_operator_keys())
 
     def _dir(self) -> Path:
         return self._root / ".pravrudhi" / "credentials"

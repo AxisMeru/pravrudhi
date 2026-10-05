@@ -326,3 +326,54 @@ def test_a_pool_thread_inherits_the_serving_guards(engine: Path, monkeypatch: py
         serving_org.reset(t2)
         serving_api.reset(t1)
     assert chat == [] and rec.answers[0].error and OP_KEY not in rec.answers[0].error
+
+
+# -- Studio BYOK env keys: opt-in under exactly the cli carve-out's condition (#238) ----------------------------
+
+DEPLOYMENTS = {
+    # name: (PRAVRUDHI_EDITION, PRAVRUDHI_STUDIO_LOOPBACK_ONLY, operator env keys reach the caller)
+    "product": ("product", None, False),
+    "studio-without-loopback": ("studio", None, False),
+    "studio-with-loopback": ("studio", "1", True),
+    "runpod-product-engine": ("product", "1", False),  # the loopback assertion alone never opens the product
+}
+
+
+@pytest.mark.parametrize("caller", ["anonymous", "signed-in", "partner-key"])
+@pytest.mark.parametrize("deployment", sorted(DEPLOYMENTS))
+def test_operator_env_keys_reach_an_api_caller_only_in_the_loopback_studio(
+    engine: Path, monkeypatch: pytest.MonkeyPatch, cli_calls: list[list[str]], caller: str, deployment: str
+) -> None:
+    import pravrudhi.models.openai_compat as oc
+
+    edition, loopback, reaches = DEPLOYMENTS[deployment]
+    monkeypatch.setenv("PRAVRUDHI_EDITION", edition)
+    if loopback:
+        monkeypatch.setenv("PRAVRUDHI_STUDIO_LOOPBACK_ONLY", loopback)
+    keys: list[str | None] = []
+    monkeypatch.setattr(oc.ChatClient, "chat", lambda self, *a, **k: keys.append(self.api_key) or "answer")
+    client, headers = _client(engine, caller)
+    params = {"workspace": "w1"} if caller == "signed-in" else {}
+    r = client.post(
+        "/api/nyaya/ask", headers=headers, params=params, json={"question": "q?", "vendors": ["openai-api"]}
+    )
+    assert r.status_code == 200, r.text
+    assert OP_KEY not in r.text
+    if reaches:
+        assert keys and set(keys) == {OP_KEY}
+    else:
+        assert keys == []
+
+
+def test_the_studio_opt_in_is_read_from_the_deployment_never_the_request(
+    engine: Path, monkeypatch: pytest.MonkeyPatch, cli_calls: list[list[str]]
+) -> None:
+    import pravrudhi.models.openai_compat as oc
+
+    keys: list[str | None] = []
+    monkeypatch.setattr(oc.ChatClient, "chat", lambda self, *a, **k: keys.append(self.api_key) or "answer")
+    monkeypatch.setenv("PRAVRUDHI_EDITION", "product")
+    client, headers = _client(engine, "anonymous")
+    headers.update({"x-pravrudhi-edition": "studio", "x-forwarded-host": "127.0.0.1"})
+    r = client.post("/api/nyaya/ask", headers=headers, json={"question": "q?", "vendors": ["openai-api"]})
+    assert r.status_code == 200 and keys == []
