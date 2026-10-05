@@ -179,3 +179,82 @@ def test_a_citation_example_and_ordinary_bracketed_text_are_not_touched() -> Non
 def test_redacting_twice_changes_nothing() -> None:
     once = redact_secrets(_snapshot(_PROMPT))
     assert redact_secrets(once) == once
+
+
+# -- the demo snapshot's own backstop (Lead-2 P0, 2026-10-05) ----------------------------------------------------
+
+import json  # noqa: E402
+from pathlib import Path  # noqa: E402
+
+from pravrudhi.application import demo_export  # noqa: E402
+
+_PROVISION = (
+    "Whoever takes or entices away any woman who is and whom he knows or has reason to believe to be the wife "
+    "of any other man, from that man, with intent that she may have illicit intercourse with any person, shall be punished."
+)
+
+
+_TITLE = "Enticing or taking away or detaining with criminal intent a married woman."
+
+
+def _root_with_corpus(tmp_path: Path) -> Path:
+    d = tmp_path / "research" / "nyaya" / "corpus"
+    d.mkdir(parents=True, exist_ok=True)
+    doc = {"id": "IPC/Section 498", "act": "Indian Penal Code", "section": "Section 498",
+           "title": _TITLE, "text": _PROVISION}
+    (d / "ipc.json").write_text(json.dumps({"documents": [doc]}))
+    return tmp_path
+
+
+@pytest.mark.parametrize("raw", [
+    "/home/ss/projects/x", "/Users/someone/y", "note to sharath.sathish@gmail.com", "uds:/run/user/1000/cc-socks/1.sock",
+    "<cross-session-message>x</cross-session-message>", "a held cross-session message", "set CLAUDE_CONFIG_DIR=/x",
+    "seat sharath.ai.colab", "Commit as <admin@axismeru.com>",
+])
+def test_the_demo_redaction_leaves_none_of_the_private_markers(raw: str) -> None:
+    out = demo_export.redact_for_demo(raw)
+    assert demo_export.private_markers_left(out) == [], out
+    assert demo_export.still_carries(out) == []
+
+
+def test_only_the_demo_removes_the_project_email_and_the_public_handle_stays() -> None:
+    assert "admin@axismeru.com" in redact_secrets("<admin@axismeru.com>")
+    assert "axismeru" not in demo_export.redact_for_demo("<admin@axismeru.com>")
+    assert "SharathSPhD" in demo_export.redact_for_demo("author SharathSPhD")
+    assert demo_export.private_markers_left("author sharathsphd") == []
+
+
+def _write(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, data: object, redact: bool = True) -> Path:
+    monkeypatch.setattr(demo_export, "build_demo", lambda root: data)
+    if not redact:
+        monkeypatch.setattr(demo_export, "redact_for_demo", lambda text: text)
+    return demo_export.write_demo(_root_with_corpus(tmp_path), tmp_path / "out" / "demo.json")
+
+
+def test_a_marker_that_survives_redaction_refuses_the_write(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    with pytest.raises(SecretInSnapshot, match="/home/"):
+        _write(monkeypatch, tmp_path, {"a": "see /home/ss/x"}, redact=False)
+    assert not (tmp_path / "out" / "demo.json").exists()
+    with pytest.raises(SecretInSnapshot, match="sharath"):
+        _write(monkeypatch, tmp_path, {"a": "seat sharath.sathish"}, redact=False)
+
+
+def test_a_corpus_passage_in_any_layout_refuses_the_write(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    quoted = _PROVISION[20:110]
+    layouts = ({"x": quoted}, {"x": ["a", {"deep": "lead-in " + quoted.upper() + " tail"}]},
+               {"x": quoted.replace(" ", "\n  ")})
+    for data in layouts:
+        with pytest.raises(SecretInSnapshot, match="statute text"):
+            _write(monkeypatch, tmp_path, data)
+    assert not (tmp_path / "out" / "demo.json").exists()
+
+
+def test_a_kept_heading_and_short_overlap_are_not_statute_text(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    heading = f"[IPC/Section 498] Indian Penal Code, Section 498 -- {_TITLE}"
+    out = _write(monkeypatch, tmp_path, {"x": heading, "y": _PROVISION[:40]})
+    assert json.loads(out.read_text())["x"] == heading
+
+
+def test_a_snapshot_with_no_corpus_present_has_nothing_of_it_to_leak(tmp_path: Path) -> None:
+    assert demo_export.corpus_windows(tmp_path) == set()
+    assert demo_export.corpus_overlap('{"x": "anything at all"}', set()) == 0

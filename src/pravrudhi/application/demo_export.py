@@ -504,7 +504,8 @@ _PII_SHAPES: tuple[tuple[str, re.Pattern[str], str], ...] = (
     # is macOS, and the fleet's records carry paths from both.
     ("home-path", re.compile(r"/(?:home|Users)/[A-Za-z0-9._-]+"), "~"),
     # Every address EXCEPT the project's own git identity, which is the published authorship of every commit
-    # in this repository - redacting it would hide nothing and would make the snapshot harder to read.
+    # in this repository - redacting it would hide nothing and would make the snapshot harder to read. (The
+    # demo snapshot alone also removes it: see `_DEMO_ONLY_SHAPES`.)
     (
         "personal-email",
         re.compile(r"\b(?!admin@axismeru\.com\b)[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b"),
@@ -569,6 +570,11 @@ _PII_SHAPES: tuple[tuple[str, re.Pattern[str], str], ...] = (
         re.compile(r'(?:cross-session-message|cc-socks)(?:\\.|[^"\\])*'),
         "<redacted:internal-marker>",
     ),
+    # The words themselves, wherever they appear in prose (an operator's captured ask that mentions "cross-session
+    # reviewers", a doc line about a "held cross-session message"): not a relay, but the snapshot carries none of
+    # these markers, so the backstop in `write_demo` can refuse on the literal.
+    ("cross-session-word", re.compile(r"cross-session"), "cross session"),
+    ("uds-scheme", re.compile(r"\buds:"), "uds-"),
 )
 
 
@@ -593,11 +599,106 @@ def still_carries(text: str) -> list[str]:
     return left
 
 
+#: Literal markers the published snapshot must never carry, checked on the final text independently of the shapes
+#: above (a second, format-independent line: a shape that stops matching because the data changed cannot let one through).
+PRIVATE_MARKERS: tuple[str, ...] = (
+    "/home/", "/Users/", "@gmail", "@axismeru", "cross-session", "cc-socks", "uds:", "CLAUDE_CONFIG_DIR",
+)
+#: A seat or account name (`sharath.sathish`, `sharath.ai.colab`). The public handle `sharathsphd` is not matched.
+PRIVATE_PATTERNS: tuple[re.Pattern[str], ...] = (re.compile(r"sharath\.[a-z]+"),)
+
+#: Applied to the demo snapshot ONLY (not by `redact_secrets`, which keeps the project's git identity for its other
+#: callers): the published snapshot names no account, seat or config variable (Lead-2 P0, 2026-10-05).
+_DEMO_ONLY_SHAPES: tuple[tuple[str, re.Pattern[str], str], ...] = (
+    ("project-email", re.compile(r"\badmin@axismeru\.com\b"), "<redacted:project-email>"),
+    ("seat-name", re.compile(r"sharath\.[a-z]+(?:\.[a-z]+)*"), "<redacted:seat-name>"),
+    ("config-env-name", re.compile(r"CLAUDE_CONFIG_DIR"), "<redacted:env-name>"),
+)
+
+#: Length of the corpus window the backstop compares. A statute passage of this many characters (whitespace
+#: collapsed, case folded) appearing in the snapshot, in any JSON layout, refuses the write.
+CORPUS_CHUNK = 64
+
+
+def _flatten_strings(value: Any) -> list[str]:
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, dict):
+        return [s for k, v in value.items() for s in (_flatten_strings(k) + _flatten_strings(v))]
+    if isinstance(value, list):
+        return [s for v in value for s in _flatten_strings(v)]
+    return []
+
+
+def _norm(s: str) -> str:
+    return " ".join(s.split()).casefold()
+
+
+def _windows(t: str) -> set[int]:
+    return {hash(t[i:i + CORPUS_CHUNK]) for i in range(max(0, len(t) - CORPUS_CHUNK + 1))}
+
+
+def corpus_windows(root: Path) -> set[int]:
+    """Hashes of every CORPUS_CHUNK-character window of every shipped corpus provision (`research/nyaya/corpus`),
+    minus the windows of the headings we deliberately keep (`Act, Section N -- Title`, and the title alone): a
+    heading is not provision text, and another provision's text may quote it. An absent corpus gives an empty set:
+    there is then nothing of it to leak."""
+    text: set[int] = set()
+    headings: set[int] = set()
+    for f in sorted((Path(root) / "research" / "nyaya" / "corpus").glob("*.json")):
+        try:
+            docs = json.loads(f.read_text()).get("documents", [])
+        except (OSError, ValueError, AttributeError):
+            continue
+        for doc in docs:
+            if not isinstance(doc, dict):
+                continue
+            text |= _windows(_norm(str(doc.get("text", ""))))
+            title = str(doc.get("title", ""))
+            headings |= _windows(_norm(title))
+            headings |= _windows(_norm(f"[{doc.get('id', '')}] {doc.get('act', '')}, {doc.get('section', '')} -- {title}"))
+            headings |= _windows(_norm(f"{doc.get('act', '')}, {doc.get('section', '')} -- {title}"))
+    return text - headings
+
+
+def corpus_overlap(text: str, windows: set[int]) -> int:
+    """How many CORPUS_CHUNK windows of the snapshot's own strings (parsed from the JSON, so escaping and layout do
+    not matter) are a window of a corpus provision. Zero is clean."""
+    if not windows:
+        return 0
+    try:
+        strings = _flatten_strings(json.loads(text))
+    except ValueError:
+        strings = [text]
+    n = 0
+    for s in strings:
+        t = _norm(s)
+        n += sum(1 for i in range(len(t) - CORPUS_CHUNK + 1) if hash(t[i:i + CORPUS_CHUNK]) in windows)
+    return n
+
+
+def redact_for_demo(text: str) -> str:
+    """`redact_secrets` plus the shapes only the published demo snapshot removes."""
+    text = redact_secrets(text)
+    for _name, shape, replacement in _DEMO_ONLY_SHAPES:
+        text = shape.sub(replacement, text)
+    return text
+
+
+def private_markers_left(text: str) -> list[str]:
+    return [m for m in PRIVATE_MARKERS if m in text] + [p.pattern for p in PRIVATE_PATTERNS if p.search(text)]
+
+
 def write_demo(root: Path, dest: Path) -> Path:
-    text = redact_secrets(json.dumps(build_demo(root), indent=2, sort_keys=True, default=str) + "\n")
-    left = still_carries(text)
+    text = redact_for_demo(json.dumps(build_demo(root), indent=2, sort_keys=True, default=str) + "\n")
+    left = still_carries(text) + [f"marker {m!r}" for m in private_markers_left(text)]
     if left:
         raise SecretInSnapshot(f"snapshot still carries {', '.join(left)} after redaction; refusing to write it")
+    leaked = corpus_overlap(text, corpus_windows(root))
+    if leaked:
+        raise SecretInSnapshot(
+            f"snapshot carries {leaked} {CORPUS_CHUNK}-character window(s) of statute text from the corpus; refusing to write it"
+        )
     dest = Path(dest)
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_text(text)
