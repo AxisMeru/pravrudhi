@@ -368,14 +368,50 @@ def _decide(quote: str, accused: AccusedRef, cands: list[Candidate]) -> Attribut
     return AttributionResult(False, REASON_NOT_MATCHED, rule="R2", **common)
 
 
+# -- hard vetoes (apply whatever the actor rules say) ---------------------------------------------------------------------
+#: V2: a range written with short aliases ("A-9 to A-17", "A1-A5", "P.2 and P.4") before the first act verb is a collective actor.
+_SHORT_RANGE = re.compile(
+    r"(?<![A-Za-z0-9])[AP][\s.\-]*\d{1,3}\s*(?:to|[-\u2013\u2014]|and|&|,)\s*[AP]?[\s.\-]*\d{1,3}(?![A-Za-z0-9])", re.I
+)
+#: V1: after the accused, "together with / along with / alongwith" followed by a name (capitalised word), a role or a short alias.
+_JOINED = re.compile(r"\b(?:together|along)[\s-]*with\s+(?:[A-Z][a-z]+|(?i:accused\b|petitioners?\b)|(?i:[AP])[\s.\-]*\d)")
+#: V1: "and" / "&" straight after the accused and before the act verb, followed by a capitalised name.
+_AND_NAME = re.compile(r"^\s*,?\s*(?:and|&)\s+[A-Z][a-z]+")
+_SENTENCE_END = re.compile(r"(?<!\bNo)(?<!\bNos)\.\s+(?=[A-Z])")
+
+
+def _veto(quote: str, accused: AccusedRef) -> str | None:
+    """`"V1"` / `"V2"` when a hard veto fires, else None. Deterministic; it overrides any pass or other refusal reason."""
+    vm = _VERB.search(quote)
+    before = quote[: vm.start()] if vm else quote
+    if _SHORT_RANGE.search(before):
+        return "V2"
+    selfs = [c for c in extract_candidates(quote, accused) if c.role == "self"]
+    if not selfs:
+        return None
+    end = selfs[0].end
+    clause = _SENTENCE_END.split(quote[end:], maxsplit=1)[0]
+    if _JOINED.search(clause):
+        return "V1"
+    if vm is not None and vm.start() > end and _AND_NAME.match(quote[end : vm.start()]):
+        return "V1"
+    return None
+
+
 def check_attribution(quote: str | None, accused: AccusedRef | None) -> AttributionResult:
-    """R0..R5 on one quoted fact. Never raises: any error is a refusal (R5)."""
+    """R0..R5 on one quoted fact, then the hard vetoes. Never raises: any error is a refusal (R5)."""
     if accused is None:
         return AttributionResult(False, REASON_NOT_SPECIFIED, rule="R0")
     try:
         if not isinstance(quote, str) or not quote.strip() or len(quote) > MAX_QUOTE_CHARS:
             return AttributionResult(False, REASON_UNRESOLVED, rule="R1", error="empty or oversized quote")
-        return _decide(quote, accused, extract_candidates(quote, accused))
+        res = _decide(quote, accused, extract_candidates(quote, accused))
+        # V2 (a short-alias range) is collective whatever else was found; V1 turns a pass or an unresolved refusal into a
+        # collective refusal, while a specific R2/R3 refusal keeps its own rule.
+        veto = _veto(quote, accused)
+        if veto == "V2" or (veto == "V1" and (res.passed or res.reason == REASON_UNRESOLVED)):
+            return AttributionResult(False, REASON_COLLECTIVE, rule=veto)
+        return res
     except Exception as e:  # noqa: BLE001 -- fail closed: an error is a refusal, never a pass
         return AttributionResult(False, REASON_UNRESOLVED, rule="R5", error=f"{type(e).__name__}: {e}"[:300])
 
