@@ -60,8 +60,9 @@ and the RunPod worker template from 0.5.44; do not rely on a pip upgrade or a re
 
 ### Tooling (not in the image)
 
-Only three source files change the engine image in this release: `api/partner.py` and `application/nyaya_agent.py` (#256,
-#60) and `application/demo_export.py` (#290, #292). The items below are scripts and CI and do not ship in the image.
+Of the entries added after the boot hardening (#282/#283), only `api/partner.py`, `application/nyaya_agent.py` and
+`application/demo_export.py` change the engine image (#256, #60, #290, #292); the boot-refusal and deployment entries above are
+image behaviour too. The items below are scripts and CI and do not ship in the image.
 
 - **Release probe** (`scripts/release_probe.py`): `PROBE_ADMIN_TOKEN` is optional; the admin checks print `SKIPPED` and a run
   without them exits `3` (INCOMPLETE). Exit codes: 0 all passed, 1 a check failed (wins over 3), 2 configuration error or
