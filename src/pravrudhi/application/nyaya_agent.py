@@ -194,6 +194,13 @@ class AgentConfig:
     #: bns85's element 3. VERIFY a key against `score --describe <contract>` before enabling; a key that matches no element of
     #: its contract fails closed to REFER (`accused_attribution_config_unmatched`), it never silently disables the check.
     requires_actor: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
+    #: Which actor finder the check uses: "d0" (deterministic, closed verb lexicon) or "m1" (a model picks the actor among
+    #: the deterministic candidates; `accused_attribution_m1` names its completions backend). Env
+    #: `NYAYA_ACCUSED_ATTRIBUTION_SELECTOR`.
+    accused_attribution_selector: str = "d0"
+    #: M1 backend: `base_url`, `model` (the BASE model id, never the judge adapter), optional `timeout_s`, `threshold`,
+    #: `mass_floor`.
+    accused_attribution_m1: Mapping[str, Any] = field(default_factory=dict)
     #: Issue #39 (interim posture until a partner onboards): how many days a run's audit record survives
     #: under `audit_dir` before `purge_stale_runs` deletes it. Config-driven, never hardcoded, so the window
     #: can be tightened or loosened with a config edit alone. 7.0 is the operator/Lead-2 decided default.
@@ -474,6 +481,16 @@ def load_agent_config(root: Path) -> AgentConfig:
         attr_raw.strip().lower() in ("1", "true", "yes", "on") if attr_raw is not None
         else bool(body.get("accused_attribution_enabled", False))
     )
+    selector_name = os.environ.get("NYAYA_ACCUSED_ATTRIBUTION_SELECTOR") or str(body.get("accused_attribution_selector", "d0"))
+    selector_name = selector_name.strip().lower()
+    if selector_name not in ("d0", "m1"):
+        raise ValueError(f"accused_attribution_selector must be 'd0' or 'm1', got {selector_name!r}")
+    m1_cfg = dict(body.get("accused_attribution_m1") or {})
+    for env, key in (("NYAYA_ACCUSED_ATTRIBUTION_M1_BASE_URL", "base_url"), ("NYAYA_ACCUSED_ATTRIBUTION_M1_MODEL", "model")):
+        if os.environ.get(env):
+            m1_cfg[key] = os.environ[env]
+    if selector_name == "m1" and accused_attribution_enabled and not (m1_cfg.get("base_url") and m1_cfg.get("model")):
+        raise ValueError("accused_attribution_selector 'm1' needs accused_attribution_m1.base_url and .model")
     requires_actor_raw = body.get("accused_attribution_requires_actor") or {}
     if not isinstance(requires_actor_raw, Mapping) or any(
         not isinstance(v, (list, tuple)) or not v or any(not isinstance(x, str) or not x.strip() for x in v)
@@ -517,6 +534,8 @@ def load_agent_config(root: Path) -> AgentConfig:
         gate1_enabled=gate1_enabled,
         span_relevance_enabled=span_relevance_enabled,
         accused_attribution_enabled=accused_attribution_enabled,
+        accused_attribution_selector=selector_name,
+        accused_attribution_m1=m1_cfg,
         requires_actor=requires_actor,
         retention_days=float(body.get("retention_days", 7.0)),
     )
@@ -1066,6 +1085,18 @@ def _build_house_judge(hj_cfg: Mapping[str, Any], *, tau: float, typed: bool, ap
     return HouseJudge.from_config(hj_cfg, tau=tau, api_key_env=api_key_env)
 
 
+def _build_actor_selector(cfg: AgentConfig) -> Any:
+    """The M1 actor selector when the config asks for it, else None (D0). A missing backend never silently falls back to D0."""
+    if cfg.accused_attribution_selector != "m1":
+        return None
+    from pravrudhi.application.nyaya_attribution_m1 import LlmActorSelector
+    from pravrudhi.application.typed.decoder import VLLMDecoder
+
+    m = cfg.accused_attribution_m1
+    decoder = VLLMDecoder(base_url=str(m["base_url"]), model=str(m["model"]), timeout_s=int(m.get("timeout_s", 60)))
+    return LlmActorSelector(decoder, threshold=float(m.get("threshold", 0.6)), mass_floor=float(m.get("mass_floor", 0.5)))
+
+
 def _clamp_p(p: float) -> float:
     """`p` clamped into (1e-9, 1-1e-9) -- `logit` is defined nowhere else and a served, bf16-quantised
     probability can land exactly on 0.0 or 1.0."""
@@ -1289,7 +1320,7 @@ class NyayaAgent:
             if cfg.span_relevance_enabled:
                 judge = SpanRelevanceJudge(judge, primary)
             if cfg.accused_attribution_enabled:
-                judge = AccusedAttributionJudge(judge)
+                judge = AccusedAttributionJudge(judge, selector=_build_actor_selector(cfg))
             if gate1_model is not None:
                 threshold = float(cfg.gate1.get("threshold", GATE1_THRESHOLD_DEFAULT))
                 tau_c = float(cfg.gate1.get("tau_c", GATE1_TAU_C_DEFAULT))

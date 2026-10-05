@@ -100,8 +100,15 @@ class AttributionResult:
     n_candidates: int = 0
     candidates: tuple[dict[str, Any], ...] = field(default_factory=tuple)
     error: str | None = None
+    actor_p: float | None = None  # M1 only: the selector's probability for the chosen party
 
     def as_dict(self) -> dict[str, Any]:
+        d = self._base_dict()
+        if self.actor_p is not None:
+            d["actor_p"] = self.actor_p
+        return d
+
+    def _base_dict(self) -> dict[str, Any]:
         return {
             "variant": self.variant,
             "passed": self.passed,
@@ -376,7 +383,7 @@ _SHORT_RANGE = re.compile(
 #: V1: after the accused, "together with / along with / alongwith" followed by a name (capitalised word), a role or a short alias.
 _JOINED = re.compile(r"\b(?:together|along)[\s-]*with\s+(?:[A-Z][a-z]+|(?i:accused\b|petitioners?\b)|(?i:[AP])[\s.\-]*\d)")
 #: V1: "and" / "&" straight after the accused and before the act verb, followed by a capitalised name.
-_AND_NAME = re.compile(r"^\s*,?\s*(?:and|&)\s+[A-Z][a-z]+")
+_AND_NAME = re.compile(r"^\s*,?\s*(?:and|&)\s+(?!Accused\b|Petitioner|Respondent|Complainant)[A-Z][a-z]+")
 _SENTENCE_END = re.compile(r"(?<!\bNo)(?<!\bNos)\.\s+(?=[A-Z])")
 
 
@@ -434,8 +441,9 @@ class AccusedAttributionJudge:
     element that requires an actor and has a resolvable span; never changes the status. The result is attached as
     `ElementJudgment.attribution`; a refusal is `attribution["passed"] is False` and the agent turns it into REFER_TO_LAWYER."""
 
-    def __init__(self, inner: Judge, *, name: str | None = None) -> None:
+    def __init__(self, inner: Judge, *, name: str | None = None, selector: Any = None) -> None:
         self.inner = inner
+        self.selector = selector  # None = D0; an `nyaya_attribution_m1.ActorSelector` = M1
         self.name: str = name or str(getattr(inner, "name", "accused_attribution"))
 
     def judge(self, request: JudgeRequest) -> ElementJudgment:
@@ -445,5 +453,10 @@ class AccusedAttributionJudge:
         quote = (judgment.quote or "").strip()
         if not judgment.fact_id or not quote:
             return judgment  # no resolvable span: the quote check downstream rejects this anyway
-        result = check_attribution(quote, getattr(request, "accused", None))
+        if self.selector is not None:
+            from pravrudhi.application.nyaya_attribution_m1 import check_attribution_m1
+
+            result = check_attribution_m1(quote, getattr(request, "accused", None), self.selector)
+        else:
+            result = check_attribution(quote, getattr(request, "accused", None))
         return replace(judgment, attribution=result.as_dict())
