@@ -8,7 +8,11 @@ everything comes from the environment, and tokens are never printed (only status
 Environment
   PROBE_BASE_URL       engine ORIGIN only, e.g. https://engine.example.test[:port] (http only for loopback); a path,
                        query, fragment or credentials in it are refused
-  PROBE_ADMIN_TOKEN    a bearer token for an administrator (PRAVRUDHI_ADMINS)
+  PROBE_ADMIN_TOKEN    OPTIONAL: a bearer token for an administrator (PRAVRUDHI_ADMINS). No agent signs in as an admin, so
+                       when it is absent the admin checks are SKIPPED (an explicit line each, and an INCOMPLETE marker in
+                       the summary, never a pass) and the non-admin and anonymous half still runs
+  PROBE_REQUIRE_ADMIN  set to 1 to make a missing PROBE_ADMIN_TOKEN a configuration error (exit 2), as the operator's
+                       own release run does
   PROBE_USER_TOKEN     a bearer token for a NON-admin test account (never a real user's token)
   PROBE_EDITION        product | studio (default product): a Studio refuses a non-admin on every /api route
   PROBE_WORKSPACE      the test account's workspace name (default release-probe)
@@ -94,13 +98,22 @@ def checks(edition: str, workspace: str) -> list[Check]:
     return out
 
 
+def skip_reason(c: Check, allow_cli_ask: bool, tokens: dict[str, str | None]) -> str | None:
+    """Why a check is not run, or None when it runs."""
+    if c.opt_in and not allow_cli_ask:
+        return "opt-in (PROBE_ALLOW_CLI_ASK=1)"
+    if c.who == "admin" and not tokens.get("admin"):
+        return "admin check not run: no PROBE_ADMIN_TOKEN"
+    return None
+
+
 def run(
     send: Send, edition: str, workspace: str, tokens: dict[str, str | None], allow_cli_ask: bool = False
 ) -> list[tuple[Check, int | None, bool]]:
-    """`(check, status, passed)`; a skipped opt-in check has status None and passes vacuously (reported as SKIP)."""
+    """`(check, status, passed)`; a skipped check has status None (reported as SKIPPED, counted separately)."""
     results: list[tuple[Check, int | None, bool]] = []
     for c in checks(edition, workspace):
-        if c.opt_in and not allow_cli_ask:
+        if skip_reason(c, allow_cli_ask, tokens):
             results.append((c, None, True))
             continue
         status, body = send(c.method, c.path, tokens.get(c.who), c.body, c.access is not None)
@@ -153,11 +166,13 @@ def main(env: dict[str, str] | None = None, send: Send | None = None) -> int:
     base = env.get("PROBE_BASE_URL", "").strip().rstrip("/")
     admin, user = env.get("PROBE_ADMIN_TOKEN", "").strip(), env.get("PROBE_USER_TOKEN", "").strip()
     edition = env.get("PROBE_EDITION", "product").strip().lower()
-    if not base or not admin or not user:
-        return config_error("set PROBE_BASE_URL, PROBE_ADMIN_TOKEN and PROBE_USER_TOKEN")
+    if not base or not user:
+        return config_error("set PROBE_BASE_URL and PROBE_USER_TOKEN (PROBE_ADMIN_TOKEN is optional)")
+    if not admin and env.get("PROBE_REQUIRE_ADMIN", "").strip() == "1":
+        return config_error("PROBE_REQUIRE_ADMIN=1 but PROBE_ADMIN_TOKEN is not set")
     if edition not in ("product", "studio"):
         return config_error("PROBE_EDITION must be product or studio")
-    if admin == user:
+    if admin and admin == user:
         return config_error("the admin and the non-admin token are the same: that proves nothing")
     try:
         parsed = urllib.parse.urlparse(base)
@@ -180,23 +195,29 @@ def main(env: dict[str, str] | None = None, send: Send | None = None) -> int:
     shown = f"[{hostname}]" if ":" in hostname else hostname  # an IPv6 literal is bracketed
     host = shown + (f":{port}" if port else "")  # never netloc: it can carry userinfo
     print(f"target: {parsed.scheme}://{host}" + (f" ({label})" if label else "") + f", edition {edition}")
+    allow_cli_ask = env.get("PROBE_ALLOW_CLI_ASK") == "1"
     try:
         results = run(transport, edition, env.get("PROBE_WORKSPACE", "release-probe"),
-                      {"admin": admin, "user": user, "anonymous": None}, env.get("PROBE_ALLOW_CLI_ASK") == "1")
+                      {"admin": admin or None, "user": user, "anonymous": None}, allow_cli_ask)
     except urllib.error.URLError as e:
         return config_error(f"the engine could not be reached ({type(e).__name__})")
     except Exception as e:  # noqa: BLE001 -- never a traceback (it could carry a header); the type alone is reported
         return config_error(f"the probe failed unexpectedly ({type(e).__name__})")
+    tokens = {"admin": admin or None, "user": user, "anonymous": None}
     width = max(len(c.name) for c, _s, _ok in results)
     for c, status, ok in results:
         want = "/".join(map(str, c.expect))
-        verdict = "SKIP" if status is None else ("PASS" if ok else "FAIL")
-        got = "opt-in (PROBE_ALLOW_CLI_ASK=1)" if status is None else f"got {status}, want {want}"
-        print(f"{verdict}  {c.name:<{width}}  {c.method} {c.path.split('?')[0]}  {got}")
+        reason = skip_reason(c, allow_cli_ask, tokens)
+        verdict = "SKIPPED" if status is None else ("PASS" if ok else "FAIL")
+        got = reason if status is None else f"got {status}, want {want}"
+        print(f"{verdict:<7}  {c.name:<{width}}  {c.method} {c.path.split('?')[0]}  {got}")
     failed = [c.name for c, _s, ok in results if not ok]
     ran = sum(1 for _c, s_, _ok in results if s_ is not None)
+    admin_skipped = sum(1 for c, s_, _ok in results if s_ is None and c.who == "admin")
     tail = f"; FAILED: {', '.join(failed)}" if failed else ""
     print(f"\n{ran - len(failed)}/{ran} passed ({len(results) - ran} skipped){tail}")
+    if admin_skipped:
+        print(f"INCOMPLETE: {admin_skipped} admin check(s) were SKIPPED (no PROBE_ADMIN_TOKEN); this is not a full pass")
     return 1 if failed else 0
 
 
