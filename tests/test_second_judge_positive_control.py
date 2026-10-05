@@ -25,7 +25,6 @@ from pravrudhi.application.second_judge_positive_control import (
     PinnedCounts,
     PrivateControlDataUnavailable,
     SealedControlVerificationError,
-    SealedPinUnset,
     SealedSetPin,
     compute_established_accuracy,
     compute_ne_discrimination,
@@ -458,27 +457,23 @@ class TestTheCommittedManifest:
         assert by_name["established_200"]["n_rows"] == 200
         assert by_name["ne_discrimination_71"]["n_rows"] == 71
 
-    def test_every_digest_is_still_the_sentinel_and_no_real_looking_digest_was_invented(self) -> None:
-        """Nobody in this public repo can compute these. A follow-up PR (Track-C, from the sealed files,
-        signed by R1) replaces them. Until then every one must be the sentinel -- this test is what makes
-        a quietly-invented placeholder visible."""
+    def test_every_digest_is_now_pinned_and_digest_shaped(self) -> None:
+        """Pinned 2026-09-27 (Lead-2, computed from prabhasa-nyaya commit add40e6d8418b16b726ec54fa8444969
+        d78403b0, git objects, off-repo) -- this test's premise flipped from "nobody here can compute these"
+        to "they are computed", so it now asserts every entry is real-digest-shaped, never the sentinel."""
         entries = self._raw()["sealed_sets"]
         assert isinstance(entries, list)
         for entry in entries:
-            assert entry["sha256"] == SEALED_PIN_UNSET, (
-                f"{entry['name']}'s sha256 is no longer the sentinel. If the sealed files were genuinely "
-                "hashed, that is the follow-up PR and this assertion changes with it -- a digest that "
-                "appeared without one is a fabricated pin."
+            assert entry["sha256"] != SEALED_PIN_UNSET, f"{entry['name']}'s sha256 is still the sentinel"
+            assert re.match(r"^[0-9a-f]{64}$", str(entry["sha256"])), (
+                f"{entry['name']}'s sha256 is not a lowercase 64-hex digest"
             )
 
-    def test_loading_it_refuses_because_the_pins_are_unset(self) -> None:
-        """Fail-closed on an unset digest: it RAISES. Not a warning, not a skip, not pinning-disabled."""
-        with pytest.raises(SealedPinUnset) as excinfo:
-            load_sealed_manifest(REPO_ROOT)
-        message = str(excinfo.value)
-        assert "REFUSES TO RUN" in message
-        for name in ("established_200", "ne_discrimination_71", "eval_items_v1"):
-            assert name in message, "every unpinned entry is named at once, not just the first"
+    def test_loading_it_succeeds_now_that_the_pins_are_set(self) -> None:
+        """Fail-closed on an unset digest still RAISES (covered directly in TestParseSealedManifest below);
+        against THIS committed manifest, now pinned, loading succeeds and returns all three pins."""
+        pins = load_sealed_manifest(REPO_ROOT)
+        assert set(pins) == {"established_200", "ne_discrimination_71", "eval_items_v1"}
 
 
 class TestParseSealedManifest:

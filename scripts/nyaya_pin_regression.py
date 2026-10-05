@@ -4,6 +4,9 @@ gets compared and why.
 
 Usage:
   python scripts/nyaya_pin_regression.py --old /path/to/score-old --new /path/to/score-new
+
+Needs PRAVRUDHI_EDITION=dev (or NYAYA_HOUSE_JUDGE_MODEL set): it loads the agent config, which refuses an unnamed
+judge model in every edition but an explicit development one (#237).
 """
 
 from __future__ import annotations

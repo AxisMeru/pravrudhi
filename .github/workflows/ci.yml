@@ -97,6 +97,10 @@ jobs:
         run: lake build
 
       - name: verify the built binary's sha256 against pinned_score_sha256 -- fail loud on any mismatch
+        # A sha check, not a serving path: it loads the packaged config only to read pinned_score_sha256, so it
+        # runs as the development edition (the judge model pin, #237, is enforced for every other edition).
+        env:
+          PRAVRUDHI_EDITION: dev
         run: uv run python scripts/verify_score_bin_sha.py "$RUNNER_TEMP/prabhasa-nyaya/lean/.lake/build/bin/score"
 
       - uses: actions/upload-artifact@v4
@@ -199,6 +203,9 @@ jobs:
       - run: uv sync --all-groups --frozen
       - run: uv run python scripts/import_guard.py
       - run: uv run python scripts/check_no_private_data.py
+      # The partner OpenAPI contract is generated from the router; a schema change that does not ship its
+      # regenerated docs/api/openapi-v1.json fails here with the diff and the fix command, independent of pytest.
+      - run: uv run python scripts/check_openapi_contract.py
       # 2026-09-26 incident backstop: an undeclared ARG GITHUB_TOKEN masked a silently-unauthenticated
       # Docker build for every prior release, and the fix-attempt (declaring it) leaked the real token value
       # in cleartext in the build log. This makes that class of mistake fail CI instead of a human review.
@@ -211,6 +218,43 @@ jobs:
       # a reason and an issue, in scripts/fail_open_defaults_baseline.txt; they are findings going to their
       # owners, not things this step's own PR fixed.
       - run: uv run python scripts/check_fail_open_defaults.py
+      # Uncollected test files (2026-09-26): a PR added a 221-line `test_*.py` that sat outside the
+      # configured test root, so pytest never collected it -- the collected count was byte-identical to the
+      # base branch and the job went green on a file that contributed exactly zero tests. This guard fails
+      # when a test file is in the tree but outside the roots `testpaths` names, unless it is allowlisted
+      # with a written reason in scripts/uncollected_tests_allowlist.txt (which ships EMPTY: a real scan of
+      # main found zero pre-existing offenders in this repo -- see that file's header).
+      #
+      # In THIS job, never in `engine`, for the reason this job exists at all (#74): a guard placed after
+      # `engine`'s pytest step is silently skipped whenever pytest fails, and "pytest is red so nobody
+      # noticed the new tests were never collected" is precisely the situation this has to survive. It has
+      # no dependency on tests having run -- it reads `git ls-files` and the pytest configuration only.
+      #
+      # It reads the roots from pyproject.toml's `testpaths` on every run and never hardcodes them: this
+      # repo has TWO (`tests` and `pravrudhi_kernel/tests`, run by `engine` and `kernel` respectively), and
+      # assuming `tests` alone already produced one false CI-coverage alarm here.
+      - run: uv run python scripts/check_uncollected_tests.py
+      # #96, the converse of the guard above: every configured `testpaths` root must be named by a CI pytest
+      # invocation (path components, unfiltered), and a nested pyproject's testpaths must not drift from it.
+      - run: uv run python scripts/check_testpaths_run_by_ci.py
+      # Contract classification (Lead-2, 2026-09-27, P2 hardening of the registry-to-gate coupling): every id
+      # in the pinned registry must be in EXACTLY ONE of `validated_contracts:` and
+      # `unvalidated_contracts_documented:`, the latter carrying a one-line reason per entry. Neither list and
+      # both lists are each a hard failure, so a pin bump cannot merge until somebody classifies the new ids
+      # on purpose.
+      #
+      # IN THIS JOB, NOT `engine` (deliberate): `guards` is a required status context and `engine` is not
+      # today, so the existing registry-coupling tests in `engine`'s pytest step do not actually gate a
+      # merge -- that split is on the morning list as a branch-protection item. A pure static script belongs
+      # here anyway, for the reason this job exists at all (#74): no pytest dependency, no application import
+      # (KNOWN_CONTRACT_IDS is read with `ast`, like scripts/import_guard.py does), so a PR pushed at speed
+      # with a red pytest is still covered.
+      #
+      # Fail-closed on every input: a missing, empty or unparseable config / registry / pinned count / digest
+      # seal FAILS, and the registry id count is an EXACT equality against `pinned_registry_count:` in
+      # configs/nyaya_agent.yaml (a floor would silently accept a registry that shrank). A green line here
+      # prints the three counts it examined, so a pass over nothing is visible in the log.
+      - run: uv run python scripts/check_contract_classification.py
       # Secret scanning over THIS PR'S DIFF (operator ask, 2026-09-26, after that morning's Docker ARG
       # token leak and the 2026-09-11 Telegram bot token). In THIS job rather than `engine` for the reason
       # this job exists at all (#74): it is a pure static check with no dependency on tests having run, and

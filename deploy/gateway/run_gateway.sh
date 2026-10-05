@@ -16,10 +16,18 @@
 #   gateway.env     PRAVRUDHI_ADMINS (the operator's Supabase account, Studio admits only this),
 #                   PRAVRUDHI_VERSION (the release both containers run), STUDIO_ROOT (the real Studio root the
 #                   hosted Studio engine serves; default a fresh root), optional STUDIO_ORIGIN / PRODUCT_ORIGIN
+#                   NYAYA_HOUSE_JUDGE_MODEL (and NYAYA_SECOND_JUDGE_MODEL when a second judge is configured):
+#                   the served judge model ids (nyaya-judge-4b / judge32b). REQUIRED for the engine containers:
+#                   a product or studio engine refuses to load its judge config with no model named (#237)
 #                   optional NYAYA_HOUSE_JUDGE_BASE_URL + NYAYA_JUDGE_NETWORK: the element-judge server the
 #                   /api/v1/analyse-facts agent calls, reached by container name on a shared docker network
 #                   (e.g. http://vllm-judge:8000/v1 on network nyaya-judge) -- the host's 127.0.0.1 is not
 #                   reachable from an engine container, and docker0 -> host is firewalled on this box
+#                   optional STUDIO_HOLD_KV=1: start the Studio tunnel but do NOT write engine_url_studio to KV (the URL is
+#                   only logged), so a blank key kept as containment survives a gateway restart. The flag is read from the
+#                   gateway's environment on EVERY start: keep it in gateway.env (or an `Environment=STUDIO_HOLD_KV=1` line
+#                   in the systemd unit, see pravrudhi-gateway.service), and add it to the restart checklist, or a restart
+#                   silently drops the hold and the next start writes engine_url_studio again
 #                   optional PRODUCT_DEMO_ANON_PATHS: comma list passed to the PRODUCT engine only as
 #                   PRAVRUDHI_DEMO_ANON_PATHS (anonymous demo routes; the engine refuses any outside its fixed set)
 #                   optional PRODUCT_UPSTREAM=runpod: the product edition has cut over to RunPod serverless
@@ -125,9 +133,49 @@ ensure_image() {
   rm -rf "$build_ctx"
 }
 
+# Studio admits only the operator, which is only true when the engine authenticates (PRAVRUDHI_AUTH=required): with
+# authentication off every caller is the operator by construction. The image defaults to required, but the gateway's
+# own environment (gateway.env) or the container env file (chat.env) could override that, so refuse to START a Studio
+# container unless the value that would reach it is `required`. Called BEFORE the existing container is touched, so a
+# refusal leaves what is running as it is.
+studio_auth_guard() {
+  local line v="${PRAVRUDHI_AUTH-required}"
+  if [ -f "$CONF/chat.env" ]; then
+    line="$(grep -E '^[[:space:]]*(export[[:space:]]+)?PRAVRUDHI_AUTH=' "$CONF/chat.env" | tail -1 || true)"
+    if [ -n "$line" ]; then v="${line#*=}"; v="${v%\"}"; v="${v#\"}"; v="${v%\'}"; v="${v#\'}"; fi
+  fi
+  if [ "$v" != required ]; then
+    echo "REFUSING to start the Studio container: PRAVRUDHI_AUTH would be '$v', not 'required' (gateway.env / chat.env)." >&2
+    echo "With authentication off every caller is the operator. Fix the setting, then re-run." >&2
+    return 1
+  fi
+}
+
+# Read the running Studio container's PRAVRUDHI_AUTH back and require `required`. The value is asked twice, once
+# more after a short wait, before the answer is trusted: a container that has only just started can fail the exec once.
+studio_auth_readback() {
+  local name=$1 v
+  v="$(docker exec "$name" printenv PRAVRUDHI_AUTH 2>/dev/null || true)"
+  if [ "$v" != required ]; then
+    sleep "${STUDIO_READBACK_WAIT:-2}"
+    v="$(docker exec "$name" printenv PRAVRUDHI_AUTH 2>/dev/null || true)"
+  fi
+  [ "$v" = required ]
+}
+
 ensure_engine() {
   local edition=$1 name="pravrudhi-engine-$1" port; port=$(port_of "$1")
-  if docker ps --format '{{.Names}} {{.Image}}' | grep -q "^$name pravrudhi-engine:$PRAVRUDHI_VERSION$"; then return; fi
+  if docker ps --format '{{.Names}} {{.Image}}' | grep -q "^$name pravrudhi-engine:$PRAVRUDHI_VERSION$"; then
+    # The right image is already running: a restart of this script must not skip the Studio check just because
+    # nothing needed building. An open Studio is taken down and its tunnel is never registered (return 1).
+    if [ "$edition" = studio ] && ! studio_auth_readback "$name"; then
+      echo "STUDIO REFUSED: the running Studio container does not report PRAVRUDHI_AUTH=required; removing it." >&2
+      docker rm -f "$name" >/dev/null 2>&1 || true
+      return 1
+    fi
+    return 0
+  fi
+  if [ "$edition" = studio ]; then studio_auth_guard || return 1; fi
   docker rm -f "$name" >/dev/null 2>&1 || true
   # Studio's hosted engine serves THE Studio: the operator's real root, with its ledger, requests and the local
   # loop's work, not a fresh root of its own (operator, 2026-09-12: "earlier studio was on rsi...what happened").
@@ -136,7 +184,8 @@ ensure_engine() {
   local data="$STATE/$edition" extra=()
   if [ "$edition" = studio ]; then
     data="${STUDIO_ROOT:-$STATE/studio}"
-    extra=(-e "PRAVRUDHI_ADMINS=$PRAVRUDHI_ADMINS" --user "$(id -u):$(id -g)" -e HOME=/tmp)   # Studio admits only the operator
+    # Binds 0.0.0.0 in the container but is published only on 127.0.0.1 (-p below): say so, or the engine cannot see it.
+    extra=(-e "PRAVRUDHI_AUTH=required" -e "PRAVRUDHI_STUDIO_LOOPBACK_ONLY=1" -e "PRAVRUDHI_ADMINS=$PRAVRUDHI_ADMINS" --user "$(id -u):$(id -g)" -e HOME=/tmp)   # Studio admits only the operator
   fi
   # The anonymous-demo allowance (identity.DEMO_ANON_CAPABLE) is for the product edition only: Studio stays login-only.
   if [ "$edition" = product ] && [ -n "${PRODUCT_DEMO_ANON_PATHS:-}" ]; then
@@ -146,14 +195,41 @@ ensure_engine() {
   docker run -d --name "$name" --restart unless-stopped --memory 3g \
     -p "127.0.0.1:$port:8765" -v "$data:/data" \
     --env-file "$CONF/chat.env" \
+    -e PRAVRUDHI_AUTH=required \
     -e PRAVRUDHI_EDITION="$edition" -e SUPABASE_URL="$SUPABASE_URL" \
     -e PRAVRUDHI_ALLOWED_ORIGINS="$(origin_of "$edition")" \
     ${NYAYA_HOUSE_JUDGE_BASE_URL:+-e "NYAYA_HOUSE_JUDGE_BASE_URL=$NYAYA_HOUSE_JUDGE_BASE_URL"} \
+    ${NYAYA_HOUSE_JUDGE_MODEL:+-e "NYAYA_HOUSE_JUDGE_MODEL=$NYAYA_HOUSE_JUDGE_MODEL"} \
+    ${NYAYA_SECOND_JUDGE_MODEL:+-e "NYAYA_SECOND_JUDGE_MODEL=$NYAYA_SECOND_JUDGE_MODEL"} \
     ${NYAYA_JUDGE_NETWORK:+--network "$NYAYA_JUDGE_NETWORK"} \
     "${extra[@]}" \
     "pravrudhi-engine:$PRAVRUDHI_VERSION" >/dev/null
-  for _ in $(seq 1 60); do curl -sf "http://127.0.0.1:$port/api/health" >/dev/null 2>&1 && return; sleep 1; done
-  echo "engine $edition did not answer on $port" >&2; docker logs --tail 20 "$name" >&2; exit 1
+  if [ "$edition" = studio ] && ! studio_auth_readback "$name"; then
+    # Belt and braces: read back what the running container actually has, and take it down rather than serve Studio open.
+    echo "STUDIO REFUSED: the Studio container does not report PRAVRUDHI_AUTH=required; removing it." >&2
+    docker rm -f "$name" >/dev/null 2>&1 || true
+    return 1
+  fi
+  for _ in $(seq 1 60); do curl -sf "http://127.0.0.1:$port/api/health" >/dev/null 2>&1 && return 0; sleep 1; done
+  echo "engine $edition did not answer on $port" >&2; docker logs --tail 20 "$name" >&2; return 1
+}
+
+# Studio first, then the product. A Studio refusal or failure is logged loudly, its tunnel is never registered, and the
+# product still comes up (its container and tunnel are not touched by Studio's problem); the function returns 1 so the
+# caller exits non-zero at the end. A product failure still stops everything, as before.
+bring_up_engines() {
+  local studio_failed=""
+  for edition in studio product; do
+    if ensure_engine "$edition"; then
+      tunnel "$edition"
+    elif [ "$edition" = studio ]; then
+      studio_failed=1
+      echo "################ STUDIO NOT REGISTERED (see above); continuing with the product edition ################" >&2
+    else
+      exit 1
+    fi
+  done
+  [ -z "$studio_failed" ]
 }
 
 PIDS=()
@@ -172,6 +248,14 @@ tunnel() {
   if [ "$edition" = "product" ] && [ "${PRODUCT_UPSTREAM:-}" = "runpod" ]; then
     kv_key="engine_url_product_rollback"
   fi
+  # An operator who keeps `engine_url_studio` blank as a containment layer (Studio offline behind its Worker) can hold
+  # it across a gateway restart: with STUDIO_HOLD_KV=1 the Studio tunnel is still started and its URL is logged, but
+  # nothing is written to KV, so the Worker keeps answering 503. Only the exact value 1 holds; the default is unchanged,
+  # and the product edition is never held.
+  if [ "$edition" = studio ] && [ "${STUDIO_HOLD_KV:-}" = 1 ]; then
+    echo "$edition: $url -> KV write HELD (STUDIO_HOLD_KV=1); $kv_key not written, the URL is only in this log"
+    return 0
+  fi
   curl -sf "${auth[@]}" -X PUT "$API/storage/kv/namespaces/$CF_KV_ID/values/$kv_key" --data "$url" >/dev/null
   echo "$edition: $url -> KV $kv_key"
 }
@@ -186,11 +270,16 @@ esac
 : "${CF_KV_ID:?run --setup first}"
 trap 'kill "${PIDS[@]}" 2>/dev/null || true' EXIT INT TERM
 ensure_image
-for edition in studio product; do ensure_engine "$edition"; tunnel "$edition"; done
-echo "gateway up; both engines registered"
+STUDIO_FAILED=""
+bring_up_engines || STUDIO_FAILED=1
+if [ -n "$STUDIO_FAILED" ]; then
+  echo "gateway up for the PRODUCT edition only; Studio was refused and is not registered" >&2
+else
+  echo "gateway up; both engines registered"
+fi
 # A quick tunnel can die on its own; its KV entry would then point at a hostname Cloudflare no longer knows (530,
 # error 1033) for as long as the other tunnel lived. Exit on the first death so systemd restarts the whole serve
 # loop and re-registers both.
 wait -n
 echo "a tunnel exited; restarting to re-register" >&2
-exit 1
+exit 1  # also the exit status when Studio was refused: a non-zero end is what tells systemd and the operator

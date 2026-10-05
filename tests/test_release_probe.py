@@ -1,0 +1,362 @@
+"""The release probe, run against a real in-process engine in both editions (and against a deliberately broken one)."""
+
+from __future__ import annotations
+
+import importlib.util
+import sys
+from pathlib import Path
+from typing import Any
+
+import pytest
+from fastapi.testclient import TestClient
+
+from pravrudhi.api import identity, roles
+from pravrudhi.api.localguard import TOKEN_HEADER, app_token
+from pravrudhi.api.server import create_app
+
+spec = importlib.util.spec_from_file_location("release_probe", Path(__file__).parent.parent / "scripts" / "release_probe.py")
+probe = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
+sys.modules["release_probe"] = probe
+spec.loader.exec_module(probe)  # type: ignore[union-attr]
+
+ADMIN_TOKEN, USER_TOKEN = "probe-admin-token-value", "probe-user-token-value"
+CLAIMS = {
+    ADMIN_TOKEN: {"sub": "op-1", "email": "op@example.com", "role": "authenticated"},
+    USER_TOKEN: {"sub": "u-2", "email": "someone@example.com", "role": "authenticated"},
+}
+
+
+@pytest.fixture(autouse=True)
+def _env(monkeypatch: pytest.MonkeyPatch) -> None:
+    for v in ("PRAVRUDHI_EDITION", "PRAVRUDHI_STUDIO_LOOPBACK_ONLY", "PRAVRUDHI_IDENTITY_HEADER"):
+        monkeypatch.delenv(v, raising=False)
+    monkeypatch.setenv("PRAVRUDHI_AUTH", "required")
+    monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
+    monkeypatch.setenv("PRAVRUDHI_ADMINS", "op-1")
+
+    def verify(token: str, **_k: Any) -> dict[str, Any]:
+        if token not in CLAIMS:
+            raise identity.HTTPException(status_code=401, detail="Invalid token")
+        return CLAIMS[token]
+
+    monkeypatch.setattr(identity, "verify_token", verify)
+
+
+def _sender(tmp_path: Path, edition: str, monkeypatch: pytest.MonkeyPatch) -> Any:
+    monkeypatch.setenv("PRAVRUDHI_EDITION", edition)
+    client = TestClient(create_app(tmp_path), base_url="http://localhost", raise_server_exceptions=False)
+
+    def send(method: str, path: str, token: str | None, body: dict | None, want_json: bool) -> tuple[int, dict | None]:
+        headers = {TOKEN_HEADER: app_token(tmp_path)}
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        r = client.request(method, path, headers=headers, json=body)
+        parsed = r.json() if want_json and r.headers.get("content-type", "").startswith("application/json") else None
+        return r.status_code, parsed if isinstance(parsed, dict) else None
+
+    return send
+
+
+def _env_for(edition: str) -> dict[str, str]:
+    return {"PROBE_BASE_URL": "https://engine.example.test", "PROBE_ADMIN_TOKEN": ADMIN_TOKEN,
+            "PROBE_USER_TOKEN": USER_TOKEN, "PROBE_EDITION": edition}
+
+
+@pytest.mark.parametrize("edition", ["product", "studio"])
+def test_a_correctly_gated_engine_passes_every_check(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], edition: str
+) -> None:
+    code = probe.main(_env_for(edition), _sender(tmp_path, edition, monkeypatch))
+    out = capsys.readouterr()
+    assert code == 0, out.out
+    assert "FAIL" not in out.out and "passed" in out.out
+    assert ADMIN_TOKEN not in out.out + out.err and USER_TOKEN not in out.out + out.err  # tokens are never printed
+
+
+def test_a_missing_gate_is_reported_as_a_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(roles, "gate", lambda app: [])  # an engine that forgot the operator gates
+    code = probe.main(_env_for("product"), _sender(tmp_path, "product", monkeypatch))
+    out = capsys.readouterr().out
+    assert code == 1 and "FAIL" in out and "POST /api/runs" in out and "FAILED:" in out
+
+
+def _recording(status: int = 200, body: dict | None = None) -> tuple[list[tuple[str, str, str | None]], Any]:
+    sent: list[tuple[str, str, str | None]] = []
+
+    def send(method: str, path: str, token: str | None, req: dict | None, want_json: bool) -> tuple[int, dict | None]:
+        sent.append((method, path, token))
+        return status, body
+
+    return sent, send
+
+
+def test_the_probe_never_sends_the_admin_token_to_a_state_changing_route() -> None:
+    sent, send = _recording(200, {"access": "admin"})
+    probe.run(send, "product", "w", {"admin": "A", "user": "U", "anonymous": None}, allow_cli_ask=True)
+    assert sent and all(t != "A" for m, _p, t in sent if m != "GET")
+    assert [p for m, p, t in sent if t == "A"] == ["/api/me"]  # the admin token only ever reads /api/me
+
+
+def test_the_cli_ask_probes_are_opt_in_and_not_sent_by_default(capsys: pytest.CaptureFixture[str]) -> None:
+    sent, send = _recording()
+    probe.run(send, "product", "w", {"admin": "A", "user": "U", "anonymous": None})
+    assert not [p for _m, p, _t in sent if p.startswith("/api/nyaya/ask")]
+    sent_on, send_on = _recording()
+    probe.run(send_on, "product", "w", {"admin": "A", "user": "U", "anonymous": None}, allow_cli_ask=True)
+    assert len([p for _m, p, _t in sent_on if p.startswith("/api/nyaya/ask")]) == 2
+    # through main: skipped lines are reported as SKIPPED and do not count
+    probe.main(_env_for("product"), send)
+    out = capsys.readouterr().out
+    assert out.count("SKIPPED") == 2 and "PROBE_ALLOW_CLI_ASK=1" in out and "(2 skipped)" in out
+
+
+def test_the_default_probes_name_no_workspace_and_use_a_nonexistent_objective() -> None:
+    first = [c for c in probe.checks("product", "w") if not c.opt_in]
+    assert not [c for c in first if "workspace=" in c.path]
+    ghost = next(c for c in first if c.path.endswith("/subagents"))
+    again = next(c for c in probe.checks("product", "w") if c.path.endswith("/subagents"))
+    assert "release-probe-nonexistent-" in ghost.path and ghost.path != again.path  # a fresh unguessable id each run
+
+
+def test_the_admin_token_must_really_be_an_admin_and_the_access_word_is_never_printed(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _sent, member = _recording(200, {"access": "member"})
+    results = probe.run(member, "product", "w", {"admin": "A", "user": "U", "anonymous": None})
+    assert not results[0][2]  # status 200 but not admin: the first check fails
+    _sent2, admin = _recording(200, {"access": "admin"})
+    assert probe.run(admin, "product", "w", {"admin": "A", "user": "U", "anonymous": None})[0][2]
+    probe.main(_env_for("product"), member)
+    assert "member" not in capsys.readouterr().out
+
+
+def test_the_non_admin_must_not_be_reported_as_admin_on_a_product_engine() -> None:
+    _sent, everyone_admin = _recording(200, {"access": "admin"})
+    ran = probe.run(everyone_admin, "product", "w", {"admin": "A", "user": "U", "anonymous": None})
+    results = {c.name: ok for c, _s, ok in ran}
+    assert results["product serves a non-admin /api/me, not as admin"] is False
+
+
+def test_the_report_names_the_target_and_label(capsys: pytest.CaptureFixture[str]) -> None:
+    _sent, send = _recording(200, {"access": "admin"})
+    probe.main({**_env_for("product"), "PROBE_TARGET_LABEL": "worker"}, send)
+    first = capsys.readouterr().out.splitlines()[0]
+    assert first == "target: https://engine.example.test (worker), edition product"
+
+
+def test_any_unexpected_error_is_exit_2_with_no_traceback(capsys: pytest.CaptureFixture[str]) -> None:
+    def boom(*a: Any) -> tuple[int, dict | None]:
+        raise RuntimeError("secret-looking detail Bearer abc")
+
+    assert probe.main(_env_for("product"), boom) == 2
+    err = capsys.readouterr().err
+    assert "RuntimeError" in err and "Traceback" not in err and "Bearer" not in err
+
+
+def test_every_write_probe_carries_an_invalid_body_or_no_body() -> None:
+    for c in probe.checks("product", "w"):
+        if c.method in ("POST", "PUT") and c.who != "admin" and not c.opt_in:
+            assert c.body is None or c.body in (probe.INVALID_RUN, probe.INVALID_UPDATE, {"channel": "x"})
+    assert probe.INVALID_RUN["target"] not in ("model", "harness")
+
+
+@pytest.mark.parametrize(
+    "env",
+    [
+        {},
+        {"PROBE_BASE_URL": "https://e.example.test", "PROBE_ADMIN_TOKEN": "a"},
+        {"PROBE_BASE_URL": "https://e.example.test", "PROBE_ADMIN_TOKEN": "same", "PROBE_USER_TOKEN": "same"},
+        {"PROBE_BASE_URL": "http://engine.example.test", "PROBE_ADMIN_TOKEN": "a", "PROBE_USER_TOKEN": "b"},
+        {"PROBE_BASE_URL": "https://e.example.test", "PROBE_ADMIN_TOKEN": "a", "PROBE_USER_TOKEN": "b", "PROBE_EDITION": "prod"},
+    ],
+)
+def test_configuration_errors_exit_2_and_say_why(env: dict[str, str], capsys: pytest.CaptureFixture[str]) -> None:
+    assert probe.main(env, lambda *a: (200, None)) == 2
+    assert "CONFIG ERROR" in capsys.readouterr().err
+
+
+def test_http_is_allowed_for_loopback_only(capsys: pytest.CaptureFixture[str]) -> None:
+    ok = {"PROBE_BASE_URL": "http://127.0.0.1:8765", "PROBE_ADMIN_TOKEN": "a", "PROBE_USER_TOKEN": "b"}
+    assert probe.main(ok, lambda *a: (200, None)) in (0, 1)  # configuration accepted (the stub answers 200 to everything)
+    assert probe.main({**ok, "PROBE_BASE_URL": "http://10.0.0.5"}, lambda *a: (200, None)) == 2
+
+
+def test_an_unreachable_engine_is_exit_2_not_a_pass(capsys: pytest.CaptureFixture[str]) -> None:
+    import urllib.error
+
+    def down(*a: Any) -> tuple[int, dict | None]:
+        raise urllib.error.URLError("refused")
+
+    assert probe.main(_env_for("product"), down) == 2
+    assert "could not be reached" in capsys.readouterr().err
+
+
+def test_a_url_with_credentials_is_refused_and_neither_user_nor_password_is_ever_printed(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    env = {**_env_for("product"), "PROBE_BASE_URL": "https://opuser:hunter2pass@engine.example.test:8443"}
+    assert probe.main(env, lambda *a: (200, {"access": "admin"})) == 2
+    out = capsys.readouterr()
+    for secret in ("opuser", "hunter2pass", "hunter2"):
+        assert secret not in out.out and secret not in out.err
+
+
+def test_the_target_line_is_hostname_and_port_only(capsys: pytest.CaptureFixture[str]) -> None:
+    env = {**_env_for("studio"), "PROBE_BASE_URL": "https://engine.example.test:8443"}
+    probe.main(env, lambda *a: (200, {"access": "admin"}))
+    first = capsys.readouterr().out.splitlines()[0]
+    assert first == "target: https://engine.example.test:8443, edition studio"
+
+
+@pytest.mark.parametrize("body", [None, {}, {"access": ""}, {"access": None}, {"access": 7}, {"other": "member"}])
+def test_the_non_admin_access_check_fails_on_an_empty_or_unparseable_body(body: dict | None) -> None:
+    _sent, send = _recording(200, body)
+    ran = probe.run(send, "product", "w", {"admin": "A", "user": "U", "anonymous": None})
+    results = {c.name: ok for c, _s, ok in ran}
+    assert results["product serves a non-admin /api/me, not as admin"] is False
+    assert results["admin token is really an admin (/api/me)"] is False
+
+
+def test_a_real_member_word_passes_the_non_admin_check() -> None:
+    _sent, send = _recording(200, {"access": "member"})
+    ran = probe.run(send, "product", "w", {"admin": "A", "user": "U", "anonymous": None})
+    assert {c.name: ok for c, _s, ok in ran}["product serves a non-admin /api/me, not as admin"] is True
+
+
+@pytest.mark.parametrize("url", ["https://engine.example.test:notaport", "https://engine.example.test:99999999", "https://[::1", "https://"])
+def test_a_malformed_url_is_exit_2_with_no_traceback(url: str, capsys: pytest.CaptureFixture[str]) -> None:
+    code = probe.main({**_env_for("product"), "PROBE_BASE_URL": url}, lambda *a: (200, {"access": "admin"}))
+    err = capsys.readouterr().err
+    assert code == 2 and "Traceback" not in err and "CONFIG ERROR" in err
+
+
+def test_an_ipv6_host_is_bracketed_in_the_target_line(capsys: pytest.CaptureFixture[str]) -> None:
+    env = {**_env_for("product"), "PROBE_BASE_URL": "http://[::1]:8765"}
+    probe.main(env, lambda *a: (200, {"access": "admin"}))
+    assert capsys.readouterr().out.splitlines()[0] == "target: http://[::1]:8765, edition product"
+
+
+def test_a_url_with_credentials_query_and_fragment_leaks_none_of_them_to_stdout_or_stderr(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    url = "https://u:p@engine.example.test/?token=s3cr3tq#zzfragzz"
+    code = probe.main({**_env_for("product"), "PROBE_BASE_URL": url}, lambda *a: (200, {"access": "admin"}))
+    out = capsys.readouterr()
+    assert code == 2
+    text = out.out + out.err
+    for leaked in ("u:p", "p@", "s3cr3tq", "zzfragzz", "token=", "u:p@engine"):
+        assert leaked not in text, leaked
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://engine.example.test/api",
+        "https://engine.example.test/api/v1/",
+        "https://engine.example.test/?token=s3cr3tq",
+        "https://engine.example.test?x=1",
+        "https://engine.example.test/#zzfragzz",
+        "https://engine.example.test/;params",
+    ],
+)
+def test_a_base_url_with_a_path_query_or_fragment_is_refused_without_echoing_it(
+    url: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    code = probe.main({**_env_for("product"), "PROBE_BASE_URL": url}, lambda *a: (200, {"access": "admin"}))
+    out = capsys.readouterr()
+    assert code == 2 and "origin only" in out.err
+    assert "s3cr3tq" not in out.out + out.err and "zzfragzz" not in out.out + out.err and "/api" not in out.out + out.err
+
+
+@pytest.mark.parametrize("url", ["https://engine.example.test", "https://engine.example.test/", "http://127.0.0.1:8765/"])
+def test_a_plain_origin_is_still_accepted(url: str, capsys: pytest.CaptureFixture[str]) -> None:
+    probe.main({**_env_for("product"), "PROBE_BASE_URL": url}, lambda *a: (200, {"access": "admin"}))
+    assert "CONFIG ERROR" not in capsys.readouterr().err
+
+
+def _without_admin() -> dict[str, str]:
+    env = _env_for("product")
+    del env["PROBE_ADMIN_TOKEN"]
+    return env
+
+
+def test_without_an_admin_token_the_admin_checks_are_skipped_explicitly_and_the_rest_runs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    sent: list[tuple[str, str, str | None]] = []
+    real = _sender(tmp_path, "product", monkeypatch)
+
+    def send(method: str, path: str, token: str | None, body: dict | None, want_json: bool) -> tuple[int, dict | None]:
+        sent.append((method, path, token))
+        return real(method, path, token, body, want_json)
+
+    code = probe.main(_without_admin(), send)
+    out = capsys.readouterr().out
+    assert code == 3, out  # INCOMPLETE: never 0, so CI cannot read a skipped admin half as green
+    skipped_admin = [line for line in out.splitlines() if line.startswith("SKIPPED") and "no PROBE_ADMIN_TOKEN" in line]
+    assert len(skipped_admin) == 1 and "admin token is really an admin" in skipped_admin[0]
+    assert "INCOMPLETE: 1 admin check(s) were SKIPPED" in out and "not a full pass" in out
+    # the non-admin and anonymous half still ran, and nothing was sent with an admin token
+    assert [p for m, p, t in sent if t == USER_TOKEN] and [p for m, p, t in sent if t is None]
+    assert not [1 for _m, _p, t in sent if t == ADMIN_TOKEN]
+    assert "FAIL" not in out and ADMIN_TOKEN not in out
+
+
+def test_a_skipped_admin_check_is_never_counted_as_a_pass() -> None:
+    sent, send = _recording(200, {"access": "member"})
+    ran = probe.run(send, "product", "w", {"admin": None, "user": "U", "anonymous": None})
+    admin = [(c, s) for c, s, _ok in ran if c.who == "admin"]
+    assert admin and all(status is None for _c, status in admin)  # not run: no status, so no pass is reported
+    assert not [1 for _m, _p, t in sent if t == "A"]
+
+
+def test_without_an_admin_token_a_real_failure_in_the_remaining_half_still_exits_1(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(roles, "gate", lambda app: [])  # an engine that forgot the operator gates
+    code = probe.main(_without_admin(), _sender(tmp_path, "product", monkeypatch))
+    out = capsys.readouterr().out
+    assert code == 1 and "FAIL" in out and "INCOMPLETE" in out
+
+
+def test_require_admin_restores_the_old_behaviour(capsys: pytest.CaptureFixture[str]) -> None:
+    env = {**_without_admin(), "PROBE_REQUIRE_ADMIN": "1"}
+    assert probe.main(env, lambda *a: (200, None)) == 2
+    assert "PROBE_REQUIRE_ADMIN" in capsys.readouterr().err
+
+
+def test_the_user_token_is_still_required_and_an_empty_admin_token_means_absent(capsys: pytest.CaptureFixture[str]) -> None:
+    assert probe.main({"PROBE_BASE_URL": "https://e.example.test", "PROBE_ADMIN_TOKEN": "a"}, lambda *a: (200, None)) == 2
+    sent, send = _recording(200, {"access": "member"})
+    probe.main({**_env_for("product"), "PROBE_ADMIN_TOKEN": "  "}, send)
+    assert "INCOMPLETE" in capsys.readouterr().out
+
+
+def test_the_four_exit_codes_and_their_precedence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    good = _sender(tmp_path, "product", monkeypatch)
+    assert probe.main(_env_for("product"), good) == 0  # a full run, all passed
+    assert probe.main(_without_admin(), good) == 3  # admin half skipped, everything that ran passed
+    assert probe.main({**_without_admin(), "PROBE_REQUIRE_ADMIN": "1"}, good) == 2  # strict: a missing admin token is config
+    assert probe.main({"PROBE_BASE_URL": "https://e.example.test"}, good) == 2  # config error
+    monkeypatch.setattr(roles, "gate", lambda app: [])  # a missing gate: a real failure
+    broken = _sender(tmp_path / "b", "product", monkeypatch)
+    assert probe.main(_env_for("product"), broken) == 1  # a failure with the admin half run
+    assert probe.main(_without_admin(), broken) == 1  # a failure AND a skipped admin half: 1 wins over 3
+    out = capsys.readouterr().out
+    assert out.count("INCOMPLETE") == 2  # the incomplete marker is still printed when 1 wins
+
+
+def test_the_opt_in_ask_probes_left_off_do_not_make_a_run_incomplete(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert probe.main(_env_for("product"), _sender(tmp_path, "product", monkeypatch)) == 0  # 2 opt-in checks skipped, still 0
+
+
+def test_the_docstring_documents_all_four_codes() -> None:
+    doc = probe.__doc__ or ""
+    for fragment in ("0  every check ran and passed", "1  a check failed", "2  configuration error", "3  INCOMPLETE"):
+        assert fragment in doc

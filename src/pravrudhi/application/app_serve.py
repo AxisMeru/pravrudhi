@@ -91,6 +91,10 @@ def build_app(root: Path) -> FastAPI:
 def serve(root: Path, *, host: str = "127.0.0.1", port: int = DEFAULT_PORT, open_browser: bool = True) -> None:
     import uvicorn
 
+    from pravrudhi.application import tenant_vendors
+
+    tenant_vendors.record_bind(host)
+    tenant_vendors.guard_studio_boot()
     app = build_app(root)
     if open_browser:
         webbrowser.open(f"http://{host}:{port}/")

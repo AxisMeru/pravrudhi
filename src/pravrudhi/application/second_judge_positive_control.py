@@ -100,11 +100,11 @@ class ControlElement:
 # that came from an artefact this run did not produce, keyed by that artefact's sha256 -- never
 # `len(whatever_was_loaded)`, which a truncated input satisfies by construction.
 #
-# The pins live in `configs/sealed_control_manifest.yaml`. They are UNPINNED today, and that file's header
-# says why (the sealed files are private, so no digest for them has ever existed in this public repo) and
-# who fills them in. An unset pin RAISES here: it is not a warning, not a skip, and not a "pinning
-# disabled" mode. The control refuses to run until it is pinned, which is the safe direction -- see the
-# manifest header for why nothing live depends on that today.
+# The pins live in `configs/sealed_control_manifest.yaml`. Pinned 2026-09-27 (computed by Lead-2 from
+# prabhasa-nyaya add40e6, git objects, off-repo) after being unpinned since this file's introduction --
+# see that file's header for why no digest existed here before then, and who filled it in. An unset pin
+# RAISES here: it is not a warning, not a skip, and not a "pinning disabled" mode. The control refuses to
+# run until it is pinned, which is the safe direction -- see the manifest header for the full history.
 # ---------------------------------------------------------------------------------------------------
 
 #: The literal, obviously-not-a-digest value a manifest field carries before anyone has pinned it. Chosen so

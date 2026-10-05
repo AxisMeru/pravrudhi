@@ -18,11 +18,13 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from pravrudhi.api.identity import CurrentUserDep, User
+from pravrudhi.api.chat_limits import ChatLimiter
+from pravrudhi.api.identity import AuthMode, CurrentUserDep, User, auth_mode
+from pravrudhi.api.roles import is_admin
 from pravrudhi.api.schemas import ChatResponse, ChatThreadDetailResponse, ChatThreadsResponse
 from pravrudhi.application.chat import ChatEndpointUnreachable, Complete, converse, converse_stream
 from pravrudhi.application.memory import MemoryError as MemoryStoreError
@@ -37,9 +39,29 @@ class ChatRequest(BaseModel):
     thread_id: str | None = None
 
 
-def build_chat_router(root: Path, complete: Complete | None = None) -> APIRouter:
+def build_chat_router(root: Path, complete: Complete | None = None, limiter: ChatLimiter | None = None) -> APIRouter:
     workspace = Path(root)
     router = APIRouter(prefix="/api")
+    limits = limiter if limiter is not None else ChatLimiter()
+
+    def _limit(request: Request, user: User | None) -> None:
+        """One chat turn spends the operator's model key: refuse (429) a user over their per-minute or daily budget."""
+        if user is not None:
+            if is_admin(user):
+                return  # the operator spends their own key
+            key = f"user:{user.id}"
+        elif auth_mode() is AuthMode.DISABLED:
+            return  # the single local operator, spending their own key
+        else:
+            key = f"ip:{request.client.host if request.client else 'unknown'}"
+        refusal = limits.check(key)
+        if refusal is not None:
+            what = "daily chat limit" if refusal.reason == "daily" else "chat rate limit"
+            raise HTTPException(
+                status_code=429,
+                detail=f"{what} reached; try again in {refusal.retry_after_s} seconds",
+                headers={"Retry-After": str(refusal.retry_after_s)},
+            )
 
     if complete is None and not os.environ.get("PRAVRUDHI_CHAT_ENDPOINT", "").strip():
         # Without this the conversation points at a local OpenAI-compatible server read from the environment,
@@ -61,11 +83,12 @@ def build_chat_router(root: Path, complete: Complete | None = None) -> APIRouter
             raise HTTPException(400, str(exc)) from exc
 
     @router.post("/chat", response_model=ChatResponse)
-    async def chat_ep(req: ChatRequest, user: User | None = CurrentUserDep) -> dict[str, Any]:
+    async def chat_ep(req: ChatRequest, request: Request, user: User | None = CurrentUserDep) -> dict[str, Any]:
         """Answer one turn. Any number the turn's tools did not return is stripped and reported under
         `refusals`, so a reply is either traceable to the ledger or visibly missing a sentence."""
         if not req.message.strip():
             raise HTTPException(422, "a chat turn with no message asks nothing")
+        _limit(request, user)
         store = _memory(user)
         try:
             outcome = converse(workspace, req.message, thread_id=req.thread_id, user=user, complete=complete, store=store)
@@ -74,7 +97,7 @@ def build_chat_router(root: Path, complete: Complete | None = None) -> APIRouter
         return outcome.to_dict()
 
     @router.post("/chat/stream", response_model=ChatResponse)
-    async def chat_stream_ep(req: ChatRequest, user: User | None = CurrentUserDep) -> StreamingResponse:
+    async def chat_stream_ep(req: ChatRequest, request: Request, user: User | None = CurrentUserDep) -> StreamingResponse:
         """The same turn as `/chat`, delivered as server-sent events while it happens: `tool` when the
         assistant calls a tool and again when it returns, `token` for each piece of the finished, honesty-
         checked reply, `citation` per ledger row it stands on, and `done` with the same payload `/chat` returns
@@ -87,6 +110,7 @@ def build_chat_router(root: Path, complete: Complete | None = None) -> APIRouter
         """
         if not req.message.strip():
             raise HTTPException(422, "a chat turn with no message asks nothing")
+        _limit(request, user)
         store = _memory(user)
 
         def events() -> Iterator[str]:
