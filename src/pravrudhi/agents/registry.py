@@ -7,6 +7,7 @@ reported as unavailable with the reason, rather than being handed a task that wi
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -46,8 +47,43 @@ def build_registry(root: Path, *, include_orca: bool = True) -> dict[str, Any]:
     return agents
 
 
+HOSTED_IMAGE_ENV = "PRAVRUDHI_HOSTED_IMAGE"
+HOSTED_AGENT_REASON = "hosted image: agents run on the host"
+
+
+_TRUE = frozenset({"1", "true", "yes", "on"})
+_FALSE = frozenset({"0", "false", "no", "off"})
+
+
+def hosted_image() -> bool:
+    """True inside the hosted engine image, which ships no agent CLIs by design (codex, claude-code, opencode, hermes,
+    orca and xvfb-run are all absent): the coding agents run on the host loop, not in the container.
+
+    `PRAVRUDHI_HOSTED_IMAGE` decides when it says anything: a true value (the image sets `1`) is hosted and an explicit
+    false value (`0`, `false`, `no`, `off`) is NOT, whatever else is set, so a local container can always opt out. An
+    unset or empty marker falls back to the older images' defaults: a container (`/.dockerenv`) with
+    `PRAVRUDHI_DISABLE_LOCAL_GUARD=1`, which the hosted image sets and a local install does not. Any other value is
+    not trusted as a label and counts as not hosted."""
+    marker = os.environ.get(HOSTED_IMAGE_ENV, "").strip().lower()
+    if marker in _TRUE:
+        return True
+    if marker:
+        return False  # an explicit false, or an unrecognised value: never labelled hosted by accident
+    return os.environ.get("PRAVRUDHI_DISABLE_LOCAL_GUARD", "").strip() == "1" and Path("/.dockerenv").exists()
+
+
 def survey(root: Path, *, include_orca: bool = True) -> list[AgentStatus]:
-    """One line per agent: usable now, or the specific reason it is not."""
+    """One line per agent: usable now, or the specific reason it is not.
+
+    In the hosted image an unavailable agent is not a missing install, so it says what is true instead of
+    "CLI not installed" or "needs xvfb"."""
+    out = _survey(root, include_orca=include_orca)
+    if hosted_image():
+        out = [a if a.available else AgentStatus(a.name, False, HOSTED_AGENT_REASON) for a in out]
+    return out
+
+
+def _survey(root: Path, *, include_orca: bool = True) -> list[AgentStatus]:
     out: list[AgentStatus] = []
     for name, a in build_registry(root, include_orca=include_orca).items():
         if isinstance(a, CodexAgent):
