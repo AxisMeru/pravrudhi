@@ -19,8 +19,12 @@ mentions anyone besides the accused under review.
   F4 error                       -> refuses; there is no pass-on-error path.
 
 RESIDUAL RISK, stated plainly: a single listed accused plus an unlisted co-actor written in wording outside these lists can still
-pass. COST, stated plainly: a bystander group in the sentence ("... in front of her in-laws", "with the family members gathered
-round"), a named victim or a second numbered person who is only a victim also refuse. A refusal never changes the element's
+pass. Known residuals: role nouns not on the list (the list is blunt but finite), ALL-CAPS names ("RAMU"), lowercase names, names
+written in another script, and an unnumbered named co-accused at item level (F1). With F1 on (the production default of this
+selector), any item that lists a numbered co-accused is REFERred 100%, whatever the sentence says; the sentence-level refusal rate
+measured on a held-out set is therefore only the cost of F2-F5 (SENTENCE-LEVEL only).
+COST, stated plainly: a bystander group in the sentence ("... in front of her in-laws", "with the family members gathered round"),
+a named victim, a role noun ("a neighbour", "the driver") or a second numbered person who is only a victim also refuse. A refusal never changes the element's
 status; the agent turns it into REFER_TO_LAWYER. Default OFF. All examples in the tests are constructed toy sentences.
 """
 
@@ -50,7 +54,9 @@ _ACCUSED_LABEL = re.compile(
 _GROUP = re.compile(
     r"\b(?:others?|ors|associates?|relatives?|persons|men|women|people|family\s+members|(?:matrimonial|entire|whole|joint)\s+family|"
     r"members|friends?|unidentified|unknown|unnamed|accomplices?|colleagues?|neighbou?rs|gang|mob|crowd|group|team|in-laws|"
-    r"kin|kith|several|few)\b|&\s*ors\b",
+    r"kin|kith|several|few|"
+    r"person|someone|somebody|anyone|another|stranger|individual|neighbou?r|driver|servant|maid|lawyer|doctor|priest|landlord|"
+    r"tenant|man|woman|boy|girl|lady|gentleman|the\s+other)\b|&\s*ors\b",
     re.I,
 )
 #: Every link word seen in held-out v1-v4 and the explorer's list, as categories.
@@ -109,7 +115,7 @@ _POSSESSIVE = re.compile(r"^['’]s\b")
 #: A sentence end that is not an abbreviation dot ("Pet. No.4", "Mrs. Radhika", "Accd. No.3").
 _SENT_END = re.compile(
     r"(?<!\bMr)(?<!\bMrs)(?<!\bMs)(?<!\bSmt)(?<!\bDr)(?<!\bSri)(?<!\bShri)(?<!\bKum)(?<!\bSh)(?<!\bPet)(?<!\bAccd)(?<!\bAcc)"
-    r"(?<!\bResp)(?<!\bNo)(?<!\bNos)(?<!\bPW)(?<!\bA)(?<!\bP)\.\s+(?=[A-Z])"
+    r"(?<!\bResp)(?<!\bNo)(?<!\bNos)(?<!\bPW)(?<!\bRs)(?<!\bvs)(?<!\bSr)(?<!\bJr)(?<!\bSt)(?<!\bA)(?<!\bP)[.!?\u0964]\s+(?=\S)"
 )
 _APPOS_GAP = re.compile(r"^[\s,()]*$")
 
@@ -163,9 +169,9 @@ def check_attribution_fallback(quote: str | None, accused: AccusedRef | None, *,
     """The fallback decision on ONE quoted fact. Never raises: any error is a refusal."""
     if accused is None:
         return AttributionResult(False, REASON_NOT_SPECIFIED, variant=VARIANT, rule="F0")
-    if item_level and item_has_multiple_accused(accused):
-        return AttributionResult(False, REASON_COLLECTIVE, variant=VARIANT, rule="F1", actor_span="more than one accused listed")
     try:
+        if item_level and item_has_multiple_accused(accused):
+            return AttributionResult(False, REASON_COLLECTIVE, variant=VARIANT, rule="F1", actor_span="more than one accused listed")
         if not isinstance(quote, str) or not quote.strip() or len(quote) > MAX_QUOTE_CHARS:
             return AttributionResult(False, REASON_UNRESOLVED, variant=VARIANT, rule="F4", error="empty or oversized quote")
         cands = extract_candidates(quote, accused)

@@ -103,6 +103,9 @@ def test_the_agent_builds_the_fallback_selector_and_the_judge_uses_it() -> None:
     [
         "TOY: Accused No.3 beat Nila. Her sister-in-law, Meena, held her arms.",
         "TOY: Accused No.3 beat Nila.\nLater the same night he threw her out, and Ramu helped him.",
+        "TOY: Accused No.3 beat her. 2nd accused also beat her.",
+        "TOY: Accused No.3 beat her. \"A-5 too\" she said.",
+        "TOY: Accused No.3 beat her. and then another one joined.",
     ],
 )
 def test_multi_sentence_quotes_are_never_passed(s: str) -> None:
@@ -135,3 +138,30 @@ def test_the_judge_holds_the_fallback_as_an_explicit_checker_and_rejects_both() 
 
     with pytest.raises(ValueError, match="not both"):
         AccusedAttributionJudge(Inner(), selector=object(), checker=FallbackChecker())  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    "s",
+    [
+        "TOY: Accused No.3 beat her while another person held her arms.",
+        "TOY: Accused No.3 beat her; someone else helped.",
+        "TOY: Accused No.3 beat her as a neighbour watched.",
+        "TOY: Accused No.3 beat her and the driver held the door.",
+    ],
+)
+def test_role_nouns_refuse(s: str) -> None:
+    assert not check_attribution_fallback(s, REF).passed
+
+
+def test_abbreviation_dots_and_amounts_do_not_trigger_f5() -> None:
+    assert check_attribution_fallback("TOY: Accused No.3 demanded Rs. 5 lakhs from her.", REF).passed
+    assert check_attribution_fallback("TOY: Pet. No.3 abused her.", REF).passed
+
+
+def test_a_malformed_accused_refuses_instead_of_raising() -> None:
+    class Bad:
+        aliases = ("Accused No.3",)
+        other_parties = 5  # not iterable
+
+    r = check_attribution_fallback("TOY: Accused No.3 beat her.", Bad())  # type: ignore[arg-type]
+    assert not r.passed and r.rule == "F4"
