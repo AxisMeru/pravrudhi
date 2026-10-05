@@ -69,6 +69,21 @@ def _loopback_only() -> bool:
     return _bind_host is not None and _bind_host.strip().lower() in _LOOPBACK_HOSTS
 
 
+def guard_studio_boot() -> None:
+    """Refuse to start a Studio engine that would answer anyone who can reach it: edition `studio`, authentication
+    disabled (so every caller is the operator by construction, `roles.role_of`), and an API that is not reachable only
+    from this machine. Call after `record_bind`. A loopback bind or `PRAVRUDHI_STUDIO_LOOPBACK_ONLY=1` (the container,
+    published on 127.0.0.1) is fine, and so is any authentication mode other than `disabled`."""
+    from pravrudhi.api.identity import AuthMode, auth_mode
+
+    if os.environ.get(STUDIO_ENV, "").strip().lower() == "studio" and auth_mode() is AuthMode.DISABLED and not _loopback_only():
+        raise RuntimeError(
+            "PRAVRUDHI_EDITION=studio with PRAVRUDHI_AUTH disabled on an API that is not loopback-only: every caller "
+            "would be the operator. Bind 127.0.0.1, set PRAVRUDHI_STUDIO_LOOPBACK_ONLY=1 for a loopback-published "
+            "container, or turn PRAVRUDHI_AUTH on -- refusing to start."
+        )
+
+
 def is_studio_edition() -> bool:
     """True only when the deployment says `studio` outright AND the API is reachable only from this machine.
 
