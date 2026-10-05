@@ -78,3 +78,10 @@ def test_the_studio_auth_guard_from_266_is_intact_and_documented() -> None:
     text = SCRIPT.read_text()
     assert "studio_auth_guard || return 1" in text and "studio_auth_readback" in text and "bring_up_engines" in text
     assert "STUDIO_HOLD_KV=1" in text.split("REBUILD_IMAGE", 1)[0]  # documented in the header comment
+
+
+def test_the_hold_is_documented_where_a_restart_would_otherwise_drop_it() -> None:
+    gateway = SCRIPT.read_text().split("REBUILD_IMAGE", 1)[0]
+    assert "gateway.env" in gateway and "restart checklist" in gateway and "Environment=STUDIO_HOLD_KV=1" in gateway
+    unit = (SCRIPT.parent / "pravrudhi-gateway.service").read_text()
+    assert "#Environment=STUDIO_HOLD_KV=1" in unit and "gateway.env" in unit  # an example, commented out: no behaviour change
