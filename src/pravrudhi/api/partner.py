@@ -45,6 +45,7 @@ version's error mapping to a bare 500 -- is now mapped to 503 like every other s
 
 from __future__ import annotations
 
+import contextvars
 import functools
 import hmac
 import json
@@ -1062,12 +1063,15 @@ def build_partner_router(
             return _jobs_holder["s"]
 
     def _submit(task: Callable[[], None]) -> None:
+        # The job runs on another thread, which does not inherit the request's ContextVars (the serving guards
+        # `serving_api`/`serving_org` live there): run it in a copy of THIS thread's context, taken now.
+        ctx = contextvars.copy_context()
         if job_executor is not None:
-            job_executor(task)
+            job_executor(lambda: ctx.run(task))
             return
         with _jobs_lock:
             pool = _pool.setdefault("p", ThreadPoolExecutor(max_workers=4, thread_name_prefix="analyse-job"))
-        pool.submit(task)
+        pool.submit(ctx.run, task)
 
     def _job_principal(request: Request) -> tenancy.OrgPrincipal:
         principal = tenancy.principal_from_headers(engine_root, request.headers)

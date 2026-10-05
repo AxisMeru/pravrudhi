@@ -57,6 +57,7 @@ Rules enforced here rather than asked of a judge:
 
 from __future__ import annotations
 
+import contextvars
 import difflib
 import hashlib
 import json
@@ -606,13 +607,24 @@ def select_contracts(
 # -- assembly ----------------------------------------------------------------------------------------------
 
 
-def assemble_assertions(contract: reg.DescribedContract, established: Mapping[str, bool]) -> dict[str, bool]:
+def assemble_assertions(contract: reg.DescribedContract, established: Mapping[str, bool | None]) -> dict[str, bool]:
     """The REG wire's assertions, deterministically: every required element in the Contract's order with its
     judged status, then each DENY defeater ONLY when established (asserting a defeater is a refutation; an
-    absent one is simply not sent). Mirrors `element_first_harness.assemble_wire`'s claim set."""
-    out = {e: bool(established.get(e, False)) for e in contract.elements}
+    absent one is simply not sent). Mirrors `element_first_harness.assemble_wire`'s claim set.
+
+    `established` is tri-state (issue #56): True (established), False (a judge genuinely scored the element
+    unmet), or None (never evaluated at all -- `not_evaluated_second_unavailable` or, issue #57/#63/#72,
+    `not_evaluated_gate1_unavailable`). The Lean wire itself only ever carries True/False, so a None here
+    degrades to False, NEVER to True -- `val is True` is the only way into the wire's `True`. This
+    degradation is safe by construction, not merely convenient: a DENIAL only ever arises when a denial
+    record's assertion is True, and a PROOF only when every element's is True, so a missing (None) answer can
+    only ever BLOCK a PROOF/DENIAL that genuine evidence would otherwise have produced -- it can never
+    MANUFACTURE one. The contract for an element either `not_evaluated_*` status names is referred
+    unconditionally anyway (`_run_contract`'s `unavailable_second` and `gate1_unavailable` checks), entirely
+    independent of what this function does with the None."""
+    out = {e: established.get(e) is True for e in contract.elements}
     for d in contract.denials:
-        if established.get(d, False):
+        if established.get(d) is True:
             out[d] = True
     return out
 
@@ -794,12 +806,30 @@ def _judge_accounting(records: Sequence[JudgeCallRecord]) -> dict[str, Any]:
 #: score -- there IS no score here, only a model that couldn't answer, the same distinction
 #: `not_evaluated_second_unavailable` already draws for the second judge) -- four previously-collapsed cases
 #: now have four distinct labels below, alongside the original "established". `assemble_assertions` and every
-#: other outcome check still treats every non-"established" value identically (`status == "established"`);
-#: this ONLY changes what a caller sees, never what the contract's outcome is.
+#: other outcome check still treats every non-"established" value identically (via `_established_tristate`
+#: below); this ONLY changes what a caller sees, never what the contract's outcome is.
 ElementStatus = Literal[
     "established", "not_confirmed", "not_established",
     "not_evaluated_second_unavailable", "not_evaluated_gate1_unavailable",
 ]
+
+
+def _established_tristate(status: ElementStatus) -> bool | None:
+    """Issue #56: `assemble_assertions`' input must distinguish a judge's genuine "not met" from "nobody
+    actually evaluated this" -- collapsing both to a bare `False` (what `status == "established"` did before
+    this) let a caller of the assertions dict not tell the two apart. True only for "established"; None for
+    either `not_evaluated_*` status -- `not_evaluated_second_unavailable` (the second judge never answered)
+    and `not_evaluated_gate1_unavailable` (issue #57/#63/#72: Gate 1's own model never answered, so the
+    element was never even taken to the judges) are both "nobody reached a verdict", not a judge's own
+    negative one -- so there is no verdict at all, only a gap; `not_confirmed` and `not_established` both map
+    to False -- both are a judge's own, evaluated verdict of "not met" (module doc / issue #37: identical
+    outcome either way, only the label differs), so neither is a gap the way the two `not_evaluated_*`
+    statuses are."""
+    if status == "established":
+        return True
+    if status in ("not_evaluated_second_unavailable", "not_evaluated_gate1_unavailable"):
+        return None
+    return False
 
 
 @dataclass
@@ -1408,7 +1438,9 @@ class NyayaAgent:
         after_fault_indices: set[int] = set()
         fault: JudgeMisconfigured | None = None
         with ThreadPoolExecutor(max_workers=workers) as pool:
-            futures = {pool.submit(_run, i): i for i in range(len(tasks))}
+            # Each worker runs in a copy of this thread's context (the serving guards are ContextVars a pool thread
+            # would not otherwise see), copied here on the calling thread.
+            futures = {pool.submit(contextvars.copy_context().run, _run, i): i for i in range(len(tasks))}
             try:
                 for fut in as_completed(futures):
                     i = futures[fut]
@@ -1508,7 +1540,7 @@ class NyayaAgent:
             return finish("ABSTAIN", "judge_error")
 
         t0 = time.monotonic()
-        assertions = assemble_assertions(contract, {r.element: r.status == "established" for r in results})
+        assertions = assemble_assertions(contract, {r.element: _established_tristate(r.status) for r in results})
         local = expected_outcome(contract, assertions)
         audit.step("assemble", {"contract_id": contract_id, "elements": [asdict(r) for r in results]},
                    {"contract_id": contract_id, "assertions": assertions, "expected_outcome": local}, _ms(t0))
