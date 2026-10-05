@@ -33,9 +33,11 @@ import os
 import re
 import subprocess
 from collections.abc import Callable, Iterable, Sequence
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+
+from pravrudhi.application import usage_gate
 
 if TYPE_CHECKING:
     from pravrudhi.application.credentials import CredentialStore
@@ -187,6 +189,9 @@ class Answer:
     #: Every model the CLI billed (claude: the `modelUsage` keys), so an auxiliary Haiku call is visible
     #: rather than silently dropped by taking only the first key.
     billed_models: tuple[str, ...] = ()
+    #: The usage-gate reading (value, observed_at, thresholds) that let a codex/claude CLI call through
+    #: (`usage_gate.gate_reading`); `None` for vendors that are not gated.
+    usage_gate: dict[str, Any] | None = None
 
 
 # Reachable today. `claude` and `codex` are agentic CLIs in print mode; the operator's judgement is that this
@@ -235,12 +240,18 @@ _CLAUDE_MODEL_OK = re.compile(r"(sonnet|haiku|claude-(sonnet|haiku)-[A-Za-z0-9._
 _CLAUDE_OPUS = re.compile(r"(opus|claude-opus-[A-Za-z0-9._-]+)")
 CLAUDE_EFFORTS = ("low", "medium", "high", "xhigh", "max")
 
-#: A quota/limit notice prints with exit 0 (2026-09-26: 847 audit rows contaminated). Same pattern as
-#: `scripts/adversarial_reviewer.py`. It is only applied to SHORT results: a real judgement that happens to
-#: mention a "rate limit" is long; a notice is one line.
+#: A quota/limit notice prints with exit 0 (2026-09-26: 847 audit rows contaminated). It is only applied to
+#: SHORT results: a real judgement that happens to mention a "rate limit" is long; a notice is one line. Every
+#: alternative is anchored on a phrase a vendor prints ("hit your ... limit", "... limit reached", "out of
+#: extra usage", ...). A bare "quota", "resets in" or "try again later" is NOT enough, since a short
+#: legitimate answer can contain those words.
 QUOTA_RE = re.compile(
-    r"session limit|hit your|usage limit|rate limit|limit reached|resets? (at|in)|out of (extra )?usage|"
-    r"quota|try again later|overloaded", re.I)
+    r"hit your (session|weekly|usage|\d+-hour) limit|"
+    r"(usage|session|weekly|rate|\d+-hour) limit (reached|exceeded)|"
+    r"your limit will reset|out of (extra )?usage|"
+    r"rate_limit_error|rate limited|too many requests|overloaded_error|"
+    r"insufficient_quota|exceeded your (current )?quota|quota (exceeded|exhausted)",
+    re.I)
 QUOTA_MAX_CHARS = 400
 
 
@@ -625,6 +636,8 @@ def ask_vendor(
         from pravrudhi.agents.cli_agents import _run, _usage
 
         env: dict[str, str] = {}
+        # Before any seat check, env build or subprocess: a closed gate means no call is made at all.
+        gate = usage_gate.gate_reading("claude" if vendor.model == "claude" else "codex", root or Path.cwd())
         if vendor.model == "claude":
             # The operator's personal login was the original problem (2026-09-10: its weekly limit ran out
             # mid-panel during gate A1.1, 68 of 80 prompts answered, 12 recorded as gaps). This path now
@@ -640,6 +653,11 @@ def ask_vendor(
                 cmd += ["--effort", effort]
             env = _claude_cli_env()
             _assert_claude_seat(env)
+            if _CLAUDE_OPUS.fullmatch(model):
+                # Opus is gated by the pre-registered M4 budget (call cap per arm, five-hour pause), never by
+                # effort alone; the claim is counted before the call is made.
+                gate = {**gate, "opus_m4": usage_gate.claim_opus_call(
+                    root or Path.cwd(), vendor.params.get("m4_arm"), gate)}
         else:
             model = vendor.model
             # `--json` for the event stream (model id, usage, errors); `-m` only when a model id is pinned.
@@ -654,7 +672,7 @@ def ask_vendor(
         if vendor.model != "claude":
             if code != 0:
                 raise RuntimeError((err or out or f"{model} exited {code}")[-400:])
-            return _codex_answer(vendor, model, out, wall)
+            return replace(_codex_answer(vendor, model, out, wall), usage_gate=gate)
 
         # A quota/limit notice prints to stdout with exit 0 (the 2026-09-26 incident that contaminated 847
         # audit rows before this was caught) -- exit 0 is not itself success here. An unparseable envelope, an
@@ -674,7 +692,7 @@ def ask_vendor(
         resolved_model, billed = _check_claude_models(model, envelope.get("modelUsage"))
         tokens, cache_read, cache_write = _usage(envelope)
         return Answer(vendor.id, vendor.interface, model, "", text, wall, tokens, None, resolved_model,
-                      cache_read, cache_write, _cost(envelope.get("total_cost_usd")), billed)
+                      cache_read, cache_write, _cost(envelope.get("total_cost_usd")), billed, gate)
 
     if vendor.interface == "openai_compat":
         from pravrudhi.models.openai_compat import ChatClient
@@ -762,7 +780,9 @@ def run_panel(
                     row = Answer(vendor.id, vendor.interface, answer.model, pid, answer.text,
                                  answer.wall_s, answer.tokens, None, answer.resolved_model,
                                  answer.cache_read_tokens, answer.cache_write_tokens,
-                                 answer.cost_usd, answer.billed_models)
+                                 answer.cost_usd, answer.billed_models, answer.usage_gate)
+                except usage_gate.UsageGateRefused:
+                    raise
                 except Exception as exc:  # noqa: BLE001 - a vendor that cannot answer is data, not a crash
                     row = Answer(vendor.id, vendor.interface, vendor.model, pid, "", 0.0, None, str(exc)[:400])
                 answers.append(row)
