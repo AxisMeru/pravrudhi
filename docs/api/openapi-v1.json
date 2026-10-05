@@ -366,7 +366,7 @@
                 "type": "null"
               }
             ],
-            "description": "The contract's statute references with a corpus check, identical whatever the verdict. Null only when the references or the corpus could not be read on this request.",
+            "description": "The contract's statute references with a corpus check, identical whatever the verdict. Taken from the contract sources the run already read once for selection (no second registry call). Null only when those sources or the corpus could not be read on this request.",
             "title": "Citations"
           },
           "contract_id": {

@@ -10,6 +10,7 @@ binary.
 from __future__ import annotations
 
 import os
+import subprocess
 import threading
 import time
 from pathlib import Path
@@ -1172,23 +1173,59 @@ def test_a_source_absent_from_the_corpus_is_reported_not_dropped(tmp_path: Path)
     assert c["citations"] == [{"act": "BNS", "section": "9999", "corpus_id": None, "in_corpus": False, "title": None}]
 
 
-def test_unreadable_sources_give_null_citations_not_an_error(tmp_path: Path) -> None:
-    agent = _agent(tmp_path, _proof_script())
+def _citations_client(tmp_path: Path, agent: Any) -> TestClient:
+    app = FastAPI()
+    app.include_router(build_partner_router(tmp_path, agent_factory=lambda _root: agent, config=_NO_LIMIT_CONFIG))
+    return TestClient(app)
 
+
+def test_citations_reuse_the_sources_the_run_already_read_one_registry_call_per_request(tmp_path: Path) -> None:
+    agent = _agent(tmp_path, _proof_script())
     real = agent.registry.list_contracts
     calls: list[int] = []
 
-    def boom() -> dict[str, list[str]]:
+    def counting() -> dict[str, list[str]]:
         calls.append(1)
-        if len(calls) > 1:  # the agent's own selection call succeeds; the citations read is the second
-            raise RuntimeError("binary gone")
         return real()
 
-    agent.registry.list_contracts = boom  # type: ignore[method-assign]
-    app = FastAPI()
-    app.include_router(build_partner_router(tmp_path, agent_factory=lambda _root: agent, config=_NO_LIMIT_CONFIG))
-    r = TestClient(app).post("/api/v1/analyse-facts", json=_req())
-    assert r.status_code == 200 and r.json()["contracts"][0]["citations"] is None
+    agent.registry.list_contracts = counting  # type: ignore[method-assign]
+    r = _citations_client(tmp_path, agent).post("/api/v1/analyse-facts", json=_req())
+    assert r.status_code == 200 and r.json()["contracts"][0]["citations"][0]["in_corpus"] is True
+    assert calls == [1]
+    assert "listed_sources" not in r.json()
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        subprocess.CalledProcessError(1, ["score", "--list-contracts"]),
+        subprocess.TimeoutExpired(["score", "--list-contracts"], 30),
+        RuntimeError("binary gone"),
+    ],
+    ids=["CalledProcessError", "TimeoutExpired", "RuntimeError"],
+)
+def test_a_failing_sources_read_gives_null_citations_and_a_200_never_a_500(tmp_path: Path, error: Exception) -> None:
+    """The fallback read (a run that carries no sources) fails: an already-completed analysis is still returned."""
+    agent = _agent(tmp_path, _proof_script())
+    real_run, real_list = agent.run, agent.registry.list_contracts
+    calls: list[int] = []
+
+    def run_without_sources(*a: Any, **k: Any) -> Any:
+        out = real_run(*a, **k)
+        out.listed_sources = None
+        return out
+
+    def flaky() -> dict[str, list[str]]:
+        calls.append(1)
+        if len(calls) > 1:  # the run's own selection read succeeds; the fallback read in the router fails
+            raise error
+        return real_list()
+
+    agent.run = run_without_sources  # type: ignore[method-assign]
+    agent.registry.list_contracts = flaky  # type: ignore[method-assign]
+    r = _citations_client(tmp_path, agent).post("/api/v1/analyse-facts", json=_req())
+    assert r.status_code == 200, r.text
+    assert r.json()["contracts"][0]["citations"] is None and r.json()["contracts"][0]["outcome"]
 
 
 class TestProceedingPosture:

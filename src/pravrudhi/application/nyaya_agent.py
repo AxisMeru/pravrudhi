@@ -914,9 +914,14 @@ class AgentRun:
     #: `{"requested", "applied", "source", "proceeding_posture", "in_judge_prompt"}`; `applied` is None when the
     #: judge's prompt did not state the standard. None only for a hand-built run.
     standard: dict[str, Any] | None = None
+    #: The contract -> source map this run already read from `--list-contracts` for selection, kept so a caller
+    #: that needs the sources (the partner API's citations) does not spawn a second subprocess. Never part of
+    #: a response: `to_dict` drops it.
+    listed_sources: dict[str, list[str]] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
+        d.pop("listed_sources", None)
         d["audit_path"] = str(self.audit_path)
         return d
 
@@ -1565,4 +1570,5 @@ class NyayaAgent:
         audit.step("run_end", {"run_id": run_id}, {c.contract_id: c.outcome for c in results}, 0.0)
         return AgentRun(run_id, self.judge.name, self.registry.sha256,
                         [{"id": f.id, "sha256": f.sha256} for f in ingested], results, audit.path,
-                        judge_accounting=accounting, client_data=client_data, standard=standard_out)
+                        judge_accounting=accounting, client_data=client_data, standard=standard_out,
+                        listed_sources={cid: list(srcs) for cid, srcs in listed.items()})

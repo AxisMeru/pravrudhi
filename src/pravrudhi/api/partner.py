@@ -50,6 +50,7 @@ import hmac
 import json
 import logging
 import os
+import subprocess
 import threading
 import time
 from collections import OrderedDict
@@ -431,7 +432,8 @@ class ContractResultOut(BaseModel):
     citations: list[CitationOut] | None = Field(
         default=None,
         description="The contract's statute references with a corpus check, identical whatever the verdict. "
-        "Null only when the references or the corpus could not be read on this request.",
+        "Taken from the contract sources the run already read once for selection (no second registry call). Null "
+        "only when those sources or the corpus could not be read on this request.",
     )
 
 
@@ -657,13 +659,19 @@ def _shipped_corpus() -> Any:
     return nyaya.load_corpus()
 
 
-def _attach_citations(agent: Any, body: dict[str, Any]) -> None:
-    """Add `citations` to each contract result from the contract's own sources (#142). A failure to read the
-    sources or the corpus leaves `citations` null on every contract: a visible gap, never a fabricated list."""
+def _attach_citations(agent: Any, body: dict[str, Any], listed: dict[str, list[str]] | None = None) -> None:
+    """Add `citations` to each contract result from the contract's own sources (#142).
+
+    `listed` is the contract -> sources map the run already read for selection, so no second `--list-contracts`
+    subprocess is spawned; only a run that did not carry one (a hand-built double) reads the registry here. Any
+    failure to read the sources or the corpus (including a subprocess error or timeout) leaves `citations` null on
+    every contract: a visible gap, never a fabricated list, and never a failed response for an analysis already
+    done."""
     try:
-        listed = agent.registry.list_contracts()
+        if listed is None:
+            listed = agent.registry.list_contracts()
         corpus = _shipped_corpus()
-    except (OSError, RuntimeError, ValueError, AttributeError, KeyError) as e:
+    except (OSError, RuntimeError, ValueError, AttributeError, KeyError, subprocess.SubprocessError) as e:
         logging.getLogger(__name__).warning("citations unavailable: %s", type(e).__name__)
         for contract in body.get("contracts", []):
             contract["citations"] = None
@@ -1031,7 +1039,7 @@ def build_partner_router(
         _judge_seen.update(state="ready", at=_now(), first_failure=None)
         body: dict[str, Any] = result.to_dict()
         body.pop("audit_path", None)
-        _attach_citations(agent, body)
+        _attach_citations(agent, body, getattr(result, "listed_sources", None))
         show_second_judge_fields = authenticated or (debug_second_judge and cfg.debug_second_judge_fields_enabled)
         if not show_second_judge_fields:
             for contract in body.get("contracts", []):
