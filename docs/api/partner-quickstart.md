@@ -263,8 +263,10 @@ All of these need an API key (`X-Pravrudhi-Api-Key`); without one they answer 40
   `{"job_id": "...", "status": "pending"}`. `GET /api/v1/analyse-facts/jobs/{job_id}` then returns
   `status` (`pending`, `running`, `done`, `failed`). On `done`, `result` is exactly the body the synchronous
   call would have returned; on `failed`, `error` carries the HTTP status and body it would have returned. A
-  job id belongs to the key that made it (another key gets 404). A key may have only a few unfinished jobs: past
-  that, a 429 with `Retry-After`.
+  job id belongs to the key that made it (another key gets 404). A key may have at most 8 unfinished jobs by default
+  (the deployment can change it): past that, a 429 with `Retry-After`.
+* A keyed request is metered when the key is admitted, before the body is checked: a request refused with 422 (no
+  non-empty fact, a fact over 4000 characters) still counts toward the key's usage and the audit log.
 * `GET /api/v1/audit?offset=0&limit=50` pages the key's own call log (`rows`, `next_offset`), within the
   deployment's retention window.
 * `GET /api/v1/orgs/{org_id}/usage` is a key's own usage counters. `GET /api/v1/orgs/{org_id}/usage/summary`
