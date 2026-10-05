@@ -38,7 +38,8 @@ def test_api_schemas(tmp_path: Path) -> None:
         if not path.startswith("/api/"):
             continue
         for operation in operations.values():
-            schema = operation["responses"]["200"]["content"]["application/json"]["schema"]
+            ok = next(v for k, v in operation["responses"].items() if k.startswith("2"))
+            schema = ok["content"]["application/json"]["schema"]
             assert "$ref" in schema, path
             resource = document["components"]["schemas"][schema["$ref"].split("/")[-1]]
             assert resource.get("properties") or resource.get("anyOf") or resource.get("items", {}).get("$ref"), path

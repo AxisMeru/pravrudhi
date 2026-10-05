@@ -1,0 +1,227 @@
+# A pull request that edits CI or guard machinery must carry the `workflow-change` label.
+#
+# ============================================================================================
+# WHY `pull_request_target`, AND WHY THAT IS NOT A CONTRADICTION OF THE HOUSE RULE
+#
+# ci.yml says "Never `pull_request_target`", and prabhasa-nyaya's data-change-label.yml says the
+# same in its own header. Both are right about themselves. This file is the one case where the
+# trigger is the entire mechanism, and here is why.
+#
+# A `pull_request` run -- and a `workflow_dispatch` run on a branch -- reads its workflow
+# definition FROM THE BRANCH IT RUNS ON. So a pull request can edit the file that gates it: add an
+# `if:` that never fires, add `paths-ignore:`, delete a step, delete the whole job, or add a
+# dispatch trigger. That is inherent to GitHub Actions. A guard for it cannot live on
+# `pull_request`, because the guard's own definition would be branch-controlled too -- it would be
+# asking the suspect to hold the evidence.
+#
+# `pull_request_target` runs the BASE branch's definition, which a pull request cannot edit. That
+# is the only reason it is here.
+#
+# THE DANGER OF THIS TRIGGER IS REAL AND IS ANSWERED HERE, NOT WAVED AT. `pull_request_target`
+# normally pairs a WRITE-CAPABLE token with a checkout of untrusted head code, which is the
+# standard way a CI guard becomes a credential-exfiltration path. This job:
+#
+#   1. NEVER checks out or executes pull-request code. The one checkout below is pinned to
+#      `github.event.repository.default_branch` -- the repository's default branch, a ref the
+#      pull request cannot write to -- and exists only to obtain the guard script. The head ref
+#      and head sha are never fetched, never checked out, and never referenced for code anywhere
+#      in this file. `default_branch` is a REPOSITORY SETTING, not a pull-request field: nothing
+#      an author of a pull request can write reaches that `ref:`.
+#   2. Declares `permissions:` explicitly, read-only, at the workflow level (see below), so the
+#      token is not write-capable at all.
+#   3. Interpolates NO pull-request-controlled string into any `run:` block. A pull request title,
+#      branch name, label name or body is attacker-controlled text, and `${{ }}` pastes it into
+#      the shell BEFORE the shell runs, so a `$(...)` inside one would execute as the runner. The
+#      only `run:` here is a bare `python3 scripts/...` with no interpolation at all; the pull
+#      request number reaches the script through GITHUB_EVENT_PATH, which the script reads and
+#      type-checks as an int.
+#
+# IF A LATER CHANGE ADDS `ref: ${{ github.event.pull_request.head.sha }}`, A SECOND CHECKOUT, A
+# DEPENDENCY INSTALL FROM THE PULL REQUEST'S OWN LOCKFILE, OR ANY `${{ github.event.* }}` INSIDE A
+# `run:` BLOCK, THAT CHANGE IS THE VULNERABILITY. tests/test_check_workflow_change_label.py reads
+# this file as text and fails on the first three.
+#
+# A LATER CHANGE BACK TO `ref: ${{ github.event.pull_request.base.sha }}` IS ALSO A DEFECT, FOR A
+# DIFFERENT REASON -- it is stale rather than unsafe. See the checkout step's own comment; the
+# test `test_the_only_checkout_is_pinned_to_the_default_branch` fails on it.
+# ============================================================================================
+#
+# ============================================================================================
+# DO NOT REMOVE THE `types:` LIST BELOW. IT IS LOAD-BEARING, NOT NOISE.
+#
+# A bare `pull_request_target:` fires only on `opened`, `synchronize` and `reopened`. This guard's
+# entire remedy is "an authorised account adds the `workflow-change` label" -- and a label change
+# is none of those three events. Without `labeled` and `unlabeled` here, the first run would go
+# red, the label would be applied, and NOTHING WOULD RE-RUN: the pull request would sit red forever
+# with no way to clear it except pushing an empty commit. Someone would then quite reasonably
+# switch the guard off.
+#
+# `unlabeled` is here for the other direction: remove the label and the pull request must go red
+# again, or "label it, then take it off" is a bypass.
+#
+# The three defaults are re-stated explicitly rather than relied on, because writing `types:` at
+# all REPLACES the default list -- listing only `labeled`/`unlabeled` would stop the guard running
+# on the push that introduces the workflow edit, which is the main case.
+# ============================================================================================
+
+name: workflow-change
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+
+# Least privilege, declared explicitly rather than inherited, and read-only throughout. This is
+# requirement 3 of the ruling and it is what defuses the trigger: `pull_request_target` otherwise
+# hands the job a write-capable token.
+#
+#   contents: read        -- the base-sha checkout, and the contents API read of the setter
+#                            allowlist at the BASE ref (deliberately not from any checkout; see
+#                            the guard's module docstring).
+#   pull-requests: read   -- GET /pulls/{n} and GET /pulls/{n}/files.
+#   issues: read          -- GET /issues/{n}/labels and GET /issues/{n}/timeline. THE TIMELINE AND
+#                            LABEL ENDPOINTS LIVE IN THE ISSUES NAMESPACE EVEN FOR A PULL REQUEST.
+#                            An earlier draft declared only the two scopes above and argued that
+#                            `pull-requests: read` probably covers them, with the guard failing
+#                            closed on a 403 as the safety net. Lead-2's ruling (2026-09-27) is to
+#                            declare it now rather than discover it: the scope is READ-ONLY, the
+#                            guard genuinely needs both reads, and "it will go red and someone
+#                            will add it" is a worse first impression than one more read scope.
+#                            Without it the timeline read can 403 and the job is red for a reason
+#                            that says nothing about the pull request under test.
+#
+# Nothing wider. ALL THREE ARE `read`. In particular no write scope of any kind: this job never
+# applies, removes or creates a label, never comments, and never pushes. That is the property that
+# defuses `pull_request_target`, and tests/test_check_workflow_change_label.py asserts both the
+# exact scope set and that the token `write` appears nowhere in this file.
+permissions:
+  contents: read
+  pull-requests: read
+  issues: read
+
+concurrency:
+  # Per pull request, cancelling in progress: toggling a label twice in quick succession should
+  # settle on the LAST state rather than racing two runs whose order decides the verdict. The
+  # number is an integer from GitHub's own payload, not pull-request-authored text, and it is used
+  # in a `group:` key rather than in a `run:` block.
+  group: workflow-change-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  # The job id and the workflow name are both `workflow-change`, which is the status context this
+  # publishes. It deliberately does NOT collide with `guards`, the only required context on `main`
+  # today. Making `workflow-change` required alongside `guards` is a branch-protection setting and
+  # therefore the operator's decision, not this file's; until that happens a pull request can still
+  # merge with this check red.
+  workflow-change:
+    runs-on: ubuntu-latest
+    steps:
+      # THE DEFAULT BRANCH'S CURRENT TIP, EXPLICITLY AND ONLY.
+      #
+      # This line used to read `ref: ${{ github.event.pull_request.base.sha }}`, and that was a
+      # CORRECTNESS defect, not untidiness. `base.sha` is the base-branch tip as recorded when the
+      # pull request was opened or last had its base updated, and IT DOES NOT ADVANCE AS THE
+      # DEFAULT BRANCH MOVES. So the guard script that ran was the script as it stood at the
+      # pull request's base, not as it stands now:
+      #
+      #   * A PATH ADDED TO `PROTECTED_PATTERNS` ON THE DEFAULT BRANCH WAS NOT ENFORCED on any
+      #     pull request based on an earlier commit. The old table ran, found no match, and the
+      #     job printed `VERDICT=no-protected-paths` and went GREEN on a pull request editing a
+      #     path this repository considers protected. That is a coverage bypass with a green tick
+      #     on it, which is worse than a red one.
+      #   * A FAIL-OPEN FIX TO THE GUARD ITSELF was likewise not applied to those pull requests:
+      #     they kept running the version with the defect.
+      #   * AND THE FILE COULD SIMPLY BE ABSENT. Observed live: pull request #104, opened at
+      #     04:31:57Z against base `e40ee4a`, was still checking out `e40ee4a` -- which predates
+      #     this guard -- at 04:42:10Z, several minutes after the default branch became `0dc5315`.
+      #     `python3` then died with `can't open file ... [Errno 2]` and printed no verdict line at
+      #     all. The preflight step below now names that case; this line removes its cause.
+      #
+      # `github.event.repository.default_branch` is a REF, so the checkout is the branch's tip at
+      # the moment the job runs. It is also a REPOSITORY SETTING rather than a pull-request field,
+      # so -- unlike a title, a branch name or a label -- no author of a pull request can write
+      # it, and it is not untrusted input. It is used in `ref:`, never inside a `run:` block.
+      #
+      # WHAT THIS DELIBERATELY DOES NOT CHANGE: the list of changed paths still comes from the
+      # API (`GET /pulls/{n}/files`), never from a diff of this tree. That mattered before and it
+      # matters more now, because this tree is the default branch and not the pull request at all.
+      #
+      # `persist-credentials: false` because nothing after this step uses git for anything but
+      # reading back the ref and sha it landed on, and a token left in `.git/config` on a
+      # `pull_request_target` runner is a credential sitting next to a pull request's own inputs
+      # for no reason. The guard needs no git history: its entire input is the API.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+
+      # ==================================================================================
+      # THE GUARD'S OWN FILE MUST BE PRESENT, READABLE AND PARSEABLE -- AND IF IT IS NOT, THAT
+      # MUST BE A NAMED VERDICT AND NOT AN INTERPRETER TRACEBACK.
+      #
+      # #103's own rule is that a proof run must assert on WHICH token the guard printed, never on
+      # redness alone -- `label-missing`, `label-setter-not-authorised` and `actor-unresolved` are
+      # all red and prove different things. A bare `python3: can't open file` defeats that rule
+      # from inside the guard: it prints no `workflow-change: VERDICT=` line, so the one red it
+      # produces is indistinguishable from a runner outage, a network failure or a GitHub
+      # incident. The declared token set already has the right word for it (`could-not-run`), and
+      # this step is what actually emits it.
+      #
+      # Three causes, THREE DISTINCT REASON TOKENS, because they are three different repository
+      # states and a single "it failed" cannot tell them apart:
+      #   guard-file-absent        -- the checked-out ref does not contain the script at all.
+      #   guard-file-unreadable    -- the path exists but its bytes cannot be read (no permission,
+      #                               or it is not a readable regular file).
+      #   guard-script-unparseable -- it reads, but it is not valid Python, so `python3` would die
+      #                               with a SyntaxError and again print no verdict.
+      #
+      # THE ALLOWLIST IS DELIBERATELY NOT PREFLIGHTED HERE, and that is not an oversight. The
+      # guard does not read `scripts/workflow_change_label_setters.txt` out of this tree at all --
+      # it fetches it from the contents API at the default branch (see the guard's
+      # `fetch_allowlist_at_ref`), and already fails closed with its own message if that read
+      # fails. Checking a copy in this tree that nothing reads would be a false red on a file the
+      # verdict does not depend on.
+      #
+      # The ref and sha are read back from git rather than interpolated, so this `run:` block
+      # contains no `${{ }}` of any kind, and so the message names THE REF AND SHA THE JOB
+      # ACTUALLY LANDED ON rather than restating the expression that was meant to produce it.
+      # ==================================================================================
+      - name: Preflight -- the guard's own script must be present, readable and parseable
+        run: |
+          set -u
+          script=scripts/check_workflow_change_label.py
+          ref="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)"
+          sha="$(git rev-parse HEAD 2>/dev/null || echo unknown)"
+          if [ "$ref" = "HEAD" ]; then ref="(detached)"; fi
+          fail() {
+            printf '::error title=workflow-change guard could not run::%s\n' "$2"
+            printf 'workflow-change: REASON=%s file=%s ref=%s sha=%s\n' "$1" "$script" "$ref" "$sha"
+            printf 'workflow-change: VERDICT=could-not-run\n'
+            exit 1
+          }
+          if [ ! -e "$script" ]; then
+            fail guard-file-absent "$script does not exist at $ref ($sha), so this guard has no verdict to give. That is not a pass: the ref that was checked out does not contain the guard."
+          fi
+          if ! head -c 1 "$script" >/dev/null 2>&1; then
+            fail guard-file-unreadable "$script exists at $ref ($sha) but its bytes could not be read, so this guard has no verdict to give. That is not a pass."
+          fi
+          if ! python3 -c 'import ast,sys; ast.parse(open(sys.argv[1], encoding="utf-8").read(), sys.argv[1])' "$script"; then
+            fail guard-script-unparseable "$script at $ref ($sha) is not valid Python, so python3 would die with a SyntaxError and print no verdict. That is not a pass."
+          fi
+          printf 'workflow-change: PREFLIGHT=ok file=%s ref=%s sha=%s\n' "$script" "$ref" "$sha"
+
+      # On the runner's own python3 rather than under `uv`, matching how ci.yml's `guards` job
+      # treats a pure static check: this script imports only the standard library and has no
+      # business waiting on a torch install. Its behaviour is pinned by
+      # tests/test_check_workflow_change_label.py, which runs under `uv run pytest tests` in
+      # ci.yml's `engine` job.
+      #
+      # No `--allowlist-file`: omitting it is what makes the guard fetch
+      # scripts/workflow_change_label_setters.txt from the BASE ref through the contents API.
+      # Passing a local path would read the allowlist out of a checkout, and a checkout is a thing
+      # a future edit could point at the pull request's head. Do not add that flag to this step.
+      #
+      # No `${{ }}` anywhere in this `run:`. See the header.
+      - name: CI and guard changes require the `workflow-change` label, set by an authorised account
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 scripts/check_workflow_change_label.py

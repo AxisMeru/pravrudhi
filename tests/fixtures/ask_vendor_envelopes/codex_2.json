@@ -1,0 +1,17 @@
+{
+ "_label": "RECORDED 2026-10-02 (not constructed): trivial prompts (no eval items) through panel.ask_vendor, envelope smoke for pravrudhi #206/#209; claude on seat 2 claude-sonnet-5, codex-cli default model; rollout line TRIMMED to the model-bearing fields",
+ "cmd": [
+  "codex",
+  "exec",
+  "--skip-git-repo-check",
+  "--json"
+ ],
+ "stdout": "{\"type\":\"thread.started\",\"thread_id\":\"00000000-0000-4000-8000-000000000009\"}\n{\"type\":\"turn.started\"}\n{\"type\":\"item.completed\",\"item\":{\"id\":\"item_0\",\"type\":\"agent_message\",\"text\":\"4\"}}\n{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":14104,\"cached_input_tokens\":12160,\"cache_write_input_tokens\":0,\"output_tokens\":5,\"reasoning_output_tokens\":0}}\n",
+ "rollout_turn_context_trimmed": {
+  "type": "turn_context",
+  "payload": {
+   "model": "gpt-6-astra"
+  }
+ },
+ "rollout_relpath_pattern": "sessions/Y/M/D/rollout-<ts>-<thread_id>.jsonl"
+}

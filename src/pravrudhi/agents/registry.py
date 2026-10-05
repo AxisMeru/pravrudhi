@@ -16,6 +16,7 @@ from pravrudhi.agents.cli_agents import ClaudeCodeAgent, CodexAgent
 from pravrudhi.agents.hermes_agent import HermesAgent
 from pravrudhi.agents.hosted_agent import HostedAgent
 from pravrudhi.agents.orca_agent import OrcaAgent
+from pravrudhi.deployment import HOSTED_IMAGE_ENV, hosted_image  # noqa: F401 -- HOSTED_IMAGE_ENV re-exported for importers
 from pravrudhi.models import hosted
 
 
@@ -46,8 +47,21 @@ def build_registry(root: Path, *, include_orca: bool = True) -> dict[str, Any]:
     return agents
 
 
+HOSTED_AGENT_REASON = "hosted image: agents run on the host"
+
+
 def survey(root: Path, *, include_orca: bool = True) -> list[AgentStatus]:
-    """One line per agent: usable now, or the specific reason it is not."""
+    """One line per agent: usable now, or the specific reason it is not.
+
+    In the hosted image an unavailable agent is not a missing install, so it says what is true instead of
+    "CLI not installed" or "needs xvfb"."""
+    out = _survey(root, include_orca=include_orca)
+    if hosted_image():
+        out = [a if a.available else AgentStatus(a.name, False, HOSTED_AGENT_REASON) for a in out]
+    return out
+
+
+def _survey(root: Path, *, include_orca: bool = True) -> list[AgentStatus]:
     out: list[AgentStatus] = []
     for name, a in build_registry(root, include_orca=include_orca).items():
         if isinstance(a, CodexAgent):

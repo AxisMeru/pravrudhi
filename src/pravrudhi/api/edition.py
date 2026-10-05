@@ -17,11 +17,10 @@ would insist they were in Studio while showing them something else.
 
 from __future__ import annotations
 
-import os
-from pathlib import Path
-
 from pravrudhi.api.identity import User
 from pravrudhi.api.roles import ADMIN, role_of
+from pravrudhi.deployment import EDITION_ENV, RELEASE_MARKER, resolved_edition
+from pravrudhi.deployment import is_release_install as _is_release_install
 
 PRODUCT = "Pravrudhi"
 """What a user installs. The shorter name goes to the thing more people will hold."""
@@ -35,8 +34,8 @@ _TAGLINES = {
 }
 
 
-EDITION_ENV = "PRAVRUDHI_EDITION"
-"""Set to `product` by a released build, which forces the product edition whatever the role says.
+"""`PRAVRUDHI_EDITION` (`pravrudhi.deployment.EDITION_ENV`) is set to `product` by a released build, which forces the
+product edition whatever the role says.
 
 Without it a released install running with authentication off would call itself Studio, because a local caller
 with nobody to identify is the operator by construction — correct on the machine that builds this engine and
@@ -44,19 +43,9 @@ wrong on a machine that merely runs it. Studio is the operator's edition and is 
 build says which it is and the role decides only within the operator's own checkout."""
 
 
-RELEASE_MARKER = ".pravrudhi/releases/"
-"""How an installed release recognises itself, without the installer having to be changed.
-
-A release is unpacked into `<root>/.pravrudhi/releases/<version>/.venv/...`, so the package's own location says
-whether it is an installed release or the checkout this engine is developed in. That works for the installs
-already on the operator's two machines rather than only for the next one, and it cannot be forgotten the way a
-flag written by an installer can.
-"""
-
-
 def is_release_install() -> bool:
     """Whether this package is running from an installed release rather than a development checkout."""
-    return RELEASE_MARKER in Path(__file__).resolve().as_posix()
+    return _is_release_install()
 
 
 def engine_edition() -> str:
@@ -68,12 +57,9 @@ def engine_edition() -> str:
     with authentication off a local caller is the operator by construction. A product that shows the ledger,
     the nights and the promotion inbox is Studio with a different name on it.
     """
-    declared = os.environ.get(EDITION_ENV, "").strip().lower()
-    if declared == "studio":
-        return STUDIO
-    if declared == "product" or is_release_install():
-        return PRODUCT
-    return STUDIO  # an unlabelled development checkout is where this engine improves itself
+    # One resolved edition (`pravrudhi.deployment`), shared with the whole-surface Studio gate and the tenant-vendor
+    # carve-out: an unlabelled container or release install is the product, never the Studio routes.
+    return PRODUCT if resolved_edition() == "product" else STUDIO  # a dev checkout is where this engine improves itself
 
 
 def is_studio_engine() -> bool:
@@ -83,8 +69,7 @@ def is_studio_engine() -> bool:
 
 def edition_for(user: User | None) -> str:
     """The product name to show this caller."""
-    declared = os.environ.get(EDITION_ENV, "").strip().lower()
-    if declared == "product" or (declared != "studio" and is_release_install()):
+    if resolved_edition() == "product":
         return PRODUCT
     return STUDIO if role_of(user) is ADMIN else PRODUCT
 
