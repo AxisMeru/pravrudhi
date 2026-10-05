@@ -94,11 +94,20 @@ def test_zero_switches_a_limit_off_explicitly() -> None:
     assert all(lim.check("a") is None for _ in range(1000))
 
 
-def test_a_new_key_is_never_admitted_by_evicting_a_live_one() -> None:
+def test_at_the_bound_the_oldest_key_is_evicted_and_a_new_user_is_never_locked_out() -> None:
     lim = ChatLimiter(1, 10, now=Clock(), max_keys=2)
     assert lim.check("a") is None and lim.check("b") is None
-    assert lim.check("c") is not None  # table full of live keys
-    assert lim.check("a") is not None  # a is still counted, not reset by c's attempt
+    assert lim.check("c") is None  # admitted: "a", the least recently used, made room
+    assert len(lim._state) == 2 and "a" not in lim._state
+    assert lim.check("b") is not None  # a live, recent key keeps its count
+    assert lim.check("a") is None  # a's counter was evicted, so a is a new user again
+
+
+def test_the_table_never_grows_past_its_bound() -> None:
+    lim = ChatLimiter(5, 50, now=Clock(), max_keys=50)
+    for i in range(500):
+        assert lim.check(f"user-{i}") is None
+    assert len(lim._state) == 50
 
 
 # -- the routes -----------------------------------------------------------------------------------------------------
@@ -137,6 +146,26 @@ def test_another_user_is_unaffected_by_a_breach_on_a_shared_limiter(tmp_path: Pa
     assert a.post("/api/chat", json={"message": "hi"}).status_code == 200
     assert a.post("/api/chat", json={"message": "hi"}).status_code == 429
     assert b.post("/api/chat", json={"message": "hi"}).status_code == 200
+
+
+def test_an_administrator_is_exempt_and_everyone_else_is_still_limited(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("PRAVRUDHI_ADMINS", "u-1")
+    limiter = ChatLimiter(1, 1, now=Clock())
+    admin = _client(tmp_path / "a", limiter, U1, Model())
+    plain = _client(tmp_path / "b", limiter, U2, Model())
+    assert all(admin.post("/api/chat", json={"message": "hi"}).status_code == 200 for _ in range(5))
+    assert plain.post("/api/chat", json={"message": "hi"}).status_code == 200
+    assert plain.post("/api/chat", json={"message": "hi"}).status_code == 429
+    assert limiter._state.get("user:u-1") is None  # an exempt caller is not even counted
+
+
+def test_with_no_admins_configured_nobody_is_exempt(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("PRAVRUDHI_ADMINS", raising=False)
+    c = _client(tmp_path, ChatLimiter(1, 100, now=Clock()), U1, Model())
+    assert c.post("/api/chat", json={"message": "hi"}).status_code == 200
+    assert c.post("/api/chat", json={"message": "hi"}).status_code == 429
 
 
 def test_an_empty_message_is_a_422_and_costs_no_budget(tmp_path: Path) -> None:

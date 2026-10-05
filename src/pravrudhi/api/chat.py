@@ -24,6 +24,7 @@ from pydantic import BaseModel
 
 from pravrudhi.api.chat_limits import ChatLimiter
 from pravrudhi.api.identity import AuthMode, CurrentUserDep, User, auth_mode
+from pravrudhi.api.roles import is_admin
 from pravrudhi.api.schemas import ChatResponse, ChatThreadDetailResponse, ChatThreadsResponse
 from pravrudhi.application.chat import ChatEndpointUnreachable, Complete, converse, converse_stream
 from pravrudhi.application.memory import MemoryError as MemoryStoreError
@@ -46,6 +47,8 @@ def build_chat_router(root: Path, complete: Complete | None = None, limiter: Cha
     def _limit(request: Request, user: User | None) -> None:
         """One chat turn spends the operator's model key: refuse (429) a user over their per-minute or daily budget."""
         if user is not None:
+            if is_admin(user):
+                return  # the operator spends their own key
             key = f"user:{user.id}"
         elif auth_mode() is AuthMode.DISABLED:
             return  # the single local operator, spending their own key

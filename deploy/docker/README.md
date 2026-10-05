@@ -52,6 +52,8 @@ Environment the container needs:
 | `PRAVRUDHI_ALLOWED_ORIGINS` | the web app's origin, e.g. `https://pravrudhi-app.vercel.app` | CORS for the browser that serves the interface |
 | `SUPABASE_URL` | the project URL | JWKS and introspection for token verification |
 | `PRAVRUDHI_ADMINS` (Studio) | the operator's account email | Studio admits only the operator (`api/roles.py` `ADMIN_ENV`) |
+| `PRAVRUDHI_CHAT_RATE_PER_MINUTE` | default `10` | chat turns per signed-in user per minute (`/api/chat`, `/api/chat/stream`); each turn spends the operator's `PRAVRUDHI_CHAT_API_KEY`; `0` = off; a breach is HTTP 429 with `Retry-After` |
+| `PRAVRUDHI_CHAT_DAILY_CAP` | default `200` | chat turns per signed-in user per UTC day; `0` = off. Administrators (`PRAVRUDHI_ADMINS`) are exempt. Counters are per process, so a restart resets them |
 | vendor keys | per `configs/panel.yaml` | the models the engine routes to; each is a cost the operator has accepted |
 
 The web app then gets `NEXT_PUBLIC_API_BASE=https://<engine host>` in its Vercel project environment.

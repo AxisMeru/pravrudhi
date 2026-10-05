@@ -7,9 +7,11 @@ exhaust the others. Configurable by environment, with a refusal (HTTP 429 and `R
 
 * `PRAVRUDHI_CHAT_RATE_PER_MINUTE` (default 10) and `PRAVRUDHI_CHAT_DAILY_CAP` (default 200) turns per user.
   `0` switches that limit off; an unreadable or negative value falls back to the default (never to "unlimited").
-* A caller with no identity on an engine with authentication switched off is the single local operator and is not
-  limited; an anonymous caller on an engine that does authenticate (optional mode) is limited per client address.
-* The tables are bounded and the state is per process: a restart resets the counters, which a daily cost cap that
+* An administrator (`PRAVRUDHI_ADMINS`) is not limited, and neither is a caller with no identity on an engine with
+  authentication switched off (the single local operator); an anonymous caller on an engine that does
+  authenticate (optional mode) is limited per client address.
+* The table is bounded (10,000 keys): at the bound the least recently used key is evicted to make room for a new user,
+  so a new user is never locked out. The state is per process: a restart resets the counters, which a daily cost cap that
   must survive restarts would have to persist instead.
 """
 
@@ -79,10 +81,10 @@ class ChatLimiter:
                 return Refusal("daily", int((day + 1) * 86400 - t) + 1)
             if self.per_minute and wc >= self.per_minute:
                 return Refusal("per_minute", int((minute + 1) * 60 - t) + 1)
-            if key not in self._state and len(self._state) >= self._max_keys:
-                return Refusal("per_minute", 60)  # a new key is never admitted by evicting a live one
             self._state[key] = (w, wc + 1, d, dc + 1)
             self._state.move_to_end(key)
+            while len(self._state) > self._max_keys:
+                self._state.popitem(last=False)  # at the bound the least recently used key makes room for the new one
             return None
 
     def _evict_stale_locked(self, day: int) -> None:
