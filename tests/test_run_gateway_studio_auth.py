@@ -169,3 +169,18 @@ def test_the_main_body_exits_non_zero_after_a_refused_studio() -> None:
     assert "PRODUCT edition only" in text
     last = text.rstrip().splitlines()[-1]
     assert last.startswith("exit 1") and "Studio was refused" in last
+
+
+def test_both_containers_are_started_with_auth_pinned_not_just_the_image_env(tmp_path: Path) -> None:
+    """The common `docker run` line carries -e PRAVRUDHI_AUTH=required, after --env-file so it wins, for the product too."""
+    for edition in ("product", "studio"):
+        r, log = _run_script(tmp_path / edition, f"ensure_engine {edition}; echo rc=$?", running="", exec_seq="required\\nrequired\\n")
+        run_line = next((line for line in log.splitlines() if line.startswith("docker run")), "")
+        assert run_line, f"{edition}: no docker run was made: {r.stderr}"
+        assert "-e PRAVRUDHI_AUTH=required" in run_line, edition
+        assert run_line.index("--env-file") < run_line.index("-e PRAVRUDHI_AUTH=required")  # an explicit -e overrides the file
+
+
+def test_the_product_pin_is_documented_in_the_gateway_readme() -> None:
+    readme = (SCRIPT.parent / "README.md").read_text()
+    assert "-e PRAVRUDHI_AUTH=required" in readme and "BOTH containers" in readme
