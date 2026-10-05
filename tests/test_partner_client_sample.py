@@ -73,10 +73,10 @@ def test_the_whole_flow_provision_split_analyse_summarise(tmp_path: Path, monkey
     assert len(facts) == 3
     result = sample.PartnerClient(send, key).analyse_facts(facts, ["bns69"], proceeding_posture="trial")
     assert result["contracts"][0]["outcome"] == "PROOF"
-    assert result["standard"]["applied"] == "proved"
+    assert result["standard"]["requested"] == "proved" and result["standard"]["applied"] is None
     assert result["standard"]["in_judge_prompt"] is False  # default legacy prompt: basis recorded, judge never saw it
     lines = sample.summarise(result)
-    assert "NOT given to the judge" in lines[0]
+    assert "NOT applied" in lines[0] and "requested: proved" in lines[0]
     assert "bns69: PROOF (all_elements_established)" in lines
 
 
@@ -104,7 +104,7 @@ def test_rate_limit_error_carries_retry_after(tmp_path: Path, monkeypatch: pytes
 def test_refer_to_lawyer_is_flagged_as_a_refusal_not_a_result() -> None:
     lines = sample.summarise(
         {
-            "standard": {"applied": "proved", "source": "default", "in_judge_prompt": True},
+            "standard": {"requested": "proved", "applied": "proved", "source": "default", "in_judge_prompt": True},
             "contracts": [{"contract_id": "bns69", "outcome": "REFER_TO_LAWYER", "reason": "x"}],
         }
     )
