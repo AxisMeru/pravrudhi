@@ -17,7 +17,16 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Literal
 
-Reason = Literal["ok", "not_established", "no_quote", "unknown_fact", "empty_quote", "non_evidential_quote", "quote_not_found"]
+Reason = Literal[
+    "ok",
+    "not_established",
+    "no_quote",
+    "unknown_fact",
+    "empty_quote",
+    "non_evidential_quote",
+    "quote_not_found",
+    "ambiguous_quote",
+]
 
 
 #: A quote must carry at least this many letter, digit or combining-mark characters (Unicode L*, N*, M*; marks
@@ -50,7 +59,8 @@ def _count_occurrences(text: str, quote: str) -> int:
 
 def locate_quote(facts: Mapping[str, str], *, fact_id: str | None, quote: str | None) -> QuoteLocation:
     """Valid iff `fact_id` is a known fact and `quote` is a verbatim substring of it with at least
-    `MIN_EVIDENTIAL_CHARS` content characters; `start`/`end` are then the first occurrence's offsets, computed here."""
+    `MIN_EVIDENTIAL_CHARS` content characters; `start`/`end` are then the offsets
+    of its single occurrence, computed here. A quote occurring more than once is `ambiguous_quote`."""
     if fact_id is None:
         return QuoteLocation(False, "no_quote")
     if fact_id not in facts:
@@ -67,7 +77,11 @@ def locate_quote(facts: Mapping[str, str], *, fact_id: str | None, quote: str | 
     start = text.find(quote)
     if start == -1:
         return QuoteLocation(False, "quote_not_found")
-    return QuoteLocation(True, "ok", start, start + len(quote), _count_occurrences(text, quote))
+    occurrences = _count_occurrences(text, quote)
+    if occurrences > 1:
+        # Which occurrence the judge meant is unknowable; picking the first would ground it silently.
+        return QuoteLocation(False, "ambiguous_quote", occurrences=occurrences)
+    return QuoteLocation(True, "ok", start, start + len(quote), occurrences)
 
 
 def check_judgment(facts: Mapping[str, str], judgment: Mapping[str, Any]) -> QuoteLocation:
