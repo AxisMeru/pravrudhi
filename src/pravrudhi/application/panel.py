@@ -548,6 +548,18 @@ def _codex_rollout_models(thread_id: Any) -> set[str]:
     return models
 
 
+def _codex_pinned_model(vendor: Vendor) -> str:
+    """The pinned model id every codex call must carry. An unpinned call cannot be verified: the stream has no
+    model id, so without a pin a limit notice that reads as an ordinary agent message returns as an answer."""
+    pinned = vendor.params.get("codex_model")
+    if not isinstance(pinned, str) or not pinned.strip():
+        raise RuntimeError(
+            f"model unverifiable: vendor {vendor.id!r} params['codex_model'] is not pinned "
+            f"(every codex call needs a pinned model id)"
+        )
+    return pinned
+
+
 def _codex_answer(vendor: Vendor, model: str, out: str, wall: float) -> Answer:
     """Parse a `codex exec --json` event stream into an Answer, or raise.
 
@@ -606,8 +618,13 @@ def _codex_answer(vendor: Vendor, model: str, out: str, wall: float) -> Answer:
     if len(seen) > 1:
         raise RuntimeError(f"model mismatch: codex reports several models {sorted(seen)}")
     resolved = next(iter(seen), None)
-    pinned = vendor.params.get("codex_model")
-    if pinned and resolved != pinned:
+    pinned = _codex_pinned_model(vendor)
+    if resolved is None:
+        raise RuntimeError(
+            f"model unverifiable: no model id in the codex stream or its rollout (pinned {pinned!r}); "
+            f"an answer with no resolved model is never returned"
+        )
+    if resolved != pinned:
         raise RuntimeError(f"model mismatch: codex reported {resolved!r}, pinned {pinned!r}")
     tokens, cache_read, cache_write = _codex_usage(out)
     return Answer(vendor.id, vendor.interface, model, "", text, wall, tokens, None, resolved,
@@ -636,6 +653,9 @@ def ask_vendor(
         from pravrudhi.agents.cli_agents import _run, _usage
 
         env: dict[str, str] = {}
+        if vendor.model != "claude":
+            # Before the gate, which can itself make a codex refresh call: an unpinned codex call is refused.
+            _codex_pinned_model(vendor)
         # Before any seat check, env build or subprocess: a closed gate means no call is made at all.
         gate = usage_gate.gate_reading("claude" if vendor.model == "claude" else "codex", root or Path.cwd())
         if vendor.model == "claude":

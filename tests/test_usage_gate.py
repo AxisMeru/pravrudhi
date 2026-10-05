@@ -474,7 +474,8 @@ class TestAskVendorIsGated:
         _codex(monkeypatch, codex_reading(weekly=64.0))
         calls = self._stub_run(monkeypatch, "x")
         with pytest.raises(usage_gate.UsageGateRefused):
-            panel.ask_vendor(panel.VENDORS["codex-cli"], "q", root=root)
+            base = panel.VENDORS["codex-cli"]
+            panel.ask_vendor(replace(base, params={**base.params, "codex_model": "gpt-x-1"}), "q", root=root)
         assert calls == []
 
     def test_claude_over_gate_makes_no_call(self, root, monkeypatch):
@@ -504,7 +505,8 @@ class TestAskVendorIsGated:
     def test_run_panel_aborts_on_a_closed_gate_not_one_gap_row_per_prompt(self, root, monkeypatch, tmp_path):
         _codex(monkeypatch, codex_reading(weekly=64.0))
         self._stub_run(monkeypatch, "x")
-        vendor = replace(panel.VENDORS["codex-cli"])
+        base = panel.VENDORS["codex-cli"]
+        vendor = replace(base, params={**base.params, "codex_model": "gpt-x-1"})
         prompts = [{"id": f"p{i}", "prompt": "q"} for i in range(3)]
         monkeypatch.chdir(root)
         with pytest.raises(usage_gate.UsageGateRefused):
