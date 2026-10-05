@@ -29,7 +29,8 @@ def _corpus(*ids: str) -> SimpleNamespace:
 
 
 def test_a_suffixed_section_resolves_to_itself_and_never_to_the_plain_number() -> None:
-    out = contract_citations(["Indian Penal Code §354A", "Indian Penal Code §498A"], _corpus("IPC/Section 354", "IPC/Section 498A"))
+    sources = ["Indian Penal Code §354A", "Indian Penal Code §498A"]
+    out = contract_citations(sources, _corpus("IPC/Section 354", "IPC/Section 498A"))
     assert out[0] == {"act": "IPC", "section": "354A", "corpus_id": None, "in_corpus": False, "title": None}
     assert out[1] == {"act": "IPC", "section": "498A", "corpus_id": "IPC/Section 498A", "in_corpus": True,
                       "title": "title of IPC/Section 498A"}
