@@ -56,6 +56,12 @@ def make_checker(variant: str, base_url: str | None, model: str | None, threshol
         return lambda q, ref: check_attribution(q, ref)
     if variant == "d0b":
         return lambda q, ref: check_attribution(q, ref, open_verbs=True)
+    if variant in ("fallback", "fallback_sentence"):
+        from pravrudhi.application.nyaya_attribution_fallback import check_attribution_fallback
+
+        # "fallback" includes F1 (item level: another numbered accused listed -> REFER); every row of these sets lists a co-accused,
+        # so it refuses 100%. "fallback_sentence" is F2-F5 only, the sentence-level numbers.
+        return lambda q, ref: check_attribution_fallback(q, ref, item_level=(variant == "fallback"))
     if variant == "m1":
         if not (base_url and model):
             raise SystemExit("refusing: --variant m1 needs --base-url and --model (the BASE model id, not the judge adapter)")
@@ -134,7 +140,7 @@ def score(rows: list[dict], check) -> dict:
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--set", type=Path, required=True)
-    ap.add_argument("--variant", choices=("d0", "d0b", "m1"), required=True)
+    ap.add_argument("--variant", choices=("d0", "d0b", "m1", "fallback", "fallback_sentence"), required=True)
     ap.add_argument("--base-url")
     ap.add_argument("--model")
     ap.add_argument("--threshold", type=float, default=0.6)
