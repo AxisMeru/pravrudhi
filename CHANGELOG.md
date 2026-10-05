@@ -6,7 +6,12 @@ messages.
 ## 0.5.44
 
 Fail-closed deployment hardening, release probe and gateway hardening. Nothing here changes a correctly configured
-deployment; it makes a misconfigured one refuse to start instead of running open.
+deployment, with one exception: a hosted image with an explicit `PRAVRUDHI_AUTH=disabled` (or auth unset or blank) now
+refuses to start. A misconfigured deployment refuses to start instead of running open.
+
+**Rebuild before you deploy.** The hosted-image marker below is baked into images BUILT FROM THIS RELEASE. An image built
+from an earlier release has no marker, so none of the hosted-image refusals apply to it. Rebuild Studio, the engine containers
+and the RunPod worker template from 0.5.44; do not rely on a pip upgrade or a restart of the old image.
 
 ### Boot refusals (breaking for misconfigured environments)
 
@@ -17,12 +22,15 @@ deployment; it makes a misconfigured one refuse to start instead of running open
 - **Hosted engines refuse unset, blank and `disabled` `PRAVRUDHI_AUTH`.** Only `required` and `optional` start on a hosted
   image; there is no opt-in for `disabled`. A hosted image is identified by the file `/etc/pravrudhi/hosted-image`, baked in by the
   Dockerfile and not removable by any environment value (`PRAVRUDHI_HOSTED_IMAGE=0` or blank cannot switch it off; it needs no
-  `/.dockerenv`, so it works on containerd, Kubernetes and RunPod). (#282)
-- **Unrecognised `PRAVRUDHI_EDITION` or `PRAVRUDHI_HOSTED_IMAGE` refuses to start.** Editions are `studio`, `product` and `dev`;
-  the hosted marker is a true (`1`, `true`, `yes`, `on`) or false (`0`, `false`, `no`, `off`) value. (#282)
+  `/.dockerenv`, so it works on containerd, Kubernetes and RunPod). Only images built from this release carry the file. (#282)
+- **Unrecognised `PRAVRUDHI_EDITION` refuses to start.** Editions are `studio`, `product` and `dev`. (#282)
+- **Unrecognised `PRAVRUDHI_HOSTED_IMAGE` refuses to start, but only on an image WITHOUT the baked marker file.** The value
+  is true (`1`, `true`, `yes`, `on`) or false (`0`, `false`, `no`, `off`). On an image that has `/etc/pravrudhi/hosted-image`
+  the file decides and this variable cannot change the outcome. (#282)
 - **One resolved edition.** The edition used by the routes, the whole-surface Studio gate and the vendor carve-out is now a single
-  function, so an unlabelled container or release install is the product and can no longer serve the Studio routes without the
-  gate. (#282)
+  function. An unlabelled container resolves to the product ONLY when it is recognised as hosted (the baked marker, a true
+  `PRAVRUDHI_HOSTED_IMAGE`, an older image's local-guard-off container, or a release install); a plain unlabelled container or a source checkout still resolves to `dev`. A hosted or release install
+  can therefore no longer serve the Studio routes without the gate. (#282)
 
 ### Deployment
 
