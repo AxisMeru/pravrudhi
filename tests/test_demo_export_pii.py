@@ -212,7 +212,7 @@ def _root_with_corpus(tmp_path: Path) -> Path:
     "seat sharath.ai.colab", "Commit as <admin@axismeru.com>",
 ])
 def test_the_demo_redaction_leaves_none_of_the_private_markers(raw: str) -> None:
-    out = demo_export.redact_for_demo(raw)
+    out = demo_export.demo_pipeline(json.dumps({"x": raw}))
     assert demo_export.private_markers_left(out) == [], out
     assert demo_export.still_carries(out) == []
 
@@ -227,7 +227,7 @@ def test_only_the_demo_removes_the_project_email_and_the_public_handle_stays() -
 def _write(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, data: object, redact: bool = True) -> Path:
     monkeypatch.setattr(demo_export, "build_demo", lambda root: data)
     if not redact:
-        monkeypatch.setattr(demo_export, "redact_for_demo", lambda text: text)
+        monkeypatch.setattr(demo_export, "demo_pipeline", lambda text: text)
     return demo_export.write_demo(_root_with_corpus(tmp_path), tmp_path / "out" / "demo.json")
 
 
@@ -258,3 +258,35 @@ def test_a_kept_heading_and_short_overlap_are_not_statute_text(monkeypatch: pyte
 def test_a_snapshot_with_no_corpus_present_has_nothing_of_it_to_leak(tmp_path: Path) -> None:
     assert demo_export.corpus_windows(tmp_path) == set()
     assert demo_export.corpus_overlap('{"x": "anything at all"}', set()) == 0
+
+
+# -- internal team vocabulary, any case (Lead-2, 2026-10-05) -------------------------------------------------------
+
+_CHATTER = [
+    "[Cross-session idle notice] the session went idle", "ask LEAD-2 to decide", "then SendMessage the owner",
+    "Web-on-seat2 reports", "goal-context said so", "see Remote Control", "per CLAUDE.md", "Lead-2-assistant merges",
+    "relayed by CROSS-SESSION peers", "an idle NOTICE arrived",
+]
+
+
+@pytest.mark.parametrize("raw", _CHATTER)
+def test_a_string_that_mentions_team_vocabulary_is_dropped_whole(raw: str) -> None:
+    out = json.loads(demo_export.demo_pipeline(json.dumps({"keep": "a plain row", "x": [raw, {"y": raw}]})))
+    assert out == {"keep": "a plain row", "x": [demo_export.INTERNAL_TEXT_MARKER, {"y": demo_export.INTERNAL_TEXT_MARKER}]}
+
+
+def test_unmarked_text_and_the_layout_are_returned_unchanged() -> None:
+    clean = json.dumps({"b": 1, "a": ["Sharathsphd made this", "plain"]}, indent=2, sort_keys=True) + "\n"
+    assert demo_export.drop_internal_text(clean) == clean
+
+
+@pytest.mark.parametrize("raw", _CHATTER + ["Seat SHARATH.Sathish", "/HOME/x", "@GMAIL.com", "UDS:/x", "claude_config_dir"])
+def test_the_backstop_compares_case_insensitively(raw: str) -> None:
+    assert demo_export.private_markers_left(raw), raw
+
+
+def test_write_demo_cannot_emit_team_chatter_in_any_case(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    out = _write(monkeypatch, tmp_path, {"requests": [{"text": t} for t in _CHATTER] + [{"text": "an ordinary ask"}]})
+    body = out.read_text()
+    assert demo_export.private_markers_left(body) == []
+    assert json.loads(body)["requests"][-1] == {"text": "an ordinary ask"}
