@@ -1139,7 +1139,27 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "Successful analysis.",
+            "headers": {
+              "X-RateLimit-Limit": {
+                "description": "Calls per minute this API key may make.",
+                "schema": {
+                  "type": "integer"
+                }
+              },
+              "X-RateLimit-Remaining": {
+                "description": "Calls left in the current one-minute window after this one.",
+                "schema": {
+                  "type": "integer"
+                }
+              },
+              "X-RateLimit-Reset": {
+                "description": "Seconds until the current window ends and the count resets.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
           },
           "422": {
             "content": {
@@ -1150,6 +1170,35 @@
               }
             },
             "description": "Validation Error"
+          },
+          "429": {
+            "description": "Over the rate limit; wait Retry-After seconds.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "type": "integer"
+                }
+              },
+              "X-RateLimit-Limit": {
+                "description": "Calls per minute this API key may make.",
+                "schema": {
+                  "type": "integer"
+                }
+              },
+              "X-RateLimit-Remaining": {
+                "description": "Calls left in the current one-minute window after this one.",
+                "schema": {
+                  "type": "integer"
+                }
+              },
+              "X-RateLimit-Reset": {
+                "description": "Seconds until the current window ends and the count resets.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
           }
         },
         "summary": "Analyse Facts Ep"
