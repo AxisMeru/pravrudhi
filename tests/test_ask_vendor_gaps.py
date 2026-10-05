@@ -245,6 +245,23 @@ class TestQuotaRegexIsAnchored:
     def test_a_short_legitimate_answer_is_not_misread(self, answer):
         assert not panel._looks_like_quota(answer)
 
+    @pytest.mark.parametrize(
+        "unseen",
+        [
+            "Capacity is exhausted for this plan until Friday.",
+            "Your allowance for this period is used up. Come back after the reset.",
+            "Service busy. Retry in a few minutes.",
+        ],
+    )
+    def test_an_unseen_notice_the_regex_misses_still_raises_with_no_model_usage(self, seat, monkeypatch, unseen):
+        """Second line of defence: a notice has no `modelUsage`, so `_check_claude_models` refuses it even though
+        the narrowed regex does not recognise the wording."""
+        assert not panel._looks_like_quota(unseen)
+        raw = json.loads(_env(result=unseen))
+        del raw["modelUsage"]
+        with pytest.raises(RuntimeError, match="model unverifiable"):
+            _ask_claude(monkeypatch, json.dumps(raw))
+
 
 class TestQuotaTextIsAnError:
     @pytest.mark.parametrize(
