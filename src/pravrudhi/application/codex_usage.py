@@ -91,6 +91,7 @@ def read_codex_usage(
     sessions = home / "sessions"
     now = now or dt.datetime.now(dt.UTC)
     skipped = Counter(files_unreadable=0, lines_bad=0)
+    lines_ok = 0
     out: dict[str, Any] = {
         "source": "codex rollout files",
         "codex_home": str(home),
@@ -118,6 +119,7 @@ def read_codex_usage(
                     try:
                         o = json.loads(line)
                         t, p, ts = o.get("type"), o.get("payload") or {}, _ts(o.get("timestamp"))
+                        lines_ok += 1
                         if t == "turn_context":
                             if isinstance(p.get("model"), str):
                                 models[p.get("turn_id")] = p["model"]
@@ -175,7 +177,8 @@ def read_codex_usage(
     out["rate_limits"] = {lid: _limits(ts, rl) for lid, (ts, rl) in newest.items()}
     out["latest_rate_limits"] = max(out["rate_limits"].values(), key=lambda v: v["observed_at"], default=None)
     out["skipped"] = dict(skipped)
-    out["verified"] = skipped["files_unreadable"] == 0
+    # An empty sessions dir, or one with no parseable record, proves nothing: it must not read as verified.
+    out["verified"] = skipped["files_unreadable"] == 0 and lines_ok > 0
     return out
 
 

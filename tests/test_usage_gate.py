@@ -35,6 +35,11 @@ CFG = {
         "five_hour_max_pct": 70,
         "usage_file": "claude_usage.json",
     },
+    "opus_m4": {
+        "five_hour_pause_pct": 70,
+        "counter_file": "opus_m4_calls.json",
+        "call_cap_per_arm": {"arm-a": 2, "arm-c": 3},
+    },
 }
 
 
@@ -83,6 +88,7 @@ def root(tmp_path):
     cfg = json.loads(json.dumps(CFG))
     cfg["claude"]["usage_file"] = str(tmp_path / "claude_usage.json")
     cfg["codex"]["refresh_state_file"] = str(tmp_path / "refresh_state.json")
+    cfg["opus_m4"]["counter_file"] = str(tmp_path / "opus_m4_calls.json")
     (tmp_path / "configs" / "usage_gate.yaml").write_text(yaml.safe_dump(cfg))
     return tmp_path
 
@@ -145,6 +151,25 @@ class TestCodexGate:
         _codex(monkeypatch, codex_reading(**{field: None, **({"five": 1.0} if field == "weekly" else {"weekly": 1.0})}))
         with pytest.raises(usage_gate.UsageGateRefused, match="missing"):
             usage_gate.gate_reading("codex", root, now=NOW)
+
+    @pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf"), -50.0, -0.1, 100.1, 250.0])
+    @pytest.mark.parametrize("field", ["weekly", "five", "both"])
+    def test_non_finite_negative_or_over_100_refuses(self, root, monkeypatch, field, bad):
+        vals = {"weekly": 1.0, "five": 1.0}
+        for k in ("weekly", "five") if field == "both" else (field,):
+            vals[k] = bad
+        _codex(monkeypatch, codex_reading(**vals))
+        with pytest.raises(usage_gate.UsageGateRefused, match="missing a weekly or five-hour percentage"):
+            usage_gate.gate_reading("codex", root, now=NOW)
+
+    @pytest.mark.parametrize("edge", [0.0, 100.0])
+    def test_boundary_percentages_are_valid_readings(self, root, monkeypatch, edge):
+        _codex(monkeypatch, codex_reading(weekly=edge, five=edge))
+        if edge == 0.0:
+            assert usage_gate.gate_reading("codex", root, now=NOW)["passed"]
+        else:
+            with pytest.raises(usage_gate.UsageGateRefused, match="at or above"):
+                usage_gate.gate_reading("codex", root, now=NOW)
 
     def test_future_observed_at_refuses(self, root, monkeypatch):
         _codex(monkeypatch, codex_reading(age=-30))
@@ -325,6 +350,16 @@ class TestClaudeGate:
         with pytest.raises(usage_gate.UsageGateRefused, match="unverified"):
             usage_gate.gate_reading("claude", root, now=NOW)
 
+    @pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf"), -50.0, -0.1, 100.1, 250.0])
+    @pytest.mark.parametrize("field", ["weekly", "five", "both"])
+    def test_non_finite_negative_or_over_100_refuses(self, root, field, bad):
+        vals = {"weekly": 1.0, "five": 1.0}
+        for k in ("weekly", "five") if field == "both" else (field,):
+            vals[k] = bad
+        claude_file(root, **vals)
+        with pytest.raises(usage_gate.UsageGateRefused, match="missing a weekly or five-hour percentage"):
+            usage_gate.gate_reading("claude", root, now=NOW)
+
     def test_other_seat_numbers_are_never_used(self, root):
         claude_file(root, weekly=1.0, key="Claude")
         with pytest.raises(usage_gate.UsageGateRefused, match="Claude-Axismeru"):
@@ -336,6 +371,62 @@ class TestClaudeGate:
         (root / "claude_usage.json").write_text("{not json")
         with pytest.raises(usage_gate.UsageGateRefused, match="cannot read"):
             usage_gate.gate_reading("claude", root, now=NOW)
+
+
+class TestOpusM4Budget:
+    GATE = {"five_hour_used_pct": 20.0}
+
+    def test_each_call_is_counted_before_it_is_made_and_the_cap_refuses(self, root):
+        for n in (1, 2):
+            c = usage_gate.claim_opus_call(root, "arm-a", self.GATE)
+            assert c["arm"] == "arm-a" and c["call_number"] == n and c["call_cap"] == 2
+        with pytest.raises(usage_gate.UsageGateRefused, match=r"cap for arm 'arm-a' is spent \(2 of 2\)"):
+            usage_gate.claim_opus_call(root, "arm-a", self.GATE)
+        assert json.loads((root / "opus_m4_calls.json").read_text()) == {"arm-a": 2}
+
+    def test_the_cap_is_per_arm(self, root):
+        for _ in range(2):
+            usage_gate.claim_opus_call(root, "arm-a", self.GATE)
+        assert usage_gate.claim_opus_call(root, "arm-c", self.GATE)["call_number"] == 1
+
+    @pytest.mark.parametrize("arm", [None, "", "arm-x", 3, "ARM-A"])
+    def test_an_arm_without_a_pre_registered_cap_is_refused_and_nothing_is_counted(self, root, arm):
+        with pytest.raises(usage_gate.UsageGateRefused, match="m4_arm"):
+            usage_gate.claim_opus_call(root, arm, self.GATE)
+        assert not (root / "opus_m4_calls.json").exists()
+
+    def test_five_hour_window_above_the_pause_line_refuses_without_using_budget(self, root):
+        with pytest.raises(usage_gate.UsageGateRefused, match="above the M4 pause line"):
+            usage_gate.claim_opus_call(root, "arm-a", {"five_hour_used_pct": 70.1})
+        assert not (root / "opus_m4_calls.json").exists()
+        assert usage_gate.claim_opus_call(root, "arm-a", {"five_hour_used_pct": 70.0})["call_number"] == 1
+
+    @pytest.mark.parametrize("five", [None, float("nan"), -1.0, 101.0, "9", True])
+    def test_a_missing_or_malformed_five_hour_reading_refuses(self, root, five):
+        with pytest.raises(usage_gate.UsageGateRefused, match="usable five-hour reading"):
+            usage_gate.claim_opus_call(root, "arm-a", {"five_hour_used_pct": five})
+
+    @pytest.mark.parametrize("raw", ["{not json", "[1]", '{"arm-a": -1}', '{"arm-a": "2"}', '{"arm-a": true}'])
+    def test_an_unreadable_counter_refuses(self, root, raw):
+        (root / "opus_m4_calls.json").write_text(raw)
+        with pytest.raises(usage_gate.UsageGateRefused, match="counter"):
+            usage_gate.claim_opus_call(root, "arm-a", self.GATE)
+
+    def test_a_bad_cap_or_missing_section_refuses(self, root):
+        cfg = yaml.safe_load((root / "configs" / "usage_gate.yaml").read_text())
+        cfg["opus_m4"]["call_cap_per_arm"]["arm-a"] = "many"
+        (root / "configs" / "usage_gate.yaml").write_text(yaml.safe_dump(cfg))
+        with pytest.raises(usage_gate.UsageGateRefused, match="non-negative integer"):
+            usage_gate.claim_opus_call(root, "arm-a", self.GATE)
+        del cfg["opus_m4"]
+        (root / "configs" / "usage_gate.yaml").write_text(yaml.safe_dump(cfg))
+        with pytest.raises(usage_gate.UsageGateRefused, match="opus_m4"):
+            usage_gate.claim_opus_call(root, "arm-a", self.GATE)
+
+    def test_the_shipped_config_lists_only_the_phase_1_arms(self):
+        cfg = yaml.safe_load((REPO / "configs" / "usage_gate.yaml").read_text())
+        assert cfg["opus_m4"]["call_cap_per_arm"] == {"m4-phase1-config-a": 10, "m4-phase1-config-c": 500}
+        assert cfg["opus_m4"]["five_hour_pause_pct"] == 70
 
 
 class TestConfig:

@@ -27,3 +27,14 @@ claude:
   weekly_max_pct: 60
   five_hour_max_pct: 70
   usage_file: ~/runpod-telemetry/claude_usage.json
+# Opus is allowed only for the M4 frontier comparison, within its pre-registered budget (house model-cap rule;
+# PREREGISTRATION_M4_head_to_head_v0.5.md section 2.5): a hard call cap per arm and a pause when the seat's five-hour
+# window is above 70%. `ask_vendor` needs `params["m4_arm"]` to name an arm below; an arm that is not listed is
+# refused. Only the Phase 1 preflight (10 seeded instances: 10 Config A + 500 Config C calls) is pre-registered;
+# Phase 2 has its own separate go and is deliberately NOT listed. Counted before each call, persisted in counter_file.
+opus_m4:
+  five_hour_pause_pct: 70
+  counter_file: ~/.local/state/pravrudhi/opus_m4_calls.json
+  call_cap_per_arm:
+    m4-phase1-config-a: 10
+    m4-phase1-config-c: 500

@@ -231,12 +231,18 @@ _CLAUDE_MODEL_OK = re.compile(r"(sonnet|haiku|claude-(sonnet|haiku)-[A-Za-z0-9._
 _CLAUDE_OPUS = re.compile(r"(opus|claude-opus-[A-Za-z0-9._-]+)")
 CLAUDE_EFFORTS = ("low", "medium", "high", "xhigh", "max")
 
-#: A quota/limit notice prints with exit 0 (2026-09-26: 847 audit rows contaminated). Same pattern as
-#: `scripts/adversarial_reviewer.py`. It is only applied to SHORT results: a real judgement that happens to
-#: mention a "rate limit" is long; a notice is one line.
+#: A quota/limit notice prints with exit 0 (2026-09-26: 847 audit rows contaminated). It is only applied to
+#: SHORT results: a real judgement that happens to mention a "rate limit" is long; a notice is one line. Every
+#: alternative is anchored on a phrase a vendor prints ("hit your ... limit", "... limit reached", "out of
+#: extra usage", ...). A bare "quota", "resets in" or "try again later" is NOT enough, since a short
+#: legitimate answer can contain those words.
 QUOTA_RE = re.compile(
-    r"session limit|hit your|usage limit|rate limit|limit reached|resets? (at|in)|out of (extra )?usage|"
-    r"quota|try again later|overloaded", re.I)
+    r"hit your (session|weekly|usage|\d+-hour) limit|"
+    r"(usage|session|weekly|rate|\d+-hour) limit (reached|exceeded)|"
+    r"your limit will reset|out of (extra )?usage|"
+    r"rate_limit_error|rate limited|too many requests|overloaded_error|"
+    r"insufficient_quota|exceeded your (current )?quota|quota (exceeded|exhausted)",
+    re.I)
 QUOTA_MAX_CHARS = 400
 
 
@@ -629,6 +635,11 @@ def ask_vendor(
                 cmd += ["--effort", effort]
             env = _claude_cli_env()
             _assert_claude_seat(env)
+            if _CLAUDE_OPUS.fullmatch(model):
+                # Opus is gated by the pre-registered M4 budget (call cap per arm, five-hour pause), never by
+                # effort alone; the claim is counted before the call is made.
+                gate = {**gate, "opus_m4": usage_gate.claim_opus_call(
+                    root or Path.cwd(), vendor.params.get("m4_arm"), gate)}
         else:
             model = vendor.model
             # `--json` for the event stream (model id, usage, errors); `-m` only when a model id is pinned.

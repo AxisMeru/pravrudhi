@@ -9,7 +9,9 @@ never an assumed zero. Thresholds and the maximum age come from `configs/usage_g
 from __future__ import annotations
 
 import datetime as dt
+import fcntl
 import json
+import math
 from pathlib import Path
 from typing import Any
 
@@ -37,7 +39,10 @@ def _ts(v: Any) -> dt.datetime | None:
 
 
 def _pct(v: Any) -> float | None:
-    return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else None
+    if not isinstance(v, (int, float)) or isinstance(v, bool):
+        return None
+    x = float(v)
+    return x if math.isfinite(x) and 0 <= x <= 100 else None
 
 
 def _load(root: Path) -> dict[str, Any]:
@@ -161,6 +166,49 @@ def _judge_codex(cfg: dict[str, Any], now: dt.datetime) -> dict[str, Any]:
     )
     g["source"] = "codex rollout files"
     return g
+
+
+def claim_opus_call(root: Path, arm: Any, gate: dict[str, Any]) -> dict[str, Any]:
+    """The M4 pre-registered budget for an Opus call (house model-cap rule): the arm must be named in the config's
+    `opus_m4.call_cap_per_arm`, its persisted call count must be under that cap, and the seat's five-hour window
+    must not be above `opus_m4.five_hour_pause_pct`. The call is counted BEFORE it is made, so a failed or hung
+    call still uses budget; an unreadable counter file refuses. Effort alone never authorises Opus."""
+    cfg = _load(Path(root))
+    caps = _need(cfg, "opus_m4", "call_cap_per_arm")
+    pause = _need(cfg, "opus_m4", "five_hour_pause_pct")
+    if not isinstance(caps, dict) or not isinstance(arm, str) or arm not in caps:
+        raise UsageGateRefused(
+            f"refusing: opus needs params['m4_arm'] naming an arm with a pre-registered call cap (got {arm!r}; "
+            f"configured: {sorted(caps) if isinstance(caps, dict) else caps!r})"
+        )
+    cap = caps[arm]
+    if not isinstance(cap, int) or isinstance(cap, bool) or cap < 0:
+        raise UsageGateRefused(f"refusing: opus_m4 call cap for {arm!r} is not a non-negative integer")
+    five = _pct(gate.get("five_hour_used_pct"))
+    if five is None:
+        raise UsageGateRefused("refusing: opus needs a usable five-hour reading to check the M4 pause condition")
+    if five > pause:
+        raise UsageGateRefused(f"refusing: seat five-hour window {five:g}% is above the M4 pause line {pause}%")
+    path = Path(str(_need(cfg, "opus_m4", "counter_file"))).expanduser()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a+") as fh:
+        fcntl.flock(fh, fcntl.LOCK_EX)
+        fh.seek(0)
+        raw = fh.read()
+        try:
+            counts = json.loads(raw) if raw.strip() else {}
+        except ValueError as exc:
+            raise UsageGateRefused(f"refusing: opus call counter {path} is unreadable") from exc
+        n = counts.get(arm, 0) if isinstance(counts, dict) else None
+        if not isinstance(n, int) or isinstance(n, bool) or n < 0:
+            raise UsageGateRefused(f"refusing: opus call counter {path} has no usable count for {arm!r}")
+        if n >= cap:
+            raise UsageGateRefused(f"refusing: opus call cap for arm {arm!r} is spent ({n} of {cap})")
+        counts[arm] = n + 1
+        fh.seek(0)
+        fh.truncate()
+        fh.write(json.dumps(counts))
+    return {"arm": arm, "call_number": n + 1, "call_cap": cap, "five_hour_pause_pct": pause}
 
 
 def _run_refresh(cfg: dict[str, Any]) -> None:
