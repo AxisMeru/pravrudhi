@@ -1325,6 +1325,7 @@ def serve(root: Path, host: str = "127.0.0.1", port: int = 8765) -> None:
     from pravrudhi.application import tenant_vendors
 
     tenant_vendors.record_bind(host)
+    tenant_vendors.guard_studio_boot()
     uvicorn.run(create_app(root), host=host, port=port, log_level="info")
 
 
