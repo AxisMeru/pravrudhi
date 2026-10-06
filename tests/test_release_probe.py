@@ -158,7 +158,9 @@ def test_any_unexpected_error_is_exit_2_with_no_traceback(capsys: pytest.Capture
 def test_every_write_probe_carries_an_invalid_body_or_no_body() -> None:
     for c in probe.checks("product", "w"):
         if c.method in ("POST", "PUT") and c.who != "admin" and not c.opt_in:
-            assert c.body is None or c.body in (probe.INVALID_RUN, probe.INVALID_UPDATE, {"channel": "x"})
+            assert c.body is None or c.body in (
+                probe.INVALID_RUN, probe.INVALID_UPDATE, {"channel": "x"}, {"ids": "not-a-list"}, {}
+            )
     assert probe.INVALID_RUN["target"] not in ("model", "harness")
 
 
@@ -360,3 +362,27 @@ def test_the_docstring_documents_all_four_codes() -> None:
     doc = probe.__doc__ or ""
     for fragment in ("0  every check ran and passed", "1  a check failed", "2  configuration error", "3  INCOMPLETE"):
         assert fragment in doc
+
+
+def test_the_seven_closed_routes_are_probed_without_an_admin_token() -> None:
+    cs = probe.checks("product", "w")
+    for method, path in probe.CLOSED_ROUTES:
+        mine = [c for c in cs if c.method == method and c.path == path]
+        want_anon = (401, 403) if method in ("POST", "PUT") else (401,)
+        assert {c.who: c.expect for c in mine} == {"anonymous": want_anon, "user": (403,)}
+        assert all(not c.opt_in for c in mine)
+    assert {p for _, p in probe.CLOSED_ROUTES} == {
+        "/api/doctor", "/api/workspaces", "/api/notifications", "/api/notifications/read",
+        "/api/update", "/api/update/config", "/api/update/last-check",
+    }
+
+
+def test_no_closed_write_probe_sends_a_body_an_ungated_handler_could_act_on() -> None:
+    """R2 on #310: `{}` on /api/notifications/read means "mark all read" and `{}` on PUT /api/update/config validates
+    and saves the defaults over the operator's update policy, so those two are probed with an invalid body."""
+    cs = probe.checks("product", "w")
+    writes = [c for c in cs if (c.method, c.path) in probe.CLOSED_ROUTES and c.method in ("POST", "PUT")]
+    assert writes and all(c.body == probe.CLOSED_WRITE_BODIES[(c.method, c.path)] for c in writes)
+    assert probe.CLOSED_WRITE_BODIES[("POST", "/api/notifications/read")] == {"ids": "not-a-list"}
+    assert probe.CLOSED_WRITE_BODIES[("PUT", "/api/update/config")] == probe.INVALID_UPDATE
+    assert {k for k, b in probe.CLOSED_WRITE_BODIES.items() if b == {}} == {("POST", "/api/workspaces")}

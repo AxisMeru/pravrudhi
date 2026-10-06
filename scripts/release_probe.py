@@ -62,6 +62,24 @@ Send = Callable[[str, str, "str | None", "dict | None", bool], "tuple[int, dict 
 LOOPBACK = {"127.0.0.1", "localhost", "::1"}
 INVALID_RUN = {"target": "rocket"}
 INVALID_UPDATE = {"channel": "__release_probe_invalid__", "auto_apply": "maybe"}
+# (method, path) of the routes pravrudhi#300 closed to members; the operator-side 200 is covered by the admin half of the run.
+CLOSED_ROUTES = (
+    ("GET", "/api/doctor"),
+    ("GET", "/api/workspaces"),
+    ("POST", "/api/workspaces"),
+    ("GET", "/api/notifications"),
+    ("POST", "/api/notifications/read"),
+    ("GET", "/api/update"),
+    ("GET", "/api/update/config"),
+    ("PUT", "/api/update/config"),
+    ("GET", "/api/update/last-check"),
+)
+# The body each closed WRITE is probed with: never one a handler could accept.
+CLOSED_WRITE_BODIES: dict[tuple[str, str], dict] = {
+    ("POST", "/api/workspaces"): {},  # no name: the handler refuses it (400/422) and creates nothing
+    ("POST", "/api/notifications/read"): {"ids": "not-a-list"},  # `{}` would mean "mark all read"
+    ("PUT", "/api/update/config"): INVALID_UPDATE,  # `{}` validates and would save the defaults over the policy
+}
 ASK_CLI = {"question": "release probe", "vendors": ["claude-cli", "codex-cli"]}
 
 
@@ -95,6 +113,18 @@ def checks(edition: str, workspace: str) -> list[Check]:
         Check("anonymous POST /api/nyaya/ask is refused", "POST", "/api/nyaya/ask", "anonymous", (401, 403), ASK_CLI,
               opt_in=True),
     ]
+    # Seven member-open routes closed in 0.5.45 (#300, #548): a member is 403 from the gate, before any handler. Each
+    # write carries a body that is INVALID for its handler (CLOSED_WRITE_BODIES), so even an older engine that lacks the
+    # gate answers 4xx and changes nothing: `{}` would mean "mark all read" on /api/notifications/read and would save
+    # the defaults over the update policy on PUT /api/update/config. None of these calls a model or a vendor.
+    for method, path in CLOSED_ROUTES:
+        body = CLOSED_WRITE_BODIES.get((method, path)) if method in ("POST", "PUT") else None
+        slug = f"{method} {path}"
+        # Through the product Worker an interim write block may answer 403 before the engine sees a write, so an
+        # anonymous WRITE accepts 401 or 403; an anonymous read is 401 (the engine origin is the preferred target).
+        anon = (401, 403) if method in ("POST", "PUT") else (401,)
+        out.append(Check(f"anonymous {slug} is refused", method, path, "anonymous", anon, body))
+        out.append(Check(f"non-admin {slug} is 403", method, path, "user", (403,), body))
     if edition == "studio":
         out.append(Check("Studio refuses a non-admin on /api/me", "GET", "/api/me", "user", (403,)))
     else:
