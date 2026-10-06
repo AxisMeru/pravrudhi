@@ -161,3 +161,18 @@ def test_a_separated_difference_is_stated_as_such_and_unpaired_rows_carry_no_not
     for p in odd:
         page = _page_for({**base, **p})
         assert "paired:" not in page
+
+
+def test_a_tiny_p_on_the_page_is_not_printed_as_zero() -> None:
+    page = _page_for(
+        {
+            "benchmark": "b",
+            "state": "measured",
+            "baseline": {"value": 0.4},
+            "latest": {"value": 0.6},
+            "wins": 59,
+            "losses": 7,
+            "p_mcnemar": 1e-9,
+        }
+    )
+    assert "exact McNemar p < 0.001" in page and "0.000" not in page

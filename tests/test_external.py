@@ -186,3 +186,63 @@ def test_paper_paired_table_uses_the_own_base(tmp_path):
     assert "harness:combo & 2 & 0 &" in table  # wins/losses against the night-3 base, from per-item vectors
     assert "harness:c1 & 0 & 4 &" in table  # night-1 candidate against the night-1 base: 4 base-only
     assert paper_data._external_table(ledger).count("harness:combo") == 1
+
+
+def test_bases_are_keyed_by_track_model_and_metric(tmp_path):
+    """R2's probe: base of model A (seq 1), base of model B (seq 2), candidate of model A (seq 3).
+    The candidate pairs with ITS model's base."""
+    (tmp_path / "research").mkdir()
+    ledger = tmp_path / "research" / "ledger.jsonl"
+    LedgerWriter.open(ledger, "0.1.0")
+    kw = dict(tool="evalplus", dataset="humaneval", track="H")
+    record_external(tmp_path, _evalplus(tmp_path / "a0.json", {0, 1}), condition="base", model="A", night=1, **kw)
+    record_external(tmp_path, _evalplus(tmp_path / "b0.json", set(range(9))), condition="base", model="B", night=1, **kw)
+    record_external(tmp_path, _evalplus(tmp_path / "a1.json", set(range(4))), condition="harness:x", model="A", night=1, **kw)
+    text = render_external(ledger)
+    line = next(line for line in text.splitlines() if line.startswith("- H humaneval+") and "harness:x" in line)
+    assert "harness:x − base = +0.2000" in line and "base 0.2000" in line  # model A's base 2/10, not model B's 9/10
+    assert "paired: 2 harness:x-only vs 0 base-only" in line
+
+
+def test_a_tiny_exact_p_is_never_printed_as_zero(tmp_path):
+    from pravrudhi.application import paper_data
+    from pravrudhi.application.external import format_p
+
+    assert format_p(0.00001) == "< 0.001" and format_p(0.0009) == "< 0.001"
+    assert format_p(0.001) == "= 0.001" and format_p(0.1338) == "= 0.134"
+    (tmp_path / "research").mkdir()
+    ledger = tmp_path / "research" / "ledger.jsonl"
+    LedgerWriter.open(ledger, "0.1.0")
+    kw = dict(tool="evalplus", dataset="humaneval", track="H", model="m", night=1)
+    record_external(tmp_path, _evalplus(tmp_path / "b.json", set(), n=40), condition="base", **kw)
+    record_external(tmp_path, _evalplus(tmp_path / "c.json", set(range(40)), n=40), condition="harness:y", **kw)
+    assert "exact McNemar p < 0.001" in render_external(ledger)
+    assert "$<$0.0001" in paper_data._paired_table(ledger) and "0.0000" not in paper_data._paired_table(ledger)
+
+
+def test_non_binary_per_item_scores_do_not_break_the_render(tmp_path):
+    from pravrudhi.application.external import paired_with_own_base  # noqa: F401  (the render path under test uses it)
+
+    (tmp_path / "research").mkdir()
+    ledger = tmp_path / "research" / "ledger.jsonl"
+    LedgerWriter.open(ledger, "0.1.0")
+    kw = dict(tool="evalplus", dataset="humaneval", track="H", model="m", night=1)
+    record_external(tmp_path, _evalplus(tmp_path / "p.json", {0}), condition="base", **kw)
+    record_external(tmp_path, _evalplus(tmp_path / "q.json", {0, 1}), condition="harness:z", **kw)
+    import pravrudhi.application.external as ext
+
+    orig = ext.external_rows
+
+    def with_bad_items(path):
+        rows = orig(path)
+        for r in rows:
+            r["items"] = {k: 0.5 for k in (r.get("items") or {})}  # non-binary scores
+        return rows
+
+    ext.external_rows = with_bad_items
+    try:
+        text = render_external(ledger)
+    finally:
+        ext.external_rows = orig
+    line = next(line for line in text.splitlines() if "harness:z − base" in line)
+    assert "paired:" not in line

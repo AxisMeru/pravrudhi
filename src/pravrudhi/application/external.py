@@ -256,6 +256,11 @@ def dedupe_external_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return out
 
 
+def format_p(p: float) -> str:
+    """`= 0.134`, or `< 0.001` for a tiny exact p: a small p is never printed as `0.000` (R2 on #333)."""
+    return "< 0.001" if p < 0.001 else f"= {p:.3f}"
+
+
 def _is_base(condition: str) -> bool:
     return condition == "base"
 
@@ -268,11 +273,11 @@ def paired_with_own_base(
     rows: list[dict[str, Any]], include_replicates: bool = True
 ) -> list[tuple[str, str, dict[str, Any], dict[str, Any] | None]]:
     """(track, metric, candidate row, base row) for every candidate, each paired with the NEAREST EARLIER `base` row
-    of the same track and metric (by seq), not with the latest base in the ledger (#332: pairing by the condition
+    of the same track, MODEL and metric (by seq), not with the latest base in the ledger (#332: pairing by the condition
     name alone paired night-1 and night-2 rows with the night-3 base). A candidate with no earlier base pairs with
     None. `base-*` rows (re-measurements of the baseline) are included as candidates when `include_replicates`."""
     out: list[tuple[str, str, dict[str, Any], dict[str, Any] | None]] = []
-    bases: dict[tuple[str, str], dict[str, Any]] = {}
+    bases: dict[tuple[str, str, str], dict[str, Any]] = {}
     for r in sorted(dedupe_external_rows(rows), key=lambda x: x["seq"]):
         try:
             marks = headlines(r)
@@ -280,7 +285,7 @@ def paired_with_own_base(
             continue
         cond = str(r.get("condition") or "")
         for name, *_rest in marks:
-            k = (str(r.get("track")), name)
+            k = (str(r.get("track")), str(r.get("model")), name)
             if _is_base(cond):
                 bases[k] = r
             elif _is_candidate(cond) or include_replicates:
@@ -400,8 +405,15 @@ def render_external(ledger: Path) -> str:
         b_items, c_items = base.get("items") or {}, row.get("items") or {}
         if set(b_items) & set(c_items):
             # per-item vectors were logged for both: state the paired counts and the exact test beside the difference
-            d = discordance(b_items, c_items)
-            line += f"; paired: {d.wins} {row['condition']}-only vs {d.losses} base-only, exact McNemar p = {d.p_mcnemar:.3f}"
+            try:
+                d = discordance(b_items, c_items)
+            except (ValueError, TypeError):
+                d = None  # non-binary per-item scores (e.g. set pools) have no McNemar test: no paired note, no failure
+            if d is not None:
+                line += (
+                    f"; paired: {d.wins} {row['condition']}-only vs {d.losses} base-only, "
+                    f"exact McNemar p {format_p(d.p_mcnemar)}"
+                )
         lines.append(line)
     if len(lines) and lines[-1] == "":
         lines.append("- (no paired pair yet)")

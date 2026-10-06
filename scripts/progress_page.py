@@ -121,7 +121,7 @@ def _paired_note(progress: dict[str, Any]) -> str:
     verdict = "not separated by the paired test" if p >= 0.05 else "separated by the paired test (p below 0.05)"
     return (
         f'<span class="paired">paired: {wins} problems only the latest passes vs {losses} only the baseline passes, '
-        f"exact McNemar p = {p:.3f}; {html.escape(verdict)}</span>"
+        f"exact McNemar p {'< 0.001' if p < 0.001 else f'= {p:.3f}'}; {html.escape(verdict)}</span>"
     )
 
 

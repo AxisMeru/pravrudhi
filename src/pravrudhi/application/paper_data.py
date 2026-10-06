@@ -99,6 +99,11 @@ def _external_table(ledger: Path) -> str:
     )
 
 
+def _p_cell(p: float) -> str:
+    """Four decimals, or `<0.0001` for a tiny exact p (never `0.0000`)."""
+    return "$<$0.0001" if p < 0.0001 else f"{p:.4f}"
+
+
 def _paired_table(ledger: Path) -> str:
     notes = _Notes()
     rows = external_rows(ledger) if ledger.exists() else []
@@ -117,7 +122,7 @@ def _paired_table(ledger: Path) -> str:
             body.append(f"{_esc(track)} & {_esc(name)} & {_esc(cond)} & {dash} & {dash} & {dash} \\\\")
             continue
         d = discordance(base_items, cond_items)
-        body.append(f"{_esc(track)} & {_esc(name)} & {_esc(cond)} & {d.wins} & {d.losses} & {d.p_mcnemar:.4f} \\\\")
+        body.append(f"{_esc(track)} & {_esc(name)} & {_esc(cond)} & {d.wins} & {d.losses} & {_p_cell(d.p_mcnemar)} \\\\")
     if not body:
         reason = "no ledger yet" if not ledger.exists() else "no paired comparison recorded in the ledger yet"
         dash = notes.dash(reason)

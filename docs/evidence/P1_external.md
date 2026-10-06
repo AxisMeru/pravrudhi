@@ -31,7 +31,7 @@ Rendered from the ledger's `audit{kind: external_eval}` rows alone. Every row wa
 - H humaneval+ pass@1: harness:bestof4 − base = +0.0427 (base 0.5976±0.0742 [seq 1838], harness:bestof4 0.6402±0.0727, n=164)
 - H humaneval+ pass@1: harness:retry3 − base = +0.0427 (base 0.5976±0.0742 [seq 1838], harness:retry3 0.6402±0.0727, n=164)
 - H humaneval+ pass@1: harness:combo − base = +0.0488 (base 0.5976±0.0742 [seq 1838], harness:combo 0.6463±0.0724, n=164); paired: 15 harness:combo-only vs 7 base-only, exact McNemar p = 0.134
-- H mbpp+ pass@1: harness:combo − base = +0.1376 (base 0.4921±0.0501 [seq 1842], harness:combo 0.6296±0.0485, n=378); paired: 59 harness:combo-only vs 7 base-only, exact McNemar p = 0.000
+- H mbpp+ pass@1: harness:combo − base = +0.1376 (base 0.4921±0.0501 [seq 1842], harness:combo 0.6296±0.0485, n=378); paired: 59 harness:combo-only vs 7 base-only, exact McNemar p < 0.001
 
 ## Tensions
 
