@@ -240,7 +240,8 @@
           "mode": {
             "enum": [
               "sync",
-              "job"
+              "job",
+              "verify"
             ],
             "title": "Mode",
             "type": "string"
@@ -1227,6 +1228,46 @@
         ],
         "title": "ValidationError",
         "type": "object"
+      },
+      "VerifyCitationRequest": {
+        "properties": {
+          "citation": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Citation",
+            "type": "string"
+          },
+          "quote": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Quote",
+            "type": "string"
+          }
+        },
+        "required": [
+          "citation",
+          "quote"
+        ],
+        "title": "VerifyCitationRequest",
+        "type": "object"
+      },
+      "VerifyCitationResponse": {
+        "properties": {
+          "note": {
+            "title": "Note",
+            "type": "string"
+          },
+          "result": {
+            "title": "Result",
+            "type": "string"
+          }
+        },
+        "required": [
+          "result",
+          "note"
+        ],
+        "title": "VerifyCitationResponse",
+        "type": "object"
       }
     }
   },
@@ -1757,6 +1798,79 @@
           }
         },
         "summary": "Status Ep"
+      }
+    },
+    "/api/v1/verify-citations": {
+      "post": {
+        "operationId": "verify_citations_ep_api_v1_verify_citations_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VerifyCitationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VerifyCitationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "The API key is invalid or revoked."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "429": {
+            "description": "Over the rate limit; wait Retry-After seconds.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "type": "integer"
+                }
+              },
+              "X-RateLimit-Limit": {
+                "description": "Calls per minute this API key may make.",
+                "schema": {
+                  "type": "integer"
+                }
+              },
+              "X-RateLimit-Remaining": {
+                "description": "Calls left in the current one-minute window after this one.",
+                "schema": {
+                  "type": "integer"
+                }
+              },
+              "X-RateLimit-Reset": {
+                "description": "Seconds until the current window ends and the count resets.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "No case index, the lookup timed out, or too many lookups are running."
+          }
+        },
+        "summary": "Verify Citations Ep"
       }
     }
   }

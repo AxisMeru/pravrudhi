@@ -102,13 +102,21 @@ def _fuzzy_confirm(conn: sqlite3.Connection, party_1: str, party_2: str) -> list
     check ever sees it. A full scan is the conservative-but-correct fix: title-only comparison keeps it to
     ~1s even at full-corpus scale (this function is a fallback on the already-rare "exact match failed"
     path, never the hot path), and the `_FUZZY_THRESHOLD` ratio floor still does all the actual filtering --
-    this function widens what gets INSPECTED, not what gets ACCEPTED."""
+    this function widens what gets INSPECTED, not what gets ACCEPTED. Only the title column is read during the scan."""
     target = normalize_party_name(f"{party_1} {party_2}")
-    confirmed = []
-    for row in conn.execute("SELECT case_id, title, text FROM cases"):
-        ratio = SequenceMatcher(None, target, normalize_party_name(row["title"])).ratio()
-        if ratio >= _FUZZY_THRESHOLD:
-            confirmed.append(row)
+    # Titles only: the `text` column is the whole judgment, and a scan that dragged it through memory for every
+    # case would be an attacker-triggerable unbounded read (R1, #181). The full row is fetched for the few that
+    # clear the ratio floor, after the scan.
+    confirmed_ids = [
+        row["case_id"]
+        for row in conn.execute("SELECT case_id, title FROM cases")
+        if SequenceMatcher(None, target, normalize_party_name(row["title"])).ratio() >= _FUZZY_THRESHOLD
+    ]
+    confirmed: list[sqlite3.Row] = []
+    for i in range(0, len(confirmed_ids), 500):
+        chunk = confirmed_ids[i : i + 500]
+        marks = ",".join("?" * len(chunk))
+        confirmed.extend(conn.execute(f"SELECT case_id, title, text FROM cases WHERE case_id IN ({marks})", chunk))
     return confirmed
 
 
