@@ -373,4 +373,5 @@ def test_the_seven_closed_routes_are_probed_without_an_admin_token() -> None:
         "/api/update", "/api/update/config", "/api/update/last-check",
     }
     # Every write among them is an empty or deliberately invalid body: a missing gate answers 4xx and starts nothing.
-    assert all(c.body in ({}, probe.INVALID_UPDATE) for c in cs if (c.method, c.path) in probe.CLOSED_ROUTES and c.method in ("POST", "PUT"))
+    writes = [c for c in cs if (c.method, c.path) in probe.CLOSED_ROUTES and c.method in ("POST", "PUT")]
+    assert writes and all(c.body in ({}, probe.INVALID_UPDATE) for c in writes)
