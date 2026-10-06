@@ -1392,7 +1392,7 @@ def test_a_refused_request_carries_no_provision_text(tmp_path: Path) -> None:
         assert resp.status_code in (422, 400) and "rule_text" not in resp.text and RULE_NOTICE not in resp.text
 
 
-def test_provision_text_in_an_async_job_result_carries_the_notice_and_url(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_job_result_provision_text_carries_the_notice_and_url(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     import dataclasses
 
     from pravrudhi.api import identity
