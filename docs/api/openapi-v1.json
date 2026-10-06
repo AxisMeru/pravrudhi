@@ -1426,7 +1426,7 @@
             }
           },
           "503": {
-            "description": "Outside the service window, judges warming (retry_after_s), service config missing, or the engine at capacity."
+            "description": "Outside the service window, judges warming (retry_after_s), service config missing, or the agent at capacity (agent_at_capacity) or unavailable (agent_unavailable)."
           }
         },
         "summary": "Analyse Facts Ep"
