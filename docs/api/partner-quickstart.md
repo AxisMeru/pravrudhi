@@ -252,12 +252,6 @@ show only the ones they assert):
 * `retention_notice`: how long the engine keeps the request. **Show it to your users verbatim.**
 * The request field `sections` optionally limits the statute sections considered; omit it for the contract's own.
 
-Statute search: `GET /api/nyaya/corpus?q=...` returns, for every hit, the section `id`, `act`, `section`, `title`, the
-`notice` ("Unofficial text; the official version on India Code prevails.") and the India Code links (`source_url`
-where the corpus recorded a page, and `source_fallback_url`). The provision `text` itself is returned only to an
-authenticated caller (a signed-in session or a valid API key); an anonymous caller receives no statute text, not
-even an excerpt.
-
 Every call made with an API key also returns `X-RateLimit-Limit` (calls per minute for the key),
 `X-RateLimit-Remaining` (left in the current one-minute window) and `X-RateLimit-Reset` (seconds until the
 window ends), on the 200 and on the 429. A 429 adds `Retry-After`. Anonymous calls are limited per client IP

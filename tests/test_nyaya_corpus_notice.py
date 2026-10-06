@@ -100,7 +100,7 @@ def test_every_hit_has_a_fallback_link_even_without_a_recorded_page(tmp_path: Pa
     assert ipc and all(h["source_url"] is None and h["source_fallback_url"] for h in ipc)
 
 
-# --- #506 ruling (6 Oct): full statute text is for AUTHENTICATED callers; anonymous callers get an excerpt -------------------
+# --- #506 ruling (6 Oct): full statute text is for AUTHENTICATED callers; anonymous callers get no statute text -----------
 
 
 def _hosted_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, user: object | None = None) -> TestClient:
@@ -109,8 +109,8 @@ def _hosted_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, user: obj
 
     init_project(tmp_path)
     monkeypatch.setenv("PRAVRUDHI_AUTH", "optional")  # a hosted-style deployment: anonymous callers exist
-    # Today an anonymous caller is refused (400 "name a workspace") by `_session` before the corpus is read, so the
-    # gate below is defence in depth. Resolve every caller to the engine root here so the gate itself is what is tested.
+    # REAL behaviour on a hosted deployment: an anonymous or API-key caller is refused 400 by `_session` before the corpus is
+    # read (see test_hosted_*). The gate below is defence in depth, so this helper lets an anonymous caller through to it.
     real_root_for = nyaya_api.root_for
     # a signed-in user resolves through the real workspace logic; only the anonymous caller is let through to the gate
     monkeypatch.setattr(
@@ -122,7 +122,10 @@ def _hosted_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, user: obj
     return TestClient(app, base_url="http://127.0.0.1:8008")
 
 
-def test_an_anonymous_caller_gets_no_statute_text_at_all_only_id_title_and_the_source_links(
+ANON_KEYS = {"id", "act", "section", "title", "score", "notice", "source_url", "source_fallback_url"}
+
+
+def test_an_anonymous_caller_gets_no_statute_text_at_all_only_the_exact_anonymous_key_set(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     (tmp_path / "a").mkdir()
@@ -131,15 +134,25 @@ def test_an_anonymous_caller_gets_no_statute_text_at_all_only_id_title_and_the_s
     anon = anon_resp.json()
     assert anon["notice"] == NOTICE and anon["hits"]
     for h in anon["hits"]:
-        assert "text" not in h and "excerpt" not in h
-        assert h["id"] and h["title"] and h["section"] and "source_url" in h and h["source_fallback_url"]
-        assert h["notice"] == NOTICE
+        assert set(h) == ANON_KEYS, f"unexpected keys {set(h) ^ ANON_KEYS}"
+        assert h["id"] and h["title"] and h["section"] and h["notice"] == NOTICE and h["source_fallback_url"]
     from tests.test_partner_key_metering import ADMIN
 
     c_auth = _hosted_client(tmp_path / "b", monkeypatch, user=ADMIN)
     auth = c_auth.get("/api/nyaya/corpus?q=murder punishment&workspace=w1").json()
-    # no provision's text (not even its first 40 characters) appears anywhere in the anonymous body
-    assert auth["hits"] and all(h["text"][:40] not in anon_resp.text for h in auth["hits"])
+    assert auth["hits"] and all(h["text"] for h in auth["hits"])
+    # no 30-character window of ANY provision's text appears anywhere in the anonymous body (whole text, every offset),
+    # once the fields an anonymous caller IS allowed (id, act, section, title: a title can open the provision text) are removed
+    import json
+
+    allowed = {"id", "act", "section", "title"}
+    stripped = json.dumps(
+        {**anon, "hits": [{k: v for k, v in h.items() if k not in allowed} for h in anon["hits"]]}, ensure_ascii=False
+    )
+    for h in auth["hits"]:
+        text = " ".join(h["text"].split())
+        leaked = [i for i in range(max(1, len(text) - 29)) if text[i : i + 30] in stripped]
+        assert not leaked, f"{h['id']}: text leaks into the anonymous body at offsets {leaked[:3]}"
 
 
 def test_an_authenticated_caller_gets_the_full_text(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -150,20 +163,29 @@ def test_an_authenticated_caller_gets_the_full_text(tmp_path: Path, monkeypatch:
     assert auth and all(h["text"] and h["notice"] == NOTICE for h in auth)
 
 
-def test_an_api_key_caller_is_authenticated_and_a_bad_key_is_refused(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from pravrudhi.api import nyaya as nyaya_api
+def test_hosted_anonymous_valid_key_and_bad_key_are_all_refused_400_and_a_signed_in_workspace_gets_the_text(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """REAL behaviour, no monkeypatching (auth optional = a hosted deployment): the workspace resolver refuses every caller
+    without a signed-in session BEFORE the corpus is read, so an anonymous caller, a valid API key and a bad key all get the
+    same 400. An API key cannot call this app route. A signed-in session that names a workspace gets the text."""
+    from pravrudhi.api import identity
     from pravrudhi.application import tenancy
+    from tests.test_partner_key_metering import ADMIN
 
     init_project(tmp_path)
     monkeypatch.setenv("PRAVRUDHI_AUTH", "optional")
-    monkeypatch.setattr(nyaya_api, "root_for", lambda *_a, **_k: tmp_path)  # let a key-only caller reach the gate
     tenancy.create_org(tmp_path, "acme", "Acme")
     secret = tenancy.create_key(tmp_path, "acme", label="t", rate_limit_per_minute=60).secret
-    c = TestClient(create_app(tmp_path), base_url="http://127.0.0.1:8008")
-    keyed = c.get("/api/nyaya/corpus?q=murder punishment", headers={"X-Pravrudhi-Api-Key": secret}).json()["hits"]
-    assert keyed and all(h["text"] for h in keyed)
-    assert all("text" not in h for h in c.get("/api/nyaya/corpus?q=murder punishment").json()["hits"])
-    assert c.get("/api/nyaya/corpus?q=murder", headers={"X-Pravrudhi-Api-Key": "bad"}).status_code == 401
+    app = create_app(tmp_path)
+    c = TestClient(app, base_url="http://127.0.0.1:8008")
+    url = "/api/nyaya/corpus?q=murder punishment"
+    for headers in ({}, {"X-Pravrudhi-Api-Key": secret}, {"X-Pravrudhi-Api-Key": "bad"}):
+        r = c.get(url, headers=headers)
+        assert r.status_code == 400 and r.json() == {"detail": "the workspace could not be resolved"}
+    app.dependency_overrides[identity.current_user] = lambda: ADMIN
+    ok = c.get(url + "&workspace=w1")
+    assert ok.status_code == 200 and ok.json()["hits"] and all(h["text"] for h in ok.json()["hits"])
 
 
 def test_the_local_single_operator_engine_keeps_the_full_text(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
