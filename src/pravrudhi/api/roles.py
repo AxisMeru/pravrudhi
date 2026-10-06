@@ -167,6 +167,12 @@ LEGAL_MVP_CLOSED: frozenset[str] = frozenset({
     # (`/api/nyaya/registry/contracts` stays open: Matters lists its contracts from it and it is anonymous-demo capable.)
     "/api/nyaya/ask", "/api/nyaya/asks", "/api/nyaya/audit", "/api/nyaya/vendors",
     "/api/nyaya/registry/{contract_id}/elements", "/api/nyaya/registry/check",
+    # The engine's own host and build facts (R2's #300 review: seven hide-list routes were still open). `/api/doctor` names
+    # the GPU, driver, docker path and missing repo files; `/api/workspaces` returns the server-side workspace path;
+    # `/api/update*` returns the build's git describe and the update channel; notifications are the operator's record.
+    "/api/doctor", "/api/workspaces",
+    "/api/notifications", "/api/notifications/read",
+    "/api/update", "/api/update/config", "/api/update/last-check",
 })
 
 ADMIN_IN_BOTH_EDITIONS: frozenset[str] = _ADMIN_IN_BOTH_EDITIONS_BASE | LEGAL_MVP_CLOSED
@@ -177,9 +183,7 @@ ADMIN_GATED_AT_REGISTRATION: frozenset[str] = frozenset({"/api/app-token"})
 
 # Routes whose READ is the product's but whose WRITE is engine-wide: the same path under two methods. Only the
 # methods below the safe set are operator-only; `GET /api/update/config` stays user-facing.
-ADMIN_WRITES_IN_BOTH_EDITIONS: frozenset[str] = frozenset({
-    "/api/update/config",
-})
+ADMIN_WRITES_IN_BOTH_EDITIONS: frozenset[str] = frozenset()
 SAFE_METHODS: frozenset[str] = frozenset({"GET", "HEAD", "OPTIONS"})
 
 # What the product is. A user's own goals, workspaces, conversation, memory, keys and models, plus the plain
@@ -204,15 +208,11 @@ USER_FACING: frozenset[str] = frozenset({
     # config and mint a partner's first live API key.
     "/api/v1/orgs", "/api/v1/orgs/{org_id}/keys", "/api/v1/orgs/{org_id}/keys/{key_id}/revoke",
     "/api/v1/orgs/{org_id}/usage", "/api/v1/orgs/{org_id}/usage/summary",
-    "/api/doctor",
     "/api/health", "/api/status",
     # RunPod serverless load-balancer liveness (outside /api; no identity asked, carries no state).
     "/ping",
     "/api/me",
     "/api/messaging/telegram",
-    "/api/notifications", "/api/notifications/read",
-    "/api/update", "/api/update/config", "/api/update/last-check",
-    "/api/workspaces",
 })
 
 

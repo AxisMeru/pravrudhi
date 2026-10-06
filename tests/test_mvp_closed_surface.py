@@ -58,6 +58,16 @@ CLOSED_CALLS: list[tuple[str, str, str, Any]] = [
     ("GET", "/api/nyaya/vendors", "/api/nyaya/vendors", None),
     ("GET", "/api/nyaya/registry/{contract_id}/elements", "/api/nyaya/registry/no-such-contract/elements", None),
     ("POST", "/api/nyaya/registry/check", "/api/nyaya/registry/check", {}),
+    # R2's #300 review: seven more hide-list routes, two of which disclosed host details to any member.
+    ("GET", "/api/doctor", "/api/doctor", None),
+    ("GET", "/api/workspaces", "/api/workspaces", None),
+    ("POST", "/api/workspaces", "/api/workspaces", {}),
+    ("GET", "/api/notifications", "/api/notifications", None),
+    ("POST", "/api/notifications/read", "/api/notifications/read", {}),
+    ("GET", "/api/update", "/api/update", None),
+    ("GET", "/api/update/config", "/api/update/config", None),
+    ("PUT", "/api/update/config", "/api/update/config", {}),
+    ("GET", "/api/update/last-check", "/api/update/last-check", None),
 ]
 
 # What stays open to a signed-in member: the legal surface and the plain identity and health routes.
@@ -66,7 +76,6 @@ MEMBER_OPEN = [
     ("GET", "/api/nyaya/registry/contracts"),
     ("GET", "/api/me"),
     ("GET", "/api/status"),
-    ("GET", "/api/workspaces"),
     ("GET", "/api/v1/status"),
 ]
 
