@@ -5,7 +5,9 @@ path; a judge verdict stays tool-free until a measured change says otherwise."""
 
 from __future__ import annotations
 
+import hashlib
 import inspect
+import json
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -40,11 +42,23 @@ class ToolResult:
 
 @dataclass(frozen=True)
 class CallRecord:
+    """One tool call. `args` holds the caller's own values (an expression, a party name, a quoted passage) and stays
+    IN MEMORY for the run only: it is `repr=False`, and anything written to an audit trail or log must use
+    `audit_row()`, which carries the argument NAMES and a digest, never the values."""
+
     name: str
-    args: dict[str, Any]
+    args: dict[str, Any] = field(repr=False)
     ok: bool
     attempts: int
     error: str | None
+
+    def audit_row(self) -> dict[str, Any]:
+        """The audit-safe view: no argument values. The digest lets a reader confirm two rows had the same input."""
+        canonical = json.dumps(self.args, sort_keys=True, default=str, ensure_ascii=False)
+        return {
+            "name": self.name, "arg_names": sorted(self.args), "args_sha256": hashlib.sha256(canonical.encode()).hexdigest(),
+            "ok": self.ok, "attempts": self.attempts, "error": self.error,
+        }
 
 
 @dataclass
