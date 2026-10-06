@@ -1,8 +1,7 @@
 """Which account this project's `claude` invocations use.
 
-Operator instruction, 2026-09-10: *"the claude-cli change that from the personal claude account to this
-axismeru account...make this change everywhere for this project...stuido, product etc...stop using the
-personal claude account for this project"*.
+2026-09-10: the project's CLI calls moved off the operator's personal account onto the project account, everywhere
+(studio, product and the rest); the personal account is no longer used for this project.
 
 Every `claude` invocation in this repository inherited the ambient environment, so it used whatever OAuth
 login happened to be present. At the time that was the operator's personal account, and it exhausted a
@@ -62,7 +61,7 @@ from pravrudhi.agents.seat_identity import is_placeholder, scripted_claude_email
 #:
 #: This first pointed at `~/.config/pravrudhi/claude`, on the assumption that the personal account would stay
 #: logged in at the default location and the two had to be kept apart. The operator resolved it differently on
-#: 2026-09-10 -- *"axismeru claude login done (logged out of personal too)"* -- so on this machine the default
+#: 2026-09-10, when the project account was logged in and the personal one removed from this machine, so here the default
 #: location IS the project's account and there is no personal login left to guard against.
 #:
 #: Pointing here rather than at an empty directory is therefore not a relaxed check, it is the correct
@@ -438,6 +437,7 @@ def claude_env(*, require: bool = True, live: bool = False) -> dict[str, str]:
         # Always set, even when unprovisioned, so nothing can silently reach the ambient CLAUDE_CONFIG_DIR.
         return {"CLAUDE_CONFIG_DIR": str(home)}
     expected = scripted_claude_email()  # raises SeatIdentityMissing: nothing to verify against is a refusal, not a pass
+    assert expected is not None  # narrowing for the type checker: required=True never returns None
     recorded = Seat(id="scripted", email=expected, config_dir=home).recorded_email
     if recorded is not None and recorded != expected:
         raise ScriptedSeatMismatch(
