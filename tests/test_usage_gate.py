@@ -424,13 +424,13 @@ class TestOpusM4Budget:
             usage_gate.claim_opus_call(root, "arm-a", self.GATE)
 
     def test_the_shipped_config_lists_only_the_registered_arms(self):
-        """Phase 1 (10 + 500) and the #306 head-to-head B-opus arm (650 = 625 effective scored calls + the 25-call probe, Lead-2 6 Oct 2026). Phase 2 is NOT listed."""
+        """Phase 1 (10 + 500) and the #306 B-opus arm (650 = 625 effective calls + the 25-call probe). Phase 2 is NOT listed."""
         cfg = yaml.safe_load((REPO / "configs" / "usage_gate.yaml").read_text())
         assert cfg["opus_m4"]["call_cap_per_arm"] == {"m4-phase1-config-a": 10, "m4-phase1-config-c": 500, "m4-306-b-opus": 650}
         assert cfg["opus_m4"]["five_hour_pause_pct"] == 70
 
     def test_the_306_b_opus_arm_is_claimable_up_to_its_cap_and_refused_beyond(self, tmp_path):
-        """The registered arm name works through claim_opus_call against a copy of the shipped config; an unregistered arm is still refused."""
+        """The registered arm works through claim_opus_call on a copy of the shipped config; an unregistered arm is refused."""
         cfg = yaml.safe_load((REPO / "configs" / "usage_gate.yaml").read_text())
         cfg["opus_m4"]["counter_file"] = str(tmp_path / "opus.json")
         (tmp_path / "configs").mkdir()
