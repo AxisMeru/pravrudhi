@@ -14,7 +14,7 @@ import math
 import os
 import time
 from collections.abc import Mapping
-from dataclasses import dataclass, field, replace
+from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +27,7 @@ from pravrudhi.application.nyaya_agent import (
     BinaryRegistry,
     BinaryShaMismatch,
     NyayaAgent,
+    _established_tristate,
     _truthful_status,
     assemble_assertions,
     expected_outcome,
@@ -269,6 +270,33 @@ class TestAssembly:
     )
     def test_expected_outcome_mirrors_the_element_first_harness(self, established: dict[str, bool], outcome: str) -> None:
         assert expected_outcome(self.C, assemble_assertions(self.C, established)) == outcome
+
+    def test_established_tristate_maps_each_status(self) -> None:
+        """Issue #56: True only for "established"; None for either `not_evaluated_*` gap (the second judge
+        never answering, or issue #57/#63/#72's Gate 1 model never answering) -- both are "nobody reached a
+        verdict", not a judge's own negative one; the two genuinely-judged negatives (`not_confirmed`,
+        `not_established`) both collapse to plain False -- they drive the identical outcome (module doc /
+        issue #37), so neither is a gap the way the two `not_evaluated_*` statuses are."""
+        assert _established_tristate("established") is True
+        assert _established_tristate("not_confirmed") is False
+        assert _established_tristate("not_established") is False
+        assert _established_tristate("not_evaluated_second_unavailable") is None
+        assert _established_tristate("not_evaluated_gate1_unavailable") is None
+
+    def test_a_none_entry_can_never_manufacture_a_denial_or_a_met_claim(self) -> None:
+        """Issue #56's own safety property, tested directly against `assemble_assertions` (not just the
+        tristate mapping above): a None entry (the second judge never evaluated this element/denial at all)
+        degrades to `False` in the Lean wire -- NEVER to `True`. A None on the DENY defeater must never
+        become an asserted (True) denial the Lean check could read as DENIAL; a None on a required element
+        must never be silently promoted to True either (which is what would let a PROOF slip through on a
+        gap instead of real evidence)."""
+        a = assemble_assertions(self.C, {BNS69_EL[0]: True, BNS69_EL[1]: True, BNS69_DENY: None})
+        assert BNS69_DENY not in a  # never asserted True; an unproven defeater is simply absent, not sent
+        assert expected_outcome(self.C, a) == "PROOF"  # a missing denial verdict never blocks a real PROOF
+
+        a = assemble_assertions(self.C, {BNS69_EL[0]: True, BNS69_EL[1]: None, BNS69_DENY: False})
+        assert a[BNS69_EL[1]] is False
+        assert expected_outcome(self.C, a) == "ABSTAIN"  # a missing element verdict can only BLOCK a PROOF
 
     def test_outcome_from_lean(self) -> None:
         assert (
@@ -1380,6 +1408,28 @@ class TestTruthfulElementStatus:
         assert c1.elements[0].status != c2.elements[0].status  # the labels really do differ
         assert c1.outcome == c2.outcome  # but the outcome never does
 
+    def test_a_none_verdict_on_the_denial_can_never_manufacture_a_denial_end_to_end(self, tmp_path: Path) -> None:
+        """Issue #56's own safety property, exercised through the REAL agent loop rather than
+        `assemble_assertions` in isolation: the DENY defeater's primary judge claims it present (a quote that
+        verifies), but the second judge is unreachable, so its truthful status is
+        `not_evaluated_second_unavailable` -- `_established_tristate` maps that to None, and
+        `assemble_assertions` degrades a None to False, NEVER to True. If that degradation ever broke (a
+        None accidentally read as True), this defeater would assert `True` to the Lean check and the
+        contract would come back DENIAL -- a false, manufactured negative the caller would see as a definite
+        answer instead of a case that needs a lawyer. Confirming the outcome chain already REFERs (never
+        DENIAL) here is exactly the pre-existing invariant issue #56 must never break: `unavailable_second`
+        REFERs unconditionally before `assemble_assertions`'s own True/False choice could ever matter to the
+        final outcome (`_run_contract` checks `unavailable_second` ahead of the allowlist/PROOF/DENIAL read)."""
+        script = _proof_script(TOY_FACTS)
+        script[BNS69_DENY] = [_est("F3", TOY_FACTS[2], "sexual intercourse")]
+        c = self._run(tmp_path, script, {BNS69_EL[0]: [_second("established", 0.99)],
+                                          BNS69_EL[1]: [_second("established", 0.99)],
+                                          BNS69_DENY: [ConnectionError("second judge unreachable")]})
+        deny = next(r for r in c.elements if r.element == BNS69_DENY)
+        assert deny.status == "not_evaluated_second_unavailable"
+        assert c.assertions is not None and BNS69_DENY not in c.assertions  # None -> never asserted True
+        assert c.outcome == "REFER_TO_LAWYER" and c.reason == "second_judge_unavailable"  # never "DENIAL"
+
 
 class TestBindingLegInSingleJudgeMode:
     """Issue #57 (Tag's review of #37): `binding_leg` is documented as `"primary" | "second" | None`, but a
@@ -1594,6 +1644,56 @@ class TestStatuteMismatch:
         assert c.statute_text_mismatch is True and c.statute_text_similarity == 1.0
         run2, _, _ = _run(tmp_path, _proof_script(TOY_FACTS))
         assert 0.0 < run2.contracts[0].statute_text_similarity < 1.0
+
+
+class TestRuleText:
+    """#308: the provision text, and the text the judge saw, travel on the contract result. `rule_text` is the binary's
+    --describe-source text (India Code, unofficial); `judge_rule_text` is exactly the first `statute_chars` characters of the
+    judge's configured text (as sent in the prompt) when the two texts differ or the judge's text was cut."""
+
+    def _contract(self, tmp_path: Path, **over: Any) -> Any:
+        judge = ScriptedJudge(_proof_script(TOY_FACTS))
+        run = NyayaAgent(judge, _registry(), _config(tmp_path, **over)).run(TOY_FACTS, contract_ids=["bns69"])
+        return run.contracts[0]
+
+    def test_a_mismatch_carries_the_text_as_sent_in_the_prompt(self, tmp_path: Path) -> None:
+        c = self._contract(tmp_path, house_judge={"statute_chars": 10})
+        assert c.statute_text_mismatch is True
+        assert c.rule_text == "RETRIEVED statute text for bns69"
+        assert c.judge_rule_text == "TRAINING s"  # exactly the first statute_chars characters, not the whole text
+        assert c.rule_text_source == "lean_describe_source"
+
+    def test_a_text_shorter_than_the_cut_is_carried_whole(self, tmp_path: Path) -> None:
+        c = self._contract(tmp_path, house_judge={"statute_chars": 600})
+        assert c.judge_rule_text == "TRAINING statute text for bns69"
+
+    def test_identical_texts_longer_than_the_cut_still_carry_the_cut_text_the_judge_saw(self, tmp_path: Path) -> None:
+        text = "RETRIEVED statute text for bns69"
+        c = self._contract(tmp_path, judge_statute_text={"bns69": text}, house_judge={"statute_chars": 10})
+        assert c.statute_text_mismatch is False and c.judge_rule_text == text[:10]
+
+    def test_identical_texts_carry_rule_text_but_no_judge_text(self, tmp_path: Path) -> None:
+        c = self._contract(tmp_path, judge_statute_text={"bns69": "RETRIEVED statute text for bns69"},
+                           house_judge={"statute_chars": 600})
+        assert c.statute_text_mismatch is False
+        assert c.rule_text == "RETRIEVED statute text for bns69" and c.judge_rule_text is None
+
+    def test_no_judge_statute_text_means_no_judge_rule_text_and_the_contract_is_not_judged(self, tmp_path: Path) -> None:
+        c = self._contract(tmp_path, judge_statute_text={}, house_judge={"statute_chars": 600})
+        assert c.reason == "no_training_statute_text" and c.statute_text_mismatch is None
+        assert c.judge_rule_text is None and c.rule_text == "RETRIEVED statute text for bns69"
+
+    def test_an_unconfigured_cut_length_carries_no_judge_text_rather_than_guessing(self, tmp_path: Path) -> None:
+        c = self._contract(tmp_path, house_judge={})
+        assert c.statute_text_mismatch is True and c.judge_rule_text is None
+
+    def test_the_partner_response_model_accepts_and_publishes_the_fields(self, tmp_path: Path) -> None:
+        from pravrudhi.api.partner import ContractResultOut
+
+        body = self._contract(tmp_path, house_judge={"statute_chars": 10})
+        out = ContractResultOut.model_validate(asdict(body))
+        assert (out.rule_text, out.judge_rule_text, out.rule_text_source) == (
+            "RETRIEVED statute text for bns69", "TRAINING s", "lean_describe_source")
 
 
 class TestAudit:
@@ -1997,6 +2097,100 @@ class TestHouseFactory:
         assert isinstance(agent.judge, Gate1Judge)
         assert isinstance(agent.judge.inner, AndGateJudge)
 
+    def test_second_judge_without_record_path_starts_unwrapped_and_gate_is_off(self, tmp_path: Path) -> None:
+        """Issue #44 (Lead-2, 5 Oct): the record gate ships WIRED but OFF. A configured second_judge with no
+        record_path keeps today's behaviour (real second judge, never every-case REFER for want of a record)."""
+        from pravrudhi.application.nyaya_judges import AndGateJudge, HouseJudge
+
+        second_cfg = {**self._HOUSE_JUDGE_CFG, "base_url": "http://s/v1", "model": "m2", "tau": 0.97}
+        cfg = _config(tmp_path, house_judge=self._HOUSE_JUDGE_CFG, second_judge=second_cfg,
+                      score_bin=self._score_bin(tmp_path), pinned_score_sha256=None)
+        agent = NyayaAgent.house(tmp_path, config=cfg)
+        assert isinstance(agent.judge, AndGateJudge)
+        assert isinstance(agent.judge.second, HouseJudge)
+
+    def test_run_start_records_whether_the_record_gate_is_on_or_off(self, tmp_path: Path) -> None:
+        from pravrudhi.application.nyaya_agent import _judge_provenance
+
+        second_cfg = {**self._HOUSE_JUDGE_CFG, "base_url": "http://s/v1", "model": "m2", "tau": 0.97}
+        off = _config(tmp_path, house_judge=self._HOUSE_JUDGE_CFG, second_judge=second_cfg)
+        on = _config(tmp_path, house_judge=self._HOUSE_JUDGE_CFG, second_judge=second_cfg,
+                     second_judge_positive_control={"record_path": str(tmp_path / "r.json"), "max_age_hours": 24})
+        none = _config(tmp_path, house_judge=self._HOUSE_JUDGE_CFG)
+        assert _judge_provenance(off)["second_judge_record_gate"] == "off"
+        assert _judge_provenance(on)["second_judge_record_gate"] == "on"
+        assert _judge_provenance(none)["second_judge_record_gate"] is None
+
+    @pytest.mark.parametrize("bad", [None, 0, -1, float("nan"), float("inf")])
+    def test_record_path_with_a_bad_or_missing_max_age_refuses_at_construction(self, tmp_path: Path, bad) -> None:
+        second_cfg = {**self._HOUSE_JUDGE_CFG, "base_url": "http://s/v1", "model": "m2", "tau": 0.97}
+        pc = {"record_path": str(tmp_path / "r.json")} | ({} if bad is None else {"max_age_hours": bad})
+        with pytest.raises(ValueError, match="max_age_hours"):
+            _config(tmp_path, house_judge=self._HOUSE_JUDGE_CFG, second_judge=second_cfg, second_judge_positive_control=pc)
+
+    def test_second_judge_with_record_path_starts_and_wraps(self, tmp_path: Path) -> None:
+        from pravrudhi.application.nyaya_judges import AndGateJudge
+        from pravrudhi.application.second_judge_positive_control import RecordGatedJudge
+
+        second_cfg = {**self._HOUSE_JUDGE_CFG, "base_url": "http://s/v1", "model": "m2", "tau": 0.97}
+        cfg = _config(
+            tmp_path, house_judge=self._HOUSE_JUDGE_CFG, second_judge=second_cfg,
+            score_bin=self._score_bin(tmp_path), pinned_score_sha256=None,
+            second_judge_positive_control={"record_path": str(tmp_path / "record.json"), "max_age_hours": 24},
+        )
+        agent = NyayaAgent.house(tmp_path, config=cfg)
+        assert isinstance(agent.judge, AndGateJudge)
+        assert isinstance(agent.judge.second, RecordGatedJudge)
+
+    def test_second_judge_positive_control_record_path_set_wraps_in_record_gated_judge(
+        self, tmp_path: Path
+    ) -> None:
+        from pravrudhi.application.nyaya_judges import AndGateJudge
+        from pravrudhi.application.second_judge_positive_control import RecordGatedJudge
+
+        second_cfg = {**self._HOUSE_JUDGE_CFG, "base_url": "http://s/v1", "model": "m2", "tau": 0.97,
+                      "endpoint_id": "ep1", "adapter_sha": "abc123"}
+        cfg = _config(
+            tmp_path, house_judge=self._HOUSE_JUDGE_CFG, second_judge=second_cfg,
+            score_bin=self._score_bin(tmp_path), pinned_score_sha256=None,
+            second_judge_positive_control={"record_path": str(tmp_path / "record.json"), "max_age_hours": 24},
+        )
+        agent = NyayaAgent.house(tmp_path, config=cfg)
+        assert isinstance(agent.judge, AndGateJudge)
+        assert isinstance(agent.judge.second, RecordGatedJudge)
+        assert agent.judge.second.expected_endpoint_id == "ep1"
+        assert agent.judge.second.expected_adapter_sha == "abc123"
+        assert agent.judge.second.max_age_hours == 24
+
+    def test_no_record_fails_the_element_closed_to_not_established_via_and_gate(self, tmp_path: Path) -> None:
+        """End-to-end proof the wiring actually closes the loop: with no record file at all, a call to the
+        second judge slot raises RecordCheckFailed, which AndGateJudge's existing generic except-Exception
+        handling converts into second_judge_unavailable -- never a bare primary-alone established."""
+        from pravrudhi.application.nyaya_judges import JudgeRequest
+
+        second_cfg = {**self._HOUSE_JUDGE_CFG, "base_url": "http://s/v1", "model": "m2", "tau": 0.97,
+                      "endpoint_id": "ep1", "adapter_sha": "abc123"}
+        cfg = _config(
+            tmp_path, house_judge=self._HOUSE_JUDGE_CFG, second_judge=second_cfg,
+            score_bin=self._score_bin(tmp_path), pinned_score_sha256=None,
+            second_judge_positive_control={"record_path": str(tmp_path / "record.json"), "max_age_hours": 24},
+        )
+        agent = NyayaAgent.house(tmp_path, config=cfg)
+
+        class _StubPrimary:
+            name = "primary"
+
+            def judge(self, request: JudgeRequest):
+                from pravrudhi.application.nyaya_judges import ElementJudgment
+                return ElementJudgment("established", 0.99, "F1", "quote", "model")
+
+        agent.judge.primary = _StubPrimary()  # the second slot must be reached to prove the gate fires
+        result = agent.judge.judge(JudgeRequest("c", "e", False, "s", "n", (("F1", "text"),)))
+        assert result.status == "not_established"
+        assert result.vetoed_by == "second"
+        assert "second_unavailable" in (result.second_skip_reason or "")
+        assert "no record" in (result.second_skip_reason or "")
+
 
 class TestRealBinary:
     @pytest.mark.requires_score_bin
@@ -2383,3 +2577,73 @@ class TestSpanRelevanceOverAndGateDefeater:
     def test_span_demotion_of_a_required_element_does_not_hide_the_defeater_disagreement(self, tmp_path: Path) -> None:
         c = self._run(tmp_path, _second("not_established", 0.05), self._check(demote=BNS69_EL[0]))
         assert c.outcome == "REFER_TO_LAWYER" and c.reason == "second_judge_defeater_disagreement"
+
+
+class TestPrimaryTauEnvOverride134:
+    """#134: the primary tau must be settable from env, and swapping the primary judge by env must not silently keep
+    the yaml tau."""
+
+    @pytest.fixture(autouse=True)
+    def _clean(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        for k in (
+            "NYAYA_HOUSE_JUDGE_TAU",
+            "NYAYA_HOUSE_JUDGE_BASE_URL",
+            "NYAYA_HOUSE_JUDGE_MODEL",
+            "NYAYA_HOUSE_JUDGE_TAU_ALLOW_LOWER",
+        ):
+            monkeypatch.delenv(k, raising=False)
+
+    def test_env_tau_below_yaml_refused_without_the_second_flag(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        yaml_tau = load_agent_config(REPO).tau
+        # the production id: not a swap, so only the floor stops it
+        monkeypatch.setenv("NYAYA_HOUSE_JUDGE_MODEL", "nyaya-judge-4b")
+        monkeypatch.setenv("NYAYA_HOUSE_JUDGE_TAU", str(yaml_tau - 0.1))
+        with pytest.raises(ValueError, match="below the yaml tau"):
+            load_agent_config(REPO)
+
+    def test_env_tau_below_yaml_allowed_with_the_flag_and_recorded(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        yaml_tau = load_agent_config(REPO).tau
+        monkeypatch.setenv("NYAYA_HOUSE_JUDGE_TAU", str(yaml_tau - 0.1))
+        monkeypatch.setenv("NYAYA_HOUSE_JUDGE_TAU_ALLOW_LOWER", "1")
+        cfg = load_agent_config(REPO)
+        assert cfg.tau == pytest.approx(yaml_tau - 0.1) and "lower-than-yaml" in cfg.tau_source
+
+    def test_env_tau_equal_or_above_yaml_needs_no_flag(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        yaml_tau = load_agent_config(REPO).tau
+        for v in (yaml_tau, 0.99):
+            monkeypatch.setenv("NYAYA_HOUSE_JUDGE_TAU", str(v))
+            assert load_agent_config(REPO).tau == v
+
+    def test_default_is_yaml_tau_and_source(self) -> None:
+        cfg = load_agent_config(REPO)
+        assert cfg.tau_source == "yaml" and 0 < cfg.tau <= 1
+
+    def test_env_tau_overrides_yaml(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("NYAYA_HOUSE_JUDGE_TAU", "0.97")
+        cfg = load_agent_config(REPO)
+        assert cfg.tau == 0.97 and cfg.tau_source == "env:NYAYA_HOUSE_JUDGE_TAU"
+
+    def test_swapping_primary_model_without_tau_refuses(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("NYAYA_HOUSE_JUDGE_MODEL", "judge32b")
+        with pytest.raises(ValueError, match="NYAYA_HOUSE_JUDGE_TAU"):
+            load_agent_config(REPO)
+
+    def test_base_url_alone_or_the_4b_id_is_not_a_swap(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("NYAYA_HOUSE_JUDGE_BASE_URL", "http://h/v1")
+        monkeypatch.setenv("NYAYA_HOUSE_JUDGE_MODEL", "nyaya-judge-4b")
+        assert load_agent_config(REPO).tau_source == "yaml"
+
+    def test_swapping_primary_with_explicit_tau_or_yaml_ok(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        yaml_tau = load_agent_config(REPO).tau
+        monkeypatch.setenv("NYAYA_HOUSE_JUDGE_MODEL", "judge32b")
+        monkeypatch.setenv("NYAYA_HOUSE_JUDGE_TAU", "0.9")
+        assert load_agent_config(REPO).tau == 0.9
+        monkeypatch.setenv("NYAYA_HOUSE_JUDGE_TAU", "yaml")
+        cfg = load_agent_config(REPO)
+        assert cfg.tau == yaml_tau and cfg.tau_source.endswith("=yaml")
+
+    @pytest.mark.parametrize("bad", ["abc", "0", "1.5", "-0.1"])
+    def test_bad_tau_refuses(self, monkeypatch: pytest.MonkeyPatch, bad: str) -> None:
+        monkeypatch.setenv("NYAYA_HOUSE_JUDGE_TAU", bad)
+        with pytest.raises(ValueError):
+            load_agent_config(REPO)

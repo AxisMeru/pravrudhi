@@ -8,6 +8,8 @@ are invented ("TOY:"); responses show the fields a caller can rely on, not every
 
 A runnable client and a curl walkthrough: [`partner-quickstart-client.md`](partner-quickstart-client.md).
 
+What each `reason`, `quote_check` and the rule-text fields mean, in plain words: [`reason-codes.md`](reason-codes.md).
+
 Claim tier of this page: unit-tested against a stub judge, not run live. A real judge's outcomes are a
 different thing and are not shown here.
 
@@ -127,7 +129,7 @@ opening time:
 | 422 | input refused (no non-empty fact, a fact over 4000 characters, unknown contract) | `{"detail": "..."}` |
 | 404 | jobs only: no such job for this key | `{"detail": "no such job"}` |
 | 429 | over the rate limit; wait `Retry-After` seconds. On `POST /analyse-facts/jobs` it means too many unfinished jobs for this key | `{"detail": "rate limit exceeded"}` or `{"detail": "too many unfinished jobs for this key"}` |
-| 503 | `outside_service_window`, `judge_unavailable` (optionally `reason: judges_warming` with `retry_after_s`), `service_config_missing`, or the agent at capacity | see below |
+| 503 | `outside_service_window`, `judges_offline` (the judges are switched off: no worker and nothing queued, so nothing was queued by this call; try later. An idle scale-from-zero endpoint reads the same, so this is only returned while the judges are deliberately parked), `judge_unavailable` (optionally `reason: judges_warming` with `retry_after_s`), `service_config_missing`, or the agent at capacity | see below |
 
 ```json example:invalid-key
 {

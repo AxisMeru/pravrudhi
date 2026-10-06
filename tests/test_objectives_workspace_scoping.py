@@ -36,6 +36,16 @@ def _client(tmp_path: Path, monkeypatch) -> TestClient:
     monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
     monkeypatch.setenv("SUPABASE_JWT_SECRET", _SECRET)
     monkeypatch.setenv("PRAVRUDHI_WORKSPACES", str(tmp_path / "workspaces"))
+    from pravrudhi.api import roles
+
+    # These tests prove the HANDLERS scope per caller. The routes are closed to members for the legal MVP (#525 mode B,
+    # tests/test_mvp_closed_surface.py proves the 403), so the gate is lifted here on purpose: if a route is ever
+    # reopened, its per-caller isolation must already hold.
+    monkeypatch.setattr(roles, "ADMIN_IN_BOTH_EDITIONS", roles.ADMIN_IN_BOTH_EDITIONS - roles.LEGAL_MVP_CLOSED)
+    # Dispatching a plan to host agents stays operator-only for WRITES, as it was before the legal MVP closed the reads too.
+    monkeypatch.setattr(
+        roles, "ADMIN_WRITES_IN_BOTH_EDITIONS", roles.ADMIN_WRITES_IN_BOTH_EDITIONS | {"/api/objectives/{oid}/subagents"}
+    )
     monkeypatch.delenv("VERCEL", raising=False)
     monkeypatch.delenv("RENDER", raising=False)
     root = tmp_path / "engine-root"

@@ -1,0 +1,78 @@
+# Allowlist for scripts/check_no_attribution_trailers_in_history.py.
+#
+# House rule (CHARTER; enforced locally by .githooks/commit-msg): no `Co-Authored-By:` and no
+# `Claude-Session:` trailer in any commit message in this repository, ever. That rule overrides any
+# harness attribution default. The commits below break it and are already in published history.
+#
+# THEY ARE NOT FIXED BECAUSE THEY CANNOT BE. Removing a trailer from a commit that is already on a
+# shared branch means rewriting that commit, which means a force-push of `main`. The standing
+# decision on that is no, full stop. So each known offender is waived by its exact sha and
+# everything else stays strictly checked.
+#
+# FORMAT: `<full 40-character sha>  <reason>`, one per line. `#` comments and blank lines are
+# ignored. An abbreviated sha is rejected (it grows ambiguous as history grows). A KEY WITH NO
+# REASON WAIVES NOTHING -- the checker reports it as a problem and keeps failing, because a waiver
+# nobody can read is a waiver nobody re-reads. Every entry's reason is printed on every run for the
+# same reason.
+#
+# A NEW ENTRY IS NOT ROUTINE. Ask before adding one. Which of the two mechanisms below produced it
+# determines whether anything is actually broken, and only one of the two has a local fix.
+
+# =========================================================================================
+# MECHANISM A -- GITHUB-COMPOSED, on squash merge, when the PR opener differs from the commit
+# author.
+#
+# GitHub composes the squash-merge commit itself, server-side, and adds a `Co-authored-by:` line to
+# credit the second party when the account performing the merge is not the author of the branch
+# commits. NOTHING IN A COMMITTING CHECKOUT CAN PREVENT THIS: .githooks/commit-msg never runs,
+# because no local commit is made -- the commit is composed on GitHub's side after the button is
+# pressed. The tell is the spelling: GitHub writes `Co-authored-by:` in its own lower-case form,
+# where an agent following a harness reminder writes `Co-Authored-By:`.
+#
+# The remedy is therefore a MERGE-METHOD choice, not a hook: rebase-merge for trailer-free branch
+# commits, or an explicit squash commit message supplied through the API. Recorded here so that the
+# next reader does not go looking for a hook that failed. This entry is the reason the very first
+# scheduled run of this audit would otherwise be red.
+# =========================================================================================
+
+5bdc4e4bc2d0fefede2543e3a51b1baf5cf08bc7  GitHub-composed on squash merge when the PR opener differs from the commit author. "Fail-open-defaults CI guard (#65)"; author claude[bot], committer GitHub <noreply@github.com>, trailer `Co-authored-by: SharathSPhD <admin@axismeru.com>` in GitHub's own lower-case spelling. No local hook could have stripped it -- the commit was composed server-side by the squash merge. Fix is the merge method (rebase-merge, or an API-supplied squash message), not core.hooksPath. Found 2026-09-26 by the first full-history scan that was not depth-limited.
+
+# =========================================================================================
+# MECHANISM B -- AGENT-WRITTEN trailers, folded into squash bodies or committed directly.
+#
+# A DIFFERENT mechanism with a DIFFERENT fix, which is why these are reasoned separately rather
+# than listed beside the entry above as if one change would have prevented all four. Here the
+# trailer was written by an agent into its own branch commit message, following a harness
+# attribution reminder without checking this repository's house rule first. GitHub's squash then
+# carried that branch message into the merge commit's body (so committer is GitHub even though the
+# trailer is not GitHub's), or the commit was pushed directly with no merge at all.
+#
+# .githooks/commit-msg strips exactly this -- but ONLY in a checkout where core.hooksPath is set to
+# .githooks, and it was not set for these commits' authors. So:
+#
+#     git config core.hooksPath .githooks
+#
+# in every checkout and worktree you commit from (`make init` does it). A NEW entry of this kind
+# means that fix did not take somewhere; it is not a list to grow quietly.
+#
+# These three are the same three currently hardcoded in ci.yml's `governance` job. See the note at
+# the bottom of this file.
+# =========================================================================================
+
+dbdf47a989634e1a4800d0b4209f4470daf62299  Agent-written trailer on a DIRECT commit to main, no merge involved. "CI: fix build-lean-binary clone target -- $RUNNER_TEMP not /tmp"; author and committer both SharathSPhD <admin@axismeru.com>, trailer `Co-Authored-By: Claude Sonnet 5`. core.hooksPath was not set to .githooks in the committing checkout, so the hook that strips this never ran. Reported to Lead-2 2026-09-26; decision was allowlist, not force-push.
+e57f0ae8585ad774540ec4e430a0eca7c00472dc  Agent-written trailer FOLDED INTO A SQUASH BODY. "Judge concurrency (config-fault fail-fast, audit-loss fix) (#9)", squash-merged 2026-09-24; committer GitHub <noreply@github.com> but the trailer is `Co-Authored-By: Claude Sonnet 5`, written by the agent in the branch commit and carried into the squash body -- not composed by GitHub. Predates this check and predates anyone setting core.hooksPath.
+09c0c334c1a643c5e8899152ab6bea2e958b8198  Agent-written trailer FOLDED INTO A SQUASH BODY, same mechanism as e57f0ae. "Second-judge REFER band (off by default) (#8)", squash-merged 2026-09-24; committer GitHub <noreply@github.com>, trailer `Co-Authored-By: Claude Sonnet 5`. Predates this check and predates anyone setting core.hooksPath.
+335217bf9094284529c49885d865e7edb9c3f8ce  GitHub-composed on squash merge when the PR opener differs from the commit author (MECHANISM A). "Scheduled whole-tree guard audit, with an alert that fails closed (#88)", squash-merged 2026-10-05 17:30:51 +0100; author claude[bot], committer GitHub <noreply@github.com>, trailer Co-authored-by: SharathSPhD <admin@axismeru.com> written by GitHub, not by any local commit. Found by the full-history scan that #88 itself introduced; added 2026-10-06 by Lead-2-assistant on Lead-2 instruction. Not fixable without a force-push of main.
+
+# =========================================================================================
+# EXHAUSTIVENESS, and one known duplication.
+#
+# Confirmed exhaustive as of 2026-09-26: a full `git log` scan of main's 951 commits finds exactly
+# these four trailer-bearing commits and no others.
+#
+# DUPLICATE SOURCE OF TRUTH, FLAGGED NOT FIXED: ci.yml's `governance` job carries its own hardcoded
+# ALLOWLISTED_SHAS array holding three of these four (dbdf47a, e57f0ae, 09c0c33). This file and
+# that array can drift, and the fourth entry above is already a case where they differ. The
+# `governance` job is being changed by its owners right now, so it is deliberately NOT touched
+# here. The proposal is that it reads this file instead of carrying its own copy.
+# =========================================================================================

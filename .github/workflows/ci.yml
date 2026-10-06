@@ -149,6 +149,7 @@ jobs:
           # rebase-merge when possible, else an explicit trailer-free commit_message):
           GITHUB_COMPOSED=(
             "5bdc4e4bc2d0fefede2543e3a51b1baf5cf08bc7"
+            "335217bf9094284529c49885d865e7edb9c3f8ce"
           )
           ALLOWLISTED_SHAS=("${AGENT_WRITTEN[@]}" "${GITHUB_COMPOSED[@]}")
           # Direct shallow-clone guard (Lead-2, 2026-09-27, R1 finding on #77): the actual regression this

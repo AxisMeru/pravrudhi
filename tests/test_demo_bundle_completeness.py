@@ -28,6 +28,10 @@ DELIBERATELY_ABSENT = {
     # Memory belongs to whoever is signed in. A recording is public, so it carries none, and the page renders an
     # empty store rather than someone else's notes.
     "memory",
+    # The public file is an allowlist of product-edition sections (#563, Lead-2, 6 Oct 2026). These are Pravrudhi improving
+    # itself: Studio pages read them from a live Studio engine, and the recording does not carry them.
+    "agent_trace", "appetite", "candidates", "capabilities", "diffs", "fleet", "health", "heartbeat", "inbox", "parity",
+    "requests", "search", "swarm",
 }
 
 

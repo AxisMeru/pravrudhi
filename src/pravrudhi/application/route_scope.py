@@ -161,10 +161,13 @@ def unscoped_routes_in_file(path: Path, *, user_facing_paths: frozenset[str]) ->
 
 def unscoped_routes(files: list[Path]) -> list[UnscopedRoute]:
     """`unscoped_routes_in_file` over every file given, against the engine's own `USER_FACING` classification."""
-    from pravrudhi.api.roles import USER_FACING
+    from pravrudhi.api.roles import LEGAL_MVP_CLOSED, USER_FACING
 
+    # The routes closed to members for the legal MVP are still scanned: their per-caller scoping is what keeps
+    # reopening one of them safe, so closing a route must not switch its check off.
+    scanned_paths = USER_FACING | LEGAL_MVP_CLOSED
     out: list[UnscopedRoute] = []
     for path in files:
         if path.exists():
-            out.extend(unscoped_routes_in_file(path, user_facing_paths=USER_FACING))
+            out.extend(unscoped_routes_in_file(path, user_facing_paths=scanned_paths))
     return out

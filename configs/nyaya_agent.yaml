@@ -89,6 +89,10 @@ tau: 0.74
 # choice, not the evidence, decides.
 refer_band: [0.5, 0.74]
 
+# LICENCE HOLD (Lead-2, pending counsel #506): the partner API returns rule_text / judge_rule_text /
+# rule_text_source only when this is true. Off: the three fields are absent from the response.
+expose_rule_text: false
+
 # Re-ask an element at most this many times (first attempt excluded) when its judge output is malformed or
 # its quote is not a verbatim substring of the named fact. A retry sends the SAME request (same training
 # statute text below) and is used ONLY for its quote: attempt 1's status and p_established stand.
@@ -118,6 +122,13 @@ retention_days: 7
 #   max_tokens: 30
 #   statute_chars: 600
 #   tau: 0.97
+#   # endpoint_id / adapter_sha: only read when second_judge_positive_control.record_path is set below --
+#   # RecordGatedJudge compares these against the record the preflight CLI wrote, refusing the real endpoint
+#   # if either doesn't match (a redeploy to a different endpoint or a new adapter needs a fresh passing
+#   # record before the second judge is trusted again). Deployment-specific -- current values are ops
+#   # config, not committed here.
+#   endpoint_id: "<current RunPod endpoint id>"
+#   adapter_sha: "<current adapter commit/revision>"
 #   label_mass_floor: 0.5
 
 # The statute text the house judge was trained with (public statute text: IPC 1860 / BNS 2023), keyed by
@@ -489,6 +500,18 @@ gate1:
 # config change of the second-judge endpoint, every engine release, and on a schedule -- always a preflight,
 # never through the public analyse-facts path.
 #
+# TRIGGER WIRING (Lead-2, 2026-09-26; OFF BY DEFAULT, confirmed 5 Oct -- no record means the second judge keeps
+# serving, never every-case REFER; the follow-up issue produces the standing record for the prod 32B and then sets
+# record_path in prod; the run_start audit row records second_judge_record_gate on/off): record_path/max_age_hours close the loop without depending on anyone
+# remembering to run the preflight CLI. Commented out (the default, every deployment before this): the
+# record gate is OPT-IN -- `_build_judge` only wraps the second judge in `RecordGatedJudge` when
+# `record_path` is set, so a deployment with second_judge configured but no record_path keeps today's
+# behaviour unchanged (real second judge, always reachable). When set, the engine refuses to let a real
+# second-judge call happen at all unless `record_path` holds a record that is (a) itself `available: true`
+# (the preflight CLI's own last verdict), (b) younger than `max_age_hours`, and (c) names the CURRENT
+# second_judge.endpoint_id / second_judge.adapter_sha below -- no record, a stale one, or a mismatched one
+# all fail closed the identical way (second_judge_unavailable -> REFER for every element). The preflight CLI
+# (scripts/second_judge_positive_control_preflight.py) writes this record after every run, pass or fail.
 # KNOWN LIMITATION OF THE PARITY CHECK (recorded on Lead-2's instruction, 2026-09-27, issue #100).
 # PARITY MEASURES DRIFT FROM THE SEALED STATE, NOT CORRECTNESS. It compares the live judge's scores against
 # `sealed_reference_p`, which is the second judge's OWN earlier serving output -- so a judge that was
@@ -509,3 +532,5 @@ second_judge_positive_control:
   ne_discrimination_min: 70
   ne_discrimination_tau: 0.97
   est_accuracy_alert_drop: 3
+  # record_path: /var/lib/pravrudhi/second_judge_positive_control_record.json
+  # max_age_hours: 24

@@ -504,7 +504,8 @@ _PII_SHAPES: tuple[tuple[str, re.Pattern[str], str], ...] = (
     # is macOS, and the fleet's records carry paths from both.
     ("home-path", re.compile(r"/(?:home|Users)/[A-Za-z0-9._-]+"), "~"),
     # Every address EXCEPT the project's own git identity, which is the published authorship of every commit
-    # in this repository - redacting it would hide nothing and would make the snapshot harder to read.
+    # in this repository - redacting it would hide nothing and would make the snapshot harder to read. (The
+    # demo snapshot alone also removes it: see `_DEMO_ONLY_SHAPES`.)
     (
         "personal-email",
         re.compile(r"\b(?!admin@axismeru\.com\b)[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b"),
@@ -549,11 +550,31 @@ _PII_SHAPES: tuple[tuple[str, re.Pattern[str], str], ...] = (
     # a real tag), kept anyway as a backstop. Same rule as above, not a bare-token strip: consumes from
     # wherever the token starts through the enclosing JSON string's own boundary, so nothing trails after the
     # marker -- the exact defect R1 found in the first version, generalized to this shape too.
+    # Statute text is shown only beside our own analysis, with the India Code notice (Lead-2, 2026-10-05; licence
+    # memo on s.52(1)(q)(ii)). A recorded grounded prompt carries a `SOURCES (...)` block, one entry per line:
+    # `[IPC/Section 320] Indian Penal Code, 1860, Section 320 -- Grievous hurt: <verbatim provision text>`. The id,
+    # act, section and title are kept; the provision text is replaced. Matched on the serialised JSON, where a
+    # newline is the two characters `\n`: an entry ends at the next entry's `\n[ID] `, at the block's
+    # `\n\nQUESTION:`, or at the string's own closing quote (a 300-character copy is cut mid-text). The negative
+    # lookahead keeps an already-scrubbed entry from matching again, so `still_carries` is false afterwards.
+    (
+        "statute-text",
+        re.compile(
+            r'(\\n\[[A-Za-z]+/[^\]"\\]+\] (?:\\.|[^"\\:])*: )(?!\[statute text removed; see India Code\])'
+            r'(?:\\.|[^"\\])+?(?=\\n\[[A-Za-z]+/[^\]"\\]+\] |\\n\\nQUESTION:|")'
+        ),
+        r"\g<1>[statute text removed; see India Code]",
+    ),
     (
         "internal-marker-residue",
         re.compile(r'(?:cross-session-message|cc-socks)(?:\\.|[^"\\])*'),
         "<redacted:internal-marker>",
     ),
+    # The words themselves, wherever they appear in prose (an operator's captured ask that mentions "cross-session
+    # reviewers", a doc line about a "held cross-session message"): not a relay, but the snapshot carries none of
+    # these markers, so the backstop in `write_demo` can refuse on the literal.
+    ("cross-session-word", re.compile(r"cross-session"), "cross session"),
+    ("uds-scheme", re.compile(r"\buds:"), "uds-"),
 )
 
 
@@ -578,11 +599,218 @@ def still_carries(text: str) -> list[str]:
     return left
 
 
+#: Literal markers the published snapshot must never carry, checked on the final text independently of the shapes
+#: above (a second, format-independent line: a shape that stops matching because the data changed cannot let one through).
+PRIVATE_MARKERS: tuple[str, ...] = (
+    "/home/", "/Users/", "@gmail", "@axismeru", "cross-session", "cross session", "cc-socks", "uds:", "CLAUDE_CONFIG_DIR",
+    # Internal agent-team vocabulary (Lead-2, 2026-10-05): rows that mention it are team chatter, not product record.
+    "-on-seat", "lead-2", "sendmessage", "idle notice", "goal-context", "remote control", "claude.md",
+)
+#: The markers whose whole string value is dropped (`drop_internal_text`): team chatter. Paths and emails are not
+#: here: they are substituted in place by the redaction shapes, which keeps the rest of the row readable.
+DROP_MARKERS: tuple[str, ...] = (
+    "cross-session", "cross session", "cc-socks", "uds:",
+    "-on-seat", "lead-2", "sendmessage", "idle notice", "goal-context", "remote control", "claude.md",
+)
+#: Team vocabulary that is a PATTERN rather than a substring (#563, R1's counts on the public copies: 51 "seat N", 92
+#: "Track A/B/C", 13 "colab", 562 operator rows): a seat or track label, a Colab account, an operator's directive. A string
+#: value that matches one is dropped whole, and a snapshot that still matches one is refused. "Track" is case-sensitive so
+#: ordinary prose ("to track a candidate") is not caught (the space-separated form must be capitalised; the joined and
+#: hyphenated forms are caught in any case, as no ordinary word looks like them); the others are not ambiguous.
+DROP_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"\bseat[ -]?\d\b", re.IGNORECASE),
+    re.compile(r"\b(?:Track|TRACK)[ -]?[ABC]\b"),  # "Track A", "TrackA", "TRACK B", "Track-C"
+    re.compile(r"\btrack[-_]?[abc]\b", re.IGNORECASE),  # the joined and hyphenated forms: "tracka", "track-a", "TRACK_B"
+    re.compile(r"\bcolab\b", re.IGNORECASE),
+    re.compile(r"\boperator(?:'s|\u2019s)?[ -](?:directive|instruction|decision|ask|go|memo)\b", re.IGNORECASE),
+)
+#: What replaces a string value that mentions one of the markers above.
+INTERNAL_TEXT_MARKER = "<redacted:internal-text>"
+#: A seat or account name (`sharath.sathish`, `sharath.ai.colab`). The public handle `sharathsphd` is not matched.
+PRIVATE_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"sharath\.[a-z]+", re.IGNORECASE),
+    re.compile(r"ss-Fusion-\d+", re.IGNORECASE),
+    re.compile(r"[\w-]*-Mac-mini", re.IGNORECASE),
+    re.compile(r"\b[\w.-]+@[\w]+-[\w-]+\b"),  # a hyphenated user@host
+    re.compile(r"-home-[a-z0-9]+-"),
+    re.compile(r"/tmp/claude-\d+/"),
+    re.compile(r"192\.168\.\d+\.\d+"),
+    re.compile(r"7j7ipedmwi8z1w|vwbrfgyiel1haq|v7alta6t9ytcga", re.IGNORECASE),
+)
+
+#: Applied to the demo snapshot ONLY (not by `redact_secrets`, which keeps the project's git identity for its other
+#: callers): the published snapshot names no account, seat or config variable (Lead-2 P0, 2026-10-05).
+_DEMO_ONLY_SHAPES: tuple[tuple[str, re.Pattern[str], str], ...] = (
+    ("project-email", re.compile(r"\badmin@axismeru\.com\b"), "<redacted:project-email>"),
+    ("seat-name", re.compile(r"sharath\.[a-z]+(?:\.[a-z]+)*"), "<redacted:seat-name>"),
+    ("config-env-name", re.compile(r"CLAUDE_CONFIG_DIR"), "<redacted:env-name>"),
+    # Machine and network identifiers (R2, 2026-10-05). `user@host` first, so the host inside it is not left half-redacted.
+    # In the serialised JSON a newline is the two characters backslash-n, so an optional escape is captured and kept:
+    # otherwise `\nss@host` would lose the n with the user name and leave a dangling backslash (invalid JSON).
+    ("user-at-host",
+     re.compile(r"(?:(\\[nrt])|(?<![A-Za-z0-9_]))[A-Za-z0-9._-]+@(?:ss-Fusion-\d+|[A-Za-z0-9]+-Mac-mini|[A-Za-z0-9]+-[A-Za-z0-9-]+)\b"),
+     r"\g<1><redacted:user-at-host>"),
+    ("fusion-host", re.compile(r"\bss-Fusion-\d+\b", re.IGNORECASE), "<redacted:host>"),
+    ("mac-mini-host", re.compile(r"(?:(\\[nrt])|(?<![\w-]))[A-Za-z0-9-]*-Mac-mini\b", re.IGNORECASE), r"\g<1><redacted:host>"),
+    # `/home/ss/projects/x` became `-home-ss-projects-x` in tool session directory names; a scratch path under /tmp.
+    ("encoded-home-path", re.compile(r"-home-[a-z0-9]+-"), "-redacted-"),
+    ("scratch-path", re.compile(r"/tmp/claude-\d+/"), "/tmp/redacted-session/"),
+    ("lan-ip", re.compile(r"\b192\.168\.\d+\.\d+\b"), "<redacted:lan-ip>"),
+    ("runpod-endpoint-id", re.compile(r"\b(?:7j7ipedmwi8z1w|vwbrfgyiel1haq|v7alta6t9ytcga)\b", re.IGNORECASE),
+     "<redacted:endpoint-id>"),
+)
+
+#: Length of the corpus window the backstop compares. A statute passage of this many characters (whitespace
+#: collapsed, case folded) appearing in the snapshot, in any JSON layout, refuses the write.
+CORPUS_CHUNK = 64
+
+
+def _flatten_strings(value: Any) -> list[str]:
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, dict):
+        return [s for k, v in value.items() for s in (_flatten_strings(k) + _flatten_strings(v))]
+    if isinstance(value, list):
+        return [s for v in value for s in _flatten_strings(v)]
+    return []
+
+
+def _norm(s: str) -> str:
+    return " ".join(s.split()).casefold()
+
+
+def _windows(t: str) -> set[int]:
+    return {hash(t[i:i + CORPUS_CHUNK]) for i in range(max(0, len(t) - CORPUS_CHUNK + 1))}
+
+
+#: The provisions that ship with the package; the research corpus (gitignored, absent in CI and on a clean clone)
+#: adds to them. The backstop reads both, so a clean checkout still checks against every shipped provision.
+ASSETS_DIR = Path(__file__).resolve().parents[1] / "assets" / "nyaya"
+
+#: Fewer documents than this and the backstop has nothing meaningful to compare against, which must not read as
+#: "clean": the write is refused instead (the shipped corpus alone is 1,609 provisions).
+MIN_CORPUS_DOCUMENTS = 1000
+
+
+def corpus_windows(root: Path) -> tuple[set[int], int]:
+    """`(window hashes, document count)` over every shipped provision (`ASSETS_DIR`) and every research-corpus
+    provision (`<root>/research/nyaya/corpus`): the hashes of every CORPUS_CHUNK-character window, minus the
+    windows of the headings we deliberately keep (`Act, Section N -- Title`, and the title alone), since a heading
+    is not provision text and another provision's text may quote it."""
+    text: set[int] = set()
+    headings: set[int] = set()
+    docs_seen = 0
+    files = sorted(ASSETS_DIR.glob("*.json")) + sorted((Path(root) / "research" / "nyaya" / "corpus").glob("*.json"))
+    for f in files:
+        try:
+            docs = json.loads(f.read_text()).get("documents", [])
+        except (OSError, ValueError, AttributeError):
+            continue
+        for doc in docs if isinstance(docs, list) else []:
+            if not isinstance(doc, dict):
+                continue
+            docs_seen += 1
+            text |= _windows(_norm(str(doc.get("text", ""))))
+            title = str(doc.get("title", ""))
+            headings |= _windows(_norm(title))
+            headings |= _windows(_norm(f"[{doc.get('id', '')}] {doc.get('act', '')}, {doc.get('section', '')} -- {title}"))
+            headings |= _windows(_norm(f"{doc.get('act', '')}, {doc.get('section', '')} -- {title}"))
+    return text - headings, docs_seen
+
+
+def corpus_overlap(text: str, windows: set[int]) -> int:
+    """How many CORPUS_CHUNK windows of the snapshot's own strings (parsed from the JSON, so escaping and layout do
+    not matter) are a window of a corpus provision. Zero is clean."""
+    try:
+        strings = _flatten_strings(json.loads(text))
+    except ValueError:
+        strings = [text]
+    n = 0
+    for s in strings:
+        t = _norm(s)
+        n += sum(1 for i in range(len(t) - CORPUS_CHUNK + 1) if hash(t[i:i + CORPUS_CHUNK]) in windows)
+    return n
+
+
+def redact_for_demo(text: str) -> str:
+    """`redact_secrets` plus the shapes only the published demo snapshot removes."""
+    text = redact_secrets(text)
+    for _name, shape, replacement in _DEMO_ONLY_SHAPES:
+        text = shape.sub(replacement, text)
+    return text
+
+
+def _drop_marked(value: Any) -> Any:
+    if isinstance(value, str):
+        low = value.casefold()
+        marked = any(m in low for m in DROP_MARKERS) or any(p.search(value) for p in DROP_PATTERNS)
+        return INTERNAL_TEXT_MARKER if marked else value
+    if isinstance(value, dict):
+        return {k: _drop_marked(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_drop_marked(v) for v in value]
+    return value
+
+
+def drop_internal_text(text: str) -> str:
+    """Replace every JSON string value that mentions a `DROP_MARKERS` entry (any case) with `INTERNAL_TEXT_MARKER`, as the
+    26 Sep snapshot did for team chatter. Whole values, not substrings: half a relayed message is still a relayed
+    message. Layout (indent, key order) is the exporter's own, so an unmarked snapshot is returned unchanged."""
+    return json.dumps(_drop_marked(json.loads(text)), indent=2, sort_keys=True, default=str) + "\n"
+
+
+#: The ONLY top-level sections of the public demo file (#563, Lead-2's decision of 6 Oct): the product edition's recorded
+#: shapes, which is what the product app's `DemoBundle` reads. Everything else `build_demo` assembles (Studio's own
+#: candidates, observations, swarm, heartbeat, requests, fleet, health, update, inbox, appetite, parity, diffs, search,
+#: agent trace, the product install's state, capabilities) is Pravrudhi improving itself and does not leave this machine.
+#: An allowlist, not a denylist: a section added to `build_demo` later stays private until someone lists it here.
+PUBLIC_DEMO_SECTIONS: frozenset[str] = frozenset({
+    "recorded", "version", "engine", "status", "models", "external", "nights", "runs", "featured_run",
+    "objectives", "recipes", "plans",
+})
+
+
+def public_view(bundle: dict[str, Any]) -> dict[str, Any]:
+    """The bundle reduced to `PUBLIC_DEMO_SECTIONS`, in the bundle's own key order."""
+    return {k: v for k, v in bundle.items() if k in PUBLIC_DEMO_SECTIONS}
+
+
+def demo_pipeline(text: str) -> str:
+    """Everything `write_demo` does to the serialised snapshot before its checks: drop team-chatter strings, then
+    redact the rest."""
+    return redact_for_demo(drop_internal_text(text))
+
+
+def private_markers_left(text: str) -> list[str]:
+    """Every marker still present, compared case-insensitively."""
+    low = text.casefold()
+    return (
+        [m for m in PRIVATE_MARKERS if m.casefold() in low]
+        + [p.pattern for p in PRIVATE_PATTERNS if p.search(text)]
+        + [p.pattern for p in DROP_PATTERNS if p.search(text)]
+    )
+
+
 def write_demo(root: Path, dest: Path) -> Path:
-    text = redact_secrets(json.dumps(build_demo(root), indent=2, sort_keys=True, default=str) + "\n")
-    left = still_carries(text)
+    text = demo_pipeline(json.dumps(public_view(build_demo(root)), indent=2, sort_keys=True, default=str) + "\n")
+    try:
+        json.loads(text)
+    except ValueError as e:  # a substitution that breaks an escape must never be published as a "redacted" snapshot
+        raise SecretInSnapshot(f"redaction left the snapshot unparseable ({e}); refusing to write it") from e
+    left = still_carries(text) + [f"marker {m!r}" for m in private_markers_left(text)]
     if left:
         raise SecretInSnapshot(f"snapshot still carries {', '.join(left)} after redaction; refusing to write it")
+    windows, documents = corpus_windows(root)
+    if documents < MIN_CORPUS_DOCUMENTS or not windows:
+        raise SecretInSnapshot(
+            f"the corpus backstop found {documents} provisions (needs {MIN_CORPUS_DOCUMENTS}); it cannot vouch for the "
+            "snapshot, so refusing to write it"
+        )
+    leaked = corpus_overlap(text, windows)
+    if leaked:
+        raise SecretInSnapshot(
+            f"snapshot carries {leaked} {CORPUS_CHUNK}-character window(s) of statute text from the corpus; refusing to write it"
+        )
     dest = Path(dest)
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_text(text)

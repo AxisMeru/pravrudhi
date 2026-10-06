@@ -45,11 +45,13 @@ version's error mapping to a bare 500 -- is now mapped to 503 like every other s
 
 from __future__ import annotations
 
+import contextvars
 import functools
 import hmac
 import json
 import logging
 import os
+import sqlite3
 import subprocess
 import threading
 import time
@@ -72,6 +74,7 @@ from pravrudhi.application import audit, tenancy
 from pravrudhi.application import nyaya_lean_registry as reg
 from pravrudhi.application.config_files import config_file
 from pravrudhi.application.jobs import JobStore
+from pravrudhi.application.judge_endpoint_state import Fetch, JudgeOfflineCheck
 from pravrudhi.application.nyaya_agent import (
     RETENTION_NOTICE,
     BinaryShaMismatch,
@@ -82,8 +85,10 @@ from pravrudhi.application.nyaya_agent import (
     Outcome,
 )
 from pravrudhi.application.nyaya_judges import SecondJudgeCircuitBreaker
+from pravrudhi.application.nyaya_quote import Reason as QuoteCheck
 from pravrudhi.application.service_window import ServiceWindow
 from pravrudhi.application.statute_citations import contract_citations
+from pravrudhi.application.verify import verify as verify_citation
 
 CONFIG_PATH = Path("configs") / "partner_api.yaml"
 
@@ -140,6 +145,13 @@ class PartnerApiConfig:
     #: diagnosing a primary/second disagreement needed a direct Python call because the HTTP response
     #: silently dropped every one of these fields).
     debug_second_judge_fields_enabled: bool = False
+    #: #311: before admitting a call, read each RunPod judge endpoint's /health and answer 503
+    #: `judges_offline` at once when a needed judge is PARKED (no worker, nothing queued or in progress), so no job is
+    #: queued for the next warm. A failed or unreadable check proceeds as before (never a false "offline"). Limit: an
+    #: idle scale-from-zero endpoint reads the same, so turn this off if a judge goes back to scale-from-zero.
+    judge_health_check: bool = False
+    #: Seconds a judge-state read is reused.
+    judge_health_ttl_s: float = 5.0
     #: Seconds after which /status stops reporting the last analyse-facts judge observation and says "unknown".
     judge_seen_ttl_s: float = 600.0
     #: Serverless judges scale from zero (a cold start takes ~2-3 min). A judge failure with no fresh "ready"
@@ -159,6 +171,10 @@ class PartnerApiConfig:
     job_max_unfinished_per_key: int = 8
     #: Audit rows (#148) older than this are dropped on write and never served.
     audit_retention_s: float = 90 * 86400.0
+    #: `POST /verify-citations` (#302): how many lookups may run at once (non-blocking: an extra one is a 503) and the
+    #: wall-clock bound on one lookup against the case index (an exceeded bound is a 503, never a hung worker).
+    verify_max_concurrent: int = 2
+    verify_timeout_s: float = 5.0
 
     def __post_init__(self) -> None:
         if self.trust_proxy_header and not self.trusted_proxies:
@@ -196,11 +212,15 @@ def load_partner_api_config(root: Path) -> PartnerApiConfig:
         second_judge_circuit_breaker_ttl_s=float(body.get("second_judge_circuit_breaker_ttl_s", 60.0)),
         debug_second_judge_fields_enabled=debug_second_judge_fields_enabled,
         judge_seen_ttl_s=float(body.get("judge_seen_ttl_s", 600.0)),
+        judge_health_check=bool(body.get("judge_health_check", False)),
+        judge_health_ttl_s=float(body.get("judge_health_ttl_s", 5.0)),
         judge_warm_grace_s=float(body.get("judge_warm_grace_s", 0.0)),
         judge_warm_retry_s=float(body.get("judge_warm_retry_s", 30.0)),
         job_retention_s=float(body.get("job_retention_s", 3600.0)),
         job_max_unfinished_per_key=int(body.get("job_max_unfinished_per_key", 8)),
         audit_retention_s=float(body.get("audit_retention_s", 90 * 86400.0)),
+        verify_max_concurrent=int(body.get("verify_max_concurrent", 2)),
+        verify_timeout_s=float(body.get("verify_timeout_s", 5.0)),
     )
 
 
@@ -311,6 +331,25 @@ class _Admitted:
     authenticated: bool
 
 
+class VerifyCitationRequest(BaseModel):
+    citation: str = Field(min_length=1, max_length=500)
+    quote: str = Field(min_length=1, max_length=4000)
+
+
+class VerifyCitationResponse(BaseModel):
+    result: str
+    note: str
+
+
+_VERIFY_NOTES = {
+    "VERIFIED": "The citation resolves to an indexed case and the quote appears in its text.",
+    "EXISTS_QUOTE_NOT_FOUND": "The citation resolves to an indexed case but the quote was not found in its text.",
+    "NOT_IN_INDEX": "The index holds no evidence either way: this is not a finding that the citation is fake.",
+    "MALFORMED": "Exactly one parseable citation is required.",
+    "CONFLICT": "The citation maps to conflicting indexed cases; verify by hand.",
+}
+
+
 class AnalyseFactsRequest(BaseModel):
     #: At most 8 facts, each at most 4,000 characters -- an anonymous caller cannot ask this route to judge
     #: an unbounded amount of text (reviewer 1, point (b)).
@@ -357,7 +396,12 @@ class ElementResultOut(BaseModel):
     quote: str | None
     start: int | None
     end: int | None
-    quote_check: str | None
+    quote_check: QuoteCheck | None = Field(
+        description="Why the judge's quote was accepted or rejected (the system's own word-for-word check): ok, "
+        "not_established, no_quote, unknown_fact, empty_quote, non_evidential_quote, quote_not_found or "
+        "ambiguous_quote. Null when no quote check ran. A quote that occurs more than once is ambiguous_quote: the "
+        "element is not counted as shown. Plain-language text for each value: docs/api/reason-codes.md."
+    )
     attempts: int
     occurrences: int
     offsets_source: str | None
@@ -433,6 +477,27 @@ class ContractResultOut(BaseModel):
     )
     uncertain: list[str]
     statute_text_mismatch: bool | None
+    rule_text: str | None = Field(
+        default=None,
+        description="The provision text the contract is checked against: the registry's recorded source text from the Lean "
+        "checker's --describe-source (lean_describe_source); unofficial, not the official text of the law. Null when the "
+        "contract was not described. Returned only when the deployment enables rule-text disclosure (expose_rule_text); "
+        "otherwise absent.",
+    )
+    judge_rule_text: str | None = Field(
+        default=None,
+        description="Exactly the first statute_chars characters (600 in the shipped config) of the statute text the judge was "
+        "configured with, i.e. the text AS SENT in the judge prompt. Returned when statute_text_mismatch is "
+        "true or when the judge's text was cut (longer than statute_chars), so a reader can see what the judge worked "
+        "from; null otherwise, and null when no judge statute text is configured for the contract. Returned only when the "
+        "deployment enables rule-text disclosure (expose_rule_text); otherwise absent.",
+    )
+    rule_text_source: str | None = Field(
+        default=None,
+        description="Where rule_text came from: lean_describe_source (the pinned Lean checker's --describe-source; "
+        "the registry's recorded source text; unofficial). Returned only when the deployment enables rule-text disclosure "
+        "(expose_rule_text); otherwise absent.",
+    )
     citations: list[CitationOut] | None = Field(
         default=None,
         description="The contract's statute references with a corpus check, identical whatever the verdict. "
@@ -537,7 +602,7 @@ class JobOut(BaseModel):
 class AuditRowOut(BaseModel):
     ts: str
     key_id: str
-    mode: Literal["sync", "job"]
+    mode: Literal["sync", "job", "verify"]
     status_code: int
     run_id: str | None = None
     contract_ids: list[str]
@@ -663,6 +728,10 @@ def _shipped_corpus() -> Any:
     return nyaya.load_corpus()
 
 
+#: Licence hold (#308, pending counsel #506): withheld from the response unless `expose_rule_text` is on.
+_RULE_TEXT_FIELDS = ("rule_text", "judge_rule_text", "rule_text_source")
+
+
 def _attach_citations(agent: Any, body: dict[str, Any], listed: dict[str, list[str]] | None = None) -> None:
     """Add `citations` to each contract result from the contract's own sources (#142).
 
@@ -688,11 +757,18 @@ def build_partner_router(
     root: Path,
     *,
     agent_factory: AgentFactory | None = None,
+    judge_health_fetch: Fetch | None = None,
     config: PartnerApiConfig | None = None,
     clock: Callable[[], datetime] | None = None,
     job_executor: Callable[[Callable[[], None]], Any] | None = None,
+    citation_index_path: Path | None = None,
+    rate_clock: Callable[[], float] | None = None,
 ) -> APIRouter:
-    """`agent_factory` is injectable (mirrors `nyaya.py`'s `ask_fn` pattern): production leaves it `None` and
+    """`citation_index_path` (default: env `PRAVRUDHI_CITATION_INDEX`) is the case-law index
+    `POST /api/v1/verify-citations` reads; unset or missing means that route answers 503.
+    `rate_clock` (seconds, monotonic) drives the per-key rate-limit window; tests inject a fake clock and advance it
+    instead of depending on the wall clock (#303). Production leaves it `None` (`time.monotonic`).
+    `agent_factory` is injectable (mirrors `nyaya.py`'s `ask_fn` pattern): production leaves it `None` and
     gets the configured house agent (`NyayaAgent.house`, real vLLM judge + real pinned Lean binary); tests
     supply a factory returning an agent built from scripted test doubles, the same shape `test_nyaya_agent.py`
     itself uses, so this router's own tests cover HTTP wiring only, not re-proving the agent's decision logic.
@@ -756,7 +832,7 @@ def build_partner_router(
             headers={"Retry-After": str(provision_rate_limiter.retry_after_seconds())},
         )
 
-    _key_rate_limiter = tenancy.KeyRateLimiter()
+    _key_rate_limiter = tenancy.KeyRateLimiter(now=rate_clock) if rate_clock is not None else tenancy.KeyRateLimiter()
     # Passive judge observation: the last analyse-facts result, never a probe. A probe of a scaled-to-zero
     # serverless judge would itself wake it (spend, outside the serving windows), so /status reports only
     # what real traffic last saw and says "unknown" once that is stale.
@@ -790,6 +866,28 @@ def build_partner_router(
             },
             headers={"Retry-After": str(w.retry_after_seconds(now))},
         )
+
+    _offline_check = JudgeOfflineCheck(fetch=judge_health_fetch) if judge_health_fetch else JudgeOfflineCheck()
+
+    def _judges_offline(cfg: PartnerApiConfig) -> JSONResponse | None:
+        """#311: 503 `judges_offline` when a needed judge endpoint is parked, before anything is metered or queued."""
+        if not cfg.judge_health_check:
+            return None
+        try:
+            ac = getattr(factory(engine_root), "config", None)
+            judges = {"house": dict(ac.house_judge or {})} if ac is not None else {}
+            if ac is not None and ac.second_judge:
+                judges["second"] = dict(ac.second_judge)
+            _offline_check.ttl_s = cfg.judge_health_ttl_s
+            keys = {"house": "NYAYA_HOUSE_JUDGE_API_KEY", "second": "NYAYA_SECOND_JUDGE_API_KEY"}
+            parked = _offline_check.offline(judges, keys)
+        except Exception:  # noqa: BLE001 - the check must never turn a working request into an error
+            _logger.warning("judge health check failed; proceeding")
+            return None
+        if not parked:
+            return None
+        _judge_seen.update(state="unavailable", at=_now(), first_failure=None)
+        return JSONResponse(status_code=503, content={"error": "judges_offline"})
 
     router = APIRouter(prefix="/api/v1")
 
@@ -890,7 +988,8 @@ def build_partner_router(
         user: User | None = CurrentUserDep,
         debug_second_judge: bool = Query(
             False,
-            description="Include config-C second-judge diagnostic fields per element even when not "
+            description="Include second-judge diagnostic fields per element (only for deployments that use two judges) "
+            "even when not "
             "authenticated. Only takes effect when this deployment's own debug_second_judge_fields_enabled "
             "is also set -- a caller cannot turn this on for a deployment that hasn't opted in. An "
             "authenticated caller (Supabase session or org API key) always gets these fields regardless of "
@@ -943,6 +1042,9 @@ def build_partner_router(
         closed = _window_closed(cfg)
         if closed is not None:
             return closed
+        offline = _judges_offline(cfg)
+        if offline is not None:
+            return offline
         # QUEUE.md 2026-09-27: per-leg second-judge scores are visible to an AUTHENTICATED caller -- a
         # verified Supabase session (`user`) or a valid org API key -- never to an anonymous one, even on a
         # deployment that answers analyse-facts anonymously (`PRAVRUDHI_DEMO_ANON_PATHS`). `principal_from_
@@ -1047,6 +1149,10 @@ def build_partner_router(
         body: dict[str, Any] = result.to_dict()
         body.pop("audit_path", None)
         _attach_citations(agent, body, getattr(result, "listed_sources", None))
+        if not getattr(getattr(agent, "config", None), "expose_rule_text", False):
+            for contract in body.get("contracts", []):
+                for name in _RULE_TEXT_FIELDS:
+                    contract.pop(name, None)
         show_second_judge_fields = authenticated or (debug_second_judge and cfg.debug_second_judge_fields_enabled)
         if not show_second_judge_fields:
             for contract in body.get("contracts", []):
@@ -1069,12 +1175,15 @@ def build_partner_router(
             return _jobs_holder["s"]
 
     def _submit(task: Callable[[], None]) -> None:
+        # The job runs on another thread, which does not inherit the request's ContextVars (the serving guards
+        # `serving_api`/`serving_org` live there): run it in a copy of THIS thread's context, taken now.
+        ctx = contextvars.copy_context()
         if job_executor is not None:
-            job_executor(task)
+            job_executor(lambda: ctx.run(task))
             return
         with _jobs_lock:
             pool = _pool.setdefault("p", ThreadPoolExecutor(max_workers=4, thread_name_prefix="analyse-job"))
-        pool.submit(task)
+        pool.submit(ctx.run, task)
 
     def _job_principal(request: Request) -> tenancy.OrgPrincipal:
         principal = tenancy.principal_from_headers(engine_root, request.headers)
@@ -1183,6 +1292,108 @@ def build_partner_router(
             engine_root, principal.key_id, offset=offset, limit=limit, retention_s=cfg.audit_retention_s, now=_now
         )
         return {"rows": rows, "next_offset": nxt}
+
+    def _verify_admit(request: Request, metered: list[str], per_minute: list[int]) -> JSONResponse | None:
+        """Admission for `/verify-citations`: the per-IP limit, then, for a keyed caller, the key check, the per-key
+        limit and metering (the same rules, in the same order, as `analyse-facts`'s `_admit`)."""
+        try:
+            cfg, rate_limiter = _get_state()[:2]
+        except FileNotFoundError:
+            return JSONResponse(status_code=503, content={"error": "service_config_missing"})
+        ip = _client_ip(request, trust_proxy_header=cfg.trust_proxy_header, trusted_proxies=cfg.trusted_proxies)
+        if not rate_limiter.allow(ip):
+            return JSONResponse(
+                status_code=429,
+                content={"detail": "rate limit exceeded"},
+                headers={"Retry-After": str(rate_limiter.retry_after_seconds())},
+            )
+        principal = tenancy.principal_from_headers(engine_root, request.headers)
+        if principal is not None:
+            key = next((k for k in tenancy.keys_for_org(engine_root, principal.org_id) if k.key_id == principal.key_id), None)
+            if key is None:
+                raise HTTPException(401, "Invalid or revoked API key")
+            if not _key_rate_limiter.allow(key.key_id, key.rate_limit_per_minute):
+                return JSONResponse(
+                    status_code=429,
+                    content={"detail": "rate limit exceeded"},
+                    headers={**_rate_headers(key.key_id, key.rate_limit_per_minute),
+                             "Retry-After": str(_key_rate_limiter.retry_after_seconds())},
+                )
+            metered.append(key.key_id)
+            per_minute.append(key.rate_limit_per_minute)
+            _record_usage(key.key_id)
+        return None
+
+    def _verify_audit(metered: list[str], status_code: int, result: str | None = None) -> None:
+        if not metered:
+            return
+        try:
+            cfg = _get_state()[0]
+            audit.record(
+                engine_root, key_id=metered[0], mode="verify", status_code=status_code, contract_ids=[],
+                outcomes={"verify": result} if result else None, retention_s=cfg.audit_retention_s, now=_now(),
+            )
+        except Exception:
+            _logger.exception("audit write failed for key %s", metered[0])
+
+    _verify_gates: dict[int, ConcurrencyLimiter] = {}
+    _verify_gates_lock = threading.Lock()
+
+    def _verify_gate(size: int) -> ConcurrencyLimiter:
+        with _verify_gates_lock:
+            return _verify_gates.setdefault(size, ConcurrencyLimiter(size))
+
+    def _lookup(path: Path, req: VerifyCitationRequest, timeout_s: float) -> str:
+        """One bounded, read-only lookup. The progress handler aborts the statement once the deadline passes, so a
+        pathological party pair can hold a worker for `timeout_s` at most."""
+        deadline = time.monotonic() + timeout_s
+        conn = sqlite3.connect(f"file:{path.resolve()}?mode=ro", uri=True)
+        try:
+            conn.set_progress_handler(lambda: 1 if time.monotonic() > deadline else 0, 10_000)
+            return verify_citation(conn, req.citation, req.quote).value
+        finally:
+            conn.close()
+
+    @router.post(
+        "/verify-citations", response_model=VerifyCitationResponse,
+        responses={
+            401: {"description": "The API key is invalid or revoked."},
+            429: {"description": "Over the rate limit; wait Retry-After seconds.",
+                  "headers": {**_RATE_LIMIT_HEADER_DOCS, "Retry-After": _RETRY_AFTER_DOC}},
+            503: {"description": "No case index, the lookup timed out, or too many lookups are running."},
+        },
+    )
+    def verify_citations_ep(req: VerifyCitationRequest, request: Request, response: Response) -> dict[str, str] | JSONResponse:
+        metered: list[str] = []
+        per_minute: list[int] = []
+        refused = _verify_admit(request, metered, per_minute)
+        if refused is not None:
+            _verify_audit(metered, refused.status_code)
+            return refused
+        cfg = _get_state()[0]
+        env_path = os.environ.get("PRAVRUDHI_CITATION_INDEX")
+        path = citation_index_path or (Path(env_path) if env_path else None)
+        if path is None or not Path(path).is_file():
+            _verify_audit(metered, 503)
+            return JSONResponse(status_code=503, content={"error": "citation_index_unavailable"})
+        gate = _verify_gate(cfg.verify_max_concurrent)
+        if not gate.acquire():
+            _verify_audit(metered, 503)
+            return JSONResponse(status_code=503, content={"error": "verify_at_capacity"}, headers={"Retry-After": "5"})
+        try:
+            result = _lookup(Path(path), req, cfg.verify_timeout_s)
+        except sqlite3.Error as e:
+            timed_out = "interrupt" in str(e).lower()
+            _verify_audit(metered, 503)
+            return JSONResponse(
+                status_code=503, content={"error": "verify_timeout" if timed_out else "citation_index_unavailable"}
+            )
+        finally:
+            gate.release()
+        if metered:
+            response.headers.update(_rate_headers(metered[0], per_minute[0]))
+        _verify_audit(metered, 200, result)
+        return {"result": result, "note": _VERIFY_NOTES[result]}
 
     @router.post("/orgs", response_model=OrgOut)
     def create_org_ep(
