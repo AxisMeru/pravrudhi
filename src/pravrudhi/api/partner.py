@@ -506,6 +506,16 @@ class ContractResultOut(BaseModel):
         "the registry's recorded source text; unofficial). Returned only when the deployment enables rule-text disclosure "
         "(expose_rule_text); otherwise absent.",
     )
+    rule_text_notice: str | None = Field(
+        default=None,
+        description="Present exactly when rule_text or judge_rule_text is: \"Unofficial text; the official version prevails.\" "
+        "Provision text is only ever returned inside an analysis response that carries the element analysis.",
+    )
+    rule_text_source_url: str | None = Field(
+        default=None,
+        description="Present exactly when rule_text or judge_rule_text is: the India Code page the corpus recorded for the "
+        "contract's act, else the India Code home page (never a constructed deep link).",
+    )
     citations: list[CitationOut] | None = Field(
         default=None,
         description="The contract's statute references with a corpus check, identical whatever the verdict. "
@@ -736,8 +746,26 @@ def _shipped_corpus() -> Any:
     return nyaya.load_corpus()
 
 
-#: Licence hold (#308, pending counsel #506): withheld from the response unless `expose_rule_text` is on.
+#: Provision text (#308, ruling #506 of 6 Oct): returned only when `expose_rule_text` is on, only inside an analysis response,
+#: and always with the notice and an India Code source link.
 _RULE_TEXT_FIELDS = ("rule_text", "judge_rule_text", "rule_text_source")
+_RULE_TEXT_PROVENANCE = ("rule_text_notice", "rule_text_source_url")
+RULE_TEXT_NOTICE = "Unofficial text; the official version prevails."
+
+
+def _rule_text_source_url(contract: dict[str, Any]) -> str:
+    """The India Code page recorded for the first act this contract cites that has one, else the India Code home page."""
+    from pravrudhi.application import nyaya
+
+    try:
+        sources = _shipped_corpus().sources
+        for cit in contract.get("citations") or []:
+            url = nyaya.recorded_source_url(str(cit.get("act", "")), sources)
+            if url:
+                return url
+    except (OSError, RuntimeError, ValueError, AttributeError, KeyError, subprocess.SubprocessError):
+        pass
+    return nyaya.INDIA_CODE_HOME
 
 
 def _attach_citations(agent: Any, body: dict[str, Any], listed: dict[str, list[str]] | None = None) -> None:
@@ -1156,10 +1184,14 @@ def build_partner_router(
         body: dict[str, Any] = result.to_dict()
         body.pop("audit_path", None)
         _attach_citations(agent, body, getattr(result, "listed_sources", None))
-        if not getattr(getattr(agent, "config", None), "expose_rule_text", False):
-            for contract in body.get("contracts", []):
+        expose = getattr(getattr(agent, "config", None), "expose_rule_text", False)
+        for contract in body.get("contracts", []):
+            if not expose:
                 for name in _RULE_TEXT_FIELDS:
                     contract.pop(name, None)
+            if expose and (contract.get("rule_text") or contract.get("judge_rule_text")):
+                contract["rule_text_notice"] = RULE_TEXT_NOTICE  # beside every displayed provision (#506)
+                contract["rule_text_source_url"] = _rule_text_source_url(contract)
         show_second_judge_fields = authenticated or (debug_second_judge and cfg.debug_second_judge_fields_enabled)
         if not show_second_judge_fields:
             for contract in body.get("contracts", []):

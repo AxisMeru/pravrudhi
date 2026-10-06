@@ -481,6 +481,18 @@
             "description": "The provision text the contract is checked against: the registry's recorded source text from the Lean checker's --describe-source (lean_describe_source); unofficial, not the official text of the law. Null when the contract was not described. Returned only when the deployment enables rule-text disclosure (expose_rule_text); otherwise absent.",
             "title": "Rule Text"
           },
+          "rule_text_notice": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Present exactly when rule_text or judge_rule_text is: \"Unofficial text; the official version prevails.\" Provision text is only ever returned inside an analysis response that carries the element analysis.",
+            "title": "Rule Text Notice"
+          },
           "rule_text_source": {
             "anyOf": [
               {
@@ -492,6 +504,18 @@
             ],
             "description": "Where rule_text came from: lean_describe_source (the pinned Lean checker's --describe-source; the registry's recorded source text; unofficial). Returned only when the deployment enables rule-text disclosure (expose_rule_text); otherwise absent.",
             "title": "Rule Text Source"
+          },
+          "rule_text_source_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Present exactly when rule_text or judge_rule_text is: the India Code page the corpus recorded for the contract's act, else the India Code home page (never a constructed deep link).",
+            "title": "Rule Text Source Url"
           },
           "statute_text_mismatch": {
             "anyOf": [

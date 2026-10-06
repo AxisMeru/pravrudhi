@@ -248,6 +248,10 @@ show only the ones they assert):
 * `contracts[].citations`: the statute sources listed for the contract, or `null` when they could not be read.
 * `contracts[].lean_attestation`: the pinned Lean binary and the exact input it scored, for the contract's
   `lean_outcome`. The top-level `score_sha256` is the binary's SHA-256.
+* `contracts[].rule_text`, `judge_rule_text` and `rule_text_source`: the provision text the contract is checked against,
+  returned only here, beside our element-by-element analysis, and never on its own. Every contract that carries any of
+  them also carries `rule_text_notice` ("Unofficial text; the official version prevails.") and `rule_text_source_url`
+  (the India Code page recorded for the act, else the India Code home page). Show the notice and the link with the text.
 * `run_id`: identifies the run; an authenticated caller can look it up in the audit log (section 6).
 * `retention_notice`: how long the engine keeps the request. **Show it to your users verbatim.**
 * The request field `sections` optionally limits the statute sections considered; omit it for the contract's own.
