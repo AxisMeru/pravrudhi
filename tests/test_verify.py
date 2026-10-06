@@ -354,7 +354,7 @@ def test_two_groups_that_both_agree_are_split_by_year_else_stay_conflict(db: sql
         ),
     )
     _second_pair(
-        db, "Narandas Karsondas v. S.A. Kamtam and Others Reheard"
+        db, "Narandas Karsondas Jr v. S.A. Kamtam"
     )  # a second alias group, same distinctive tokens, resolving to both cases
     claim = "Narandas Karsondas v. S.A. Kamtam"
     # two candidate cases (decided 1977 and 1999): the citation's year (1977) picks the 1977 case, so ITS text is the one checked
@@ -412,3 +412,76 @@ def test_punctuation_variants_in_the_quote_still_match_but_nothing_looser(db: sq
         verify(db, "(1980) 2 SCC 10", "time is not of the essence and held that the term was waived")
         == VerifyResult.EXISTS_QUOTE_NOT_FOUND
     )  # no partial match
+
+
+# --- R2 on #331: fail-closed defects ---
+
+
+@pytest.mark.parametrize("quote", ["", "   ", "\n\t "])
+def test_an_empty_or_whitespace_quote_never_verifies(db: sqlite3.Connection, quote: str) -> None:
+    # single-group key (live on main before this change): the empty string is "in" every text
+    assert verify(db, "(1977) 3 SCC 247", quote) == VerifyResult.EXISTS_QUOTE_NOT_FOUND
+    assert (
+        verify(db, "(1977) 3 SCC 247", quote, claimed_name="Narandas Karsondas v. S.A. Kamtam")
+        == VerifyResult.EXISTS_QUOTE_NOT_FOUND
+    )
+    # multi-group key resolved by the claimed name: still never VERIFIED
+    _second_pair(db)
+    assert (
+        verify(db, "(1977) 3 SCC 247", quote, claimed_name="Narandas Karsondas v. S.A. Kamtam")
+        == VerifyResult.EXISTS_QUOTE_NOT_FOUND
+    )
+    assert verify(db, "(1977) 3 SCC 247", quote) == VerifyResult.CONFLICT  # no claim: unchanged
+
+
+def test_a_name_agreeing_group_that_does_not_resolve_keeps_the_conflict(db: sqlite3.Connection) -> None:
+    _second_pair(db, "Narandas Karsondas v. Zorbulon")  # a second alias group with no case in the index
+    quote = "time is not ordinarily of the essence of the contract"
+    assert verify(db, "(1977) 3 SCC 247", quote) == VerifyResult.CONFLICT
+    # the claim agrees with BOTH groups; the unresolvable one is a candidate too, so the sibling is not picked
+    assert verify(db, "(1977) 3 SCC 247", quote, claimed_name="Narandas Karsondas v. Kamtam Zorbulon") == VerifyResult.CONFLICT
+    # a claim that agrees with only the resolvable group still resolves it
+    assert verify(db, "(1977) 3 SCC 247", quote, claimed_name="Narandas Karsondas v. S.A. Kamtam") == VerifyResult.VERIFIED
+
+
+def test_same_surname_groups_are_not_told_apart_by_a_shared_surname_and_state(db: sqlite3.Connection) -> None:
+    for cid, first, year in (("ra", "Ram Singh", 1977), ("mo", "Mohan Singh", 1978)):
+        insert_case(
+            db,
+            CaseRecord(
+                case_id=cid,
+                title=f"{first} vs State of Punjab",
+                court="Supreme Court",
+                year=year,
+                source="sc_pdf",
+                path_or_url=f"/{cid}",
+                text=f"holding of {first} about the same point",
+            ),
+        )
+        insert_case(
+            db,
+            CaseRecord(
+                case_id=f"cit-{cid}",
+                title=f"Citer {cid}",
+                court="Supreme Court",
+                year=1990,
+                source="sc_pdf",
+                path_or_url=f"/c{cid}",
+                text=f"In {first} v. State of Punjab (1977) 9 SCC 900 the court held",
+            ),
+        )
+    db.commit()
+    # a bare surname (+ state) is 0.5 of either party's tokens: agrees with neither group, nothing is picked on a surname
+    assert (
+        verify(db, "(1977) 9 SCC 900", "holding of Ram Singh about the same point", claimed_name="Singh v. State of Punjab")
+        == VerifyResult.CONFLICT
+    )
+    # the full name separates them
+    assert (
+        verify(db, "(1977) 9 SCC 900", "holding of Ram Singh about the same point", claimed_name="Ram Singh v. State of Punjab")
+        == VerifyResult.VERIFIED
+    )
+    assert (
+        verify(db, "(1977) 9 SCC 900", "holding of Ram Singh about the same point", claimed_name="Mohan Singh v. State of Punjab")
+        == VerifyResult.EXISTS_QUOTE_NOT_FOUND
+    )

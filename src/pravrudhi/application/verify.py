@@ -39,8 +39,9 @@ _LINE_WRAP_HYPHEN = re.compile(r"-\n")
 _LIGATURES = {"ﬀ": "ff", "ﬁ": "fi", "ﬂ": "fl", "ﬃ": "ffi", "ﬄ": "ffl"}
 # Typographic variants of the same punctuation, folded for the comparison only (#330, found by the #529 probe: a
 # quote copied with curly quotes or an en/em dash was reported not found against text that carries the straight
-# form, or the reverse). One character to one character, so a fold can never make an unrelated span match; there
-# is NO case folding, no partial match and no fuzzy match: the quote must still occur verbatim after the fold.
+# form, or the reverse). One character to one character, EXCEPT the soft hyphen (U+00AD), which is deleted (it is
+# invisible, and a PDF line break can leave one inside a word); no other character is dropped or added. There is NO
+# case folding, no partial match and no fuzzy match: the quote must still occur verbatim after the fold.
 _PUNCTUATION_FOLD = str.maketrans(
     {
         "‘": "'",
@@ -235,15 +236,21 @@ _COMMON_TOKENS = frozenset(
 
 def _distinctive_tokens(name: str) -> frozenset[str]:
     s = unicodedata.normalize("NFKD", normalize_party_name(name)).encode("ascii", "ignore").decode()
-    return frozenset(t for t in re.sub(r"[^a-z0-9 ]+", " ", s.lower()).split() if t and t not in _COMMON_TOKENS)
+    # tokens of one or two letters are initials (`S.A.` folds to `sa`): noise for telling parties apart
+    return frozenset(t for t in re.sub(r"[^a-z0-9 ]+", " ", s.lower()).split() if len(t) > 2 and t not in _COMMON_TOKENS)
+
+
+# Share of an alias party's distinctive tokens the claimed name must contain. A shared surname alone (Ram Singh vs
+# Mohan Singh) is 0.5 and does not agree (R2 on #331).
+_PARTY_CONTAINMENT_MIN = 0.7
 
 
 def _group_agrees_with_claim(claimed: frozenset[str], row: sqlite3.Row) -> bool:
-    """Two-sided: for EACH party of the alias group that has distinctive tokens, at least one of them is in the
-    claimed name. A party with no distinctive token is skipped; a group with no distinctive token at all cannot
-    be told apart and does not agree."""
+    """Two-sided: for EACH party of the alias group that has distinctive tokens, at least `_PARTY_CONTAINMENT_MIN`
+    of its distinctive tokens are in the claimed name. A party with no distinctive token is skipped; a group with
+    no distinctive token at all cannot be told apart and does not agree."""
     sides = [t for t in (_distinctive_tokens(row["party_1"]), _distinctive_tokens(row["party_2"])) if t]
-    return bool(sides) and all(side & claimed for side in sides)
+    return bool(sides) and all(len(side & claimed) / len(side) >= _PARTY_CONTAINMENT_MIN for side in sides)
 
 
 def _disambiguate(
@@ -259,11 +266,13 @@ def _disambiguate(
     named = [g for g in groups.values() if _group_agrees_with_claim(claimed, g)]
     if not named:
         return None
-    resolved = [rows for rows in (_resolve_party_pair(conn, g["party_1"], g["party_2"]) for g in named) if rows]
+    resolved = [_resolve_party_pair(conn, g["party_1"], g["party_2"]) for g in named]
+    if any(not rows for rows in resolved):
+        # a name-agreeing group that resolves to no case is still a candidate the claim could mean:
+        # do not drop it and pick its sibling
+        return None
     if len(resolved) == 1:
         return resolved[0]
-    if not resolved:
-        return None
     # Several name-agreeing groups: they may all resolve to the SAME case (alias spellings of one party pair),
     # so compare CASES, not groups.
     cases = {r["case_id"]: r for rows in resolved for r in rows}
@@ -339,6 +348,9 @@ def verify(
         return resolved.status
 
     normalized_quote = normalize_text_for_match(quote_or_proposition)
+    if not normalized_quote:
+        # the empty string is "in" every text: an empty or whitespace-only quote verifies nothing
+        return VerifyResult.EXISTS_QUOTE_NOT_FOUND
     for row in resolved.case_rows:
         normalized_text = normalize_text_for_match(row["text"])
         if normalized_quote in normalized_text:
