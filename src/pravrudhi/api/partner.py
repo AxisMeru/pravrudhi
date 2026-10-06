@@ -986,7 +986,7 @@ def build_partner_router(
             429: {"description": "Over the rate limit; wait Retry-After seconds.",
                   "headers": {**_RATE_LIMIT_HEADER_DOCS, "Retry-After": _RETRY_AFTER_DOC}},
             503: {"description": "Outside the service window, judges warming (retry_after_s), service "
-                  "config missing, or the engine at capacity."},
+                  "config missing, or the agent at capacity (agent_at_capacity) or unavailable (agent_unavailable)."},
         },
     )
     def analyse_facts_ep(
