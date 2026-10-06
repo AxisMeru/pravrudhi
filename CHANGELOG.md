@@ -3,6 +3,87 @@
 Release notes for the engine (`pravrudhi`). Versions before 0.5.44 are described in their GitHub release notes and commit
 messages.
 
+## 0.5.45
+
+Partner API additions (a citation lookup route, a clear "judges are off" answer, a typed `quote_check` and published reason
+codes), the legal-MVP route closures, a corpus-notice change and new tool-runner modules. Nothing here changes a correctly
+configured deployment except the items marked **behaviour change**.
+
+**Rebuild the image.** Every engine entry below is under `src/` or `configs/`, so none of it reaches a running container by a
+restart or a pip upgrade: rebuild Studio, the engine containers and the RunPod worker template from 0.5.45. Entries marked
+docs, tests, CI or tooling do not ship in the image. Image-relevant status was checked against `git log v0.5.44..main`.
+
+### Image: engine behaviour
+
+- **Behaviour change: the legal-MVP hidden APIs are closed to non-admins in both editions, and the schema and docs pages are
+  gated.** `api/roles.py`, `application/route_scope.py`. (#300)
+- **Behaviour change (new response): HTTP 503 `{"error": "judges_offline"}` when a needed judge endpoint is parked** (no worker,
+  nothing queued or running). It is returned by `POST /api/v1/analyse-facts` and `POST /api/v1/analyse-facts/jobs` (no job is
+  created), at once and before anything is queued, with no `Retry-After`. It is distinct from `judge_unavailable` (a judge that
+  is down or cold). Controlled by `judge_health_check` (default true) and `judge_health_ttl_s` (default 5) in
+  `configs/partner_api.yaml`. It reads each RunPod endpoint's `/health` with the judge's own key
+  (`NYAYA_HOUSE_JUDGE_API_KEY`, `NYAYA_SECOND_JUDGE_API_KEY`); when the endpoint cannot be read, or the check errors, the request
+  proceeds as before. **An idle scale-from-zero endpoint (min 0, max above 0)
+  reads the same as a parked one: set `judge_health_check: false` if a judge is put back on scale-from-zero, and for an
+  authorised warm either set min >= 1 or turn the check off for that window, then wait about 5 s for the cache.** Local
+  (non-RunPod) judges are never checked. `api/partner.py`, `application/judge_endpoint_state.py`, `configs/partner_api.yaml`. (#312)
+- **Partner API: `POST /api/v1/verify-citations`.** A bounded citation lookup over a configured case index: title-only fuzzy scan,
+  its own concurrency gate and time bound, per-key rate limit with `X-RateLimit-*` headers, usage metering and one audit row (mode
+  `verify`) with no citation or quote text. **It answers 503 until `PRAVRUDHI_CITATION_INDEX` points at a case index.** New
+  optional keys in `configs/partner_api.yaml`: `verify_max_concurrent` (default 2) and `verify_timeout_s` (default 5.0). Adds a
+  user-facing route and regenerates the contract. `api/partner.py`, `api/roles.py`, `application/verify.py`, `application/statute_citations.py`. (#181)
+- **Partner API: typed `quote_check` and published reason codes.** `quote_check` is an enumerated field in the contract,
+  `docs/api/reason-codes.md` explains every `reason`, and the three rule-text fields (`rule_text`, `judge_rule_text`,
+  `rule_text_source`) exist behind `expose_rule_text`, **which is false by default** (licence hold): with it off the three fields
+  are absent from the response. Do not turn it on. `api/partner.py`, `application/nyaya_agent.py`, `application/nyaya_quote.py`,
+  `configs/nyaya_agent.yaml`. (#309)
+- **Partner API: the contract states what the docs state.** Declared 401/503 and job 404/429 responses, the 4000-character per-fact
+  limit (documented in the schema; enforcement and the 422 body are unchanged); the route annotations in `api/partner.py` changed.
+  The quickstart additions are docs only. (#287)
+- **`/api/nyaya/corpus` carries the India Code notice, and each hit a recorded `source_url`** (an India Code page the corpus recorded
+  for the act, else null) and a `source_fallback_url` (the India Code home page). Never a constructed link. `api/nyaya.py`,
+  `application/nyaya.py`. (#313)
+- **Primary judge tau can be overridden by environment** (`NYAYA_HOUSE_JUDGE_TAU`; a non-numeric value refuses to start), and a swap
+  of the primary model by environment (`NYAYA_HOUSE_JUDGE_MODEL` other than the one the yaml tau was set for) is refused without
+  an explicit tau; lowering the threshold by environment needs `NYAYA_HOUSE_JUDGE_TAU_ALLOW_LOWER=1`. `application/nyaya_agent.py`.
+  (#185)
+- **Second-judge positive control: engine trigger wiring, OFF by default.** Only a deployment that sets
+  `second_judge_positive_control.record_path` is affected; with none set the second judge serves as before, and the run-start audit
+  row records whether the record gate is on. `application/nyaya_agent.py`, `application/second_judge_positive_control.py`,
+  `configs/nyaya_agent.yaml`. (#54)
+- **Demo-snapshot export publishes an allowlist of product-edition sections and its team-vocabulary markers are wider.**
+  `application/demo_export.py`. (#306)
+- **A loosening guard for night-loop config candidates.** New module, used by the night loop only.
+  `application/nyaya_loosening_guard.py`. (#175)
+- **Per-key rate limiter takes an injected clock** (a parameter `rate_clock` on `build_partner_router`; production leaves it unset,
+  so behaviour is unchanged). `api/partner.py`. (#304)
+- **Tool runner library: a bounded tool-call runner, a citation-verifier tool, calculator and date tools** (Decimal arithmetic from
+  the literal's source text; `%` takes the sign of the dividend; the call log carries argument names and a digest, never values).
+  New modules, not wired to any route. `application/tool_runner.py`, `application/citation_tool.py`,
+  `application/deterministic_tools.py`. (#183, #184, #190)
+
+### Config only (in the image, no code)
+
+- **Usage gate: the #306 B-opus and G-opus arms registered** (`m4-306-b-opus` cap 650, `m4-306-g-opus` cap 152).
+  `configs/usage_gate.yaml`. (#302, #305)
+
+### Not in the image
+
+- **Tests and docs only:** the fake-clock 429 tests (#304), the partner quickstart sections on reply fields, rate-limit headers,
+  jobs, audit and usage (#287), `docs/api/reason-codes.md` (#309), a handover note (#306).
+
+### Release notes for operators
+
+- Rebuild the image (above). Regenerate a client if one is generated from `docs/api/openapi-v1.json`: the contract gained
+  `verify-citations`, `judges_offline`, the typed `quote_check` and the 401/503/job responses.
+- `judges_offline` and `judge_health_check`: see the entry above for the scale-from-zero limit and the warm-window procedure. With
+  both production judges parked on purpose, callers get this 503 at once instead of a long wait.
+- `verify-citations` is 503 until `PRAVRUDHI_CITATION_INDEX` is set.
+- `expose_rule_text` stays false.
+- The app (pravrudhi-app) gates its pages by edition independently; #300 closes `/api/workspaces`, `/api/notifications` and the
+  update routes to members, which the app already tolerates (pravrudhi-app#50).
+- Not in this release: #295, #294, #61 (0.5.46) and #299 unless it is signed in time.
+
 ## 0.5.44
 
 Fail-closed deployment hardening, release probe and gateway hardening. Nothing here changes a correctly configured
