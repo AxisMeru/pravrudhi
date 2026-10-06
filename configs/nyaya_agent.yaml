@@ -455,6 +455,10 @@ unvalidated_contracts_documented:
 # DO NOT SHIP ENABLED: the measured coverage cost (-19%/-9% on the only population tested) with zero
 # demonstrated false-prove benefit means this stays off until Lead-2 decides otherwise on a dirtier eval
 # population -- see the spec's own §5.
+#
+# Enabling this (NYAYA_GATE1_ENABLED) lets the engine emit element status
+# `not_evaluated_gate1_unavailable`. Requires pravrudhi-app to handle it (PR #8 or successor merged and
+# deployed) BEFORE enabling -- see issue #72.
 gate1:
   threshold: 0.04074102267622948
   model: "MoritzLaurer/DeBERTa-v3-base-mnli-fever-anli"
