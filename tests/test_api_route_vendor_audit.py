@@ -279,7 +279,7 @@ def test_ask_with_cli_vendors_is_refused_and_runs_nothing(
     params = {"workspace": "w1"} if caller == "signed-in" else {}
     r = client.post("/api/nyaya/ask", headers=headers, params=params, json=CLI_ASK)
     assert r.status_code == 403, r.text
-    assert "vendor not allowed" in r.text
+    assert r.json()["error"] == "vendor_not_allowed" and "vendor not allowed" in r.text
     assert cli_calls == []
 
 

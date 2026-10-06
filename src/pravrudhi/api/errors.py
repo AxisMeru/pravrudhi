@@ -14,6 +14,7 @@ AGENT_UNAVAILABLE = "agent_unavailable"
 CHECKER_UNAVAILABLE = "checker_unavailable"
 REGISTRY_CHECKER_UNAVAILABLE = "registry_checker_unavailable"
 CHAT_ENDPOINT_UNREACHABLE = "chat_endpoint_unreachable"
+VENDOR_NOT_ALLOWED = "vendor_not_allowed"
 
 #: code -> the one fixed message that goes with it.
 MESSAGES: dict[str, str] = {
@@ -22,9 +23,14 @@ MESSAGES: dict[str, str] = {
     CHECKER_UNAVAILABLE: "the checker is unavailable; retry later",
     REGISTRY_CHECKER_UNAVAILABLE: "the registry checker is unavailable; retry later",
     CHAT_ENDPOINT_UNREACHABLE: "the chat model endpoint is unreachable; retry later",
+    VENDOR_NOT_ALLOWED: "vendor not allowed for API callers",
 }
 
 
+def coded(status_code: int, code: str) -> JSONResponse:
+    """A response with the stable `code` and its fixed message. An unknown code is a programming error, not a free-text escape."""
+    return JSONResponse(status_code=status_code, content={"error": code, "detail": MESSAGES[code]})
+
+
 def coded_503(code: str) -> JSONResponse:
-    """A 503 with the stable `code` and its fixed message. An unknown code is a programming error, not a free-text escape."""
-    return JSONResponse(status_code=503, content={"error": code, "detail": MESSAGES[code]})
+    return coded(503, code)

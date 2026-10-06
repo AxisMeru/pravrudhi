@@ -144,3 +144,17 @@ def test_chat_unreachable_endpoint_is_coded_for_the_blocking_route_and_the_strea
     events = [json.loads(line[6:]) for line in stream.text.splitlines() if line.startswith("data: ")]
     assert events[-1]["type"] == "error" and events[-1]["error"] == "chat_endpoint_unreachable"
     assert "MARKER" not in stream.text and "10.1.2.3" not in stream.text
+
+
+def test_vendor_not_allowed_is_a_coded_403_with_a_fixed_message_that_does_not_echo_the_vendor(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from pravrudhi.application.tenant_vendors import VendorNotAllowed
+
+    def deny(*_a: Any, **_k: Any) -> Any:
+        raise VendorNotAllowed(f"vendor not allowed for API callers: {MARK}")
+
+    monkeypatch.setattr(nyaya_api.nyaya, "ask", deny)
+    resp = _nyaya_app(tmp_path).post("/api/nyaya/ask", json={"question": "what is s.69?", "vendors": ["x"]})
+    assert resp.status_code == 403 and resp.json()["error"] == "vendor_not_allowed"
+    assert "MARKER" not in resp.text and "10.1.2.3" not in resp.text

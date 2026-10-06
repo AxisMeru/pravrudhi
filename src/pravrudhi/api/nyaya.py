@@ -16,7 +16,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from pravrudhi.api.errors import CHECKER_UNAVAILABLE, REGISTRY_CHECKER_UNAVAILABLE, coded_503
+from pravrudhi.api.errors import CHECKER_UNAVAILABLE, REGISTRY_CHECKER_UNAVAILABLE, VENDOR_NOT_ALLOWED, coded, coded_503
 from pravrudhi.api.identity import CurrentUserDep, User
 from pravrudhi.api.workspace_root import RootError, root_for
 from pravrudhi.application import nyaya, panel
@@ -238,7 +238,7 @@ def build_nyaya_router(root: Path, ask_fn: panel.AskFn | None = None) -> APIRout
     @router.post("/ask", response_model=NyayaAskResponse)
     def ask_ep(
         req: AskRequest, workspace: str | None = None, user: User | None = CurrentUserDep
-    ) -> dict[str, Any]:
+    ) -> dict[str, Any] | JSONResponse:
         if not req.question.strip():
             raise HTTPException(422, "an empty question asks nothing")
         project, store = _session(user, workspace)
@@ -247,8 +247,8 @@ def build_nyaya_router(root: Path, ask_fn: panel.AskFn | None = None) -> APIRout
                 project, req.question, tuple(req.vendors), k=req.k, checker=req.checker,
                 contract_id=req.contract_id, ask_fn=ask_fn, store=store,
             )
-        except VendorNotAllowed as e:
-            raise HTTPException(403, str(e)) from e
+        except VendorNotAllowed:  # the message names the caller-supplied vendor id: a fixed message and a code instead (#318)
+            return coded(403, VENDOR_NOT_ALLOWED)
         except (KeyError, ValueError) as e:
             raise HTTPException(422, str(e)) from e
         return rec.to_dict()
