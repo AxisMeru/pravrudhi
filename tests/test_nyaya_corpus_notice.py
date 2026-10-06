@@ -98,3 +98,103 @@ def test_every_hit_has_a_fallback_link_even_without_a_recorded_page(tmp_path: Pa
     assert nyaya.INDIA_CODE_HOME == "https://www.indiacode.nic.in/"
     ipc = [h for h in hits if h["act"].startswith("Indian Penal Code")]
     assert ipc and all(h["source_url"] is None and h["source_fallback_url"] for h in ipc)
+
+
+# --- #506 ruling (6 Oct): full statute text is for AUTHENTICATED callers; anonymous callers get no statute text -----------
+
+
+def _hosted_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, user: object | None = None) -> TestClient:
+    from pravrudhi.api import identity
+    from pravrudhi.api import nyaya as nyaya_api
+
+    init_project(tmp_path)
+    monkeypatch.setenv("PRAVRUDHI_AUTH", "optional")  # a hosted-style deployment: anonymous callers exist
+    # REAL behaviour on a hosted deployment: an anonymous or API-key caller is refused 400 by `_session` before the corpus is
+    # read (see test_hosted_*). The gate below is defence in depth, so this helper lets an anonymous caller through to it.
+    real_root_for = nyaya_api.root_for
+    # a signed-in user resolves through the real workspace logic; only the anonymous caller is let through to the gate
+    monkeypatch.setattr(
+        nyaya_api, "root_for", lambda u, ws, **k: tmp_path if u is None else real_root_for(u, ws, **k)
+    )
+    app = create_app(tmp_path)
+    if user is not None:
+        app.dependency_overrides[identity.current_user] = lambda: user
+    return TestClient(app, base_url="http://127.0.0.1:8008")
+
+
+ANON_KEYS = {"id", "act", "section", "title", "score", "notice", "source_url", "source_fallback_url"}
+
+
+def test_an_anonymous_caller_gets_no_statute_text_at_all_only_the_exact_anonymous_key_set(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    anon_resp = _hosted_client(tmp_path / "a", monkeypatch).get("/api/nyaya/corpus?q=murder punishment")
+    anon = anon_resp.json()
+    assert anon["notice"] == NOTICE and anon["hits"]
+    for h in anon["hits"]:
+        assert set(h) == ANON_KEYS, f"unexpected keys {set(h) ^ ANON_KEYS}"
+        assert h["id"] and h["title"] and h["section"] and h["notice"] == NOTICE and h["source_fallback_url"]
+    from tests.test_partner_key_metering import ADMIN
+
+    c_auth = _hosted_client(tmp_path / "b", monkeypatch, user=ADMIN)
+    auth = c_auth.get("/api/nyaya/corpus?q=murder punishment&workspace=w1").json()
+    assert auth["hits"] and all(h["text"] for h in auth["hits"])
+    # no 30-character window of ANY provision's text appears anywhere in the anonymous body (whole text, every offset),
+    # once the fields an anonymous caller IS allowed (id, act, section, title: a title can open the provision text) are removed
+    import json
+
+    allowed = {"id", "act", "section", "title"}
+    stripped = json.dumps(
+        {**anon, "hits": [{k: v for k, v in h.items() if k not in allowed} for h in anon["hits"]]}, ensure_ascii=False
+    )
+    for h in auth["hits"]:
+        text = " ".join(h["text"].split())
+        leaked = [i for i in range(max(1, len(text) - 29)) if text[i : i + 30] in stripped]
+        assert not leaked, f"{h['id']}: text leaks into the anonymous body at offsets {leaked[:3]}"
+
+
+def test_an_authenticated_caller_gets_the_full_text(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from tests.test_partner_key_metering import ADMIN
+
+    c = _hosted_client(tmp_path, monkeypatch, user=ADMIN)
+    auth = c.get("/api/nyaya/corpus?q=murder punishment&workspace=w1").json()["hits"]
+    assert auth and all(h["text"] and h["notice"] == NOTICE for h in auth)
+
+
+def test_hosted_anonymous_valid_key_and_bad_key_are_all_refused_400_and_a_signed_in_workspace_gets_the_text(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """REAL behaviour, no monkeypatching (auth optional = a hosted deployment): the workspace resolver refuses every caller
+    without a signed-in session BEFORE the corpus is read, so an anonymous caller, a valid API key and a bad key all get the
+    same 400. An API key cannot call this app route. A signed-in session that names a workspace gets the text."""
+    from pravrudhi.api import identity
+    from pravrudhi.application import tenancy
+    from tests.test_partner_key_metering import ADMIN
+
+    init_project(tmp_path)
+    monkeypatch.setenv("PRAVRUDHI_AUTH", "optional")
+    tenancy.create_org(tmp_path, "acme", "Acme")
+    secret = tenancy.create_key(tmp_path, "acme", label="t", rate_limit_per_minute=60).secret
+    app = create_app(tmp_path)
+    c = TestClient(app, base_url="http://127.0.0.1:8008")
+    url = "/api/nyaya/corpus?q=murder punishment"
+    for headers in ({}, {"X-Pravrudhi-Api-Key": secret}, {"X-Pravrudhi-Api-Key": "bad"}):
+        r = c.get(url, headers=headers)
+        assert r.status_code == 400 and r.json() == {"detail": "the workspace could not be resolved"}
+    app.dependency_overrides[identity.current_user] = lambda: ADMIN
+    ok = c.get(url + "&workspace=w1")
+    assert ok.status_code == 200 and ok.json()["hits"] and all(h["text"] for h in ok.json()["hits"])
+
+
+def test_the_local_single_operator_engine_keeps_the_full_text(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("PRAVRUDHI_AUTH", raising=False)  # auth disabled: the operator's own engine, not a public caller
+    init_project(tmp_path)
+    c = TestClient(create_app(tmp_path), base_url="http://127.0.0.1:8008")
+    assert all(h["text"] for h in c.get("/api/nyaya/corpus?q=murder punishment").json()["hits"])
+
+
+def test_openapi_documents_the_text_as_optional() -> None:
+    schema = create_app(Path(".")).openapi()["components"]["schemas"]["NyayaCorpusHit"]
+    assert "text" in schema["properties"] and "text" not in schema.get("required", []) and "excerpt" not in schema["properties"]
