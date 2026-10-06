@@ -2436,16 +2436,23 @@ class TestSpanRelevanceOverAndGateDefeater:
 
 
 class TestPrimaryTauEnvOverride134:
-    """#134: the primary tau must be settable from env, and swapping the primary judge by env must not silently keep the yaml tau."""
+    """#134: the primary tau must be settable from env, and swapping the primary judge by env must not silently keep
+    the yaml tau."""
 
     @pytest.fixture(autouse=True)
     def _clean(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        for k in ("NYAYA_HOUSE_JUDGE_TAU", "NYAYA_HOUSE_JUDGE_BASE_URL", "NYAYA_HOUSE_JUDGE_MODEL", "NYAYA_HOUSE_JUDGE_TAU_ALLOW_LOWER"):
+        for k in (
+            "NYAYA_HOUSE_JUDGE_TAU",
+            "NYAYA_HOUSE_JUDGE_BASE_URL",
+            "NYAYA_HOUSE_JUDGE_MODEL",
+            "NYAYA_HOUSE_JUDGE_TAU_ALLOW_LOWER",
+        ):
             monkeypatch.delenv(k, raising=False)
 
     def test_env_tau_below_yaml_refused_without_the_second_flag(self, monkeypatch: pytest.MonkeyPatch) -> None:
         yaml_tau = load_agent_config(REPO).tau
-        monkeypatch.setenv("NYAYA_HOUSE_JUDGE_MODEL", "nyaya-judge-4b")  # the production id: not a swap, so only the floor stops it
+        # the production id: not a swap, so only the floor stops it
+        monkeypatch.setenv("NYAYA_HOUSE_JUDGE_MODEL", "nyaya-judge-4b")
         monkeypatch.setenv("NYAYA_HOUSE_JUDGE_TAU", str(yaml_tau - 0.1))
         with pytest.raises(ValueError, match="below the yaml tau"):
             load_agent_config(REPO)

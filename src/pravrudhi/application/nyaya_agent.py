@@ -494,9 +494,12 @@ def load_agent_config(root: Path) -> AgentConfig:
         # environment (R1 on #185; #303 excludes the same for the night loop): refused unless a second explicit flag is set.
         if tau < float(body["tau"]):
             if (os.environ.get("NYAYA_HOUSE_JUDGE_TAU_ALLOW_LOWER") or "").strip() != "1":
-                raise ValueError(f"NYAYA_HOUSE_JUDGE_TAU={tau:g} is below the yaml tau {float(body['tau']):g}: lowering the primary "
-                                 "threshold by environment is refused; set NYAYA_HOUSE_JUDGE_TAU_ALLOW_LOWER=1 to allow it "
-                                 "(recorded in the audit as tau_source); refusing to start")
+                raise ValueError(
+                    f"NYAYA_HOUSE_JUDGE_TAU={tau:g} is below the yaml tau {float(body['tau']):g}: "
+                    "lowering the primary threshold by environment is refused; "
+                    "set NYAYA_HOUSE_JUDGE_TAU_ALLOW_LOWER=1 to allow it "
+                    "(recorded in the audit as tau_source); refusing to start"
+                )
             tau_source = "env:NYAYA_HOUSE_JUDGE_TAU(lower-than-yaml,allowed)"
     elif swapped:
         raise ValueError(f"{' and '.join(swapped)} override the primary judge but NYAYA_HOUSE_JUDGE_TAU is not set; "
