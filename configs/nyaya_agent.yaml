@@ -89,6 +89,10 @@ tau: 0.74
 # choice, not the evidence, decides.
 refer_band: [0.5, 0.74]
 
+# LICENCE HOLD (Lead-2, pending counsel #506): the partner API returns rule_text / judge_rule_text /
+# rule_text_source only when this is true. Off: the three fields are absent from the response.
+expose_rule_text: false
+
 # Re-ask an element at most this many times (first attempt excluded) when its judge output is malformed or
 # its quote is not a verbatim substring of the named fact. A retry sends the SAME request (same training
 # statute text below) and is used ONLY for its quote: attempt 1's status and p_established stand.

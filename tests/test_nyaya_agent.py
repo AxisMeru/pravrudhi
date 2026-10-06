@@ -14,7 +14,7 @@ import math
 import os
 import time
 from collections.abc import Mapping
-from dataclasses import dataclass, field, replace
+from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -1644,6 +1644,56 @@ class TestStatuteMismatch:
         assert c.statute_text_mismatch is True and c.statute_text_similarity == 1.0
         run2, _, _ = _run(tmp_path, _proof_script(TOY_FACTS))
         assert 0.0 < run2.contracts[0].statute_text_similarity < 1.0
+
+
+class TestRuleText:
+    """#308: the provision text, and the text the judge saw, travel on the contract result. `rule_text` is the binary's
+    --describe-source text (India Code, unofficial); `judge_rule_text` is exactly the first `statute_chars` characters of the
+    judge's configured text (as sent in the prompt) when the two texts differ or the judge's text was cut."""
+
+    def _contract(self, tmp_path: Path, **over: Any) -> Any:
+        judge = ScriptedJudge(_proof_script(TOY_FACTS))
+        run = NyayaAgent(judge, _registry(), _config(tmp_path, **over)).run(TOY_FACTS, contract_ids=["bns69"])
+        return run.contracts[0]
+
+    def test_a_mismatch_carries_the_text_as_sent_in_the_prompt(self, tmp_path: Path) -> None:
+        c = self._contract(tmp_path, house_judge={"statute_chars": 10})
+        assert c.statute_text_mismatch is True
+        assert c.rule_text == "RETRIEVED statute text for bns69"
+        assert c.judge_rule_text == "TRAINING s"  # exactly the first statute_chars characters, not the whole text
+        assert c.rule_text_source == "lean_describe_source"
+
+    def test_a_text_shorter_than_the_cut_is_carried_whole(self, tmp_path: Path) -> None:
+        c = self._contract(tmp_path, house_judge={"statute_chars": 600})
+        assert c.judge_rule_text == "TRAINING statute text for bns69"
+
+    def test_identical_texts_longer_than_the_cut_still_carry_the_cut_text_the_judge_saw(self, tmp_path: Path) -> None:
+        text = "RETRIEVED statute text for bns69"
+        c = self._contract(tmp_path, judge_statute_text={"bns69": text}, house_judge={"statute_chars": 10})
+        assert c.statute_text_mismatch is False and c.judge_rule_text == text[:10]
+
+    def test_identical_texts_carry_rule_text_but_no_judge_text(self, tmp_path: Path) -> None:
+        c = self._contract(tmp_path, judge_statute_text={"bns69": "RETRIEVED statute text for bns69"},
+                           house_judge={"statute_chars": 600})
+        assert c.statute_text_mismatch is False
+        assert c.rule_text == "RETRIEVED statute text for bns69" and c.judge_rule_text is None
+
+    def test_no_judge_statute_text_means_no_judge_rule_text_and_the_contract_is_not_judged(self, tmp_path: Path) -> None:
+        c = self._contract(tmp_path, judge_statute_text={}, house_judge={"statute_chars": 600})
+        assert c.reason == "no_training_statute_text" and c.statute_text_mismatch is None
+        assert c.judge_rule_text is None and c.rule_text == "RETRIEVED statute text for bns69"
+
+    def test_an_unconfigured_cut_length_carries_no_judge_text_rather_than_guessing(self, tmp_path: Path) -> None:
+        c = self._contract(tmp_path, house_judge={})
+        assert c.statute_text_mismatch is True and c.judge_rule_text is None
+
+    def test_the_partner_response_model_accepts_and_publishes_the_fields(self, tmp_path: Path) -> None:
+        from pravrudhi.api.partner import ContractResultOut
+
+        body = self._contract(tmp_path, house_judge={"statute_chars": 10})
+        out = ContractResultOut.model_validate(asdict(body))
+        assert (out.rule_text, out.judge_rule_text, out.rule_text_source) == (
+            "RETRIEVED statute text for bns69", "TRAINING s", "lean_describe_source")
 
 
 class TestAudit:

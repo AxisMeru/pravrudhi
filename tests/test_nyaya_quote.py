@@ -2,7 +2,8 @@
 
 A judge that calls an element established names a fact and quotes it: `{status, fact_id, quote}`. The judge
 never supplies character offsets -- the SYSTEM locates the quote with an exact `str.find` in
-`facts[fact_id]` and computes `start`/`end` itself (first occurrence; the occurrence count is recorded).
+`facts[fact_id]` and computes `start`/`end` itself (a quote that occurs more than once is ambiguous
+and not valid; the count is recorded).
 Verification stays strictly verbatim: no normalisation, no trimming, no fuzzy match. A quote that is not a
 verbatim substring of the named fact is rejected, and nothing here repairs it.
 
@@ -123,3 +124,17 @@ class TestCheckJudgment:
 
     def test_missing_keys_are_invalid_not_a_crash(self) -> None:
         assert check_judgment(FACTS, {"status": "established"}).reason == "no_quote"
+
+
+def test_an_ambiguous_quote_is_not_valid_and_the_docs_do_not_say_the_first_is_taken() -> None:
+    """#307/#308: a quote that occurs twice is `ambiguous_quote`, `valid=False`, count recorded; no start/end is
+    chosen. The module docstring used to say the first occurrence was taken."""
+    import pravrudhi.application.nyaya_quote as nq
+
+    facts = {"F1": "he took the money and then took the money again"}
+    loc = nq.locate_quote(facts, fact_id="F1", quote="took the money")
+    assert loc.valid is False and loc.reason == "ambiguous_quote" and loc.occurrences == 2
+    assert loc.start is None and loc.end is None
+    doc = (nq.__doc__ or "").lower()
+    assert "takes the first" not in doc and "it takes the first" not in doc
+    assert "ambiguous_quote" in doc and "valid=false" in doc

@@ -96,6 +96,9 @@ ContractReason = Literal[
     "gate1_not_entailed", "gate1_contradiction", "contract_not_validated",
 ]
 CONFIG_PATH = Path("configs") / "nyaya_agent.yaml"
+#: What `ContractResult.rule_text_source` says: the provision text came from the pinned Lean binary's `--describe-source`,
+#: which carries India Code text. Unofficial; the code, docs and UI never call it official.
+RULE_TEXT_SOURCE = "lean_describe_source"
 
 
 class BinaryShaMismatch(RuntimeError):
@@ -187,6 +190,10 @@ class AgentConfig:
     #: under `audit_dir` before `purge_stale_runs` deletes it. Config-driven, never hardcoded, so the window
     #: can be tightened or loosened with a config edit alone. 7.0 is the operator/Lead-2 decided default.
     retention_days: float = 7.0
+    #: LICENCE HOLD (Lead-2, pending counsel #506): whether the partner API returns the provision text
+    #: (`rule_text`, `judge_rule_text`, `rule_text_source`). OFF by default: with it off those fields are ABSENT from
+    #: the partner response. It gates only that surface; the agent still records the text on its own result and audit.
+    expose_rule_text: bool = False
     #: Issue #44 (standing second-judge positive control): record_path/max_age_hours -- `_build_judge` checks
     #: a fresh, matching passing live-check record before letting `AndGateJudge` reach the real second
     #: judge; empty (the default) means the record check is skipped -- a deployment that hasn't opted into
@@ -557,6 +564,7 @@ def load_agent_config(root: Path) -> AgentConfig:
         gate1_enabled=gate1_enabled,
         span_relevance_enabled=span_relevance_enabled,
         retention_days=float(body.get("retention_days", 7.0)),
+        expose_rule_text=bool(body.get("expose_rule_text", False)),
     )
 
 
@@ -1040,6 +1048,15 @@ class ContractResult:
     #: what was scored and by which binary -- a structural check, not that the assertions are true. None when
     #: no Lean call was made.
     lean_attestation: dict[str, str] | None = None
+    #: The provision text from Lean `--describe-source` (India Code, unofficial: never call it official). Always set
+    #: when the contract was described; the partner response's `rule_text`.
+    rule_text: str | None = None
+    #: Exactly the first `house_judge.statute_chars` characters of the judge's configured statute text, i.e. the text AS
+    #: SENT in the judge prompt (`build_house_prompt` cuts to that length). Set when `statute_text_mismatch` is true
+    #: OR when the judge's text was cut (longer than the cut); None otherwise, and None when no judge statute text is configured.
+    judge_rule_text: str | None = None
+    #: Where `rule_text` came from: `RULE_TEXT_SOURCE`.
+    rule_text_source: str | None = None
 
 
 @dataclass
@@ -1581,6 +1598,12 @@ class NyayaAgent:
         training = self.config.judge_statute_text.get(contract_id)
         official = self.registry.source_text(contract_id)
         mismatch = None if training is None else training != official
+        cut = int(self.config.house_judge.get("statute_chars") or 0)
+        # Carried when the judge's text differs from the official one, OR when the judge saw a CUT text (longer than `cut`),
+        # even if the two texts are identical.
+        judge_rule_text = (
+            training[:cut] if (training is not None and cut > 0 and (mismatch is True or len(training) > cut)) else None
+        )
         similarity = None if training is None else _text_similarity(training, official)
         audit.step("statute", {"contract_id": contract_id},
                    {"contract_id": contract_id, "judge_statute_source": "config" if training is not None else None,
@@ -1599,7 +1622,9 @@ class NyayaAgent:
                                  unavailable_second=kw.get("unavailable_second", []),
                                  gate1_unavailable=kw.get("gate1_unavailable", []), gate1_failed=kw.get("gate1_failed", []),
                                  gate1_contradiction=kw.get("gate1_contradiction", []),
-                                 lean_attestation=kw.get("lean_attestation"))
+                                 lean_attestation=kw.get("lean_attestation"),
+                                 rule_text=official, judge_rule_text=judge_rule_text,
+                                 rule_text_source=RULE_TEXT_SOURCE)
             audit.step("outcome", {"contract_id": contract_id, "elements": [asdict(r) for r in results]},
                        {"contract_id": contract_id, "outcome": outcome, "reason": reason,
                         "lean_outcome": res.lean_outcome, "uncertain": res.uncertain,

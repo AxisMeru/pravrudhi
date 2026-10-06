@@ -381,6 +381,18 @@
             "title": "Elements",
             "type": "array"
           },
+          "judge_rule_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Exactly the first statute_chars characters (600 in the shipped config) of the statute text the judge was configured with, i.e. the text AS SENT in the judge prompt. Returned when statute_text_mismatch is true or when the judge's text was cut (longer than statute_chars), so a reader can see what the judge worked from; null otherwise, and null when no judge statute text is configured for the contract. Returned only when the deployment enables rule-text disclosure (expose_rule_text); otherwise absent.",
+            "title": "Judge Rule Text"
+          },
           "lean": {
             "anyOf": [
               {
@@ -455,6 +467,30 @@
             ],
             "title": "Reason",
             "type": "string"
+          },
+          "rule_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The provision text the contract is checked against: the registry's recorded source text from the Lean checker's --describe-source (lean_describe_source); unofficial, not the official text of the law. Null when the contract was not described. Returned only when the deployment enables rule-text disclosure (expose_rule_text); otherwise absent.",
+            "title": "Rule Text"
+          },
+          "rule_text_source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Where rule_text came from: lean_describe_source (the pinned Lean checker's --describe-source; the registry's recorded source text; unofficial). Returned only when the deployment enables rule-text disclosure (expose_rule_text); otherwise absent.",
+            "title": "Rule Text Source"
           },
           "statute_text_mismatch": {
             "anyOf": [
@@ -720,12 +756,23 @@
           "quote_check": {
             "anyOf": [
               {
+                "enum": [
+                  "ok",
+                  "not_established",
+                  "no_quote",
+                  "unknown_fact",
+                  "empty_quote",
+                  "non_evidential_quote",
+                  "quote_not_found",
+                  "ambiguous_quote"
+                ],
                 "type": "string"
               },
               {
                 "type": "null"
               }
             ],
+            "description": "Why the judge's quote was accepted or rejected (the system's own word-for-word check): ok, not_established, no_quote, unknown_fact, empty_quote, non_evidential_quote, quote_not_found or ambiguous_quote. Null when no quote check ran. A quote that occurs more than once is ambiguous_quote: the element is not counted as shown. Plain-language text for each value: docs/api/reason-codes.md.",
             "title": "Quote Check"
           },
           "quote_source": {
@@ -1282,13 +1329,13 @@
         "operationId": "analyse_facts_ep_api_v1_analyse_facts_post",
         "parameters": [
           {
-            "description": "Include config-C second-judge diagnostic fields per element even when not authenticated. Only takes effect when this deployment's own debug_second_judge_fields_enabled is also set -- a caller cannot turn this on for a deployment that hasn't opted in. An authenticated caller (Supabase session or org API key) always gets these fields regardless of this flag or the deployment gate.",
+            "description": "Include second-judge diagnostic fields per element (only for deployments that use two judges) even when not authenticated. Only takes effect when this deployment's own debug_second_judge_fields_enabled is also set -- a caller cannot turn this on for a deployment that hasn't opted in. An authenticated caller (Supabase session or org API key) always gets these fields regardless of this flag or the deployment gate.",
             "in": "query",
             "name": "debug_second_judge",
             "required": false,
             "schema": {
               "default": false,
-              "description": "Include config-C second-judge diagnostic fields per element even when not authenticated. Only takes effect when this deployment's own debug_second_judge_fields_enabled is also set -- a caller cannot turn this on for a deployment that hasn't opted in. An authenticated caller (Supabase session or org API key) always gets these fields regardless of this flag or the deployment gate.",
+              "description": "Include second-judge diagnostic fields per element (only for deployments that use two judges) even when not authenticated. Only takes effect when this deployment's own debug_second_judge_fields_enabled is also set -- a caller cannot turn this on for a deployment that hasn't opted in. An authenticated caller (Supabase session or org API key) always gets these fields regardless of this flag or the deployment gate.",
               "title": "Debug Second Judge",
               "type": "boolean"
             }
