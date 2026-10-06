@@ -72,3 +72,6 @@ image behaviour too. The items below are scripts and CI and do not ship in the i
   its 422, and the product Worker may refuse POSTs under its write block. (#288)
 - **Scheduled whole-tree guard audit** with an alert that fails closed. (#88)
 - **Fail-closed Hugging Face revision verifier** for the house judge. (#117)
+- **CI guard for private data in fixtures:** rejects recorded-looking ids, emails, home paths and account fields in test fixtures. (#219)
+- **Commit identity checks:** an identity allowlist for the commit hook (author and committer), a pre-push guard, and an
+  identity-neutral `make init` (#188); a push-time identity check for all new commits (#224).
