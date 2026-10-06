@@ -8,12 +8,15 @@ a client generated from `/openapi.json` must know the shape of a verdict without
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
+from pravrudhi.api.errors import CHECKER_UNAVAILABLE, REGISTRY_CHECKER_UNAVAILABLE, coded_503
 from pravrudhi.api.identity import CurrentUserDep, User
 from pravrudhi.api.workspace_root import RootError, root_for
 from pravrudhi.application import nyaya, panel
@@ -253,7 +256,7 @@ def build_nyaya_router(root: Path, ask_fn: panel.AskFn | None = None) -> APIRout
     @router.post("/audit", response_model=NyayaAudit, response_model_by_alias=True)
     def audit_ep(
         req: AuditRequest, workspace: str | None = None, user: User | None = CurrentUserDep
-    ) -> dict[str, Any]:
+    ) -> dict[str, Any] | JSONResponse:
         if not req.answer.strip():
             raise HTTPException(422, "nothing to audit")
         project, store = _session(user, workspace)
@@ -264,8 +267,9 @@ def build_nyaya_router(root: Path, ask_fn: panel.AskFn | None = None) -> APIRout
             )
         except (KeyError, ValueError) as e:
             raise HTTPException(422, str(e)) from e
-        except RuntimeError as e:
-            raise HTTPException(503, f"checker unavailable: {e}") from e
+        except RuntimeError:
+            logging.getLogger(__name__).warning("checker unavailable", exc_info=True)  # server-side only (#318)
+            return coded_503(CHECKER_UNAVAILABLE)
 
     @router.get("/registry/contracts", response_model=NyayaRegistryContractsResponse)
     def registry_contracts_ep(user: User | None = CurrentUserDep) -> dict[str, Any]:
@@ -275,20 +279,21 @@ def build_nyaya_router(root: Path, ask_fn: panel.AskFn | None = None) -> APIRout
     @router.get("/registry/{contract_id}/elements", response_model=NyayaRegistryElementsResponse)
     def registry_elements_ep(
         contract_id: str, workspace: str | None = None, user: User | None = CurrentUserDep
-    ) -> dict[str, Any]:
+    ) -> dict[str, Any] | JSONResponse:
         project, _store = _session(user, workspace)
         try:
             elements = nyaya.registry_elements(project, contract_id)
         except (KeyError, ValueError) as e:
             raise HTTPException(422, str(e)) from e
-        except RuntimeError as e:
-            raise HTTPException(503, f"registry checker unavailable: {e}") from e
+        except RuntimeError:
+            logging.getLogger(__name__).warning("registry checker unavailable", exc_info=True)  # server-side only (#318)
+            return coded_503(REGISTRY_CHECKER_UNAVAILABLE)
         return {"contract_id": contract_id, "elements": elements}
 
     @router.post("/registry/check", response_model=NyayaRegistryCheckResponse)
     def registry_check_ep(
         req: NyayaRegistryCheckRequest, workspace: str | None = None, user: User | None = CurrentUserDep
-    ) -> dict[str, Any]:
+    ) -> dict[str, Any] | JSONResponse:
         if not req.assertions:
             raise HTTPException(422, "at least one element assertion is required")
         project, _store = _session(user, workspace)
@@ -298,7 +303,8 @@ def build_nyaya_router(root: Path, ask_fn: panel.AskFn | None = None) -> APIRout
             )
         except (KeyError, ValueError) as e:
             raise HTTPException(422, str(e)) from e
-        except RuntimeError as e:
-            raise HTTPException(503, f"registry checker unavailable: {e}") from e
+        except RuntimeError:
+            logging.getLogger(__name__).warning("registry checker unavailable", exc_info=True)  # server-side only (#318)
+            return coded_503(REGISTRY_CHECKER_UNAVAILABLE)
 
     return router

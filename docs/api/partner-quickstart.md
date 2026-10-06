@@ -129,7 +129,7 @@ opening time:
 | 422 | input refused (no non-empty fact, a fact over 4000 characters, unknown contract) | `{"detail": "..."}` |
 | 404 | jobs only: no such job for this key | `{"detail": "no such job"}` |
 | 429 | over the rate limit; wait `Retry-After` seconds. On `POST /analyse-facts/jobs` it means too many unfinished jobs for this key | `{"detail": "rate limit exceeded"}` or `{"detail": "too many unfinished jobs for this key"}` |
-| 503 | `outside_service_window`, `judges_offline` (the judges are switched off: no worker and nothing queued, so nothing was queued by this call; try later. An idle scale-from-zero endpoint reads the same, so this is only returned while the judges are deliberately parked), `judge_unavailable` (optionally `reason: judges_warming` with `retry_after_s`), `service_config_missing`, or the agent at capacity | see below |
+| 503 | `outside_service_window`, `judges_offline` (the judges are switched off: no worker and nothing queued, so nothing was queued by this call; try later. An idle scale-from-zero endpoint reads the same, so this is only returned while the judges are deliberately parked), `judge_unavailable` (optionally `reason: judges_warming` with `retry_after_s`), `service_config_missing`, `agent_at_capacity` (the agent is at its concurrency cap; retry shortly) or `agent_unavailable` (the agent could not start: configuration or a missing binary; retry later). Every 503 body is `{"error": <code>, "detail": <fixed message>}`; the underlying exception text is never returned, and a failed async job stores the same code | see below |
 
 ```json example:invalid-key
 {

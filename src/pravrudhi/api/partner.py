@@ -69,6 +69,7 @@ from pydantic import BaseModel, Field
 from starlette.responses import JSONResponse
 
 from pravrudhi import __version__
+from pravrudhi.api.errors import AGENT_AT_CAPACITY, AGENT_UNAVAILABLE, coded_503
 from pravrudhi.api.identity import CurrentUserDep, User
 from pravrudhi.application import audit, tenancy
 from pravrudhi.application import nyaya_lean_registry as reg
@@ -1088,7 +1089,7 @@ def build_partner_router(
     def _run(req: AnalyseFactsRequest, admitted: _Admitted, debug_second_judge: bool) -> dict[str, Any] | JSONResponse:
         cfg, concurrency, authenticated = admitted.cfg, admitted.concurrency, admitted.authenticated
         if not concurrency.acquire():
-            raise HTTPException(503, "the nyaya agent is at capacity; retry shortly")
+            return coded_503(AGENT_AT_CAPACITY)
         try:
             agent = factory(engine_root)
             # client_data=True is already this call's default, made explicit here (issue #39): this is a
@@ -1105,12 +1106,9 @@ def build_partner_router(
             raise HTTPException(422, str(e)) from e
         except reg.UnknownContractError as e:
             raise HTTPException(422, str(e)) from e
-        except JudgeMisconfigured as e:
-            raise HTTPException(503, f"nyaya agent unavailable: {e}") from e
-        except BinaryShaMismatch as e:
-            raise HTTPException(503, f"nyaya agent unavailable: {e}") from e
-        except (FileNotFoundError, OSError) as e:
-            raise HTTPException(503, f"nyaya agent unavailable: {e}") from e
+        except (JudgeMisconfigured, BinaryShaMismatch, OSError):  # FileNotFoundError is an OSError
+            _logger.warning("nyaya agent unavailable", exc_info=True)  # the exception is logged server-side only (#318)
+            return coded_503(AGENT_UNAVAILABLE)
         finally:
             concurrency.release()
         # R1, 2026-09-25: a PRIMARY judge that is unreachable from boot (model resolution or a connection

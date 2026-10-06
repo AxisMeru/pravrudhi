@@ -481,7 +481,7 @@ def test_judge_misconfigured_still_503_unchanged(tmp_path: Path) -> None:
     app.include_router(build_partner_router(tmp_path, agent_factory=lambda _root: agent, config=_NO_LIMIT_CONFIG))
     resp = TestClient(app).post("/api/v1/analyse-facts", json=_req())
     assert resp.status_code == 503
-    assert resp.json()["detail"].startswith("nyaya agent unavailable:")  # existing JudgeMisconfigured mapping, untouched
+    assert resp.json()["error"] == "agent_unavailable"  # #318: a stable code and a fixed message, no exception text
 
 
 _REAL_SCORE_BIN = Path(os.environ.get("PRABHASA_NYAYA_SCORE_BIN", "prabhasa-nyaya-score-not-configured"))
