@@ -183,14 +183,20 @@ def test_a_websocket_is_gated_not_just_the_header_path(engine: Path, monkeypatch
 
 
 @pytest.mark.parametrize("path", ["/openapi.json", "/docs", "/redoc"])
-def test_the_schema_and_docs_pages_are_the_operators_on_studio(engine: Path, monkeypatch: pytest.MonkeyPatch, path: str) -> None:
+def test_the_schema_and_docs_pages_are_the_operators_in_every_edition(
+    engine: Path, monkeypatch: pytest.MonkeyPatch, path: str
+) -> None:
     _studio(monkeypatch, loopback=False)
     c = _client(engine)
     assert c.get(path).status_code == 401
     assert c.get(path, headers={"Authorization": "Bearer plain-token"}).status_code == 403
     assert c.get(path, headers={"Authorization": "Bearer admin-token"}).status_code == 200
-    monkeypatch.setenv("PRAVRUDHI_EDITION", "product")  # the product keeps serving its schema
-    assert _client(engine).get(path).status_code == 200
+    # The product used to keep serving its schema to anyone; the legal MVP closes it (#525 mode B, checklist C11).
+    monkeypatch.setenv("PRAVRUDHI_EDITION", "product")
+    c = _client(engine)
+    assert c.get(path).status_code == 401
+    assert c.get(path, headers={"Authorization": "Bearer plain-token"}).status_code == 403
+    assert c.get(path, headers={"Authorization": "Bearer admin-token"}).status_code == 200
 
 
 @pytest.mark.parametrize("edition", ["Studio-ish", "prod", "staging"])

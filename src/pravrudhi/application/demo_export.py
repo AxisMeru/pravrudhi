@@ -612,6 +612,18 @@ DROP_MARKERS: tuple[str, ...] = (
     "cross-session", "cross session", "cc-socks", "uds:",
     "-on-seat", "lead-2", "sendmessage", "idle notice", "goal-context", "remote control", "claude.md",
 )
+#: Team vocabulary that is a PATTERN rather than a substring (#563, R1's counts on the public copies: 51 "seat N", 92
+#: "Track A/B/C", 13 "colab", 562 operator rows): a seat or track label, a Colab account, an operator's directive. A string
+#: value that matches one is dropped whole, and a snapshot that still matches one is refused. "Track" is case-sensitive so
+#: ordinary prose ("to track a candidate") is not caught (the space-separated form must be capitalised; the joined and
+#: hyphenated forms are caught in any case, as no ordinary word looks like them); the others are not ambiguous.
+DROP_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"\bseat[ -]?\d\b", re.IGNORECASE),
+    re.compile(r"\b(?:Track|TRACK)[ -]?[ABC]\b"),  # "Track A", "TrackA", "TRACK B", "Track-C"
+    re.compile(r"\btrack[-_]?[abc]\b", re.IGNORECASE),  # the joined and hyphenated forms: "tracka", "track-a", "TRACK_B"
+    re.compile(r"\bcolab\b", re.IGNORECASE),
+    re.compile(r"\boperator(?:'s|\u2019s)?[ -](?:directive|instruction|decision|ask|go|memo)\b", re.IGNORECASE),
+)
 #: What replaces a string value that mentions one of the markers above.
 INTERNAL_TEXT_MARKER = "<redacted:internal-text>"
 #: A seat or account name (`sharath.sathish`, `sharath.ai.colab`). The public handle `sharathsphd` is not matched.
@@ -731,7 +743,8 @@ def redact_for_demo(text: str) -> str:
 def _drop_marked(value: Any) -> Any:
     if isinstance(value, str):
         low = value.casefold()
-        return INTERNAL_TEXT_MARKER if any(m in low for m in DROP_MARKERS) else value
+        marked = any(m in low for m in DROP_MARKERS) or any(p.search(value) for p in DROP_PATTERNS)
+        return INTERNAL_TEXT_MARKER if marked else value
     if isinstance(value, dict):
         return {k: _drop_marked(v) for k, v in value.items()}
     if isinstance(value, list):
@@ -746,6 +759,22 @@ def drop_internal_text(text: str) -> str:
     return json.dumps(_drop_marked(json.loads(text)), indent=2, sort_keys=True, default=str) + "\n"
 
 
+#: The ONLY top-level sections of the public demo file (#563, Lead-2's decision of 6 Oct): the product edition's recorded
+#: shapes, which is what the product app's `DemoBundle` reads. Everything else `build_demo` assembles (Studio's own
+#: candidates, observations, swarm, heartbeat, requests, fleet, health, update, inbox, appetite, parity, diffs, search,
+#: agent trace, the product install's state, capabilities) is Pravrudhi improving itself and does not leave this machine.
+#: An allowlist, not a denylist: a section added to `build_demo` later stays private until someone lists it here.
+PUBLIC_DEMO_SECTIONS: frozenset[str] = frozenset({
+    "recorded", "version", "engine", "status", "models", "external", "nights", "runs", "featured_run",
+    "objectives", "recipes", "plans",
+})
+
+
+def public_view(bundle: dict[str, Any]) -> dict[str, Any]:
+    """The bundle reduced to `PUBLIC_DEMO_SECTIONS`, in the bundle's own key order."""
+    return {k: v for k, v in bundle.items() if k in PUBLIC_DEMO_SECTIONS}
+
+
 def demo_pipeline(text: str) -> str:
     """Everything `write_demo` does to the serialised snapshot before its checks: drop team-chatter strings, then
     redact the rest."""
@@ -755,11 +784,15 @@ def demo_pipeline(text: str) -> str:
 def private_markers_left(text: str) -> list[str]:
     """Every marker still present, compared case-insensitively."""
     low = text.casefold()
-    return [m for m in PRIVATE_MARKERS if m.casefold() in low] + [p.pattern for p in PRIVATE_PATTERNS if p.search(text)]
+    return (
+        [m for m in PRIVATE_MARKERS if m.casefold() in low]
+        + [p.pattern for p in PRIVATE_PATTERNS if p.search(text)]
+        + [p.pattern for p in DROP_PATTERNS if p.search(text)]
+    )
 
 
 def write_demo(root: Path, dest: Path) -> Path:
-    text = demo_pipeline(json.dumps(build_demo(root), indent=2, sort_keys=True, default=str) + "\n")
+    text = demo_pipeline(json.dumps(public_view(build_demo(root)), indent=2, sort_keys=True, default=str) + "\n")
     try:
         json.loads(text)
     except ValueError as e:  # a substitution that breaks an escape must never be published as a "redacted" snapshot
