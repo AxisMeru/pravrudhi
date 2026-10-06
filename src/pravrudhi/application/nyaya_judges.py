@@ -171,9 +171,17 @@ class ElementJudgment:
     #: `"span_relevance_unavailable: <exception>"` when the check was asked and errored (fail closed: the
     #: element is NOT established). None whenever the check answered or was never asked.
     span_relevance_skip_reason: str | None = None
+    #: Accused-attribution check (`nyaya_attribution.AccusedAttributionJudge`, default OFF): the check's result dict
+    #: (`passed`, `reason`, actor span/offsets, candidates), else None. Never changes `status`; a refusal is read by the agent
+    #: and becomes REFER_TO_LAWYER. Appended last; `as_dict` omits it while it is None, so records are unchanged with the flag
+    #: off.
+    attribution: dict[str, Any] | None = None
 
     def as_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        d = asdict(self)
+        if d.get("attribution") is None:
+            d.pop("attribution", None)
+        return d
 
 
 class Judge(Protocol):

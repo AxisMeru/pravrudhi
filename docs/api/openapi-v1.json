@@ -1,8 +1,59 @@
 {
   "components": {
     "schemas": {
+      "AccusedIn": {
+        "description": "The person whose liability is analysed, as the facts name them (optional; used only by the accused-attribution check).",
+        "properties": {
+          "aliases": {
+            "description": "The spellings the facts use for this person, e.g. \"Accused No.2\", \"A2\", \"Petitioner No.2\", a name.",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20,
+            "minItems": 1,
+            "title": "Aliases",
+            "type": "array"
+          },
+          "id": {
+            "description": "Your own label for this person, used for audit only.",
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Id",
+            "type": "string"
+          },
+          "other_parties": {
+            "description": "Alias groups of the other named parties (co-accused, the husband, ...), one list per person.",
+            "items": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "maxItems": 20,
+            "title": "Other Parties",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "aliases"
+        ],
+        "title": "AccusedIn",
+        "type": "object"
+      },
       "AnalyseFactsRequest": {
         "properties": {
+          "accused": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AccusedIn"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The person whose liability is analysed (optional, additive). When the deployment has the accused-attribution check on and a contract element requires a specific act by that person, omitting it makes that contract REFER_TO_LAWYER with reason `accused_not_specified`; supplying it lets the check compare who performed the quoted act. No effect while the check is off (the default)."
+          },
           "contract_ids": {
             "items": {
               "type": "string"
@@ -435,6 +486,7 @@
             "type": "string"
           },
           "reason": {
+            "description": "Why this outcome. Additive (new values only, none renamed): `accused_not_specified`, `accused_attribution_unresolved`, `accused_attribution_not_matched`, `accused_attribution_collective` and `accused_attribution_config_unmatched` appear only when the deployment has the accused-attribution check on (default off), always with outcome REFER_TO_LAWYER: a refusal to prove, never a denial. Clients with a strict enum should accept them.",
             "enum": [
               "all_elements_established",
               "denial_established",
@@ -450,7 +502,12 @@
               "gate1_unavailable",
               "gate1_not_entailed",
               "gate1_contradiction",
-              "contract_not_validated"
+              "contract_not_validated",
+              "accused_not_specified",
+              "accused_attribution_unresolved",
+              "accused_attribution_not_matched",
+              "accused_attribution_collective",
+              "accused_attribution_config_unmatched"
             ],
             "title": "Reason",
             "type": "string"

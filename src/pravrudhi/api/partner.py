@@ -82,6 +82,7 @@ from pravrudhi.application.nyaya_agent import (
     NyayaAgent,
     Outcome,
 )
+from pravrudhi.application.nyaya_attribution import MAX_ALIASES, AccusedRef
 from pravrudhi.application.nyaya_judges import SecondJudgeCircuitBreaker
 from pravrudhi.application.service_window import ServiceWindow
 from pravrudhi.application.statute_citations import contract_citations
@@ -302,6 +303,7 @@ class AgentLike(Protocol):
         sections: list[str] | None = None,
         client_data: bool = True,
         proceeding_posture: str | None = None,
+        accused: AccusedRef | None = None,
     ) -> Any: ...
 
 
@@ -310,6 +312,29 @@ class _Admitted:
     cfg: PartnerApiConfig
     concurrency: ConcurrencyLimiter
     authenticated: bool
+
+
+class AccusedIn(BaseModel):
+    """The person whose liability is analysed, as the facts name them (optional; used only by the accused-attribution check)."""
+
+    id: str = Field(min_length=1, max_length=80, description="Your own label for this person, used for audit only.")
+    aliases: list[str] = Field(
+        min_length=1,
+        max_length=MAX_ALIASES,
+        description='The spellings the facts use for this person, e.g. "Accused No.2", "A2", "Petitioner No.2", a name.',
+    )
+    other_parties: list[list[str]] = Field(
+        default_factory=list,
+        max_length=MAX_ALIASES,
+        description="Alias groups of the other named parties (co-accused, the husband, ...), one list per person.",
+    )
+
+    def to_ref(self) -> AccusedRef:
+        return AccusedRef(
+            id=self.id,
+            aliases=tuple(self.aliases),
+            other_parties=tuple(tuple(g) for g in self.other_parties),
+        )
 
 
 class AnalyseFactsRequest(BaseModel):
@@ -330,6 +355,15 @@ class AnalyseFactsRequest(BaseModel):
             "Stage of the proceeding: quash/discharge judge whether the record prima facie discloses each element; "
             "trial/appeal judge whether the evidence proves it. Omit for the stricter default (proved). "
             "No effect unless the engine runs a standard-aware prompt template."
+        ),
+    )
+    accused: AccusedIn | None = Field(
+        default=None,
+        description=(
+            "The person whose liability is analysed (optional, additive). When the deployment has the accused-attribution "
+            "check on and a contract element requires a specific act by that person, omitting it makes that contract "
+            "REFER_TO_LAWYER with reason `accused_not_specified`; supplying it lets the check compare who performed the "
+            "quoted act. No effect while the check is off (the default)."
         ),
     )
 
@@ -410,7 +444,15 @@ class CitationOut(BaseModel):
 class ContractResultOut(BaseModel):
     contract_id: str
     outcome: Outcome
-    reason: ContractReason
+    reason: ContractReason = Field(
+        description=(
+            "Why this outcome. Additive (new values only, none renamed): `accused_not_specified`, "
+            "`accused_attribution_unresolved`, `accused_attribution_not_matched`, `accused_attribution_collective` and "
+            "`accused_attribution_config_unmatched` appear only when the deployment has the accused-attribution check on "
+            "(default off), always with outcome REFER_TO_LAWYER: a refusal to prove, never a denial. Clients with a strict "
+            "enum should accept them."
+        )
+    )
     elements: list[ElementResultOut]
     assertions: dict[str, bool] | None
     lean: dict[str, Any] | None
@@ -988,10 +1030,14 @@ def build_partner_router(
             # anonymous-submission case the retention/training-corpus guard exists for -- a reader should
             # never have to check NyayaAgent.run's own default to know that.
             # Passed only when stated, so an agent that predates the argument keeps working unchanged.
-            posture = {"proceeding_posture": req.proceeding_posture} if req.proceeding_posture is not None else {}
+            extra: dict[str, Any] = {}
+            if req.proceeding_posture is not None:
+                extra["proceeding_posture"] = req.proceeding_posture
+            if req.accused is not None:
+                extra["accused"] = req.accused.to_ref()
             result = agent.run(
                 req.facts, narrative=req.narrative, contract_ids=req.contract_ids, sections=req.sections,
-                client_data=True, **posture,
+                client_data=True, **extra,
             )
         except ValueError as e:
             raise HTTPException(422, str(e)) from e

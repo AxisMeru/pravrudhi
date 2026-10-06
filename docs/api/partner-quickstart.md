@@ -63,6 +63,15 @@ Enumerations in the schema:
 * contract `reason`: see the `Reason` enum in the OpenAPI file. A `REFER_TO_LAWYER` or `ABSTAIN` is a refusal
   to give a verdict, not a finding about the law.
 
+### Additive changes
+
+* 5 Oct 2026: optional request field `accused` (`id`, `aliases`, optional `other_parties`) names the person whose
+  liability is analysed. It has no effect while the deployment's accused-attribution check is off (the default).
+  Five new contract `reason` values are added, always with outcome `REFER_TO_LAWYER`, and only when that check is on:
+  `accused_not_specified`, `accused_attribution_unresolved`, `accused_attribution_not_matched`,
+  `accused_attribution_collective`, `accused_attribution_config_unmatched`. Clients with a strict enum should
+  accept them. Nothing was renamed or removed.
+
 ## 3. Status and the offline window
 
 `GET /api/v1/status` needs no key and reports the engine version, the service window (when one is configured)

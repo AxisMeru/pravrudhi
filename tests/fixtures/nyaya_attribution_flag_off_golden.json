@@ -1,0 +1,2526 @@
+{
+ "abstain": {
+  "audit": [
+   {
+    "inputs_sha256": "a839baf1e3ffc8cf58602c5259fb20ca80fc93b9f27f699c7ee251f551dbe6d1",
+    "output": {
+     "client_data": true,
+     "engine_version": "0.5.41",
+     "judge": "scripted",
+     "max_retries": 2,
+     "primary_judge_host_class": null,
+     "primary_judge_model": null,
+     "proceeding_posture": null,
+     "refer_band": [
+      0.5,
+      0.74
+     ],
+     "score_sha256": "scripted",
+     "second_judge_host_class": null,
+     "second_judge_model": null,
+     "second_refer_logit_delta": null,
+     "standard": "proved",
+     "standard_in_judge_prompt": false,
+     "standard_source": "default_proved",
+     "tau": 0.74
+    },
+    "seq": 0,
+    "step": "run_start"
+   },
+   {
+    "inputs_sha256": "60400834b59ab1c90c06b9b6f625e1030fd147c635b9d7a62396509095d55a4c",
+    "output": {
+     "facts": [
+      {
+       "id": "F1",
+       "sha256": "8e743e2d6cd46f687330e2805871e598b100025b4ec12d43780aa49974ded7d2"
+      },
+      {
+       "id": "F2",
+       "sha256": "109a38242b56112cdc566d640c95c1772bc952ee41c02c297f6fca1aaa83f0d1"
+      },
+      {
+       "id": "F3",
+       "sha256": "1c0bf6a1496850168787b099735a0d351f85c70acebcadd2b9538acd9adcb106"
+      }
+     ],
+     "narrative_sha256": "aed4aacb4d2fe3d68403ef44ed26bbb9de959afb7eea69f7b6b7f90c752dd915"
+    },
+    "seq": 1,
+    "step": "ingest"
+   },
+   {
+    "inputs_sha256": "7cea49355c0740c409204f0c2fb68a904626dcc6366a17158a7072b18637ecb2",
+    "output": {
+     "selected": [
+      "bns85"
+     ]
+    },
+    "seq": 2,
+    "step": "select_contracts"
+   },
+   {
+    "inputs_sha256": "3a0cfc7efad7ddfb516bc2d890f74a33254d63112ff2273b2e6a49bc2e3285ec",
+    "output": {
+     "contract_id": "bns85",
+     "denials": [],
+     "elements": [
+      "the accused is the husband, or a relative of the husband, of the woman",
+      "subjects the woman to cruelty (s.86(a) or (b))",
+      "the facts attribute specific acts to this accused, not only a general or omnibus allegation"
+     ]
+    },
+    "seq": 3,
+    "step": "describe"
+   },
+   {
+    "inputs_sha256": "3a0cfc7efad7ddfb516bc2d890f74a33254d63112ff2273b2e6a49bc2e3285ec",
+    "output": {
+     "contract_id": "bns85",
+     "judge_statute_sha256": "0c7284dfe5c8603bc2f52904c1b2eda6c91fb2c2291c237dba3da40105b6eec3",
+     "judge_statute_source": "config",
+     "official_statute_sha256": "197b25cedd34d412009bbf55f9e2aafc4b1f8ba737605825d97c2cc0b9001217",
+     "statute_text_mismatch": true,
+     "statute_text_similarity": 0.825
+    },
+    "seq": 4,
+    "step": "statute"
+   },
+   {
+    "inputs_sha256": "8acd52fd0795cfd9ed78bd490cafcd3e43be32e0376ef1b4684375b625e70f8d",
+    "output": {
+     "attempt": 1,
+     "contract_id": "bns85",
+     "element": "the accused is the husband, or a relative of the husband, of the woman",
+     "judge": "scripted",
+     "judgment": {
+      "backend_used": null,
+      "backend_used_second": null,
+      "bound_undetermined": false,
+      "clamp": "none",
+      "defeater_second_disagreement": false,
+      "fact_id": "F1",
+      "fact_id_disagreement": false,
+      "gate1_disjuncts": null,
+      "gate1_score": null,
+      "gate1_skip_reason": null,
+      "gate1_veto_kind": null,
+      "p_established": 0.97,
+      "p_established_second": null,
+      "quote": "the husband of Nila",
+      "quote_source": "model",
+      "raw": "",
+      "second_fact_id": null,
+      "second_judge": null,
+      "second_skip_reason": null,
+      "second_skipped": false,
+      "second_status": null,
+      "span_relevance_p": null,
+      "span_relevance_skip_reason": null,
+      "status": "established",
+      "tau_primary": null,
+      "tau_second": null,
+      "vetoed_by": null
+     },
+     "statute_source": "config",
+     "uses": "status_and_quote"
+    },
+    "seq": 5,
+    "step": "judge"
+   },
+   {
+    "inputs_sha256": "883991d52eae0225a3546109c5945718297b46d4bf9884a0039fd83c2405199b",
+    "output": {
+     "attempt": 1,
+     "contract_id": "bns85",
+     "element": "the accused is the husband, or a relative of the husband, of the woman",
+     "end": 31,
+     "occurrences": 1,
+     "offsets_source": "system",
+     "quote_source": "model",
+     "reason": "ok",
+     "start": 12,
+     "valid": true
+    },
+    "seq": 6,
+    "step": "quote_check"
+   },
+   {
+    "inputs_sha256": "ccdaa8528743412c439ab953aed5cf7b875dffdcb2d6858d08eb3312791023b1",
+    "output": {
+     "attempt": 1,
+     "contract_id": "bns85",
+     "element": "subjects the woman to cruelty (s.86(a) or (b))",
+     "judge": "scripted",
+     "judgment": {
+      "backend_used": null,
+      "backend_used_second": null,
+      "bound_undetermined": false,
+      "clamp": "none",
+      "defeater_second_disagreement": false,
+      "fact_id": "F2",
+      "fact_id_disagreement": false,
+      "gate1_disjuncts": null,
+      "gate1_score": null,
+      "gate1_skip_reason": null,
+      "gate1_veto_kind": null,
+      "p_established": 0.97,
+      "p_established_second": null,
+      "quote": "beat Nila on several evenings",
+      "quote_source": "model",
+      "raw": "",
+      "second_fact_id": null,
+      "second_judge": null,
+      "second_skip_reason": null,
+      "second_skipped": false,
+      "second_status": null,
+      "span_relevance_p": null,
+      "span_relevance_skip_reason": null,
+      "status": "established",
+      "tau_primary": null,
+      "tau_second": null,
+      "vetoed_by": null
+     },
+     "statute_source": "config",
+     "uses": "status_and_quote"
+    },
+    "seq": 7,
+    "step": "judge"
+   },
+   {
+    "inputs_sha256": "25df623f4ce96bec8bbc41a998f546436017185a569ecd946bfd57287fa5f0a5",
+    "output": {
+     "attempt": 1,
+     "contract_id": "bns85",
+     "element": "subjects the woman to cruelty (s.86(a) or (b))",
+     "end": 38,
+     "occurrences": 1,
+     "offsets_source": "system",
+     "quote_source": "model",
+     "reason": "ok",
+     "start": 9,
+     "valid": true
+    },
+    "seq": 8,
+    "step": "quote_check"
+   },
+   {
+    "inputs_sha256": "8c616e83212e4be618df584a24c4a039ecc8d0ce1caf8f34c5135079bc06fb34",
+    "output": {
+     "attempt": 1,
+     "contract_id": "bns85",
+     "element": "the facts attribute specific acts to this accused, not only a general or omnibus allegation",
+     "judge": "scripted",
+     "judgment": {
+      "backend_used": null,
+      "backend_used_second": null,
+      "bound_undetermined": false,
+      "clamp": "none",
+      "defeater_second_disagreement": false,
+      "fact_id": null,
+      "fact_id_disagreement": false,
+      "gate1_disjuncts": null,
+      "gate1_score": null,
+      "gate1_skip_reason": null,
+      "gate1_veto_kind": null,
+      "p_established": 0.03,
+      "p_established_second": null,
+      "quote": null,
+      "quote_source": null,
+      "raw": "",
+      "second_fact_id": null,
+      "second_judge": null,
+      "second_skip_reason": null,
+      "second_skipped": false,
+      "second_status": null,
+      "span_relevance_p": null,
+      "span_relevance_skip_reason": null,
+      "status": "not_established",
+      "tau_primary": null,
+      "tau_second": null,
+      "vetoed_by": null
+     },
+     "statute_source": "config",
+     "uses": "status_and_quote"
+    },
+    "seq": 9,
+    "step": "judge"
+   },
+   {
+    "inputs_sha256": "eddea0187d4196fe75d43e0d723bd9d54971ac1b9b69068ef557b536251423eb",
+    "output": {
+     "assertions": {
+      "subjects the woman to cruelty (s.86(a) or (b))": true,
+      "the accused is the husband, or a relative of the husband, of the woman": true,
+      "the facts attribute specific acts to this accused, not only a general or omnibus allegation": false
+     },
+     "contract_id": "bns85",
+     "expected_outcome": "ABSTAIN"
+    },
+    "seq": 10,
+    "step": "assemble"
+   },
+   {
+    "inputs_sha256": "e56d6c6d2842fdf69772064a3e289c5929c090c352e84380ba346021e9be06be",
+    "output": {
+     "contract_id": "bns85",
+     "denied_claims": [],
+     "omitted_claims": [
+      "the facts attribute specific acts to this accused, not only a general or omnibus allegation"
+     ],
+     "unlicensed_claims": [],
+     "verdict": "flagged"
+    },
+    "seq": 11,
+    "step": "lean_check"
+   },
+   {
+    "inputs_sha256": "eddea0187d4196fe75d43e0d723bd9d54971ac1b9b69068ef557b536251423eb",
+    "output": {
+     "contract_id": "bns85",
+     "element_stages": {
+      "the facts attribute specific acts to this accused, not only a general or omnibus allegation": "not_established:primary"
+     },
+     "elements": [
+      {
+       "attempts": 1,
+       "binding_leg": null,
+       "bound_undetermined": false,
+       "claimed": true,
+       "clamp": "none",
+       "defeater_second_disagreement": false,
+       "element": "the accused is the husband, or a relative of the husband, of the woman",
+       "end": 31,
+       "error": null,
+       "fact_id": "F1",
+       "fact_id_disagreement": false,
+       "gate1_contradiction": false,
+       "gate1_disjuncts": null,
+       "gate1_not_entailed": false,
+       "gate1_score": null,
+       "gate1_unavailable": false,
+       "is_denial": false,
+       "occurrences": 1,
+       "offsets_source": "system",
+       "p_established": 0.97,
+       "p_established_second": null,
+       "quote": "the husband of Nila",
+       "quote_check": "ok",
+       "quote_source": "model",
+       "second_fact_id": null,
+       "second_logit_distance": null,
+       "second_refer_band_fired": false,
+       "second_skip_reason": null,
+       "second_unavailable": false,
+       "start": 12,
+       "status": "established",
+       "tau_second": null
+      },
+      {
+       "attempts": 1,
+       "binding_leg": null,
+       "bound_undetermined": false,
+       "claimed": true,
+       "clamp": "none",
+       "defeater_second_disagreement": false,
+       "element": "subjects the woman to cruelty (s.86(a) or (b))",
+       "end": 38,
+       "error": null,
+       "fact_id": "F2",
+       "fact_id_disagreement": false,
+       "gate1_contradiction": false,
+       "gate1_disjuncts": null,
+       "gate1_not_entailed": false,
+       "gate1_score": null,
+       "gate1_unavailable": false,
+       "is_denial": false,
+       "occurrences": 1,
+       "offsets_source": "system",
+       "p_established": 0.97,
+       "p_established_second": null,
+       "quote": "beat Nila on several evenings",
+       "quote_check": "ok",
+       "quote_source": "model",
+       "second_fact_id": null,
+       "second_logit_distance": null,
+       "second_refer_band_fired": false,
+       "second_skip_reason": null,
+       "second_unavailable": false,
+       "start": 9,
+       "status": "established",
+       "tau_second": null
+      },
+      {
+       "attempts": 1,
+       "binding_leg": "primary",
+       "bound_undetermined": false,
+       "claimed": false,
+       "clamp": "none",
+       "defeater_second_disagreement": false,
+       "element": "the facts attribute specific acts to this accused, not only a general or omnibus allegation",
+       "end": null,
+       "error": null,
+       "fact_id": null,
+       "fact_id_disagreement": false,
+       "gate1_contradiction": false,
+       "gate1_disjuncts": null,
+       "gate1_not_entailed": false,
+       "gate1_score": null,
+       "gate1_unavailable": false,
+       "is_denial": false,
+       "occurrences": 0,
+       "offsets_source": null,
+       "p_established": 0.03,
+       "p_established_second": null,
+       "quote": null,
+       "quote_check": null,
+       "quote_source": null,
+       "second_fact_id": null,
+       "second_logit_distance": null,
+       "second_refer_band_fired": false,
+       "second_skip_reason": null,
+       "second_unavailable": false,
+       "start": null,
+       "status": "not_established",
+       "tau_second": null
+      }
+     ],
+     "gate1_contradiction": [],
+     "gate1_failed": [],
+     "gate1_unavailable": [],
+     "lean_outcome": "ABSTAIN",
+     "outcome": "ABSTAIN",
+     "reason": "missing_element",
+     "statute_text_mismatch": true,
+     "statute_text_similarity": 0.825,
+     "unavailable_second": [],
+     "uncertain": [],
+     "uncertain_second": []
+    },
+    "seq": 12,
+    "step": "outcome"
+   },
+   {
+    "output": {
+     "backend_used_counts": {},
+     "backend_used_second_counts": {},
+     "judge_calls_primary": 3,
+     "judge_calls_second": 0
+    },
+    "seq": 13,
+    "step": "judge_accounting"
+   },
+   {
+    "output": {
+     "bns85": "ABSTAIN"
+    },
+    "seq": 14,
+    "step": "run_end"
+   }
+  ],
+  "run": {
+   "client_data": true,
+   "contracts": [
+    {
+     "assertions": {
+      "subjects the woman to cruelty (s.86(a) or (b))": true,
+      "the accused is the husband, or a relative of the husband, of the woman": true,
+      "the facts attribute specific acts to this accused, not only a general or omnibus allegation": false
+     },
+     "contract_id": "bns85",
+     "element_stages": {
+      "the facts attribute specific acts to this accused, not only a general or omnibus allegation": "not_established:primary"
+     },
+     "elements": [
+      {
+       "attempts": 1,
+       "binding_leg": null,
+       "bound_undetermined": false,
+       "claimed": true,
+       "clamp": "none",
+       "defeater_second_disagreement": false,
+       "element": "the accused is the husband, or a relative of the husband, of the woman",
+       "end": 31,
+       "error": null,
+       "fact_id": "F1",
+       "fact_id_disagreement": false,
+       "gate1_contradiction": false,
+       "gate1_disjuncts": null,
+       "gate1_not_entailed": false,
+       "gate1_score": null,
+       "gate1_unavailable": false,
+       "is_denial": false,
+       "occurrences": 1,
+       "offsets_source": "system",
+       "p_established": 0.97,
+       "p_established_second": null,
+       "quote": "the husband of Nila",
+       "quote_check": "ok",
+       "quote_source": "model",
+       "second_fact_id": null,
+       "second_logit_distance": null,
+       "second_refer_band_fired": false,
+       "second_skip_reason": null,
+       "second_unavailable": false,
+       "start": 12,
+       "status": "established",
+       "tau_second": null
+      },
+      {
+       "attempts": 1,
+       "binding_leg": null,
+       "bound_undetermined": false,
+       "claimed": true,
+       "clamp": "none",
+       "defeater_second_disagreement": false,
+       "element": "subjects the woman to cruelty (s.86(a) or (b))",
+       "end": 38,
+       "error": null,
+       "fact_id": "F2",
+       "fact_id_disagreement": false,
+       "gate1_contradiction": false,
+       "gate1_disjuncts": null,
+       "gate1_not_entailed": false,
+       "gate1_score": null,
+       "gate1_unavailable": false,
+       "is_denial": false,
+       "occurrences": 1,
+       "offsets_source": "system",
+       "p_established": 0.97,
+       "p_established_second": null,
+       "quote": "beat Nila on several evenings",
+       "quote_check": "ok",
+       "quote_source": "model",
+       "second_fact_id": null,
+       "second_logit_distance": null,
+       "second_refer_band_fired": false,
+       "second_skip_reason": null,
+       "second_unavailable": false,
+       "start": 9,
+       "status": "established",
+       "tau_second": null
+      },
+      {
+       "attempts": 1,
+       "binding_leg": "primary",
+       "bound_undetermined": false,
+       "claimed": false,
+       "clamp": "none",
+       "defeater_second_disagreement": false,
+       "element": "the facts attribute specific acts to this accused, not only a general or omnibus allegation",
+       "end": null,
+       "error": null,
+       "fact_id": null,
+       "fact_id_disagreement": false,
+       "gate1_contradiction": false,
+       "gate1_disjuncts": null,
+       "gate1_not_entailed": false,
+       "gate1_score": null,
+       "gate1_unavailable": false,
+       "is_denial": false,
+       "occurrences": 0,
+       "offsets_source": null,
+       "p_established": 0.03,
+       "p_established_second": null,
+       "quote": null,
+       "quote_check": null,
+       "quote_source": null,
+       "second_fact_id": null,
+       "second_logit_distance": null,
+       "second_refer_band_fired": false,
+       "second_skip_reason": null,
+       "second_unavailable": false,
+       "start": null,
+       "status": "not_established",
+       "tau_second": null
+      }
+     ],
+     "gate1_contradiction": [],
+     "gate1_failed": [],
+     "gate1_unavailable": [],
+     "lean": {
+      "denied_claims": [],
+      "omitted_claims": [
+       "the facts attribute specific acts to this accused, not only a general or omnibus allegation"
+      ],
+      "unlicensed_claims": [],
+      "verdict": "flagged"
+     },
+     "lean_attestation": {
+      "binary_sha256": "scripted",
+      "verdict": "flagged",
+      "wire_sha256": "5abc286b750145b79e4f85ef0643255c7983004632851f37ef43a8032e5fee94"
+     },
+     "lean_outcome": "ABSTAIN",
+     "outcome": "ABSTAIN",
+     "reason": "missing_element",
+     "statute_text_mismatch": true,
+     "statute_text_similarity": 0.825,
+     "unavailable_second": [],
+     "uncertain": [],
+     "uncertain_second": []
+    }
+   ],
+   "facts": [
+    {
+     "id": "F1",
+     "sha256": "8e743e2d6cd46f687330e2805871e598b100025b4ec12d43780aa49974ded7d2"
+    },
+    {
+     "id": "F2",
+     "sha256": "109a38242b56112cdc566d640c95c1772bc952ee41c02c297f6fca1aaa83f0d1"
+    },
+    {
+     "id": "F3",
+     "sha256": "1c0bf6a1496850168787b099735a0d351f85c70acebcadd2b9538acd9adcb106"
+    }
+   ],
+   "judge": "scripted",
+   "judge_accounting": {
+    "backend_used_counts": {},
+    "backend_used_second_counts": {},
+    "judge_calls_primary": 3,
+    "judge_calls_second": 0
+   },
+   "provenance": "agama",
+   "retention_notice": "Don't submit real names or case details; anonymous submissions are kept up to 7 days for audit and are never used for training or evaluation.",
+   "score_sha256": "scripted",
+   "standard": {
+    "applied": null,
+    "in_judge_prompt": false,
+    "proceeding_posture": null,
+    "requested": "proved",
+    "source": "default"
+   }
+  }
+ },
+ "bad_quote": {
+  "audit": [
+   {
+    "inputs_sha256": "a839baf1e3ffc8cf58602c5259fb20ca80fc93b9f27f699c7ee251f551dbe6d1",
+    "output": {
+     "client_data": true,
+     "engine_version": "0.5.41",
+     "judge": "scripted",
+     "max_retries": 2,
+     "primary_judge_host_class": null,
+     "primary_judge_model": null,
+     "proceeding_posture": null,
+     "refer_band": [
+      0.5,
+      0.74
+     ],
+     "score_sha256": "scripted",
+     "second_judge_host_class": null,
+     "second_judge_model": null,
+     "second_refer_logit_delta": null,
+     "standard": "proved",
+     "standard_in_judge_prompt": false,
+     "standard_source": "default_proved",
+     "tau": 0.74
+    },
+    "seq": 0,
+    "step": "run_start"
+   },
+   {
+    "inputs_sha256": "60400834b59ab1c90c06b9b6f625e1030fd147c635b9d7a62396509095d55a4c",
+    "output": {
+     "facts": [
+      {
+       "id": "F1",
+       "sha256": "8e743e2d6cd46f687330e2805871e598b100025b4ec12d43780aa49974ded7d2"
+      },
+      {
+       "id": "F2",
+       "sha256": "109a38242b56112cdc566d640c95c1772bc952ee41c02c297f6fca1aaa83f0d1"
+      },
+      {
+       "id": "F3",
+       "sha256": "1c0bf6a1496850168787b099735a0d351f85c70acebcadd2b9538acd9adcb106"
+      }
+     ],
+     "narrative_sha256": "aed4aacb4d2fe3d68403ef44ed26bbb9de959afb7eea69f7b6b7f90c752dd915"
+    },
+    "seq": 1,
+    "step": "ingest"
+   },
+   {
+    "inputs_sha256": "7cea49355c0740c409204f0c2fb68a904626dcc6366a17158a7072b18637ecb2",
+    "output": {
+     "selected": [
+      "bns85"
+     ]
+    },
+    "seq": 2,
+    "step": "select_contracts"
+   },
+   {
+    "inputs_sha256": "3a0cfc7efad7ddfb516bc2d890f74a33254d63112ff2273b2e6a49bc2e3285ec",
+    "output": {
+     "contract_id": "bns85",
+     "denials": [],
+     "elements": [
+      "the accused is the husband, or a relative of the husband, of the woman",
+      "subjects the woman to cruelty (s.86(a) or (b))",
+      "the facts attribute specific acts to this accused, not only a general or omnibus allegation"
+     ]
+    },
+    "seq": 3,
+    "step": "describe"
+   },
+   {
+    "inputs_sha256": "3a0cfc7efad7ddfb516bc2d890f74a33254d63112ff2273b2e6a49bc2e3285ec",
+    "output": {
+     "contract_id": "bns85",
+     "judge_statute_sha256": "0c7284dfe5c8603bc2f52904c1b2eda6c91fb2c2291c237dba3da40105b6eec3",
+     "judge_statute_source": "config",
+     "official_statute_sha256": "197b25cedd34d412009bbf55f9e2aafc4b1f8ba737605825d97c2cc0b9001217",
+     "statute_text_mismatch": true,
+     "statute_text_similarity": 0.825
+    },
+    "seq": 4,
+    "step": "statute"
+   },
+   {
+    "inputs_sha256": "8acd52fd0795cfd9ed78bd490cafcd3e43be32e0376ef1b4684375b625e70f8d",
+    "output": {
+     "attempt": 1,
+     "contract_id": "bns85",
+     "element": "the accused is the husband, or a relative of the husband, of the woman",
+     "judge": "scripted",
+     "judgment": {
+      "backend_used": null,
+      "backend_used_second": null,
+      "bound_undetermined": false,
+      "clamp": "none",
+      "defeater_second_disagreement": false,
+      "fact_id": "F1",
+      "fact_id_disagreement": false,
+      "gate1_disjuncts": null,
+      "gate1_score": null,
+      "gate1_skip_reason": null,
+      "gate1_veto_kind": null,
+      "p_established": 0.97,
+      "p_established_second": null,
+      "quote": "the husband of Nila",
+      "quote_source": "model",
+      "raw": "",
+      "second_fact_id": null,
+      "second_judge": null,
+      "second_skip_reason": null,
+      "second_skipped": false,
+      "second_status": null,
+      "span_relevance_p": null,
+      "span_relevance_skip_reason": null,
+      "status": "established",
+      "tau_primary": null,
+      "tau_second": null,
+      "vetoed_by": null
+     },
+     "statute_source": "config",
+     "uses": "status_and_quote"
+    },
+    "seq": 5,
+    "step": "judge"
+   },
+   {
+    "inputs_sha256": "883991d52eae0225a3546109c5945718297b46d4bf9884a0039fd83c2405199b",
+    "output": {
+     "attempt": 1,
+     "contract_id": "bns85",
+     "element": "the accused is the husband, or a relative of the husband, of the woman",
+     "end": 31,
+     "occurrences": 1,
+     "offsets_source": "system",
+     "quote_source": "model",
+     "reason": "ok",
+     "start": 12,
+     "valid": true
+    },
+    "seq": 6,
+    "step": "quote_check"
+   },
+   {
+    "inputs_sha256": "ccdaa8528743412c439ab953aed5cf7b875dffdcb2d6858d08eb3312791023b1",
+    "output": {
+     "attempt": 1,
+     "contract_id": "bns85",
+     "element": "subjects the woman to cruelty (s.86(a) or (b))",
+     "judge": "scripted",
+     "judgment": {
+      "backend_used": null,
+      "backend_used_second": null,
+      "bound_undetermined": false,
+      "clamp": "none",
+      "defeater_second_disagreement": false,
+      "fact_id": "F2",
+      "fact_id_disagreement": false,
+      "gate1_disjuncts": null,
+      "gate1_score": null,
+      "gate1_skip_reason": null,
+      "gate1_veto_kind": null,
+      "p_established": 0.97,
+      "p_established_second": null,
+      "quote": "beat Nila on several evenings",
+      "quote_source": "model",
+      "raw": "",
+      "second_fact_id": null,
+      "second_judge": null,
+      "second_skip_reason": null,
+      "second_skipped": false,
+      "second_status": null,
+      "span_relevance_p": null,
+      "span_relevance_skip_reason": null,
+      "status": "established",
+      "tau_primary": null,
+      "tau_second": null,
+      "vetoed_by": null
+     },
+     "statute_source": "config",
+     "uses": "status_and_quote"
+    },
+    "seq": 7,
+    "step": "judge"
+   },
+   {
+    "inputs_sha256": "25df623f4ce96bec8bbc41a998f546436017185a569ecd946bfd57287fa5f0a5",
+    "output": {
+     "attempt": 1,
+     "contract_id": "bns85",
+     "element": "subjects the woman to cruelty (s.86(a) or (b))",
+     "end": 38,
+     "occurrences": 1,
+     "offsets_source": "system",
+     "quote_source": "model",
+     "reason": "ok",
+     "start": 9,
+     "valid": true
+    },
+    "seq": 8,
+    "step": "quote_check"
+   },
+   {
+    "inputs_sha256": "8c616e83212e4be618df584a24c4a039ecc8d0ce1caf8f34c5135079bc06fb34",
+    "output": {
+     "attempt": 1,
+     "contract_id": "bns85",
+     "element": "the facts attribute specific acts to this accused, not only a general or omnibus allegation",
+     "judge": "scripted",
+     "judgment": {
+      "backend_used": null,
+      "backend_used_second": null,
+      "bound_undetermined": false,
+      "clamp": "none",
+      "defeater_second_disagreement": false,
+      "fact_id": "F2",
+      "fact_id_disagreement": false,
+      "gate1_disjuncts": null,
+      "gate1_score": null,
+      "gate1_skip_reason": null,
+      "gate1_veto_kind": null,
+      "p_established": 0.97,
+      "p_established_second": null,
+      "quote": "this text is not in the fact",
+      "quote_source": "model",
+      "raw": "",
+      "second_fact_id": null,
+      "second_judge": null,
+      "second_skip_reason": null,
+      "second_skipped": false,
+      "second_status": null,
+      "span_relevance_p": null,
+      "span_relevance_skip_reason": null,
+      "status": "established",
+      "tau_primary": null,
+      "tau_second": null,
+      "vetoed_by": null
+     },
+     "statute_source": "config",
+     "uses": "status_and_quote"
+    },
+    "seq": 9,
+    "step": "judge"
+   },
+   {
+    "inputs_sha256": "dba87f4655c19b7acd53f9366c9318c08a45b1b567f81f2101565e6be03c4d0c",
+    "output": {
+     "attempt": 1,
+     "contract_id": "bns85",
+     "element": "the facts attribute specific acts to this accused, not only a general or omnibus allegation",
+     "end": null,
+     "occurrences": 0,
+     "offsets_source": "system",
+     "quote_source": "model",
+     "reason": "quote_not_found",
+     "start": null,
+     "valid": false
+    },
+    "seq": 10,
+    "step": "quote_check"
+   },
+   {
+    "inputs_sha256": "8c616e83212e4be618df584a24c4a039ecc8d0ce1caf8f34c5135079bc06fb34",
+    "output": {
+     "attempt": 2,
+     "contract_id": "bns85",
+     "element": "the facts attribute specific acts to this accused, not only a general or omnibus allegation",
+     "judge": "scripted",
+     "judgment": {
+      "backend_used": null,
+      "backend_used_second": null,
+      "bound_undetermined": false,
+      "clamp": "none",
+      "defeater_second_disagreement": false,
+      "fact_id": "F2",
+      "fact_id_disagreement": false,
+      "gate1_disjuncts": null,
+      "gate1_score": null,
+      "gate1_skip_reason": null,
+      "gate1_veto_kind": null,
+      "p_established": 0.97,
+      "p_established_second": null,
+      "quote": "this text is not in the fact",
+      "quote_source": "model",
+      "raw": "",
+      "second_fact_id": null,
+      "second_judge": null,
+      "second_skip_reason": null,
+      "second_skipped": false,
+      "second_status": null,
+      "span_relevance_p": null,
+      "span_relevance_skip_reason": null,
+      "status": "established",
+      "tau_primary": null,
+      "tau_second": null,
+      "vetoed_by": null
+     },
+     "statute_source": "config",
+     "uses": "quote_only"
+    },
+    "seq": 11,
+    "step": "judge"
+   },
+   {
+    "inputs_sha256": "dba87f4655c19b7acd53f9366c9318c08a45b1b567f81f2101565e6be03c4d0c",
+    "output": {
+     "attempt": 2,
+     "contract_id": "bns85",
+     "element": "the facts attribute specific acts to this accused, not only a general or omnibus allegation",
+     "end": null,
+     "occurrences": 0,
+     "offsets_source": "system",
+     "quote_source": "model",
+     "reason": "quote_not_found",
+     "start": null,
+     "valid": false
+    },
+    "seq": 12,
+    "step": "quote_check"
+   },
+   {
+    "inputs_sha256": "8c616e83212e4be618df584a24c4a039ecc8d0ce1caf8f34c5135079bc06fb34",
+    "output": {
+     "attempt": 3,
+     "contract_id": "bns85",
+     "element": "the facts attribute specific acts to this accused, not only a general or omnibus allegation",
+     "judge": "scripted",
+     "judgment": {
+      "backend_used": null,
+      "backend_used_second": null,
+      "bound_undetermined": false,
+      "clamp": "none",
+      "defeater_second_disagreement": false,
+      "fact_id": "F2",
+      "fact_id_disagreement": false,
+      "gate1_disjuncts": null,
+      "gate1_score": null,
+      "gate1_skip_reason": null,
+      "gate1_veto_kind": null,
+      "p_established": 0.97,
+      "p_established_second": null,
+      "quote": "this text is not in the fact",
+      "quote_source": "model",
+      "raw": "",
+      "second_fact_id": null,
+      "second_judge": null,
+      "second_skip_reason": null,
+      "second_skipped": false,
+      "second_status": null,
+      "span_relevance_p": null,
+      "span_relevance_skip_reason": null,
+      "status": "established",
+      "tau_primary": null,
+      "tau_second": null,
+      "vetoed_by": null
+     },
+     "statute_source": "config",
+     "uses": "quote_only"
+    },
+    "seq": 13,
+    "step": "judge"
+   },
+   {
+    "inputs_sha256": "dba87f4655c19b7acd53f9366c9318c08a45b1b567f81f2101565e6be03c4d0c",
+    "output": {
+     "attempt": 3,
+     "contract_id": "bns85",
+     "element": "the facts attribute specific acts to this accused, not only a general or omnibus allegation",
+     "end": null,
+     "occurrences": 0,
+     "offsets_source": "system",
+     "quote_source": "model",
+     "reason": "quote_not_found",
+     "start": null,
+     "valid": false
+    },
+    "seq": 14,
+    "step": "quote_check"
+   },
+   {
+    "inputs_sha256": "9d127e4b71481cb7fe8a334d99c13f3ce2185891c6ed7842714ed5a271f1ce55",
+    "output": {
+     "assertions": {
+      "subjects the woman to cruelty (s.86(a) or (b))": true,
+      "the accused is the husband, or a relative of the husband, of the woman": true,
+      "the facts attribute specific acts to this accused, not only a general or omnibus allegation": false
+     },
+     "contract_id": "bns85",
+     "expected_outcome": "ABSTAIN"
+    },
+    "seq": 15,
+    "step": "assemble"
+   },
+   {
+    "inputs_sha256": "e56d6c6d2842fdf69772064a3e289c5929c090c352e84380ba346021e9be06be",
+    "output": {
+     "contract_id": "bns85",
+     "denied_claims": [],
+     "omitted_claims": [
+      "the facts attribute specific acts to this accused, not only a general or omnibus allegation"
+     ],
+     "unlicensed_claims": [],
+     "verdict": "flagged"
+    },
+    "seq": 16,
+    "step": "lean_check"
+   },
+   {
+    "inputs_sha256": "9d127e4b71481cb7fe8a334d99c13f3ce2185891c6ed7842714ed5a271f1ce55",
+    "output": {
+     "contract_id": "bns85",
+     "element_stages": {
+      "the facts attribute specific acts to this accused, not only a general or omnibus allegation": "not_established:quote_quote_not_found"
+     },
+     "elements": [
+      {
+       "attempts": 1,
+       "binding_leg": null,
+       "bound_undetermined": false,
+       "claimed": true,
+       "clamp": "none",
+       "defeater_second_disagreement": false,
+       "element": "the accused is the husband, or a relative of the husband, of the woman",
+       "end": 31,
+       "error": null,
+       "fact_id": "F1",
+       "fact_id_disagreement": false,
+       "gate1_contradiction": false,
+       "gate1_disjuncts": null,
+       "gate1_not_entailed": false,
+       "gate1_score": null,
+       "gate1_unavailable": false,
+       "is_denial": false,
+       "occurrences": 1,
+       "offsets_source": "system",
+       "p_established": 0.97,
+       "p_established_second": null,
+       "quote": "the husband of Nila",
+       "quote_check": "ok",
+       "quote_source": "model",
+       "second_fact_id": null,
+       "second_logit_distance": null,
+       "second_refer_band_fired": false,
+       "second_skip_reason": null,
+       "second_unavailable": false,
+       "start": 12,
+       "status": "established",
+       "tau_second": null
+      },
+      {
+       "attempts": 1,
+       "binding_leg": null,
+       "bound_undetermined": false,
+       "claimed": true,
+       "clamp": "none",
+       "defeater_second_disagreement": false,
+       "element": "subjects the woman to cruelty (s.86(a) or (b))",
+       "end": 38,
+       "error": null,
+       "fact_id": "F2",
+       "fact_id_disagreement": false,
+       "gate1_contradiction": false,
+       "gate1_disjuncts": null,
+       "gate1_not_entailed": false,
+       "gate1_score": null,
+       "gate1_unavailable": false,
+       "is_denial": false,
+       "occurrences": 1,
+       "offsets_source": "system",
+       "p_established": 0.97,
+       "p_established_second": null,
+       "quote": "beat Nila on several evenings",
+       "quote_check": "ok",
+       "quote_source": "model",
+       "second_fact_id": null,
+       "second_logit_distance": null,
+       "second_refer_band_fired": false,
+       "second_skip_reason": null,
+       "second_unavailable": false,
+       "start": 9,
+       "status": "established",
+       "tau_second": null
+      },
+      {
+       "attempts": 3,
+       "binding_leg": null,
+       "bound_undetermined": false,
+       "claimed": true,
+       "clamp": "none",
+       "defeater_second_disagreement": false,
+       "element": "the facts attribute specific acts to this accused, not only a general or omnibus allegation",
+       "end": null,
+       "error": null,
+       "fact_id": "F2",
+       "fact_id_disagreement": false,
+       "gate1_contradiction": false,
+       "gate1_disjuncts": null,
+       "gate1_not_entailed": false,
+       "gate1_score": null,
+       "gate1_unavailable": false,
+       "is_denial": false,
+       "occurrences": 0,
+       "offsets_source": null,
+       "p_established": 0.97,
+       "p_established_second": null,
+       "quote": "this text is not in the fact",
+       "quote_check": "quote_not_found",
+       "quote_source": "model",
+       "second_fact_id": null,
+       "second_logit_distance": null,
+       "second_refer_band_fired": false,
+       "second_skip_reason": null,
+       "second_unavailable": false,
+       "start": null,
+       "status": "not_established",
+       "tau_second": null
+      }
+     ],
+     "gate1_contradiction": [],
+     "gate1_failed": [],
+     "gate1_unavailable": [],
+     "lean_outcome": "ABSTAIN",
+     "outcome": "ABSTAIN",
+     "reason": "missing_element",
+     "statute_text_mismatch": true,
+     "statute_text_similarity": 0.825,
+     "unavailable_second": [],
+     "uncertain": [],
+     "uncertain_second": []
+    },
+    "seq": 17,
+    "step": "outcome"
+   },
+   {
+    "output": {
+     "backend_used_counts": {},
+     "backend_used_second_counts": {},
+     "judge_calls_primary": 5,
+     "judge_calls_second": 0
+    },
+    "seq": 18,
+    "step": "judge_accounting"
+   },
+   {
+    "output": {
+     "bns85": "ABSTAIN"
+    },
+    "seq": 19,
+    "step": "run_end"
+   }
+  ],
+  "run": {
+   "client_data": true,
+   "contracts": [
+    {
+     "assertions": {
+      "subjects the woman to cruelty (s.86(a) or (b))": true,
+      "the accused is the husband, or a relative of the husband, of the woman": true,
+      "the facts attribute specific acts to this accused, not only a general or omnibus allegation": false
+     },
+     "contract_id": "bns85",
+     "element_stages": {
+      "the facts attribute specific acts to this accused, not only a general or omnibus allegation": "not_established:quote_quote_not_found"
+     },
+     "elements": [
+      {
+       "attempts": 1,
+       "binding_leg": null,
+       "bound_undetermined": false,
+       "claimed": true,
+       "clamp": "none",
+       "defeater_second_disagreement": false,
+       "element": "the accused is the husband, or a relative of the husband, of the woman",
+       "end": 31,
+       "error": null,
+       "fact_id": "F1",
+       "fact_id_disagreement": false,
+       "gate1_contradiction": false,
+       "gate1_disjuncts": null,
+       "gate1_not_entailed": false,
+       "gate1_score": null,
+       "gate1_unavailable": false,
+       "is_denial": false,
+       "occurrences": 1,
+       "offsets_source": "system",
+       "p_established": 0.97,
+       "p_established_second": null,
+       "quote": "the husband of Nila",
+       "quote_check": "ok",
+       "quote_source": "model",
+       "second_fact_id": null,
+       "second_logit_distance": null,
+       "second_refer_band_fired": false,
+       "second_skip_reason": null,
+       "second_unavailable": false,
+       "start": 12,
+       "status": "established",
+       "tau_second": null
+      },
+      {
+       "attempts": 1,
+       "binding_leg": null,
+       "bound_undetermined": false,
+       "claimed": true,
+       "clamp": "none",
+       "defeater_second_disagreement": false,
+       "element": "subjects the woman to cruelty (s.86(a) or (b))",
+       "end": 38,
+       "error": null,
+       "fact_id": "F2",
+       "fact_id_disagreement": false,
+       "gate1_contradiction": false,
+       "gate1_disjuncts": null,
+       "gate1_not_entailed": false,
+       "gate1_score": null,
+       "gate1_unavailable": false,
+       "is_denial": false,
+       "occurrences": 1,
+       "offsets_source": "system",
+       "p_established": 0.97,
+       "p_established_second": null,
+       "quote": "beat Nila on several evenings",
+       "quote_check": "ok",
+       "quote_source": "model",
+       "second_fact_id": null,
+       "second_logit_distance": null,
+       "second_refer_band_fired": false,
+       "second_skip_reason": null,
+       "second_unavailable": false,
+       "start": 9,
+       "status": "established",
+       "tau_second": null
+      },
+      {
+       "attempts": 3,
+       "binding_leg": null,
+       "bound_undetermined": false,
+       "claimed": true,
+       "clamp": "none",
+       "defeater_second_disagreement": false,
+       "element": "the facts attribute specific acts to this accused, not only a general or omnibus allegation",
+       "end": null,
+       "error": null,
+       "fact_id": "F2",
+       "fact_id_disagreement": false,
+       "gate1_contradiction": false,
+       "gate1_disjuncts": null,
+       "gate1_not_entailed": false,
+       "gate1_score": null,
+       "gate1_unavailable": false,
+       "is_denial": false,
+       "occurrences": 0,
+       "offsets_source": null,
+       "p_established": 0.97,
+       "p_established_second": null,
+       "quote": "this text is not in the fact",
+       "quote_check": "quote_not_found",
+       "quote_source": "model",
+       "second_fact_id": null,
+       "second_logit_distance": null,
+       "second_refer_band_fired": false,
+       "second_skip_reason": null,
+       "second_unavailable": false,
+       "start": null,
+       "status": "not_established",
+       "tau_second": null
+      }
+     ],
+     "gate1_contradiction": [],
+     "gate1_failed": [],
+     "gate1_unavailable": [],
+     "lean": {
+      "denied_claims": [],
+      "omitted_claims": [
+       "the facts attribute specific acts to this accused, not only a general or omnibus allegation"
+      ],
+      "unlicensed_claims": [],
+      "verdict": "flagged"
+     },
+     "lean_attestation": {
+      "binary_sha256": "scripted",
+      "verdict": "flagged",
+      "wire_sha256": "5abc286b750145b79e4f85ef0643255c7983004632851f37ef43a8032e5fee94"
+     },
+     "lean_outcome": "ABSTAIN",
+     "outcome": "ABSTAIN",
+     "reason": "missing_element",
+     "statute_text_mismatch": true,
+     "statute_text_similarity": 0.825,
+     "unavailable_second": [],
+     "uncertain": [],
+     "uncertain_second": []
+    }
+   ],
+   "facts": [
+    {
+     "id": "F1",
+     "sha256": "8e743e2d6cd46f687330e2805871e598b100025b4ec12d43780aa49974ded7d2"
+    },
+    {
+     "id": "F2",
+     "sha256": "109a38242b56112cdc566d640c95c1772bc952ee41c02c297f6fca1aaa83f0d1"
+    },
+    {
+     "id": "F3",
+     "sha256": "1c0bf6a1496850168787b099735a0d351f85c70acebcadd2b9538acd9adcb106"
+    }
+   ],
+   "judge": "scripted",
+   "judge_accounting": {
+    "backend_used_counts": {},
+    "backend_used_second_counts": {},
+    "judge_calls_primary": 5,
+    "judge_calls_second": 0
+   },
+   "provenance": "agama",
+   "retention_notice": "Don't submit real names or case details; anonymous submissions are kept up to 7 days for audit and are never used for training or evaluation.",
+   "score_sha256": "scripted",
+   "standard": {
+    "applied": null,
+    "in_judge_prompt": false,
+    "proceeding_posture": null,
+    "requested": "proved",
+    "source": "default"
+   }
+  }
+ },
+ "proof": {
+  "audit": [
+   {
+    "inputs_sha256": "a839baf1e3ffc8cf58602c5259fb20ca80fc93b9f27f699c7ee251f551dbe6d1",
+    "output": {
+     "client_data": true,
+     "engine_version": "0.5.41",
+     "judge": "scripted",
+     "max_retries": 2,
+     "primary_judge_host_class": null,
+     "primary_judge_model": null,
+     "proceeding_posture": null,
+     "refer_band": [
+      0.5,
+      0.74
+     ],
+     "score_sha256": "scripted",
+     "second_judge_host_class": null,
+     "second_judge_model": null,
+     "second_refer_logit_delta": null,
+     "standard": "proved",
+     "standard_in_judge_prompt": false,
+     "standard_source": "default_proved",
+     "tau": 0.74
+    },
+    "seq": 0,
+    "step": "run_start"
+   },
+   {
+    "inputs_sha256": "60400834b59ab1c90c06b9b6f625e1030fd147c635b9d7a62396509095d55a4c",
+    "output": {
+     "facts": [
+      {
+       "id": "F1",
+       "sha256": "8e743e2d6cd46f687330e2805871e598b100025b4ec12d43780aa49974ded7d2"
+      },
+      {
+       "id": "F2",
+       "sha256": "109a38242b56112cdc566d640c95c1772bc952ee41c02c297f6fca1aaa83f0d1"
+      },
+      {
+       "id": "F3",
+       "sha256": "1c0bf6a1496850168787b099735a0d351f85c70acebcadd2b9538acd9adcb106"
+      }
+     ],
+     "narrative_sha256": "aed4aacb4d2fe3d68403ef44ed26bbb9de959afb7eea69f7b6b7f90c752dd915"
+    },
+    "seq": 1,
+    "step": "ingest"
+   },
+   {
+    "inputs_sha256": "7cea49355c0740c409204f0c2fb68a904626dcc6366a17158a7072b18637ecb2",
+    "output": {
+     "selected": [
+      "bns85"
+     ]
+    },
+    "seq": 2,
+    "step": "select_contracts"
+   },
+   {
+    "inputs_sha256": "3a0cfc7efad7ddfb516bc2d890f74a33254d63112ff2273b2e6a49bc2e3285ec",
+    "output": {
+     "contract_id": "bns85",
+     "denials": [],
+     "elements": [
+      "the accused is the husband, or a relative of the husband, of the woman",
+      "subjects the woman to cruelty (s.86(a) or (b))",
+      "the facts attribute specific acts to this accused, not only a general or omnibus allegation"
+     ]
+    },
+    "seq": 3,
+    "step": "describe"
+   },
+   {
+    "inputs_sha256": "3a0cfc7efad7ddfb516bc2d890f74a33254d63112ff2273b2e6a49bc2e3285ec",
+    "output": {
+     "contract_id": "bns85",
+     "judge_statute_sha256": "0c7284dfe5c8603bc2f52904c1b2eda6c91fb2c2291c237dba3da40105b6eec3",
+     "judge_statute_source": "config",
+     "official_statute_sha256": "197b25cedd34d412009bbf55f9e2aafc4b1f8ba737605825d97c2cc0b9001217",
+     "statute_text_mismatch": true,
+     "statute_text_similarity": 0.825
+    },
+    "seq": 4,
+    "step": "statute"
+   },
+   {
+    "inputs_sha256": "8acd52fd0795cfd9ed78bd490cafcd3e43be32e0376ef1b4684375b625e70f8d",
+    "output": {
+     "attempt": 1,
+     "contract_id": "bns85",
+     "element": "the accused is the husband, or a relative of the husband, of the woman",
+     "judge": "scripted",
+     "judgment": {
+      "backend_used": null,
+      "backend_used_second": null,
+      "bound_undetermined": false,
+      "clamp": "none",
+      "defeater_second_disagreement": false,
+      "fact_id": "F1",
+      "fact_id_disagreement": false,
+      "gate1_disjuncts": null,
+      "gate1_score": null,
+      "gate1_skip_reason": null,
+      "gate1_veto_kind": null,
+      "p_established": 0.97,
+      "p_established_second": null,
+      "quote": "the husband of Nila",
+      "quote_source": "model",
+      "raw": "",
+      "second_fact_id": null,
+      "second_judge": null,
+      "second_skip_reason": null,
+      "second_skipped": false,
+      "second_status": null,
+      "span_relevance_p": null,
+      "span_relevance_skip_reason": null,
+      "status": "established",
+      "tau_primary": null,
+      "tau_second": null,
+      "vetoed_by": null
+     },
+     "statute_source": "config",
+     "uses": "status_and_quote"
+    },
+    "seq": 5,
+    "step": "judge"
+   },
+   {
+    "inputs_sha256": "883991d52eae0225a3546109c5945718297b46d4bf9884a0039fd83c2405199b",
+    "output": {
+     "attempt": 1,
+     "contract_id": "bns85",
+     "element": "the accused is the husband, or a relative of the husband, of the woman",
+     "end": 31,
+     "occurrences": 1,
+     "offsets_source": "system",
+     "quote_source": "model",
+     "reason": "ok",
+     "start": 12,
+     "valid": true
+    },
+    "seq": 6,
+    "step": "quote_check"
+   },
+   {
+    "inputs_sha256": "ccdaa8528743412c439ab953aed5cf7b875dffdcb2d6858d08eb3312791023b1",
+    "output": {
+     "attempt": 1,
+     "contract_id": "bns85",
+     "element": "subjects the woman to cruelty (s.86(a) or (b))",
+     "judge": "scripted",
+     "judgment": {
+      "backend_used": null,
+      "backend_used_second": null,
+      "bound_undetermined": false,
+      "clamp": "none",
+      "defeater_second_disagreement": false,
+      "fact_id": "F2",
+      "fact_id_disagreement": false,
+      "gate1_disjuncts": null,
+      "gate1_score": null,
+      "gate1_skip_reason": null,
+      "gate1_veto_kind": null,
+      "p_established": 0.97,
+      "p_established_second": null,
+      "quote": "beat Nila on several evenings",
+      "quote_source": "model",
+      "raw": "",
+      "second_fact_id": null,
+      "second_judge": null,
+      "second_skip_reason": null,
+      "second_skipped": false,
+      "second_status": null,
+      "span_relevance_p": null,
+      "span_relevance_skip_reason": null,
+      "status": "established",
+      "tau_primary": null,
+      "tau_second": null,
+      "vetoed_by": null
+     },
+     "statute_source": "config",
+     "uses": "status_and_quote"
+    },
+    "seq": 7,
+    "step": "judge"
+   },
+   {
+    "inputs_sha256": "25df623f4ce96bec8bbc41a998f546436017185a569ecd946bfd57287fa5f0a5",
+    "output": {
+     "attempt": 1,
+     "contract_id": "bns85",
+     "element": "subjects the woman to cruelty (s.86(a) or (b))",
+     "end": 38,
+     "occurrences": 1,
+     "offsets_source": "system",
+     "quote_source": "model",
+     "reason": "ok",
+     "start": 9,
+     "valid": true
+    },
+    "seq": 8,
+    "step": "quote_check"
+   },
+   {
+    "inputs_sha256": "8c616e83212e4be618df584a24c4a039ecc8d0ce1caf8f34c5135079bc06fb34",
+    "output": {
+     "attempt": 1,
+     "contract_id": "bns85",
+     "element": "the facts attribute specific acts to this accused, not only a general or omnibus allegation",
+     "judge": "scripted",
+     "judgment": {
+      "backend_used": null,
+      "backend_used_second": null,
+      "bound_undetermined": false,
+      "clamp": "none",
+      "defeater_second_disagreement": false,
+      "fact_id": "F2",
+      "fact_id_disagreement": false,
+      "gate1_disjuncts": null,
+      "gate1_score": null,
+      "gate1_skip_reason": null,
+      "gate1_veto_kind": null,
+      "p_established": 0.97,
+      "p_established_second": null,
+      "quote": "Dev beat Nila",
+      "quote_source": "model",
+      "raw": "",
+      "second_fact_id": null,
+      "second_judge": null,
+      "second_skip_reason": null,
+      "second_skipped": false,
+      "second_status": null,
+      "span_relevance_p": null,
+      "span_relevance_skip_reason": null,
+      "status": "established",
+      "tau_primary": null,
+      "tau_second": null,
+      "vetoed_by": null
+     },
+     "statute_source": "config",
+     "uses": "status_and_quote"
+    },
+    "seq": 9,
+    "step": "judge"
+   },
+   {
+    "inputs_sha256": "d23d0c6d8cb0ce0f62878f8dcb89def810d061558372b2a6e98a1e040df5bd1c",
+    "output": {
+     "attempt": 1,
+     "contract_id": "bns85",
+     "element": "the facts attribute specific acts to this accused, not only a general or omnibus allegation",
+     "end": 18,
+     "occurrences": 1,
+     "offsets_source": "system",
+     "quote_source": "model",
+     "reason": "ok",
+     "start": 5,
+     "valid": true
+    },
+    "seq": 10,
+    "step": "quote_check"
+   },
+   {
+    "inputs_sha256": "3cae98be37fd2b3913c8aea71842f4ec9aca0c27ad99cfe66fbc29aaa665c041",
+    "output": {
+     "assertions": {
+      "subjects the woman to cruelty (s.86(a) or (b))": true,
+      "the accused is the husband, or a relative of the husband, of the woman": true,
+      "the facts attribute specific acts to this accused, not only a general or omnibus allegation": true
+     },
+     "contract_id": "bns85",
+     "expected_outcome": "PROOF"
+    },
+    "seq": 11,
+    "step": "assemble"
+   },
+   {
+    "inputs_sha256": "ee732420537b881317b7bf5b702f6cfc2a36e664905d8ec34fb8b54e10ca033c",
+    "output": {
+     "contract_id": "bns85",
+     "denied_claims": [],
+     "omitted_claims": [],
+     "unlicensed_claims": [],
+     "verdict": "grounded"
+    },
+    "seq": 12,
+    "step": "lean_check"
+   },
+   {
+    "inputs_sha256": "3cae98be37fd2b3913c8aea71842f4ec9aca0c27ad99cfe66fbc29aaa665c041",
+    "output": {
+     "contract_id": "bns85",
+     "element_stages": {},
+     "elements": [
+      {
+       "attempts": 1,
+       "binding_leg": null,
+       "bound_undetermined": false,
+       "claimed": true,
+       "clamp": "none",
+       "defeater_second_disagreement": false,
+       "element": "the accused is the husband, or a relative of the husband, of the woman",
+       "end": 31,
+       "error": null,
+       "fact_id": "F1",
+       "fact_id_disagreement": false,
+       "gate1_contradiction": false,
+       "gate1_disjuncts": null,
+       "gate1_not_entailed": false,
+       "gate1_score": null,
+       "gate1_unavailable": false,
+       "is_denial": false,
+       "occurrences": 1,
+       "offsets_source": "system",
+       "p_established": 0.97,
+       "p_established_second": null,
+       "quote": "the husband of Nila",
+       "quote_check": "ok",
+       "quote_source": "model",
+       "second_fact_id": null,
+       "second_logit_distance": null,
+       "second_refer_band_fired": false,
+       "second_skip_reason": null,
+       "second_unavailable": false,
+       "start": 12,
+       "status": "established",
+       "tau_second": null
+      },
+      {
+       "attempts": 1,
+       "binding_leg": null,
+       "bound_undetermined": false,
+       "claimed": true,
+       "clamp": "none",
+       "defeater_second_disagreement": false,
+       "element": "subjects the woman to cruelty (s.86(a) or (b))",
+       "end": 38,
+       "error": null,
+       "fact_id": "F2",
+       "fact_id_disagreement": false,
+       "gate1_contradiction": false,
+       "gate1_disjuncts": null,
+       "gate1_not_entailed": false,
+       "gate1_score": null,
+       "gate1_unavailable": false,
+       "is_denial": false,
+       "occurrences": 1,
+       "offsets_source": "system",
+       "p_established": 0.97,
+       "p_established_second": null,
+       "quote": "beat Nila on several evenings",
+       "quote_check": "ok",
+       "quote_source": "model",
+       "second_fact_id": null,
+       "second_logit_distance": null,
+       "second_refer_band_fired": false,
+       "second_skip_reason": null,
+       "second_unavailable": false,
+       "start": 9,
+       "status": "established",
+       "tau_second": null
+      },
+      {
+       "attempts": 1,
+       "binding_leg": null,
+       "bound_undetermined": false,
+       "claimed": true,
+       "clamp": "none",
+       "defeater_second_disagreement": false,
+       "element": "the facts attribute specific acts to this accused, not only a general or omnibus allegation",
+       "end": 18,
+       "error": null,
+       "fact_id": "F2",
+       "fact_id_disagreement": false,
+       "gate1_contradiction": false,
+       "gate1_disjuncts": null,
+       "gate1_not_entailed": false,
+       "gate1_score": null,
+       "gate1_unavailable": false,
+       "is_denial": false,
+       "occurrences": 1,
+       "offsets_source": "system",
+       "p_established": 0.97,
+       "p_established_second": null,
+       "quote": "Dev beat Nila",
+       "quote_check": "ok",
+       "quote_source": "model",
+       "second_fact_id": null,
+       "second_logit_distance": null,
+       "second_refer_band_fired": false,
+       "second_skip_reason": null,
+       "second_unavailable": false,
+       "start": 5,
+       "status": "established",
+       "tau_second": null
+      }
+     ],
+     "gate1_contradiction": [],
+     "gate1_failed": [],
+     "gate1_unavailable": [],
+     "lean_outcome": "PROOF",
+     "outcome": "PROOF",
+     "reason": "all_elements_established",
+     "statute_text_mismatch": true,
+     "statute_text_similarity": 0.825,
+     "unavailable_second": [],
+     "uncertain": [],
+     "uncertain_second": []
+    },
+    "seq": 13,
+    "step": "outcome"
+   },
+   {
+    "output": {
+     "backend_used_counts": {},
+     "backend_used_second_counts": {},
+     "judge_calls_primary": 3,
+     "judge_calls_second": 0
+    },
+    "seq": 14,
+    "step": "judge_accounting"
+   },
+   {
+    "output": {
+     "bns85": "PROOF"
+    },
+    "seq": 15,
+    "step": "run_end"
+   }
+  ],
+  "run": {
+   "client_data": true,
+   "contracts": [
+    {
+     "assertions": {
+      "subjects the woman to cruelty (s.86(a) or (b))": true,
+      "the accused is the husband, or a relative of the husband, of the woman": true,
+      "the facts attribute specific acts to this accused, not only a general or omnibus allegation": true
+     },
+     "contract_id": "bns85",
+     "element_stages": {},
+     "elements": [
+      {
+       "attempts": 1,
+       "binding_leg": null,
+       "bound_undetermined": false,
+       "claimed": true,
+       "clamp": "none",
+       "defeater_second_disagreement": false,
+       "element": "the accused is the husband, or a relative of the husband, of the woman",
+       "end": 31,
+       "error": null,
+       "fact_id": "F1",
+       "fact_id_disagreement": false,
+       "gate1_contradiction": false,
+       "gate1_disjuncts": null,
+       "gate1_not_entailed": false,
+       "gate1_score": null,
+       "gate1_unavailable": false,
+       "is_denial": false,
+       "occurrences": 1,
+       "offsets_source": "system",
+       "p_established": 0.97,
+       "p_established_second": null,
+       "quote": "the husband of Nila",
+       "quote_check": "ok",
+       "quote_source": "model",
+       "second_fact_id": null,
+       "second_logit_distance": null,
+       "second_refer_band_fired": false,
+       "second_skip_reason": null,
+       "second_unavailable": false,
+       "start": 12,
+       "status": "established",
+       "tau_second": null
+      },
+      {
+       "attempts": 1,
+       "binding_leg": null,
+       "bound_undetermined": false,
+       "claimed": true,
+       "clamp": "none",
+       "defeater_second_disagreement": false,
+       "element": "subjects the woman to cruelty (s.86(a) or (b))",
+       "end": 38,
+       "error": null,
+       "fact_id": "F2",
+       "fact_id_disagreement": false,
+       "gate1_contradiction": false,
+       "gate1_disjuncts": null,
+       "gate1_not_entailed": false,
+       "gate1_score": null,
+       "gate1_unavailable": false,
+       "is_denial": false,
+       "occurrences": 1,
+       "offsets_source": "system",
+       "p_established": 0.97,
+       "p_established_second": null,
+       "quote": "beat Nila on several evenings",
+       "quote_check": "ok",
+       "quote_source": "model",
+       "second_fact_id": null,
+       "second_logit_distance": null,
+       "second_refer_band_fired": false,
+       "second_skip_reason": null,
+       "second_unavailable": false,
+       "start": 9,
+       "status": "established",
+       "tau_second": null
+      },
+      {
+       "attempts": 1,
+       "binding_leg": null,
+       "bound_undetermined": false,
+       "claimed": true,
+       "clamp": "none",
+       "defeater_second_disagreement": false,
+       "element": "the facts attribute specific acts to this accused, not only a general or omnibus allegation",
+       "end": 18,
+       "error": null,
+       "fact_id": "F2",
+       "fact_id_disagreement": false,
+       "gate1_contradiction": false,
+       "gate1_disjuncts": null,
+       "gate1_not_entailed": false,
+       "gate1_score": null,
+       "gate1_unavailable": false,
+       "is_denial": false,
+       "occurrences": 1,
+       "offsets_source": "system",
+       "p_established": 0.97,
+       "p_established_second": null,
+       "quote": "Dev beat Nila",
+       "quote_check": "ok",
+       "quote_source": "model",
+       "second_fact_id": null,
+       "second_logit_distance": null,
+       "second_refer_band_fired": false,
+       "second_skip_reason": null,
+       "second_unavailable": false,
+       "start": 5,
+       "status": "established",
+       "tau_second": null
+      }
+     ],
+     "gate1_contradiction": [],
+     "gate1_failed": [],
+     "gate1_unavailable": [],
+     "lean": {
+      "denied_claims": [],
+      "omitted_claims": [],
+      "unlicensed_claims": [],
+      "verdict": "grounded"
+     },
+     "lean_attestation": {
+      "binary_sha256": "scripted",
+      "verdict": "grounded",
+      "wire_sha256": "277c4941d9cd4082dd417d488a1d1e33cb6285de16c94469c69f5d39f2c76c2b"
+     },
+     "lean_outcome": "PROOF",
+     "outcome": "PROOF",
+     "reason": "all_elements_established",
+     "statute_text_mismatch": true,
+     "statute_text_similarity": 0.825,
+     "unavailable_second": [],
+     "uncertain": [],
+     "uncertain_second": []
+    }
+   ],
+   "facts": [
+    {
+     "id": "F1",
+     "sha256": "8e743e2d6cd46f687330e2805871e598b100025b4ec12d43780aa49974ded7d2"
+    },
+    {
+     "id": "F2",
+     "sha256": "109a38242b56112cdc566d640c95c1772bc952ee41c02c297f6fca1aaa83f0d1"
+    },
+    {
+     "id": "F3",
+     "sha256": "1c0bf6a1496850168787b099735a0d351f85c70acebcadd2b9538acd9adcb106"
+    }
+   ],
+   "judge": "scripted",
+   "judge_accounting": {
+    "backend_used_counts": {},
+    "backend_used_second_counts": {},
+    "judge_calls_primary": 3,
+    "judge_calls_second": 0
+   },
+   "provenance": "agama",
+   "retention_notice": "Don't submit real names or case details; anonymous submissions are kept up to 7 days for audit and are never used for training or evaluation.",
+   "score_sha256": "scripted",
+   "standard": {
+    "applied": null,
+    "in_judge_prompt": false,
+    "proceeding_posture": null,
+    "requested": "proved",
+    "source": "default"
+   }
+  }
+ },
+ "span_demoted": {
+  "audit": [
+   {
+    "inputs_sha256": "a839baf1e3ffc8cf58602c5259fb20ca80fc93b9f27f699c7ee251f551dbe6d1",
+    "output": {
+     "client_data": true,
+     "engine_version": "0.5.41",
+     "judge": "scripted",
+     "max_retries": 2,
+     "primary_judge_host_class": null,
+     "primary_judge_model": null,
+     "proceeding_posture": null,
+     "refer_band": [
+      0.5,
+      0.74
+     ],
+     "score_sha256": "scripted",
+     "second_judge_host_class": null,
+     "second_judge_model": null,
+     "second_refer_logit_delta": null,
+     "standard": "proved",
+     "standard_in_judge_prompt": false,
+     "standard_source": "default_proved",
+     "tau": 0.74
+    },
+    "seq": 0,
+    "step": "run_start"
+   },
+   {
+    "inputs_sha256": "60400834b59ab1c90c06b9b6f625e1030fd147c635b9d7a62396509095d55a4c",
+    "output": {
+     "facts": [
+      {
+       "id": "F1",
+       "sha256": "8e743e2d6cd46f687330e2805871e598b100025b4ec12d43780aa49974ded7d2"
+      },
+      {
+       "id": "F2",
+       "sha256": "109a38242b56112cdc566d640c95c1772bc952ee41c02c297f6fca1aaa83f0d1"
+      },
+      {
+       "id": "F3",
+       "sha256": "1c0bf6a1496850168787b099735a0d351f85c70acebcadd2b9538acd9adcb106"
+      }
+     ],
+     "narrative_sha256": "aed4aacb4d2fe3d68403ef44ed26bbb9de959afb7eea69f7b6b7f90c752dd915"
+    },
+    "seq": 1,
+    "step": "ingest"
+   },
+   {
+    "inputs_sha256": "7cea49355c0740c409204f0c2fb68a904626dcc6366a17158a7072b18637ecb2",
+    "output": {
+     "selected": [
+      "bns85"
+     ]
+    },
+    "seq": 2,
+    "step": "select_contracts"
+   },
+   {
+    "inputs_sha256": "3a0cfc7efad7ddfb516bc2d890f74a33254d63112ff2273b2e6a49bc2e3285ec",
+    "output": {
+     "contract_id": "bns85",
+     "denials": [],
+     "elements": [
+      "the accused is the husband, or a relative of the husband, of the woman",
+      "subjects the woman to cruelty (s.86(a) or (b))",
+      "the facts attribute specific acts to this accused, not only a general or omnibus allegation"
+     ]
+    },
+    "seq": 3,
+    "step": "describe"
+   },
+   {
+    "inputs_sha256": "3a0cfc7efad7ddfb516bc2d890f74a33254d63112ff2273b2e6a49bc2e3285ec",
+    "output": {
+     "contract_id": "bns85",
+     "judge_statute_sha256": "0c7284dfe5c8603bc2f52904c1b2eda6c91fb2c2291c237dba3da40105b6eec3",
+     "judge_statute_source": "config",
+     "official_statute_sha256": "197b25cedd34d412009bbf55f9e2aafc4b1f8ba737605825d97c2cc0b9001217",
+     "statute_text_mismatch": true,
+     "statute_text_similarity": 0.825
+    },
+    "seq": 4,
+    "step": "statute"
+   },
+   {
+    "inputs_sha256": "8acd52fd0795cfd9ed78bd490cafcd3e43be32e0376ef1b4684375b625e70f8d",
+    "output": {
+     "attempt": 1,
+     "contract_id": "bns85",
+     "element": "the accused is the husband, or a relative of the husband, of the woman",
+     "judge": "scripted",
+     "judgment": {
+      "backend_used": null,
+      "backend_used_second": null,
+      "bound_undetermined": false,
+      "clamp": "none",
+      "defeater_second_disagreement": false,
+      "fact_id": "F1",
+      "fact_id_disagreement": false,
+      "gate1_disjuncts": null,
+      "gate1_score": null,
+      "gate1_skip_reason": null,
+      "gate1_veto_kind": null,
+      "p_established": 0.97,
+      "p_established_second": null,
+      "quote": "the husband of Nila",
+      "quote_source": "model",
+      "raw": "",
+      "second_fact_id": null,
+      "second_judge": null,
+      "second_skip_reason": null,
+      "second_skipped": false,
+      "second_status": null,
+      "span_relevance_p": 0.97,
+      "span_relevance_skip_reason": null,
+      "status": "established",
+      "tau_primary": null,
+      "tau_second": null,
+      "vetoed_by": null
+     },
+     "statute_source": "config",
+     "uses": "status_and_quote"
+    },
+    "seq": 5,
+    "step": "judge"
+   },
+   {
+    "inputs_sha256": "883991d52eae0225a3546109c5945718297b46d4bf9884a0039fd83c2405199b",
+    "output": {
+     "attempt": 1,
+     "contract_id": "bns85",
+     "element": "the accused is the husband, or a relative of the husband, of the woman",
+     "end": 31,
+     "occurrences": 1,
+     "offsets_source": "system",
+     "quote_source": "model",
+     "reason": "ok",
+     "start": 12,
+     "valid": true
+    },
+    "seq": 6,
+    "step": "quote_check"
+   },
+   {
+    "inputs_sha256": "ccdaa8528743412c439ab953aed5cf7b875dffdcb2d6858d08eb3312791023b1",
+    "output": {
+     "attempt": 1,
+     "contract_id": "bns85",
+     "element": "subjects the woman to cruelty (s.86(a) or (b))",
+     "judge": "scripted",
+     "judgment": {
+      "backend_used": null,
+      "backend_used_second": null,
+      "bound_undetermined": false,
+      "clamp": "none",
+      "defeater_second_disagreement": false,
+      "fact_id": "F2",
+      "fact_id_disagreement": false,
+      "gate1_disjuncts": null,
+      "gate1_score": null,
+      "gate1_skip_reason": null,
+      "gate1_veto_kind": null,
+      "p_established": 0.97,
+      "p_established_second": null,
+      "quote": "beat Nila on several evenings",
+      "quote_source": "model",
+      "raw": "",
+      "second_fact_id": null,
+      "second_judge": null,
+      "second_skip_reason": null,
+      "second_skipped": false,
+      "second_status": null,
+      "span_relevance_p": 0.97,
+      "span_relevance_skip_reason": null,
+      "status": "established",
+      "tau_primary": null,
+      "tau_second": null,
+      "vetoed_by": null
+     },
+     "statute_source": "config",
+     "uses": "status_and_quote"
+    },
+    "seq": 7,
+    "step": "judge"
+   },
+   {
+    "inputs_sha256": "25df623f4ce96bec8bbc41a998f546436017185a569ecd946bfd57287fa5f0a5",
+    "output": {
+     "attempt": 1,
+     "contract_id": "bns85",
+     "element": "subjects the woman to cruelty (s.86(a) or (b))",
+     "end": 38,
+     "occurrences": 1,
+     "offsets_source": "system",
+     "quote_source": "model",
+     "reason": "ok",
+     "start": 9,
+     "valid": true
+    },
+    "seq": 8,
+    "step": "quote_check"
+   },
+   {
+    "inputs_sha256": "8c616e83212e4be618df584a24c4a039ecc8d0ce1caf8f34c5135079bc06fb34",
+    "output": {
+     "attempt": 1,
+     "contract_id": "bns85",
+     "element": "the facts attribute specific acts to this accused, not only a general or omnibus allegation",
+     "judge": "scripted",
+     "judgment": {
+      "backend_used": null,
+      "backend_used_second": null,
+      "bound_undetermined": false,
+      "clamp": "none",
+      "defeater_second_disagreement": false,
+      "fact_id": "F2",
+      "fact_id_disagreement": false,
+      "gate1_disjuncts": null,
+      "gate1_score": null,
+      "gate1_skip_reason": null,
+      "gate1_veto_kind": null,
+      "p_established": 0.97,
+      "p_established_second": null,
+      "quote": "Dev beat Nila",
+      "quote_source": "model",
+      "raw": "",
+      "second_fact_id": null,
+      "second_judge": null,
+      "second_skip_reason": null,
+      "second_skipped": false,
+      "second_status": null,
+      "span_relevance_p": 0.1,
+      "span_relevance_skip_reason": null,
+      "status": "not_established",
+      "tau_primary": null,
+      "tau_second": null,
+      "vetoed_by": "span_relevance"
+     },
+     "statute_source": "config",
+     "uses": "status_and_quote"
+    },
+    "seq": 9,
+    "step": "judge"
+   },
+   {
+    "inputs_sha256": "18de7c88dd3f9a2d941386a18f07cba23509500aeccb560fa3af7bb047e5dd43",
+    "output": {
+     "assertions": {
+      "subjects the woman to cruelty (s.86(a) or (b))": true,
+      "the accused is the husband, or a relative of the husband, of the woman": true,
+      "the facts attribute specific acts to this accused, not only a general or omnibus allegation": false
+     },
+     "contract_id": "bns85",
+     "expected_outcome": "ABSTAIN"
+    },
+    "seq": 10,
+    "step": "assemble"
+   },
+   {
+    "inputs_sha256": "e56d6c6d2842fdf69772064a3e289c5929c090c352e84380ba346021e9be06be",
+    "output": {
+     "contract_id": "bns85",
+     "denied_claims": [],
+     "omitted_claims": [
+      "the facts attribute specific acts to this accused, not only a general or omnibus allegation"
+     ],
+     "unlicensed_claims": [],
+     "verdict": "flagged"
+    },
+    "seq": 11,
+    "step": "lean_check"
+   },
+   {
+    "inputs_sha256": "18de7c88dd3f9a2d941386a18f07cba23509500aeccb560fa3af7bb047e5dd43",
+    "output": {
+     "contract_id": "bns85",
+     "element_stages": {
+      "the facts attribute specific acts to this accused, not only a general or omnibus allegation": "not_established:none"
+     },
+     "elements": [
+      {
+       "attempts": 1,
+       "binding_leg": null,
+       "bound_undetermined": false,
+       "claimed": true,
+       "clamp": "none",
+       "defeater_second_disagreement": false,
+       "element": "the accused is the husband, or a relative of the husband, of the woman",
+       "end": 31,
+       "error": null,
+       "fact_id": "F1",
+       "fact_id_disagreement": false,
+       "gate1_contradiction": false,
+       "gate1_disjuncts": null,
+       "gate1_not_entailed": false,
+       "gate1_score": null,
+       "gate1_unavailable": false,
+       "is_denial": false,
+       "occurrences": 1,
+       "offsets_source": "system",
+       "p_established": 0.97,
+       "p_established_second": null,
+       "quote": "the husband of Nila",
+       "quote_check": "ok",
+       "quote_source": "model",
+       "second_fact_id": null,
+       "second_logit_distance": null,
+       "second_refer_band_fired": false,
+       "second_skip_reason": null,
+       "second_unavailable": false,
+       "start": 12,
+       "status": "established",
+       "tau_second": null
+      },
+      {
+       "attempts": 1,
+       "binding_leg": null,
+       "bound_undetermined": false,
+       "claimed": true,
+       "clamp": "none",
+       "defeater_second_disagreement": false,
+       "element": "subjects the woman to cruelty (s.86(a) or (b))",
+       "end": 38,
+       "error": null,
+       "fact_id": "F2",
+       "fact_id_disagreement": false,
+       "gate1_contradiction": false,
+       "gate1_disjuncts": null,
+       "gate1_not_entailed": false,
+       "gate1_score": null,
+       "gate1_unavailable": false,
+       "is_denial": false,
+       "occurrences": 1,
+       "offsets_source": "system",
+       "p_established": 0.97,
+       "p_established_second": null,
+       "quote": "beat Nila on several evenings",
+       "quote_check": "ok",
+       "quote_source": "model",
+       "second_fact_id": null,
+       "second_logit_distance": null,
+       "second_refer_band_fired": false,
+       "second_skip_reason": null,
+       "second_unavailable": false,
+       "start": 9,
+       "status": "established",
+       "tau_second": null
+      },
+      {
+       "attempts": 1,
+       "binding_leg": null,
+       "bound_undetermined": false,
+       "claimed": false,
+       "clamp": "none",
+       "defeater_second_disagreement": false,
+       "element": "the facts attribute specific acts to this accused, not only a general or omnibus allegation",
+       "end": null,
+       "error": null,
+       "fact_id": null,
+       "fact_id_disagreement": false,
+       "gate1_contradiction": false,
+       "gate1_disjuncts": null,
+       "gate1_not_entailed": false,
+       "gate1_score": null,
+       "gate1_unavailable": false,
+       "is_denial": false,
+       "occurrences": 0,
+       "offsets_source": null,
+       "p_established": 0.97,
+       "p_established_second": null,
+       "quote": null,
+       "quote_check": null,
+       "quote_source": null,
+       "second_fact_id": null,
+       "second_logit_distance": null,
+       "second_refer_band_fired": false,
+       "second_skip_reason": null,
+       "second_unavailable": false,
+       "start": null,
+       "status": "not_established",
+       "tau_second": null
+      }
+     ],
+     "gate1_contradiction": [],
+     "gate1_failed": [],
+     "gate1_unavailable": [],
+     "lean_outcome": "ABSTAIN",
+     "outcome": "ABSTAIN",
+     "reason": "missing_element",
+     "statute_text_mismatch": true,
+     "statute_text_similarity": 0.825,
+     "unavailable_second": [],
+     "uncertain": [],
+     "uncertain_second": []
+    },
+    "seq": 12,
+    "step": "outcome"
+   },
+   {
+    "output": {
+     "backend_used_counts": {},
+     "backend_used_second_counts": {},
+     "judge_calls_primary": 3,
+     "judge_calls_second": 0
+    },
+    "seq": 13,
+    "step": "judge_accounting"
+   },
+   {
+    "output": {
+     "bns85": "ABSTAIN"
+    },
+    "seq": 14,
+    "step": "run_end"
+   }
+  ],
+  "run": {
+   "client_data": true,
+   "contracts": [
+    {
+     "assertions": {
+      "subjects the woman to cruelty (s.86(a) or (b))": true,
+      "the accused is the husband, or a relative of the husband, of the woman": true,
+      "the facts attribute specific acts to this accused, not only a general or omnibus allegation": false
+     },
+     "contract_id": "bns85",
+     "element_stages": {
+      "the facts attribute specific acts to this accused, not only a general or omnibus allegation": "not_established:none"
+     },
+     "elements": [
+      {
+       "attempts": 1,
+       "binding_leg": null,
+       "bound_undetermined": false,
+       "claimed": true,
+       "clamp": "none",
+       "defeater_second_disagreement": false,
+       "element": "the accused is the husband, or a relative of the husband, of the woman",
+       "end": 31,
+       "error": null,
+       "fact_id": "F1",
+       "fact_id_disagreement": false,
+       "gate1_contradiction": false,
+       "gate1_disjuncts": null,
+       "gate1_not_entailed": false,
+       "gate1_score": null,
+       "gate1_unavailable": false,
+       "is_denial": false,
+       "occurrences": 1,
+       "offsets_source": "system",
+       "p_established": 0.97,
+       "p_established_second": null,
+       "quote": "the husband of Nila",
+       "quote_check": "ok",
+       "quote_source": "model",
+       "second_fact_id": null,
+       "second_logit_distance": null,
+       "second_refer_band_fired": false,
+       "second_skip_reason": null,
+       "second_unavailable": false,
+       "start": 12,
+       "status": "established",
+       "tau_second": null
+      },
+      {
+       "attempts": 1,
+       "binding_leg": null,
+       "bound_undetermined": false,
+       "claimed": true,
+       "clamp": "none",
+       "defeater_second_disagreement": false,
+       "element": "subjects the woman to cruelty (s.86(a) or (b))",
+       "end": 38,
+       "error": null,
+       "fact_id": "F2",
+       "fact_id_disagreement": false,
+       "gate1_contradiction": false,
+       "gate1_disjuncts": null,
+       "gate1_not_entailed": false,
+       "gate1_score": null,
+       "gate1_unavailable": false,
+       "is_denial": false,
+       "occurrences": 1,
+       "offsets_source": "system",
+       "p_established": 0.97,
+       "p_established_second": null,
+       "quote": "beat Nila on several evenings",
+       "quote_check": "ok",
+       "quote_source": "model",
+       "second_fact_id": null,
+       "second_logit_distance": null,
+       "second_refer_band_fired": false,
+       "second_skip_reason": null,
+       "second_unavailable": false,
+       "start": 9,
+       "status": "established",
+       "tau_second": null
+      },
+      {
+       "attempts": 1,
+       "binding_leg": null,
+       "bound_undetermined": false,
+       "claimed": false,
+       "clamp": "none",
+       "defeater_second_disagreement": false,
+       "element": "the facts attribute specific acts to this accused, not only a general or omnibus allegation",
+       "end": null,
+       "error": null,
+       "fact_id": null,
+       "fact_id_disagreement": false,
+       "gate1_contradiction": false,
+       "gate1_disjuncts": null,
+       "gate1_not_entailed": false,
+       "gate1_score": null,
+       "gate1_unavailable": false,
+       "is_denial": false,
+       "occurrences": 0,
+       "offsets_source": null,
+       "p_established": 0.97,
+       "p_established_second": null,
+       "quote": null,
+       "quote_check": null,
+       "quote_source": null,
+       "second_fact_id": null,
+       "second_logit_distance": null,
+       "second_refer_band_fired": false,
+       "second_skip_reason": null,
+       "second_unavailable": false,
+       "start": null,
+       "status": "not_established",
+       "tau_second": null
+      }
+     ],
+     "gate1_contradiction": [],
+     "gate1_failed": [],
+     "gate1_unavailable": [],
+     "lean": {
+      "denied_claims": [],
+      "omitted_claims": [
+       "the facts attribute specific acts to this accused, not only a general or omnibus allegation"
+      ],
+      "unlicensed_claims": [],
+      "verdict": "flagged"
+     },
+     "lean_attestation": {
+      "binary_sha256": "scripted",
+      "verdict": "flagged",
+      "wire_sha256": "5abc286b750145b79e4f85ef0643255c7983004632851f37ef43a8032e5fee94"
+     },
+     "lean_outcome": "ABSTAIN",
+     "outcome": "ABSTAIN",
+     "reason": "missing_element",
+     "statute_text_mismatch": true,
+     "statute_text_similarity": 0.825,
+     "unavailable_second": [],
+     "uncertain": [],
+     "uncertain_second": []
+    }
+   ],
+   "facts": [
+    {
+     "id": "F1",
+     "sha256": "8e743e2d6cd46f687330e2805871e598b100025b4ec12d43780aa49974ded7d2"
+    },
+    {
+     "id": "F2",
+     "sha256": "109a38242b56112cdc566d640c95c1772bc952ee41c02c297f6fca1aaa83f0d1"
+    },
+    {
+     "id": "F3",
+     "sha256": "1c0bf6a1496850168787b099735a0d351f85c70acebcadd2b9538acd9adcb106"
+    }
+   ],
+   "judge": "scripted",
+   "judge_accounting": {
+    "backend_used_counts": {},
+    "backend_used_second_counts": {},
+    "judge_calls_primary": 3,
+    "judge_calls_second": 0
+   },
+   "provenance": "agama",
+   "retention_notice": "Don't submit real names or case details; anonymous submissions are kept up to 7 days for audit and are never used for training or evaluation.",
+   "score_sha256": "scripted",
+   "standard": {
+    "applied": null,
+    "in_judge_prompt": false,
+    "proceeding_posture": null,
+    "requested": "proved",
+    "source": "default"
+   }
+  }
+ }
+}

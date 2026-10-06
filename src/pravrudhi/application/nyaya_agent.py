@@ -74,6 +74,11 @@ from pathlib import Path
 from typing import Any, Literal, Protocol
 
 from pravrudhi.application import nyaya_lean_registry as reg
+from pravrudhi.application.nyaya_attribution import (
+    AccusedAttributionJudge,
+    AccusedRef,
+    AttributedJudgeRequest,
+)
 from pravrudhi.application.nyaya_judges import (
     ClampKind,
     ElementJudgment,
@@ -93,6 +98,8 @@ ContractReason = Literal[
     "judge_error", "assembly_lean_mismatch", "denial_unquotable", "second_judge_defeater_disagreement",
     "uncertain", "uncertain_second_judge", "second_judge_unavailable", "gate1_unavailable",
     "gate1_not_entailed", "gate1_contradiction", "contract_not_validated",
+    "accused_not_specified", "accused_attribution_unresolved", "accused_attribution_not_matched",
+    "accused_attribution_collective", "accused_attribution_config_unmatched",
 ]
 CONFIG_PATH = Path("configs") / "nyaya_agent.yaml"
 
@@ -180,6 +187,14 @@ class AgentConfig:
     #: alone does not state it. Default False -- today's behaviour, byte-identical. Env
     #: `NYAYA_SPAN_RELEVANCE_ENABLED` or yaml `span_relevance_enabled`. Measured only on a sealed Obj-1b set.
     span_relevance_enabled: bool = False
+    #: Accused-attribution check (`nyaya_attribution`, #418 design). Default False: no request, audit record or result differs
+    #: from before the feature existed (golden-tested). Env `NYAYA_ACCUSED_ATTRIBUTION_ENABLED` or yaml
+    #: `accused_attribution_enabled`. When on, only the elements named in `requires_actor` are checked.
+    accused_attribution_enabled: bool = False
+    #: contract id -> substrings (case-insensitive) identifying the element(s) that require a specific act by the accused. v1:
+    #: bns85's element 3. VERIFY a key against `score --describe <contract>` before enabling; a key that matches no element of
+    #: its contract fails closed to REFER (`accused_attribution_config_unmatched`), it never silently disables the check.
+    requires_actor: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
     #: Issue #39 (interim posture until a partner onboards): how many days a run's audit record survives
     #: under `audit_dir` before `purge_stale_runs` deletes it. Config-driven, never hardcoded, so the window
     #: can be tightened or loosened with a config edit alone. 7.0 is the operator/Lead-2 decided default.
@@ -455,6 +470,24 @@ def load_agent_config(root: Path) -> AgentConfig:
         span_raw.strip().lower() in ("1", "true", "yes", "on") if span_raw is not None
         else bool(body.get("span_relevance_enabled", False))
     )
+    attr_raw = os.environ.get("NYAYA_ACCUSED_ATTRIBUTION_ENABLED")
+    accused_attribution_enabled = (
+        attr_raw.strip().lower() in ("1", "true", "yes", "on") if attr_raw is not None
+        else bool(body.get("accused_attribution_enabled", False))
+    )
+    requires_actor_raw = body.get("accused_attribution_requires_actor") or {}
+    if not isinstance(requires_actor_raw, Mapping) or any(
+        not isinstance(v, (list, tuple)) or not v or any(not isinstance(x, str) or not x.strip() for x in v)
+        for v in requires_actor_raw.values()
+    ):
+        raise ValueError("accused_attribution_requires_actor must map contract ids to non-empty lists of non-empty strings")
+    requires_actor = {str(k): tuple(str(x) for x in v) for k, v in requires_actor_raw.items()}
+    unknown_actor = set(requires_actor) - reg.KNOWN_CONTRACT_IDS
+    if unknown_actor:
+        raise ValueError(
+            f"accused_attribution_requires_actor names contract ids not in the pinned registry: "
+            f"{sorted(unknown_actor)}"
+        )
 
     # Fail-closed allowlist (issue #36): every id here must actually exist in the pinned registry, checked at
     # load time rather than left to surface later as a silently-inert typo -- an id that isn't real can never
@@ -484,6 +517,8 @@ def load_agent_config(root: Path) -> AgentConfig:
         gate1=gate1,
         gate1_enabled=gate1_enabled,
         span_relevance_enabled=span_relevance_enabled,
+        accused_attribution_enabled=accused_attribution_enabled,
+        requires_actor=requires_actor,
         retention_days=float(body.get("retention_days", 7.0)),
     )
 
@@ -922,6 +957,10 @@ class ElementResult:
     #: element was conservatively decided not_established without actually demonstrating it -- distinct
     #: from an ordinary tau-miss. See `HouseJudge.judge`'s own decision rule.
     bound_undetermined: bool = False
+    #: Accused-attribution check result for this element (`nyaya_attribution`), else None (feature off, element not checked, or
+    #: not
+    #: established). `passed` False means the contract is REFER_TO_LAWYER with `reason`; the status above is NOT changed.
+    attribution: dict[str, Any] | None = None
 
 
 @dataclass
@@ -968,6 +1007,8 @@ class ContractResult:
     #: what was scored and by which binary -- a structural check, not that the assertions are true. None when
     #: no Lean call was made.
     lean_attestation: dict[str, str] | None = None
+    #: Elements the accused-attribution check refused (REFER_TO_LAWYER). Always [] when the feature is off.
+    attribution_refused: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -1007,7 +1048,20 @@ class AgentRun:
         d = asdict(self)
         d.pop("listed_sources", None)
         d["audit_path"] = str(self.audit_path)
-        return d
+        out: dict[str, Any] = _drop_unset_attribution(d)
+        return out
+
+
+def _drop_unset_attribution(o: Any) -> Any:
+    """Removes the accused-attribution keys while they are unset (None / empty list), so every result and audit record is
+    byte-identical
+    to its pre-feature form unless the feature actually produced something (golden-tested)."""
+    if isinstance(o, dict):
+        return {k: _drop_unset_attribution(v) for k, v in o.items()
+                if not (k in ("attribution", "attribution_refused") and (v is None or v == []))}
+    if isinstance(o, list):
+        return [_drop_unset_attribution(v) for v in o]
+    return o
 
 
 def _build_house_judge(hj_cfg: Mapping[str, Any], *, tau: float, typed: bool, api_key_env: str) -> Judge:
@@ -1264,6 +1318,8 @@ class NyayaAgent:
                 judge = primary
             if cfg.span_relevance_enabled:
                 judge = SpanRelevanceJudge(judge, primary)
+            if cfg.accused_attribution_enabled:
+                judge = AccusedAttributionJudge(judge)
             if gate1_model is not None:
                 threshold = float(cfg.gate1.get("threshold", GATE1_THRESHOLD_DEFAULT))
                 tau_c = float(cfg.gate1.get("tau_c", GATE1_TAU_C_DEFAULT))
@@ -1279,6 +1335,15 @@ class NyayaAgent:
         judge_pool = [judge] if cfg.max_concurrency <= 1 else [judge] + [_build_judge() for _ in range(cfg.max_concurrency - 1)]
         return cls(judge, registry, cfg, judge_pool=judge_pool)
 
+    def _requires_actor(self, contract_id: str, element: str, is_denial: bool) -> bool:
+        """True iff the accused-attribution feature is on and `element` of `contract_id` matches a configured `requires_actor`
+        key."""
+        if not self.config.accused_attribution_enabled or is_denial:
+            return False
+        keys = self.config.requires_actor.get(contract_id, ())
+        low = element.lower()
+        return any(k.lower() in low for k in keys)
+
     def _judge_element(
         self,
         judge: Judge,
@@ -1290,6 +1355,7 @@ class NyayaAgent:
         facts: tuple[Fact, ...],
         narrative: str,
         proceeding_posture: str | None = None,
+        accused: AccusedRef | None = None,
     ) -> tuple[ElementResult, list[JudgeCallRecord]]:
         """Attempt 1 decides the element's status and p_established. If it says established but its quote is
         not verbatim in the named fact, up to `max_retries` re-asks follow -- the SAME request, same training
@@ -1300,11 +1366,19 @@ class NyayaAgent:
         path) or a `_BufferedAudit` (concurrent path, flushed into the real trail only after every task in the
         contract has finished, in original order)."""
         fact_map = {f.id: f.text for f in facts}
-        request = JudgeRequest(
+        request: JudgeRequest = JudgeRequest(
             contract_id, element, is_denial, statute, narrative, tuple((f.id, f.text) for f in facts),
             skip_second=contract_id not in self.config.validated_contracts,
             proceeding_posture=proceeding_posture,
         )
+        if self._requires_actor(contract_id, element, is_denial):
+            # Only when the feature is on AND this element requires an actor: every other request, with the flag off, is the
+            # plain JudgeRequest it always was (audit records and results byte-identical, golden-tested).
+            request = AttributedJudgeRequest(
+                contract_id, element, is_denial, statute, narrative, tuple((f.id, f.text) for f in facts),
+                skip_second=contract_id not in self.config.validated_contracts,
+                proceeding_posture=proceeding_posture, accused=accused, requires_actor=True,
+            )
         anchor: ElementJudgment | None = None
         fact_id: str | None = None
         quote: str | None = None
@@ -1372,6 +1446,7 @@ class NyayaAgent:
             occurrences=loc.occurrences if loc else 0, offsets_source=loc.offsets_source if loc and loc.valid else None,
             quote_source=quote_source, binding_leg=final_binding_leg, clamp=anchor.clamp,
             bound_undetermined=anchor.bound_undetermined, **second_band, **_gate1_info(anchor),
+            attribution=anchor.attribution if valid else None,
         )
         return result, calls
 
@@ -1384,6 +1459,7 @@ class NyayaAgent:
         facts: tuple[Fact, ...],
         narrative: str,
         proceeding_posture: str | None = None,
+        accused: AccusedRef | None = None,
     ) -> tuple[list[ElementResult], list[JudgeCallRecord]]:
         """Judges every `(element_or_denial, is_denial)` task of one contract. `max_concurrency <= 1` (the
         default) or a single task runs them one at a time, writing straight to `audit` -- byte-for-byte the
@@ -1404,7 +1480,7 @@ class NyayaAgent:
         if self.config.max_concurrency <= 1 or len(tasks) <= 1:
             pairs = [
                 self._judge_element(
-                    self.judge, audit, contract_id, name, is_denial, statute, facts, narrative, proceeding_posture)
+                    self.judge, audit, contract_id, name, is_denial, statute, facts, narrative, proceeding_posture, accused)
                 for name, is_denial in tasks
             ]
             return [r for r, _ in pairs], [c for _, calls in pairs for c in calls]
@@ -1430,7 +1506,7 @@ class NyayaAgent:
             try:
                 name, is_denial = tasks[i]
                 return self._judge_element(
-                    j, buffers[i], contract_id, name, is_denial, statute, facts, narrative, proceeding_posture)
+                    j, buffers[i], contract_id, name, is_denial, statute, facts, narrative, proceeding_posture, accused)
             finally:
                 work_queue.put(j)
 
@@ -1481,6 +1557,7 @@ class NyayaAgent:
         *,
         call_records_out: list[JudgeCallRecord] | None = None,
         proceeding_posture: str | None = None,
+        accused: AccusedRef | None = None,
     ) -> ContractResult:
         t0 = time.monotonic()
         contract = self.registry.describe(contract_id)
@@ -1510,8 +1587,9 @@ class NyayaAgent:
                                  unavailable_second=kw.get("unavailable_second", []),
                                  gate1_unavailable=kw.get("gate1_unavailable", []), gate1_failed=kw.get("gate1_failed", []),
                                  gate1_contradiction=kw.get("gate1_contradiction", []),
-                                 lean_attestation=kw.get("lean_attestation"))
-            audit.step("outcome", {"contract_id": contract_id, "elements": [asdict(r) for r in results]},
+                                 lean_attestation=kw.get("lean_attestation"),
+                                 attribution_refused=kw.get("attribution_refused", []))
+            audit.step("outcome", {"contract_id": contract_id, "elements": [_drop_unset_attribution(asdict(r)) for r in results]},
                        {"contract_id": contract_id, "outcome": outcome, "reason": reason,
                         "lean_outcome": res.lean_outcome, "uncertain": res.uncertain,
                         "uncertain_second": res.uncertain_second, "unavailable_second": res.unavailable_second,
@@ -1523,15 +1601,22 @@ class NyayaAgent:
                         # ElementResult field) as readable OUTPUT, not just hashed into inputs_sha256 above --
                         # an auditor reading the JSONL directly must be able to see these without a matching
                         # copy of `results` to hash and compare against.
-                        "elements": [asdict(r) for r in results]}, 0.0)
+                        **({"attribution_refused": res.attribution_refused} if res.attribution_refused else {}),
+                        "elements": [_drop_unset_attribution(asdict(r)) for r in results]}, 0.0)
             return res
 
         if training is None:
             return finish("ABSTAIN", "no_training_statute_text")
 
+        if (self.config.accused_attribution_enabled and self.config.requires_actor.get(contract_id)
+                and not any(self._requires_actor(contract_id, e, False) for e in contract.elements)):
+            # A configured key that matches no element would silently turn the safety check off: refuse instead, before any
+            # judge call.
+            return finish("REFER_TO_LAWYER", "accused_attribution_config_unmatched")
+
         tasks = [(e, False) for e in contract.elements] + [(d, True) for d in contract.denials]
         elem_results, call_records = self._judge_elements(
-            audit, contract_id, tasks, training, facts, narrative, proceeding_posture)
+            audit, contract_id, tasks, training, facts, narrative, proceeding_posture, accused)
         results += elem_results
         if call_records_out is not None:
             call_records_out.extend(call_records)
@@ -1542,7 +1627,7 @@ class NyayaAgent:
         t0 = time.monotonic()
         assertions = assemble_assertions(contract, {r.element: _established_tristate(r.status) for r in results})
         local = expected_outcome(contract, assertions)
-        audit.step("assemble", {"contract_id": contract_id, "elements": [asdict(r) for r in results]},
+        audit.step("assemble", {"contract_id": contract_id, "elements": [_drop_unset_attribution(asdict(r)) for r in results]},
                    {"contract_id": contract_id, "assertions": assertions, "expected_outcome": local}, _ms(t0))
         t0 = time.monotonic()
         lean = self.registry.check(assertions, contract_id)
@@ -1583,6 +1668,10 @@ class NyayaAgent:
             return finish("REFER_TO_LAWYER", "gate1_not_entailed", **kw)
         if gate1_contradiction:
             return finish("REFER_TO_LAWYER", "gate1_contradiction", **kw)
+        refused = [r for r in results if r.attribution is not None and not r.attribution.get("passed")]
+        if refused:
+            kw["attribution_refused"] = [r.element for r in refused]
+            return finish("REFER_TO_LAWYER", refused[0].attribution["reason"], **kw)  # type: ignore[index]
         # Safety gate, allowlist form (Lead-2, 2026-09-25; inverted to fail-closed, issue #36, 2026-09-26+):
         # a contract not in `validated_contracts` never reaches the user as a PROOF or DENIAL. Every element
         # judged, quoted and Lean-checked above stays visible in `results` and the audit trail -- only the
@@ -1606,6 +1695,7 @@ class NyayaAgent:
         sections: Iterable[str] | None = None,
         client_data: bool = True,
         proceeding_posture: str | None = None,
+        accused: AccusedRef | None = None,
     ) -> AgentRun:
         # Issue #39's TTL purge: opportunistic, on every new run (the same lazy-eviction discipline
         # `partner.py`'s own RateLimiter already uses) rather than a separate background process or cron --
@@ -1649,7 +1739,7 @@ class NyayaAgent:
         call_records: list[JudgeCallRecord] = []
         results = [
             self._run_contract(audit, cid, ingested, narrative, call_records_out=call_records,
-                               proceeding_posture=proceeding_posture)
+                               proceeding_posture=proceeding_posture, accused=accused)
             for cid in chosen
         ]
         accounting = _judge_accounting(call_records)

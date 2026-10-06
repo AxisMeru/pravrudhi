@@ -104,6 +104,17 @@ audit_dir: research/nyaya/agent_runs
 # since a config edit alone does not rewrite that string.
 retention_days: 7
 
+# Accused-attribution check (nyaya_attribution.py; design: prabhasa-nyaya #418). DEFAULT OFF: with it off no request, audit record or
+# result differs from before the feature existed (golden-tested). When on, only the elements below are checked: the accused under
+# review must be named by the caller (`accused=AccusedRef(...)`), else the element fails closed to REFER_TO_LAWYER
+# (`accused_not_specified`); a quote whose actor is another party, a collective form or unresolvable also refers. Env override:
+# NYAYA_ACCUSED_ATTRIBUTION_ENABLED. Each value is a list of case-insensitive substrings identifying the element; VERIFY it against
+# `score --describe-contract <contract>` before enabling (a key matching no element fails closed, `accused_attribution_config_unmatched`).
+accused_attribution_enabled: false
+accused_attribution_requires_actor:
+  bns85:
+    - "specific acts of cruelty to this accused"
+
 # Optional config C: a SECOND judge, AND-gated with house_judge above (nyaya_judges.AndGateJudge). Absent (the
 # default, as below) is exactly today's single-house-judge behaviour -- the second is called ONLY when
 # house_judge already says established, and an element proves iff BOTH clear their own tau. Same keys as

@@ -1,0 +1,23 @@
+# Handover: accused-attribution check, v1 variant D0 (research explorer -> Track C), 5 Oct 2026
+Design: prabhasa-nyaya `research/explorations/accused_attribution/DESIGN.md` @fafe89a5 (decisions of Lead-2, section 10). This branch is the D0 build, STOPPED at a clean point per Lead-2's re-scope; Track C takes over after its #390 slot. Public repo: no real or sealed text anywhere (every example is a constructed toy). No model is called by anything here.
+
+## What is built (all default OFF)
+- `src/pravrudhi/application/nyaya_attribution.py` (new): `AccusedRef`, deterministic candidate-actor extraction with offsets, D0 selection (actor = the candidate group right before the first act verb; simple passive reads the agent after "by"), rules R0-R5 (`accused_not_specified`, `..._unresolved`, `..._not_matched`, `..._collective`), `AttributedJudgeRequest`, `AccusedAttributionJudge` (wraps the judge after `SpanRelevanceJudge`; never changes status).
+- `nyaya_judges.py`: `ElementJudgment.attribution` (omitted from `as_dict` while None).
+- `nyaya_agent.py`: `AgentConfig.accused_attribution_enabled` + `requires_actor` (yaml `accused_attribution_enabled`, `accused_attribution_requires_actor`, env `NYAYA_ACCUSED_ATTRIBUTION_ENABLED`; ids typo-guarded against the registry), `run(..., accused=AccusedRef)` threaded to `_judge_element`, an `AttributedJudgeRequest` only for flagged elements, `ElementResult.attribution`, `ContractResult.attribution_refused`, a REFER rung after the Gate 1 rungs, and a fail-closed `accused_attribution_config_unmatched` REFER (before any judge call) if a configured key matches no element.
+- `configs/nyaya_agent.yaml`: flag false; bns85 key `"specific acts to this accused"`.
+- `docs/api/openapi-v1.json`: regenerated; the public `reason` enum gains 5 values (additive; partner clients with a strict enum need a heads-up).
+
+## Tests (234 in `tests/test_nyaya_accused_attribution.py`, all constructed, accused numbering randomised per pair)
+Correct named accused (6 spellings), co-accused act, number-substring, collective/plural (13 forms incl. ranges, "X and Y", "along with", kin), pronoun-only / subjectless / agentless passive, object-position collective (passes), passive voice, numbering-does-not-encode-the-label, named people + other-party aliases, R0, R5 (error and oversized), `AccusedRef` validation; agent level: PROOF, REFER with status staying established, the three reasons + `accused_not_specified`, audit record, unmatched config key, span demotion first, denials/non-established never checked, house() wiring order, config defaults/env/malformed. **Flag-off byte-identity:** `tests/fixtures/nyaya_attribution_flag_off_golden.json` was generated from the tree BEFORE any source change (commit 491c061b) and `test_flag_off_*` re-run the scenarios, also with an `accused` passed, and compare results + audit lines exactly. Broader sweep (nyaya/partner/openapi/config/span/gate/judge): 1679 passed, 139 skipped, 2 xfailed. mypy clean on the two touched modules.
+
+## Open items for Track C
+1. **Lint:** ruff E501 (130 cols) on ~37 lines of the new module/test and ~8 in the agent/judges edits; no functional issue.
+2. **Verify the config key** against `score --describe bns85` (the binary was not on this host; the key "specific acts to this accused" comes from Track C's analysis wording). A wrong key fails closed (REFER), but it must be right to be useful.
+3. **Docs/design drift:** the design doc §6 says a refusal sets `vetoed_by="accused_attribution"`; the build keeps `vetoed_by` untouched (status stays established) and carries the result in `attribution` instead. Update the doc or change the code, one of them.
+4. **Partner API:** new `reason` values are in the OpenAPI enum; `ElementResultOut` does not expose `attribution` (not needed for v1); decide whether it should.
+5. **Accused identity source:** `run(accused=...)` exists; no API/endpoint field was added (out of scope). The partner request model needs an optional accused field before any product use.
+6. **D0 limits to measure on dev before any claim:** pronoun-only and possessive subjects refuse by design (R4); the lexicons (act verbs, bridge words, collective forms) are hand-written and English-only; the 20% true-proof refusal bound (decision 4) is NOT yet measured, because that needs the constructed EST set plus Track B's real dev bank.
+7. **Not done:** M1 (model-selected actor), the constructed contrast-pair generator at scale (the tests use small templates), the dev measurement, anything on the sealed set.
+## How to run
+`PYTHONPATH=src:pravrudhi_kernel/src:. <venv>/bin/python -m pytest tests/test_nyaya_accused_attribution.py` (the repo `.venv` has the dependencies).
