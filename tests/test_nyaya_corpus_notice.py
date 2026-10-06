@@ -39,8 +39,19 @@ def test_recorded_source_url(act: str, want: str | None) -> None:
     assert nyaya.recorded_source_url(act, SRC) == want
 
 
-@pytest.mark.parametrize("url", ["http://indiacode.gov.in/x", "https://indiacode.gov.in.evil.example/x",
-                                 "https://evil.example/indiacode.gov.in", "javascript:alert(1)", None, 5])
+@pytest.mark.parametrize("url", [
+    "http://indiacode.gov.in/x", "https://indiacode.gov.in.evil.example/x", "https://evil.example/indiacode.gov.in",
+    "javascript:alert(1)", None, 5,
+    "https://evil.example\\@indiacode.gov.in/x",  # a backslash: a browser goes to evil.example
+    "https://evil.example\\.indiacode.gov.in/x", "https://indiacode.gov.in\\x", "https://indiacode.gov.in/a\\b",
+    "https://user@indiacode.gov.in/x", "https://user:pw@indiacode.gov.in/x", "https://evil.example@indiacode.gov.in/x",
+    "https://indiacode.gov.in@evil.example/x", "https://:@indiacode.gov.in/x",
+    "https://indiacode.gov.in:8443/x", "https://indiacode.gov.in:443/x", "https://indiacode.gov.in:/x",
+    "https://indiacode.gov.in /x", "https://indiacode.gov.in/x\n", "https://indiacode.gov.in/\tx",
+    "https://indiacode.gov.in/x)](https://evil.com)", "https://indiacode.gov.in/x(y)", "https://indiacode.gov.in/[x]",
+    "https://indiacode.gov.in/<x>", "https://indiacode.gov.in/?u=https://evil.example/", "https://evil.com\\@indiacode.gov.in/x",
+    "https://indiacode\u00e9.gov.in/x", "https://\u0131ndiacode.gov.in/x", "//indiacode.gov.in/x", "https:indiacode.gov.in/x",
+])
 def test_only_an_https_india_code_host_is_ever_returned(url: object) -> None:
     assert nyaya.recorded_source_url("A", [{"act": "A", "act_page": url}]) is None
 
@@ -63,3 +74,27 @@ def test_an_empty_query_returns_no_text_and_still_the_notice(tmp_path: Path) -> 
     c = TestClient(create_app(tmp_path), base_url="http://127.0.0.1:8008")
     body = c.get("/api/nyaya/corpus?q=").json()
     assert body["hits"] == [] and body["notice"] == NOTICE
+
+
+@pytest.mark.parametrize(
+    ("url", "want"),
+    [
+        ("https://INDIACODE.gov.in/handle/1?x=1#f", "https://indiacode.gov.in/handle/1?x=1#f"),  # host lowercased, rest kept
+        ("https://www.indiacode.nic.in/show-data?actid=1", "https://www.indiacode.nic.in/show-data?actid=1"),
+        ("https://indiacode.gov.in", "https://indiacode.gov.in"),
+        ("https://indiacode.gov.in/a b".replace(" ", "%20"), "https://indiacode.gov.in/a%20b"),  # an existing escape is kept
+        ("https://indiacode.gov.in/a\"b", "https://indiacode.gov.in/a%22b"),  # an unsafe character is escaped
+    ],
+)
+def test_a_returned_url_is_the_normalised_rebuilt_url(url: str, want: str) -> None:
+    assert nyaya.recorded_source_url("A", [{"act": "A", "act_page": url}]) == want
+
+
+def test_every_hit_has_a_fallback_link_even_without_a_recorded_page(tmp_path: Path) -> None:
+    init_project(tmp_path)
+    c = TestClient(create_app(tmp_path), base_url="http://127.0.0.1:8008")
+    hits = c.get("/api/nyaya/corpus?q=murder punishment").json()["hits"]
+    assert hits and all(h["source_fallback_url"] == nyaya.INDIA_CODE_HOME for h in hits)
+    assert nyaya.INDIA_CODE_HOME == "https://www.indiacode.nic.in/"
+    ipc = [h for h in hits if h["act"].startswith("Indian Penal Code")]
+    assert ipc and all(h["source_url"] is None and h["source_fallback_url"] for h in ipc)

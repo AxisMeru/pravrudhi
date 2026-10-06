@@ -61,12 +61,17 @@ class NyayaCorpusHit(BaseModel):
     text: str
     #: The condition on showing this text (every hit carries it, so a hit copied out alone still has it).
     notice: str
-    #: The page the corpus recorded for this act on India Code, or null when none is recorded (never a constructed link).
+    #: The page the corpus recorded for this act on India Code, present ONLY when the corpus recorded one (BNS, BNSS, BSA
+    #: today; null for the IPC and the Constitution); never a constructed link.
     source_url: str | None
+    #: Always set: the India Code home page, for a reader of a hit whose act has no recorded page (so every hit has
+    #: the notice AND a source link). A fallback, never a deep link.
+    source_fallback_url: str
 
 
 class NyayaCorpusResponse(BaseModel):
     #: The statute-text notice (the exact wording): `hits[].text` is unofficial and the official version is on India Code.
+    #: The wording is the one counsel pack Q6 leaves open and changes when counsel answers.
     notice: str
     documents: int
     sources: list[dict[str, Any]]
@@ -213,6 +218,7 @@ def build_nyaya_router(root: Path, ask_fn: panel.AskFn | None = None) -> APIRout
                 {
                     "id": d.id, "act": d.act, "section": d.section, "title": d.title, "score": s, "text": d.text,
                     "notice": nyaya.STATUTE_NOTICE, "source_url": nyaya.recorded_source_url(d.act, c.sources),
+                    "source_fallback_url": nyaya.INDIA_CODE_HOME,
                 }
                 for d, s in c.retrieve(q, k=k)
             ]

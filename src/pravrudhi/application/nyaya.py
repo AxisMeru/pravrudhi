@@ -212,22 +212,46 @@ def _load_file(path: Path) -> tuple[list[Document], dict[str, Any]]:
 
 
 #: The condition on showing statute text (Lead-2, 5 Oct 2026; licence memo on s.52(1)(q)(ii), hold #506): text is
-#: returned only with this notice and a source link. The app's `STATUTE_NOTICE` carries the same words.
+#: returned with this notice. A recorded source link (`source_url`) is present only when the corpus recorded an India
+#: Code page for the act (BNS, BNSS, BSA today); otherwise the response carries the India Code home page as a fallback
+#: link. The app's `STATUTE_NOTICE` carries the same words. The wording "the official version on India Code prevails"
+#: is the one the counsel pack (Q6) leaves open: it changes when counsel answers.
 STATUTE_NOTICE = "Unofficial text; the official version on India Code prevails."
 _INDIA_CODE_HOSTS = frozenset({"indiacode.gov.in", "www.indiacode.gov.in", "indiacode.nic.in", "www.indiacode.nic.in"})
 
 
-def _india_code_https(url: object) -> str | None:
-    """`url` when it is an https link to India Code itself, else None (any other host is not the official text)."""
-    from urllib.parse import urlparse
+#: Where a reader is sent when the corpus records no page for an act: the India Code home page, never a guessed deep link
+#: (the app's `INDIA_CODE_HOME`).
+INDIA_CODE_HOME = "https://www.indiacode.nic.in/"
 
-    if not isinstance(url, str):
+
+def _india_code_https(url: object) -> str | None:
+    """A NORMALISED https India Code URL, or None. The check is strict because a URL is read differently by Python and
+    by a browser: any backslash, whitespace or control character is refused (`https://evil.example\\@indiacode.gov.in/x`
+    is host evil.example to a browser), userinfo is refused, the netloc must be exactly the lowercased host (an explicit
+    port is refused), and the result is rebuilt from the parsed parts so what is returned is what was checked."""
+    from urllib.parse import quote, urlparse, urlunparse
+
+    # Same rule as the app's hardened link check (pravrudhi-app #55): https only, no user-info, host in the set, no
+    # whitespace or control character, no backslash, none of ()[]<>, no second "://", and the href is rebuilt and escaped.
+    if (
+        not isinstance(url, str) or not url.isascii() or url.count("://") != 1
+        or any(c in "\\()[]<>" or c.isspace() or ord(c) < 32 for c in url)
+    ):
         return None
     try:
         u = urlparse(url)
+        host = (u.hostname or "").lower()
+        explicit_port = u.port
     except ValueError:
         return None
-    return url if u.scheme == "https" and (u.hostname or "").lower() in _INDIA_CODE_HOSTS else None
+    if u.scheme != "https" or host not in _INDIA_CODE_HOSTS or explicit_port is not None:
+        return None
+    if u.username is not None or u.password is not None or "@" in u.netloc or u.netloc.lower() != host:
+        return None
+    safe = "/%:@!$&'*+,;=-._~"  # an existing %XX escape is kept; everything else unsafe is escaped
+    return urlunparse(("https", host, quote(u.path, safe=safe), quote(u.params, safe=safe),
+                       quote(u.query, safe=safe + "?"), quote(u.fragment, safe=safe + "?")))
 
 
 def recorded_source_url(act: str, sources: list[dict[str, Any]]) -> str | None:
