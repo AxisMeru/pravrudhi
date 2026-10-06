@@ -211,6 +211,49 @@ def _load_file(path: Path) -> tuple[list[Document], dict[str, Any]]:
     return docs, {"file": path.name, **(raw.get("source") or {}), "documents": len(docs)}
 
 
+#: The condition on showing statute text (Lead-2, 5 Oct 2026; licence memo on s.52(1)(q)(ii), hold #506): text is
+#: returned only with this notice and a source link. The app's `STATUTE_NOTICE` carries the same words.
+STATUTE_NOTICE = "Unofficial text; the official version on India Code prevails."
+_INDIA_CODE_HOSTS = frozenset({"indiacode.gov.in", "www.indiacode.gov.in", "indiacode.nic.in", "www.indiacode.nic.in"})
+
+
+def _india_code_https(url: object) -> str | None:
+    """`url` when it is an https link to India Code itself, else None (any other host is not the official text)."""
+    from urllib.parse import urlparse
+
+    if not isinstance(url, str):
+        return None
+    try:
+        u = urlparse(url)
+    except ValueError:
+        return None
+    return url if u.scheme == "https" and (u.hostname or "").lower() in _INDIA_CODE_HOSTS else None
+
+
+def recorded_source_url(act: str, sources: list[dict[str, Any]]) -> str | None:
+    """The India Code page the corpus itself recorded for `act`, or None. Never a constructed deep link.
+
+    A source record names its act either as `act` (the India Code files: "Bharatiya Nyaya Sanhita, 2023", its page in
+    `act_page`) or as `work` ("Bharatiya Nyaya Sanhita (2023)", pages in `pages[].url`); the same matching the app
+    uses. Only an https India Code URL is returned."""
+    want = act.strip().lower()
+    if not want:
+        return None
+    for s in sources:
+        if str(s.get("act", "")).strip().lower() == want:
+            url = _india_code_https(s.get("act_page"))
+            if url:
+                return url
+        work = str(s.get("work", "")).strip().lower()
+        rest = work[len(want):] if work.startswith(want) else None
+        if rest is not None and (rest.strip() == "" or rest.lstrip().startswith(("(", ","))):
+            for p in s.get("pages") or []:
+                url = _india_code_https(p.get("url") if isinstance(p, dict) else None)
+                if url:
+                    return url
+    return None
+
+
 def load_min_relevance_score(root: Path | None) -> float:
     """`configs/nyaya_corpus.yaml`'s own `min_relevance_score` (issue #32) -- `MIN_RELEVANCE_SCORE` remains
     the fallback both when there is no `root` to resolve a config against (a bare `load_corpus()` call) AND

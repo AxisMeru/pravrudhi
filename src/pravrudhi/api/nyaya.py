@@ -59,9 +59,15 @@ class NyayaCorpusHit(BaseModel):
     title: str
     score: float
     text: str
+    #: The condition on showing this text (every hit carries it, so a hit copied out alone still has it).
+    notice: str
+    #: The page the corpus recorded for this act on India Code, or null when none is recorded (never a constructed link).
+    source_url: str | None
 
 
 class NyayaCorpusResponse(BaseModel):
+    #: The statute-text notice (the exact wording): `hits[].text` is unofficial and the official version is on India Code.
+    notice: str
     documents: int
     sources: list[dict[str, Any]]
     hits: list[NyayaCorpusHit]
@@ -204,13 +210,16 @@ def build_nyaya_router(root: Path, ask_fn: panel.AskFn | None = None) -> APIRout
         c = nyaya.load_corpus(project)
         hits = (
             [
-                {"id": d.id, "act": d.act, "section": d.section, "title": d.title, "score": s, "text": d.text}
+                {
+                    "id": d.id, "act": d.act, "section": d.section, "title": d.title, "score": s, "text": d.text,
+                    "notice": nyaya.STATUTE_NOTICE, "source_url": nyaya.recorded_source_url(d.act, c.sources),
+                }
                 for d, s in c.retrieve(q, k=k)
             ]
             if q.strip()
             else []
         )
-        return {"documents": len(c.documents), "sources": c.sources, "hits": hits}
+        return {"notice": nyaya.STATUTE_NOTICE, "documents": len(c.documents), "sources": c.sources, "hits": hits}
 
     @router.get("/asks", response_model=NyayaAsksResponse)
     def asks(limit: int = 20, workspace: str | None = None, user: User | None = CurrentUserDep) -> dict[str, Any]:
