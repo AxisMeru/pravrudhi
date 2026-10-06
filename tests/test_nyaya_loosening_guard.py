@@ -59,7 +59,6 @@ def test_loosening_candidate_is_rejected(cand):
         {"validated_contracts": ["a"]},
         {"house_judge": {"prompt_variant": "v2"}},
         {"house_judge": {"max_concurrency": 4}},
-        {"judge_prompt": {"standard_line": True}},
     ],
 )
 def test_stricter_prompt_and_wiring_candidates_pass(cand):
@@ -169,20 +168,13 @@ def test_loosening_or_unlisted_env_overrides_are_rejected(env):
     assert reject_loosening_env(env, REAL), env
 
 
-def test_stricter_listed_env_overrides_and_non_nyaya_vars_pass():
-    assert (
-        reject_loosening_env(
-            {
-                "NYAYA_HOUSE_JUDGE_TAU": "0.8",
-                "NYAYA_SECOND_JUDGE_TAU": "0.98",
-                "NYAYA_JUDGE_MAX_CONCURRENCY": "4",
-                "PATH": "/bin",
-            },
-            REAL,
-        )
-        == []
-    )
-    assert reject_loosening_env({}, REAL) == [] and reject_loosening_env(None, REAL) == []
+def test_stricter_listed_env_overrides_pass(monkeypatch):
+    assert reject_loosening_env({"NYAYA_SECOND_JUDGE_TAU": "0.98", "NYAYA_JUDGE_MAX_CONCURRENCY": "4"}, REAL) == []
+    assert reject_loosening_env({}, REAL) == []
+    for k in list(__import__("os").environ):
+        if k.startswith(("NYAYA_", "PRAVRUDHI_", "PRABHASA_")):
+            monkeypatch.delenv(k)
+    assert reject_loosening_env(None, REAL) == []  # a clean ambient environment
 
 
 # ---- the sanctioned caller ----
@@ -203,3 +195,56 @@ def test_guarded_candidate_config_refuses_before_merging_and_lists_every_violati
     with pytest.raises(LooseningRefused) as e:
         guarded_candidate_config(REAL, {"tau": 0.5, "max_retries": 0}, {"NYAYA_GATE1_ENABLED": "0"})
     assert len(e.value.violations) == 3 and math.isfinite(len(e.value.violations))
+
+
+def test_the_phantom_house_judge_tau_name_is_not_allowlisted():
+    from pravrudhi.application.nyaya_loosening_guard import ENV_PATHS
+
+    assert "NYAYA_HOUSE_JUDGE_TAU" not in ENV_PATHS  # the name does not exist in the engine: an allowlist entry for it is a trap
+
+
+@pytest.mark.parametrize(
+    "cand",
+    [
+        {"judge_prompt": {"standard_line": True}},
+        {"judge_prompt": {"standard_line": 1}},
+        {"judge_prompt": {"standard_line": None}},
+    ],
+)
+def test_a_change_to_standard_line_is_refused_it_moves_the_operating_point(cand):
+    v = reject_loosening(cand, REAL)
+    assert v and any("standard_line" in m for m in v)
+
+
+def test_standard_line_equal_to_the_baseline_is_not_a_change_and_an_absent_baseline_value_is_refused():
+    assert reject_loosening({"judge_prompt": {"standard_line": REAL["judge_prompt"]["standard_line"]}}, REAL) == []
+    assert reject_loosening({"judge_prompt": {"standard_line": False}}, {"tau": 0.74})  # no baseline value to compare: refused
+
+
+def test_env_none_means_the_ambient_environment_not_no_environment(monkeypatch):
+    for k in list(__import__("os").environ):
+        if k.startswith(("NYAYA_", "PRAVRUDHI_", "PRABHASA_")):
+            monkeypatch.delenv(k)
+    assert guarded_candidate_config(REAL, {"tau": 0.8})["tau"] == 0.8  # clean ambient
+    monkeypatch.setenv("NYAYA_SECOND_JUDGE_TAU", "0.5")
+    with pytest.raises(LooseningRefused, match="NYAYA_SECOND_JUDGE_TAU"):
+        guarded_candidate_config(REAL, {"tau": 0.8})  # env=None: the ambient loosening override is NOT silently ignored
+    monkeypatch.delenv("NYAYA_SECOND_JUDGE_TAU")
+    monkeypatch.setenv("PRAVRUDHI_AUTH", "off")
+    with pytest.raises(LooseningRefused, match="PRAVRUDHI_AUTH"):
+        guarded_candidate_config(REAL, {"tau": 0.8})  # default-deny whatever the prefix
+
+
+def test_unrelated_ambient_variables_are_not_part_of_a_candidate(monkeypatch):
+    for k in list(__import__("os").environ):
+        if k.startswith(("NYAYA_", "PRAVRUDHI_", "PRABHASA_")):
+            monkeypatch.delenv(k)
+    monkeypatch.setenv("PATH", "/usr/bin")
+    assert guarded_candidate_config(REAL, {})  # PATH/HOME and friends do not trip the guard when the env is the ambient one
+
+
+def test_an_explicit_empty_env_means_no_environment_overrides(monkeypatch):
+    monkeypatch.setenv("NYAYA_SECOND_JUDGE_TAU", "0.5")
+    assert (
+        guarded_candidate_config(REAL, {"tau": 0.8}, {})["tau"] == 0.8
+    )  # the caller states the environment explicitly; the ambient one is not read

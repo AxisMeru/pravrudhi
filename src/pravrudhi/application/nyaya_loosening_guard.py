@@ -1,7 +1,7 @@
 """Night-loop guard for #303: a candidate config may not LOOSEN the safety operating point.
 
 Lead-2, 2026-10-02; DEFAULT-DENY since 6 Oct (R2 on #175). A candidate is a nested dict of overrides on the baseline
-agent config (configs/nyaya_agent.yaml shape), optionally with the NYAYA_* environment it would run under. The guard
+agent config (configs/nyaya_agent.yaml shape), optionally with the environment it would run under. The guard
 is an ALLOWLIST: a path the loop may change must be listed below with its rule; every other path, every unknown key,
 every non-dict candidate and every non-finite number is a violation. Allowed paths are of three kinds:
 
@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import copy
 import math
+import os
 from collections.abc import Mapping
 from typing import Any
 
@@ -39,7 +40,6 @@ TIGHTEN_ONLY: dict[tuple[str, ...], float] = {
     ("second_judge_positive_control", "ne_discrimination_min"): 0.0,
 }
 FREE: dict[tuple[str, ...], type] = {
-    ("judge_prompt", "standard_line"): bool,
     ("house_judge", "prompt_variant"): str,
     ("house_judge", "max_concurrency"): int,
 }
@@ -47,10 +47,9 @@ BAND = ("refer_band",)
 CONTRACTS = ("validated_contracts",)
 SECOND = ("second_judge",)
 
-# NYAYA_* environment variables the loop may set, mapped to the config path whose rule then applies.
-# Every other NYAYA_* variable is refused.
+# Environment variables the loop may set, mapped to the config path whose rule then applies.
+# Every other variable, whatever its prefix, is refused.
 ENV_PATHS: dict[str, tuple[str, ...]] = {
-    "NYAYA_HOUSE_JUDGE_TAU": ("tau",),
     "NYAYA_SECOND_JUDGE_TAU": ("second_judge", "tau"),
     "NYAYA_SECOND_JUDGE_REFER_LOGIT_DELTA": ("second_judge", "refer_logit_delta"),
     "NYAYA_SECOND_JUDGE_LABEL_MASS_FLOOR": ("second_judge", "label_mass_floor"),
@@ -165,6 +164,12 @@ def reject_loosening(candidate: Any, baseline: Any) -> list[str]:
             if not ok:
                 bad.append(f"{'.'.join(path)}: {v!r} is not a valid {typ.__name__} for this wiring knob")
 
+    sl, present = _get(candidate, ("judge_prompt", "standard_line"))
+    if present:
+        handled.add(("judge_prompt", "standard_line"))
+        if sl != _get(baseline, ("judge_prompt", "standard_line"))[0] or not _get(baseline, ("judge_prompt", "standard_line"))[1]:
+            bad.append("judge_prompt.standard_line: a change is refused (it moves the operating point; for trained weights only)")
+
     # DEFAULT-DENY: every other leaf is a violation, named so a human can allowlist it deliberately (or not)
     for path, _v in _leaf_paths(candidate):
         if any(path[: len(h)] == h for h in handled) or path in handled:
@@ -180,14 +185,26 @@ def reject_loosening(candidate: Any, baseline: Any) -> list[str]:
     return bad
 
 
-def reject_loosening_env(env: Mapping[str, str] | None, baseline: Any) -> list[str]:
-    """The NYAYA_* variables a candidate would run under: only ENV_PATHS may appear.
+AMBIENT_PREFIXES = (
+    "NYAYA_",
+    "PRAVRUDHI_",
+    "PRABHASA_",
+)  # the repo's config namespaces: the ambient environment is checked inside these
 
-    Each value is parsed and held to its config path's rule."""
+
+def ambient_env() -> dict[str, str]:
+    """The process environment restricted to the config namespaces (PATH, HOME and the like are not part of a candidate)."""
+    return {k: v for k, v in os.environ.items() if k.startswith(AMBIENT_PREFIXES)}
+
+
+def reject_loosening_env(env: Mapping[str, str] | None, baseline: Any) -> list[str]:
+    """The environment a candidate would run under: default-deny WHATEVER the prefix.
+
+    Every variable in an explicit `env` must be in ENV_PATHS (PRAVRUDHI_AUTH, PRABHASA_NYAYA_SCORE_BIN and the like are
+    refused like any other); each allowed value is parsed and held to its config path's rule. `env=None` means the
+    ambient process environment (restricted to the config namespaces), never "no environment"."""
     bad: list[str] = []
-    for k, raw in (env or {}).items():
-        if not str(k).startswith("NYAYA_"):
-            continue
+    for k, raw in (ambient_env() if env is None else env).items():
         path = ENV_PATHS.get(k)
         if path is None:
             bad.append(f"{k}: environment override not in the loop's allowlist (default-deny)")
@@ -222,7 +239,9 @@ def guarded_candidate_config(
 
     Refuses (LooseningRefused) before anything is merged or evaluated, else returns the baseline deep-merged with
     the candidate."""
-    violations = reject_loosening(candidate, baseline) + reject_loosening_env(env, baseline)
+    violations = reject_loosening(candidate, baseline) + reject_loosening_env(
+        env, baseline
+    )  # env=None: the ambient environment is checked, never ignored
     if violations:
         raise LooseningRefused(violations)
     merged = copy.deepcopy(dict(baseline))
