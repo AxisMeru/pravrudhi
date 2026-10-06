@@ -20,6 +20,7 @@ from pravrudhi.api.nyaya import build_nyaya_router
 from pravrudhi.api.partner import PartnerApiConfig, build_partner_router
 from pravrudhi.application.chat import ChatEndpointUnreachable
 from pravrudhi.application.nyaya_agent import BinaryShaMismatch, JudgeMisconfigured
+from pravrudhi.application.nyaya_lean_registry import UnknownContractError
 from tests.test_api_partner import _NO_LIMIT_CONFIG, _req
 from tests.test_partner_jobs import JOBS, H
 from tests.test_partner_key_metering import ADMIN, FakeClock, _key
@@ -158,3 +159,26 @@ def test_vendor_not_allowed_is_a_coded_403_with_a_fixed_message_that_does_not_ec
     resp = _nyaya_app(tmp_path).post("/api/nyaya/ask", json={"question": "what is s.69?", "vendors": ["x"]})
     assert resp.status_code == 403 and resp.json()["error"] == "vendor_not_allowed"
     assert "MARKER" not in resp.text and "10.1.2.3" not in resp.text
+
+
+class _RaisingAgent:
+    def __init__(self, exc: BaseException) -> None:
+        self.exc = exc
+
+    def run(self, *_a: Any, **_k: Any) -> Any:
+        raise self.exc
+
+
+@pytest.mark.parametrize("exc,code", [(ValueError(MARK), "request_rejected"), (UnknownContractError(MARK), "unknown_contract")])
+def test_partner_agent_rejections_are_coded_422s_with_no_exception_text_sync_and_in_the_stored_job(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, exc: BaseException, code: str
+) -> None:
+    sync = TestClient(_partner_app(tmp_path, lambda _r: _RaisingAgent(exc))).post("/api/v1/analyse-facts", json=_req())
+    assert sync.status_code == 422 and sync.json()["error"] == code
+    assert "MARKER" not in sync.text and "10.1.2.3" not in sync.text
+    monkeypatch.setenv("PRAVRUDHI_ADMINS", ADMIN.id)
+    c = TestClient(_partner_app(tmp_path, lambda _r: _RaisingAgent(exc), executor=lambda task: task()))
+    secret = _key(c, "acme")
+    jid = c.post(JOBS, json=_meter_req(), headers={H: secret}).json()["job_id"]
+    polled = c.get(f"{JOBS}/{jid}", headers={H: secret})
+    assert "MARKER" not in polled.text and "10.1.2.3" not in polled.text and code in polled.text

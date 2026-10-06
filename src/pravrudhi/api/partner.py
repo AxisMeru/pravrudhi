@@ -69,7 +69,14 @@ from pydantic import BaseModel, Field
 from starlette.responses import JSONResponse
 
 from pravrudhi import __version__
-from pravrudhi.api.errors import AGENT_AT_CAPACITY, AGENT_UNAVAILABLE, coded_503
+from pravrudhi.api.errors import (
+    AGENT_AT_CAPACITY,
+    AGENT_UNAVAILABLE,
+    REQUEST_REJECTED,
+    UNKNOWN_CONTRACT,
+    coded,
+    coded_503,
+)
 from pravrudhi.api.identity import CurrentUserDep, User
 from pravrudhi.application import audit, tenancy
 from pravrudhi.application import nyaya_lean_registry as reg
@@ -1102,10 +1109,12 @@ def build_partner_router(
                 req.facts, narrative=req.narrative, contract_ids=req.contract_ids, sections=req.sections,
                 client_data=True, **posture,
             )
-        except ValueError as e:
-            raise HTTPException(422, str(e)) from e
-        except reg.UnknownContractError as e:
-            raise HTTPException(422, str(e)) from e
+        except reg.UnknownContractError:  # a KeyError, so it must come before ValueError's neighbours; the id is the caller's own
+            _logger.info("analyse-facts: unknown contract id", exc_info=True)
+            return coded(422, UNKNOWN_CONTRACT)
+        except ValueError:  # config or engine-internal ValueErrors too: the text is logged server-side only (#318)
+            _logger.warning("analyse-facts: request rejected by the engine", exc_info=True)
+            return coded(422, REQUEST_REJECTED)
         except (JudgeMisconfigured, BinaryShaMismatch, OSError):  # FileNotFoundError is an OSError
             _logger.warning("nyaya agent unavailable", exc_info=True)  # the exception is logged server-side only (#318)
             return coded_503(AGENT_UNAVAILABLE)
