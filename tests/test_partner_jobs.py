@@ -108,3 +108,13 @@ def test_a_crashing_run_becomes_a_failed_job_not_a_lost_one(monkeypatch: Any, tm
     jid = c.post(JOBS, json=_req(), headers={H: secret}).json()["job_id"]
     j = c.get(f"{JOBS}/{jid}", headers={H: secret}).json()
     assert j["status"] == "failed" and j["error"]["status_code"] == 500
+
+
+def test_a_job_result_withholds_the_rule_text_fields_while_the_licence_hold_is_on(monkeypatch: Any, tmp_path: Path) -> None:
+    """Licence hold (#308/#506): the jobs path strips the three fields like the synchronous route, absent not null."""
+    monkeypatch.setenv("PRAVRUDHI_ADMINS", ADMIN.id)
+    c = TestClient(_app(tmp_path, _inline))
+    secret = _key(c, "acme")
+    r = c.post(JOBS, json=_req(), headers={H: secret})
+    contract = c.get(f"{JOBS}/{r.json()['job_id']}", headers={H: secret}).json()["result"]["contracts"][0]
+    assert not any(n in contract for n in ("rule_text", "judge_rule_text", "rule_text_source"))
