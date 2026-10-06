@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from pravrudhi.application.discordance import discordance
-from pravrudhi.application.external import external_rows, headlines
+from pravrudhi.application.external import dedupe_external_rows, external_rows, headlines, paired_with_own_base
 from pravrudhi_kernel.ledger.verify import iter_events
 
 DO_NOT_EDIT = (
@@ -72,7 +72,7 @@ def _table(caption: str, label: str, colspec: str, header: str, body_rows: list[
 
 def _external_table(ledger: Path) -> str:
     notes = _Notes()
-    rows = external_rows(ledger) if ledger.exists() else []
+    rows = dedupe_external_rows(external_rows(ledger)) if ledger.exists() else []
     body: list[str] = []
     for r in rows:
         try:
@@ -102,34 +102,22 @@ def _external_table(ledger: Path) -> str:
 def _paired_table(ledger: Path) -> str:
     notes = _Notes()
     rows = external_rows(ledger) if ledger.exists() else []
-    by: dict[tuple[str, str], dict[str, dict[str, Any]]] = {}
-    for r in rows:
-        try:
-            marks = headlines(r)
-        except (KeyError, StopIteration, ZeroDivisionError):
-            continue
-        for name, *_rest in marks:
-            by.setdefault((str(r.get("track")), name), {})[str(r.get("condition") or "")] = r
-
     body: list[str] = []
-    for (track, name), conds in sorted(by.items()):
-        base = conds.get("base")
-        others = {c: r for c, r in conds.items() if not (c == "base" or c.startswith("base-"))}
-        for cond, row in sorted(others.items()):
-            if base is None:
-                dash = notes.dash(f"no baseline recorded for {track}/{name}")
-                body.append(f"{_esc(track)} & {_esc(name)} & {_esc(cond)} & {dash} & {dash} & {dash} \\\\")
-                continue
-            base_items: dict[str, int] = base.get("items") or {}
-            cond_items: dict[str, int] = row.get("items") or {}
-            if not (set(base_items) & set(cond_items)):
-                dash = notes.dash("no per-item vectors logged for this comparison")
-                body.append(f"{_esc(track)} & {_esc(name)} & {_esc(cond)} & {dash} & {dash} & {dash} \\\\")
-                continue
-            d = discordance(base_items, cond_items)
-            body.append(
-                f"{_esc(track)} & {_esc(name)} & {_esc(cond)} & {d.wins} & {d.losses} & {d.p_mcnemar:.4f} \\\\"
-            )
+    # each candidate against the nearest EARLIER base of its track and metric, one line per candidate row (#332)
+    for track, name, row, base in paired_with_own_base(rows, include_replicates=False):
+        cond = str(row.get("condition") or "")
+        if base is None:
+            dash = notes.dash(f"no baseline recorded for {track}/{name}")
+            body.append(f"{_esc(track)} & {_esc(name)} & {_esc(cond)} & {dash} & {dash} & {dash} \\\\")
+            continue
+        base_items: dict[str, int] = base.get("items") or {}
+        cond_items: dict[str, int] = row.get("items") or {}
+        if not (set(base_items) & set(cond_items)):
+            dash = notes.dash("no per-item vectors logged for this comparison")
+            body.append(f"{_esc(track)} & {_esc(name)} & {_esc(cond)} & {dash} & {dash} & {dash} \\\\")
+            continue
+        d = discordance(base_items, cond_items)
+        body.append(f"{_esc(track)} & {_esc(name)} & {_esc(cond)} & {d.wins} & {d.losses} & {d.p_mcnemar:.4f} \\\\")
     if not body:
         reason = "no ledger yet" if not ledger.exists() else "no paired comparison recorded in the ledger yet"
         dash = notes.dash(reason)

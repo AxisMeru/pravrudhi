@@ -122,3 +122,42 @@ def test_progress_page_maintains_progress_content(tmp_path: Path) -> None:
 
     # Should show a section heading for what the engine has done
     assert "What the engine has done" in page or "Objectives" in page
+
+
+def _page_for(progress: dict) -> str:
+    objectives = [{"intent": "x", "progress": [progress]}]
+    return render_page(objectives=objectives, commits=[], version="0.1.0", app_present=False, paper_present=False)
+
+
+def test_paired_counts_and_test_are_shown_and_a_non_separated_difference_says_so() -> None:
+    page = _page_for(
+        {
+            "benchmark": "humaneval+ pass@1",
+            "state": "measured",
+            "baseline": {"value": 0.5976, "n": 164},
+            "latest": {"value": 0.6463, "n": 164},
+            "wins": 15,
+            "losses": 7,
+            "p_mcnemar": 0.1338,
+        }
+    )
+    assert "0.598" in page and "0.646" in page
+    assert "paired: 15 problems only the latest passes vs 7 only the baseline passes" in page
+    assert "exact McNemar p = 0.134" in page and "not separated by the paired test" in page
+    row = page[page.index('<li class="benchmark">') : page.index("</li>", page.index('<li class="benchmark">'))]
+    assert "improve" not in row.lower() and "164" not in row  # no improvement wording, no sample count in the row
+
+
+def test_a_separated_difference_is_stated_as_such_and_unpaired_rows_carry_no_note() -> None:
+    base = {"benchmark": "b", "state": "measured", "baseline": {"value": 0.4}, "latest": {"value": 0.6}}
+    sep = _page_for({**base, "wins": 59, "losses": 7, "p_mcnemar": 0.0})
+    assert "separated by the paired test (p below 0.05)" in sep and "not separated" not in sep
+    odd = (
+        {},
+        {"wins": 3, "losses": 1},
+        {"wins": None, "losses": 2, "p_mcnemar": 0.5},
+        {"wins": True, "losses": 1, "p_mcnemar": 0.5},
+    )
+    for p in odd:
+        page = _page_for({**base, **p})
+        assert "paired:" not in page

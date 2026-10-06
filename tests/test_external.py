@@ -93,3 +93,96 @@ def test_render_external_shows_trust_remote_code(tmp_path):
     assert " | yes | " in on_row
     assert " | no | " in off_row
     assert " | - | " in ep_row
+
+
+# --- #332: one row per result file; each candidate paired with its OWN (nearest earlier) base ---
+
+
+def _evalplus(path: Path, passes: set[int], n: int = 10) -> Path:
+    path.write_text(
+        json.dumps(
+            {
+                "eval": {
+                    f"HumanEval/{i}": [{"base_status": "pass", "plus_status": "pass" if i in passes else "fail"}]
+                    for i in range(n)
+                }
+            }
+        )
+    )
+    return path
+
+
+def _ledger_with_two_nights(tmp_path):
+    (tmp_path / "research").mkdir()
+    ledger = tmp_path / "research" / "ledger.jsonl"
+    LedgerWriter.open(ledger, "0.1.0")
+    kw = dict(tool="evalplus", dataset="humaneval", track="H", model="h")
+    a = _evalplus(tmp_path / "a.json", set(range(6)))  # night-1 base: 6/10
+    b = _evalplus(tmp_path / "b.json", {0, 1})  # night-1 candidate: 2/10
+    c = _evalplus(tmp_path / "c.json", set(range(7)))  # night-3 base: 7/10
+    d = _evalplus(tmp_path / "d.json", set(range(9)))  # night-3 candidate: 9/10
+    record_external(tmp_path, a, condition="base", night=1, **kw)
+    record_external(tmp_path, b, condition="harness:c1", night=1, **kw)
+    record_external(tmp_path, c, condition="base", night=3, **kw)
+    record_external(tmp_path, d, condition="harness:combo", night=3, **kw)
+    record_external(tmp_path, c, condition="base", night=3, **kw)  # the same file admitted again
+    return ledger
+
+
+def test_one_row_per_result_file(tmp_path):
+    from pravrudhi.application.external import dedupe_external_rows, external_rows
+
+    ledger = _ledger_with_two_nights(tmp_path)
+    raw = external_rows(ledger)
+    assert len(raw) == 5
+    rows = dedupe_external_rows(raw)
+    assert len(rows) == 4
+    night3_base = next(r for r in rows if r["condition"] == "base" and r["night"] == 3)
+    assert night3_base["seqs"] == [raw[2]["seq"], raw[4]["seq"]]
+    text = render_external(ledger)
+    assert f"| {raw[2]['seq']}/{raw[4]['seq']} | H | base |" in text
+    assert sum(1 for line in text.splitlines() if line.startswith("|") and "| base |" in line) == 2  # not three
+
+
+def test_per_item_vector_is_kept_from_whichever_duplicate_has_one():
+    from pravrudhi.application.external import dedupe_external_rows
+
+    base = {"seq": 1, "track": "H", "condition": "base", "model": "m", "sha256": "x" * 64}
+    again = {**base, "seq": 5, "items": {"t": 1}}
+    out = dedupe_external_rows([base, again])
+    assert len(out) == 1 and out[0]["seqs"] == [1, 5] and out[0]["items"] == {"t": 1}
+    # rows without a hash are never merged
+    assert len(dedupe_external_rows([{**base, "sha256": None}, {**base, "sha256": None, "seq": 2}])) == 2
+
+
+def test_each_candidate_is_paired_with_its_own_base_not_the_latest(tmp_path):
+    ledger = _ledger_with_two_nights(tmp_path)
+    text = render_external(ledger)
+    pairs = [line for line in text.splitlines() if line.startswith("- H humaneval+")]
+    c1 = next(line for line in pairs if "harness:c1" in line)
+    combo = next(line for line in pairs if "harness:combo" in line)
+    assert "harness:c1 − base = -0.4000" in c1 and "base 0.6000" in c1  # night-1 base 6/10, not the night-3 base
+    assert "harness:combo − base = +0.2000" in combo and "base 0.7000" in combo  # night-3 base 7/10
+    assert "paired: 2 harness:combo-only vs 0 base-only" in combo
+    assert len(pairs) == 2
+
+
+def test_a_candidate_before_any_base_is_not_paired(tmp_path):
+    (tmp_path / "research").mkdir()
+    ledger = tmp_path / "research" / "ledger.jsonl"
+    LedgerWriter.open(ledger, "0.1.0")
+    kw = dict(tool="evalplus", dataset="humaneval", track="H", model="h")
+    record_external(tmp_path, _evalplus(tmp_path / "x.json", {0}), condition="harness:early", night=1, **kw)
+    record_external(tmp_path, _evalplus(tmp_path / "y.json", {0, 1, 2}), condition="base", night=2, **kw)
+    text = render_external(ledger)
+    assert not any(line.startswith("- H humaneval+") and "harness:early" in line for line in text.splitlines())
+
+
+def test_paper_paired_table_uses_the_own_base(tmp_path):
+    from pravrudhi.application import paper_data
+
+    ledger = _ledger_with_two_nights(tmp_path)
+    table = paper_data._paired_table(ledger)
+    assert "harness:combo & 2 & 0 &" in table  # wins/losses against the night-3 base, from per-item vectors
+    assert "harness:c1 & 0 & 4 &" in table  # night-1 candidate against the night-1 base: 4 base-only
+    assert paper_data._external_table(ledger).count("harness:combo") == 1

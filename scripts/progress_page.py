@@ -59,6 +59,7 @@ section { margin-top:2rem; }
 .benchmark:first-child { border-top:none; }
 .benchmark-name { font-weight:600; min-width:12rem; }
 .benchmark-values { color:var(--muted); }
+.paired { color:var(--muted); font-size:0.9em; }
 .state { margin-left:auto; font-size:0.85rem; color:var(--muted); }
 .commits { padding-left:1.25rem; }
 .commits li { margin-bottom:0.25rem; }
@@ -108,6 +109,22 @@ def _fmt_value(measurement: dict[str, Any] | None) -> str:
     return "unmeasured"
 
 
+def _paired_note(progress: dict[str, Any]) -> str:
+    """The paired counts and the exact test beside a baseline-to-latest reading, when the ledger rows carried per-item
+    vectors: how many problems only the latest passes against how many only the baseline passes, and whether the test
+    separates them. Never wording like 'improved': a difference the paired test does not separate says so (#639)."""
+    wins, losses, p = progress.get("wins"), progress.get("losses"), progress.get("p_mcnemar")
+    if isinstance(wins, bool) or isinstance(losses, bool) or not isinstance(wins, int) or not isinstance(losses, int):
+        return ""
+    if not isinstance(p, int | float) or isinstance(p, bool):
+        return ""
+    verdict = "not separated by the paired test" if p >= 0.05 else "separated by the paired test (p below 0.05)"
+    return (
+        f'<span class="paired">paired: {wins} problems only the latest passes vs {losses} only the baseline passes, '
+        f"exact McNemar p = {p:.3f}; {html.escape(verdict)}</span>"
+    )
+
+
 def _render_benchmark(progress: dict[str, Any]) -> str:
     state = str(progress.get("state", "unmeasured"))
     label = STATE_LABELS.get(state, state)
@@ -118,6 +135,7 @@ def _render_benchmark(progress: dict[str, Any]) -> str:
         '<li class="benchmark">'
         f'<span class="benchmark-name">{benchmark}</span>'
         f'<span class="benchmark-values">{html.escape(baseline)} → {html.escape(latest)}</span>'
+        f"{_paired_note(progress)}"
         f'<span class="state state-{html.escape(state)}">{html.escape(label)}</span>'
         "</li>"
     )

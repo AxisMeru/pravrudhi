@@ -12,6 +12,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from pravrudhi.application.discordance import discordance
 from pravrudhi_kernel.ledger import LedgerWriter
 from pravrudhi_kernel.ledger.verify import iter_events
 from pravrudhi_kernel.sandbox.observe import sha256_file
@@ -233,6 +234,60 @@ def external_rows(ledger: Path) -> list[dict[str, Any]]:
     return out
 
 
+def dedupe_external_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """One row per result FILE: the ledger can hold several audit rows for the same file hash (a re-admission that
+    adds per-item results), and listing each as a measurement double-counts it (#332: night-3 base seq 1838/1844 and
+    combo 1841/1845). The first seq is kept, every seq is recorded in `seqs`, and the per-item vector is taken from
+    whichever row carries one. Rows with no sha256 are never merged."""
+    out: list[dict[str, Any]] = []
+    seen: dict[tuple[Any, ...], dict[str, Any]] = {}
+    for r in rows:
+        key = (r.get("track"), r.get("condition"), r.get("model"), r.get("sha256"))
+        if not r.get("sha256") or key not in seen:
+            merged = {**r, "seqs": [r["seq"]]}
+            out.append(merged)
+            if r.get("sha256"):
+                seen[key] = merged
+            continue
+        first = seen[key]
+        first["seqs"].append(r["seq"])
+        if r.get("items") and not first.get("items"):
+            first["items"] = r["items"]
+    return out
+
+
+def _is_base(condition: str) -> bool:
+    return condition == "base"
+
+
+def _is_candidate(condition: str) -> bool:
+    return not (condition == "base" or condition.startswith("base-"))
+
+
+def paired_with_own_base(
+    rows: list[dict[str, Any]], include_replicates: bool = True
+) -> list[tuple[str, str, dict[str, Any], dict[str, Any] | None]]:
+    """(track, metric, candidate row, base row) for every candidate, each paired with the NEAREST EARLIER `base` row
+    of the same track and metric (by seq), not with the latest base in the ledger (#332: pairing by the condition
+    name alone paired night-1 and night-2 rows with the night-3 base). A candidate with no earlier base pairs with
+    None. `base-*` rows (re-measurements of the baseline) are included as candidates when `include_replicates`."""
+    out: list[tuple[str, str, dict[str, Any], dict[str, Any] | None]] = []
+    bases: dict[tuple[str, str], dict[str, Any]] = {}
+    for r in sorted(dedupe_external_rows(rows), key=lambda x: x["seq"]):
+        try:
+            marks = headlines(r)
+        except (KeyError, StopIteration, ZeroDivisionError):
+            continue
+        cond = str(r.get("condition") or "")
+        for name, *_rest in marks:
+            k = (str(r.get("track")), name)
+            if _is_base(cond):
+                bases[k] = r
+            elif _is_candidate(cond) or include_replicates:
+                out.append((k[0], name, r, bases.get(k)))
+    return out
+
+
 def stderr_key(key: str) -> str:
     """lm-eval names a metric `<name>,<filter>` and its standard error `<name>_stderr,<filter>`.
 
@@ -309,7 +364,7 @@ def _trust_remote_code_cell(row: dict[str, Any]) -> str:
 
 
 def render_external(ledger: Path) -> str:
-    rows = external_rows(ledger)
+    rows = dedupe_external_rows(external_rows(ledger))
     lines = [
         "# External proof tier",
         "",
@@ -328,27 +383,26 @@ def render_external(ledger: Path) -> str:
         trc_cell = _trust_remote_code_cell(r)
         for name, v, e, n in headlines(r):
             lines.append(
-                f"| {r['seq']} | {r['track']} | {r['condition']} | {r['model']} | {r['tool']} "
+                f"| {'/'.join(str(x) for x in r['seqs'])} | {r['track']} | {r['condition']} | {r['model']} | {r['tool']} "
                 f"{r.get('tool_version') or ''} | {trc_cell} | {name} | {v:.4f} | {e:.4f} | {n} | {r['sha256'][:16]} |"
             )
     lines += ["", "## Paired differences", ""]
-    # Keyed by (track, metric name), so a base and a candidate are paired per metric rather than per row.
-    by: dict[tuple[str, str], dict[str, tuple[float, float, int]]] = {}
-    for r in rows:
-        for name, v, e, n in headlines(r):
-            by.setdefault((r["track"], name), {})[r["condition"]] = (v, e, n)
-    for (track, name), conds in sorted(by.items()):
-        base = conds.get("base")
-        if not base:
+    # Each candidate is paired with the nearest EARLIER base of its track and metric (#332), not the latest base.
+    for track, name, row, base in paired_with_own_base(rows):
+        if base is None:
             continue
-        bv, be, _bn = base
-        for cond, (v, e, n) in sorted(conds.items()):
-            if cond == "base":
-                continue
-            lines.append(
-                f"- {track} {name}: {cond} − base = {v - bv:+.4f} "
-                f"(base {bv:.4f}±{be:.4f}, {cond} {v:.4f}±{e:.4f}, n={n})"
-            )
+        cand = {n: (v, e, c) for n, v, e, c in headlines(row)}[name]
+        bsel = {n: (v, e, c) for n, v, e, c in headlines(base)}[name]
+        line = (
+            f"- {track} {name}: {row['condition']} − base = {cand[0] - bsel[0]:+.4f} "
+            f"(base {bsel[0]:.4f}±{bsel[1]:.4f} [seq {base['seq']}], {row['condition']} {cand[0]:.4f}±{cand[1]:.4f}, n={cand[2]})"
+        )
+        b_items, c_items = base.get("items") or {}, row.get("items") or {}
+        if set(b_items) & set(c_items):
+            # per-item vectors were logged for both: state the paired counts and the exact test beside the difference
+            d = discordance(b_items, c_items)
+            line += f"; paired: {d.wins} {row['condition']}-only vs {d.losses} base-only, exact McNemar p = {d.p_mcnemar:.3f}"
+        lines.append(line)
     if len(lines) and lines[-1] == "":
         lines.append("- (no paired pair yet)")
     lines += [
