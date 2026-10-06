@@ -295,3 +295,120 @@ def test_conflict_when_alias_maps_citation_to_two_different_party_pairs(db: sqli
     db.commit()
     result = verify(db, "(1977) 3 SCC 247", "any proposition")
     assert result == VerifyResult.CONFLICT
+
+
+# --- #330: disambiguate a multi-candidate SCC key by claimed party names and year; tolerant punctuation in quotes ---
+
+
+def _second_pair(db: sqlite3.Connection, parties: str = "Totally Different Party v. Another Stranger") -> None:
+    insert_case(
+        db,
+        CaseRecord(
+            case_id="citer2",
+            title="A Different Later Case",
+            court="Supreme Court",
+            year=2010,
+            source="sc_pdf",
+            path_or_url="/fake/citer2.pdf",
+            text=f"This Court in {parties} (1977) 3 SCC 247 held that",
+        ),
+    )
+    db.commit()
+
+
+def test_claimed_name_picks_the_one_group_before_conflict(db: sqlite3.Connection) -> None:
+    _second_pair(db)
+    quote = "time is not ordinarily of the essence of the contract"
+    assert verify(db, "(1977) 3 SCC 247", quote) == VerifyResult.CONFLICT  # no claim: unchanged
+    assert verify(db, "(1977) 3 SCC 247", quote, claimed_name="Narandas Karsondas v. S.A. Kamtam") == VerifyResult.VERIFIED
+    # the right group but a quote that is not in the text is still not verified
+    assert (
+        verify(db, "(1977) 3 SCC 247", "words that are not there", claimed_name="Narandas Karsondas v. Kamtam")
+        == VerifyResult.EXISTS_QUOTE_NOT_FOUND
+    )
+
+
+def test_a_claimed_name_that_matches_no_group_or_only_one_side_stays_conflict(db: sqlite3.Connection) -> None:
+    _second_pair(db)
+    q = "time is not ordinarily of the essence of the contract"
+    assert verify(db, "(1977) 3 SCC 247", q, claimed_name="Unrelated Person v. Nobody Else") == VerifyResult.CONFLICT
+    assert (
+        verify(db, "(1977) 3 SCC 247", q, claimed_name="Narandas Karsondas v. Nobody Else") == VerifyResult.CONFLICT
+    )  # two-sided: one side is not enough
+    assert (
+        verify(db, "(1977) 3 SCC 247", q, claimed_name="the State v. the Union") == VerifyResult.CONFLICT
+    )  # only common tokens: cannot discriminate
+
+
+def test_two_groups_that_both_agree_are_split_by_year_else_stay_conflict(db: sqlite3.Connection) -> None:
+    insert_case(
+        db,
+        CaseRecord(
+            case_id="other",
+            title="Narandas Karsondas vs S A Kamtam Later Round",
+            court="Supreme Court",
+            year=1999,
+            source="sc_pdf",
+            path_or_url="/fake/o.pdf",
+            text="a different passage about a later round",
+        ),
+    )
+    _second_pair(
+        db, "Narandas Karsondas v. S.A. Kamtam and Others Reheard"
+    )  # a second alias group, same distinctive tokens, resolving to both cases
+    claim = "Narandas Karsondas v. S.A. Kamtam"
+    # two candidate cases (decided 1977 and 1999): the citation's year (1977) picks the 1977 case, so ITS text is the one checked
+    assert (
+        verify(db, "(1977) 3 SCC 247", "time is not ordinarily of the essence of the contract", claimed_name=claim)
+        == VerifyResult.VERIFIED
+    )
+    assert (
+        verify(db, "(1977) 3 SCC 247", "a different passage", claimed_name=claim) == VerifyResult.EXISTS_QUOTE_NOT_FOUND
+    )  # the 1999 case is not used
+    # when the year does not separate them (both within one year of the citation) it stays CONFLICT
+    db.execute("UPDATE cases SET year = 1978 WHERE case_id = 'other'")
+    db.commit()
+    assert (
+        verify(db, "(1977) 3 SCC 247", "time is not ordinarily of the essence of the contract", claimed_name=claim)
+        == VerifyResult.CONFLICT
+    )
+
+
+def test_punctuation_variants_in_the_quote_still_match_but_nothing_looser(db: sqlite3.Connection) -> None:
+    insert_case(
+        db,
+        CaseRecord(
+            case_id="p1",
+            title="Punct Alpha vs Punct Beta",
+            court="Supreme Court",
+            year=1980,
+            source="sc_pdf",
+            path_or_url="/p",
+            text='The Court said "time is not of the essence" and held - on these facts - that the term was waived.',
+        ),
+    )
+    insert_case(
+        db,
+        CaseRecord(
+            case_id="citer3",
+            title="Citer Three",
+            court="Supreme Court",
+            year=1990,
+            source="sc_pdf",
+            path_or_url="/c",
+            text="In Punct Alpha v. Punct Beta (1980) 2 SCC 10 the court held",
+        ),
+    )
+    db.commit()
+    assert (
+        verify(db, "(1980) 2 SCC 10", "“time is not of the essence” and held – on these facts – that the term was waived")
+        == VerifyResult.VERIFIED
+    )
+    assert (
+        verify(db, "(1980) 2 SCC 10", "'time is not of the essence'") == VerifyResult.EXISTS_QUOTE_NOT_FOUND
+    )  # a single quote is not a double quote: no loosening beyond the fold
+    assert verify(db, "(1980) 2 SCC 10", "TIME IS NOT OF THE ESSENCE") == VerifyResult.EXISTS_QUOTE_NOT_FOUND  # no case folding
+    assert (
+        verify(db, "(1980) 2 SCC 10", "time is not of the essence and held that the term was waived")
+        == VerifyResult.EXISTS_QUOTE_NOT_FOUND
+    )  # no partial match
