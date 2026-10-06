@@ -89,8 +89,14 @@ def test_the_rule_text_is_never_called_official() -> None:
     assert "official" not in stripped.lower()
 
 
-def test_judge_rule_text_is_documented_as_the_text_as_sent_and_only_on_mismatch() -> None:
+def test_judge_rule_text_is_documented_as_the_text_as_sent_on_mismatch_or_cut() -> None:
     assert "as sent in the judge's prompt" in DOC
-    assert "only when `statute_text_mismatch` is true" in DOC
+    assert "when `statute_text_mismatch` is true" in DOC and "or when the judge's text was cut" in DOC
     desc = SCHEMAS["ContractResultOut"]["properties"]["judge_rule_text"]["description"]
-    assert "AS SENT in the judge prompt" in desc and "only when statute_text_mismatch is true" in desc
+    assert "AS SENT in the judge prompt" in desc and "statute_text_mismatch is true or when the judge's text was cut" in desc
+
+
+def test_partner_text_uses_the_final_help_page_wording_and_never_names_config_c() -> None:
+    assert "did not find enough support for it" in DOC
+    assert "This provision is not on the validated list, so we give a referral, not a proof or denial." in DOC
+    assert "config C" not in DOC and "deployments that use two judges" in DOC

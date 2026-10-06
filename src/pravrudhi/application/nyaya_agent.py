@@ -975,8 +975,8 @@ class ContractResult:
     #: when the contract was described; the partner response's `rule_text`.
     rule_text: str | None = None
     #: Exactly the first `house_judge.statute_chars` characters of the judge's configured statute text, i.e. the text AS
-    #: SENT in the judge prompt (`build_house_prompt` cuts to that length). Set only when `statute_text_mismatch` is
-    #: true; None otherwise, and None when no judge statute text is configured.
+    #: SENT in the judge prompt (`build_house_prompt` cuts to that length). Set when `statute_text_mismatch` is true
+    #: OR when the judge's text was cut (longer than the cut); None otherwise, and None when no judge statute text is configured.
     judge_rule_text: str | None = None
     #: Where `rule_text` came from: `RULE_TEXT_SOURCE`.
     rule_text_source: str | None = None
@@ -1505,7 +1505,11 @@ class NyayaAgent:
         official = self.registry.source_text(contract_id)
         mismatch = None if training is None else training != official
         cut = int(self.config.house_judge.get("statute_chars") or 0)
-        judge_rule_text = training[:cut] if (mismatch is True and training is not None and cut > 0) else None
+        # Carried when the judge's text differs from the official one, OR when the judge saw a CUT text (longer than `cut`),
+        # even if the two texts are identical.
+        judge_rule_text = (
+            training[:cut] if (training is not None and cut > 0 and (mismatch is True or len(training) > cut)) else None
+        )
         similarity = None if training is None else _text_similarity(training, official)
         audit.step("statute", {"contract_id": contract_id},
                    {"contract_id": contract_id, "judge_statute_source": "config" if training is not None else None,

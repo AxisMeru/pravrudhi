@@ -16,16 +16,16 @@ or the code did, never the content of your facts. No change to any verdict comes
 | `judge_error` | A judge call failed on at least one condition, so we give no answer. |
 | `assembly_lean_mismatch` | Two internal checks disagreed, so we give no answer. |
 | `denial_unquotable` | The judge thinks a defeating fact exists but could not give a valid word-for-word quote for it. Please have a lawyer look. |
-| `second_judge_defeater_disagreement` | The two judges disagree on whether a defeating fact exists. Please have a lawyer look. (config C deployments only) |
+| `second_judge_defeater_disagreement` | The two judges disagree on whether a defeating fact exists. Please have a lawyer look. (deployments that use two judges only) |
 | `uncertain` | The judge is not sure whether a condition holds. Please have a lawyer look. |
-| `uncertain_second_judge` | The second judge is not sure whether a condition holds. Please have a lawyer look. (config C deployments only) |
-| `second_judge_unavailable` | The second judge was unavailable, so we give a referral, not an answer. (config C deployments only) |
+| `uncertain_second_judge` | The second judge is not sure whether a condition holds. Please have a lawyer look. (deployments that use two judges only) |
+| `second_judge_unavailable` | The second judge was unavailable, so we give a referral, not an answer. (deployments that use two judges only) |
 | `gate1_unavailable` | The entailment check (a separate check of the quoted words against the claim) was unavailable, so we give a referral, not an answer. |
-| `gate1_not_entailed` | The entailment check (a separate check of the quoted words against the claim) found they do not support it. Please have a lawyer look. |
+| `gate1_not_entailed` | The entailment check (a separate check of the quoted words against the claim) did not find enough support for it. Please have a lawyer look. |
 | `gate1_contradiction` | The entailment check (a separate check of the quoted words against the claim) found they contradict it. Please have a lawyer look. |
-| `contract_not_validated` | We have not validated this provision yet, so we give a referral, not a proof or denial. |
+| `contract_not_validated` | This provision is not on the validated list, so we give a referral, not a proof or denial. |
 
-Rows marked "config C deployments only" apply when the deployment runs a second judge.
+Rows marked "deployments that use two judges only" apply when the deployment runs a second judge.
 
 ## Element `quote_check`
 
@@ -52,7 +52,7 @@ Each contract result also carries three fields that say what text it was checked
 - `rule_text`: the provision text the contract is checked against, from the Lean checker's `--describe-source`. It is India Code text and it is
   **unofficial**: it is not the official text of the law.
 - `judge_rule_text`: exactly the first `statute_chars` characters (600 in the shipped configuration) of the statute text the judge was
-  configured with, that is, the text **as sent in the judge's prompt**. It is returned only when `statute_text_mismatch` is true (the judge's
-  text differs from `rule_text`), so you can see what the judge worked from. It is null otherwise, and null when no judge statute text is
+  configured with, that is, the text **as sent in the judge's prompt**. It is returned when `statute_text_mismatch` is true (the judge's
+  text differs from `rule_text`) or when the judge's text was cut (it is longer than `statute_chars`), so you can see what the judge worked from. It is null otherwise, and null when no judge statute text is
   configured for the contract.
 - `rule_text_source`: where `rule_text` came from; today always `lean_describe_source`.

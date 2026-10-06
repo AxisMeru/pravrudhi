@@ -444,9 +444,9 @@ class ContractResultOut(BaseModel):
     judge_rule_text: str | None = Field(
         default=None,
         description="Exactly the first statute_chars characters (600 in the shipped config) of the statute text the judge was "
-        "configured with, i.e. the text AS SENT in the judge prompt. Returned only when statute_text_mismatch is "
-        "true, so a reader can see what the judge worked from; null otherwise, and null when no judge statute text "
-        "is configured for the contract.",
+        "configured with, i.e. the text AS SENT in the judge prompt. Returned when statute_text_mismatch is "
+        "true or when the judge's text was cut (longer than statute_chars), so a reader can see what the judge worked "
+        "from; null otherwise, and null when no judge statute text is configured for the contract.",
     )
     rule_text_source: str | None = Field(
         default=None,

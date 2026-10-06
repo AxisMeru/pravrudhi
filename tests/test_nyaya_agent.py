@@ -1649,7 +1649,7 @@ class TestStatuteMismatch:
 class TestRuleText:
     """#308: the provision text, and the text the judge saw, travel on the contract result. `rule_text` is the binary's
     --describe-source text (India Code, unofficial); `judge_rule_text` is exactly the first `statute_chars` characters of the
-    judge's configured text (as sent in the prompt) and only when the two texts differ."""
+    judge's configured text (as sent in the prompt) when the two texts differ or the judge's text was cut."""
 
     def _contract(self, tmp_path: Path, **over: Any) -> Any:
         judge = ScriptedJudge(_proof_script(TOY_FACTS))
@@ -1666,6 +1666,11 @@ class TestRuleText:
     def test_a_text_shorter_than_the_cut_is_carried_whole(self, tmp_path: Path) -> None:
         c = self._contract(tmp_path, house_judge={"statute_chars": 600})
         assert c.judge_rule_text == "TRAINING statute text for bns69"
+
+    def test_identical_texts_longer_than_the_cut_still_carry_the_cut_text_the_judge_saw(self, tmp_path: Path) -> None:
+        text = "RETRIEVED statute text for bns69"
+        c = self._contract(tmp_path, judge_statute_text={"bns69": text}, house_judge={"statute_chars": 10})
+        assert c.statute_text_mismatch is False and c.judge_rule_text == text[:10]
 
     def test_identical_texts_carry_rule_text_but_no_judge_text(self, tmp_path: Path) -> None:
         c = self._contract(tmp_path, judge_statute_text={"bns69": "RETRIEVED statute text for bns69"},
