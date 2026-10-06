@@ -35,7 +35,7 @@ What works, verified live:
   (16:18:39) is well before `update.log`'s most recent successful entries (up to 20:12), so this
   was a real self-inflicted outage that the safeguard designed for was needed for and then fixed —
   not theoretical.
-- Mac mini confirmed via `ssh sharath@192.168.0.201`: `launchctl list | grep pravrudhi` shows
+- Mac mini confirmed via `ssh <user>@<mac-mini-ip>`: `launchctl list | grep pravrudhi` shows
   `com.pravrudhi.release-update` present with last exit code 0. `update.log` shows the same
   "switched to 0.2.3" pattern as the RTX box.
 

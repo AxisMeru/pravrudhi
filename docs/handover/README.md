@@ -25,7 +25,7 @@ dispatch/routing/agents/hosts stack), read `docs/handover/agent-architecture.md`
 | | Studio | Product |
 |---|---|---|
 | Purpose | improves **Pravrudhi itself** | improves **the user's own work** |
-| Workspace on the 5090 | `/home/ss/projects/pravrudhi` | `~/pravrudhi-release` |
+| Workspace on the 5090 | `<repo>` | `~/pravrudhi-release` |
 | Engine | the development checkout | an installed release under `.pravrudhi/releases/<version>/` |
 | Update channel | dev: `git pull --ff-only`, gated on `make smoke` | release: SHA256-verified wheel, versioned install, rollback |
 | Telegram bot | the original bot | `@prabhasa_bot` |

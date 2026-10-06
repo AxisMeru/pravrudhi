@@ -53,7 +53,7 @@ the required test file successfully without syncing dependencies:
 
 ```
 UV_CACHE_DIR=/tmp/pravrudhi-variation-uv \
-UV_PROJECT_ENVIRONMENT=/home/ss/projects/pravrudhi/.venv \
+UV_PROJECT_ENVIRONMENT=<repo>/.venv \
 PYTHONPATH=src UV_NO_SYNC=1 uv run pytest tests/test_variation.py -q
 ```
 

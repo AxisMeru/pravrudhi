@@ -70,3 +70,6 @@ paper/*.pdf
 
 # --- deploy/docker/nyaya: never the real Lean binary in the repo, only the .keep placeholder ---
 deploy/docker/nyaya/score
+
+# Local fleet (machines, addresses, user names): operator-specific, never committed. See configs/hosts.example.yaml.
+configs/hosts.yaml

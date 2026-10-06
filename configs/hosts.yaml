@@ -1,6 +1,0 @@
-hosts:
-- address: 192.168.0.201
-  name: mac-mini
-  transport: ssh
-  user: sharath
-  workdir: ~/pravrudhi

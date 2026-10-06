@@ -57,7 +57,7 @@ dashboard SQL editor (not through a client library, so the call carries no JWT a
 path in `admin_set_role_by_email` applies):
 
 ```sql
-select public.admin_set_role_by_email('sharath.sathish@gmail.com', 'admin');
+select public.admin_set_role_by_email('you@example.com', 'admin');
 ```
 
 The target account must already exist (i.e. have signed up at least once) before this call, since

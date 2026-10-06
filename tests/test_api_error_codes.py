@@ -25,7 +25,7 @@ from tests.test_partner_jobs import JOBS, H
 from tests.test_partner_key_metering import ADMIN, FakeClock, _key
 from tests.test_partner_key_metering import _req as _meter_req
 
-MARK = "SECRET-MARKER-9f3a /srv/internal/path http://10.1.2.3:8110"
+MARK = "SECRET-MARKER-9f3a /srv/internal/path http://198.51.100.7:8110"
 
 
 def _partner_app(tmp_path: Path, factory: Callable[[Path], Any], executor: Any = None) -> FastAPI:
@@ -56,7 +56,7 @@ AGENT_FAULTS = [JudgeMisconfigured(MARK), BinaryShaMismatch(MARK), FileNotFoundE
 def test_partner_sync_agent_fault_is_a_coded_503_with_no_exception_text(tmp_path: Path, exc: BaseException) -> None:
     resp = TestClient(_partner_app(tmp_path, _raiser(exc))).post("/api/v1/analyse-facts", json=_req())
     assert resp.status_code == 503
-    assert resp.json()["error"] == "agent_unavailable" and "MARKER" not in resp.text and "10.1.2.3" not in resp.text
+    assert resp.json()["error"] == "agent_unavailable" and "MARKER" not in resp.text and "198.51.100.7" not in resp.text
     assert resp.json()["detail"] == "the nyaya agent is unavailable; retry later"  # fixed
 
 
@@ -87,7 +87,7 @@ def test_partner_job_stores_a_coded_failure_with_no_exception_text(
     r = c.post(JOBS, json=_meter_req(), headers={H: secret})
     assert r.status_code == 202
     polled = c.get(f"{JOBS}/{r.json()['job_id']}", headers={H: secret})
-    assert "MARKER" not in polled.text and "10.1.2.3" not in polled.text
+    assert "MARKER" not in polled.text and "198.51.100.7" not in polled.text
     body = polled.json()
     assert body["status"] == "failed" and json.dumps(body).count("agent_unavailable") >= 1
 
@@ -127,7 +127,7 @@ def test_nyaya_audit_and_registry_checker_faults_are_coded_with_no_exception_tex
     ]
     for resp, code in cases:
         assert resp.status_code == 503, resp.text
-        assert resp.json()["error"] == code and "MARKER" not in resp.text and "10.1.2.3" not in resp.text
+        assert resp.json()["error"] == code and "MARKER" not in resp.text and "198.51.100.7" not in resp.text
 
 
 def test_chat_unreachable_endpoint_is_coded_for_the_blocking_route_and_the_stream_event(tmp_path: Path) -> None:
@@ -139,11 +139,11 @@ def test_chat_unreachable_endpoint_is_coded_for_the_blocking_route_and_the_strea
     c = TestClient(app)
     blocking = c.post("/api/chat", json={"message": "hello there", "thread_id": None})
     assert blocking.status_code == 503 and blocking.json()["error"] == "chat_endpoint_unreachable"
-    assert "MARKER" not in blocking.text and "10.1.2.3" not in blocking.text
+    assert "MARKER" not in blocking.text and "198.51.100.7" not in blocking.text
     stream = c.post("/api/chat/stream", json={"message": "hello there", "thread_id": None})
     events = [json.loads(line[6:]) for line in stream.text.splitlines() if line.startswith("data: ")]
     assert events[-1]["type"] == "error" and events[-1]["error"] == "chat_endpoint_unreachable"
-    assert "MARKER" not in stream.text and "10.1.2.3" not in stream.text
+    assert "MARKER" not in stream.text and "198.51.100.7" not in stream.text
 
 
 def test_vendor_not_allowed_is_a_coded_403_with_a_fixed_message_that_does_not_echo_the_vendor(
@@ -157,4 +157,4 @@ def test_vendor_not_allowed_is_a_coded_403_with_a_fixed_message_that_does_not_ec
     monkeypatch.setattr(nyaya_api.nyaya, "ask", deny)
     resp = _nyaya_app(tmp_path).post("/api/nyaya/ask", json={"question": "what is s.69?", "vendors": ["x"]})
     assert resp.status_code == 403 and resp.json()["error"] == "vendor_not_allowed"
-    assert "MARKER" not in resp.text and "10.1.2.3" not in resp.text
+    assert "MARKER" not in resp.text and "198.51.100.7" not in resp.text

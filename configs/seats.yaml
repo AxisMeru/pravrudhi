@@ -1,7 +1,7 @@
 # Which Claude seat the command line spends, and what happens when it stops being spendable.
 #
 # Operator instruction, 2026-09-11: *"admin@axismeru.com will be always available the other seat may drop on
-# and off....always use the other seat (sharath.sathish@gmail.com) for the cli to balance the usage load..if
+# and off....always use the other seat for the cli to balance the usage load..if
 # it drops off the premium and cli returns error/something else enable the router/config to automatically
 # switch to admin account (but it should not use admin cli account if the other seat is active)"*.
 #
@@ -19,15 +19,18 @@
 # cooldown. An ordinary failure does NOT advance to the next seat -- a prompt the model botched will be
 # botched by the reserve seat too, and spending the always-available account on it is the opposite of
 # balancing load. That distinction is `availability.classify`'s, and it is made there rather than here.
+# The committed addresses are PLACEHOLDERS: a seat is an account the operator holds, and this tree is public. Real addresses live in
+# the operator's local, uncommitted ~/.config/pravrudhi/seats.local.yaml (see `agents/seat_identity.py`); a placeholder with no local
+# override is treated as unknown, never compared against.
 version: 1
-updated: 2026-09-11
+updated: 2026-10-06
 
 seats:
   # The seat to spend. A second premium seat on the same Axis Meru team plan, held so that CLI load does not
   # all land on one account. It is the one the operator describes as dropping on and off premium, so it is
   # also the one the failover below exists for.
   - id: primary
-    email: sharath.sathish@gmail.com
+    email: seat-a@example.invalid   # placeholder; the real address is in ~/.config/pravrudhi/seats.local.yaml (seats: {primary: ...})
     config_dir: ~/.claude
 
   # The reserve. Always available, and therefore never chosen while `primary` can serve -- if this were tried
@@ -39,5 +42,5 @@ seats:
   # reports each directory separately -- so logging this one in did not sign the other out, which is the
   # property the whole CLAUDE_CONFIG_DIR arrangement exists to hold.
   - id: fallback
-    email: admin@axismeru.com
+    email: admin@axismeru.com   # the team account (a public commit identity)
     config_dir: ~/.config/pravrudhi/claude-admin

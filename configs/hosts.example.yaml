@@ -1,0 +1,8 @@
+# Copy to configs/hosts.yaml (gitignored: addresses and user names are operator-specific) or add machines with
+# `pravrudhi hosts add <name> --address <ip> --user <user>`. A fresh install needs no file at all: `local` is implicit.
+hosts:
+- name: mac-mini
+  transport: ssh
+  address: 192.0.2.10   # documentation address (RFC 5737); put your machine's address in your local copy
+  user: you
+  workdir: ~/pravrudhi

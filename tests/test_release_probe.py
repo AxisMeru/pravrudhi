@@ -182,7 +182,7 @@ def test_configuration_errors_exit_2_and_say_why(env: dict[str, str], capsys: py
 def test_http_is_allowed_for_loopback_only(capsys: pytest.CaptureFixture[str]) -> None:
     ok = {"PROBE_BASE_URL": "http://127.0.0.1:8765", "PROBE_ADMIN_TOKEN": "a", "PROBE_USER_TOKEN": "b"}
     assert probe.main(ok, lambda *a: (200, None)) in (0, 1)  # configuration accepted (the stub answers 200 to everything)
-    assert probe.main({**ok, "PROBE_BASE_URL": "http://10.0.0.5"}, lambda *a: (200, None)) == 2
+    assert probe.main({**ok, "PROBE_BASE_URL": "http://192.0.2.5"}, lambda *a: (200, None)) == 2
 
 
 def test_an_unreachable_engine_is_exit_2_not_a_pass(capsys: pytest.CaptureFixture[str]) -> None:
