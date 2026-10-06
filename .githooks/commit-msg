@@ -1,19 +1,26 @@
 #!/usr/bin/env bash
-# Sākṣī rule (CHARTER §6, updated 2026-09-12 by operator instruction): the project migrated from a personal
-# account to the Axis Meru team account; commit as SharathSPhD <admin@axismeru.com> going forward. Commits before
-# this date under qbz506@york.ac.uk or sharath.sathish@gmail.com are not rewritten.
-# Strips Co-Authored-By / Claude-Session lines; fails if the author identity differs.
+# Sākṣī rule (CHARTER §6): commits carry an identity listed in .githooks/allowed-identities (one `Name <email>` per
+# line; the team account SharathSPhD <admin@axismeru.com> plus named external contributors). BOTH the author and the
+# committer must be listed. The trailer ban holds for everyone: Co-Authored-By / Claude-Session lines are stripped.
 set -euo pipefail
 MSG="$1"
-WANT_NAME="SharathSPhD"
-WANT_EMAIL="admin@axismeru.com"
+LIST="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/allowed-identities"
+[[ -f "$LIST" ]] || { echo "commit-msg: $LIST is missing; refusing" >&2; exit 1; }
 
-name="${GIT_AUTHOR_NAME:-$(git config user.name || true)}"
-email="${GIT_AUTHOR_EMAIL:-$(git config user.email || true)}"
-if [[ "$name" != "$WANT_NAME" || "$email" != "$WANT_EMAIL" ]]; then
-  echo "commit-msg: author must be $WANT_NAME <$WANT_EMAIL>, got '$name <$email>' (run: make init)" >&2
-  exit 1
-fi
+a_name="${GIT_AUTHOR_NAME:-$(git config user.name || true)}"
+a_email="${GIT_AUTHOR_EMAIL:-$(git config user.email || true)}"
+c_name="${GIT_COMMITTER_NAME:-$(git config user.name || true)}"
+c_email="${GIT_COMMITTER_EMAIL:-$(git config user.email || true)}"
+
+allowed() { grep -v '^[[:space:]]*#' "$LIST" | sed 's/[[:space:]]*$//' | grep -qxF -- "$1 <$2>"; }
+
+for role in author committer; do
+  if [[ "$role" == author ]]; then n="$a_name"; e="$a_email"; else n="$c_name"; e="$c_email"; fi
+  if ! allowed "$n" "$e"; then
+    echo "commit-msg: $role '$n <$e>' is not in .githooks/allowed-identities (set git config user.name/user.email to a listed identity)" >&2
+    exit 1
+  fi
+done
 
 tmp="$(mktemp)"
 grep -viE '^(Co-Authored-By|Claude-Session):' "$MSG" > "$tmp" || true
