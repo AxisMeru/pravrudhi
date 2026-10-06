@@ -85,8 +85,10 @@ job_max_unfinished_per_key: 8
 # dropped on write and never served (default 90 days).
 audit_retention_s: 7776000
 
-# #311: read each RunPod judge endpoint's /health (and its configured max) before admitting a call, and answer
-# 503 `judges_offline` at once when a needed judge is parked (no worker, max 0), so nothing is queued for the next
-# warm. A failed or unreadable check proceeds as before. Local (non-RunPod) judges are never checked.
+# #311: read each RunPod judge endpoint's /health before admitting a call, and answer 503 `judges_offline`
+# at once when a needed judge is parked (no worker, nothing queued or in progress), so nothing is queued for the
+# next warm. A failed or unreadable check proceeds as before. Local (non-RunPod) judges are never checked.
+# LIMIT: an idle scale-from-zero endpoint (min 0, max above 0) looks the same on /health, so set this to false if a
+# judge is ever put back on scale-from-zero.
 judge_health_check: true
 judge_health_ttl_s: 5

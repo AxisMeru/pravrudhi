@@ -142,9 +142,10 @@ class PartnerApiConfig:
     #: diagnosing a primary/second disagreement needed a direct Python call because the HTTP response
     #: silently dropped every one of these fields).
     debug_second_judge_fields_enabled: bool = False
-    #: #311: before admitting a call, read each RunPod judge endpoint's /health (and its configured max) and answer
-    #: 503 `judges_offline` at once when a needed judge is PARKED (no worker, max 0), so no job is queued for the next
-    #: warm. A failed or unreadable check proceeds as before (never a false "offline"); see judge_endpoint_state.
+    #: #311: before admitting a call, read each RunPod judge endpoint's /health and answer 503
+    #: `judges_offline` at once when a needed judge is PARKED (no worker, nothing queued or in progress), so no job is
+    #: queued for the next warm. A failed or unreadable check proceeds as before (never a false "offline"). Limit: an
+    #: idle scale-from-zero endpoint reads the same, so turn this off if a judge goes back to scale-from-zero.
     judge_health_check: bool = False
     #: Seconds a judge-state read is reused.
     judge_health_ttl_s: float = 5.0

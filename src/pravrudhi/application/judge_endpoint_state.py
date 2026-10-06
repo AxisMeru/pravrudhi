@@ -4,22 +4,21 @@ The production judges are parked at min 0 / max 0 by operator directive. A reque
 would sit queued and run on the NEXT warm, and the app would show a "warming up" counter that never ends. So the
 engine asks the endpoint first, and a parked endpoint answers `judges_offline` at once, with nothing queued.
 
-Two reads decide it, and both must agree before the engine says "offline":
-  * RunPod `GET {origin}/v2/{endpoint}/health` (the inference key already used for the judge): the workers block
-    (`ready`, `idle`, `running`, `initializing`), which is the endpoint's live state;
-  * the endpoint's configured maximum: `workersMax` from RunPod's management API
-    (`GET https://rest.runpod.io/v1/endpoints/{endpoint}`, needs a management key in `RUNPOD_MANAGEMENT_KEY`) or from
-    the health body if it carries one. A scale-from-zero endpoint also shows no workers, so "no workers" alone is NOT
-    "parked": only `max == 0` is.
+Detection (Lead-2's option (b), 6 Oct): RunPod `GET https://api.runpod.ai/v2/{endpoint}/health`, with the inference key
+the judge already uses, and nothing else (no management key, no new credential). PARKED means: no worker is ready,
+idle, running or initializing, AND nothing is queued or in progress.
 
-Failure mode (decided, #311): the engine never claims "offline" it has not read. A health call that fails, times
-out, returns something unparseable, a missing max, or a missing management key all give `unknown`, and `unknown`
-PROCEEDS exactly as before this check existed (the existing `judge_unavailable` / `judges_warming` path then answers
-if the judge really is down). The cost of the opposite choice, refusing on a failed probe, is a healthy judge
-locked out by a flaky health call. A parked judge that the check could not read is therefore still queued, which
-is today's behaviour, and the status says `unknown` so it is visible.
+Known limit: an endpoint that is scaled to zero but ALLOWED to scale (min 0, max above 0) looks exactly the same on
+/health when it is idle, so it too reads as parked. That is accepted while the judges are deliberately parked at
+min 0 / max 0; if a judge is ever put back on scale-from-zero, this check must be turned off
+(`judge_health_check: false`) or replaced by a read of the endpoint's configured max (deferred option (a)).
 
-No statute text, no model call, no wake: `/health` and the management read never start a worker.
+Failure mode (decided, #311): the engine never claims "offline" it has not read. A health call that fails, times out,
+returns something unparseable, or lacks the workers or jobs counts all give `unknown`, and `unknown` PROCEEDS exactly
+as before this check existed (the existing `judge_unavailable` / `judges_warming` path then answers if the judge
+really is down). Refusing on a failed probe would lock a healthy judge out on a flaky health call.
+
+No statute text, no model call, no wake: `/health` never starts a worker.
 """
 
 from __future__ import annotations
@@ -34,13 +33,11 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any, Literal
 
-Status = Literal["ready", "warming", "scaled_to_zero", "parked", "unknown"]
+Status = Literal["ready", "warming", "parked", "unknown"]
 #: (url, headers) -> parsed JSON object; raises on any failure (network, HTTP error, bad JSON).
 Fetch = Callable[[str, Mapping[str, str]], dict[str, Any]]
 
 RUNPOD_HOST = "api.runpod.ai"
-MANAGEMENT_URL = "https://rest.runpod.io/v1/endpoints/{endpoint}"
-MANAGEMENT_KEY_ENV = "RUNPOD_MANAGEMENT_KEY"
 TIMEOUT_S = 4.0
 
 
@@ -66,24 +63,24 @@ def _int(v: Any) -> int | None:
     return v if isinstance(v, int) and not isinstance(v, bool) and v >= 0 else None
 
 
-def classify(health: Mapping[str, Any] | None, max_workers: int | None) -> EndpointState:
-    """Pure: the endpoint's state from its health body and its configured max. Unreadable input is `unknown`."""
+def classify(health: Mapping[str, Any] | None) -> EndpointState:
+    """Pure: the endpoint's state from its /health body alone. Unreadable input is `unknown`."""
     workers = (health or {}).get("workers")
-    if not isinstance(workers, Mapping):
-        return EndpointState("unknown", "health carries no workers block")
-    counts = {k: _int(workers.get(k)) for k in ("ready", "idle", "running", "initializing")}
-    if any(v is None for k, v in counts.items() if k in workers):
-        return EndpointState("unknown", "a worker count is not a non-negative integer")
-    live = sum(v or 0 for k, v in counts.items() if k in ("ready", "idle", "running"))
-    if live > 0:
-        return EndpointState("ready", f"{live} worker(s) up")
-    if (counts["initializing"] or 0) > 0:
+    jobs = (health or {}).get("jobs")
+    if not isinstance(workers, Mapping) or not isinstance(jobs, Mapping):
+        return EndpointState("unknown", "health lacks a workers or jobs block")
+    w = {k: _int(workers.get(k, 0)) for k in ("ready", "idle", "running", "initializing")}
+    q = {k: _int(jobs.get(k, 0)) for k in ("inQueue", "inProgress")}
+    if any(v is None for v in (*w.values(), *q.values())):
+        return EndpointState("unknown", "a count is not a non-negative integer")
+    up = (w["ready"] or 0) + (w["idle"] or 0) + (w["running"] or 0)
+    if up > 0:
+        return EndpointState("ready", f"{up} worker(s) up")
+    if (w["initializing"] or 0) > 0:
         return EndpointState("warming", "a worker is initializing")
-    if max_workers is None:
-        return EndpointState("unknown", "no workers, and the endpoint's max is not readable")
-    if max_workers == 0:
-        return EndpointState("parked", "no workers and max 0")
-    return EndpointState("scaled_to_zero", f"no workers, max {max_workers}")
+    if (q["inQueue"] or 0) > 0 or (q["inProgress"] or 0) > 0:
+        return EndpointState("warming", "no worker up, but work is queued or in progress")
+    return EndpointState("parked", "no worker, nothing queued or in progress")
 
 
 def _http_fetch(url: str, headers: Mapping[str, str]) -> dict[str, Any]:
@@ -95,9 +92,7 @@ def _http_fetch(url: str, headers: Mapping[str, str]) -> dict[str, Any]:
     return body
 
 
-def endpoint_state(
-    base_url: str, api_key: str | None, *, fetch: Fetch = _http_fetch, management_key: str | None = None
-) -> EndpointState:
+def endpoint_state(base_url: str, api_key: str | None, *, fetch: Fetch = _http_fetch) -> EndpointState:
     """Read one endpoint. Never raises: any failure is `unknown`."""
     endpoint = runpod_endpoint_id(base_url)
     if endpoint is None:
@@ -107,15 +102,7 @@ def endpoint_state(
         health = fetch(f"https://{RUNPOD_HOST}/v2/{endpoint}/health", headers)
     except (OSError, ValueError, urllib.error.URLError):
         return EndpointState("unknown", "health call failed")
-    max_workers = _int(health.get("workersMax"))
-    mkey = management_key if management_key is not None else os.environ.get(MANAGEMENT_KEY_ENV)
-    if max_workers is None and mkey:
-        try:
-            cfg = fetch(MANAGEMENT_URL.format(endpoint=endpoint), {"Authorization": f"Bearer {mkey}"})
-            max_workers = _int(cfg.get("workersMax"))
-        except (OSError, ValueError, urllib.error.URLError):
-            max_workers = None
-    return classify(health, max_workers)
+    return classify(health)
 
 
 class JudgeOfflineCheck:
