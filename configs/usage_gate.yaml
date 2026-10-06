@@ -38,3 +38,5 @@ opus_m4:
   call_cap_per_arm:
     m4-phase1-config-a: 10
     m4-phase1-config-c: 500
+    # #306 head-to-head, arm B-opus (Lead-2, 6 Oct 2026, pre-results): 625 effective scored calls (cap 626 less the refresh spare slot) + the 25-call probe.
+    m4-306-b-opus: 650
