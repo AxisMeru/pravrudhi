@@ -508,7 +508,8 @@ class ContractResultOut(BaseModel):
     )
     rule_text_notice: str | None = Field(
         default=None,
-        description="Present exactly when rule_text or judge_rule_text is: \"Unofficial text; the official version prevails.\" "
+        description="Present exactly when rule_text or judge_rule_text is: \"Unofficial text; the official version on India Code "
+        "prevails.\" "
         "Provision text is only ever returned inside an analysis response that carries the element analysis.",
     )
     rule_text_source_url: str | None = Field(
@@ -749,8 +750,6 @@ def _shipped_corpus() -> Any:
 #: Provision text (#308, ruling #506 of 6 Oct): returned only when `expose_rule_text` is on, only inside an analysis response,
 #: and always with the notice and an India Code source link.
 _RULE_TEXT_FIELDS = ("rule_text", "judge_rule_text", "rule_text_source")
-_RULE_TEXT_PROVENANCE = ("rule_text_notice", "rule_text_source_url")
-RULE_TEXT_NOTICE = "Unofficial text; the official version prevails."
 
 
 def _rule_text_source_url(contract: dict[str, Any]) -> str:
@@ -766,6 +765,22 @@ def _rule_text_source_url(contract: dict[str, Any]) -> str:
     except (OSError, RuntimeError, ValueError, AttributeError, KeyError, subprocess.SubprocessError):
         pass
     return nyaya.INDIA_CODE_HOME
+
+
+def _apply_rule_text_policy(body: dict[str, Any], expose: bool) -> None:
+    """Provision text (#506): only when the deployment exposes it AND only for a contract that carries our element
+    analysis (a contract with `elements: []`, e.g. a no_training_statute_text ABSTAIN, carries none of it). A contract
+    that shows provision text also carries the notice and the India Code source URL."""
+    from pravrudhi.application import nyaya
+
+    for contract in body.get("contracts", []):
+        shown = expose and bool(contract.get("elements")) and bool(contract.get("rule_text") or contract.get("judge_rule_text"))
+        if not (expose and contract.get("elements")):
+            for name in _RULE_TEXT_FIELDS:
+                contract.pop(name, None)
+        if shown:
+            contract["rule_text_notice"] = nyaya.STATUTE_NOTICE  # the one signed notice, beside every displayed provision
+            contract["rule_text_source_url"] = _rule_text_source_url(contract)
 
 
 def _attach_citations(agent: Any, body: dict[str, Any], listed: dict[str, list[str]] | None = None) -> None:
@@ -1184,14 +1199,7 @@ def build_partner_router(
         body: dict[str, Any] = result.to_dict()
         body.pop("audit_path", None)
         _attach_citations(agent, body, getattr(result, "listed_sources", None))
-        expose = getattr(getattr(agent, "config", None), "expose_rule_text", False)
-        for contract in body.get("contracts", []):
-            if not expose:
-                for name in _RULE_TEXT_FIELDS:
-                    contract.pop(name, None)
-            if expose and (contract.get("rule_text") or contract.get("judge_rule_text")):
-                contract["rule_text_notice"] = RULE_TEXT_NOTICE  # beside every displayed provision (#506)
-                contract["rule_text_source_url"] = _rule_text_source_url(contract)
+        _apply_rule_text_policy(body, bool(getattr(getattr(agent, "config", None), "expose_rule_text", False)))
         show_second_judge_fields = authenticated or (debug_second_judge and cfg.debug_second_judge_fields_enabled)
         if not show_second_judge_fields:
             for contract in body.get("contracts", []):

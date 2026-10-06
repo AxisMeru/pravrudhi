@@ -490,7 +490,7 @@
                 "type": "null"
               }
             ],
-            "description": "Present exactly when rule_text or judge_rule_text is: \"Unofficial text; the official version prevails.\" Provision text is only ever returned inside an analysis response that carries the element analysis.",
+            "description": "Present exactly when rule_text or judge_rule_text is: \"Unofficial text; the official version on India Code prevails.\" Provision text is only ever returned inside an analysis response that carries the element analysis.",
             "title": "Rule Text Notice"
           },
           "rule_text_source": {

@@ -1360,7 +1360,8 @@ def test_the_shipped_config_exposes_rule_text_for_analysis_responses() -> None:
     assert load_agent_config(Path(__file__).resolve().parent.parent).expose_rule_text is True
 
 
-RULE_NOTICE = "Unofficial text; the official version prevails."
+RULE_NOTICE = "Unofficial text; the official version on India Code prevails."  # nyaya.STATUTE_NOTICE, the one signed notice
+
 
 
 def _rule_text_client(tmp_path: Path, *, expose: bool, **kw: Any) -> TestClient:
@@ -1415,3 +1416,48 @@ def test_job_result_provision_text_carries_the_notice_and_url(monkeypatch: pytes
     jid = c.post(JOBS, json=_meter_req(), headers={H: secret}).json()["job_id"]
     result = c.get(f"{JOBS}/{jid}", headers={H: secret}).json()["result"]["contracts"][0]
     assert result["rule_text"] and result["rule_text_notice"] == RULE_NOTICE and result["rule_text_source_url"]
+
+
+def test_present_exactly_when_provision_text_is_shown_with_the_flag_on(tmp_path: Path) -> None:
+    from pravrudhi.api.partner import _apply_rule_text_policy
+    from pravrudhi.application import nyaya
+
+    body = {
+        "contracts": [
+            {"contract_id": "a", "elements": [{"e": 1}], "rule_text": "T", "judge_rule_text": None},
+            {"contract_id": "b", "elements": [{"e": 1}], "rule_text": None, "judge_rule_text": "J"},
+            {"contract_id": "c", "elements": [{"e": 1}], "rule_text": None, "judge_rule_text": None},
+        ]
+    }
+    _apply_rule_text_policy(body, True)
+    a, b, c = body["contracts"]
+    assert RULE_NOTICE == nyaya.STATUTE_NOTICE
+    assert a["rule_text_notice"] == RULE_NOTICE and a["rule_text_source_url"].startswith("https://")
+    assert b["rule_text_notice"] == RULE_NOTICE and b["rule_text_source_url"].startswith("https://")
+    assert "rule_text_notice" not in c and "rule_text_source_url" not in c  # no text shown, so neither is added
+
+
+def test_a_contract_with_no_element_results_carries_no_provision_text_notice_or_url_even_with_the_flag_on() -> None:
+    from pravrudhi.api.partner import _apply_rule_text_policy
+
+    body = {
+        "contracts": [
+            {
+                "contract_id": "no_training_statute_text", "elements": [], "rule_text": "T", "judge_rule_text": "J",
+                "rule_text_source": "lean_describe_source",
+            }
+        ]
+    }
+    _apply_rule_text_policy(body, True)
+    c = body["contracts"][0]
+    shown = ("rule_text", "judge_rule_text", "rule_text_source", "rule_text_notice", "rule_text_source_url")
+    assert not any(k in c for k in shown)
+
+
+def test_the_flag_off_withholds_everything_even_for_a_contract_with_elements() -> None:
+    from pravrudhi.api.partner import _apply_rule_text_policy
+
+    body = {"contracts": [{"contract_id": "a", "elements": [{"e": 1}], "rule_text": "T", "judge_rule_text": "J"}]}
+    _apply_rule_text_policy(body, False)
+    c = body["contracts"][0]
+    assert not any(k in c for k in ("rule_text", "judge_rule_text", "rule_text_notice", "rule_text_source_url"))
