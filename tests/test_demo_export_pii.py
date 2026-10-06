@@ -27,6 +27,17 @@ import pytest
 from pravrudhi.application.demo_export import SecretInSnapshot, redact_secrets, still_carries
 
 
+@pytest.fixture(autouse=True)
+def _allow_the_test_payload_keys(monkeypatch: pytest.MonkeyPatch) -> None:
+    """These tests push arbitrary payloads through `write_demo` to prove the redaction and the refusals. The allowlist
+    (`PUBLIC_DEMO_SECTIONS`, tests/test_demo_export_allowlist.py) would drop their ad hoc keys before any check ran, so it is
+    widened to them here; the allowlist itself is tested in its own file."""
+    monkeypatch.setattr(
+        demo_export, "PUBLIC_DEMO_SECTIONS",
+        demo_export.PUBLIC_DEMO_SECTIONS | {"note", "x", "y", "a", "keep", "requests"},
+    )
+
+
 def test_an_absolute_home_path_does_not_survive_redaction() -> None:
     out = redact_secrets("the directory `/home/ss/projects/pravrudhi/research` is empty")
     assert "/home/ss" not in out
