@@ -27,7 +27,7 @@ MESSAGES: dict[str, str] = {
     CHAT_ENDPOINT_UNREACHABLE: "the chat model endpoint is unreachable; retry later",
     VENDOR_NOT_ALLOWED: "vendor not allowed for API callers",
     REQUEST_REJECTED: "the analysis engine rejected the request",
-    UNKNOWN_CONTRACT: "one or more contract_ids are not known",
+    UNKNOWN_CONTRACT: "one or more of the requested contracts or sections is not known",
 }
 
 
