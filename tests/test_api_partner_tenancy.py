@@ -22,9 +22,15 @@ from pravrudhi.application import tenancy
 _NO_LIMIT_CONFIG = PartnerApiConfig(rate_limit_per_minute=1000, max_concurrent=100, trust_proxy_header=False)
 
 
+def _fixed_clock() -> float:
+    """The per-key limiter's clock (#303): a fixed point mid-window, so the key's window can never roll over between two
+    requests on a slow runner."""
+    return 1_000_030.0
+
+
 def _app(tmp_path: Path) -> FastAPI:
     app = FastAPI()
-    app.include_router(build_partner_router(tmp_path, config=_NO_LIMIT_CONFIG))
+    app.include_router(build_partner_router(tmp_path, config=_NO_LIMIT_CONFIG, rate_clock=_fixed_clock))
     return app
 
 

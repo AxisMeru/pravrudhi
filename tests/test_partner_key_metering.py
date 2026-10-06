@@ -19,12 +19,27 @@ ADMIN = User(id="op-1", email="op@example.com", role="authenticated")
 H = tenancy.API_KEY_HEADER
 
 
+class FakeClock:
+    """The per-key limiter's clock (#303): starts mid-window so a slow runner can never roll the window over between two
+    requests; a test that wants the window to roll calls `advance`, nothing sleeps."""
+
+    def __init__(self, start: float = 1_000_030.0) -> None:
+        self.t = start
+
+    def __call__(self) -> float:
+        return self.t
+
+    def advance(self, seconds: float) -> None:
+        self.t += seconds
+
+
 def _app(tmp_path: Path, script: dict[str, list[ElementJudgment | Exception]] | None = None,
-         ip_limit: int = 1000) -> FastAPI:
+         ip_limit: int = 1000, clock: FakeClock | None = None) -> FastAPI:
     agent = _agent(tmp_path, script if script is not None else _proof_script())
     cfg = PartnerApiConfig(rate_limit_per_minute=ip_limit, max_concurrent=100, trust_proxy_header=False)
     app = FastAPI()
-    app.include_router(build_partner_router(tmp_path, agent_factory=lambda _r: agent, config=cfg))
+    router = build_partner_router(tmp_path, agent_factory=lambda _r: agent, config=cfg, rate_clock=clock or FakeClock())
+    app.include_router(router)
     app.dependency_overrides[identity.current_user] = lambda: ADMIN
     return app
 
@@ -56,7 +71,8 @@ def test_calls_are_counted_per_key_and_survive_an_app_restart(monkeypatch: Any, 
 
 def test_a_key_over_its_limit_gets_429_and_other_keys_are_unaffected(monkeypatch: Any, tmp_path: Path) -> None:
     monkeypatch.setenv("PRAVRUDHI_ADMINS", ADMIN.id)
-    c = TestClient(_app(tmp_path))
+    clock = FakeClock()
+    c = TestClient(_app(tmp_path, clock=clock))
     low, other = _key(c, "low", limit=2), _key(c, "other", limit=50)
     codes = [c.post("/api/v1/analyse-facts", json=_req(), headers={H: low}).status_code for _ in range(3)]
     assert codes == [200, 200, 429]
@@ -64,6 +80,9 @@ def test_a_key_over_its_limit_gets_429_and_other_keys_are_unaffected(monkeypatch
     assert r.status_code == 429 and "Retry-After" in r.headers
     assert c.post("/api/v1/analyse-facts", json=_req(), headers={H: other}).status_code == 200
     assert tenancy.usage_counts(tmp_path, next(k.key_id for k in tenancy.keys_for_org(tmp_path, "low")))[0] == 2
+    # The window rolling over is driven by the fake clock, not by waiting: after it, the key is admitted again.
+    clock.advance(60)
+    assert c.post("/api/v1/analyse-facts", json=_req(), headers={H: low}).status_code == 200
 
 
 def test_503s_are_counted_separately_within_calls(monkeypatch: Any, tmp_path: Path) -> None:

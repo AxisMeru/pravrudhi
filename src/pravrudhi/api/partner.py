@@ -688,8 +688,11 @@ def build_partner_router(
     config: PartnerApiConfig | None = None,
     clock: Callable[[], datetime] | None = None,
     job_executor: Callable[[Callable[[], None]], Any] | None = None,
+    rate_clock: Callable[[], float] | None = None,
 ) -> APIRouter:
-    """`agent_factory` is injectable (mirrors `nyaya.py`'s `ask_fn` pattern): production leaves it `None` and
+    """`rate_clock` (seconds, monotonic) drives the per-key rate-limit window; tests inject a fake clock and advance it
+    instead of depending on the wall clock (#303). Production leaves it `None` (`time.monotonic`).
+    `agent_factory` is injectable (mirrors `nyaya.py`'s `ask_fn` pattern): production leaves it `None` and
     gets the configured house agent (`NyayaAgent.house`, real vLLM judge + real pinned Lean binary); tests
     supply a factory returning an agent built from scripted test doubles, the same shape `test_nyaya_agent.py`
     itself uses, so this router's own tests cover HTTP wiring only, not re-proving the agent's decision logic.
@@ -753,7 +756,7 @@ def build_partner_router(
             headers={"Retry-After": str(provision_rate_limiter.retry_after_seconds())},
         )
 
-    _key_rate_limiter = tenancy.KeyRateLimiter()
+    _key_rate_limiter = tenancy.KeyRateLimiter(now=rate_clock) if rate_clock is not None else tenancy.KeyRateLimiter()
     # Passive judge observation: the last analyse-facts result, never a probe. A probe of a scaled-to-zero
     # serverless judge would itself wake it (spend, outside the serving windows), so /status reports only
     # what real traffic last saw and says "unknown" once that is stale.
