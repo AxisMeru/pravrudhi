@@ -8,6 +8,8 @@ are invented ("TOY:"); responses show the fields a caller can rely on, not every
 
 A runnable client and a curl walkthrough: [`partner-quickstart-client.md`](partner-quickstart-client.md).
 
+What each `reason`, `quote_check` and the rule-text fields mean, in plain words: [`reason-codes.md`](reason-codes.md).
+
 Claim tier of this page: unit-tested against a stub judge, not run live. A real judge's outcomes are a
 different thing and are not shown here.
 

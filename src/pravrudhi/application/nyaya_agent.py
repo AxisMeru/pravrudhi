@@ -95,6 +95,9 @@ ContractReason = Literal[
     "gate1_not_entailed", "gate1_contradiction", "contract_not_validated",
 ]
 CONFIG_PATH = Path("configs") / "nyaya_agent.yaml"
+#: What `ContractResult.rule_text_source` says: the provision text came from the pinned Lean binary's `--describe-source`,
+#: which carries India Code text. Unofficial; the code, docs and UI never call it official.
+RULE_TEXT_SOURCE = "lean_describe_source"
 
 
 class BinaryShaMismatch(RuntimeError):
@@ -968,6 +971,15 @@ class ContractResult:
     #: what was scored and by which binary -- a structural check, not that the assertions are true. None when
     #: no Lean call was made.
     lean_attestation: dict[str, str] | None = None
+    #: The provision text from Lean `--describe-source` (India Code, unofficial: never call it official). Always set
+    #: when the contract was described; the partner response's `rule_text`.
+    rule_text: str | None = None
+    #: Exactly the first `house_judge.statute_chars` characters of the judge's configured statute text, i.e. the text AS
+    #: SENT in the judge prompt (`build_house_prompt` cuts to that length). Set only when `statute_text_mismatch` is
+    #: true; None otherwise, and None when no judge statute text is configured.
+    judge_rule_text: str | None = None
+    #: Where `rule_text` came from: `RULE_TEXT_SOURCE`.
+    rule_text_source: str | None = None
 
 
 @dataclass
@@ -1492,6 +1504,8 @@ class NyayaAgent:
         training = self.config.judge_statute_text.get(contract_id)
         official = self.registry.source_text(contract_id)
         mismatch = None if training is None else training != official
+        cut = int(self.config.house_judge.get("statute_chars") or 0)
+        judge_rule_text = training[:cut] if (mismatch is True and training is not None and cut > 0) else None
         similarity = None if training is None else _text_similarity(training, official)
         audit.step("statute", {"contract_id": contract_id},
                    {"contract_id": contract_id, "judge_statute_source": "config" if training is not None else None,
@@ -1510,7 +1524,9 @@ class NyayaAgent:
                                  unavailable_second=kw.get("unavailable_second", []),
                                  gate1_unavailable=kw.get("gate1_unavailable", []), gate1_failed=kw.get("gate1_failed", []),
                                  gate1_contradiction=kw.get("gate1_contradiction", []),
-                                 lean_attestation=kw.get("lean_attestation"))
+                                 lean_attestation=kw.get("lean_attestation"),
+                                 rule_text=official, judge_rule_text=judge_rule_text,
+                                 rule_text_source=RULE_TEXT_SOURCE)
             audit.step("outcome", {"contract_id": contract_id, "elements": [asdict(r) for r in results]},
                        {"contract_id": contract_id, "outcome": outcome, "reason": reason,
                         "lean_outcome": res.lean_outcome, "uncertain": res.uncertain,

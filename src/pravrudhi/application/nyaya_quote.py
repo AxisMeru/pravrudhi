@@ -3,7 +3,9 @@
 A judge that calls an element *established* names the fact that establishes it and quotes it:
 `{status, fact_id, quote}`. The judge never supplies character offsets -- a model is not asked to count
 characters. The SYSTEM locates the quote with an exact `str.find` in `facts[fact_id]` and computes `start`/
-`end` itself (`offsets_source: "system"`); on several occurrences it takes the first and records the count.
+`end` itself (`offsets_source: "system"`). A quote that occurs more than once is `ambiguous_quote`: which occurrence
+the judge meant is unknowable, so `locate_quote` returns `valid=False`, the element is NOT established, and the
+occurrence count is recorded (no occurrence is chosen).
 
 Verification stays strictly verbatim: no case folding, no whitespace trimming or collapsing, no fuzzy match.
 A quote that is not a verbatim substring of the named fact is rejected and says why. The caller

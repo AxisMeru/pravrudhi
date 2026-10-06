@@ -83,6 +83,7 @@ from pravrudhi.application.nyaya_agent import (
     Outcome,
 )
 from pravrudhi.application.nyaya_judges import SecondJudgeCircuitBreaker
+from pravrudhi.application.nyaya_quote import Reason as QuoteCheck
 from pravrudhi.application.service_window import ServiceWindow
 from pravrudhi.application.statute_citations import contract_citations
 
@@ -354,7 +355,12 @@ class ElementResultOut(BaseModel):
     quote: str | None
     start: int | None
     end: int | None
-    quote_check: str | None
+    quote_check: QuoteCheck | None = Field(
+        description="Why the judge's quote was accepted or rejected (the system's own word-for-word check): ok, "
+        "not_established, no_quote, unknown_fact, empty_quote, non_evidential_quote, quote_not_found or "
+        "ambiguous_quote. Null when no quote check ran. A quote that occurs more than once is ambiguous_quote: the "
+        "element is not counted as shown. Plain-language text for each value: docs/api/reason-codes.md."
+    )
     attempts: int
     occurrences: int
     offsets_source: str | None
@@ -430,6 +436,23 @@ class ContractResultOut(BaseModel):
     )
     uncertain: list[str]
     statute_text_mismatch: bool | None
+    rule_text: str | None = Field(
+        default=None,
+        description="The provision text the contract is checked against, from the Lean checker's --describe-source "
+        "(India Code text, unofficial: not the official text of the law). Null when the contract was not described.",
+    )
+    judge_rule_text: str | None = Field(
+        default=None,
+        description="Exactly the first statute_chars characters (600 in the shipped config) of the statute text the judge was "
+        "configured with, i.e. the text AS SENT in the judge prompt. Returned only when statute_text_mismatch is "
+        "true, so a reader can see what the judge worked from; null otherwise, and null when no judge statute text "
+        "is configured for the contract.",
+    )
+    rule_text_source: str | None = Field(
+        default=None,
+        description="Where rule_text came from: lean_describe_source (the pinned Lean checker's --describe-source; "
+        "India Code text, unofficial).",
+    )
     citations: list[CitationOut] | None = Field(
         default=None,
         description="The contract's statute references with a corpus check, identical whatever the verdict. "
