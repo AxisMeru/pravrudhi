@@ -106,14 +106,16 @@ def test_a_refused_update_write_leaves_update_yaml_byte_for_byte_unchanged(
     assert _sha(cfg) != before  # the operator can still change it
 
 
-@pytest.mark.parametrize(("edition", "who"), [("product", "plain"), ("product", "admin"), ("studio", "admin")])
-def test_reading_the_update_status_stays_user_facing(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, edition: str, who: str
+@pytest.mark.parametrize("edition", EDITIONS)
+def test_reading_the_update_status_is_the_operators_since_the_legal_mvp(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, edition: str
 ) -> None:
-    # (Studio admits administrators only as a whole, #246, so the non-admin read is the product's.)
+    # Was user-facing until #525 mode B (R2's #300 review: the build's git describe and the update channel are the
+    # engine's, not a member's). The operator still reads all three.
     c = _client(tmp_path, edition, monkeypatch)
     for path in ("/api/update", "/api/update/config", "/api/update/last-check"):
-        assert _call(c, tmp_path, "GET", path, None, who).status_code == 200, path
+        assert _call(c, tmp_path, "GET", path, None, "plain").status_code == 403, path
+        assert _call(c, tmp_path, "GET", path, None, "admin").status_code == 200, path
 
 
 @pytest.mark.parametrize("edition", EDITIONS)

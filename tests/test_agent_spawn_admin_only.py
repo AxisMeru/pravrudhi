@@ -76,15 +76,15 @@ def test_dispatching_a_plan_is_401_anonymous_403_non_admin_and_200_for_the_admin
 
 
 @pytest.mark.parametrize("edition", EDITIONS)
-def test_the_dispatch_preview_and_past_runs_stay_user_facing_reads(
+def test_the_dispatch_preview_and_past_runs_are_the_operators_reads_too(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, spawned: list[str], edition: str
 ) -> None:
-    if edition == "studio":
-        pytest.skip("Studio admits administrators only as a whole (#246); the read is the product's")
+    # Was a user-facing read until the legal MVP closed every objectives route to members (#525 mode B).
     c = _client(tmp_path, edition, monkeypatch)
     assert _call(c, tmp_path, "POST", "/api/objectives", _objective_body("obj-1"), "admin").status_code == 200
-    r = _call(c, tmp_path, "GET", "/api/objectives/obj-1/subagents", None, "plain")
-    assert r.status_code != 403 and spawned == []
+    assert _call(c, tmp_path, "GET", "/api/objectives/obj-1/subagents", None, "plain").status_code == 403
+    assert _call(c, tmp_path, "GET", "/api/objectives/obj-1/subagents", None, "admin").status_code == 200
+    assert spawned == []
 
 
 def test_a_non_admin_cannot_dispatch_into_their_own_workspace_either(
@@ -146,7 +146,7 @@ def test_every_host_agent_spawn_path_in_the_api_is_gated() -> None:
         f"a new host-agent spawning route: {sorted(spawning)}"
     )
     assert "/api/jobs" in roles.ADMIN_ONLY
-    assert "/api/objectives/{oid}/subagents" in roles.ADMIN_WRITES_IN_BOTH_EDITIONS
+    assert "/api/objectives/{oid}/subagents" in roles.ADMIN_IN_BOTH_EDITIONS
 
 
 def test_the_tripwire_itself_sees_async_routes_and_other_modules(tmp_path: Path) -> None:
