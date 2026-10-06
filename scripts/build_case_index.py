@@ -14,6 +14,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 import time
 from pathlib import Path
@@ -108,10 +109,10 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument(
-        "--sc-root", type=Path, default=Path("/home/ss/fusion-project/corpus-raw/supreme_court_judgments")
+        "--sc-root", type=Path, default=Path(os.environ.get("PRAVRUDHI_SC_ROOT", "corpus-raw/supreme_court_judgments"))
     )
     ap.add_argument(
-        "--injudgements-dir", type=Path, default=Path("/home/ss/fusion-project/corpus-raw/hf/injudgements")
+        "--injudgements-dir", type=Path, default=Path(os.environ.get("PRAVRUDHI_INJUDGEMENTS_DIR", "corpus-raw/hf/injudgements"))
     )
     ap.add_argument("--sc-limit", type=int, default=None)
     ap.add_argument("--skip-sc", action="store_true")

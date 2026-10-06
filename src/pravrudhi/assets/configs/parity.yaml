@@ -1,6 +1,6 @@
 # Rival claims await verified product sources. Matrix order breaks next_gap ties.
 # OpenClaw was assessed on 2026-09-08 by reading its source at
-# /home/ss/gb10-archive/openclaw_build/swarm-platform — its modules, API routes, React dashboard pages and
+# <archive>/openclaw_build/swarm-platform — its modules, API routes, React dashboard pages and
 # components — not by reputation. Until then every row read `unknown`, which the completion gate's adversarial
 # reviewer correctly called out: the operator named OpenClaw as a rival twice and no row had ever looked at it.
 #

@@ -10,7 +10,6 @@ code, in docs or in tests (they use obvious placeholders such as `seat-a@example
       claude_cli_expected_email: seat-2-address@your-domain    # optional; defaults to scripted_claude_email
       seats:                                                   # optional per-seat overrides of configs/seats.yaml
         primary: seat-2-address@your-domain
-        fallback: team-account@your-domain
 
 Where an identity is NEEDED to verify an account, the code refuses with `SeatIdentityMissing` when it is absent: a check that
 quietly has nothing to compare against is not a check. A committed placeholder (`*.invalid`) in `configs/seats.yaml`

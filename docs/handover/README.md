@@ -82,7 +82,8 @@ order and `pravrudhi.agents.account.select_seat` picks the first that can serve.
 | Seat | Directory | Role |
 |---|---|---|
 | `primary` | `~/.claude` | spent by default |
-| `fallback` | `~/.config/pravrudhi/claude-admin` | reached only when `primary` is inside a usage-limit cooldown |
+
+The team login's directory (`claude-admin`) is never a CLI seat; a second seat, if wanted, is a different account added to the registry explicitly.
 
 A seat is passed over for two reasons only — no credential, or cooling down. **An ordinary failure does not
 advance to the next seat**, because a prompt the model botched will be botched by the reserve too. Failover

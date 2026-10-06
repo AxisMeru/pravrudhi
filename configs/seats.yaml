@@ -1,9 +1,7 @@
 # Which Claude seat the command line spends, and what happens when it stops being spendable.
 #
-# Operator instruction, 2026-09-11: *"admin@axismeru.com will be always available the other seat may drop on
-# and off....always use the other seat for the cli to balance the usage load..if
-# it drops off the premium and cli returns error/something else enable the router/config to automatically
-# switch to admin account (but it should not use admin cli account if the other seat is active)"*.
+# Operator decision (11 Sep 2026), paraphrased: CLI load goes to the premium seat that is not the team login; the team login is the
+# desktop-app account and is never used for CLI work while that seat can serve.
 #
 # `account.py` already pinned CLAUDE_CONFIG_DIR so an invocation could not pick up an account by accident.
 # That settled WHICH account, on the assumption there was one. There are two, they are not interchangeable,
@@ -33,14 +31,6 @@ seats:
     email: seat-a@example.invalid   # placeholder; the real address is in ~/.config/pravrudhi/seats.local.yaml (seats: {primary: ...})
     config_dir: ~/.claude
 
-  # The reserve. Always available, and therefore never chosen while `primary` can serve -- if this were tried
-  # first it would absorb the whole load and the instruction would be inverted. It is the desktop app's login
-  # as well, which is a further reason not to spend it on the loop's behalf without cause.
-  #
-  # Provisioned 2026-09-11 by the operator, in its own directory and its own browser session. The two seats
-  # hold genuinely independent credentials -- distinct refresh tokens, and `claude auth status --json`
-  # reports each directory separately -- so logging this one in did not sign the other out, which is the
-  # property the whole CLAUDE_CONFIG_DIR arrangement exists to hold.
-  - id: fallback
-    email: admin@axismeru.com   # the team account (a public commit identity)
-    config_dir: ~/.config/pravrudhi/claude-admin
+  # There is deliberately NO second entry. The team login's directory (`claude-admin`) is never a CLI seat: `account.seats` drops any
+  # entry that resolves to it and `scripted_claude_home` refuses it, so no code path can spend it by name or by position. A fallback
+  # seat, if one is ever wanted, must be a different account, added here explicitly, with its own directory.

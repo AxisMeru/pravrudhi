@@ -32,17 +32,13 @@ themselves in an interactive terminal. Nothing here should treat that email doma
 refusal this module raises is for *no credential provisioned*, not for which mailbox the credential belongs
 to. `admin@axismeru.com` remains the desktop-app login only.
 
-**2026-09-11: one account became two, with an order.** *"admin@axismeru.com will be always available the
-other seat may drop on and off....always use the other seat for the cli to
-balance the usage load..if it drops off the premium and cli returns error/something else enable the
-router/config to automatically switch to admin account (but it should not use admin cli account if the other
-seat is active)"*.
+**2026-09-11: one account became two, with an order.** The operator's instruction (paraphrased): CLI load goes to the premium seat
+that is not the team login; the team login is for the desktop app and is never used for CLI work while that seat can serve.
 
 That is not a different constant, it is a different shape. A seat is now an entry in `configs/seats.yaml`,
-the file's order is the precedence, and `select_seat` returns the first entry that can actually serve. The
-reserve is reached only when the seat above it holds no credential or is inside a usage-limit cooldown --
-never on an ordinary failure, because a prompt the model botched will be botched by the reserve too and
-spending the always-available account on it is the opposite of balancing load.
+the file's order is the precedence, and `select_seat` returns the first entry that can actually serve. A later entry is
+reached only when the seat above it holds no credential or is inside a usage-limit cooldown -- never on an ordinary
+failure. The team login's directory is NOT such an entry: see `FORBIDDEN_SEAT_DIR_NAMES`.
 
 The refusal is unchanged in spirit and wider in reach: `claude_env` raises when NO declared seat can serve,
 rather than when one named directory is empty. And `mismatches` was added for the failure neither the CLI nor
@@ -100,6 +96,20 @@ SCRIPTED_CLAUDE_HOME_DEFAULT = Path("~/.config/pravrudhi/claude-loop")
 #: The account that directory must hold is checked, not assumed: its address comes from LOCAL configuration
 #: (`seat_identity.scripted_claude_email`: the environment or ~/.config/pravrudhi/seats.local.yaml), never from the
 #: repository, and a missing one refuses.
+
+
+#: The team login's config directory (seat 1, the desktop app's account). It is never a CLI seat: not by name, not by
+#: position, not as a "fallback". `seats()` drops any entry that resolves to it and `scripted_claude_home()`
+#: refuses it, so no code path can spend it.
+FORBIDDEN_SEAT_DIR_NAMES = frozenset({"claude-admin"})
+
+
+class AdminSeatRefused(RuntimeError):
+    """A CLI or scripted call resolved to the team login's config directory (`FORBIDDEN_SEAT_DIR_NAMES`)."""
+
+
+def is_forbidden_seat_dir(path: str | Path) -> bool:
+    return Path(path).expanduser().name in FORBIDDEN_SEAT_DIR_NAMES
 
 
 class PersonalAccountRefused(RuntimeError):
@@ -230,7 +240,7 @@ def _pinned_seat() -> Seat | None:
     registry, and the registry is still there to fall back to when the pinned seat is spent.
     """
     raw = os.environ.get(HOME_ENV)
-    if not raw:
+    if not raw or is_forbidden_seat_dir(raw):
         return None
     return Seat(id="pinned", email="", config_dir=Path(raw).expanduser())
 
@@ -268,6 +278,8 @@ def seats(root: Path | None = None) -> list[Seat]:
         # override is "unknown" (empty), so `mismatches` has nothing to compare rather than comparing against a fake.
         email = seat_email_override(seat_id) or ("" if is_placeholder(committed) else committed)
         seat = Seat(id=seat_id, email=email, config_dir=Path(str(entry["config_dir"])).expanduser())
+        if is_forbidden_seat_dir(seat.config_dir):
+            continue  # the team login is never a CLI seat, whatever the registry says
         if pinned is not None and seat.config_dir == pinned.config_dir:
             continue  # the pinned directory is already first; do not offer it twice
         declared.append(seat)
@@ -392,7 +404,10 @@ def mismatches(root: Path | None = None, *, live: bool = False) -> list[str]:
 
 
 def scripted_claude_home() -> Path:
-    return Path(os.environ.get(SCRIPTED_CLAUDE_HOME_ENV) or SCRIPTED_CLAUDE_HOME_DEFAULT).expanduser()
+    home = Path(os.environ.get(SCRIPTED_CLAUDE_HOME_ENV) or SCRIPTED_CLAUDE_HOME_DEFAULT).expanduser()
+    if is_forbidden_seat_dir(home):
+        raise AdminSeatRefused(f"{home} is the team login's directory, which is never a scripted-call seat; refusing")
+    return home
 
 
 def claude_env(*, require: bool = True, live: bool = False) -> dict[str, str]:

@@ -88,3 +88,38 @@ def test_the_committed_config_holds_no_real_seat_address() -> None:
     root = Path(__file__).resolve().parent.parent
     text = (root / "configs" / "seats.yaml").read_text()
     assert "gmail.com" not in text and "example.invalid" in text
+
+
+def test_the_team_login_dir_can_never_be_chosen_for_a_scripted_call(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    admin = tmp_path / "claude-admin"
+    admin.mkdir()
+    (admin / ".credentials.json").write_text("{}")
+    monkeypatch.setenv(account.SCRIPTED_CLAUDE_HOME_ENV, str(admin))
+    with pytest.raises(account.AdminSeatRefused):
+        account.scripted_claude_home()
+    with pytest.raises(account.AdminSeatRefused):
+        account.claude_env(require=False)
+
+
+def test_the_registry_never_offers_the_team_login_whatever_it_is_called(tmp_path: Path) -> None:
+    (tmp_path / "configs").mkdir()
+    (tmp_path / "configs" / "seats.yaml").write_text(
+        yaml.safe_dump({"version": 1, "seats": [
+            {"id": "primary", "email": "a@seats.test", "config_dir": str(tmp_path / "p")},
+            {"id": "fallback", "email": "b@seats.test", "config_dir": str(tmp_path / "claude-admin")},
+            {"id": "reserve", "email": "c@seats.test", "config_dir": "~/.config/pravrudhi/claude-admin"}]})
+    )
+    assert [s.id for s in account.seats(tmp_path)] == ["primary"]
+    assert all(not account.is_forbidden_seat_dir(s.config_dir) for s in account.seats(tmp_path))
+
+
+def test_a_pinned_directory_that_is_the_team_login_is_ignored(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(account.HOME_ENV, str(tmp_path / "claude-admin"))
+    assert not any(s.id == "pinned" for s in account.seats(tmp_path))
+
+
+def test_the_committed_registry_has_no_fallback_tied_to_the_team_login() -> None:
+    text = (Path(__file__).resolve().parent.parent / "configs" / "seats.yaml").read_text()
+    entries = yaml.safe_load(text)["seats"]
+    assert [e["id"] for e in entries] == ["primary"]
+    assert not any("claude-admin" in str(e.get("config_dir", "")) for e in entries)
