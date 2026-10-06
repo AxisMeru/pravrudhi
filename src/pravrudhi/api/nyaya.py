@@ -12,7 +12,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
@@ -24,9 +24,9 @@ from pravrudhi.api.errors import (
     coded,
     coded_503,
 )
-from pravrudhi.api.identity import CurrentUserDep, User
+from pravrudhi.api.identity import AuthMode, CurrentUserDep, User, auth_mode
 from pravrudhi.api.workspace_root import RootError, root_for
-from pravrudhi.application import nyaya, panel
+from pravrudhi.application import nyaya, panel, tenancy
 from pravrudhi.application.credentials import CredentialStore, store_for_session
 from pravrudhi.application.tenant_vendors import VendorNotAllowed
 
@@ -68,7 +68,10 @@ class NyayaCorpusHit(BaseModel):
     section: str
     title: str
     score: float
-    text: str
+    #: The provision text: present ONLY for an authenticated caller (a session, an org API key, or the local
+    #: single-operator engine). An anonymous caller gets no statute text at all (not even an excerpt): id, act, section,
+    #: title, the notice and the source links only (#506, operator rule 6 Oct: the corpus stays private).
+    text: str | None = None
     #: The condition on showing this text (every hit carries it, so a hit copied out alone still has it).
     notice: str
     #: The page the corpus recorded for this act on India Code, present ONLY when the corpus recorded one (BNS, BNSS, BSA
@@ -218,9 +221,20 @@ def build_nyaya_router(root: Path, ask_fn: panel.AskFn | None = None) -> APIRout
         project, store = _session(user, workspace)
         return {"vendors": nyaya.available_vendors(project, store=store)}
 
-    @router.get("/corpus", response_model=NyayaCorpusResponse)
-    def corpus(q: str = "", k: int = 8, workspace: str | None = None, user: User | None = CurrentUserDep) -> dict[str, Any]:
+    def _full_text_allowed(user: User | None, request: Request) -> bool:
+        """Full statute text is for AUTHENTICATED callers (#506): a session, a valid org API key, or the local
+        single-operator engine (auth disabled, which `guard_boot` refuses on a hosted image). Anyone else gets an
+        excerpt. A bad API key raises 401 inside `principal_from_headers`, never silently anonymous."""
+        if user is not None or auth_mode() is AuthMode.DISABLED:
+            return True
+        return tenancy.principal_from_headers(engine_root, request.headers) is not None
+
+    @router.get("/corpus", response_model=NyayaCorpusResponse, response_model_exclude_unset=True)
+    def corpus(
+        request: Request, q: str = "", k: int = 8, workspace: str | None = None, user: User | None = CurrentUserDep
+    ) -> dict[str, Any]:
         project, _store = _session(user, workspace)
+        full = _full_text_allowed(user, request)
         c = nyaya.load_corpus(project)
         hits = (
             [
@@ -230,7 +244,7 @@ def build_nyaya_router(root: Path, ask_fn: panel.AskFn | None = None) -> APIRout
                     "section": d.section,
                     "title": d.title,
                     "score": s,
-                    "text": d.text,
+                    **({"text": d.text} if full else {}),
                     "notice": nyaya.STATUTE_NOTICE,
                     "source_url": nyaya.recorded_source_url(d.act, c.sources),
                     "source_fallback_url": nyaya.INDIA_CODE_HOME,
