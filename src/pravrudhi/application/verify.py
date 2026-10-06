@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import re
 import sqlite3
+import unicodedata
 from dataclasses import dataclass
 from difflib import SequenceMatcher
 from enum import StrEnum
@@ -36,6 +37,31 @@ _TRAILING_HONORIFIC = re.compile(r"\s+(?:and|&)?\s*(?:anr\.?|ors\.?|others?|etc\
 # barred") keeps its hyphen because the char right after it is not a newline.
 _LINE_WRAP_HYPHEN = re.compile(r"-\n")
 _LIGATURES = {"ﬀ": "ff", "ﬁ": "fi", "ﬂ": "fl", "ﬃ": "ffi", "ﬄ": "ffl"}
+# Typographic variants of the same punctuation, folded for the comparison only (#330, found by the #529 probe: a
+# quote copied with curly quotes or an en/em dash was reported not found against text that carries the straight
+# form, or the reverse). One character to one character, EXCEPT the soft hyphen (U+00AD), which is deleted (it is
+# invisible, and a PDF line break can leave one inside a word); no other character is dropped or added. There is NO
+# case folding, no partial match and no fuzzy match: the quote must still occur verbatim after the fold.
+_PUNCTUATION_FOLD = str.maketrans(
+    {
+        "‘": "'",
+        "’": "'",
+        "‚": "'",
+        "‛": "'",
+        "“": '"',
+        "”": '"',
+        "„": '"',
+        "‟": '"',
+        "‐": "-",
+        "‑": "-",
+        "‒": "-",
+        "–": "-",
+        "—": "-",
+        "―": "-",
+        "−": "-",
+        "­": "",
+    }
+)
 
 
 def normalize_text_for_match(text: str) -> str:
@@ -46,6 +72,7 @@ def normalize_text_for_match(text: str) -> str:
     s = _LINE_WRAP_HYPHEN.sub("", text)
     for lig, plain in _LIGATURES.items():
         s = s.replace(lig, plain)
+    s = s.translate(_PUNCTUATION_FOLD)
     return " ".join(s.split())
 
 
@@ -166,24 +193,112 @@ def _resolve_party_pair(conn: sqlite3.Connection, party_1: str, party_2: str) ->
     as a known simplification rather than silently assumed safe."""
     t1 = _strip_filler(party_1).split()[0]
     t2 = _strip_filler(party_2).split()[0]
-    case_rows = conn.execute(
-        "SELECT case_id, title, text FROM cases WHERE title MATCH ?", (f'"{t1}" AND "{t2}"',)
-    ).fetchall()
+    case_rows = conn.execute("SELECT case_id, title, text FROM cases WHERE title MATCH ?", (f'"{t1}" AND "{t2}"',)).fetchall()
     if not case_rows:
         case_rows = _fuzzy_confirm(conn, party_1, party_2)
     return list(case_rows)
 
 
-def resolve_citation_key(conn: sqlite3.Connection, key: str) -> ResolvedAlias:
+# Tokens too common to tell two parties apart (a party made only of these cannot be used to disambiguate).
+_COMMON_TOKENS = frozenset(
+    {
+        "the",
+        "of",
+        "and",
+        "ors",
+        "anr",
+        "others",
+        "another",
+        "v",
+        "vs",
+        "versus",
+        "state",
+        "union",
+        "india",
+        "m",
+        "s",
+        "shri",
+        "smt",
+        "mr",
+        "ms",
+        "dr",
+        "co",
+        "ltd",
+        "pvt",
+        "limited",
+        "company",
+        "commissioner",
+        "govt",
+        "government",
+    }
+)
+
+
+def _distinctive_tokens(name: str) -> frozenset[str]:
+    s = unicodedata.normalize("NFKD", normalize_party_name(name)).encode("ascii", "ignore").decode()
+    # tokens of one or two letters are initials (`S.A.` folds to `sa`): noise for telling parties apart
+    return frozenset(t for t in re.sub(r"[^a-z0-9 ]+", " ", s.lower()).split() if len(t) > 2 and t not in _COMMON_TOKENS)
+
+
+# Share of an alias party's distinctive tokens the claimed name must contain. A shared surname alone (Ram Singh vs
+# Mohan Singh) is 0.5 and does not agree (R2 on #331).
+_PARTY_CONTAINMENT_MIN = 0.7
+
+
+def _group_agrees_with_claim(claimed: frozenset[str], row: sqlite3.Row) -> bool:
+    """Two-sided: for EACH party of the alias group that has distinctive tokens, at least `_PARTY_CONTAINMENT_MIN`
+    of its distinctive tokens are in the claimed name. A party with no distinctive token is skipped; a group with
+    no distinctive token at all cannot be told apart and does not agree."""
+    sides = [t for t in (_distinctive_tokens(row["party_1"]), _distinctive_tokens(row["party_2"])) if t]
+    return bool(sides) and all(len(side & claimed) / len(side) >= _PARTY_CONTAINMENT_MIN for side in sides)
+
+
+def _disambiguate(
+    conn: sqlite3.Connection, groups: dict[tuple[str, str], sqlite3.Row], claimed_name: str, claimed_year: int | None
+) -> list[sqlite3.Row] | None:
+    """Pick the ONE alias group the claim points to, or None (the caller then returns CONFLICT as before). By
+    claimed party names first; if more than one group still agrees, by year (the resolved case's decision year
+    within one of the citation's year). Never guesses: zero or several survivors mean None. Returns the resolved
+    case rows of the surviving group."""
+    claimed = _distinctive_tokens(claimed_name)
+    if not claimed:
+        return None
+    named = [g for g in groups.values() if _group_agrees_with_claim(claimed, g)]
+    if not named:
+        return None
+    resolved = [_resolve_party_pair(conn, g["party_1"], g["party_2"]) for g in named]
+    if any(not rows for rows in resolved):
+        # a name-agreeing group that resolves to no case is still a candidate the claim could mean:
+        # do not drop it and pick its sibling
+        return None
+    if len(resolved) == 1:
+        return resolved[0]
+    # Several name-agreeing groups: they may all resolve to the SAME case (alias spellings of one party pair),
+    # so compare CASES, not groups.
+    cases = {r["case_id"]: r for rows in resolved for r in rows}
+    if len(cases) > 1 and claimed_year is not None:
+        near = {}
+        for cid, r in cases.items():
+            y = conn.execute("SELECT year FROM cases WHERE case_id = ?", (cid,)).fetchone()
+            try:
+                if y is not None and y[0] not in (None, "") and abs(int(y[0]) - claimed_year) <= 1:
+                    near[cid] = r
+            except (TypeError, ValueError):
+                continue
+        cases = near
+    return list(cases.values()) if len(cases) == 1 else None
+
+
+def resolve_citation_key(
+    conn: sqlite3.Connection, key: str, claimed_name: str | None = None, claimed_year: int | None = None
+) -> ResolvedAlias:
     """`verify()`'s resolution step alone (citation-key lookup -> party-group -> exact-title FTS match ->
     `_fuzzy_confirm` fallback), extracted so the P3 prereg's resolution-precision measurement
     (`application.p3_prereg`) can label exactly what the system resolved a sampled alias to, without also
     running (or needing) a quote check -- resolution-precision asks "is the resolved case the right case",
     a question `verify()` alone has no way to answer since it only ever returns the end-to-end enum."""
     conn.row_factory = sqlite3.Row
-    alias_rows = conn.execute(
-        "SELECT DISTINCT party_1, party_2 FROM citation_aliases WHERE citation = ?", (key,)
-    ).fetchall()
+    alias_rows = conn.execute("SELECT DISTINCT party_1, party_2 FROM citation_aliases WHERE citation = ?", (key,)).fetchall()
     if not alias_rows:
         return ResolvedAlias(VerifyResult.NOT_IN_INDEX, [])
 
@@ -194,6 +309,11 @@ def resolve_citation_key(conn: sqlite3.Connection, key: str) -> ResolvedAlias:
     for row in alias_rows:
         gkey = (normalize_party_name(row["party_1"]), normalize_party_name(row["party_2"]))
         groups.setdefault(gkey, row)
+
+    if len(groups) > 1 and claimed_name:
+        picked = _disambiguate(conn, groups, claimed_name, claimed_year)
+        if picked is not None:
+            return ResolvedAlias(None, picked)
 
     if len(groups) > 1:
         # A real conflict: resolve EACH distinct party-pair to its own candidate row(s), rather than
@@ -212,7 +332,9 @@ def resolve_citation_key(conn: sqlite3.Connection, key: str) -> ResolvedAlias:
     return ResolvedAlias(None, case_rows)
 
 
-def verify(conn: sqlite3.Connection, citation_text: str, quote_or_proposition: str) -> VerifyResult:
+def verify(
+    conn: sqlite3.Connection, citation_text: str, quote_or_proposition: str, claimed_name: str | None = None
+) -> VerifyResult:
     citations = parse_citations(citation_text)
     if len(citations) != 1:
         return VerifyResult.MALFORMED
@@ -221,11 +343,14 @@ def verify(conn: sqlite3.Connection, citation_text: str, quote_or_proposition: s
     if key is None:
         return VerifyResult.NOT_IN_INDEX
 
-    resolved = resolve_citation_key(conn, key)
+    resolved = resolve_citation_key(conn, key, claimed_name, citations[0].year)
     if resolved.status is not None:
         return resolved.status
 
     normalized_quote = normalize_text_for_match(quote_or_proposition)
+    if not normalized_quote:
+        # the empty string is "in" every text: an empty or whitespace-only quote verifies nothing
+        return VerifyResult.EXISTS_QUOTE_NOT_FOUND
     for row in resolved.case_rows:
         normalized_text = normalize_text_for_match(row["text"])
         if normalized_quote in normalized_text:
