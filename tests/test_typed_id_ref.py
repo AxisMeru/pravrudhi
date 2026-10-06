@@ -115,10 +115,11 @@ class TestRescoreFactId:
         out, choice = rescore_fact_id(j, _req([("F1", "a")]), prompt="P", scorer=lambda p, c: 1 / 0, mass_floor=0.5)
         assert out is j and choice is None
 
-    def test_no_candidates_leaves_the_judgment_unchanged(self) -> None:
-        j = _est("F9")
-        out, choice = rescore_fact_id(j, _req([("F_narrative", "n")]), prompt="P", scorer=lambda p, c: 1 / 0, mass_floor=0.5)
-        assert out is j and choice is None
+    @pytest.mark.parametrize("facts", [[], [("F_narrative", "n")]])
+    def test_established_with_no_candidate_facts_raises_never_keeps_the_parsed_id(self, facts) -> None:
+        j = ElementJudgment("established", 0.99, "F99", "made up", "whole_fact", raw=" established F99: made up")
+        with pytest.raises(IdRefDecodeError, match="no candidate fact ids"):
+            rescore_fact_id(j, _req(facts), prompt="P", scorer=lambda p, c: 1 / 0, mass_floor=0.5)
 
     def test_decode_errors_propagate_never_fall_back_to_the_parsed_id(self) -> None:
         with pytest.raises(IdRefDecodeError):
@@ -151,5 +152,22 @@ class TestEchoParsing:
 
     def test_null_logprob_inside_the_continuation_raises(self) -> None:
         r = self._resp(["A", " F"], [None, None], [0, 1])
+        with pytest.raises(IdRefDecodeError):
+            continuation_logprob_from_echo(r, prefix_len=1, end_len=3)
+
+    def test_a_positive_continuation_token_logprob_raises(self) -> None:
+        r = self._resp(["A", " F", "1"], [None, 0.3, -0.5], [0, 1, 3])
+        with pytest.raises(IdRefDecodeError, match="<= 0"):
+            continuation_logprob_from_echo(r, prefix_len=1, end_len=4)
+
+    @pytest.mark.parametrize("bad", [math.nan, math.inf, "x", True])
+    def test_a_non_finite_or_non_numeric_token_logprob_raises(self, bad) -> None:
+        r = self._resp(["A", " F"], [None, bad], [0, 1])
+        with pytest.raises(IdRefDecodeError):
+            continuation_logprob_from_echo(r, prefix_len=1, end_len=3)
+
+    @pytest.mark.parametrize("off", [None, "1", 1.5])
+    def test_a_bad_offset_raises_decode_error_not_type_error(self, off) -> None:
+        r = self._resp(["A", " F"], [None, -0.2], [0, off])
         with pytest.raises(IdRefDecodeError):
             continuation_logprob_from_echo(r, prefix_len=1, end_len=3)

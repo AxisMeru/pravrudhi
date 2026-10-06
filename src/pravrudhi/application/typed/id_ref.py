@@ -82,13 +82,18 @@ def rescore_fact_id(
     judgment: ElementJudgment, request: JudgeRequest, *, prompt: str, scorer: Scorer, mass_floor: float
 ) -> tuple[ElementJudgment, IdRefChoice | None]:
     """For an `established` judgment, replace the greedy-parsed fact id by the enum choice over the request's
-    fact ids (granularity `whole_fact`, as the typed house judge already uses). Anything else is returned as is
-    with no choice. Errors propagate; the parsed id is never used as a fallback."""
+    fact ids (granularity `whole_fact`, as the typed house judge already uses). A non-`established` judgment is returned
+    as is with no choice. An `established` judgment with NO candidate fact ids (empty, or `F_narrative` only) has nothing
+    it may cite, so its greedy-parsed id and quote are a hallucination the module exists to stop: it raises
+    `IdRefDecodeError`. Errors propagate; the parsed id is never used as a fallback."""
     if judgment.status != "established":
         return judgment, None
     candidates = tuple(fid for fid, _ in request.facts if fid != _NARRATIVE_FACT_ID)
     if not candidates:
-        return judgment, None
+        raise IdRefDecodeError(
+            f"established judgment (parsed id {judgment.fact_id!r}) but the request has no candidate fact ids: "
+            "nothing it may cite"
+        )
     field = Field("fact_id", FieldKind.ID_REF, candidates=candidates)
     choice = score_id_ref(field, prefix=prompt + " established", scorer=scorer, mass_floor=mass_floor)
     text = dict(request.facts)[choice.best]
@@ -100,7 +105,8 @@ def continuation_logprob_from_echo(resp: Mapping[str, Any], *, prefix_len: int, 
     with `echo=true, logprobs=0`: sums `token_logprobs` of tokens whose `text_offset` lies in that range. The server
     also appends the token(s) it GENERATES (max_tokens >= 1) after the echoed prompt (seen live); `end_len`
     excludes them. A token straddling either boundary, a null logprob inside the continuation, or an empty
-    continuation raises."""
+    continuation raises, as does a non-integer offset, a non-string token, or any continuation logprob that is not a
+    finite number <= 0 (a positive logprob is impossible)."""
     try:
         lg = resp["choices"][0]["logprobs"]
         tokens, lps, offs = lg["tokens"], lg["token_logprobs"], lg["text_offset"]
@@ -110,6 +116,8 @@ def continuation_logprob_from_echo(resp: Mapping[str, Any], *, prefix_len: int, 
         raise IdRefDecodeError("echo reply arrays differ in length")
     total, n = 0.0, 0
     for tok, lp, off in zip(tokens, lps, offs, strict=True):
+        if not isinstance(tok, str) or not isinstance(off, int) or isinstance(off, bool):
+            raise IdRefDecodeError(f"token {tok!r} has a non-string text or a non-integer offset {off!r}")
         if off < prefix_len < off + len(tok):
             raise IdRefDecodeError(f"token {tok!r} straddles the prefix boundary at {prefix_len}")
         if off < end_len < off + len(tok):
@@ -117,6 +125,8 @@ def continuation_logprob_from_echo(resp: Mapping[str, Any], *, prefix_len: int, 
         if prefix_len <= off < end_len:
             if lp is None:
                 raise IdRefDecodeError(f"null logprob for continuation token {tok!r}")
+            if not isinstance(lp, (int, float)) or isinstance(lp, bool) or not math.isfinite(lp) or lp > 0:
+                raise IdRefDecodeError(f"logprob for continuation token {tok!r} is not a finite value <= 0: {lp!r}")
             total += lp
             n += 1
     if n == 0:
