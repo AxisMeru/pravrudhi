@@ -211,6 +211,73 @@ def _load_file(path: Path) -> tuple[list[Document], dict[str, Any]]:
     return docs, {"file": path.name, **(raw.get("source") or {}), "documents": len(docs)}
 
 
+#: The condition on showing statute text (Lead-2, 5 Oct 2026; licence memo on s.52(1)(q)(ii), hold #506): text is
+#: returned with this notice. A recorded source link (`source_url`) is present only when the corpus recorded an India
+#: Code page for the act (BNS, BNSS, BSA today); otherwise the response carries the India Code home page as a fallback
+#: link. The app's `STATUTE_NOTICE` carries the same words. The wording "the official version on India Code prevails"
+#: is the one the counsel pack (Q6) leaves open: it changes when counsel answers.
+STATUTE_NOTICE = "Unofficial text; the official version on India Code prevails."
+_INDIA_CODE_HOSTS = frozenset({"indiacode.gov.in", "www.indiacode.gov.in", "indiacode.nic.in", "www.indiacode.nic.in"})
+
+
+#: Where a reader is sent when the corpus records no page for an act: the India Code home page, never a guessed deep link
+#: (the app's `INDIA_CODE_HOME`).
+INDIA_CODE_HOME = "https://www.indiacode.nic.in/"
+
+
+def _india_code_https(url: object) -> str | None:
+    """A NORMALISED https India Code URL, or None. The check is strict because a URL is read differently by Python and
+    by a browser: any backslash, whitespace or control character is refused (`https://evil.example\\@indiacode.gov.in/x`
+    is host evil.example to a browser), userinfo is refused, the netloc must be exactly the lowercased host (an explicit
+    port is refused), and the result is rebuilt from the parsed parts so what is returned is what was checked."""
+    from urllib.parse import quote, urlparse, urlunparse
+
+    # Same rule as the app's hardened link check (pravrudhi-app #55): https only, no user-info, host in the set, no
+    # whitespace or control character, no backslash, none of ()[]<>, no second "://", and the href is rebuilt and escaped.
+    if (
+        not isinstance(url, str) or not url.isascii() or url.count("://") != 1
+        or any(c in "\\()[]<>" or c.isspace() or ord(c) < 32 for c in url)
+    ):
+        return None
+    try:
+        u = urlparse(url)
+        host = (u.hostname or "").lower()
+        explicit_port = u.port
+    except ValueError:
+        return None
+    if u.scheme != "https" or host not in _INDIA_CODE_HOSTS or explicit_port is not None:
+        return None
+    if u.username is not None or u.password is not None or "@" in u.netloc or u.netloc.lower() != host:
+        return None
+    safe = "/%:@!$&'*+,;=-._~"  # an existing %XX escape is kept; everything else unsafe is escaped
+    return urlunparse(("https", host, quote(u.path, safe=safe), quote(u.params, safe=safe),
+                       quote(u.query, safe=safe + "?"), quote(u.fragment, safe=safe + "?")))
+
+
+def recorded_source_url(act: str, sources: list[dict[str, Any]]) -> str | None:
+    """The India Code page the corpus itself recorded for `act`, or None. Never a constructed deep link.
+
+    A source record names its act either as `act` (the India Code files: "Bharatiya Nyaya Sanhita, 2023", its page in
+    `act_page`) or as `work` ("Bharatiya Nyaya Sanhita (2023)", pages in `pages[].url`); the same matching the app
+    uses. Only an https India Code URL is returned."""
+    want = act.strip().lower()
+    if not want:
+        return None
+    for s in sources:
+        if str(s.get("act", "")).strip().lower() == want:
+            url = _india_code_https(s.get("act_page"))
+            if url:
+                return url
+        work = str(s.get("work", "")).strip().lower()
+        rest = work[len(want):] if work.startswith(want) else None
+        if rest is not None and (rest.strip() == "" or rest.lstrip().startswith(("(", ","))):
+            for p in s.get("pages") or []:
+                url = _india_code_https(p.get("url") if isinstance(p, dict) else None)
+                if url:
+                    return url
+    return None
+
+
 def load_min_relevance_score(root: Path | None) -> float:
     """`configs/nyaya_corpus.yaml`'s own `min_relevance_score` (issue #32) -- `MIN_RELEVANCE_SCORE` remains
     the fallback both when there is no `root` to resolve a config against (a bare `load_corpus()` call) AND
