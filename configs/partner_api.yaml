@@ -84,3 +84,9 @@ job_max_unfinished_per_key: 8
 # key id, time, run id, contract ids, outcome labels and HTTP status; never fact text. Rows older than this are
 # dropped on write and never served (default 90 days).
 audit_retention_s: 7776000
+
+# #311: read each RunPod judge endpoint's /health (and its configured max) before admitting a call, and answer
+# 503 `judges_offline` at once when a needed judge is parked (no worker, max 0), so nothing is queued for the next
+# warm. A failed or unreadable check proceeds as before. Local (non-RunPod) judges are never checked.
+judge_health_check: true
+judge_health_ttl_s: 5

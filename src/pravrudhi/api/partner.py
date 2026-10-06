@@ -73,6 +73,7 @@ from pravrudhi.application import audit, tenancy
 from pravrudhi.application import nyaya_lean_registry as reg
 from pravrudhi.application.config_files import config_file
 from pravrudhi.application.jobs import JobStore
+from pravrudhi.application.judge_endpoint_state import Fetch, JudgeOfflineCheck
 from pravrudhi.application.nyaya_agent import (
     RETENTION_NOTICE,
     BinaryShaMismatch,
@@ -141,6 +142,12 @@ class PartnerApiConfig:
     #: diagnosing a primary/second disagreement needed a direct Python call because the HTTP response
     #: silently dropped every one of these fields).
     debug_second_judge_fields_enabled: bool = False
+    #: #311: before admitting a call, read each RunPod judge endpoint's /health (and its configured max) and answer
+    #: 503 `judges_offline` at once when a needed judge is PARKED (no worker, max 0), so no job is queued for the next
+    #: warm. A failed or unreadable check proceeds as before (never a false "offline"); see judge_endpoint_state.
+    judge_health_check: bool = False
+    #: Seconds a judge-state read is reused.
+    judge_health_ttl_s: float = 5.0
     #: Seconds after which /status stops reporting the last analyse-facts judge observation and says "unknown".
     judge_seen_ttl_s: float = 600.0
     #: Serverless judges scale from zero (a cold start takes ~2-3 min). A judge failure with no fresh "ready"
@@ -197,6 +204,8 @@ def load_partner_api_config(root: Path) -> PartnerApiConfig:
         second_judge_circuit_breaker_ttl_s=float(body.get("second_judge_circuit_breaker_ttl_s", 60.0)),
         debug_second_judge_fields_enabled=debug_second_judge_fields_enabled,
         judge_seen_ttl_s=float(body.get("judge_seen_ttl_s", 600.0)),
+        judge_health_check=bool(body.get("judge_health_check", False)),
+        judge_health_ttl_s=float(body.get("judge_health_ttl_s", 5.0)),
         judge_warm_grace_s=float(body.get("judge_warm_grace_s", 0.0)),
         judge_warm_retry_s=float(body.get("judge_warm_retry_s", 30.0)),
         job_retention_s=float(body.get("job_retention_s", 3600.0)),
@@ -685,6 +694,7 @@ def build_partner_router(
     root: Path,
     *,
     agent_factory: AgentFactory | None = None,
+    judge_health_fetch: Fetch | None = None,
     config: PartnerApiConfig | None = None,
     clock: Callable[[], datetime] | None = None,
     job_executor: Callable[[Callable[[], None]], Any] | None = None,
@@ -790,6 +800,28 @@ def build_partner_router(
             },
             headers={"Retry-After": str(w.retry_after_seconds(now))},
         )
+
+    _offline_check = JudgeOfflineCheck(fetch=judge_health_fetch) if judge_health_fetch else JudgeOfflineCheck()
+
+    def _judges_offline(cfg: PartnerApiConfig) -> JSONResponse | None:
+        """#311: 503 `judges_offline` when a needed judge endpoint is parked, before anything is metered or queued."""
+        if not cfg.judge_health_check:
+            return None
+        try:
+            ac = getattr(factory(engine_root), "config", None)
+            judges = {"house": dict(ac.house_judge or {})} if ac is not None else {}
+            if ac is not None and ac.second_judge:
+                judges["second"] = dict(ac.second_judge)
+            _offline_check.ttl_s = cfg.judge_health_ttl_s
+            keys = {"house": "NYAYA_HOUSE_JUDGE_API_KEY", "second": "NYAYA_SECOND_JUDGE_API_KEY"}
+            parked = _offline_check.offline(judges, keys)
+        except Exception:  # noqa: BLE001 - the check must never turn a working request into an error
+            _logger.warning("judge health check failed; proceeding")
+            return None
+        if not parked:
+            return None
+        _judge_seen.update(state="unavailable", at=_now(), first_failure=None)
+        return JSONResponse(status_code=503, content={"error": "judges_offline"})
 
     router = APIRouter(prefix="/api/v1")
 
@@ -940,6 +972,9 @@ def build_partner_router(
         closed = _window_closed(cfg)
         if closed is not None:
             return closed
+        offline = _judges_offline(cfg)
+        if offline is not None:
+            return offline
         # QUEUE.md 2026-09-27: per-leg second-judge scores are visible to an AUTHENTICATED caller -- a
         # verified Supabase session (`user`) or a valid org API key -- never to an anonymous one, even on a
         # deployment that answers analyse-facts anonymously (`PRAVRUDHI_DEMO_ANON_PATHS`). `principal_from_

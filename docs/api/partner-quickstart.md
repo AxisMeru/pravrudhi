@@ -126,7 +126,7 @@ opening time:
 | 401 | key header present but invalid or revoked | `{"detail": "Invalid or revoked API key"}` |
 | 422 | input refused (no non-empty fact, a fact over 4000 characters, unknown contract) | `{"detail": "..."}` |
 | 429 | over the rate limit; wait `Retry-After` seconds | `{"detail": "rate limit exceeded"}` |
-| 503 | `outside_service_window`, `judge_unavailable` (optionally `reason: judges_warming` with `retry_after_s`), `service_config_missing`, or the agent at capacity | see below |
+| 503 | `outside_service_window`, `judges_offline` (the judges are switched off; nothing was queued, try later), `judge_unavailable` (optionally `reason: judges_warming` with `retry_after_s`), `service_config_missing`, or the agent at capacity | see below |
 
 ```json example:invalid-key
 {
