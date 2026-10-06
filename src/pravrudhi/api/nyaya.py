@@ -16,7 +16,14 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from pravrudhi.api.errors import CHECKER_UNAVAILABLE, REGISTRY_CHECKER_UNAVAILABLE, REQUEST_REJECTED, VENDOR_NOT_ALLOWED, coded, coded_503
+from pravrudhi.api.errors import (
+    CHECKER_UNAVAILABLE,
+    REGISTRY_CHECKER_UNAVAILABLE,
+    REQUEST_REJECTED,
+    VENDOR_NOT_ALLOWED,
+    coded,
+    coded_503,
+)
 from pravrudhi.api.identity import CurrentUserDep, User
 from pravrudhi.api.workspace_root import RootError, root_for
 from pravrudhi.application import nyaya, panel
@@ -212,16 +219,20 @@ def build_nyaya_router(root: Path, ask_fn: panel.AskFn | None = None) -> APIRout
         return {"vendors": nyaya.available_vendors(project, store=store)}
 
     @router.get("/corpus", response_model=NyayaCorpusResponse)
-    def corpus(
-        q: str = "", k: int = 8, workspace: str | None = None, user: User | None = CurrentUserDep
-    ) -> dict[str, Any]:
+    def corpus(q: str = "", k: int = 8, workspace: str | None = None, user: User | None = CurrentUserDep) -> dict[str, Any]:
         project, _store = _session(user, workspace)
         c = nyaya.load_corpus(project)
         hits = (
             [
                 {
-                    "id": d.id, "act": d.act, "section": d.section, "title": d.title, "score": s, "text": d.text,
-                    "notice": nyaya.STATUTE_NOTICE, "source_url": nyaya.recorded_source_url(d.act, c.sources),
+                    "id": d.id,
+                    "act": d.act,
+                    "section": d.section,
+                    "title": d.title,
+                    "score": s,
+                    "text": d.text,
+                    "notice": nyaya.STATUTE_NOTICE,
+                    "source_url": nyaya.recorded_source_url(d.act, c.sources),
                     "source_fallback_url": nyaya.INDIA_CODE_HOME,
                 }
                 for d, s in c.retrieve(q, k=k)
@@ -245,8 +256,14 @@ def build_nyaya_router(root: Path, ask_fn: panel.AskFn | None = None) -> APIRout
         project, store = _session(user, workspace)
         try:
             rec = nyaya.ask(
-                project, req.question, tuple(req.vendors), k=req.k, checker=req.checker,
-                contract_id=req.contract_id, ask_fn=ask_fn, store=store,
+                project,
+                req.question,
+                tuple(req.vendors),
+                k=req.k,
+                checker=req.checker,
+                contract_id=req.contract_id,
+                ask_fn=ask_fn,
+                store=store,
             )
         except VendorNotAllowed:  # the message names the caller-supplied vendor id: a fixed message and a code instead (#318)
             return coded(403, VENDOR_NOT_ALLOWED)
@@ -264,8 +281,13 @@ def build_nyaya_router(root: Path, ask_fn: panel.AskFn | None = None) -> APIRout
         project, store = _session(user, workspace)
         try:
             return nyaya.audit(
-                project, req.sources, req.answer, req.checker, contract_id=req.contract_id,
-                ask_fn=ask_fn, store=store,
+                project,
+                req.sources,
+                req.answer,
+                req.checker,
+                contract_id=req.contract_id,
+                ask_fn=ask_fn,
+                store=store,
             )
         except (KeyError, ValueError):  # the text may name internals: logged server-side only (#318)
             logging.getLogger(__name__).info("request rejected by the nyaya engine", exc_info=True)
@@ -303,7 +325,10 @@ def build_nyaya_router(root: Path, ask_fn: panel.AskFn | None = None) -> APIRout
         project, _store = _session(user, workspace)
         try:
             return nyaya.registry_check(
-                project, req.contract_id, req.assertions, evidence=req.evidence,
+                project,
+                req.contract_id,
+                req.assertions,
+                evidence=req.evidence,
             )
         except (KeyError, ValueError):  # the text may name internals: logged server-side only (#318)
             logging.getLogger(__name__).info("request rejected by the nyaya engine", exc_info=True)
