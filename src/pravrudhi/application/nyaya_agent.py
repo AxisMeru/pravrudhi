@@ -61,6 +61,7 @@ import contextvars
 import difflib
 import hashlib
 import json
+import logging
 import math
 import os
 import queue
@@ -122,6 +123,8 @@ def _judge_config_fault(e: BaseException) -> int | None:
 
 
 # -- config ------------------------------------------------------------------------------------------------
+
+_logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -191,6 +194,11 @@ class AgentConfig:
     #: (`rule_text`, `judge_rule_text`, `rule_text_source`). OFF by default: with it off those fields are ABSENT from
     #: the partner response. It gates only that surface; the agent still records the text on its own result and audit.
     expose_rule_text: bool = False
+    #: Issue #44 (standing second-judge positive control): record_path/max_age_hours -- `_build_judge` checks
+    #: a fresh, matching passing live-check record before letting `AndGateJudge` reach the real second
+    #: judge; empty (the default) means the record check is skipped -- a deployment that hasn't opted into
+    #: the positive control yet keeps today's behaviour (second_judge configured -> used) unchanged.
+    second_judge_positive_control: Mapping[str, Any] = field(default_factory=dict)
     #: Where `tau` came from: "yaml", or "env:NYAYA_HOUSE_JUDGE_TAU" (#134). Recorded in the run's config view only
     #: when it is not the yaml, so a default run's audit record is unchanged.
     tau_source: str = "yaml"
@@ -208,6 +216,16 @@ class AgentConfig:
             raise ValueError(f"second_judge.refer_logit_delta must be >= 0, got {delta}")
         if self.max_concurrency < 1:
             raise ValueError(f"max_concurrency must be >= 1, got {self.max_concurrency}")
+        pc = self.second_judge_positive_control or {}
+        if pc.get("record_path"):
+            from pravrudhi.application.second_judge_positive_control import valid_max_age_hours
+
+            if not valid_max_age_hours(pc.get("max_age_hours")):
+                raise ValueError(
+                    f"second_judge_positive_control.max_age_hours={pc.get('max_age_hours')!r} must be a finite number > 0 "
+                    "when record_path is set (a missing, zero, negative or non-finite window would make a stale record "
+                    "valid forever or never valid)"
+                )
 
     def in_band(self, p: float) -> bool:
         low, high = self.refer_band
@@ -310,6 +328,10 @@ def _judge_provenance(config: AgentConfig) -> dict[str, Any]:
         "primary_judge_host_class": _host_class(hj.get("base_url")),
         "second_judge_model": sj.get("model") or None,
         "second_judge_host_class": _host_class(sj.get("base_url")),
+        # Issue #44: whether the positive-control record gate wraps the second judge. OFF unless record_path is set.
+        "second_judge_record_gate": (
+            None if not sj else ("on" if (config.second_judge_positive_control or {}).get("record_path") else "off")
+        ),
     }
 
 
@@ -442,6 +464,17 @@ def load_agent_config(root: Path) -> AgentConfig:
             if key not in second_judge and key in house_judge:
                 second_judge[key] = house_judge[key]
 
+    second_judge_positive_control = dict(body.get("second_judge_positive_control") or {})
+    # Issue #44: env overrides mirror the house_judge/second_judge/gate1 pattern above -- NYAYA_SECOND_
+    # JUDGE_POSITIVE_CONTROL_RECORD_PATH/_MAX_AGE_HOURS override or introduce the block's
+    # own values. The gate is OFF unless record_path is set (Lead-2, 5 Oct): an engine with second_judge
+    # configured and no record must keep serving, never REFER every case; run_start records which state it is in.
+    if os.environ.get("NYAYA_SECOND_JUDGE_POSITIVE_CONTROL_RECORD_PATH"):
+        second_judge_positive_control["record_path"] = os.environ["NYAYA_SECOND_JUDGE_POSITIVE_CONTROL_RECORD_PATH"]
+    if os.environ.get("NYAYA_SECOND_JUDGE_POSITIVE_CONTROL_MAX_AGE_HOURS"):
+        second_judge_positive_control["max_age_hours"] = float(
+            os.environ["NYAYA_SECOND_JUDGE_POSITIVE_CONTROL_MAX_AGE_HOURS"]
+        )
     _require_pinned_judge_models(house_judge, second_judge)
 
     # Gate 1 (Track-C, GATE1-PRODUCT-WIRING-SPEC-2026-09-26.md §3/§5): the yaml block (threshold/model) and
@@ -524,6 +557,7 @@ def load_agent_config(root: Path) -> AgentConfig:
         house_judge=house_judge,
         typed_layer=bool(body.get("typed_layer", False)),
         second_judge=second_judge,
+        second_judge_positive_control=second_judge_positive_control,
         max_concurrency=int(house_judge.get("max_concurrency", 1)),
         validated_contracts=validated_contracts,
         gate1=gate1,
@@ -1310,8 +1344,25 @@ class NyayaAgent:
             judge: Judge
             if cfg.second_judge:
                 second_tau = float(cfg.second_judge["tau"])
-                second = _build_house_judge(cfg.second_judge, tau=second_tau, typed=cfg.typed_layer,
-                                            api_key_env="NYAYA_SECOND_JUDGE_API_KEY")
+                second: Judge = _build_house_judge(cfg.second_judge, tau=second_tau, typed=cfg.typed_layer,
+                                                   api_key_env="NYAYA_SECOND_JUDGE_API_KEY")
+                # Issue #44 (Lead-2, 2026-09-26): opt-in via second_judge_positive_control.record_path --
+                # absent (the default, every deployment before this) means today's behaviour, unchanged.
+                # When set, wrap `second` so the real endpoint is never reached without a fresh, matching
+                # passing record; RecordCheckFailed then fails closed through AndGateJudge's own existing
+                # except-Exception -> second_judge_unavailable path, no new logic there.
+                record_path = cfg.second_judge_positive_control.get("record_path")
+                if record_path:
+                    from pravrudhi.application.second_judge_positive_control import RecordGatedJudge
+                    # No default: an unset endpoint_id/adapter_sha must stay None, never fall back to "" --
+                    # a deployment that forgot to configure BOTH the record and the live identity must not
+                    # have them silently "match" as two equal empty strings (check_record refuses on None).
+                    second = RecordGatedJudge(
+                        second, record_path=Path(record_path),
+                        max_age_hours=float(cfg.second_judge_positive_control["max_age_hours"]),
+                        expected_endpoint_id=cfg.second_judge.get("endpoint_id"),
+                        expected_adapter_sha=cfg.second_judge.get("adapter_sha"),
+                    )
                 judge = AndGateJudge(
                     primary, second, tau_primary=cfg.tau, tau_second=second_tau, breaker=second_judge_breaker
                 )

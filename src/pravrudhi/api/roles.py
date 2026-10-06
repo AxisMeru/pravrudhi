@@ -196,7 +196,7 @@ USER_FACING: frozenset[str] = frozenset({
     # one of the two routes a deployment may open to anonymous demo callers (identity.DEMO_ANON_CAPABLE).
     "/api/nyaya/registry/contracts",
     # L4 partner API (LEG-PLAN-2026-09-23): the agentic loop over the same registry contracts, facts in.
-    "/api/v1/analyse-facts", "/api/v1/status",
+    "/api/v1/analyse-facts", "/api/v1/status", "/api/v1/verify-citations",
     "/api/v1/analyse-facts/jobs", "/api/v1/analyse-facts/jobs/{job_id}", "/api/v1/audit",
     # L4 tenancy (application/tenancy.py): org and API-key provisioning. Not admin-only in the ADMIN_ONLY
     # sense above -- these are not surfaces about Pravrudhi improving itself, they are how a partner account

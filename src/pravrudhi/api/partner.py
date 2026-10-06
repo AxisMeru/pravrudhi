@@ -51,6 +51,7 @@ import hmac
 import json
 import logging
 import os
+import sqlite3
 import subprocess
 import threading
 import time
@@ -86,6 +87,7 @@ from pravrudhi.application.nyaya_judges import SecondJudgeCircuitBreaker
 from pravrudhi.application.nyaya_quote import Reason as QuoteCheck
 from pravrudhi.application.service_window import ServiceWindow
 from pravrudhi.application.statute_citations import contract_citations
+from pravrudhi.application.verify import verify as verify_citation
 
 CONFIG_PATH = Path("configs") / "partner_api.yaml"
 
@@ -161,6 +163,10 @@ class PartnerApiConfig:
     job_max_unfinished_per_key: int = 8
     #: Audit rows (#148) older than this are dropped on write and never served.
     audit_retention_s: float = 90 * 86400.0
+    #: `POST /verify-citations` (#302): how many lookups may run at once (non-blocking: an extra one is a 503) and the
+    #: wall-clock bound on one lookup against the case index (an exceeded bound is a 503, never a hung worker).
+    verify_max_concurrent: int = 2
+    verify_timeout_s: float = 5.0
 
     def __post_init__(self) -> None:
         if self.trust_proxy_header and not self.trusted_proxies:
@@ -203,6 +209,8 @@ def load_partner_api_config(root: Path) -> PartnerApiConfig:
         job_retention_s=float(body.get("job_retention_s", 3600.0)),
         job_max_unfinished_per_key=int(body.get("job_max_unfinished_per_key", 8)),
         audit_retention_s=float(body.get("audit_retention_s", 90 * 86400.0)),
+        verify_max_concurrent=int(body.get("verify_max_concurrent", 2)),
+        verify_timeout_s=float(body.get("verify_timeout_s", 5.0)),
     )
 
 
@@ -311,6 +319,25 @@ class _Admitted:
     cfg: PartnerApiConfig
     concurrency: ConcurrencyLimiter
     authenticated: bool
+
+
+class VerifyCitationRequest(BaseModel):
+    citation: str = Field(min_length=1, max_length=500)
+    quote: str = Field(min_length=1, max_length=4000)
+
+
+class VerifyCitationResponse(BaseModel):
+    result: str
+    note: str
+
+
+_VERIFY_NOTES = {
+    "VERIFIED": "The citation resolves to an indexed case and the quote appears in its text.",
+    "EXISTS_QUOTE_NOT_FOUND": "The citation resolves to an indexed case but the quote was not found in its text.",
+    "NOT_IN_INDEX": "The index holds no evidence either way: this is not a finding that the citation is fake.",
+    "MALFORMED": "Exactly one parseable citation is required.",
+    "CONFLICT": "The citation maps to conflicting indexed cases; verify by hand.",
+}
 
 
 class AnalyseFactsRequest(BaseModel):
@@ -561,7 +588,7 @@ class JobOut(BaseModel):
 class AuditRowOut(BaseModel):
     ts: str
     key_id: str
-    mode: Literal["sync", "job"]
+    mode: Literal["sync", "job", "verify"]
     status_code: int
     run_id: str | None = None
     contract_ids: list[str]
@@ -719,9 +746,12 @@ def build_partner_router(
     config: PartnerApiConfig | None = None,
     clock: Callable[[], datetime] | None = None,
     job_executor: Callable[[Callable[[], None]], Any] | None = None,
+    citation_index_path: Path | None = None,
     rate_clock: Callable[[], float] | None = None,
 ) -> APIRouter:
-    """`rate_clock` (seconds, monotonic) drives the per-key rate-limit window; tests inject a fake clock and advance it
+    """`citation_index_path` (default: env `PRAVRUDHI_CITATION_INDEX`) is the case-law index
+    `POST /api/v1/verify-citations` reads; unset or missing means that route answers 503.
+    `rate_clock` (seconds, monotonic) drives the per-key rate-limit window; tests inject a fake clock and advance it
     instead of depending on the wall clock (#303). Production leaves it `None` (`time.monotonic`).
     `agent_factory` is injectable (mirrors `nyaya.py`'s `ask_fn` pattern): production leaves it `None` and
     gets the configured house agent (`NyayaAgent.house`, real vLLM judge + real pinned Lean binary); tests
@@ -1204,6 +1234,108 @@ def build_partner_router(
             engine_root, principal.key_id, offset=offset, limit=limit, retention_s=cfg.audit_retention_s, now=_now
         )
         return {"rows": rows, "next_offset": nxt}
+
+    def _verify_admit(request: Request, metered: list[str], per_minute: list[int]) -> JSONResponse | None:
+        """Admission for `/verify-citations`: the per-IP limit, then, for a keyed caller, the key check, the per-key
+        limit and metering (the same rules, in the same order, as `analyse-facts`'s `_admit`)."""
+        try:
+            cfg, rate_limiter = _get_state()[:2]
+        except FileNotFoundError:
+            return JSONResponse(status_code=503, content={"error": "service_config_missing"})
+        ip = _client_ip(request, trust_proxy_header=cfg.trust_proxy_header, trusted_proxies=cfg.trusted_proxies)
+        if not rate_limiter.allow(ip):
+            return JSONResponse(
+                status_code=429,
+                content={"detail": "rate limit exceeded"},
+                headers={"Retry-After": str(rate_limiter.retry_after_seconds())},
+            )
+        principal = tenancy.principal_from_headers(engine_root, request.headers)
+        if principal is not None:
+            key = next((k for k in tenancy.keys_for_org(engine_root, principal.org_id) if k.key_id == principal.key_id), None)
+            if key is None:
+                raise HTTPException(401, "Invalid or revoked API key")
+            if not _key_rate_limiter.allow(key.key_id, key.rate_limit_per_minute):
+                return JSONResponse(
+                    status_code=429,
+                    content={"detail": "rate limit exceeded"},
+                    headers={**_rate_headers(key.key_id, key.rate_limit_per_minute),
+                             "Retry-After": str(_key_rate_limiter.retry_after_seconds())},
+                )
+            metered.append(key.key_id)
+            per_minute.append(key.rate_limit_per_minute)
+            _record_usage(key.key_id)
+        return None
+
+    def _verify_audit(metered: list[str], status_code: int, result: str | None = None) -> None:
+        if not metered:
+            return
+        try:
+            cfg = _get_state()[0]
+            audit.record(
+                engine_root, key_id=metered[0], mode="verify", status_code=status_code, contract_ids=[],
+                outcomes={"verify": result} if result else None, retention_s=cfg.audit_retention_s, now=_now(),
+            )
+        except Exception:
+            _logger.exception("audit write failed for key %s", metered[0])
+
+    _verify_gates: dict[int, ConcurrencyLimiter] = {}
+    _verify_gates_lock = threading.Lock()
+
+    def _verify_gate(size: int) -> ConcurrencyLimiter:
+        with _verify_gates_lock:
+            return _verify_gates.setdefault(size, ConcurrencyLimiter(size))
+
+    def _lookup(path: Path, req: VerifyCitationRequest, timeout_s: float) -> str:
+        """One bounded, read-only lookup. The progress handler aborts the statement once the deadline passes, so a
+        pathological party pair can hold a worker for `timeout_s` at most."""
+        deadline = time.monotonic() + timeout_s
+        conn = sqlite3.connect(f"file:{path.resolve()}?mode=ro", uri=True)
+        try:
+            conn.set_progress_handler(lambda: 1 if time.monotonic() > deadline else 0, 10_000)
+            return verify_citation(conn, req.citation, req.quote).value
+        finally:
+            conn.close()
+
+    @router.post(
+        "/verify-citations", response_model=VerifyCitationResponse,
+        responses={
+            401: {"description": "The API key is invalid or revoked."},
+            429: {"description": "Over the rate limit; wait Retry-After seconds.",
+                  "headers": {**_RATE_LIMIT_HEADER_DOCS, "Retry-After": _RETRY_AFTER_DOC}},
+            503: {"description": "No case index, the lookup timed out, or too many lookups are running."},
+        },
+    )
+    def verify_citations_ep(req: VerifyCitationRequest, request: Request, response: Response) -> dict[str, str] | JSONResponse:
+        metered: list[str] = []
+        per_minute: list[int] = []
+        refused = _verify_admit(request, metered, per_minute)
+        if refused is not None:
+            _verify_audit(metered, refused.status_code)
+            return refused
+        cfg = _get_state()[0]
+        env_path = os.environ.get("PRAVRUDHI_CITATION_INDEX")
+        path = citation_index_path or (Path(env_path) if env_path else None)
+        if path is None or not Path(path).is_file():
+            _verify_audit(metered, 503)
+            return JSONResponse(status_code=503, content={"error": "citation_index_unavailable"})
+        gate = _verify_gate(cfg.verify_max_concurrent)
+        if not gate.acquire():
+            _verify_audit(metered, 503)
+            return JSONResponse(status_code=503, content={"error": "verify_at_capacity"}, headers={"Retry-After": "5"})
+        try:
+            result = _lookup(Path(path), req, cfg.verify_timeout_s)
+        except sqlite3.Error as e:
+            timed_out = "interrupt" in str(e).lower()
+            _verify_audit(metered, 503)
+            return JSONResponse(
+                status_code=503, content={"error": "verify_timeout" if timed_out else "citation_index_unavailable"}
+            )
+        finally:
+            gate.release()
+        if metered:
+            response.headers.update(_rate_headers(metered[0], per_minute[0]))
+        _verify_audit(metered, 200, result)
+        return {"result": result, "note": _VERIFY_NOTES[result]}
 
     @router.post("/orgs", response_model=OrgOut)
     def create_org_ep(

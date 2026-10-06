@@ -24,18 +24,32 @@ reached/timed out at all -- `EndpointUnavailable`): the second judge is treated 
 fail-closed-to-REFER path `AndGateJudge` already uses for an absent/errored endpoint -- no new decision
 logic in the judge itself. This module only decides `available: bool`; wiring that decision to the deployed
 second_judge config is an operational action, not code here.
+
+TRIGGER WIRING (Lead-2, 2026-09-26; OFF BY DEFAULT since 5 Oct -- the gate is active only when
+`second_judge_positive_control.record_path` is set, so an engine with no record keeps serving): when on,
+the engine refuses to let a real second-judge call happen at all unless
+a RECORD of a passing live check exists, is younger than `second_judge_positive_control.max_age_hours`, and
+names the CURRENT `second_judge.endpoint_id` / `second_judge.adapter_sha` -- no record, a stale record, or a
+mismatched record all fail closed the same way, closing the loop without depending on anyone remembering to
+run the preflight CLI. `write_record`/`read_record`/`check_record` are the pure functions; `RecordGatedJudge`
+is the `Judge` wrapper `nyaya_agent._build_judge` puts around the real second judge -- it raises
+`RecordCheckFailed` instead of ever calling the real endpoint when the record doesn't clear, and
+`AndGateJudge`'s existing generic except-Exception handling turns that into `second_judge_unavailable` for
+every element, exactly as if the endpoint itself had errored.
 """
 from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import re
 import statistics
+import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol
 
 import yaml
 
@@ -634,3 +648,132 @@ def run_live_check(
     ne_result = compute_ne_discrimination(ne, live_scores, parity_tau)
     est_result = compute_established_accuracy(established, live_scores, parity_tau)
     return ControlCheckResult(parity=parity, ne=ne_result, established=est_result)
+
+
+# -- trigger wiring: the record the engine gates on (Lead-2, 2026-09-26) ------------------------------------
+
+class RecordCheckFailed(Exception):
+    """No passing live-check record exists, or the one that does is too old or names a different endpoint/
+    adapter than the one about to be used. Raised by `RecordGatedJudge` INSTEAD OF calling the real second
+    judge -- `AndGateJudge`'s existing generic except-Exception handling converts this into
+    `second_judge_unavailable` for every element, the same fail-closed path an absent/errored endpoint
+    already uses."""
+
+
+def write_record(
+    path: Path, *, available: bool, endpoint_id: str | None, adapter_sha: str | None, reasons: list[str],
+    timestamp: float | None = None,
+) -> None:
+    """Called by the live preflight CLI after every run -- the durable record `check_record` reads later.
+    Written atomically (write to a temp file, then rename) so a reader never sees a half-written record."""
+    record = {
+        "timestamp": timestamp if timestamp is not None else time.time(),
+        "available": available, "endpoint_id": endpoint_id, "adapter_sha": adapter_sha, "reasons": reasons,
+    }
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(record, indent=2) + "\n")
+    tmp.replace(path)
+
+
+def read_record_checked(path: Path) -> tuple[dict[str, Any] | None, str]:
+    """(record, reason). record is None whenever there is no usable record, and `reason` says WHY in words an audit reader
+    can use: absent file, unreadable file, not UTF-8, not valid JSON, or JSON that is not an object. Never raises for a bad
+    record."""
+    try:
+        raw = path.read_bytes()
+    except FileNotFoundError:
+        return None, "no record (file absent)"
+    except OSError as e:
+        return None, f"record unreadable ({type(e).__name__})"
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return None, "record unreadable: not valid UTF-8"
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        return None, "record unreadable: not valid JSON"
+    if not isinstance(parsed, dict):
+        return None, "record unreadable: JSON is not an object"
+    return parsed, "ok"
+
+
+def read_record(path: Path) -> dict[str, Any] | None:
+    """None for "no record" (file absent, or unreadable/malformed/non-UTF-8) -- a missing or corrupt record is exactly
+    as fail-closed-worthy as a stale one, never an error that crashes the caller. See `read_record_checked` for the reason."""
+    return read_record_checked(path)[0]
+
+
+def valid_max_age_hours(value: Any) -> bool:
+    """True only for a finite number > 0 (a bool, NaN, inf, zero or a negative window is not a usable max age)."""
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) and value > 0
+
+
+def check_record(
+    record: dict[str, Any] | None, *, max_age_hours: float, expected_endpoint_id: str | None,
+    expected_adapter_sha: str | None, now: float | None = None,
+) -> tuple[bool, str]:
+    """(ok, reason). ok=False for: no record, a record whose own `available` was False, a record older than
+    `max_age_hours`, or a record naming a different endpoint_id/adapter_sha -- all four are indistinguishable
+    to the caller (RecordGatedJudge raises the same way for any of them), but the reason string says which."""
+    if not valid_max_age_hours(max_age_hours):
+        return False, (
+            f"max_age_hours={max_age_hours!r} is not a finite number > 0: refusing (never an unbounded or zero window)"
+        )
+    if record is None:
+        return False, "no record"
+    # Explicit `is not True` rather than `.get("available", False)`: a missing/malformed "available" key
+    # must never be silently treated the same as a real measured False -- both fail closed here, but the
+    # reason string (and any future caller) can tell "no verdict recorded" apart from "verdict was failure".
+    if record.get("available") is not True:
+        return False, f"last check failed or malformed record: {record.get('reasons')}"
+    if expected_endpoint_id is None or expected_adapter_sha is None:
+        return False, (
+            "second_judge.endpoint_id/adapter_sha not configured -- cannot verify record identity "
+            "(never treat an unset expected identity as matching an unset recorded one)"
+        )
+    now = now if now is not None else time.time()
+    ts = record.get("timestamp")
+    if not isinstance(ts, (int, float)) or isinstance(ts, bool) or not math.isfinite(ts):
+        return False, f"record timestamp {ts!r} is missing or not a finite number"
+    age_hours = (now - ts) / 3600.0
+    if age_hours < 0:
+        return False, f"record is future-dated ({-age_hours:.2f}h ahead of now): invalid"
+    if age_hours > max_age_hours:
+        return False, f"record is {age_hours:.1f}h old, max_age_hours={max_age_hours}"
+    if record.get("endpoint_id") != expected_endpoint_id:
+        return False, f"record endpoint_id={record.get('endpoint_id')!r} != current {expected_endpoint_id!r}"
+    if record.get("adapter_sha") != expected_adapter_sha:
+        return False, f"record adapter_sha={record.get('adapter_sha')!r} != current {expected_adapter_sha!r}"
+    return True, "ok"
+
+
+class RecordGatedJudge:
+    """Wraps a real second-judge `Judge`. Before EVERY call, checks the positive-control record -- if it
+    isn't fresh and matching, raises `RecordCheckFailed` instead of ever reaching the real endpoint.
+    `AndGateJudge` sees this exactly like a live endpoint error (its generic except-Exception path), so every
+    element fails closed to REFER, never falls back to a primary-alone decision. No new decision logic in
+    `AndGateJudge` itself -- the gate lives entirely in this wrapper."""
+
+    def __init__(
+        self, inner: Any, *, record_path: Path, max_age_hours: float, expected_endpoint_id: str | None,
+        expected_adapter_sha: str | None,
+    ) -> None:
+        if not valid_max_age_hours(max_age_hours):
+            raise ValueError(f"max_age_hours={max_age_hours!r} must be a finite number > 0")
+        self.inner = inner
+        self.record_path = record_path
+        self.max_age_hours = max_age_hours
+        self.expected_endpoint_id = expected_endpoint_id
+        self.expected_adapter_sha = expected_adapter_sha
+        self.name = getattr(inner, "name", "second")
+
+    def judge(self, request: Any) -> Any:
+        record, read_reason = read_record_checked(self.record_path)
+        ok, reason = (False, read_reason) if record is None else check_record(
+            record, max_age_hours=self.max_age_hours, expected_endpoint_id=self.expected_endpoint_id,
+            expected_adapter_sha=self.expected_adapter_sha,
+        )
+        if not ok:
+            raise RecordCheckFailed(reason)
+        return self.inner.judge(request)
