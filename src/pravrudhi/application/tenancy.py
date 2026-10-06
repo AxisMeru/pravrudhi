@@ -44,7 +44,7 @@ import time
 from collections import OrderedDict
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -515,6 +515,14 @@ class KeyRateLimiter:
     def retry_after_seconds(self) -> int:
         return 60 - int(self._now() % 60)
 
+    def snapshot(self, key_id: str, per_minute: int) -> tuple[int, int, int]:
+        """(limit, remaining calls in this window, seconds until the window resets). Read-only: admits nothing."""
+        window = int(self._now() // 60)
+        with self._lock:
+            start, count = self._windows.get(key_id, (window, 0))
+            used = count if start == window else 0
+        return per_minute, max(per_minute - used, 0), self.retry_after_seconds()
+
     def usage_total(self, key_id: str) -> int:
         """Calls admitted for this key since process start -- an in-memory counter, not a ledger claim: it
         resets on restart and exists only to answer `/usage` cheaply, not as billing evidence."""
@@ -522,10 +530,56 @@ class KeyRateLimiter:
             return self._usage_total.get(key_id, 0)
 
 
+def record_usage(root: Path, key_id: str, *, failed: bool = False, now: datetime | None = None) -> None:
+    """Persist one analyse-facts call against `key_id` (`failed=True` additionally counts that call's 503; every
+    admitted call is in `calls` first, so failed <= calls).
+    Survives a restart and is shared by replicas on one volume, unlike `KeyRateLimiter`."""
+
+    def mutate(rows: dict[str, dict[str, Any]]) -> None:
+        row = rows.setdefault(key_id, {"calls": 0, "failed": 0})
+        row["failed" if failed else "calls"] = int(row.get("failed" if failed else "calls", 0)) + 1
+
+    _with_store(root, "usage", mutate)
+
+    day = (now or datetime.now(UTC)).astimezone(UTC).date().isoformat()
+
+    def mutate_daily(rows: dict[str, dict[str, Any]]) -> None:
+        d = rows.setdefault(key_id, {}).setdefault(day, {"calls": 0, "failed": 0})
+        d["failed" if failed else "calls"] = int(d.get("failed" if failed else "calls", 0)) + 1
+
+    _with_store(root, "usage_daily", mutate_daily)
+
+
+def usage_summary(root: Path, org_id: str, *, now: datetime, days: int) -> list[dict[str, Any]]:
+    """Per key of `org_id` (revoked keys included), the per-UTC-day counts for the last `days` days (today
+    included), oldest first. Only days with at least one call appear. Reads the persistent store; the counts
+    for a day are those recorded under that UTC date at call time."""
+    first = (now.astimezone(UTC).date() - timedelta(days=days - 1)).isoformat()
+    daily = _read_store(root, "usage_daily")
+    out: list[dict[str, Any]] = []
+    for k in keys_for_org(root, org_id):
+        rows = daily.get(k.key_id, {})
+        out.append({
+            "key_id": k.key_id, "label": k.label, "revoked": k.revoked,
+            "days": [
+                {"day": d, "calls": int(v.get("calls", 0)), "failed": int(v.get("failed", 0))}
+                for d, v in sorted(rows.items()) if d >= first
+            ],
+        })
+    return out
+
+
+def usage_counts(root: Path, key_id: str) -> tuple[int, int]:
+    """(admitted calls, of which failed 503s) for this key, from the persistent store."""
+    row = _read_store(root, "usage").get(key_id, {})
+    return int(row.get("calls", 0)), int(row.get("failed", 0))
+
+
 __all__ = [
     "API_KEY_HEADER", "ApiKeyRecord", "CreatedApiKey", "InvalidApiKey", "KeyRateLimiter", "MEMBER_ROLES",
     "MIN_PROVISION_SECRET_LENGTH", "Membership", "Org", "OrgPrincipal", "TENANCY_PROVISION_HEADER",
     "TENANCY_PROVISION_SECRET_ENV", "TenancyError", "add_member", "create_key", "create_org", "get_org",
     "is_tenancy_admin", "keys_for_org", "list_orgs", "membership_role", "memberships_for_org",
-    "principal_from_headers", "require_org_access", "require_tenancy_admin", "revoke_key", "verify_key",
+    "principal_from_headers", "require_org_access", "require_tenancy_admin", "record_usage", "revoke_key",
+    "usage_counts", "usage_summary", "verify_key",
 ]

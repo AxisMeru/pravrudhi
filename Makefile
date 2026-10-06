@@ -1,13 +1,15 @@
-.PHONY: init smoke hooks-test ledger-replay reproduce contract-check decorative-check glossary-lint headline-check kernel-image exec-image paper
+.PHONY: init team-identity smoke hooks-test ledger-replay reproduce contract-check decorative-check glossary-lint headline-check kernel-image exec-image paper
 
 UV ?= uv
 
-init:            ## git identity, hooks path, uv sync
-	git config user.name "SharathSPhD"
-	git config user.email "qbz506@york.ac.uk"
+init:            ## hooks path, uv sync (does NOT touch your git identity; `make team-identity` sets the team one)
 	git config core.hooksPath .githooks
 	chmod +x .githooks/*
 	$(UV) sync --all-groups
+
+team-identity:   ## opt-in: commit as the team account (team members only; externals keep their own identity)
+	git config user.name "SharathSPhD"
+	git config user.email "admin@axismeru.com"
 
 smoke:           ## TECHNICAL closure without GPU
 	$(UV) run python scripts/import_guard.py

@@ -74,3 +74,23 @@ def test_the_named_section_ranks_first_and_above_the_relevance_floor() -> None:
     ]:
         hits = c.retrieve(q, k=3)
         assert hits[0][0].id == first and hits[0][1] >= c.min_relevance_score
+
+
+@pytest.mark.parametrize(
+    "question,expected",
+    [
+        ("Bharatiya Nagarik Suraksha Sanhita, 2023 section 528", {("BNSS", "528")}),
+        ("Bharatiya Nyaya Sanhita 2023, section 103", {("BNS", "103")}),
+        ("BNSS 2023 s.187", {("BNSS", "187")}),
+        ("BNS, 2023 sections 103", {("BNS", "103")}),
+        ("IPC 1860 section 302", {("IPC", "302")}),
+    ],
+)
+def test_an_acts_year_is_not_read_as_the_section_number(question: str, expected: set[tuple[str, str]]) -> None:
+    """#169: "<Act>, 2023 section 528" named section 2023 of the Act and left 528 Act-blind."""
+    pairs, bare = nyaya.named_sections(question)
+    assert pairs == expected and bare == set()
+
+
+def test_a_bare_act_and_four_digit_number_is_unchanged() -> None:
+    assert nyaya.named_sections("BNS 2023 introduced changes") == ({("BNS", "2023")}, set())

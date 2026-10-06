@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import hashlib
 import subprocess
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -178,11 +179,42 @@ def describe_contract_detail(
     return parse_describe_output(contract_id, proc.stdout)
 
 
+_LIST_CACHE: dict[str, dict[str, list[str]]] = {}
+_SHA_BY_STAT: dict[tuple[str, int, int], str] = {}
+_LIST_LOCK = threading.Lock()
+
+
+def _binary_sha256(bin_path: Path) -> str:
+    """The binary's SHA-256. The hash is only recomputed when the file's identity (path, mtime, size) changes, so a
+    request does not re-read a large binary; the cache of results below is keyed by the HASH, never by those."""
+    st = bin_path.stat()
+    stat_key = (str(bin_path), st.st_mtime_ns, st.st_size)
+    with _LIST_LOCK:
+        known = _SHA_BY_STAT.get(stat_key)
+    if known is not None:
+        return known
+    digest = hashlib.sha256(bin_path.read_bytes()).hexdigest()
+    with _LIST_LOCK:
+        _SHA_BY_STAT[stat_key] = digest
+    return digest
+
+
 def list_contracts(*, root: Path | None = None, score_bin: Path | None = None) -> dict[str, list[str]]:
-    """`{contract_id: [source, ...]}` read live from the binary's own `--list-contracts`, in its order."""
+    """`{contract_id: [source, ...]}` read live from the binary's own `--list-contracts`, in its order.
+
+    The output is a pure function of the binary, so it is cached per binary SHA-256: one subprocess per binary, not
+    per request. A different binary (a different hash) re-reads; a failed read (a non-zero exit or a timeout) is
+    never cached. Each caller gets its own copy."""
     bin_path = score_bin or score_bin_path(root or Path.cwd())
-    proc = subprocess.run([str(bin_path), "--list-contracts"], capture_output=True, text=True, check=True, timeout=30)
-    return parse_list_contracts(proc.stdout)
+    sha = _binary_sha256(bin_path)
+    with _LIST_LOCK:
+        cached = _LIST_CACHE.get(sha)
+    if cached is None:
+        proc = subprocess.run([str(bin_path), "--list-contracts"], capture_output=True, text=True, check=True, timeout=30)
+        cached = parse_list_contracts(proc.stdout)
+        with _LIST_LOCK:
+            _LIST_CACHE[sha] = cached
+    return {cid: list(sources) for cid, sources in cached.items()}
 
 
 def parse_describe_source(contract_id: str, stdout: str) -> list[str]:
@@ -215,7 +247,12 @@ def describe_contract(contract_id: str, *, root: Path | None = None, score_bin: 
 
 def reg_wire_line(assertions: dict[str, bool], contract_id: str) -> str:
     """The exact `REG` wire line sent to the `score` binary: contract id plus one claim per Met assertion
-    (Not-Met and unaddressed elements are not sent -- absence is how the scorer sees them)."""
+    (Not-Met and unaddressed elements are not sent -- absence is how the scorer sees them).
+
+    Grammar, tab-separated: `REG<TAB>live<TAB><contract_id>` then, for each Met assertion in the caller's
+    order, `<TAB>G_SATISFIES(E(<conduct>,AC),E(<element>,EL))` with conduct fixed to `the conduct in the
+    facts` and both names percent-escaped (`%`->`%25`, `(`->`%28`, `)`->`%29`, `,`->`%2C`, in that order).
+    `wire_sha256` = SHA-256 hex of this line as UTF-8, without the trailing newline sent on stdin."""
     claims = [
         f"G_SATISFIES(E({_esc(_CONDUCT)},AC),E({_esc(element)},EL))"
         for element, met in assertions.items() if met
