@@ -243,7 +243,8 @@ class ClefGrounding:
 
 
 def build_clef_grounding(cfg: Mapping[str, object] | None, transport: Transport | None) -> ClefGrounding | None:
-    """The one switch. Returns `None` (the default) unless `cfg["clef_grounding"] is True` (a value that is not a real bool refuses); when enabled it needs a
+    """The one switch. Returns `None` (the default) unless `cfg["clef_grounding"] is True` (a value that is not a real
+    bool refuses); when enabled it needs a
     transport and explicit `floor` and `margin` in `cfg` (no defaults), else it raises."""
     if not isinstance(cfg, Mapping):
         return None
