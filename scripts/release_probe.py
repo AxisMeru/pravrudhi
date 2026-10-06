@@ -62,6 +62,18 @@ Send = Callable[[str, str, "str | None", "dict | None", bool], "tuple[int, dict 
 LOOPBACK = {"127.0.0.1", "localhost", "::1"}
 INVALID_RUN = {"target": "rocket"}
 INVALID_UPDATE = {"channel": "__release_probe_invalid__", "auto_apply": "maybe"}
+# (method, path) of the routes pravrudhi#300 closed to members; the operator-side 200 is covered by the admin half of the run.
+CLOSED_ROUTES = (
+    ("GET", "/api/doctor"),
+    ("GET", "/api/workspaces"),
+    ("POST", "/api/workspaces"),
+    ("GET", "/api/notifications"),
+    ("POST", "/api/notifications/read"),
+    ("GET", "/api/update"),
+    ("GET", "/api/update/config"),
+    ("PUT", "/api/update/config"),
+    ("GET", "/api/update/last-check"),
+)
 ASK_CLI = {"question": "release probe", "vendors": ["claude-cli", "codex-cli"]}
 
 
@@ -95,6 +107,14 @@ def checks(edition: str, workspace: str) -> list[Check]:
         Check("anonymous POST /api/nyaya/ask is refused", "POST", "/api/nyaya/ask", "anonymous", (401, 403), ASK_CLI,
               opt_in=True),
     ]
+    # Seven member-open routes closed in 0.5.45 (#300, #548): a member is 403 from the gate, before any handler. Each
+    # write carries an EMPTY body and the non-admin token, so even an older engine that lacks the gate answers 4xx and
+    # starts nothing. None of these calls a model or a vendor.
+    for method, path in CLOSED_ROUTES:
+        body = {} if method in ("POST", "PUT") else None
+        slug = f"{method} {path}"
+        out.append(Check(f"anonymous {slug} is refused", method, path, "anonymous", (401,), body))
+        out.append(Check(f"non-admin {slug} is 403", method, path, "user", (403,), body))
     if edition == "studio":
         out.append(Check("Studio refuses a non-admin on /api/me", "GET", "/api/me", "user", (403,)))
     else:

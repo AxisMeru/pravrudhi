@@ -158,7 +158,7 @@ def test_any_unexpected_error_is_exit_2_with_no_traceback(capsys: pytest.Capture
 def test_every_write_probe_carries_an_invalid_body_or_no_body() -> None:
     for c in probe.checks("product", "w"):
         if c.method in ("POST", "PUT") and c.who != "admin" and not c.opt_in:
-            assert c.body is None or c.body in (probe.INVALID_RUN, probe.INVALID_UPDATE, {"channel": "x"})
+            assert c.body is None or c.body in (probe.INVALID_RUN, probe.INVALID_UPDATE, {"channel": "x"}, {})
     assert probe.INVALID_RUN["target"] not in ("model", "harness")
 
 
@@ -360,3 +360,17 @@ def test_the_docstring_documents_all_four_codes() -> None:
     doc = probe.__doc__ or ""
     for fragment in ("0  every check ran and passed", "1  a check failed", "2  configuration error", "3  INCOMPLETE"):
         assert fragment in doc
+
+
+def test_the_seven_closed_routes_are_probed_without_an_admin_token() -> None:
+    cs = probe.checks("product", "w")
+    for method, path in probe.CLOSED_ROUTES:
+        mine = [c for c in cs if c.method == method and c.path == path]
+        assert {c.who: c.expect for c in mine} == {"anonymous": (401,), "user": (403,)}
+        assert all(not c.opt_in for c in mine)
+    assert {p for _, p in probe.CLOSED_ROUTES} == {
+        "/api/doctor", "/api/workspaces", "/api/notifications", "/api/notifications/read",
+        "/api/update", "/api/update/config", "/api/update/last-check",
+    }
+    # Every write among them is an empty or deliberately invalid body: a missing gate answers 4xx and starts nothing.
+    assert all(c.body in ({}, probe.INVALID_UPDATE) for c in cs if (c.method, c.path) in probe.CLOSED_ROUTES and c.method in ("POST", "PUT"))
