@@ -82,7 +82,8 @@ def build_chat_router(root: Path, complete: Complete | None = None, limiter: Cha
         try:
             return store_for(workspace, user)
         except MemoryAccessError as exc:
-            raise HTTPException(400, str(exc)) from exc
+            logging.getLogger(__name__).info("memory store refused access: %s", exc)  # server-side only (#318)
+            raise HTTPException(400, "the memory store refused access for this caller") from exc
 
     @router.post("/chat", response_model=ChatResponse)
     async def chat_ep(
@@ -146,7 +147,8 @@ def build_chat_router(root: Path, complete: Complete | None = None, limiter: Cha
         try:
             thread = store.thread(thread_id)
         except MemoryStoreError as exc:
-            raise HTTPException(404, str(exc)) from exc
+            logging.getLogger(__name__).info("thread lookup failed: %s", exc)  # server-side only (#318)
+            raise HTTPException(404, "no such thread") from exc
         return {
             "id": thread.id,
             "turns": [{"role": t.role, "content": t.content, "created": t.ts} for t in thread.turns],

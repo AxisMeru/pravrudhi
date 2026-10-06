@@ -16,7 +16,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from pravrudhi.api.errors import CHECKER_UNAVAILABLE, REGISTRY_CHECKER_UNAVAILABLE, VENDOR_NOT_ALLOWED, coded, coded_503
+from pravrudhi.api.errors import CHECKER_UNAVAILABLE, REGISTRY_CHECKER_UNAVAILABLE, REQUEST_REJECTED, VENDOR_NOT_ALLOWED, coded, coded_503
 from pravrudhi.api.identity import CurrentUserDep, User
 from pravrudhi.api.workspace_root import RootError, root_for
 from pravrudhi.application import nyaya, panel
@@ -202,7 +202,8 @@ def build_nyaya_router(root: Path, ask_fn: panel.AskFn | None = None) -> APIRout
         try:
             project = root_for(user, workspace, engine_root=engine_root)
         except RootError as e:
-            raise HTTPException(400, str(e)) from e
+            logging.getLogger(__name__).info("workspace not resolved: %s", e)  # the text stays server-side (#318)
+            raise HTTPException(400, "the workspace could not be resolved") from e
         return project, store_for_session(project, engine_root=engine_root, user=user).store
 
     @router.get("/vendors", response_model=NyayaVendorsResponse)
@@ -249,8 +250,9 @@ def build_nyaya_router(root: Path, ask_fn: panel.AskFn | None = None) -> APIRout
             )
         except VendorNotAllowed:  # the message names the caller-supplied vendor id: a fixed message and a code instead (#318)
             return coded(403, VENDOR_NOT_ALLOWED)
-        except (KeyError, ValueError) as e:
-            raise HTTPException(422, str(e)) from e
+        except (KeyError, ValueError):  # the text may name internals: logged server-side only (#318)
+            logging.getLogger(__name__).info("request rejected by the nyaya engine", exc_info=True)
+            return coded(422, REQUEST_REJECTED)
         return rec.to_dict()
 
     @router.post("/audit", response_model=NyayaAudit, response_model_by_alias=True)
@@ -265,8 +267,9 @@ def build_nyaya_router(root: Path, ask_fn: panel.AskFn | None = None) -> APIRout
                 project, req.sources, req.answer, req.checker, contract_id=req.contract_id,
                 ask_fn=ask_fn, store=store,
             )
-        except (KeyError, ValueError) as e:
-            raise HTTPException(422, str(e)) from e
+        except (KeyError, ValueError):  # the text may name internals: logged server-side only (#318)
+            logging.getLogger(__name__).info("request rejected by the nyaya engine", exc_info=True)
+            return coded(422, REQUEST_REJECTED)
         except RuntimeError:
             logging.getLogger(__name__).warning("checker unavailable", exc_info=True)  # server-side only (#318)
             return coded_503(CHECKER_UNAVAILABLE)
@@ -283,8 +286,9 @@ def build_nyaya_router(root: Path, ask_fn: panel.AskFn | None = None) -> APIRout
         project, _store = _session(user, workspace)
         try:
             elements = nyaya.registry_elements(project, contract_id)
-        except (KeyError, ValueError) as e:
-            raise HTTPException(422, str(e)) from e
+        except (KeyError, ValueError):  # the text may name internals: logged server-side only (#318)
+            logging.getLogger(__name__).info("request rejected by the nyaya engine", exc_info=True)
+            return coded(422, REQUEST_REJECTED)
         except RuntimeError:
             logging.getLogger(__name__).warning("registry checker unavailable", exc_info=True)  # server-side only (#318)
             return coded_503(REGISTRY_CHECKER_UNAVAILABLE)
@@ -301,8 +305,9 @@ def build_nyaya_router(root: Path, ask_fn: panel.AskFn | None = None) -> APIRout
             return nyaya.registry_check(
                 project, req.contract_id, req.assertions, evidence=req.evidence,
             )
-        except (KeyError, ValueError) as e:
-            raise HTTPException(422, str(e)) from e
+        except (KeyError, ValueError):  # the text may name internals: logged server-side only (#318)
+            logging.getLogger(__name__).info("request rejected by the nyaya engine", exc_info=True)
+            return coded(422, REQUEST_REJECTED)
         except RuntimeError:
             logging.getLogger(__name__).warning("registry checker unavailable", exc_info=True)  # server-side only (#318)
             return coded_503(REGISTRY_CHECKER_UNAVAILABLE)
