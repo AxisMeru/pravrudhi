@@ -22,8 +22,10 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -256,6 +258,87 @@ def push(root: Path, runner: RunnerFn, *, remote: str = "origin", branch: str = 
     return Step("push", True, f"{remote} {branch}")
 
 
+PROTECTED_BRANCHES = frozenset({"main", "master"})
+SNAPSHOT_BRANCH_PREFIX = "publish/snapshot-"
+SNAPSHOT_PR_TITLE = "Refresh the recorded snapshot"
+
+
+def repo_slug(root: Path, runner: RunnerFn, *, remote: str = "origin") -> str | None:
+    """`OWNER/REPO` from the remote URL, so every `gh` call names its repository explicitly (never the cwd's)."""
+    out = runner(["git", "remote", "get-url", remote], root)
+    if out.returncode != 0:
+        return None
+    m = re.search(r"[:/]([^/:]+/[^/]+?)(?:\.git)?\s*$", out.stdout.strip())
+    return m.group(1) if m else None
+
+
+def open_snapshot_pr(root: Path, runner: RunnerFn, slug: str) -> Step:
+    """A snapshot PR is already open: refuse to open another. Each push and PR spends a deploy slot, so snapshots
+    are rare by construction: one open at a time, merged or closed by a person before the next one is made."""
+    out = runner(["gh", "pr", "list", "--repo", slug, "--state", "open", "--json", "number,headRefName", "--limit", "100"], root)
+    if out.returncode != 0:
+        return Step("snapshot-pr-check", False, (out.stderr or out.stdout).strip()[:300])
+    try:
+        prs = json.loads(out.stdout or "[]")
+    except json.JSONDecodeError as e:
+        return Step("snapshot-pr-check", False, f"unreadable gh output: {e}")
+    open_ones = [p["number"] for p in prs if str(p.get("headRefName", "")).startswith(SNAPSHOT_BRANCH_PREFIX)]
+    if open_ones:
+        return Step("snapshot-pr-check", False, f"snapshot PR #{open_ones[0]} is still open; not opening another")
+    return Step("snapshot-pr-check", True, "no open snapshot PR")
+
+
+def start_branch(root: Path, runner: RunnerFn, name: str, *, remote: str = "origin", base: str = "main") -> Step:
+    """Check out a NEW branch at the remote base tip; refuses a protected name. Run after `sync_write_root`."""
+    if name in PROTECTED_BRANCHES or not name.startswith(SNAPSHOT_BRANCH_PREFIX):
+        return Step("branch", False, f"refusing branch name {name!r}: a snapshot goes on {SNAPSHOT_BRANCH_PREFIX}*")
+    result = runner(["git", "switch", "-C", name, f"{remote}/{base}"], root)
+    if result.returncode != 0:
+        return Step("branch", False, (result.stderr or result.stdout).strip()[:300])
+    return Step("branch", True, name)
+
+
+def personal_data_guard(root: Path, runner: RunnerFn) -> Step:
+    """Run the public tree's personal-data guard on the COMMITTED snapshot before anything is pushed. A missing guard
+    script FAILS (a publisher that cannot scan must not push); CI runs the same guard again on the PR."""
+    script = root / "scripts" / "check_no_personal_data.py"
+    if not script.is_file():
+        return Step("personal-data", False, "scripts/check_no_personal_data.py not found: refusing to publish unscanned")
+    result = runner(["python3", str(script), "--root", str(root)], root)
+    if result.returncode != 0:
+        return Step("personal-data", False, (result.stdout or result.stderr).strip()[:400])
+    return Step("personal-data", True, "no personal data found")
+
+
+def push_branch(root: Path, runner: RunnerFn, name: str, *, remote: str = "origin") -> Step:
+    """Push HEAD to a NEW snapshot branch; never to a protected one, never forced."""
+    if name in PROTECTED_BRANCHES or not name.startswith(SNAPSHOT_BRANCH_PREFIX):
+        return Step("push", False, f"refusing to push to {name!r}")
+    result = runner(["git", "push", remote, f"HEAD:refs/heads/{name}"], root)
+    if result.returncode != 0:
+        return Step("push", False, (result.stderr or result.stdout).strip()[:300])
+    return Step("push", True, f"{remote} {name}")
+
+
+def open_pr(root: Path, runner: RunnerFn, slug: str, branch: str, sha: str | None, sections: str) -> tuple[Step, str | None]:
+    """Open the snapshot PR against `main`. NEVER merges it and never enables auto-merge: the required checks
+    (`guards` and the personal-data guard) run on the PR and a person reads the scan before merging."""
+    body = (
+        f"Automated snapshot refresh ({sha or 'unknown'}). The publisher exported the recorded snapshot, regenerated the paper "
+        f"tables, built the interface, verified the pages carry content and ran the personal-data guard on this commit; "
+        f"{sections}.\n\nNot auto-merged: the required checks run on this PR and a person reads a decoded personal-data scan "
+        f"of app/frontend/public/demo.json before merging."
+    )
+    result = runner(
+        ["gh", "pr", "create", "--repo", slug, "--base", "main", "--head", branch, "--title", SNAPSHOT_PR_TITLE, "--body", body],
+        root,
+    )
+    if result.returncode != 0:
+        return Step("pr", False, (result.stderr or result.stdout).strip()[:300]), None
+    url = result.stdout.strip().splitlines()[-1] if result.stdout.strip() else None
+    return Step("pr", True, url or "opened"), url
+
+
 def publish(
     root: Path,
     *,
@@ -264,6 +347,8 @@ def publish(
     runner: RunnerFn | None = None,
     fetch: Callable[[str], str] | None = None,
     do_push: bool = True,
+    mode: str = "direct",
+    now: Callable[[], float] = time.time,
 ) -> PublishResult:
     """Export, build, verify, commit, push — stopping at the first step that fails, with the reason.
 
@@ -296,6 +381,28 @@ def publish(
         if not sync_step.ok:
             return PublishResult(False, f"sync failed: {sync_step.detail}", steps)
 
+    if mode not in ("direct", "pr"):
+        return PublishResult(False, f"unknown mode {mode!r}", steps)
+    slug: str | None = None
+    branch: str | None = None
+    if mode == "pr":
+        # The target branch is protected (GH006: a PR and the required `guards` check): the snapshot goes on a NEW branch
+        # built from a fresh `origin/main` tree (the sync above) and reaches `main` only through a PR a person merges.
+        if write_root is None:
+            return PublishResult(False, "pr mode needs a write root (a disposable clone), not the shared checkout", steps)
+        slug = repo_slug(effective_write_root, runner)
+        if slug is None:
+            return PublishResult(False, "pr mode could not read OWNER/REPO from the remote", steps)
+        pr_check = open_snapshot_pr(effective_write_root, runner, slug)
+        steps.append(pr_check)
+        if not pr_check.ok:
+            return PublishResult(False, f"{pr_check.name} failed: {pr_check.detail}", steps)
+        branch = f"{SNAPSHOT_BRANCH_PREFIX}{time.strftime('%Y%m%d-%H%M%S', time.gmtime(now()))}"
+        started = start_branch(effective_write_root, runner, branch)
+        steps.append(started)
+        if not started.ok:
+            return PublishResult(False, f"branch failed: {started.detail}", steps)
+
     for step in (
         export_snapshot(root, runner, write_root=effective_write_root),
         generate_paper(root, runner, write_root=effective_write_root),
@@ -312,6 +419,27 @@ def publish(
     if not step.ok:
         return PublishResult(False, f"commit failed: {step.detail}", steps)
 
+    if mode == "pr":
+        assert slug is not None and branch is not None
+        if sha is None:
+            return PublishResult(True, "nothing new to publish: no branch pushed, no PR opened", steps, None)
+        guard = personal_data_guard(effective_write_root, runner)
+        steps.append(guard)
+        if not guard.ok:
+            return PublishResult(False, f"personal-data guard failed: {guard.detail}", steps, sha)
+        if not do_push:
+            return PublishResult(True, "built, committed and scanned on a snapshot branch; not pushed", steps, sha)
+        pushed = push_branch(effective_write_root, runner, branch)
+        steps.append(pushed)
+        if not pushed.ok:
+            return PublishResult(False, f"push failed: {pushed.detail}", steps, sha)
+        exported = next((st.detail for st in steps if st.name == "export"), "")
+        opened, url = open_pr(effective_write_root, runner, slug, branch, sha, f"snapshot sections: {exported}")
+        steps.append(opened)
+        if not opened.ok:
+            return PublishResult(False, f"pr failed: {opened.detail}", steps, sha)
+        return PublishResult(True, f"opened {url or branch} (not merged)", steps, sha)
+
     if not do_push:
         return PublishResult(True, "built and committed; not pushed", steps, sha)
 
@@ -323,7 +451,7 @@ def publish(
 
 
 __all__ = [
-    "BROKEN_MARKERS", "CHECK_PAGES", "PublishResult", "Step",
-    "build_interface", "commit", "export_snapshot", "generate_paper", "publish", "push", "sync_write_root",
-    "verify_pages",
+    "BROKEN_MARKERS", "CHECK_PAGES", "PROTECTED_BRANCHES", "PublishResult", "SNAPSHOT_BRANCH_PREFIX", "Step",
+    "build_interface", "commit", "export_snapshot", "generate_paper", "open_pr", "open_snapshot_pr", "personal_data_guard",
+    "publish", "push", "push_branch", "repo_slug", "start_branch", "sync_write_root", "verify_pages",
 ]

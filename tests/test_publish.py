@@ -20,8 +20,12 @@ from pravrudhi.application.publish import (
     build_interface,
     commit,
     export_snapshot,
+    personal_data_guard,
     publish,
     push,
+    push_branch,
+    repo_slug,
+    start_branch,
     sync_write_root,
     verify_pages,
 )
@@ -472,3 +476,93 @@ def test_the_export_step_passes_the_list_and_its_sha_to_the_exporter(tmp_path) -
     publish.export_snapshot(tmp_path, runner)
     assert seen and "--private-names" in seen[0] and "--private-names-sha256" in seen[0]
     assert seen[0][seen[0].index("--private-names") + 1] == "/nonexistent/names.txt"
+
+
+class TestPrMode:
+    """The publisher cannot push to the protected `main` (GH006): in pr mode it builds from a fresh origin/main tree on a NEW
+    branch, scans the committed snapshot, pushes the branch and opens a PR, which it never merges."""
+
+    def _run(self, tmp_path: Path, *, prs: str = "[]", nothing: bool = False, guard_fails: bool = False, push_ok: bool = True):
+        write_root = _workspace(tmp_path / "w")
+        read_root = tmp_path / "read"
+        (read_root / "research").mkdir(parents=True)
+        (read_root / "research" / "ledger.jsonl").write_text("")
+        (write_root / "scripts").mkdir()
+        (write_root / "scripts" / "check_no_personal_data.py").write_text("")
+        calls: list[list[str]] = []
+
+        def runner(cmd: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
+            calls.append(cmd)
+            if cmd[:3] == ["git", "remote", "get-url"]:
+                return _ok(cmd, "git@github-x:AxisMeru/pravrudhi.git\n")
+            if cmd[:3] == ["gh", "pr", "list"]:
+                return _ok(cmd, prs)
+            if cmd[:3] == ["gh", "pr", "create"]:
+                return _ok(cmd, "https://github.com/AxisMeru/pravrudhi/pull/999\n")
+            if _is(cmd, "diff") and "--cached" in cmd:
+                return _ok(cmd, "" if nothing else "app/frontend/public/demo.json\n")
+            if cmd[:2] == ["git", "push"] and not push_ok:
+                return _fail(cmd, "remote: error: GH006: Protected branch update failed")
+            if cmd[0] == "python3":
+                return _fail(cmd, "app/frontend/public/demo.json:1: gmail address") if guard_fails else _ok(cmd)
+            return _ok(cmd, "abc1234\n" if _is(cmd, "rev-parse") else "")
+
+        res = publish(read_root, write_root=write_root, runner=runner, mode="pr", now=lambda: 1_700_000_000.0)
+        return res, calls
+
+    def test_branch_pushed_pr_opened_and_never_merged_or_pushed_to_main(self, tmp_path: Path) -> None:
+        res, calls = self._run(tmp_path)
+        assert res.published and "not merged" in res.reason and res.commit == "abc1234"
+        names = [s.name for s in res.steps]
+        assert names.index("sync") < names.index("snapshot-pr-check") < names.index("branch") < names.index("export")
+        assert names.index("commit") < names.index("personal-data") < names.index("push") < names.index("pr")
+        pushes = [c for c in calls if c[:2] == ["git", "push"]]
+        assert len(pushes) == 1 and pushes[0][3].startswith("HEAD:refs/heads/publish/snapshot-")
+        assert not any(c[-1] in ("HEAD:main", "main") for c in pushes) and "--force" not in " ".join(pushes[0])
+        create = next(c for c in calls if c[:3] == ["gh", "pr", "create"])
+        assert "--repo" in create and create[create.index("--repo") + 1] == "AxisMeru/pravrudhi"
+        assert create[create.index("--base") + 1] == "main"
+        assert not any("merge" in c and c[:2] == ["gh", "pr"] for c in calls) and not any("--auto" in c for c in calls)
+        assert any(c[:3] == ["git", "switch", "-C"] and c[-1] == "origin/main" for c in calls)  # fresh origin/main tree
+
+    def test_an_open_snapshot_pr_blocks_a_second_one_before_anything_is_built(self, tmp_path: Path) -> None:
+        res, calls = self._run(tmp_path, prs='[{"number": 7, "headRefName": "publish/snapshot-20261005-010101"}]')
+        assert not res.published and "snapshot PR #7 is still open" in res.reason
+        assert not any(c[:2] == ["git", "push"] for c in calls) and not any(c[:3] == ["gh", "pr", "create"] for c in calls)
+        assert "export" not in [s.name for s in res.steps]
+        other, _ = self._run(tmp_path / "o", prs='[{"number": 8, "headRefName": "trackc/something"}]')
+        assert other.published  # an unrelated open PR does not block
+
+    def test_the_personal_data_guard_failing_stops_before_the_push(self, tmp_path: Path) -> None:
+        res, calls = self._run(tmp_path, guard_fails=True)
+        assert not res.published and "personal-data guard failed" in res.reason and "gmail" in res.reason
+        assert not any(c[:2] == ["git", "push"] for c in calls)
+
+    def test_a_missing_guard_script_refuses_to_publish_unscanned(self, tmp_path: Path) -> None:
+        write_root = _workspace(tmp_path)
+        step = personal_data_guard(write_root, lambda cmd, cwd: _ok(cmd))
+        assert not step.ok and "refusing to publish unscanned" in step.detail
+
+    def test_nothing_new_pushes_no_branch_and_opens_no_pr(self, tmp_path: Path) -> None:
+        res, calls = self._run(tmp_path, nothing=True)
+        assert res.published and "nothing new" in res.reason
+        assert not any(c[:2] == ["git", "push"] for c in calls) and not any(c[:3] == ["gh", "pr", "create"] for c in calls)
+
+    def test_a_failed_branch_push_is_reported_and_no_pr_is_opened(self, tmp_path: Path) -> None:
+        res, calls = self._run(tmp_path, push_ok=False)
+        assert not res.published and "push failed" in res.reason and "GH006" in res.reason
+        assert not any(c[:3] == ["gh", "pr", "create"] for c in calls)
+
+    def test_protected_and_unprefixed_branch_names_are_refused(self, tmp_path: Path) -> None:
+        for name in ("main", "master", "publish", "feature/x"):
+            assert not start_branch(tmp_path, lambda cmd, cwd: _ok(cmd), name).ok
+            assert not push_branch(tmp_path, lambda cmd, cwd: _ok(cmd), name).ok
+
+    def test_pr_mode_needs_a_write_root_and_a_known_mode(self, tmp_path: Path) -> None:
+        assert "needs a write root" in publish(tmp_path, runner=lambda cmd, cwd: _ok(cmd), mode="pr").reason
+        assert "unknown mode" in publish(tmp_path, runner=lambda cmd, cwd: _ok(cmd), mode="yolo").reason
+
+    def test_repo_slug_is_read_from_the_remote_url(self, tmp_path: Path) -> None:
+        for url in ("git@github-axismeru:AxisMeru/pravrudhi.git", "https://github.com/AxisMeru/pravrudhi", "https://github.com/AxisMeru/pravrudhi.git"):
+            assert repo_slug(tmp_path, lambda cmd, cwd, u=url: _ok(cmd, u + "\n")) == "AxisMeru/pravrudhi"
+        assert repo_slug(tmp_path, lambda cmd, cwd: _fail(cmd, "no remote")) is None

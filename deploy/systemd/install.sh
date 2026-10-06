@@ -8,7 +8,8 @@ for f in pravrudhi-app.service pravrudhi-update.service pravrudhi-update.timer \
          pravrudhi-heartbeat.service pravrudhi-heartbeat.timer \
          pravrudhi-publish.service pravrudhi-publish.timer \
          pravrudhi-inbox-sweep.service pravrudhi-inbox-sweep.timer; do
-  sed "s#@ROOT@#$ROOT#g" "$ROOT/deploy/systemd/$f" > "$UNITS/$f"
+  sed -e "s#@ROOT@#$ROOT#g" -e "s#@PUBLISH_ROOT@#${PRAVRUDHI_PUBLISH_ROOT:-$HOME/pravrudhi-publish}#g" \
+    "$ROOT/deploy/systemd/$f" > "$UNITS/$f"
 done
 chmod +x "$ROOT/deploy/systemd/dev-update.sh"
 # The service inherits none of the login shell's PATH, so agents installed under nvm or ~/.local (claude, codex)

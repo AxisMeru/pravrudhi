@@ -1237,15 +1237,23 @@ def publish_cmd(
     write_root: Path | None = WRITE_ROOT_OPT,
     message: str = PUBLISH_MSG_OPT,
     no_push: bool = typer.Option(False, "--no-push", help="build and commit, but do not push"),
+    direct: bool = typer.Option(
+        False, "--direct", help="push straight to main (only for an UNPROTECTED repository); the default opens a PR"
+    ),
     as_json: bool = typer.Option(False, "--json"),
 ) -> None:
-    """Export the snapshot, build the interface, check the pages carry content, commit and push.
+    """Export the snapshot, build the interface, check the pages carry content, commit, scan, push a branch, open a PR.
 
+    The default needs --write-root (a disposable clone): the snapshot is built from a fresh origin/main tree, committed
+    on a new publish/snapshot-* branch, scanned by the personal-data guard, pushed, and opened as a PR that is NEVER
+    merged here (the required checks run on it and a person merges). `--direct` keeps the old push to main.
     Refuses at the first step that fails rather than publishing a page that answers 200 and shows an error.
     """
     from pravrudhi.application.publish import publish
 
-    result = publish(root, write_root=write_root, message=message, do_push=not no_push)
+    result = publish(
+        root, write_root=write_root, message=message, do_push=not no_push, mode="direct" if direct else "pr"
+    )
     if as_json:
         typer.echo(json.dumps(result.to_dict(), sort_keys=True))
     else:
