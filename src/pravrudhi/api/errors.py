@@ -15,6 +15,8 @@ CHECKER_UNAVAILABLE = "checker_unavailable"
 REGISTRY_CHECKER_UNAVAILABLE = "registry_checker_unavailable"
 CHAT_ENDPOINT_UNREACHABLE = "chat_endpoint_unreachable"
 VENDOR_NOT_ALLOWED = "vendor_not_allowed"
+REQUEST_REJECTED = "request_rejected"
+UNKNOWN_CONTRACT = "unknown_contract"
 
 #: code -> the one fixed message that goes with it.
 MESSAGES: dict[str, str] = {
@@ -24,6 +26,8 @@ MESSAGES: dict[str, str] = {
     REGISTRY_CHECKER_UNAVAILABLE: "the registry checker is unavailable; retry later",
     CHAT_ENDPOINT_UNREACHABLE: "the chat model endpoint is unreachable; retry later",
     VENDOR_NOT_ALLOWED: "vendor not allowed for API callers",
+    REQUEST_REJECTED: "the analysis engine rejected the request",
+    UNKNOWN_CONTRACT: "one or more of the requested contracts or sections is not known",
 }
 
 
