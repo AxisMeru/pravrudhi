@@ -136,7 +136,8 @@ def test_an_anonymous_caller_gets_no_statute_text_at_all_only_id_title_and_the_s
         assert h["notice"] == NOTICE
     from tests.test_partner_key_metering import ADMIN
 
-    auth = _hosted_client(tmp_path / "b", monkeypatch, user=ADMIN).get("/api/nyaya/corpus?q=murder punishment&workspace=w1").json()
+    c_auth = _hosted_client(tmp_path / "b", monkeypatch, user=ADMIN)
+    auth = c_auth.get("/api/nyaya/corpus?q=murder punishment&workspace=w1").json()
     # no provision's text (not even its first 40 characters) appears anywhere in the anonymous body
     assert auth["hits"] and all(h["text"][:40] not in anon_resp.text for h in auth["hits"])
 
