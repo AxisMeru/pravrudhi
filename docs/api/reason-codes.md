@@ -47,10 +47,10 @@ A quote that occurs more than once in the fact is `ambiguous_quote`: the element
 
 ## Rule text
 
-Each contract result also carries three fields that say what text it was checked against:
+Each contract result can also carry three fields that say what text it was checked against. They are **off by default** (`expose_rule_text`) and are absent from the response unless the deployment enables them:
 
-- `rule_text`: the provision text the contract is checked against, from the Lean checker's `--describe-source`. It is India Code text and it is
-  **unofficial**: it is not the official text of the law.
+- `rule_text`: the provision text the contract is checked against, from the Lean checker's `--describe-source`. It is the registry's recorded source text
+  (the sources cite India Code) and it is **unofficial**: it is not the official text of the law.
 - `judge_rule_text`: exactly the first `statute_chars` characters (600 in the shipped configuration) of the statute text the judge was
   configured with, that is, the text **as sent in the judge's prompt**. It is returned when `statute_text_mismatch` is true (the judge's
   text differs from `rule_text`) or when the judge's text was cut (it is longer than `statute_chars`), so you can see what the judge worked from. It is null otherwise, and null when no judge statute text is

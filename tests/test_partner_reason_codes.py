@@ -100,3 +100,16 @@ def test_partner_text_uses_the_final_help_page_wording_and_never_names_config_c(
     assert "did not find enough support for it" in DOC
     assert "This provision is not on the validated list, so we give a referral, not a proof or denial." in DOC
     assert "config C" not in DOC and "deployments that use two judges" in DOC
+
+
+def test_the_rule_text_fields_are_documented_as_off_by_default() -> None:
+    assert "off by default" in DOC and "absent from the response unless the deployment enables them" in DOC
+    for name in ("rule_text", "judge_rule_text", "rule_text_source"):
+        desc = SCHEMAS["ContractResultOut"]["properties"][name]["description"]
+        assert "expose_rule_text" in desc and "otherwise absent" in desc
+
+
+def test_published_text_has_no_config_c_and_does_not_call_the_rule_text_india_code_text() -> None:
+    spec = (ROOT / "docs/api/openapi-v1.json").read_text()
+    assert "config-C" not in spec and "config C" not in spec
+    assert "India Code text" not in spec and "India Code text" not in DOC

@@ -1335,3 +1335,25 @@ class TestStandardInResponse:
         assert set(out["properties"]) == {"requested", "applied", "source", "proceeding_posture", "in_judge_prompt"}
         assert set(out["required"]) == {"requested", "applied", "source", "in_judge_prompt"}
         assert {"type": "null"} in out["properties"]["applied"]["anyOf"]
+
+
+def test_rule_text_fields_are_absent_unless_expose_rule_text_is_on(tmp_path: Path) -> None:
+    """Licence hold (#308/#506): the shipped default withholds the provision text; the flag turns it on."""
+    import dataclasses
+
+    names = ("rule_text", "judge_rule_text", "rule_text_source")
+    assert AgentConfig(tau=0.74, refer_band=(0.5, 0.74), max_retries=2, audit_dir=tmp_path).expose_rule_text is False
+    off = _client(tmp_path).post("/api/v1/analyse-facts", json=_req()).json()["contracts"][0]
+    assert not any(n in off for n in names)
+    agent = _agent(tmp_path, _proof_script())
+    agent.config = dataclasses.replace(agent.config, expose_rule_text=True)
+    app = FastAPI()
+    app.include_router(build_partner_router(tmp_path, agent_factory=lambda _root: agent, config=_NO_LIMIT_CONFIG))
+    on = TestClient(app).post("/api/v1/analyse-facts", json=_req()).json()["contracts"][0]
+    assert on["rule_text"] and on["rule_text_source"] == "lean_describe_source" and "judge_rule_text" in on
+
+
+def test_the_shipped_config_has_expose_rule_text_off() -> None:
+    from pravrudhi.application.nyaya_agent import load_agent_config
+
+    assert load_agent_config(Path(__file__).resolve().parent.parent).expose_rule_text is False

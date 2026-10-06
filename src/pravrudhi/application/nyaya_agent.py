@@ -187,6 +187,10 @@ class AgentConfig:
     #: under `audit_dir` before `purge_stale_runs` deletes it. Config-driven, never hardcoded, so the window
     #: can be tightened or loosened with a config edit alone. 7.0 is the operator/Lead-2 decided default.
     retention_days: float = 7.0
+    #: LICENCE HOLD (Lead-2, pending counsel #506): whether the partner API returns the provision text
+    #: (`rule_text`, `judge_rule_text`, `rule_text_source`). OFF by default: with it off those fields are ABSENT from
+    #: the partner response. It gates only that surface; the agent still records the text on its own result and audit.
+    expose_rule_text: bool = False
 
     def __post_init__(self) -> None:
         low, high = self.refer_band
@@ -488,6 +492,7 @@ def load_agent_config(root: Path) -> AgentConfig:
         gate1_enabled=gate1_enabled,
         span_relevance_enabled=span_relevance_enabled,
         retention_days=float(body.get("retention_days", 7.0)),
+        expose_rule_text=bool(body.get("expose_rule_text", False)),
     )
 
 

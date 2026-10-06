@@ -438,20 +438,24 @@ class ContractResultOut(BaseModel):
     statute_text_mismatch: bool | None
     rule_text: str | None = Field(
         default=None,
-        description="The provision text the contract is checked against, from the Lean checker's --describe-source "
-        "(India Code text, unofficial: not the official text of the law). Null when the contract was not described.",
+        description="The provision text the contract is checked against: the registry's recorded source text from the Lean "
+        "checker's --describe-source (lean_describe_source); unofficial, not the official text of the law. Null when the "
+        "contract was not described. Returned only when the deployment enables rule-text disclosure (expose_rule_text); "
+        "otherwise absent.",
     )
     judge_rule_text: str | None = Field(
         default=None,
         description="Exactly the first statute_chars characters (600 in the shipped config) of the statute text the judge was "
         "configured with, i.e. the text AS SENT in the judge prompt. Returned when statute_text_mismatch is "
         "true or when the judge's text was cut (longer than statute_chars), so a reader can see what the judge worked "
-        "from; null otherwise, and null when no judge statute text is configured for the contract.",
+        "from; null otherwise, and null when no judge statute text is configured for the contract. Returned only when the "
+        "deployment enables rule-text disclosure (expose_rule_text); otherwise absent.",
     )
     rule_text_source: str | None = Field(
         default=None,
         description="Where rule_text came from: lean_describe_source (the pinned Lean checker's --describe-source; "
-        "India Code text, unofficial).",
+        "the registry's recorded source text; unofficial). Returned only when the deployment enables rule-text disclosure "
+        "(expose_rule_text); otherwise absent.",
     )
     citations: list[CitationOut] | None = Field(
         default=None,
@@ -683,6 +687,10 @@ def _shipped_corpus() -> Any:
     return nyaya.load_corpus()
 
 
+#: Licence hold (#308, pending counsel #506): withheld from the response unless `expose_rule_text` is on.
+_RULE_TEXT_FIELDS = ("rule_text", "judge_rule_text", "rule_text_source")
+
+
 def _attach_citations(agent: Any, body: dict[str, Any], listed: dict[str, list[str]] | None = None) -> None:
     """Add `citations` to each contract result from the contract's own sources (#142).
 
@@ -907,7 +915,8 @@ def build_partner_router(
         user: User | None = CurrentUserDep,
         debug_second_judge: bool = Query(
             False,
-            description="Include config-C second-judge diagnostic fields per element even when not "
+            description="Include second-judge diagnostic fields per element (only for deployments that use two judges) "
+            "even when not "
             "authenticated. Only takes effect when this deployment's own debug_second_judge_fields_enabled "
             "is also set -- a caller cannot turn this on for a deployment that hasn't opted in. An "
             "authenticated caller (Supabase session or org API key) always gets these fields regardless of "
@@ -1064,6 +1073,10 @@ def build_partner_router(
         body: dict[str, Any] = result.to_dict()
         body.pop("audit_path", None)
         _attach_citations(agent, body, getattr(result, "listed_sources", None))
+        if not getattr(getattr(agent, "config", None), "expose_rule_text", False):
+            for contract in body.get("contracts", []):
+                for name in _RULE_TEXT_FIELDS:
+                    contract.pop(name, None)
         show_second_judge_fields = authenticated or (debug_second_judge and cfg.debug_second_judge_fields_enabled)
         if not show_second_judge_fields:
             for contract in body.get("contracts", []):
