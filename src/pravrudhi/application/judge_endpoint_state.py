@@ -6,7 +6,10 @@ engine asks the endpoint first, and a parked endpoint answers `judges_offline` a
 
 Detection (Lead-2's option (b), 6 Oct): RunPod `GET https://api.runpod.ai/v2/{endpoint}/health`, with the inference key
 the judge already uses, and nothing else (no management key, no new credential). PARKED means: no worker is ready,
-idle, running or initializing, AND nothing is queued or in progress.
+idle, running, initializing, throttled or unhealthy, AND nothing is queued or in progress. Throttled (waiting for capacity)
+and unhealthy (being replaced) workers mean the endpoint is trying to serve, so they read as warming and the call proceeds.
+The same `/v2/<id>/health` is read for a queue endpoint (`api.runpod.ai/v2/<id>/...`) and for a load-balancer endpoint
+(`<id>.api.runpod.ai/...`; its container-side `/health` is not read).
 
 Known limit: an endpoint that is scaled to zero but ALLOWED to scale (min 0, max above 0) looks exactly the same on
 /health when it is idle, so it too reads as parked. That is accepted while the judges are deliberately parked at
@@ -53,10 +56,16 @@ def runpod_endpoint_id(base_url: str | None) -> str | None:
     if not base_url:
         return None
     u = urllib.parse.urlparse(base_url)
+    host = u.hostname or ""
     parts = [p for p in u.path.split("/") if p]
-    if u.hostname != RUNPOD_HOST or len(parts) < 2 or parts[0] != "v2":
-        return None
-    return parts[1]
+    if host == RUNPOD_HOST and len(parts) >= 2 and parts[0] == "v2":
+        return parts[1]
+    # A load-balancer endpoint is addressed as https://<id>.api.runpod.ai/...; its QUEUE statistics are still RunPod's
+    # `/v2/<id>/health` (the worker-side `https://<id>.api.runpod.ai/health` is the container's own route, not read).
+    sub_id, _, rest = host.partition(".")
+    if rest == RUNPOD_HOST and sub_id:
+        return sub_id
+    return None
 
 
 def _int(v: Any) -> int | None:
@@ -69,7 +78,7 @@ def classify(health: Mapping[str, Any] | None) -> EndpointState:
     jobs = (health or {}).get("jobs")
     if not isinstance(workers, Mapping) or not isinstance(jobs, Mapping):
         return EndpointState("unknown", "health lacks a workers or jobs block")
-    w = {k: _int(workers.get(k, 0)) for k in ("ready", "idle", "running", "initializing")}
+    w = {k: _int(workers.get(k, 0)) for k in ("ready", "idle", "running", "initializing", "throttled", "unhealthy")}
     q = {k: _int(jobs.get(k, 0)) for k in ("inQueue", "inProgress")}
     if any(v is None for v in (*w.values(), *q.values())):
         return EndpointState("unknown", "a count is not a non-negative integer")
@@ -78,6 +87,10 @@ def classify(health: Mapping[str, Any] | None) -> EndpointState:
         return EndpointState("ready", f"{up} worker(s) up")
     if (w["initializing"] or 0) > 0:
         return EndpointState("warming", "a worker is initializing")
+    # A throttled worker is waiting for capacity and an unhealthy one is being replaced: both mean the endpoint is
+    # trying to serve, so neither is "parked" (decided, #311); the call proceeds.
+    if (w["throttled"] or 0) > 0 or (w["unhealthy"] or 0) > 0:
+        return EndpointState("warming", "a worker is throttled or unhealthy")
     if (q["inQueue"] or 0) > 0 or (q["inProgress"] or 0) > 0:
         return EndpointState("warming", "no worker up, but work is queued or in progress")
     return EndpointState("parked", "no worker, nothing queued or in progress")

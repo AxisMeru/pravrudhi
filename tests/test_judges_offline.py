@@ -21,11 +21,15 @@ ROOT = Path(__file__).resolve().parent.parent
 
 
 def _health(
-    ready: int = 0, idle: int = 0, running: int = 0, initializing: int = 0, queued: int = 0, active: int = 0
+    ready: int = 0, idle: int = 0, running: int = 0, initializing: int = 0, queued: int = 0, active: int = 0,
+    throttled: int = 0, unhealthy: int = 0,
 ) -> dict[str, Any]:
     return {
         "jobs": {"inQueue": queued, "inProgress": active, "completed": 7},
-        "workers": {"ready": ready, "idle": idle, "running": running, "initializing": initializing},
+        "workers": {
+            "ready": ready, "idle": idle, "running": running, "initializing": initializing,
+            "throttled": throttled, "unhealthy": unhealthy,
+        },
     }
 
 
@@ -34,6 +38,8 @@ def _health(
     [
         (_health(), "parked"),
         (_health(initializing=1), "warming"),
+        (_health(throttled=1), "warming"),  # waiting for capacity: proceed, not parked
+        (_health(unhealthy=1), "warming"),  # being replaced: proceed, not parked
         (_health(queued=2), "warming"),  # work waiting, no worker yet: a warm is under way, not parked
         (_health(active=1), "warming"),
         (_health(ready=1), "ready"),
@@ -52,7 +58,9 @@ def test_classify(health: Any, want: str) -> None:
 
 def test_only_runpod_serverless_urls_are_checked() -> None:
     assert jes.runpod_endpoint_id(URL) == "ep123"
-    for u in ("http://127.0.0.1:8110/v1", "https://example.com/v2/x/openai/v1", "", "https://api.runpod.ai/"):
+    assert jes.runpod_endpoint_id("https://ep789.api.runpod.ai/v1") == "ep789"  # a load-balancer endpoint
+    for u in ("http://127.0.0.1:8110/v1", "https://example.com/v2/x/openai/v1", "", "https://api.runpod.ai/",
+              "https://evil.example.com/ep.api.runpod.ai/v1", "https://a.b.api.runpod.ai/v1"):
         assert jes.runpod_endpoint_id(u) is None
 
 
@@ -160,3 +168,9 @@ def test_a_parked_job_submission_is_refused_and_leaves_no_job(tmp_path: Path) ->
         assert r.status_code == 503 and r.json() == {"error": "judges_offline"}
     finally:
         os.environ.pop("PRAVRUDHI_ADMINS", None)
+
+
+def test_a_load_balancer_endpoint_reads_the_same_v2_health_url_not_the_container_route() -> None:
+    calls: list[str] = []
+    assert jes.endpoint_state("https://ep789.api.runpod.ai/v1", "k", fetch=_fetcher(_health(), calls)).status == "parked"
+    assert calls == ["https://api.runpod.ai/v2/ep789/health"]
