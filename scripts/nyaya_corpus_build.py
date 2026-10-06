@@ -538,7 +538,7 @@ def main() -> None:
     parser.add_argument(
         "--root",
         type=Path,
-        default=Path("/home/ss/projects/pravrudhi"),
+        default=Path(__file__).resolve().parent.parent,  # this checkout's root
         help="Root directory of the project",
     )
     args = parser.parse_args()

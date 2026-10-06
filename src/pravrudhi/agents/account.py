@@ -1,8 +1,7 @@
 """Which account this project's `claude` invocations use.
 
-Operator instruction, 2026-09-10: *"the claude-cli change that from the personal claude account to this
-axismeru account...make this change everywhere for this project...stuido, product etc...stop using the
-personal claude account for this project"*.
+2026-09-10: the project's CLI calls moved off the operator's personal account onto the project account, everywhere
+(studio, product and the rest); the personal account is no longer used for this project.
 
 Every `claude` invocation in this repository inherited the ambient environment, so it used whatever OAuth
 login happened to be present. At the time that was the operator's personal account, and it exhausted a
@@ -24,7 +23,7 @@ apart — see `PROJECT_CLAUDE_HOME`. The separation still matters for a product 
 hands, which is what `PRAVRUDHI_CLAUDE_CONFIG_DIR` is for.
 
 Later the same day the project's designated account changed again: CLI-agent load was moved off
-`admin@axismeru.com` onto a second premium seat on the same Axis Meru team plan, `sharath.sathish@gmail.com`
+`admin@axismeru.com` onto a second premium seat on the same Axis Meru team plan
 (`default_claude_max_5x` tier), logged in at this same default path. It is a personal-domain *address*, not
 the operator's personal *account* the CHARTER rule was written against — it is a seat the operator holds on
 this project's own team plan, chosen deliberately to spread CLI load, and the operator did the login
@@ -32,17 +31,13 @@ themselves in an interactive terminal. Nothing here should treat that email doma
 refusal this module raises is for *no credential provisioned*, not for which mailbox the credential belongs
 to. `admin@axismeru.com` remains the desktop-app login only.
 
-**2026-09-11: one account became two, with an order.** *"admin@axismeru.com will be always available the
-other seat may drop on and off....always use the other seat (sharath.sathish@gmail.com) for the cli to
-balance the usage load..if it drops off the premium and cli returns error/something else enable the
-router/config to automatically switch to admin account (but it should not use admin cli account if the other
-seat is active)"*.
+**2026-09-11: one account became two, with an order.** The operator's instruction (paraphrased): CLI load goes to the premium seat
+that is not the team login; the team login is for the desktop app and is never used for CLI work while that seat can serve.
 
 That is not a different constant, it is a different shape. A seat is now an entry in `configs/seats.yaml`,
-the file's order is the precedence, and `select_seat` returns the first entry that can actually serve. The
-reserve is reached only when the seat above it holds no credential or is inside a usage-limit cooldown --
-never on an ordinary failure, because a prompt the model botched will be botched by the reserve too and
-spending the always-available account on it is the opposite of balancing load.
+the file's order is the precedence, and `select_seat` returns the first entry that can actually serve. A later entry is
+reached only when the seat above it holds no credential or is inside a usage-limit cooldown -- never on an ordinary
+failure. The team login's directory is NOT such an entry: see `FORBIDDEN_SEAT_DIR_NAMES`.
 
 The refusal is unchanged in spirit and wider in reach: `claude_env` raises when NO declared seat can serve,
 rather than when one named directory is empty. And `mismatches` was added for the failure neither the CLI nor
@@ -60,11 +55,13 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
+from pravrudhi.agents.seat_identity import is_placeholder, scripted_claude_email, seat_email_override
+
 #: Where this project's Claude credential lives.
 #:
 #: This first pointed at `~/.config/pravrudhi/claude`, on the assumption that the personal account would stay
 #: logged in at the default location and the two had to be kept apart. The operator resolved it differently on
-#: 2026-09-10 -- *"axismeru claude login done (logged out of personal too)"* -- so on this machine the default
+#: 2026-09-10, when the project account was logged in and the personal one removed from this machine, so here the default
 #: location IS the project's account and there is no personal login left to guard against.
 #:
 #: Pointing here rather than at an empty directory is therefore not a relaxed check, it is the correct
@@ -88,15 +85,30 @@ CREDENTIAL_FILES = (".credentials.json", "credentials.json")
 #: unaffected by this change) but the wrong account for a one-shot SCRIPTED `claude -p` call -- TEAM-RULES.md's
 #: own Claude usage cost rules require every one of those to bill ONE named seat, never whichever seat the
 #: registry happened to pick (the 2026-09-26 rule named seat 0; the operator moved it to seat 2 on 2026-09-27,
-#: see `SCRIPTED_CLAUDE_EMAIL` below). Configurable, never hardcoded past this default, per the issue's own
+#: see `seat_identity.scripted_claude_email`). Configurable, never hardcoded past this default, per the issue's own
 #: requirement.
 SCRIPTED_CLAUDE_HOME_ENV = "PRAVRUDHI_SCRIPTED_CLAUDE_CONFIG_DIR"
 SCRIPTED_CLAUDE_HOME_DEFAULT = Path("~/.config/pravrudhi/claude-loop")
 #: Operator 2026-09-27 (TEAM-RULES Claude usage cost rules; issue #210): scripted `claude -p` bills TEAM SEAT 2
-#: (`claude-loop`, sharath.sathish@gmail.com). Seat 0 (sharath.ai.colab, `claude-colab`) is R1/R2 only and seat 1
+#: (`claude-loop`). Seat 0 (`claude-colab`) is R1/R2 only and seat 1
 #: (admin@axismeru.com) is never used for scripted load. Mirrors `panel.CLAUDE_CLI_*` (#209).
-#: The account that directory must hold -- checked, not assumed (issue #82's second requirement).
-SCRIPTED_CLAUDE_EMAIL = "sharath.sathish@gmail.com"
+#: The account that directory must hold is checked, not assumed: its address comes from LOCAL configuration
+#: (`seat_identity.scripted_claude_email`: the environment or ~/.config/pravrudhi/seats.local.yaml), never from the
+#: repository, and a missing one refuses.
+
+
+#: The team login's config directory (seat 1, the desktop app's account). It is never a CLI seat: not by name, not by
+#: position, not as a "fallback". `seats()` drops any entry that resolves to it and `scripted_claude_home()`
+#: refuses it, so no code path can spend it.
+FORBIDDEN_SEAT_DIR_NAMES = frozenset({"claude-admin"})
+
+
+class AdminSeatRefused(RuntimeError):
+    """A CLI or scripted call resolved to the team login's config directory (`FORBIDDEN_SEAT_DIR_NAMES`)."""
+
+
+def is_forbidden_seat_dir(path: str | Path) -> bool:
+    return Path(path).expanduser().name in FORBIDDEN_SEAT_DIR_NAMES
 
 
 class PersonalAccountRefused(RuntimeError):
@@ -109,7 +121,8 @@ class PersonalAccountRefused(RuntimeError):
 
 class ScriptedSeatMismatch(RuntimeError):
     """`claude_env`'s resolved directory holds a login, but its own cached profile (`.claude.json`) names a
-    different account than `SCRIPTED_CLAUDE_EMAIL` -- issue #82's second requirement: verify the account,
+    different account than the configured scripted seat (`seat_identity.scripted_claude_email`)
+    -- issue #82's second requirement: verify the account,
     don't just check a credential file exists. Raised rather than silently proceeding under whatever account
     is actually logged in there, the same "the refusal is the other half" principle `PersonalAccountRefused`
     already applies one level up (no seat at all vs. the wrong seat)."""
@@ -226,7 +239,7 @@ def _pinned_seat() -> Seat | None:
     registry, and the registry is still there to fall back to when the pinned seat is spent.
     """
     raw = os.environ.get(HOME_ENV)
-    if not raw:
+    if not raw or is_forbidden_seat_dir(raw):
         return None
     return Seat(id="pinned", email="", config_dir=Path(raw).expanduser())
 
@@ -258,11 +271,14 @@ def seats(root: Path | None = None) -> list[Seat]:
     for entry in entries:
         if not isinstance(entry, dict) or not entry.get("config_dir"):
             continue
-        seat = Seat(
-            id=str(entry.get("id") or "unnamed"),
-            email=str(entry.get("email") or ""),
-            config_dir=Path(str(entry["config_dir"])).expanduser(),
-        )
+        seat_id = str(entry.get("id") or "unnamed")
+        committed = str(entry.get("email") or "")
+        # The committed file holds placeholders; the real address comes from the operator's LOCAL file. A placeholder with no
+        # override is "unknown" (empty), so `mismatches` has nothing to compare rather than comparing against a fake.
+        email = seat_email_override(seat_id) or ("" if is_placeholder(committed) else committed)
+        seat = Seat(id=seat_id, email=email, config_dir=Path(str(entry["config_dir"])).expanduser())
+        if is_forbidden_seat_dir(seat.config_dir):
+            continue  # the team login is never a CLI seat, whatever the registry says
         if pinned is not None and seat.config_dir == pinned.config_dir:
             continue  # the pinned directory is already first; do not offer it twice
         declared.append(seat)
@@ -387,7 +403,10 @@ def mismatches(root: Path | None = None, *, live: bool = False) -> list[str]:
 
 
 def scripted_claude_home() -> Path:
-    return Path(os.environ.get(SCRIPTED_CLAUDE_HOME_ENV) or SCRIPTED_CLAUDE_HOME_DEFAULT).expanduser()
+    home = Path(os.environ.get(SCRIPTED_CLAUDE_HOME_ENV) or SCRIPTED_CLAUDE_HOME_DEFAULT).expanduser()
+    if is_forbidden_seat_dir(home):
+        raise AdminSeatRefused(f"{home} is the team login's directory, which is never a scripted-call seat; refusing")
+    return home
 
 
 def claude_env(*, require: bool = True, live: bool = False) -> dict[str, str]:
@@ -412,14 +431,17 @@ def claude_env(*, require: bool = True, live: bool = False) -> dict[str, str]:
         if require:
             raise PersonalAccountRefused(
                 f"refusing to run `claude` with the operator's personal account. No seat-2 credential at "
-                f"{home}. {how_to_provision(Seat(id='scripted', email=SCRIPTED_CLAUDE_EMAIL, config_dir=home))}"
+                f"{home}. "
+                + how_to_provision(Seat(id='scripted', email=scripted_claude_email(required=False) or '', config_dir=home))
             )
         # Always set, even when unprovisioned, so nothing can silently reach the ambient CLAUDE_CONFIG_DIR.
         return {"CLAUDE_CONFIG_DIR": str(home)}
-    recorded = Seat(id="scripted", email=SCRIPTED_CLAUDE_EMAIL, config_dir=home).recorded_email
-    if recorded is not None and recorded != SCRIPTED_CLAUDE_EMAIL:
+    expected = scripted_claude_email()  # raises SeatIdentityMissing: nothing to verify against is a refusal, not a pass
+    assert expected is not None  # narrowing for the type checker: required=True never returns None
+    recorded = Seat(id="scripted", email=expected, config_dir=home).recorded_email
+    if recorded is not None and recorded != expected:
         raise ScriptedSeatMismatch(
-            f"{home} is logged in as {recorded!r}, not the expected scripted seat-2 account {SCRIPTED_CLAUDE_EMAIL!r} "
+            f"{home} is logged in as {recorded!r}, not the expected scripted seat-2 account {expected!r} "
             f"-- refusing rather than silently spending whoever is actually logged in there"
         )
     if live and recorded is None:
@@ -427,14 +449,14 @@ def claude_env(*, require: bool = True, live: bool = False) -> dict[str, str]:
         # is nothing to confirm the directory is the account we think it is, so refuse rather than pass.
         raise ScriptedSeatMismatch(
             f"{home} has no recorded account email, so a live check cannot be cross-checked against its profile "
-            f"-- refusing; log the expected scripted seat-2 account {SCRIPTED_CLAUDE_EMAIL!r} in there first"
+            f"-- refusing; log the expected scripted seat-2 account {expected!r} in there first"
         )
     if live:
-        actual = live_identity(Seat(id="scripted", email=SCRIPTED_CLAUDE_EMAIL, config_dir=home))
-        if actual != SCRIPTED_CLAUDE_EMAIL:
+        actual = live_identity(Seat(id="scripted", email=expected, config_dir=home))
+        if actual != expected:
             raise ScriptedSeatMismatch(
                 f"`claude auth status` for {home} shows {actual!r}, not the expected scripted seat-2 account "
-                f"{SCRIPTED_CLAUDE_EMAIL!r} -- refusing; this never switches a login"
+                f"{expected!r} -- refusing; this never switches a login"
             )
     return {"CLAUDE_CONFIG_DIR": str(home)}
 

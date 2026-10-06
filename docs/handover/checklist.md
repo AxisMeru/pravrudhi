@@ -19,8 +19,8 @@ These cannot be done by an agent — they need a human with the accounts.
       webhooks — these are separate, and the trigger silently never fires without the app.
 - [ ] **Hand over the six credential files** in `docs/handover/README.md` §4. Transfer out of band, never in a
       chat log or a commit. Each is 0600 and lives outside the repository.
-- [ ] **Decide machine access.** The 5090 (`/home/ss/projects/pravrudhi`) runs the studio engine and the GPU
-      nights; the Mac mini (`192.168.0.201`) is the end-user test bed. Cloud routines do **not** need either —
+- [ ] **Decide machine access.** The 5090 (`<repo>`) runs the studio engine and the GPU
+      nights; the Mac mini (`<mac-mini-ip>`) is the end-user test bed. Cloud routines do **not** need either —
       they work from the repository and the published snapshot. Only give SSH if the team account is to operate
       the hardware rather than review the work.
 - [ ] **Turn on Routines for the organisation** if it is a Team or Enterprise plan: an Owner controls the

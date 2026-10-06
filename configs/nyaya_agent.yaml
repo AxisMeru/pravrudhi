@@ -148,7 +148,7 @@ retention_days: 7
 # IMPORTANT CAVEAT, not fixed by adding these entries alone: the dual-signed element-judge eval (config C,
 # 2026-09-23, checker_pass 109/377, false-prove 0/225) covers EXACTLY the original 14 contract ids --
 # confirmed by reading every item_id in the frozen eval rows
-# (/home/ss/fusion-project/tmp_scratch/lead2/final_c/final_c_rows.jsonl). None of the 12 Wave-1 ids below
+# (<scratch>/lead2/final_c/final_c_rows.jsonl). None of the 12 Wave-1 ids below
 # have ever been measured for false-prove rate. Adding statute text here turns ABSTAIN into real PROOF/
 # DENIAL judging for them with an UNVALIDATED judge -- correct per the letter of "add the missing entry",
 # but a real accuracy-claim gap the operator/Lead-2 should decide on, not something this comment should
@@ -216,7 +216,7 @@ judge_statute_text:
   # BNSS 528, 2026-09-26 (Studio-on-Seat0, per Lead-2's v1-vs-7-category decision): full verbatim text of
   # a single, short, unamended section -- no trimming needed, unlike several Wave-1 entries above. Sourced
   # independently from indiacode.gov.in (act 72592ac7-d084-4545-95d3-0c98dc49fac3, "Sections" page 53 of
-  # 54; see /home/ss/fusion-project/tmp_scratch/lead2/statutes/SOURCES.md entry 5 for the full retrieval
+  # 54; see <scratch>/lead2/statutes/SOURCES.md entry 5 for the full retrieval
   # record: URL, UTC timestamp, sha256) and confirmed byte-identical to the pin-candidate branch's own
   # `sourceText528` in lean/PrabhasaNyaya/Seeds/BNSS528.lean (assistant/trackA/wave3-bnss528, merged into
   # the 37-contract candidate assistant/trackA/wave23-integration).
@@ -231,7 +231,7 @@ judge_statute_text:
   # Whether to model this as one element with the statute's three disjunctive grounds ("v1"), or as the
   # seven State of Haryana v. Bhajan Lal (1990) illustrative quashing categories, was an open question this
   # session resolved against the judgment's own text (see
-  # /home/ss/fusion-project/tmp_scratch/lead2/statutes/bhajanlal1990_para8.raw.txt): the categories are
+  # <scratch>/lead2/statutes/bhajanlal1990_para8.raw.txt): the categories are
   # introduced as given "by way of illustration... though it may not be possible to lay down any precise,
   # clearly defined and sufficiently channelised and inflexible guidelines or rigid formulae" -- the
   # Supreme Court's own disclaimer against treating them as an exhaustive checklist, and they map onto only
@@ -254,7 +254,7 @@ judge_statute_text:
   # ContractAct73_74.lean/ContractAct56.lean; contract56's one recorded edit, a dangling "1" footnote
   # marker with no footnote behind it, is in contract_act.text_edits.json). A FRESH independent fetch of
   # these same three sections from indiacode.gov.in this session (saved at
-  # /home/ss/fusion-project/tmp_scratch/lead2/statutes/contract_act_1872_s56.raw.txt and
+  # <scratch>/lead2/statutes/contract_act_1872_s56.raw.txt and
   # _s73_s74.raw.txt) does NOT byte-match this corpus text or the binary -- cosmetic differences (curly vs
   # straight quotes) are expected across two different renderings of the same Act, but s.73's corpus text
   # also contains what look like genuine PDF-extraction artifacts baked into the body: two footnote

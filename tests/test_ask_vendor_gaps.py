@@ -50,7 +50,7 @@ def seat(tmp_path, monkeypatch):
     home.mkdir()
     (home / ".credentials.json").write_text("{}")
     monkeypatch.setenv("PRAVRUDHI_CLAUDE_CLI_CONFIG_DIR", str(home))
-    monkeypatch.setattr(panel, "_claude_auth_email", lambda env: panel.CLAUDE_CLI_EXPECTED_EMAIL)
+    monkeypatch.setattr(panel, "_claude_auth_email", lambda env: panel.claude_cli_expected_email())
     return home
 
 
@@ -173,7 +173,7 @@ class TestModelCap:
         (v,) = m["vendors"]
         assert v["pinned_model"] == "opus" and v["claude_effort"] == "low"
         assert v["claude_slim_flags"] == list(panel.CLAUDE_CLI_SLIM_FLAGS)
-        assert v["claude_expected_seat_email"] == "sharath.sathish@gmail.com"
+        assert v["claude_expected_seat_email"] == "seat-a@seats.test"
 
 
 class TestSlimFlagsEnforced:
@@ -311,9 +311,9 @@ class TestCostCapture:
 class TestSeatAssert:
     def test_default_dir_is_seat2_claude_loop(self):
         assert Path("~/.config/pravrudhi/claude-loop") == panel.CLAUDE_CLI_CONFIG_DIR_DEFAULT
-        assert panel.CLAUDE_CLI_EXPECTED_EMAIL == "sharath.sathish@gmail.com"
+        assert panel.claude_cli_expected_email() == "seat-a@seats.test"
 
-    @pytest.mark.parametrize("email", ["sharath.ai.colab@gmail.com", "admin@axismeru.com", None])
+    @pytest.mark.parametrize("email", ["seat-b@seats.test", "admin@axismeru.com", None])
     def test_wrong_or_unreadable_seat_refuses_before_the_call(self, seat, monkeypatch, email):
         monkeypatch.setattr(panel, "_claude_auth_email", lambda env: email)
         run = _Run(_env())
@@ -327,10 +327,10 @@ class TestSeatAssert:
 
         def fake_run(cmd, **kw):
             seen["cmd"], seen["env"] = cmd, kw["env"]
-            return subprocess.CompletedProcess(cmd, 0, stdout='{"email": "sharath.sathish@gmail.com"}', stderr="")
+            return subprocess.CompletedProcess(cmd, 0, stdout='{"email": "seat-a@seats.test"}', stderr="")
 
         monkeypatch.setattr(panel.subprocess, "run", fake_run)
-        assert panel._claude_auth_email({"CLAUDE_CONFIG_DIR": "/x/loop"}) == "sharath.sathish@gmail.com"
+        assert panel._claude_auth_email({"CLAUDE_CONFIG_DIR": "/x/loop"}) == "seat-a@seats.test"
         assert seen["cmd"] == ["claude", "auth", "status", "--json"]
         assert seen["env"]["CLAUDE_CONFIG_DIR"] == "/x/loop"
 

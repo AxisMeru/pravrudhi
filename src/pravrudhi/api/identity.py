@@ -7,7 +7,7 @@ question — which account, if any, sent the request — and never substitutes f
 or `optional`-mode engine still requires the local token on POST/PUT/DELETE; a `required`-mode engine
 requires both the local token and a verified bearer token.
 
-Verification mirrors `/home/ss/projects/kundali/backend/app/auth.py`, the operator's proven Supabase JWT
+Verification mirrors the operator's sibling project's `backend/app/auth.py`, the operator's proven Supabase JWT
 verifier, but not its style: JWKS is fetched from `{SUPABASE_URL}/auth/v1/.well-known/jwks.json` and cached
 for an hour, ES256/RS256 tokens are verified against it with audience "authenticated", HS256 tokens fall
 back to `SUPABASE_JWT_SECRET`, and anything else falls back to introspection against `/auth/v1/user`. The

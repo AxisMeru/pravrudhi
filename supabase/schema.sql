@@ -6,7 +6,7 @@
 -- preferences, notes, chat threads, tool grants and the user -> workspace
 -- mapping. No ledger row is ever copied in here.
 --
--- RLS pattern copied from /home/ss/projects/kundali/supabase/schema.sql:
+-- RLS pattern copied from the sibling project's supabase/schema.sql:
 -- a user_id column with `auth.uid() = user_id` policies; `is_admin(uid)` as
 -- a security-definer function, to avoid the self-referential-RLS-recursion
 -- problem a normal (RLS-checked) query against a roles table would hit;

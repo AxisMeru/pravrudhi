@@ -63,7 +63,7 @@ def _claude_seat_is_seat2_unless_testing_the_check(request, monkeypatch):
         return
     from pravrudhi.application import panel
 
-    monkeypatch.setattr(panel, "_claude_auth_email", lambda env: panel.CLAUDE_CLI_EXPECTED_EMAIL)
+    monkeypatch.setattr(panel, "_claude_auth_email", lambda env: panel.claude_cli_expected_email())
 
 
 @pytest.fixture(autouse=True)
@@ -77,3 +77,12 @@ def _stub_usage_gate(request, monkeypatch):
     monkeypatch.setattr(
         usage_gate, "gate_reading", lambda kind, root, now=None: {"vendor_kind": kind, "passed": True, "constructed": True}
     )
+
+
+@pytest.fixture(autouse=True)
+def _seat_identity_is_local_and_fake(monkeypatch: pytest.MonkeyPatch, tmp_path_factory: pytest.TempPathFactory) -> None:
+    """The operator's real seat addresses live in local, uncommitted configuration (`agents/seat_identity.py`), never in the tree.
+    Every test runs with an obvious placeholder identity and an absent local file, so it cannot read the developer's real one."""
+    monkeypatch.setenv("PRAVRUDHI_SEATS_LOCAL", str(tmp_path_factory.getbasetemp() / "no-seats-local.yaml"))
+    monkeypatch.setenv("PRAVRUDHI_SCRIPTED_CLAUDE_EMAIL", "seat-a@seats.test")
+    monkeypatch.delenv("PRAVRUDHI_CLAUDE_CLI_EXPECTED_EMAIL", raising=False)

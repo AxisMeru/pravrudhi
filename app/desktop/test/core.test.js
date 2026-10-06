@@ -25,7 +25,7 @@ test('discovery skips directories and non-executable files on disk', async t => 
   assert.equal(await discoverEngine({env:{PRAVRUDHI_BIN:home},home,saved:good}),good);
 });
 test('Finder launch discovers the Mac release without shell PATH configuration', async () => {
-  const home = '/Users/sharath';
+  const home = '/Users/someone';
   const binary = path.join(home, 'pravrudhi/.pravrudhi/releases/current/.venv/bin/pravrudhi');
   assert.equal(await discoverEngine({home, env:{PATH:'/usr/bin:/bin'}, executable:async p => p === binary}), binary);
 });

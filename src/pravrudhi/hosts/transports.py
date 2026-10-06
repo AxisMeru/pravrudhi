@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 import shlex
 import shutil
@@ -145,7 +146,18 @@ DAILY_CAP_USD = 24.0
 #: structurally incapable of writing anywhere else (the destination is always built from this constant, never
 #: from a caller-supplied path), and any future pod-start/staging helper added to this module must target a
 #: subdirectory of this same root, not `/tmp`.
-CHECKPOINT_SYNC_ROOT = "/home/ss/fusion-project/prabhasa-nyaya/checkpoints"
+CHECKPOINT_SYNC_ROOT_ENV = "PRAVRUDHI_CHECKPOINT_SYNC_ROOT"
+
+
+def checkpoint_sync_root() -> str:
+    """The 5090's checkpoint directory, from LOCAL configuration (`PRAVRUDHI_CHECKPOINT_SYNC_ROOT`), never from
+    the repository; unset refuses."""
+    root = os.environ.get(CHECKPOINT_SYNC_ROOT_ENV, "").strip().rstrip("/")
+    if not root.startswith("/"):
+        raise RunpodError(
+            f"{CHECKPOINT_SYNC_ROOT_ENV} must be set to the checkpoint store's absolute path; refusing to guess one"
+        )
+    return root
 
 _RUN_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 
@@ -459,15 +471,15 @@ def rsync_checkpoint_command(
     *, pod_ssh_target: str, pod_ssh_port: int, remote_checkpoint_dir: str, run_id: str,
 ) -> list[str]:
     """House rule 16: ship each checkpoint off the pod as it is written, to the RTX 5090 via `rsync` over SSH
-    into `CHECKPOINT_SYNC_ROOT/<run_id>/`. Returns the argv; this function never runs it -- the caller decides
+    into `checkpoint_sync_root()/<run_id>/`. Returns the argv; this function never runs it -- the caller decides
     when, exactly as every other command-building helper in this module leaves execution to `Transport.run` or
     its own subprocess call, so a test can assert on the command without touching a network or a real pod."""
     if not _RUN_ID.match(run_id):
         raise RunpodError(
             f"run_id {run_id!r} must be a plain directory-name component (no '/', no '..'); a run id is not "
-            "a path, so the destination stays pinned under CHECKPOINT_SYNC_ROOT regardless of what is passed"
+            "a path, so the destination stays pinned under the checkpoint sync root regardless of what is passed"
         )
-    destination = f"{CHECKPOINT_SYNC_ROOT}/{run_id}/"
+    destination = f"{checkpoint_sync_root()}/{run_id}/"
     return [
         "rsync", "-avz", "--partial",
         "-e", f"ssh -p {pod_ssh_port} -o BatchMode=yes -o StrictHostKeyChecking=accept-new",

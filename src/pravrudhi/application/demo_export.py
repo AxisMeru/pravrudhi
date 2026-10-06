@@ -626,7 +626,7 @@ DROP_PATTERNS: tuple[re.Pattern[str], ...] = (
 )
 #: What replaces a string value that mentions one of the markers above.
 INTERNAL_TEXT_MARKER = "<redacted:internal-text>"
-#: A seat or account name (`sharath.sathish`, `sharath.ai.colab`). The public handle `sharathsphd` is not matched.
+#: A seat or account handle (the operator's seat logins). The public handle `sharathsphd` is not matched.
 PRIVATE_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"sharath\.[a-z]+", re.IGNORECASE),
     re.compile(r"ss-Fusion-\d+", re.IGNORECASE),

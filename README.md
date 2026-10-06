@@ -26,7 +26,7 @@ uv run pravrudhi export ./adapter --root .            # the green adapter, with 
 
 # optional: more machines and coding agents. Neither is required; one machine and no agents is the default.
 uv run pravrudhi hosts list --root .                  # what this machine can do, measured not declared
-uv run pravrudhi hosts add mac-mini --address 10.0.0.5 --user you   # enrol another machine over ssh
+uv run pravrudhi hosts add mac-mini --address 192.0.2.10 --user you   # enrol another machine over ssh
 uv run pravrudhi hosts place train --root .           # which machine takes a training job, and why not the others
 uv run pravrudhi agents --root .                      # which coding agents can run here
 uv run pravrudhi serve --root .                       # HTTP under /api: candidates, observations, inbox, evidence, objectives, chat...

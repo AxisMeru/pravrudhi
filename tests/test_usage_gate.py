@@ -467,7 +467,7 @@ class TestConfig:
             assert cfg[kind]["weekly_max_pct"] == 60 and cfg[kind]["five_hour_max_pct"] == 70
             assert cfg["max_age_min"][kind] > 0
         assert cfg["codex"]["refresh_margin_pp"] == 5 and cfg["codex"]["refresh_min_interval_min"] == 60
-        assert cfg["claude"]["seat_key"] == "Claude-Axismeru"  # seat 2 in claude_usage.json (sharath.sathish)
+        assert cfg["claude"]["seat_key"] == "Claude-Axismeru"  # seat 2 in claude_usage.json (seat-a)
 
 
 class TestAskVendorIsGated:
@@ -477,7 +477,7 @@ class TestAskVendorIsGated:
         home.mkdir()
         (home / ".credentials.json").write_text("{}")
         monkeypatch.setenv("PRAVRUDHI_CLAUDE_CLI_CONFIG_DIR", str(home))
-        monkeypatch.setattr(panel, "_claude_auth_email", lambda env: panel.CLAUDE_CLI_EXPECTED_EMAIL)
+        monkeypatch.setattr(panel, "_claude_auth_email", lambda env: panel.claude_cli_expected_email())
 
     def _stub_run(self, monkeypatch, out):
         calls = []

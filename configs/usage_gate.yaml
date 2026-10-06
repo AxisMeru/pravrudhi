@@ -4,7 +4,7 @@
 #
 # codex: percentages come from the newest `token_count` event in the codex rollout files (`codex_usage.py`). Those
 # only advance when codex runs, so a long-idle codex seat reads as stale and is refused until a reading is refreshed.
-# claude: the seat-2 entry (`Claude-Axismeru` is the collector's name for seat 2, sharath.sathish) of the telemetry
+# claude: the seat-2 entry (`Claude-Axismeru` is the collector's name for seat 2) of the telemetry
 # collector's claude_usage.json (15-minute cadence). Other seats' numbers are never used.
 max_age_min:
   codex: 60

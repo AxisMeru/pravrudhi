@@ -14,16 +14,16 @@ Result: 112 training observations, 46 calibration observations across four night
 
 Uncertainty uses the finite-sample conformal rank ceil((m+1)*0.9) over per-night maximum absolute calibration residuals. With m=4 the requested rank exceeds the available nights, so the honest interval is the full anchored-score support [-1,1]. Coverage is 100%, mean width 2.0: valid as a bound but useless for discrimination. Even with more calibration nights, temporal exchangeability is unproven, so nominal 90% coverage would require empirical checking. This experiment has not demonstrated informative calibrated uncertainty.
 
-Read-scope note: the worktree lacks `research/ledger.jsonl`, so the explicitly named ledger was read at `/home/ss/projects/pravrudhi/research/ledger.jsonl`. The additional unnamed files read were the exact `per_item_scores.jsonl` paths referenced by those observations, under the main checkout's `.pravrudhi/kernel/jobs/`; these are necessary to compute item-anchored labels. They were read only. No kernel source, gates, or unrelated repository directories were surveyed. PWM's root and its named results directory were listed to locate the requested sources.
+Read-scope note: the worktree lacks `research/ledger.jsonl`, so the explicitly named ledger was read at `<repo>/research/ledger.jsonl`. The additional unnamed files read were the exact `per_item_scores.jsonl` paths referenced by those observations, under the main checkout's `.pravrudhi/kernel/jobs/`; these are necessary to compute item-anchored labels. They were read only. No kernel source, gates, or unrelated repository directories were surveyed. PWM's root and its named results directory were listed to locate the requested sources.
 
 Reproduce from this worktree:
 
 ```sh
-PYTHONPATH=src python -m pravrudhi.application.imagine /home/ss/projects/pravrudhi/research/ledger.jsonl --root /home/ss/projects/pravrudhi
+PYTHONPATH=src python -m pravrudhi.application.imagine <repo>/research/ledger.jsonl --root <repo>
 uv run pytest tests/test_imagine.py -q
 ```
 
-In this sandbox the default uv cache is read-only and downloads are unavailable. Validation used the existing environment with `UV_CACHE_DIR=/tmp/imagine-uv-cache UV_PROJECT_ENVIRONMENT=/home/ss/projects/pravrudhi/.venv UV_NO_SYNC=1 PYTHONPATH=src` preceding the exact pytest command: 4 passed. An automatically created worktree `.venv` from the unsuccessful default invocation was removed.
+In this sandbox the default uv cache is read-only and downloads are unavailable. Validation used the existing environment with `UV_CACHE_DIR=/tmp/imagine-uv-cache UV_PROJECT_ENVIRONMENT=<repo>/.venv UV_NO_SYNC=1 PYTHONPATH=src` preceding the exact pytest command: 4 passed. An automatically created worktree `.venv` from the unsuccessful default invocation was removed.
 
 Follow-up: parent-conditioned dynamics, 2026-09-07
 
@@ -97,7 +97,7 @@ four calibration nights still produce full-support intervals of width 2 and
 coverage 1. Neither model has demonstrated useful calibrated intervals.
 
 Validation: six tests pass with
-`UV_CACHE_DIR=/tmp/imagine-uv-cache UV_PROJECT_ENVIRONMENT=/home/ss/projects/pravrudhi/.venv UV_NO_SYNC=1 PYTHONPATH=src uv run pytest tests/test_imagine.py -q`.
+`UV_CACHE_DIR=/tmp/imagine-uv-cache UV_PROJECT_ENVIRONMENT=<repo>/.venv UV_NO_SYNC=1 PYTHONPATH=src uv run pytest tests/test_imagine.py -q`.
 The unqualified command fails before pytest because the default uv cache is
 read-only. Tests cover state conditioning, missing-state fallback, inference
 independence from child outcomes, frozen held-out parent state, provenance and

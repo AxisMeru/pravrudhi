@@ -45,11 +45,11 @@ def test_an_absolute_home_path_does_not_survive_redaction() -> None:
 
 
 def test_a_macos_home_path_does_not_survive_either() -> None:
-    assert "/Users/sharath" not in redact_secrets("ran from /Users/sharath/pravrudhi on the Mac mini")
+    assert "/Users/someone" not in redact_secrets("ran from /Users/someone/pravrudhi on the Mac mini")
 
 
 def test_a_personal_email_does_not_survive_redaction() -> None:
-    out = redact_secrets("author qbz506@york.ac.uk and sharath.sathish@gmail.com")
+    out = redact_secrets("author qbz506@york.ac.uk and someone@gmail.com")
     assert "york.ac.uk" not in out
     assert "gmail.com" not in out
 
@@ -218,7 +218,7 @@ def _root_with_corpus(tmp_path: Path) -> Path:
 
 
 @pytest.mark.parametrize("raw", [
-    "/home/ss/projects/x", "/Users/someone/y", "note to sharath.sathish@gmail.com", "uds:/run/user/1000/cc-socks/1.sock",
+    "/home/ss/projects/x", "/Users/someone/y", "note to someone@gmail.com", "uds:/run/user/1000/cc-socks/1.sock",
     "<cross-session-message>x</cross-session-message>", "a held cross-session message", "set CLAUDE_CONFIG_DIR=/x",
     "seat sharath.ai.colab", "Commit as <admin@axismeru.com>",
 ])
