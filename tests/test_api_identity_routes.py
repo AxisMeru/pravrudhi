@@ -40,6 +40,11 @@ def test_disabled_identity_says_so_and_offers_only_the_local_workspace(tmp_path:
 
 
 def test_a_verified_token_names_its_owner_and_owns_its_workspaces(tmp_path: Path, monkeypatch) -> None:
+    from pravrudhi.api import roles
+
+    # Proves the handler's per-caller workspace behaviour. `/api/workspaces` is closed to members for the legal MVP
+    # (tests/test_mvp_closed_surface.py proves the 403); the gate is lifted here so the handler stays correct if reopened.
+    monkeypatch.setattr(roles, "ADMIN_IN_BOTH_EDITIONS", roles.ADMIN_IN_BOTH_EDITIONS - {"/api/workspaces"})
     monkeypatch.setenv("PRAVRUDHI_AUTH", "optional")
     monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
     monkeypatch.setenv("SUPABASE_JWT_SECRET", "s3cret-long-enough-for-hs256-testing-purposes")
@@ -144,6 +149,11 @@ def test_an_anonymous_caller_in_optional_mode_is_refused_the_engine_root_workspa
     in `optional` mode, with authentication switched on but no token sent, a genuinely anonymous caller (not
     the operator: `role_of(None)` is `USER` here, only `disabled` mode makes it `ADMIN`) was handed the
     engine's own root path. Found by building route_scope.py's route-shape detector, then reading the code."""
+    from pravrudhi.api import roles
+
+    # Proves the handler's per-caller workspace behaviour. `/api/workspaces` is closed to members for the legal MVP
+    # (tests/test_mvp_closed_surface.py proves the 403); the gate is lifted here so the handler stays correct if reopened.
+    monkeypatch.setattr(roles, "ADMIN_IN_BOTH_EDITIONS", roles.ADMIN_IN_BOTH_EDITIONS - {"/api/workspaces"})
     monkeypatch.setenv("PRAVRUDHI_AUTH", "optional")
     monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
     monkeypatch.delenv("PRAVRUDHI_ADMINS", raising=False)
