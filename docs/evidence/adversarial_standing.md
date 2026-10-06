@@ -108,7 +108,10 @@ Silence is what's actually wrong here, not the absence per se.
   (`npx playwright screenshot --viewport-size=1440,1400 --wait-for-timeout=5000`).
 - The root page is not a static stub: it renders live objective numbers pulled from the ledger
   (`humaneval+ pass@1 0.598 → 0.646`, `gsm8k 0.409 → 0.490`, etc., matching the local `/progress`
-  page and the ledger rows referenced there) and a "Recent commits" list of 12+ real, dated commit
+  page and the ledger rows referenced there; **update, 6 Oct 2026 (#332):** `0.598` is the night-3 base (98 of 164, ledger
+  seq 1838/1844) and `0.646` the night-3 `harness:combo` (106 of 164); the paired per-item test gives 15 combo-only vs 7
+  base-only problems, exact McNemar p = 0.134, so the difference is not separated by the paired test, and the page now says
+  so) and a "Recent commits" list of 12+ real, dated commit
   messages, auto-generated from the actual git history — this is a genuine continuously-updating
   changelog, not hand-written copy.
 - `/app/` on Pages serves a real "Recorded demo" build of the Improve page, explicitly labeled
