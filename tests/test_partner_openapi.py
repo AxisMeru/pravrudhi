@@ -146,3 +146,13 @@ def test_a_wrong_documented_example_is_caught() -> None:
 
 def test_tenancy_import_is_used() -> None:
     assert tenancy.API_KEY_HEADER.lower() == "x-pravrudhi-api-key"
+
+
+def test_the_contract_states_the_per_fact_limit_and_the_error_responses_the_docs_list() -> None:
+    doc = json.loads((ROOT / CONTRACT_PATH).read_text())
+    req = doc["components"]["schemas"]["AnalyseFactsRequest"]["properties"]["facts"]
+    assert req["items"]["maxLength"] == 4000 and req["maxItems"] == 8
+    paths = doc["paths"]
+    assert {"401", "429", "503"} <= set(paths["/api/v1/analyse-facts"]["post"]["responses"])
+    assert {"401", "429", "503"} <= set(paths["/api/v1/analyse-facts/jobs"]["post"]["responses"])
+    assert {"401", "404", "503"} <= set(paths["/api/v1/analyse-facts/jobs/{job_id}"]["get"]["responses"])
