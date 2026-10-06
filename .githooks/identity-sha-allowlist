@@ -1,0 +1,2 @@
+# Full commit shas exempt from the push-time identity check (known legacy offenders), one per line, each with a reason comment above it.
+# Empty on purpose: the check only sees commits not yet on any remote, so published history needs no entries.
