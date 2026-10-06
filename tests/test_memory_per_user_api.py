@@ -32,6 +32,12 @@ def _client(tmp_path: Path, monkeypatch) -> tuple[TestClient, Path]:
     monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
     monkeypatch.setenv("SUPABASE_JWT_SECRET", _SECRET)
     monkeypatch.delenv("SUPABASE_SERVICE_KEY", raising=False)  # the standing rule: never issued
+    from pravrudhi.api import roles
+
+    # These tests prove the HANDLERS scope per caller. The routes are closed to members for the legal MVP (#525 mode B,
+    # tests/test_mvp_closed_surface.py proves the 403), so the gate is lifted here on purpose: if a route is ever
+    # reopened, its per-caller isolation must already hold.
+    monkeypatch.setattr(roles, "ADMIN_IN_BOTH_EDITIONS", roles.ADMIN_IN_BOTH_EDITIONS - roles.LEGAL_MVP_CLOSED)
     monkeypatch.delenv("VERCEL", raising=False)
     monkeypatch.delenv("RENDER", raising=False)
     root = tmp_path / "engine-root"

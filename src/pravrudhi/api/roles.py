@@ -137,7 +137,7 @@ ADMIN_ONLY: frozenset[str] = frozenset({
 # ADMIN_ONLY, which a product install does not have at all (404), these exist in both editions and answer a
 # non-admin 403 (and an anonymous caller 401 where identity is required). With authentication off the local caller
 # is the operator by construction (`role_of`), so a single-operator install is unaffected.
-ADMIN_IN_BOTH_EDITIONS: frozenset[str] = frozenset({
+_ADMIN_IN_BOTH_EDITIONS_BASE: frozenset[str] = frozenset({
     # The engine's local write token: reading it let any signed-in caller satisfy the local write guard.
     "/api/app-token",
     # Starting, stopping and watching a night spawns `python -m pravrudhi ...` on the engine host.
@@ -145,6 +145,31 @@ ADMIN_IN_BOTH_EDITIONS: frozenset[str] = frozenset({
     # Applying or rolling back an engine update replaces the running engine.
     "/api/update/apply", "/api/update/rollback",
 })
+
+LEGAL_MVP_CLOSED: frozenset[str] = frozenset({
+    # Legal design-partner MVP (Lead-2 decision on #525, mode B, 6 Oct 2026): a surface the product hides must be CLOSED,
+    # not only absent from the navigation (the app serves every route to anyone who types the URL). A signed-in member
+    # gets 403, an anonymous caller 401, the operator passes. What stays member-facing is the legal surface: Matters
+    # (/api/v1/analyse-facts and its jobs and status), the statute corpus, the contract list Matters needs, org keys and
+    # usage (self-gated by `tenancy.require_tenancy_admin`), and the plain health, identity and workspace routes.
+    # Provider keys (BYOK):
+    "/api/providers", "/api/providers/{provider_id}/key",
+    # Chat:
+    "/api/chat", "/api/chat/stream", "/api/chat/threads", "/api/chat/threads/{thread_id}",
+    # Memory:
+    "/api/memory", "/api/memory/notes", "/api/memory/notes/{note_id}",
+    # Objectives and their plans (the dispatch of a plan to host agents was already operator-only for writes):
+    "/api/objectives", "/api/objectives/plan-preview", "/api/objectives/{oid}", "/api/objectives/{oid}/loom",
+    "/api/objectives/{oid}/plan", "/api/objectives/{oid}/subagents",
+    # Models, recipes, tools, and the vendor panel behind the vendor picker:
+    "/api/models", "/api/recipes", "/api/tools", "/api/panel/vendors",
+    # Nyaya's free-form multi-vendor Ask, the "Audit an answer" tab, the vendor list and the manual contract audit.
+    # (`/api/nyaya/registry/contracts` stays open: Matters lists its contracts from it and it is anonymous-demo capable.)
+    "/api/nyaya/ask", "/api/nyaya/asks", "/api/nyaya/audit", "/api/nyaya/vendors",
+    "/api/nyaya/registry/{contract_id}/elements", "/api/nyaya/registry/check",
+})
+
+ADMIN_IN_BOTH_EDITIONS: frozenset[str] = _ADMIN_IN_BOTH_EDITIONS_BASE | LEGAL_MVP_CLOSED
 
 # A top-level route (not one inside an included router) cannot have its dependant rebuilt after the fact, so the
 # one such route in `ADMIN_IN_BOTH_EDITIONS` declares the dependency where it is registered.
@@ -154,22 +179,18 @@ ADMIN_GATED_AT_REGISTRATION: frozenset[str] = frozenset({"/api/app-token"})
 # methods below the safe set are operator-only; `GET /api/update/config` stays user-facing.
 ADMIN_WRITES_IN_BOTH_EDITIONS: frozenset[str] = frozenset({
     "/api/update/config",
-    # Dispatching a plan builds and runs host coding agents (codex, claude-code, orca, opencode, hosted) under the
-    # engine process's own CLI logins; its GET (preview and past runs) stays the user's.
-    "/api/objectives/{oid}/subagents",
 })
 SAFE_METHODS: frozenset[str] = frozenset({"GET", "HEAD", "OPTIONS"})
 
 # What the product is. A user's own goals, workspaces, conversation, memory, keys and models, plus the plain
 # facts about the engine they are running and whether an update is waiting for them.
 USER_FACING: frozenset[str] = frozenset({
-    "/api/chat", "/api/chat/stream", "/api/chat/threads", "/api/chat/threads/{thread_id}",
-    # prabhasa-nyaya: a legal question answered from sources and checked. The product's first domain surface.
-    "/api/nyaya/ask", "/api/nyaya/audit", "/api/nyaya/corpus", "/api/nyaya/vendors", "/api/nyaya/asks",
-    # The twenty-one BNS/IPC registry contracts (Track A T5b, minus BNSS 187 excluded contracts) --
-    # a manual element-audit surface, distinct from the citation-shaped checker="lean" path above;
-    # see application/nyaya.py's registry_check.
-    "/api/nyaya/registry/contracts", "/api/nyaya/registry/{contract_id}/elements", "/api/nyaya/registry/check",
+    # prabhasa-nyaya: the statute corpus the engine reads (the legal surface the product keeps). The multi-vendor Ask,
+    # the audit, the vendor list and the manual contract audit moved to ADMIN_IN_BOTH_EDITIONS above (#525, mode B).
+    "/api/nyaya/corpus",
+    # The registry's contract LIST stays open: Matters (the product's main surface) lists its contracts from it, and it is
+    # one of the two routes a deployment may open to anonymous demo callers (identity.DEMO_ANON_CAPABLE).
+    "/api/nyaya/registry/contracts",
     # L4 partner API (LEG-PLAN-2026-09-23): the agentic loop over the same registry contracts, facts in.
     "/api/v1/analyse-facts", "/api/v1/status",
     "/api/v1/analyse-facts/jobs", "/api/v1/analyse-facts/jobs/{job_id}", "/api/v1/audit",
@@ -188,21 +209,10 @@ USER_FACING: frozenset[str] = frozenset({
     # RunPod serverless load-balancer liveness (outside /api; no identity asked, carries no state).
     "/ping",
     "/api/me",
-    "/api/memory", "/api/memory/notes", "/api/memory/notes/{note_id}",
     "/api/messaging/telegram",
     "/api/notifications", "/api/notifications/read",
-    "/api/objectives", "/api/objectives/plan-preview", "/api/objectives/{oid}",
-    "/api/objectives/{oid}/loom", "/api/objectives/{oid}/plan", "/api/objectives/{oid}/subagents",
-    # Not operator-only: comparing the models you can reach is what a user of the product does when they
-    # build their own verification layer on one. See the route's own docstring.
-    "/api/panel/vendors",
-    "/api/providers", "/api/providers/{provider_id}/key",
-    "/api/recipes",
-    "/api/tools",
     "/api/update", "/api/update/config", "/api/update/last-check",
     "/api/workspaces",
-    # What this project's loop produced, read from the project the caller is asking about.
-    "/api/models",
 })
 
 
@@ -266,14 +276,16 @@ async def admin_dependency(request: Request) -> None:
 
 
 __all__ = [
-    "ACCESS_VALUES", "ADMIN", "ADMIN_ENV", "ADMIN_IN_BOTH_EDITIONS", "ADMIN_ONLY", "ADMIN_WRITES_IN_BOTH_EDITIONS",
+    "ACCESS_VALUES", "ADMIN", "ADMIN_ENV", "ADMIN_IN_BOTH_EDITIONS", "LEGAL_MVP_CLOSED", "ADMIN_ONLY",
+    "ADMIN_WRITES_IN_BOTH_EDITIONS",
     "USER", "USER_FACING", "Role",
     "access_for", "admin_ids", "gate", "is_admin", "require_admin", "role_of",
 ]
 
 
 STUDIO_SCHEMA_PATHS: frozenset[str] = frozenset({"/openapi.json", "/docs", "/docs/oauth2-redirect", "/redoc"})
-"""The generated API schema and its docs pages: they describe every route, so on Studio they are the operator's too."""
+"""The generated API schema and its docs pages: they describe every route, so they are the operator's in every edition
+(an anonymous caller is refused 401 and a signed-in non-admin 403 whenever authentication is on)."""
 
 
 class RequireStudioAdmin:
@@ -303,9 +315,11 @@ class RequireStudioAdmin:
         self.app = app
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] in ("http", "websocket") and _studio_edition() and auth_mode() is not AuthMode.DISABLED:
+        if scope["type"] in ("http", "websocket") and auth_mode() is not AuthMode.DISABLED:
             path: str = scope.get("path", "")
-            gated = path.startswith("/api/") or path in STUDIO_SCHEMA_PATHS
+            # The schema and docs pages describe every route, so they are the operator's in EVERY edition (#525 mode B,
+            # C11): a product install used to serve them to anyone. The rest of /api is gated only on Studio.
+            gated = path in STUDIO_SCHEMA_PATHS or (_studio_edition() and path.startswith("/api/"))
             if gated and path not in PUBLIC_PATHS and scope.get("method") != "OPTIONS":
                 refusal = _studio_refusal(HTTPConnection(scope))
                 if refusal is not None:
