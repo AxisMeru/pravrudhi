@@ -40,3 +40,5 @@ opus_m4:
     m4-phase1-config-c: 500
     # #306 head-to-head, arm B-opus (Lead-2, 6 Oct 2026, pre-results): 625 effective scored calls (cap 626 less the refresh spare slot) + the 25-call probe.
     m4-306-b-opus: 650
+    # #306 Amendment 5 (PR #568, signed R1 + R2), arm G-opus (SECONDARY): 127 scored calls (item cap) + the 25-call probe = 152. Lead-2 ratified the M4 Opus exception for G-opus only, at this cap (6 Oct 2026).
+    m4-306-g-opus: 152
