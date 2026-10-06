@@ -220,7 +220,8 @@ def test_the_stream_route_turns_an_unreachable_endpoint_into_an_error_event(tmp_
     assert resp.status_code == 200
     events = _sse_events(resp)
     assert events[-1]["type"] == "error"
-    assert "test://nowhere" in events[-1]["error"]
+    # #318: a stable code and no exception text
+    assert events[-1]["error"] == "chat_endpoint_unreachable" and "test://nowhere" not in resp.text
     assert FileMemoryStore(tmp_path).threads() == []
 
 

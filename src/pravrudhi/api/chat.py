@@ -13,16 +13,18 @@ persistence and the response contract, can be exercised against a fake model wit
 from __future__ import annotations
 
 import json
+import logging
 import os
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
 from pravrudhi.api.chat_limits import ChatLimiter
+from pravrudhi.api.errors import CHAT_ENDPOINT_UNREACHABLE, MESSAGES, coded_503
 from pravrudhi.api.identity import AuthMode, CurrentUserDep, User, auth_mode
 from pravrudhi.api.roles import is_admin
 from pravrudhi.api.schemas import ChatResponse, ChatThreadDetailResponse, ChatThreadsResponse
@@ -83,7 +85,9 @@ def build_chat_router(root: Path, complete: Complete | None = None, limiter: Cha
             raise HTTPException(400, str(exc)) from exc
 
     @router.post("/chat", response_model=ChatResponse)
-    async def chat_ep(req: ChatRequest, request: Request, user: User | None = CurrentUserDep) -> dict[str, Any]:
+    async def chat_ep(
+        req: ChatRequest, request: Request, user: User | None = CurrentUserDep
+    ) -> dict[str, Any] | JSONResponse:
         """Answer one turn. Any number the turn's tools did not return is stripped and reported under
         `refusals`, so a reply is either traceable to the ledger or visibly missing a sentence."""
         if not req.message.strip():
@@ -92,8 +96,9 @@ def build_chat_router(root: Path, complete: Complete | None = None, limiter: Cha
         store = _memory(user)
         try:
             outcome = converse(workspace, req.message, thread_id=req.thread_id, user=user, complete=complete, store=store)
-        except ChatEndpointUnreachable as exc:
-            raise HTTPException(503, str(exc)) from exc
+        except ChatEndpointUnreachable:
+            logging.getLogger(__name__).warning("chat endpoint unreachable", exc_info=True)  # server-side only (#318)
+            return coded_503(CHAT_ENDPOINT_UNREACHABLE)
         return outcome.to_dict()
 
     @router.post("/chat/stream", response_model=ChatResponse)
@@ -118,8 +123,10 @@ def build_chat_router(root: Path, complete: Complete | None = None, limiter: Cha
                 for ev in converse_stream(workspace, req.message, thread_id=req.thread_id, user=user,
                                           complete=complete, store=store):
                     yield f"data: {json.dumps(ev)}\n\n"
-            except ChatEndpointUnreachable as exc:
-                yield f"data: {json.dumps({'type': 'error', 'error': str(exc)})}\n\n"
+            except ChatEndpointUnreachable:
+                logging.getLogger(__name__).warning("chat endpoint unreachable", exc_info=True)  # server-side only (#318)
+                err = {"type": "error", "error": CHAT_ENDPOINT_UNREACHABLE, "detail": MESSAGES[CHAT_ENDPOINT_UNREACHABLE]}
+                yield f"data: {json.dumps(err)}\n\n"
 
         return StreamingResponse(events(), media_type="text/event-stream")
 
