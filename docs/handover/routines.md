@@ -17,7 +17,13 @@ Two things to know before creating them:
 
 ---
 
-## 1. Stall watch — every 2 hours
+## 1. Stall watch — every 2 hours (RETIRED 6 Oct 2026)
+
+> **RETIRED 6 Oct 2026 (demo allowlist, pravrudhi#306).** The published `demo.json` now carries only the product-edition
+> sections (`recorded`, `version`, `engine`, `status`, `models`, `external`, `nights`, `runs`, `featured_run`, `objectives`,
+> `recipes`, `plans`). `heartbeat` and `swarm.roster` are RSI-era Studio surfaces: stood down since 22 Sep and closed for the product by
+> prabhasa-nyaya#525. Run as written after the next regeneration, this routine would report a false NO-GO on a section that
+> is no longer published on purpose. The text below is kept as the record of what it checked, not deleted.
 
 The single most valuable one. This project's characteristic failure is a loop that reports success while doing
 nothing, and it has happened seven distinct ways.
@@ -50,7 +56,13 @@ line. Do not repeat findings that are already recorded as known-open in docs/han
 
 ---
 
-## 2. Nightly review of what the loops produced — weeknights
+## 2. Nightly review of what the loops produced — weeknights (RETIRED 6 Oct 2026)
+
+> **RETIRED 6 Oct 2026 (demo allowlist, pravrudhi#306).** The published `demo.json` now carries only the product-edition
+> sections (`recorded`, `version`, `engine`, `status`, `models`, `external`, `nights`, `runs`, `featured_run`, `objectives`,
+> `recipes`, `plans`). `candidates` and `agent_trace` are RSI-era Studio surfaces: stood down since 22 Sep and closed for the product by
+> prabhasa-nyaya#525. Run as written after the next regeneration, this routine would report a false NO-GO on a section that
+> is no longer published on purpose. The text below is kept as the record of what it checked, not deleted.
 
 **Name**: `pravrudhi nightly review`
 **Schedule**: weeknights (`47 7 * * 1-5` — after a night would have finished)
@@ -103,7 +115,12 @@ do not restate the diff.
 
 ---
 
-## 4. Deploy verification — API trigger
+## 4. Deploy verification — API trigger (PARTLY RETIRED 6 Oct 2026)
+
+> **Partly retired 6 Oct 2026 (demo allowlist, pravrudhi#306).** Still valid: the `recorded` freshness and non-empty `nights` checks, and the
+> home page. RETIRED: the `swarm` and `trace` pages, and the `swarm.roster` and `agent_trace`
+> checks (RSI-era Studio surfaces, stood down since 22 Sep, closed for the product by prabhasa-nyaya#525); the published
+> file no longer carries those sections, so a NO-GO on them would be false. The prompt below is kept as written.
 
 Wire this to the publish loop or a release script so a bad deploy is caught by something other than a person
 looking.
