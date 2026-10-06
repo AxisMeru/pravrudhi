@@ -1353,7 +1353,111 @@ def test_rule_text_fields_are_absent_unless_expose_rule_text_is_on(tmp_path: Pat
     assert on["rule_text"] and on["rule_text_source"] == "lean_describe_source" and "judge_rule_text" in on
 
 
-def test_the_shipped_config_has_expose_rule_text_off() -> None:
+def test_the_shipped_config_exposes_rule_text_for_analysis_responses() -> None:
+    """#506 decided (6 Oct): provision text may appear inside an analysis response that carries our element analysis."""
     from pravrudhi.application.nyaya_agent import load_agent_config
 
-    assert load_agent_config(Path(__file__).resolve().parent.parent).expose_rule_text is False
+    assert load_agent_config(Path(__file__).resolve().parent.parent).expose_rule_text is True
+
+
+RULE_NOTICE = "Unofficial text; the official version on India Code prevails."  # nyaya.STATUTE_NOTICE, the one signed notice
+
+
+
+def _rule_text_client(tmp_path: Path, *, expose: bool, **kw: Any) -> TestClient:
+    import dataclasses
+
+    agent = _agent(tmp_path, _proof_script())
+    agent.config = dataclasses.replace(agent.config, expose_rule_text=expose)
+    app = FastAPI()
+    app.include_router(build_partner_router(tmp_path, agent_factory=lambda _root: agent, config=_NO_LIMIT_CONFIG, **kw))
+    return TestClient(app)
+
+
+def test_displayed_provision_text_carries_the_notice_and_an_india_code_source_url_beside_the_analysis(tmp_path: Path) -> None:
+    contract = _rule_text_client(tmp_path, expose=True).post("/api/v1/analyse-facts", json=_req()).json()["contracts"][0]
+    assert contract["rule_text"] and contract["elements"], "the text only ever comes with our element analysis"
+    assert contract["rule_text_notice"] == RULE_NOTICE
+    assert contract["rule_text_source_url"].startswith(("https://www.indiacode.nic.in", "https://www.indiacode.gov.in"))
+
+
+def test_the_notice_and_url_are_present_exactly_when_provision_text_is_displayed(tmp_path: Path) -> None:
+    off = _rule_text_client(tmp_path, expose=False).post("/api/v1/analyse-facts", json=_req()).json()["contracts"][0]
+    assert not any(k in off for k in ("rule_text", "judge_rule_text", "rule_text_notice", "rule_text_source_url"))
+
+
+def test_a_refused_request_carries_no_provision_text(tmp_path: Path) -> None:
+    c = _rule_text_client(tmp_path, expose=True)
+    for body in (_req(facts=["   "]), _req(contract_ids=["no-such-contract"])):
+        resp = c.post("/api/v1/analyse-facts", json=body)
+        assert resp.status_code in (422, 400) and "rule_text" not in resp.text and RULE_NOTICE not in resp.text
+
+
+def test_job_result_provision_text_carries_the_notice_and_url(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    import dataclasses
+
+    from pravrudhi.api import identity
+    from tests.test_partner_jobs import JOBS, H, _inline
+    from tests.test_partner_key_metering import ADMIN, FakeClock, _key
+    from tests.test_partner_key_metering import _req as _meter_req
+
+    monkeypatch.setenv("PRAVRUDHI_ADMINS", ADMIN.id)
+    agent = _agent(tmp_path, _proof_script())
+    agent.config = dataclasses.replace(agent.config, expose_rule_text=True)
+    app = FastAPI()
+    app.include_router(
+        build_partner_router(
+            tmp_path, agent_factory=lambda _r: agent, config=_NO_LIMIT_CONFIG, job_executor=_inline, rate_clock=FakeClock()
+        )
+    )
+    app.dependency_overrides[identity.current_user] = lambda: ADMIN
+    c = TestClient(app)
+    secret = _key(c, "acme")
+    jid = c.post(JOBS, json=_meter_req(), headers={H: secret}).json()["job_id"]
+    result = c.get(f"{JOBS}/{jid}", headers={H: secret}).json()["result"]["contracts"][0]
+    assert result["rule_text"] and result["rule_text_notice"] == RULE_NOTICE and result["rule_text_source_url"]
+
+
+def test_present_exactly_when_provision_text_is_shown_with_the_flag_on(tmp_path: Path) -> None:
+    from pravrudhi.api.partner import _apply_rule_text_policy
+    from pravrudhi.application import nyaya
+
+    body = {
+        "contracts": [
+            {"contract_id": "a", "elements": [{"e": 1}], "rule_text": "T", "judge_rule_text": None},
+            {"contract_id": "b", "elements": [{"e": 1}], "rule_text": None, "judge_rule_text": "J"},
+            {"contract_id": "c", "elements": [{"e": 1}], "rule_text": None, "judge_rule_text": None},
+        ]
+    }
+    _apply_rule_text_policy(body, True)
+    a, b, c = body["contracts"]
+    assert RULE_NOTICE == nyaya.STATUTE_NOTICE
+    assert a["rule_text_notice"] == RULE_NOTICE and a["rule_text_source_url"].startswith("https://")
+    assert b["rule_text_notice"] == RULE_NOTICE and b["rule_text_source_url"].startswith("https://")
+    assert "rule_text_notice" not in c and "rule_text_source_url" not in c  # no text shown, so neither is added
+
+
+def test_a_contract_with_no_element_results_carries_no_provision_text_notice_or_url_even_with_the_flag_on() -> None:
+    from pravrudhi.api.partner import _apply_rule_text_policy
+
+    body = {
+        "contracts": [
+            {
+                "contract_id": "no_training_statute_text", "elements": [], "rule_text": "T", "judge_rule_text": "J",
+                "rule_text_source": "lean_describe_source",
+            }
+        ]
+    }
+    _apply_rule_text_policy(body, True)
+    c = body["contracts"][0]
+    shown = ("rule_text", "judge_rule_text", "rule_text_source", "rule_text_notice", "rule_text_source_url")
+    assert not any(k in c for k in shown)
+
+
+def test_the_flag_off_withholds_everything_even_for_a_contract_with_elements() -> None:
+    from pravrudhi.api.partner import _apply_rule_text_policy
+
+    body = {"contracts": [{"contract_id": "a", "elements": [{"e": 1}], "rule_text": "T", "judge_rule_text": "J"}]}
+    _apply_rule_text_policy(body, False)
+    c = body["contracts"][0]
+    assert not any(k in c for k in ("rule_text", "judge_rule_text", "rule_text_notice", "rule_text_source_url"))
