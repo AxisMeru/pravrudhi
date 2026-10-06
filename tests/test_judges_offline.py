@@ -33,6 +33,27 @@ def _health(
     }
 
 
+def _with(workers: dict[str, Any] | None = None, jobs: dict[str, Any] | None = None) -> dict[str, Any]:
+    h = _health()
+    h["workers"].update(workers or {})
+    h["jobs"].update(jobs or {})
+    return h
+
+
+def _renamed(old: str, new: str) -> dict[str, Any]:
+    h = _health()
+    for block in (h["workers"], h["jobs"]):
+        if old in block:
+            block[new] = block.pop(old)
+    return h
+
+
+def test_a_real_parked_body_with_extra_fields_is_parked() -> None:
+    real = {"jobs": {"completed": 8484, "failed": 1, "inProgress": 0, "inQueue": 0, "retried": 0},
+            "workers": {"idle": 0, "initializing": 0, "ready": 0, "running": 0, "throttled": 0, "unhealthy": 0}}
+    assert jes.classify(real).status == "parked"
+
+
 @pytest.mark.parametrize(
     ("health", "want"),
     [
@@ -45,11 +66,21 @@ def _health(
         (_health(ready=1), "ready"),
         (_health(idle=1), "ready"),
         (_health(running=2), "ready"),
+        ({}, "unknown"),  # an empty body is not "all zero"
+        ({"jobs": {}, "workers": {}}, "unknown"),
         ({"jobs": {}}, "unknown"),
         ({"workers": {"ready": 0}}, "unknown"),
         (None, "unknown"),
         ({"jobs": {"inQueue": "x"}, "workers": {"ready": 0}}, "unknown"),
         ({"jobs": {"inQueue": -1}, "workers": {"ready": 0}}, "unknown"),
+        ({"jobs": {"inQueue": 0, "inProgress": 0}, "workers": {"ready": 0}}, "unknown"),  # missing worker keys
+        (_renamed("ready", "readyWorkers"), "unknown"),
+        (_renamed("inQueue", "queued"), "unknown"),
+        (_with(workers={"idle": 1.5}), "unknown"),  # a non-int count
+        (_with(workers={"idle": True}), "unknown"),  # bool is not a count
+        (_with(workers={"throttled": -1}), "unknown"),
+        (_with(workers={"unhealthy": None}), "unknown"),
+        (_with(workers={"initializing": "0"}), "unknown"),
     ],
 )
 def test_classify(health: Any, want: str) -> None:

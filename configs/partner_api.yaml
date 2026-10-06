@@ -89,6 +89,7 @@ audit_retention_s: 7776000
 # at once when a needed judge is parked (no worker, nothing queued or in progress), so nothing is queued for the
 # next warm. A failed or unreadable check proceeds as before. Local (non-RunPod) judges are never checked.
 # LIMIT: an idle scale-from-zero endpoint (min 0, max above 0) looks the same on /health, so set this to false if a
-# judge is ever put back on scale-from-zero.
+# judge is ever put back on scale-from-zero. WARM WINDOW: an authorised warm sets min >= 1 (a worker is then up and the
+# check reads ready) or turns this check off for that window, then waits about 5 s (judge_health_ttl_s) for the cache.
 judge_health_check: true
 judge_health_ttl_s: 5

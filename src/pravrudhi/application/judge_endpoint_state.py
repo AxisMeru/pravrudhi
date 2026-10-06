@@ -16,6 +16,10 @@ Known limit: an endpoint that is scaled to zero but ALLOWED to scale (min 0, max
 min 0 / max 0; if a judge is ever put back on scale-from-zero, this check must be turned off
 (`judge_health_check: false`) or replaced by a read of the endpoint's configured max (deferred option (a)).
 
+Warm window: `judge_health_check` is true in the shipped partner_api.yaml, so an authorised warm of a parked judge
+sets min >= 1 (a worker is then up and the check reads `ready`) or turns the check off for that window, then waits
+about 5 s (`judge_health_ttl_s`) for the cached reading to expire.
+
 Failure mode (decided, #311): the engine never claims "offline" it has not read. A health call that fails, times out,
 returns something unparseable, or lacks the workers or jobs counts all give `unknown`, and `unknown` PROCEEDS exactly
 as before this check existed (the existing `judge_unavailable` / `judges_warming` path then answers if the judge
@@ -72,27 +76,30 @@ def _int(v: Any) -> int | None:
     return v if isinstance(v, int) and not isinstance(v, bool) and v >= 0 else None
 
 
+WORKER_COUNTS = ("ready", "idle", "running", "initializing", "throttled", "unhealthy")
+JOB_COUNTS = ("inQueue", "inProgress")
+
+
 def classify(health: Mapping[str, Any] | None) -> EndpointState:
-    """Pure: the endpoint's state from its /health body alone. Unreadable input is `unknown`."""
+    """Pure: the endpoint's state from its /health body alone.
+
+    Every worker count and both job counts must be PRESENT as non-negative integers, else the answer is `unknown`
+    (an empty body or a renamed field must never read as "everything is zero, so parked"). PARKED needs all of them
+    zero; any other nonzero count (throttled and unhealthy included) means the endpoint is up or trying to be, so
+    the call proceeds."""
     workers = (health or {}).get("workers")
     jobs = (health or {}).get("jobs")
     if not isinstance(workers, Mapping) or not isinstance(jobs, Mapping):
         return EndpointState("unknown", "health lacks a workers or jobs block")
-    w = {k: _int(workers.get(k, 0)) for k in ("ready", "idle", "running", "initializing", "throttled", "unhealthy")}
-    q = {k: _int(jobs.get(k, 0)) for k in ("inQueue", "inProgress")}
+    w = {k: _int(workers.get(k)) if k in workers else None for k in WORKER_COUNTS}
+    q = {k: _int(jobs.get(k)) if k in jobs else None for k in JOB_COUNTS}
     if any(v is None for v in (*w.values(), *q.values())):
-        return EndpointState("unknown", "a count is not a non-negative integer")
+        return EndpointState("unknown", "a worker or job count is missing or not a non-negative integer")
     up = (w["ready"] or 0) + (w["idle"] or 0) + (w["running"] or 0)
     if up > 0:
         return EndpointState("ready", f"{up} worker(s) up")
-    if (w["initializing"] or 0) > 0:
-        return EndpointState("warming", "a worker is initializing")
-    # A throttled worker is waiting for capacity and an unhealthy one is being replaced: both mean the endpoint is
-    # trying to serve, so neither is "parked" (decided, #311); the call proceeds.
-    if (w["throttled"] or 0) > 0 or (w["unhealthy"] or 0) > 0:
-        return EndpointState("warming", "a worker is throttled or unhealthy")
-    if (q["inQueue"] or 0) > 0 or (q["inProgress"] or 0) > 0:
-        return EndpointState("warming", "no worker up, but work is queued or in progress")
+    if any((v or 0) > 0 for v in (*w.values(), *q.values())):
+        return EndpointState("warming", "a worker is initializing, throttled or unhealthy, or work is queued or in progress")
     return EndpointState("parked", "no worker, nothing queued or in progress")
 
 
