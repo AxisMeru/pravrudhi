@@ -64,6 +64,7 @@ def test_the_published_text_parses_and_has_no_studio_section(bundle: dict) -> No
 
 @pytest.mark.parametrize("value", [
     "Seat 1 reviewed this", "seat3 account", "run on seat-0", "Track A owns it", "Track-B finding", "Track C's draft",
+    "tracka said", "the track-a lane", "TRACK B", "Track_c", "TrackA", "trackb finding",
     "the colab login", "Colab seat", "operator directive: stop", "the operator's decision", "Operator instruction 5",
 ])
 def test_a_seat_track_colab_or_operator_directive_value_is_dropped_whole(value: str) -> None:
@@ -73,7 +74,8 @@ def test_a_seat_track_colab_or_operator_directive_value_is_dropped_whole(value: 
 
 @pytest.mark.parametrize("value", [
     "to track a candidate over nights", "an elaborate setup", "seating plan", "collaborate on it", "the operator console",
-    "a track record", "tracked", "Track record of the benchmark",
+    "a track record", "tracked", "Track record of the benchmark", "a trackbar widget", "trackage rights", "to track a run",
+    "track b-tree growth",
 ])
 def test_ordinary_prose_is_not_swept_up(value: str) -> None:
     out = json.loads(drop_internal_text(json.dumps({"k": value})))

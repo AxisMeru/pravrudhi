@@ -615,10 +615,12 @@ DROP_MARKERS: tuple[str, ...] = (
 #: Team vocabulary that is a PATTERN rather than a substring (#563, R1's counts on the public copies: 51 "seat N", 92
 #: "Track A/B/C", 13 "colab", 562 operator rows): a seat or track label, a Colab account, an operator's directive. A string
 #: value that matches one is dropped whole, and a snapshot that still matches one is refused. "Track" is case-sensitive so
-#: ordinary prose ("to track a candidate") is not caught; the others are not ambiguous.
+#: ordinary prose ("to track a candidate") is not caught (the space-separated form must be capitalised; the joined and
+#: hyphenated forms are caught in any case, as no ordinary word looks like them); the others are not ambiguous.
 DROP_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"\bseat[ -]?\d\b", re.IGNORECASE),
-    re.compile(r"\bTrack[ -]?[ABC]\b"),
+    re.compile(r"\b(?:Track|TRACK)[ -]?[ABC]\b"),  # "Track A", "TrackA", "TRACK B", "Track-C"
+    re.compile(r"\btrack[-_]?[abc]\b", re.IGNORECASE),  # the joined and hyphenated forms: "tracka", "track-a", "TRACK_B"
     re.compile(r"\bcolab\b", re.IGNORECASE),
     re.compile(r"\boperator(?:'s|\u2019s)?[ -](?:directive|instruction|decision|ask|go|memo)\b", re.IGNORECASE),
 )
