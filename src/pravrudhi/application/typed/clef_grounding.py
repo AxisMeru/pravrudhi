@@ -22,7 +22,8 @@ one) the caller must catch these and record "ungrounded" as its own reason: it m
 which the item outcome counts as an ERROR (and ERROR = PROOF in the M4/M4b worst-case bounds). The quote itself stays the
 whole fact text, checked by the existing `nyaya_quote` span check; this module never writes one.
 
-THRESHOLDS. `floor` and `margin` are REQUIRED, finite, in [0, 1], with no defaults. They must come from a DEV calibration
+THRESHOLDS. `floor` (in (0, 1]: a zero floor would disable the check, so it is refused) and `margin` (in [0, 1]) are
+REQUIRED and finite, with no defaults. They must come from a DEV calibration
 on real element-level labels, never from Obj-1b or the seen Obj-1 items, and those labels do not exist yet (the #358
 audit). The factory refuses to build an object unless the caller supplies both.
 
@@ -83,26 +84,27 @@ def _norm(text: str) -> str:
     return re.sub(r"\s+", " ", str(text)).strip()
 
 
-def _check_unit(name: str, v: object) -> float:
-    if isinstance(v, bool) or not isinstance(v, (int, float)) or not (0.0 <= v <= 1.0):  # NaN fails both comparisons
-        raise ValueError(f"{name} must be a finite number in [0, 1], got {v!r}")
-    return float(v)
+def _check_unit(name: str, v: object, *, positive: bool = False) -> float:
+    ok = isinstance(v, (int, float)) and not isinstance(v, bool) and ((v > 0.0) if positive else (v >= 0.0)) and v <= 1.0
+    if not ok:  # NaN fails every comparison
+        raise ValueError(f"{name} must be a finite number in {'(0' if positive else '[0'}, 1], got {v!r}")
+    return float(v)  # type: ignore[arg-type]
 
 
 def _askable(facts: Sequence[tuple[str, str]]) -> list[tuple[str, str]]:
     out: list[tuple[str, str]] = []
     seen: set[str] = set()
     for fid, text in facts:
-        if fid == _NARRATIVE_FACT_ID:
-            continue  # the narrative is never a citable fact
         if not isinstance(fid, str) or not fid.strip():
             raise ValueError(f"fact id must be a non-empty string, got {fid!r}")
+        if fid.strip() == _NARRATIVE_FACT_ID:
+            continue  # the narrative is never a citable fact (stray whitespace around the id does not change that)
         if fid in seen:
             raise ValueError(f"duplicate fact id {fid!r}")
-        if not _norm(text):
-            raise ValueError(f"fact {fid!r} has no text")
+        if not isinstance(text, str) or not _norm(text):  # a None or non-string text must never become the string 'None'
+            raise ValueError(f"fact {fid!r} needs a non-empty string text, got {type(text).__name__}")
         seen.add(fid)
-        out.append((fid, str(text)))
+        out.append((fid, text))
     return out
 
 
@@ -169,10 +171,10 @@ def select_grounding(
     """Select or RAISE. `floor` and `margin` are required (no defaults), finite, in [0, 1]. `order` is the fact order
     (default: the mapping's own order) for the id-order and tie-breaking rules. `margin` = best minus the second-highest
     probability of ALL facts; it is enforced only when `need_single` and two or more facts clear the floor."""
-    floor, margin = _check_unit("floor", floor), _check_unit("margin", margin)
+    floor, margin = _check_unit("floor", floor, positive=True), _check_unit("margin", margin)
     ids = list(order) if order is not None else list(probs)
-    if set(ids) != set(probs):
-        raise ClefDecodeError("order and probabilities name different facts")
+    if len(ids) != len(set(ids)) or set(ids) != set(probs):
+        raise ClefDecodeError("order must name each fact in the probabilities exactly once")
     for fid in ids:
         p = probs[fid]
         if isinstance(p, bool) or not isinstance(p, (int, float)) or not math.isfinite(p) or not 0.0 <= p <= 1.0:
@@ -209,10 +211,10 @@ def accused_link(
     "<accused> committed the act: <act>" and selects with `select_grounding` (single id needed)."""
     if not _norm(accused) or not _norm(act):
         raise ValueError("accused and act must not be empty")
-    _check_unit("floor", floor), _check_unit("margin", margin)
+    _check_unit("floor", floor, positive=True), _check_unit("margin", margin)
     askable = _askable(facts)
-    needle = _norm(accused).casefold()
-    if not any(needle in _norm(text).casefold() for _, text in askable):
+    needle = re.compile(r"(?<!\w)" + r"\s+".join(re.escape(t) for t in _norm(accused).split()) + r"(?!\w)", re.IGNORECASE)
+    if not any(needle.search(_norm(text)) for _, text in askable):
         raise AccusedNotInFacts(f"the accused {accused!r} is named in none of the facts: no fact can tie them to the act")
     probs = ground_facts(
         facts, f"{_norm(accused)} committed the act: {_norm(act)}", state=state, transport=transport, max_questions=max_questions
@@ -224,7 +226,11 @@ class ClefGrounding:
     """The enabled backend: the operations bound to one transport and one (floor, margin)."""
 
     def __init__(self, transport: Transport, *, floor: float, margin: float) -> None:
-        self._transport, self.floor, self.margin = transport, _check_unit("floor", floor), _check_unit("margin", margin)
+        self._transport, self.floor, self.margin = (
+            transport,
+            _check_unit("floor", floor, positive=True),
+            _check_unit("margin", margin),
+        )
 
     def ground(self, facts: Sequence[tuple[str, str]], claim: str, *, state: str, need_single: bool = True) -> GroundingChoice:
         probs = ground_facts(facts, claim, state=state, transport=self._transport)
@@ -237,9 +243,16 @@ class ClefGrounding:
 
 
 def build_clef_grounding(cfg: Mapping[str, object] | None, transport: Transport | None) -> ClefGrounding | None:
-    """The one switch. Returns `None` (the default) unless `cfg["clef_grounding"] is True`; when enabled it needs a
+    """The one switch. Returns `None` (the default) unless `cfg["clef_grounding"] is True` (a value that is not a real bool refuses); when enabled it needs a
     transport and explicit `floor` and `margin` in `cfg` (no defaults), else it raises."""
-    if not isinstance(cfg, Mapping) or cfg.get(FLAG_KEY) is not True:
+    if not isinstance(cfg, Mapping):
+        return None
+    flag = cfg.get(FLAG_KEY)
+    if flag is not None and not isinstance(flag, bool):
+        raise ValueError(
+            f"{FLAG_KEY} must be a real bool (True or False), got {flag!r}: refusing rather than silently leaving it off"
+        )
+    if flag is not True:
         return None
     if transport is None:
         raise ValueError("clef_grounding is enabled but no transport was given")

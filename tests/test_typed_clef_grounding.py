@@ -191,9 +191,9 @@ def test_factory_is_off_by_default_and_needs_transport_floor_and_margin_when_on(
     assert G.build_clef_grounding(None, t) is None
     assert G.build_clef_grounding({}, t) is None
     assert G.build_clef_grounding({"clef_grounding": False, "floor": 0.5, "margin": 0.1}, t) is None
-    assert (
-        G.build_clef_grounding({"clef_grounding": "yes", "floor": 0.5, "margin": 0.1}, t) is None
-    )  # only a real True turns it on
+    for bad in ("yes", "true", 1, 0, []):  # not a real bool: refuse, never silently off
+        with pytest.raises(ValueError, match="real bool"):
+            G.build_clef_grounding({"clef_grounding": bad, "floor": 0.5, "margin": 0.1}, t)
     with pytest.raises(ValueError, match="transport"):
         G.build_clef_grounding({"clef_grounding": True, "floor": 0.5, "margin": 0.1}, None)
     with pytest.raises(ValueError, match="floor"):
@@ -239,3 +239,39 @@ def test_the_flag_key_is_read_only_inside_the_factory_and_no_other_src_file_ment
     assert uses and all(fn.lineno <= ln <= fn.end_lineno for ln in uses)  # type: ignore[operator]
     others = [p for p in SRC.rglob("*.py") if p != mod and "clef_grounding" in p.read_text()]
     assert others == []
+
+
+@pytest.mark.parametrize("text", [None, 5, b"x", ["a"], "", "  \n "])
+def test_a_fact_whose_text_is_not_a_non_empty_string_refuses_never_becomes_none_string(text):
+    with pytest.raises(ValueError):
+        G.build_grounding_records([("F1", text)], "c", state=STATE)  # type: ignore[list-item]
+
+
+def test_a_narrative_id_with_stray_whitespace_is_still_the_narrative_and_a_bad_id_type_refuses():
+    recs = G.build_grounding_records([("F1", "a fact"), (" F_narrative ", "story")], "c", state=STATE)
+    assert list(recs[0]["questions"]) == ["F1"]
+    with pytest.raises(ValueError):
+        G.build_grounding_records([(None, "a fact")], "c", state=STATE)  # type: ignore[list-item]
+
+
+def test_accused_guard_is_a_whole_word_case_insensitive_match():
+    facts = [("F1", "Ramesh Kumar struck the wife."), ("F2", "The wife left in May.")]
+    calls = []
+
+    def t(record):
+        calls.append(record)
+        return {}
+
+    with pytest.raises(G.AccusedNotInFacts):  # "Ram" is not "Ramesh"
+        G.accused_link(facts, "Ram", "struck", state=STATE, transport=t, floor=0.5, margin=0.1)
+    with pytest.raises(G.AccusedNotInFacts):  # reordered names fail closed
+        G.accused_link(facts, "Kumar Ramesh", "struck", state=STATE, transport=t, floor=0.5, margin=0.1)
+    assert calls == []
+    ok = reply_from({"F1": 0.9, "F2": 0.1})
+    assert G.accused_link(facts, "ramesh  KUMAR", "struck", state=STATE, transport=ok, floor=0.5, margin=0.1).best == "F1"
+
+
+def test_order_with_duplicate_or_missing_ids_refuses():
+    for order in (["F1", "F1", "F2"], ["F1"], ["F1", "F2", "F3"]):
+        with pytest.raises(ClefDecodeError):
+            G.select_grounding({"F1": 0.9, "F2": 0.2}, floor=0.5, margin=0.1, order=order)
