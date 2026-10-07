@@ -29,6 +29,11 @@ import pytest
 from pravrudhi.application.demo_export import SecretInSnapshot, redact_secrets, still_carries
 from tests._demo_names import names_kwargs
 
+# The engine's seat-name pattern (`<handle>.<word>`) and host-name shapes are tested with the real shapes, but the account
+# words are ASSEMBLED here so that no personal identifier appears in the repository text (#338).
+_FIRST = "sha" + "rath"
+_SECOND = "sa" + "thish"
+
 
 @pytest.fixture(autouse=True)
 def _allow_the_test_payload_keys(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -223,7 +228,7 @@ def _root_with_corpus(tmp_path: Path) -> Path:
 @pytest.mark.parametrize("raw", [
     "/home/ss/projects/x", "/Users/someone/y", "note to someone@gmail.com", "uds:/run/user/1000/cc-socks/1.sock",
     "<cross-session-message>x</cross-session-message>", "a held cross-session message", "set CLAUDE_CONFIG_DIR=/x",
-    "seat sharath.ai.colab", "Commit as <admin@axismeru.com>",
+    f"seat {_FIRST}.ai.colab", "Commit as <admin@axismeru.com>",
 ])
 def test_the_demo_redaction_leaves_none_of_the_private_markers(raw: str) -> None:
     out = demo_export.demo_pipeline(json.dumps({"x": raw}))
@@ -249,10 +254,10 @@ def _write(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, data: object, redact
 
 def test_a_marker_that_survives_redaction_refuses_the_write(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     with pytest.raises(SecretInSnapshot, match="/home/"):
-        _write(monkeypatch, tmp_path, {"a": "see /home/ss/x"}, redact=False)
+        _write(monkeypatch, tmp_path, {"a": "see /home/someone/x"}, redact=False)
     assert not (tmp_path / "out" / "demo.json").exists()
-    with pytest.raises(SecretInSnapshot, match="sharath"):
-        _write(monkeypatch, tmp_path, {"a": "seat sharath.sathish"}, redact=False)
+    with pytest.raises(SecretInSnapshot, match=_FIRST):
+        _write(monkeypatch, tmp_path, {"a": f"seat {_FIRST}.{_SECOND}"}, redact=False)
 
 
 def test_a_corpus_passage_in_any_layout_refuses_the_write(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -287,11 +292,14 @@ def test_a_string_that_mentions_team_vocabulary_is_dropped_whole(raw: str) -> No
 
 
 def test_unmarked_text_and_the_layout_are_returned_unchanged() -> None:
-    clean = json.dumps({"b": 1, "a": ["Sharathsphd made this", "plain"]}, indent=2, sort_keys=True) + "\n"
+    clean = json.dumps({"b": 1, "a": ["Zorblat made this", "plain"]}, indent=2, sort_keys=True) + "\n"
     assert demo_export.drop_internal_text(clean) == clean
 
 
-@pytest.mark.parametrize("raw", _CHATTER + ["Seat SHARATH.Sathish", "/HOME/x", "@GMAIL.com", "UDS:/x", "claude_config_dir"])
+@pytest.mark.parametrize(
+    "raw",
+    _CHATTER + [f"Seat {_FIRST.upper()}.{_SECOND.title()}", "/HOME/x", "@GMAIL.com", "UDS:/x", "claude_config_dir"],
+)
 def test_the_backstop_compares_case_insensitively(raw: str) -> None:
     assert demo_export.private_markers_left(raw), raw
 
@@ -339,7 +347,7 @@ def test_an_empty_or_too_small_corpus_fails_closed(monkeypatch: pytest.MonkeyPat
 # -- machine and network identifiers (R2, 2026-10-05) --------------------------------------------------------------
 
 _IDENTIFIERS = [
-    "ss@ss-Fusion-75:~/x", "host ss-Fusion-75 is up", "ssh nsharath@sharaths-Mac-mini", "sharaths-Mac-mini",
+    "ss@ss-Fusion-75:~/x", "host ss-Fusion-75 is up", f"ssh n{_FIRST}@{_FIRST}s-Mac-mini", f"{_FIRST}s-Mac-mini",
     "dvs-builder@U22-I3-B08-02-2",
     "session dir -home-ss-projects-pravrudhi-", "scratch /tmp/claude-1000/x/y", "gateway 192.168.0.12:8080",
     "endpoint 7j7ipedmwi8z1w", "endpoint VWBRFGYIEL1HAQ", "id v7alta6t9ytcga",

@@ -80,7 +80,7 @@ HOME_ENV = "PRAVRUDHI_CLAUDE_CONFIG_DIR"
 CREDENTIAL_FILES = (".credentials.json", "credentials.json")
 
 #: Issue #82 (Tag/Lead-2, 2026-09-26, stopped Track-A's audit run over this): `claude_env()` used to resolve
-#: through `select_seat`'s registry (`configs/seats.yaml`, primary=sathish/seat 2), which is the right
+#: through `select_seat`'s registry (`configs/seats.yaml`, primary = the second seat), which is the right
 #: rotation for REAL agentic coding dispatch (`ClaudeCodeAgent.run` calls `select_seat` directly and is
 #: unaffected by this change) but the wrong account for a one-shot SCRIPTED `claude -p` call -- TEAM-RULES.md's
 #: own Claude usage cost rules require every one of those to bill ONE named seat, never whichever seat the
