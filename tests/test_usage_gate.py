@@ -502,13 +502,14 @@ class TestAskVendorIsGated:
         assert calls == []
 
     def test_codex_stale_reading_makes_only_the_gates_own_refresh_probe_never_the_question(self, root, monkeypatch):
-        _codex(monkeypatch, codex_reading(weekly=20.0, age=600))   # under both limits but 10 h old at NOW (max age 60 min): refused only because it is stale
+        # under both limits, 10 h old at NOW (max 60 min): only staleness can refuse it
+        _codex(monkeypatch, codex_reading(weekly=20.0, age=600))
         calls = self._stub_run(monkeypatch, "x")
         with pytest.raises(usage_gate.UsageGateRefused):
             base = panel.VENDORS["codex-cli"]
             panel.ask_vendor(replace(base, params={**base.params, "codex_model": "gpt-x-1"}), "q", root=root)
-        assert all("-m" not in c for c in calls), calls          # the question call pins a model with -m; none was made
-        assert len(calls) == 1                                   # exactly the gate's own refresh probe ran
+        assert all("-m" not in c for c in calls), calls   # the question call pins a model with -m; none was made
+        assert len(calls) == 1                            # exactly the gate's own refresh probe ran
 
     def test_claude_over_gate_makes_no_call(self, root, monkeypatch):
         claude_file(root, weekly=64.0, age=0)
