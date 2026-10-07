@@ -262,7 +262,36 @@ def check_prompt_template(prompt_template: str) -> str:
     return prompt_template
 
 
-def build_house_prompt(request: JudgeRequest, *, statute_chars: int, prompt_template: str = "legacy") -> str:
+#: The canonical-layout narrative cap: the longest narrative in the frozen eval data (NARRATIVE-DEFINITION-738-ADDENDUM).
+NARRATIVE_CAP = 401
+#: The registered sentence rule: split where `.`, `?` or `!` is followed by whitespace and a capital, digit, quote or bracket
+#: (so "Sec. 420" splits after "Sec."; that is the registered rule, not linguistics).
+_SENTENCE_END = re.compile(r"(?<=[.!?])\s+(?=[A-Z0-9\"\u201c(\[])")
+
+
+def canonical_narrative(request: JudgeRequest) -> str:
+    """The `Scenario:` text of the canonical layout (#738). (1) A caller-supplied `request.narrative` is used verbatim. (2) Else
+    the text of the `F_narrative` fact row, if the request carries one (the schema of the frozen eval and training data). (3) Else
+    the FIRST SENTENCE of the first fact, cut at the last word boundary within `NARRATIVE_CAP` characters (primary N1 of the
+    NARRATIVE-DEFINITION-738 addendum); the facts stay untouched, so that sentence also stays an `[F1]` fact. No facts: empty."""
+    if request.narrative.strip():
+        return request.narrative
+    for fid, text in request.facts:
+        if fid == _NARRATIVE_FACT_ID:
+            return text
+    first = next((text for _fid, text in request.facts), "").strip()
+    if not first:
+        return ""
+    sentence = _SENTENCE_END.split(first, maxsplit=1)[0]
+    if len(sentence) > NARRATIVE_CAP:
+        cut = sentence[:NARRATIVE_CAP]
+        sentence = cut.rsplit(" ", 1)[0] if " " in cut and sentence[NARRATIVE_CAP] != " " else cut
+    return sentence.strip()
+
+
+def build_house_prompt(
+    request: JudgeRequest, *, statute_chars: int, prompt_template: str = "legacy", canonical_layout: bool = False
+) -> str:
     """The element judge's training prompt, byte for byte (no few-shots). `request.facts` may carry a
     `F_narrative` row (see `_NARRATIVE_FACT_ID`); it is excluded from `Available facts:` here, never shown
     twice with `Scenario:`."""
@@ -272,7 +301,7 @@ def build_house_prompt(request: JudgeRequest, *, statute_chars: int, prompt_temp
         standard_line = f"Standard: {STANDARD_LINES[standard_for_posture(request.proceeding_posture)[0]]}\n"
     return (
         f"Statute: {request.statute[:statute_chars]}\n"
-        f"Scenario: {request.narrative}\n"
+        f"Scenario: {canonical_narrative(request) if canonical_layout else request.narrative}\n"
         f"Element to judge: {request.element}\n"
         f"{standard_line}"
         f"Available facts:\n{facts_block}\n"
@@ -393,11 +422,14 @@ class HouseJudge:
         enforce_served_model: bool = False,
         prompt_template: str = "legacy",
         max_input_chars: int | None = None,
+        canonical_layout: bool = False,
     ) -> None:
         bad = isinstance(max_input_chars, bool) or not isinstance(max_input_chars, int) or max_input_chars <= 0
         if max_input_chars is not None and bad:
             raise ValueError(f"max_input_chars must be a positive integer or None, got {max_input_chars!r}")
         self.max_input_chars = max_input_chars
+        #: #738: the canonical prompt layout (narrative in `Scenario:`); default OFF = today's production layout.
+        self.canonical_layout = bool(canonical_layout)
         self.tau = tau
         self.prompt_template = check_prompt_template(prompt_template)
         self.enforce_served_model = enforce_served_model
@@ -479,6 +511,10 @@ class HouseJudge:
         self._complete = complete
 
     @property
+    def layout(self) -> str:
+        return "canonical" if self.canonical_layout else "production"
+
+    @property
     def model(self) -> str:
         """The resolved model id. Lazy: for a real (non-injected) transport, this calls `/v1/models` on
         FIRST ACCESS, not at construction -- see the note in `__init__`. Cached after the first successful
@@ -488,7 +524,9 @@ class HouseJudge:
         return self._injected_model
 
     @classmethod
-    def from_config(cls, cfg: Mapping[str, Any], *, tau: float, api_key_env: str = "NYAYA_HOUSE_JUDGE_API_KEY") -> HouseJudge:
+    def from_config(
+        cls, cfg: Mapping[str, Any], *, tau: float, api_key_env: str = "NYAYA_HOUSE_JUDGE_API_KEY", canonical_layout: bool = False
+    ) -> HouseJudge:
         """Load config with optional fallback URLs and API key.
 
         Supports same config keys as from_config_with_fallback, with graceful fallback
@@ -515,11 +553,12 @@ class HouseJudge:
             enforce_served_model=bool(cfg.get("enforce_served_model", False)),
             prompt_template=str(cfg.get("prompt_template", "legacy")),
             max_input_chars=cfg.get("max_input_chars"),
+            canonical_layout=canonical_layout,
         )
 
     @classmethod
     def from_config_with_fallback(
-        cls, cfg: Mapping[str, Any], *, tau: float, api_key_env: str = "NYAYA_HOUSE_JUDGE_API_KEY"
+        cls, cfg: Mapping[str, Any], *, tau: float, api_key_env: str = "NYAYA_HOUSE_JUDGE_API_KEY", canonical_layout: bool = False
     ) -> HouseJudge:
         """Load config with optional fallback URLs and API key.
 
@@ -549,10 +588,14 @@ class HouseJudge:
             enforce_served_model=bool(cfg.get("enforce_served_model", False)),
             prompt_template=str(cfg.get("prompt_template", "legacy")),
             max_input_chars=cfg.get("max_input_chars"),
+            canonical_layout=canonical_layout,
         )
 
     def judge(self, request: JudgeRequest) -> ElementJudgment:
-        prompt = build_house_prompt(request, statute_chars=self.statute_chars, prompt_template=self.prompt_template)
+        prompt = build_house_prompt(
+            request, statute_chars=self.statute_chars, prompt_template=self.prompt_template,
+            canonical_layout=self.canonical_layout,
+        )
         if self.max_input_chars is not None and len(prompt) > self.max_input_chars:
             raise JudgeInputTooLong(length=len(prompt), limit=self.max_input_chars)  # before any call: it would only overflow
         res = self._complete(prompt)
@@ -770,6 +813,12 @@ class AndGateJudge:
     @property
     def deterministic(self) -> bool:
         return bool(getattr(self.primary, "deterministic", False))
+
+    @property
+    def layout(self) -> str:
+        """The prompt layout of the judges behind the gate (#738): their common value, else "mixed"."""
+        a, b = getattr(self.primary, "layout", "production"), getattr(self.second, "layout", "production")
+        return a if a == b else "mixed"
 
     @classmethod
     def from_config(

@@ -119,7 +119,7 @@ def test_shipped_judge_prompt_flag_is_false_and_prompt_is_the_legacy_bytes(tmp_p
     from pravrudhi.application import nyaya_agent
 
     path = Path(nyaya_agent.__file__).parents[3] / "configs" / "nyaya_agent.yaml"
-    assert yaml.safe_load(path.read_text())["judge_prompt"] == {"standard_line": False}
+    assert yaml.safe_load(path.read_text())["judge_prompt"] == {"standard_line": False, "canonical_layout": False}
     mod, root = _body_cfg(tmp_path, "")
     hj = mod.load_agent_config(root).house_judge
     assert hj["prompt_template"] == "legacy"

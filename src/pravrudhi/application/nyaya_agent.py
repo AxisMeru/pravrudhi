@@ -126,6 +126,14 @@ def _judge_config_fault(e: BaseException) -> int | None:
     return None
 
 
+def _canonical_layout_flag(body: Mapping[str, Any]) -> bool:
+    """`judge_prompt.canonical_layout` (default false); the env `NYAYA_JUDGE_CANONICAL_LAYOUT` overrides it."""
+    raw = os.environ.get("NYAYA_JUDGE_CANONICAL_LAYOUT")
+    if raw is not None and raw.strip():
+        return raw.strip().lower() in ("1", "true", "yes", "on")
+    return bool((body.get("judge_prompt") or {}).get("canonical_layout", False))
+
+
 def _input_too_long_in(e: BaseException) -> JudgeInputTooLong | None:
     """The `JudgeInputTooLong` anywhere in `e`'s cause chain, else None (#727)."""
     seen: BaseException | None = e
@@ -156,6 +164,10 @@ class AgentConfig:
     #: of `nyaya_judges.HouseJudge`. Default False -- today's production behaviour is unchanged unless a
     #: caller opts in.
     typed_layer: bool = False
+    #: #738 (docs/decisions: canonical layout): the judges' prompts carry the narrative in `Scenario:` as the frozen scorer does
+    #: (see `nyaya_judges.canonical_narrative`). Default False = today's production layout, byte for byte. Not applied by
+    #: `typed_layer` judges. Turning it on in production needs the registered re-validation and the lead's go.
+    canonical_layout: bool = False
     #: Optional config C second judge (AND-gate, `nyaya_judges.AndGateJudge`). None -- the default, and every
     #: existing deployment's config -- means exactly today's single-judge behaviour (HouseJudge, or
     #: TypedHouseJudge when `typed_layer` is set); only a `second_judge:` block in the yaml (or an
@@ -575,6 +587,7 @@ def load_agent_config(root: Path) -> AgentConfig:
         score_bin=score_bin,
         house_judge=house_judge,
         typed_layer=bool(body.get("typed_layer", False)),
+        canonical_layout=_canonical_layout_flag(body),
         second_judge=second_judge,
         second_judge_positive_control=second_judge_positive_control,
         max_concurrency=int(house_judge.get("max_concurrency", 1)),
@@ -1121,7 +1134,9 @@ class AgentRun:
         return d
 
 
-def _build_house_judge(hj_cfg: Mapping[str, Any], *, tau: float, typed: bool, api_key_env: str) -> Judge:
+def _build_house_judge(
+    hj_cfg: Mapping[str, Any], *, tau: float, typed: bool, api_key_env: str, canonical_layout: bool = False
+) -> Judge:
     """One judge slot (primary or, for config C, second) from a `house_judge`-shaped config: `HouseJudge` by
     default, or `pravrudhi.application.typed.house_judge.TypedHouseJudge` over a `VLLMDecoder` when `typed`
     is set (T1) -- shared by `NyayaAgent.house` for BOTH slots, so the typed-layer flag and config C's second
@@ -1150,7 +1165,7 @@ def _build_house_judge(hj_cfg: Mapping[str, Any], *, tau: float, typed: bool, ap
         )
     from pravrudhi.application.nyaya_judges import HouseJudge
 
-    return HouseJudge.from_config(hj_cfg, tau=tau, api_key_env=api_key_env)
+    return HouseJudge.from_config(hj_cfg, tau=tau, api_key_env=api_key_env, canonical_layout=canonical_layout)
 
 
 def _clamp_p(p: float) -> float:
@@ -1362,12 +1377,13 @@ class NyayaAgent:
 
         def _build_judge() -> Judge:
             primary = _build_house_judge(cfg.house_judge, tau=cfg.tau, typed=cfg.typed_layer,
-                                         api_key_env="NYAYA_HOUSE_JUDGE_API_KEY")
+                                         api_key_env="NYAYA_HOUSE_JUDGE_API_KEY", canonical_layout=cfg.canonical_layout)
             judge: Judge
             if cfg.second_judge:
                 second_tau = float(cfg.second_judge["tau"])
                 second: Judge = _build_house_judge(cfg.second_judge, tau=second_tau, typed=cfg.typed_layer,
-                                                   api_key_env="NYAYA_SECOND_JUDGE_API_KEY")
+                                                   api_key_env="NYAYA_SECOND_JUDGE_API_KEY",
+                                                   canonical_layout=cfg.canonical_layout)
                 # Issue #44 (Lead-2, 2026-09-26): opt-in via second_judge_positive_control.record_path --
                 # absent (the default, every deployment before this) means today's behaviour, unchanged.
                 # When set, wrap `second` so the real endpoint is never reached without a fresh, matching
@@ -1447,6 +1463,8 @@ class NyayaAgent:
             uses = "status_and_quote" if anchor is None else "quote_only"
             head = {"contract_id": contract_id, "element": element, "attempt": attempt, "statute_source": "config",
                     "uses": uses}
+            if getattr(judge, "layout", "production") != "production":
+                head["layout"] = judge.layout  # audited only when it is not today's layout, so flag-OFF audit rows are unchanged
             t0 = time.monotonic()
             try:
                 judgment = judge.judge(request)

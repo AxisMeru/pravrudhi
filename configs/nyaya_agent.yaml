@@ -86,6 +86,12 @@ house_judge:
 # with weights trained on the line (#192).
 judge_prompt:
   standard_line: false
+  # #738: the CANONICAL layout (the narrative in `Scenario:` as the training / frozen scoring prompt has it; see
+  # nyaya_judges.canonical_narrative: a supplied narrative verbatim, else the F_narrative fact row, else the first sentence of F1
+  # capped at 401 chars, the facts untouched). OFF = today's production layout (empty Scenario), byte for byte. Applies to both
+  # judges; not to the typed layer. NYAYA_JUDGE_CANONICAL_LAYOUT overrides. DO NOT turn on in production before the registered
+  # re-validation (#737) and the lead's go.
+  canonical_layout: false
 
 # Decision threshold on p_established: established iff p >= tau. 0.74 is the dual-signed v0 value
 # (element-judge 4B v0, val-split false-prove sweep, 2026-09-22).
