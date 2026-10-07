@@ -332,6 +332,24 @@ def resolve_citation_key(
     return ResolvedAlias(None, case_rows)
 
 
+def _rows_in_cited_year(conn: sqlite3.Connection, rows: list[sqlite3.Row], cited_year: int | None) -> list[sqlite3.Row]:
+    """The candidate rows whose recorded decision year is within one year of the cited (reporting) year (the window the
+    alias disambiguation uses); an unreadable year
+    is not a match. With no cited year there is nothing to check against, so no row qualifies."""
+    if cited_year is None:
+        return []
+    ok: list[sqlite3.Row] = []
+    for row in rows:
+        found = conn.execute("SELECT year FROM cases WHERE case_id = ?", (row["case_id"],)).fetchone()
+        try:
+            year = int(found[0]) if found is not None else None
+        except (TypeError, ValueError):
+            year = None
+        if year is not None and abs(year - cited_year) <= 1:
+            ok.append(row)
+    return ok
+
+
 def verify(
     conn: sqlite3.Connection, citation_text: str, quote_or_proposition: str, claimed_name: str | None = None
 ) -> VerifyResult:
@@ -351,7 +369,14 @@ def verify(
     if not normalized_quote:
         # the empty string is "in" every text: an empty or whitespace-only quote verifies nothing
         return VerifyResult.EXISTS_QUOTE_NOT_FOUND
-    for row in resolved.case_rows:
+    # The party lookup matches titles by each party's first token, so it can return a DIFFERENT case that shares those
+    # tokens (a later case between similar parties). The quote must be checked only against a case the citation's own
+    # year allows: the year in "(1977) 3 SCC 247" is the reporting year, so a decision within a year of it.
+    # A candidate set with no such case is "no evidence either way", never a verification against some other case.
+    case_rows = _rows_in_cited_year(conn, resolved.case_rows, citations[0].year)
+    if not case_rows:
+        return VerifyResult.NOT_IN_INDEX
+    for row in case_rows:
         normalized_text = normalize_text_for_match(row["text"])
         if normalized_quote in normalized_text:
             return VerifyResult.VERIFIED
