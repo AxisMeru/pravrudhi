@@ -345,7 +345,7 @@ class VerifyCitationResponse(BaseModel):
 _VERIFY_NOTES = {
     "VERIFIED": "The citation resolves to an indexed case and the quote appears in its text.",
     "EXISTS_QUOTE_NOT_FOUND": "The citation resolves to an indexed case but the quote was not found in its text.",
-    "NOT_IN_INDEX": "The index holds no evidence either way: this is not a finding that the citation is fake.",
+    "NOT_IN_INDEX": "The case was not found in our index. This is not evidence either way about whether the citation is real.",
     "MALFORMED": "Exactly one parseable citation is required.",
     "CONFLICT": "The citation maps to conflicting indexed cases; verify by hand.",
 }

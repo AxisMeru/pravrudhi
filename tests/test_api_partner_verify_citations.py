@@ -198,3 +198,14 @@ def test_the_fuzzy_title_scan_never_reads_the_text_column_for_every_case(tmp_pat
     assert [r["case_id"] for r in rows] == ["hit"] and rows[0]["text"] == "the real text"
     scans = [s for s in statements if "FROM cases" in s and "WHERE" not in s]
     assert scans and all("text" not in s.lower() for s in scans), scans
+
+
+def test_no_verify_note_uses_the_word_fake_and_not_in_index_says_what_it_means() -> None:
+    """A public API string (R1's wording): the citation check never calls a citation fake; absence from the index is not evidence either way."""
+    from pravrudhi.api.partner import _VERIFY_NOTES
+
+    assert set(_VERIFY_NOTES) == {"VERIFIED", "EXISTS_QUOTE_NOT_FOUND", "NOT_IN_INDEX", "MALFORMED", "CONFLICT"}
+    assert not any("fake" in note.lower() for note in _VERIFY_NOTES.values())
+    assert _VERIFY_NOTES["NOT_IN_INDEX"] == (
+        "The case was not found in our index. This is not evidence either way about whether the citation is real."
+    )
