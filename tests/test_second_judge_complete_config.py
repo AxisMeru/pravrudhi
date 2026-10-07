@@ -80,3 +80,17 @@ def test_a_blank_value_counts_as_missing_not_present(tmp_path: Path, blank: str)
     assert "base_url" in str(e.value)
     for present in ("tau (env", "timeout_s (env"):
         assert present not in str(e.value)
+
+
+@pytest.mark.parametrize("empty", [[], {}])
+def test_an_empty_container_value_counts_as_missing_too(tmp_path: Path, empty: object) -> None:
+    """R2 on #361: a yaml `base_url: []` is not a configured value (an empty non-string used to load)."""
+    import yaml
+
+    body = yaml.safe_load((REPO / "configs" / "nyaya_agent.yaml").read_text())
+    body["second_judge"] = {"base_url": empty, "model": "judge-x", "tau": 0.9, "timeout_s": 30}
+    (tmp_path / "configs").mkdir()
+    (tmp_path / "configs" / "nyaya_agent.yaml").write_text(yaml.safe_dump(body))
+    with pytest.raises(ValueError, match="second_judge is configured partly") as e:
+        nyaya_agent.load_agent_config(tmp_path)
+    assert "base_url" in str(e.value)
