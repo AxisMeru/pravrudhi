@@ -22,6 +22,7 @@ The project's own git identity is deliberately NOT redacted - it is the publishe
 every commit in the repository, so removing it from the snapshot would hide nothing.
 """
 
+import re
 from pathlib import Path
 
 import pytest
@@ -42,8 +43,8 @@ def _allow_the_test_payload_keys(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_an_absolute_home_path_does_not_survive_redaction() -> None:
-    out = redact_secrets("the directory `/home/ss/projects/pravrudhi/research` is empty")
-    assert "/home/ss" not in out
+    out = redact_secrets("the directory `/home/someone/projects/pravrudhi/research` is empty")
+    assert "/home/someone" not in out
     assert "projects/pravrudhi/research" in out, "only the home prefix goes; the rest stays readable"
 
 
@@ -132,7 +133,7 @@ def test_internal_marker_residue_catch_all_also_consumes_to_the_string_boundary(
 
 def test_still_carries_names_what_is_left() -> None:
     assert still_carries("clean text") == []
-    assert "home-path" in still_carries("/home/ss/x")
+    assert "home-path" in still_carries("/home/someone/x")
     assert "cross-session-relay" in still_carries("<cross-session-message>x</cross-session-message>")
     assert "session-socket-path" in still_carries("uds:/tmp/cc-socks/123.sock")
 
@@ -142,7 +143,7 @@ def test_write_demo_refuses_a_snapshot_that_still_carries_personal_data(monkeypa
     from pravrudhi.application import demo_export
 
     monkeypatch.setattr(demo_export, "redact_secrets", lambda text: text)
-    monkeypatch.setattr(demo_export, "build_demo", lambda root: {"note": "/home/ss/leak"})
+    monkeypatch.setattr(demo_export, "build_demo", lambda root: {"note": "/home/someone/leak"})
     with pytest.raises(SecretInSnapshot, match="home-path"):
         demo_export.write_demo(root=None, dest=None, **names_kwargs(tmp_path))  # type: ignore[arg-type]
 
@@ -221,9 +222,9 @@ def _root_with_corpus(tmp_path: Path) -> Path:
 
 
 @pytest.mark.parametrize("raw", [
-    "/home/ss/projects/x", "/Users/someone/y", "note to someone@gmail.com", "uds:/run/user/1000/cc-socks/1.sock",
+    "/home/someone/projects/x", "/Users/someone/y", "note to someone@gmail.com", "uds:/run/user/1000/cc-socks/1.sock",
     "<cross-session-message>x</cross-session-message>", "a held cross-session message", "set CLAUDE_CONFIG_DIR=/x",
-    "seat sharath.ai.colab", "Commit as <admin@axismeru.com>",
+    "seat 2 account", "Commit as <admin@axismeru.com>",
 ])
 def test_the_demo_redaction_leaves_none_of_the_private_markers(raw: str) -> None:
     out = demo_export.demo_pipeline(json.dumps({"x": raw}))
@@ -249,10 +250,13 @@ def _write(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, data: object, redact
 
 def test_a_marker_that_survives_redaction_refuses_the_write(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     with pytest.raises(SecretInSnapshot, match="/home/"):
-        _write(monkeypatch, tmp_path, {"a": "see /home/ss/x"}, redact=False)
+        _write(monkeypatch, tmp_path, {"a": "see /home/someone/x"}, redact=False)
     assert not (tmp_path / "out" / "demo.json").exists()
-    with pytest.raises(SecretInSnapshot, match="sharath"):
-        _write(monkeypatch, tmp_path, {"a": "seat sharath.sathish"}, redact=False)
+    # a seat/account name is refused by whatever private patterns are configured: shown here with an invented name and pattern
+    invented = re.compile(r"zorblat\.[a-z]+", re.IGNORECASE)
+    monkeypatch.setattr(demo_export, "PRIVATE_PATTERNS", (*demo_export.PRIVATE_PATTERNS, invented))
+    with pytest.raises(SecretInSnapshot, match="zorblat"):
+        _write(monkeypatch, tmp_path, {"a": "seat zorblat.quux"}, redact=False)
 
 
 def test_a_corpus_passage_in_any_layout_refuses_the_write(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -287,11 +291,14 @@ def test_a_string_that_mentions_team_vocabulary_is_dropped_whole(raw: str) -> No
 
 
 def test_unmarked_text_and_the_layout_are_returned_unchanged() -> None:
-    clean = json.dumps({"b": 1, "a": ["Sharathsphd made this", "plain"]}, indent=2, sort_keys=True) + "\n"
+    clean = json.dumps({"b": 1, "a": ["Zorblat made this", "plain"]}, indent=2, sort_keys=True) + "\n"
     assert demo_export.drop_internal_text(clean) == clean
 
 
-@pytest.mark.parametrize("raw", _CHATTER + ["Seat SHARATH.Sathish", "/HOME/x", "@GMAIL.com", "UDS:/x", "claude_config_dir"])
+@pytest.mark.parametrize(
+    "raw",
+    _CHATTER + ["Seat 2 ACCOUNT", "/HOME/x", "@GMAIL.com", "UDS:/x", "claude_config_dir"],
+)
 def test_the_backstop_compares_case_insensitively(raw: str) -> None:
     assert demo_export.private_markers_left(raw), raw
 
@@ -339,9 +346,9 @@ def test_an_empty_or_too_small_corpus_fails_closed(monkeypatch: pytest.MonkeyPat
 # -- machine and network identifiers (R2, 2026-10-05) --------------------------------------------------------------
 
 _IDENTIFIERS = [
-    "ss@ss-Fusion-75:~/x", "host ss-Fusion-75 is up", "ssh nsharath@sharaths-Mac-mini", "sharaths-Mac-mini",
+    "ss@ss-Fusion-75:~/x", "host ss-Fusion-75 is up", "ssh nzorblat@zorblats-Mac-mini", "zorblats-Mac-mini",
     "dvs-builder@U22-I3-B08-02-2",
-    "session dir -home-ss-projects-pravrudhi-", "scratch /tmp/claude-1000/x/y", "gateway 192.168.0.12:8080",
+    "session dir -home-someone-projects-pravrudhi-", "scratch /tmp/claude-1000/x/y", "gateway 192.168.0.12:8080",
     "endpoint 7j7ipedmwi8z1w", "endpoint VWBRFGYIEL1HAQ", "id v7alta6t9ytcga",
 ]
 
