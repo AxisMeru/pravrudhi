@@ -22,9 +22,12 @@ The project's own git identity is deliberately NOT redacted - it is the publishe
 every commit in the repository, so removing it from the snapshot would hide nothing.
 """
 
+from pathlib import Path
+
 import pytest
 
 from pravrudhi.application.demo_export import SecretInSnapshot, redact_secrets, still_carries
+from tests._demo_names import names_kwargs
 
 
 @pytest.fixture(autouse=True)
@@ -134,14 +137,14 @@ def test_still_carries_names_what_is_left() -> None:
     assert "session-socket-path" in still_carries("uds:/tmp/cc-socks/123.sock")
 
 
-def test_write_demo_refuses_a_snapshot_that_still_carries_personal_data(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_write_demo_refuses_a_snapshot_that_still_carries_personal_data(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """Fail closed: if redaction ever stops covering a shape, nothing is written."""
     from pravrudhi.application import demo_export
 
     monkeypatch.setattr(demo_export, "redact_secrets", lambda text: text)
     monkeypatch.setattr(demo_export, "build_demo", lambda root: {"note": "/home/ss/leak"})
     with pytest.raises(SecretInSnapshot, match="home-path"):
-        demo_export.write_demo(root=None, dest=None)  # type: ignore[arg-type]
+        demo_export.write_demo(root=None, dest=None, **names_kwargs(tmp_path))  # type: ignore[arg-type]
 
 
 # -- statute text (Lead-2, 2026-10-05; licence memo on s.52(1)(q)(ii)) -----------------------------------------
@@ -241,7 +244,7 @@ def _write(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, data: object, redact
     monkeypatch.setattr(demo_export, "MIN_CORPUS_DOCUMENTS", 1)
     if not redact:
         monkeypatch.setattr(demo_export, "demo_pipeline", lambda text: text)
-    return demo_export.write_demo(_root_with_corpus(tmp_path), tmp_path / "out" / "demo.json")
+    return demo_export.write_demo(_root_with_corpus(tmp_path), tmp_path / "out" / "demo.json", **names_kwargs(tmp_path))
 
 
 def test_a_marker_that_survives_redaction_refuses_the_write(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -307,7 +310,7 @@ def test_the_shipped_corpus_alone_is_enough_for_the_backstop(monkeypatch: pytest
     provision = max((d["text"] for d in shipped), key=len)
     monkeypatch.setattr(demo_export, "build_demo", lambda root: {"x": provision})
     with pytest.raises(SecretInSnapshot, match="statute text"):
-        demo_export.write_demo(tmp_path, tmp_path / "out" / "demo.json")
+        demo_export.write_demo(tmp_path, tmp_path / "out" / "demo.json", **names_kwargs(tmp_path))
 
 
 def test_a_root_with_no_corpus_fails_closed(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -315,7 +318,7 @@ def test_a_root_with_no_corpus_fails_closed(monkeypatch: pytest.MonkeyPatch, tmp
     monkeypatch.setattr(demo_export, "build_demo", lambda root: {"x": "anything"})
     assert demo_export.corpus_windows(tmp_path) == (set(), 0)
     with pytest.raises(SecretInSnapshot, match="cannot vouch"):
-        demo_export.write_demo(tmp_path, tmp_path / "out" / "demo.json")
+        demo_export.write_demo(tmp_path, tmp_path / "out" / "demo.json", **names_kwargs(tmp_path))
     assert not (tmp_path / "out" / "demo.json").exists()
 
 
@@ -326,11 +329,11 @@ def test_an_empty_or_too_small_corpus_fails_closed(monkeypatch: pytest.MonkeyPat
     monkeypatch.setattr(demo_export, "ASSETS_DIR", tmp_path / "no-assets")
     monkeypatch.setattr(demo_export, "build_demo", lambda root: {"x": "anything"})
     with pytest.raises(SecretInSnapshot, match="cannot vouch"):
-        demo_export.write_demo(tmp_path, tmp_path / "out" / "demo.json")
+        demo_export.write_demo(tmp_path, tmp_path / "out" / "demo.json", **names_kwargs(tmp_path))
     small = _root_with_corpus(tmp_path / "small")  # one document: below the real minimum
     monkeypatch.setattr(demo_export, "MIN_CORPUS_DOCUMENTS", 2)
     with pytest.raises(SecretInSnapshot, match="cannot vouch"):
-        demo_export.write_demo(small, tmp_path / "out" / "demo.json")
+        demo_export.write_demo(small, tmp_path / "out" / "demo.json", **names_kwargs(tmp_path))
 
 
 # -- machine and network identifiers (R2, 2026-10-05) --------------------------------------------------------------
@@ -366,4 +369,4 @@ def test_write_demo_refuses_a_snapshot_the_redaction_left_unparseable(monkeypatc
     monkeypatch.setattr(demo_export, "build_demo", lambda root: {"a": "b"})
     monkeypatch.setattr(demo_export, "demo_pipeline", lambda text: text[:-5])  # a truncated, invalid document
     with pytest.raises(SecretInSnapshot, match="unparseable"):
-        demo_export.write_demo(_root_with_corpus(tmp_path), tmp_path / "out" / "demo.json")
+        demo_export.write_demo(_root_with_corpus(tmp_path), tmp_path / "out" / "demo.json", **names_kwargs(tmp_path))

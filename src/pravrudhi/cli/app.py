@@ -1256,15 +1256,25 @@ def publish_cmd(
         raise typer.Exit(1)
 
 
+PRIVATE_NAMES_OPT = typer.Option(..., "--private-names", help="Private-name list (one per line, outside any repo). Required.")
+PRIVATE_NAMES_SHA_OPT = typer.Option(..., "--private-names-sha256", help="The list's pinned sha256; any other file is refused.")
+
+
 @app.command("demo-export")
 def demo_export_cmd(
     root: Path = ROOT_OPT,
     dest: Path = DEMO_DEST_OPT,
+    private_names: Path = PRIVATE_NAMES_OPT,
+    private_names_sha256: str = PRIVATE_NAMES_SHA_OPT,
 ) -> None:
     """Record this engine's results and capabilities as the snapshot the public site and dashboard render."""
-    from pravrudhi.application.demo_export import write_demo
+    from pravrudhi.application.demo_export import SecretInSnapshot, write_demo
 
-    out = write_demo(root, dest)
+    try:
+        out = write_demo(root, dest, private_names_path=private_names, private_names_sha256=private_names_sha256)
+    except SecretInSnapshot as e:
+        typer.echo(f"refused: {e}", err=True)
+        raise typer.Exit(1) from e
     typer.echo(f"wrote {out}")
 
 
