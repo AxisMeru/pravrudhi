@@ -332,6 +332,29 @@ def resolve_citation_key(
     return ResolvedAlias(None, case_rows)
 
 
+def _title_carries_the_cited_parties(conn: sqlite3.Connection, key: str, title: str) -> bool:
+    """Whether a candidate's title carries EVERY distinctive word of both parties of some alias group of the citation key
+    (containment of the alias in the title, not equality: a real title often adds words, "State of Rajasthan Jaipur vs
+    Balchand Baliay" for the alias "State of Rajasthan v. Balchand"), or is a spelling variant at the verifier's own 0.9
+    ratio. A candidate that shares only SOME party words (a "Balchand Jain vs State of Madhya Pradesh" for that alias) is a
+    different case and may not verify a quote. A party with no distinctive word is skipped, as in `_group_agrees_with_claim`;
+    a group with no distinctive word at all cannot be told apart and does not exclude the candidate.
+    Limit, stated: a different case whose title contains ALL the alias words plus others still passes; only the verbatim
+    quote check stands between such a case and VERIFIED."""
+    tokens = _distinctive_tokens(title)
+    groups = list(conn.execute("SELECT DISTINCT party_1, party_2 FROM citation_aliases WHERE citation = ?", (key,)))
+    if not groups:
+        return True
+    for party_1, party_2 in groups:
+        sides = [t for t in (_distinctive_tokens(party_1), _distinctive_tokens(party_2)) if t]
+        if not sides or all(side <= tokens for side in sides):
+            return True
+        names = normalize_party_name(f"{party_1} {party_2}")
+        if SequenceMatcher(None, names, normalize_party_name(title)).ratio() >= _FUZZY_THRESHOLD:
+            return True
+    return False
+
+
 def _rows_in_cited_year(conn: sqlite3.Connection, rows: list[sqlite3.Row], cited_year: int | None) -> list[sqlite3.Row]:
     """The candidate rows whose recorded decision year is within one year of the cited (reporting) year (the window the
     alias disambiguation uses); an unreadable year
@@ -374,6 +397,8 @@ def verify(
     # year allows: the year in "(1977) 3 SCC 247" is the reporting year, so a decision within a year of it.
     # A candidate set with no such case is "no evidence either way", never a verification against some other case.
     case_rows = _rows_in_cited_year(conn, resolved.case_rows, citations[0].year)
+    # #723 (#717): and only against a candidate whose title carries every distinctive word of the citation's parties.
+    case_rows = [r for r in case_rows if _title_carries_the_cited_parties(conn, key, r["title"])]
     if not case_rows:
         return VerifyResult.NOT_IN_INDEX
     for row in case_rows:
