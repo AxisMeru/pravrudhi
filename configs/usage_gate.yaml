@@ -22,8 +22,8 @@ codex:
   refresh_timeout_s: 120
   refresh_prompt: "Reply with the single word: ok"
   # The refresh is a real model call: pinned like every other (always-pin-the-model rule). Required; the gate refuses a refresh
-  # without it, and refuses if codex reports any other model. The cheapest allowed model is the operator's choice.
-  refresh_model: gpt-5.1-codex-mini
+  # without it, and refuses if codex reports any other model. The only model this account accepts (configs/routing.yaml, verified 2026-09-05).
+  refresh_model: gpt-6-astra
   refresh_state_file: ~/.local/state/pravrudhi/codex_usage_gate_refresh.json
 claude:
   seat_key: Claude-Axismeru
