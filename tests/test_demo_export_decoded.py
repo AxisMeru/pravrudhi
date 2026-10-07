@@ -151,9 +151,9 @@ def test_the_final_check_catches_a_spaced_name_if_the_scrub_is_bypassed(
     variant: str,
 ) -> None:
     monkeypatch.setattr(demo_export, "scrub_decoded", lambda text, names=(): text)
-    with pytest.raises(SecretInSnapshot, match="private-name #1"):
+    with pytest.raises(SecretInSnapshot, match="private-name #"):
         _write(monkeypatch, tmp_path, {"status": {"a": f"Met {variant} at the hearing"}})
-    assert decoded_hits(f"x {variant} y", NAMES) == ["private-name #1"]
+    assert "private-name #1" in decoded_hits(f"x {variant} y", NAMES)
 
 
 FULL_WIDTH_NAMES = [
@@ -171,9 +171,9 @@ def test_a_full_width_name_is_redacted_in_the_scrub_and_caught_by_the_final_chec
 ) -> None:
     got = json.loads(_write(monkeypatch, tmp_path, {"status": {"a": f"Met {variant} at the hearing"}}).read_text())["status"]["a"]
     assert got == "Met <redacted:name> at the hearing"
-    assert decoded_hits(f"x {variant} y", NAMES) == ["private-name #1"]
+    assert "private-name #1" in decoded_hits(f"x {variant} y", NAMES)
     monkeypatch.setattr(demo_export, "scrub_decoded", lambda text, names=(): text)
-    with pytest.raises(SecretInSnapshot, match="private-name #1"):
+    with pytest.raises(SecretInSnapshot, match="private-name #"):
         _write(monkeypatch, tmp_path, {"status": {"a": f"Met {variant} at the hearing"}})
 
 
@@ -313,3 +313,68 @@ def test_no_captured_ask_prompt_or_transcript_is_in_the_public_view() -> None:
 def test_scrub_decoded_leaves_a_clean_snapshot_byte_identical() -> None:
     clean = json.dumps({"a": "a promise to marry", "b": [1, 2, {"c": "constructed matter"}]}, indent=2, sort_keys=True) + "\n"
     assert scrub_decoded(clean, NAMES) == clean
+
+
+# -- #337: names split by punctuation, and addresses written to dodge the email shape -------------------------------------------
+
+PUNCTUATED_NAMES = [
+    "Zorblat-Quux", "Zorblat.Quux", "Zorblat_Quux", "zorblat quux", "ZORBLAT.QUUX", "Zorblat - Quux", "Zorblat. Quux",
+    "Zorblat\u2019Quux", "Zorblat'Quux", "ZorblatQuux", "Zorblat\u2010Quux".replace("\u2010", "-"),
+]
+
+
+@pytest.mark.parametrize("variant", PUNCTUATED_NAMES)
+def test_a_name_split_by_punctuation_is_redacted_and_caught_by_the_final_check(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, variant: str
+) -> None:
+    got = json.loads(_write(monkeypatch, tmp_path, {"status": {"a": f"Met {variant} at the hearing"}}).read_text())["status"]["a"]
+    assert got == "Met <redacted:name> at the hearing"
+    assert any(h.startswith("private-name #") for h in decoded_hits(f"x {variant} y", NAMES))
+    monkeypatch.setattr(demo_export, "scrub_decoded", lambda text, names=(): text)
+    with pytest.raises(SecretInSnapshot, match="private-name #"):
+        _write(monkeypatch, tmp_path, {"status": {"a": f"Met {variant} at the hearing"}})
+
+
+def test_a_name_inside_a_longer_word_or_beside_an_underscore_boundary_is_judged_as_a_whole_word(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    data = {"status": {"a": "Wibblesome and unwibble stay", "b": "x_wibble_y goes", "c": "see wibble.txt", "d": "Wibble2 stays"}}
+    got = json.loads(_write(monkeypatch, tmp_path, data).read_text())["status"]
+    assert got["a"] == "Wibblesome and unwibble stay"
+    assert got["b"] == "x_<redacted:name>_y goes"
+    assert got["c"] == "see <redacted:name>.txt"
+    assert got["d"] == "Wibble2 stays"
+
+
+OBFUSCATED_EMAILS = [
+    "admin [at] example [dot] org",
+    "admin(at)example(dot)org",
+    "admin{at}example.org",
+    "admin [AT] example.org",
+    "admin < at > example . org".replace(" . ", "[dot]"),
+    "admin at example dot org",
+    "someone at mail dot example dot org",
+]
+PLAIN_SENTENCES = ["meet at noon at the court", "look at the example", "dot the i at the end", "arrive at the hearing on time"]
+
+
+@pytest.mark.parametrize("variant", OBFUSCATED_EMAILS)
+def test_an_obfuscated_email_is_dropped_whole_and_caught_by_the_final_check(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, variant: str
+) -> None:
+    data = {"status": {"a": f"write to {variant} today", "b": "ok"}}
+    got = json.loads(_write(monkeypatch, tmp_path, data).read_text())["status"]
+    assert got == {"a": demo_export.DECODED_MARKER, "b": "ok"}
+    assert "decoded: obfuscated email" in decoded_hits(f"write to {variant} today")
+    monkeypatch.setattr(demo_export, "scrub_decoded", lambda text, names=(): text)
+    with pytest.raises(SecretInSnapshot, match="decoded: obfuscated email"):
+        _write(monkeypatch, tmp_path, {"status": {"a": f"write to {variant} today"}})
+
+
+@pytest.mark.parametrize("sentence", PLAIN_SENTENCES)
+def test_ordinary_sentences_with_the_word_at_are_not_taken_for_addresses(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, sentence: str
+) -> None:
+    got = json.loads(_write(monkeypatch, tmp_path, {"status": {"a": sentence}}).read_text())["status"]["a"]
+    assert got == sentence
+    assert decoded_hits(sentence, NAMES) == []

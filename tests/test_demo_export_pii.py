@@ -253,10 +253,10 @@ def test_a_marker_that_survives_redaction_refuses_the_write(monkeypatch: pytest.
         _write(monkeypatch, tmp_path, {"a": "see /home/someone/x"}, redact=False)
     assert not (tmp_path / "out" / "demo.json").exists()
     # a seat/account name is refused by whatever private patterns are configured: shown here with an invented name and pattern
-    invented = re.compile(r"zorblat\.[a-z]+", re.IGNORECASE)
+    invented = re.compile(r"quibble\.[a-z]+", re.IGNORECASE)
     monkeypatch.setattr(demo_export, "PRIVATE_PATTERNS", (*demo_export.PRIVATE_PATTERNS, invented))
-    with pytest.raises(SecretInSnapshot, match="zorblat"):
-        _write(monkeypatch, tmp_path, {"a": "seat zorblat.quux"}, redact=False)
+    with pytest.raises(SecretInSnapshot, match="quibble"):
+        _write(monkeypatch, tmp_path, {"a": "seat quibble.trax"}, redact=False)
 
 
 def test_a_corpus_passage_in_any_layout_refuses_the_write(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
