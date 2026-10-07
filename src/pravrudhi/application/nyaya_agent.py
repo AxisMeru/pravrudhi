@@ -297,6 +297,38 @@ def _require_pinned_judge_models(house_judge: Mapping[str, Any], second_judge: M
             )
 
 
+#: Every key `HouseJudge.from_config` reads WITHOUT a default, with the env var that sets the ones a container deployment
+#: sets by env (the rest are inherited from `house_judge`). A second judge missing any of them used to start and then
+#: raise KeyError on the first request (#356).
+_SECOND_JUDGE_REQUIRED: tuple[tuple[str, str], ...] = (
+    ("base_url", "NYAYA_SECOND_JUDGE_BASE_URL"),
+    ("tau", "NYAYA_SECOND_JUDGE_TAU"),
+    ("timeout_s", "NYAYA_SECOND_JUDGE_TIMEOUT_S"),
+    ("statute_chars", "NYAYA_SECOND_JUDGE_STATUTE_CHARS"),
+    ("top_logprobs", "NYAYA_SECOND_JUDGE_TOP_LOGPROBS"),
+    ("max_tokens", "NYAYA_SECOND_JUDGE_MAX_TOKENS"),
+    ("label_mass_floor", "NYAYA_SECOND_JUDGE_LABEL_MASS_FLOOR"),
+)
+#: A `second_judge` mapping that carries any of these is an attempt to turn the second judge on; one that carries only
+#: tuning keys (`refer_logit_delta`, fallback URLs) is the inert not-configured case and is left alone.
+_SECOND_JUDGE_SIGNAL_KEYS = ("base_url", "model", "tau", "timeout_s")
+
+
+def _require_complete_second_judge(second_judge: Mapping[str, Any] | None) -> None:
+    """A second judge configured PARTLY refuses to load, naming the missing keys, instead of KeyError on the first request.
+    Only the presence of a key is checked; no value is defaulted or guessed (fail closed)."""
+    if not second_judge or not any(k in second_judge for k in _SECOND_JUDGE_SIGNAL_KEYS):
+        return
+    missing = [(k, env) for k, env in _SECOND_JUDGE_REQUIRED if second_judge.get(k) in (None, "")]
+    if missing:
+        raise ValueError(
+            "second_judge is configured partly: missing "
+            + ", ".join(f"{k} (env {env})" for k, env in missing)
+            + ". Set them in the config or the environment, or remove the second judge entirely; "
+            "refusing to start rather than fail on the first request"
+        )
+
+
 def validated_contract_ids(root: Path) -> frozenset[str]:
     """The `validated_contracts` allowlist from `configs/nyaya_agent.yaml` -- the same set `load_agent_config`
     gives the scorer -- without needing the score binary or a judge to be configured."""
@@ -495,6 +527,7 @@ def load_agent_config(root: Path) -> AgentConfig:
             os.environ["NYAYA_SECOND_JUDGE_POSITIVE_CONTROL_MAX_AGE_HOURS"]
         )
     _require_pinned_judge_models(house_judge, second_judge)
+    _require_complete_second_judge(second_judge)
 
     # Gate 1 (Track-C, GATE1-PRODUCT-WIRING-SPEC-2026-09-26.md §3/§5): the yaml block (threshold/model) and
     # the enable switch are deliberately independent -- NYAYA_GATE1_THRESHOLD/_MODEL override the block's own

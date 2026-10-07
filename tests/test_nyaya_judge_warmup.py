@@ -159,5 +159,8 @@ class TestMaxInputCharsEnvOverride:
     def test_second_judge_env_variable_sets_its_limit(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         self._write(tmp_path)
         monkeypatch.setenv("NYAYA_SECOND_JUDGE_BASE_URL", "http://y/v1")
+        monkeypatch.setenv("NYAYA_SECOND_JUDGE_TAU", "0.9")
+        monkeypatch.setenv("NYAYA_SECOND_JUDGE_TIMEOUT_S", "30")
+        monkeypatch.setenv("NYAYA_SECOND_JUDGE_LABEL_MASS_FLOOR", "0.5")
         monkeypatch.setenv("NYAYA_SECOND_JUDGE_MAX_INPUT_CHARS", "10800")
         assert (load_agent_config(tmp_path).second_judge or {})["max_input_chars"] == 10800

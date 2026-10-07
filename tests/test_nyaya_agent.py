@@ -1915,6 +1915,7 @@ class TestConfig:
         possible (the RunPod endpoint is configured this way)."""
         monkeypatch.setenv("NYAYA_SECOND_JUDGE_BASE_URL", "http://127.0.0.1:8111/v1")
         monkeypatch.setenv("NYAYA_SECOND_JUDGE_TAU", "0.97")
+        monkeypatch.setenv("NYAYA_SECOND_JUDGE_TIMEOUT_S", "60")
         cfg = load_agent_config(REPO)
         sj = cfg.second_judge
         assert sj is not None
@@ -1927,6 +1928,8 @@ class TestConfig:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setenv("NYAYA_SECOND_JUDGE_BASE_URL", "http://127.0.0.1:8111/v1")
+        monkeypatch.setenv("NYAYA_SECOND_JUDGE_TAU", "0.97")
+        monkeypatch.setenv("NYAYA_SECOND_JUDGE_TIMEOUT_S", "60")
         monkeypatch.setenv("NYAYA_SECOND_JUDGE_STATUTE_CHARS", "500")
         monkeypatch.setenv("NYAYA_SECOND_JUDGE_TOP_LOGPROBS", "10")
         monkeypatch.setenv("NYAYA_SECOND_JUDGE_MAX_TOKENS", "40")

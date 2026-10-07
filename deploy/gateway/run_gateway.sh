@@ -19,6 +19,9 @@
 #                   NYAYA_HOUSE_JUDGE_MODEL (and NYAYA_SECOND_JUDGE_MODEL when a second judge is configured):
 #                   the served judge model ids (nyaya-judge-4b / judge32b). REQUIRED for the engine containers:
 #                   a product or studio engine refuses to load its judge config with no model named (#237)
+#                   optional NYAYA_SECOND_JUDGE_BASE_URL / _TAU / _TIMEOUT_S / _REFER_LOGIT_DELTA (forwarded when set; all of
+#                   base URL, tau and timeout must be set together with the model or the engine refuses to start, #356).
+#                   Values live only in gateway.env, never in this repo.
 #                   optional NYAYA_HOUSE_JUDGE_BASE_URL + NYAYA_JUDGE_NETWORK: the element-judge server the
 #                   /api/v1/analyse-facts agent calls, reached by container name on a shared docker network
 #                   (e.g. http://vllm-judge:8000/v1 on network nyaya-judge) -- the host's 127.0.0.1 is not
@@ -200,7 +203,11 @@ ensure_engine() {
     -e PRAVRUDHI_ALLOWED_ORIGINS="$(origin_of "$edition")" \
     ${NYAYA_HOUSE_JUDGE_BASE_URL:+-e "NYAYA_HOUSE_JUDGE_BASE_URL=$NYAYA_HOUSE_JUDGE_BASE_URL"} \
     ${NYAYA_HOUSE_JUDGE_MODEL:+-e "NYAYA_HOUSE_JUDGE_MODEL=$NYAYA_HOUSE_JUDGE_MODEL"} \
+    ${NYAYA_SECOND_JUDGE_BASE_URL:+-e "NYAYA_SECOND_JUDGE_BASE_URL=$NYAYA_SECOND_JUDGE_BASE_URL"} \
     ${NYAYA_SECOND_JUDGE_MODEL:+-e "NYAYA_SECOND_JUDGE_MODEL=$NYAYA_SECOND_JUDGE_MODEL"} \
+    ${NYAYA_SECOND_JUDGE_TAU:+-e "NYAYA_SECOND_JUDGE_TAU=$NYAYA_SECOND_JUDGE_TAU"} \
+    ${NYAYA_SECOND_JUDGE_TIMEOUT_S:+-e "NYAYA_SECOND_JUDGE_TIMEOUT_S=$NYAYA_SECOND_JUDGE_TIMEOUT_S"} \
+    ${NYAYA_SECOND_JUDGE_REFER_LOGIT_DELTA:+-e "NYAYA_SECOND_JUDGE_REFER_LOGIT_DELTA=$NYAYA_SECOND_JUDGE_REFER_LOGIT_DELTA"} \
     ${NYAYA_JUDGE_NETWORK:+--network "$NYAYA_JUDGE_NETWORK"} \
     "${extra[@]}" \
     "pravrudhi-engine:$PRAVRUDHI_VERSION" >/dev/null
