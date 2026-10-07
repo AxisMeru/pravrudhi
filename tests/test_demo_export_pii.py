@@ -349,7 +349,8 @@ _IDENTIFIERS = [
     "ss@ss-Fusion-99:~/x", "host ss-Fusion-99 is up", "ssh nzorblat@zorblats-Mac-mini", "zorblats-Mac-mini",
     "dvs-builder@U22-I3-B08-02-2",
     "session dir -home-someone-projects-pravrudhi-", "scratch /tmp/claude-1000/x/y", "gateway 192.168.0.250:8080",
-    "endpoint 7j7ipedmwi8z1w", "endpoint VWBRFGYIEL1HAQ", "id v7alta6t9ytcga",
+    *[f"endpoint {i}" for i in demo_export.PRIVATE_ENDPOINT_IDS], f"endpoint {demo_export.PRIVATE_ENDPOINT_IDS[1].upper()}",
+    f"id {demo_export.PRIVATE_ENDPOINT_IDS[2]}",
 ]
 
 
