@@ -7,7 +7,7 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 
-TEST_NAMES = ("Zorblat Quux", "Wibble", "sharath_sathish")
+TEST_NAMES = ("Zorblat Quux", "Wibble", "zorblat_quux")
 
 
 def names_kwargs(tmp_path: Path, names: tuple[str, ...] = TEST_NAMES) -> dict[str, str]:
