@@ -335,7 +335,10 @@ def resolve_citation_key(
 def _rows_in_cited_year(conn: sqlite3.Connection, rows: list[sqlite3.Row], cited_year: int | None) -> list[sqlite3.Row]:
     """The candidate rows whose recorded decision year is within one year of the cited (reporting) year (the window the
     alias disambiguation uses); an unreadable year
-    is not a match. With no cited year there is nothing to check against, so no row qualifies."""
+    is not a match: a record with NO recorded year (213 of the 26,687 SC PDFs and every InJudgements row in the 7 Oct 2026
+    index) can never qualify, so a case whose only record has no year answers NOT_IN_INDEX even though it is indexed (pinned
+    by tests as intended; a distinct status for an ungateable year is post-MVP). With no cited year there is nothing to check
+    against, so no row qualifies."""
     if cited_year is None:
         return []
     ok: list[sqlite3.Row] = []
