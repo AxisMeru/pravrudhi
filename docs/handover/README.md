@@ -113,7 +113,7 @@ rather than its own login; give it one.
 
 ## 5. House rules that will bite you
 
-- **Commit as `SharathSPhD <qbz506@york.ac.uk>` with no attribution trailers.** Enforced by
+- **Commit as `SharathSPhD <admin@axismeru.com>` with no attribution trailers.** Enforced by
   `.githooks/commit-msg`, which fails the commit rather than warning. Run `make init` to install the hook.
 - **Never `git add` a gitignored local path** — `CLAUDE.md`, `HANDOFF.md`, `RESTART.md`, `docs/blueprint/`,
   `docs/superpowers/`, `docs/decisions/`, `contracts/`, `gates/`, `research/`, `.pravrudhi/`, `.worktrees/`.

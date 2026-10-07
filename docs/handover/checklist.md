@@ -36,7 +36,7 @@ These cannot be done by an agent — they need a human with the accounts.
 
 - [ ] Read `docs/handover/README.md` end to end, then `CHARTER.md` §6.
 - [ ] `git clone`, then **`make init` before anything else** — it installs `.githooks/commit-msg`, which fails
-      any commit whose author is not `SharathSPhD <qbz506@york.ac.uk>` or which carries an attribution trailer.
+      any commit whose author is not `SharathSPhD <admin@axismeru.com>` or which carries an attribution trailer.
       Discovering this after writing a commit message is annoying; discovering it after ten is worse.
 - [ ] `uv sync && make smoke`. Expect **1837 passing** in about five minutes. If it is not green, stop and find
       out why before changing anything — this is the gate every commit in this repository has passed.

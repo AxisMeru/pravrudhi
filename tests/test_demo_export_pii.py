@@ -53,8 +53,8 @@ def test_a_macos_home_path_does_not_survive_either() -> None:
 
 
 def test_a_personal_email_does_not_survive_redaction() -> None:
-    out = redact_secrets("author qbz506@york.ac.uk and someone@gmail.com")
-    assert "york.ac.uk" not in out
+    out = redact_secrets("author someone@example.ac.uk and other@gmail.com")
+    assert "example.ac.uk" not in out
     assert "gmail.com" not in out
 
 
@@ -346,9 +346,9 @@ def test_an_empty_or_too_small_corpus_fails_closed(monkeypatch: pytest.MonkeyPat
 # -- machine and network identifiers (R2, 2026-10-05) --------------------------------------------------------------
 
 _IDENTIFIERS = [
-    "ss@ss-Fusion-75:~/x", "host ss-Fusion-75 is up", "ssh nzorblat@zorblats-Mac-mini", "zorblats-Mac-mini",
+    "ss@ss-Fusion-99:~/x", "host ss-Fusion-99 is up", "ssh nzorblat@zorblats-Mac-mini", "zorblats-Mac-mini",
     "dvs-builder@U22-I3-B08-02-2",
-    "session dir -home-someone-projects-pravrudhi-", "scratch /tmp/claude-1000/x/y", "gateway 192.168.0.12:8080",
+    "session dir -home-someone-projects-pravrudhi-", "scratch /tmp/claude-1000/x/y", "gateway 192.168.0.250:8080",
     "endpoint 7j7ipedmwi8z1w", "endpoint VWBRFGYIEL1HAQ", "id v7alta6t9ytcga",
 ]
 
@@ -362,7 +362,7 @@ def test_machine_and_network_identifiers_are_removed_and_the_json_stays_valid(ra
 
 
 def test_a_newline_before_user_at_host_is_kept_not_swallowed() -> None:
-    out = demo_export.demo_pipeline(json.dumps({"x": "Login successful.\nss@ss-Fusion-75:~$ claude"}))
+    out = demo_export.demo_pipeline(json.dumps({"x": "Login successful.\nss@ss-Fusion-99:~$ claude"}))
     assert json.loads(out)["x"] == "Login successful.\n<redacted:user-at-host>:~$ claude"
 
 
