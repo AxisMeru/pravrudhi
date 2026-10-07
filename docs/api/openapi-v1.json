@@ -464,7 +464,8 @@
               "gate1_unavailable",
               "gate1_not_entailed",
               "gate1_contradiction",
-              "contract_not_validated"
+              "contract_not_validated",
+              "input_too_long"
             ],
             "title": "Reason",
             "type": "string"

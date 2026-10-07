@@ -134,3 +134,30 @@ class TestEngineStartupTriggersTheWarmup:
 
         create_app(tmp_path)
         assert calls == [{"base_url": "http://judge.invalid/v1", "api_key": "topsecret", "timeout_s": 240.0}]
+
+
+class TestMaxInputCharsEnvOverride:
+    """#727: the judge prompt limit is per deployment window; the env variables override the committed value."""
+
+    def _write(self, tmp_path: Path, extra: str = "") -> None:
+        (tmp_path / "configs").mkdir()
+        (tmp_path / "configs" / "nyaya_agent.yaml").write_text(
+            "refer_band: [0.5, 0.74]\nmax_retries: 2\naudit_dir: audit\ntau: 0.74\n"
+            "house_judge: {base_url: http://x/v1, statute_chars: 600, max_tokens: 30, top_logprobs: 20, timeout_s: 60, "
+            f"max_input_chars: 10800}}\n{extra}"
+        )
+
+    def test_yaml_value_without_the_env_variable(self, tmp_path: Path) -> None:
+        self._write(tmp_path)
+        assert load_agent_config(tmp_path).house_judge["max_input_chars"] == 10800
+
+    def test_house_env_variable_overrides_it(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        self._write(tmp_path)
+        monkeypatch.setenv("NYAYA_HOUSE_JUDGE_MAX_INPUT_CHARS", "5300")
+        assert load_agent_config(tmp_path).house_judge["max_input_chars"] == 5300
+
+    def test_second_judge_env_variable_sets_its_limit(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        self._write(tmp_path)
+        monkeypatch.setenv("NYAYA_SECOND_JUDGE_BASE_URL", "http://y/v1")
+        monkeypatch.setenv("NYAYA_SECOND_JUDGE_MAX_INPUT_CHARS", "10800")
+        assert (load_agent_config(tmp_path).second_judge or {})["max_input_chars"] == 10800

@@ -3,6 +3,16 @@
 Release notes for the engine (`pravrudhi`). Versions before 0.5.44 are described in their GitHub release notes and commit
 messages.
 
+## 0.5.47 (unreleased)
+
+- **Behaviour change: a judge input too long for the judge is a REFER, not an error.** A prompt longer than the configured
+  `house_judge.max_input_chars` (`NYAYA_HOUSE_JUDGE_MAX_INPUT_CHARS`; second judge `NYAYA_SECOND_JUDGE_MAX_INPUT_CHARS`) is refused
+  before the judge call, and a judge server's own context-length 400 maps to the same result: the contract becomes
+  `REFER_TO_LAWYER` with the new reason `input_too_long` (additive public value: the contract `reason` enum in `openapi-v1.json` goes
+  from 15 to 16, and `docs/api/reason-codes.md` has the plain-words row; a client with a strict enum validator needs the new schema).
+  The committed limit, 10,800 characters, fits the 4096-token judges; a 2048-token deployment sets its own (7,600, the longest input known to succeed on that window). Not covered: the
+  typed-layer judge path. `application/nyaya_judges.py`, `application/nyaya_agent.py`, `configs/nyaya_agent.yaml`.
+
 ## 0.5.46
 
 Stable error codes for the partner API's 503s, the citation lookup's status contract and its wrong-case fixes, the demo export's

@@ -1,7 +1,7 @@
 # Reason codes and rule text (`/api/v1/analyse-facts`)
 
 Every contract in an analyse-facts response carries a machine-readable `reason`, and every element carries a `quote_check`. Both are fixed
-enumerations published in [`openapi-v1.json`](openapi-v1.json) (`ContractResultOut.reason`: 15 values; `ElementResultOut.quote_check`: 8
+enumerations published in [`openapi-v1.json`](openapi-v1.json) (`ContractResultOut.reason`: 16 values; `ElementResultOut.quote_check`: 8
 values), so a client can be checked against the schema. The plain-language text below says what each code means; it describes what the judge
 or the code did, never the content of your facts. No change to any verdict comes with these fields.
 
@@ -24,6 +24,7 @@ or the code did, never the content of your facts. No change to any verdict comes
 | `gate1_not_entailed` | The entailment check (a separate check of the quoted words against the claim) did not find enough support for it. Please have a lawyer look. |
 | `gate1_contradiction` | The entailment check (a separate check of the quoted words against the claim) found they contradict it. Please have a lawyer look. |
 | `contract_not_validated` | This provision is not on the validated list, so we give a referral, not a proof or denial. |
+| `input_too_long` | The facts and question together are too long for the checker to read in one go, so we give a referral, not an answer. Please shorten them or have a lawyer look. |
 
 Rows marked "deployments that use two judges only" apply when the deployment runs a second judge.
 
