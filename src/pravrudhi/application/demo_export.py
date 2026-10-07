@@ -18,6 +18,7 @@ import html
 import json
 import re
 import subprocess
+import unicodedata
 import urllib.parse
 from dataclasses import asdict
 from datetime import UTC, datetime
@@ -807,6 +808,13 @@ class PrivateNamesError(SecretInSnapshot):
     """The private-name list is missing, empty, unreadable or not the pinned one: no snapshot is written without it."""
 
 
+def normalise_text(text: str) -> str:
+    """The text as a reader sees it, for matching names: invisible format characters (zero-width space and joiners, the
+    byte-order mark, soft hyphen, bidi marks: Unicode category Cf) removed, and every run of Unicode whitespace (double
+    spaces, tabs, no-break space, line breaks) collapsed to one space."""
+    return " ".join("".join(ch for ch in text if unicodedata.category(ch) != "Cf").split())
+
+
 def load_private_names(path: Path | str, sha256: str) -> tuple[str, ...]:
     """The private names to redact: one per line, '#' comments and blank lines ignored. The file is REQUIRED: a missing, empty or
     unreadable file, or one whose sha256 is not the pinned one, refuses the write. Names are never printed or returned
@@ -820,35 +828,42 @@ def load_private_names(path: Path | str, sha256: str) -> tuple[str, ...]:
     if hashlib.sha256(raw).hexdigest() != str(sha256).strip().lower():
         raise PrivateNamesError("the private-name list does not match its pinned sha256; refusing to write the snapshot")
     names = tuple(
-        line.strip()
+        normalise_text(line)
         for line in raw.decode("utf-8", "replace").splitlines()
-        if line.strip() and not line.lstrip().startswith("#")
+        if normalise_text(line) and not line.lstrip().startswith("#")
     )
     if not names:
         raise PrivateNamesError("the private-name list has no names; refusing to write the snapshot")
     return names
 
 
+def _name_pattern(name: str) -> str:
+    """One name as a pattern: its words, normalised, with an OPTIONAL single space between them (an invisible character
+    between two words leaves no space once it is stripped, and a name that has been run together is still that name)."""
+    return " ?".join(re.escape(w) for w in normalise_text(name).split(" "))
+
+
 def _names_regex(names: tuple[str, ...]) -> re.Pattern[str] | None:
     """Whole-word, case-insensitive match of any name (a word is a run of letters, digits and underscore)."""
     if not names:
         return None
-    alt = "|".join(re.escape(n) for n in sorted(names, key=len, reverse=True))
+    alt = "|".join(_name_pattern(n) for n in sorted(names, key=len, reverse=True))
     return re.compile(rf"(?<![A-Za-z0-9_])(?:{alt})(?![A-Za-z0-9_])", re.IGNORECASE)
 
 
 _UNICODE_ESCAPE = re.compile(r"\\u([0-9a-fA-F]{4})")
+_WHITESPACE_ESCAPE = re.compile(r"\\[nrtfb]")  # a JSON escape of a line break, tab, form feed or backspace in serialised text
 
 
 def decode_all(text: str, passes: int = 5) -> str:
-    """The text with HTML entities, percent-encoding and \\uXXXX escapes decoded, repeatedly (a value can be encoded
-    twice), so a check or a
-    redaction sees what a reader's browser or a copy-paste would produce."""
+    """The text with HTML entities, percent-encoding and \\uXXXX escapes decoded, repeatedly (a value can be encoded twice),
+    so a check or a redaction sees what a reader's browser or a copy-paste would produce."""
     for _ in range(passes):
         before = text
         text = html.unescape(text)
         text = urllib.parse.unquote(text)
         text = _UNICODE_ESCAPE.sub(lambda m: chr(int(m.group(1), 16)), text)
+        text = _WHITESPACE_ESCAPE.sub(" ", text)
         if text == before:
             break
     return text
@@ -863,18 +878,17 @@ _SIGN_IN_SHAPES = re.compile(
 
 
 def decoded_hits(text: str, names: tuple[str, ...] = ()) -> list[str]:
-    """What the DECODED text still carries, as labels (never the matched text and never a name): an email-shaped
-    string, a sign-in or
-    OAuth URL part, and one `private-name #i` per list entry that matches (the entry's position, so the name itself is
-    never reported)."""
-    d = decode_all(text)
+    """What the DECODED, whitespace-normalised text still carries, as labels (never the matched text and never a name): an
+    email-shaped string, a sign-in or OAuth URL part, and one `private-name #i` per list entry that matches (the entry's
+    position, so the name itself is never reported)."""
+    d = normalise_text(decode_all(text))
     hits: list[str] = []
     if _EMAIL_SHAPED.search(d):
         hits.append("decoded: email-shaped string")
     if _SIGN_IN_SHAPES.search(d):
         hits.append("decoded: sign-in or OAuth url")
     for i, n in enumerate(names):
-        if re.search(rf"(?<![A-Za-z0-9_]){re.escape(n)}(?![A-Za-z0-9_])", d, re.IGNORECASE):
+        if re.search(rf"(?<![A-Za-z0-9_]){_name_pattern(n)}(?![A-Za-z0-9_])", d, re.IGNORECASE):
             hits.append(f"private-name #{i + 1}")
     return hits
 
@@ -886,18 +900,21 @@ NAME_MARKER = "<redacted:name>"
 def _scrub_value(value: Any, name_rx: re.Pattern[str] | None) -> Any:
     if isinstance(value, str):
         decoded = decode_all(value)
-        if _SIGN_IN_SHAPES.search(decoded):
+        seen = normalise_text(decoded)  # what a reader sees: no zero-width characters, one space between words
+        if _SIGN_IN_SHAPES.search(seen):
             return DECODED_MARKER  # a sign-in or OAuth URL (or part of one): the whole value goes
         if decoded != value and (
-            _EMAIL_SHAPED.search(decoded)
-            or (name_rx and name_rx.search(decoded))
-            or any(m.casefold() in decoded.casefold() for m in PRIVATE_MARKERS)
-            or any(pat.search(decoded) for pat in (*PRIVATE_PATTERNS, *DROP_PATTERNS))
+            _EMAIL_SHAPED.search(seen)
+            or (name_rx and name_rx.search(seen))
+            or any(m.casefold() in seen.casefold() for m in PRIVATE_MARKERS)
+            or any(pat.search(seen) for pat in (*PRIVATE_PATTERNS, *DROP_PATTERNS))
         ):
             # a private marker, email or name that only shows once decoded: the whole value goes, nothing half-decoded stays
             return DECODED_MARKER
-        if name_rx and name_rx.search(value):
-            return name_rx.sub(NAME_MARKER, value)  # a plain name: each match is replaced, the sentence stays readable
+        plain = normalise_text(value)
+        if name_rx and name_rx.search(plain):
+            # a plain name, however it is spaced or split by invisible characters: each match is replaced, the rest stays readable
+            return name_rx.sub(NAME_MARKER, plain)
         return value
     if isinstance(value, dict):
         return {k: _scrub_value(v, name_rx) for k, v in value.items()}
@@ -907,9 +924,8 @@ def _scrub_value(value: Any, name_rx: re.Pattern[str] | None) -> Any:
 
 
 def scrub_decoded(text: str, names: tuple[str, ...] = ()) -> str:
-    """Remove from the serialised snapshot what only shows after decoding, and every private name, at the level of
-    whole string values.
-    Run BEFORE the final checks, which decode again and refuse on anything left. Layout (indent, key order) is the
+    """Remove from the serialised snapshot what only shows after decoding, and every private name, at the level of whole
+    string values. Run BEFORE the final checks, which decode again and refuse on anything left. Layout (indent, key order) is the
     exporter's own."""
     name_rx = _names_regex(names)
     return json.dumps(_scrub_value(json.loads(text), name_rx), indent=2, sort_keys=True, default=str) + "\n"

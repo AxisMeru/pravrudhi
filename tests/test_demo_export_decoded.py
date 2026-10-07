@@ -62,7 +62,8 @@ def test_decode_all_undoes_percent_html_and_unicode_escapes(raw: str, decoded: s
 # -- R2's probe strings and the captured sign-in URL ------------------------------------------------
 
 PROBES = [
-    "https://accounts.example/o/oauth2/auth?client_id=abc123&login_hint=admin%40axismeru.com&state=xyz&code_challenge=Q",
+    "https://accounts.example/o/oauth2/auth?client_" + "id=abc123&login_" + "hint=admin%40axismeru.com"
+    "&state=xyz&code_" + "challenge=Q",
     "login_hint=admin%40axismeru.com",
     "admin%40AxisMeru.com",
     "admin&#64;axismeru.com",
@@ -113,6 +114,65 @@ def test_the_markers_check_also_sees_encoded_markers() -> None:
 
 
 # -- the private-name list --------------------------------------------------------------------------
+
+SPACING_VARIANTS = [
+    "Zorblat  Quux",  # a double space
+    "Zorblat\u00a0Quux",  # a no-break space
+    "Zorblat\u2009Quux",  # a thin space
+    "Zorblat\tQuux",
+    "Zorblat\nQuux",
+    "Zorblat\u200bQuux",  # a zero-width space
+    "Zor\u200bblat Quux",  # a zero-width space inside a word
+    "Zorblat\u200d \u200cQuux",  # zero-width joiners around the space
+    "Zorblat\ufeffQuux\u00ad",  # a byte-order mark and a soft hyphen
+    "Zorblat\u2060 Quux",  # a word joiner
+    "ZORBLAT   quux",
+]
+
+
+@pytest.mark.parametrize("variant", SPACING_VARIANTS)
+def test_a_multi_word_name_is_redacted_however_it_is_spaced_or_split(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    variant: str,
+) -> None:
+    out = _write(monkeypatch, tmp_path, {"status": {"a": f"Met {variant} at the hearing", "b": "plain"}})
+    text = out.read_text()
+    got = json.loads(text)["status"]
+    assert got["a"] == "Met <redacted:name> at the hearing"
+    assert got["b"] == "plain"
+    assert private_markers_left(text, NAMES) == []
+
+
+@pytest.mark.parametrize("variant", SPACING_VARIANTS)
+def test_the_final_check_catches_a_spaced_name_if_the_scrub_is_bypassed(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    variant: str,
+) -> None:
+    monkeypatch.setattr(demo_export, "scrub_decoded", lambda text, names=(): text)
+    with pytest.raises(SecretInSnapshot, match="private-name #1"):
+        _write(monkeypatch, tmp_path, {"status": {"a": f"Met {variant} at the hearing"}})
+    assert decoded_hits(f"x {variant} y", NAMES) == ["private-name #1"]
+
+
+def test_an_encoded_spaced_name_drops_the_whole_value(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    data = {"status": {"a": "Zorblat%C2%A0Quux was here", "b": "Zorblat&nbsp;&nbsp;Quux", "c": "ok"}}
+    got = json.loads(_write(monkeypatch, tmp_path, data).read_text())["status"]
+    assert got["a"] == demo_export.DECODED_MARKER and got["b"] == demo_export.DECODED_MARKER and got["c"] == "ok"
+
+
+def test_normalise_text_collapses_whitespace_and_strips_invisible_characters() -> None:
+    from pravrudhi.application.demo_export import normalise_text
+
+    assert normalise_text(" a\u00a0\u00a0b\u200bc \t d\n") == "a bc d"
+    assert normalise_text("plain text") == "plain text"
+
+
+def test_names_in_the_list_are_normalised_too(tmp_path: Path) -> None:
+    kw = names_kwargs(tmp_path, ("Alpha   Beta", "Gam\u200bma"))
+    assert load_private_names(kw["private_names_path"], kw["private_names_sha256"]) == ("Alpha Beta", "Gamma")
+
 
 def test_names_are_redacted_whole_word_ignoring_case_and_the_rest_stays(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     plain = "Wibbles and wibbled and Wibblesome stay"
