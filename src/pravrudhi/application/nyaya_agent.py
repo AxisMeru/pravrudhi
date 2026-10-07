@@ -76,9 +76,11 @@ from typing import Any, Literal, Protocol
 
 from pravrudhi.application import nyaya_lean_registry as reg
 from pravrudhi.application.nyaya_judges import (
+    INPUT_TOO_LONG,
     ClampKind,
     ElementJudgment,
     Judge,
+    JudgeInputTooLong,
     JudgeRequest,
     SecondJudgeCircuitBreaker,
     standard_for_posture,
@@ -93,7 +95,7 @@ ContractReason = Literal[
     "all_elements_established", "denial_established", "missing_element", "no_training_statute_text",
     "judge_error", "assembly_lean_mismatch", "denial_unquotable", "second_judge_defeater_disagreement",
     "uncertain", "uncertain_second_judge", "second_judge_unavailable", "gate1_unavailable",
-    "gate1_not_entailed", "gate1_contradiction", "contract_not_validated",
+    "gate1_not_entailed", "gate1_contradiction", "contract_not_validated", "input_too_long",
 ]
 CONFIG_PATH = Path("configs") / "nyaya_agent.yaml"
 #: What `ContractResult.rule_text_source` says: the provision text came from the pinned Lean binary's `--describe-source`,
@@ -116,8 +118,20 @@ def _judge_config_fault(e: BaseException) -> int | None:
 
     seen: BaseException | None = e
     while seen is not None:
+        if isinstance(seen, JudgeInputTooLong):
+            return None  # a context overflow is a REFER (`input_too_long`), never a configuration fault, whatever 400 caused it
         if isinstance(seen, HTTPStatusError) and 400 <= seen.status < 500 and seen.status != 429:
             return seen.status
+        seen = seen.__cause__
+    return None
+
+
+def _input_too_long_in(e: BaseException) -> JudgeInputTooLong | None:
+    """The `JudgeInputTooLong` anywhere in `e`'s cause chain, else None (#727)."""
+    seen: BaseException | None = e
+    while seen is not None:
+        if isinstance(seen, JudgeInputTooLong):
+            return seen
         seen = seen.__cause__
     return None
 
@@ -1002,6 +1016,9 @@ class ElementResult:
     #: element was conservatively decided not_established without actually demonstrating it -- distinct
     #: from an ordinary tau-miss. See `HouseJudge.judge`'s own decision rule.
     bound_undetermined: bool = False
+    #: The judge input was too long for the judge (#727): refused before the call over the configured limit, or the judge's
+    #: server said its context overflowed. Not an error: the contract is referred (`input_too_long`), no retry, no Lean call.
+    input_too_long: bool = False
 
 
 @dataclass
@@ -1417,6 +1434,7 @@ class NyayaAgent:
         quote_source: str | None = None
         loc: QuoteLocation | None = None
         error: str | None = None
+        input_too_long = False
         attempts = 0
         calls: list[JudgeCallRecord] = []
         for attempt in range(1, self.config.max_retries + 2):
@@ -1429,6 +1447,15 @@ class NyayaAgent:
                 judgment = judge.judge(request)
             except Exception as e:  # recorded and retried; a judge failure never becomes a status
                 wall_ms = _ms(t0)
+                too_long = _input_too_long_in(e)
+                if too_long is not None:
+                    # A deterministic overflow: retrying cannot help and it is not a fault. The element is not judged, and the
+                    # contract is referred (`input_too_long`) before any assertion or Lean call is built.
+                    audit.step("judge", asdict(request), {**head, "error": INPUT_TOO_LONG, "error_code": INPUT_TOO_LONG,
+                                                          "length": too_long.length, "limit": too_long.limit}, wall_ms)
+                    calls.append(_judge_call_record(None, wall_ms, ok=False))
+                    input_too_long = True
+                    break
                 status = _judge_config_fault(e)
                 if status is not None:
                     audit.step("judge", asdict(request), {**head, "error": f"configuration fault {status}"}, wall_ms)
@@ -1464,7 +1491,8 @@ class NyayaAgent:
         delta = self.config.second_refer_logit_delta()
         if anchor is None:
             return ElementResult(element, is_denial, "not_established", False, None, None, None, None, None, None,
-                                 attempts, error=error, **_second_band_info(None, delta), **_gate1_info(None)), calls
+                                 attempts, error=error, input_too_long=input_too_long,
+                                 **_second_band_info(None, delta), **_gate1_info(None)), calls
         claimed = anchor.status == "established"
         valid = claimed and loc is not None and loc.valid
         second_band = _second_band_info(anchor, delta)
@@ -1650,6 +1678,8 @@ class NyayaAgent:
         if call_records_out is not None:
             call_records_out.extend(call_records)
 
+        if any(r.input_too_long for r in results):
+            return finish("REFER_TO_LAWYER", "input_too_long")  # before judge_error: actionable, and no wire is built
         if any(r.error is not None for r in results):
             return finish("ABSTAIN", "judge_error")
 

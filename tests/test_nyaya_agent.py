@@ -2647,3 +2647,73 @@ class TestPrimaryTauEnvOverride134:
         monkeypatch.setenv("NYAYA_HOUSE_JUDGE_TAU", bad)
         with pytest.raises(ValueError):
             load_agent_config(REPO)
+
+
+class TestInputTooLongRefers:
+    """#727: a judge input too long for the judge REFERs (`input_too_long`); it is not an error, not a configuration fault, and
+    no Lean call is made over an element nobody judged."""
+
+    @staticmethod
+    def _too_long(*, with_400: bool = False) -> Exception:
+        from pravrudhi.application.nyaya_judges import JudgeInputTooLong
+        from pravrudhi.models.openai_compat import HTTPStatusError
+
+        e = JudgeInputTooLong(length=35164, limit=24000)
+        if with_400:
+            e.__cause__ = HTTPStatusError(400, "maximum context length is 2048 tokens")
+        return e
+
+    def test_a_too_long_element_refers_without_a_retry_or_a_lean_call(self, tmp_path: Path) -> None:
+        script = _proof_script(TOY_FACTS)
+        script[BNS69_EL[0]] = [self._too_long()]
+        run, judge, registry = _run(tmp_path, script)
+        c = run.contracts[0]
+        assert (c.outcome, c.reason) == ("REFER_TO_LAWYER", "input_too_long")
+        assert c.elements[0].input_too_long is True and c.elements[0].error is None
+        assert c.elements[0].attempts == 1                       # a deterministic overflow is never retried
+        assert registry.checks == [] and c.lean is None
+
+    def test_an_upstream_400_overflow_is_a_refer_not_a_configuration_fault(self, tmp_path: Path) -> None:
+        script = _proof_script(TOY_FACTS)
+        script[BNS69_EL[1]] = [self._too_long(with_400=True)]
+        run, _, registry = _run(tmp_path, script)             # must not raise JudgeMisconfigured
+        c = run.contracts[0]
+        assert (c.outcome, c.reason) == ("REFER_TO_LAWYER", "input_too_long")
+        assert registry.checks == []
+
+    def test_too_long_wins_over_a_judge_error_on_another_element(self, tmp_path: Path) -> None:
+        script = _proof_script(TOY_FACTS)
+        script[BNS69_EL[0]] = [self._too_long()]
+        script[BNS69_EL[1]] = [JudgeOutputError("unreadable")]
+        c = _run(tmp_path, script)[0].contracts[0]
+        assert (c.outcome, c.reason) == ("REFER_TO_LAWYER", "input_too_long")
+
+    def test_the_audit_step_carries_the_stable_code(self, tmp_path: Path) -> None:
+        script = _proof_script(TOY_FACTS)
+        script[BNS69_EL[0]] = [self._too_long()]
+        run = _run(tmp_path, script)[0]
+        steps = [json.loads(x) for x in run.audit_path.read_text().splitlines()]
+        judged = [s for s in steps if s["step"] == "judge" and s["output"].get("error_code") == "input_too_long"]
+        assert judged and judged[0]["output"]["limit"] == 24000 and judged[0]["output"]["length"] == 35164
+
+    def test_an_ordinary_judge_failure_is_still_judge_error(self, tmp_path: Path) -> None:
+        script = _proof_script(TOY_FACTS)
+        script[BNS69_EL[0]] = [JudgeOutputError("unreadable")]
+        c = _run(tmp_path, script)[0].contracts[0]
+        assert (c.outcome, c.reason) == ("ABSTAIN", "judge_error") and c.elements[0].input_too_long is False
+
+    def test_the_shipped_config_sets_a_positive_limit_and_it_reaches_the_judge(self) -> None:
+        import yaml
+
+        from pravrudhi.application.nyaya_agent import _build_house_judge
+
+        cfg = yaml.safe_load((REPO / "configs" / "nyaya_agent.yaml").read_text())["house_judge"]
+        limit = cfg["max_input_chars"]
+        assert isinstance(limit, int) and not isinstance(limit, bool) and 0 < limit < 35164   # 35,164 overflowed
+        j = _build_house_judge({**cfg, "model": "m"}, tau=0.74, typed=False, api_key_env="NYAYA_HOUSE_JUDGE_API_KEY")
+        assert j.max_input_chars == limit
+
+    def test_the_agents_config_fault_helper_mirrors_the_judges_for_a_too_long_error(self) -> None:
+        from pravrudhi.application.nyaya_agent import _judge_config_fault
+
+        assert _judge_config_fault(self._too_long(with_400=True)) is None

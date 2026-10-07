@@ -66,6 +66,10 @@ house_judge:
   # clear this before a decision is trusted at all -- else JudgeOutputError, failing closed to REFER.
   # Required, not defaulted here: HouseJudge.from_config refuses if this key is absent.
   label_mass_floor: 0.5
+  # The longest judge prompt (characters, statute + scenario + element + facts) the judge is asked to read (#727). A longer one is
+  # REFERRED (`input_too_long`) BEFORE the call; an upstream context-length 400 maps to the same REFER. Unset = no pre-check (the
+  # upstream mapping still applies). Set it under the served model's context window: a 35,164-character input overflowed.
+  max_input_chars: 24000
   # How many (contract, element/denial) judge requests one `NyayaAgent.run` call judges at once, bounded by a
   # ThreadPoolExecutor (docs/decisions 2026-09-24). 1 is today's serial behaviour, byte-identical results and
   # audit ordering -- unchanged unless this is raised. NYAYA_JUDGE_MAX_CONCURRENCY overrides.
@@ -121,6 +125,7 @@ retention_days: 7
 #   top_logprobs: 20
 #   max_tokens: 30
 #   statute_chars: 600
+#   max_input_chars: 24000   # #727: longer prompts REFER (`input_too_long`) before the second judge is called
 #   tau: 0.97
 #   # endpoint_id / adapter_sha: only read when second_judge_positive_control.record_path is set below --
 #   # RecordGatedJudge compares these against the record the preflight CLI wrote, refusing the real endpoint
