@@ -31,7 +31,6 @@ import hashlib
 import json
 import os
 import re
-import subprocess
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
@@ -320,24 +319,30 @@ def _claude_cli_effort(vendor: Vendor) -> str | None:
     return str(effort)
 
 
-def _claude_auth_email(env: dict[str, str]) -> str | None:
-    """The email `claude auth status --json` reports for this config dir (the only truth for the seat)."""
-    p = subprocess.run(["claude", "auth", "status", "--json"], env={**os.environ, **env},
-                       capture_output=True, text=True, timeout=60)
-    try:
-        email = json.loads(p.stdout).get("email")
-    except (ValueError, AttributeError):
-        return None
-    return email if isinstance(email, str) else None
+def _verified_seat_env() -> dict[str, str]:
+    """The ONE seat-identity check for scripted `claude` calls: `account.claude_env(live=True)` asks `claude auth status --json`
+    for the scripted seat-2 directory and refuses unless it shows the expected email (#214; the check used to be duplicated
+    here). A thin seam so a test can stand in for the CLI without touching `account.claude_env` itself."""
+    from pravrudhi.agents import account
+
+    return account.claude_env(live=True)
 
 
 def _assert_claude_seat(env: dict[str, str]) -> None:
-    expected = claude_cli_expected_email()  # raises SeatIdentityMissing when unconfigured: nothing to verify against
-    email = _claude_auth_email(env)
-    if email != expected:
+    """Refuse the call unless the seat verified by `account.claude_env(live=True)` is the config dir THIS call will use.
+    `SeatIdentityMissing` (nothing to verify against) propagates; a mismatched or personal account becomes
+    `ClaudeCliNotProvisioned`, as before."""
+    from pravrudhi.agents import account
+
+    try:
+        checked = _verified_seat_env()
+    except (account.PersonalAccountRefused, account.ScriptedSeatMismatch) as e:
+        raise ClaudeCliNotProvisioned(f"refusing: {e}") from e
+    if checked.get("CLAUDE_CONFIG_DIR") != env.get("CLAUDE_CONFIG_DIR"):
         raise ClaudeCliNotProvisioned(
-            f"refusing: claude auth status shows {email!r}, not {expected!r} "
-            f"(config dir {env.get('CLAUDE_CONFIG_DIR')})")
+            f"refusing: the seat directory the identity check verified ({checked.get('CLAUDE_CONFIG_DIR')}) is not the "
+            f"config dir this call uses ({env.get('CLAUDE_CONFIG_DIR')})"
+        )
 
 
 def _model_in_family(pinned: str, key: str) -> bool:

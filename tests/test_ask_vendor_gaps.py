@@ -4,14 +4,13 @@ Envelopes in the first classes are CONSTRUCTED (labelled as such). The codex mod
 not in the --json stream (observed 2026-10-02), so `TestCodexEnvelopeArmD` keeps its stream-key cases as constructed
 forward-compat and `TestCodexModelIdFromRollout` covers the real source. `TestRecordedEnvelopes` replays RECORDED
 envelopes from tests/fixtures/ask_vendor_envelopes (trivial prompts, no eval items). Nothing here calls a live model;
-`cli_agents._run` and `subprocess.run` are stubbed. This module opts out of the conftest stub of `_claude_auth_email`
-so the real seat check is exercised.
+`cli_agents._run` and `subprocess.run` are stubbed. This module opts out of the conftest stub of `_verified_seat_env`
+so the real seat check (`_assert_claude_seat`) is exercised.
 """
 
 from __future__ import annotations
 
 import json
-import subprocess
 from dataclasses import replace
 from pathlib import Path
 
@@ -50,7 +49,7 @@ def seat(tmp_path, monkeypatch):
     home.mkdir()
     (home / ".credentials.json").write_text("{}")
     monkeypatch.setenv("PRAVRUDHI_CLAUDE_CLI_CONFIG_DIR", str(home))
-    monkeypatch.setattr(panel, "_claude_auth_email", lambda env: panel.claude_cli_expected_email())
+    monkeypatch.setattr(panel, "_verified_seat_env", lambda: {"CLAUDE_CONFIG_DIR": str(home)})
     return home
 
 
@@ -313,32 +312,44 @@ class TestSeatAssert:
         assert Path("~/.config/pravrudhi/claude-loop") == panel.CLAUDE_CLI_CONFIG_DIR_DEFAULT
         assert panel.claude_cli_expected_email() == "seat-a@seats.test"
 
-    @pytest.mark.parametrize("email", ["seat-b@seats.test", "admin@axismeru.com", None])
-    def test_wrong_or_unreadable_seat_refuses_before_the_call(self, seat, monkeypatch, email):
-        monkeypatch.setattr(panel, "_claude_auth_email", lambda env: email)
+    @pytest.mark.parametrize("why", ["scripted seat mismatch", "personal account refused"])
+    def test_wrong_seat_refuses_before_the_call(self, seat, monkeypatch, why):
+        from pravrudhi.agents import account
+
+        err = account.ScriptedSeatMismatch if why.startswith("scripted") else account.PersonalAccountRefused
+
+        def boom():
+            raise err(f"constructed: {why}")
+
+        monkeypatch.setattr(panel, "_verified_seat_env", boom)
         run = _Run(_env())
         monkeypatch.setattr(cli_agents, "_run", run)
         with pytest.raises(panel.ClaudeCliNotProvisioned, match="refusing"):
             panel.ask_vendor(panel.VENDORS["claude-cli"], "q")
         assert run.calls == []
 
-    def test_email_is_read_from_claude_auth_status_json_with_the_seat_dir(self, tmp_path, monkeypatch):
+    def test_a_verified_dir_that_is_not_the_dir_the_call_uses_refuses(self, seat, monkeypatch):
+        monkeypatch.setattr(panel, "_verified_seat_env", lambda: {"CLAUDE_CONFIG_DIR": "/some/other/dir"})
+        run = _Run(_env())
+        monkeypatch.setattr(cli_agents, "_run", run)
+        with pytest.raises(panel.ClaudeCliNotProvisioned, match="not the config dir this call uses"):
+            panel.ask_vendor(panel.VENDORS["claude-cli"], "q")
+        assert run.calls == []
+
+    def test_the_identity_check_is_delegated_to_account_claude_env_live(self, monkeypatch):
+        """#214: one assert only; `panel` holds no `claude auth status` reader of its own any more."""
+        from pravrudhi.agents import account
+
         seen = {}
 
-        def fake_run(cmd, **kw):
-            seen["cmd"], seen["env"] = cmd, kw["env"]
-            return subprocess.CompletedProcess(cmd, 0, stdout='{"email": "seat-a@seats.test"}', stderr="")
+        def fake_claude_env(*, require=True, live=False):
+            seen.update(require=require, live=live)
+            return {"CLAUDE_CONFIG_DIR": "/x/loop"}
 
-        monkeypatch.setattr(panel.subprocess, "run", fake_run)
-        assert panel._claude_auth_email({"CLAUDE_CONFIG_DIR": "/x/loop"}) == "seat-a@seats.test"
-        assert seen["cmd"] == ["claude", "auth", "status", "--json"]
-        assert seen["env"]["CLAUDE_CONFIG_DIR"] == "/x/loop"
-
-    def test_unparseable_auth_status_is_none_and_so_refused(self, monkeypatch):
-        monkeypatch.setattr(
-            panel.subprocess, "run", lambda cmd, **kw: subprocess.CompletedProcess(cmd, 1, stdout="not json", stderr="")
-        )
-        assert panel._claude_auth_email({}) is None
+        monkeypatch.setattr(account, "claude_env", fake_claude_env)
+        panel._assert_claude_seat({"CLAUDE_CONFIG_DIR": "/x/loop"})
+        assert seen["live"] is True
+        assert not hasattr(panel, "_claude_auth_email")
 
 
 #: CONSTRUCTED. `agent_message`/`turn.completed` follow the recorded stream; where the model id sits is a guess.
