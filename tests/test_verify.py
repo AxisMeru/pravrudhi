@@ -568,3 +568,62 @@ def test_with_no_cited_year_nothing_verifies(tmp_path: Path) -> None:
     rows = conn.execute("SELECT case_id FROM cases WHERE case_id IN ('dated', 'undated')").fetchall()
     assert _rows_in_cited_year(conn, rows, None) == []
     assert [r["case_id"] for r in _rows_in_cited_year(conn, rows, 1991)] == ["dated"]
+
+
+# --- #723 / #717: a quote may verify only against a candidate that carries the cited parties' words ----------------------
+
+
+def _two_candidates(tmp_path: Path, name: str) -> sqlite3.Connection:
+    """The Q161-c1 shape: alias 'State of Rajasthan v. Balchand'; the right case's title ADDS words, the wrong case shares
+    only one party word ('Balchand') and is within the year window."""
+    conn = open_index(tmp_path / f"{name}.sqlite3")
+    citer = "In State of Rajasthan v. Balchand (1977) 4 SCC 308 the Court held that bail is the rule"
+    insert_case(conn, CaseRecord("citer", "Later v Other", "Supreme Court", 2005, "sc_pdf", "/x", citer))
+    insert_case(conn, CaseRecord("right", "State Of Rajasthan Jaipur vs Balchand Baliay", "Supreme Court", 1977, "sc_pdf", "/y",
+                                 "The basic rule may perhaps be tersely put as bail, not jail."))
+    insert_case(conn, CaseRecord("wrong", "Balchand Jain vs State Of Madhya Pradesh", "Supreme Court", 1976, "sc_pdf", "/z",
+                                 "An unrelated holding on the scope of the habeas corpus writ."))
+    conn.commit()
+    return conn
+
+
+def test_a_right_case_whose_title_adds_words_still_verifies(tmp_path: Path) -> None:
+    conn = _two_candidates(tmp_path, "adds_words")
+    assert verify(conn, "(1977) 4 SCC 308", "bail, not jail") == VerifyResult.VERIFIED
+
+
+def test_a_quote_found_only_in_a_case_that_shares_some_party_words_does_not_verify(tmp_path: Path) -> None:
+    conn = _two_candidates(tmp_path, "shares_some")
+    # the quote is in the 'wrong' case only; that case has Balchand but not Rajasthan, so it is not the cited case
+    assert verify(conn, "(1977) 4 SCC 308", "scope of the habeas corpus writ") == VerifyResult.EXISTS_QUOTE_NOT_FOUND
+
+
+def test_when_only_a_partly_matching_case_is_in_the_year_window_nothing_verifies(tmp_path: Path) -> None:
+    conn = open_index(tmp_path / "only_wrong.sqlite3")
+    citer = "In State of Rajasthan v. Balchand (1977) 4 SCC 308 the Court held that bail is the rule"
+    insert_case(conn, CaseRecord("citer", "Later v Other", "Supreme Court", 2005, "sc_pdf", "/x", citer))
+    insert_case(conn, CaseRecord("wrong", "Balchand Jain vs State Of Madhya Pradesh", "Supreme Court", 1977, "sc_pdf", "/z",
+                                 "An unrelated holding on the scope of the habeas corpus writ."))
+    conn.commit()
+    assert verify(conn, "(1977) 4 SCC 308", "scope of the habeas corpus writ") == VerifyResult.NOT_IN_INDEX
+
+
+def test_a_spelling_variant_of_the_cited_parties_still_verifies(tmp_path: Path) -> None:
+    conn = open_index(tmp_path / "spelling.sqlite3")
+    citer = "In Ramchandran v. Pillai (1977) 5 SCC 100 the Court held"
+    insert_case(conn, CaseRecord("citer", "Later v Other", "Supreme Court", 2005, "sc_pdf", "/x", citer))
+    insert_case(conn, CaseRecord("real", "Ramachandran vs Pillai", "Supreme Court", 1977, "sc_pdf", "/y",
+                                 "the holding on limitation"))
+    conn.commit()
+    assert verify(conn, "(1977) 5 SCC 100", "the holding on limitation") == VerifyResult.VERIFIED
+
+
+def test_the_stated_limit_a_title_that_contains_all_the_alias_words_plus_others_is_not_caught(tmp_path: Path) -> None:
+    """Documented, not hidden: containment cannot tell 'Kamtam' from 'Kamtam Industries'. Only the verbatim quote check
+    stands between such a case and VERIFIED; the response carries no case key. If this ever changes, change the note."""
+    conn = open_index(tmp_path / "limit.sqlite3")
+    insert_case(conn, CaseRecord("citer", "Later v Other", "Supreme Court", 2005, "sc_pdf", "/x", _CITING_TEXT))
+    insert_case(conn, CaseRecord("wrong", "Narandas Karsondas vs S A Kamtam Industries Ltd", "Supreme Court", 1977, "sc_pdf",
+                                 "/z", "A wholly different holding about arbitration clauses and their severability."))
+    conn.commit()
+    assert verify(conn, "(1977) 3 SCC 247", "arbitration clauses and their severability") == VerifyResult.VERIFIED
