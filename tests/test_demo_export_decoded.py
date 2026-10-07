@@ -33,7 +33,7 @@ from pravrudhi.application.demo_export import (
 from tests._demo_names import TEST_NAMES, names_kwargs
 from tests.test_demo_export_pii import _root_with_corpus
 
-NAMES = TEST_NAMES  # ("Zorblat Quux", "Wibble", "sharath_sathish"): invented
+NAMES = TEST_NAMES  # ("Zorblat Quux", "Wibble", "zorblat_quux"): invented
 
 
 def _write(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, data: object, **kw: object) -> Path:
@@ -47,12 +47,12 @@ def _write(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, data: object, **kw: 
 # -- decoding ---------------------------------------------------------------------------------------
 
 @pytest.mark.parametrize("raw,decoded", [
-    ("admin%40axismeru.com", "admin@axismeru.com"),
-    ("admin%2540axismeru.com", "admin@axismeru.com"),  # encoded twice
-    ("admin&#64;axismeru.com", "admin@axismeru.com"),
-    ("admin&commat;axismeru.com", "admin@axismeru.com"),
-    ("sharath%2Esathish", "sharath.sathish"),
-    ("a\\u0040b.example", "a@b.example"),
+    ("admin%40example.org", "admin@example.org"),
+    ("admin%2540example.org", "admin@example.org"),  # encoded twice
+    ("admin&#64;example.org", "admin@example.org"),
+    ("admin&commat;example.org", "admin@example.org"),
+    ("zorblat%5Fquux", "zorblat_quux"),
+    ("a\\u0040example.org", "a@example.org"),
     ("%5Cu0040", "@"),
 ])
 def test_decode_all_undoes_percent_html_and_unicode_escapes(raw: str, decoded: str) -> None:
@@ -62,15 +62,15 @@ def test_decode_all_undoes_percent_html_and_unicode_escapes(raw: str, decoded: s
 # -- R2's probe strings and the captured sign-in URL ------------------------------------------------
 
 PROBES = [
-    "https://accounts.example/o/oauth2/auth?client_" + "id=abc123&login_" + "hint=admin%40axismeru.com"
+    "https://accounts.example/o/oauth2/auth?client_" + "id=abc123&login_" + "hint=admin%40example.org"
     "&state=xyz&code_" + "challenge=Q",
-    "login_hint=admin%40axismeru.com",
-    "admin%40AxisMeru.com",
-    "admin&#64;axismeru.com",
-    "someone%40gmail.com",
-    "contact someone&#x40;gmail.com for access",
-    "sharath%2Esathish",
-    "sharath_sathish",
+    "login_hint=admin%40example.org",
+    "admin%40Example.org",
+    "admin&#64;example.org",
+    "someone%40example.org",
+    "contact someone&#x40;example.org for access",
+    "Zorblat%20Quux",
+    "zorblat_quux",
     "mail\\u0040example.org",
     "https://example.test/signin?next=%2Fhome%2Fss%2Fprojects",
 ]
@@ -83,7 +83,7 @@ def test_every_probe_is_removed_before_the_file_is_written(monkeypatch: pytest.M
     assert json.loads(text)["status"]["keep"] == "a constructed matter about a cheque"
     d = decode_all(text)
     assert "@" not in d.replace("<redacted", "")
-    for needle in ("login_hint", "client_id", "oauth", "code_challenge", "sharath", "/home/"):
+    for needle in ("login_hint", "client_id", "oauth", "code_challenge", "zorblat", "/home/"):
         assert needle not in d.lower(), (probe, needle)
     assert private_markers_left(text, NAMES) == []
 
@@ -103,9 +103,9 @@ def test_a_decoded_email_refuses_the_write_if_scrubbing_is_bypassed(monkeypatch:
 
 
 def test_decoded_hits_reports_labels_never_the_matched_text() -> None:
-    hits = decoded_hits("login_hint=a%40b.example", NAMES)
+    hits = decoded_hits("login_hint=a%40example.org", NAMES)
     assert "decoded: email-shaped string" in hits and "decoded: sign-in or OAuth url" in hits
-    assert all("b.example" not in h for h in hits)
+    assert all("example.org" not in h for h in hits)
 
 
 def test_the_markers_check_also_sees_encoded_markers() -> None:
@@ -162,7 +162,7 @@ FULL_WIDTH_NAMES = [
     "\uff3a\uff4f\uff52\uff42\uff4c\uff41\uff54 \uff31\uff55\uff55\uff58",
     "\uff5a\uff4f\uff52\uff42\uff4c\uff41\uff54\u3000\uff31uux",
 ]
-FULL_WIDTH_EMAILS = ["admin\uff20example.org", "admin\uff20\uff45xample.org", "someone\uff20gmail.com"]
+FULL_WIDTH_EMAILS = ["admin\uff20example.org", "admin\uff20\uff45xample.org", "someone\uff20example.org"]
 
 
 @pytest.mark.parametrize("variant", FULL_WIDTH_NAMES)
@@ -186,7 +186,7 @@ def test_a_full_width_email_is_dropped_by_the_scrub_and_caught_by_the_final_chec
     # dropped whole, or (part of the address plain ASCII) already redacted by the plain-email shape: no email is left
     assert got["b"] == "ok"
     assert not demo_export._EMAIL_SHAPED.search(demo_export.normalise_text(got["a"])), got["a"]  # noqa: SLF001
-    assert "example" not in got["a"] and "gmail" not in got["a"]
+    assert "example" not in got["a"] and "someone" not in got["a"]
     assert "decoded: email-shaped string" in decoded_hits(f"write to {variant} today")
     monkeypatch.setattr(demo_export, "scrub_decoded", lambda text, names=(): text)
     with pytest.raises(SecretInSnapshot, match="decoded: email-shaped string"):
