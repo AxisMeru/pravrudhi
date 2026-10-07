@@ -3,6 +3,47 @@
 Release notes for the engine (`pravrudhi`). Versions before 0.5.44 are described in their GitHub release notes and commit
 messages.
 
+## 0.5.46
+
+Stable error codes for the partner API's 503s, the citation lookup's status contract and its wrong-case fixes, the demo export's
+hardening, and the personal-data scrub. Nothing here changes a correctly configured deployment except the items marked
+**behaviour change**. `PRAVRUDHI_CITATION_INDEX` must stay UNSET on every production and partner-facing engine: with it unset,
+`POST /api/v1/verify-citations` answers 503 `citation_index_unavailable`. Issue #717 (a same-year wrong case can still verify) is not
+closed by this release.
+
+**Rebuild the image.** Engine entries under `src/` or `configs/` reach a running container only by a rebuild: rebuild Studio, the
+engine containers and the RunPod worker template from 0.5.46. Entries marked tests, docs, CI or tooling do not ship in the image.
+
+### Image: engine behaviour
+
+- **Behaviour change: stable error codes for 503s; no exception text in responses or stored jobs.** `api/partner.py`. (#318, #319)
+- **verify(): an empty quote never verifies; a multi-candidate key is disambiguated by claimed party names and year before CONFLICT;
+  typographic quote and dash variants fold; the lookup considers only candidates within one year of the cited year.** (#331, #335)
+- **Behaviour change (new response fields): `POST /api/v1/verify-citations` adds `status`, `label`, `verified`, `preview`** (additive;
+  `result` and `note` unchanged; VERIFIED reads "word for word apart from line breaks, quote marks, dashes and spacing"; no case key).
+  `application/citation_status.py`, `openapi-v1.json`. (#335)
+- **The NOT_IN_INDEX note no longer uses the word "fake":** "The case was not found in our index. That does not show whether the
+  citation is real: the index does not hold every judgment." (#334)
+- **Behaviour change (deployment): seat identities now come only from local configuration.** `agents/seat_identity.py` takes seat
+  addresses from the environment (`PRAVRUDHI_SCRIPTED_CLAUDE_EMAIL`, `PRAVRUDHI_CLAUDE_CLI_EXPECTED_EMAIL`) or from
+  `~/.config/pravrudhi/seats.local.yaml`, and raises `SeatIdentityMissing` wherever an identity is needed; `configs/seats.yaml` now
+  holds placeholders. **A deployment that runs scripted `claude` / CLI seat checks must supply that file or those variables before
+  upgrading.** Also a CI personal-data guard. (#327)
+- **Typed Clef adapter and grounding backend (additive, off by default).** (#316, #317)
+
+### Image: demo export (not served by the engine routes)
+
+- **Behaviour change: the demo export decodes before checking (percent, HTML entity, `\u` escapes, NFKC, zero-width characters),
+  REQUIRES a private-name list (`PRAVRUDHI_DEMO_PRIVATE_NAMES` and `PRAVRUDHI_DEMO_PRIVATE_NAMES_SHA256`; the export fails closed
+  without them) and drops captured-material keys.** `publish.py`, `demo_export.py`. (#336)
+
+### Tests, docs, CI, tooling (not in the image)
+
+- Demo-export tests use invented identifiers only; the usage-gate stale-reading test pins its clock. (#340, #342)
+- Evidence renderers: bases keyed by track, model and metric, and a tiny exact p prints as `< 0.001`. In the image (`external.py`,
+  `paper_data.py` ship), but not on a served route: the served `external_rows()` is unchanged and the dedupe is in the paper and
+  evidence renderers. (#333)
+
 ## 0.5.45
 
 Partner API additions (a citation lookup route, a clear "judges are off" answer, a typed `quote_check` and published reason

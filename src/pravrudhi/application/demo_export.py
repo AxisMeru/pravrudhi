@@ -13,9 +13,13 @@ sequence of a real run as it happened.
 from __future__ import annotations
 
 import contextlib
+import hashlib
+import html
 import json
 import re
 import subprocess
+import unicodedata
+import urllib.parse
 from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
@@ -627,6 +631,9 @@ DROP_PATTERNS: tuple[re.Pattern[str], ...] = (
 #: What replaces a string value that mentions one of the markers above.
 INTERNAL_TEXT_MARKER = "<redacted:internal-text>"
 #: A seat or account handle (the operator's seat logins). The public handle `sharathsphd` is not matched.
+#: The serverless endpoint ids of the production judges and engine: infrastructure identifiers the public snapshot never carries.
+#: The patterns below are built from this tuple, and the tests take their samples from it, so no test text holds an id.
+PRIVATE_ENDPOINT_IDS: tuple[str, ...] = ("7j7ipedmwi8z1w", "vwbrfgyiel1haq", "v7alta6t9ytcga")
 PRIVATE_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"sharath\.[a-z]+", re.IGNORECASE),
     re.compile(r"ss-Fusion-\d+", re.IGNORECASE),
@@ -635,7 +642,7 @@ PRIVATE_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"-home-[a-z0-9]+-"),
     re.compile(r"/tmp/claude-\d+/"),
     re.compile(r"192\.168\.\d+\.\d+"),
-    re.compile(r"7j7ipedmwi8z1w|vwbrfgyiel1haq|v7alta6t9ytcga", re.IGNORECASE),
+    re.compile("|".join(PRIVATE_ENDPOINT_IDS), re.IGNORECASE),
 )
 
 #: Applied to the demo snapshot ONLY (not by `redact_secrets`, which keeps the project's git identity for its other
@@ -656,7 +663,7 @@ _DEMO_ONLY_SHAPES: tuple[tuple[str, re.Pattern[str], str], ...] = (
     ("encoded-home-path", re.compile(r"-home-[a-z0-9]+-"), "-redacted-"),
     ("scratch-path", re.compile(r"/tmp/claude-\d+/"), "/tmp/redacted-session/"),
     ("lan-ip", re.compile(r"\b192\.168\.\d+\.\d+\b"), "<redacted:lan-ip>"),
-    ("runpod-endpoint-id", re.compile(r"\b(?:7j7ipedmwi8z1w|vwbrfgyiel1haq|v7alta6t9ytcga)\b", re.IGNORECASE),
+    ("runpod-endpoint-id", re.compile(r"\b(?:" + "|".join(PRIVATE_ENDPOINT_IDS) + r")\b", re.IGNORECASE),
      "<redacted:endpoint-id>"),
 )
 
@@ -689,7 +696,21 @@ ASSETS_DIR = Path(__file__).resolve().parents[1] / "assets" / "nyaya"
 
 #: Fewer documents than this and the backstop has nothing meaningful to compare against, which must not read as
 #: "clean": the write is refused instead (the shipped corpus alone is 1,609 provisions).
-MIN_CORPUS_DOCUMENTS = 1000
+MIN_CORPUS_DOCUMENTS = 1609
+
+
+def unloaded_assets() -> list[str]:
+    """Shipped corpus files that do not load as a document list: a half-read corpus must not vouch for a snapshot."""
+    bad: list[str] = []
+    for f in sorted(ASSETS_DIR.glob("*.json")):
+        try:
+            data = json.loads(f.read_text())
+        except (OSError, ValueError):
+            bad.append(f.name)
+            continue
+        if isinstance(data, dict) and "documents" in data and not isinstance(data["documents"], list):
+            bad.append(f.name)
+    return bad
 
 
 def corpus_windows(root: Path) -> tuple[set[int], int]:
@@ -770,9 +791,28 @@ PUBLIC_DEMO_SECTIONS: frozenset[str] = frozenset({
 })
 
 
+#: Keys that carry CAPTURED material (an operator's ask, an agent's prompt, a chat transcript). The public file is
+#: product content only
+#: (constructed matters, analyses, reason strings): such a key is removed, with its value, wherever it appears inside a
+#: published section
+#: (the allowlist above keeps the sections that hold them out already; this is the second line).
+CAPTURE_KEYS: frozenset[str] = frozenset({
+    "ask", "asks", "operator_ask", "request", "requests", "transcript", "transcripts", "chat", "conversation", "conversations",
+    "messages", "agent_prompt", "agent_prompts", "captured", "relay",
+})
+
+
+def _drop_capture_keys(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {k: _drop_capture_keys(v) for k, v in value.items() if str(k).casefold() not in CAPTURE_KEYS}
+    if isinstance(value, list):
+        return [_drop_capture_keys(v) for v in value]
+    return value
+
+
 def public_view(bundle: dict[str, Any]) -> dict[str, Any]:
-    """The bundle reduced to `PUBLIC_DEMO_SECTIONS`, in the bundle's own key order."""
-    return {k: v for k, v in bundle.items() if k in PUBLIC_DEMO_SECTIONS}
+    """The bundle reduced to `PUBLIC_DEMO_SECTIONS`, in its own key order, without any captured ask, prompt or transcript."""
+    return {k: _drop_capture_keys(v) for k, v in bundle.items() if k in PUBLIC_DEMO_SECTIONS}
 
 
 def demo_pipeline(text: str) -> str:
@@ -781,26 +821,201 @@ def demo_pipeline(text: str) -> str:
     return redact_for_demo(drop_internal_text(text))
 
 
-def private_markers_left(text: str) -> list[str]:
-    """Every marker still present, compared case-insensitively."""
-    low = text.casefold()
-    return (
-        [m for m in PRIVATE_MARKERS if m.casefold() in low]
-        + [p.pattern for p in PRIVATE_PATTERNS if p.search(text)]
-        + [p.pattern for p in DROP_PATTERNS if p.search(text)]
+class PrivateNamesError(SecretInSnapshot):
+    """The private-name list is missing, empty, unreadable or not the pinned one: no snapshot is written without it."""
+
+
+def normalise_text(text: str) -> str:
+    """The text as a reader sees it, for matching: Unicode compatibility forms folded to plain characters (NFKC: full-width
+    letters and the full-width at-sign, ligatures, circled and superscript forms), invisible format characters (zero-width
+    space and joiners, the byte-order mark, soft hyphen, bidi marks: Unicode category Cf) removed, and every run of Unicode
+    whitespace (double spaces, tabs, no-break space, line breaks) collapsed to one space."""
+    folded = unicodedata.normalize("NFKC", text)
+    return " ".join("".join(ch for ch in folded if unicodedata.category(ch) != "Cf").split())
+
+
+def load_private_names(path: Path | str, sha256: str) -> tuple[str, ...]:
+    """The private names to redact: one per line, '#' comments and blank lines ignored. The file is REQUIRED: a missing, empty or
+    unreadable file, or one whose sha256 is not the pinned one, refuses the write. Names are never printed or returned
+    in an error."""
+    p = Path(path)
+    try:
+        raw = p.read_bytes()
+    except OSError as e:
+        msg = f"the private-name list cannot be read ({type(e).__name__}); refusing to write the snapshot"
+        raise PrivateNamesError(msg) from e
+    if hashlib.sha256(raw).hexdigest() != str(sha256).strip().lower():
+        raise PrivateNamesError("the private-name list does not match its pinned sha256; refusing to write the snapshot")
+    names = tuple(
+        normalise_text(line)
+        for line in raw.decode("utf-8", "replace").splitlines()
+        if normalise_text(line) and not line.lstrip().startswith("#")
+    )
+    if not names:
+        raise PrivateNamesError("the private-name list has no names; refusing to write the snapshot")
+    return names
+
+
+#: What may sit between two parts of a private name: nothing, or up to three of a space, hyphen, dot, underscore or apostrophe
+#: ("Given Family", "Given-Family", "Given.Family", "Given_Family", "Given. Family", "Given's Family").
+_NAME_JOINER = r"[\s._'\u2019-]{0,3}"
+_NAME_SPLIT = re.compile(r"[\s._'\u2019-]+")
+#: A name is a whole word: letters and digits on either side end it, but "_", "-" and "." do not run a name into a longer word.
+_NAME_LEFT = r"(?<![A-Za-z0-9])"
+_NAME_RIGHT = r"(?![A-Za-z0-9])"
+
+
+def _name_pattern(name: str) -> str:
+    """One name as a pattern: its parts, normalised, with an OPTIONAL separator between them (a space, hyphen, dot, underscore
+    or apostrophe, or none: an invisible character between two parts leaves no space once it is stripped, and a name run
+    together or punctuated is still that name)."""
+    parts = [w for w in _NAME_SPLIT.split(normalise_text(name)) if w]
+    return _NAME_JOINER.join(re.escape(w) for w in parts)
+
+
+def _names_regex(names: tuple[str, ...]) -> re.Pattern[str] | None:
+    """Whole-word, case-insensitive match of any name (a word is a run of letters, digits and underscore)."""
+    if not names:
+        return None
+    alt = "|".join(_name_pattern(n) for n in sorted(names, key=len, reverse=True))
+    return re.compile(rf"{_NAME_LEFT}(?:{alt}){_NAME_RIGHT}", re.IGNORECASE)
+
+
+_UNICODE_ESCAPE = re.compile(r"\\u([0-9a-fA-F]{4})")
+_WHITESPACE_ESCAPE = re.compile(r"\\[nrtfb]")  # a JSON escape of a line break, tab, form feed or backspace in serialised text
+
+
+def decode_all(text: str, passes: int = 5) -> str:
+    """The text with HTML entities, percent-encoding and \\uXXXX escapes decoded, repeatedly (a value can be encoded twice),
+    so a check or a redaction sees what a reader's browser or a copy-paste would produce."""
+    for _ in range(passes):
+        before = text
+        text = html.unescape(text)
+        text = urllib.parse.unquote(text)
+        text = _UNICODE_ESCAPE.sub(lambda m: chr(int(m.group(1), 16)), text)
+        text = _WHITESPACE_ESCAPE.sub(" ", text)
+        if text == before:
+            break
+    return text
+
+
+_EMAIL_SHAPED = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
+#: An address written to dodge the shape above: "name [at] host [dot] tld", "name(at)host", "name{at}host" (an at-sign or a
+#: dot spelled in brackets), or "name at host dot tld" (both words, so ordinary prose with the word "at" is not caught).
+_OBFUSCATED_EMAIL = re.compile(
+    r"[A-Za-z0-9._%+-]+\s*[\[({<]\s*(?:at|@)\s*[\])}>]\s*[A-Za-z0-9-]+"
+    r"|[A-Za-z0-9-]+\s*[\[({<]\s*dot\s*[\])}>]\s*[A-Za-z0-9-]+"
+    r"|\b[A-Za-z0-9._%+-]+\s+at\s+[A-Za-z0-9-]+(?:\s+dot\s+[A-Za-z0-9-]+)+\b",
+    re.IGNORECASE,
+)
+#: A sign-in or OAuth URL, or any of its parts: a published file carries none of them, in any encoding.
+_SIGN_IN_SHAPES = re.compile(
+    r"login_hint|client_id|oauth|/authorize\b|accounts\.google|[?&]state=|code_challenge|[?&]challenge=|sso_?login|/signin\?",
+    re.IGNORECASE,
+)
+
+
+def decoded_hits(text: str, names: tuple[str, ...] = ()) -> list[str]:
+    """What the DECODED, whitespace-normalised text still carries, as labels (never the matched text and never a name): an
+    email-shaped string, a sign-in or OAuth URL part, and one `private-name #i` per list entry that matches (the entry's
+    position, so the name itself is never reported)."""
+    d = normalise_text(decode_all(text))
+    hits: list[str] = []
+    if _EMAIL_SHAPED.search(d):
+        hits.append("decoded: email-shaped string")
+    if _OBFUSCATED_EMAIL.search(d):
+        hits.append("decoded: obfuscated email")
+    if _SIGN_IN_SHAPES.search(d):
+        hits.append("decoded: sign-in or OAuth url")
+    for i, n in enumerate(names):
+        if re.search(rf"{_NAME_LEFT}{_name_pattern(n)}{_NAME_RIGHT}", d, re.IGNORECASE):
+            hits.append(f"private-name #{i + 1}")
+    return hits
+
+
+DECODED_MARKER = "<redacted:decoded-match>"
+NAME_MARKER = "<redacted:name>"
+
+
+def _hidden_marker(text: str, name_rx: re.Pattern[str] | None = None) -> bool:
+    """Whether the text carries an email-shaped string, a private marker or pattern (and, with `name_rx`, a private name)."""
+    return bool(
+        _EMAIL_SHAPED.search(text)
+        or (name_rx and name_rx.search(text))
+        or any(m.casefold() in text.casefold() for m in PRIVATE_MARKERS)
+        or any(pat.search(text) for pat in (*PRIVATE_PATTERNS, *DROP_PATTERNS))
     )
 
 
-def write_demo(root: Path, dest: Path) -> Path:
-    text = demo_pipeline(json.dumps(public_view(build_demo(root)), indent=2, sort_keys=True, default=str) + "\n")
+def _scrub_value(value: Any, name_rx: re.Pattern[str] | None) -> Any:
+    if isinstance(value, str):
+        decoded = decode_all(value)
+        seen = normalise_text(decoded)  # what a reader sees: decoded, folded to plain characters, one space between words
+        if _SIGN_IN_SHAPES.search(seen) or _OBFUSCATED_EMAIL.search(seen):
+            # a sign-in or OAuth URL (or part of one), or an address written to dodge the email shape: the whole value goes
+            return DECODED_MARKER
+        if _hidden_marker(seen) and (not _hidden_marker(value) or not value.isascii()):
+            # an email or private marker that only shows once decoded or folded (percent-encoding, entities, full-width letters or
+            # at-sign), or inside text with non-ASCII characters (whose \\uXXXX escapes could break a text-level substitution):
+            # the whole value goes, nothing half-decoded stays
+            return DECODED_MARKER
+        if decoded != value and name_rx and name_rx.search(seen):
+            return DECODED_MARKER  # a name that only shows once decoded
+        plain = normalise_text(value)
+        if name_rx and name_rx.search(plain):
+            # a plain name, however spaced, folded or split by invisible characters: each match is replaced, the rest stays
+            return name_rx.sub(NAME_MARKER, plain)
+        return value
+    if isinstance(value, dict):
+        return {k: _scrub_value(v, name_rx) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_scrub_value(v, name_rx) for v in value]
+    return value
+
+
+def scrub_decoded(text: str, names: tuple[str, ...] = ()) -> str:
+    """Remove from the serialised snapshot what only shows after decoding, and every private name, at the level of whole
+    string values. Run BEFORE the final checks, which decode again and refuse on anything left. Layout (indent, key order) is the
+    exporter's own."""
+    name_rx = _names_regex(names)
+    return json.dumps(_scrub_value(json.loads(text), name_rx), indent=2, sort_keys=True, default=str) + "\n"
+
+
+def private_markers_left(text: str, names: tuple[str, ...] = ()) -> list[str]:
+    """Every marker still present, compared case-insensitively, in the text AND in its decoded form (percent-encoding,
+    \\uXXXX, HTML
+    entities). With the private-name list, each list entry that still matches is reported as `private-name #i`, never by name."""
+    out = [m for m in PRIVATE_MARKERS if m.casefold() in text.casefold()]
+    out += [p.pattern for p in PRIVATE_PATTERNS if p.search(text)]
+    out += [p.pattern for p in DROP_PATTERNS if p.search(text)]
+    decoded = normalise_text(decode_all(text))
+    if decoded != text:
+        low, dlow = text.casefold(), decoded.casefold()
+        out += [f"decoded: {m}" for m in PRIVATE_MARKERS if m.casefold() in dlow and m.casefold() not in low]
+        out += [f"decoded: {p.pattern}" for p in PRIVATE_PATTERNS if p.search(decoded) and not p.search(text)]
+    out += decoded_hits(text, names)
+    return out
+
+
+def write_demo(root: Path, dest: Path, *, private_names_path: Path | str, private_names_sha256: str) -> Path:
+    """Write the public snapshot. The private-name list is REQUIRED (a path and its pinned sha256): without a readable,
+    non-empty list that matches the sha, nothing is written. Names are redacted wherever they match and a name that
+    survives refuses the write. The value-level scrub (decoding, folding, names) runs BEFORE the text-level shapes, so a
+    substitution never lands next to a \\uXXXX escape of the same value."""
+    names = load_private_names(private_names_path, private_names_sha256)
+    raw = json.dumps(public_view(build_demo(root)), indent=2, sort_keys=True, default=str) + "\n"
     try:
+        text = demo_pipeline(scrub_decoded(raw, names))
         json.loads(text)
     except ValueError as e:  # a substitution that breaks an escape must never be published as a "redacted" snapshot
         raise SecretInSnapshot(f"redaction left the snapshot unparseable ({e}); refusing to write it") from e
-    left = still_carries(text) + [f"marker {m!r}" for m in private_markers_left(text)]
+    left = still_carries(text) + [f"marker {m!r}" for m in private_markers_left(text, names)]
     if left:
         raise SecretInSnapshot(f"snapshot still carries {', '.join(left)} after redaction; refusing to write it")
     windows, documents = corpus_windows(root)
+    broken = unloaded_assets()
+    if broken:
+        raise SecretInSnapshot(f"shipped corpus file(s) failed to load: {', '.join(broken)}; refusing to write it")
     if documents < MIN_CORPUS_DOCUMENTS or not windows:
         raise SecretInSnapshot(
             f"the corpus backstop found {documents} provisions (needs {MIN_CORPUS_DOCUMENTS}); it cannot vouch for the "

@@ -22,9 +22,13 @@ The project's own git identity is deliberately NOT redacted - it is the publishe
 every commit in the repository, so removing it from the snapshot would hide nothing.
 """
 
+import re
+from pathlib import Path
+
 import pytest
 
 from pravrudhi.application.demo_export import SecretInSnapshot, redact_secrets, still_carries
+from tests._demo_names import names_kwargs
 
 
 @pytest.fixture(autouse=True)
@@ -39,8 +43,8 @@ def _allow_the_test_payload_keys(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_an_absolute_home_path_does_not_survive_redaction() -> None:
-    out = redact_secrets("the directory `/home/ss/projects/pravrudhi/research` is empty")
-    assert "/home/ss" not in out
+    out = redact_secrets("the directory `/home/someone/projects/pravrudhi/research` is empty")
+    assert "/home/someone" not in out
     assert "projects/pravrudhi/research" in out, "only the home prefix goes; the rest stays readable"
 
 
@@ -49,8 +53,8 @@ def test_a_macos_home_path_does_not_survive_either() -> None:
 
 
 def test_a_personal_email_does_not_survive_redaction() -> None:
-    out = redact_secrets("author qbz506@york.ac.uk and someone@gmail.com")
-    assert "york.ac.uk" not in out
+    out = redact_secrets("author someone@example.ac.uk and other@gmail.com")
+    assert "example.ac.uk" not in out
     assert "gmail.com" not in out
 
 
@@ -129,19 +133,19 @@ def test_internal_marker_residue_catch_all_also_consumes_to_the_string_boundary(
 
 def test_still_carries_names_what_is_left() -> None:
     assert still_carries("clean text") == []
-    assert "home-path" in still_carries("/home/ss/x")
+    assert "home-path" in still_carries("/home/someone/x")
     assert "cross-session-relay" in still_carries("<cross-session-message>x</cross-session-message>")
     assert "session-socket-path" in still_carries("uds:/tmp/cc-socks/123.sock")
 
 
-def test_write_demo_refuses_a_snapshot_that_still_carries_personal_data(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_write_demo_refuses_a_snapshot_that_still_carries_personal_data(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """Fail closed: if redaction ever stops covering a shape, nothing is written."""
     from pravrudhi.application import demo_export
 
     monkeypatch.setattr(demo_export, "redact_secrets", lambda text: text)
-    monkeypatch.setattr(demo_export, "build_demo", lambda root: {"note": "/home/ss/leak"})
+    monkeypatch.setattr(demo_export, "build_demo", lambda root: {"note": "/home/someone/leak"})
     with pytest.raises(SecretInSnapshot, match="home-path"):
-        demo_export.write_demo(root=None, dest=None)  # type: ignore[arg-type]
+        demo_export.write_demo(root=None, dest=None, **names_kwargs(tmp_path))  # type: ignore[arg-type]
 
 
 # -- statute text (Lead-2, 2026-10-05; licence memo on s.52(1)(q)(ii)) -----------------------------------------
@@ -218,9 +222,9 @@ def _root_with_corpus(tmp_path: Path) -> Path:
 
 
 @pytest.mark.parametrize("raw", [
-    "/home/ss/projects/x", "/Users/someone/y", "note to someone@gmail.com", "uds:/run/user/1000/cc-socks/1.sock",
+    "/home/someone/projects/x", "/Users/someone/y", "note to someone@gmail.com", "uds:/run/user/1000/cc-socks/1.sock",
     "<cross-session-message>x</cross-session-message>", "a held cross-session message", "set CLAUDE_CONFIG_DIR=/x",
-    "seat sharath.ai.colab", "Commit as <admin@axismeru.com>",
+    "seat 2 account", "Commit as <admin@axismeru.com>",
 ])
 def test_the_demo_redaction_leaves_none_of_the_private_markers(raw: str) -> None:
     out = demo_export.demo_pipeline(json.dumps({"x": raw}))
@@ -241,15 +245,18 @@ def _write(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, data: object, redact
     monkeypatch.setattr(demo_export, "MIN_CORPUS_DOCUMENTS", 1)
     if not redact:
         monkeypatch.setattr(demo_export, "demo_pipeline", lambda text: text)
-    return demo_export.write_demo(_root_with_corpus(tmp_path), tmp_path / "out" / "demo.json")
+    return demo_export.write_demo(_root_with_corpus(tmp_path), tmp_path / "out" / "demo.json", **names_kwargs(tmp_path))
 
 
 def test_a_marker_that_survives_redaction_refuses_the_write(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     with pytest.raises(SecretInSnapshot, match="/home/"):
-        _write(monkeypatch, tmp_path, {"a": "see /home/ss/x"}, redact=False)
+        _write(monkeypatch, tmp_path, {"a": "see /home/someone/x"}, redact=False)
     assert not (tmp_path / "out" / "demo.json").exists()
-    with pytest.raises(SecretInSnapshot, match="sharath"):
-        _write(monkeypatch, tmp_path, {"a": "seat sharath.sathish"}, redact=False)
+    # a seat/account name is refused by whatever private patterns are configured: shown here with an invented name and pattern
+    invented = re.compile(r"quibble\.[a-z]+", re.IGNORECASE)
+    monkeypatch.setattr(demo_export, "PRIVATE_PATTERNS", (*demo_export.PRIVATE_PATTERNS, invented))
+    with pytest.raises(SecretInSnapshot, match="quibble"):
+        _write(monkeypatch, tmp_path, {"a": "seat quibble.trax"}, redact=False)
 
 
 def test_a_corpus_passage_in_any_layout_refuses_the_write(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -284,11 +291,14 @@ def test_a_string_that_mentions_team_vocabulary_is_dropped_whole(raw: str) -> No
 
 
 def test_unmarked_text_and_the_layout_are_returned_unchanged() -> None:
-    clean = json.dumps({"b": 1, "a": ["Sharathsphd made this", "plain"]}, indent=2, sort_keys=True) + "\n"
+    clean = json.dumps({"b": 1, "a": ["Zorblat made this", "plain"]}, indent=2, sort_keys=True) + "\n"
     assert demo_export.drop_internal_text(clean) == clean
 
 
-@pytest.mark.parametrize("raw", _CHATTER + ["Seat SHARATH.Sathish", "/HOME/x", "@GMAIL.com", "UDS:/x", "claude_config_dir"])
+@pytest.mark.parametrize(
+    "raw",
+    _CHATTER + ["Seat 2 ACCOUNT", "/HOME/x", "@GMAIL.com", "UDS:/x", "claude_config_dir"],
+)
 def test_the_backstop_compares_case_insensitively(raw: str) -> None:
     assert demo_export.private_markers_left(raw), raw
 
@@ -307,7 +317,7 @@ def test_the_shipped_corpus_alone_is_enough_for_the_backstop(monkeypatch: pytest
     provision = max((d["text"] for d in shipped), key=len)
     monkeypatch.setattr(demo_export, "build_demo", lambda root: {"x": provision})
     with pytest.raises(SecretInSnapshot, match="statute text"):
-        demo_export.write_demo(tmp_path, tmp_path / "out" / "demo.json")
+        demo_export.write_demo(tmp_path, tmp_path / "out" / "demo.json", **names_kwargs(tmp_path))
 
 
 def test_a_root_with_no_corpus_fails_closed(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -315,7 +325,7 @@ def test_a_root_with_no_corpus_fails_closed(monkeypatch: pytest.MonkeyPatch, tmp
     monkeypatch.setattr(demo_export, "build_demo", lambda root: {"x": "anything"})
     assert demo_export.corpus_windows(tmp_path) == (set(), 0)
     with pytest.raises(SecretInSnapshot, match="cannot vouch"):
-        demo_export.write_demo(tmp_path, tmp_path / "out" / "demo.json")
+        demo_export.write_demo(tmp_path, tmp_path / "out" / "demo.json", **names_kwargs(tmp_path))
     assert not (tmp_path / "out" / "demo.json").exists()
 
 
@@ -326,20 +336,21 @@ def test_an_empty_or_too_small_corpus_fails_closed(monkeypatch: pytest.MonkeyPat
     monkeypatch.setattr(demo_export, "ASSETS_DIR", tmp_path / "no-assets")
     monkeypatch.setattr(demo_export, "build_demo", lambda root: {"x": "anything"})
     with pytest.raises(SecretInSnapshot, match="cannot vouch"):
-        demo_export.write_demo(tmp_path, tmp_path / "out" / "demo.json")
+        demo_export.write_demo(tmp_path, tmp_path / "out" / "demo.json", **names_kwargs(tmp_path))
     small = _root_with_corpus(tmp_path / "small")  # one document: below the real minimum
     monkeypatch.setattr(demo_export, "MIN_CORPUS_DOCUMENTS", 2)
     with pytest.raises(SecretInSnapshot, match="cannot vouch"):
-        demo_export.write_demo(small, tmp_path / "out" / "demo.json")
+        demo_export.write_demo(small, tmp_path / "out" / "demo.json", **names_kwargs(tmp_path))
 
 
 # -- machine and network identifiers (R2, 2026-10-05) --------------------------------------------------------------
 
 _IDENTIFIERS = [
-    "ss@ss-Fusion-75:~/x", "host ss-Fusion-75 is up", "ssh nsharath@sharaths-Mac-mini", "sharaths-Mac-mini",
+    "ss@ss-Fusion-99:~/x", "host ss-Fusion-99 is up", "ssh nzorblat@zorblats-Mac-mini", "zorblats-Mac-mini",
     "dvs-builder@U22-I3-B08-02-2",
-    "session dir -home-ss-projects-pravrudhi-", "scratch /tmp/claude-1000/x/y", "gateway 192.168.0.12:8080",
-    "endpoint 7j7ipedmwi8z1w", "endpoint VWBRFGYIEL1HAQ", "id v7alta6t9ytcga",
+    "session dir -home-someone-projects-pravrudhi-", "scratch /tmp/claude-1000/x/y", "gateway 192.168.0.250:8080",
+    *[f"endpoint {i}" for i in demo_export.PRIVATE_ENDPOINT_IDS], f"endpoint {demo_export.PRIVATE_ENDPOINT_IDS[1].upper()}",
+    f"id {demo_export.PRIVATE_ENDPOINT_IDS[2]}",
 ]
 
 
@@ -352,7 +363,7 @@ def test_machine_and_network_identifiers_are_removed_and_the_json_stays_valid(ra
 
 
 def test_a_newline_before_user_at_host_is_kept_not_swallowed() -> None:
-    out = demo_export.demo_pipeline(json.dumps({"x": "Login successful.\nss@ss-Fusion-75:~$ claude"}))
+    out = demo_export.demo_pipeline(json.dumps({"x": "Login successful.\nss@ss-Fusion-99:~$ claude"}))
     assert json.loads(out)["x"] == "Login successful.\n<redacted:user-at-host>:~$ claude"
 
 
@@ -366,4 +377,27 @@ def test_write_demo_refuses_a_snapshot_the_redaction_left_unparseable(monkeypatc
     monkeypatch.setattr(demo_export, "build_demo", lambda root: {"a": "b"})
     monkeypatch.setattr(demo_export, "demo_pipeline", lambda text: text[:-5])  # a truncated, invalid document
     with pytest.raises(SecretInSnapshot, match="unparseable"):
-        demo_export.write_demo(_root_with_corpus(tmp_path), tmp_path / "out" / "demo.json")
+        demo_export.write_demo(_root_with_corpus(tmp_path), tmp_path / "out" / "demo.json", **names_kwargs(tmp_path))
+
+
+# -- corpus floor: the shipped corpus, and every shipped asset must load ----------------------------------------------
+
+
+def test_the_corpus_floor_is_the_shipped_corpus_and_every_asset_loads() -> None:
+    _windows, documents = demo_export.corpus_windows(Path("/nonexistent-root"))
+    assert demo_export.MIN_CORPUS_DOCUMENTS >= 1609
+    assert documents >= demo_export.MIN_CORPUS_DOCUMENTS
+    assert demo_export.unloaded_assets() == []
+
+
+def test_a_shipped_corpus_file_that_does_not_load_refuses_the_write(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    broken = tmp_path / "assets"
+    broken.mkdir()
+    (broken / "bad.json").write_text("{not json")
+    (broken / "worse.json").write_text(json.dumps({"documents": "oops"}))
+    monkeypatch.setattr(demo_export, "ASSETS_DIR", broken)
+    assert demo_export.unloaded_assets() == ["bad.json", "worse.json"]
+    monkeypatch.setattr(demo_export, "MIN_CORPUS_DOCUMENTS", 0)
+    monkeypatch.setattr(demo_export, "build_demo", lambda root: {"a": "b"})
+    with pytest.raises(SecretInSnapshot, match="failed to load"):
+        demo_export.write_demo(_root_with_corpus(tmp_path), tmp_path / "out" / "demo.json", **names_kwargs(tmp_path))

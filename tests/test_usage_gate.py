@@ -27,6 +27,7 @@ CFG = {
         "refresh_min_interval_min": 60,
         "refresh_timeout_s": 10,
         "refresh_prompt": "constructed refresh prompt",
+        "refresh_model": "refresh-model-1",
         "refresh_state_file": "refresh_state.json",
     },
     "claude": {
@@ -189,6 +190,7 @@ class TestCodexRefresh:
             if state["next"] == "boom":
                 raise RuntimeError("codex exited 1")
             _codex(monkeypatch, state["next"])
+            return {"model": "refresh-model-1", "resolved_model": "refresh-model-1"}
 
         monkeypatch.setattr(usage_gate, "_run_refresh", run)
         monkeypatch.setattr(usage_gate, "_now", lambda: NOW)
@@ -478,6 +480,10 @@ class TestAskVendorIsGated:
         (home / ".credentials.json").write_text("{}")
         monkeypatch.setenv("PRAVRUDHI_CLAUDE_CLI_CONFIG_DIR", str(home))
         monkeypatch.setattr(panel, "_claude_auth_email", lambda env: panel.claude_cli_expected_email())
+        # The readings below are built relative to the fixed NOW; the gate must judge them at that same instant, never at the
+        # real clock (a real clock past NOW + max_age makes the stub reading stale, and the gate's own refresh probe is then
+        # the one recorded call: 7 Oct, the red main CI).
+        monkeypatch.setattr(usage_gate, "_now", lambda: NOW)
 
     def _stub_run(self, monkeypatch, out):
         calls = []
@@ -496,6 +502,16 @@ class TestAskVendorIsGated:
             base = panel.VENDORS["codex-cli"]
             panel.ask_vendor(replace(base, params={**base.params, "codex_model": "gpt-x-1"}), "q", root=root)
         assert calls == []
+
+    def test_codex_stale_reading_makes_only_the_gates_own_refresh_probe_never_the_question(self, root, monkeypatch):
+        # under both limits, 10 h old at NOW (max 60 min): only staleness can refuse it
+        _codex(monkeypatch, codex_reading(weekly=20.0, age=600))
+        calls = self._stub_run(monkeypatch, "x")
+        with pytest.raises(usage_gate.UsageGateRefused):
+            base = panel.VENDORS["codex-cli"]
+            panel.ask_vendor(replace(base, params={**base.params, "codex_model": "gpt-x-1"}), "q", root=root)
+        assert all("gpt-x-1" not in c for c in calls), calls     # the question call (own -m pin) was never made
+        assert len(calls) == 1 and calls[0][-2:] == ["-m", "refresh-model-1"]   # only the gate's own probe, with ITS pinned model
 
     def test_claude_over_gate_makes_no_call(self, root, monkeypatch):
         claude_file(root, weekly=64.0, age=0)
@@ -535,3 +551,102 @@ class TestAskVendorIsGated:
 
     def test_openai_compat_vendors_are_not_gated(self, root):
         assert usage_gate.GATED_KINDS == ("codex", "claude")
+
+
+class TestRefreshProbeIsPinned:
+    """#343: the refresh probe is a real model call, so it is pinned like every other (always-pin-the-model rule)."""
+
+    @pytest.fixture
+    def probe(self, root, monkeypatch):
+        started = '{"type":"thread.started","thread_id":"0123456789abcdef"}\n'
+        st = {"cmds": [], "out": started, "rollout": {"refresh-model-1"}, "code": 0}
+        from pravrudhi.agents import cli_agents
+        from pravrudhi.application import panel as panel_mod
+
+        def run(cmd, cwd, timeout_s, env=None, *, stdin_text=None):
+            st["cmds"].append(cmd)
+            return st["code"], st["out"], "", 0.1
+
+        monkeypatch.setattr(cli_agents, "_run", run)
+        monkeypatch.setattr(panel_mod, "_codex_rollout_models", lambda tid: set(st["rollout"]))
+        st["cfg"] = usage_gate._load(root)
+        return st
+
+    def test_the_probe_passes_the_pinned_model_and_returns_the_resolved_one(self, probe):
+        got = usage_gate._run_refresh(probe["cfg"])
+        assert got == {"model": "refresh-model-1", "resolved_model": "refresh-model-1"}
+        assert probe["cmds"] == [["codex", "exec", "--skip-git-repo-check", "--json", "-m", "refresh-model-1"]]
+
+    @pytest.mark.parametrize("bad", [None, "", "   ", 7])
+    def test_a_missing_or_blank_pin_refuses_before_any_call(self, probe, bad):
+        cfg = json.loads(json.dumps(probe["cfg"]))
+        if bad is None:
+            del cfg["codex"]["refresh_model"]
+        else:
+            cfg["codex"]["refresh_model"] = bad
+        with pytest.raises(usage_gate.UsageGateRefused):
+            usage_gate._run_refresh(cfg)
+        assert probe["cmds"] == []
+
+    def test_a_different_resolved_model_is_an_error(self, probe):
+        probe["rollout"] = {"some-other-model"}
+        with pytest.raises(RuntimeError, match="model mismatch"):
+            usage_gate._run_refresh(probe["cfg"])
+
+    def test_a_stream_that_reports_two_models_is_an_error(self, probe):
+        probe["rollout"] = {"refresh-model-1", "some-other-model"}
+        with pytest.raises(RuntimeError, match="model mismatch"):
+            usage_gate._run_refresh(probe["cfg"])
+
+    def test_no_model_id_anywhere_is_unverifiable(self, probe):
+        probe["rollout"] = set()
+        with pytest.raises(RuntimeError, match="model unverifiable"):
+            usage_gate._run_refresh(probe["cfg"])
+
+    def test_a_model_id_in_the_stream_counts_and_must_match(self, probe):
+        probe["rollout"] = set()
+        probe["out"] += '{"type":"turn.started","model":"refresh-model-1"}\n'
+        assert usage_gate._run_refresh(probe["cfg"])["resolved_model"] == "refresh-model-1"
+        probe["out"] += '{"type":"turn.completed","model":"other"}\n'
+        with pytest.raises(RuntimeError, match="model mismatch"):
+            usage_gate._run_refresh(probe["cfg"])
+
+    def test_a_failed_exit_is_an_error(self, probe):
+        probe["code"], probe["out"] = 1, ""
+        with pytest.raises(RuntimeError, match="codex exited 1"):
+            usage_gate._run_refresh(probe["cfg"])
+
+    def test_the_gate_refuses_another_model_and_logs_both_models_when_it_passes(self, root, monkeypatch, probe):
+        monkeypatch.setattr(usage_gate, "_now", lambda: NOW)
+        state = {"reading": codex_reading(weekly=20.0, age=600)}
+        monkeypatch.setattr(usage_gate, "_read_codex", lambda cfg, now: state["reading"])
+        probe["rollout"] = {"some-other-model"}
+        with pytest.raises(usage_gate.UsageGateRefused, match="refresh call failed"):
+            usage_gate.gate_reading("codex", root, now=NOW)
+        (root / "refresh_state.json").unlink()
+        probe["rollout"] = {"refresh-model-1"}
+        real = usage_gate._run_refresh
+
+        def run_and_refresh(cfg):
+            out = real(cfg)
+            state["reading"] = codex_reading(weekly=20.0, age=0)
+            return out
+
+        monkeypatch.setattr(usage_gate, "_run_refresh", run_and_refresh)
+        g = usage_gate.gate_reading("codex", root, now=NOW)
+        assert g["refresh"]["model"] == "refresh-model-1" and g["refresh"]["resolved_model"] == "refresh-model-1"
+
+    def test_the_shipped_config_pins_a_refresh_model(self):
+        cfg = yaml.safe_load((REPO / "configs" / "usage_gate.yaml").read_text())
+        assert isinstance(cfg["codex"]["refresh_model"], str) and cfg["codex"]["refresh_model"].strip()
+
+    def test_the_gate_refuses_a_probe_result_whose_resolved_model_differs_from_the_pin(self, root, monkeypatch):
+        monkeypatch.setattr(usage_gate, "_now", lambda: NOW)
+        monkeypatch.setattr(usage_gate, "_read_codex", lambda cfg, now: codex_reading(weekly=20.0, age=600))
+        monkeypatch.setattr(usage_gate, "_run_refresh", lambda cfg: {"model": "refresh-model-1", "resolved_model": "other"})
+        with pytest.raises(usage_gate.UsageGateRefused, match="resolved model"):
+            usage_gate.gate_reading("codex", root, now=NOW)
+        monkeypatch.setattr(usage_gate, "_run_refresh", lambda cfg: None)
+        (root / "refresh_state.json").unlink()
+        with pytest.raises(usage_gate.UsageGateRefused, match="resolved model"):
+            usage_gate.gate_reading("codex", root, now=NOW)
