@@ -1301,18 +1301,38 @@
       },
       "VerifyCitationResponse": {
         "properties": {
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
           "note": {
             "title": "Note",
             "type": "string"
           },
+          "preview": {
+            "title": "Preview",
+            "type": "boolean"
+          },
           "result": {
             "title": "Result",
             "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "verified": {
+            "title": "Verified",
+            "type": "boolean"
           }
         },
         "required": [
           "result",
-          "note"
+          "note",
+          "status",
+          "label",
+          "verified",
+          "preview"
         ],
         "title": "VerifyCitationResponse",
         "type": "object"

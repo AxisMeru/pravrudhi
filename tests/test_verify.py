@@ -485,3 +485,40 @@ def test_same_surname_groups_are_not_told_apart_by_a_shared_surname_and_state(db
         verify(db, "(1977) 9 SCC 900", "holding of Ram Singh about the same point", claimed_name="Mohan Singh v. State of Punjab")
         == VerifyResult.EXISTS_QUOTE_NOT_FOUND
     )
+
+
+# --- #533: a quote must not verify against a DIFFERENT case that shares the party tokens ---------------------------------
+
+
+def test_a_quote_found_only_in_a_different_year_case_does_not_verify(tmp_path: Path) -> None:
+    """The party lookup matches titles by each party's first token, so a later case between similar parties can be a
+    candidate. The cited year gates which candidate the quote may be checked against (Track C's wrong-case finding)."""
+    conn = open_index(tmp_path / "wrong_case.sqlite3")
+    insert_case(conn, CaseRecord("citer", "Later v Other", "Supreme Court", 2005, "sc_pdf", "/x", _CITING_TEXT))
+    insert_case(conn, CaseRecord("right", "Narandas Karsondas vs S A Kamtam and Anr", "Supreme Court", 1977, "sc_pdf", "/y",
+                                 _RESOLVED_CASE_TEXT))
+    wrong_text = "A wholly different holding about arbitration clauses and their severability."
+    insert_case(conn, CaseRecord("wrong", "Narandas Karsondas vs S A Kamtam Industries Ltd", "Supreme Court", 1994, "sc_pdf",
+                                 "/z", wrong_text))
+    conn.commit()
+    assert verify(conn, "(1977) 3 SCC 247", "arbitration clauses and their severability") == VerifyResult.EXISTS_QUOTE_NOT_FOUND
+    assert verify(conn, "(1977) 3 SCC 247", "time is not ordinarily of the essence") == VerifyResult.VERIFIED
+
+
+def test_when_no_candidate_is_in_the_cited_year_nothing_verifies(tmp_path: Path) -> None:
+    conn = open_index(tmp_path / "no_year.sqlite3")
+    insert_case(conn, CaseRecord("citer", "Later v Other", "Supreme Court", 2005, "sc_pdf", "/x", _CITING_TEXT))
+    insert_case(conn, CaseRecord("only", "Narandas Karsondas vs S A Kamtam Industries Ltd", "Supreme Court", 1994, "sc_pdf", "/z",
+                                 _RESOLVED_CASE_TEXT))
+    conn.commit()
+    # the quote IS in the only candidate, but that candidate is a 1994 case, not the 1977 case the citation names
+    assert verify(conn, "(1977) 3 SCC 247", "time is not ordinarily of the essence") == VerifyResult.NOT_IN_INDEX
+
+
+def test_a_decision_one_year_before_the_reporting_year_still_verifies(tmp_path: Path) -> None:
+    conn = open_index(tmp_path / "off_by_one.sqlite3")
+    insert_case(conn, CaseRecord("citer", "Later v Other", "Supreme Court", 2005, "sc_pdf", "/x", _CITING_TEXT))
+    insert_case(conn, CaseRecord("dec", "Narandas Karsondas vs S A Kamtam and Anr", "Supreme Court", 1976, "sc_pdf", "/y",
+                                 _RESOLVED_CASE_TEXT))
+    conn.commit()
+    assert verify(conn, "(1977) 3 SCC 247", "time is not ordinarily of the essence") == VerifyResult.VERIFIED
