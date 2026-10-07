@@ -524,6 +524,52 @@ def test_a_decision_one_year_before_the_reporting_year_still_verifies(tmp_path: 
     assert verify(conn, "(1977) 3 SCC 247", "time is not ordinarily of the essence") == VerifyResult.VERIFIED
 
 
+# --- a candidate with NO recorded decision year can never be checked against the cited year (pinned as intended) ---------------
+
+_MISSING_YEAR_CITING = (
+    "In Zorvak Holdings Ltd v. Pendle Transit Authority (1991) 4 SCC 111 the Court declined to read an implied term."
+)
+_MISSING_YEAR_TEXT = "No implied term as to renewal can be read into a lease that is silent on renewal."
+
+
+def _missing_year_index(tmp_path: Path, *, dated: bool) -> sqlite3.Connection:
+    conn = open_index(tmp_path / ("dated.sqlite3" if dated else "undated.sqlite3"))
+    insert_case(conn, CaseRecord("citer", "Later v Other", "Supreme Court", 2005, "sc_pdf", "/x", _MISSING_YEAR_CITING))
+    insert_case(conn, CaseRecord("undated", "Zorvak Holdings Ltd vs Pendle Transit Authority", "Supreme Court", None, "sc_pdf",
+                                 "/y", _MISSING_YEAR_TEXT))
+    if dated:
+        insert_case(conn, CaseRecord("dated", "Zorvak Holdings Ltd vs Pendle Transit Authority Anr", "Supreme Court", 1991,
+                                     "sc_pdf", "/z", "A wholly different holding about notice periods in commercial leases."))
+    conn.commit()
+    return conn
+
+
+def test_a_candidate_with_no_recorded_year_is_not_checked_even_when_it_holds_the_quote(tmp_path: Path) -> None:
+    """INTENDED (#335, `_rows_in_cited_year`: "an unreadable year is not a match"): the cited year gates which candidate the quote
+    may be checked against, so a record with no year cannot qualify and the answer is NOT_IN_INDEX even though the case is in the
+    index and holds the quote. Conservative (never toward VERIFIED); a distinct "year cannot be gated" status is post-MVP."""
+    conn = _missing_year_index(tmp_path, dated=False)
+    assert verify(conn, "(1991) 4 SCC 111", "No implied term as to renewal can be read") == VerifyResult.NOT_IN_INDEX
+
+
+def test_with_a_dated_candidate_beside_an_undated_one_only_the_dated_one_is_checked(tmp_path: Path) -> None:
+    conn = _missing_year_index(tmp_path, dated=True)
+    # the quote is only in the undated record: it is not looked at, so the dated candidate lacks it
+    assert verify(conn, "(1991) 4 SCC 111", "No implied term as to renewal can be read") == VerifyResult.EXISTS_QUOTE_NOT_FOUND
+    # the quote in the dated candidate verifies
+    assert verify(conn, "(1991) 4 SCC 111", "notice periods in commercial leases") == VerifyResult.VERIFIED
+
+
+def test_with_no_cited_year_nothing_verifies(tmp_path: Path) -> None:
+    from pravrudhi.application.verify import _rows_in_cited_year
+
+    conn = _missing_year_index(tmp_path, dated=True)
+    conn.row_factory = sqlite3.Row
+    rows = conn.execute("SELECT case_id FROM cases WHERE case_id IN ('dated', 'undated')").fetchall()
+    assert _rows_in_cited_year(conn, rows, None) == []
+    assert [r["case_id"] for r in _rows_in_cited_year(conn, rows, 1991)] == ["dated"]
+
+
 # --- #723 / #717: a quote may verify only against a candidate that carries the cited parties' words ----------------------
 
 

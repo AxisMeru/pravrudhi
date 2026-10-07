@@ -61,6 +61,28 @@ class JudgeOutputError(ValueError):
     it never guesses a status from an unreadable reply."""
 
 
+#: The stable code a too-long input carries on every surface (the agent's contract reason, the audit step, the partner API).
+INPUT_TOO_LONG = "input_too_long"
+#: What a server says when a prompt does not fit its context (vLLM: "maximum context length is N tokens ... reduce the length of
+#: the input prompt"; OpenAI-style: `context_length_exceeded`). Matched only on a 400, so no other 4xx is ever read as this.
+_CONTEXT_OVERFLOW = re.compile(r"maximum context length|context_length_exceeded|reduce the length of the input", re.IGNORECASE)
+
+
+class JudgeInputTooLong(RuntimeError):
+    """The judge input is too long for the judge (#727): refused BEFORE the call when it exceeds the configured
+    `max_input_chars`, or raised from an upstream 400 that says the context overflowed. Either way it is a REFER for the
+    agent (`input_too_long`), never an error and never a configuration fault, though an upstream cause may be a 400."""
+
+    code = INPUT_TOO_LONG
+
+    def __init__(self, *, length: int | None, limit: int | None) -> None:
+        self.length = length
+        self.limit = limit
+        what = f"a prompt of {length} characters" if length is not None else "the prompt"
+        over = f"exceeds the configured limit of {limit} characters" if limit is not None else "does not fit the judge's context"
+        super().__init__(f"{INPUT_TOO_LONG}: {what} {over}")
+
+
 class ServedModelMismatch(RuntimeError):
     """A judge backend answered under a different model id than the one the deployment pinned.
 
@@ -370,7 +392,12 @@ class HouseJudge:
         complete: Callable[[str], CompletionResult] | None = None,
         enforce_served_model: bool = False,
         prompt_template: str = "legacy",
+        max_input_chars: int | None = None,
     ) -> None:
+        bad = isinstance(max_input_chars, bool) or not isinstance(max_input_chars, int) or max_input_chars <= 0
+        if max_input_chars is not None and bad:
+            raise ValueError(f"max_input_chars must be a positive integer or None, got {max_input_chars!r}")
+        self.max_input_chars = max_input_chars
         self.tau = tau
         self.prompt_template = check_prompt_template(prompt_template)
         self.enforce_served_model = enforce_served_model
@@ -433,6 +460,10 @@ class HouseJudge:
                                 "refusing to score under an unpinned model"
                             )
                     except Exception as e:  # noqa: BLE001 -- classified just below, re-raised unless transient
+                        if isinstance(e, HTTPStatusError) and e.status == 400 and _CONTEXT_OVERFLOW.search(str(e)):
+                            # The server itself says the prompt overflowed its context: the same stable code as the
+                            # pre-call check, not a configuration fault (any other 400 stays one).
+                            raise JudgeInputTooLong(length=len(prompt), limit=self.max_input_chars) from e
                         if not _transient(e) or i == len(self.clients) - 1:
                             raise RuntimeError(f"judge backend {i} ({client.base_url}) failed: {e}") from e
                         continue
@@ -483,6 +514,7 @@ class HouseJudge:
             fallback_urls=cfg.get("base_urls_fallback") or [],
             enforce_served_model=bool(cfg.get("enforce_served_model", False)),
             prompt_template=str(cfg.get("prompt_template", "legacy")),
+            max_input_chars=cfg.get("max_input_chars"),
         )
 
     @classmethod
@@ -516,10 +548,14 @@ class HouseJudge:
             fallback_urls=cfg.get("base_urls_fallback") or [],
             enforce_served_model=bool(cfg.get("enforce_served_model", False)),
             prompt_template=str(cfg.get("prompt_template", "legacy")),
+            max_input_chars=cfg.get("max_input_chars"),
         )
 
     def judge(self, request: JudgeRequest) -> ElementJudgment:
-        res = self._complete(build_house_prompt(request, statute_chars=self.statute_chars, prompt_template=self.prompt_template))
+        prompt = build_house_prompt(request, statute_chars=self.statute_chars, prompt_template=self.prompt_template)
+        if self.max_input_chars is not None and len(prompt) > self.max_input_chars:
+            raise JudgeInputTooLong(length=len(prompt), limit=self.max_input_chars)  # before any call: it would only overflow
+        res = self._complete(prompt)
         if not res.top_logprobs:
             raise JudgeOutputError("the server returned no logprobs for the first token")
         p, clamp = p_established_from_top_logprobs(res.top_logprobs[0], label_mass_floor=self.label_mass_floor)
@@ -630,6 +666,8 @@ def _config_fault_status(e: BaseException) -> int | None:
     agent (the dependency runs the other way -- nyaya_agent imports nyaya_judges)."""
     seen: BaseException | None = e
     while seen is not None:
+        if isinstance(seen, JudgeInputTooLong):
+            return None  # a context overflow is a REFER, never a configuration fault, whatever 400 caused it
         if isinstance(seen, HTTPStatusError) and 400 <= seen.status < 500 and seen.status != 429:
             return seen.status
         seen = seen.__cause__
@@ -790,6 +828,8 @@ class AndGateJudge:
             )
         try:
             s = self.second.judge(request)
+        except JudgeInputTooLong:
+            raise  # too long for the second judge: a REFER (`input_too_long`), not an outage; the breaker stays shut
         except Exception as e:  # noqa: BLE001 -- classified just below, re-raised unless it should fail closed
             if _config_fault_status(e) is not None:
                 raise  # a second-judge configuration fault surfaces like the primary's would (never fail closed)

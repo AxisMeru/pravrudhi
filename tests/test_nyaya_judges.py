@@ -659,3 +659,108 @@ def test_house_judge_never_establishes_on_a_nan_logprob(top: dict[str, float]) -
     fake = _FakeComplete(_completion(" established F1:5:22", top))
     with pytest.raises(JudgeOutputError):
         HouseJudge(complete=fake, tau=0.74, statute_chars=600).judge(REQ)
+
+
+class TestInputTooLong:
+    """#727: a long input must REFER cleanly, never error. The limit comes from config and is checked BEFORE the judge call;
+    an upstream context-length 400 maps to the same stable code; any OTHER 400 stays a configuration fault."""
+
+    def _judge(self, limit: int | None, fake: Any = None) -> HouseJudge:
+        fake = fake or _FakeComplete(_completion(" not", {" established": -3.0, " not": -0.05}))
+        return HouseJudge(complete=fake, tau=0.74, statute_chars=600, max_input_chars=limit)
+
+    def test_the_code_is_stable(self) -> None:
+        from pravrudhi.application.nyaya_judges import JudgeInputTooLong
+
+        e = JudgeInputTooLong(length=10, limit=5)
+        assert e.code == "input_too_long" and e.length == 10 and e.limit == 5 and "input_too_long" in str(e)
+
+    def test_a_prompt_over_the_limit_raises_before_any_call(self) -> None:
+        from pravrudhi.application.nyaya_judges import JudgeInputTooLong, build_house_prompt
+
+        n = len(build_house_prompt(REQ, statute_chars=600))
+        fake = _FakeComplete(_completion(" not", {" established": -3.0, " not": -0.05}))
+        with pytest.raises(JudgeInputTooLong) as ei:
+            self._judge(n - 1, fake).judge(REQ)
+        assert ei.value.length == n and ei.value.limit == n - 1
+        assert fake.prompts == []                                 # checked BEFORE the judge call
+
+    def test_a_prompt_exactly_at_the_limit_is_judged(self) -> None:
+        from pravrudhi.application.nyaya_judges import build_house_prompt
+
+        n = len(build_house_prompt(REQ, statute_chars=600))
+        assert self._judge(n).judge(REQ).status == "not_established"
+
+    def test_no_limit_configured_keeps_todays_behaviour(self) -> None:
+        assert self._judge(None).judge(REQ).status == "not_established"
+
+    @pytest.mark.parametrize("bad", [0, -5, True, 1.5, "100"])
+    def test_a_non_positive_or_non_integer_limit_is_refused_at_construction(self, bad: Any) -> None:
+        with pytest.raises(ValueError, match="max_input_chars"):
+            self._judge(bad)
+
+    def test_the_limit_is_read_from_config(self) -> None:
+        cfg = {"statute_chars": 600, "base_url": "http://127.0.0.1:8110/v1", "model": "m", "max_tokens": 30, "top_logprobs": 20,
+               "timeout_s": 60, "label_mass_floor": 0.5, "max_input_chars": 1234}
+        assert HouseJudge.from_config(cfg, tau=0.5).max_input_chars == 1234
+        assert HouseJudge.from_config_with_fallback(cfg, tau=0.5).max_input_chars == 1234
+        del cfg["max_input_chars"]
+        assert HouseJudge.from_config(cfg, tau=0.5).max_input_chars is None
+
+    def _http_judge(self, status: int, body: str) -> HouseJudge:
+        from pravrudhi.models.openai_compat import HTTPStatusError
+
+        j = HouseJudge(base_url="http://127.0.0.1:1/v1", model="m", tau=0.74, statute_chars=600)
+
+        def boom(prompt: str, **kw: Any) -> CompletionResult:
+            raise HTTPStatusError(status, body)
+
+        j.clients[0].complete = boom  # type: ignore[method-assign]
+        return j
+
+    @pytest.mark.parametrize("body", [
+        "This model's maximum context length is 2048 tokens. You requested 9000. Please reduce the length of the input prompt.",
+        "maximum context length is 8192 tokens",
+        '{"error": {"code": "context_length_exceeded"}}',
+        "Please reduce the length of the input prompt",
+    ])
+    def test_an_upstream_context_length_400_maps_to_the_same_stable_code(self, body: str) -> None:
+        from pravrudhi.application.nyaya_judges import JudgeInputTooLong
+
+        with pytest.raises(JudgeInputTooLong) as ei:
+            self._http_judge(400, body).judge(REQ)
+        assert ei.value.code == "input_too_long" and ei.value.limit is None
+
+    @pytest.mark.parametrize("status,body", [(400, "unknown model nyaya-x"), (401, "bad key"), (400, "")])
+    def test_any_other_4xx_stays_a_configuration_fault(self, status: int, body: str) -> None:
+        from pravrudhi.application.nyaya_judges import JudgeInputTooLong, _config_fault_status
+
+        with pytest.raises(RuntimeError) as ei:
+            self._http_judge(status, body).judge(REQ)
+        assert not isinstance(ei.value, JudgeInputTooLong) and _config_fault_status(ei.value) == status
+
+    def test_a_too_long_error_is_not_a_configuration_fault_even_with_a_400_cause(self) -> None:
+        from pravrudhi.application.nyaya_judges import JudgeInputTooLong, _config_fault_status
+
+        with pytest.raises(JudgeInputTooLong) as ei:
+            self._http_judge(400, "maximum context length is 2048 tokens").judge(REQ)
+        assert ei.value.__cause__ is not None and _config_fault_status(ei.value) is None
+
+    def test_the_and_gate_propagates_a_too_long_second_judge_without_tripping_the_breaker(self) -> None:
+        from pravrudhi.application.nyaya_judges import AndGateJudge, JudgeInputTooLong, SecondJudgeCircuitBreaker
+
+        primary = self._judge(None, _FakeComplete(_completion(" established F1:0:5", {" established": -0.01, " not": -5.0})))
+        second = self._judge(1)
+        breaker = SecondJudgeCircuitBreaker()
+        gate = AndGateJudge(primary, second, tau_primary=0.74, tau_second=0.97, breaker=breaker)
+        with pytest.raises(JudgeInputTooLong):
+            gate.judge(REQ)
+        assert not breaker.is_open()
+
+    @pytest.mark.parametrize("status", [401, 403, 404, 422, 429, 500, 502, 503])
+    def test_overflow_wording_on_a_status_other_than_400_is_not_mapped(self, status: int) -> None:
+        from pravrudhi.application.nyaya_judges import JudgeInputTooLong
+
+        with pytest.raises(RuntimeError) as ei:
+            self._http_judge(status, "maximum context length is 2048 tokens").judge(REQ)
+        assert not isinstance(ei.value, JudgeInputTooLong)
