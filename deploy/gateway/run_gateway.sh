@@ -210,7 +210,7 @@ ensure_engine() {
     ${NYAYA_SECOND_JUDGE_REFER_LOGIT_DELTA:+-e "NYAYA_SECOND_JUDGE_REFER_LOGIT_DELTA=$NYAYA_SECOND_JUDGE_REFER_LOGIT_DELTA"} \
     ${NYAYA_JUDGE_NETWORK:+--network "$NYAYA_JUDGE_NETWORK"} \
     "${extra[@]}" \
-    "pravrudhi-engine:$PRAVRUDHI_VERSION" >/dev/null
+    "pravrudhi-engine:$PRAVRUDHI_VERSION" >/dev/null || return 1
   if [ "$edition" = studio ] && ! studio_auth_readback "$name"; then
     # Belt and braces: read back what the running container actually has, and take it down rather than serve Studio open.
     echo "STUDIO REFUSED: the Studio container does not report PRAVRUDHI_AUTH=required; removing it." >&2
