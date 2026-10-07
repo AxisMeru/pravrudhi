@@ -857,7 +857,7 @@ def load_private_names(path: Path | str, sha256: str) -> tuple[str, ...]:
 
 
 #: What may sit between two parts of a private name: nothing, or up to three of a space, hyphen, dot, underscore or apostrophe
-#: ("Given Family", "Given-Family", "Given.Family", "Given_Family", "Given. Family", "Given's Family").
+#: ("Given Family", "Given-Family", "Given.Family", "Given_Family", "Given. Family", "Given' Family").
 _NAME_JOINER = r"[\s._'\u2019-]{0,3}"
 _NAME_SPLIT = re.compile(r"[\s._'\u2019-]+")
 #: A name is a whole word: letters and digits on either side end it, but "_", "-" and "." do not run a name into a longer word.

@@ -401,3 +401,10 @@ def test_a_shipped_corpus_file_that_does_not_load_refuses_the_write(monkeypatch:
     monkeypatch.setattr(demo_export, "build_demo", lambda root: {"a": "b"})
     with pytest.raises(SecretInSnapshot, match="failed to load"):
         demo_export.write_demo(_root_with_corpus(tmp_path), tmp_path / "out" / "demo.json", **names_kwargs(tmp_path))
+
+
+def test_the_private_endpoint_ids_are_three_distinct_14_character_lowercase_alphanumeric_entries() -> None:
+    """The detector's list keeps its shape: if an id is added or one is mistyped, this says so before a leak does."""
+    ids = demo_export.PRIVATE_ENDPOINT_IDS
+    assert len(ids) == 3 and len(set(ids)) == 3
+    assert all(re.fullmatch(r"[a-z0-9]{14}", i) for i in ids), "every id is 14 lowercase letters and digits"
