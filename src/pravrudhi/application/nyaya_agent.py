@@ -319,7 +319,10 @@ def _require_complete_second_judge(second_judge: Mapping[str, Any] | None) -> No
     Only the presence of a key is checked; no value is defaulted or guessed (fail closed)."""
     if not second_judge or not any(k in second_judge for k in _SECOND_JUDGE_SIGNAL_KEYS):
         return
-    missing = [(k, env) for k, env in _SECOND_JUDGE_REQUIRED if second_judge.get(k) in (None, "")]
+    def blank(v: Any) -> bool:
+        return v is None or (isinstance(v, str) and not v.strip())
+
+    missing = [(k, env) for k, env in _SECOND_JUDGE_REQUIRED if blank(second_judge.get(k))]
     if missing:
         raise ValueError(
             "second_judge is configured partly: missing "

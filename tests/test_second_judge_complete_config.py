@@ -64,3 +64,19 @@ def test_tuning_keys_alone_are_the_inert_not_configured_case_and_still_load(monk
 
 def test_no_second_judge_at_all_is_unchanged() -> None:
     assert nyaya_agent.load_agent_config(REPO).second_judge is None
+
+
+@pytest.mark.parametrize("blank", ["", " ", "\t\n"])
+def test_a_blank_value_counts_as_missing_not_present(tmp_path: Path, blank: str) -> None:
+    """R2 on #361 (a surviving mutation): an empty or whitespace-only value is not a configured key."""
+    import yaml
+
+    body = yaml.safe_load((REPO / "configs" / "nyaya_agent.yaml").read_text())
+    body["second_judge"] = {"base_url": blank, "model": "judge-x", "tau": 0.9, "timeout_s": 30}
+    (tmp_path / "configs").mkdir()
+    (tmp_path / "configs" / "nyaya_agent.yaml").write_text(yaml.safe_dump(body))
+    with pytest.raises(ValueError, match="second_judge is configured partly") as e:
+        nyaya_agent.load_agent_config(tmp_path)
+    assert "base_url" in str(e.value)
+    for present in ("tau (env", "timeout_s (env"):
+        assert present not in str(e.value)
