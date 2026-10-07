@@ -320,7 +320,8 @@ def _require_complete_second_judge(second_judge: Mapping[str, Any] | None) -> No
     if not second_judge or not any(k in second_judge for k in _SECOND_JUDGE_SIGNAL_KEYS):
         return
     def blank(v: Any) -> bool:
-        return v is None or (isinstance(v, str) and not v.strip())
+        # None, a blank string, or an empty container ([] / {} from a yaml `base_url: []`) is not a configured value
+        return v is None or (isinstance(v, str) and not v.strip()) or (isinstance(v, (list, tuple, dict, set)) and not v)
 
     missing = [(k, env) for k, env in _SECOND_JUDGE_REQUIRED if blank(second_judge.get(k))]
     if missing:
