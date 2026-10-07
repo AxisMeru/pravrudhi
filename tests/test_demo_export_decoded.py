@@ -156,6 +156,55 @@ def test_the_final_check_catches_a_spaced_name_if_the_scrub_is_bypassed(
     assert decoded_hits(f"x {variant} y", NAMES) == ["private-name #1"]
 
 
+FULL_WIDTH_NAMES = [
+    "\uff3aorblat Quux",
+    "Zorblat \uff31uux",
+    "\uff3a\uff4f\uff52\uff42\uff4c\uff41\uff54 \uff31\uff55\uff55\uff58",
+    "\uff5a\uff4f\uff52\uff42\uff4c\uff41\uff54\u3000\uff31uux",
+]
+FULL_WIDTH_EMAILS = ["admin\uff20example.org", "admin\uff20\uff45xample.org", "someone\uff20gmail.com"]
+
+
+@pytest.mark.parametrize("variant", FULL_WIDTH_NAMES)
+def test_a_full_width_name_is_redacted_in_the_scrub_and_caught_by_the_final_check(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, variant: str
+) -> None:
+    got = json.loads(_write(monkeypatch, tmp_path, {"status": {"a": f"Met {variant} at the hearing"}}).read_text())["status"]["a"]
+    assert got == "Met <redacted:name> at the hearing"
+    assert decoded_hits(f"x {variant} y", NAMES) == ["private-name #1"]
+    monkeypatch.setattr(demo_export, "scrub_decoded", lambda text, names=(): text)
+    with pytest.raises(SecretInSnapshot, match="private-name #1"):
+        _write(monkeypatch, tmp_path, {"status": {"a": f"Met {variant} at the hearing"}})
+
+
+@pytest.mark.parametrize("variant", FULL_WIDTH_EMAILS)
+def test_a_full_width_email_is_dropped_by_the_scrub_and_caught_by_the_final_check(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, variant: str
+) -> None:
+    data = {"status": {"a": f"write to {variant} today", "b": "ok"}}
+    got = json.loads(_write(monkeypatch, tmp_path, data).read_text())["status"]
+    # dropped whole, or (part of the address plain ASCII) already redacted by the plain-email shape: no email is left
+    assert got["b"] == "ok"
+    assert not demo_export._EMAIL_SHAPED.search(demo_export.normalise_text(got["a"])), got["a"]  # noqa: SLF001
+    assert "example" not in got["a"] and "gmail" not in got["a"]
+    assert "decoded: email-shaped string" in decoded_hits(f"write to {variant} today")
+    monkeypatch.setattr(demo_export, "scrub_decoded", lambda text, names=(): text)
+    with pytest.raises(SecretInSnapshot, match="decoded: email-shaped string"):
+        _write(monkeypatch, tmp_path, {"status": {"a": f"write to {variant} today"}})
+
+
+def test_an_email_beside_non_ascii_text_is_dropped_whole(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """A text-level substitution next to a \\uXXXX escape could break the JSON, so a non-ASCII value with an email goes whole."""
+    for value in ("write to \uff41dmin@example.org today", "Caf\u00e9 contact x@example.org"):
+        got = json.loads(_write(monkeypatch, tmp_path, {"status": {"a": value, "b": "ok"}}).read_text())["status"]
+        assert got == {"a": demo_export.DECODED_MARKER, "b": "ok"}, value
+
+
+def test_names_in_the_list_are_folded_too(tmp_path: Path) -> None:
+    kw = names_kwargs(tmp_path, ("\uff21lpha  Beta",))
+    assert load_private_names(kw["private_names_path"], kw["private_names_sha256"]) == ("Alpha Beta",)
+
+
 def test_an_encoded_spaced_name_drops_the_whole_value(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     data = {"status": {"a": "Zorblat%C2%A0Quux was here", "b": "Zorblat&nbsp;&nbsp;Quux", "c": "ok"}}
     got = json.loads(_write(monkeypatch, tmp_path, data).read_text())["status"]

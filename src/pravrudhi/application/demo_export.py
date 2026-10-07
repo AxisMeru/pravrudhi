@@ -809,10 +809,12 @@ class PrivateNamesError(SecretInSnapshot):
 
 
 def normalise_text(text: str) -> str:
-    """The text as a reader sees it, for matching names: invisible format characters (zero-width space and joiners, the
-    byte-order mark, soft hyphen, bidi marks: Unicode category Cf) removed, and every run of Unicode whitespace (double
-    spaces, tabs, no-break space, line breaks) collapsed to one space."""
-    return " ".join("".join(ch for ch in text if unicodedata.category(ch) != "Cf").split())
+    """The text as a reader sees it, for matching: Unicode compatibility forms folded to plain characters (NFKC: full-width
+    letters and the full-width at-sign, ligatures, circled and superscript forms), invisible format characters (zero-width
+    space and joiners, the byte-order mark, soft hyphen, bidi marks: Unicode category Cf) removed, and every run of Unicode
+    whitespace (double spaces, tabs, no-break space, line breaks) collapsed to one space."""
+    folded = unicodedata.normalize("NFKC", text)
+    return " ".join("".join(ch for ch in folded if unicodedata.category(ch) != "Cf").split())
 
 
 def load_private_names(path: Path | str, sha256: str) -> tuple[str, ...]:
@@ -897,23 +899,32 @@ DECODED_MARKER = "<redacted:decoded-match>"
 NAME_MARKER = "<redacted:name>"
 
 
+def _hidden_marker(text: str, name_rx: re.Pattern[str] | None = None) -> bool:
+    """Whether the text carries an email-shaped string, a private marker or pattern (and, with `name_rx`, a private name)."""
+    return bool(
+        _EMAIL_SHAPED.search(text)
+        or (name_rx and name_rx.search(text))
+        or any(m.casefold() in text.casefold() for m in PRIVATE_MARKERS)
+        or any(pat.search(text) for pat in (*PRIVATE_PATTERNS, *DROP_PATTERNS))
+    )
+
+
 def _scrub_value(value: Any, name_rx: re.Pattern[str] | None) -> Any:
     if isinstance(value, str):
         decoded = decode_all(value)
-        seen = normalise_text(decoded)  # what a reader sees: no zero-width characters, one space between words
+        seen = normalise_text(decoded)  # what a reader sees: decoded, folded to plain characters, one space between words
         if _SIGN_IN_SHAPES.search(seen):
             return DECODED_MARKER  # a sign-in or OAuth URL (or part of one): the whole value goes
-        if decoded != value and (
-            _EMAIL_SHAPED.search(seen)
-            or (name_rx and name_rx.search(seen))
-            or any(m.casefold() in seen.casefold() for m in PRIVATE_MARKERS)
-            or any(pat.search(seen) for pat in (*PRIVATE_PATTERNS, *DROP_PATTERNS))
-        ):
-            # a private marker, email or name that only shows once decoded: the whole value goes, nothing half-decoded stays
+        if _hidden_marker(seen) and (not _hidden_marker(value) or not value.isascii()):
+            # an email or private marker that only shows once decoded or folded (percent-encoding, entities, full-width letters or
+            # at-sign), or inside text with non-ASCII characters (whose \\uXXXX escapes could break a text-level substitution):
+            # the whole value goes, nothing half-decoded stays
             return DECODED_MARKER
+        if decoded != value and name_rx and name_rx.search(seen):
+            return DECODED_MARKER  # a name that only shows once decoded
         plain = normalise_text(value)
         if name_rx and name_rx.search(plain):
-            # a plain name, however it is spaced or split by invisible characters: each match is replaced, the rest stays readable
+            # a plain name, however spaced, folded or split by invisible characters: each match is replaced, the rest stays
             return name_rx.sub(NAME_MARKER, plain)
         return value
     if isinstance(value, dict):
@@ -938,7 +949,7 @@ def private_markers_left(text: str, names: tuple[str, ...] = ()) -> list[str]:
     out = [m for m in PRIVATE_MARKERS if m.casefold() in text.casefold()]
     out += [p.pattern for p in PRIVATE_PATTERNS if p.search(text)]
     out += [p.pattern for p in DROP_PATTERNS if p.search(text)]
-    decoded = decode_all(text)
+    decoded = normalise_text(decode_all(text))
     if decoded != text:
         low, dlow = text.casefold(), decoded.casefold()
         out += [f"decoded: {m}" for m in PRIVATE_MARKERS if m.casefold() in dlow and m.casefold() not in low]
@@ -948,14 +959,15 @@ def private_markers_left(text: str, names: tuple[str, ...] = ()) -> list[str]:
 
 
 def write_demo(root: Path, dest: Path, *, private_names_path: Path | str, private_names_sha256: str) -> Path:
-    """Write the public snapshot. The private-name list is REQUIRED (a path and its pinned sha256): without a
-    readable, non-empty list that
-    matches the sha, nothing is written. Names are redacted wherever they match and a name that survives refuses the write."""
+    """Write the public snapshot. The private-name list is REQUIRED (a path and its pinned sha256): without a readable,
+    non-empty list that matches the sha, nothing is written. Names are redacted wherever they match and a name that
+    survives refuses the write. The value-level scrub (decoding, folding, names) runs BEFORE the text-level shapes, so a
+    substitution never lands next to a \\uXXXX escape of the same value."""
     names = load_private_names(private_names_path, private_names_sha256)
-    text = demo_pipeline(json.dumps(public_view(build_demo(root)), indent=2, sort_keys=True, default=str) + "\n")
+    raw = json.dumps(public_view(build_demo(root)), indent=2, sort_keys=True, default=str) + "\n"
     try:
+        text = demo_pipeline(scrub_decoded(raw, names))
         json.loads(text)
-        text = scrub_decoded(text, names)
     except ValueError as e:  # a substitution that breaks an escape must never be published as a "redacted" snapshot
         raise SecretInSnapshot(f"redaction left the snapshot unparseable ({e}); refusing to write it") from e
     left = still_carries(text) + [f"marker {m!r}" for m in private_markers_left(text, names)]
