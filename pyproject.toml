@@ -9,7 +9,7 @@ description = "Recursive self-improvement engine for language-model systems: run
 readme = "README.md"
 requires-python = ">=3.13,<3.14"
 license = "Apache-2.0"
-authors = [{ name = "SharathSPhD", email = "qbz506@york.ac.uk" }]
+authors = [{ name = "SharathSPhD", email = "admin@axismeru.com" }]
 keywords = ["recursive-self-improvement", "active-inference", "expected-free-energy", "llm", "harness", "lora"]
 classifiers = [
   "Development Status :: 2 - Pre-Alpha",
