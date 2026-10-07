@@ -59,7 +59,7 @@ def test_unresolvable_citation_is_not_in_index_with_no_evidence_note(tmp_path: P
     r = _post(_client(tmp_path, _index(tmp_path)), citation="AIR 1950 SC 27")
     j = r.json()
     assert r.status_code == 200 and j["result"] == "NOT_IN_INDEX"
-    assert "no evidence" in j["note"].lower() and "fake" not in j["result"].lower()
+    assert j["note"].startswith("The case was not found in our index.") and "fake" not in j["note"].lower()
 
 
 def test_malformed_citation(tmp_path: Path) -> None:
@@ -220,7 +220,10 @@ def test_the_labels_are_verbatim_and_never_call_a_citation_fake() -> None:
     labels = {r: cs.status_for(r).label for r in VerifyResult}
     assert labels[VerifyResult.EXISTS_QUOTE_NOT_FOUND] == "quote not found in the record"
     assert labels[VerifyResult.NOT_IN_INDEX] == "not in index"
-    assert labels[VerifyResult.CONFLICT] == "conflict"
+    assert labels[VerifyResult.CONFLICT] == "conflict: the citation matches more than one indexed case"
+    assert "exact" not in labels[VerifyResult.VERIFIED].lower()
+    assert "word for word apart from line breaks, quote marks, dashes and spacing" in labels[VerifyResult.VERIFIED]
+    assert "indexed text of the case" in labels[VerifyResult.VERIFIED]
     for label in labels.values():
         assert not any(w in label.lower() for w in cs.FORBIDDEN_WORDS)
 
@@ -261,3 +264,15 @@ def test_the_published_schema_carries_the_status_fields() -> None:
 
     props = VerifyCitationResponse.model_json_schema()["properties"]
     assert {"result", "note", "status", "label", "verified", "preview"} <= set(props)
+
+
+def test_no_verify_note_uses_the_word_fake_and_not_in_index_says_what_it_means() -> None:
+    """A public API string (R1's wording): never calls a citation fake; absence from the index shows nothing either way."""
+    from pravrudhi.api.partner import _VERIFY_NOTES
+
+    assert set(_VERIFY_NOTES) == {"VERIFIED", "EXISTS_QUOTE_NOT_FOUND", "NOT_IN_INDEX", "MALFORMED", "CONFLICT"}
+    assert not any("fake" in note.lower() for note in _VERIFY_NOTES.values())
+    assert _VERIFY_NOTES["NOT_IN_INDEX"] == (
+        "The case was not found in our index. "
+        "That does not show whether the citation is real: the index does not hold every judgment."
+    )

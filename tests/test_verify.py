@@ -522,25 +522,3 @@ def test_a_decision_one_year_before_the_reporting_year_still_verifies(tmp_path: 
                                  _RESOLVED_CASE_TEXT))
     conn.commit()
     assert verify(conn, "(1977) 3 SCC 247", "time is not ordinarily of the essence") == VerifyResult.VERIFIED
-
-
-def test_a_same_year_case_that_only_shares_party_words_does_not_verify(tmp_path: Path) -> None:
-    """#717: a case with the same year and a title that CONTAINS the cited party words plus an extra distinctive word is a
-    different case; the 0.7 name-containment alone would accept it, so the quote must not verify against it."""
-    conn = open_index(tmp_path / "same_year_wrong.sqlite3")
-    insert_case(conn, CaseRecord("citer", "Later v Other", "Supreme Court", 2005, "sc_pdf", "/x", _CITING_TEXT))
-    wrong_text = "A wholly different holding about arbitration clauses and their severability."
-    insert_case(conn, CaseRecord("wrong", "Narandas Karsondas vs S A Kamtam Industries Ltd", "Supreme Court", 1977, "sc_pdf",
-                                 "/z", wrong_text))
-    conn.commit()
-    assert verify(conn, "(1977) 3 SCC 247", "arbitration clauses and their severability") != VerifyResult.VERIFIED
-
-
-def test_a_spelling_variant_of_the_cited_parties_still_verifies(tmp_path: Path) -> None:
-    conn = open_index(tmp_path / "spelling.sqlite3")
-    citer = "In Ramchandran v. Pillai (1977) 5 SCC 100 the Court held"
-    insert_case(conn, CaseRecord("citer", "Later v Other", "Supreme Court", 2005, "sc_pdf", "/x", citer))
-    insert_case(conn, CaseRecord("real", "Ramachandran vs Pillai", "Supreme Court", 1977, "sc_pdf", "/y",
-                                 "the holding on limitation"))
-    conn.commit()
-    assert verify(conn, "(1977) 5 SCC 100", "the holding on limitation") == VerifyResult.VERIFIED

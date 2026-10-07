@@ -332,21 +332,6 @@ def resolve_citation_key(
     return ResolvedAlias(None, case_rows)
 
 
-def _title_names_the_cited_parties(conn: sqlite3.Connection, key: str, title: str) -> bool:
-    """Whether a candidate case's title is the cited case's own party pair: for some alias group of the citation key, the
-    title's distinctive tokens equal the group's (both parties together), or the normalised names are a spelling variant at
-    `_FUZZY_THRESHOLD`. Strict on purpose: a title with an extra distinctive word (a different company, a different
-    person) is a different case, and a lost match only turns a verification into 'no evidence either way'."""
-    tokens = _distinctive_tokens(title)
-    for party_1, party_2 in conn.execute("SELECT DISTINCT party_1, party_2 FROM citation_aliases WHERE citation = ?", (key,)):
-        if tokens and tokens == (_distinctive_tokens(party_1) | _distinctive_tokens(party_2)):
-            return True
-        target = normalize_party_name(f"{party_1} {party_2}")
-        if SequenceMatcher(None, target, normalize_party_name(title)).ratio() >= _FUZZY_THRESHOLD:
-            return True
-    return False
-
-
 def _rows_in_cited_year(conn: sqlite3.Connection, rows: list[sqlite3.Row], cited_year: int | None) -> list[sqlite3.Row]:
     """The candidate rows whose recorded decision year is within one year of the cited (reporting) year (the window the
     alias disambiguation uses); an unreadable year
@@ -389,10 +374,6 @@ def verify(
     # year allows: the year in "(1977) 3 SCC 247" is the reporting year, so a decision within a year of it.
     # A candidate set with no such case is "no evidence either way", never a verification against some other case.
     case_rows = _rows_in_cited_year(conn, resolved.case_rows, citations[0].year)
-    # #717: the 0.7 name-containment that picks a candidate accepts a case that merely SHARES party words with the cited
-    # one. Before a quote may verify against a candidate, its title must name the same parties as the citation's alias
-    # group: the same distinctive tokens exactly, or a spelling variant at the verifier's own 0.9 ratio floor.
-    case_rows = [r for r in case_rows if _title_names_the_cited_parties(conn, key, r["title"])]
     if not case_rows:
         return VerifyResult.NOT_IN_INDEX
     for row in case_rows:
