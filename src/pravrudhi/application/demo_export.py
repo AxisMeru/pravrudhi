@@ -853,10 +853,21 @@ def load_private_names(path: Path | str, sha256: str) -> tuple[str, ...]:
     return names
 
 
+#: What may sit between two parts of a private name: nothing, or up to three of a space, hyphen, dot, underscore or apostrophe
+#: ("Given Family", "Given-Family", "Given.Family", "Given_Family", "Given. Family", "Given's Family").
+_NAME_JOINER = r"[\s._'\u2019-]{0,3}"
+_NAME_SPLIT = re.compile(r"[\s._'\u2019-]+")
+#: A name is a whole word: letters and digits on either side end it, but "_", "-" and "." do not run a name into a longer word.
+_NAME_LEFT = r"(?<![A-Za-z0-9])"
+_NAME_RIGHT = r"(?![A-Za-z0-9])"
+
+
 def _name_pattern(name: str) -> str:
-    """One name as a pattern: its words, normalised, with an OPTIONAL single space between them (an invisible character
-    between two words leaves no space once it is stripped, and a name that has been run together is still that name)."""
-    return " ?".join(re.escape(w) for w in normalise_text(name).split(" "))
+    """One name as a pattern: its parts, normalised, with an OPTIONAL separator between them (a space, hyphen, dot, underscore
+    or apostrophe, or none: an invisible character between two parts leaves no space once it is stripped, and a name run
+    together or punctuated is still that name)."""
+    parts = [w for w in _NAME_SPLIT.split(normalise_text(name)) if w]
+    return _NAME_JOINER.join(re.escape(w) for w in parts)
 
 
 def _names_regex(names: tuple[str, ...]) -> re.Pattern[str] | None:
@@ -864,7 +875,7 @@ def _names_regex(names: tuple[str, ...]) -> re.Pattern[str] | None:
     if not names:
         return None
     alt = "|".join(_name_pattern(n) for n in sorted(names, key=len, reverse=True))
-    return re.compile(rf"(?<![A-Za-z0-9_])(?:{alt})(?![A-Za-z0-9_])", re.IGNORECASE)
+    return re.compile(rf"{_NAME_LEFT}(?:{alt}){_NAME_RIGHT}", re.IGNORECASE)
 
 
 _UNICODE_ESCAPE = re.compile(r"\\u([0-9a-fA-F]{4})")
@@ -886,6 +897,14 @@ def decode_all(text: str, passes: int = 5) -> str:
 
 
 _EMAIL_SHAPED = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
+#: An address written to dodge the shape above: "name [at] host [dot] tld", "name(at)host", "name{at}host" (an at-sign or a
+#: dot spelled in brackets), or "name at host dot tld" (both words, so ordinary prose with the word "at" is not caught).
+_OBFUSCATED_EMAIL = re.compile(
+    r"[A-Za-z0-9._%+-]+\s*[\[({<]\s*(?:at|@)\s*[\])}>]\s*[A-Za-z0-9-]+"
+    r"|[A-Za-z0-9-]+\s*[\[({<]\s*dot\s*[\])}>]\s*[A-Za-z0-9-]+"
+    r"|\b[A-Za-z0-9._%+-]+\s+at\s+[A-Za-z0-9-]+(?:\s+dot\s+[A-Za-z0-9-]+)+\b",
+    re.IGNORECASE,
+)
 #: A sign-in or OAuth URL, or any of its parts: a published file carries none of them, in any encoding.
 _SIGN_IN_SHAPES = re.compile(
     r"login_hint|client_id|oauth|/authorize\b|accounts\.google|[?&]state=|code_challenge|[?&]challenge=|sso_?login|/signin\?",
@@ -901,10 +920,12 @@ def decoded_hits(text: str, names: tuple[str, ...] = ()) -> list[str]:
     hits: list[str] = []
     if _EMAIL_SHAPED.search(d):
         hits.append("decoded: email-shaped string")
+    if _OBFUSCATED_EMAIL.search(d):
+        hits.append("decoded: obfuscated email")
     if _SIGN_IN_SHAPES.search(d):
         hits.append("decoded: sign-in or OAuth url")
     for i, n in enumerate(names):
-        if re.search(rf"(?<![A-Za-z0-9_]){_name_pattern(n)}(?![A-Za-z0-9_])", d, re.IGNORECASE):
+        if re.search(rf"{_NAME_LEFT}{_name_pattern(n)}{_NAME_RIGHT}", d, re.IGNORECASE):
             hits.append(f"private-name #{i + 1}")
     return hits
 
@@ -927,8 +948,9 @@ def _scrub_value(value: Any, name_rx: re.Pattern[str] | None) -> Any:
     if isinstance(value, str):
         decoded = decode_all(value)
         seen = normalise_text(decoded)  # what a reader sees: decoded, folded to plain characters, one space between words
-        if _SIGN_IN_SHAPES.search(seen):
-            return DECODED_MARKER  # a sign-in or OAuth URL (or part of one): the whole value goes
+        if _SIGN_IN_SHAPES.search(seen) or _OBFUSCATED_EMAIL.search(seen):
+            # a sign-in or OAuth URL (or part of one), or an address written to dodge the email shape: the whole value goes
+            return DECODED_MARKER
         if _hidden_marker(seen) and (not _hidden_marker(value) or not value.isascii()):
             # an email or private marker that only shows once decoded or folded (percent-encoding, entities, full-width letters or
             # at-sign), or inside text with non-ASCII characters (whose \\uXXXX escapes could break a text-level substitution):
