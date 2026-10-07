@@ -218,7 +218,7 @@ def test_the_labels_are_verbatim_and_never_call_a_citation_fake() -> None:
     from pravrudhi.application.verify import VerifyResult
 
     labels = {r: cs.status_for(r).label for r in VerifyResult}
-    assert labels[VerifyResult.EXISTS_QUOTE_NOT_FOUND] == "quote not found in the record"
+    assert labels[VerifyResult.EXISTS_QUOTE_NOT_FOUND] == "quote not found in the indexed text of the case"
     assert labels[VerifyResult.NOT_IN_INDEX] == "not in index"
     assert labels[VerifyResult.CONFLICT] == "conflict: the citation matches more than one indexed case"
     assert "exact" not in labels[VerifyResult.VERIFIED].lower()
@@ -242,7 +242,7 @@ def test_the_route_returns_the_status_contract_and_keeps_result_and_note(tmp_pat
     assert ok["note"] and ok["label"].startswith("Verified")
     miss = _post(c, quote="this sentence is nowhere in the case").json()
     assert (miss["result"], miss["status"], miss["verified"], miss["label"]) == (
-        "EXISTS_QUOTE_NOT_FOUND", "quote_not_found", False, "quote not found in the record")
+        "EXISTS_QUOTE_NOT_FOUND", "quote_not_found", False, "quote not found in the indexed text of the case")
     gone = _post(c, citation="(1999) 9 SCC 999", quote="anything").json()
     assert (gone["status"], gone["verified"], gone["label"]) == ("not_in_index", False, "not in index")
     bad = _post(c, citation="no citation here", quote="x").json()

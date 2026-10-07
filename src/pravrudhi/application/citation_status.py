@@ -24,7 +24,7 @@ _LABELS: dict[VerifyResult, tuple[str, str]] = {
         "Verified: the citation resolves to an indexed case and the quote appears in the indexed text of the case, "
         "word for word apart from line breaks, quote marks, dashes and spacing.",
     ),
-    VerifyResult.EXISTS_QUOTE_NOT_FOUND: ("quote_not_found", "quote not found in the record"),
+    VerifyResult.EXISTS_QUOTE_NOT_FOUND: ("quote_not_found", "quote not found in the indexed text of the case"),
     VerifyResult.NOT_IN_INDEX: ("not_in_index", "not in index"),
     VerifyResult.CONFLICT: ("conflict", "conflict: the citation matches more than one indexed case"),
     VerifyResult.MALFORMED: ("malformed", "Exactly one parseable citation is required."),
