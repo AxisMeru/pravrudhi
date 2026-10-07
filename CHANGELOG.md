@@ -24,7 +24,11 @@ engine containers and the RunPod worker template from 0.5.46. Entries marked tes
   `application/citation_status.py`, `openapi-v1.json`. (#335)
 - **The NOT_IN_INDEX note no longer uses the word "fake":** "The case was not found in our index. That does not show whether the
   citation is real: the index does not hold every judgment." (#334)
-- **Personal-data scrub: seat identities come from local configuration, placeholders in tracked files, CI guard.** (#327)
+- **Behaviour change (deployment): seat identities now come only from local configuration.** `agents/seat_identity.py` takes seat
+  addresses from the environment (`PRAVRUDHI_SCRIPTED_CLAUDE_EMAIL`, `PRAVRUDHI_CLAUDE_CLI_EXPECTED_EMAIL`) or from
+  `~/.config/pravrudhi/seats.local.yaml`, and raises `SeatIdentityMissing` wherever an identity is needed; `configs/seats.yaml` now
+  holds placeholders. **A deployment that runs scripted `claude` / CLI seat checks must supply that file or those variables before
+  upgrading.** Also a CI personal-data guard. (#327)
 - **Typed Clef adapter and grounding backend (additive, off by default).** (#316, #317)
 
 ### Image: demo export (not served by the engine routes)
@@ -35,8 +39,10 @@ engine containers and the RunPod worker template from 0.5.46. Entries marked tes
 
 ### Tests, docs, CI, tooling (not in the image)
 
-- Demo-export tests use invented identifiers only; the usage-gate stale-reading test pins its clock; evidence renderers print a tiny
-  exact p as `< 0.001`. (#333, #340, #342)
+- Demo-export tests use invented identifiers only; the usage-gate stale-reading test pins its clock. (#340, #342)
+- Evidence renderers: bases keyed by track, model and metric, and a tiny exact p prints as `< 0.001`. In the image (`external.py`,
+  `paper_data.py` ship), but not on a served route: the served `external_rows()` is unchanged and the dedupe is in the paper and
+  evidence renderers. (#333)
 
 ## 0.5.45
 
