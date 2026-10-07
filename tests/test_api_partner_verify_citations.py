@@ -59,7 +59,7 @@ def test_unresolvable_citation_is_not_in_index_with_no_evidence_note(tmp_path: P
     r = _post(_client(tmp_path, _index(tmp_path)), citation="AIR 1950 SC 27")
     j = r.json()
     assert r.status_code == 200 and j["result"] == "NOT_IN_INDEX"
-    assert "no evidence" in j["note"].lower() and "fake" not in j["result"].lower()
+    assert "not evidence either way" in j["note"].lower() and "fake" not in j["note"].lower()
 
 
 def test_malformed_citation(tmp_path: Path) -> None:
@@ -201,7 +201,7 @@ def test_the_fuzzy_title_scan_never_reads_the_text_column_for_every_case(tmp_pat
 
 
 def test_no_verify_note_uses_the_word_fake_and_not_in_index_says_what_it_means() -> None:
-    """A public API string (R1's wording): the citation check never calls a citation fake; absence from the index is not evidence either way."""
+    """A public API string (R1's wording): never calls a citation fake; absence from the index is not evidence either way."""
     from pravrudhi.api.partner import _VERIFY_NOTES
 
     assert set(_VERIFY_NOTES) == {"VERIFIED", "EXISTS_QUOTE_NOT_FOUND", "NOT_IN_INDEX", "MALFORMED", "CONFLICT"}
