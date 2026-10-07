@@ -52,6 +52,7 @@ EXEMPT_PATHS = frozenset(
         "tests/test_check_no_personal_data.py",
         "src/pravrudhi/application/demo_export.py",
         "tests/test_demo_export_pii.py",
+        "tests/test_demo_export_decoded.py",
         "tests/test_demo_export_allowlist.py",
         "tests/test_demo_export_product.py",
         "tests/test_demo_json_no_internal_leakage.py",
