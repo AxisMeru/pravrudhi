@@ -46,9 +46,13 @@ def _sections_pages_read() -> set[str]:
 
 
 def _exported_sections(tmp: Path) -> set[str]:
+    from tests._demo_names import names_kwargs
+
+    names = names_kwargs(tmp)
     dest = tmp / "demo.json"
     subprocess.run(
-        [sys.executable, "-m", "pravrudhi", "demo-export", "--root", ".", "--dest", str(dest)],
+        [sys.executable, "-m", "pravrudhi", "demo-export", "--root", ".", "--dest", str(dest),
+         "--private-names", names["private_names_path"], "--private-names-sha256", names["private_names_sha256"]],
         check=True, capture_output=True, text=True, timeout=600,
     )
     return set(json.loads(dest.read_text()))
