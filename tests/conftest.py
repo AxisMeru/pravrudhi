@@ -64,7 +64,9 @@ def _claude_seat_is_seat2_unless_testing_the_check(request, monkeypatch):
         return
     from pravrudhi.application import panel
 
-    monkeypatch.setattr(panel, "_verified_seat_env", lambda: {"CLAUDE_CONFIG_DIR": panel._claude_cli_env()["CLAUDE_CONFIG_DIR"]})
+    monkeypatch.setattr(
+        panel, "_verified_seat_env", lambda: {"CLAUDE_CONFIG_DIR": panel._claude_cli_env().get("CLAUDE_CONFIG_DIR")}
+    )
 
 
 @pytest.fixture(autouse=True)
