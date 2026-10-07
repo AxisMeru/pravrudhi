@@ -71,7 +71,7 @@ from starlette.responses import JSONResponse
 from pravrudhi import __version__
 from pravrudhi.api.errors import AGENT_AT_CAPACITY, AGENT_UNAVAILABLE, coded_503
 from pravrudhi.api.identity import CurrentUserDep, User
-from pravrudhi.application import audit, tenancy
+from pravrudhi.application import audit, citation_status, tenancy
 from pravrudhi.application import nyaya_lean_registry as reg
 from pravrudhi.application.config_files import config_file
 from pravrudhi.application.jobs import JobStore
@@ -340,6 +340,13 @@ class VerifyCitationRequest(BaseModel):
 class VerifyCitationResponse(BaseModel):
     result: str
     note: str
+    #: #533 (preview): the product wording. `status` is one of verified, quote_not_found, not_in_index, conflict, malformed;
+    #: `label` is the text to show verbatim; `verified` is true only for `result` VERIFIED (a resolved key AND the exact
+    #: quote); `preview` is true while the check is a preview. None of the labels says a citation is fake or invalid.
+    status: str
+    label: str
+    verified: bool
+    preview: bool
 
 
 _VERIFY_NOTES = {
@@ -1341,14 +1348,14 @@ def build_partner_router(
         with _verify_gates_lock:
             return _verify_gates.setdefault(size, ConcurrencyLimiter(size))
 
-    def _lookup(path: Path, req: VerifyCitationRequest, timeout_s: float) -> str:
+    def _lookup(path: Path, req: VerifyCitationRequest, timeout_s: float) -> citation_status.CitationStatus:
         """One bounded, read-only lookup. The progress handler aborts the statement once the deadline passes, so a
         pathological party pair can hold a worker for `timeout_s` at most."""
         deadline = time.monotonic() + timeout_s
         conn = sqlite3.connect(f"file:{path.resolve()}?mode=ro", uri=True)
         try:
             conn.set_progress_handler(lambda: 1 if time.monotonic() > deadline else 0, 10_000)
-            return verify_citation(conn, req.citation, req.quote).value
+            return citation_status.status_for(verify_citation(conn, req.citation, req.quote))
         finally:
             conn.close()
 
@@ -1361,7 +1368,7 @@ def build_partner_router(
             503: {"description": "No case index, the lookup timed out, or too many lookups are running."},
         },
     )
-    def verify_citations_ep(req: VerifyCitationRequest, request: Request, response: Response) -> dict[str, str] | JSONResponse:
+    def verify_citations_ep(req: VerifyCitationRequest, request: Request, response: Response) -> dict[str, Any] | JSONResponse:
         metered: list[str] = []
         per_minute: list[int] = []
         refused = _verify_admit(request, metered, per_minute)
@@ -1390,8 +1397,9 @@ def build_partner_router(
             gate.release()
         if metered:
             response.headers.update(_rate_headers(metered[0], per_minute[0]))
-        _verify_audit(metered, 200, result)
-        return {"result": result, "note": _VERIFY_NOTES[result]}
+        _verify_audit(metered, 200, result.result)
+        return {"result": result.result, "note": _VERIFY_NOTES[result.result], "status": result.status,
+                "label": result.label, "verified": result.verified, "preview": result.preview}
 
     @router.post("/orgs", response_model=OrgOut)
     def create_org_ep(
