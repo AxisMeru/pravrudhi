@@ -693,7 +693,21 @@ ASSETS_DIR = Path(__file__).resolve().parents[1] / "assets" / "nyaya"
 
 #: Fewer documents than this and the backstop has nothing meaningful to compare against, which must not read as
 #: "clean": the write is refused instead (the shipped corpus alone is 1,609 provisions).
-MIN_CORPUS_DOCUMENTS = 1000
+MIN_CORPUS_DOCUMENTS = 1609
+
+
+def unloaded_assets() -> list[str]:
+    """Shipped corpus files that do not load as a document list: a half-read corpus must not vouch for a snapshot."""
+    bad: list[str] = []
+    for f in sorted(ASSETS_DIR.glob("*.json")):
+        try:
+            data = json.loads(f.read_text())
+        except (OSError, ValueError):
+            bad.append(f.name)
+            continue
+        if isinstance(data, dict) and "documents" in data and not isinstance(data["documents"], list):
+            bad.append(f.name)
+    return bad
 
 
 def corpus_windows(root: Path) -> tuple[set[int], int]:
@@ -974,6 +988,9 @@ def write_demo(root: Path, dest: Path, *, private_names_path: Path | str, privat
     if left:
         raise SecretInSnapshot(f"snapshot still carries {', '.join(left)} after redaction; refusing to write it")
     windows, documents = corpus_windows(root)
+    broken = unloaded_assets()
+    if broken:
+        raise SecretInSnapshot(f"shipped corpus file(s) failed to load: {', '.join(broken)}; refusing to write it")
     if documents < MIN_CORPUS_DOCUMENTS or not windows:
         raise SecretInSnapshot(
             f"the corpus backstop found {documents} provisions (needs {MIN_CORPUS_DOCUMENTS}); it cannot vouch for the "
