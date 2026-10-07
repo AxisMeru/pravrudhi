@@ -631,6 +631,9 @@ DROP_PATTERNS: tuple[re.Pattern[str], ...] = (
 #: What replaces a string value that mentions one of the markers above.
 INTERNAL_TEXT_MARKER = "<redacted:internal-text>"
 #: A seat or account handle (the operator's seat logins). The public handle `sharathsphd` is not matched.
+#: The serverless endpoint ids of the production judges and engine: infrastructure identifiers the public snapshot never carries.
+#: The patterns below are built from this tuple, and the tests take their samples from it, so no test text holds an id.
+PRIVATE_ENDPOINT_IDS: tuple[str, ...] = ("7j7ipedmwi8z1w", "vwbrfgyiel1haq", "v7alta6t9ytcga")
 PRIVATE_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"sharath\.[a-z]+", re.IGNORECASE),
     re.compile(r"ss-Fusion-\d+", re.IGNORECASE),
@@ -639,7 +642,7 @@ PRIVATE_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"-home-[a-z0-9]+-"),
     re.compile(r"/tmp/claude-\d+/"),
     re.compile(r"192\.168\.\d+\.\d+"),
-    re.compile(r"7j7ipedmwi8z1w|vwbrfgyiel1haq|v7alta6t9ytcga", re.IGNORECASE),
+    re.compile("|".join(PRIVATE_ENDPOINT_IDS), re.IGNORECASE),
 )
 
 #: Applied to the demo snapshot ONLY (not by `redact_secrets`, which keeps the project's git identity for its other
@@ -660,7 +663,7 @@ _DEMO_ONLY_SHAPES: tuple[tuple[str, re.Pattern[str], str], ...] = (
     ("encoded-home-path", re.compile(r"-home-[a-z0-9]+-"), "-redacted-"),
     ("scratch-path", re.compile(r"/tmp/claude-\d+/"), "/tmp/redacted-session/"),
     ("lan-ip", re.compile(r"\b192\.168\.\d+\.\d+\b"), "<redacted:lan-ip>"),
-    ("runpod-endpoint-id", re.compile(r"\b(?:7j7ipedmwi8z1w|vwbrfgyiel1haq|v7alta6t9ytcga)\b", re.IGNORECASE),
+    ("runpod-endpoint-id", re.compile(r"\b(?:" + "|".join(PRIVATE_ENDPOINT_IDS) + r")\b", re.IGNORECASE),
      "<redacted:endpoint-id>"),
 )
 
