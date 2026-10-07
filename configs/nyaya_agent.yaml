@@ -66,10 +66,12 @@ house_judge:
   # clear this before a decision is trusted at all -- else JudgeOutputError, failing closed to REFER.
   # Required, not defaulted here: HouseJudge.from_config refuses if this key is absent.
   label_mass_floor: 0.5
-  # The longest judge prompt (characters, statute + scenario + element + facts) the judge is asked to read (#727). A longer one is
-  # REFERRED (`input_too_long`) BEFORE the call; an upstream context-length 400 maps to the same REFER. Unset = no pre-check (the
-  # upstream mapping still applies). Set it under the served model's context window: a 35,164-character input overflowed.
-  max_input_chars: 24000
+  # The longest judge prompt (characters: statute + scenario + element + facts) the judge is asked to read (#727). A longer one is
+  # REFERRED (`input_too_long`) BEFORE the call. 10800 is for the 4096-token stacks (the 32B, dev and prod): (4096 - 30 max_tokens -
+  # 64 margin) = 4002 tokens at the worst measured 0.369 tokens per character (Qwen2.5 tokenizer, longest real items). A 2048-token
+  # deployment (the prod 4B) must set its own, 5300, with NYAYA_HOUSE_JUDGE_MAX_INPUT_CHARS (second judge:
+  # NYAYA_SECOND_JUDGE_MAX_INPUT_CHARS). The upstream context-length 400 maps to the same REFER everywhere, as the backstop.
+  max_input_chars: 10800
   # How many (contract, element/denial) judge requests one `NyayaAgent.run` call judges at once, bounded by a
   # ThreadPoolExecutor (docs/decisions 2026-09-24). 1 is today's serial behaviour, byte-identical results and
   # audit ordering -- unchanged unless this is raised. NYAYA_JUDGE_MAX_CONCURRENCY overrides.
@@ -125,7 +127,7 @@ retention_days: 7
 #   top_logprobs: 20
 #   max_tokens: 30
 #   statute_chars: 600
-#   max_input_chars: 24000   # #727: longer prompts REFER (`input_too_long`) before the second judge is called
+#   max_input_chars: 10800   # #727: 4096-token window; longer prompts REFER (`input_too_long`) before the second judge is called
 #   tau: 0.97
 #   # endpoint_id / adapter_sha: only read when second_judge_positive_control.record_path is set below --
 #   # RecordGatedJudge compares these against the record the preflight CLI wrote, refusing the real endpoint

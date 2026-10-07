@@ -2709,7 +2709,8 @@ class TestInputTooLongRefers:
 
         cfg = yaml.safe_load((REPO / "configs" / "nyaya_agent.yaml").read_text())["house_judge"]
         limit = cfg["max_input_chars"]
-        assert isinstance(limit, int) and not isinstance(limit, bool) and 0 < limit < 35164   # 35,164 overflowed
+        assert isinstance(limit, int) and not isinstance(limit, bool)
+        assert limit == 10800 and limit < 35164   # the 4096-token window; 35,164 overflowed
         j = _build_house_judge({**cfg, "model": "m"}, tau=0.74, typed=False, api_key_env="NYAYA_HOUSE_JUDGE_API_KEY")
         assert j.max_input_chars == limit
 

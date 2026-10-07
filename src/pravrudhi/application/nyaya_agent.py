@@ -403,6 +403,10 @@ def load_agent_config(root: Path) -> AgentConfig:
         house_judge["timeout_s"] = int(os.environ["NYAYA_HOUSE_JUDGE_TIMEOUT_S"])
     # Bounded judge concurrency (docs/decisions, 2026-09-24): default 1 -- today's serial behaviour -- so an
     # existing deployment's yaml with no `max_concurrency` key and no env var is unchanged.
+    # #727: the longest judge prompt (characters) this deployment's judge window allows; the committed value fits the 4096-token
+    # stacks, a 2048-token deployment sets its own through this variable.
+    if os.environ.get("NYAYA_HOUSE_JUDGE_MAX_INPUT_CHARS"):
+        house_judge["max_input_chars"] = int(os.environ["NYAYA_HOUSE_JUDGE_MAX_INPUT_CHARS"])
     if os.environ.get("NYAYA_JUDGE_MAX_CONCURRENCY"):
         house_judge["max_concurrency"] = int(os.environ["NYAYA_JUDGE_MAX_CONCURRENCY"])
 
@@ -429,6 +433,7 @@ def load_agent_config(root: Path) -> AgentConfig:
     _second_override("NYAYA_SECOND_JUDGE_TOP_LOGPROBS", "top_logprobs", int)
     _second_override("NYAYA_SECOND_JUDGE_MAX_TOKENS", "max_tokens", int)
     _second_override("NYAYA_SECOND_JUDGE_LABEL_MASS_FLOOR", "label_mass_floor", float)
+    _second_override("NYAYA_SECOND_JUDGE_MAX_INPUT_CHARS", "max_input_chars", int)
     # The second-judge REFER band (logit distance, not probability -- module doc): off (None) unless a
     # `refer_logit_delta:` key is in the yaml's `second_judge:` block or this env var is set. Reachable even
     # with no `second_judge:` yaml block, exactly like the overrides above -- though it is inert without a

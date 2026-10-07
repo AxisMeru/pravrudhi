@@ -756,3 +756,11 @@ class TestInputTooLong:
         with pytest.raises(JudgeInputTooLong):
             gate.judge(REQ)
         assert not breaker.is_open()
+
+    @pytest.mark.parametrize("status", [401, 403, 404, 422, 429, 500, 502, 503])
+    def test_overflow_wording_on_a_status_other_than_400_is_not_mapped(self, status: int) -> None:
+        from pravrudhi.application.nyaya_judges import JudgeInputTooLong
+
+        with pytest.raises(RuntimeError) as ei:
+            self._http_judge(status, "maximum context length is 2048 tokens").judge(REQ)
+        assert not isinstance(ei.value, JudgeInputTooLong)
