@@ -30,7 +30,7 @@ def test_a_whole_fact_note_without_a_fact_id_still_quotes_nothing() -> None:
     assert whole_fact_note(None) == "Cites a fact in full (the judge names the fact; it does not quote words)."
 
 
-@pytest.mark.parametrize("unknown", ["span", "", "Model", " whole_fact"])
+@pytest.mark.parametrize("unknown", ["span", "", "Model", " whole_fact", "model_x", "whole_fact_x"])
 def test_an_unknown_source_raises_instead_of_being_worded_as_a_quote_or_as_no_claim(unknown: str) -> None:
     """Fail-closed by design: only None means no claim, so an empty string is an unknown source like any other."""
     with pytest.raises(ValueError, match="unknown quote_source"):
