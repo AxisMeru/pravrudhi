@@ -1426,3 +1426,29 @@ class TestScreeningSignal:
         without = lambda d: {k: v for k, v in d.items() if k != "screening_signal"}  # noqa: E731
         assert without(on) == without(off)
         assert on["screening_signal"] == {"supported": True, "label": "Suggested by the screening judge; check it."}
+
+
+class TestSetVersions:
+    """#832 S7: contract_set_version is order-independent and moves with any id or source change; validated_set_version
+    follows the allowlist."""
+
+    def test_digest_is_order_independent_and_detects_any_change(self) -> None:
+        from pravrudhi.api.partner import contract_set_digest
+
+        a = {"c1": "text one", "c2": "text two"}
+        assert contract_set_digest(a) == contract_set_digest({"c2": "text two", "c1": "text one"})
+        assert contract_set_digest(a) != contract_set_digest({"c1": "text one", "c2": "text two!"})  # one source edited
+        assert contract_set_digest(a) != contract_set_digest({"c1": "text one"})  # an id removed
+        assert contract_set_digest(a) != contract_set_digest({"c1": "text two", "c2": "text one"})  # texts swapped
+
+    def test_validated_version_follows_the_allowlist(self) -> None:
+        from pravrudhi.api.partner import validated_set_version
+
+        assert validated_set_version(["b", "a"]) == validated_set_version(["a", "b", "a"])
+        assert validated_set_version(["a"]) != validated_set_version(["a", "b"])
+
+    def test_the_analyse_response_carries_both_fields(self, tmp_path: Path) -> None:
+        body = _client(tmp_path).post("/api/v1/analyse-facts", json=_req()).json()
+        assert "contract_set_version" in body and "validated_set_version" in body
+        assert len(body["validated_set_version"]) == 64
+        assert body["contract_set_version"] is None or len(body["contract_set_version"]) == 64

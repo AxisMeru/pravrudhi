@@ -47,6 +47,7 @@ from __future__ import annotations
 
 import contextvars
 import functools
+import hashlib
 import hmac
 import json
 import logging
@@ -56,7 +57,7 @@ import subprocess
 import threading
 import time
 from collections import OrderedDict
-from collections.abc import Callable
+from collections.abc import Callable, Iterable, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -582,6 +583,38 @@ class StandardOut(BaseModel):
     )
 
 
+def contract_set_digest(sources: Mapping[str, str]) -> str:
+    """SHA-256 over the sorted (contract id, source-text SHA-256) pairs: order-independent, and any change to an id
+    or to one source text changes it (#832 S7)."""
+    pairs = sorted((cid, hashlib.sha256(text.encode("utf-8")).hexdigest()) for cid, text in sources.items())
+    return hashlib.sha256(json.dumps(pairs, separators=(",", ":")).encode("utf-8")).hexdigest()
+
+
+def validated_set_version(ids: Iterable[str]) -> str:
+    return hashlib.sha256(json.dumps(sorted(set(ids)), separators=(",", ":")).encode("utf-8")).hexdigest()
+
+
+_SET_VERSION_CACHE: dict[str, str | None] = {}
+
+
+def _contract_set_version(agent: Any) -> str | None:
+    """`contract_set_digest` over every contract the agent's scorer knows, cached per score binary (one read of the
+    sources per process). None when the agent has no registry or a source cannot be read -- never a guess."""
+    registry = getattr(agent, "registry", None)
+    key = getattr(registry, "sha256", None)
+    if registry is None or not isinstance(key, str):
+        return None
+    if key not in _SET_VERSION_CACHE:
+        try:
+            _SET_VERSION_CACHE[key] = contract_set_digest(
+                {cid: registry.source_text(cid) for cid in sorted(reg.KNOWN_CONTRACT_IDS)}
+            )
+        except Exception:
+            _logger.warning("contract set version unavailable", exc_info=True)
+            return None
+    return _SET_VERSION_CACHE[key]
+
+
 class AnalyseFactsResponse(BaseModel):
     run_id: str
     judge: str
@@ -597,6 +630,16 @@ class AnalyseFactsResponse(BaseModel):
     #: Issue #39: the exact retention notice text (nyaya_agent.RETENTION_NOTICE), on every response -- a
     #: partner API caller who never sees the web UI still gets this verbatim, not just in documentation.
     retention_notice: str = Field(default=RETENTION_NOTICE)
+    contract_set_version: str | None = Field(
+        default=None,
+        description="Additive (#832 S7): SHA-256 over the sorted (contract id, source-text SHA-256) pairs of every "
+        "contract the pinned scorer knows. Order-independent; changes when any contract's source text or the id set "
+        "changes. Null when the scorer's sources could not be read.",
+    )
+    validated_set_version: str | None = Field(
+        default=None,
+        description="Additive (#832 S7): SHA-256 over the sorted ids in the agent's `validated_contracts` allowlist.",
+    )
     standard: StandardOut | None = Field(
         default=None,
         description="Additive (#220): the standard the request asked for (`requested`) and the standard the judge's "
@@ -1200,6 +1243,8 @@ def build_partner_router(
         body: dict[str, Any] = result.to_dict()
         body.pop("audit_path", None)
         _attach_citations(agent, body, getattr(result, "listed_sources", None))
+        body["contract_set_version"] = _contract_set_version(agent)
+        body["validated_set_version"] = validated_set_version(getattr(getattr(agent, "config", None), "validated_contracts", ()))
         if not getattr(getattr(agent, "config", None), "expose_rule_text", False):
             for contract in body.get("contracts", []):
                 for name in _RULE_TEXT_FIELDS:

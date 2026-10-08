@@ -565,7 +565,8 @@ def create_app(root: Path, *, nyaya_ask_fn: Any | None = None) -> FastAPI:
     @api.get("/health")
     def health() -> HealthResponse:
         return HealthResponse.model_validate(
-            {"ok": True, "version": __version__, "kernel": KERNEL_VERSION, "ledger": ledger.exists()}
+            {"ok": True, "version": __version__, "kernel": KERNEL_VERSION, "ledger": ledger.exists(),
+             "frontier_reader_available": False, "frontier_reader_provider": None}
         )
 
     @api.get("/status")

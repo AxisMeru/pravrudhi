@@ -70,6 +70,18 @@
       },
       "AnalyseFactsResponse": {
         "properties": {
+          "contract_set_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Additive (#832 S7): SHA-256 over the sorted (contract id, source-text SHA-256) pairs of every contract the pinned scorer knows. Order-independent; changes when any contract's source text or the id set changes. Null when the scorer's sources could not be read.",
+            "title": "Contract Set Version"
+          },
           "contracts": {
             "items": {
               "$ref": "#/components/schemas/ContractResultOut"
@@ -120,6 +132,18 @@
               }
             ],
             "description": "Additive (#220): the standard the request asked for (`requested`) and the standard the judge's prompt actually stated (`applied`, null under the legacy prompt template, where the judge is never told a standard), from the same values as the audit row."
+          },
+          "validated_set_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Additive (#832 S7): SHA-256 over the sorted ids in the agent's `validated_contracts` allowlist.",
+            "title": "Validated Set Version"
           }
         },
         "required": [
