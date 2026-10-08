@@ -12,7 +12,7 @@ MINOR bump: one additive response field (`citation_note`) and one additive `reas
 - **Wording: an element's citation says what it is (#813).** A new response field `citation_note` (additive, null when the element is not established) is chosen by
   `quote_source` alone: `model` (a judge-written quote that passed the word-for-word quote check) or `whole_fact` (the house judges: "Cites your fact Fn in full (the judge
   names the fact; it does not quote words)."). The `all_elements_established` reason and the `quote_check` `ok` row in `docs/api/reason-codes.md` no longer say the judge quoted
-  words from your facts for every source, and `docs/api/reason-codes.md` has a `citation_note` table. No verdict changes. `openapi-v1.json` gains the field.
+  words from your facts for every source, and `docs/api/reason-codes.md` has a `citation_note` section. No verdict changes. `openapi-v1.json` gains the field. **Schema note:** `ElementResultOut` is response-only; `citation_note` is a computed field, so the schema's `required` list for it grows by one. A strict client that validates responses against the OLD schema with `additionalProperties: false` would reject the new field; regenerate the client or relax that check.
 
 ### Changed
 

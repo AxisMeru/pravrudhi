@@ -72,8 +72,8 @@ from pravrudhi import __version__
 from pravrudhi.api.errors import AGENT_AT_CAPACITY, AGENT_UNAVAILABLE, coded_503
 from pravrudhi.api.identity import CurrentUserDep, User
 from pravrudhi.application import audit, citation_status, tenancy
-from pravrudhi.application.citation_wording import citation_note
 from pravrudhi.application import nyaya_lean_registry as reg
+from pravrudhi.application.citation_wording import citation_note
 from pravrudhi.application.config_files import config_file
 from pravrudhi.application.jobs import JobStore
 from pravrudhi.application.judge_endpoint_state import Fetch, JudgeOfflineCheck
@@ -455,13 +455,14 @@ class ElementResultOut(BaseModel):
     defeater_second_disagreement: bool | None = None
 
     @computed_field(  # type: ignore[prop-decorator]
-        description="Plain-language reading of this element's citation, chosen by quote_source: a judge-written quote that passed the "
-        "word-for-word quote check (model), or a fact cited in full with no words quoted from it (whole_fact: the house judges). Null when "
-        "no citation is claimed (an element that is not established). Docs: docs/api/reason-codes.md."
+        description="Plain-language reading of this element's citation, chosen by quote_source: a judge-written quote that "
+        "passed the word-for-word quote check (model), or a fact cited in full with no words quoted from it (whole_fact: the "
+        "house judges). Null when no citation is claimed (an element that is not established). Docs: docs/api/reason-codes.md."
     )
     @property
     def citation_note(self) -> str | None:
         return citation_note(self.quote_source, self.fact_id)
+
 
 class CitationOut(BaseModel):
     """A statute reference from the contract's own source column, resolved against the shipped corpus.

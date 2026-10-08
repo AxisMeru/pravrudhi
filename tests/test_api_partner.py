@@ -165,6 +165,30 @@ def test_quote_source_is_visible_per_element(tmp_path: Path) -> None:
         assert e["fact_id"] is not None
 
 
+def test_a_whole_fact_citation_reads_as_one_not_a_quote(tmp_path: Path) -> None:
+    """#813: the house judges name a fact and quote no words (`quote_source: "whole_fact"`); the note says so, by fact."""
+    script: dict[str, list[ElementJudgment]] = {
+        BNS69_EL[0]: [ElementJudgment("established", 0.97, "F2", TOY_FACTS[1], "whole_fact")],
+        BNS69_EL[1]: [ElementJudgment("established", 0.97, "F3", TOY_FACTS[2], "whole_fact")],
+        BNS69_DENY: [_not()],
+    }
+    elements = _client(tmp_path, script).post("/api/v1/analyse-facts", json=_req()).json()["contracts"][0]["elements"]
+    established = {e["fact_id"]: e for e in elements if e["status"] == "established"}
+    assert set(established) == {"F2", "F3"}
+    for fid, e in established.items():
+        assert e["quote_source"] == "whole_fact"
+        assert e["citation_note"] == f"Cites your fact {fid} in full (the judge names the fact; it does not quote words)."
+    # no fact id on the wire: the note still quotes nothing
+    from pravrudhi.api.partner import ElementResultOut
+
+    bare = ElementResultOut(
+        element="x", is_denial=False, status="established", claimed=True, p_established=0.9, fact_id=None,
+        quote="t", start=0, end=1, quote_check="ok", attempts=1, occurrences=1,
+        offsets_source="system", quote_source="whole_fact", error=None,
+    )
+    assert bare.model_dump()["citation_note"] == "Cites a fact in full (the judge names the fact; it does not quote words)."
+
+
 def _unreachable_factory(_root: Path) -> NyayaAgent:
     raise AssertionError("the agent factory must not be called for a request that fails validation first")
 
