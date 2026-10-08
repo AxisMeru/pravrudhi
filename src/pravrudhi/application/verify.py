@@ -175,6 +175,9 @@ class ResolvedAlias:
 
     status: VerifyResult | None
     case_rows: list[sqlite3.Row]
+    #: CONFLICT only: one (alias row, its resolved case rows) per distinct party-pair group, so the caller can apply the
+    #: name and year tests per candidate. Empty for every other outcome.
+    group_candidates: tuple[tuple[sqlite3.Row, tuple[sqlite3.Row, ...]], ...] = ()
 
 
 def _resolve_party_pair(conn: sqlite3.Connection, party_1: str, party_2: str) -> list[sqlite3.Row]:
@@ -321,9 +324,12 @@ def resolve_citation_key(
         # of the prereg's two categories this is -- a genuine ambiguity in the source text, or a
         # normalization bug in this module that should have folded these into one group.
         candidates: list[sqlite3.Row] = []
+        per_group: list[tuple[sqlite3.Row, tuple[sqlite3.Row, ...]]] = []
         for group_row in groups.values():
-            candidates.extend(_resolve_party_pair(conn, group_row["party_1"], group_row["party_2"]))
-        return ResolvedAlias(VerifyResult.CONFLICT, candidates)
+            rows = _resolve_party_pair(conn, group_row["party_1"], group_row["party_2"])
+            candidates.extend(rows)
+            per_group.append((group_row, tuple(rows)))
+        return ResolvedAlias(VerifyResult.CONFLICT, candidates, tuple(per_group))
 
     row = next(iter(groups.values()))
     case_rows = _resolve_party_pair(conn, row["party_1"], row["party_2"])
@@ -376,6 +382,47 @@ def _rows_in_cited_year(conn: sqlite3.Connection, rows: list[sqlite3.Row], cited
     return ok
 
 
+_PARTY_SEPARATOR = re.compile(r"\s+(?:v\.?|vs\.?|versus)\s+", re.IGNORECASE)
+
+
+def _name_before_citation(citation_text: str, citation: Citation) -> str | None:
+    """The "A v. B" typed in front of the citation, or None when the text carries no party pair."""
+    prefix = citation_text[: citation.span[0]].strip(" \t\r\n,;:-")
+    return prefix if prefix and _PARTY_SEPARATOR.search(prefix) else None
+
+
+def _narrow_conflict(
+    conn: sqlite3.Connection, key: str, resolved: ResolvedAlias, claimed_name: str | None, year: int | None, normalized_quote: str
+) -> ResolvedAlias | VerifyResult:
+    """A CONFLICT is kept only while at least two candidates survive BOTH the name and the year test and the exact quote
+    is not found in exactly one of them (Lead-2, 8 Oct: an exact-text citation that resolves to one case must not be a
+    CONFLICT). Never guesses: a surviving alias group that resolves to no case is an uncheckable candidate and keeps the
+    CONFLICT (#331); nothing surviving, or an empty quote, keeps it too. Returns the resolution to continue with
+    (a single surviving case) or a final VerifyResult."""
+    if not normalized_quote or not resolved.group_candidates:
+        return resolved
+    claimed = _distinctive_tokens(claimed_name) if claimed_name else frozenset()
+    survivors: list[tuple[sqlite3.Row, tuple[sqlite3.Row, ...]]] = []
+    for group_row, rows in resolved.group_candidates:
+        if claimed and not _group_agrees_with_claim(claimed, group_row):
+            continue  # name test
+        if rows:
+            # the SAME year window and title-carries-the-parties test the quote check itself uses (#723), so a narrowed
+            # CONFLICT can never verify against a case that `verify()` would not have checked
+            in_year = _rows_in_cited_year(conn, list(rows), year)
+            rows = tuple(r for r in in_year if _title_carries_the_cited_parties(conn, key, r["title"]))
+            if not rows:
+                continue  # year or title test: no case of this group is checkable
+        survivors.append((group_row, rows))
+    if not survivors or any(not rows for _, rows in survivors):
+        return resolved
+    cases = {r["case_id"]: r for _, rows in survivors for r in rows}
+    if len(cases) == 1:
+        return ResolvedAlias(None, list(cases.values()))
+    holding = [c for c in cases.values() if normalized_quote in normalize_text_for_match(c["text"])]
+    return VerifyResult.VERIFIED if len(holding) == 1 else resolved
+
+
 def verify(
     conn: sqlite3.Connection, citation_text: str, quote_or_proposition: str, claimed_name: str | None = None
 ) -> VerifyResult:
@@ -387,7 +434,16 @@ def verify(
     if key is None:
         return VerifyResult.NOT_IN_INDEX
 
+    # The party names the caller typed in front of the citation ("A v. B, (1977) 3 SCC 247") are a claimed name too.
+    claimed_name = claimed_name or _name_before_citation(citation_text, citations[0])
     resolved = resolve_citation_key(conn, key, claimed_name, citations[0].year)
+    if resolved.status is VerifyResult.CONFLICT:
+        narrowed = _narrow_conflict(
+            conn, key, resolved, claimed_name, citations[0].year, normalize_text_for_match(quote_or_proposition)
+        )
+        if isinstance(narrowed, VerifyResult):
+            return narrowed
+        resolved = narrowed
     if resolved.status is not None:
         return resolved.status
 
