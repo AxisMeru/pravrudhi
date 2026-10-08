@@ -77,10 +77,18 @@ def test_claude_env_refuses_a_provisioned_seat_when_no_identity_is_configured(
         account.claude_env()
 
 
-def test_the_panel_refuses_to_verify_against_nothing(local_file, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(panel, "_claude_auth_email", lambda env: "whoever@seats.test")
+def test_the_panel_refuses_to_verify_against_nothing(local_file, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    home = tmp_path / "loop"
+    home.mkdir()
+    (home / ".credentials.json").write_text("{}")
+    monkeypatch.setenv(account.SCRIPTED_CLAUDE_HOME_ENV, str(home))
+
+    def real_seam() -> dict[str, str]:  # the real account.claude_env(live=True), with no scripted identity configured
+        return account.claude_env(live=True)
+
+    monkeypatch.setattr(panel, "_verified_seat_env", real_seam)
     with pytest.raises(si.SeatIdentityMissing):
-        panel._assert_claude_seat({"CLAUDE_CONFIG_DIR": "/x"})
+        panel._assert_claude_seat({"CLAUDE_CONFIG_DIR": str(home)})
     assert panel.claude_cli_expected_email(required=False) is None
 
 

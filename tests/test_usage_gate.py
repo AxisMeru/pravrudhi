@@ -479,7 +479,7 @@ class TestAskVendorIsGated:
         home.mkdir()
         (home / ".credentials.json").write_text("{}")
         monkeypatch.setenv("PRAVRUDHI_CLAUDE_CLI_CONFIG_DIR", str(home))
-        monkeypatch.setattr(panel, "_claude_auth_email", lambda env: panel.claude_cli_expected_email())
+        monkeypatch.setattr(panel, "_verified_seat_env", lambda: {"CLAUDE_CONFIG_DIR": str(home)})
         # The readings below are built relative to the fixed NOW; the gate must judge them at that same instant, never at the
         # real clock (a real clock past NOW + max_age makes the stub reading stale, and the gate's own refresh probe is then
         # the one recorded call: 7 Oct, the red main CI).
