@@ -466,8 +466,11 @@ class TestConfig:
     def test_shipped_config_matches_the_house_rules(self):
         cfg = yaml.safe_load((REPO / "configs" / "usage_gate.yaml").read_text())
         for kind in ("codex", "claude"):
-            assert cfg[kind]["weekly_max_pct"] == 60 and cfg[kind]["five_hour_max_pct"] == 70
+            assert cfg[kind]["five_hour_max_pct"] == 70
             assert cfg["max_age_min"][kind] > 0
+        assert cfg["codex"]["weekly_max_pct"] == 60
+        # Lead-2 8 Oct: weekly gate 90 for the claude seat (a control); the codex gate stays 60
+        assert cfg["claude"]["weekly_max_pct"] == 90
         assert cfg["codex"]["refresh_margin_pp"] == 5 and cfg["codex"]["refresh_min_interval_min"] == 60
         assert cfg["claude"]["seat_key"] == "Claude-Axismeru"  # seat 2 in claude_usage.json (seat-a)
 

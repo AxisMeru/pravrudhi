@@ -27,7 +27,8 @@ codex:
   refresh_state_file: ~/.local/state/pravrudhi/codex_usage_gate_refresh.json
 claude:
   seat_key: Claude-Axismeru
-  weekly_max_pct: 60
+  # Weekly gate 90 for the claude seat (operator/Lead-2, 8 Oct 2026: the weekly gate is 90% on all seats; it is a control, not a pause). Runs that registered a tighter stop keep theirs (e.g. the M4c weekly-85 stop); five_hour_max_pct is unchanged.
+  weekly_max_pct: 90
   five_hour_max_pct: 70
   usage_file: ~/runpod-telemetry/claude_usage.json
 # Opus is allowed only for the M4 frontier comparison, within its pre-registered budget (house model-cap rule;
