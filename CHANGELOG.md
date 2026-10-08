@@ -3,7 +3,18 @@
 Release notes for the engine (`pravrudhi`). Versions before 0.5.44 are described in their GitHub release notes and commit
 messages.
 
-## 0.5.47 (unreleased)
+## 0.6.0 (unreleased)
+
+MINOR bump: one additive response field (`citation_note`) and one additive `reason` value (`input_too_long`); no existing field changes meaning or type.
+
+### Added
+
+- **Wording: an element's citation says what it is (#813).** A new response field `citation_note` (additive, null when the element is not established) is chosen by
+  `quote_source` alone: `model` (a judge-written quote that passed the word-for-word quote check) or `whole_fact` (the house judges: "Cites your fact Fn in full (the judge
+  names the fact; it does not quote words)."). The `all_elements_established` reason and the `quote_check` `ok` row in `docs/api/reason-codes.md` no longer say the judge quoted
+  words from your facts for every source, and `docs/api/reason-codes.md` has a `citation_note` section. Five more rows no longer say the judge quoted on the house-judge path (R1): `denial_established` ("...and cited it"), `gate1_unavailable` / `gate1_not_entailed` / `gate1_contradiction` ("a separate check of the cited fact against the claim"; the last: "found the fact contradicts it"), `denial_unquotable` ("could not cite it in a way we can check"); the `reason` codes themselves are unchanged. No verdict changes. `openapi-v1.json` gains the field. **Schema note:** `ElementResultOut` is response-only; `citation_note` is a computed field, so the schema's `required` list for it grows by one. A strict client that validates responses against the OLD schema with `additionalProperties: false` would reject the new field; regenerate the client or relax that check.
+
+### Changed
 
 - **Behaviour change: a judge input too long for the judge is a REFER, not an error.** A prompt longer than the configured
   `house_judge.max_input_chars` (`NYAYA_HOUSE_JUDGE_MAX_INPUT_CHARS`; second judge `NYAYA_SECOND_JUDGE_MAX_INPUT_CHARS`) is refused

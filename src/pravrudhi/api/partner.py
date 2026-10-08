@@ -65,7 +65,7 @@ from typing import Any, Literal, Protocol
 
 import yaml
 from fastapi import APIRouter, HTTPException, Query, Request, Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, computed_field
 from starlette.responses import JSONResponse
 
 from pravrudhi import __version__
@@ -73,6 +73,7 @@ from pravrudhi.api.errors import AGENT_AT_CAPACITY, AGENT_UNAVAILABLE, coded_503
 from pravrudhi.api.identity import CurrentUserDep, User
 from pravrudhi.application import audit, citation_status, tenancy
 from pravrudhi.application import nyaya_lean_registry as reg
+from pravrudhi.application.citation_wording import citation_note
 from pravrudhi.application.config_files import config_file
 from pravrudhi.application.jobs import JobStore
 from pravrudhi.application.judge_endpoint_state import Fetch, JudgeOfflineCheck
@@ -416,9 +417,10 @@ class ElementResultOut(BaseModel):
     attempts: int
     occurrences: int
     offsets_source: str | None
-    #: Who supplied the quote text (`"model"` today; `nyaya_judges.ElementJudgment`'s own field) -- surfaced
-    #: per element, per Lead-2-assistant's explicit requirement, so a whole-fact claim is visible to the
-    #: user rather than folded silently into the verdict.
+    #: Who supplied the quote text: `"model"` (a judge wrote words, the opt-in frontier judge) or `"whole_fact"` (the house judges
+    #: name a fact and the text is that fact in full; nothing is quoted); null on an element that is not established.
+    #: Surfaced per element, per Lead-2-assistant's explicit requirement, so a whole-fact claim is visible to the user rather than
+    #: folded silently into the verdict. `citation_note` is its plain-language reading.
     quote_source: str | None
     error: str | None
     #: Issue #37: which judge's tau a non-established element failed to clear ("primary" or "second", never
@@ -451,6 +453,15 @@ class ElementResultOut(BaseModel):
     second_fact_id: str | None = None
     fact_id_disagreement: bool | None = None
     defeater_second_disagreement: bool | None = None
+
+    @computed_field(  # type: ignore[prop-decorator]
+        description="Plain-language reading of this element's citation, chosen by quote_source: a judge-written quote that "
+        "passed the word-for-word quote check (model), or a fact cited in full with no words quoted from it (whole_fact: the "
+        "house judges). Null when no citation is claimed (an element that is not established). Docs: docs/api/reason-codes.md."
+    )
+    @property
+    def citation_note(self) -> str | None:
+        return citation_note(self.quote_source, self.fact_id)
 
 
 class CitationOut(BaseModel):

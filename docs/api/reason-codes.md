@@ -9,20 +9,20 @@ or the code did, never the content of your facts. No change to any verdict comes
 
 | Code | What it means |
 |---|---|
-| `all_elements_established` | The judge found every condition this provision requires in words quoted from your facts, and found no fact that defeats the claim. |
-| `denial_established` | The judge found a fact in your case that defeats this claim, and quoted it. |
+| `all_elements_established` | The judge found every condition this provision requires shown in your facts, citing a fact for each (see each element's `citation_note`), and found no fact that defeats the claim. |
+| `denial_established` | The judge found a fact in your case that defeats this claim, and cited it. |
 | `missing_element` | The judge did not find at least one required condition shown in your facts. |
 | `no_training_statute_text` | We have no statute text for this provision, so we did not judge it. |
 | `judge_error` | A judge call failed on at least one condition, so we give no answer. |
 | `assembly_lean_mismatch` | Two internal checks disagreed, so we give no answer. |
-| `denial_unquotable` | The judge thinks a defeating fact exists but could not give a valid word-for-word quote for it. Please have a lawyer look. |
+| `denial_unquotable` | The judge thinks a defeating fact exists but could not cite it in a way we can check. Please have a lawyer look. |
 | `second_judge_defeater_disagreement` | The two judges disagree on whether a defeating fact exists. Please have a lawyer look. (deployments that use two judges only) |
 | `uncertain` | The judge is not sure whether a condition holds. Please have a lawyer look. |
 | `uncertain_second_judge` | The second judge is not sure whether a condition holds. Please have a lawyer look. (deployments that use two judges only) |
 | `second_judge_unavailable` | The second judge was unavailable, so we give a referral, not an answer. (deployments that use two judges only) |
-| `gate1_unavailable` | The entailment check (a separate check of the quoted words against the claim) was unavailable, so we give a referral, not an answer. |
-| `gate1_not_entailed` | The entailment check (a separate check of the quoted words against the claim) did not find enough support for it. Please have a lawyer look. |
-| `gate1_contradiction` | The entailment check (a separate check of the quoted words against the claim) found they contradict it. Please have a lawyer look. |
+| `gate1_unavailable` | The entailment check (a separate check of the cited fact against the claim) was unavailable, so we give a referral, not an answer. |
+| `gate1_not_entailed` | The entailment check (a separate check of the cited fact against the claim) did not find enough support for it. Please have a lawyer look. |
+| `gate1_contradiction` | The entailment check (a separate check of the cited fact against the claim) found the fact contradicts it. Please have a lawyer look. |
 | `contract_not_validated` | This provision is not on the validated list, so we give a referral, not a proof or denial. |
 | `input_too_long` | The facts and question together are too long for the checker to read in one go, so we give a referral, not an answer. Please shorten them or have a lawyer look. |
 
@@ -30,12 +30,14 @@ Rows marked "deployments that use two judges only" apply when the deployment run
 
 ## Element `quote_check`
 
-A judge that calls an element established must quote the words that show it. The service then looks for the quote, word for word (same
-capital letters and spacing), in the fact the judge named. `quote_check` is the result of that check; it is null when no check ran.
+A judge that calls an element established names the fact that shows it. A judge that also writes out words from that fact (`quote_source` `model`: the opt-in frontier judge) must
+quote them, and the service looks for the quote, word for word (same capital letters and spacing), in the fact the judge named. The house judges (`quote_source` `whole_fact`)
+name a fact and quote no words: the cited text is that fact in full. `quote_check` is the result of that check; it is null when no check ran. The rows below describe a
+judge-written quote.
 
 | Code | What it means |
 |---|---|
-| `ok` | The judge's quoted words appear exactly once in the fact they name. |
+| `ok` | The cited text appears exactly once in the fact named (the judge's quoted words, or, when the judge only names the fact, the fact itself). |
 | `not_established` | The judge did not find this condition shown in your facts. |
 | `no_quote` | The judge said this condition holds but gave no words to show it. |
 | `unknown_fact` | The judge pointed to a fact that is not among yours. |
@@ -45,6 +47,14 @@ capital letters and spacing), in the fact the judge named. `quote_check` is the 
 | `ambiguous_quote` | The judge's quote appears more than once in that fact, so we cannot tell which passage it meant. The condition is not counted as shown. |
 
 A quote that occurs more than once in the fact is `ambiguous_quote`: the element is **not** counted as shown, and `occurrences` carries the count.
+
+## Element `citation_note`
+
+Each element also carries `citation_note`, chosen by its `quote_source` alone:
+
+- `model`: "A word-for-word quote that passed the quote check."
+- `whole_fact`: "Cites your fact `Fn` in full (the judge names the fact; it does not quote words)."
+- null (the element is not established): `citation_note` is null; no citation is claimed.
 
 ## Rule text
 
