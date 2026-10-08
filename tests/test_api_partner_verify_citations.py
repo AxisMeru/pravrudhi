@@ -209,7 +209,8 @@ def test_the_status_mapping_covers_every_verifier_result_and_only_verified_is_ve
 
     out = {r: cs.status_for(r) for r in VerifyResult}
     assert {r for r, s in out.items() if s.verified} == {VerifyResult.VERIFIED}
-    assert {s.status for s in out.values()} == {"verified", "quote_not_found", "not_in_index", "conflict", "malformed"}
+    statuses = {"verified", "quote_not_found", "not_in_index", "conflict", "malformed", "in_index"}
+    assert {s.status for s in out.values()} == statuses
     assert all(s.result == r.value and s.preview is True for r, s in out.items())
 
 
@@ -252,11 +253,11 @@ def test_the_route_returns_the_status_contract_and_keeps_result_and_note(tmp_pat
 
 @pytest.mark.parametrize("quote", [" ", "   ", "\n", "\t \n"])
 def test_a_blank_quote_is_never_verified_end_to_end(tmp_path: Path, quote: str) -> None:
-    """The #331 rule through the route: the empty string is 'in' every text, so a blank quote verifies nothing."""
-    body = _post(_client(tmp_path, _index(tmp_path)), quote=quote).json()
-    assert body["verified"] is False and body["status"] == "quote_not_found"
-    assert _client(tmp_path, _index(tmp_path)).post(
-        "/api/v1/verify-citations", json={"citation": _CITER, "quote": ""}).status_code == 422
+    """The #331 rule through the route (#832 E1: a blank or whitespace-only quote is a 422, never an existence check and never a
+    verification): the empty string is 'in' every text, so a blank quote verifies nothing."""
+    c = _client(tmp_path, _index(tmp_path))
+    assert c.post("/api/v1/verify-citations", json={"citation": _CITER, "quote": quote}).status_code == 422
+    assert c.post("/api/v1/verify-citations", json={"citation": _CITER, "quote": ""}).status_code == 422
 
 
 def test_the_published_schema_carries_the_status_fields() -> None:
@@ -270,9 +271,74 @@ def test_no_verify_note_uses_the_word_fake_and_not_in_index_says_what_it_means()
     """A public API string (R1's wording): never calls a citation fake; absence from the index shows nothing either way."""
     from pravrudhi.api.partner import _VERIFY_NOTES
 
-    assert set(_VERIFY_NOTES) == {"VERIFIED", "EXISTS_QUOTE_NOT_FOUND", "NOT_IN_INDEX", "MALFORMED", "CONFLICT"}
+    assert set(_VERIFY_NOTES) == {"VERIFIED", "EXISTS_QUOTE_NOT_FOUND", "NOT_IN_INDEX", "MALFORMED", "CONFLICT", "IN_INDEX"}
     assert not any("fake" in note.lower() for note in _VERIFY_NOTES.values())
     assert _VERIFY_NOTES["NOT_IN_INDEX"] == (
         "The case was not found in our index. "
         "That does not show whether the citation is real: the index does not hold every judgment."
     )
+
+
+# --- #832 E1 (existence only) and E2 (coverage) ---
+
+
+def test_an_absent_or_null_quote_is_existence_only_and_never_verified(tmp_path: Path) -> None:
+    c = _client(tmp_path, _index(tmp_path))
+    for body in ({"citation": _CITER}, {"citation": _CITER, "quote": None}):
+        out = c.post("/api/v1/verify-citations", json=body).json()
+        assert (out["result"], out["status"], out["verified"]) == ("IN_INDEX", "in_index", False)
+        assert out["label"].startswith("Found in the index (existence only)") and "not a verification" in out["label"]
+        assert out["note"].startswith("Found in the index (existence only)")
+
+
+def test_an_unknown_or_malformed_citation_without_a_quote_is_never_in_index(tmp_path: Path) -> None:
+    c = _client(tmp_path, _index(tmp_path))
+    assert c.post("/api/v1/verify-citations", json={"citation": "(1999) 9 SCC 999"}).json()["status"] == "not_in_index"
+    assert c.post("/api/v1/verify-citations", json={"citation": "no citation here"}).json()["status"] == "malformed"
+
+
+def test_a_present_quote_path_is_unchanged_by_the_optional_quote(tmp_path: Path) -> None:
+    out = _post(_client(tmp_path, _index(tmp_path)), quote="a passage that is not there").json()
+    assert out["verified"] is False and out["status"] == "quote_not_found"
+
+
+def test_the_response_carries_the_coverage_object_and_it_matches_the_index(tmp_path: Path) -> None:
+    import sqlite3
+
+    idx = _index(tmp_path)
+    cov = _post(_client(tmp_path, idx)).json()["coverage"]
+    conn = sqlite3.connect(idx)
+    try:
+        held = conn.execute("SELECT COUNT(*) FROM cases").fetchone()[0]
+        sql = "SELECT COUNT(DISTINCT c.case_id) FROM cases c JOIN citation_aliases a ON a.case_id = c.case_id"
+        aliased = conn.execute(sql).fetchone()[0]
+        strings = conn.execute("SELECT COUNT(DISTINCT citation) FROM citation_aliases").fetchone()[0]
+    finally:
+        conn.close()
+    assert cov["judgments_held"] == held and cov["resolvable_cases"] == aliased and cov["resolvable_citation_strings"] == strings
+    assert sum(cov["courts_held"].values()) == held and sum(cov["courts_resolvable"].values()) == aliased
+    assert set(cov) >= {"courts_held", "courts_resolvable", "year_min", "year_max", "note"}
+    assert "not_in_index" in cov["note"]
+
+
+def test_the_coverage_cache_follows_the_index_file(tmp_path: Path) -> None:
+    from pravrudhi.application import verify as v
+
+    v._COVERAGE_CACHE.clear()
+    idx = _index(tmp_path)
+    first = _post(_client(tmp_path, idx)).json()["coverage"]["judgments_held"]
+    import sqlite3
+    import time
+
+    conn = sqlite3.connect(idx)
+    conn.execute(
+        "INSERT INTO cases(case_id, title, court, year, source, path_or_url, text) "
+        "VALUES ('zz', 'Added v Case', 'Supreme Court', 2001, 't', '/z', 'text')"
+    )
+    conn.commit()
+    conn.close()
+    time.sleep(0.01)
+    import os
+
+    os.utime(idx, None)
+    assert _post(_client(tmp_path, idx)).json()["coverage"]["judgments_held"] == first + 1

@@ -1316,21 +1316,39 @@
             "type": "string"
           },
           "quote": {
-            "maxLength": 4000,
-            "minLength": 1,
-            "title": "Quote",
-            "type": "string"
+            "anyOf": [
+              {
+                "maxLength": 4000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quote"
           }
         },
         "required": [
-          "citation",
-          "quote"
+          "citation"
         ],
         "title": "VerifyCitationRequest",
         "type": "object"
       },
       "VerifyCitationResponse": {
         "properties": {
+          "coverage": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Coverage"
+          },
           "label": {
             "title": "Label",
             "type": "string"

@@ -65,7 +65,7 @@ from typing import Any, Literal, Protocol
 
 import yaml
 from fastapi import APIRouter, HTTPException, Query, Request, Response
-from pydantic import BaseModel, Field, computed_field
+from pydantic import BaseModel, Field, computed_field, field_validator
 from starlette.responses import JSONResponse
 
 from pravrudhi import __version__
@@ -90,6 +90,7 @@ from pravrudhi.application.nyaya_judges import SecondJudgeCircuitBreaker
 from pravrudhi.application.nyaya_quote import Reason as QuoteCheck
 from pravrudhi.application.service_window import ServiceWindow
 from pravrudhi.application.statute_citations import contract_citations
+from pravrudhi.application.verify import exists_in_index, index_coverage
 from pravrudhi.application.verify import verify as verify_citation
 
 CONFIG_PATH = Path("configs") / "partner_api.yaml"
@@ -335,7 +336,16 @@ class _Admitted:
 
 class VerifyCitationRequest(BaseModel):
     citation: str = Field(min_length=1, max_length=500)
-    quote: str = Field(min_length=1, max_length=4000)
+    #: Optional (#832 E1). Absent or null = existence only (`IN_INDEX`, never `VERIFIED`). A present quote is checked as before; a
+    #: quote that is empty or only whitespace is a 422, never an existence check.
+    quote: str | None = Field(default=None, min_length=1, max_length=4000)
+
+    @field_validator("quote")
+    @classmethod
+    def _quote_not_blank(cls, v: str | None) -> str | None:
+        if v is not None and not v.strip():
+            raise ValueError("quote must not be empty or only whitespace; omit it to check existence only")
+        return v
 
 
 class VerifyCitationResponse(BaseModel):
@@ -348,11 +358,15 @@ class VerifyCitationResponse(BaseModel):
     label: str
     verified: bool
     preview: bool
+    #: #832 E2: what the index holds and what a citation can resolve to (courts held vs courts resolvable), so a client reads
+    #: "Supreme Court judgments only" from the engine. Null only if the index could not be summarised.
+    coverage: dict[str, Any] | None = None
 
 
 _VERIFY_NOTES = {
     "VERIFIED": "The citation resolves to an indexed case and the quote appears in its text.",
     "EXISTS_QUOTE_NOT_FOUND": "The citation resolves to an indexed case but the quote was not found in its text.",
+    "IN_INDEX": "Found in the index (existence only): no quote was checked, so this is not a verification.",
     "NOT_IN_INDEX": (
         "The case was not found in our index. "
         "That does not show whether the citation is real: the index does not hold every judgment."
@@ -1380,14 +1394,20 @@ def build_partner_router(
         with _verify_gates_lock:
             return _verify_gates.setdefault(size, ConcurrencyLimiter(size))
 
-    def _lookup(path: Path, req: VerifyCitationRequest, timeout_s: float) -> citation_status.CitationStatus:
+    def _lookup(
+        path: Path, req: VerifyCitationRequest, timeout_s: float
+    ) -> tuple[citation_status.CitationStatus, dict[str, Any]]:
         """One bounded, read-only lookup. The progress handler aborts the statement once the deadline passes, so a
         pathological party pair can hold a worker for `timeout_s` at most."""
         deadline = time.monotonic() + timeout_s
         conn = sqlite3.connect(f"file:{path.resolve()}?mode=ro", uri=True)
         try:
             conn.set_progress_handler(lambda: 1 if time.monotonic() > deadline else 0, 10_000)
-            return citation_status.status_for(verify_citation(conn, req.citation, req.quote))
+            if req.quote is None:
+                found = citation_status.status_for(exists_in_index(conn, req.citation))
+            else:
+                found = citation_status.status_for(verify_citation(conn, req.citation, req.quote))
+            return found, index_coverage(conn, str(path.resolve()), path.stat().st_mtime_ns)
         finally:
             conn.close()
 
@@ -1418,7 +1438,7 @@ def build_partner_router(
             _verify_audit(metered, 503)
             return JSONResponse(status_code=503, content={"error": "verify_at_capacity"}, headers={"Retry-After": "5"})
         try:
-            result = _lookup(Path(path), req, cfg.verify_timeout_s)
+            result, coverage = _lookup(Path(path), req, cfg.verify_timeout_s)
         except sqlite3.Error as e:
             timed_out = "interrupt" in str(e).lower()
             _verify_audit(metered, 503)
@@ -1431,7 +1451,7 @@ def build_partner_router(
             response.headers.update(_rate_headers(metered[0], per_minute[0]))
         _verify_audit(metered, 200, result.result)
         return {"result": result.result, "note": _VERIFY_NOTES[result.result], "status": result.status,
-                "label": result.label, "verified": result.verified, "preview": result.preview}
+                "label": result.label, "verified": result.verified, "preview": result.preview, "coverage": coverage}
 
     @router.post("/orgs", response_model=OrgOut)
     def create_org_ep(

@@ -14,6 +14,7 @@ MINOR bump: one additive response field (`citation_note`) and one additive `reas
 ### Added
 
 - **Screening signal per element (#832 S1).** A new response field `screening_signal` (`{supported: bool, label}`, null when the screening judge produced no score): whether the FIRST (screening) judge's own score cleared its threshold, shown even when the element is not a proof. A suggestion to check, never a finding: it carries no probability, never changes status, outcome or reason, and is accepted by the screening judge alone (CAL CHEAT 70 rows, 41 established / 29 not established). Additive; default behaviour unchanged.
+- **Existence-only citation check (#832 E1/E2).** `POST /verify-citations` accepts an absent or null `quote` and then answers `IN_INDEX` ("Found in the index (existence only): no quote was checked, so this is not a verification."); a blank or whitespace-only quote is a 422. The response carries a `coverage` object (judgments held in the index, citations resolvable by alias), cached per index file mtime. Additive; a supplied quote behaves exactly as before.
 
 - **Wording: an element's citation says what it is (#813).** A new response field `citation_note` (additive, null when the element is not established) is chosen by
   `quote_source` alone: `model` (a judge-written quote that passed the word-for-word quote check) or `whole_fact` (the house judges: "Cites your fact Fn in full (the judge
