@@ -135,3 +135,14 @@ def test_the_typed_judge_refuses_collapse_facts_strictly() -> None:
             _build_house_judge({**_CFG, "collapse_facts": bad}, tau=0.74, typed=True, api_key_env="X_NOT_SET")
     for ok in ({}, {"collapse_facts": False}):
         _build_house_judge({**_CFG, **ok}, tau=0.74, typed=True, api_key_env="X_NOT_SET")
+
+
+def test_the_shipped_configuration_turns_collapse_on_and_the_code_default_stays_off() -> None:
+    """#375: the shipped yaml sets house_judge.collapse_facts true (release item); a block without the key is still OFF."""
+    from pathlib import Path
+
+    import yaml
+
+    shipped = yaml.safe_load((Path(__file__).resolve().parent.parent / "configs" / "nyaya_agent.yaml").read_text())
+    assert shipped["house_judge"]["collapse_facts"] is True
+    assert HouseJudge.from_config(dict(_CFG), tau=0.74).collapse_facts is False  # the code default is unchanged

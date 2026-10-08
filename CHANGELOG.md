@@ -24,6 +24,7 @@ MINOR bump: one additive response field (`citation_note`) and one additive `reas
 
 ### Changed
 
+- **Serve-time fact collapse is ON in the shipped configuration (#375, flag from #371).** `configs/nyaya_agent.yaml` sets `house_judge.collapse_facts: true`: the fact texts under `Available facts:` are whitespace-collapsed in the judge prompt (the quote check still uses the raw fact). The code default stays OFF, so a config without the key is unchanged; the typed layer refuses the key. A deployment's second-judge block must set the same key. It counts for production only after the 0.6.0 release and a passing production E2E. Evidence is thin: #815 (CAL, one look, dev stack, not independent; a weak test, not a safety result): Config C accepted 0 of 26 not-established rows with collapse on and off (exact upper bound 10.9%); the 4B alone accepted 4 of 26 in both; established rows accepted 8 of 38 off, 9 of 38 on.
 - **Behaviour change: a judge input too long for the judge is a REFER, not an error.** A prompt longer than the configured
   `house_judge.max_input_chars` (`NYAYA_HOUSE_JUDGE_MAX_INPUT_CHARS`; second judge `NYAYA_SECOND_JUDGE_MAX_INPUT_CHARS`) is refused
   before the judge call, and a judge server's own context-length 400 maps to the same result: the contract becomes
