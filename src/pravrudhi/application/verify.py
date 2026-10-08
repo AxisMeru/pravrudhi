@@ -18,6 +18,7 @@ import unicodedata
 from dataclasses import dataclass
 from difflib import SequenceMatcher
 from enum import StrEnum
+from typing import Any
 
 from pravrudhi.application.citations import Citation, parse_citations
 
@@ -153,6 +154,9 @@ class VerifyResult(StrEnum):
     NOT_IN_INDEX = "NOT_IN_INDEX"
     MALFORMED = "MALFORMED"
     CONFLICT = "CONFLICT"
+    #: Existence only (#832 E1): the citation resolves to an indexed case and NO quote was checked.
+    #: Returned only by `exists_in_index`, never by `verify`.
+    IN_INDEX = "IN_INDEX"
 
 
 def _citation_key(c: Citation) -> str | None:
@@ -465,3 +469,67 @@ def verify(
         if normalized_quote in normalized_text:
             return VerifyResult.VERIFIED
     return VerifyResult.EXISTS_QUOTE_NOT_FOUND
+
+
+def exists_in_index(conn: sqlite3.Connection, citation_text: str, claimed_name: str | None = None) -> VerifyResult:
+    """#832 E1: does the citation resolve to an indexed case? Existence only: no quote is checked, so never VERIFIED.
+    Same resolution, year window and party-title test as `verify` (a case `verify` would not check never counts as found); a key
+    shared by two alias groups stays CONFLICT (nothing narrows it without a quote)."""
+    citations = parse_citations(citation_text)
+    if len(citations) != 1:
+        return VerifyResult.MALFORMED
+    key = _citation_key(citations[0])
+    if key is None:
+        return VerifyResult.NOT_IN_INDEX
+    claimed_name = claimed_name or _name_before_citation(citation_text, citations[0])
+    resolved = resolve_citation_key(conn, key, claimed_name, citations[0].year)
+    if resolved.status is not None:
+        return resolved.status
+    in_year = _rows_in_cited_year(conn, resolved.case_rows, citations[0].year)
+    rows = [r for r in in_year if _title_carries_the_cited_parties(conn, key, r["title"])]
+    return VerifyResult.IN_INDEX if rows else VerifyResult.NOT_IN_INDEX
+
+
+_COVERAGE_CACHE: dict[tuple[str, int, int], dict[str, Any]] = {}
+
+
+def index_coverage(conn: sqlite3.Connection, path: str, mtime_ns: int) -> dict[str, Any]:
+    """#832 E2: what the index holds and what the citation check can resolve, read from the index (cached per file and mtime).
+    `courts` lists the courts a citation can resolve to, with `resolvable_cases` and `year_min`/`year_max` over THOSE cases
+    only; `courts_held` counts every case row by court (years `held_year_min`/`held_year_max`); `courts_resolvable` counts only
+    cases a citation can resolve to (those reached through `citation_aliases`, which mines SCC-family citations): a court
+    held but not resolvable is answered NOT_IN_INDEX."""
+    k = (path, mtime_ns, 0)
+    if k in _COVERAGE_CACHE:
+        return _COVERAGE_CACHE[k]
+    conn.row_factory = sqlite3.Row
+    held_sql = "SELECT court, COUNT(*) AS n FROM cases GROUP BY court ORDER BY n DESC"
+    held = {r["court"]: r["n"] for r in conn.execute(held_sql)}
+    res_sql = (
+        "SELECT c.court AS court, COUNT(DISTINCT c.case_id) AS n FROM cases c JOIN citation_aliases a ON a.case_id = c.case_id "
+        "GROUP BY c.court ORDER BY n DESC"
+    )
+    res = {r["court"]: r["n"] for r in conn.execute(res_sql)}
+    held_yr = conn.execute("SELECT MIN(year) AS lo, MAX(year) AS hi FROM cases").fetchone()
+    # years over the cases a citation can RESOLVE to (the count the reader sees beside them), not over everything held
+    yr = conn.execute(
+        "SELECT MIN(c.year) AS lo, MAX(c.year) AS hi FROM cases c WHERE c.case_id IN (SELECT case_id FROM citation_aliases)"
+    ).fetchone()
+    out = {
+        "judgments_held": sum(held.values()),
+        "courts_held": held,
+        "courts": sorted(res),
+        "courts_resolvable": res,
+        "resolvable_cases": sum(res.values()),
+        "resolvable_citation_strings": conn.execute("SELECT COUNT(DISTINCT citation) FROM citation_aliases").fetchone()[0],
+        "year_min": yr["lo"],
+        "year_max": yr["hi"],
+        "held_year_min": held_yr["lo"],
+        "held_year_max": held_yr["hi"],
+        "note": (
+            "Only SCC-family citations resolve today; a citation to any court or reporter not listed under courts_resolvable "
+            "is answered not_in_index, which is no evidence either way."
+        ),
+    }
+    _COVERAGE_CACHE[k] = out
+    return out

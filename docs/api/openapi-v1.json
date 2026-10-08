@@ -70,6 +70,18 @@
       },
       "AnalyseFactsResponse": {
         "properties": {
+          "contract_set_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Additive (#832 S7): SHA-256 over the sorted (contract id, source-text SHA-256) pairs of every contract the pinned scorer knows. Order-independent; changes when any contract's source text or the id set changes. Null when the scorer's sources could not be read.",
+            "title": "Contract Set Version"
+          },
           "contracts": {
             "items": {
               "$ref": "#/components/schemas/ContractResultOut"
@@ -120,6 +132,18 @@
               }
             ],
             "description": "Additive (#220): the standard the request asked for (`requested`) and the standard the judge's prompt actually stated (`applied`, null under the legacy prompt template, where the judge is never told a standard), from the same values as the audit row."
+          },
+          "validated_set_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Additive (#832 S7): SHA-256 over the sorted ids in the agent's `validated_contracts` allowlist.",
+            "title": "Validated Set Version"
           }
         },
         "required": [
@@ -801,6 +825,20 @@
             ],
             "title": "Quote Source"
           },
+          "screening_signal": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A SCREENING signal from the first (screening) judge alone, shown even when the element is not a proof: `supported` is true when that judge's score cleared its threshold. It is a suggestion to check, not a finding, never changes status, outcome or reason, and carries no probability. On the CAL CHEAT set (70 rows, dev stack, one look) it accepted 8 of 41 established and 4 of 29 not-established rows. Null when it produced no score.",
+            "readOnly": true,
+            "title": "Screening Signal"
+          },
           "second_fact_id": {
             "anyOf": [
               {
@@ -906,6 +944,7 @@
           "offsets_source",
           "quote_source",
           "error",
+          "screening_signal",
           "citation_note"
         ],
         "title": "ElementResultOut",
@@ -1301,21 +1340,39 @@
             "type": "string"
           },
           "quote": {
-            "maxLength": 4000,
-            "minLength": 1,
-            "title": "Quote",
-            "type": "string"
+            "anyOf": [
+              {
+                "maxLength": 4000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quote"
           }
         },
         "required": [
-          "citation",
-          "quote"
+          "citation"
         ],
         "title": "VerifyCitationRequest",
         "type": "object"
       },
       "VerifyCitationResponse": {
         "properties": {
+          "coverage": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Coverage"
+          },
           "label": {
             "title": "Label",
             "type": "string"

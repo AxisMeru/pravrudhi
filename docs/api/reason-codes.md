@@ -67,3 +67,9 @@ Each contract result can also carry three fields that say what text it was check
   text differs from `rule_text`) or when the judge's text was cut (it is longer than `statute_chars`), so you can see what the judge worked from. It is null otherwise, and null when no judge statute text is
   configured for the contract.
 - `rule_text_source`: where `rule_text` came from; today always `lean_describe_source`.
+
+## `screening_signal` (per element; #832)
+
+`screening_signal` is `{supported, label}` or null. It reports whether the FIRST (screening) judge's own score cleared its threshold for that element, shown even when the element is not a proof. It is a suggestion to check, not a finding: it carries no probability, never changes `status`, `outcome` or `reason`, and is accepted by the screening judge alone (screening signal, CAL CHEAT set of 70 rows, dev stack, one look, not independent: it accepted 8 of the 41 established rows and 4 of the 29 not-established rows).
+
+When the screening judge supports an element and the second judge (or any later check) does not, the response keeps the element's own `status` and reason code; a client must show that reason beside any "Supported by a fact" chip and never show that chip alone next to a REFER or not-established outcome. The screening signal cites no fact: a client MUST NOT label it "Supported by a fact"; it has its own label, "Suggested by the screening judge; check it."

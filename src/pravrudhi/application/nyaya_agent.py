@@ -985,6 +985,10 @@ class ElementResult:
     offsets_source: Literal["system"] | None = None
     quote_source: str | None = None
     error: str | None = None
+    #: #832 S1: whether the PRIMARY (screening) judge's attempt-1 score cleared its own tau (`p_established >= tau`),
+    #: regardless of the element's final status. A SCREENING signal only (accepted by the 4B alone; CAL CHEAT 70 rows,
+    #: 41 EST / 29 NE): it never feeds status, outcome, reason or banner. None when the primary produced no score.
+    screening_supported: bool | None = None
     #: Attempt 1's second-judge fields (config C, AND-gate only; all None/False when there is no second judge,
     #: or the second was never asked -- primary rejected outright or the second failed closed/unavailable).
     p_established_second: float | None = None
@@ -1550,6 +1554,7 @@ class NyayaAgent:
             occurrences=loc.occurrences if loc else 0, offsets_source=loc.offsets_source if loc and loc.valid else None,
             quote_source=quote_source, binding_leg=final_binding_leg, clamp=anchor.clamp,
             bound_undetermined=anchor.bound_undetermined, **second_band, **_gate1_info(anchor),
+            screening_supported=(anchor.p_established >= self.config.tau) if anchor.p_established is not None else None,
         )
         return result, calls
 

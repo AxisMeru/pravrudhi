@@ -47,6 +47,7 @@ from __future__ import annotations
 
 import contextvars
 import functools
+import hashlib
 import hmac
 import json
 import logging
@@ -56,7 +57,7 @@ import subprocess
 import threading
 import time
 from collections import OrderedDict
-from collections.abc import Callable
+from collections.abc import Callable, Iterable, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -65,7 +66,7 @@ from typing import Any, Literal, Protocol
 
 import yaml
 from fastapi import APIRouter, HTTPException, Query, Request, Response
-from pydantic import BaseModel, Field, computed_field
+from pydantic import BaseModel, Field, computed_field, field_validator
 from starlette.responses import JSONResponse
 
 from pravrudhi import __version__
@@ -90,6 +91,7 @@ from pravrudhi.application.nyaya_judges import SecondJudgeCircuitBreaker
 from pravrudhi.application.nyaya_quote import Reason as QuoteCheck
 from pravrudhi.application.service_window import ServiceWindow
 from pravrudhi.application.statute_citations import contract_citations
+from pravrudhi.application.verify import exists_in_index, index_coverage
 from pravrudhi.application.verify import verify as verify_citation
 
 CONFIG_PATH = Path("configs") / "partner_api.yaml"
@@ -335,7 +337,16 @@ class _Admitted:
 
 class VerifyCitationRequest(BaseModel):
     citation: str = Field(min_length=1, max_length=500)
-    quote: str = Field(min_length=1, max_length=4000)
+    #: Optional (#832 E1). Absent or null = existence only (`IN_INDEX`, never `VERIFIED`). A present quote is checked as before; a
+    #: quote that is empty or only whitespace is a 422, never an existence check.
+    quote: str | None = Field(default=None, min_length=1, max_length=4000)
+
+    @field_validator("quote")
+    @classmethod
+    def _quote_not_blank(cls, v: str | None) -> str | None:
+        if v is not None and not v.strip():
+            raise ValueError("quote must not be empty or only whitespace; omit it to check existence only")
+        return v
 
 
 class VerifyCitationResponse(BaseModel):
@@ -348,11 +359,15 @@ class VerifyCitationResponse(BaseModel):
     label: str
     verified: bool
     preview: bool
+    #: #832 E2: what the index holds and what a citation can resolve to (courts held vs courts resolvable), so a client reads
+    #: "Supreme Court judgments only" from the engine. Null only if the index could not be summarised.
+    coverage: dict[str, Any] | None = None
 
 
 _VERIFY_NOTES = {
     "VERIFIED": "The citation resolves to an indexed case and the quote appears in its text.",
     "EXISTS_QUOTE_NOT_FOUND": "The citation resolves to an indexed case but the quote was not found in its text.",
+    "IN_INDEX": "Found in the index (existence only): no quote was checked, so this is not a verification.",
     "NOT_IN_INDEX": (
         "The case was not found in our index. "
         "That does not show whether the citation is real: the index does not hold every judgment."
@@ -396,6 +411,9 @@ _SECOND_JUDGE_DEBUG_FIELDS = (
     "second_refer_band_fired", "second_unavailable", "second_fact_id", "fact_id_disagreement",
     "defeater_second_disagreement",
 )
+
+
+SCREENING_SIGNAL_LABEL = "Suggested by the screening judge; check it."
 
 
 class ElementResultOut(BaseModel):
@@ -453,6 +471,21 @@ class ElementResultOut(BaseModel):
     second_fact_id: str | None = None
     fact_id_disagreement: bool | None = None
     defeater_second_disagreement: bool | None = None
+
+    #: #832 S1 source value; never returned (the signal below is derived from it). Excluded from the response.
+    screening_supported: bool | None = Field(default=None, exclude=True)
+
+    @computed_field(  # type: ignore[prop-decorator]
+        description="A SCREENING signal from the first (screening) judge alone, shown even when the element is not a proof: "
+        "`supported` is true when that judge's score cleared its threshold. It is a suggestion to check, not a finding, never "
+        "changes status, outcome or reason, and carries no probability. On the CAL CHEAT set (70 rows, dev stack, one look) "
+        "it accepted 8 of 41 established and 4 of 29 not-established rows. Null when it produced no score."
+    )
+    @property
+    def screening_signal(self) -> dict[str, Any] | None:
+        if self.screening_supported is None:
+            return None
+        return {"supported": self.screening_supported, "label": SCREENING_SIGNAL_LABEL}
 
     @computed_field(  # type: ignore[prop-decorator]
         description="Plain-language reading of this element's citation, chosen by quote_source: a judge-written quote that "
@@ -550,6 +583,38 @@ class StandardOut(BaseModel):
     )
 
 
+def contract_set_digest(sources: Mapping[str, str]) -> str:
+    """SHA-256 over the sorted (contract id, source-text SHA-256) pairs: order-independent, and any change to an id
+    or to one source text changes it (#832 S7)."""
+    pairs = sorted((cid, hashlib.sha256(text.encode("utf-8")).hexdigest()) for cid, text in sources.items())
+    return hashlib.sha256(json.dumps(pairs, separators=(",", ":")).encode("utf-8")).hexdigest()
+
+
+def validated_set_version(ids: Iterable[str]) -> str:
+    return hashlib.sha256(json.dumps(sorted(set(ids)), separators=(",", ":")).encode("utf-8")).hexdigest()
+
+
+_SET_VERSION_CACHE: dict[str, str | None] = {}
+
+
+def _contract_set_version(agent: Any) -> str | None:
+    """`contract_set_digest` over every contract the agent's scorer knows, cached per score binary (one read of the
+    sources per process). None when the agent has no registry or a source cannot be read -- never a guess."""
+    registry = getattr(agent, "registry", None)
+    key = getattr(registry, "sha256", None)
+    if registry is None or not isinstance(key, str):
+        return None
+    if key not in _SET_VERSION_CACHE:
+        try:
+            _SET_VERSION_CACHE[key] = contract_set_digest(
+                {cid: registry.source_text(cid) for cid in sorted(reg.KNOWN_CONTRACT_IDS)}
+            )
+        except Exception:
+            _logger.warning("contract set version unavailable", exc_info=True)
+            return None
+    return _SET_VERSION_CACHE[key]
+
+
 class AnalyseFactsResponse(BaseModel):
     run_id: str
     judge: str
@@ -565,6 +630,16 @@ class AnalyseFactsResponse(BaseModel):
     #: Issue #39: the exact retention notice text (nyaya_agent.RETENTION_NOTICE), on every response -- a
     #: partner API caller who never sees the web UI still gets this verbatim, not just in documentation.
     retention_notice: str = Field(default=RETENTION_NOTICE)
+    contract_set_version: str | None = Field(
+        default=None,
+        description="Additive (#832 S7): SHA-256 over the sorted (contract id, source-text SHA-256) pairs of every "
+        "contract the pinned scorer knows. Order-independent; changes when any contract's source text or the id set "
+        "changes. Null when the scorer's sources could not be read.",
+    )
+    validated_set_version: str | None = Field(
+        default=None,
+        description="Additive (#832 S7): SHA-256 over the sorted ids in the agent's `validated_contracts` allowlist.",
+    )
     standard: StandardOut | None = Field(
         default=None,
         description="Additive (#220): the standard the request asked for (`requested`) and the standard the judge's "
@@ -1168,6 +1243,8 @@ def build_partner_router(
         body: dict[str, Any] = result.to_dict()
         body.pop("audit_path", None)
         _attach_citations(agent, body, getattr(result, "listed_sources", None))
+        body["contract_set_version"] = _contract_set_version(agent)
+        body["validated_set_version"] = validated_set_version(getattr(getattr(agent, "config", None), "validated_contracts", ()))
         if not getattr(getattr(agent, "config", None), "expose_rule_text", False):
             for contract in body.get("contracts", []):
                 for name in _RULE_TEXT_FIELDS:
@@ -1362,14 +1439,27 @@ def build_partner_router(
         with _verify_gates_lock:
             return _verify_gates.setdefault(size, ConcurrencyLimiter(size))
 
-    def _lookup(path: Path, req: VerifyCitationRequest, timeout_s: float) -> citation_status.CitationStatus:
+    def _lookup(
+        path: Path, req: VerifyCitationRequest, timeout_s: float
+    ) -> tuple[citation_status.CitationStatus, dict[str, Any] | None]:
         """One bounded, read-only lookup. The progress handler aborts the statement once the deadline passes, so a
         pathological party pair can hold a worker for `timeout_s` at most."""
         deadline = time.monotonic() + timeout_s
         conn = sqlite3.connect(f"file:{path.resolve()}?mode=ro", uri=True)
         try:
             conn.set_progress_handler(lambda: 1 if time.monotonic() > deadline else 0, 10_000)
-            return citation_status.status_for(verify_citation(conn, req.citation, req.quote))
+            if req.quote is None:
+                found = citation_status.status_for(exists_in_index(conn, req.citation))
+            else:
+                found = citation_status.status_for(verify_citation(conn, req.citation, req.quote))
+            conn.set_progress_handler(None, 0)  # the deadline bounds the lookup; the (cached) coverage read is outside it
+            try:
+                coverage: dict[str, Any] | None = index_coverage(conn, str(path.resolve()), path.stat().st_mtime_ns)
+            except Exception:
+                # coverage is context for the answer, never a reason to lose it: degrade to the documented null
+                _logger.warning("index coverage unavailable", exc_info=True)
+                coverage = None
+            return found, coverage
         finally:
             conn.close()
 
@@ -1400,7 +1490,7 @@ def build_partner_router(
             _verify_audit(metered, 503)
             return JSONResponse(status_code=503, content={"error": "verify_at_capacity"}, headers={"Retry-After": "5"})
         try:
-            result = _lookup(Path(path), req, cfg.verify_timeout_s)
+            result, coverage = _lookup(Path(path), req, cfg.verify_timeout_s)
         except sqlite3.Error as e:
             timed_out = "interrupt" in str(e).lower()
             _verify_audit(metered, 503)
@@ -1413,7 +1503,7 @@ def build_partner_router(
             response.headers.update(_rate_headers(metered[0], per_minute[0]))
         _verify_audit(metered, 200, result.result)
         return {"result": result.result, "note": _VERIFY_NOTES[result.result], "status": result.status,
-                "label": result.label, "verified": result.verified, "preview": result.preview}
+                "label": result.label, "verified": result.verified, "preview": result.preview, "coverage": coverage}
 
     @router.post("/orgs", response_model=OrgOut)
     def create_org_ep(

@@ -13,13 +13,25 @@ class HealthResponse(BaseModel):
     """Service identity and ledger presence were invisible to generated clients."""
 
     model_config = ConfigDict(
-        json_schema_extra={"examples": [{"ok": True, "version": "0.1.0", "kernel": "0.1.0", "ledger": False}]}
+        json_schema_extra={
+            "examples": [
+                {
+                    "ok": True,
+                    "version": "0.1.0",
+                    "kernel": "0.1.0",
+                    "ledger": False,
+                    "frontier_reader_available": False,
+                }
+            ]
+        }
     )
 
     ok: bool
     version: str
     kernel: str
     ledger: bool
+    #: #832 F1-lite: whether a frontier reader is configured for this deployment. Always false until batch 2. Additive.
+    frontier_reader_available: bool = False
 
 
 class UninitialisedStatus(BaseModel):
