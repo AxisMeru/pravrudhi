@@ -1,6 +1,9 @@
-# Refresh what the operator can see. Export the snapshot, build, verify the pages carry content, commit, push;
-# GitHub Pages and Vercel both rebuild on that push. Refuses at the first failing step rather than publishing a
-# page that answers 200 and renders an error.
+# Refresh what the operator can see. Export the snapshot, build, verify the pages carry content, commit on a new
+# publish/snapshot-* branch, scan it for personal data, push the branch and open a PR. `main` is protected (a PR and
+# the required `guards` check), so nothing is pushed to it and the PR is never merged here: a person merges it after
+# a decoded personal-data scan. One snapshot PR at a time. Needs a disposable clone (@PUBLISH_ROOT@) that is reset to
+# origin/main on every run. Refuses at the first failing step rather than publishing a page that answers 200 and
+# renders an error.
 [Unit]
 Description=Pravrudhi publish
 After=network-online.target
@@ -13,5 +16,5 @@ After=network-online.target
 Type=oneshot
 EnvironmentFile=-%h/.config/pravrudhi/demo_export.env
 WorkingDirectory=@ROOT@
-ExecStart=@ROOT@/.venv/bin/python -m pravrudhi publish --root @ROOT@ --json
+ExecStart=@ROOT@/.venv/bin/python -m pravrudhi publish --root @ROOT@ --write-root @PUBLISH_ROOT@ --json
 TimeoutStartSec=2400

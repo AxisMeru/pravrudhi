@@ -1,9 +1,9 @@
 [Unit]
-Description=Publish what the engine has done, twice an hour
+Description=Publish what the engine has done, once a day (each snapshot is a PR and spends deploy slots)
 
 [Timer]
 OnBootSec=10min
-OnUnitActiveSec=30min
+OnUnitActiveSec=24h
 RandomizedDelaySec=3min
 Persistent=true
 
