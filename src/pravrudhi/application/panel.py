@@ -330,13 +330,13 @@ def _verified_seat_env() -> dict[str, str]:
 
 def _assert_claude_seat(env: dict[str, str]) -> None:
     """Refuse the call unless the seat verified by `account.claude_env(live=True)` is the config dir THIS call will use.
-    `SeatIdentityMissing` (nothing to verify against) propagates; a mismatched or personal account becomes
-    `ClaudeCliNotProvisioned`, as before."""
+    `SeatIdentityMissing` (nothing to verify against) propagates; a mismatched or personal account, or the team
+    login's directory (`AdminSeatRefused`), becomes `ClaudeCliNotProvisioned`."""
     from pravrudhi.agents import account
 
     try:
         checked = _verified_seat_env()
-    except (account.PersonalAccountRefused, account.ScriptedSeatMismatch) as e:
+    except (account.PersonalAccountRefused, account.ScriptedSeatMismatch, account.AdminSeatRefused) as e:
         raise ClaudeCliNotProvisioned(f"refusing: {e}") from e
     if checked.get("CLAUDE_CONFIG_DIR") != env.get("CLAUDE_CONFIG_DIR"):
         raise ClaudeCliNotProvisioned(

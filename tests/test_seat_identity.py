@@ -131,3 +131,56 @@ def test_the_committed_registry_has_no_fallback_tied_to_the_team_login() -> None
     entries = yaml.safe_load(text)["seats"]
     assert [e["id"] for e in entries] == ["primary"]
     assert not any("claude-admin" in str(e.get("config_dir", "")) for e in entries)
+
+
+def _seat2_home(tmp_path: Path, name: str, email: str) -> Path:
+    import json
+
+    home = tmp_path / name
+    home.mkdir()
+    (home / ".credentials.json").write_text("{}")
+    (home / ".claude.json").write_text(json.dumps({"oauthAccount": {"emailAddress": email}}))
+    return home
+
+
+def test_the_real_guard_refuses_when_the_verified_dir_is_not_the_calls_dir(
+    tmp_path: Path, local_file, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The conftest seam passes the dir-equality check by construction; this runs the REAL `claude_env(live=True)` seam."""
+    local_file({"scripted_claude_email": "seat@seats.test"})
+    verified = _seat2_home(tmp_path, "loop", "seat@seats.test")
+    other = tmp_path / "somewhere-else"
+    other.mkdir()
+    monkeypatch.setenv(account.SCRIPTED_CLAUDE_HOME_ENV, str(verified))
+    monkeypatch.setattr(account, "_auth_status", lambda d: {"loggedIn": True, "email": "seat@seats.test"})
+    monkeypatch.setattr(panel, "_verified_seat_env", lambda: account.claude_env(live=True))
+    panel._assert_claude_seat({"CLAUDE_CONFIG_DIR": str(verified)})  # the same dir passes
+    with pytest.raises(panel.ClaudeCliNotProvisioned, match="is not the config dir this call uses"):
+        panel._assert_claude_seat({"CLAUDE_CONFIG_DIR": str(other)})
+
+
+def test_the_team_login_dir_becomes_claude_cli_not_provisioned_in_the_panel(
+    tmp_path: Path, local_file, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    local_file({"scripted_claude_email": "seat@seats.test"})
+    admin = _seat2_home(tmp_path, "claude-admin", "admin@axismeru.com")
+    monkeypatch.setenv(account.SCRIPTED_CLAUDE_HOME_ENV, str(admin))
+    monkeypatch.setattr(panel, "_verified_seat_env", lambda: account.claude_env(live=True))
+    with pytest.raises(panel.ClaudeCliNotProvisioned, match="refusing"):
+        panel._assert_claude_seat({"CLAUDE_CONFIG_DIR": str(admin)})
+
+
+def test_an_unreadable_auth_status_and_a_wrong_email_have_distinct_messages(
+    tmp_path: Path, local_file, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    local_file({"scripted_claude_email": "seat@seats.test"})
+    home = _seat2_home(tmp_path, "loop", "seat@seats.test")
+    monkeypatch.setenv(account.SCRIPTED_CLAUDE_HOME_ENV, str(home))
+    monkeypatch.setattr(account, "_auth_status", lambda d: None)
+    with pytest.raises(account.ScriptedSeatMismatch, match="could not be read") as unreadable:
+        account.claude_env(live=True)
+    monkeypatch.setattr(account, "_auth_status", lambda d: {"loggedIn": True, "email": "wrong@seats.test"})
+    with pytest.raises(account.ScriptedSeatMismatch, match="shows 'wrong@seats.test'") as wrong:
+        account.claude_env(live=True)
+    assert "auth status" in str(unreadable.value) and "auth status" in str(wrong.value)
+    assert "could not be read" not in str(wrong.value)

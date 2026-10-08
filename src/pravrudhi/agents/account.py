@@ -417,7 +417,8 @@ def claude_env(*, require: bool = True, live: bool = False) -> dict[str, str]:
     directory actually holds that account's login before returning, per TEAM-RULES.md's Claude usage cost
     rules. `live=True` also asks `claude auth status --json` (the only authoritative answer, one subprocess)
     and refuses unless it reports the expected email AND the directory has a recorded email to cross-check it
-    against; the default checks the cached profile only.
+    against (stricter than a cached-profile check: a directory with no recorded profile email is refused, not passed);
+    the default checks the cached profile only.
 
     Returns the overrides to merge into the child's environment. With `require=False` a missing credential
     yields the overrides anyway rather than raising -- for callers that only want to know whether the binary
@@ -453,6 +454,13 @@ def claude_env(*, require: bool = True, live: bool = False) -> dict[str, str]:
         )
     if live:
         actual = live_identity(Seat(id="scripted", email=expected, config_dir=home))
+        if actual is None:
+            # Not a wrong account: the CLI could not say (not logged in, a failure, or the 30 s `_auth_status` timeout).
+            raise ScriptedSeatMismatch(
+                f"`claude auth status` for {home} could not be read (not logged in, the CLI failed, or it timed out "
+                f"after 30 s) -- refusing rather than assuming it is the expected scripted seat-2 account {expected!r}; "
+                f"this never switches a login"
+            )
         if actual != expected:
             raise ScriptedSeatMismatch(
                 f"`claude auth status` for {home} shows {actual!r}, not the expected scripted seat-2 account "
