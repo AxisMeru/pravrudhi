@@ -317,7 +317,18 @@ def test_the_response_carries_the_coverage_object_and_it_matches_the_index(tmp_p
         conn.close()
     assert cov["judgments_held"] == held and cov["resolvable_cases"] == aliased and cov["resolvable_citation_strings"] == strings
     assert sum(cov["courts_held"].values()) == held and sum(cov["courts_resolvable"].values()) == aliased
-    assert set(cov) >= {"courts_held", "courts_resolvable", "year_min", "year_max", "note"}
+    assert set(cov) >= {"courts", "courts_held", "courts_resolvable", "year_min", "year_max", "note"}
+    # the shape the app reads: `courts` is a LIST of resolvable courts, `resolvable_cases` an int, years over resolvable cases
+    assert isinstance(cov["courts"], list) and cov["courts"] == sorted(cov["courts_resolvable"])
+    assert isinstance(cov["resolvable_cases"], int)
+    conn = sqlite3.connect(idx)
+    try:
+        lo, hi = conn.execute(
+            "SELECT MIN(year), MAX(year) FROM cases WHERE case_id IN (SELECT case_id FROM citation_aliases)"
+        ).fetchone()
+    finally:
+        conn.close()
+    assert (cov["year_min"], cov["year_max"]) == (lo, hi)
     assert "not_in_index" in cov["note"]
 
 
@@ -342,3 +353,14 @@ def test_the_coverage_cache_follows_the_index_file(tmp_path: Path) -> None:
 
     os.utime(idx, None)
     assert _post(_client(tmp_path, idx)).json()["coverage"]["judgments_held"] == first + 1
+
+
+def test_a_failing_coverage_read_degrades_to_null_and_keeps_the_answer(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import pravrudhi.api.partner as partner
+
+    def boom(*_a: object, **_k: object) -> dict[str, object]:
+        raise RuntimeError("index summary failed")
+
+    monkeypatch.setattr(partner, "index_coverage", boom)
+    r = _post(_client(tmp_path, _index(tmp_path)))
+    assert r.status_code == 200 and r.json()["result"] == "VERIFIED" and r.json()["coverage"] is None

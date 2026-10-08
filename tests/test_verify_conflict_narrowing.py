@@ -197,3 +197,51 @@ def test_a_non_party_prefix_behaves_like_the_bare_key(db: sqlite3.Connection) ->
     VERIFIED (the untested same-name path of #834); a prefix that names no parties changes nothing."""
     assert verify(db, f"See {KEY}", QUOTE_A) == verify(db, KEY, QUOTE_A) == VerifyResult.VERIFIED
     assert verify(db, f"See {KEY}", "in neither judgment") == verify(db, KEY, "in neither judgment") == VerifyResult.CONFLICT
+
+
+# --- #832 E1 existence-only: the same resolution, year window and title test as verify(); never VERIFIED ---
+
+
+def test_existence_only_found_when_the_resolved_case_passes_year_and_title(db: sqlite3.Connection) -> None:
+    from pravrudhi.application.verify import exists_in_index
+
+    cite = f"Zorbatha Mendelsohn v. Quillfeather Aerospace, {KEY}"
+    assert exists_in_index(db, cite) == VerifyResult.IN_INDEX
+    assert exists_in_index(db, cite) != VerifyResult.VERIFIED
+
+
+def test_existence_only_keeps_a_shared_key_as_conflict_without_names(db: sqlite3.Connection) -> None:
+    from pravrudhi.application.verify import exists_in_index
+
+    assert exists_in_index(db, KEY) == VerifyResult.CONFLICT  # nothing narrows it without a typed name or a quote
+
+
+def test_existence_only_applies_the_year_window(tmp_path: Path) -> None:
+    from pravrudhi.application.verify import exists_in_index
+
+    conn = open_index(tmp_path / "year.sqlite3")
+    _case(conn, "Y", "Zorbatha Mendelsohn vs Quillfeather Aerospace", 1950, f"Held: {QUOTE_A}.")  # 40 years from the citation
+    _citer(conn, "cy", "Zorbatha Mendelsohn v. Quillfeather Aerospace")
+    conn.commit()
+    assert exists_in_index(conn, KEY) == VerifyResult.NOT_IN_INDEX
+    conn.close()
+
+
+def test_existence_only_applies_the_title_test(tmp_path: Path) -> None:
+    from pravrudhi.application.verify import exists_in_index
+
+    conn = open_index(tmp_path / "title.sqlite3")
+    # right year, but the indexed case is between different parties than the citation's alias
+    _case(conn, "T", "Zorbatha Holdings vs Quillfeather Industries", 1990, f"Held: {QUOTE_A}.")
+    _citer(conn, "ct", "Zorbatha Mendelsohn v. Quillfeather Aerospace")
+    conn.commit()
+    assert exists_in_index(conn, KEY) == VerifyResult.NOT_IN_INDEX
+    conn.close()
+
+
+def test_existence_only_with_no_matching_rows_and_with_a_bad_citation(db: sqlite3.Connection) -> None:
+    from pravrudhi.application.verify import exists_in_index
+
+    assert exists_in_index(db, "(2001) 4 SCC 999") == VerifyResult.NOT_IN_INDEX  # key not in the alias table
+    assert exists_in_index(db, "no citation here") == VerifyResult.MALFORMED
+    assert exists_in_index(db, "AIR 1990 SC 5") == VerifyResult.NOT_IN_INDEX  # a reporter the alias table does not mine

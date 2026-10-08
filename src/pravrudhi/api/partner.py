@@ -478,8 +478,8 @@ class ElementResultOut(BaseModel):
     @computed_field(  # type: ignore[prop-decorator]
         description="A SCREENING signal from the first (screening) judge alone, shown even when the element is not a proof: "
         "`supported` is true when that judge's score cleared its threshold. It is a suggestion to check, not a finding, never "
-        "changes status, outcome or reason, and carries no probability. Accepted by the screening judge alone, CAL CHEAT 70 rows "
-        "(41 established / 29 not established): see docs/api/reason-codes.md for the counts. Null when it produced no score."
+        "changes status, outcome or reason, and carries no probability. On the CAL CHEAT set (70 rows, dev stack, one look) "
+        "it accepted 8 of 41 established and 4 of 29 not-established rows. Null when it produced no score."
     )
     @property
     def screening_signal(self) -> dict[str, Any] | None:
@@ -1441,7 +1441,7 @@ def build_partner_router(
 
     def _lookup(
         path: Path, req: VerifyCitationRequest, timeout_s: float
-    ) -> tuple[citation_status.CitationStatus, dict[str, Any]]:
+    ) -> tuple[citation_status.CitationStatus, dict[str, Any] | None]:
         """One bounded, read-only lookup. The progress handler aborts the statement once the deadline passes, so a
         pathological party pair can hold a worker for `timeout_s` at most."""
         deadline = time.monotonic() + timeout_s
@@ -1452,7 +1452,14 @@ def build_partner_router(
                 found = citation_status.status_for(exists_in_index(conn, req.citation))
             else:
                 found = citation_status.status_for(verify_citation(conn, req.citation, req.quote))
-            return found, index_coverage(conn, str(path.resolve()), path.stat().st_mtime_ns)
+            conn.set_progress_handler(None, 0)  # the deadline bounds the lookup; the (cached) coverage read is outside it
+            try:
+                coverage: dict[str, Any] | None = index_coverage(conn, str(path.resolve()), path.stat().st_mtime_ns)
+            except Exception:
+                # coverage is context for the answer, never a reason to lose it: degrade to the documented null
+                _logger.warning("index coverage unavailable", exc_info=True)
+                coverage = None
+            return found, coverage
         finally:
             conn.close()
 

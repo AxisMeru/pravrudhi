@@ -835,7 +835,7 @@
                 "type": "null"
               }
             ],
-            "description": "A SCREENING signal from the first (screening) judge alone, shown even when the element is not a proof: `supported` is true when that judge's score cleared its threshold. It is a suggestion to check, not a finding, never changes status, outcome or reason, and carries no probability. Accepted by the screening judge alone, CAL CHEAT 70 rows (41 established / 29 not established): see docs/api/reason-codes.md for the counts. Null when it produced no score.",
+            "description": "A SCREENING signal from the first (screening) judge alone, shown even when the element is not a proof: `supported` is true when that judge's score cleared its threshold. It is a suggestion to check, not a finding, never changes status, outcome or reason, and carries no probability. On the CAL CHEAT set (70 rows, dev stack, one look) it accepted 8 of 41 established and 4 of 29 not-established rows. Null when it produced no score.",
             "readOnly": true,
             "title": "Screening Signal"
           },
