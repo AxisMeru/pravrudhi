@@ -2721,3 +2721,48 @@ class TestInputTooLongRefers:
         from pravrudhi.application.nyaya_agent import _judge_config_fault
 
         assert _judge_config_fault(self._too_long(with_400=True)) is None
+
+
+NI138_EL = [
+    "cheque drawn for discharge of legally enforceable debt or other liability",
+    "cheque returned by bank unpaid due to insufficient funds or excess of arranged amount",
+    "cheque presented to bank within six months of drawing or within validity period, whichever earlier",
+    "payee or holder gave written demand notice within thirty days of bank's information of dishonour",
+    "drawer failed to pay within fifteen days of receipt of notice",
+]
+
+
+class TestNi138IsListedAndFailsClosed:
+    """O5.4 (readiness criterion): ni138 (NI Act s.138) is on the registry and has training statute text, but it is NOT one of the
+    14 validated contracts, so under the SHIPPED config it can never reach the user as a final PROOF or DENIAL: it is referred
+    with `contract_not_validated`, every element still judged and visible. Toy facts only."""
+
+    def test_ni138_is_known_to_the_registry_and_absent_from_the_shipped_allowlist(self) -> None:
+        shipped = load_agent_config(REPO)
+        assert "ni138" in reg.KNOWN_CONTRACT_IDS
+        assert "ni138" not in shipped.validated_contracts
+        assert len(shipped.validated_contracts) == 14
+        # its training statute text is present, so the no_training_statute_text ABSTAIN gate cannot be what stops it
+        assert shipped.judge_statute_text.get("ni138")
+
+    def test_a_judge_that_establishes_every_ni138_element_still_gets_a_refer_not_a_proof(self, tmp_path: Path) -> None:
+        shipped = load_agent_config(REPO)
+        registry = _registry()
+        registry.contracts["ni138"] = reg.DescribedContract("ni138", list(NI138_EL), [])
+        registry.sources["ni138"] = ["Negotiable Instruments Act 1881 s.138"]
+        script = {el: [_est(f"F{1 + i % 3}", TOY_FACTS[i % 3], TOY_FACTS[i % 3][5:25])] for i, el in enumerate(NI138_EL)}
+        agent = NyayaAgent(ScriptedJudge(script), registry, replace(shipped, audit_dir=tmp_path / "audit"))
+        c = agent.run(TOY_FACTS, narrative="TOY narrative.", contract_ids=["ni138"]).contracts[0]
+        assert (c.outcome, c.reason) == ("REFER_TO_LAWYER", "contract_not_validated")
+        assert len(c.elements) == 5 and all(e.status == "established" for e in c.elements)  # visible, never hidden
+
+    def test_a_missing_ni138_element_abstains_as_for_any_unvalidated_contract(self, tmp_path: Path) -> None:
+        shipped = load_agent_config(REPO)
+        registry = _registry()
+        registry.contracts["ni138"] = reg.DescribedContract("ni138", list(NI138_EL), [])
+        registry.sources["ni138"] = ["Negotiable Instruments Act 1881 s.138"]
+        script = {el: [_est(f"F{1 + i % 3}", TOY_FACTS[i % 3], TOY_FACTS[i % 3][5:25])] for i, el in enumerate(NI138_EL)}
+        script[NI138_EL[2]] = [_not()]
+        agent = NyayaAgent(ScriptedJudge(script), registry, replace(shipped, audit_dir=tmp_path / "audit"))
+        c = agent.run(TOY_FACTS, narrative="TOY narrative.", contract_ids=["ni138"]).contracts[0]
+        assert (c.outcome, c.reason) == ("ABSTAIN", "missing_element")
