@@ -640,6 +640,19 @@
             ],
             "title": "Binding Leg"
           },
+          "citation_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Plain-language reading of this element's citation, chosen by quote_source: a judge-written quote that passed the word-for-word quote check (model), or a fact cited in full with no words quoted from it (whole_fact: the house judges). Null when no citation is claimed (an element that is not established). Docs: docs/api/reason-codes.md.",
+            "readOnly": true,
+            "title": "Citation Note"
+          },
           "claimed": {
             "title": "Claimed",
             "type": "boolean"
@@ -892,7 +905,8 @@
           "occurrences",
           "offsets_source",
           "quote_source",
-          "error"
+          "error",
+          "citation_note"
         ],
         "title": "ElementResultOut",
         "type": "object"

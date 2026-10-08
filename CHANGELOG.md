@@ -5,6 +5,10 @@ messages.
 
 ## 0.5.47 (unreleased)
 
+- **Wording: an element's citation says what it is (#813).** A new response field `citation_note` (additive, null when the element is not established) is chosen by
+  `quote_source` alone: `model` (a judge-written quote that passed the word-for-word quote check) or `whole_fact` (the house judges: "Cites your fact Fn in full (the judge
+  names the fact; it does not quote words)."). The `all_elements_established` reason and the `quote_check` `ok` row in `docs/api/reason-codes.md` no longer say the judge quoted
+  words from your facts for every source, and `docs/api/reason-codes.md` has a `citation_note` table. No verdict changes. `openapi-v1.json` gains the field.
 - **Behaviour change: a judge input too long for the judge is a REFER, not an error.** A prompt longer than the configured
   `house_judge.max_input_chars` (`NYAYA_HOUSE_JUDGE_MAX_INPUT_CHARS`; second judge `NYAYA_SECOND_JUDGE_MAX_INPUT_CHARS`) is refused
   before the judge call, and a judge server's own context-length 400 maps to the same result: the contract becomes

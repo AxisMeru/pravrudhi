@@ -160,6 +160,7 @@ def test_quote_source_is_visible_per_element(tmp_path: Path) -> None:
     assert established, "expected at least one established element in the PROOF fixture"
     for e in established:
         assert e["quote_source"] == "model"
+        assert e["citation_note"] == "A word-for-word quote that passed the quote check."  # chosen by quote_source (#813)
         assert e["quote"] is not None
         assert e["fact_id"] is not None
 
@@ -364,7 +365,7 @@ class TestSecondJudgeDebugFields:
         el0 = resp.json()["contracts"][0]["elements"][0]
         assert set(el0) == {
             "element", "is_denial", "status", "claimed", "p_established", "fact_id", "quote", "start", "end",
-            "quote_check", "attempts", "occurrences", "offsets_source", "quote_source", "error", "binding_leg",
+            "quote_check", "attempts", "occurrences", "offsets_source", "quote_source", "error", "binding_leg", "citation_note",
         }
 
 

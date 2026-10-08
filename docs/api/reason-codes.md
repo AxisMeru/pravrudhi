@@ -9,7 +9,7 @@ or the code did, never the content of your facts. No change to any verdict comes
 
 | Code | What it means |
 |---|---|
-| `all_elements_established` | The judge found every condition this provision requires in words quoted from your facts, and found no fact that defeats the claim. |
+| `all_elements_established` | The judge found every condition this provision requires shown in your facts, citing a fact for each (see each element's `citation_note`), and found no fact that defeats the claim. |
 | `denial_established` | The judge found a fact in your case that defeats this claim, and quoted it. |
 | `missing_element` | The judge did not find at least one required condition shown in your facts. |
 | `no_training_statute_text` | We have no statute text for this provision, so we did not judge it. |
@@ -30,12 +30,14 @@ Rows marked "deployments that use two judges only" apply when the deployment run
 
 ## Element `quote_check`
 
-A judge that calls an element established must quote the words that show it. The service then looks for the quote, word for word (same
-capital letters and spacing), in the fact the judge named. `quote_check` is the result of that check; it is null when no check ran.
+A judge that calls an element established names the fact that shows it. A judge that also writes out words from that fact (`quote_source` `model`: the opt-in frontier judge) must
+quote them, and the service looks for the quote, word for word (same capital letters and spacing), in the fact the judge named. The house judges (`quote_source` `whole_fact`)
+name a fact and quote no words: the cited text is that fact in full. `quote_check` is the result of that check; it is null when no check ran. The rows below describe a
+judge-written quote.
 
 | Code | What it means |
 |---|---|
-| `ok` | The judge's quoted words appear exactly once in the fact they name. |
+| `ok` | The cited text appears exactly once in the fact named (the judge's quoted words, or, when the judge only names the fact, the fact itself). |
 | `not_established` | The judge did not find this condition shown in your facts. |
 | `no_quote` | The judge said this condition holds but gave no words to show it. |
 | `unknown_fact` | The judge pointed to a fact that is not among yours. |
@@ -45,6 +47,14 @@ capital letters and spacing), in the fact the judge named. `quote_check` is the 
 | `ambiguous_quote` | The judge's quote appears more than once in that fact, so we cannot tell which passage it meant. The condition is not counted as shown. |
 
 A quote that occurs more than once in the fact is `ambiguous_quote`: the element is **not** counted as shown, and `occurrences` carries the count.
+
+## Element `citation_note`
+
+Each element also carries `citation_note`, chosen by its `quote_source` alone:
+
+- `model`: "A word-for-word quote that passed the quote check."
+- `whole_fact`: "Cites your fact `Fn` in full (the judge names the fact; it does not quote words)."
+- null (the element is not established): `citation_note` is null; no citation is claimed.
 
 ## Rule text
 
