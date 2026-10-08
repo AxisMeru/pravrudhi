@@ -1176,6 +1176,8 @@ def _build_house_judge(hj_cfg: Mapping[str, Any], *, tau: float, typed: bool, ap
             fallback_urls=hj_cfg.get("base_urls_fallback") or [],
             enforce_served_model=bool(hj_cfg.get("enforce_served_model", False)),
         )
+        if hj_cfg.get("collapse_facts"):
+            raise ValueError("house_judge.collapse_facts is for the plain HouseJudge only; the typed judge would ignore it")
         return TypedHouseJudge(
             tau=tau,
             statute_chars=int(hj_cfg["statute_chars"]),
