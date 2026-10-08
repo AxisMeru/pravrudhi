@@ -1164,6 +1164,8 @@ def _build_house_judge(hj_cfg: Mapping[str, Any], *, tau: float, typed: bool, ap
     is set (T1) -- shared by `NyayaAgent.house` for BOTH slots, so the typed-layer flag and config C's second
     judge compose instead of the flag silently applying to only one of them."""
     if typed:
+        if "collapse_facts" in hj_cfg and hj_cfg["collapse_facts"] is not False:  # strict: any value but absent/False refuses
+            raise ValueError("house_judge.collapse_facts is for the plain HouseJudge only; the typed judge would ignore it")
         from pravrudhi.application.typed.decoder import VLLMDecoder
         from pravrudhi.application.typed.house_judge import TypedHouseJudge
 

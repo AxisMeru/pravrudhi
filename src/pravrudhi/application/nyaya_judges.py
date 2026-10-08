@@ -262,11 +262,22 @@ def check_prompt_template(prompt_template: str) -> str:
     return prompt_template
 
 
-def build_house_prompt(request: JudgeRequest, *, statute_chars: int, prompt_template: str = "legacy") -> str:
+def collapse_fact_text(text: str) -> str:
+    """The #815 serve-time fact representation: whitespace collapsed, `' '.join(text.split())`. As Track A's training-side
+    `fact_rep.collapse` (f80afc88), which every TRAIN_v5x row's fact text already carries; raw fact text (line breaks, form feeds,
+    indentation) is the train/serve skew #815 measured."""
+    return " ".join(text.split())
+
+
+def build_house_prompt(
+    request: JudgeRequest, *, statute_chars: int, prompt_template: str = "legacy", collapse_facts: bool = False
+) -> str:
     """The element judge's training prompt, byte for byte (no few-shots). `request.facts` may carry a
     `F_narrative` row (see `_NARRATIVE_FACT_ID`); it is excluded from `Available facts:` here, never shown
     twice with `Scenario:`."""
-    facts_block = "\n".join(f"[{fid}] {text}" for fid, text in request.facts if fid != _NARRATIVE_FACT_ID)
+    # default OFF: the legacy prompt stays byte-identical; Scenario and Statute are never collapsed
+    fact_text = collapse_fact_text if collapse_facts else (lambda t: t)
+    facts_block = "\n".join(f"[{fid}] {fact_text(text)}" for fid, text in request.facts if fid != _NARRATIVE_FACT_ID)
     standard_line = ""
     if check_prompt_template(prompt_template) == "standard_line_v1":
         standard_line = f"Standard: {STANDARD_LINES[standard_for_posture(request.proceeding_posture)[0]]}\n"
@@ -393,6 +404,7 @@ class HouseJudge:
         enforce_served_model: bool = False,
         prompt_template: str = "legacy",
         max_input_chars: int | None = None,
+        collapse_facts: bool = False,
     ) -> None:
         bad = isinstance(max_input_chars, bool) or not isinstance(max_input_chars, int) or max_input_chars <= 0
         if max_input_chars is not None and bad:
@@ -400,6 +412,9 @@ class HouseJudge:
         self.max_input_chars = max_input_chars
         self.tau = tau
         self.prompt_template = check_prompt_template(prompt_template)
+        if not isinstance(collapse_facts, bool):
+            raise ValueError(f"collapse_facts must be a bool, got {collapse_facts!r}")
+        self.collapse_facts = collapse_facts
         self.enforce_served_model = enforce_served_model
         self.statute_chars = statute_chars
         self.label_mass_floor = label_mass_floor
@@ -515,6 +530,7 @@ class HouseJudge:
             enforce_served_model=bool(cfg.get("enforce_served_model", False)),
             prompt_template=str(cfg.get("prompt_template", "legacy")),
             max_input_chars=cfg.get("max_input_chars"),
+            collapse_facts=cfg.get("collapse_facts", False),
         )
 
     @classmethod
@@ -549,10 +565,13 @@ class HouseJudge:
             enforce_served_model=bool(cfg.get("enforce_served_model", False)),
             prompt_template=str(cfg.get("prompt_template", "legacy")),
             max_input_chars=cfg.get("max_input_chars"),
+            collapse_facts=cfg.get("collapse_facts", False),
         )
 
     def judge(self, request: JudgeRequest) -> ElementJudgment:
-        prompt = build_house_prompt(request, statute_chars=self.statute_chars, prompt_template=self.prompt_template)
+        prompt = build_house_prompt(
+            request, statute_chars=self.statute_chars, prompt_template=self.prompt_template, collapse_facts=self.collapse_facts
+        )
         if self.max_input_chars is not None and len(prompt) > self.max_input_chars:
             raise JudgeInputTooLong(length=len(prompt), limit=self.max_input_chars)  # before any call: it would only overflow
         res = self._complete(prompt)
