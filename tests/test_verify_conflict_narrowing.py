@@ -111,9 +111,10 @@ def sibling_db(tmp_path: Path) -> sqlite3.Connection:
 
 
 def test_same_name_sibling_documented_outcome_is_unchanged_by_the_fix(sibling_db: sqlite3.Connection) -> None:
-    """ONE alias group (the party pair) resolves by title to BOTH same-named cases, and `verify()` checks the quote only against
-    a case within a year of the citation (#717/#723). This is the behaviour on main BEFORE this fix (no CONFLICT is involved, so the
-    narrowing never runs): a sibling SIX years away is never checked (its quote is not verified against the other's citation), but
+    """ONE alias group (the party pair) resolves by title to BOTH same-named cases, and `verify()` checks the quote only against a
+    case within a year of the citation (#717/#723). This is the behaviour on main BEFORE this fix (no CONFLICT is involved, so
+    the narrowing never runs): a sibling SIX years away is never checked (its quote is not verified against the other's
+    citation), but
     a same-name sibling WITHIN a year is checked, so its quote verifies: a documented limitation, the N3 near-miss the O3 runs do
     not test (#834)."""
     cite = f"Zorbatha Mendelsohn v. Quillfeather Aerospace, {KEY}"
