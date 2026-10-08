@@ -24,3 +24,13 @@ def test_the_script_holds_no_value_for_the_second_judge() -> None:
     for line in SCRIPT.read_text().splitlines():
         if re.match(r"\s*(export\s+)?NYAYA_SECOND_JUDGE_\w+=", line):
             raise AssertionError(f"a second-judge value is hard-coded in run_gateway.sh: {line.strip()}")
+
+
+def test_a_failed_engine_docker_run_fails_the_function() -> None:
+    """#269: the docker run that starts an engine container ends with `|| return 1`, so a failed start is not treated as success
+    (the health loop below it used to be the only thing that caught it)."""
+    lines = SCRIPT.read_text().splitlines()
+    runs = [i for i, ln in enumerate(lines) if ln.strip().startswith("docker run -d --name")]
+    assert len(runs) == 1, runs
+    end = next(i for i in range(runs[0], len(lines)) if "pravrudhi-engine:$PRAVRUDHI_VERSION" in lines[i])
+    assert lines[end].rstrip().endswith(">/dev/null || return 1"), lines[end]
