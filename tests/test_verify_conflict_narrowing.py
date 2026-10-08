@@ -92,3 +92,45 @@ def test_no_group_surviving_keeps_the_conflict(db: sqlite3.Connection) -> None:
 def test_a_non_scc_or_unknown_key_is_unchanged(db: sqlite3.Connection) -> None:
     assert verify(db, "(1991) 9 SCC 999", QUOTE_A) == VerifyResult.NOT_IN_INDEX
     assert verify(db, "AIR 1990 SC 100", QUOTE_A) == VerifyResult.NOT_IN_INDEX
+
+
+# --- same-name sibling (R1 on #373): a different case with the SAME party names whose text holds the quote ---
+QUOTE_S = "the sibling holding says a drawer's silence is not consent to an altered cheque"
+
+
+@pytest.fixture
+def sibling_db(tmp_path: Path) -> sqlite3.Connection:
+    conn = open_index(tmp_path / "sibling.sqlite3")
+    _case(conn, "A", "Zorbatha Mendelsohn vs Quillfeather Aerospace", 1990, f"Held: {QUOTE_A}.")
+    # same names, six years later
+    _case(conn, "S", "Zorbatha Mendelsohn vs Quillfeather Aerospace", 1996, f"Held: {QUOTE_S}.")
+    _citer(conn, "c1", "Zorbatha Mendelsohn v. Quillfeather Aerospace")
+    conn.commit()
+    yield conn
+    conn.close()
+
+
+def test_same_name_sibling_documented_outcome_is_unchanged_by_the_fix(sibling_db: sqlite3.Connection) -> None:
+    """ONE alias group (the party pair) resolves by title to BOTH same-named cases, and `verify()` checks the quote only against
+    a case within a year of the citation (#717/#723). This is the behaviour on main BEFORE this fix (no CONFLICT is involved, so the
+    narrowing never runs): a sibling SIX years away is never checked (its quote is not verified against the other's citation), but
+    a same-name sibling WITHIN a year is checked, so its quote verifies: a documented limitation, the N3 near-miss the O3 runs do
+    not test (#834)."""
+    cite = f"Zorbatha Mendelsohn v. Quillfeather Aerospace, {KEY}"
+    assert verify(sibling_db, cite, QUOTE_A) == VerifyResult.VERIFIED
+    assert verify(sibling_db, cite, QUOTE_S) == VerifyResult.EXISTS_QUOTE_NOT_FOUND  # sibling six years away: not checked
+    sibling_db.execute("UPDATE cases SET year = 1991 WHERE case_id = 'S'")
+    sibling_db.commit()
+    assert verify(sibling_db, cite, QUOTE_S) == VerifyResult.VERIFIED  # sibling within a year: documented limitation
+
+
+def test_sibling_under_a_conflict_is_removed_by_the_year_test_when_it_is_years_away(db: sqlite3.Connection) -> None:
+    """The fix's own sibling case: two alias groups (a real CONFLICT), the sibling's group names differ and its case is far
+    in year, so the year test removes it and its quote is NOT verified against the other group's citation."""
+    db.execute("UPDATE cases SET year = 1996 WHERE case_id = 'B'")
+    db.commit()
+    assert verify(db, KEY, QUOTE_B) == VerifyResult.EXISTS_QUOTE_NOT_FOUND  # B is out of year, only A is checked
+    # within a year of the citation both stay candidates and the quote held by exactly one verifies (Lead-2's rule)
+    db.execute("UPDATE cases SET year = 1991 WHERE case_id = 'B'")
+    db.commit()
+    assert verify(db, KEY, QUOTE_B) == VerifyResult.VERIFIED

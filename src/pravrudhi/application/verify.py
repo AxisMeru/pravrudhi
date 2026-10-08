@@ -391,18 +391,8 @@ def _name_before_citation(citation_text: str, citation: Citation) -> str | None:
     return prefix if prefix and _PARTY_SEPARATOR.search(prefix) else None
 
 
-def _year_near(conn: sqlite3.Connection, case_id: str, year: int | None) -> bool:
-    if year is None:
-        return True
-    row = conn.execute("SELECT year FROM cases WHERE case_id = ?", (case_id,)).fetchone()
-    try:
-        return row is not None and row[0] not in (None, "") and abs(int(row[0]) - year) <= 1
-    except (TypeError, ValueError):
-        return False
-
-
 def _narrow_conflict(
-    conn: sqlite3.Connection, resolved: ResolvedAlias, claimed_name: str | None, year: int | None, normalized_quote: str
+    conn: sqlite3.Connection, key: str, resolved: ResolvedAlias, claimed_name: str | None, year: int | None, normalized_quote: str
 ) -> ResolvedAlias | VerifyResult:
     """A CONFLICT is kept only while at least two candidates survive BOTH the name and the year test and the exact quote
     is not found in exactly one of them (Lead-2, 8 Oct: an exact-text citation that resolves to one case must not be a
@@ -417,9 +407,12 @@ def _narrow_conflict(
         if claimed and not _group_agrees_with_claim(claimed, group_row):
             continue  # name test
         if rows:
-            rows = tuple(r for r in rows if _year_near(conn, r["case_id"], year))
+            # the SAME year window and title-carries-the-parties test the quote check itself uses (#723), so a narrowed
+            # CONFLICT can never verify against a case that `verify()` would not have checked
+            in_year = _rows_in_cited_year(conn, list(rows), year)
+            rows = tuple(r for r in in_year if _title_carries_the_cited_parties(conn, key, r["title"]))
             if not rows:
-                continue  # year test: every case of this group is out of year
+                continue  # year or title test: no case of this group is checkable
         survivors.append((group_row, rows))
     if not survivors or any(not rows for _, rows in survivors):
         return resolved
@@ -446,7 +439,7 @@ def verify(
     resolved = resolve_citation_key(conn, key, claimed_name, citations[0].year)
     if resolved.status is VerifyResult.CONFLICT:
         narrowed = _narrow_conflict(
-            conn, resolved, claimed_name, citations[0].year, normalize_text_for_match(quote_or_proposition)
+            conn, key, resolved, claimed_name, citations[0].year, normalize_text_for_match(quote_or_proposition)
         )
         if isinstance(narrowed, VerifyResult):
             return narrowed
