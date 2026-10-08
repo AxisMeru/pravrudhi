@@ -9,6 +9,7 @@ from __future__ import annotations
 import pytest
 
 from pravrudhi.application.nyaya_judges import (
+    CompletionResult,
     HouseJudge,
     JudgeRequest,
     build_house_prompt,
@@ -73,3 +74,38 @@ def test_collapse_facts_must_be_a_bool_and_defaults_off() -> None:
     with pytest.raises(ValueError):
         HouseJudge(tau=0.7, statute_chars=600, base_url="http://x", complete=lambda p: None, collapse_facts="yes")  # type: ignore[arg-type]
     assert HouseJudge(tau=0.7, statute_chars=600, base_url="http://x", complete=lambda p: None).collapse_facts is False
+
+
+def test_with_collapse_on_the_established_quote_is_the_raw_fact_and_whole_fact() -> None:
+    """The model sees the collapsed fact and answers a fact id; the judgment's quote is the RAW fact text."""
+    seen: list[str] = []
+
+    def complete(prompt: str) -> CompletionResult:
+        seen.append(prompt)
+        top = [{" established": -0.05, " not": -3.0}]
+        return CompletionResult(text=" established F1:0:51", model="m", top_logprobs=top, wall_s=0.0, finish_reason="stop")
+
+    j = HouseJudge(complete=complete, tau=0.74, statute_chars=600, collapse_facts=True).judge(_req())
+    assert j.status == "established" and j.fact_id == "F1"
+    assert j.quote == RAW and j.quote_source == "whole_fact"
+    assert f"[F1] {COLLAPSED}\n" in seen[0] and RAW not in seen[0]
+
+
+def test_the_input_length_check_runs_on_the_collapsed_prompt() -> None:
+    """The one non-re-spelling change: a request over max_input_chars on RAW text but within it COLLAPSED is judged."""
+    from pravrudhi.application.nyaya_judges import JudgeInputTooLong
+
+    raw_len = len(build_house_prompt(_req(), statute_chars=600))
+    col_len = len(build_house_prompt(_req(), statute_chars=600, collapse_facts=True))
+    assert col_len < raw_len
+    limit = col_len  # fits collapsed, not raw
+
+    def complete(prompt: str) -> CompletionResult:
+        top = [{" not": -0.05, " established": -3.0}]
+        return CompletionResult(text=" not", model="m", top_logprobs=top, wall_s=0.0, finish_reason="stop")
+
+    off = HouseJudge(complete=complete, tau=0.74, statute_chars=600, max_input_chars=limit)
+    on = HouseJudge(complete=complete, tau=0.74, statute_chars=600, max_input_chars=limit, collapse_facts=True)
+    with pytest.raises(JudgeInputTooLong):
+        off.judge(_req())
+    assert on.judge(_req()).status == "not_established"
