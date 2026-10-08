@@ -365,13 +365,15 @@ def test_two_groups_that_both_agree_are_split_by_year_else_stay_conflict(db: sql
     assert (
         verify(db, "(1977) 3 SCC 247", "a different passage", claimed_name=claim) == VerifyResult.EXISTS_QUOTE_NOT_FOUND
     )  # the 1999 case is not used
-    # when the year does not separate them (both within one year of the citation) it stays CONFLICT
+    # when the year does not separate them (both within one year of the citation) both stay candidates: the quote
+    # found in exactly ONE of them verifies (Lead-2, 8 Oct), a quote found in neither stays a CONFLICT
     db.execute("UPDATE cases SET year = 1978 WHERE case_id = 'other'")
     db.commit()
     assert (
         verify(db, "(1977) 3 SCC 247", "time is not ordinarily of the essence of the contract", claimed_name=claim)
-        == VerifyResult.CONFLICT
+        == VerifyResult.VERIFIED
     )
+    assert verify(db, "(1977) 3 SCC 247", "words that are in neither case", claimed_name=claim) == VerifyResult.CONFLICT
 
 
 def test_punctuation_variants_in_the_quote_still_match_but_nothing_looser(db: sqlite3.Connection) -> None:

@@ -7,6 +7,10 @@ messages.
 
 MINOR bump: one additive response field (`citation_note`) and one additive `reason` value (`input_too_long`); no existing field changes meaning or type.
 
+### Fixed
+
+- **verify-citations: fewer false CONFLICTs on exact-text citations (#823).** (1) The party names typed in front of the citation ("A v. B, (1977) 3 SCC 247") are now used as the claimed name (before, only an explicit `claimed_name` argument was; the route never passed one). (2) A CONFLICT is kept only while at least TWO candidates survive both the name test and the year test (the case's decision year within one of the citation's year) and the exact quote is not found in exactly one of them; a quote found in exactly one surviving candidate is VERIFIED. A surviving alias group that resolves to no case, nothing surviving, and an empty quote all keep the CONFLICT (#331, unchanged). No other status changes. Tests use new constructed fixtures.
+
 ### Added
 
 - **Wording: an element's citation says what it is (#813).** A new response field `citation_note` (additive, null when the element is not established) is chosen by
