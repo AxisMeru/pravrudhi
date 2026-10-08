@@ -10,19 +10,19 @@ or the code did, never the content of your facts. No change to any verdict comes
 | Code | What it means |
 |---|---|
 | `all_elements_established` | The judge found every condition this provision requires shown in your facts, citing a fact for each (see each element's `citation_note`), and found no fact that defeats the claim. |
-| `denial_established` | The judge found a fact in your case that defeats this claim, and quoted it. |
+| `denial_established` | The judge found a fact in your case that defeats this claim, and cited it. |
 | `missing_element` | The judge did not find at least one required condition shown in your facts. |
 | `no_training_statute_text` | We have no statute text for this provision, so we did not judge it. |
 | `judge_error` | A judge call failed on at least one condition, so we give no answer. |
 | `assembly_lean_mismatch` | Two internal checks disagreed, so we give no answer. |
-| `denial_unquotable` | The judge thinks a defeating fact exists but could not give a valid word-for-word quote for it. Please have a lawyer look. |
+| `denial_unquotable` | The judge thinks a defeating fact exists but could not cite it in a way we can check. Please have a lawyer look. |
 | `second_judge_defeater_disagreement` | The two judges disagree on whether a defeating fact exists. Please have a lawyer look. (deployments that use two judges only) |
 | `uncertain` | The judge is not sure whether a condition holds. Please have a lawyer look. |
 | `uncertain_second_judge` | The second judge is not sure whether a condition holds. Please have a lawyer look. (deployments that use two judges only) |
 | `second_judge_unavailable` | The second judge was unavailable, so we give a referral, not an answer. (deployments that use two judges only) |
-| `gate1_unavailable` | The entailment check (a separate check of the quoted words against the claim) was unavailable, so we give a referral, not an answer. |
-| `gate1_not_entailed` | The entailment check (a separate check of the quoted words against the claim) did not find enough support for it. Please have a lawyer look. |
-| `gate1_contradiction` | The entailment check (a separate check of the quoted words against the claim) found they contradict it. Please have a lawyer look. |
+| `gate1_unavailable` | The entailment check (a separate check of the cited fact against the claim) was unavailable, so we give a referral, not an answer. |
+| `gate1_not_entailed` | The entailment check (a separate check of the cited fact against the claim) did not find enough support for it. Please have a lawyer look. |
+| `gate1_contradiction` | The entailment check (a separate check of the cited fact against the claim) found the fact contradicts it. Please have a lawyer look. |
 | `contract_not_validated` | This provision is not on the validated list, so we give a referral, not a proof or denial. |
 | `input_too_long` | The facts and question together are too long for the checker to read in one go, so we give a referral, not an answer. Please shorten them or have a lawyer look. |
 
