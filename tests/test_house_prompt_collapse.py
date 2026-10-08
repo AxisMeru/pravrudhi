@@ -109,3 +109,29 @@ def test_the_input_length_check_runs_on_the_collapsed_prompt() -> None:
     with pytest.raises(JudgeInputTooLong):
         off.judge(_req())
     assert on.judge(_req()).status == "not_established"
+
+
+_CFG = {
+    "statute_chars": 600, "base_url": "http://h/v1", "model": "m", "max_tokens": 30,
+    "top_logprobs": 20, "timeout_s": 60, "label_mass_floor": 0.2,
+}
+
+
+@pytest.mark.parametrize("loader", ["from_config", "from_config_with_fallback"])
+def test_config_plumbing_default_off_and_on(loader: str) -> None:
+    load = getattr(HouseJudge, loader)
+    assert load(dict(_CFG), tau=0.74).collapse_facts is False
+    assert load({**_CFG, "collapse_facts": False}, tau=0.74).collapse_facts is False
+    assert load({**_CFG, "collapse_facts": True}, tau=0.74).collapse_facts is True
+    with pytest.raises(ValueError):
+        load({**_CFG, "collapse_facts": "yes"}, tau=0.74)
+
+
+def test_the_typed_judge_refuses_collapse_facts_strictly() -> None:
+    from pravrudhi.application.nyaya_agent import _build_house_judge
+
+    for bad in (True, "yes", 1, "false", {}):
+        with pytest.raises(ValueError, match="collapse_facts"):
+            _build_house_judge({**_CFG, "collapse_facts": bad}, tau=0.74, typed=True, api_key_env="X_NOT_SET")
+    for ok in ({}, {"collapse_facts": False}):
+        _build_house_judge({**_CFG, **ok}, tau=0.74, typed=True, api_key_env="X_NOT_SET")
