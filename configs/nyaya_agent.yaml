@@ -74,9 +74,11 @@ house_judge:
   # deployment (the prod 4B) must set its own, 7600, with NYAYA_HOUSE_JUDGE_MAX_INPUT_CHARS (second judge:
   # NYAYA_SECOND_JUDGE_MAX_INPUT_CHARS). The upstream context-length 400 maps to the same REFER everywhere, as the backstop.
   max_input_chars: 10800
-  # #369/#815: serve-time fact-text collapse (`' '.join(text.split())` on the fact texts under `Available facts:` only; the quote stays the raw
-  # fact). Default OFF (key absent): production behaviour is unchanged. Do NOT set true until the production E2E; the typed layer refuses the key.
-  # collapse_facts: false
+  # #369/#815/#375: serve-time fact-text collapse (`' '.join(text.split())` on the fact texts under `Available facts:` only; the quote stays the raw
+  # fact). ON in the shipped production configuration (Lead-2, 8 Oct: a release item with a production E2E check). The code default stays OFF
+  # (key absent = off), so a config without the key is unchanged; the typed layer refuses the key, so a deployment that turns the typed
+  # layer on must remove it. A second judge block (config C) that is configured in a deployment needs the same key set there.
+  collapse_facts: true
   # How many (contract, element/denial) judge requests one `NyayaAgent.run` call judges at once, bounded by a
   # ThreadPoolExecutor (docs/decisions 2026-09-24). 1 is today's serial behaviour, byte-identical results and
   # audit ordering -- unchanged unless this is raised. NYAYA_JUDGE_MAX_CONCURRENCY overrides.
@@ -142,6 +144,7 @@ retention_days: 7
 #   endpoint_id: "<current RunPod endpoint id>"
 #   adapter_sha: "<current adapter commit/revision>"
 #   label_mass_floor: 0.5
+#   collapse_facts: true   # #375: same serve-time fact collapse as house_judge, set where the second judge is configured
 
 # The statute text the house judge was trained with (public statute text: IPC 1860 / BNS 2023), keyed by
 # registry contract id. The ONLY statute text the judge ever sees, on every attempt, so it stays in its
