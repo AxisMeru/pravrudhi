@@ -135,3 +135,65 @@ def test_sibling_under_a_conflict_is_removed_by_the_year_test_when_it_is_years_a
     db.execute("UPDATE cases SET year = 1991 WHERE case_id = 'B'")
     db.commit()
     assert verify(db, KEY, QUOTE_B) == VerifyResult.VERIFIED
+
+
+# --- R2 on #373: year tolerance, non-party prefix, missing year ---
+
+
+def test_the_year_window_is_exactly_one_year(db: sqlite3.Connection) -> None:
+    """One year from the citation's year is still a candidate; two years off is not (the quote check's own window)."""
+    # one year off: both survive, the quote held by exactly one verifies
+    db.execute("UPDATE cases SET year = 1991 WHERE case_id = 'B'")
+    db.commit()
+    assert verify(db, KEY, QUOTE_B) == VerifyResult.VERIFIED
+    db.execute("UPDATE cases SET year = 1992 WHERE case_id = 'B'")  # two years off: B is out, only A is checked
+    db.commit()
+    assert verify(db, KEY, QUOTE_B) == VerifyResult.EXISTS_QUOTE_NOT_FOUND
+    db.execute("UPDATE cases SET year = 1989 WHERE case_id = 'B'")  # one year before is inside too
+    db.commit()
+    assert verify(db, KEY, QUOTE_B) == VerifyResult.VERIFIED
+
+
+def test_a_missing_decision_year_never_qualifies(db: sqlite3.Connection) -> None:
+    db.execute("UPDATE cases SET year = NULL WHERE case_id = 'B'")
+    db.commit()
+    assert verify(db, KEY, QUOTE_B) == VerifyResult.EXISTS_QUOTE_NOT_FOUND  # B has no year: not a candidate, only A is checked
+    db.execute("UPDATE cases SET year = NULL")
+    db.commit()
+    assert verify(db, KEY, QUOTE_A) == VerifyResult.CONFLICT  # no candidate has a year: nothing survives
+
+
+def test_no_cited_year_keeps_the_conflict(db: sqlite3.Connection) -> None:
+    from pravrudhi.application.verify import _narrow_conflict, normalize_text_for_match, resolve_citation_key
+
+    resolved = resolve_citation_key(db, KEY, None, None)
+    assert resolved.status is VerifyResult.CONFLICT
+    out = _narrow_conflict(db, KEY, resolved, None, None, normalize_text_for_match(QUOTE_A))
+    assert out is resolved  # without a cited year no case can be checked: nothing is narrowed
+
+
+@pytest.mark.parametrize(
+    "prefix,expected",
+    [
+        ("Zorbatha Mendelsohn v. Quillfeather Aerospace, ", "Zorbatha Mendelsohn v. Quillfeather Aerospace"),
+        ("Zorbatha Mendelsohn vs. Quillfeather Aerospace, ", "Zorbatha Mendelsohn vs. Quillfeather Aerospace"),
+        ("See ", None),  # a prefix with no party separator is not a claimed name
+        ("Held in the case reported at ", None),
+        ("", None),
+        ("   ", None),
+    ],
+)
+def test_only_a_party_pair_before_the_citation_is_a_claimed_name(prefix: str, expected: str | None) -> None:
+    from pravrudhi.application.citations import parse_citations
+    from pravrudhi.application.verify import _name_before_citation
+
+    text = f"{prefix}{KEY}"
+    assert _name_before_citation(text, parse_citations(text)[0]) == expected
+
+
+def test_a_non_party_prefix_behaves_like_the_bare_key(db: sqlite3.Connection) -> None:
+    """Semantics, stated: with NO party pair typed, a bare ambiguous key whose quote is held by exactly ONE surviving candidate
+    returns
+    VERIFIED (the untested same-name path of #834); a prefix that names no parties changes nothing."""
+    assert verify(db, f"See {KEY}", QUOTE_A) == verify(db, KEY, QUOTE_A) == VerifyResult.VERIFIED
+    assert verify(db, f"See {KEY}", "in neither judgment") == verify(db, KEY, "in neither judgment") == VerifyResult.CONFLICT
