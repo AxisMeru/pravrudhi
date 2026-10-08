@@ -398,6 +398,9 @@ _SECOND_JUDGE_DEBUG_FIELDS = (
 )
 
 
+SCREENING_SIGNAL_LABEL = "Suggested by the screening judge; check it."
+
+
 class ElementResultOut(BaseModel):
     element: str
     is_denial: bool
@@ -453,6 +456,21 @@ class ElementResultOut(BaseModel):
     second_fact_id: str | None = None
     fact_id_disagreement: bool | None = None
     defeater_second_disagreement: bool | None = None
+
+    #: #832 S1 source value; never returned (the signal below is derived from it). Excluded from the response.
+    screening_supported: bool | None = Field(default=None, exclude=True)
+
+    @computed_field(  # type: ignore[prop-decorator]
+        description="A SCREENING signal from the first (screening) judge alone, shown even when the element is not a proof: "
+        "`supported` is true when that judge's score cleared its threshold. It is a suggestion to check, not a finding, never "
+        "changes status, outcome or reason, and carries no probability. Accepted by the screening judge alone, CAL CHEAT 70 rows "
+        "(41 established / 29 not established): see docs/api/reason-codes.md for the counts. Null when it produced no score."
+    )
+    @property
+    def screening_signal(self) -> dict[str, Any] | None:
+        if self.screening_supported is None:
+            return None
+        return {"supported": self.screening_supported, "label": SCREENING_SIGNAL_LABEL}
 
     @computed_field(  # type: ignore[prop-decorator]
         description="Plain-language reading of this element's citation, chosen by quote_source: a judge-written quote that "

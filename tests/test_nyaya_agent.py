@@ -2766,3 +2766,25 @@ class TestNi138IsListedAndFailsClosed:
         agent = NyayaAgent(ScriptedJudge(script), registry, replace(shipped, audit_dir=tmp_path / "audit"))
         c = agent.run(TOY_FACTS, narrative="TOY narrative.", contract_ids=["ni138"]).contracts[0]
         assert (c.outcome, c.reason) == ("ABSTAIN", "missing_element")
+
+
+class TestScreeningSupported:
+    """#832 S1: `screening_supported` = the PRIMARY judge's attempt-1 score against its own tau (>=), whatever the status."""
+
+    def test_the_boundary_is_inclusive_and_does_not_depend_on_the_final_status(self, tmp_path: Path) -> None:
+        tau = _config(tmp_path).tau
+        script = _proof_script(TOY_FACTS)
+        script[BNS69_EL[0]] = [_est("F2", TOY_FACTS[1], "never to marry Lata", p=tau)]
+        script[BNS69_EL[1]] = [_est("F3", TOY_FACTS[2], "Lata had sexual intercourse with Kiran", p=tau - 1e-6)]
+        run, _, _ = _run(tmp_path, script)
+        by = {e.element: e for e in run.contracts[0].elements}
+        assert by[BNS69_EL[0]].screening_supported is True  # p == tau clears
+        assert by[BNS69_EL[1]].screening_supported is False  # just below does not
+        assert by[BNS69_DENY].screening_supported is False  # a not-established element carries its own score against tau
+
+    def test_no_primary_score_means_no_signal(self, tmp_path: Path) -> None:
+        script = _proof_script(TOY_FACTS)
+        script[BNS69_EL[0]] = [RuntimeError("judge down")] * 3
+        run, _, _ = _run(tmp_path, script)
+        by = {e.element: e for e in run.contracts[0].elements}
+        assert by[BNS69_EL[0]].screening_supported is None

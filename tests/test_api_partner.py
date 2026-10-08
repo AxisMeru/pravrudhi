@@ -390,6 +390,7 @@ class TestSecondJudgeDebugFields:
         assert set(el0) == {
             "element", "is_denial", "status", "claimed", "p_established", "fact_id", "quote", "start", "end",
             "quote_check", "attempts", "occurrences", "offsets_source", "quote_source", "error", "binding_leg", "citation_note",
+            "screening_signal",
         }
 
 
@@ -1382,3 +1383,46 @@ def test_the_shipped_config_has_expose_rule_text_off() -> None:
     from pravrudhi.application.nyaya_agent import load_agent_config
 
     assert load_agent_config(Path(__file__).resolve().parent.parent).expose_rule_text is False
+
+
+class TestScreeningSignal:
+    """#832 S1: a SCREENING signal from the first judge alone: `supported` iff its score cleared its own tau, shown whatever the
+    element's final status; no probability on the wire; it never changes status, outcome or reason."""
+
+    def test_signal_present_on_every_element_with_a_score_and_carries_no_probability(self, tmp_path: Path) -> None:
+        c = _client(tmp_path)
+        elements = c.post("/api/v1/analyse-facts", json=_req()).json()["contracts"][0]["elements"]
+        scored = [e for e in elements if e["p_established"] is not None]
+        assert scored
+        for e in scored:
+            assert set(e["screening_signal"]) == {"supported", "label"}
+            assert e["screening_signal"]["label"] == "Suggested by the screening judge; check it."
+            assert "screening_supported" not in e  # the internal source value is never on the wire
+
+    def test_supported_follows_the_primary_tau_not_the_final_status(self, tmp_path: Path) -> None:
+        # tau is 0.74 in the test config: 0.97 clears it, 0.03 does not; a not_established element can still be "supported"
+        script: dict[str, list[ElementJudgment]] = {
+            BNS69_EL[0]: [ElementJudgment("established", 0.97, "F2", TOY_FACTS[1], "whole_fact")],
+            BNS69_EL[1]: [_not(0.03)],
+            BNS69_DENY: [_not(0.03)],
+        }
+        elements = _client(tmp_path, script).post("/api/v1/analyse-facts", json=_req()).json()["contracts"][0]["elements"]
+        by = {e["element"]: e for e in elements}
+        assert by[BNS69_EL[0]]["screening_signal"]["supported"] is True
+        assert by[BNS69_EL[1]]["screening_signal"]["supported"] is False
+
+    def test_the_signal_never_changes_status_or_outcome(self) -> None:
+        from pravrudhi.api.partner import ElementResultOut
+
+        base = {
+            "element": "x", "is_denial": False, "status": "not_established",
+            "claimed": False, "p_established": 0.9, "fact_id": None,
+            "quote": None, "start": None, "end": None, "quote_check": None, "attempts": 1, "occurrences": 0,
+            "offsets_source": None, "quote_source": None, "error": None,
+        }
+        off = ElementResultOut(**base).model_dump()
+        on = ElementResultOut(**base, screening_supported=True).model_dump()
+        assert off["screening_signal"] is None
+        without = lambda d: {k: v for k, v in d.items() if k != "screening_signal"}  # noqa: E731
+        assert without(on) == without(off)
+        assert on["screening_signal"] == {"supported": True, "label": "Suggested by the screening judge; check it."}

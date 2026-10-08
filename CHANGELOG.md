@@ -13,6 +13,8 @@ MINOR bump: one additive response field (`citation_note`) and one additive `reas
 
 ### Added
 
+- **Screening signal per element (#832 S1).** A new response field `screening_signal` (`{supported: bool, label}`, null when the screening judge produced no score): whether the FIRST (screening) judge's own score cleared its threshold, shown even when the element is not a proof. A suggestion to check, never a finding: it carries no probability, never changes status, outcome or reason, and is accepted by the screening judge alone (CAL CHEAT 70 rows, 41 established / 29 not established). Additive; default behaviour unchanged.
+
 - **Wording: an element's citation says what it is (#813).** A new response field `citation_note` (additive, null when the element is not established) is chosen by
   `quote_source` alone: `model` (a judge-written quote that passed the word-for-word quote check) or `whole_fact` (the house judges: "Cites your fact Fn in full (the judge
   names the fact; it does not quote words)."). The `all_elements_established` reason and the `quote_check` `ok` row in `docs/api/reason-codes.md` no longer say the judge quoted
