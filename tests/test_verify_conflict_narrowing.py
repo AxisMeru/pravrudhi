@@ -245,3 +245,23 @@ def test_existence_only_with_no_matching_rows_and_with_a_bad_citation(db: sqlite
     assert exists_in_index(db, "(2001) 4 SCC 999") == VerifyResult.NOT_IN_INDEX  # key not in the alias table
     assert exists_in_index(db, "no citation here") == VerifyResult.MALFORMED
     assert exists_in_index(db, "AIR 1990 SC 5") == VerifyResult.NOT_IN_INDEX  # a reporter the alias table does not mine
+
+
+# --- #379: a typed name with no distinctive token must not act as "no name given" ---
+
+
+@pytest.mark.parametrize("typed", ["T.N. v. Union of India", "Ors. v. Anr.", "State v. Union of India"])
+def test_a_typed_name_with_no_distinctive_token_keeps_the_conflict(db: sqlite3.Connection, typed: str) -> None:
+    from pravrudhi.application.verify import _distinctive_tokens, exists_in_index
+
+    assert not _distinctive_tokens(typed)  # the premise: nothing in the typed name tells the groups apart
+    # before the fix the quote in exactly one candidate returned VERIFIED here, like a bare citation
+    assert verify(db, f"{typed}, {KEY}", QUOTE_A) == VerifyResult.CONFLICT
+    assert verify(db, f"{typed}, {KEY}", QUOTE_B) == VerifyResult.CONFLICT
+    assert exists_in_index(db, f"{typed}, {KEY}") == VerifyResult.CONFLICT
+
+
+def test_a_bare_citation_keeps_the_decided_behaviour_and_a_name_with_tokens_still_narrows(db: sqlite3.Connection) -> None:
+    assert verify(db, KEY, QUOTE_A) == VerifyResult.VERIFIED  # bare: unchanged (#373)
+    assert verify(db, f"Zorbatha Mendelsohn v. Quillfeather Aerospace, {KEY}", QUOTE_A) == VerifyResult.VERIFIED
+    assert verify(db, f"Zorbatha Mendelsohn v. Quillfeather Aerospace, {KEY}", QUOTE_B) == VerifyResult.EXISTS_QUOTE_NOT_FOUND
