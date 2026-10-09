@@ -69,9 +69,31 @@ def test_min_relevance_score_is_config_driven(tmp_path: Path) -> None:
     # is now below the (absurdly high) configured floor -- proving retrieve() actually reads this field.
 
 
+def test_min_relevance_norm_is_config_driven(tmp_path: Path) -> None:
+    """Issue #51: min_relevance_norm follows min_relevance_score's own precedence -- overridable, and never
+    a required file (a root with no nyaya_corpus.yaml at all keeps MIN_RELEVANCE_NORM unchanged)."""
+    cfg_dir = tmp_path / "configs"
+    cfg_dir.mkdir()
+    (cfg_dir / "nyaya_corpus.yaml").write_text("min_relevance_norm: 1000\n")
+    assert nyaya.load_min_relevance_norm(tmp_path) == 1000.0
+
+    no_config_root = tmp_path / "no-config-here"
+    no_config_root.mkdir()
+    assert nyaya.load_min_relevance_norm(no_config_root) == nyaya.MIN_RELEVANCE_NORM
+    assert nyaya.load_min_relevance_norm(None) == nyaya.MIN_RELEVANCE_NORM
+
+    # An overridden norm floor actually changes retrieve()'s own behaviour, not just the loader's value: a
+    # real match's raw score still clears min_relevance_score, but no hit can capture 1000x its own query's
+    # obtainable BM25 score, so the (absurdly high) configured norm floor drops it via the second gate.
+    c = nyaya.load_corpus(tmp_path)
+    assert c.min_relevance_norm == 1000.0
+    assert c.retrieve("equality before law", k=1) == []
+
+
 @pytest.mark.xfail(
     strict=True,
-    reason="absolute BM25 floor grows with query length; see https://github.com/AxisMeru/pravrudhi/issues/51",
+    reason="the question names bns69 and the shipped corpus now HAS BNS s.69, so the named-section boost (+100) "
+    "returns it; no BM25 length gate can cut a section the asker named. See issue #51 and the calibration test.",
 )
 def test_a_moderately_worded_off_topic_question_is_still_cut_by_the_relevance_floor() -> None:
     """Issue #33 (follow-up from PR #30) surfaced a real gap, not just a confirmation: `MIN_RELEVANCE_SCORE`
@@ -87,10 +109,14 @@ def test_a_moderately_worded_off_topic_question_is_still_cut_by_the_relevance_fl
       with nothing to do with bns69.
     - + a few more constitutional terms (21 words): top score 20.2.
 
-    An ordinarily-phrased question that happens to mention a couple of unrelated terms gets a false-positive
-    citation almost immediately. This test encodes the TRUE desired behaviour (empty, same as the 7-word
-    case) and is `xfail(strict=True)` until issue #51's length-aware floor lands -- strict means it flips to
-    a hard failure the moment a fix changes this behaviour, so the marker can never be forgotten."""
+    An ordinarily-phrased question that happens to mention a couple of unrelated terms used to get a
+    false-positive citation almost immediately. Issue #51's length-aware second gate (`min_relevance_norm`,
+    `Corpus._self_score`) addresses that for BM25-scored hits. This SPECIFIC question, though, names `bns69`, and
+    BNS s.69 is in the shipped corpus again (it was absent when this test was written, hence "off-topic"): the
+    named-section boost (+100) returns it whatever the length gate says. So the test stays `xfail(strict=True)`
+    for the new reason in the marker; the three `bns69` calibration cases are named residual leaks for the same
+    cause (tests/test_nyaya_relevance_calibration.py)."""
+
     c = nyaya.load_corpus()
     q = "What is the applicable statute for bns69, considering the Governor and the President?"
     assert c.retrieve(q, k=8) == []
