@@ -406,6 +406,11 @@ def _narrow_conflict(
     if not normalized_quote or not resolved.group_candidates:
         return resolved
     claimed = _distinctive_tokens(claimed_name) if claimed_name else frozenset()
+    if claimed_name and not claimed:
+        # A name WAS typed but has no distinctive token (only initials, one- or two-letter pieces, common words), so it
+        # cannot tell the groups apart. It must not fall through as "no name given" (that verifies on a quote found in one
+        # candidate): the CONFLICT stays (#379). A bare citation (no claimed name) keeps the #373 behaviour.
+        return resolved
     survivors: list[tuple[sqlite3.Row, tuple[sqlite3.Row, ...]]] = []
     for group_row, rows in resolved.group_candidates:
         if claimed and not _group_agrees_with_claim(claimed, group_row):
