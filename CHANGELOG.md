@@ -3,20 +3,13 @@
 Release notes for the engine (`pravrudhi`). Versions before 0.5.44 are described in their GitHub release notes and commit
 messages.
 
-## 0.6.1 (unreleased)
+## 0.6.0 (2026-10-12)
 
-PATCH: one safety fix in `verify()` and the `verify_citation` tool (#379); no API shape change.
+MINOR bump (includes the #379 safety fix: no 0.6.1 is cut): one additive response field (`citation_note`) and one additive `reason` value (`input_too_long`); no existing field changes meaning or type.
 
 ### Fixed
 
 - **verify-citations: a typed name with no distinctive word no longer acts like a bare citation (#379).** When the party names typed before a citation consist only of initials, one- or two-letter pieces and common words, the name test could not apply and a quote found in exactly one candidate of a shared citation key returned VERIFIED, even for a different case. The CONFLICT now stays. A bare citation (no typed name) and a name with distinctive words behave as before. The agent's `verify_citation` tool now has the same 5 s per-lookup deadline as the API route; running out is a typed error (`CitationLookupTimeout`), never a verdict. A typed name with distinctive words that fits both candidate cases can still return VERIFIED for the case that holds the quote (#373 as decided); this fix covers names with no distinctive word.
-
-## 0.6.0 (unreleased)
-
-MINOR bump: one additive response field (`citation_note`) and one additive `reason` value (`input_too_long`); no existing field changes meaning or type.
-
-### Fixed
-
 - **verify-citations: fewer false CONFLICTs on exact-text citations (#823).** (1) The party names typed in front of the citation ("A v. B, (1977) 3 SCC 247") are now used as the claimed name (before, only an explicit `claimed_name` argument was; the route never passed one). (2) A CONFLICT is kept only while at least TWO candidates survive both the name test and the year test (the case's decision year within one of the citation's year) and the exact quote is not found in exactly one of them; a quote found in exactly one surviving candidate is VERIFIED. A surviving alias group that resolves to no case, nothing surviving, and an empty quote all keep the CONFLICT (#331, unchanged). No other status changes. Tests use new constructed fixtures.
 
 ### Added
@@ -33,6 +26,7 @@ MINOR bump: one additive response field (`citation_note`) and one additive `reas
 ### Changed
 
 - **Serve-time fact collapse is ON in the shipped configuration (#375, flag from #371).** `configs/nyaya_agent.yaml` sets `house_judge.collapse_facts: true`: the fact texts under `Available facts:` are whitespace-collapsed in the judge prompt (the quote check still uses the raw fact). The code default stays OFF, so a config without the key is unchanged; the typed layer refuses the key. A deployment's second-judge block must set the same key. It counts for production only after the 0.6.0 release and a passing production E2E. Evidence is thin: #815 (CAL, one look, dev stack, not independent; a weak test, not a safety result): Config C accepted 0 of 26 not-established rows with collapse on and off (exact upper bound 10.9%); the 4B alone accepted 4 of 26 in both; established rows accepted 8 of 38 off, 9 of 38 on.
+- **Behaviour change: a partly configured second judge refuses to start (#361, #362, #363).** `run_gateway.sh` forwards the second judge's `NYAYA_SECOND_JUDGE_*` env into the engine containers. A `second_judge` block that carries any of `base_url`, `model`, `tau` or `timeout_s` counts as an attempt to turn the second judge on, and the engine then refuses to start unless all seven required keys are set: `base_url` (`NYAYA_SECOND_JUDGE_BASE_URL`), `tau` (`_TAU`), `timeout_s` (`_TIMEOUT_S`), `statute_chars` (`_STATUTE_CHARS`), `top_logprobs` (`_TOP_LOGPROBS`), `max_tokens` (`_MAX_TOKENS`) and `label_mass_floor` (`_LABEL_MASS_FLOOR`), each in the config or the env (the code comment says the ones not set by env are inherited from the `house_judge` block). A blank, whitespace-only, empty-list or empty-mapping value counts as missing. `refer_logit_delta` (`_REFER_LOGIT_DELTA`) is a tuning key and is optional; a block that carries only tuning keys is left alone. A deployment that sets none of the second-judge keys is unchanged.
 - **Behaviour change: a judge input too long for the judge is a REFER, not an error.** A prompt longer than the configured
   `house_judge.max_input_chars` (`NYAYA_HOUSE_JUDGE_MAX_INPUT_CHARS`; second judge `NYAYA_SECOND_JUDGE_MAX_INPUT_CHARS`) is refused
   before the judge call, and a judge server's own context-length 400 maps to the same result: the contract becomes
