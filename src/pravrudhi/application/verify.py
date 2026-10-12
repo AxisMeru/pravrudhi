@@ -374,16 +374,44 @@ def _rows_in_cited_year(conn: sqlite3.Connection, rows: list[sqlite3.Row], cited
     against, so no row qualifies."""
     if cited_year is None:
         return []
+    years = _recorded_years(conn, [row["case_id"] for row in rows])
     ok: list[sqlite3.Row] = []
     for row in rows:
-        found = conn.execute("SELECT year FROM cases WHERE case_id = ?", (row["case_id"],)).fetchone()
         try:
-            year = int(found[0]) if found is not None else None
+            year = int(years[row["case_id"]]) if row["case_id"] in years else None
         except (TypeError, ValueError):
             year = None
         if year is not None and abs(year - cited_year) <= 1:
             ok.append(row)
     return ok
+
+
+#: Case ids per IN list: below SQLITE_MAX_VARIABLE_NUMBER (999 on older SQLite builds); a huge alias group has over 1,500 candidates.
+_YEAR_LOOKUP_CHUNK = 500
+
+
+def _recorded_years(conn: sqlite3.Connection, case_ids: list[str]) -> dict[str, object]:
+    """The recorded `year` of each case id, EXACTLY what the old per-case `SELECT year FROM cases WHERE case_id = ?` + `fetchone()`
+    returned: the year of the FIRST row in scan order (lowest rowid) when a case id has two rows (1,307 do in the 7 Oct 2026
+    index, all with a NULL year); an id with no row is absent from the result (the caller reads that as "no year"). `cases` is an
+    FTS5 table whose `case_id` is not indexed, so each per-case lookup scanned the whole table (about 0.07 s; 1,517 candidates took
+    110 s, #380): one query per chunk of ids replaces one scan per case. A derived `case_year(case_id PRIMARY KEY, year)` table,
+    when the index carries one (built by speed380/build_case_year.py from the lowest-rowid rows), is read instead, by key."""
+    wanted = list(dict.fromkeys(case_ids))
+    out: dict[str, object] = {}
+    try:
+        conn.execute("SELECT 1 FROM case_year LIMIT 0")
+        table, order = "case_year", ""
+    except sqlite3.OperationalError as e:
+        if "no such table" not in str(e):
+            raise
+        table, order = "cases", " ORDER BY rowid"
+    for i in range(0, len(wanted), _YEAR_LOOKUP_CHUNK):
+        chunk = wanted[i : i + _YEAR_LOOKUP_CHUNK]
+        marks = ",".join("?" * len(chunk))
+        for case_id, year in conn.execute(f"SELECT case_id, year FROM {table} WHERE case_id IN ({marks}){order}", chunk):
+            out.setdefault(case_id, year)  # first row in rowid order wins, as fetchone() did
+    return out
 
 
 _PARTY_SEPARATOR = re.compile(r"\s+(?:v\.?|vs\.?|versus)\s+", re.IGNORECASE)
