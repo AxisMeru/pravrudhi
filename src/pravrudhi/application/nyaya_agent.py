@@ -1529,7 +1529,7 @@ class NyayaAgent:
             audit.step("quote_check", {"fact_id": fact_id, "quote": quote, "facts": [f.sha256 for f in facts]},
                        {"contract_id": contract_id, "element": element, "attempt": attempt, "valid": loc.valid,
                         "reason": loc.reason, "start": loc.start, "end": loc.end, "occurrences": loc.occurrences,
-                        "offsets_source": loc.offsets_source, "quote_source": quote_source}, _ms(t0))
+                        "offsets_source": loc.offsets_source, "match": loc.match, "quote_source": quote_source}, _ms(t0))
             if loc.valid:
                 break
             # A deterministic judge re-asked with the same request repeats itself, and an unresolvable fact id is
