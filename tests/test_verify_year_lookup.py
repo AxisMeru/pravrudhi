@@ -1,5 +1,5 @@
-"""#380: the batched year lookup in `_rows_in_cited_year` must answer EXACTLY what the old per-case `SELECT year ... fetchone()` answered
-(first row in scan order; NULL / unreadable / absent -> no year; the +/-1 window). The old function is kept here as the reference."""
+"""#380: the batched year lookup in `_rows_in_cited_year` must answer EXACTLY what the old per-case query answered
+(first row in scan order; NULL / unreadable / absent -> no year; the +/-1 window). The old function is the reference here."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from pravrudhi.application import verify as V
-from pravrudhi.application.case_index import CaseRecord, insert_case, open_index
+from pravrudhi.application.case_index import open_index
 
 
 def _old_rows_in_cited_year(conn: sqlite3.Connection, rows: list[sqlite3.Row], cited_year: int | None) -> list[sqlite3.Row]:
@@ -36,7 +36,8 @@ def _db(tmp_path: Path) -> sqlite3.Connection:
 
 def _add(conn: sqlite3.Connection, cid: str, year: object) -> None:
     conn.execute(
-        "INSERT INTO cases (case_id, title, court, year, source, path_or_url, text) VALUES (?, ?, 'Supreme Court', ?, 't', '/x', 'text')",
+        "INSERT INTO cases (case_id, title, court, year, source, path_or_url, text) "
+        "VALUES (?, ?, 'Supreme Court', ?, 't', '/x', 'text')",
         (cid, f"Title {cid}", year),
     )
 
@@ -62,7 +63,7 @@ def test_the_window_is_plus_or_minus_one_year_and_nothing_wider(tmp_path: Path) 
     for cid, y in (("a", 1990), ("b", 1991), ("c", 1992), ("d", 1989), ("e", 1988)):
         _add(conn, cid, y)
     rows = _rows(conn, list("abcde"))
-    assert [r["case_id"] for r in V._rows_in_cited_year(conn, rows, 1990)] == ["a", "b", "d"]  # 1990 +/- 1; 1992 and 1988 are outside
+    assert [r["case_id"] for r in V._rows_in_cited_year(conn, rows, 1990)] == ["a", "b", "d"]  # 1990 +/- 1
     assert [r["case_id"] for r in V._rows_in_cited_year(conn, rows, 1991)] == ["a", "b", "c"]
 
 
@@ -103,10 +104,12 @@ def test_a_derived_case_year_table_gives_the_same_answers_including_the_duplicat
     conn.executescript(
         "CREATE TABLE case_year (case_id TEXT PRIMARY KEY, year);"
         "INSERT INTO case_year SELECT case_id, year FROM cases WHERE rowid IN (SELECT MIN(rowid) FROM cases GROUP BY case_id);"
+        "CREATE TABLE case_year_meta (cases_max_rowid INTEGER);"
+        "INSERT INTO case_year_meta SELECT max(rowid) FROM cases;"
     )
     for y, expected in before.items():
         assert V._rows_in_cited_year(conn, rows, y) == expected == _old_rows_in_cited_year(conn, rows, y)
-    assert V._recorded_years(conn, ["dup"])["dup"] == 1990  # a table built from the LOWEST rowid, never INSERT OR REPLACE (last row)
+    assert V._recorded_years(conn, ["dup"])["dup"] == 1990  # LOWEST rowid, not the last row
 
 
 def test_the_batched_lookup_matches_the_old_one_on_a_random_mix(tmp_path: Path) -> None:
@@ -128,3 +131,55 @@ def test_a_failure_other_than_a_missing_derived_table_is_not_swallowed(tmp_path:
     conn.set_progress_handler(lambda: 1, 1)  # every statement is interrupted, as the product's deadline does
     with pytest.raises(sqlite3.OperationalError):
         V._recorded_years(conn, ["a"])
+
+
+def _with_derived(conn: sqlite3.Connection) -> None:
+    conn.executescript(
+        "CREATE TABLE case_year (case_id TEXT PRIMARY KEY, year);"
+        "INSERT INTO case_year SELECT case_id, year FROM cases WHERE rowid IN (SELECT MIN(rowid) FROM cases GROUP BY case_id);"
+        "CREATE TABLE case_year_meta (cases_max_rowid INTEGER);"
+        "INSERT INTO case_year_meta SELECT max(rowid) FROM cases;"
+    )
+
+
+def test_a_stale_derived_table_is_ignored_so_it_can_never_change_an_answer(tmp_path: Path) -> None:
+    conn = _db(tmp_path)
+    _add(conn, "a", 1990)
+    _with_derived(conn)
+    conn.execute("UPDATE case_year SET year = 2020 WHERE case_id = 'a'")  # the table now disagrees with `cases` ...
+    _add(conn, "b", 1990)  # ... and `cases` has grown since the build (max rowid moved): the table is stale
+    rows = _rows(conn, ["a", "b"])
+    assert V._derived_year_table_is_current(conn) is False
+    assert V._recorded_years(conn, ["a", "b"]) == {"a": 1990, "b": 1990}
+    assert V._rows_in_cited_year(conn, rows, 1990) == _old_rows_in_cited_year(conn, rows, 1990)
+
+
+def test_a_current_table_that_lacks_an_id_falls_back_to_cases_for_that_id(tmp_path: Path) -> None:
+    conn = _db(tmp_path)
+    _add(conn, "a", 1990)
+    _add(conn, "b", 1991)
+    _with_derived(conn)
+    conn.execute("DELETE FROM case_year WHERE case_id = 'b'")  # a row missing from a table that is otherwise current
+    assert V._derived_year_table_is_current(conn) is True
+    assert V._recorded_years(conn, ["a", "b", "nowhere"]) == {"a": 1990, "b": 1991}  # b read from `cases`
+    rows = _rows(conn, ["a", "b", "nowhere"])
+    assert V._rows_in_cited_year(conn, rows, 1991) == _old_rows_in_cited_year(conn, rows, 1991)
+
+
+def test_a_table_without_its_meta_row_is_not_trusted(tmp_path: Path) -> None:
+    conn = _db(tmp_path)
+    _add(conn, "a", 1990)
+    conn.executescript("CREATE TABLE case_year (case_id TEXT PRIMARY KEY, year); INSERT INTO case_year VALUES ('a', 2000);")
+    assert V._derived_year_table_is_current(conn) is False
+    assert V._recorded_years(conn, ["a"]) == {"a": 1990}
+
+
+def test_a_meta_table_with_no_row_is_not_trusted(tmp_path: Path) -> None:
+    conn = _db(tmp_path)
+    _add(conn, "a", 1990)
+    conn.executescript(
+        "CREATE TABLE case_year (case_id TEXT PRIMARY KEY, year); INSERT INTO case_year VALUES ('a', 2000);"
+        "CREATE TABLE case_year_meta (cases_max_rowid INTEGER);"
+    )
+    assert V._derived_year_table_is_current(conn) is False
+    assert V._recorded_years(conn, ["a"]) == {"a": 1990}
