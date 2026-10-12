@@ -3,6 +3,14 @@
 Release notes for the engine (`pravrudhi`). Versions before 0.5.44 are described in their GitHub release notes and commit
 messages.
 
+## 0.6.1 (unreleased)
+
+PATCH: one safety fix in `verify()` and the `verify_citation` tool (#379); no API shape change.
+
+### Fixed
+
+- **verify-citations: a typed name with no distinctive word no longer acts like a bare citation (#379).** When the party names typed before a citation consist only of initials, one- or two-letter pieces and common words, the name test could not apply and a quote found in exactly one candidate of a shared citation key returned VERIFIED, even for a different case. The CONFLICT now stays. A bare citation (no typed name) and a name with distinctive words behave as before. The agent's `verify_citation` tool now has the same 5 s per-lookup deadline as the API route; running out is a typed error (`CitationLookupTimeout`), never a verdict. A typed name with distinctive words that fits both candidate cases can still return VERIFIED for the case that holds the quote (#373 as decided); this fix covers names with no distinctive word.
+
 ## 0.6.0 (unreleased)
 
 MINOR bump: one additive response field (`citation_note`) and one additive `reason` value (`input_too_long`); no existing field changes meaning or type.
