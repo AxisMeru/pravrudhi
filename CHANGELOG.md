@@ -5,17 +5,17 @@ messages.
 
 ## 0.6.1 (2026-10-13)
 
-PATCH release: one fix to the quote check. Nothing else changes; no response field, reason code or route is added or changed.
+PATCH release: one fix to the quote check. Nothing else changes; the only addition is an audit-record field `match` on the quote_check step; no response field, reason code or route is added or changed.
 
 **Rebuild the image.** The change is under `src/`, so it reaches a running container only by a rebuild of the engine image and the RunPod worker template from 0.6.1.
 
 ### Fixed
 
-- **quote_check / locate_quote: a quote copied from hard-wrapped or indented text is no longer rejected for whitespace (#876, #385).** The strict exact find still runs first, so every result that was valid before is unchanged. Only when the strict find misses is the quote searched with whitespace runs collapsed on both sides, and the start and end offsets are mapped back to the raw fact. Case, punctuation and zero-width characters are not folded, and a quote that differs by a real word still fails. Reason: the product serves collapsed facts to the judges (#375), so a model quote copied from a source with line breaks or indentation was rejected by an exact find on the raw fact. A quote that occurs once verbatim is still accepted even if the collapsed fact has it twice (unchanged behaviour).
+- **quote_check / locate_quote: a quote copied from hard-wrapped or indented text is no longer rejected for whitespace (#876, #385).** The strict exact find still runs first, so every result that was valid before is unchanged. Only when the strict find misses is the quote searched with whitespace runs collapsed on both sides, and the start and end offsets are mapped back to the raw fact. Case, punctuation and zero-width characters are not folded, and a quote that differs by a real word still fails. Reason: the shipped configuration serves collapsed facts to the judges (#369), so a model quote copied from a source with line breaks or indentation was rejected by an exact find on the raw fact. A quote that occurs exactly once in the raw fact is still accepted even if the collapsed fact has it twice (unchanged behaviour).
 
 ## 0.6.0 (2026-10-12)
 
-MINOR bump (includes the #379 safety fix: no 0.6.1 is cut): one additive response field (`citation_note`) and one additive `reason` value (`input_too_long`); no existing field changes meaning or type.
+MINOR bump (includes the #379 safety fix): one additive response field (`citation_note`) and one additive `reason` value (`input_too_long`); no existing field changes meaning or type.
 
 ### Fixed
 
