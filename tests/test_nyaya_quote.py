@@ -4,7 +4,7 @@ A judge that calls an element established names a fact and quotes it: `{status, 
 never supplies character offsets -- the SYSTEM locates the quote with an exact `str.find` in
 `facts[fact_id]` and computes `start`/`end` itself (a quote that occurs more than once is ambiguous
 and not valid; the count is recorded).
-Verification stays strictly verbatim: no normalisation, no trimming, no fuzzy match. A quote that is not a
+Verification is verbatim except for whitespace runs (#876): no case folding, no punctuation or fuzzy match. A quote that is not a
 verbatim substring of the named fact is rejected, and nothing here repairs it.
 
 Facts below are hand-written toy text, not drawn from any evaluation set.
@@ -60,10 +60,13 @@ class TestLocateQuote:
     def test_case_is_not_normalised(self) -> None:
         assert locate_quote(FACTS, fact_id="F1", quote="arun married bela").reason == "quote_not_found"
 
-    def test_whitespace_is_not_trimmed(self) -> None:
-        # The fact ends "in 2019." -- a quote with a trailing space the fact does not have is not in it.
-        assert locate_quote(FACTS, fact_id="F1", quote="Arun married Bela in 2019. ").reason == "quote_not_found"
-        assert locate_quote(FACTS, fact_id="F1", quote="Arun  married Bela").reason == "quote_not_found"
+    def test_whitespace_runs_are_equivalent_but_nothing_else_is(self) -> None:
+        # #876: whitespace is the one thing forgiven. Leading/trailing/double spaces in the quote are found (collapsed match);
+        # a quote with a real extra character or a changed word is still not in the fact.
+        loc = locate_quote(FACTS, fact_id="F1", quote="Arun married Bela in 2019. ")
+        assert (loc.valid, loc.match, loc.start, loc.end) == (True, "whitespace_collapsed", 5, 31)
+        assert locate_quote(FACTS, fact_id="F1", quote="Arun  married Bela").match == "whitespace_collapsed"
+        assert locate_quote(FACTS, fact_id="F1", quote="Arun married Bela in 2019.x").reason == "quote_not_found"
 
     def test_quote_from_a_different_fact_is_rejected(self) -> None:
         assert locate_quote(FACTS, fact_id="F1", quote="Arun struck Bela").reason == "quote_not_found"
