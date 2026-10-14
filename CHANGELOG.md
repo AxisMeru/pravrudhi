@@ -3,6 +3,13 @@
 Release notes for the engine (`pravrudhi`). Versions before 0.5.44 are described in their GitHub release notes and commit
 messages.
 
+## Unreleased
+
+### Fixed
+
+- **`GET /api/v1/audit` no longer answers 500 for a key that has called the assisted route (#422, caller-visible).** The assisted route's audit rows carry the mode `assist`; the audit page's `mode` enum did not declare it, so the whole page failed. The enum now reads `sync`, `job`, `verify`, `assist` (one value added to the public OpenAPI response enum: a client generated with a closed enum must accept the new value). A guard test compares every mode the engine writes with the declared enum.
+
+
 ## 0.6.6 (2026-10-14)
 
 PATCH release: the assisted route now hands the pinned product agent its earlier results by reference (#423), an accepted job waits for a free agent slot (#412), and the anonymous verify-citations 429 no longer tells a caller to sign in (#413). **Not every existing route behaves exactly as in 0.6.2** (true since 0.6.4): see the caller-visible lines below.
@@ -12,10 +19,6 @@ PATCH release: the assisted route now hands the pinned product agent its earlier
 ### Added
 
 - **By-reference hand-over for the assisted route (#423).** `A0RefDriver` (`src/pravrudhi/application/a0_assist/ref_driver.py`) runs the pinned product agent's by-reference tools: every tool result carries a driver-assigned `call_ref`, later tools take refs, and the driver resolves them to the stored outputs with their sha256 re-checked, so the agent cannot alter a stage output between calls. A refused call is recorded with its code and the agent may call again. The screening route uses it; a copy-style agent still falls back to the unassisted result. The agent id and version are unchanged.
-
-### Fixed
-
-- **`GET /api/v1/audit` no longer answers 500 for a key that has called the assisted route (#422, caller-visible).** The assisted route's audit rows carry the mode `assist`; the audit page's `mode` enum did not declare it, so the whole page failed. The enum now reads `sync`, `job`, `verify`, `assist` (one value added to the public OpenAPI response enum: a client generated with a closed enum must accept the new value). A guard test compares every mode the engine writes with the declared enum.
 
 ### Changed
 
