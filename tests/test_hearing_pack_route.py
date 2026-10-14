@@ -35,7 +35,7 @@ CFG = PartnerApiConfig(rate_limit_per_minute=1000, max_concurrent=1, trust_proxy
 
 
 def pack_program(*, call_pack=True, pack_input=None):
-    """The RQ.ideal screening program, then (optionally) the `pack` tool call, then the end of the turn."""
+    """The RQ.ideal_ref screening program (by reference, as the pinned product agent speaks), then the optional `pack` call."""
 
     def program(tr):
         i = 0
@@ -44,24 +44,16 @@ def pack_program(*, call_pack=True, pack_input=None):
         desc = yield RQ.tool_use(i := i + 1, "describe_contract", {"contract_id": RQ.CID})
         outs = []
         for e in desc["elements"]:
-            inp = {
-                "contract_id": RQ.CID,
-                "element": e["element_id"],
-                "is_denial": e["is_denial"],
-                "facts": ing["facts"],
-                "narrative": "",
-            }
+            inp = {"ingest_ref": ing["call_ref"], "contract_id": RQ.CID, "element": e["element_id"], "is_denial": e["is_denial"]}
             outs.append((yield RQ.tool_use(i := i + 1, "judge_element", inp)))
         for o in outs:
             if o.get("quote"):
-                yield RQ.tool_use(
-                    i := i + 1, "quote_check", {"facts": ing["facts"], "fact_id": o["fact_id"], "quote": o["quote"]}
-                )
-        asm = yield RQ.tool_use(i := i + 1, "assemble", {"contract_id": RQ.CID, "element_results": outs})
-        lc = yield RQ.tool_use(i := i + 1, "lean_check", {"wire": asm["wire"], "contract_id": RQ.CID})
-        yield RQ.tool_use(
-            i := i + 1, "decide", {"contract_id": RQ.CID, "element_results": outs, "lean_outcome": lc["lean_outcome"]}
-        )
+                yield RQ.tool_use(i := i + 1, "quote_check", {"judge_ref": o["call_ref"]})
+        refs = [o["call_ref"] for o in outs]
+        asm = yield RQ.tool_use(i := i + 1, "assemble", {"contract_id": RQ.CID, "element_refs": refs})
+        lc = yield RQ.tool_use(i := i + 1, "lean_check", {"contract_id": RQ.CID, "assemble_ref": asm["call_ref"]})
+        dec = {"contract_id": RQ.CID, "element_refs": refs, "assemble_ref": asm["call_ref"], "lean_ref": lc["call_ref"]}
+        yield RQ.tool_use(i := i + 1, "decide", dec)
         if call_pack:
             yield RQ.tool_use(i := i + 1, "pack", pack_input or {"contract_ids": [RQ.CID]})
         yield {"id": "z", "type": "session.status_idle", "stop_reason": {"type": "end_turn"}}
@@ -127,7 +119,7 @@ def test_a_finished_run_returns_the_packs_own_output_on_the_workflows_agent(tmp_
 
 
 def test_the_screening_workflow_has_no_pack_key(tmp_path):
-    c = client(tmp_path, RQ.ideal())
+    c = client(tmp_path, RQ.ideal_ref())
     body = {k: v for k, v in BODY.items() if k != "workflow"}
     out = c.post(URL, json=body).json()
     assert out["assistant"]["used"] is True and "pack" not in out

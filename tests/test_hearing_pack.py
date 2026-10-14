@@ -15,6 +15,7 @@ from pravrudhi.application.a0_assist import driver as A0
 from pravrudhi.application.hearing_pack import pack as P
 from pravrudhi.application.hearing_pack.driver import STAGES_PACK, PackDriver
 from tests import test_a0_assist_driver as AD
+from tests import test_a0_assist_ref_driver as RD
 
 REPO = Path(__file__).resolve().parents[1]
 OUTCOME_WORDS = ("PROOF", "DENIAL", "ABSTAIN", "REFER_TO_LAWYER")
@@ -199,36 +200,22 @@ def test_the_tool_schema_is_frozen():
     }
 
 
-# ---- the driver
+# ---- the driver (by reference: the hand-over the pinned product agent uses)
 def pdrive(tmp_path, script=AD.s_proof, upto="decide"):
     _, agent = AD.agents(tmp_path, script)
     d = PackDriver(agent, request={"facts": AD.FACTS, "narrative": "", "contract_ids": [AD.CID]})
-    ing = d.call("ingest", {"facts": list(AD.FACTS), "narrative": ""})
-    sel = d.call("select_contracts", {"contract_ids": [AD.CID]})
-    for c in sel["contracts"]:
-        cid = c["contract_id"]
-        desc = d.call("describe_contract", {"contract_id": cid})
-        outs = [
-            d.call(
-                "judge_element",
-                {
-                    "contract_id": cid,
-                    "element": e["element_id"],
-                    "is_denial": e["is_denial"],
-                    "facts": ing["facts"],
-                    "narrative": "",
-                },
-            )
-            for e in desc["elements"]
-        ]
-        for o in outs:
-            if o.get("quote"):
-                d.call("quote_check", {"facts": ing["facts"], "fact_id": o["fact_id"], "quote": o["quote"]})
-        asm = d.call("assemble", {"contract_id": cid, "element_results": outs})
-        lc = d.call("lean_check", {"wire": asm["wire"], "contract_id": cid})
-        if upto == "decide":
-            d.call("decide", {"contract_id": cid, "element_results": outs, "lean_outcome": lc["lean_outcome"]})
+    if upto == "decide":
+        RD.full(d)
+    else:  # everything up to and including lean_check, no decide
+        _, _, js = RD.prefix(d)
+        RD.quotes(d, js)
+        asm = d.call("assemble", {"contract_id": AD.CID, "element_refs": RD.refs(js)})
+        d.call("lean_check", {"contract_id": AD.CID, "assemble_ref": asm["call_ref"]})
     return d
+
+
+def code(out):
+    return RD.code(out)
 
 
 @pytest.mark.parametrize("name", sorted(AD.SCRIPTS))
@@ -244,19 +231,26 @@ def test_the_driver_pack_equals_the_pure_pack_of_the_engines_own_run(tmp_path, n
     )
 
 
-def test_pack_before_decide_is_refused_and_the_run_is_incomplete(tmp_path):
+def test_pack_has_no_call_ref_and_is_recorded_like_decide(tmp_path):
+    d = pdrive(tmp_path)
+    out = d.call("pack", {"contract_ids": [AD.CID]})
+    assert "call_ref" not in out and d.calls[-1]["tool"] == "pack" and d.calls[-1]["call_ref"] is None
+    assert d.calls[-1]["refused"] is False and d.calls[-1]["output_sha256"]
+
+
+def test_pack_before_decide_is_refused_out_of_order_and_the_run_is_incomplete(tmp_path):
     d = pdrive(tmp_path, upto="lean")
-    assert d.call("pack", {"contract_ids": [AD.CID]})["refused"]
+    assert code(d.call("pack", {"contract_ids": [AD.CID]})) == "out_of_order"
     assert any("pack comes after decide" in r for r in d.refusals)
     assert any("pack ran 0 times" in p for p in d.complete())
 
 
-def test_pack_twice_wrong_ids_and_extra_keys_are_refused(tmp_path):
+def test_pack_twice_wrong_ids_and_extra_keys_are_refused_with_their_codes(tmp_path):
     d = pdrive(tmp_path)
-    assert d.call("pack", {"contract_ids": ["not_the_selected_one"]})["refused"]
-    assert d.call("pack", {"contract_ids": [AD.CID], "prompts": ["invented"]})["refused"]
+    assert code(d.call("pack", {"contract_ids": ["not_the_selected_one"]})) == "binding"
+    assert code(d.call("pack", {"contract_ids": [AD.CID], "prompts": ["invented"]})) == "bad_args"
     assert d.call("pack", {"contract_ids": [AD.CID]}).get("refused") is None
-    assert d.call("pack", {"contract_ids": [AD.CID]})["refused"]
+    assert code(d.call("pack", {"contract_ids": [AD.CID]})) == "already_decided"
     assert len(d.refusals) == 3
 
 
@@ -265,14 +259,31 @@ def test_a_missing_pack_or_a_pack_that_is_not_last_makes_the_run_incomplete(tmp_
     assert any("pack ran 0 times" in p for p in d.complete())
     d.call("pack", {"contract_ids": [AD.CID]})
     assert d.complete() == []
-    d.calls.append({"tool": "quote_check", "input": {}, "output": {"valid": True}})
+    d.calls.append({"tool": "quote_check", "input": {}, "output": {"valid": True}, "refused": False})
     assert any("pack is not the last stage" in p for p in d.complete())
 
 
-def test_the_screening_driver_does_not_know_the_pack_tool(tmp_path):
-    _, agent = AD.agents(tmp_path, AD.s_proof)
-    d = A0.A0Driver(agent, request={"facts": AD.FACTS, "narrative": "", "contract_ids": [AD.CID]})
-    assert d.call("pack", {"contract_ids": [AD.CID]})["refused"]
+def test_the_plain_ref_driver_does_not_know_the_pack_tool(tmp_path):
+    d = RD.fresh(tmp_path)
+    assert code(d.call("pack", {"contract_ids": [AD.CID]})) == "bad_args"
+
+
+def test_a_copy_style_pack_driver_call_is_refused_like_the_rest_of_the_ref_layer(tmp_path):
+    pk = PackDriver(
+        AD.agents(tmp_path / "x", AD.s_proof)[1], request={"facts": AD.FACTS, "narrative": "", "contract_ids": [AD.CID]}
+    )
+    ing = pk.call("ingest", {"facts": list(AD.FACTS), "narrative": ""})
+    pk.call("select_contracts", {"contract_ids": [AD.CID]})
+    desc = pk.call("describe_contract", {"contract_id": AD.CID})
+    e = desc["elements"][0]
+    copy_call = {
+        "contract_id": AD.CID,
+        "element": e["element_id"],
+        "is_denial": e["is_denial"],
+        "facts": ing["facts"],
+        "narrative": "",
+    }
+    assert code(pk.call("judge_element", copy_call)) == "bad_args"
 
 
 def test_the_pack_tool_takes_no_text_from_the_agent(tmp_path):
@@ -333,20 +344,17 @@ def test_the_fallback_pack_numbers_facts_as_the_engine_does():
     assert ids == ["F1", "F2"] and out["pack"]["citations_to_check"][0]["source_ids"] == ["F1"]
 
 
-@pytest.mark.parametrize(
-    "ids",
-    [[], [AD.CID, AD.CID], "bns69", None, [AD.CID, "extra"], ["extra", AD.CID]],
-)
+@pytest.mark.parametrize("ids", [[], [AD.CID, AD.CID], "bns69", None, [AD.CID, "extra"], ["extra", AD.CID]])
 def test_pack_contract_ids_must_be_the_selected_list_verbatim(tmp_path, ids):
     d = pdrive(tmp_path)
-    assert d.call("pack", {"contract_ids": ids})["refused"]
+    assert code(d.call("pack", {"contract_ids": ids})) in ("binding", "bad_args")
 
 
 def test_pack_before_select_contracts_is_refused(tmp_path):
     _, agent = AD.agents(tmp_path, AD.s_proof)
     d = PackDriver(agent, request={"facts": AD.FACTS, "narrative": "", "contract_ids": [AD.CID]})
     d.call("ingest", {"facts": list(AD.FACTS), "narrative": ""})
-    assert d.call("pack", {"contract_ids": [AD.CID]})["refused"]
+    assert code(d.call("pack", {"contract_ids": [AD.CID]})) == "out_of_order"
 
 
 def test_no_text_the_judge_produced_reaches_the_pack(tmp_path):
@@ -355,15 +363,14 @@ def test_no_text_the_judge_produced_reaches_the_pack(tmp_path):
     judged = [c["output"] for c in d.calls if c["tool"] == "judge_element"]
     blob = json.dumps(out)
     for j in judged:
-        for field in ("quote",):
-            if isinstance(j.get(field), str) and len(j[field]) > 5:
-                assert j[field] not in blob
+        if isinstance(j.get("quote"), str) and len(j["quote"]) > 5:
+            assert j["quote"] not in blob
 
 
-def test_the_base_driver_problem_strings_the_pack_driver_filters_still_exist(tmp_path):
-    """PackDriver.complete drops the base 'decide is not the last stage' string: pin it so a rewording cannot hide it."""
-    _, agent = AD.agents(tmp_path, AD.s_proof)
-    base = AD.drive(agent)  # a screening run whose last stage is decide
-    assert A0.A0Driver.complete(base) == []
-    base.calls.append({"tool": "quote_check", "input": {}, "output": {"valid": True}})
-    assert "decide is not the last stage" in A0.A0Driver.complete(base)
+def test_the_base_driver_problem_string_the_pack_driver_filters_still_exists(tmp_path):
+    """PackDriver.complete drops the reference driver's 'decide is not the last stage': pin it so a rewording cannot hide it."""
+    d = RD.fresh(tmp_path)
+    RD.full(d)
+    assert d.complete() == []
+    d.calls.append({"tool": "quote_check", "input": {}, "output": {"valid": True}, "refused": False})
+    assert "decide is not the last stage" in d.complete()
