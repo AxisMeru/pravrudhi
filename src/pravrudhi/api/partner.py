@@ -492,6 +492,14 @@ class AssistFactsRequest(AnalyseFactsRequest):
     workflow: Literal["screening", "hearing_prep", "intake"] = "screening"
 
 
+class IntakeRequest(BaseModel):
+    """Intake (pravrudhi#414): pasted text only. The text is read and cleaned by the engine; nothing is stored."""
+
+    text: str = Field(min_length=1, max_length=200_000)
+    consent: bool = False
+    session_id: str | None = Field(default=None, max_length=128)
+
+
 #: The exact keys `analyse_facts_ep` strips out of each element's dict when the debug gate is off -- listed
 #: once here and reused both for the strip and (in tests) for the presence/absence assertions, so the two
 #: can never silently drift apart.
@@ -1279,7 +1287,8 @@ def build_partner_router(
         return _run(req, admitted, debug_second_judge)
 
     def _admit(
-        req: AnalyseFactsRequest, request: Request, user: User | None, metered: list[str], per_minute: list[int]
+        req: Any, request: Request, user: User | None, metered: list[str], per_minute: list[int],
+        *, screening: bool = True,
     ) -> _Admitted | JSONResponse:
         """Everything that decides whether a call may run at all (window, limits, metering, validation), shared
         by the synchronous route and job submission so a job is admitted by exactly the same rules."""
@@ -1292,7 +1301,7 @@ def build_partner_router(
         closed = _window_closed(cfg)
         if closed is not None:
             return closed
-        offline = _judges_offline(cfg)
+        offline = _judges_offline(cfg) if screening else None  # intake (not screening) uses no judge
         if offline is not None:
             return offline
         # QUEUE.md 2026-09-27: per-leg second-judge scores are visible to an AUTHENTICATED caller -- a
@@ -1333,11 +1342,12 @@ def build_partner_router(
             metered.append(key.key_id)
             per_minute.append(key.rate_limit_per_minute)
             _record_usage(key.key_id)
-        if not any(f.strip() for f in req.facts):
-            raise HTTPException(422, "at least one non-empty fact is required")
-        for f in req.facts:
-            if len(f) > 4000:
-                raise HTTPException(422, "a fact may not exceed 4000 characters")
+        if screening:
+            if not any(f.strip() for f in req.facts):
+                raise HTTPException(422, "at least one non-empty fact is required")
+            for f in req.facts:
+                if len(f) > 4000:
+                    raise HTTPException(422, "a fact may not exceed 4000 characters")
         return _Admitted(
             cfg,
             concurrency,
@@ -1547,6 +1557,100 @@ def build_partner_router(
         else:
             _audit(metered, req, "assist", status_code=200, out=out)
         return out
+
+    # --- intake (pravrudhi#414): pasted text -> a verified bundle; plain deterministic route and the assisted route ---------
+    def _intake_exists_fn(cfg: PartnerApiConfig) -> Callable[[str], str] | None:
+        """Citation text -> the verifier's own existence result, or None when this deployment has no citation index (the
+        bundle then marks every citation NOT_CHECKED, never a guessed status)."""
+        env_path = os.environ.get("PRAVRUDHI_CITATION_INDEX")
+        path = citation_index_path or (Path(env_path) if env_path else None)
+        if path is None or not Path(path).is_file():
+            return None
+
+        def exists(text: str) -> str:
+            result, _cov = _lookup(Path(path), VerifyCitationRequest(citation=text), cfg.verify_timeout_s)
+            return result.result
+
+        return exists
+
+    def _intake_core(req: IntakeRequest, admitted: _Admitted) -> dict[str, Any]:
+        """The plain deterministic intake result (no model): the same bundle the assisted run falls back to."""
+        from pravrudhi.application.a0_assist import intake
+
+        try:
+            bundle = intake.build_bundle(req.text, verify_fn=_intake_exists_fn(admitted.cfg))
+        except intake.IntakeRefused as e:
+            raise HTTPException(422, str(e)) from e
+        return {"run_id": f"nyaya-intake-{os.urandom(5).hex()}", "client_data": True, "bundle": bundle}
+
+    def _intake_admit(req: IntakeRequest, request: Request, user: User | None, metered: list[str], per_minute: list[int]) -> Any:
+        admitted = _admit(req, request, user, metered, per_minute, screening=False)
+        if isinstance(admitted, JSONResponse):
+            return admitted
+        if not admitted.authenticated:
+            return JSONResponse(status_code=401, content={"detail": "intake is offered only to signed-in users"})
+        return admitted
+
+    @router.post("/intake", include_in_schema=False, response_model=None)
+    def intake_ep(
+        req: IntakeRequest, request: Request, response: Response, user: User | None = CurrentUserDep
+    ) -> dict[str, Any] | JSONResponse:
+        metered: list[str] = []
+        per_minute: list[int] = []
+        admitted = _intake_admit(req, request, user, metered, per_minute)
+        if isinstance(admitted, JSONResponse):
+            return admitted
+        out = _intake_core(req, admitted)
+        if metered:
+            response.headers.update(_rate_headers(metered[0], per_minute[0]))
+        return out
+
+    @router.post("/intake/assist", include_in_schema=False, response_model=None)
+    def intake_assist_ep(
+        req: IntakeRequest, request: Request, response: Response, user: User | None = CurrentUserDep
+    ) -> dict[str, Any] | JSONResponse:
+        from pravrudhi.application import assistant_tier
+        from pravrudhi.application.a0_assist import assist as a0
+        from pravrudhi.application.a0_assist import runtime as a0rt
+        from pravrudhi.application.a0_assist.intake_driver import IntakeDriver
+
+        rt = a0rt.get(engine_root)
+        if rt is None or not rt.enabled or rt.limiter is None or rt.slots is None:
+            raise HTTPException(404, "assist_not_enabled")
+        if req.consent is not True:
+            return JSONResponse(status_code=400, content={"error": "consent_required"})
+        metered: list[str] = []
+        per_minute: list[int] = []
+        admitted = _intake_admit(req, request, user, metered, per_minute)
+        if isinstance(admitted, JSONResponse):
+            return admitted
+        exists_fn = _intake_exists_fn(admitted.cfg)
+
+        def finalize(driver: Any) -> dict[str, Any]:
+            return {"run_id": f"nyaya-intake-{os.urandom(5).hex()}", "client_data": True, "bundle": driver.result}
+
+        deps = a0.Deps(
+            cfg=rt.cfg,
+            tier_status=lambda: assistant_tier.status(engine_root),
+            store=rt.store,
+            transport=rt.transport,
+            limiter=rt.limiter,
+            slots=rt.slots,
+            core=lambda: _intake_core(req, admitted),
+            make_driver=lambda: IntakeDriver(req.text, exists_fn=exists_fn),
+            finalize=finalize,
+            workflows=frozenset({"intake"}),
+            user_message=a0.intake_user_message,
+            summarise=lambda driver, events: None,  # the result is the bundle; the agent's prose is never shown
+        )
+        caller = a0.Caller(admitted.authenticated, admitted.user_id, admitted.org_id, admitted.ip)
+        out = a0.run_assisted({"text": req.text}, caller, req.consent, req.session_id, deps, workflow="intake")
+        if isinstance(out, dict):
+            out.pop("retention_notice", None)
+        if metered and isinstance(out, dict):
+            response.headers.update(_rate_headers(metered[0], per_minute[0]))
+        result: dict[str, Any] | JSONResponse = out
+        return result
 
     # --- async job mode (#146): same admission, same agent run, collected by polling -------------------------
     _jobs_lock = threading.Lock()
