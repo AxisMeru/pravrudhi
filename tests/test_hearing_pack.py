@@ -6,9 +6,11 @@ import copy
 import json
 import re
 from pathlib import Path
+from typing import get_args
 
 import pytest
 
+from pravrudhi.application import nyaya_agent as agent_mod
 from pravrudhi.application.a0_assist import driver as A0
 from pravrudhi.application.hearing_pack import pack as P
 from pravrudhi.application.hearing_pack.driver import STAGES_PACK, PackDriver
@@ -276,7 +278,7 @@ def test_the_screening_driver_does_not_know_the_pack_tool(tmp_path):
 def test_the_pack_tool_takes_no_text_from_the_agent(tmp_path):
     d = pdrive(tmp_path)
     out = d.call("pack", {"contract_ids": [AD.CID]})
-    assert set(out) == {"pack_version", "provenance", "contracts", "citations_to_check", "prompt_defaults"}
+    assert set(out) == {"pack_version", "provenance", "contracts", "citations_to_check", "citations_truncated", "prompt_defaults"}
 
 
 def test_a_citation_repeated_in_one_source_lists_that_source_once():
@@ -291,3 +293,77 @@ BANNED = ("proved", "established", "verbatim", "verified", "fake", "invalid", "f
 def test_the_default_prompt_wording_uses_no_banned_phrase():
     for text in [*P.PROMPT_DEFAULTS.values(), P.GENERIC_REVIEW_TEXT]:
         assert not [w for w in BANNED if w in text.lower()], text
+
+
+# ---- review findings of the isolated pre-check, each with its arm
+def test_the_reason_table_covers_the_engines_own_reason_type():
+    assert set(get_args(agent_mod.ContractReason)) <= set(P.REASON_TEXT)
+
+
+def test_an_element_status_with_no_fixed_prompt_is_open_with_the_generic_prompt_not_a_crash():
+    (o,) = P.build_pack([contract([el("E1", "a_status_nobody_planned")])], [])["contracts"][0]["open_ingredients"]
+    assert o["prompt_id"] == P.GENERIC_PROMPT_ID and o["prompt_text"] == P.GENERIC_REVIEW_TEXT
+
+
+def test_the_citation_cap_is_flagged_not_silent():
+    many = [{"id": f"F{i}", "text": f"(2000) {i + 1} SCC {i + 100}"} for i in range(P.MAX_CITATIONS + 3)]
+    assert P.build_pack([contract([el("E1")])], many)["citations_truncated"] is True
+    assert P.build_pack([contract([el("E1")])], many[:3])["citations_truncated"] is False
+
+
+def test_attach_pack_adds_the_pack_to_a_screening_result_and_passes_everything_else_through():
+    body = {"run_id": "r", "contracts": [contract([el("E1", "not_established")])]}
+    out = P.attach_pack(body, ["He promised to pay."], "")
+    assert out["pack"]["contracts"][0]["open_ingredients"][0]["element"] == "E1" and out["run_id"] == "r" and "pack" not in body
+    for other in ({"error": "x"}, {"contracts": "not a list"}, None, ["a"]):
+        assert P.attach_pack(other, ["a fact"], "") is other
+
+
+def test_a_pack_that_cannot_be_built_never_costs_the_user_the_ordinary_result():
+    broken = {"run_id": "r", "contracts": [{"contract_id": "x"}]}  # no reason, no elements: build_pack raises inside
+    assert P.attach_pack(broken, ["a fact"], "") is broken
+
+
+def test_the_fallback_pack_numbers_facts_as_the_engine_does():
+    from pravrudhi.application.nyaya_agent import ingest_facts
+
+    texts = ["  First fact (1977) 3 SCC 247.  ", "Second."]
+    ids = [f.id for f in ingest_facts(texts)]
+    out = P.attach_pack({"contracts": [contract([el("E1")])]}, texts, "")
+    assert ids == ["F1", "F2"] and out["pack"]["citations_to_check"][0]["source_ids"] == ["F1"]
+
+
+@pytest.mark.parametrize(
+    "ids",
+    [[], [AD.CID, AD.CID], "bns69", None, [AD.CID, "extra"], ["extra", AD.CID]],
+)
+def test_pack_contract_ids_must_be_the_selected_list_verbatim(tmp_path, ids):
+    d = pdrive(tmp_path)
+    assert d.call("pack", {"contract_ids": ids})["refused"]
+
+
+def test_pack_before_select_contracts_is_refused(tmp_path):
+    _, agent = AD.agents(tmp_path, AD.s_proof)
+    d = PackDriver(agent, request={"facts": AD.FACTS, "narrative": "", "contract_ids": [AD.CID]})
+    d.call("ingest", {"facts": list(AD.FACTS), "narrative": ""})
+    assert d.call("pack", {"contract_ids": [AD.CID]})["refused"]
+
+
+def test_no_text_the_judge_produced_reaches_the_pack(tmp_path):
+    d = pdrive(tmp_path)
+    out = d.call("pack", {"contract_ids": [AD.CID]})
+    judged = [c["output"] for c in d.calls if c["tool"] == "judge_element"]
+    blob = json.dumps(out)
+    for j in judged:
+        for field in ("quote",):
+            if isinstance(j.get(field), str) and len(j[field]) > 5:
+                assert j[field] not in blob
+
+
+def test_the_base_driver_problem_strings_the_pack_driver_filters_still_exist(tmp_path):
+    """PackDriver.complete drops the screening driver's own 'decide is not the last stage' string: pin it so a reworded base cannot hide a problem."""
+    _, agent = AD.agents(tmp_path, AD.s_proof)
+    base = AD.drive(agent)  # a screening run whose last stage is decide
+    assert A0.A0Driver.complete(base) == []
+    base.calls.append({"tool": "quote_check", "input": {}, "output": {"valid": True}})
+    assert "decide is not the last stage" in A0.A0Driver.complete(base)

@@ -36,10 +36,12 @@ OPEN_PROMPT_BY_STATUS: dict[str, str] = {
     "not_evaluated_gate1_unavailable": "not_assessed",
 }
 DEFENCE_PROMPT_ID = "defence_cited"
-PROMPT_IDS: tuple[str, ...] = ("no_fact_found", "cited_fact_unconfirmed", "not_assessed", DEFENCE_PROMPT_ID)
+GENERIC_PROMPT_ID = "needs_review"  # a status this module has no fixed prompt for (never a crash)
+PROMPT_IDS: tuple[str, ...] = ("no_fact_found", "cited_fact_unconfirmed", "not_assessed", DEFENCE_PROMPT_ID, GENERIC_PROMPT_ID)
 
 # Default strings for a client without the app; the app maps `prompt_id` to its own signed wording (R1). No outcome words.
 PROMPT_DEFAULTS: dict[str, str] = {
+    GENERIC_PROMPT_ID: GENERIC_REVIEW_TEXT,
     "no_fact_found": "No cited fact was found for this ingredient. Look for a fact that bears on it, or confirm there is none.",
     "cited_fact_unconfirmed": (
         "A fact was cited for this ingredient, but the cited words could not be confirmed in your facts. "
@@ -127,7 +129,7 @@ PACK_TOOL_SCHEMA: dict[str, Any] = {
 }
 
 
-def _citations(facts: list[dict[str, Any]], narrative: str) -> list[dict[str, Any]]:
+def _citations(facts: list[dict[str, Any]], narrative: str) -> tuple[list[dict[str, Any]], bool]:
     """Case-law citations in the facts and the narrative, deduplicated by their printed text; each is one ready body for the
     existing existence-only verifier (a single citation, no quote)."""
     seen: dict[str, dict[str, Any]] = {}
@@ -142,7 +144,8 @@ def _citations(facts: list[dict[str, Any]], narrative: str) -> list[dict[str, An
             entry = seen.setdefault(printed, {"citation": printed, "source_ids": [], "verify_request": {"citation": printed}})
             if src_id not in entry["source_ids"]:
                 entry["source_ids"].append(src_id)
-    return list(seen.values())[:MAX_CITATIONS]
+    found = list(seen.values())
+    return found[:MAX_CITATIONS], len(found) > MAX_CITATIONS
 
 
 def _contract_pack(c: dict[str, Any]) -> dict[str, Any]:
@@ -156,8 +159,8 @@ def _contract_pack(c: dict[str, Any]) -> dict[str, Any]:
             "element": e["element"],
             "ordinal": ordinal[e["element"]],
             "status": e["status"],
-            "prompt_id": OPEN_PROMPT_BY_STATUS[e["status"]],
-            "prompt_text": PROMPT_DEFAULTS[OPEN_PROMPT_BY_STATUS[e["status"]]],
+            "prompt_id": OPEN_PROMPT_BY_STATUS.get(e["status"], GENERIC_PROMPT_ID),
+            "prompt_text": PROMPT_DEFAULTS[OPEN_PROMPT_BY_STATUS.get(e["status"], GENERIC_PROMPT_ID)],
         }
         for e in required
         if e["status"] != "established"
@@ -194,10 +197,25 @@ def _contract_pack(c: dict[str, Any]) -> dict[str, Any]:
 
 def build_pack(contracts: list[dict[str, Any]], facts: list[dict[str, Any]], narrative: str = "") -> dict[str, Any]:
     """The pack for these decided contracts, in the order given. Pure and deterministic."""
+    citations, truncated = _citations(facts, narrative)
     return {
         "pack_version": PACK_VERSION,
         "provenance": "agama",
         "contracts": [_contract_pack(c) for c in contracts],
-        "citations_to_check": _citations(facts, narrative),
+        "citations_to_check": citations,
+        "citations_truncated": truncated,
         "prompt_defaults": {k: PROMPT_DEFAULTS[k] for k in PROMPT_IDS},
     }
+
+
+def attach_pack(body: Any, fact_texts: list[str], narrative: str) -> Any:
+    """The ordinary (core) result plus the pack built from it by the same pure function the `pack` tool uses, for a hearing_prep
+    request whose assisted run did not finish. It can never cost the user the ordinary result: anything that is not a screening
+    result (an error response) passes through unchanged, and a pack that cannot be built leaves the body as it was."""
+    if not (isinstance(body, dict) and isinstance(body.get("contracts"), list)):
+        return body
+    try:
+        facts = [{"id": f"F{i + 1}", "text": t.strip()} for i, t in enumerate(fact_texts)]
+        return {**body, "pack": build_pack(body["contracts"], facts, narrative or "")}
+    except Exception:  # noqa: BLE001 - the ordinary result is never lost to the pack
+        return body
