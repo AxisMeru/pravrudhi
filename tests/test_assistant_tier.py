@@ -236,3 +236,34 @@ def test_frontier_reader_available_is_false_in_every_state(tmp_path, monkeypatch
     body = c.get("/api/health").json()
     assert body["frontier_reader_available"] is False
     assert (body["assistant_tier"]["state"] == "available") == (scenario == "available")
+
+
+def test_config_that_is_not_valid_utf8_fails_closed(tmp_path):
+    root = root_with(tmp_path); (root / "configs" / "assistant_tier.yaml").write_bytes(b"\xff\xfe enabled: true")
+    assert st(root) == {"state": UNAVAILABLE, "reason": "disabled"} and T.limits(root) is None
+
+
+def test_deeply_nested_config_fails_closed(tmp_path):
+    assert st(root_with(tmp_path, raw="x: " + "[" * 100000))["reason"] == "disabled"
+
+
+def test_deeply_nested_budget_file_fails_closed(tmp_path):
+    p = tmp_path / "budget.json"; p.write_text("[" * 100000)
+    assert st(root_with(tmp_path, base_cfg(budget_file=str(p))))["reason"] == "budget_floor"
+
+
+def test_budget_file_that_is_not_valid_utf8_fails_closed(tmp_path):
+    p = tmp_path / "budget.json"; p.write_bytes(b"\xff\xfe")
+    assert st(root_with(tmp_path, base_cfg(budget_file=str(p))))["reason"] == "budget_floor"
+
+
+def test_health_never_500s_when_the_tier_check_raises(tmp_path, monkeypatch):
+    def boom(root): raise RuntimeError("anything")
+    monkeypatch.setattr(T, "status", boom)
+    r = client(root_with(tmp_path)).get("/api/health")
+    assert r.status_code == 200 and r.json()["assistant_tier"] == {"state": UNAVAILABLE, "reason": "disabled"} and r.json()["frontier_reader_available"] is False
+
+
+def test_health_with_a_non_utf8_config_is_not_a_500(tmp_path):
+    root = root_with(tmp_path); (root / "configs" / "assistant_tier.yaml").write_bytes(b"\xff\xfe")
+    r = client(root).get("/api/health"); assert r.status_code == 200 and r.json()["assistant_tier"]["reason"] == "disabled"

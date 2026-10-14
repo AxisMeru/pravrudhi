@@ -50,7 +50,7 @@ def _num(v: Any) -> float | None:
 def _load(root: Path) -> dict[str, Any] | None:
     try:
         cfg = yaml.safe_load(config_file(root, CONFIG_NAME).read_text())
-    except (OSError, yaml.YAMLError):
+    except (OSError, ValueError, RecursionError, yaml.YAMLError):
         return None
     return cfg if isinstance(cfg, dict) else None
 
@@ -77,7 +77,7 @@ def _failure_reason(ttl: float, now: float) -> str | None:
 def _budget_ok(path: Any, floor: float) -> bool:
     try:
         remaining = _num(json.loads(Path(str(path)).read_text()).get("remaining_usd"))
-    except (OSError, ValueError, AttributeError):
+    except (OSError, ValueError, AttributeError, RecursionError):
         return False
     return remaining is not None and remaining >= floor
 
