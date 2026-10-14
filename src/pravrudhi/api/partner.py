@@ -373,7 +373,7 @@ _VERIFY_NOTES = {
     "EXISTS_QUOTE_NOT_FOUND": "The citation resolves to an indexed case but the quote was not found in its text.",
     "IN_INDEX": "Found in the index (existence only): no quote was checked, so this is not a verification.",
     "NOT_IN_INDEX": (
-        "The case was not found in our index. "
+        "We could not match this citation to exactly one case in our index. "
         "That does not show whether the citation is real: the index does not hold every judgment."
     ),
     "MALFORMED": "Exactly one parseable citation is required.",

@@ -3,7 +3,7 @@
 The engine never calls a model here and never widens what the verifier resolves. `verified` is True ONLY for
 `VerifyResult.VERIFIED`, which `verify()` returns only for exactly one parseable citation that resolves to ONE indexed case
 AND a non-empty quote that occurs verbatim in that case's text (an empty or whitespace-only quote never verifies, #331).
-The labels are the verifier's statuses verbatim; none says a citation is fake, false or invalid: "not in index" is "no
+The labels are the verifier's statuses verbatim; none says a citation is fake, false or invalid: "Not found in our index" is "no
 evidence either way". The mapping covers every enum member, and a value it does not know raises instead of guessing, so a
 future member cannot be shown as verified by default.
 """
@@ -29,7 +29,7 @@ _LABELS: dict[VerifyResult, tuple[str, str]] = {
         "in_index",
         "Found in the index (existence only): no quote was checked, so this is not a verification.",
     ),
-    VerifyResult.NOT_IN_INDEX: ("not_in_index", "not in index"),
+    VerifyResult.NOT_IN_INDEX: ("not_in_index", "Not found in our index"),
     VerifyResult.CONFLICT: ("conflict", "conflict: the citation matches more than one indexed case"),
     VerifyResult.MALFORMED: ("malformed", "Exactly one parseable citation is required."),
 }
