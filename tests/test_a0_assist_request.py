@@ -665,3 +665,43 @@ def test_a_live_shaped_cost_below_the_reserve_is_reported_as_read(tmp_path):
     e.tr.list_events = lambda sid: [{"type": "session.usage", "list_cost": e.tr.cost}]
     out = e.run()
     assert e.store.log[2][2] == 3 and block(out)["cost"]["used_cents"] == 3
+
+
+# ---- follow-up (R2's three gaps) ---------------------------------------------------------------------------------------------------------------
+@pytest.mark.parametrize("v", ["1.2.3", ".", "1.", ".5", "1,5", " 5", "5 ", "+5", "1e2", "0x10", "٣"])
+def test_cost_strings_that_are_not_a_plain_decimal_are_unreadable(v):
+    assert AS.cost_amount_cents(v) is None
+    assert AS.cost_amount_cents({"amount": v, "currency": "USD"}) is None
+
+
+def test_list_cost_prefers_the_usage_event_over_the_session_object_and_falls_back_when_the_event_is_unreadable():
+    ev = [{"type": "session.usage", "list_cost": {"amount": "5", "currency": "USD"}}]
+    session = {"usage": {"list_cost": {"amount": "9", "currency": "USD"}}}
+    assert AS.list_cost_cents(ev, session) == 5
+    bad = [{"type": "session.usage", "list_cost": {"amount": "x", "currency": "USD"}}]
+    assert AS.list_cost_cents(bad, session) == 9
+    assert AS.list_cost_cents([], session) == 9
+
+
+def test_only_the_last_usage_event_counts():
+    ev = [{"type": "session.usage", "list_cost": "2"}, {"type": "agent.message"}, {"type": "session.usage", "list_cost": "6"}]
+    assert AS.list_cost_cents(ev, {"usage": {"list_cost": "9"}}) == 6
+
+
+def test_transport_note_reports_the_status_to_the_record_hook():
+    got = []
+    t = TR.AnthropicTransport(
+        "invented-key",
+        "wrkspc_invented",
+        client=httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(200, json={}))),
+        record=got.append,
+    )
+    t.note(599)
+    t.note(429)
+    assert got == [599, 429]
+    quiet = TR.AnthropicTransport(
+        "invented-key",
+        "wrkspc_invented",
+        client=httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(200, json={}))),
+    )
+    quiet.note(599)  # no hook: nothing raised

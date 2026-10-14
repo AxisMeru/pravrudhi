@@ -95,7 +95,7 @@ def cost_amount_cents(v: Any, bound: int = MAX_SESSION_CENTS) -> int | None:
     if isinstance(v, bool):
         return None
     if isinstance(v, str):
-        if not re.fullmatch(r"\d+(\.\d+)?", v):
+        if not re.fullmatch(r"[0-9]+(\.[0-9]+)?", v):
             return None
         v = float(v)
     if isinstance(v, (int, float)):
