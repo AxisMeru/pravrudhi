@@ -870,6 +870,9 @@ def test_pc6_usable_rule_fails_closed_on_a_bundle_it_cannot_read_and_on_a_mostly
     assert I.fact_list_usable(ok)["pass"] is True
     cap = {"status": "caption", "cleaned_start": 0, "cleaned_end": 6000}
     assert I.fact_list_usable({**ok, "not_citable": [cap]})["pass"] is False  # 60% of the text left out
+    edge = lambda n: {**ok, "not_citable": [{**cap, "cleaned_end": n}]}  # noqa: E731
+    assert I.fact_list_usable(edge(3500))["pass"] is True  # 35% left out passes
+    assert I.fact_list_usable(edge(3600))["pass"] is False  # 36% fails
 
 
 def test_pc7_paragraph_spans_never_start_or_end_on_whitespace_even_with_three_newlines():
@@ -937,3 +940,18 @@ def test_pc11_a_letterless_fact_is_joined_to_a_neighbour_both_arms():
 
 def test_pc12_numbered_devanagari_counts_as_prose():
     assert I._numbered_prose("1. धारा 302 के अंतर्गत आरोप है।")
+
+
+def test_pc13_a_blank_line_after_every_printed_line_is_joined_inside_a_sentence_only():
+    raw = (
+        "1. This application has been preferred\n\nagainst the judgment of acquittal\n\nrendered by the Trial Court.\n\n"
+        "The second sentence starts here and ends here.\n"
+    )
+    b = I.build_bundle(raw)
+    assert facts_text(b)[0].startswith(
+        "1. This application has been preferred against the judgment of acquittal rendered by the Trial Court."
+    )
+    # arm 2: after a line that ends a sentence, or before an upper-case word, the paragraph break stays
+    assert "\n\nThe second sentence" in b["cleaned"] and all(v["pass"] for v in b["checks"].values())
+    c = I.clean("Heading line without a stop\n\nBEFORE THE COURT\n\nand then more text here.\n")
+    assert "Heading line without a stop\n\nBEFORE" in c["cleaned"] and "BEFORE THE COURT and then" in c["cleaned"]

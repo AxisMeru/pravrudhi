@@ -156,7 +156,15 @@ def _ws_piece(raw: str, s: int, e: int, ends_by_start: dict[int, int]) -> str:
     marker ("12." / "(3)" / "(iv)"); a single space otherwise. Used by `clean` and re-applied by `check_clean`."""
     run = raw[s:e]
     nxt = _next_kept(e, ends_by_start)
-    if run.count("\n") >= 2 or ("\n" in run and _PARA_START.match(raw[nxt : nxt + 16])):
+    if "\n" in run and _PARA_START.match(raw[nxt : nxt + 16]):
+        return "\n\n"
+    if run.count("\n") >= 2:
+        # a text layer that puts a blank line after every printed line: a break before a lower-case word, after a line that
+        # does not end a sentence, is the same sentence continuing
+        before = raw[s - 1] if s > 0 else "."
+        after = raw[nxt] if nxt < len(raw) else "A"
+        if after.islower() and before not in ".?!:;)\"'\u201d\u2019\u0964":
+            return " "
         return "\n\n"
     return " "
 
@@ -792,12 +800,12 @@ def split_facts(cleaned: str) -> list[dict[str, int]]:
 
 # ---- the stated range for a usable fact list ----------------------------------------------------------------------------
 USABLE_MIN_TEXT_CHARS = 2000  # shorter texts are not judged (a short note has few facts)
-USABLE_FACTS_PER_10K = (10.0, 60.0)  # observed on 39 cleared public orders: 15.9 to 45.5 (median 24.0)
-USABLE_MEDIAN_FACT_CHARS = (100, MAX_FACT_CHARS)  # observed: median fact 152 to 513 characters (median of medians 323)
+USABLE_FACTS_PER_10K = (10.0, 60.0)  # observed on 39 cleared public orders: 13.9 to 45.5 (median 22.8)
+USABLE_MEDIAN_FACT_CHARS = (100, MAX_FACT_CHARS)  # observed: median fact 149 to 517 characters (median of medians 353)
 USABLE_SHORT_FACT_SHARE_MAX = 0.20  # facts under 40 characters; observed maximum 0.16
 
 
-USABLE_EXCLUDED_SHARE_MAX = 0.5  # characters left out as caption, repeated lines or marks; observed maximum 0.25
+USABLE_EXCLUDED_SHARE_MAX = 0.35  # characters left out as caption, repeated lines or marks; observed maximum 0.25
 
 
 def fact_list_usable(bundle: dict[str, Any]) -> dict[str, Any]:
