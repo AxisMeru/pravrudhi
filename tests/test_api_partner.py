@@ -634,7 +634,9 @@ def test_sixth_request_in_a_minute_is_429_with_retry_after(tmp_path: Path) -> No
     # A rate-limited caller gets a real JSON body, not an empty 429 -- something a partner's client can
     # parse and log, not just a status code to notice.
     assert resp.headers["content-type"].startswith("application/json")
-    assert resp.json() == {"detail": "rate limit exceeded"}
+    body = resp.json()
+    assert body["detail"] == "rate limit exceeded"  # the machine field is unchanged (#403 adds fields beside it)
+    assert (body["limit_per_minute"], body["window_seconds"], body["scope"]) == (6, 60, "anonymous")
 
 
 def test_rate_limit_is_per_client_ip(tmp_path: Path) -> None:

@@ -265,6 +265,10 @@ class RateLimiter:
         self._lock = threading.Lock()
         self._windows: OrderedDict[str, tuple[int, int]] = OrderedDict()  # key -> (window_start_minute, count)
 
+    @property
+    def per_minute(self) -> int:
+        return self._per_minute
+
     def _evict_stale_locked(self, current_window: int) -> None:
         # Oldest-accessed first (that's where staleness concentrates in practice) -- NEVER evicts a
         # current-window entry, staleness is the only eviction criterion here.
@@ -298,6 +302,35 @@ class RateLimiter:
         """Seconds until the current window rolls over -- always a whole window's worth or less, never
         computed per-key (a caller who is refused does not need to know anyone else's window state)."""
         return 60 - int(self._now() % 60)
+
+
+def rate_limited_response(
+    *, limit: int, retry_after: int, scope: str, headers: dict[str, str] | None = None
+) -> JSONResponse:
+    """The 429 body (#403): the machine field `detail` and the `Retry-After` header are unchanged; the added fields say the
+    limit, the window and what to do. `scope` is "anonymous" (no signed-in user and no key), "caller" (a signed-in user
+    or key whose address bucket fired) or "key" (a key's own per-minute limit)."""
+    if scope == "anonymous":
+        message = (
+            f"You have reached the limit for visitors who are not signed in ({limit} requests per minute). "
+            f"Try again in {retry_after} seconds, or sign in or use an API key to get your own limit."
+        )
+    elif scope == "key":
+        message = f"Your key has reached its limit of {limit} requests per minute. Try again in {retry_after} seconds."
+    else:
+        message = f"You have reached your limit of {limit} requests per minute. Try again in {retry_after} seconds."
+    return JSONResponse(
+        status_code=429,
+        content={
+            "detail": "rate limit exceeded",
+            "message": message,
+            "limit_per_minute": limit,
+            "window_seconds": 60,
+            "retry_after_seconds": retry_after,
+            "scope": scope,
+        },
+        headers={**(headers or {}), "Retry-After": str(retry_after)},
+    )
 
 
 class ConcurrencyLimiter:
@@ -1186,10 +1219,9 @@ def build_partner_router(
             request, trust_proxy_header=cfg.trust_proxy_header, trusted_proxies=cfg.trusted_proxies, caller_key=caller_key
         )
         if not rate_limiter.allow(ip):
-            return JSONResponse(
-                status_code=429,
-                content={"detail": "rate limit exceeded"},
-                headers={"Retry-After": str(rate_limiter.retry_after_seconds())},
+            return rate_limited_response(
+                limit=rate_limiter.per_minute, retry_after=rate_limiter.retry_after_seconds(),
+                scope="caller" if authenticated else "anonymous",
             )
         if principal is not None:
             key = next((k for k in tenancy.keys_for_org(engine_root, principal.org_id)
@@ -1197,11 +1229,9 @@ def build_partner_router(
             if key is None:
                 raise HTTPException(401, "Invalid or revoked API key")
             if not _key_rate_limiter.allow(key.key_id, key.rate_limit_per_minute):
-                return JSONResponse(
-                    status_code=429,
-                    content={"detail": "rate limit exceeded"},
-                    headers={**_rate_headers(key.key_id, key.rate_limit_per_minute),
-                             "Retry-After": str(_key_rate_limiter.retry_after_seconds())},
+                return rate_limited_response(
+                    limit=key.rate_limit_per_minute, retry_after=_key_rate_limiter.retry_after_seconds(), scope="key",
+                    headers=_rate_headers(key.key_id, key.rate_limit_per_minute),
                 )
             metered.append(key.key_id)
             per_minute.append(key.rate_limit_per_minute)
@@ -1568,21 +1598,18 @@ def build_partner_router(
             caller_key=f"key:{principal.key_id}" if principal is not None else None,
         )
         if not rate_limiter.allow(ip):
-            return JSONResponse(
-                status_code=429,
-                content={"detail": "rate limit exceeded"},
-                headers={"Retry-After": str(rate_limiter.retry_after_seconds())},
+            return rate_limited_response(
+                limit=rate_limiter.per_minute, retry_after=rate_limiter.retry_after_seconds(),
+                scope="caller" if principal is not None else "anonymous",
             )
         if principal is not None:
             key = next((k for k in tenancy.keys_for_org(engine_root, principal.org_id) if k.key_id == principal.key_id), None)
             if key is None:
                 raise HTTPException(401, "Invalid or revoked API key")
             if not _key_rate_limiter.allow(key.key_id, key.rate_limit_per_minute):
-                return JSONResponse(
-                    status_code=429,
-                    content={"detail": "rate limit exceeded"},
-                    headers={**_rate_headers(key.key_id, key.rate_limit_per_minute),
-                             "Retry-After": str(_key_rate_limiter.retry_after_seconds())},
+                return rate_limited_response(
+                    limit=key.rate_limit_per_minute, retry_after=_key_rate_limiter.retry_after_seconds(), scope="key",
+                    headers=_rate_headers(key.key_id, key.rate_limit_per_minute),
                 )
             metered.append(key.key_id)
             per_minute.append(key.rate_limit_per_minute)
@@ -1791,10 +1818,8 @@ def build_partner_router(
         # rate budget against -- the per-key limiter (distinct from analyse-facts's per-IP one) is exercised
         # here so a key's `rate_limit_per_minute` is real and testable even before matters/documents exist.
         if not _key_rate_limiter.allow(key.key_id, key.rate_limit_per_minute):
-            return JSONResponse(
-                status_code=429,
-                content={"detail": "rate limit exceeded"},
-                headers={"Retry-After": str(_key_rate_limiter.retry_after_seconds())},
+            return rate_limited_response(
+                limit=key.rate_limit_per_minute, retry_after=_key_rate_limiter.retry_after_seconds(), scope="key"
             )
         calls, failed = tenancy.usage_counts(engine_root, key.key_id)
         return UsageOut(
