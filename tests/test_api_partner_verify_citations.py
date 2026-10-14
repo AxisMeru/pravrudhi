@@ -59,7 +59,8 @@ def test_unresolvable_citation_is_not_in_index_with_no_evidence_note(tmp_path: P
     r = _post(_client(tmp_path, _index(tmp_path)), citation="AIR 1950 SC 27")
     j = r.json()
     assert r.status_code == 200 and j["result"] == "NOT_IN_INDEX"
-    assert j["note"].startswith("The case was not found in our index.") and "fake" not in j["note"].lower()
+    assert j["note"].startswith("We could not match this citation to exactly one case in our index.")
+    assert "fake" not in j["note"].lower()
 
 
 def test_malformed_citation(tmp_path: Path) -> None:
@@ -220,7 +221,7 @@ def test_the_labels_are_verbatim_and_never_call_a_citation_fake() -> None:
 
     labels = {r: cs.status_for(r).label for r in VerifyResult}
     assert labels[VerifyResult.EXISTS_QUOTE_NOT_FOUND] == "quote not found in the indexed text of the case"
-    assert labels[VerifyResult.NOT_IN_INDEX] == "not in index"
+    assert labels[VerifyResult.NOT_IN_INDEX] == "Not found in our index"
     assert labels[VerifyResult.CONFLICT] == "conflict: the citation matches more than one indexed case"
     assert "exact" not in labels[VerifyResult.VERIFIED].lower()
     assert "word for word apart from line breaks, quote marks, dashes and spacing" in labels[VerifyResult.VERIFIED]
@@ -245,7 +246,7 @@ def test_the_route_returns_the_status_contract_and_keeps_result_and_note(tmp_pat
     assert (miss["result"], miss["status"], miss["verified"], miss["label"]) == (
         "EXISTS_QUOTE_NOT_FOUND", "quote_not_found", False, "quote not found in the indexed text of the case")
     gone = _post(c, citation="(1999) 9 SCC 999", quote="anything").json()
-    assert (gone["status"], gone["verified"], gone["label"]) == ("not_in_index", False, "not in index")
+    assert (gone["status"], gone["verified"], gone["label"]) == ("not_in_index", False, "Not found in our index")
     bad = _post(c, citation="no citation here", quote="x").json()
     assert (bad["result"], bad["status"], bad["verified"]) == ("MALFORMED", "malformed", False)
     assert all(r["preview"] is True for r in (ok, miss, gone, bad))
@@ -274,7 +275,7 @@ def test_no_verify_note_uses_the_word_fake_and_not_in_index_says_what_it_means()
     assert set(_VERIFY_NOTES) == {"VERIFIED", "EXISTS_QUOTE_NOT_FOUND", "NOT_IN_INDEX", "MALFORMED", "CONFLICT", "IN_INDEX"}
     assert not any("fake" in note.lower() for note in _VERIFY_NOTES.values())
     assert _VERIFY_NOTES["NOT_IN_INDEX"] == (
-        "The case was not found in our index. "
+        "We could not match this citation to exactly one case in our index. "
         "That does not show whether the citation is real: the index does not hold every judgment."
     )
 
