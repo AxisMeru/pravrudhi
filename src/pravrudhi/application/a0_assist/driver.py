@@ -317,6 +317,13 @@ class A0Driver:
         )
 
         def finish(outcome: str, reason: str, **kw: Any) -> dict[str, Any]:
+            def early(name: str) -> list[str]:
+                """Early decisions (input_too_long, judge_error) never compute these lists; absent means none (the engine default)."""
+                try:
+                    return kw[name]
+                except KeyError:
+                    return []
+
             res = a.ContractResult(
                 cid,
                 outcome,
@@ -325,15 +332,15 @@ class A0Driver:
                 kw.get("assertions"),
                 kw.get("lean"),
                 kw.get("lean_outcome"),
-                kw.get("uncertain", []),
+                early("uncertain"),
                 st["mismatch"],
-                kw.get("uncertain_second", []),
+                early("uncertain_second"),
                 statute_text_similarity=st["similarity"],
                 element_stages={r.element: s for r in results if (s := a.element_stage(r))},
-                unavailable_second=kw.get("unavailable_second", []),
-                gate1_unavailable=kw.get("gate1_unavailable", []),
-                gate1_failed=kw.get("gate1_failed", []),
-                gate1_contradiction=kw.get("gate1_contradiction", []),
+                unavailable_second=early("unavailable_second"),
+                gate1_unavailable=early("gate1_unavailable"),
+                gate1_failed=early("gate1_failed"),
+                gate1_contradiction=early("gate1_contradiction"),
                 lean_attestation=kw.get("lean_attestation"),
                 rule_text=st["official"],
                 judge_rule_text=st["judge_rule_text"],

@@ -15,7 +15,7 @@ from tests.test_a0_assist_sweeper import FakeStore, FakeTransport
 
 REPO = Path(__file__).resolve().parent.parent
 NOW = 1_700_000_000.0
-SECRET = "sk-sweeper-SECRET-77"
+MARKER = "sweeper-marker-77"
 
 
 def iso(age_s):
@@ -124,7 +124,7 @@ def test_the_output_has_counts_and_flags_only_never_an_id(tmp_path):
 
 def test_no_store_or_no_key_is_exit_3(tmp_path):
     assert B.run(root_with(tmp_path), {}, canary=False, prune=False)[0] == 3
-    code, out = B.run(root_with(tmp_path), {B.KEY_ENV: SECRET}, store=Store(), canary=False, prune=False)
+    code, out = B.run(root_with(tmp_path), {B.KEY_ENV: MARKER}, store=Store(), canary=False, prune=False)
     assert code == 3 and out["alert"] == "not_configured"
 
 
@@ -135,13 +135,13 @@ def test_an_unreadable_config_is_exit_3(tmp_path):
 
 
 def test_main_prints_one_json_line_and_returns_the_exit_code_and_never_the_secrets(tmp_path, monkeypatch, capsys):
-    monkeypatch.setenv(B.KEY_ENV, SECRET)
-    monkeypatch.setenv("SUPABASE_ASSIST_DB_URL_SWEEPER", "postgresql://u:pw-SECRET@h:5432/d")
+    monkeypatch.setenv(B.KEY_ENV, MARKER)
+    monkeypatch.setenv("SUPABASE_ASSIST_DB_URL_SWEEPER", "postgresql://u:pw-marker-88@h:5432/d")
     monkeypatch.setattr(ST, "from_env", lambda *a, **k: (None, "not_configured"))
     code = B.main(["--root", str(root_with(tmp_path))])
     cap = capsys.readouterr()
     assert code == 3 and len(cap.out.strip().splitlines()) == 1 and json.loads(cap.out)["ok"] is False
-    assert SECRET not in cap.out + cap.err and "pw-SECRET" not in cap.out + cap.err
+    assert MARKER not in cap.out + cap.err and "pw-marker-88" not in cap.out + cap.err
 
 
 def test_the_module_never_reads_the_engine_dsn_or_the_engine_key():
