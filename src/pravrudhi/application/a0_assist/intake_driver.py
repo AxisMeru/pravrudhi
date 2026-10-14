@@ -35,6 +35,7 @@ class IntakeDriver:
         self._cits: list[dict[str, Any]] | None = None
 
     def call(self, tool: str, inp: dict[str, Any]) -> dict[str, Any]:
+        out: dict[str, Any]
         try:
             if tool not in STAGES:
                 raise intake.IntakeRefused(f"unknown tool {tool!r}")
