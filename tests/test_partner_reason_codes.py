@@ -15,11 +15,11 @@ ROOT = Path(__file__).resolve().parents[1]
 SCHEMAS = json.loads((ROOT / "docs/api/openapi-v1.json").read_text())["components"]["schemas"]
 DOC = (ROOT / "docs/api/reason-codes.md").read_text()
 
-# The sixteen contract reasons, written out so a change to either list has to be made twice, on purpose.
-SIXTEEN = [
+# The seventeen contract reasons, written out so a change to either list has to be made twice, on purpose.
+SEVENTEEN = [
     "all_elements_established", "denial_established", "missing_element", "no_training_statute_text", "judge_error",
     "assembly_lean_mismatch", "denial_unquotable", "second_judge_defeater_disagreement", "uncertain",
-    "uncertain_second_judge", "second_judge_unavailable", "gate1_unavailable", "gate1_not_entailed",
+    "uncertain_second_judge", "second_judge_unavailable", "second_judge_not_confirmed", "gate1_unavailable", "gate1_not_entailed",
     "gate1_contradiction", "contract_not_validated", "input_too_long",
 ]
 EIGHT = [
@@ -35,7 +35,7 @@ def _enum(schema: dict) -> list[str]:
 
 def test_the_published_reason_enum_is_exactly_the_sixteen_in_the_code() -> None:
     published = _enum(SCHEMAS["ContractResultOut"]["properties"]["reason"])
-    assert published == SIXTEEN == list(get_args(ContractReason))
+    assert published == SEVENTEEN == list(get_args(ContractReason))
 
 
 def test_the_published_quote_check_enum_is_exactly_the_eight_in_the_code() -> None:
@@ -55,7 +55,7 @@ def _table_codes(section: str) -> list[str]:
 
 
 def test_the_docs_table_lists_every_code_once_and_no_other() -> None:
-    assert _table_codes("## Contract `reason`") == SIXTEEN
+    assert _table_codes("## Contract `reason`") == SEVENTEEN
     assert _table_codes("## Element `quote_check`") == EIGHT
 
 

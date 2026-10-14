@@ -20,6 +20,7 @@ or the code did, never the content of your facts. No change to any verdict comes
 | `uncertain` | The judge is not sure whether a condition holds. Please have a lawyer look. |
 | `uncertain_second_judge` | The second judge is not sure whether a condition holds. Please have a lawyer look. (deployments that use two judges only) |
 | `second_judge_unavailable` | The second judge was unavailable, so we give a referral, not an answer. (deployments that use two judges only) |
+| `second_judge_not_confirmed` | A check found support in your facts for an ingredient, but a second check did not confirm it, so no answer is given. Please have a lawyer look. (Only in deployments that run a second check.) |
 | `gate1_unavailable` | The entailment check (a separate check of the cited fact against the claim) was unavailable, so we give a referral, not an answer. |
 | `gate1_not_entailed` | The entailment check (a separate check of the cited fact against the claim) did not find enough support for it. Please have a lawyer look. |
 | `gate1_contradiction` | The entailment check (a separate check of the cited fact against the claim) found the fact contradicts it. Please have a lawyer look. |
