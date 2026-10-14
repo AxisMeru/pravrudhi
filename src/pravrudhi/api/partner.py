@@ -241,10 +241,14 @@ MAX_JOB_SLOT_WAIT_S = 86_400.0
 def _job_slot_wait(raw: Any) -> float:
     """`job_slot_wait_s`: a finite number from 0 to one day (a bool, NaN, inf, a negative or a larger value is a config
     error, never a silent default)."""
-    if isinstance(raw, bool) or not isinstance(raw, (int, float)) or not math.isfinite(raw):
-        raise ValueError(f"job_slot_wait_s must be a number from 0 to {MAX_JOB_SLOT_WAIT_S:.0f} seconds, got {raw!r}")
-    if not 0 <= raw <= MAX_JOB_SLOT_WAIT_S:
-        raise ValueError(f"job_slot_wait_s must be a number from 0 to {MAX_JOB_SLOT_WAIT_S:.0f} seconds, got {raw!r}")
+    ok = isinstance(raw, (int, float)) and not isinstance(raw, bool)
+    if ok:
+        try:
+            ok = math.isfinite(raw) and 0 <= raw <= MAX_JOB_SLOT_WAIT_S
+        except OverflowError:  # an int too large for a float
+            ok = False
+    if not ok:
+        raise ValueError(f"job_slot_wait_s must be a number from 0 to {MAX_JOB_SLOT_WAIT_S:.0f} seconds, got {raw!r}"[:200])
     return float(raw)
 
 
@@ -1336,11 +1340,10 @@ def build_partner_router(
         )
 
     def _run(
-        req: AnalyseFactsRequest, admitted: _Admitted, debug_second_judge: bool, *, slot_held: bool = False,
-        wait_s: float = 0.0,
+        req: AnalyseFactsRequest, admitted: _Admitted, debug_second_judge: bool, *, slot_held: bool = False
     ) -> dict[str, Any] | JSONResponse:
         cfg, concurrency, authenticated = admitted.cfg, admitted.concurrency, admitted.authenticated
-        if not slot_held and not concurrency.acquire(wait_s):
+        if not slot_held and not concurrency.acquire():
             return coded_503(AGENT_AT_CAPACITY)
         try:
             agent = factory(engine_root)
@@ -1605,10 +1608,10 @@ def build_partner_router(
             store.discard(job_id)
             return admitted
 
-        def task() -> None:
+        def _run_job() -> None:
             store.start(job_id)
             try:
-                out = _run(req, admitted, debug_second_judge, wait_s=admitted.cfg.job_slot_wait_s)
+                out = _run(req, admitted, debug_second_judge, slot_held=True)
                 if isinstance(out, dict):
                     out = AnalyseFactsResponse(**out).model_dump(mode="json", exclude_unset=True)
             except HTTPException as e:
@@ -1630,6 +1633,20 @@ def build_partner_router(
                 return
             _audit(metered, req, "job", status_code=200, out=out)
             store.finish(job_id, result=out)
+
+        def task() -> None:
+            # #406: an accepted job stays "pending" until it holds an agent slot, and waits for one up to job_slot_wait_s
+            # (counted from the moment a pool thread picks it up). Only then does it run; running jobs hold the slot.
+            if not admitted.concurrency.acquire(admitted.cfg.job_slot_wait_s):
+                if metered:
+                    _record_usage(metered[0], failed=True)
+                _audit(metered, req, "job", status_code=503)
+                store.fail(job_id, status_code=503, body=json.loads(bytes(coded_503(AGENT_AT_CAPACITY).body)))
+                return
+            try:
+                _run_job()
+            finally:
+                admitted.concurrency.release()
 
         _submit(task)
         return {"job_id": job_id, "status": "pending"}

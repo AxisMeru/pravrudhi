@@ -103,7 +103,8 @@ def test_six_simultaneous_jobs_all_finish_and_never_more_than_two_run_at_once(
     _until(lambda: gate.now == 2)  # the first two hold the slots; the others are waiting, not failed
     time.sleep(0.3)
     assert gate.now == 2
-    assert all(c.get(f"{JOBS}/{i}", headers={H: secret}).json()["status"] != "failed" for i in ids)
+    states = [c.get(f"{JOBS}/{i}", headers={H: secret}).json()["status"] for i in ids]
+    assert sorted(states) == ["pending"] * 4 + ["running"] * 2  # waiting jobs read pending, never running or failed
     gate.event.set()
     jobs = _settle(c, secret, ids)
     assert [j["status"] for j in jobs] == ["done"] * 6
@@ -172,7 +173,7 @@ def test_an_absurd_wait_is_clamped_not_an_overflow_error() -> None:
     assert lim.acquire(1e12) is True
 
 
-@pytest.mark.parametrize("bad", [-1, float("nan"), float("inf"), True, "10", None, 1e12, 86_401])
+@pytest.mark.parametrize("bad", [-1, float("nan"), float("inf"), True, "10", None, 1e12, 86_401, 10**400])
 def test_job_slot_wait_s_must_be_a_number_from_zero_to_one_day(tmp_path: Path, bad: Any) -> None:
     (tmp_path / "configs").mkdir()
     import yaml
