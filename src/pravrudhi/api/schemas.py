@@ -45,6 +45,19 @@ class HealthResponse(BaseModel):
     assistant_tier: AssistantTierStatus = AssistantTierStatus(state="unavailable", reason="disabled")
 
 
+class AssistantStatusResponse(BaseModel):
+    """What the app needs to show the assisted-screening consent box (GET /api/assistant). The two ages are present for
+    signed-in callers only and are omitted (not null) for anonymous ones."""
+
+    provider: str
+    call_timeout_s: float | None = None
+    session_budget_usd: float | None = None
+    consent_required: bool = True
+    assistant_tier: AssistantTierStatus
+    oldest_pending_delete_age_s: int | None = None
+    sweep_last_ok_age_s: int | None = None
+
+
 class UninitialisedStatus(BaseModel):
     """A workspace without a ledger must not acquire invented replay fields."""
 

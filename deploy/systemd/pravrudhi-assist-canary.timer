@@ -1,0 +1,9 @@
+[Unit]
+Description=Assisted screening standing canary, hourly
+
+[Timer]
+OnCalendar=*:07
+Persistent=true
+
+[Install]
+WantedBy=timers.target

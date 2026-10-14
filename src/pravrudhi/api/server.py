@@ -31,6 +31,7 @@ from pravrudhi.api.schemas import (
     AgentsResponse,
     AgentTraceResponse,
     AppetiteResponse,
+    AssistantStatusResponse,
     ApplyResultResponse,
     BacklogResponse,
     BenchmarksResponse,
@@ -587,7 +588,7 @@ def create_app(root: Path, *, nyaya_ask_fn: Any | None = None) -> FastAPI:
              "frontier_reader_available": False, "assistant_tier": tier}
         )
 
-    @api.get("/assistant")
+    @api.get("/assistant", response_model=AssistantStatusResponse, response_model_exclude_unset=True)
     def assistant_ep(user: User | None = CurrentUserDep) -> dict[str, Any]:
         """What the app needs to show the assisted-screening consent box. The two pending-delete ages are published to
         signed-in callers only; an unreadable runtime is the plain tier state, never a 500."""
