@@ -315,3 +315,30 @@ def test_the_agent_gets_a_copy_so_it_cannot_change_what_the_driver_stored(tmp_pa
     dec.clear()
     assert d._decided[CID]["outcome"] != "DENIAL" and d.decide_accepted()[CID]["outcome"] != "DENIAL"
     assert d.calls[-1]["output"] and d.calls[-1]["output_sha256"] == R.sha(d.calls[-1]["output"])
+
+
+def test_a_workflow_subclass_can_add_its_own_final_tool_on_the_same_ref_layer(tmp_path):
+    """The extension point a workflow (hearing preparation) uses: extend STAGES, add `_t_<tool>`, resolve its own arguments."""
+
+    class PackDriver(R.A0RefDriver):
+        STAGES = (*R.D.STAGES, "pack")
+
+        def _resolve(self, tool, a):
+            if tool == "pack":
+                if a.get("contract_id") not in self._decided:
+                    raise R.RefusedCode("out_of_order", "pack comes after decide for the contract")
+                return {"contract_id": a["contract_id"]}
+            return super()._resolve(tool, a)
+
+        def _t_pack(self, inp):
+            return {"contract_id": inp["contract_id"], "outcome": self._decided[inp["contract_id"]]["outcome"]}
+
+    _, driven = agents(tmp_path, A.s_proof)
+    d = PackDriver(driven, request={"facts": FACTS, "narrative": "", "contract_ids": [CID]})
+    assert code(d.call("pack", {"contract_id": CID})) == "out_of_order"  # before decide
+    full(d)
+    out = d.call("pack", {"contract_id": CID})
+    # a tool with no PREFIX entry gets no ref, like decide
+    assert out["contract_id"] == CID and out["outcome"] == d._decided[CID]["outcome"] and "call_ref" not in out
+    assert d.calls[-1]["tool"] == "pack" and d.calls[-1]["call_ref"] is None
+    assert code(fresh(tmp_path / "plain").call("pack", {"contract_id": CID})) == "bad_args"  # the base driver does not know it

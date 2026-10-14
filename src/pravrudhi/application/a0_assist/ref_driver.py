@@ -47,6 +47,10 @@ def sha(obj: Any) -> str:
 
 
 class A0RefDriver(D.A0Driver):
+    #: The tool names this driver answers. A workflow built on it (a subclass) extends this tuple, adds a `_t_<tool>` method and
+    #: overrides `_resolve` for its own tool, calling `super()._resolve` for the rest.
+    STAGES: tuple[str, ...] = D.STAGES
+
     def __init__(self, *a: Any, **kw: Any) -> None:
         super().__init__(*a, **kw)
         self.store: dict[str, dict[str, Any]] = {}
@@ -109,7 +113,7 @@ class A0RefDriver(D.A0Driver):
         if tool == "decide":
             self.decide_attempts += 1
         try:
-            if tool not in D.STAGES:
+            if tool not in self.STAGES:
                 raise RefusedCode("bad_args", f"unknown tool {tool!r}")
             resolved = self._resolve(tool, agent_input)
             out = getattr(self, "_t_" + tool)(resolved)
