@@ -19,6 +19,7 @@ import contextlib
 import threading
 import time
 from collections.abc import Callable
+from datetime import UTC, datetime
 from typing import Any
 
 import httpx
@@ -29,8 +30,18 @@ from pravrudhi.application.a0_assist.store import SpendStore, StoreError
 from pravrudhi.application.a0_assist.transport import AnthropicTransport, TransportRefused, UpstreamError
 
 DELETED = (200, 204, 404)
+UPSTREAM = (UpstreamError, TransportRefused, httpx.HTTPError)
 MAX_PER_PASS = 50
 PRUNE_EVERY_S = 24 * 3600
+
+
+def _epoch(v: Any) -> float | None:
+    if not isinstance(v, str):
+        return None
+    try:
+        return datetime.fromisoformat(v.replace("Z", "+00:00")).astimezone(UTC).timestamp()
+    except ValueError:
+        return None
 
 
 class Sweeper:
@@ -44,16 +55,21 @@ class Sweeper:
         engine_store: SpendStore | None = None,
         clock: Callable[[], float] = time.monotonic,
         mode: str = "backstop",
+        scan_orphans: bool | None = None,
+        wall_clock: Callable[[], float] = time.time,
     ) -> None:
         if mode not in ("engine", "backstop"):
             raise ValueError("mode is engine or backstop")
         self._mode = mode
+        self._scan_orphans = (mode == "engine") if scan_orphans is None else scan_orphans
+        self._wall = wall_clock
+        self._delete_canary_ok = False
         self._cfg, self._store, self._tr, self._pauses, self._engine = cfg, sweeper_store, transport, pauses, engine_store
         self._clock = clock
         self._last_canary: float | None = None
         self._last_prune: float | None = None
 
-    def _delete_pending(self, out: dict[str, Any]) -> None:
+    def _delete_pending(self, out: dict[str, Any]) -> set[str]:
         assert self._store is not None and self._tr is not None
         pending = self._store.list_pending(0)
         out["pending"] = len(pending)
@@ -61,7 +77,7 @@ class Sweeper:
             sid = row["anthropic_session_id"]
             try:
                 status = self._tr.delete_session(sid)
-            except (UpstreamError, TransportRefused, httpx.HTTPError):
+            except UPSTREAM:
                 status = 599
             if status in DELETED:
                 if self._mode == "engine":
@@ -72,8 +88,48 @@ class Sweeper:
             else:
                 out["failed"] += 1
                 # a session that is still running cannot be deleted: stop it, the next pass deletes it
-                with contextlib.suppress(UpstreamError, TransportRefused, httpx.HTTPError):
+                with contextlib.suppress(*UPSTREAM):
                     self._tr.interrupt(sid)
+        return {r["anthropic_session_id"] for r in pending}
+        return {r["anthropic_session_id"] for r in pending}
+
+    def _orphans(self, out: dict[str, Any], known: set[str]) -> None:
+        """Sessions of the PRODUCT agent that the store does not list as pending and that are older than `abandon_after_min`
+        (a crash between creating a session and recording it): delete them too. The listing is filtered by the product agent
+        id, so a session of any other agent (a research session) can never be returned, and a young in-flight session is
+        spared by its age."""
+        assert self._tr is not None and self._cfg.agent_id
+        cutoff = self._wall() - self._cfg.abandon_after_min * 60
+        out["orphans_deleted"] = 0
+        try:
+            for item in self._tr.list_sessions(self._cfg.agent_id):
+                sid, created = item.get("id"), _epoch(item.get("created_at"))
+                if not isinstance(sid, str) or sid in known or created is None or created > cutoff:
+                    continue
+                with contextlib.suppress(*UPSTREAM):
+                    if self._tr.delete_session(sid) in DELETED:
+                        out["orphans_deleted"] += 1
+        except UPSTREAM:
+            out["orphan_scan"] = "failed"
+
+    def _delete_canary(self) -> None:
+        """A key that cannot delete would make every delete fail: create a session without events and delete it. Runs on the
+        first pass of every process (a key change needs a restart) and again on every pass until it succeeds. A failure
+        pauses the tier."""
+        assert self._tr is not None
+        ok = False
+        try:
+            sid = self._tr.create_session(
+                self._cfg.agent_id or "",
+                self._cfg.agent_version or 0,
+                self._cfg.environment_id or "",
+                self._cfg.session_budget_cents,
+            )["id"]
+            ok = self._tr.delete_session(sid) in DELETED
+        except (*UPSTREAM, KeyError, TypeError):
+            ok = False
+        self._delete_canary_ok = ok
+        self._pauses.set("delete_canary", None if ok else "delete_canary_failed")
 
     def run_once(self) -> dict[str, Any]:
         out: dict[str, Any] = {
@@ -92,7 +148,11 @@ class Sweeper:
                 guard.run_canary(None, self._pauses)
             return out
         try:
-            self._delete_pending(out)
+            if self._mode == "engine" and not self._delete_canary_ok and self._cfg.agent_id:
+                self._delete_canary()
+            known = self._delete_pending(out)
+            if self._scan_orphans and self._cfg.agent_id:
+                self._orphans(out, known)
             out["abandoned"] = self._store.abandon_stale(self._cfg.abandon_after_min).get("abandoned")
             self._store.sweep_ok()
             self._pauses.set("sweeper", None)

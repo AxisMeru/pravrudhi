@@ -261,3 +261,137 @@ def test_a_sweeper_without_a_store_in_engine_mode_pauses_without_a_canary_call()
 def test_an_unknown_mode_is_refused():
     with pytest.raises(ValueError):
         SW.Sweeper(CFG, FakeStore(), FakeTransport(), G.Pauses(), mode="other")
+
+
+# ---- delete canary and the by-agent orphan scan (engine mode, product agent configured) ---------------------------------
+def cfg_with_agent():
+    raw = yaml.safe_load((REPO / "configs" / "assistant_tier.yaml").read_text())
+    raw.update(
+        assist_route_enabled=True, agent_id="agent_prod", agent_version=1, environment_id="env_p", store_ca_file="/app/ca.crt"
+    )
+    return C.parse(raw)
+
+
+class AgentTransport(FakeTransport):
+    def __init__(self, statuses=None, listed=(), create_raises=None, **kw):
+        super().__init__(statuses, **kw)
+        self.listed, self.create_raises, self.created, self.list_agent_ids = list(listed), create_raises, 0, []
+
+    def create_session(self, agent_id, version, env, budget):
+        if self.create_raises:
+            raise self.create_raises
+        self.created += 1
+        return {"id": "sesn_canary"}
+
+    def list_sessions(self, agent_id, *, limit=100):
+        self.list_agent_ids.append(agent_id)
+        yield from self.listed
+
+
+NOW = 1_700_000_000.0
+
+
+def iso(age_min):
+    from datetime import UTC, datetime
+
+    return datetime.fromtimestamp(NOW - age_min * 60, UTC).isoformat().replace("+00:00", "Z")
+
+
+def eng_sweeper(store, tr, **kw):
+    p = G.Pauses()
+    return SW.Sweeper(cfg_with_agent(), store, tr, p, mode="engine", wall_clock=lambda: NOW, clock=Clock(), **kw), p
+
+
+def test_the_delete_canary_runs_on_the_first_pass_and_a_success_clears_the_pause():
+    tr = AgentTransport({"sesn_canary": 204})
+    sw, p = eng_sweeper(FakeStore(), tr)
+    sw.run_once()
+    assert tr.created == 1 and "sesn_canary" in tr.deleted and "delete_canary" not in p.snapshot()
+    sw.run_once()
+    assert tr.created == 1  # once per process after a success
+
+
+@pytest.mark.parametrize("status", [200, 204, 404])
+def test_a_delete_canary_answered_200_204_or_404_passes(status):
+    tr = AgentTransport({"sesn_canary": status})
+    sw, p = eng_sweeper(FakeStore(), tr)
+    sw.run_once()
+    assert "delete_canary" not in p.snapshot() and tr.created == 1
+
+
+@pytest.mark.parametrize("status", [401, 403, 409, 500])
+def test_a_key_that_cannot_delete_pauses_the_tier_and_is_retried_every_pass(status):
+    tr = AgentTransport({"sesn_canary": status})
+    sw, p = eng_sweeper(FakeStore(), tr)
+    sw.run_once()
+    assert p.snapshot()["delete_canary"] == "delete_canary_failed"
+    tr.statuses["sesn_canary"] = 204
+    sw.run_once()
+    assert tr.created == 2 and "delete_canary" not in p.snapshot()
+
+
+@pytest.mark.parametrize("exc", [TR.UpstreamError(403), TR.TransportRefused("x"), httpx.ConnectError("c")])
+def test_a_create_failure_in_the_delete_canary_pauses(exc):
+    sw, p = eng_sweeper(FakeStore(), AgentTransport(create_raises=exc))
+    sw.run_once()
+    assert p.snapshot()["delete_canary"] == "delete_canary_failed"
+
+
+def test_the_backstop_mode_runs_neither_the_delete_canary_nor_the_orphan_scan_by_default():
+    tr = AgentTransport(listed=[{"id": "sesn_o", "created_at": iso(999)}])
+    p = G.Pauses()
+    SW.Sweeper(cfg_with_agent(), FakeStore(), tr, p, mode="backstop", wall_clock=lambda: NOW, clock=Clock()).run_once()
+    assert tr.created == 0 and tr.list_agent_ids == [] and tr.deleted == []
+
+
+def test_an_old_session_of_the_product_agent_unknown_to_the_store_is_deleted_a_young_one_is_spared():
+    cfg = cfg_with_agent()
+    tr = AgentTransport(
+        {"sesn_canary": 204},
+        listed=[
+            {"id": "sesn_old", "created_at": iso(cfg.abandon_after_min + 1)},
+            {"id": "sesn_young", "created_at": iso(cfg.abandon_after_min - 1)},
+            {"id": "sesn_edge", "created_at": iso(cfg.abandon_after_min)},
+            {"id": "sesn_nodate"},
+            {"id": "sesn_badate", "created_at": "yesterday"},
+            {"created_at": iso(999)},
+        ],
+    )
+    sw, _ = eng_sweeper(FakeStore(), tr)
+    out = sw.run_once()
+    assert (
+        "sesn_old" in tr.deleted
+        and "sesn_young" not in tr.deleted
+        and "sesn_nodate" not in tr.deleted
+        and "sesn_badate" not in tr.deleted
+    )
+    assert "sesn_edge" in tr.deleted  # exactly at the limit counts as old; one minute younger does not
+    assert out["orphans_deleted"] == 2 and tr.list_agent_ids == ["agent_prod"]
+
+
+def test_a_session_the_store_lists_as_pending_is_not_deleted_twice_by_the_scan():
+    cfg = cfg_with_agent()
+    tr = AgentTransport({"sesn_canary": 204}, listed=[{"id": "sesn_a", "created_at": iso(cfg.abandon_after_min + 5)}])
+    st = FakeStore(pend("sesn_a"))
+    eng_sweeper(st, tr)[0].run_once()
+    assert tr.deleted.count("sesn_a") == 1 and st.marked == [("sesn_a", 204)]
+
+
+def test_a_failed_listing_is_tolerated_and_reported_and_the_pass_still_marks_the_sweep():
+    class Bad(AgentTransport):
+        def list_sessions(self, agent_id, *, limit=100):
+            raise TR.UpstreamError(500)
+            yield
+
+    st = FakeStore()
+    out = eng_sweeper(st, Bad({"sesn_canary": 204}))[0].run_once()
+    assert out["orphan_scan"] == "failed" and "sweep_ok" in st.calls
+
+
+def test_a_failed_orphan_delete_does_not_stop_the_scan():
+    tr = AgentTransport(
+        {"sesn_canary": 204, "sesn_x": 500},
+        listed=[{"id": "sesn_x", "created_at": iso(999)}, {"id": "sesn_y", "created_at": iso(999)}],
+    )
+    out = eng_sweeper(FakeStore(), tr)[0].run_once()
+    assert out["orphans_deleted"] == 1 and "sesn_y" in tr.deleted
