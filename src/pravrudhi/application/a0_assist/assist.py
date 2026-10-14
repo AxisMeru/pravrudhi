@@ -226,20 +226,27 @@ def _block(used: bool, outcome: str, reason: str | None, **kw: Any) -> dict[str,
 
 
 def _progress(run: _Run, cfg: AssistConfig) -> dict[str, Any] | None:
-    """Where a run that did not finish stopped: counts, seconds, last tool name; never text. None when no session ran."""
+    """Where a run that did not finish stopped: counts, seconds, last tool name; never text. None when no session ran or when
+    the diagnostics themselves cannot be built (a diagnostic must never turn a clean fallback into an error). `events` is
+    the stream-event count the event cap uses (replays included)."""
     if run.sid is None:
         return None
-    calls = run.driver.calls if run.driver is not None else []
-    refused = sum(1 for c in calls if (c.get("output") or {}).get("refused"))
-    return {
-        "tool_calls": len(calls),
-        "refused_calls": refused,
-        "events": run.n,
-        "max_events": cfg.max_events,
-        "elapsed_s": None if run.elapsed_s is None else round(run.elapsed_s, 1),
-        "wall_limit_s": cfg.call_timeout_s,
-        "last_tool": str(calls[-1].get("tool")) if calls else None,
-    }
+    try:
+        calls = [c for c in (run.driver.calls if run.driver is not None else []) if isinstance(c, dict)]
+        refused = sum(1 for c in calls if isinstance(c.get("output"), dict) and c["output"].get("refused"))
+        last = calls[-1].get("tool") if calls else None
+        return {
+            "tool_calls": len(calls),
+            "refused_calls": refused,
+            "events": run.n,
+            "max_events": cfg.max_events,
+            "elapsed_s": None if run.elapsed_s is None else round(run.elapsed_s, 1),
+            "wall_limit_s": cfg.call_timeout_s,
+            # a tool name is model-supplied: only a plain identifier of sensible length is echoed
+            "last_tool": last if isinstance(last, str) and re.fullmatch(r"[a-z][a-z0-9_]{0,39}", last) else None,
+        }
+    except Exception:  # noqa: BLE001 - see the docstring
+        return None
 
 
 def _with(body: Any, block: dict[str, Any]) -> Any:
@@ -426,8 +433,8 @@ def _converse(request: dict[str, Any], run: _Run, deps: Deps, cfg: AssistConfig,
         tr.note(599)
         return "refused", "error"
     finally:
-        run.elapsed_s = deps.clock() - t0
         stream.close()
+        run.elapsed_s = deps.clock() - t0
 
 
 def _close(run: _Run, deps: Deps, cfg: AssistConfig) -> int | None:
