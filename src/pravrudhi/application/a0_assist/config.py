@@ -40,6 +40,7 @@ class AssistConfig:
     key_env_names: tuple[str, ...]
     workspace_id_env: str
     store_dsn_env: str
+    sweeper_dsn_env: str
     store_ca_file: str | None
     runs_per_user_per_day: int
     runs_per_org_per_day: int
@@ -48,6 +49,8 @@ class AssistConfig:
     retention_max_hours: float
     sweep_interval_min: int
     max_pending_deletes: int
+    canary_interval_min: int
+    canary_stale_min: int
 
 
 def _need(cfg: dict[str, Any], key: str) -> Any:
@@ -130,6 +133,7 @@ def parse(cfg: Any) -> AssistConfig:
         key_env_names=tuple(names),
         workspace_id_env=_env_name(cfg, "workspace_id_env"),
         store_dsn_env=_env_name(cfg, "store_dsn_env"),
+        sweeper_dsn_env=_env_name(cfg, "sweeper_dsn_env"),
         store_ca_file=_str_or_none(cfg, "store_ca_file"),
         runs_per_user_per_day=_int(cfg, "assist_runs_per_user_per_day", 1, 10_000),
         runs_per_org_per_day=_int(cfg, "assist_runs_per_org_per_day", 1, 100_000),
@@ -138,9 +142,13 @@ def parse(cfg: Any) -> AssistConfig:
         retention_max_hours=_num(cfg, "retention_max_hours", 0, 24 * 30),
         sweep_interval_min=_int(cfg, "sweep_interval_min", 1, 24 * 60),
         max_pending_deletes=_int(cfg, "max_pending_deletes", 1, 1000),
+        canary_interval_min=_int(cfg, "canary_interval_min", 1, 24 * 60),
+        canary_stale_min=_int(cfg, "canary_stale_min", 1, 7 * 24 * 60),
     )
     if out.session_budget_cents > out.daily_ceiling_cents:
         raise AssistConfigError(f"{CONFIG_NAME}: session_budget_usd exceeds daily_ceiling_usd")
+    if out.canary_stale_min <= out.canary_interval_min:
+        raise AssistConfigError(f"{CONFIG_NAME}: canary_stale_min must exceed canary_interval_min")
     if out.route_enabled:
         if not (out.agent_id and out.agent_version and out.environment_id):
             raise AssistConfigError(

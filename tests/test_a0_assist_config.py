@@ -135,7 +135,7 @@ def test_key_env_names_must_be_a_list_of_names(bad):
         C.parse(base(key_env_names=bad))
 
 
-@pytest.mark.parametrize("key", ["workspace_id_env", "store_dsn_env"])
+@pytest.mark.parametrize("key", ["workspace_id_env", "store_dsn_env", "sweeper_dsn_env"])
 @pytest.mark.parametrize("bad", ["lowercase", "has space", "", None, 5, "postgres://user:pw@host/db"])
 def test_env_names_must_be_names_never_values(key, bad):
     with pytest.raises(C.AssistConfigError):
@@ -219,3 +219,65 @@ def test_store_ca_file_is_null_or_a_path_string():
 def test_store_ca_file_refuses_a_non_string(bad):
     with pytest.raises(C.AssistConfigError):
         C.parse(base(store_ca_file=bad))
+
+
+def test_canary_defaults_are_hourly_and_three_hours():
+    c = C.parse(base())
+    assert (c.canary_interval_min, c.canary_stale_min) == (60, 180)
+
+
+@pytest.mark.parametrize("key", ["canary_interval_min", "canary_stale_min"])
+@pytest.mark.parametrize("bad", [0, -1, "60", True, 1.5, None])
+def test_canary_timings_refuse_non_integers(key, bad):
+    with pytest.raises(C.AssistConfigError):
+        C.parse(base(**{key: bad}))
+
+
+def test_a_stale_threshold_not_above_the_interval_is_refused():
+    with pytest.raises(C.AssistConfigError):
+        C.parse(base(canary_interval_min=60, canary_stale_min=60))
+
+
+def _serve(monkeypatch, tmp_path, cfg):
+    f = tmp_path / "assistant_tier.yaml"
+    f.write_text(yaml.safe_dump(cfg))
+    monkeypatch.setattr(C, "config_file", lambda root, name: f)
+
+
+@pytest.mark.parametrize(
+    "key", sorted(set(base()) - {"enabled", "force_unavailable", "failure_ttl_s", "budget_floor_usd", "budget_file"})
+)
+def test_a_missing_key_keeps_the_route_off_never_a_default_in_code(key, monkeypatch, tmp_path):
+    cfg = base(assist_route_enabled=True, agent_id="a", agent_version=1, environment_id="e")
+    del cfg[key]
+    _serve(monkeypatch, tmp_path, cfg)
+    got, why = C.load_or_none(tmp_path)
+    assert got is None and why
+
+
+@pytest.mark.parametrize(
+    ("key", "bad"),
+    [
+        ("assist_route_enabled", "yes"),
+        ("daily_ceiling_usd", "four"),
+        ("session_budget_usd", 0.255),
+        ("max_pending_deletes", "5"),
+        ("canary_stale_min", None),
+        ("store_ca_file", 7),
+    ],
+)
+def test_a_malformed_value_keeps_the_route_off(key, bad, monkeypatch, tmp_path):
+    cfg = base(assist_route_enabled=True, agent_id="a", agent_version=1, environment_id="e")
+    cfg[key] = bad
+    _serve(monkeypatch, tmp_path, cfg)
+    got, why = C.load_or_none(tmp_path)
+    assert got is None and why
+
+
+def test_an_unreadable_or_non_mapping_config_keeps_the_route_off(monkeypatch, tmp_path):
+    f = tmp_path / "assistant_tier.yaml"
+    f.write_bytes(b"\xff\xfe not yaml")
+    monkeypatch.setattr(C, "config_file", lambda root, name: f)
+    assert C.load_or_none(tmp_path)[0] is None
+    f.write_text("- just\n- a list\n")
+    assert C.load_or_none(tmp_path)[0] is None

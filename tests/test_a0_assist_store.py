@@ -342,3 +342,52 @@ def test_from_env_passes_the_ca_file_through(tmp_path):
         None,
         "not_configured",
     )
+
+
+def test_a_null_ca_means_the_system_bundle_and_never_an_unverified_connection():
+    seen = []
+
+    def connect(**k):
+        seen.append(k["ssl_context"])
+        raise ssl.SSLCertVerificationError("certificate verify failed")
+
+    s = ST.PgSpendStore(DSN, timeout_s=3, connect=connect, ca_file=None)
+    with pytest.raises(ST.StoreError):
+        s.status()
+    assert len(seen) == 1 and seen[0].verify_mode == ssl.CERT_REQUIRED and seen[0].check_hostname is True
+
+
+def test_an_unparseable_ca_file_fails_closed_and_never_connects(tmp_path):
+    f = tmp_path / "ca.crt"
+    f.write_text("this is not a certificate")
+    called = []
+    s = ST.PgSpendStore(DSN, timeout_s=3, connect=lambda **k: called.append(k), ca_file=str(f))
+    with pytest.raises(ST.StoreError):
+        s.status()
+    assert called == []
+
+
+def test_the_sweeper_role_calls_canary_mark_deleted_and_prune_with_bound_parameters():
+    s, conns, _ = make(rows=[[{"ok": True, "bad_functions": 0}]])
+    assert s.canary()["ok"] is True and conns[0].executed[0] == ("select assist.canary()", ())
+    s2, c2, _ = make(rows=[[{"ok": True, "moved": 1}]])
+    assert s2.mark_deleted("sesn_1", 404)["moved"] == 1 and c2[0].executed[0] == (
+        "select assist.mark_deleted(%s, %s)",
+        ("sesn_1", 404),
+    )
+    s3, c3, _ = make(rows=[[3]])
+    assert s3.prune() == 3 and c3[0].executed[0] == ("select assist.prune()", ())
+    for bad in ("", "a;b", None):
+        with pytest.raises(ST.StoreError):
+            s2.mark_deleted(bad, 204)
+    with pytest.raises(ST.StoreError):
+        s2.mark_deleted("sesn_1", True)
+
+
+def test_canary_and_prune_fail_closed_on_a_bad_shape_or_a_dead_store():
+    with pytest.raises(ST.StoreError):
+        make(rows=[["not-a-dict"]])[0].canary()
+    with pytest.raises(ST.StoreError):
+        make(rows=[])[0].prune()
+    with pytest.raises(ST.StoreError):
+        make(fail_connect=OSError("down"))[0].canary()

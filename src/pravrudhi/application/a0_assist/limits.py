@@ -1,4 +1,4 @@
-"""Anti-abuse limits for the assisted route (design note v10, 4a): per user and per org per UTC day, and per client
+"""Anti-abuse limits for the assisted route: per user and per org per UTC day, and per client
 address per minute, counted IN MEMORY.
 
 These are ANTI-ABUSE, not spend control: the counters reset at a recycle and differ per overlapped worker, so the daily

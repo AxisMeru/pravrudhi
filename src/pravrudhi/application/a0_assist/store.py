@@ -1,4 +1,4 @@
-"""The spend and session store (design note v10, 4a): Supabase Postgres, reached DIRECTLY as the narrow login role
+"""The spend and session store: Supabase Postgres, reached DIRECTLY as the narrow login role
 `assist_spend_rpc` (no PostgREST, no service key).
 
 * `pg8000` is an OPTIONAL extra (`pip install pravrudhi[assist]`) imported LAZILY inside `PgSpendStore._connect`; if it
@@ -46,6 +46,9 @@ class SpendStore(Protocol):
     def session_created(self, anthropic_session_id: str, key: str) -> dict[str, Any]: ...
     def session_deleted(self, anthropic_session_id: str, http_status: int) -> dict[str, Any]: ...
     def list_pending(self, older_than_minutes: int) -> list[dict[str, Any]]: ...
+    def canary(self) -> dict[str, Any]: ...
+    def mark_deleted(self, anthropic_session_id: str, http_status: int) -> dict[str, Any]: ...
+    def prune(self) -> int: ...
 
 
 def new_session_key() -> str:
@@ -201,6 +204,20 @@ class PgSpendStore:
         return self._json(
             self._call("select assist.session_deleted(%s, %s)", (_sid(anthropic_session_id), _int(http_status, 100)))
         )
+
+    # ---- the sweeper role's functions (a PgSpendStore built from the sweeper DSN) ----
+    def canary(self) -> dict[str, Any]:
+        return self._json(self._call("select assist.canary()", ()))
+
+    def mark_deleted(self, anthropic_session_id: str, http_status: int) -> dict[str, Any]:
+        return self._json(self._call("select assist.mark_deleted(%s, %s)", (_sid(anthropic_session_id), _int(http_status, 100))))
+
+    def prune(self) -> int:
+        rows = self._call("select assist.prune()", ())
+        try:
+            return _int(rows[0][0], 0)
+        except (IndexError, TypeError):
+            raise StoreError("the store answered with an unexpected shape") from None
 
     def list_pending(self, older_than_minutes: int) -> list[dict[str, Any]]:
         rows = self._call(

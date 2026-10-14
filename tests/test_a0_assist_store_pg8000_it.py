@@ -1,4 +1,4 @@
-"""INTEGRATION test of the spend store against a real Postgres over TLS with the real pg8000 driver (Track C). Skipped
+"""INTEGRATION test of the spend store against a real Postgres over TLS with the real pg8000 driver. Skipped
 unless PRAVRUDHI_A0_PG_IT=1 and pg8000 and docker are available.
 
 Proves, on a throwaway local postgres:17 container with OUR OWN CA: SCRAM-SHA-256 login works; TLS is verified (a wrong

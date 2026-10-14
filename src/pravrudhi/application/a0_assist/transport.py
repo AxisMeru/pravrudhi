@@ -1,4 +1,4 @@
-"""The Anthropic Managed Agents HTTP client for the assisted route (design note v10, sections 3, 3a, D5/D6).
+"""The Anthropic Managed Agents HTTP client for the assisted route.
 
 * PATH ALLOWLIST: only the session calls the route needs (create, send events, list events, the event stream, get, list
   by agent, delete). Anything else (a Files-API upload, a vault, a memory store, archive, an agents call)
@@ -112,8 +112,15 @@ class AnthropicTransport:
             with contextlib.suppress(Exception):
                 self._record(status)
 
-    def _scrub(self, text: str) -> str:
-        return text.replace(self._key, "<key>")[:200]
+    @staticmethod
+    def _error_type(text: str) -> str:
+        """Only the API's error.type token (a short identifier). The rest of an error body can echo what was sent, so it
+        never reaches an exception message, a log or an alert."""
+        try:
+            kind = json.loads(text)["error"]["type"]
+        except (ValueError, KeyError, TypeError, RecursionError):
+            return ""
+        return kind if isinstance(kind, str) and re.fullmatch(r"[a-z][a-z0-9_]{0,63}", kind) else ""
 
     def _send(
         self, method: str, path: str, *, params: dict[str, Any] | None = None, body: Any = None, stream: bool = False
@@ -138,7 +145,7 @@ class AnthropicTransport:
     def _json(self, method: str, path: str, **kw: Any) -> Any:
         r = self._send(method, path, **kw)
         if r.status_code >= 400:
-            raise UpstreamError(r.status_code, self._scrub(r.text))
+            raise UpstreamError(r.status_code, self._error_type(r.text))
         try:
             return r.json() if r.content else {}
         except ValueError:
@@ -163,7 +170,7 @@ class AnthropicTransport:
     def open_stream(self, session_id: str) -> EventStream:
         r = self._send("GET", f"/v1/sessions/{session_id}/events/stream", params={"beta": "true"}, stream=True)
         if r.status_code != 200:
-            detail = self._scrub(r.read().decode(errors="replace"))
+            detail = self._error_type(r.read().decode(errors="replace"))
             r.close()
             raise UpstreamError(r.status_code, detail)
         return EventStream(r)
@@ -194,7 +201,7 @@ class AnthropicTransport:
         return self._send("DELETE", f"/v1/sessions/{session_id}").status_code
 
     def list_sessions(self, agent_id: str, *, limit: int = 100) -> Iterator[dict[str, Any]]:
-        """EVERY session of the given agent: walks every page until next_page is null (D2)."""
+        """EVERY session of the given agent: walks every page until next_page is null."""
         if not agent_id or isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 1000:
             raise TransportRefused("list_sessions needs an agent id and a limit in [1, 1000]")
         page: str | None = None

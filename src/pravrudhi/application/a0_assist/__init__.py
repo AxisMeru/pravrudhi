@@ -1,5 +1,4 @@
-"""A0 screening assistance (pravrudhi-app#125): the engine side of the assisted screening route. See the design note v10
-(Track C, 14 Oct 2026).
+"""A0 screening assistance (pravrudhi-app#125): the engine side of the assisted screening route.
 
 Modules: `config` (fail-closed reading of configs/assistant_tier.yaml), `store` (the spend and session store: the narrow
 Postgres role, optional `pg8000`), `transport` (the Anthropic Managed Agents HTTP

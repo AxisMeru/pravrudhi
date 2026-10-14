@@ -258,11 +258,41 @@ def test_there_are_no_retries_a_500_is_sent_once():
     assert len(seen) == 1
 
 
-def test_the_key_never_appears_in_an_error_even_if_the_server_echoes_it():
-    t, _ = make(lambda r: httpx.Response(400, text=f"bad key {KEY} given"))
+SENTINEL = "SENTINEL-client-fact-7f3a91"
+
+
+def test_an_error_body_that_echoes_the_key_or_client_text_never_reaches_the_exception():
+    body = json.dumps({"error": {"type": "invalid_request_error", "message": f"bad key {KEY} and {SENTINEL}"}})
+    t, _ = make(lambda r: httpx.Response(400, text=body))
     with pytest.raises(TR.UpstreamError) as e:
         t.get_session("sesn_1")
-    assert KEY not in str(e.value) and "<key>" in str(e.value)
+    msg = str(e.value)
+    assert KEY not in msg and SENTINEL not in msg and msg == "Anthropic API 400: invalid_request_error"
+
+
+@pytest.mark.parametrize(
+    "body", [f"plain text {SENTINEL}", json.dumps({"error": {"type": f"bad type {SENTINEL}"}}), "[1, 2]", ""]
+)
+def test_a_body_without_a_clean_error_type_gives_the_status_alone(body):
+    t, _ = make(lambda r: httpx.Response(500, text=body))
+    with pytest.raises(TR.UpstreamError) as e:
+        t.get_session("sesn_1")
+    assert str(e.value) == "Anthropic API 500" and SENTINEL not in str(e.value)
+
+
+def test_the_stream_error_branch_keeps_status_and_type_only():
+    body = json.dumps({"error": {"type": "overloaded_error", "message": SENTINEL}})
+    t, _ = make(lambda r: httpx.Response(529, text=body))
+    with pytest.raises(TR.UpstreamError) as e:
+        t.open_stream("sesn_1")
+    assert str(e.value) == "Anthropic API 529: overloaded_error" and SENTINEL not in str(e.value)
+
+
+def test_nothing_in_the_error_path_logs(caplog):
+    t, _ = make(lambda r: httpx.Response(400, text=SENTINEL))
+    with caplog.at_level("DEBUG"), pytest.raises(TR.UpstreamError):
+        t.get_session("sesn_1")
+    assert SENTINEL not in caplog.text
 
 
 def test_a_non_json_answer_is_an_upstream_error():
