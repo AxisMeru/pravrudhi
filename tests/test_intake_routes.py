@@ -113,8 +113,10 @@ def test_intake_does_not_need_the_judges_so_a_parked_judge_does_not_block_it(tmp
 
     def fetch(url: str, headers: Any) -> dict[str, Any]:
         calls.append(url)
-        return {"jobs": {"inQueue": 0, "inProgress": 0, "completed": 1},
-                "workers": {"ready": 0, "idle": 0, "running": 0, "initializing": 0, "throttled": 0, "unhealthy": 0}}
+        return {
+            "jobs": {"inQueue": 0, "inProgress": 0, "completed": 1},
+            "workers": {"ready": 0, "idle": 0, "running": 0, "initializing": 0, "throttled": 0, "unhealthy": 0},
+        }
 
     cfg = PartnerApiConfig(rate_limit_per_minute=1000, max_concurrent=1, trust_proxy_header=False, judge_health_check=True)
     app = FastAPI()
@@ -334,9 +336,7 @@ def test_citation_lookups_per_request_are_bounded(tmp_path: Path) -> None:
     assert all(st != "NOT_CHECKED" for st in statuses[:INTAKE_MAX_CITATION_LOOKUPS])
 
 
-def test_intake_takes_an_agent_slot_so_a_burst_cannot_starve_the_service(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_intake_takes_an_agent_slot_so_a_burst_cannot_starve_the_service(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     started, release = threading.Event(), threading.Event()
     real = intake.build_bundle
 
@@ -452,3 +452,15 @@ def test_the_total_lookup_time_is_bounded(monkeypatch: pytest.MonkeyPatch, tmp_p
     r = _client(tmp_path, index=_index(tmp_path)).post(PLAIN, json={"text": TEXT})
     cits = r.json()["bundle"]["citations"]
     assert cits and all(c["verifier_status"] == "NOT_CHECKED" for c in cits)
+
+
+def test_intake_is_not_a_workflow_of_the_screening_assist_route(tmp_path: Path) -> None:
+    """Intake has its own routes; naming it here used to answer 200 with `not_configured` (a trap): now a 422 on `workflow`."""
+    c = _assist_client(tmp_path)
+    body = {"facts": ["A person was seen near the shop."], "contract_ids": ["ipc405"], "consent": True}
+    r = c.post("/api/v1/analyse-facts/assist", json={**body, "workflow": "intake"})
+    assert r.status_code == 422 and "workflow" in str(r.json())
+    assert c.post(ASSIST, json={"text": TEXT, "consent": True}).status_code == 200  # intake's own assisted route is unchanged
+    for ok in ("screening", "hearing_prep"):  # the two real workflows pass the `workflow` validation
+        r2 = c.post("/api/v1/analyse-facts/assist", json={**body, "workflow": ok})
+        assert "workflow" not in str(r2.json()) if r2.status_code == 422 else True

@@ -523,7 +523,8 @@ class AssistFactsRequest(AnalyseFactsRequest):
     consent: bool = False
     session_id: str | None = Field(default=None, max_length=128)
     #: Which assisted workflow to run (a workflow with no configured agent answers with the ordinary result, `not_configured`).
-    workflow: Literal["screening", "hearing_prep", "intake"] = "screening"
+    #: Intake has its own routes (`/intake`, `/intake/assist`); it is not a value here (it would only answer `not_configured`).
+    workflow: Literal["screening", "hearing_prep"] = "screening"
 
 
 #: Citation lookups per intake request; further citations are listed with the status NOT_CHECKED.
