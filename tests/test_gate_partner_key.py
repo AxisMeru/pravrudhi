@@ -139,8 +139,8 @@ def test_the_tenancy_secret_does_not_open_the_partner_key_routes(env: Any) -> No
     assert r.status_code == 401 and r.json()["detail"] == "Missing bearer token"
 
 
-def test_every_route_under_api_v1_is_either_listed_or_refused_with_a_key(env: Any) -> None:
-    """A route added later stays refused for a key-only caller until added on purpose: the allowlist and the routes agree."""
+def test_every_route_and_method_under_api_v1_is_opened_only_when_listed(env: Any) -> None:
+    """A route or a method added later stays refused for a key-only or secret-only caller until it is added on purpose."""
     from fastapi.routing import APIRoute
 
     c, key = env
@@ -152,27 +152,52 @@ def test_every_route_under_api_v1_is_either_listed_or_refused_with_a_key(env: An
             elif getattr(r, "original_router", None) is not None:
                 yield from walk(r.original_router.routes)
 
-    listed = {p for _m, p, _b in KEY_ROUTES} | {p for _m, p, _b in ORG_ROUTES}
+    key_listed = {(m, p) for m, p, _b in KEY_ROUTES} | {("GET", "/api/v1/orgs/acme/usage")}
+    secret_listed = {(m, p) for m, p, _b in ORG_ROUTES}
+    seen = 0
     for r in walk(c.app.routes):
         if not r.path.startswith("/api/v1/"):
             continue
         concrete = r.path.replace("{job_id}", "abc").replace("{org_id}", "acme").replace("{key_id}", "kid")
-        in_gate = (
-            concrete in identity.PARTNER_KEY_PATHS
-            or identity._PARTNER_KEY_PATH_RE.match(concrete)
-            or identity._ORGS_PATH_RE.match(concrete)
-        )
-        assert bool(in_gate) == (concrete in listed or r.path == "/api/v1/status" and False), (
-            f"{r.path}: gate list and tests disagree"
-        )
+        for method in sorted(r.methods - {"HEAD", "OPTIONS"}):
+            seen += 1
+            for header, listed in ((tenancy.API_KEY_HEADER, key_listed), (tenancy.TENANCY_PROVISION_HEADER, secret_listed)):
+                value = key if header == tenancy.API_KEY_HEADER else SECRET
+                resp = _call(c, method, concrete, {} if method == "POST" else None, {header: value})
+                gate_refused = resp.status_code == 401 and resp.json().get("detail") == "Missing bearer token"
+                opened = (method, concrete) in listed or (
+                    method == "GET" and concrete == "/api/v1/analyse-facts/jobs/abc" and header == tenancy.API_KEY_HEADER
+                )
+                assert gate_refused != opened, (method, concrete, header, resp.status_code)
+    assert seen >= 15
 
 
-def test_an_org_usage_route_with_a_bad_key_is_401_and_with_the_orgs_key_is_served(env: Any) -> None:
+@pytest.mark.parametrize(
+    "path", ["/api/v1/audit/", "/API/V1/AUDIT", "/api/v1//audit", "/api/v1/audit%0A", "/api/v1/orgs/acme/usage%0A"]
+)
+def test_odd_spellings_of_a_listed_path_are_not_opened(env: Any, path: str) -> None:
     c, key = env
-    path = "/api/v1/orgs/acme/usage"
-    bad = c.get(path, headers={tenancy.API_KEY_HEADER: BAD})
-    assert bad.status_code == 401 and bad.json()["detail"] == "Invalid or revoked API key"
-    assert c.get(path, headers={tenancy.API_KEY_HEADER: key}).status_code == 200
-    assert (
-        c.get("/api/v1/orgs/other/usage", headers={tenancy.API_KEY_HEADER: key}).status_code == 403
-    )  # another org: the route refuses
+    r = c.get(path, headers={tenancy.API_KEY_HEADER: key})
+    assert r.status_code != 200, (path, r.status_code)
+    assert r.status_code in (401, 404, 307, 308, 405)
+
+
+def test_a_repeated_key_header_is_not_a_credential_the_gate_trusts(env: Any) -> None:
+    c, key = env
+    r = c.get("/api/v1/audit", headers=[(tenancy.API_KEY_HEADER, key), (tenancy.API_KEY_HEADER, BAD)])
+    assert r.status_code == 401 and r.json()["detail"] == "Missing bearer token"
+    r2 = c.get("/api/v1/audit", headers={tenancy.API_KEY_HEADER: ""})
+    assert r2.status_code == 401 and r2.json()["detail"] == "Missing bearer token"
+
+
+@pytest.mark.parametrize("method", ["DELETE", "PATCH", "PUT"])
+def test_another_method_on_a_listed_path_is_not_opened(env: Any, method: str) -> None:
+    c, key = env
+    for path, header, value in (
+        ("/api/v1/audit", tenancy.API_KEY_HEADER, key),
+        ("/api/v1/orgs/acme/keys", tenancy.TENANCY_PROVISION_HEADER, SECRET),
+    ):
+        r = c.request(method, path, headers={header: value})
+        assert r.status_code in (401, 405)
+        if r.status_code == 401:
+            assert r.json()["detail"] == "Missing bearer token"

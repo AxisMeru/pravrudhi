@@ -314,7 +314,7 @@ async def current_user(request: Request) -> User | None:
     header_name = _identity_header_name()
     if header_name not in headers and request.url.path in demo_anon_paths():
         return None
-    if _partner_route_carries_its_own_credential(request.url.path, request, header_name):
+    if _partner_route_carries_its_own_credential(str(request.scope.get("path", "")), request, header_name):
         return None  # a partner route that validates its own credential (see PARTNER_KEY_PATHS); no user, the route decides
     return user_from_headers(headers)
 
@@ -327,28 +327,48 @@ async def current_user(request: Request) -> User | None:
 # (a test pins that; tenancy imports this module, so they cannot be imported from it here).
 _API_KEY_HEADER = "x-pravrudhi-api-key"
 _TENANCY_SECRET_HEADER = "x-pravrudhi-tenancy-secret"
-PARTNER_KEY_PATHS: frozenset[str] = frozenset({
-    "/api/v1/analyse-facts", "/api/v1/analyse-facts/jobs", "/api/v1/analyse-facts/assist", "/api/v1/verify-citations",
-    "/api/v1/audit", "/api/v1/intake", "/api/v1/intake/assist",
+# (method, path) pairs: a new method on a listed path stays refused until it is added on purpose.
+PARTNER_KEY_ROUTES: frozenset[tuple[str, str]] = frozenset({
+    ("POST", "/api/v1/analyse-facts"), ("POST", "/api/v1/analyse-facts/jobs"), ("POST", "/api/v1/analyse-facts/assist"),
+    ("POST", "/api/v1/verify-citations"), ("GET", "/api/v1/audit"), ("POST", "/api/v1/intake"), ("POST", "/api/v1/intake/assist"),
 })
-_PARTNER_KEY_PATH_RE = re.compile(r"^/api/v1/analyse-facts/jobs/[^/]+$")
-_ORGS_PATH_RE = re.compile(r"^/api/v1/orgs(/[^/]+(/keys(/[^/]+/revoke)?|/usage(/summary)?)?)?$")
-# An org's own key may read that org's usage (the route validates the key and the org); every other /orgs path, the usage
-# summary included, takes the secret only.
-_ORG_USAGE_PATH_RE = re.compile(r"^/api/v1/orgs/[^/]+/usage$")
+PARTNER_KEY_PATHS: frozenset[str] = frozenset(p for _m, p in PARTNER_KEY_ROUTES)
+_JOB_PATH_RE = re.compile(r"/api/v1/analyse-facts/jobs/[^/\n]+")
+# Org/key admin routes take the tenancy secret; an org's own key may also read that org's usage (the route validates the key
+# and the org). The usage summary and every other /orgs route take the secret only.
+_ORG_SECRET_ROUTES = (
+    ("POST", re.compile(r"/api/v1/orgs")),
+    ("GET", re.compile(r"/api/v1/orgs/[^/\n]+/keys")),
+    ("POST", re.compile(r"/api/v1/orgs/[^/\n]+/keys")),
+    ("POST", re.compile(r"/api/v1/orgs/[^/\n]+/keys/[^/\n]+/revoke")),
+    ("GET", re.compile(r"/api/v1/orgs/[^/\n]+/usage")),
+    ("GET", re.compile(r"/api/v1/orgs/[^/\n]+/usage/summary")),
+)
+_ORG_KEY_ROUTES = (("GET", re.compile(r"/api/v1/orgs/[^/\n]+/usage")),)
+
+
+def _single_header(conn: HTTPConnection, name: str) -> bool:
+    """Exactly one non-empty value: a repeated header is ambiguous (the gate and the route could read different ones): absent."""
+    values = conn.headers.getlist(name)
+    return len(values) == 1 and bool(values[0])
 
 
 def _partner_route_carries_its_own_credential(path: str, conn: HTTPConnection, identity_header: str) -> bool:
-    """True when this request is for a partner route that validates the credential it carries: a key header on a partner key path,
-    or the tenancy secret header on an org/key admin path. A request that also carries an identity token goes through the ordinary
-    identity check (the route then sees the user), so a bad token is still a 401."""
+    """True when this request is for a partner route that validates the credential it carries: a key header on a partner key
+    route, an org's key on its usage route, or the tenancy secret header on an org/key admin route. `path` is the ASGI scope
+    path. A request that also carries an identity token goes through the ordinary identity check (the route sees the user)."""
     if identity_header in conn.headers:
         return False
-    if (path in PARTNER_KEY_PATHS or _PARTNER_KEY_PATH_RE.match(path)) and conn.headers.get(_API_KEY_HEADER):
+    method = str(conn.scope.get("method", "")).upper()
+    if _single_header(conn, _API_KEY_HEADER) and (
+        (method, path) in PARTNER_KEY_ROUTES
+        or (method == "GET" and _JOB_PATH_RE.fullmatch(path))
+        or any(m == method and rx.fullmatch(path) for m, rx in _ORG_KEY_ROUTES)
+    ):
         return True
-    if _ORG_USAGE_PATH_RE.match(path) and conn.headers.get(_API_KEY_HEADER):
-        return True
-    return bool(_ORGS_PATH_RE.match(path)) and bool(conn.headers.get(_TENANCY_SECRET_HEADER))
+    return _single_header(conn, _TENANCY_SECRET_HEADER) and any(
+        m == method and rx.fullmatch(path) for m, rx in _ORG_SECRET_ROUTES
+    )
 
 
 class RequireIdentity:
