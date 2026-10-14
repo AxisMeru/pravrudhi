@@ -1208,3 +1208,10 @@ def test_l2_a_header_identity_line_is_never_joined_to_the_next_paragraph_by_widt
     raw += "\n\n".join(f"{i}. " + BODY[:150] + "." for i in range(1, 4)) + "\n"
     b = I.build_bundle(raw)
     assert not any("Quillerie" in t or "Pardue" in t for t in facts_text(b)) and all(v["pass"] for v in b["checks"].values())
+
+
+def test_usable_median_is_none_not_zero_when_there_are_no_facts_and_the_rule_fails():
+    r = I.fact_list_usable({"n_chars": 5000, "facts": [], "not_citable": [], "cleaned": "x" * 5000})
+    assert r["median_fact_chars"] is None and r["pass"] is False and "median fact length outside the range" in r["reasons"]
+    ok = I.fact_list_usable({"n_chars": 10_000, "facts": [{"text": "x" * 300}] * 24, "not_citable": [], "cleaned": "x" * 10_000})
+    assert ok["median_fact_chars"] == 300 and ok["pass"] is True
