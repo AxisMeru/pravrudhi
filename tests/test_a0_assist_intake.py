@@ -1202,6 +1202,9 @@ def test_l2_a_header_identity_line_is_never_joined_to_the_next_paragraph_by_widt
     assert "evening Shri Ravi" in I.clean(plain)["cleaned"]  # arm 2: ordinary full-width prose still continues
     other_cue = "BETWEEN: the parties as named in the title of the cause listed below for the hearing\n\nShri Ravi was seen."
     assert "hearing\n\nShri Ravi" in I.clean(other_cue)["cleaned"]  # any header-cue line keeps its break by width alone
+    # R2's mutant: a next paragraph that starts with a digit, a bracket or an ampersand must also keep the break
+    for start in ("12 Mill Lane, Thistleby", "(Advocate for the Appellant)", "& Co. Solicitors"):
+        assert "road\n\n" + start in I.clean(ident_line + "\n\n" + start + "\n")["cleaned"]
     raw = (
         "IN THE HIGH COURT\n\nBETWEEN:\n\n" + ident_line + "\n\n" + nxt + "\n\nCORAM: HON'BLE MR JUSTICE FENWORTH\n\nJUDGMENT\n\n"
     )
