@@ -12,6 +12,10 @@ messages.
 - **Client-address diagnostic on `GET /api/health` (response headers only; no body change).** `X-Pravrudhi-Client-Ip-Source` says where the engine took the caller's address from (`signed`, `proxy`, `caller` or `peer`), and `X-Pravrudhi-Client-Ip-Proof` says whether the gateway's signed-address proof arrived and held (`valid`, `none`, `mismatch`, `no_ip`, `engine_unset`, `engine_short`). Labels only: never the address and never the secret. Added so the client-address check can be confirmed end to end through the gateway.
 - **`bad_key_budget_per_minute` (config) and `PRAVRUDHI_BAD_KEY_BUDGET_PER_MINUTE` (environment, wins).** The failed-key attempts allowed per address per minute (#396). Default unchanged: the same number as `rate_limit_per_minute`. Raising it stops a flood of bad keys from refusing valid keyed callers behind a shared gateway address; the anonymous limit is not affected.
 
+### Changed
+
+- **The assisted route allows a longer run (caller-visible).** The assistant's wall limit (`call_timeout_s`) is 150 s, up from 60 s, and its stream-event cap (`max_events`) is 1000, up from 400. A screening or hearing pack over about five contracts took about 57 s of agent turns (dev stack measurement), so 60 s left almost no margin and the run fell back to the ordinary result with `assistant.used: false`; it can now finish with the assistant. A run that still exceeds the limit falls back exactly as before. The route stays synchronous.
+
 ### Fixed
 
 - **`GET /api/v1/audit` no longer answers 500 for a key that has called the assisted route (#422, caller-visible).** The assisted route's audit rows carry the mode `assist`; the audit page's `mode` enum did not declare it, so the whole page failed. The enum now reads `sync`, `job`, `verify`, `assist` (one value added to the public OpenAPI response enum: a client generated with a closed enum must accept the new value). A guard test compares every mode the engine writes with the declared enum.
