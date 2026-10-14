@@ -76,6 +76,8 @@ from pravrudhi.application import audit, citation_status, tenancy
 from pravrudhi.application import nyaya_lean_registry as reg
 from pravrudhi.application.citation_wording import citation_note
 from pravrudhi.application.config_files import config_file
+from pravrudhi.application.hearing_pack.driver import PackDriver
+from pravrudhi.application.hearing_pack.pack import build_pack
 from pravrudhi.application.jobs import JobStore
 from pravrudhi.application.judge_endpoint_state import Fetch, JudgeOfflineCheck
 from pravrudhi.application.nyaya_agent import (
@@ -86,6 +88,7 @@ from pravrudhi.application.nyaya_agent import (
     JudgeMisconfigured,
     NyayaAgent,
     Outcome,
+    ingest_facts,
 )
 from pravrudhi.application.nyaya_judges import SecondJudgeCircuitBreaker, standard_for_posture
 from pravrudhi.application.nyaya_quote import Reason as QuoteCheck
@@ -708,6 +711,8 @@ class AssistFactsResponse(AnalyseFactsResponse):
     """The analyse-facts response plus the `assistant` block (see application/a0_assist/assist.py)."""
 
     assistant: dict[str, Any]
+    #: Only for `workflow: "hearing_prep"`: the hearing-preparation pack, built by fixed rules from the decide result (#415).
+    pack: dict[str, Any] | None = None
 
 
 AgentFactory = Callable[[Path], AgentLike]
@@ -1414,9 +1419,20 @@ def build_partner_router(
         matter = {"facts": list(req.facts), "narrative": req.narrative, "contract_ids": list(req.contract_ids)}
         box: dict[str, Any] = {}
 
+        hearing = req.workflow == "hearing_prep"
+
         def make_driver() -> Any:
             box["agent"] = factory(engine_root)
-            return a0drv.A0Driver(box["agent"], request=matter, proceeding_posture=req.proceeding_posture)
+            driver_cls: Any = PackDriver if hearing else a0drv.A0Driver
+            return driver_cls(box["agent"], request=matter, proceeding_posture=req.proceeding_posture)
+
+        def with_pack(body: Any) -> Any:
+            """The ordinary (core) result plus the pack built from it by the same pure function the `pack` tool uses, for a
+            hearing_prep request whose assisted run did not finish: the user still gets the pack. Error responses pass through."""
+            if hearing and isinstance(body, dict) and isinstance(body.get("contracts"), list):
+                facts = [{"id": f.id, "text": f.text} for f in ingest_facts(req.facts)]
+                return {**body, "pack": build_pack(body["contracts"], facts, req.narrative or "")}
+            return body
 
         def finalize(driver: Any) -> dict[str, Any]:
             agent = box["agent"]
@@ -1439,7 +1455,10 @@ def build_partner_router(
                     "in_judge_prompt": in_prompt,
                 },
             }
-            return _shape_body(agent, body, driver.listed, admitted.authenticated, debug_second_judge, admitted.cfg)
+            shaped = _shape_body(agent, body, driver.listed, admitted.authenticated, debug_second_judge, admitted.cfg)
+            if hearing:
+                shaped["pack"] = driver._pack  # the `pack` tool's own output (decide results in, fixed rules): never agent text
+            return shaped
 
         deps = a0.Deps(
             cfg=rt.cfg,
@@ -1448,9 +1467,10 @@ def build_partner_router(
             transport=rt.transport,
             limiter=rt.limiter,
             slots=rt.slots,
-            core=lambda: _run(req, admitted, debug_second_judge, slot_held=True),
+            core=lambda: with_pack(_run(req, admitted, debug_second_judge, slot_held=True)),
             make_driver=make_driver,
             finalize=finalize,
+            workflows=frozenset({"screening", "hearing_prep"}),
         )
         caller = a0.Caller(admitted.authenticated, admitted.user_id, admitted.org_id, admitted.ip)
         out = a0.run_assisted(matter, caller, req.consent, req.session_id, deps, workflow=req.workflow)
