@@ -49,6 +49,8 @@ class AssistConfig:
     retention_max_hours: float
     sweep_interval_min: int
     max_pending_deletes: int
+    interrupt_wait_s: float
+    max_events: int
     canary_interval_min: int
     canary_stale_min: int
 
@@ -142,6 +144,8 @@ def parse(cfg: Any) -> AssistConfig:
         retention_max_hours=_num(cfg, "retention_max_hours", 0, 24 * 30),
         sweep_interval_min=_int(cfg, "sweep_interval_min", 1, 24 * 60),
         max_pending_deletes=_int(cfg, "max_pending_deletes", 1, 1000),
+        interrupt_wait_s=_num(cfg, "interrupt_wait_s", 0, 600),
+        max_events=_int(cfg, "max_events", 10, 10_000),
         canary_interval_min=_int(cfg, "canary_interval_min", 1, 24 * 60),
         canary_stale_min=_int(cfg, "canary_stale_min", 1, 7 * 24 * 60),
     )

@@ -48,7 +48,7 @@ RUN --mount=type=secret,id=github_token set -eu; \
     engine="$(printf '%s' "$data" | grep -o '"browser_download_url": *"[^"]*pravrudhi-[0-9][^"]*\.whl"' | head -1 | sed 's/.*"\(https[^"]*\)"/\1/')"; \
     [ -n "$kernel" ] || { echo "FATAL: no pravrudhi_kernel wheel in release v${PRAVRUDHI_VERSION} (assets not published yet?)" >&2; exit 1; }; \
     [ -n "$engine" ] || { echo "FATAL: no pravrudhi wheel in release v${PRAVRUDHI_VERSION} (assets not published yet?)" >&2; exit 1; }; \
-    pip install --no-cache-dir --quiet "$kernel" "$engine"; \
+    pip install --no-cache-dir --quiet "$kernel" "pravrudhi[assist] @ $engine"; \
     command -v pravrudhi >/dev/null || { echo "FATAL: pravrudhi not on PATH after install" >&2; exit 1; }
 
 # prabhasa-nyaya's compiled Lean `score` binary (2026-09-23: found missing from every prior image --
@@ -77,6 +77,15 @@ RUN set -eu; \
         echo "         every Lean-checker route (checker=lean, /api/nyaya/registry/*) will answer 503 until" >&2; \
         echo "         a redeploy includes it. See deploy/docker/README.md." >&2; \
     fi
+
+# The database provider's public root CA, for the assisted-screening spend store (the engine verifies the database's certificate
+# against THIS file only, never the system bundle). Path and sha are pinned: a build with a different file fails.
+ARG SUPABASE_CA_SHA256=700723581420dd1ac98fd7e9ac529f0ef210eadcaf87fc868a3ad7d114c2f3b7
+COPY certs/supabase-prod-ca.crt /opt/pravrudhi/certs/supabase-prod-ca.crt
+RUN set -eu; \
+    actual="$(sha256sum /opt/pravrudhi/certs/supabase-prod-ca.crt | cut -d' ' -f1)"; \
+    [ "$actual" = "$SUPABASE_CA_SHA256" ] || { echo "FATAL: database CA sha256 mismatch: got $actual, expected $SUPABASE_CA_SHA256" >&2; exit 1; }; \
+    chmod 0444 /opt/pravrudhi/certs/supabase-prod-ca.crt
 
 # The unforgeable hosted-image marker: the engine's boot refuses PRAVRUDHI_AUTH unset or `disabled` whenever this file exists,
 # whatever the environment says (pravrudhi/deployment.py HOSTED_FILE; PRAVRUDHI_HOSTED_IMAGE below is only a display label).

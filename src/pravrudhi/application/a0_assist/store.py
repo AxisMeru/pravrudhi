@@ -33,6 +33,15 @@ class StoreError(RuntimeError):
     """The store cannot be used right now: fail closed (no session starts)."""
 
 
+class StoreTimeout(StoreError):
+    """A statement, lock or socket timeout: reported as its own reason, never folded into a generic failure."""
+
+
+def _is_timeout(exc: BaseException) -> bool:
+    text = str(exc).lower()
+    return isinstance(exc, TimeoutError) or "statement timeout" in text or "lock timeout" in text or "timed out" in text
+
+
 class StoreNotConfigured(StoreError):
     """No DSN, no driver, or a DSN that is refused: the assisted route is not configured."""
 
@@ -49,6 +58,7 @@ class SpendStore(Protocol):
     def canary(self) -> dict[str, Any]: ...
     def mark_deleted(self, anthropic_session_id: str, http_status: int) -> dict[str, Any]: ...
     def prune(self) -> int: ...
+    def spend_summary(self) -> dict[str, Any]: ...
 
 
 def new_session_key() -> str:
@@ -167,6 +177,8 @@ class PgSpendStore:
         except StoreError:
             raise
         except Exception as exc:  # noqa: BLE001 - deliberately broad: the driver, ssl and socket layers raise unrelated types; every one fails closed to a StoreError that names only its class
+            if _is_timeout(exc):
+                raise StoreTimeout(f"the store call timed out ({type(exc).__name__})") from None
             raise StoreError(f"the store call failed ({type(exc).__name__})") from None
         finally:
             if conn is not None:
@@ -174,13 +186,13 @@ class PgSpendStore:
                     conn.close()
 
     @staticmethod
-    def _json(rows: Any) -> dict[str, Any]:
+    def _json(rows: Any, need: tuple[str, ...] = ("ok", "initialised")) -> dict[str, Any]:
         try:
             v = rows[0][0]
             v = json.loads(v) if isinstance(v, (str, bytes)) else v
         except (IndexError, TypeError, ValueError):
             raise StoreError("the store answered with something that is not JSON") from None
-        if not isinstance(v, Mapping) or "ok" not in v and "initialised" not in v:
+        if not isinstance(v, Mapping) or not any(k in v for k in need):
             raise StoreError("the store answered with an unexpected shape")
         return dict(v)
 
@@ -217,6 +229,9 @@ class PgSpendStore:
 
     def mark_deleted(self, anthropic_session_id: str, http_status: int) -> dict[str, Any]:
         return self._json(self._call("select assist.mark_deleted(%s, %s)", (_sid(anthropic_session_id), _int(http_status, 100))))
+
+    def spend_summary(self) -> dict[str, Any]:
+        return self._json(self._call("select assist.spend_summary()", ()), need=("spent_today_cents",))
 
     def prune(self) -> int:
         rows = self._call("select assist.prune()", ())

@@ -346,3 +346,83 @@ def test_health_with_a_non_utf8_config_is_not_a_500(tmp_path):
     (root / "configs" / "assistant_tier.yaml").write_bytes(b"\xff\xfe")
     r = client(root).get("/api/health")
     assert r.status_code == 200 and r.json()["assistant_tier"]["reason"] == "disabled"
+
+
+def test_a_pause_source_with_a_code_makes_the_tier_paused_with_the_documented_reason(tmp_path):
+    root = root_with(tmp_path)
+    T.set_pause_source(lambda: "canary_failed")
+    assert T.status(root, env=KEY) == {"state": UNAVAILABLE, "reason": "upstream_error"}
+    assert T.pause_cause() == "canary_failed"  # the fine-grained cause stays internal
+
+
+def test_a_pause_source_returning_none_leaves_the_tier_as_it_was(tmp_path):
+    root = root_with(tmp_path)
+    T.set_pause_source(lambda: None)
+    assert T.status(root, env=KEY)["state"] == "available"
+
+
+def test_a_pause_source_that_raises_pauses_the_tier_never_raises(tmp_path):
+    root = root_with(tmp_path)
+
+    def boom():
+        raise RuntimeError("x")
+
+    T.set_pause_source(boom)
+    assert T.status(root, env=KEY) == {"state": UNAVAILABLE, "reason": "upstream_error"}
+    assert T.pause_cause() == "pause_source_error"
+
+
+def test_clearing_the_pause_source_restores_the_tier(tmp_path):
+    root = root_with(tmp_path)
+    T.set_pause_source(lambda: "x")
+    T.set_pause_source(None)
+    assert T.status(root, env=KEY)["state"] == "available"
+
+
+GUARD_CAUSES = [
+    "store_not_configured",
+    "store_unreachable",
+    "store_status_unreadable",
+    "store_not_initialised",
+    "canary_failed",
+    "canary_never_run",
+    "canary_stale",
+    "canary_error",
+    "canary_timeout",
+    "sweep_stale",
+    "pending_deletes_count",
+    "pending_deletes_age",
+    "transport_not_configured",
+    "first_check_pending",
+    "sweeper_not_configured",
+    "sweeper_store_error",
+    "sweeper_crashed",
+    "delete_canary_failed",
+    "workspace_check_failed",
+]
+
+
+@pytest.mark.parametrize("cause", GUARD_CAUSES)
+def test_every_guard_cause_is_paused_with_upstream_error_never_disabled_budget_floor_or_quota(tmp_path, cause):
+    T.set_pause_source(lambda: cause)
+    got = T.status(root_with(tmp_path), env=KEY)
+    assert got == {"state": UNAVAILABLE, "reason": "upstream_error"}
+    assert got["reason"] not in ("disabled", "budget_floor", "quota", "no_key")
+
+
+def test_disabled_stays_for_config_off_only(tmp_path):
+    T.set_pause_source(lambda: "canary_failed")
+    assert T.status(root_with(tmp_path, base_cfg(enabled=False)), env=KEY)["reason"] == "disabled"
+    assert T.status(root_with(tmp_path, base_cfg(force_unavailable=True)), env=KEY)["reason"] == "disabled"
+
+
+def test_the_guard_causes_listed_here_are_exactly_the_ones_the_code_can_set():
+    import re
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent / "src" / "pravrudhi" / "application" / "a0_assist"
+    found = set()
+    for f in root.glob("*.py"):
+        found |= set(re.findall(r'pauses\.set\(\s*"[a-z_]+",\s*"([a-z_]+)"', f.read_text()))
+        found |= set(re.findall(r'return "([a-z_]+)"', f.read_text())) if f.name == "guard.py" else set()
+    assert found - {"canary_never_run", "canary_stale", "canary_failed", "store_not_configured"} <= set(GUARD_CAUSES)

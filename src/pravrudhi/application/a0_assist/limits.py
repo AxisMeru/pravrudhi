@@ -54,27 +54,33 @@ class AssistLimiter:
     def admit(self, user_id: str | None, org_id: str | None, ip: str | None) -> Refusal | None:
         """None = admitted (and counted). Per-IP is checked first (cheapest), then per user, then per org; nothing is
         counted unless all three pass."""
-        if not user_id or not org_id or not ip:
-            return Refusal("no_identity", 0)
+        if not user_id:
+            return Refusal("no_identity", 0)  # an anonymous caller never reaches the limiter; no user = no run
         with self._lock:
             t = float(self._now())
             day = int(t // DAY_S)
-            q = self._ip.get(ip)
-            if q is None:
-                q = self._ip[ip] = deque()
-            while q and t - q[0] >= 60:
-                q.popleft()
-            if len(q) >= self.per_ip_minute:
-                return Refusal("per_ip_minute", max(1, int(60 - (t - q[0])) + 1))
+            q: deque[float] | None = None
+            if ip:
+                q = self._ip.get(ip)
+                if q is None:
+                    q = self._ip[ip] = deque()
+                while q and t - q[0] >= 60:
+                    q.popleft()
+                if len(q) >= self.per_ip_minute:
+                    return Refusal("per_ip_minute", max(1, int(60 - (t - q[0])) + 1))
             until_midnight = int(DAY_S - (t % DAY_S)) + 1
-            ukey, okey = f"u:{user_id}", f"o:{org_id}"
+            ukey = f"u:{user_id}"
+            okey = f"o:{org_id}" if org_id else None  # a workspace session has no org: only the per-user and per-IP limits apply
             if self._day_count(ukey, day) >= self.per_user_day:
                 return Refusal("per_user_day", until_midnight)
-            if self._day_count(okey, day) >= self.per_org_day:
+            if okey and self._day_count(okey, day) >= self.per_org_day:
                 return Refusal("per_org_day", until_midnight)
-            q.append(t)
-            self._ip.move_to_end(ip)
+            if q is not None and ip:
+                q.append(t)
+                self._ip.move_to_end(ip)
             for key in (ukey, okey):
+                if key is None:
+                    continue
                 self._day[key] = (day, self._day_count(key, day) + 1)
                 self._day.move_to_end(key)
             self._evict(self._ip)

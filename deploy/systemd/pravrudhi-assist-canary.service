@@ -1,0 +1,13 @@
+# The standing database canary (assist.canary()) and the daily-safe prune, hourly, through the sweeper role. A canary that finds
+# anything, errors or times out exits 2; the tier also pauses on its own when the last clean canary is older than the
+# configured stale threshold, so this unit failing or not running is fail-closed, never silent.
+[Unit]
+Description=Assisted screening standing canary and retention prune (sweeper role only)
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=@ROOT@
+EnvironmentFile=%h/.config/pravrudhi/assist-sweeper.env
+ExecStart=@ROOT@/.venv/bin/python -m pravrudhi.application.a0_assist.backstop --root @ROOT@ --canary --prune
+TimeoutStartSec=120

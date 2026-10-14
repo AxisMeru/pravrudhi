@@ -215,7 +215,7 @@ def test_the_module_has_no_network_or_driver_imports():
 
 
 def test_store_ca_file_is_null_or_a_path_string():
-    assert C.parse(base()).store_ca_file is None
+    assert C.parse(base(store_ca_file=None)).store_ca_file is None
     assert C.parse(base(store_ca_file="/app/certs/supabase-prod-ca.crt")).store_ca_file == "/app/certs/supabase-prod-ca.crt"
 
 
@@ -291,4 +291,19 @@ def test_an_enabled_route_refuses_to_parse_without_the_pinned_ca_path():
     with pytest.raises(C.AssistConfigError):
         C.parse(enabled(store_ca_file=None))
     assert C.parse(enabled()).store_ca_file == "/app/certs/ca.crt"
-    assert C.parse(base()).route_enabled is False  # dark with a null CA is fine
+    assert C.parse(base(store_ca_file=None)).route_enabled is False  # dark with a null CA is fine
+
+
+def test_the_shipped_ca_path_the_dockerfile_copy_and_the_pinned_sha_agree():
+    import hashlib
+    import re
+
+    shipped = C.parse(base()).store_ca_file
+    docker = (REPO / "deploy" / "docker" / "Dockerfile").read_text()
+    cert = REPO / "deploy" / "docker" / "certs" / "supabase-prod-ca.crt"
+    assert shipped == "/opt/pravrudhi/certs/supabase-prod-ca.crt"
+    assert f"COPY certs/supabase-prod-ca.crt {shipped}" in docker
+    pinned = re.search(r"ARG SUPABASE_CA_SHA256=([0-9a-f]{64})", docker).group(1)
+    assert hashlib.sha256(cert.read_bytes()).hexdigest() == pinned
+    assert cert.read_text().count("BEGIN CERTIFICATE") == 1
+    assert 'pip install --no-cache-dir --quiet "$kernel" "pravrudhi[assist] @ $engine"' in docker  # the image installs the extra

@@ -87,7 +87,7 @@ from pravrudhi.application.nyaya_agent import (
     NyayaAgent,
     Outcome,
 )
-from pravrudhi.application.nyaya_judges import SecondJudgeCircuitBreaker
+from pravrudhi.application.nyaya_judges import SecondJudgeCircuitBreaker, standard_for_posture
 from pravrudhi.application.nyaya_quote import Reason as QuoteCheck
 from pravrudhi.application.service_window import ServiceWindow
 from pravrudhi.application.statute_citations import contract_citations
@@ -333,6 +333,10 @@ class _Admitted:
     cfg: PartnerApiConfig
     concurrency: ConcurrencyLimiter
     authenticated: bool
+    #: Who asked, for the assisted route's anti-abuse limits only (never stored, never logged).
+    user_id: str | None = None
+    org_id: str | None = None
+    ip: str | None = None
 
 
 class VerifyCitationRequest(BaseModel):
@@ -401,6 +405,13 @@ class AnalyseFactsRequest(BaseModel):
             "No effect unless the engine runs a standard-aware prompt template."
         ),
     )
+
+
+class AssistFactsRequest(AnalyseFactsRequest):
+    """The assisted route's body: the analyse-facts body plus the caller's per-request consent and an opaque echo id."""
+
+    consent: bool = False
+    session_id: str | None = Field(default=None, max_length=128)
 
 
 #: The exact keys `analyse_facts_ep` strips out of each element's dict when the debug gate is off -- listed
@@ -646,6 +657,12 @@ class AnalyseFactsResponse(BaseModel):
         "prompt actually stated (`applied`, null under the legacy prompt template, where the judge is never told "
         "a standard), from the same values as the audit row.",
     )
+
+
+class AssistFactsResponse(AnalyseFactsResponse):
+    """The analyse-facts response plus the `assistant` block (see application/a0_assist/assist.py)."""
+
+    assistant: dict[str, Any]
 
 
 AgentFactory = Callable[[Path], AgentLike]
@@ -1180,11 +1197,20 @@ def build_partner_router(
         for f in req.facts:
             if len(f) > 4000:
                 raise HTTPException(422, "a fact may not exceed 4000 characters")
-        return _Admitted(cfg, concurrency, authenticated)
+        return _Admitted(
+            cfg,
+            concurrency,
+            authenticated,
+            user_id=user.id if user is not None else (f"key:{principal.key_id}" if principal is not None else None),
+            org_id=principal.org_id if principal is not None else None,
+            ip=ip,
+        )
 
-    def _run(req: AnalyseFactsRequest, admitted: _Admitted, debug_second_judge: bool) -> dict[str, Any] | JSONResponse:
+    def _run(
+        req: AnalyseFactsRequest, admitted: _Admitted, debug_second_judge: bool, *, slot_held: bool = False
+    ) -> dict[str, Any] | JSONResponse:
         cfg, concurrency, authenticated = admitted.cfg, admitted.concurrency, admitted.authenticated
-        if not concurrency.acquire():
+        if not slot_held and not concurrency.acquire():
             return coded_503(AGENT_AT_CAPACITY)
         try:
             agent = factory(engine_root)
@@ -1206,7 +1232,8 @@ def build_partner_router(
             _logger.warning("nyaya agent unavailable", exc_info=True)  # the exception is logged server-side only (#318)
             return coded_503(AGENT_UNAVAILABLE)
         finally:
-            concurrency.release()
+            if not slot_held:
+                concurrency.release()
         # R1, 2026-09-25: a PRIMARY judge that is unreachable from boot (model resolution or a connection
         # failure after `_judge_element`'s own transient-retry loop is exhausted) does not raise out of
         # `agent.run()` -- `NyayaAgent`'s own philosophy is that this is a recorded, non-evidentiary outcome
@@ -1240,9 +1267,21 @@ def build_partner_router(
                 )
             return JSONResponse(status_code=503, content={"error": "judge_unavailable"})
         _judge_seen.update(state="ready", at=_now(), first_failure=None)
-        body: dict[str, Any] = result.to_dict()
+        listed = getattr(result, "listed_sources", None)
+        return _shape_body(agent, result.to_dict(), listed, authenticated, debug_second_judge, cfg)
+
+    def _shape_body(
+        agent: Any,
+        body: dict[str, Any],
+        listed: dict[str, list[str]] | None,
+        authenticated: bool,
+        debug_second_judge: bool,
+        cfg: PartnerApiConfig,
+    ) -> dict[str, Any]:
+        """The response post-processing shared by the core run and the assisted run: citations, set versions, rule text
+        and second-judge diagnostic fields."""
         body.pop("audit_path", None)
-        _attach_citations(agent, body, getattr(result, "listed_sources", None))
+        _attach_citations(agent, body, listed)
         body["contract_set_version"] = _contract_set_version(agent)
         body["validated_set_version"] = validated_set_version(getattr(getattr(agent, "config", None), "validated_contracts", ()))
         if not getattr(getattr(agent, "config", None), "expose_rule_text", False):
@@ -1256,6 +1295,117 @@ def build_partner_router(
                     for field in _SECOND_JUDGE_DEBUG_FIELDS:
                         element.pop(field, None)
         return body
+
+    def _assisted_response(
+        req: AssistFactsRequest, admitted: _Admitted, debug_second_judge: bool, rt: Any
+    ) -> dict[str, Any] | JSONResponse:
+        from pravrudhi.application import assistant_tier
+        from pravrudhi.application.a0_assist import assist as a0
+        from pravrudhi.application.a0_assist import driver as a0drv
+
+        matter = {"facts": list(req.facts), "narrative": req.narrative, "contract_ids": list(req.contract_ids)}
+        box: dict[str, Any] = {}
+
+        def make_driver() -> Any:
+            box["agent"] = factory(engine_root)
+            return a0drv.A0Driver(box["agent"], request=matter, proceeding_posture=req.proceeding_posture)
+
+        def finalize(driver: Any) -> dict[str, Any]:
+            agent = box["agent"]
+            standard, source = standard_for_posture(req.proceeding_posture)
+            in_prompt = getattr(agent.judge, "prompt_template", "legacy") != "legacy"
+            body: dict[str, Any] = {
+                "run_id": f"nyaya-assist-{os.urandom(5).hex()}",
+                "judge": agent.judge.name,
+                "score_sha256": agent.registry.sha256,
+                "facts": [{"id": f["id"], "sha256": f["sha256"]} for f in driver._ingested["facts"]],
+                "contracts": [driver._decided[c] for c in driver._selected or []],
+                "provenance": "agama",
+                "judge_accounting": {},
+                "client_data": True,
+                "standard": {
+                    "requested": standard,
+                    "applied": standard if in_prompt else None,
+                    "source": "proceeding_posture" if source == "request" else "default",
+                    "proceeding_posture": req.proceeding_posture,
+                    "in_judge_prompt": in_prompt,
+                },
+            }
+            return _shape_body(agent, body, driver.listed, admitted.authenticated, debug_second_judge, admitted.cfg)
+
+        deps = a0.Deps(
+            cfg=rt.cfg,
+            tier_status=lambda: assistant_tier.status(engine_root),
+            store=rt.store,
+            transport=rt.transport,
+            limiter=rt.limiter,
+            slots=rt.slots,
+            core=lambda: _run(req, admitted, debug_second_judge, slot_held=True),
+            make_driver=make_driver,
+            finalize=finalize,
+        )
+        caller = a0.Caller(admitted.authenticated, admitted.user_id, admitted.org_id, admitted.ip)
+        out = a0.run_assisted(matter, caller, req.consent, req.session_id, deps)
+        if isinstance(out, dict):
+            # The facts went to a third party for this request (or may have): the ordinary retention notice would be wrong here,
+            # so no response of this route carries one. The consent line and the data-handling page say what is true.
+            out.pop("retention_notice", None)
+        result: dict[str, Any] | JSONResponse = out
+        return result
+
+    @router.post(
+        "/analyse-facts/assist",
+        response_model=AssistFactsResponse,
+        response_model_exclude_unset=True,
+        include_in_schema=False,  # ships dark: not in the public contract until the route is enabled in a release
+        responses={
+            400: {"description": "consent_required: the request did not carry consent=true."},
+            404: {"description": "The assisted route is not enabled on this deployment."},
+            429: {"description": "Over the rate limit; wait Retry-After seconds."},
+            503: {"description": "Outside the service window, judges warming, or the agent at capacity or unavailable."},
+        },
+    )
+    def analyse_facts_assist_ep(
+        req: AssistFactsRequest,
+        request: Request,
+        response: Response,
+        user: User | None = CurrentUserDep,
+        debug_second_judge: bool = Query(False),
+    ) -> dict[str, Any] | JSONResponse:
+        from pravrudhi.application.a0_assist import runtime as a0rt
+
+        rt = a0rt.get(engine_root)
+        if rt is None or not rt.enabled:
+            raise HTTPException(404, "assist_not_enabled")
+        if req.consent is not True:
+            return JSONResponse(status_code=400, content={"error": "consent_required"})
+        if req.sections:
+            raise HTTPException(422, "the assisted route selects contracts by contract_ids only")
+        metered: list[str] = []
+        per_minute: list[int] = []
+        try:
+            admitted = _admit(req, request, user, metered, per_minute)
+            if isinstance(admitted, JSONResponse):
+                _audit(metered, req, "assist", status_code=admitted.status_code)
+                return admitted
+            if not admitted.concurrency.acquire():
+                return coded_503(AGENT_AT_CAPACITY)
+            try:
+                out = _assisted_response(req, admitted, debug_second_judge, rt)
+            finally:
+                admitted.concurrency.release()
+        except HTTPException as e:
+            _audit(metered, req, "assist", status_code=e.status_code)
+            raise
+        if metered and isinstance(out, JSONResponse) and out.status_code == 503:
+            _record_usage(metered[0], failed=True)
+        if metered and isinstance(out, dict):
+            response.headers.update(_rate_headers(metered[0], per_minute[0]))
+        if isinstance(out, JSONResponse):
+            _audit(metered, req, "assist", status_code=out.status_code)
+        else:
+            _audit(metered, req, "assist", status_code=200, out=out)
+        return out
 
     # --- async job mode (#146): same admission, same agent run, collected by polling -------------------------
     _jobs_lock = threading.Lock()

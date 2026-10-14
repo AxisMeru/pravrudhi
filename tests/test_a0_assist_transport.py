@@ -323,6 +323,26 @@ def test_module_has_no_file_or_upload_helpers_and_no_secret_logging():
     assert "/v1/files" not in src and "multipart" not in src and "logging" not in src and "print(" not in src
 
 
+# ---- the workspace probe -------------------------------------------------------------------------------------------------
+def test_workspace_ok_is_true_only_for_a_200_from_models_with_the_workspace_header():
+    t, seen = make(lambda r: httpx.Response(200, json={"data": []}))
+    assert t.workspace_ok() is True
+    assert seen[0].method == "GET" and seen[0].url.path == "/v1/models" and seen[0].headers["anthropic-workspace-id"] == WS
+
+
+@pytest.mark.parametrize("status", [400, 401, 403, 404, 429, 500])
+def test_workspace_ok_is_false_for_any_other_status_and_records_it(status):
+    got = []
+    t, _ = make(lambda r: httpx.Response(status, text="x"), record=got.append)
+    assert t.workspace_ok() is False and got == [status]
+
+
+def test_workspace_ok_is_false_on_a_transport_failure():
+    def boom(r):
+        raise httpx.ConnectTimeout("t")
+
+    t, _ = make(boom)
+    assert t.workspace_ok() is False
 @pytest.mark.parametrize("body", [[], "x", 5])
 def test_a_session_answer_that_is_not_a_json_object_is_an_upstream_error(body):
     t, _ = make(lambda r: httpx.Response(200, json=body))

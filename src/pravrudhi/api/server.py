@@ -32,6 +32,7 @@ from pravrudhi.api.schemas import (
     AgentTraceResponse,
     AppetiteResponse,
     ApplyResultResponse,
+    AssistantStatusResponse,
     BacklogResponse,
     BenchmarksResponse,
     CandidateDetailResponse,
@@ -240,10 +241,22 @@ def _warm_up_house_judge_in_background(root: Path) -> None:
         logging.getLogger(__name__).exception("house judge warm-up not started: the agent config did not load")
 
 
+def _start_assist_runtime(root: Path) -> None:
+    """Build the assisted tier's runtime at startup, so an enabled route is paused (and its sweeper started) before the first
+    request. Dark by default: with the route disabled this builds nothing. Never raises: a fault leaves the route off."""
+    try:
+        from pravrudhi.application.a0_assist import runtime as a0rt
+
+        a0rt.get(root)
+    except Exception:  # noqa: BLE001
+        logging.getLogger(__name__).exception("assisted tier runtime could not start; the route stays off")
+
+
 def create_app(root: Path, *, nyaya_ask_fn: Any | None = None) -> FastAPI:
     root = Path(root)
     app = FastAPI(title="pravrudhi", version=__version__)
     _warm_up_house_judge_in_background(root)
+    _start_assist_runtime(root)
     # Every JSON route lives under /api. The interface is a static export mounted at the root, and the two
     # namespaces collided: a browser navigating to /runs or /models was answered with JSON rather than the
     # page, because the API route matched first. Separating them is also what makes the API addressable on
@@ -574,6 +587,23 @@ def create_app(root: Path, *, nyaya_ask_fn: Any | None = None) -> FastAPI:
             {"ok": True, "version": __version__, "kernel": KERNEL_VERSION, "ledger": ledger.exists(),
              "frontier_reader_available": False, "assistant_tier": tier}
         )
+
+    @api.get("/assistant", response_model=AssistantStatusResponse, response_model_exclude_unset=True)
+    def assistant_ep(user: User | None = CurrentUserDep) -> dict[str, Any]:
+        """What the app needs to show the assisted-screening consent box. The two pending-delete ages are published to
+        signed-in callers only; an unreadable runtime is the plain tier state, never a 500."""
+        from pravrudhi.application import assistant_tier
+        from pravrudhi.application.a0_assist import runtime as a0rt
+
+        try:
+            tier = assistant_tier.status(root)
+        except Exception:  # fail closed, like /health
+            tier = {"state": "unavailable", "reason": "disabled"}
+        try:
+            doc = a0rt.status_document(a0rt.get(root), signed_in=user is not None)
+        except Exception:  # noqa: BLE001 - never a 500
+            doc = a0rt.status_document(None, signed_in=False)
+        return {**doc, "assistant_tier": tier}
 
     @api.get("/status")
     def status_ep() -> StatusResponse:

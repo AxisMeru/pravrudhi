@@ -125,6 +125,8 @@ def test_with_a_ca_file_only_the_strict_flag_is_cleared_and_nothing_else_is_rela
     # the literal value: the interpreter's default flags (trusted-first, partial-chain) minus strict, nothing added or removed
     assert ctx.verify_flags == ssl.VERIFY_X509_TRUSTED_FIRST | ssl.VERIFY_X509_PARTIAL_CHAIN
     assert ctx.minimum_version >= ssl.TLSVersion.TLSv1_2
+    # only the pinned root is trusted: adding the system bundle on top of it would raise this count
+    assert len(ctx.get_ca_certs()) == (d / "ca.crt").read_text().count("BEGIN CERTIFICATE") == 1
 
 
 def test_without_a_ca_file_the_default_strict_context_is_kept():

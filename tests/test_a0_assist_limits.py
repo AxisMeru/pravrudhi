@@ -73,21 +73,26 @@ def test_a_refusal_counts_nothing():
     assert lim2.admit("w", "o", "1.1.1.4").reason == "per_org_day"
 
 
-@pytest.mark.parametrize(
-    "args",
-    [
-        (None, "o", "1.1.1.1"),
-        ("u", None, "1.1.1.1"),
-        ("u", "o", None),
-        ("", "o", "1.1.1.1"),
-        ("u", "", "1.1.1.1"),
-        ("u", "o", ""),
-    ],
-)
-def test_missing_identity_is_refused_never_admitted(args):
+@pytest.mark.parametrize("args", [(None, "o", "1.1.1.1"), ("", "o", "1.1.1.1"), (None, None, None)])
+def test_a_missing_user_is_refused_never_admitted(args):
     lim, _ = mk()
     r = lim.admit(*args)
     assert r is not None and r.reason == "no_identity"
+
+
+def test_a_workspace_user_with_no_org_is_admitted_and_only_the_user_and_ip_limits_apply():
+    lim, _ = mk()
+    for _ in range(lim.per_user_day):
+        assert lim.admit("u", None, f"9.9.9.{_}") is None
+    assert lim.admit("u", None, "9.9.9.200").reason == "per_user_day"
+    assert not any(k.startswith("o:") for k in lim._day)
+
+
+def test_a_missing_ip_skips_only_the_per_ip_limit():
+    lim, _ = mk()
+    for _ in range(lim.per_ip_minute + 2):
+        assert lim.admit(f"u{_}", f"o{_}", None) is None
+    assert lim._ip == {} or all(not q for q in lim._ip.values())
 
 
 @pytest.mark.parametrize("bad", [0, -1, True, 1.5, "3", None])
