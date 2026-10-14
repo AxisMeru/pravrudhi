@@ -11,6 +11,8 @@ const cases = [
  ["POST","/api/%5cruns",403],["POST","/api/%5Cupdate/config",403],["POST","/api%5Cruns",403],["POST","/api/%2e/runs",403],["POST","/api/%2e%2e/runs",200],
  ["POST","/api/%252e/runs",403],["POST","/api/x/%252e%252e/runs",403],["POST","/api/%255cruns",403],["POST","/api/runs/../health",200],["POST","/api/./update/apply",403],
  ["POST","/api/..%2fapi/runs",403],["POST","/api/%2e%2e/api/runs",403],["POST","/../api/runs",403],["POST","/api/x/%2e%2e%2f..%2fapi/runs",403],
+ ["GET","/demo.json",404],["GET","//demo.json",404],["GET","/%2564emo.json",404],["GET","/DEMO.JSON",404],["GET","/demo.json/",404],["GET","/%252564emo.json",404],["POST","/demo.json",404],
+ ["GET","/x/demo.json",200],["GET","/demo.json.map",200],["GET","/demos.json",200],
  ["GET","/api/health",200],["POST","/api/v1/analyse-facts",200],["POST","/api/chat",200],["GET","/api/app-token",200],["POST","/api/memory/notes",200],
 ];
 let bad = 0;
