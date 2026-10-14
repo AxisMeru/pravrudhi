@@ -205,3 +205,40 @@ def test_a_load_balancer_endpoint_reads_the_same_v2_health_url_not_the_container
     calls: list[str] = []
     assert jes.endpoint_state("https://ep789.api.runpod.ai/v1", "k", fetch=_fetcher(_health(), calls)).status == "parked"
     assert calls == ["https://api.runpod.ai/v2/ep789/health"]
+
+
+URL3 = "https://api.runpod.ai/v2/ep789/openai/v1"
+
+
+def _with_fallback(tmp_path: Path, rec_dir: Path | None) -> tuple[TestClient, Any]:
+    def fetch(url: str, headers: Any) -> dict[str, Any]:
+        return _health(ready=1) if ("ep123" in url or "ep789" in url) else _health()
+
+    c, agent = _client(tmp_path, fetch, second=URL2)
+    sj: dict[str, Any] = {"base_url": URL2, "base_urls_fallback": [URL3], "adapter_sha": "ad1"}
+    if rec_dir is not None:
+        sj["fallback_record_dir"] = str(rec_dir)
+    agent.config = replace(agent.config, second_judge=sj, second_judge_positive_control={"max_age_hours": 24.0})
+    return c, agent
+
+
+def test_a_parked_primary_with_a_ready_fallback_and_a_passing_record_is_not_offline(tmp_path: Path) -> None:
+    from pravrudhi.application.second_judge_positive_control import write_record
+
+    d = tmp_path / "rec"
+    d.mkdir()
+    write_record(d / "ep789.json", available=True, endpoint_id="ep789", adapter_sha="ad1", reasons=[])
+    c, _ = _with_fallback(tmp_path, d)
+    assert c.post("/api/v1/analyse-facts", json=_req()).status_code == 200
+
+
+def test_a_ready_fallback_with_no_passing_record_does_not_keep_the_judge_available(tmp_path: Path) -> None:
+    d = tmp_path / "rec"
+    d.mkdir()  # no record for ep789: the engine would refuse to call it
+    c, _ = _with_fallback(tmp_path, d)
+    assert c.post("/api/v1/analyse-facts", json=_req()).json() == {"error": "judges_offline"}
+
+
+def test_a_fallback_without_a_record_dir_configured_keeps_the_earlier_rule(tmp_path: Path) -> None:
+    c, _ = _with_fallback(tmp_path, None)  # not a deployment the engine would load for a RunPod fallback; the check stays lenient
+    assert c.post("/api/v1/analyse-facts", json=_req()).status_code == 200

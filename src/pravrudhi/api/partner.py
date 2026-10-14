@@ -89,6 +89,7 @@ from pravrudhi.application.nyaya_agent import (
 )
 from pravrudhi.application.nyaya_judges import SecondJudgeCircuitBreaker, standard_for_posture
 from pravrudhi.application.nyaya_quote import Reason as QuoteCheck
+from pravrudhi.application.second_judge_positive_control import fallback_record_ok
 from pravrudhi.application.service_window import ServiceWindow
 from pravrudhi.application.statute_citations import contract_citations
 from pravrudhi.application.verify import exists_in_index, index_coverage
@@ -1086,7 +1087,15 @@ def build_partner_router(
                 judges["second"] = dict(ac.second_judge)
             _offline_check.ttl_s = cfg.judge_health_ttl_s
             keys = {"house": "NYAYA_HOUSE_JUDGE_API_KEY", "second": "NYAYA_SECOND_JUDGE_API_KEY"}
-            parked = _offline_check.offline(judges, keys)
+            max_age = float((ac.second_judge_positive_control if ac is not None else {}).get("max_age_hours", 24.0))
+
+            def _fallback_ok(endpoint_id: str, block: Mapping[str, Any]) -> bool:
+                # a RunPod fallback the engine would refuse to call (no passing record) is not a way to answer
+                return not block.get("fallback_record_dir") or fallback_record_ok(
+                    block, endpoint_id, max_age_hours=max_age
+                )[0]
+
+            parked = _offline_check.offline(judges, keys, fallback_ok=_fallback_ok)
         except Exception:  # noqa: BLE001 - the check must never turn a working request into an error
             _logger.warning("judge health check failed; proceeding")
             return None

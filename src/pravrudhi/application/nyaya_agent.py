@@ -65,6 +65,7 @@ import logging
 import math
 import os
 import queue
+import re
 import time
 import uuid
 from collections.abc import Iterable, Mapping, Sequence
@@ -79,10 +80,12 @@ from pravrudhi.application.nyaya_judges import (
     INPUT_TOO_LONG,
     ClampKind,
     ElementJudgment,
+    HouseJudge,
     Judge,
     JudgeInputTooLong,
     JudgeRequest,
     SecondJudgeCircuitBreaker,
+    runpod_endpoint_of,
     standard_for_posture,
 )
 from pravrudhi.application.nyaya_quote import QuoteLocation, locate_quote
@@ -502,6 +505,28 @@ def load_agent_config(root: Path) -> AgentConfig:
             )
         second_judge = dict(second_judge or {})
         second_judge["base_urls_fallback"] = second_fallback_urls
+
+    # The second judge's RunPod fallback (a clone endpoint): the bearer key follows ONLY to an id listed here, and a
+    # RunPod fallback is called only while its own passing positive-control record exists under the record dir.
+    raw_ids = os.environ.get("NYAYA_SECOND_JUDGE_FALLBACK_ENDPOINT_IDS")
+    if raw_ids:
+        ids = [x.strip() for x in raw_ids.split(",") if x.strip()]
+        if not ids or any(not re.fullmatch(r"[A-Za-z0-9]{6,40}", x) for x in ids):
+            raise ValueError("NYAYA_SECOND_JUDGE_FALLBACK_ENDPOINT_IDS must be a comma list of RunPod endpoint ids")
+        second_judge = dict(second_judge or {})
+        second_judge["fallback_key_endpoint_ids"] = ids
+    raw_dir = os.environ.get("NYAYA_SECOND_JUDGE_FALLBACK_RECORD_DIR")
+    if raw_dir:
+        second_judge = dict(second_judge or {})
+        second_judge["fallback_record_dir"] = raw_dir
+    has_runpod_fallback = bool(second_judge) and any(
+        runpod_endpoint_of(str(u)) for u in (second_judge or {}).get("base_urls_fallback") or []
+    )
+    if has_runpod_fallback and not (second_judge or {}).get("fallback_record_dir"):
+        raise ValueError(
+            "a RunPod second-judge fallback needs NYAYA_SECOND_JUDGE_FALLBACK_RECORD_DIR (its own passing "
+            "positive-control record): refusing to start with an unvalidated fallback endpoint"
+        )
 
     # An env-built second_judge inherits statute_chars/top_logprobs/max_tokens/label_mass_floor from the
     # primary house_judge block, unless the caller set them explicitly (in the yaml's own second_judge:
@@ -1170,6 +1195,13 @@ def _build_house_judge(hj_cfg: Mapping[str, Any], *, tau: float, typed: bool, ap
     if typed:
         if "collapse_facts" in hj_cfg and hj_cfg["collapse_facts"] is not False:  # strict: any value but absent/False refuses
             raise ValueError("house_judge.collapse_facts is for the plain HouseJudge only; the typed judge would ignore it")
+        if hj_cfg.get("fallback_key_endpoint_ids") or hj_cfg.get("fallback_record_dir"):
+            # The key allowlist and the per-endpoint record gate live in the plain HouseJudge; the typed decoder installs
+            # neither, so a config that asks for them with the typed layer on must not start (a silent downgrade).
+            raise ValueError(
+                "the typed layer does not install the fallback key allowlist or the per-endpoint record gate: "
+                "refusing to start with fallback_key_endpoint_ids / fallback_record_dir set and typed_layer on"
+            )
         from pravrudhi.application.typed.decoder import VLLMDecoder
         from pravrudhi.application.typed.house_judge import TypedHouseJudge
 
@@ -1411,6 +1443,18 @@ class NyayaAgent:
                 second_tau = float(cfg.second_judge["tau"])
                 second: Judge = _build_house_judge(cfg.second_judge, tau=second_tau, typed=cfg.typed_layer,
                                                    api_key_env="NYAYA_SECOND_JUDGE_API_KEY")
+                sj_cfg = cfg.second_judge
+                record_dir = sj_cfg.get("fallback_record_dir")
+                if record_dir and isinstance(second, HouseJudge):
+                    from pravrudhi.application.second_judge_positive_control import fallback_record_ok
+
+                    def _fallback_gate(endpoint_id: str) -> tuple[bool, str]:
+                        return fallback_record_ok(
+                            sj_cfg, endpoint_id,
+                            max_age_hours=float(cfg.second_judge_positive_control.get("max_age_hours", 24.0)),
+                        )
+
+                    second.fallback_gate = _fallback_gate
                 # Issue #44 (Lead-2, 2026-09-26): opt-in via second_judge_positive_control.record_path --
                 # absent (the default, every deployment before this) means today's behaviour, unchanged.
                 # When set, wrap `second` so the real endpoint is never reached without a fresh, matching

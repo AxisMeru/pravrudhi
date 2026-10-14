@@ -30,7 +30,8 @@ import re
 import threading
 import time
 import urllib.error
-from collections.abc import Callable, Mapping
+import urllib.parse
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Protocol
@@ -127,6 +128,9 @@ class ElementJudgment:
     raw: str = ""
     #: Which backend answered: primary URL (index 0) or fallback (index 1+), or None if not tracked
     backend_used: int | None = None
+    #: Provenance of the answering backend: its RunPod endpoint id (None for a non-RunPod URL) and the model id it served.
+    backend_endpoint: str | None = None
+    backend_model: str | None = None
 
     # -- AND-gate fields (AndGateJudge, below). All None/False when no second judge ran (single-judge config,
     # or the primary already rejected so the second was never asked): reading them costs nothing when there
@@ -138,6 +142,8 @@ class ElementJudgment:
     tau_primary: float | None = None
     tau_second: float | None = None
     backend_used_second: int | None = None
+    backend_endpoint_second: str | None = None
+    backend_model_second: str | None = None
     #: The second was never asked because the primary already said not_established (cost saved).
     second_skipped: bool = False
     #: Why the AND gate did not run both judges to a clean AND: "primary_not_established", or
@@ -375,6 +381,55 @@ def parse_house_fact_id(text: str) -> str | None:
     return m.group(1)
 
 
+RUNPOD_HOST = "api.runpod.ai"
+_LB_LABEL = re.compile(r"[a-z0-9]{6,40}")
+
+
+def runpod_endpoint_of(url: str | None) -> str | None:
+    """The RunPod endpoint id in `https://api.runpod.ai/v2/<id>/...` (queue form) or `https://<id>.api.runpod.ai/...`
+    (load-balancer form), else None. Parsed, never substring-matched: the scheme is exactly https, the host is exactly
+    `api.runpod.ai` or ONE alphanumeric label in front of it (case-folded, no trailing dot), the port absent or 443, no
+    userinfo."""
+    if not url:
+        return None
+    try:
+        u = urllib.parse.urlsplit(url)
+        port = u.port
+    except ValueError:
+        return None
+    if u.scheme != "https" or u.username is not None or u.password is not None or port not in (None, 443):
+        return None
+    host = u.hostname or ""
+    if host == RUNPOD_HOST:
+        parts = [x for x in u.path.split("/") if x]
+        return parts[1] if len(parts) >= 2 and parts[0] == "v2" else None
+    label, _, rest = host.partition(".")
+    return label if rest == RUNPOD_HOST and _LB_LABEL.fullmatch(label) else None
+
+
+def key_may_follow(url: str, allowed_endpoint_ids: frozenset[str]) -> bool:
+    """May the funded bearer key be sent to `url`? Only if it is https, has no userinfo and no explicit port, and its
+    case-folded host EQUALS (set membership, never endswith/regex) one of the exact hosts built from OUR endpoint ids:
+    `<id>.api.runpod.ai` (load-balancer form) or `api.runpod.ai` with the path prefix `/v2/<id>/` (queue form).
+    `*.api.runpod.ai` resolves for any label, so an unlisted label could be another customer's endpoint."""
+    if not url or not allowed_endpoint_ids:
+        return False
+    try:
+        u = urllib.parse.urlsplit(url)
+        port = u.port
+    except ValueError:
+        return False
+    if u.scheme != "https" or u.username is not None or u.password is not None or port is not None:
+        return False
+    host = u.hostname or ""
+    if host in {f"{i}.{RUNPOD_HOST}" for i in allowed_endpoint_ids}:
+        return True
+    if host == RUNPOD_HOST:
+        parts = [x for x in u.path.split("/") if x]
+        return len(parts) >= 2 and parts[0] == "v2" and parts[1] in allowed_endpoint_ids
+    return False
+
+
 class HouseJudge:
     """The house element judge over an OpenAI-compatible `/completions` endpoint. `complete` is the transport
     (prompt -> `CompletionResult`); by default a `ChatClient` against `base_url`, with the model id read from
@@ -400,6 +455,7 @@ class HouseJudge:
         label_mass_floor: float = LABEL_MASS_FLOOR,
         api_key: str | None = None,
         fallback_urls: list[str] | None = None,
+        key_endpoint_ids: Iterable[str] | None = None,
         complete: Callable[[str], CompletionResult] | None = None,
         enforce_served_model: bool = False,
         prompt_template: str = "legacy",
@@ -420,6 +476,11 @@ class HouseJudge:
         self.label_mass_floor = label_mass_floor
         self.primary_base_url = base_url
         self.fallback_urls = fallback_urls or []
+        #: Optional per-endpoint positive-control gate for RunPod fallbacks: (endpoint_id) -> (ok, reason). A RunPod
+        #: fallback whose id has no passing record is never called. None = no gate (every other deployment, unchanged).
+        self.fallback_gate: Callable[[str], tuple[bool, str]] | None = None
+        #: RunPod endpoint ids (ours) a fallback may have to receive the bearer key; empty = no fallback gets it.
+        self.key_endpoint_ids: frozenset[str] = frozenset(key_endpoint_ids or ())
         self.api_key = api_key
 
         if complete is None:
@@ -427,14 +488,21 @@ class HouseJudge:
                 raise ValueError("HouseJudge needs a base_url or a complete transport")
 
             # One client per backend. The bearer key is the primary's (the RunPod endpoint); a fallback is the
-            # operator's own vLLM and never receives it. Each backend answers under its own model id.
+            # deployment's own vLLM and never receives it. Each backend answers under its own model id.
+            # A fallback on the SAME scheme+host as the primary (a second RunPod endpoint on api.runpod.ai) is the same
+            # account's service: it gets the same key and, being a clone of the primary, the same model id. Any other
+            # host (the deployment's own vLLM) never gets the key and answers under its own id.
+            urls = [base_url, *self.fallback_urls]
+            # The primary always gets the key (today's rule). A fallback gets it only if its endpoint id is on OUR allowlist.
+            same_host = [i == 0 or key_may_follow(url, self.key_endpoint_ids) for i, url in enumerate(urls)]
             self.clients: list[ChatClient] = [
-                ChatClient(base_url=url, model="", api_key=api_key if i == 0 else None, timeout_s=timeout_s)
-                for i, url in enumerate([base_url, *self.fallback_urls])
+                ChatClient(base_url=url, model="", api_key=api_key if same_host[i] else None, timeout_s=timeout_s)
+                for i, url in enumerate(urls)
             ]
-            self._models: list[str | None] = [model or None] + [None] * len(self.fallback_urls)
-            # The ids the deployment NAMED (the primary's `model`; a fallback's is always resolved from its own /models, so it
-            # is never pinned). Used only when `enforce_served_model` is on.
+            self._models: list[str | None] = [(model or None) if same_host[i] else None for i in range(len(urls))]
+            # The ids the deployment NAMED (the primary's `model`, and a same-host fallback's, which is the primary's; any
+            # other fallback's is resolved from its own /models, so it is never pinned). Used only when
+            # `enforce_served_model` is on.
             pinned: list[str | None] = list(self._models)
 
             def _model_for(i: int) -> str:
@@ -466,6 +534,14 @@ class HouseJudge:
 
             def _complete_with_fallback(prompt: str) -> CompletionResult:
                 for i, client in enumerate(self.clients):
+                    if i > 0 and self.fallback_gate is not None:
+                        ep = runpod_endpoint_of(client.base_url)
+                        if ep is not None:
+                            gate_ok, gate_why = self.fallback_gate(ep)
+                            if not gate_ok:
+                                if i == len(self.clients) - 1:
+                                    raise RuntimeError(f"judge backend {i} ({client.base_url}) refused: {gate_why}")
+                                continue
                     try:
                         client.model = _model_for(i)
                         result = client.complete(prompt, max_tokens=max_tokens, temperature=0.0, logprobs=top_logprobs)
@@ -483,6 +559,7 @@ class HouseJudge:
                             raise RuntimeError(f"judge backend {i} ({client.base_url}) failed: {e}") from e
                         continue
                     object.__setattr__(result, "backend_index", i)  # the result is frozen
+                    object.__setattr__(result, "backend_endpoint_id", runpod_endpoint_of(client.base_url))
                     return result
                 raise RuntimeError("no judge backend configured")
 
@@ -527,6 +604,7 @@ class HouseJudge:
             label_mass_floor=float(cfg["label_mass_floor"]),
             api_key=api_key,
             fallback_urls=cfg.get("base_urls_fallback") or [],
+            key_endpoint_ids=cfg.get("fallback_key_endpoint_ids") or (),
             enforce_served_model=bool(cfg.get("enforce_served_model", False)),
             prompt_template=str(cfg.get("prompt_template", "legacy")),
             max_input_chars=cfg.get("max_input_chars"),
@@ -562,6 +640,7 @@ class HouseJudge:
             label_mass_floor=float(cfg["label_mass_floor"]),
             api_key=api_key,
             fallback_urls=cfg.get("base_urls_fallback") or [],
+            key_endpoint_ids=cfg.get("fallback_key_endpoint_ids") or (),
             enforce_served_model=bool(cfg.get("enforce_served_model", False)),
             prompt_template=str(cfg.get("prompt_template", "legacy")),
             max_input_chars=cfg.get("max_input_chars"),
@@ -593,17 +672,19 @@ class HouseJudge:
             (clamp == "lower_bound" and p < self.tau) or (clamp == "upper_bound" and p >= self.tau)
         )
         if p < self.tau or bound_undetermined:
-            return ElementJudgment("not_established", p, raw=res.text, backend_used=backend_idx,
-                                    clamp=clamp, bound_undetermined=bound_undetermined)
+            return ElementJudgment("not_established", p, raw=res.text, backend_used=backend_idx, clamp=clamp,
+                                   backend_endpoint=res.backend_endpoint_id, backend_model=res.model,
+                                   bound_undetermined=bound_undetermined)
         fact_id = parse_house_fact_id(res.text)
         if fact_id is None:
-            return ElementJudgment("established", p, raw=res.text, backend_used=backend_idx, clamp=clamp)
+            return ElementJudgment("established", p, raw=res.text, backend_used=backend_idx, clamp=clamp,
+                                   backend_endpoint=res.backend_endpoint_id, backend_model=res.model)
         # Fact granularity (module doc): the claim is "this fact, whole". A fact id not among the facts gets no
         # quote -- never a nearest-match fact -- so the quote check rejects it as unknown.
         text = dict(request.facts).get(fact_id)
         return ElementJudgment(
             "established", p, fact_id, text, "whole_fact" if text is not None else None, raw=res.text,
-            backend_used=backend_idx, clamp=clamp
+            backend_used=backend_idx, backend_endpoint=res.backend_endpoint_id, backend_model=res.model, clamp=clamp
         )
 
 
@@ -877,12 +958,16 @@ class AndGateJudge:
             quote_source=p.quote_source,
             raw=p.raw,
             backend_used=p.backend_used,
+            backend_endpoint=p.backend_endpoint,
+            backend_model=p.backend_model,
             second_judge=getattr(self.second, "name", None),
             second_status=s.status,
             p_established_second=s.p_established,
             tau_primary=self.tau_primary,
             tau_second=self.tau_second,
             backend_used_second=s.backend_used,
+            backend_endpoint_second=s.backend_endpoint,
+            backend_model_second=s.backend_model,
             second_fact_id=s.fact_id,
             fact_id_disagreement=disagreement,
             vetoed_by=None if established or defeater_disagreement else "second",
