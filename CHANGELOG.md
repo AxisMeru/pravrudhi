@@ -3,7 +3,9 @@
 Release notes for the engine (`pravrudhi`). Versions before 0.5.44 are described in their GitHub release notes and commit
 messages.
 
-## Unreleased
+## 0.6.11 (2026-10-14)
+
+PATCH release on 0.6.10: the service window now reads open at every moment, including the minute from 23:59 to 00:00 that 0.6.10 still reported as closed.
 
 ### Changed
 
