@@ -813,7 +813,7 @@ class JobOut(BaseModel):
 class AuditRowOut(BaseModel):
     ts: str
     key_id: str
-    mode: Literal["sync", "job", "verify"]
+    mode: Literal["sync", "job", "verify", "assist", "intake", "intake_assist"]
     status_code: int
     run_id: str | None = None
     contract_ids: list[str]
