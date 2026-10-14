@@ -828,13 +828,13 @@ def test_the_summary_hook_gets_a_copy_of_the_events(tmp_path):
     assert block(out)["summary"] == "ok" and block(out)["used"] is True  # the run's own events were not emptied under it
 
 
-def test_the_screening_summary_rule_still_fails_the_run_when_the_decide_results_are_unreadable(tmp_path):
-    """Unchanged: an exception in the SCREENING default is not swallowed (only a workflow's own hook is display-only)."""
+def test_the_screening_summary_rule_is_not_swallowed(tmp_path, monkeypatch):
+    """Unchanged: an exception in the SCREENING default still ends in the ordinary result (only a workflow's own hook is
+    display-only)."""
+    def boom(*a, **k):
+        raise RuntimeError("summary rule broke")
+
+    monkeypatch.setattr(AS, "checked_summary", boom)
     e = Env(tmp_path)
-    orig = D.A0Driver.complete
-    D.A0Driver.complete = lambda self: (setattr(self, "_selected", ["not-decided"]) or orig(self))  # type: ignore[method-assign]
-    try:
-        out = e.run()
-    finally:
-        D.A0Driver.complete = orig  # type: ignore[method-assign]
-    assert out["run_id"] == "core-run" and block(out)["used"] is False
+    out = e.run()
+    assert out["run_id"] == "core-run" and block(out)["used"] is False and "delete_session" in e.tr.calls
