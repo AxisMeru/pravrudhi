@@ -726,3 +726,52 @@ def test_a_configured_workflow_with_no_driver_in_these_deps_is_still_not_configu
     e.tr = e.deps.transport = _SpyTransport(ideal(), e.clock)
     out = AS.run_assisted(REQ, AS.Caller(True, "u1", "o1", "1.2.3.4"), True, "c1", e.deps, workflow="hearing_prep")
     assert e.tr.created_with[0] == "agent_hp" and block(out)["used"] is True
+
+
+# ---- the per-workflow message and summary hooks (spec hook) --------------------------------------------------------------------
+def test_a_workflows_own_first_message_is_the_one_posted_and_screening_keeps_its_own(tmp_path):
+    e = Env(tmp_path)
+    e.deps.user_message = lambda request: "RAW:" + request["facts"][0]
+    e.run()
+    assert e.tr.posted[0][0]["content"][0]["text"] == "RAW:" + FACTS[0]
+    d = Env(tmp_path / "default")
+    d.run()
+    assert d.tr.posted[0][0]["content"][0]["text"] == AS.user_message(REQ)  # no hook: unchanged
+
+
+def test_a_workflows_own_summary_replaces_the_screening_rule(tmp_path):
+    e = Env(tmp_path, program=ideal(summary="The matter is an ABSTAIN"))  # the screening rule would DROP this text
+    out = e.run()
+    assert block(out)["summary"] is None  # default: dropped (outcome word and contract id not in the decide results)
+    e2 = Env(tmp_path / "w", program=ideal(summary="anything"))
+    seen = {}
+
+    def summarise(driver, events):
+        seen["driver"], seen["events"] = driver, events
+        return "WORKFLOW SUMMARY"
+
+    e2.deps.summarise = summarise
+    out2 = e2.run()
+    assert block(out2)["summary"] == "WORKFLOW SUMMARY" and isinstance(seen["driver"], D.A0Driver) and seen["events"]
+
+
+def test_a_summary_that_raises_is_no_summary_not_a_failed_run(tmp_path):
+    e = Env(tmp_path)
+
+    def boom(driver, events):
+        raise RuntimeError("x")
+
+    e.deps.summarise = boom
+    out = e.run()
+    assert block(out)["used"] is True and block(out)["summary"] is None and "delete_session" in e.tr.calls
+
+
+def test_a_workflow_message_that_raises_gives_core_and_still_deletes(tmp_path):
+    e = Env(tmp_path)
+
+    def boom(request):
+        raise KeyError("text")
+
+    e.deps.user_message = boom
+    out = e.run()
+    assert out["run_id"] == "core-run" and block(out)["used"] is False and "delete_session" in e.tr.calls

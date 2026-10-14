@@ -75,6 +75,12 @@ class Deps:
     #: The workflows THIS Deps can drive (its `make_driver` and `finalize` belong to them). A workflow outside this set is
     #: answered as not configured even if the config has an agent for it: one workflow's driver is never used for another.
     workflows: frozenset[str] = frozenset({"screening"})
+    #: The first message of the session for THIS workflow, from the request dict the route built (None = the screening
+    #: message: `user_message`).
+    user_message: Callable[[dict[str, Any]], str] | None = None
+    #: The display-only summary of the agent's prose, from (driver, stream events) (None = the screening
+    #: `checked_summary` over the decide results). An exception here means no summary, never a failed run.
+    summarise: Callable[[Any, list[dict[str, Any]]], str | None] | None = None
     clock: Callable[[], float] = time.monotonic
     sleep: Callable[[float], None] = time.sleep
 
@@ -276,9 +282,7 @@ def _run_with_slot(request: dict[str, Any], client_sid: str | None, deps: Deps, 
                 outcome_reason = ("refused", "error")
             else:
                 decided_body = deps.finalize(driver)
-                summary = checked_summary(
-                    final_text(run.events), [driver._decided[c] for c in driver._selected or []], driver.listed or {}
-                )
+                summary = _summary(deps, driver, run.events)
     except UpstreamError as exc:
         timed_out = exc.status == 599 and "Timeout" in str(exc)
         outcome_reason = ("timed_out", "timeout") if timed_out else ("refused", "error")
@@ -298,6 +302,16 @@ def _run_with_slot(request: dict[str, Any], client_sid: str | None, deps: Deps, 
     return _fallback(deps, outcome, reason or "error", client_sid, steps=steps, cost=cost_block)
 
 
+def _summary(deps: Deps, driver: Any, events: list[dict[str, Any]]) -> str | None:
+    """The display-only summary: the workflow's own `summarise`, else the screening rule. Never raises."""
+    try:
+        if deps.summarise is not None:
+            return deps.summarise(driver, events)
+        return checked_summary(final_text(events), [driver._decided[c] for c in driver._selected or []], driver.listed or {})
+    except Exception:  # noqa: BLE001 - a summary is display-only: its failure must not fail a finished run
+        return None
+
+
 def _converse(request: dict[str, Any], run: _Run, deps: Deps, cfg: AssistConfig, agent: WorkflowAgent) -> tuple[str, str | None]:
     tr = deps.transport
     assert tr is not None and run.driver is not None and run.key is not None
@@ -309,7 +323,8 @@ def _converse(request: dict[str, Any], run: _Run, deps: Deps, cfg: AssistConfig,
     seen: set[Any] = set()
     t0, n = deps.clock(), 0
     try:
-        tr.send_events(sid, [{"type": "user.message", "content": [{"type": "text", "text": user_message(request)}]}])
+        first = (deps.user_message or user_message)(request)
+        tr.send_events(sid, [{"type": "user.message", "content": [{"type": "text", "text": first}]}])
         for ev in stream:
             n += 1
             if ev.get("id") in seen:
