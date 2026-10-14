@@ -1,0 +1,153 @@
+"""POST /v1/analyse-facts/assist over real FastAPI routing: dark by default, consent, sign-in, tier, core fallback."""
+
+from __future__ import annotations
+
+import shutil
+import threading
+from pathlib import Path
+
+import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
+from pravrudhi.api import identity
+from pravrudhi.api.partner import PartnerApiConfig, build_partner_router
+from pravrudhi.application import assistant_tier as TIER
+from pravrudhi.application import nyaya_agent as agent_mod
+from pravrudhi.application.a0_assist import limits as L
+from pravrudhi.application.a0_assist import runtime as RT
+from tests import test_a0_assist_request as RQ
+from tests import test_nyaya_agent as T
+
+REPO = Path(__file__).resolve().parent.parent
+FACTS = list(T.TOY_FACTS)
+BODY = {"facts": FACTS, "narrative": "", "contract_ids": ["bns69"], "consent": True, "session_id": "client-xyz"}
+USER = identity.User("u1", "user@example.test", "user")
+URL = "/api/v1/analyse-facts/assist"
+CFG = PartnerApiConfig(rate_limit_per_minute=1000, max_concurrent=1, trust_proxy_header=False)
+
+
+def make_runtime(tmp_path, **tr_kw):
+    cfg = RQ.make_cfg()
+    clock = RQ.Clock()
+    rt = RT.Runtime(cfg)
+    rt.store = RQ.FakeStore()
+    rt.transport = RQ.FakeTransport(RQ.ideal(), clock, **tr_kw)
+    rt.limiter = L.AssistLimiter(cfg.runs_per_user_per_day, cfg.runs_per_org_per_day, cfg.per_ip_per_minute)
+    rt.slots = threading.BoundedSemaphore(cfg.max_concurrent_sessions)
+    return rt
+
+
+def client(tmp_path, *, user=USER, runtime="enabled", **tr_kw):
+    (tmp_path / "configs").mkdir(parents=True, exist_ok=True)
+    shutil.copy(REPO / "configs" / "assistant_tier.yaml", tmp_path / "configs" / "assistant_tier.yaml")
+    agent = agent_mod.NyayaAgent(T.ScriptedJudge(T._proof_script(FACTS)), T._registry(), T._config(tmp_path))
+    app = FastAPI()
+    app.include_router(build_partner_router(tmp_path, agent_factory=lambda _root: agent, config=CFG))
+    app.dependency_overrides[identity.current_user] = lambda: user
+    RT.reset()
+    if runtime == "enabled":
+        RT._runtime = make_runtime(tmp_path, **tr_kw)
+    elif runtime == "dark":
+        cfg_raw = RQ.make_cfg(assist_route_enabled=False)
+        RT._runtime = RT.Runtime(cfg_raw)
+    c = TestClient(app)
+    c.rt = RT._runtime
+    return c
+
+
+@pytest.fixture(autouse=True)
+def _env(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-not-real")
+    TIER.reset()
+    yield
+    RT.reset()
+    TIER.reset()
+
+
+def test_the_route_is_404_when_the_runtime_is_absent_or_dark(tmp_path):
+    assert client(tmp_path, runtime="none").post(URL, json=BODY).status_code == 404
+    c = client(tmp_path / "d", runtime="dark")
+    assert c.post(URL, json=BODY).status_code == 404 and c.rt.transport is None
+
+
+def test_consent_absent_is_400_consent_required_with_no_call_and_no_reservation(tmp_path):
+    c = client(tmp_path)
+    for body in ({**BODY, "consent": False}, {k: v for k, v in BODY.items() if k != "consent"}):
+        r = c.post(URL, json=body)
+        assert r.status_code == 400 and r.json() == {"error": "consent_required"}
+    assert c.rt.transport.calls == [] and c.rt.store.log == []
+
+
+def test_sections_are_refused_the_route_selects_by_contract_ids(tmp_path):
+    c = client(tmp_path)
+    assert c.post(URL, json={**BODY, "sections": ["x"]}).status_code == 422 and c.rt.transport.calls == []
+
+
+def test_a_signed_in_consenting_caller_gets_the_decide_results_and_an_assistant_block(tmp_path):
+    c = client(tmp_path)
+    r = c.post(URL, json=BODY)
+    assert r.status_code == 200, r.text
+    out = r.json()
+    a = out["assistant"]
+    assert a["used"] is True and a["outcome"] == "finished" and a["session_id"] == "client-xyz"
+    assert [s["name"] for s in a["steps"]][-1] == "decide"
+    assert out["contracts"][0]["outcome"] == "PROOF" and out["run_id"].startswith("nyaya-assist-")
+    assert out["contract_set_version"] is not None or "contract_set_version" in out
+    assert "rule_text" not in out["contracts"][0]
+
+
+def test_the_assisted_body_has_the_same_top_level_keys_as_the_core_body_plus_assistant(tmp_path):
+    c = client(tmp_path)
+    assisted = c.post(URL, json=BODY).json()
+    core = c.post("/api/v1/analyse-facts", json={k: v for k, v in BODY.items() if k not in ("consent", "session_id")}).json()
+    assert set(assisted) - {"assistant"} == set(core)
+
+
+def test_an_anonymous_caller_gets_the_core_result_with_sign_in_required(tmp_path):
+    c = client(tmp_path, user=None)
+    r = c.post(URL, json=BODY)
+    assert (
+        r.status_code == 200 and r.json()["assistant"]["reason"] == "sign_in_required" and r.json()["assistant"]["used"] is False
+    )
+    assert c.rt.transport.calls == [] and c.rt.store.log == []
+
+
+def test_the_core_fallback_does_not_deadlock_on_the_single_concurrency_slot(tmp_path):
+    c = client(tmp_path, user=None)  # max_concurrent is 1: the fallback runs the core path inside the held slot
+    for _ in range(3):
+        assert c.post(URL, json=BODY).status_code == 200
+
+
+def test_the_concurrency_slot_is_released_after_an_assisted_run(tmp_path):
+    c = client(tmp_path)
+    assert c.post(URL, json=BODY).status_code == 200
+    assert c.post(URL, json=BODY).status_code == 200
+
+
+def test_an_unavailable_tier_gives_the_core_result_and_no_anthropic_call(tmp_path, monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    c = client(tmp_path)
+    r = c.post(URL, json=BODY)
+    assert r.json()["assistant"]["reason"] == "not_configured" and c.rt.transport.calls == [] and c.rt.store.log == []
+
+
+def test_a_pause_source_code_pauses_the_route_with_the_disabled_tier(tmp_path):
+    c = client(tmp_path)
+    TIER.set_pause_source(lambda: "canary_failed")
+    r = c.post(URL, json=BODY)
+    assert r.json()["assistant"]["reason"] == "not_configured" and c.rt.transport.calls == []
+
+
+def test_a_validation_error_in_the_body_is_422_and_touches_nothing(tmp_path):
+    c = client(tmp_path)
+    assert c.post(URL, json={**BODY, "facts": []}).status_code == 422 and c.rt.transport.calls == []
+
+
+def test_the_assist_route_is_not_in_the_public_openapi_contract(tmp_path):
+    c = client(tmp_path)
+    assert (
+        "/api/v1/analyse-facts/assist" not in c.get("/openapi.json").json()["paths"]
+        if c.get("/openapi.json").status_code == 200
+        else True
+    )
