@@ -7,7 +7,7 @@ messages.
 
 ### Fixed
 
-- **The first citation check after a start no longer waits for the coverage summary (caller-visible).** The coverage summary that comes with a citation answer is now computed with a query that is fast on the SQLite versions we run; on the container image's SQLite the old query took about 30 seconds, and the first citation check after each start waited for it. The answers and the coverage figures are unchanged. The change is under `src/`, so it reaches a running container only by a rebuild of the engine image.
+- **The first citation check after a start is no longer slowed by the coverage summary (caller-visible).** The coverage summary that comes with a citation answer is now computed with a query that stays fast on the container image's SQLite (3.46); on the slim index the old query took about 30 seconds, and the first citation check after each start waited for it. The answers and the coverage figures are unchanged. The change is under `src/`, so it reaches a running container only by a rebuild of the engine image.
 
 ## 0.6.7 (2026-10-14)
 
