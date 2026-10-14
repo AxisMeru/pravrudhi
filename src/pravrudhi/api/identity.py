@@ -333,6 +333,9 @@ PARTNER_KEY_PATHS: frozenset[str] = frozenset({
 })
 _PARTNER_KEY_PATH_RE = re.compile(r"^/api/v1/analyse-facts/jobs/[^/]+$")
 _ORGS_PATH_RE = re.compile(r"^/api/v1/orgs(/[^/]+(/keys(/[^/]+/revoke)?|/usage(/summary)?)?)?$")
+# An org's own key may read that org's usage (the route validates the key and the org); every other /orgs path, the usage
+# summary included, takes the secret only.
+_ORG_USAGE_PATH_RE = re.compile(r"^/api/v1/orgs/[^/]+/usage$")
 
 
 def _partner_route_carries_its_own_credential(path: str, conn: HTTPConnection, identity_header: str) -> bool:
@@ -342,6 +345,8 @@ def _partner_route_carries_its_own_credential(path: str, conn: HTTPConnection, i
     if identity_header in conn.headers:
         return False
     if (path in PARTNER_KEY_PATHS or _PARTNER_KEY_PATH_RE.match(path)) and conn.headers.get(_API_KEY_HEADER):
+        return True
+    if _ORG_USAGE_PATH_RE.match(path) and conn.headers.get(_API_KEY_HEADER):
         return True
     return bool(_ORGS_PATH_RE.match(path)) and bool(conn.headers.get(_TENANCY_SECRET_HEADER))
 

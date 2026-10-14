@@ -1,5 +1,5 @@
-"""#922: in `required` mode the whole-surface gate lets a key-only caller reach the partner routes (each validates the key itself) and the
-tenancy secret reach the org/key admin routes, and nothing else. Both arms PER ROUTE. Constructed credentials only; no network."""
+"""#922: in `required` mode the whole-surface gate lets a key-only caller reach the partner routes (each validates the key itself)
+and the tenancy secret reach the org/key admin routes, and nothing else. Both arms PER ROUTE. Constructed credentials only."""
 
 from __future__ import annotations
 
@@ -81,7 +81,11 @@ def test_a_partner_route_with_a_bad_key_is_401_never_anonymous(env: Any, method:
 def test_a_partner_route_with_a_valid_key_gets_past_the_gate(env: Any, method: str, path: str, body: Any) -> None:
     c, key = env
     r = _call(c, method, path, body, {tenancy.API_KEY_HEADER: key})
-    assert r.json().get("detail") not in ("Missing bearer token", "Invalid or revoked API key"), (path, r.status_code, r.text[:120])
+    assert r.json().get("detail") not in ("Missing bearer token", "Invalid or revoked API key"), (
+        path,
+        r.status_code,
+        r.text[:120],
+    )
 
 
 @pytest.mark.parametrize(("method", "path", "body"), KEY_ROUTES)
@@ -93,8 +97,14 @@ def test_a_key_does_not_excuse_a_bad_identity_token(env: Any, method: str, path:
 
 @pytest.mark.parametrize(
     ("method", "path"),
-    [("GET", "/api/v1/status"), ("GET", "/api/nyaya/corpus"), ("GET", "/api/state"), ("POST", "/api/nyaya/ask"),
-     ("GET", "/api/v1/analyse-facts/jobs"), ("GET", "/api/v1/audit/extra")],
+    [
+        ("GET", "/api/v1/status"),
+        ("GET", "/api/nyaya/corpus"),
+        ("GET", "/api/state"),
+        ("POST", "/api/nyaya/ask"),
+        ("GET", "/api/v1/analyse-facts/jobs"),
+        ("GET", "/api/v1/audit/extra"),
+    ],
 )
 def test_a_valid_key_does_not_open_any_other_path(env: Any, method: str, path: str) -> None:
     c, key = env
@@ -108,13 +118,19 @@ def test_a_valid_key_does_not_open_any_other_path(env: Any, method: str, path: s
 def test_org_admin_routes_pass_the_gate_only_with_the_tenancy_secret(env: Any, method: str, path: str, body: Any) -> None:
     c, key = env
     assert _call(c, method, path, body, {}).json()["detail"] == "Missing bearer token"
+    usage = path.endswith("/usage")
     with_key = _call(c, method, path, body, {tenancy.API_KEY_HEADER: key})
-    assert with_key.status_code == 401 and with_key.json()["detail"] == "Missing bearer token"  # a key alone does not open /orgs
+    if usage:  # an org's own key may read usage: the gate passes it and the route decides
+        assert with_key.json().get("detail") != "Missing bearer token"
+    else:  # a key alone does not open the admin routes
+        assert with_key.status_code == 401 and with_key.json()["detail"] == "Missing bearer token"
     ok = _call(c, method, path, body, {tenancy.TENANCY_PROVISION_HEADER: SECRET})
     assert ok.json().get("detail") != "Missing bearer token" and ok.status_code != 401, (path, ok.status_code, ok.text[:120])
     wrong = _call(c, method, path, body, {tenancy.TENANCY_PROVISION_HEADER: "w" * 40})
-    # past the gate, refused by the route itself (it validates the secret): 403, not the gate's 401
-    assert wrong.status_code == 403 and "provisioning secret" in wrong.json()["detail"], (path, wrong.status_code)
+    # past the gate, refused by the route itself (it validates the secret): never the gate's message, never a success
+    assert wrong.json().get("detail") != "Missing bearer token" and wrong.status_code in (401, 403), (path, wrong.status_code)
+    if not usage and not path.endswith("/summary"):
+        assert wrong.status_code == 403 and "provisioning secret" in wrong.json()["detail"], (path, wrong.status_code)
 
 
 def test_the_tenancy_secret_does_not_open_the_partner_key_routes(env: Any) -> None:
@@ -124,7 +140,7 @@ def test_the_tenancy_secret_does_not_open_the_partner_key_routes(env: Any) -> No
 
 
 def test_every_route_under_api_v1_is_either_listed_or_refused_with_a_key(env: Any) -> None:
-    """A route added later is refused for a key-only caller until it is added on purpose: the allowlist and the app's routes agree."""
+    """A route added later stays refused for a key-only caller until added on purpose: the allowlist and the routes agree."""
     from fastapi.routing import APIRoute
 
     c, key = env
@@ -141,5 +157,22 @@ def test_every_route_under_api_v1_is_either_listed_or_refused_with_a_key(env: An
         if not r.path.startswith("/api/v1/"):
             continue
         concrete = r.path.replace("{job_id}", "abc").replace("{org_id}", "acme").replace("{key_id}", "kid")
-        in_gate = concrete in identity.PARTNER_KEY_PATHS or identity._PARTNER_KEY_PATH_RE.match(concrete) or identity._ORGS_PATH_RE.match(concrete)
-        assert bool(in_gate) == (concrete in listed or r.path == "/api/v1/status" and False), f"{r.path}: gate list and tests disagree"
+        in_gate = (
+            concrete in identity.PARTNER_KEY_PATHS
+            or identity._PARTNER_KEY_PATH_RE.match(concrete)
+            or identity._ORGS_PATH_RE.match(concrete)
+        )
+        assert bool(in_gate) == (concrete in listed or r.path == "/api/v1/status" and False), (
+            f"{r.path}: gate list and tests disagree"
+        )
+
+
+def test_an_org_usage_route_with_a_bad_key_is_401_and_with_the_orgs_key_is_served(env: Any) -> None:
+    c, key = env
+    path = "/api/v1/orgs/acme/usage"
+    bad = c.get(path, headers={tenancy.API_KEY_HEADER: BAD})
+    assert bad.status_code == 401 and bad.json()["detail"] == "Invalid or revoked API key"
+    assert c.get(path, headers={tenancy.API_KEY_HEADER: key}).status_code == 200
+    assert (
+        c.get("/api/v1/orgs/other/usage", headers={tenancy.API_KEY_HEADER: key}).status_code == 403
+    )  # another org: the route refuses
