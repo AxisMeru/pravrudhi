@@ -1126,3 +1126,51 @@ def test_r2_title_case_party_lines_are_not_prose_and_numbered_prose_is():
     )
     b = I.build_bundle(head + BODY + "\n")
     assert any(n["status"] == "caption" for n in b["not_citable"]) and not any("Ranjeet" in t for t in facts_text(b))
+
+
+# ---- R2's last change: a long piece is header only with an identity cue or two kinds of cue --------------------------
+WEAK = (
+    "1. The prosecution case is that the deceased, aged 45 years, was found dead in the field near the village road on the "
+    "morning of 3 March after the heavy rain of the night before."
+)
+IDENT = (
+    "1. ZORVAN QUILLERIE, S/o Hendrik Quillerie, aged 35 years, resident of 14 Marlowe Lane Thistleby, who is the accused in the "
+    "case and is represented before this court by learned counsel of his own choice"
+)
+
+
+def test_r2_last_a_long_numbered_paragraph_with_one_weak_cue_is_a_fact_and_one_with_an_identity_cue_is_header():
+    assert len(WEAK) >= I.LONG_PARA and len(IDENT) >= I.LONG_PARA
+    assert I._cue_families(WEAK) == {"age"} and not I._caption_like(WEAK)  # one weak cue: body
+    assert {"identity", "age"} <= I._cue_families(IDENT) and I._caption_like(IDENT)  # identity cue: header
+    head = "IN THE HIGH COURT\n\nBETWEEN:\n\nCORAM: HON'BLE MR JUSTICE FENWORTH\n\n"
+    weak = I.build_bundle(head + WEAK + "\n\n2. " + BODY[:150] + ".\n\n3. " + BODY[:150] + ".\n")
+    assert facts_text(weak)[0].startswith("1. The prosecution case is that the deceased, aged 45 years")  # arm 1: kept
+    assert [n["status"] for n in weak["not_citable"]] == ["caption"]
+    ident = I.build_bundle(head + IDENT + "\n\n2. " + BODY[:150] + ".\n\n3. " + BODY[:150] + ".\n")
+    assert not any("Quillerie" in t or "Marlowe" in t for t in facts_text(ident))  # arm 2: excluded with the header
+    assert facts_text(ident)[0].startswith("2. The petitioner says")
+    two_kinds = (
+        "1. "
+        + "x" * 10
+        + " aged about 40 years, for the appellant: Mr Sharma, and the matter was listed on the date given "
+        + "y" * 60
+    )
+    assert len(two_kinds) >= I.LONG_PARA and I._cue_families(two_kinds) == {"age", "counsel"} and I._caption_like(two_kinds)
+
+
+def test_r2_last_long_prose_without_a_cue_between_header_pieces_is_kept_and_short_lines_between_them_are_header():
+    prose = BODY  # 200+ characters, no cue
+    raw = (
+        "BETWEEN:\n\nZORVAN, aged about 49 years ...Appellant\n\n" + prose + "\n\n"
+        "Sri Oswin Pardue, Advocate\n\nCORAM: HON'BLE MR JUSTICE FENWORTH\n\nJUDGMENT\n\n"
+        + "\n\n".join(f"{n}. " + BODY[:150] + "." for n in range(1, 5))
+        + "\n"
+    )
+    b = I.build_bundle(raw)
+    caps = [b["cleaned"][n["cleaned_start"] : n["cleaned_end"]] for n in b["not_citable"] if n["status"] == "caption"]
+    assert (
+        len(caps) == 2 and "ZORVAN" in caps[0] and "FENWORTH" in caps[1] and "Pardue" in caps[1]
+    )  # two runs; the short counsel line is header
+    assert facts_text(b)[0].startswith("The petitioner says")  # the cue-less long prose between the runs is a fact
+    assert not any("ZORVAN" in t or "Pardue" in t or "FENWORTH" in t for t in facts_text(b))

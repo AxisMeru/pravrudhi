@@ -726,20 +726,38 @@ def _pieces(cleaned: str, a: int, b: int) -> list[tuple[int, int]]:
     return [(s["cleaned_start"], s["cleaned_end"]) for s in spans]
 
 
-_CAP_STRONG = re.compile(
-    r"\baged\s+(?:about\s+)?\d+|\b(?:s|d|w|r)/o\b|\bresident\s+of\b|\bresiding\s+at\b|\bcoram\b|\bhon'?ble\s+(?:mr|mrs|ms|dr|justice)\b"
-    r"|\bfor\s+(?:the\s+)?(?:appellants?|respondents?|petitioners?|applicants?)\s*[-:]"
-    r"|\bdate\s+of\s+(?:hearing|judg(?:e)?ment|order)\b|\bdated\s+this\s+the\b|\border\s+on\s+board\b"
-    r"|\b(?:heard|hearing)\b[^.]{0,40}\breserved\b|\bbetween\s*:|^\s*and\s*:|-versus-|\bversus\b"
-    r"|\bfiled\s+(?:under|u/s)\b[^.]{0,200}\bpraying\b|(?:\.{2,}|\u2026|-{2,})\s*(?:appellants?|respondents?|petitioners?|applicants?)\b",
-    re.I,
-)
+_CUES = {
+    "identity": re.compile(r"\b(?:s|d|w|r)/o\b|\bresident\s+of\b|\bresiding\s+at\b", re.I),
+    "age": re.compile(r"\baged\s+(?:about\s+)?\d+", re.I),
+    "bench": re.compile(r"\bcoram\b|\bhon'?ble\s+(?:mr|mrs|ms|dr|justice)\b", re.I),
+    "counsel": re.compile(r"\bfor\s+(?:the\s+)?(?:appellants?|respondents?|petitioners?|applicants?)\s*[-:]", re.I),
+    "dates": re.compile(
+        r"\bdate\s+of\s+(?:hearing|judg(?:e)?ment|order)\b|\bdated\s+this\s+the\b|\border\s+on\s+board\b|\b(?:heard|hearing)\b[^.]{0,40}\breserved\b",
+        re.I,
+    ),
+    "parties": re.compile(
+        r"\bbetween\s*:|^\s*and\s*:|-versus-|\bversus\b|(?:\.{2,}|\u2026|-{2,})\s*(?:appellants?|respondents?|petitioners?|applicants?)\b",
+        re.I,
+    ),
+    "preamble": re.compile(r"\bfiled\s+(?:under|u/s)\b[^.]{0,200}\bpraying\b", re.I),
+}
+
+
+def _cue_families(par: str) -> set[str]:
+    return {name for name, rx in _CUES.items() if rx.search(par)}
 
 
 def _caption_like(par: str) -> bool:
     """A party block, counsel line, bench, date line or appeal preamble of the header of an order (privacy: age, parent's name,
-    address), or a long all-capitals paragraph."""
-    return bool(_CAP_STRONG.search(par)) or (len(par) >= LONG_PARA and _mostly_upper(par, 0.75))
+    address), or a long all-capitals paragraph. A piece is header-like with one cue, EXCEPT a long (150 characters or more)
+    numbered prose paragraph, which is header-like only with an identity cue (S/o, D/o, W/o, R/o, resident of, residing at) or
+    two different kinds of cue: a numbered paragraph that says "aged 45 years" is the body."""
+    families = _cue_families(par)
+    if len(par) < LONG_PARA:
+        return bool(families)
+    if _numbered_prose(par):
+        return "identity" in families or len(families) >= 2
+    return bool(families) or _mostly_upper(par, 0.75)
 
 
 def split_plan(cleaned: str) -> dict[str, list[dict[str, Any]]]:
@@ -782,7 +800,7 @@ def split_plan(cleaned: str) -> dict[str, list[dict[str, Any]]]:
                 ),
                 0,
             )
-    cap_lo = cap_hi = -1
+    header_idx: set[int] = set()
     if body_i > 0:
 
         def header_ish(i: int) -> bool:
@@ -796,27 +814,36 @@ def split_plan(cleaned: str) -> dict[str, list[dict[str, Any]]]:
             )
 
         marks = [i for i in range(body_i) if header_ish(i)]
-        # fail toward keeping text: the block is a header only if it holds a real header cue; prose before it or after it stays
+        # fail toward keeping text: the block is a header only if it holds a real header cue; only header-like pieces and short
+        # lines between or just after them are excluded, never a long piece without a cue (that is prose of the order)
         if marks and any(caption_flags[i] for i in marks):
             cap_lo, cap_hi = marks[0], marks[-1]
             while cap_hi + 1 < body_i and units[cap_hi + 1][1] - units[cap_hi + 1][0] < MIN_FACT_CHARS:
                 cap_hi += 1  # short lines right after the last header line (a counsel or bench line) belong to it
-            if sum(b - a for a, b, _ in units[cap_lo : cap_hi + 1]) > total / 2:
-                cap_lo = cap_hi = -1
-    if cap_lo >= 0:
+            header_idx = {i for i in range(cap_lo, cap_hi + 1) if header_ish(i) or units[i][1] - units[i][0] < LONG_PARA}
+            if sum(units[i][1] - units[i][0] for i in header_idx) > total / 2:
+                header_idx = set()
+    runs: list[tuple[int, int]] = []
+    for i in sorted(header_idx):
+        if runs and runs[-1][1] == i - 1:
+            runs[-1] = (runs[-1][0], i)
+        else:
+            runs.append((i, i))
+    for lo, hi in runs:
         excluded.append(
             {
-                "cleaned_start": units[cap_lo][0],
-                "cleaned_end": units[cap_hi][1],
+                "cleaned_start": units[lo][0],
+                "cleaned_end": units[hi][1],
                 "status": "caption",
                 "reason": "the header of the order, before its body",
             }
         )
     body: list[tuple[int, int, bool] | None] = []
+    run_starts = {lo for lo, _ in runs}
     for i, unit in enumerate(units):
-        if cap_lo >= 0 and cap_lo <= i <= cap_hi:
-            if i == cap_lo:
-                body.append(None)  # the header ends a group
+        if i in header_idx:
+            if i in run_starts:
+                body.append(None)  # a header run ends a group
             continue
         body.append(unit)
 
@@ -907,7 +934,7 @@ def split_facts(cleaned: str) -> list[dict[str, int]]:
 USABLE_MIN_TEXT_CHARS = 2000  # shorter texts are not judged (a short note has few facts)
 USABLE_FACTS_PER_10K = (10.0, 60.0)  # observed on 39 cleared public orders: 11.9 to 28.3 (median 21.0)
 USABLE_MEDIAN_FACT_CHARS = (100, MAX_FACT_CHARS)  # observed: median fact 145 to 517 characters (median of medians 373)
-USABLE_SHORT_FACT_SHARE_MAX = 0.20  # facts under 40 characters; observed maximum 0.15
+USABLE_SHORT_FACT_SHARE_MAX = 0.20  # facts under 40 characters; observed maximum 0.09
 
 
 USABLE_LEFT_OUT_SHARE_MAX = (
