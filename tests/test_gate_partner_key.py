@@ -210,3 +210,14 @@ def test_a_longer_path_than_a_listed_one_is_not_opened(env: Any, path: str) -> N
     for header, value in ((tenancy.API_KEY_HEADER, key), (tenancy.TENANCY_PROVISION_HEADER, SECRET)):
         r = c.get(path, headers={header: value})
         assert r.status_code == 401 and r.json()["detail"] == "Missing bearer token", (path, r.status_code)
+
+
+@pytest.mark.parametrize(("method", "path", "body"), [*KEY_ROUTES, ("GET", "/api/v1/orgs/acme/usage", None)])
+def test_a_revoked_key_is_401_on_every_listed_route_and_never_runs_as_anonymous(
+    env: Any, tmp_path: Path, method: str, path: str, body: Any
+) -> None:
+    c, _key = env
+    created = tenancy.create_key(tmp_path / "root", "acme", label="to-revoke")
+    tenancy.revoke_key(tmp_path / "root", created.record.key_id)
+    r = _call(c, method, path, body, {tenancy.API_KEY_HEADER: created.secret})
+    assert r.status_code == 401 and r.json()["detail"] == "Invalid or revoked API key", (path, r.status_code, r.text[:100])
