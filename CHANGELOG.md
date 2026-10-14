@@ -3,11 +3,14 @@
 Release notes for the engine (`pravrudhi`). Versions before 0.5.44 are described in their GitHub release notes and commit
 messages.
 
-## Unreleased
+## 0.6.11 (2026-10-14)
+
+PATCH release on 0.6.10: the service window now reads open at every moment, including the minute from 23:59 to 00:00 that 0.6.10 still reported as closed (#461), and the intake splitter keeps a recognised court-order header out of the facts more reliably (#460). **Rebuild the image.** The changes are under `src/` and `configs/`, so they reach a running container only by a rebuild of the engine image and the RunPod worker template from 0.6.11.
 
 ### Changed
 
 - **The service window can be open at every instant (caller-visible).** `service_window` in `configs/partner_api.yaml` accepts `always_open: true`, which makes `open_now` true at every moment. The shipped window sets it, so `GET /api/v1/status` no longer reads closed for the one minute from 23:59 to 00:00 that a 00:00 to 23:59 window had. `open` and `close` are still reported and must still differ. A window without the key behaves as before, and `enforce` is unchanged.
+- **The intake splitter treats a recognised court-order header more carefully (caller-visible).** A numbered prose paragraph of any length is taken as header only when it carries an identity cue or two kinds of cue, and a header identity line the rule recognises is no longer joined to the next paragraph, so it does not reach the facts. This is a heading and paragraph rule checked on 39 cleared public orders; it makes no claim for other text. For text whose header the rule does not recognise, nothing is excluded, and identity lines in it stay in the facts. The intake routes and their answers are otherwise unchanged. The change is under `src/`, so it reaches a running container only by a rebuild of the engine image.
 
 ## 0.6.10 (2026-10-14)
 
