@@ -3,6 +3,12 @@
 Release notes for the engine (`pravrudhi`). Versions before 0.5.44 are described in their GitHub release notes and commit
 messages.
 
+## Unreleased
+
+### Added
+
+- **Steps appendix for an assisted screening (#416).** A finished assisted run (`POST /api/v1/analyse-facts/assist`) now also returns `appendix`: the steps it took, counted from the recorded tool calls only: each stage with how many times it ran, the quote and Lean check results, and per contract the elements judged, quotes checked and found valid, and whether the Lean check agreed with the engine's own assembly. No text from the assistant is in it. It is absent whenever the run falls back to the ordinary result.
+
 ## 0.6.5 (2026-10-14)
 
 PATCH release: the hosted citation check gets its metadata-only index and a stricter existence-only answer (#398, #401, #402); failed API keys are throttled per address (#396) and a 429 says what to do (#410); a second-check decline refers (#407); a second RunPod endpoint can serve as the fallback second judge (#405, off until configured); and the assisted route is switched ON in the shipped configuration (#408; it still serves only when the store is reachable, the delete canary has passed and the tier is available, and the app's entry stays behind its own flag). **Not every existing route behaves exactly as in 0.6.2** (true since 0.6.4; the changes below are what a caller can see).

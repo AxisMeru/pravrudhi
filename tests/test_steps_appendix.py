@@ -97,3 +97,40 @@ def test_no_text_from_the_agent_or_the_judge_reaches_the_appendix(tmp_path):
 
 def test_an_empty_trace_gives_an_empty_appendix():
     assert build_appendix([]) == {"appendix_version": APPENDIX_VERSION, "steps": [], "per_contract": [], "refused_calls": 0}
+
+
+@pytest.fixture(autouse=True)
+def _env(monkeypatch):
+    from pravrudhi.application import assistant_tier as tier
+    from pravrudhi.application.a0_assist import runtime as rt
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-not-real")
+    tier.reset()
+    yield
+    rt.reset()
+    tier.reset()
+
+
+# ---- the route: a finished assisted run carries the appendix, every fallback does not
+def _route():
+    from tests import test_a0_assist_route as R
+
+    return R
+
+
+def test_a_finished_assisted_run_returns_the_appendix_counted_from_its_own_calls(tmp_path):
+    R = _route()
+    c = R.client(tmp_path)
+    out = c.post(R.URL, json=R.BODY).json()
+    ap = out["appendix"]
+    assert ap["appendix_version"] == APPENDIX_VERSION and ap["refused_calls"] == 0
+    assert [s["name"] for s in ap["steps"]] == [s["name"] for s in out["assistant"]["steps"]]
+    assert ap["per_contract"][0]["contract_id"] == "bns69" and ap["per_contract"][0]["lean_agrees"] is True
+
+
+def test_the_fallbacks_carry_no_appendix(tmp_path):
+    R = _route()
+    anon = R.client(tmp_path / "a", user=None).post(R.URL, json=R.BODY).json()
+    assert anon["assistant"]["used"] is False and "appendix" not in anon
+    dark = R.client(tmp_path / "d", fail=("create_session",)).post(R.URL, json=R.BODY).json()
+    assert dark["assistant"]["used"] is False and "appendix" not in dark
