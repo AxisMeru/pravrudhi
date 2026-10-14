@@ -16,7 +16,11 @@ from pravrudhi.application.a0_assist import sweeper as SW
 from pravrudhi.application.a0_assist import transport as TR
 
 REPO = Path(__file__).resolve().parent.parent
-CFG = C.parse(yaml.safe_load((REPO / "configs" / "assistant_tier.yaml").read_text()))
+
+#: The shipped file turns the route on (0.6.5); these tests start from its dark form.
+DARK = {"assist_route_enabled": False, "agent_id": None, "agent_version": None, "environment_id": None}
+_SHIPPED = yaml.safe_load((REPO / "configs" / "assistant_tier.yaml").read_text())
+CFG = C.parse({**_SHIPPED, **DARK})  # the shipped file is enabled (0.6.5); these tests start dark
 
 
 def pend(*ids):
