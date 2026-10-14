@@ -351,10 +351,35 @@ def _stamp_neighbours(pages: list[list[tuple[int, int, str]]]) -> dict[tuple[int
     return out
 
 
+_COUNTERS = (
+    re.compile(r"^\s*Page\s+(\d+)\s+of\s+\d+\s*$", re.I),
+    re.compile(r"^\s*\{\{\s*(\d+)\s*\}\}\s*$"),
+    re.compile(r"^\s*-\s*(\d+)\s*-\s*$"),
+)
+
+
+def _counter_lines(pages: list[list[tuple[int, int, str]]]) -> list[tuple[int, int]]:
+    """Page counters ("Page 4 of 13", "{{ 4 }}", "- 4 -") that stand alone on a line and count 1 up over three or more lines in
+    a row: evidence that does not need form feeds (a text with no page breaks)."""
+    lines = [ln for pg in pages for ln in pg]
+    out: list[tuple[int, int]] = []
+    for rx in _COUNTERS:
+        hits = [(a, b, int(m.group(1))) for a, b, ln in lines if (m := rx.match(ln))]  # the matching lines, in document order
+        run: list[tuple[int, int, int]] = []
+        for h in [*hits, None]:
+            if h is not None and run and h[2] == run[-1][2] + 1:
+                run.append(h)
+                continue
+            if len(run) >= 3:
+                out.extend((x, y) for x, y, _ in run)
+            run = [h] if h is not None else []
+    return out
+
+
 def furniture_lines(raw: str) -> list[tuple[int, int, str]]:
-    """Lines (start, end excluding the newline, class) that are admitted page furniture. Boundary evidence only (pages are
-    separated by form feed); a text with no page breaks yields none.
-    Never a caption line; never a class outside ADMITTED_KINDS."""
+    """Lines (start, end excluding the newline, class) that are admitted page furniture: boundary evidence (pages separated by
+    form feed) or a counter that counts up over three or more lines. Never a caption line; boundary lines only of the
+    ADMITTED_KINDS."""
     pages = _pages_and_lines(raw)
     prot = sorted(_protected_lines(raw))
     pstarts = [ps for ps, _ in prot]
@@ -372,7 +397,11 @@ def furniture_lines(raw: str) -> list[tuple[int, int, str]]:
         overlaps = j >= 0 and prot[j][1] > a
         if ok and _kind(t) in ADMITTED_KINDS and not overlaps:
             out.append((a, b, "furniture"))
-    return out
+    have = {(a, b) for a, b, _ in out}
+    for a, b in _counter_lines(pages):  # a bare counter holds no name or caption text: the page-one guard does not apply
+        if (a, b) not in have:
+            out.append((a, b, "furniture"))
+    return sorted(out)
 
 
 _HYPHEN = re.compile(r"(?<=[^\W\d_])-\r?\n(?=[^\W\d_])")
@@ -693,56 +722,86 @@ def _pieces(cleaned: str, a: int, b: int) -> list[tuple[int, int]]:
     return [(s["cleaned_start"], s["cleaned_end"]) for s in spans]
 
 
+_CAP_STRONG = re.compile(
+    r"\baged\s+(?:about\s+)?\d+|\b(?:s|d|w|r)/o\b|\bresident\s+of\b|\bresiding\s+at\b|\bcoram\b|\bhon'?ble\s+(?:mr|mrs|ms|dr|justice)\b"
+    r"|\bfor\s+(?:the\s+)?(?:appellants?|respondents?|petitioners?|applicants?)\s*[-:]"
+    r"|\bdate\s+of\s+(?:hearing|judg(?:e)?ment|order)\b|\bdated\s+this\s+the\b|\border\s+on\s+board\b"
+    r"|\b(?:heard|hearing)\b[^.]{0,40}\breserved\b|\bbetween\s*:|^\s*and\s*:|-versus-|\bversus\b"
+    r"|\bfiled\s+(?:under|u/s)\b[^.]{0,200}\bpraying\b|(?:\.{2,}|\u2026|-{2,})\s*(?:appellants?|respondents?|petitioners?|applicants?)\b",
+    re.I,
+)
+
+
+def _caption_like(par: str) -> bool:
+    """A party block, counsel line, bench, date line or appeal preamble of the header of an order (privacy: age, parent's name,
+    address), or a long all-capitals paragraph."""
+    return bool(_CAP_STRONG.search(par)) or (len(par) >= LONG_PARA and _mostly_upper(par, 0.75))
+
+
 def split_plan(cleaned: str) -> dict[str, list[dict[str, Any]]]:
     """The deterministic fact split of a cleaned text: {"facts": index spans, "excluded": spans that are not facts and why}.
-    1. The caption of an order (court, bench, parties, counsel) is not a fact: the body starts after the first ORDER / JUDGMENT
-       heading in the first 40% of the paragraphs, else at the first long paragraph; what comes before is one excluded span.
+    1. The header of an order (court, bench, parties, counsel, dates, the appeal preamble) is not a fact and is personal data: the
+       body starts after the first ORDER / JUDGMENT heading when at least two header-like pieces come before it, else at the
+       first long or numbered-prose piece that is not header-like; what comes before is one excluded span ("caption").
+       (A header that is more than half of the text is not treated as a header.)
     2. A short line that occurs REPEAT_MIN or more times (a page stamp the cleaner does not remove) is excluded.
-    3. The rest is packed into facts: paragraphs are joined until a group reaches TARGET_FACT_CHARS, never past MAX_FACT_CHARS;
+    3. The rest is packed into facts: pieces are joined until a group reaches TARGET_FACT_CHARS, never past MAX_FACT_CHARS;
        a numbered paragraph ("12.", "(3)") always starts a new fact, except that a short
        heading before it (under MIN_FACT_CHARS, not numbered) joins it; an excluded span ends a group.
     More than MAX_FACTS facts are merged into larger neighbours rather than refused."""
-    paras = _paragraphs(cleaned)
+    units: list[tuple[int, int, bool]] = []  # (start, end, whole paragraph)
+    for a, b in _paragraphs(cleaned):
+        pieces = _pieces(cleaned, a, b)
+        units.extend((x, y, len(pieces) == 1) for x, y in pieces)
     excluded: list[dict[str, Any]] = []
     body_i = 0
-    first_long = next(
-        (i for i, (a, b) in enumerate(paras) if b - a >= LONG_PARA or _numbered_prose(cleaned[a:b])), None
-    )  # a long paragraph or the first numbered paragraph of prose is where the body starts
-    heading = next(
-        (
-            i
-            for i, (a, b) in enumerate(paras[: max(1, int(len(paras) * 0.4))])
-            if _BODY_HEADING.match(cleaned[a:b]) and i + 1 < len(paras) and (first_long is None or i < first_long)
-        ),
-        None,
-    )
-    if heading is not None:
-        body_i = heading + 1
-    elif first_long is not None:
-        body_i = first_long
+    if units:
+        caption_flags = [_caption_like(cleaned[a:b]) for a, b, _ in units]
+        heading = next(
+            (
+                i
+                for i, (a, b, _) in enumerate(units[: max(1, int(len(units) * 0.8))])
+                if _BODY_HEADING.match(cleaned[a:b]) and i + 1 < len(units) and sum(caption_flags[:i]) >= 2
+            ),
+            None,
+        )
+        if heading is not None:
+            body_i = heading + 1
+        else:
+            body_i = next(
+                (
+                    i
+                    for i, (a, b, _) in enumerate(units)
+                    if not caption_flags[i] and (b - a >= LONG_PARA or _numbered_prose(cleaned[a:b]))
+                ),
+                0,
+            )
+        total = sum(b - a for a, b, _ in units)
+        if body_i > 0 and sum(b - a for a, b, _ in units[:body_i]) > total / 2:
+            body_i = 0
     if body_i > 0:
         excluded.append(
             {
-                "cleaned_start": paras[0][0],
-                "cleaned_end": paras[body_i - 1][1],
+                "cleaned_start": units[0][0],
+                "cleaned_end": units[body_i - 1][1],
                 "status": "caption",
                 "reason": "the header of the order, before its body",
             }
         )
-    body = paras[body_i:]
+    body = units[body_i:]
 
-    def repeats(a: int, b: int) -> bool:
+    def repeats(a: int, b: int, whole: bool) -> bool:
         line = cleaned[a:b]
         looks_like_furniture = bool(
             re.search(r"\d", line) or _URL.search(line) or (len(line.split()) >= 2 and _mostly_upper(line, 0.7))
         )
         # a numbered paragraph is body; so is a short line with a negation ("No.", "Not allowed")
-        return b - a < 100 and looks_like_furniture and not _PARA_START.match(line[:16]) and not _has_negation(line)
+        return whole and b - a < 100 and looks_like_furniture and not _PARA_START.match(line[:16]) and not _has_negation(line)
 
-    seen: Counter[str] = Counter(_dn(cleaned[a:b]) for a, b in body if repeats(a, b))
-    units: list[tuple[int, int] | None] = []  # None = a group break (an excluded line)
-    for a, b in body:
-        if repeats(a, b) and seen[_dn(cleaned[a:b])] >= REPEAT_MIN:
+    seen: Counter[str] = Counter(_dn(cleaned[a:b]) for a, b, w in body if repeats(a, b, w))
+    packed: list[tuple[int, int] | None] = []  # None = a group break (an excluded line)
+    for a, b, w in body:
+        if repeats(a, b, w) and seen[_dn(cleaned[a:b])] >= REPEAT_MIN:
             excluded.append(
                 {
                     "cleaned_start": a,
@@ -751,13 +810,13 @@ def split_plan(cleaned: str) -> dict[str, list[dict[str, Any]]]:
                     "reason": "the same short line occurs 3 or more times",
                 }
             )
-            units.append(None)
+            packed.append(None)
         else:
-            units.extend(_pieces(cleaned, a, b))
+            packed.append((a, b))
     facts: list[dict[str, int]] = []
     cur: tuple[int, int] | None = None
     has_numbered = False
-    for u in units:
+    for u in packed:
         if u is None:
             if cur:
                 facts.append({"cleaned_start": cur[0], "cleaned_end": cur[1]})
@@ -808,13 +867,15 @@ USABLE_MEDIAN_FACT_CHARS = (100, MAX_FACT_CHARS)  # observed: median fact 152 to
 USABLE_SHORT_FACT_SHARE_MAX = 0.20  # facts under 40 characters; observed maximum 0.16
 
 
-USABLE_EXCLUDED_SHARE_MAX = 0.35  # characters left out as caption, repeated lines or marks; observed maximum 0.25
+USABLE_EXCLUDED_SHARE_MAX = 0.35  # left out as caption, repeated lines or marks, texts of 10,000 characters or more
+USABLE_EXCLUDED_SHARE_MAX_SHORT = 0.50  # texts of 2,000 to 9,999 characters: the header of a short order is a larger share
 
 
 def fact_list_usable(bundle: dict[str, Any]) -> dict[str, Any]:
     """The stated range of a usable fact list for one order (a rule, not a bundle check): facts per 10,000 characters within
     USABLE_FACTS_PER_10K, the median fact length within USABLE_MEDIAN_FACT_CHARS, no fact longer than MAX_FACT_CHARS, at most
-    USABLE_SHORT_FACT_SHARE_MAX of the facts under 40 characters, at most USABLE_EXCLUDED_SHARE_MAX of the text left out.
+    USABLE_SHORT_FACT_SHARE_MAX of the facts under 40 characters, at most USABLE_EXCLUDED_SHARE_MAX of the text left out
+    (USABLE_EXCLUDED_SHARE_MAX_SHORT under 10,000 characters).
     Not applied to texts under USABLE_MIN_TEXT_CHARS. A bundle that cannot be read FAILS (no length, no facts list)."""
     n_chars = bundle.get("n_chars")
     facts = bundle.get("facts")
@@ -852,10 +913,22 @@ def fact_list_usable(bundle: dict[str, Any]) -> dict[str, Any]:
         out["reasons"].append("a fact is longer than the cap")
     if short > USABLE_SHORT_FACT_SHARE_MAX:
         out["reasons"].append("too many facts under 40 characters")
-    if excluded_share > USABLE_EXCLUDED_SHARE_MAX:
+    if excluded_share > (USABLE_EXCLUDED_SHARE_MAX if n_chars >= 10_000 else USABLE_EXCLUDED_SHARE_MAX_SHORT):
         out["reasons"].append("most of the text was left out of the facts")
     out["pass"] = not out["reasons"]
     return out
+
+
+# ---- what the model may see ---------------------------------------------------------------------------------------------
+def facts_for_model(raw: str) -> list[dict[str, str]]:
+    """The ONLY text of an intake request that may go to a model: the numbered facts. The header of the order (parties with
+    age, parent's name and address, counsel, bench, dates), repeated page lines and bare marks are excluded spans and are
+    never part of it. An unreadable text gives no facts."""
+    try:
+        bundle = build_bundle(raw)
+    except IntakeRefused:
+        return []
+    return [{"id": f["id"], "text": f["text"]} for f in bundle["facts"]]
 
 
 # ---- tool: extract_citations --------------------------------------------------------------------------------------------

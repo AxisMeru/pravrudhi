@@ -904,15 +904,10 @@ def test_pc9_a_hyphen_at_the_end_of_a_furniture_line_is_not_joined_and_checks_pa
 
 def test_pc10_numbered_party_lines_are_caption_but_numbered_prose_starts_the_body():
     parties = "IN THE HIGH COURT\n\nBETWEEN:\n\n1. AMARESH\n\n2. S.UMESH\n\n3. VAGEESH\n\n"
-    b = I.build_bundle(
-        parties
-        + "THIS PETITION IS FILED BY THE ADVOCATE FOR THE PETITIONER PRAYING THAT "
-        + "THE COURT BE PLEASED TO QUASH THE PROCEEDINGS. " * 4
-        + "\n"
-    )
+    b = I.build_bundle(parties + BODY + "\n")
     cap = next(n for n in b["not_citable"] if n["status"] == "caption")
     assert "3. VAGEESH" in b["cleaned"][cap["cleaned_start"] : cap["cleaned_end"]] and facts_text(b)[0].startswith(
-        "THIS PETITION"
+        "The petitioner says"
     )
     assert (
         I._numbered_prose("1. The tenant paid rent.")
@@ -966,3 +961,62 @@ def test_pc14_a_wrapped_full_width_line_ending_in_lower_case_continues_a_party_l
     assert "Years,\n\nShri Raja" in I.clean(party)["cleaned"]  # ends in a comma: the break stays
     short = "Heading line without a stop\n\nShri Raja Sharma is the advocate."
     assert "stop\n\nShri Raja" in I.clean(short)["cleaned"]  # under 45 characters: the break stays
+
+
+def test_pc15_excluded_share_limit_is_35_percent_from_10000_chars_and_50_percent_below():
+    def b(n_chars, left_out):
+        facts = [{"text": "x" * 300}] * max(1, round(0.0022 * n_chars))
+        cap = {"status": "caption", "cleaned_start": 0, "cleaned_end": left_out}
+        return {"n_chars": n_chars, "facts": facts, "not_citable": [cap], "cleaned": "x" * n_chars}
+
+    assert I.fact_list_usable(b(10_000, 3500))["pass"] is True and I.fact_list_usable(b(10_000, 3600))["pass"] is False
+    assert I.fact_list_usable(b(5_000, 2500))["pass"] is True and I.fact_list_usable(b(5_000, 2600))["pass"] is False
+    assert I.fact_list_usable(b(9_999, 4000))["pass"] is True and I.fact_list_usable(b(10_000, 4000))["pass"] is False
+
+
+# ---- header of the order (privacy) and counters without page breaks ----------------------------------------------
+def test_pc16_page_counters_without_form_feeds_are_furniture_only_when_they_count_up_three_times():
+    def doc(nums, form="Page {n} of 9"):
+        return "\n\n".join(f"{BODY[:100]} item {i}.\n{form.replace('N', str(n))}" for i, n in enumerate(nums))
+
+    for form in ("Page N of 9", "{{ N }}", "- N -"):
+        c = I.clean(doc([1, 2, 3, 4], form))
+        assert sum(1 for d in c["deletions"] if d[2] == "furniture") == 4, form  # arm 1: a run of four counts
+    two = doc([1, 2], "Page N of 9")
+    assert [d for d in I.clean(two)["deletions"] if d[2] == "furniture"] == []  # arm 2: two is not a run
+    assert [
+        d for d in I.clean(doc([1, 3, 5, 7], "Page N of 9"))["deletions"] if d[2] == "furniture"
+    ] == []  # not counting up by one
+    four = doc([1, 2, 3, 4], "Page N of 9")
+    c = I.clean(four)
+    assert all(v["pass"] for v in I.check_clean(four, c["cleaned"], c["segments"], c["deletions"]).values())
+
+
+def test_pc17_header_cues_end_the_caption_and_ordinary_prose_about_counsel_does_not_start_it():
+    head = "ZORVAN QUILLERIE, aged about 49 years, S/o Mr Hendrik Quillerie, resident of 14 Marlowe Lane, Thistleby ...Appellant"
+    prose = (
+        "Learned counsel for the appellant submits that the appellant was not present at the gate at the time of the visit, "
+        "as the records of the gate register and the guard's own diary show."
+    )
+    assert len(prose) >= I.LONG_PARA
+    raw = "IN THE HIGH COURT\n\nBETWEEN:\n\n" + head + "\n\nCORAM: HON'BLE MR JUSTICE FENWORTH\n\n" + prose + "\n\n" + BODY + "\n"
+    b = I.build_bundle(raw)
+    cap = next(n for n in b["not_citable"] if n["status"] == "caption")
+    left_out = b["cleaned"][cap["cleaned_start"] : cap["cleaned_end"]]
+    assert "Hendrik" in left_out and "FENWORTH" in left_out
+    assert facts_text(b)[0].startswith("Learned counsel for the appellant")  # arm 2: prose with counsel/appellant words is a fact
+    assert not any("Hendrik" in t or "FENWORTH" in t for t in facts_text(b))
+
+
+def test_pc18_a_heading_needs_two_header_pieces_before_it_and_a_header_over_half_the_text_is_not_one():
+    one_cue = "CORAM: HON'BLE MR JUSTICE FENWORTH\n\nJUDGMENT\n\n" + BODY + "\n\n" + BODY + "\n"
+    cl = I.clean(one_cue)["cleaned"]
+    cap = [e for e in _plan(one_cue)["excluded"] if e["status"] == "caption"]
+    assert (
+        len(cap) == 1 and "JUDGMENT" in cl[cap[0]["cleaned_start"] : cap[0]["cleaned_end"]]
+    )  # one cue: the long-paragraph rule decides
+    party = "Party {} aged about 4{} years, S/o Mr X, resident of Y ...Appellant"
+    mostly_header = "\n\n".join([party.format(i, i) for i in range(8)] + ["JUDGMENT", BODY[:160]]) + "\n"
+    assert [
+        e for e in _plan(mostly_header)["excluded"] if e["status"] == "caption"
+    ] == []  # over half the text: not treated as a header
