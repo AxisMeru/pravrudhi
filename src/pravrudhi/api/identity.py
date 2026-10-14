@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
@@ -313,7 +314,36 @@ async def current_user(request: Request) -> User | None:
     header_name = _identity_header_name()
     if header_name not in headers and request.url.path in demo_anon_paths():
         return None
+    if _partner_route_carries_its_own_credential(request.url.path, request, header_name):
+        return None  # a partner route that validates its own credential (see PARTNER_KEY_PATHS); no user, the route decides
     return user_from_headers(headers)
+
+
+# The partner API (L4) authenticates its callers itself: every route below validates `X-Pravrudhi-Api-Key` (a key header that does
+# not verify is a 401, never an anonymous call) and the org/key admin routes validate the tenancy secret. In `required` mode the
+# whole-surface gate must let a key-only caller reach those routes (they carry no identity token); it passes ONLY the paths
+# named here, so a route added later stays refused until it is added on purpose and tested per route
+# (tests/test_gate_partner_key.py). The header names equal `tenancy.API_KEY_HEADER` and `tenancy.TENANCY_PROVISION_HEADER`
+# (a test pins that; tenancy imports this module, so they cannot be imported from it here).
+_API_KEY_HEADER = "x-pravrudhi-api-key"
+_TENANCY_SECRET_HEADER = "x-pravrudhi-tenancy-secret"
+PARTNER_KEY_PATHS: frozenset[str] = frozenset({
+    "/api/v1/analyse-facts", "/api/v1/analyse-facts/jobs", "/api/v1/analyse-facts/assist", "/api/v1/verify-citations",
+    "/api/v1/audit", "/api/v1/intake", "/api/v1/intake/assist",
+})
+_PARTNER_KEY_PATH_RE = re.compile(r"^/api/v1/analyse-facts/jobs/[^/]+$")
+_ORGS_PATH_RE = re.compile(r"^/api/v1/orgs(/[^/]+(/keys(/[^/]+/revoke)?|/usage(/summary)?)?)?$")
+
+
+def _partner_route_carries_its_own_credential(path: str, conn: HTTPConnection, identity_header: str) -> bool:
+    """True when this request is for a partner route that validates the credential it carries: a key header on a partner key path,
+    or the tenancy secret header on an org/key admin path. A request that also carries an identity token goes through the ordinary
+    identity check (the route then sees the user), so a bad token is still a 401."""
+    if identity_header in conn.headers:
+        return False
+    if (path in PARTNER_KEY_PATHS or _PARTNER_KEY_PATH_RE.match(path)) and conn.headers.get(_API_KEY_HEADER):
+        return True
+    return bool(_ORGS_PATH_RE.match(path)) and bool(conn.headers.get(_TENANCY_SECRET_HEADER))
 
 
 class RequireIdentity:
@@ -336,6 +366,7 @@ class RequireIdentity:
             conn = HTTPConnection(scope)
             header_name = _identity_header_name()
             anon_ok = path in demo_anon_paths() and header_name not in conn.headers
+            anon_ok = anon_ok or _partner_route_carries_its_own_credential(path, conn, header_name)
             if (
                 path.startswith("/api/")
                 and path not in PUBLIC_PATHS
