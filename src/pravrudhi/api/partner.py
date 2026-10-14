@@ -764,6 +764,20 @@ class AssistFactsResponse(AnalyseFactsResponse):
     assistant: dict[str, Any]
 
 
+class IntakeResponse(BaseModel):
+    """The deterministic intake result: the bundle of machine tokens (no model prose)."""
+
+    run_id: str
+    client_data: bool
+    bundle: dict[str, Any]
+
+
+class IntakeAssistResponse(IntakeResponse):
+    """The intake bundle plus the `assistant` block (see application/a0_assist/assist.py)."""
+
+    assistant: dict[str, Any]
+
+
 AgentFactory = Callable[[Path], AgentLike]
 
 
@@ -1629,7 +1643,7 @@ def build_partner_router(
             return JSONResponse(status_code=401, content={"detail": "intake is offered only to signed-in users"})
         return admitted
 
-    @router.post("/intake", include_in_schema=False, response_model=None)
+    @router.post("/intake", include_in_schema=False, response_model=IntakeResponse)
     def intake_ep(
         req: IntakeRequest, request: Request, response: Response, user: User | None = CurrentUserDep
     ) -> dict[str, Any] | JSONResponse:
@@ -1656,7 +1670,7 @@ def build_partner_router(
         _intake_audit(metered, "intake", 200, out)
         return out
 
-    @router.post("/intake/assist", include_in_schema=False, response_model=None)
+    @router.post("/intake/assist", include_in_schema=False, response_model=IntakeAssistResponse)
     def intake_assist_ep(
         req: IntakeRequest, request: Request, response: Response, user: User | None = CurrentUserDep
     ) -> dict[str, Any] | JSONResponse:
