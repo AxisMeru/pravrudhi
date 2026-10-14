@@ -78,8 +78,29 @@ function canonicalPath(p, resolveDots) {
   return "/" + parts.join("/");
 }
 
+// /demo.json is not served through the gateway: the old Studio snapshot carried personal data (#326 emergency removal). This guard was first
+// deployed to the live Worker by hand and is committed here. Same iterated-decode shape as the write block: lowercase, collapse slashes and a
+// trailing slash, and decode up to four times so %2564emo.json cannot slip through.
+function isDemoJson(request) {
+  let path = new URL(request.url).pathname;
+  for (let i = 0; i < 4; i++) {
+    const n = path.toLowerCase().replace(/\/{2,}/g, "/").replace(/\/+$/, "");
+    if (n === "/demo.json") return true;
+    let next;
+    try { next = decodeURIComponent(path); } catch (e) { return false; }
+    if (next === path) break;
+    path = next;
+  }
+  return false;
+}
+
 export default {
   async fetch(request, env) {
+    if (isDemoJson(request)) {
+      return new Response(JSON.stringify({ error: "not found" }), {
+        status: 404, headers: { "content-type": "application/json" },
+      });
+    }
     if (isBlockedWrite(request)) {
       return new Response(JSON.stringify({ error: "temporarily disabled" }), {
         status: 403, headers: { "content-type": "application/json" },
