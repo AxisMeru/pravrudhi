@@ -294,6 +294,15 @@ class RateLimiter:
             self._windows[key] = (start, count + 1)
             return True
 
+    def peek(self, key: str) -> bool:
+        """Would `allow(key)` admit right now? Reads only: nothing is counted and no entry is created or evicted."""
+        window = int(self._now() // 60)
+        with self._lock:
+            entry = self._windows.get(key)
+            if entry is None or entry[0] != window:
+                return True
+            return entry[1] < self._per_minute
+
     def retry_after_seconds(self) -> int:
         """Seconds until the current window rolls over -- always a whole window's worth or less, never
         computed per-key (a caller who is refused does not need to know anyone else's window state)."""
@@ -931,10 +940,51 @@ def build_partner_router(
                 _state["second_judge_breaker"] = SecondJudgeCircuitBreaker(
                     ttl_s=cfg.second_judge_circuit_breaker_ttl_s
                 )
+                # Failed-key attempts per proven address (or socket peer): a request with a key that does not verify costs a
+                # password-hash check, so these are budgeted BEFORE the check and charged only when it fails.
+                _state["bad_key_limiter"] = RateLimiter(
+                    cfg.rate_limit_per_minute, max_keys=cfg.rate_limit_max_keys, **clock_kw
+                )
             return (
                 _state["cfg"], _state["rate_limiter"], _state["concurrency"], _state["provision_rate_limiter"],
                 _state["second_judge_breaker"],
             )
+
+    def _bad_key_addr(request: Request, cfg: PartnerApiConfig) -> str:
+        return _client_ip(request, trust_proxy_header=cfg.trust_proxy_header, trusted_proxies=cfg.trusted_proxies)
+
+    def _charge_bad_key(request: Request, cfg: PartnerApiConfig) -> None:
+        with _state_lock:
+            limiter = _state["bad_key_limiter"]
+        limiter.allow(_bad_key_addr(request, cfg))
+
+    def _principal_or_throttle(
+        request: Request, cfg: PartnerApiConfig
+    ) -> tuple[tenancy.OrgPrincipal | None, JSONResponse | None]:
+        """The verified API-key principal (None when no key header was sent), with the failed-key budget applied.
+
+        Checking a key costs a password-hash verification, so an address that has already failed `rate_limit_per_minute` times
+        this minute is refused with 429 BEFORE any further check is spent on it; a failure (an unknown key, a bad secret, a
+        revoked key) is charged to that address after the check. A valid key is never charged here. The address is the signed
+        client address when the gateway proved one, else the socket peer (shared behind the gateway until the signed path is
+        configured: then a flood of bad keys from one peer also refuses keyed callers behind it for the minute)."""
+        if not request.headers.get(tenancy.API_KEY_HEADER):
+            return None, None
+        with _state_lock:
+            limiter = _state["bad_key_limiter"]
+        addr = _bad_key_addr(request, cfg)
+        if not limiter.peek(addr):
+            return None, JSONResponse(
+                status_code=429,
+                content={"detail": "rate limit exceeded"},
+                headers={"Retry-After": str(limiter.retry_after_seconds())},
+            )
+        try:
+            return tenancy.principal_from_headers(engine_root, request.headers), None
+        except HTTPException as e:
+            if e.status_code == 401:
+                limiter.allow(addr)
+            raise
 
     factory: AgentFactory = agent_factory or (
         lambda r: NyayaAgent.house(r, second_judge_breaker=_get_state()[4])
@@ -1173,7 +1223,9 @@ def build_partner_router(
         # deployment that answers analyse-facts anonymously (`PRAVRUDHI_DEMO_ANON_PATHS`). `principal_from_
         # headers` raises 401 itself when a key header WAS sent but does not verify, the same as `usage_ep`;
         # it never treats a bad key as "no key" (a caller who supplied a bad key is never silently anonymous).
-        principal = tenancy.principal_from_headers(engine_root, request.headers)
+        principal, throttled = _principal_or_throttle(request, cfg)
+        if throttled is not None:
+            return throttled
         if principal is not None:
             from pravrudhi.application.credentials import serving_org
 
@@ -1195,6 +1247,7 @@ def build_partner_router(
             key = next((k for k in tenancy.keys_for_org(engine_root, principal.org_id)
                         if k.key_id == principal.key_id), None)
             if key is None:
+                _charge_bad_key(request, cfg)
                 raise HTTPException(401, "Invalid or revoked API key")
             if not _key_rate_limiter.allow(key.key_id, key.rate_limit_per_minute):
                 return JSONResponse(
@@ -1560,7 +1613,9 @@ def build_partner_router(
             cfg, rate_limiter = _get_state()[:2]
         except FileNotFoundError:
             return JSONResponse(status_code=503, content={"error": "service_config_missing"})
-        principal = tenancy.principal_from_headers(engine_root, request.headers)  # verified: a bad key header is a 401 here
+        principal, throttled = _principal_or_throttle(request, cfg)
+        if throttled is not None:
+            return throttled
         ip = _client_ip(
             request,
             trust_proxy_header=cfg.trust_proxy_header,
@@ -1576,6 +1631,7 @@ def build_partner_router(
         if principal is not None:
             key = next((k for k in tenancy.keys_for_org(engine_root, principal.org_id) if k.key_id == principal.key_id), None)
             if key is None:
+                _charge_bad_key(request, cfg)
                 raise HTTPException(401, "Invalid or revoked API key")
             if not _key_rate_limiter.allow(key.key_id, key.rate_limit_per_minute):
                 return JSONResponse(
