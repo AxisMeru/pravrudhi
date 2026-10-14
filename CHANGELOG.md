@@ -14,7 +14,7 @@ messages.
 
 ### Changed
 
-- **The assisted route allows a longer run (caller-visible).** The assistant's wall limit (`call_timeout_s`) is 150 s, up from 60 s, and its stream-event cap (`max_events`) is 1000, up from 400. A screening or hearing pack over about five contracts took about 57 s of agent turns, so 60 s left almost no margin and the run fell back to the ordinary result with `assistant.used: false`; it now finishes with the assistant. A run that still exceeds the limit falls back exactly as before. The route stays synchronous.
+- **The assisted route allows a longer run (caller-visible).** The assistant's wall limit (`call_timeout_s`) is 150 s, up from 60 s, and its stream-event cap (`max_events`) is 1000, up from 400. A screening or hearing pack over about five contracts took about 57 s of agent turns (dev stack measurement), so 60 s left almost no margin and the run fell back to the ordinary result with `assistant.used: false`; it can now finish with the assistant. A run that still exceeds the limit falls back exactly as before. The route stays synchronous.
 
 ### Fixed
 
