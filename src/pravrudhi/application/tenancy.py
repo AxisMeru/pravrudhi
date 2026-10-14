@@ -99,9 +99,11 @@ def _pg() -> PgTenancyStore | None:
         return None
     with _pg_lock:
         key = os.environ.get("SUPABASE_TENANCY_DB_URL", "")
-        if key not in _pg_cache:
-            _pg_cache[key] = _store_from_env(os.environ)
-        store = _pg_cache[key]
+        store = _pg_cache.get(key)
+        if store is None:  # a missing store is NOT remembered: a DSN or CA file that appears later is picked up at once
+            store = _store_from_env(os.environ)
+            if store is not None:
+                _pg_cache[key] = store
     if store is None:
         raise TenancyUnavailable()
     return store
@@ -445,7 +447,7 @@ def revoke_key(root: Path, key_id: str) -> ApiKeyRecord:
             raise _down() from exc
         finally:
             _forget_key(key_id)  # this process stops honouring the key at once (other replicas within the cache TTL)
-        if res.get("ok") is not True:
+        if res.get("ok") is not True or not isinstance(res.get("key"), dict):
             raise TenancyError(f"key {key_id!r} does not exist")
         return ApiKeyRecord(**{**res["key"], "hash": ""})  # the hash is returned by get_key only
 
@@ -777,14 +779,23 @@ def _usage_worker() -> None:
             pg = _writer_store()
             if pg is not None:
                 name, args = item
-                getattr(pg, name)(*args)
-                wrote = True
-        except Exception:  # noqa: BLE001 - a best-effort write must never kill the worker
+                res = getattr(pg, name)(*args)
+                wrote = not (isinstance(res, dict) and res.get("ok") is False)  # a refused row is a drop, not a write
+                if not wrote:
+                    _logger.warning("tenancy store refused a %s row: %s", name, res.get("reason"))
+        except Exception as exc:  # noqa: BLE001 - a best-effort write must never kill the worker
             wrote = False
+            _logger.warning("tenancy store write %s dropped (%s)", item[0], type(exc).__name__)
         with _usage_cond:
+            idle = not _usage_q
             _usage_stats["written" if wrote else "dropped"] += 1
             _usage_stats["processed"] += 1
             _usage_cond.notify_all()
+        if idle:  # the writer's own connection is released between bursts (the role has a small connection limit)
+            with contextlib.suppress(Exception):
+                w = _writer_store()
+                if w is not None and hasattr(w, "close"):
+                    w.close()
 
 
 def flush_usage(timeout_s: float = 5.0) -> bool:
@@ -822,7 +833,11 @@ def record_usage(root: Path, key_id: str, *, failed: bool = False, now: datetime
     """Persist one analyse-facts call against `key_id` (`failed=True` additionally counts that call's 503; every
     admitted call is in `calls` first, so failed <= calls).
     Survives a restart and is shared by replicas on one volume, unlike `KeyRateLimiter`."""
-    if _backend_is_supabase():
+    try:
+        hosted = _backend_is_supabase()
+    except TenancyUnavailable:
+        return  # best effort: a misconfigured backend never raises into the call
+    if hosted:
         _enqueue_usage(key_id, (now or datetime.now(UTC)).astimezone(UTC).date().isoformat(), failed)
         return
 

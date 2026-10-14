@@ -625,3 +625,58 @@ def test_audit_paging_clamps_a_negative_offset_and_the_page_size(sb: Any) -> Non
     assert tenancy.flush_usage()
     rows, nxt = audit.page(root, "k1", offset=-5, limit=1000, retention_s=1000.0, now=lambda: NOW)
     assert len(rows) == 3 and nxt is None
+
+
+def test_a_missing_store_is_not_remembered(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    store = FakeStore()
+    answers: list[Any] = [None, store]
+    monkeypatch.setenv(tenancy.BACKEND_ENV, "supabase")
+    monkeypatch.setattr(tenancy, "_store_from_env", lambda env: answers.pop(0) if len(answers) > 1 else answers[0])
+    tenancy.reset_backend_for_tests()
+    with pytest.raises(tenancy.TenancyUnavailable):
+        tenancy.create_org(tmp_path, "acme", "Acme")
+    tenancy.create_org(tmp_path, "acme", "Acme")  # the DSN or CA file appeared: picked up at once, no restart
+    assert "acme" in store.orgs
+
+
+def test_a_row_the_database_refuses_counts_as_dropped_not_written(sb: Any) -> None:
+    store, root = sb
+    store.audit_record = lambda row, retention_s: {"ok": False, "reason": "bad_args"}  # type: ignore[method-assign]
+    before = tenancy.usage_queue_stats()
+    audit.record(root, key_id="k1", mode="sync", status_code=200, contract_ids=[], retention_s=1000.0, now=NOW)
+    assert tenancy.flush_usage()
+    after = tenancy.usage_queue_stats()
+    assert after["dropped"] == before["dropped"] + 1 and after["written"] == before["written"]
+
+
+def test_record_usage_never_raises_into_the_caller_even_with_a_mistyped_backend(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv(tenancy.BACKEND_ENV, "supabse")
+    tenancy.record_usage(tmp_path, "k1", now=NOW)  # no exception
+
+
+def test_the_writer_connection_is_released_when_the_queue_is_empty(sb: Any) -> None:
+    store, root = sb
+    closed: list[int] = []
+    store.close = lambda: closed.append(1)  # type: ignore[attr-defined]
+    tenancy.record_usage(root, "k1", now=NOW)
+    assert tenancy.flush_usage()
+    time.sleep(0.2)
+    assert closed
+
+
+def test_a_revoke_answer_without_the_key_row_is_a_tenancy_error_not_a_crash(sb: Any) -> None:
+    store, root = sb
+    store.revoke_key = lambda key_id, at: {"ok": True, "key": None}  # type: ignore[method-assign]
+    with pytest.raises(tenancy.TenancyError):
+        tenancy.revoke_key(root, "abcdefgh12345678")
+
+
+def test_a_malformed_count_from_the_store_is_a_store_failure() -> None:
+    s, _ = _pgstore([{"calls": "many", "failed": 0}])
+    with pytest.raises(TenancyStoreDown):
+        s.usage_counts("k1")
+    s2, _ = _pgstore([{"rows": [], "total": "x"}])
+    with pytest.raises(TenancyStoreDown):
+        s2.audit_page("k1", 0, 10, 3600)

@@ -160,7 +160,10 @@ class PgTenancyStore:
         v = self._call("usage_counts", key_id)
         if not isinstance(v, Mapping):
             raise TenancyStoreDown("the tenancy store answered with an unexpected shape")
-        return int(v.get("calls", 0)), int(v.get("failed", 0))
+        try:
+            return int(v.get("calls", 0)), int(v.get("failed", 0))
+        except (TypeError, ValueError):
+            raise TenancyStoreDown("the tenancy store answered with an unexpected shape") from None
 
     def usage_summary(self, org_id: str, first_day: str) -> list[dict[str, Any]]:
         return _list(self._call("usage_summary", org_id, first_day))
@@ -174,7 +177,10 @@ class PgTenancyStore:
         v = self._call("audit_page", key_id, offset, limit, int(retention_s))
         if not isinstance(v, Mapping) or not isinstance(v.get("rows"), list):
             raise TenancyStoreDown("the tenancy store answered with an unexpected shape")
-        return [dict(r) for r in v["rows"]], int(v.get("total", 0))
+        try:
+            return [dict(r) for r in v["rows"]], int(v.get("total", 0))
+        except (TypeError, ValueError):
+            raise TenancyStoreDown("the tenancy store answered with an unexpected shape") from None
 
     def canary(self) -> dict[str, Any]:
         v = self._call("canary")
