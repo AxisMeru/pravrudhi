@@ -216,3 +216,9 @@ def test_health_reflects_a_recorded_failure(tmp_path, monkeypatch):
 
 def test_health_without_config_is_unavailable_not_an_error(tmp_path):
     r = client(tmp_path).get("/api/health"); assert r.status_code == 200 and r.json()["assistant_tier"] == {"state": UNAVAILABLE, "reason": "disabled"}
+
+
+def test_the_call_site_contract_is_stated_in_the_module():
+    doc = T.__doc__
+    assert "BINDING CONTRACT" in doc and 'limits(root)["call_timeout_s"]' in doc and 'limits(root)["session_budget_usd"]' in doc and "record_outcome(http_status)" in doc
+    assert "402/429 = quota" in doc and "upstream_error" in doc and "falls back to the core result" in doc

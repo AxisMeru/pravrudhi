@@ -7,6 +7,12 @@ environment variable is set (no_key), the last Anthropic-backed call within `fai
 configured budget file that is missing, unreadable or malformed counts as under the floor: fail closed). No budget file
 configured skips that check. Call sites report with `record_outcome(http_status)`. Thresholds come from
 `configs/assistant_tier.yaml`; nothing has a default in code.
+
+BINDING CONTRACT for the first Anthropic-backed (CMA/A0) call site, and every one after it (#122):
+  (a) the call takes `limits(root)["call_timeout_s"]` and falls back to the core result on timeout;
+  (b) its per-session budget is drawn from `limits(root)["session_budget_usd"]`;
+  (c) it reports `record_outcome(http_status)` (402/429 = quota, any other 4xx/5xx = upstream_error).
+No call site exists in the engine or the app today, so none is wired here.
 """
 
 from __future__ import annotations
