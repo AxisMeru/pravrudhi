@@ -92,10 +92,16 @@ def parse_dsn(dsn: str) -> dict[str, Any]:
 
 
 def tls_context(sslrootcert: str | None) -> ssl.SSLContext:
-    """ALWAYS verifying (certificate and host name): the system CA bundle, or the single file named by sslrootcert."""
+    """ALWAYS verifying (certificate and host name): the system CA bundle, or the single file named by sslrootcert.
+
+    With a CA file, exactly one flag is cleared: VERIFY_X509_STRICT. The database provider's published root CA carries no
+    keyUsage extension, which Python 3.13's strict default refuses; chain building, expiry, host name checking and
+    CERT_REQUIRED all stay on. Nothing else is relaxed. This is the one builder (the engine store and the sweeper use it)."""
     ctx = ssl.create_default_context(cafile=sslrootcert)
     ctx.check_hostname = True
     ctx.verify_mode = ssl.CERT_REQUIRED
+    if sslrootcert is not None:
+        ctx.verify_flags &= ~ssl.VERIFY_X509_STRICT
     return ctx
 
 
