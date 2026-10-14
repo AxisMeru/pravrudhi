@@ -522,6 +522,21 @@ def verify(
     return VerifyResult.EXISTS_QUOTE_NOT_FOUND
 
 
+#: #717: the most distinctive title words, beyond the cited parties' own words, that an existence-only IN_INDEX tolerates.
+#: 0 keeps only titles that carry no extra word; the value is set from the measured distribution on the dev index (#908 record).
+EXISTENCE_MAX_EXTRA_TITLE_TOKENS = 0
+
+
+def _extra_title_tokens(conn: sqlite3.Connection, key: str, title: str) -> int:
+    """How many distinctive words the title carries beyond the words of the citation key's alias group that fits it best
+    (the group with the fewest extra words). No alias group = 0 (nothing to compare)."""
+    tokens = _distinctive_tokens(title)
+    groups = list(conn.execute("SELECT DISTINCT party_1, party_2 FROM citation_aliases WHERE citation = ?", (key,)))
+    if not groups:
+        return 0
+    return min(len(tokens - (_distinctive_tokens(p1) | _distinctive_tokens(p2))) for p1, p2 in groups)
+
+
 def exists_in_index(conn: sqlite3.Connection, citation_text: str, claimed_name: str | None = None) -> VerifyResult:
     """#832 E1: does the citation resolve to an indexed case? Existence only: no quote is checked, so never VERIFIED.
     Same resolution, year window and party-title test as `verify` (a case `verify` would not check never counts as found); a key
@@ -538,7 +553,17 @@ def exists_in_index(conn: sqlite3.Connection, citation_text: str, claimed_name: 
         return resolved.status
     in_year = _rows_in_cited_year(conn, resolved.case_rows, citations[0].year)
     rows = [r for r in in_year if _title_carries_the_cited_parties(conn, key, r["title"])]
-    return VerifyResult.IN_INDEX if rows else VerifyResult.NOT_IN_INDEX
+    # #717: WITHOUT a quote nothing else stands between a different case and IN_INDEX, so the answer is stricter than `verify`'s
+    # candidate test: exactly ONE distinct case must survive (several cannot be told apart: no evidence either way), and its
+    # title may carry at most EXISTENCE_MAX_EXTRA_TITLE_TOKENS distinctive words the citation's parties do not (a title that adds
+    # many words is probably a different case sharing the party words). Anything else answers NOT_IN_INDEX, never IN_INDEX.
+    cases = {r["case_id"]: r for r in rows}
+    if len(cases) != 1:
+        return VerifyResult.NOT_IN_INDEX
+    only = next(iter(cases.values()))
+    if _extra_title_tokens(conn, key, only["title"]) > EXISTENCE_MAX_EXTRA_TITLE_TOKENS:
+        return VerifyResult.NOT_IN_INDEX
+    return VerifyResult.IN_INDEX
 
 
 _COVERAGE_CACHE: dict[tuple[str, int, int], dict[str, Any]] = {}
