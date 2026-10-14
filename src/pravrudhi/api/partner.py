@@ -1418,8 +1418,7 @@ def build_partner_router(
                 scope="caller" if authenticated else "anonymous",
             )
         if principal is not None:
-            key = next((k for k in tenancy.keys_for_org(engine_root, principal.org_id)
-                        if k.key_id == principal.key_id), None)
+            key = tenancy.key_record(engine_root, principal.key_id, org_id=principal.org_id)
             if key is None:
                 _charge_bad_key(request, cfg)
                 raise HTTPException(401, "Invalid or revoked API key")
@@ -1978,7 +1977,7 @@ def build_partner_router(
                 scope="caller" if principal is not None else "anonymous", sign_in=False,
             )
         if principal is not None:
-            key = next((k for k in tenancy.keys_for_org(engine_root, principal.org_id) if k.key_id == principal.key_id), None)
+            key = tenancy.key_record(engine_root, principal.key_id, org_id=principal.org_id)
             if key is None:
                 _charge_bad_key(request, cfg)
                 raise HTTPException(401, "Invalid or revoked API key")
@@ -2187,7 +2186,7 @@ def build_partner_router(
         if principal is None:
             # An admin asking with no key names no particular key's usage -- refuse rather than guess one.
             raise HTTPException(422, "usage is reported per API key; supply X-Pravrudhi-Api-Key")
-        key = next((k for k in tenancy.keys_for_org(engine_root, org_id) if k.key_id == principal.key_id), None)
+        key = tenancy.key_record(engine_root, principal.key_id, org_id=org_id)
         if key is None:
             raise HTTPException(404, "key not found")
         # Calling /usage is itself the one key-scoped call this slice of the API has to spend a key's own
