@@ -160,7 +160,7 @@ def test_citations_are_found_deduplicated_and_ready_for_the_verifier():
 def test_no_citation_no_entry_and_a_statute_tag_is_not_a_case_citation():
     facts = [
         {"id": "F1", "text": "He promised to pay on the first of the month."},
-        {"id": "F2", "text": "See [CITE: IPC/Section 415]."},
+        {"id": "F2", "text": "See [IPC/Section 415]."},
     ]
     assert P.build_pack([contract([el("E1")])], facts)["citations_to_check"] == []
 
@@ -277,3 +277,17 @@ def test_the_pack_tool_takes_no_text_from_the_agent(tmp_path):
     d = pdrive(tmp_path)
     out = d.call("pack", {"contract_ids": [AD.CID]})
     assert set(out) == {"pack_version", "provenance", "contracts", "citations_to_check", "prompt_defaults"}
+
+
+def test_a_citation_repeated_in_one_source_lists_that_source_once():
+    facts = [{"id": "F1", "text": "(1977) 3 SCC 247 is cited, and again (1977) 3 SCC 247."}]
+    (c,) = P.build_pack([contract([el("E1")])], facts)["citations_to_check"]
+    assert c["source_ids"] == ["F1"]
+
+
+BANNED = ("proved", "established", "verbatim", "verified", "fake", "invalid", "false", "fabricated")
+
+
+def test_the_default_prompt_wording_uses_no_banned_phrase():
+    for text in [*P.PROMPT_DEFAULTS.values(), P.GENERIC_REVIEW_TEXT]:
+        assert not [w for w in BANNED if w in text.lower()], text
