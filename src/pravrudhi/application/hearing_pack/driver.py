@@ -13,7 +13,7 @@ from typing import Any
 from pravrudhi.application.a0_assist import driver as drv
 from pravrudhi.application.hearing_pack.pack import PACK_TOOL_NAME, build_pack
 
-STAGES_PACK = (*drv.STAGES, PACK_TOOL_NAME)
+STAGES_PACK = (*drv.STAGES, PACK_TOOL_NAME)  # the tool names of this workflow, in order
 
 
 class PackDriver(drv.A0Driver):
@@ -22,11 +22,12 @@ class PackDriver(drv.A0Driver):
         self._pack: dict[str, Any] | None = None
 
     def call(self, tool: str, inp: dict[str, Any]) -> dict[str, Any]:
-        """Same contract as A0Driver.call: the output dict, or {"error", "refused"}; every call recorded in order."""
+        """The A0 driver's own `call` for every stage tool; only `pack` is handled here, with the same recording and refusal
+        behaviour (the output dict, or {"error", "refused"}; every call recorded in order)."""
+        if tool != PACK_TOOL_NAME:
+            return super().call(tool, inp)
         try:
-            if tool not in STAGES_PACK:
-                raise drv.Refused(f"unknown tool {tool!r}")
-            out = getattr(self, "_t_" + tool)(inp if isinstance(inp, dict) else {})
+            out = self._t_pack(inp if isinstance(inp, dict) else {})
         except drv.Refused as e:
             self.refusals.append(f"{tool}: {e}")
             out = {"error": str(e), "refused": True}

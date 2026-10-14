@@ -46,6 +46,7 @@ version's error mapping to a bare 500 -- is now mapped to 503 like every other s
 from __future__ import annotations
 
 import contextvars
+import copy
 import functools
 import hashlib
 import hmac
@@ -77,7 +78,7 @@ from pravrudhi.application import nyaya_lean_registry as reg
 from pravrudhi.application.citation_wording import citation_note
 from pravrudhi.application.config_files import config_file
 from pravrudhi.application.hearing_pack.driver import PackDriver
-from pravrudhi.application.hearing_pack.pack import build_pack
+from pravrudhi.application.hearing_pack.pack import attach_pack
 from pravrudhi.application.jobs import JobStore
 from pravrudhi.application.judge_endpoint_state import Fetch, JudgeOfflineCheck
 from pravrudhi.application.nyaya_agent import (
@@ -88,7 +89,6 @@ from pravrudhi.application.nyaya_agent import (
     JudgeMisconfigured,
     NyayaAgent,
     Outcome,
-    ingest_facts,
 )
 from pravrudhi.application.nyaya_judges import SecondJudgeCircuitBreaker, standard_for_posture
 from pravrudhi.application.nyaya_quote import Reason as QuoteCheck
@@ -1427,12 +1427,7 @@ def build_partner_router(
             return driver_cls(box["agent"], request=matter, proceeding_posture=req.proceeding_posture)
 
         def with_pack(body: Any) -> Any:
-            """The ordinary (core) result plus the pack built from it by the same pure function the `pack` tool uses, for a
-            hearing_prep request whose assisted run did not finish: the user still gets the pack. Error responses pass through."""
-            if hearing and isinstance(body, dict) and isinstance(body.get("contracts"), list):
-                facts = [{"id": f.id, "text": f.text} for f in ingest_facts(req.facts)]
-                return {**body, "pack": build_pack(body["contracts"], facts, req.narrative or "")}
-            return body
+            return attach_pack(body, list(req.facts), req.narrative or "") if hearing else body
 
         def finalize(driver: Any) -> dict[str, Any]:
             agent = box["agent"]
@@ -1456,8 +1451,9 @@ def build_partner_router(
                 },
             }
             shaped = _shape_body(agent, body, driver.listed, admitted.authenticated, debug_second_judge, admitted.cfg)
-            if hearing:
-                shaped["pack"] = driver._pack  # the `pack` tool's own output (decide results in, fixed rules): never agent text
+            if hearing and driver._pack is not None:
+                # the `pack` tool's own output (decide results in, fixed rules): never agent text
+                shaped["pack"] = copy.deepcopy(driver._pack)
             return shaped
 
         deps = a0.Deps(

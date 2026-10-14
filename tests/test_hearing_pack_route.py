@@ -177,3 +177,21 @@ def test_the_pack_shows_no_reason_code_and_no_outcome_word(tmp_path):
     )
     assert "all_elements_established" not in shown and "missing_element" not in shown
     assert not any(w in json.dumps(out["pack"]) for w in ("PROOF", "DENIAL", "ABSTAIN", "REFER_TO_LAWYER"))
+
+
+def test_a_ceiling_store_refusal_and_a_failed_session_create_both_return_the_pack(tmp_path):
+    c = client(tmp_path, pack_program())
+    c.rt.store = RQ.FakeStore(reserve={"ok": False, "reason": "ceiling"})
+    out = c.post(URL, json=BODY).json()
+    assert out["assistant"]["reason"] == "daily_ceiling" and canon(out["pack"]) == canon(expected_pack(out))
+    c2 = client(tmp_path / "b", pack_program())
+    c2.rt.transport = SpyTransport(pack_program(), RQ.Clock(), fail_create=RQ.TR.UpstreamError(500, "server_error"))
+    out2 = c2.post(URL, json=BODY).json()
+    assert out2["assistant"]["used"] is False and canon(out2["pack"]) == canon(expected_pack(out2))
+
+
+def test_a_paused_tier_still_returns_the_pack(tmp_path, monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    TIER.reset()
+    out = client(tmp_path, pack_program()).post(URL, json=BODY).json()
+    assert out["assistant"]["used"] is False and canon(out["pack"]) == canon(expected_pack(out))
