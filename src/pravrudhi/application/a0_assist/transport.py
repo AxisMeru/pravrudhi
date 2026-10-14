@@ -107,6 +107,10 @@ class AnthropicTransport:
         if "?" in path or not any(m == method and rx.fullmatch(path) for m, rx in ALLOWED):
             raise TransportRefused(f"{method} {path} is not an allowlisted call")
 
+    def note(self, status: int) -> None:
+        """Report an HTTP status (or 599) the caller observed on a call this client does not itself send (the open stream)."""
+        self._note(status)
+
     def _note(self, status: int) -> None:
         if self._record is not None:
             with contextlib.suppress(Exception):
