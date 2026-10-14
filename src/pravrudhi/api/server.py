@@ -220,16 +220,26 @@ class UpdateApplyRequest(BaseModel):
     channel: Literal["dev", "release"] | None = None
 
 
-_last_proof_label: list[str] = []
+_proof_log_lock = threading.Lock()
+_last_engine_proof_state: list[str] = []
 
 
 def _log_proof_label(proof: str) -> None:
-    """One log line when the client-address proof state changes and is not `valid` (the reason is not public: see /api/health)."""
-    if _last_proof_label and _last_proof_label[0] == proof:
+    """One log line when the ENGINE's own proof configuration changes (`engine_unset`, `engine_short`) and when it returns to
+    normal. The caller-dependent labels (`none`, `mismatch`, `no_ip`) are not logged: an anonymous caller can flip them."""
+    try:
+        state = proof if proof in ("engine_unset", "engine_short") else "ok"
+        with _proof_log_lock:
+            if _last_engine_proof_state and _last_engine_proof_state[0] == state:
+                return
+            first = not _last_engine_proof_state
+            _last_engine_proof_state[:] = [state]
+        if state != "ok":
+            logging.getLogger(__name__).warning("client address proof cannot be checked on this engine: %s", state)
+        elif not first:
+            logging.getLogger(__name__).info("client address proof configuration is back to normal")
+    except Exception:  # noqa: BLE001 - a log line must never fail the public health route
         return
-    _last_proof_label[:] = [proof]
-    if proof != "valid":
-        logging.getLogger(__name__).warning("client address proof is not valid: %s", proof)
 
 
 def _warm_up_house_judge_in_background(root: Path) -> None:

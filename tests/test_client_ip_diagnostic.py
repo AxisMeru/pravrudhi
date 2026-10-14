@@ -295,22 +295,52 @@ def test_the_source_label_is_only_ever_signed_proxy_or_peer(tmp_path: Path, monk
     assert seen <= {"signed", "proxy", "peer"} and {"signed", "peer"} <= seen
 
 
-def test_the_proof_reason_goes_to_the_log_once_per_change(
+def test_only_the_engines_own_proof_state_is_logged_and_only_when_it_changes(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
     from pravrudhi.api import server
 
-    server._last_proof_label.clear()
+    server._last_engine_proof_state.clear()
     monkeypatch.delenv(CLIENT_IP_SECRET_ENV, raising=False)
-    with caplog.at_level("WARNING"):
+    with caplog.at_level("INFO"):
         health(tmp_path)
         health(tmp_path)
-        assert [r.getMessage() for r in caplog.records if "client address proof" in r.getMessage()] == [
-            "client address proof is not valid: engine_unset"
-        ]
         monkeypatch.setenv(CLIENT_IP_SECRET_ENV, SECRET)
-        health(tmp_path, {CLIENT_IP_HEADER: ADDR, CLIENT_IP_SECRET_HEADER: SECRET})  # valid: no line
-        health(tmp_path, {CLIENT_IP_HEADER: ADDR, CLIENT_IP_SECRET_HEADER: OTHER})
+        for h in ({}, {CLIENT_IP_HEADER: ADDR, CLIENT_IP_SECRET_HEADER: OTHER}, {CLIENT_IP_SECRET_HEADER: SECRET}, {}):
+            health(tmp_path, h)  # none, mismatch, no_ip, none: all caller-dependent, none logged
     msgs = [r.getMessage() for r in caplog.records if "client address proof" in r.getMessage()]
-    assert msgs[-1] == "client address proof is not valid: mismatch" and len(msgs) == 2
+    assert msgs == [
+        "client address proof cannot be checked on this engine: engine_unset",
+        "client address proof configuration is back to normal",
+    ]
     assert ADDR not in " ".join(msgs) and SECRET not in " ".join(msgs)
+
+
+def test_an_anonymous_caller_alternating_proofs_cannot_flood_the_log(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    from pravrudhi.api import server
+
+    server._last_engine_proof_state.clear()
+    monkeypatch.setenv(CLIENT_IP_SECRET_ENV, SECRET)
+    with caplog.at_level("INFO"):
+        for i in range(20):
+            health(tmp_path, {CLIENT_IP_HEADER: ADDR, CLIENT_IP_SECRET_HEADER: OTHER} if i % 2 else {})
+    assert [r for r in caplog.records if "client address proof" in r.getMessage()] == []
+
+
+def test_a_non_ascii_provisioning_secret_is_not_an_admin_and_not_an_error() -> None:
+    monkeypatch_env = pytest.MonkeyPatch()
+    monkeypatch_env.setenv(tenancy.TENANCY_PROVISION_SECRET_ENV, ADMIN_SECRET)
+    try:
+        assert tenancy.is_tenancy_admin(None, {tenancy.TENANCY_PROVISION_HEADER: "\u00e9" * 40}) is False
+        assert tenancy.is_tenancy_admin(None, {tenancy.TENANCY_PROVISION_HEADER: ADMIN_SECRET}) is True
+        assert tenancy.is_tenancy_admin(None, {tenancy.TENANCY_PROVISION_HEADER: ""}) is False
+        assert tenancy.is_tenancy_admin(None, {}) is False
+    finally:
+        monkeypatch_env.undo()
+    monkeypatch_env.setenv(tenancy.TENANCY_PROVISION_SECRET_ENV, "")
+    try:
+        assert tenancy.is_tenancy_admin(None, {tenancy.TENANCY_PROVISION_HEADER: ""}) is False  # an unset secret never matches ""
+    finally:
+        monkeypatch_env.undo()
