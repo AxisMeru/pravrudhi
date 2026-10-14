@@ -109,3 +109,54 @@ def test_the_system_bundle_refuses_a_private_ca_certificate(pki):
     _, server = pki
     with pytest.raises(ssl.SSLCertVerificationError):
         _handshake(ST.tls_context(None), server, POOLER)
+
+
+def _flags(ctx):
+    return ctx.verify_flags, ctx.verify_mode, ctx.check_hostname
+
+
+def test_with_a_ca_file_only_the_strict_flag_is_cleared_and_nothing_else_is_relaxed(pki):
+    d, _ = pki
+    ref = ssl.create_default_context()
+    ctx = ST.tls_context(str(d / "ca.crt"))
+    assert ctx.verify_mode == ssl.CERT_REQUIRED and ctx.check_hostname is True
+    assert ctx.verify_flags == ref.verify_flags & ~ssl.VERIFY_X509_STRICT
+    assert not ctx.verify_flags & ssl.VERIFY_X509_STRICT
+    # the literal value: the interpreter's default flags (trusted-first, partial-chain) minus strict, nothing added or removed
+    assert ctx.verify_flags == ssl.VERIFY_X509_TRUSTED_FIRST | ssl.VERIFY_X509_PARTIAL_CHAIN
+    assert ctx.minimum_version >= ssl.TLSVersion.TLSv1_2
+
+
+def test_without_a_ca_file_the_default_strict_context_is_kept():
+    ctx = ST.tls_context(None)
+    assert _flags(ctx) == _flags(ssl.create_default_context())
+    assert ctx.verify_flags & ssl.VERIFY_X509_STRICT
+
+
+def test_a_root_without_key_usage_verifies_with_the_ca_file_but_not_under_the_strict_default(tmp_path):
+    ca_k, srv_k = _key(), _key()
+    now = dt.datetime.now(dt.UTC)
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "no-ku-root")])
+    root = (
+        x509.CertificateBuilder()
+        .subject_name(name)
+        .issuer_name(name)
+        .public_key(ca_k.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now - dt.timedelta(days=1))
+        .not_valid_after(now + dt.timedelta(days=2))
+        .add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=True)
+        .sign(ca_k, hashes.SHA256())
+    )
+    srv = _cert(srv_k, "pooler", ca_k, root.subject, sans=[POOLER])
+    _pem(tmp_path / "root.crt", root)
+    _pem(tmp_path / "srv.crt", srv)
+    _pem(tmp_path / "srv.key", srv_k, key=True)
+    server = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    server.load_cert_chain(tmp_path / "srv.crt", tmp_path / "srv.key")
+    _handshake(ST.tls_context(str(tmp_path / "root.crt")), server, POOLER)
+    strict = ssl.create_default_context(cafile=str(tmp_path / "root.crt"))
+    with pytest.raises(ssl.SSLCertVerificationError):
+        _handshake(strict, server, POOLER)
+    with pytest.raises(ssl.SSLCertVerificationError):
+        _handshake(ST.tls_context(str(tmp_path / "root.crt")), server, "aws-0-eu-west-1.pooler.supabase.com")

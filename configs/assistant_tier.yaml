@@ -35,7 +35,7 @@ environment_id: null
 workspace_id_env: ANTHROPIC_WORKSPACE_ID
 store_dsn_env: SUPABASE_ASSIST_DB_URL
 sweeper_dsn_env: SUPABASE_ASSIST_DB_URL_SWEEPER     # the sweeper's own narrow role (assist_sweeper_rpc)
-# The store DSN (secret, env only) points at the session pooler on port 5432 (aws-1-eu-west-1.pooler.supabase.com); the host name is part of the verified certificate.
+# The store DSN (secret, env only) points at the session pooler on port 5432; its host name is part of the verified certificate.
 store_ca_file: null     # path of the public Supabase root CA inside the image (pinned in the release package list); null = system bundle
 # Anti-abuse (in memory, per worker; the store's daily ceiling is the hard stop).
 assist_runs_per_user_per_day: 20

@@ -389,5 +389,8 @@ def test_canary_and_prune_fail_closed_on_a_bad_shape_or_a_dead_store():
         make(rows=[["not-a-dict"]])[0].canary()
     with pytest.raises(ST.StoreError):
         make(rows=[])[0].prune()
+    for bad in ("x", None, True, -1, 1.5):
+        with pytest.raises(ST.StoreError):
+            make(rows=[[bad]])[0].prune()
     with pytest.raises(ST.StoreError):
         make(fail_connect=OSError("down"))[0].canary()
