@@ -141,7 +141,7 @@ def test_only_the_stores_list_is_ever_deleted_and_one_pass_is_bounded():
 
 def test_a_clean_pass_marks_the_sweep_and_abandons_stale_reservations():
     st = FakeStore()
-    out, p = (lambda s: (s[0].run_once(), s[1]))(make(st, FakeTransport()))
+    out, p = (lambda s: (s[0].run_once(), s[1]))(make_engine(st, FakeTransport()))
     assert "sweep_ok" in st.calls and "abandon_stale" in st.calls and out["abandoned"] == 0 and p.reason() is None
 
 
@@ -426,3 +426,111 @@ def test_the_backstop_mode_does_not_run_the_engine_workspace_check():
     tr = FakeTransport()
     SW.Sweeper(CFG, FakeStore(), tr, G.Pauses(), mode="backstop", clock=Clock()).run_once()
     assert getattr(tr, "calls_ws", 0) == 0
+
+
+# ---- each mode calls only the functions its database role is granted ----
+ENGINE_ROLE = {
+    "reserve",
+    "finish",
+    "abandon_stale",
+    "sweep_ok",
+    "status",
+    "canary",
+    "session_created",
+    "session_deleted",
+    "list_pending",
+}
+SWEEPER_ROLE = {"list_pending", "mark_deleted", "prune", "canary", "spend_summary"}
+
+
+class RoleStore(FakeStore):
+    """A store that refuses (as the database does) any function the role is not granted, and records the refusal."""
+
+    def __init__(self, granted, **kw):
+        super().__init__(**kw)
+        self.granted, self.refused = granted, []
+
+    def _do(self, name, *a):
+        if name not in self.granted:
+            self.refused.append(name)
+            raise ST.StoreError("permission denied")
+        super()._do(name, *a)
+
+    def spend_summary(self):
+        self._do("spend_summary")
+        return {}
+
+
+def test_backstop_mode_never_calls_abandon_stale_or_sweep_ok_and_a_sweeper_role_pass_is_clean():
+    st = RoleStore(SWEEPER_ROLE, pending=pend("sesn_a"))
+    p = G.Pauses()
+    sw = SW.Sweeper(CFG, st, FakeTransport(), p, mode="backstop", clock=Clock())
+    out = sw.run_once()
+    assert (
+        st.refused == [] and out["error"] is None and out["deleted"] == 1 and out["canary"]["ok"] is True and out["pruned"] == 0
+    )
+    assert "abandon_stale" not in st.calls and "sweep_ok" not in st.calls and st.marked == [("sesn_a", 204)]
+    assert out["abandoned"] is None and p.snapshot() == {}
+
+
+def test_a_refused_sweep_ok_or_abandon_stale_cannot_alert_the_backstop():
+    for name in ("sweep_ok", "abandon_stale"):
+        st = FakeStore(pend("sesn_a"), fail={name: 1})
+        out = make(st, FakeTransport())[0].run_once()
+        assert out["error"] is None and name not in st.calls and out["deleted"] == 1
+
+
+def test_engine_mode_calls_both_and_a_failing_sweep_ok_is_still_an_error_and_a_pause():
+    st = FakeStore(pend("sesn_a"))
+    out, p = (lambda s: (s[0].run_once(), s[1]))(make_engine(st, FakeTransport()))
+    assert "abandon_stale" in st.calls and "sweep_ok" in st.calls and out["abandoned"] == 0
+    bad = FakeStore(fail={"sweep_ok": 1})
+    sw, p2 = make_engine(bad, FakeTransport())
+    out2 = sw.run_once()
+    assert out2["error"] == "store" and p2.snapshot()["sweeper"] == "sweeper_store_error"
+
+
+def test_the_engine_mode_pass_uses_only_the_engine_roles_functions_even_with_every_feature_on():
+    st = RoleStore(ENGINE_ROLE, pending=pend("sesn_a"))
+    tr = AgentTransport({"sesn_canary": 204}, listed=[{"id": "sesn_old", "created_at": iso(999)}])
+    sw, p = eng_sweeper(st, tr)
+    out = sw.run_once()
+    assert st.refused == [] and out["error"] is None and "mark_deleted" not in st.calls and "prune" not in st.calls
+
+
+def test_the_backstop_process_run_uses_only_the_sweeper_roles_functions(tmp_path, monkeypatch):
+    from tests import test_a0_assist_backstop as TB
+
+    st = RoleStore(SWEEPER_ROLE, pending=[])
+    st.list_pending = lambda n: (st._do("list_pending"), [])[1]
+    code, out = TB.B.run(TB.root_with(tmp_path), {}, store=st, transport=FakeTransport(), canary=True, prune=True, now=TB.NOW)
+    assert st.refused == [] and code == 0 and out["ok"] is True and out["canary"] is True
+
+
+# ---- the role grant lists cannot drift from the migration ----
+def test_the_grant_parser_reads_multi_line_statements_comments_and_role_lists():
+    from tests.test_a0_assist_backstop_pg_it import grants_of
+
+    sql = """
+    -- grant execute on function assist.commented_out() to assist_spend_rpc;
+    grant execute on function assist.reserve(text, integer, integer), assist.finish(text, bigint),
+      assist.status() to assist_spend_rpc;
+    grant execute on function assist.list_pending(integer), assist.canary() to assist_spend_rpc, assist_sweeper_rpc;
+    grant execute on function assist.prune() to assist_sweeper_rpc;
+    grant usage on schema assist to assist_spend_rpc;
+    """
+    g = grants_of(sql)
+    assert g["assist_spend_rpc"] == {"reserve", "finish", "status", "list_pending", "canary"}
+    assert g["assist_sweeper_rpc"] == {"list_pending", "canary", "prune"}
+
+
+def test_the_role_lists_used_by_these_tests_equal_the_grants_of_the_migration_when_it_is_available():
+    import os
+
+    path = os.environ.get("PRAVRUDHI_A0_MIGRATION")
+    if not path:
+        pytest.skip("set PRAVRUDHI_A0_MIGRATION to the applied migration file to compare the lists")
+    from tests.test_a0_assist_backstop_pg_it import grants_of
+
+    g = grants_of(Path(path).read_text())
+    assert g["assist_sweeper_rpc"] == SWEEPER_ROLE and g["assist_spend_rpc"] == ENGINE_ROLE

@@ -169,8 +169,11 @@ class Sweeper:
             known = self._delete_pending(out)
             if self._scan_orphans and self._cfg.agent_id:
                 self._orphans(out, known)
-            out["abandoned"] = self._store.abandon_stale(self._cfg.abandon_after_min).get("abandoned")
-            self._store.sweep_ok()
+            if self._mode == "engine":
+                # the engine role's functions: reservations belong to the engine, and the sweep marker is what its own pause rules
+                # read. The sweeper role is NOT granted either, so the backstop never calls them.
+                out["abandoned"] = self._store.abandon_stale(self._cfg.abandon_after_min).get("abandoned")
+                self._store.sweep_ok()
             self._pauses.set("sweeper", None)
         except StoreError:
             out["error"] = "store"
