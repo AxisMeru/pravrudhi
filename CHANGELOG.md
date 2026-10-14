@@ -5,6 +5,10 @@ messages.
 
 ## Unreleased
 
+### Fixed
+
+- **`GET /api/v1/audit` no longer answers 500 for a key that has called the assisted route (#422, caller-visible).** The assisted route's audit rows carry the mode `assist`; the audit page's `mode` enum did not declare it, so the whole page failed. The enum now reads `sync`, `job`, `verify`, `assist` (one value added to the public OpenAPI response enum: a client generated with a closed enum must accept the new value). A guard test compares every mode the engine writes with the declared enum.
+
 ### Changed
 
 - **`/api/v1/verify-citations` 429 wording (caller-visible).** The `message` of its anonymous 429 no longer says to sign in: that route knows only API keys, so it now reads "You have reached the limit for callers without an API key ({limit} requests per minute). Try again in {retry} seconds, or use an API key to get your own limit." The limit is the same per-address limit (the same limiter as analyse-facts, 6 per minute per address in the shipped config); the analyse-facts text, the machine fields and `Retry-After` are unchanged.
