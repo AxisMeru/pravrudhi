@@ -75,6 +75,12 @@ class Deps:
     #: The workflows THIS Deps can drive (its `make_driver` and `finalize` belong to them). A workflow outside this set is
     #: answered as not configured even if the config has an agent for it: one workflow's driver is never used for another.
     workflows: frozenset[str] = frozenset({"screening"})
+    #: The first message of the session for THIS workflow, from the request dict the route built (None = the screening
+    #: message: `user_message`).
+    user_message: Callable[[dict[str, Any]], str] | None = None
+    #: The display-only summary of the agent's prose, from (driver, stream events) (None = the screening
+    #: `checked_summary` over the decide results). An exception here means no summary, never a failed run.
+    summarise: Callable[[Any, list[dict[str, Any]]], str | None] | None = None
     clock: Callable[[], float] = time.monotonic
     sleep: Callable[[float], None] = time.sleep
 
@@ -230,6 +236,8 @@ def run_assisted(
     # A workflow with no agent, or with no driver in this Deps, stays dark. Decided BEFORE the limiter so a request that can
     # never run is not charged against anyone's quota.
     agent = cfg.agent_for(workflow) if workflow in deps.workflows else None
+    if workflow != "screening" and (deps.user_message is None or deps.summarise is None):
+        agent = None  # a workflow other than screening must say its own first message and summary: no silent screening default
     if agent is None:
         return _fallback(deps, "refused", "not_configured", client_session_id)
     if deps.limiter.admit(caller.user_id, caller.org_id, caller.ip) is not None:
@@ -242,12 +250,14 @@ def run_assisted(
     if not deps.slots.acquire(blocking=False):
         return _fallback(deps, "refused", "rate_limited", client_session_id)
     try:
-        return _run_with_slot(request, client_session_id, deps, cfg, agent)
+        return _run_with_slot(request, client_session_id, deps, cfg, agent, workflow)
     finally:
         deps.slots.release()
 
 
-def _run_with_slot(request: dict[str, Any], client_sid: str | None, deps: Deps, cfg: AssistConfig, agent: WorkflowAgent) -> Any:
+def _run_with_slot(
+    request: dict[str, Any], client_sid: str | None, deps: Deps, cfg: AssistConfig, agent: WorkflowAgent, workflow: str
+) -> Any:
     store, tr = deps.store, deps.transport
     assert store is not None and tr is not None
     key = new_session_key()
@@ -276,9 +286,7 @@ def _run_with_slot(request: dict[str, Any], client_sid: str | None, deps: Deps, 
                 outcome_reason = ("refused", "error")
             else:
                 decided_body = deps.finalize(driver)
-                summary = checked_summary(
-                    final_text(run.events), [driver._decided[c] for c in driver._selected or []], driver.listed or {}
-                )
+                summary = _summary(deps, workflow, driver, run.events)
     except UpstreamError as exc:
         timed_out = exc.status == 599 and "Timeout" in str(exc)
         outcome_reason = ("timed_out", "timeout") if timed_out else ("refused", "error")
@@ -298,6 +306,25 @@ def _run_with_slot(request: dict[str, Any], client_sid: str | None, deps: Deps, 
     return _fallback(deps, outcome, reason or "error", client_sid, steps=steps, cost=cost_block)
 
 
+def screening_summarise(driver: Any, events: list[dict[str, Any]]) -> str | None:
+    """The screening workflow's display-only summary: the agent's prose, dropped when it names an outcome word or a contract
+    id the decide results did not produce."""
+    return checked_summary(final_text(events), [driver._decided[c] for c in driver._selected or []], driver.listed or {})
+
+
+def _summary(deps: Deps, workflow: str, driver: Any, events: list[dict[str, Any]]) -> str | None:
+    """The display-only summary. Screening without a hook keeps its rule exactly as before (an exception there still ends in
+    the ordinary result). A workflow's OWN `summarise` is untrusted display code: its exception, or a return that is not text,
+    means no summary, never a failed run; it is handed a copy of the events."""
+    if deps.summarise is None:
+        return screening_summarise(driver, events)
+    try:
+        out = deps.summarise(driver, list(events))
+    except Exception:  # noqa: BLE001 - display-only: its failure must not fail a finished run
+        return None
+    return out if isinstance(out, str) else None
+
+
 def _converse(request: dict[str, Any], run: _Run, deps: Deps, cfg: AssistConfig, agent: WorkflowAgent) -> tuple[str, str | None]:
     tr = deps.transport
     assert tr is not None and run.driver is not None and run.key is not None
@@ -309,7 +336,10 @@ def _converse(request: dict[str, Any], run: _Run, deps: Deps, cfg: AssistConfig,
     seen: set[Any] = set()
     t0, n = deps.clock(), 0
     try:
-        tr.send_events(sid, [{"type": "user.message", "content": [{"type": "text", "text": user_message(request)}]}])
+        first = (deps.user_message or user_message)(request)
+        if not isinstance(first, str) or not first.strip():
+            raise ValueError("the workflow's first message must be non-empty text")
+        tr.send_events(sid, [{"type": "user.message", "content": [{"type": "text", "text": first}]}])
         for ev in stream:
             n += 1
             if ev.get("id") in seen:
