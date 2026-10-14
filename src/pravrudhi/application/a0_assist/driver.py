@@ -318,7 +318,7 @@ class A0Driver:
 
         def finish(outcome: str, reason: str, **kw: Any) -> dict[str, Any]:
             def early(name: str) -> list[str]:
-                """Early decisions (input_too_long, judge_error) never compute these lists; absent means none (the engine default)."""
+                """Early decisions never compute these lists; absent means none (the engine default)."""
                 try:
                     return kw[name]
                 except KeyError:
