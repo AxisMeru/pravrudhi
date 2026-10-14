@@ -494,6 +494,8 @@ class AssistFactsRequest(AnalyseFactsRequest):
 
 #: Citation lookups per intake request; further citations are listed with the status NOT_CHECKED.
 INTAKE_MAX_CITATION_LOOKUPS = 50
+#: Total seconds one intake request may spend on citation lookups; later citations are listed NOT_CHECKED.
+INTAKE_LOOKUP_BUDGET_S = 15.0
 
 
 class IntakeRequest(BaseModel):
@@ -1579,23 +1581,29 @@ def build_partner_router(
             return None
 
         looked_up = [0]
+        seen: dict[str, str] = {}
+        started = time.monotonic()
 
         def exists(text: str) -> str:
-            # a pasted text can hold thousands of citations: bound the lookups (each can take verify_timeout_s)
-            if looked_up[0] >= INTAKE_MAX_CITATION_LOOKUPS:
+            # a pasted text can hold thousands of citations: bound the lookups (each can take verify_timeout_s) by count and by
+            # total time, and answer a repeated citation from the first answer (consistent, and free)
+            if text in seen:
+                return seen[text]
+            if looked_up[0] >= INTAKE_MAX_CITATION_LOOKUPS or time.monotonic() - started > INTAKE_LOOKUP_BUDGET_S:
                 return "NOT_CHECKED"
             looked_up[0] += 1
             result, _cov = _lookup(Path(path), VerifyCitationRequest(citation=text), cfg.verify_timeout_s)
+            seen[text] = result.result
             return result.result
 
         return exists
 
-    def _intake_core(req: IntakeRequest, admitted: _Admitted) -> dict[str, Any]:
+    def _intake_core(req: IntakeRequest, exists_fn: Callable[[str], str] | None) -> dict[str, Any]:
         """The plain deterministic intake result (no model): the same bundle the assisted run falls back to."""
         from pravrudhi.application.a0_assist import intake
 
         try:
-            bundle = intake.build_bundle(req.text, verify_fn=_intake_exists_fn(admitted.cfg))
+            bundle = intake.build_bundle(req.text, verify_fn=exists_fn)
         except intake.IntakeRefused as e:
             raise HTTPException(422, str(e)) from e
         return {"run_id": f"nyaya-intake-{os.urandom(5).hex()}", "client_data": True, "bundle": bundle}
@@ -1634,9 +1642,12 @@ def build_partner_router(
             _intake_audit(metered, "intake", 503)
             return coded_503(AGENT_AT_CAPACITY)
         try:
-            out = _intake_core(req, admitted)
+            out = _intake_core(req, _intake_exists_fn(admitted.cfg))
         except HTTPException as e:
             _intake_audit(metered, "intake", e.status_code)
+            raise
+        except Exception:
+            _intake_audit(metered, "intake", 500)
             raise
         finally:
             admitted.concurrency.release()
@@ -1676,7 +1687,7 @@ def build_partner_router(
             transport=rt.transport,
             limiter=rt.limiter,
             slots=rt.slots,
-            core=lambda: _intake_core(req, admitted),
+            core=lambda: _intake_core(req, exists_fn),
             make_driver=lambda: IntakeDriver(req.text, exists_fn=exists_fn),
             finalize=finalize,
             workflows=frozenset({"intake"}),
@@ -1692,13 +1703,17 @@ def build_partner_router(
         except HTTPException as e:
             _intake_audit(metered, "intake_assist", e.status_code)
             raise
+        except Exception:
+            _intake_audit(metered, "intake_assist", 500)
+            raise
         finally:
             admitted.concurrency.release()
         if isinstance(out, dict):
             out.pop("retention_notice", None)
         if metered and isinstance(out, dict):
             response.headers.update(_rate_headers(metered[0], per_minute[0]))
-        _intake_audit(metered, "intake_assist", 200, out if isinstance(out, dict) else None)
+        status = out.status_code if isinstance(out, JSONResponse) else 200
+        _intake_audit(metered, "intake_assist", status, out if isinstance(out, dict) else None)
         result: dict[str, Any] | JSONResponse = out
         return result
 

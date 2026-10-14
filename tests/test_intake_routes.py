@@ -57,6 +57,15 @@ def _index(tmp_path: Path) -> Path:
     return p
 
 
+def _client_rate(tmp_path: Path, user: Any, rate: int) -> TestClient:
+    cfg = PartnerApiConfig(rate_limit_per_minute=rate, max_concurrent=1, trust_proxy_header=False)
+    app = FastAPI()
+    agent = _agent(tmp_path, _proof_script())
+    app.include_router(build_partner_router(tmp_path, agent_factory=lambda _r: agent, config=cfg))
+    app.dependency_overrides[identity.current_user] = lambda: user
+    return TestClient(app)
+
+
 def _client(tmp_path: Path, *, user: Any = USER, index: Path | None = None) -> TestClient:
     app = FastAPI()
     agent = _agent(tmp_path, _proof_script())
@@ -155,8 +164,10 @@ def _program(text: str, *, tamper: bool = False) -> Any:
     return program
 
 
-def _assist_client(tmp_path: Path, *, cfg: Any = None, program: Any = None, user: Any = USER) -> TestClient:
-    c = _client(tmp_path, user=user)
+def _assist_client(
+    tmp_path: Path, *, cfg: Any = None, program: Any = None, user: Any = USER, rate: int | None = None
+) -> TestClient:
+    c = _client(tmp_path, user=user) if rate is None else _client_rate(tmp_path, user, rate)
     shipped = yaml.safe_load((REPO / "configs" / "assistant_tier.yaml").read_text())
     (tmp_path / "configs").mkdir(parents=True, exist_ok=True)
     (tmp_path / "configs" / "assistant_tier.yaml").write_text(yaml.safe_dump(shipped))  # the tier reads this file
@@ -321,15 +332,78 @@ def test_a_keyed_intake_call_leaves_an_audit_row_without_the_text(monkeypatch: p
     assert "complainant" not in json.dumps(rows)  # never the pasted text
 
 
-def test_the_assisted_route_audits_too_and_the_rate_limit_covers_it(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_the_assisted_route_audits_the_call_and_is_rate_limited(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     from pravrudhi.application import tenancy
+    from tests.test_partner_key_metering import ADMIN, _key
 
-    cfg = PartnerApiConfig(rate_limit_per_minute=1, max_concurrent=1, trust_proxy_header=False)
-    c = _assist_client(tmp_path)
-    app = FastAPI()
-    app.include_router(build_partner_router(tmp_path, agent_factory=lambda _r: _agent(tmp_path, _proof_script()), config=cfg))
-    app.dependency_overrides[identity.current_user] = lambda: USER
-    limited = TestClient(app)
+    monkeypatch.setenv("PRAVRUDHI_ADMINS", ADMIN.id)
+    c = _assist_client(tmp_path, user=ADMIN, rate=1000)
+    secret = _key(c, "acme")
+    h = {tenancy.API_KEY_HEADER: secret}
+    r = c.post(ASSIST, json={"text": TEXT, "consent": True}, headers=h)
+    assert r.status_code == 200 and r.json()["assistant"]["used"] is True
+    rows = c.get("/api/v1/audit", headers=h).json()["rows"]
+    mine = [row for row in rows if row["mode"] == "intake_assist"]
+    assert len(mine) == 1 and mine[0]["status_code"] == 200 and mine[0]["run_id"].startswith("nyaya-intake-")
+    assert "complainant" not in json.dumps(rows)
+    limited = _assist_client(tmp_path / "lim", rate=1)
     codes = [limited.post(ASSIST, json={"text": TEXT, "consent": True}).status_code for _ in range(2)]
     assert codes[1] == 429
-    assert tenancy.API_KEY_HEADER and c is not None
+
+
+def test_a_refusal_by_the_tools_is_a_422_and_is_audited(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    from pravrudhi.application import tenancy
+
+    def refuse(raw: str, **kw: Any) -> Any:
+        raise intake.IntakeRefused("more fact candidates than the tools accept")
+
+    monkeypatch.setattr(intake, "build_bundle", refuse)
+    c, secret = _keyed(monkeypatch, tmp_path)
+    h = {tenancy.API_KEY_HEADER: secret}
+    r = c.post(PLAIN, json={"text": TEXT}, headers=h)
+    assert r.status_code == 422 and "candidates" in r.json()["detail"]
+    rows = c.get("/api/v1/audit", headers=h).json()["rows"]
+    assert [row["status_code"] for row in rows if row["mode"] == "intake"] == [422]
+
+
+def test_an_unexpected_failure_is_a_500_and_leaves_an_audit_row(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    from pravrudhi.application import tenancy
+
+    def boom(raw: str, **kw: Any) -> Any:
+        raise RuntimeError("tool bug")
+
+    monkeypatch.setattr(intake, "build_bundle", boom)
+    c, secret = _keyed(monkeypatch, tmp_path)
+    h = {tenancy.API_KEY_HEADER: secret}
+    c.raise_server_exceptions = False  # type: ignore[attr-defined]
+    client = TestClient(c.app, raise_server_exceptions=False)
+    assert client.post(PLAIN, json={"text": TEXT}, headers=h).status_code == 500
+    rows = client.get("/api/v1/audit", headers=h).json()["rows"]
+    assert [row["status_code"] for row in rows if row["mode"] == "intake"] == [500]
+
+
+def test_a_repeated_citation_is_answered_once_and_consistently(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    import pravrudhi.api.partner as P
+
+    calls: list[str] = []
+    real = P.VerifyCitationRequest
+
+    def counting(**kw: Any) -> Any:
+        calls.append(kw["citation"])
+        return real(**kw)
+
+    monkeypatch.setattr(P, "VerifyCitationRequest", counting)
+    text = "\n\n".join(["1. See (1977) 3 SCC 247 and again (1977) 3 SCC 247 for the rule."] * 3)
+    r = _client(tmp_path, index=_index(tmp_path)).post(PLAIN, json={"text": text})
+    cits = r.json()["bundle"]["citations"]
+    assert len(cits) >= 3 and {c["verifier_status"] for c in cits} == {"IN_INDEX"}
+    assert len(calls) == 1  # one lookup for the same citation text, however often it appears
+
+
+def test_the_total_lookup_time_is_bounded(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    import pravrudhi.api.partner as P
+
+    monkeypatch.setattr(P, "INTAKE_LOOKUP_BUDGET_S", -1.0)  # already spent: every citation is NOT_CHECKED, none is looked up
+    r = _client(tmp_path, index=_index(tmp_path)).post(PLAIN, json={"text": TEXT})
+    cits = r.json()["bundle"]["citations"]
+    assert cits and all(c["verifier_status"] == "NOT_CHECKED" for c in cits)
