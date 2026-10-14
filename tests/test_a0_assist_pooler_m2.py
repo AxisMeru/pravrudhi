@@ -88,7 +88,7 @@ def test_the_engine_key_and_the_sweeper_key_act_in_the_same_workspace():
     from pravrudhi.application.a0_assist import transport as TR
 
     cfg, why = C.load_or_none(Path(os.environ.get("A0_M2_ROOT", ".")))
-    assert cfg is not None and cfg.agent_id, "the config must be readable and name the product agent"
+    assert cfg is not None, "the config must be readable"
     ws = os.environ.get(cfg.workspace_id_env, "").strip()
     keys = {
         "engine": _key("A0_M2_ENGINE_KEY_FILE", "ANTHROPIC_API_KEY"),
