@@ -641,3 +641,543 @@ def test_mostly_upper_both_arms_and_no_letters_is_not_upper():
     assert I._mostly_upper("abc DEF ghi") is False  # 3 of 9 letters
     assert I._mostly_upper("abc DEF", share=0.4) is True
     assert I._mostly_upper("123 456 789") is False and I._mostly_upper("") is False
+
+
+# ---- real-text fixes (dev-stack run on cleared public orders, 14 Oct): D1 hyphen before furniture, D2 caption lines ---------
+def _hyphen_then_furniture_doc():
+    hdr = "http://www.example.test/doc\n{n}/40"
+    return pages(
+        "1. The clause is in contravention of by-\n" + hdr.format(n=1),
+        "law and rule 5 of the schedule applies here.\n" + hdr.format(n=2),
+        "2. Nothing further was found on the second day.\n" + hdr.format(n=3),
+        "3. The matter was listed again later.\n" + hdr.format(n=4),
+    )
+
+
+def test_d1_no_hyphen_join_into_a_deleted_furniture_line_and_all_checks_pass():
+    raw = _hyphen_then_furniture_doc()
+    c = I.clean(raw)
+    assert [d for d in c["deletions"] if d[2] == "furniture"], "the fixture must have furniture"
+    assert not [d for d in c["deletions"] if d[2] == "hyphen_join"]  # arm 1: the hyphen before the furniture line stays
+    ck = I.check_clean(raw, c["cleaned"], c["segments"], c["deletions"])
+    assert all(v["pass"] for v in ck.values())
+    b = I.build_bundle(raw)
+    assert b["clean_status"] == "cleaned" and all(v["pass"] for v in b["checks"].values())
+    assert "by-" in b["cleaned"] and "bylaw" not in b["cleaned"]
+
+
+def test_d1_a_hyphen_join_elsewhere_still_happens_next_to_furniture():
+    raw = four_page("The person was arrest-\ned at noon.\n")  # arm 2: a join whose next line is body text is made
+    c = I.clean(raw)
+    assert any(d[2] == "hyphen_join" for d in c["deletions"]) and any(d[2] == "furniture" for d in c["deletions"])
+    assert all(v["pass"] for v in I.check_clean(raw, c["cleaned"], c["segments"], c["deletions"]).values())
+
+
+def test_d1_protected_tokeniser_is_pure_and_c3_applies_only_the_carried_joins():
+    assert I._protected("arrest-\ned") != I._protected("arrested")  # no hidden join inside the tokeniser
+    raw = "1. The person was arrest-\ned at noon.\n"
+    c = I.clean(raw)
+    assert I.check_clean(raw, c["cleaned"], c["segments"], c["deletions"])["C3"]["pass"]
+    # a join that was NOT carried must not be assumed: dropping the carried join record makes C1 or C3 fail
+    no_join = [d for d in c["deletions"] if d[2] != "hyphen_join"]
+    ck = I.check_clean(raw, c["cleaned"], c["segments"], no_join)
+    assert not (ck["C1"]["pass"] and ck["C2"]["pass"] and ck["C3"]["pass"])
+
+
+# ---- D2: facts from the body of the order, not every caption line (split_plan) ------------------------------------------------
+BODY = "The petitioner says the gate was open and the guard was away for the whole of the afternoon in question. " * 2
+
+
+def _plan(text):
+    return I.split_plan(I.clean(text)["cleaned"])
+
+
+def test_d2_caption_before_an_order_heading_is_one_excluded_span_and_not_a_fact():
+    raw = (
+        "IN THE HIGH COURT\n\nBEFORE\n\nTHE HON'BLE MR JUSTICE SAMPLE\n\nBETWEEN:\n\nORDER\n\n"
+        + BODY
+        + "\n\n2. Next numbered paragraph.\n"
+    )
+    b = I.build_bundle(raw)
+    assert [n["status"] for n in b["not_citable"]] == ["caption"] and b["checks"]["C4"]["pass"] is True
+    cap = b["not_citable"][0]
+    assert "BETWEEN" in b["cleaned"][cap["cleaned_start"] : cap["cleaned_end"]] and "ORDER" not in " ".join(facts_text(b)[:1])[:5]
+    assert facts_text(b)[0].startswith("The petitioner says") and facts_text(b)[-1].startswith("2. Next")
+
+
+def test_d2_without_a_heading_a_block_with_header_cues_is_caption_and_one_without_cues_is_kept_as_facts():
+    with_cue = "IN THE HIGH COURT\n\nBEFORE\n\nBETWEEN:\n\nJUSTICE SAMPLE\n\n" + BODY + "\n"
+    p = _plan(with_cue)
+    assert [e["status"] for e in p["excluded"]] == ["caption"] and len(p["facts"]) == 1  # a real cue: the block is the header
+    no_cue = "IN THE HIGH COURT\n\nBEFORE\n\nJUSTICE SAMPLE\n\n" + BODY + "\n"
+    p2 = _plan(no_cue)
+    assert p2["excluded"] == [] and len(p2["facts"]) == 1  # no cue: fail toward keeping the text
+    complaint = "The tenant paid rent.\n\nThe landlord sued.\n\nThe court heard it.\n\n" + BODY + "\n"
+    p3 = _plan(complaint)
+    assert p3["excluded"] == [] and "The tenant paid rent." in I.clean(complaint)["cleaned"][p3["facts"][0]["cleaned_start"] :]
+
+
+def test_d2_an_order_heading_late_in_the_text_is_body_not_a_caption_boundary():
+    paras = "\n\n".join(
+        f"{i}. Paragraph {i} says that the gate was open and the guard was away for the afternoon." for i in range(1, 11)
+    )
+    raw = paras + "\n\nORDER\n\n11. The last paragraph is here.\n"
+    assert [e["status"] for e in _plan(raw)["excluded"]] == []  # the heading is past 40% of the paragraphs
+
+
+def test_d2_a_short_line_repeated_three_times_is_excluded_twice_is_kept():
+    def doc(n):
+        return "\n\n".join(
+            ["1. " + BODY[:150] + ".", *(["Page stamp 12 of 99"] * n), "2. " + BODY[:150] + ".", "Closing line here"]
+        )
+
+    assert [e["status"] for e in _plan(doc(3))["excluded"]] == ["repeated_line"] * 3
+    assert _plan(doc(2))["excluded"] == []
+    # an excluded line ends the group: the two numbered paragraphs stay separate facts either way
+    assert len(_plan(doc(3))["facts"]) == 2  # the unnumbered closing line joins the last numbered paragraph
+
+
+def test_d2_numbered_paragraphs_each_start_a_fact_an_unnumbered_line_after_one_continues_it():
+    raw = "1. Short one.\n\nContinuation line\n\n2. Another short one.\n\n(3) And a third.\n"
+    assert facts_text(I.build_bundle(raw)) == ["1. Short one.\n\nContinuation line", "2. Another short one.", "(3) And a third."]
+    # a heading line with no header cue is kept: it joins the numbered paragraph after it (fail toward keeping text)
+    b = I.build_bundle("HEADING LINE\n\n1. Short one.\n\n2. Another.\n")
+    assert [n["status"] for n in b["not_citable"]] == [] and facts_text(b) == ["HEADING LINE\n\n1. Short one.", "2. Another."]
+
+
+def test_d2_a_short_heading_after_an_excluded_line_joins_the_numbered_paragraph_that_follows():
+    raw = "\n\n".join(["1. " + BODY[:120] + ".", *["Page stamp 7 of 99"] * 3, "Sub-heading line", "2. Another short one."]) + "\n"
+    assert facts_text(I.build_bundle(raw))[-1] == "Sub-heading line\n\n2. Another short one."  # arm 1: lead joins forward
+    raw2 = "\n\n".join(["1. " + BODY[:120] + ".", *["Page stamp 7 of 99"] * 3, "2. Another short one."]) + "\n"
+    assert facts_text(I.build_bundle(raw2))[-1] == "2. Another short one."  # arm 2: no heading, nothing joined
+
+
+def test_d2_unnumbered_short_paragraphs_pack_until_the_target_and_never_past_the_cap():
+    paras = [
+        f"Account line {i}: the witness {chr(97 + i % 26) * (3 + i % 5)} saw the gate open at {i} o'clock." for i in range(40)
+    ]
+    b = I.build_bundle("\n\n".join(paras) + "\n")
+    sizes = [len(f["text"]) for f in b["facts"]]
+    assert len(b["facts"]) < 15 and max(sizes) <= I.MAX_FACT_CHARS and min(sizes[:-1]) >= I.TARGET_FACT_CHARS
+
+
+def test_d2_a_long_paragraph_is_cut_at_sentence_ends_and_the_agent_path_equals_the_baseline():
+    raw = "1. " + " ".join(
+        f"On visit {i} the accused went to the market and returned home at {i + 1} o'clock." for i in range(40)
+    )
+    b = I.build_bundle(raw)
+    assert len(b["facts"]) > 1 and all(len(f["text"]) <= I.MAX_FACT_CHARS for f in b["facts"])
+    prop = {**fresh(b), "facts": [{"cleaned_start": f["cleaned_start"], "cleaned_end": f["cleaned_end"]} for f in b["facts"]]}
+    assert I.build_bundle(raw, proposal=prop)["bundle_sha256"] == b["bundle_sha256"]
+
+
+# ---- the stated range of a usable fact list (a rule with both arms) -----------------------------------------------------------
+def _bundle(n_chars, lens):
+    return {"n_chars": n_chars, "facts": [{"text": "x" * n} for n in lens]}
+
+
+@pytest.mark.parametrize(
+    "n_chars,lens,ok,why",
+    [
+        (10_000, [300] * 24, True, None),  # the median order of the 39 cleared orders
+        (10_000, [300] * 16, True, None),  # lower edge of the observed range
+        (10_000, [150] * 46, True, None),
+        (10_000, [300] * 9, False, "facts per 10,000"),  # too few
+        (10_000, [300] * 61, False, "facts per 10,000"),  # one fact per line
+        (10_000, [90] * 24, False, "median fact length"),
+        (10_000, [300] * 23 + [601], False, "longer than the cap"),
+        (10_000, [300] * 18 + [20] * 6, False, "under 40"),  # 25% of the facts are fragments
+        (10_000, [300] * 19 + [20] * 5, True, None),  # 21% is over; 20.8% -> see next test for the edge
+    ],
+)
+def test_usable_range_both_arms(n_chars, lens, ok, why):
+    r = I.fact_list_usable(_bundle(n_chars, lens))
+    if lens.count(20) == 5:  # 5 of 24 = 20.8% is over the 20% limit: the edge case fails, by design
+        ok, why = False, "under 40"
+    assert r["applies"] is True and r["pass"] is ok
+    assert (why is None) or any(why in x for x in r["reasons"])
+
+
+def test_usable_range_is_not_applied_to_short_texts_and_an_empty_list_fails():
+    assert I.fact_list_usable(_bundle(1_999, [10]))["applies"] is False and I.fact_list_usable(_bundle(1_999, []))["pass"] is True
+    assert I.fact_list_usable(_bundle(5_000, []))["pass"] is False
+
+
+def test_usable_range_holds_for_a_caption_heavy_invented_order():
+    caps = "\n\n".join(["IN THE HIGH COURT", "BEFORE", "JUSTICE SAMPLE", "BETWEEN:", "ORDER"] + [f"LINE {i}" for i in range(20)])
+    body = "\n\n".join(
+        f"{i}. " + f"On visit {i} the petitioner says the gate was open and the guard was away. " * 5 for i in range(1, 50)
+    )
+    r = I.fact_list_usable(I.build_bundle(caps + "\n\n" + body + "\n"))
+    assert r["applies"] and r["pass"], r
+
+
+# ---- the isolated pre-check of the D1/D2 change (record: precheck_intake2) --------------------------------------------------
+def test_pc1_a_proposed_fact_inside_an_excluded_span_is_not_citable_and_lists_do_not_overlap():
+    raw = "IN THE HIGH COURT\n\nBETWEEN:\n\nORDER\n\n" + BODY + "\n"
+    b = I.build_bundle(raw)
+    cap = next(n for n in b["not_citable"] if n["status"] == "caption")
+    prop = {
+        **fresh(b),
+        "facts": [
+            {"cleaned_start": 0, "cleaned_end": 10},
+            *({k: f[k] for k in ("cleaned_start", "cleaned_end")} for f in b["facts"]),
+        ],
+    }
+    out = I.build_bundle(raw, proposal=prop)
+    assert [n["status"] for n in out["not_citable"] if n["cleaned_start"] == 0 and n["status"] != "caption"] == ["excluded"]
+    spans = [(f["cleaned_start"], f["cleaned_end"]) for f in out["facts"]]
+    assert all(not (cap["cleaned_start"] < e and s0 < cap["cleaned_end"]) for s0, e in spans)
+
+
+def test_pc2_merged_facts_never_span_an_excluded_line():
+    paras = []
+    for i in range(1, 2 * I.MAX_FACTS + 40):
+        paras.append(
+            f"{i}. Numbered paragraph {i} of the account, long enough to stand alone as a single fact in this test text."
+        )
+        if i % 100 == 0:
+            paras += ["Page stamp 7 of 99"] * 3
+    plan = I.split_plan("\n\n".join(paras) + "\n")
+    assert len(plan["facts"]) <= I.MAX_FACTS and [e["status"] for e in plan["excluded"]].count("repeated_line") >= 3
+    for f in plan["facts"]:
+        assert not any(e["cleaned_start"] < f["cleaned_end"] and f["cleaned_start"] < e["cleaned_end"] for e in plan["excluded"])
+
+
+def test_pc3_short_numbered_paragraphs_before_the_first_long_one_are_facts_not_caption():
+    raw = "\n\n".join(f"{i}. The tenant paid rent." for i in range(1, 21)) + "\n\n" + BODY + "\n"
+    b = I.build_bundle(raw)
+    assert not [n for n in b["not_citable"] if n["status"] == "caption"] and facts_text(b)[0].startswith("1. The tenant")
+
+
+def test_pc4_a_long_paragraph_before_an_order_heading_is_a_fact_not_caption():
+    raw = BODY + "\n\nORDER\n\n1. Next numbered paragraph.\n\n2. And another.\n\n3. And a third.\n\n4. Fourth.\n"
+    p = _plan(raw)
+    assert [e["status"] for e in p["excluded"]] == [] and facts_text(I.build_bundle(raw))[0].startswith("The petitioner says")
+
+
+def test_pc5_letterless_paragraphs_are_listed_when_they_are_in_no_fact():
+    raw = "1,00,000/-\n\n" + BODY + "\n\n12\n\nThe tenant paid rent late.\n"
+    b = I.build_bundle(raw)
+    kinds = [(n["status"], b["cleaned"][n["cleaned_start"] : n["cleaned_end"]]) for n in b["not_citable"]]
+    assert ("no_words", "1,00,000/-") in kinds
+    for c in b["facts"]:  # nothing is both a fact and excluded
+        assert not any(n["cleaned_start"] < c["cleaned_end"] and c["cleaned_start"] < n["cleaned_end"] for n in b["not_citable"])
+
+
+def test_pc6_usable_rule_fails_closed_on_a_bundle_it_cannot_read_and_on_a_mostly_excluded_text():
+    assert I.fact_list_usable({})["pass"] is False
+    assert I.fact_list_usable({"n_chars": 5000})["pass"] is False  # no facts list
+    assert I.fact_list_usable({"n_chars": 5000, "facts": [{}]})["pass"] is False  # a fact without text
+    ok = {"n_chars": 10_000, "facts": [{"text": "x" * 300}] * 24, "not_citable": [], "cleaned": "x" * 10_000}
+    assert I.fact_list_usable(ok)["pass"] is True
+    rep = {"status": "repeated_line", "cleaned_start": 0, "cleaned_end": 6000}
+    assert I.fact_list_usable({**ok, "not_citable": [rep]})["pass"] is False  # 60% of the body left out
+    edge = lambda n: {**ok, "not_citable": [{**rep, "cleaned_end": n}]}  # noqa: E731
+    assert I.fact_list_usable(edge(3500))["pass"] is True  # 35% left out passes
+    assert I.fact_list_usable(edge(3600))["pass"] is False  # 36% fails
+
+
+def test_pc7_paragraph_spans_never_start_or_end_on_whitespace_even_with_three_newlines():
+    for a, b in I._paragraphs("A first line here\n\n\n\nB second line here\n\n\n"):
+        t = ("A first line here\n\n\n\nB second line here\n\n\n")[a:b]
+        assert t == t.strip() and t
+
+
+def test_pc8_short_negation_lines_repeated_three_times_are_kept_as_facts():
+    raw = "1. " + BODY[:100] + "\n\nNo.\n\nNo.\n\nNo.\n\n2. " + BODY[:100] + "\n"
+    assert [e["status"] for e in _plan(raw)["excluded"]] == []
+
+
+def test_pc9_a_hyphen_at_the_end_of_a_furniture_line_is_not_joined_and_checks_pass():
+    hdr = "- {n} -\nhttp://www.example.test/doc-\n"
+    raw = pages(
+        *[
+            ("1. Body text of page one is here.\n" if i == 1 else f"{i}. Body text of page {i} is here.\n")
+            + hdr.format(n=i)
+            + "next line text\n"
+            for i in range(1, 5)
+        ]
+    )
+    c = I.clean(raw)
+    assert all(v["pass"] for v in I.check_clean(raw, c["cleaned"], c["segments"], c["deletions"]).values())
+    spans = sorted((d[0], d[1]) for d in c["deletions"])
+    assert all(spans[i][1] <= spans[i + 1][0] for i in range(len(spans) - 1))  # no overlapping deletions
+
+
+def test_pc10_numbered_party_lines_are_caption_but_numbered_prose_starts_the_body():
+    parties = "IN THE HIGH COURT\n\nBETWEEN:\n\n1. AMARESH\n\n2. S.UMESH\n\n3. VAGEESH\n\n"
+    b = I.build_bundle(parties + BODY + "\n")
+    cap = next(n for n in b["not_citable"] if n["status"] == "caption")
+    assert "3. VAGEESH" in b["cleaned"][cap["cleaned_start"] : cap["cleaned_end"]] and facts_text(b)[0].startswith(
+        "The petitioner says"
+    )
+    assert (
+        I._numbered_prose("1. The tenant paid rent.")
+        and not I._numbered_prose("1. AMARESH")
+        and not I._numbered_prose("2. S.UMESH")
+    )
+
+
+def test_pc11_a_letterless_fact_is_joined_to_a_neighbour_both_arms():
+    cl = "First sentence is here. 102. Second sentence is here."
+    a = cl.index("102.")
+    facts = [
+        {"cleaned_start": 0, "cleaned_end": 22},
+        {"cleaned_start": a, "cleaned_end": a + 4},
+        {"cleaned_start": a + 5, "cleaned_end": len(cl)},
+    ]
+    assert I._merge_letterless(facts, cl) == [
+        {"cleaned_start": 0, "cleaned_end": a + 4},
+        {"cleaned_start": a + 5, "cleaned_end": len(cl)},
+    ]
+    lead = [{"cleaned_start": a, "cleaned_end": a + 4}, {"cleaned_start": a + 5, "cleaned_end": len(cl)}]
+    assert I._merge_letterless(lead, cl) == [{"cleaned_start": a, "cleaned_end": len(cl)}]
+    assert I._merge_letterless(facts[:1] + facts[2:], cl) == facts[:1] + facts[2:]  # no letterless fact: unchanged
+
+
+def test_pc12_numbered_devanagari_counts_as_prose():
+    assert I._numbered_prose("1. धारा 302 के अंतर्गत आरोप है।")
+
+
+def test_pc13_a_blank_line_after_every_printed_line_is_joined_inside_a_sentence_only():
+    raw = (
+        "1. This application has been preferred\n\nagainst the judgment of acquittal\n\nrendered by the Trial Court.\n\n"
+        "The second sentence starts here and ends here.\n"
+    )
+    b = I.build_bundle(raw)
+    assert facts_text(b)[0].startswith(
+        "1. This application has been preferred against the judgment of acquittal rendered by the Trial Court."
+    )
+    # arm 2: after a line that ends a sentence, or before an upper-case word, the paragraph break stays
+    assert "\n\nThe second sentence" in b["cleaned"] and all(v["pass"] for v in b["checks"].values())
+    c = I.clean("Heading line without a stop\n\nBEFORE THE COURT\n\nand then more text here.\n")
+    assert "Heading line without a stop\n\nBEFORE" in c["cleaned"] and "BEFORE THE COURT and then" in c["cleaned"]
+
+
+def test_pc14_a_wrapped_full_width_line_ending_in_lower_case_continues_a_party_line_does_not():
+    wrapped = "This application has been preferred against the judgment of acquittal rendered by\n\nthe Trial Court."
+    assert "rendered by the Trial Court." in I.clean(wrapped)["cleaned"]  # lower-case next word: continues
+    long_line = "The accused went to the market and returned home late in the evening\n\nShri Ravi was then seen at the gate."
+    assert "evening Shri Ravi" in I.clean(long_line)["cleaned"]  # 45+ characters, ends in a lower-case letter: continues
+    party = "Ku. Seema Dewangan, D/o Shri Shankarlal Dewangan, Aged About 51 Years,\n\nShri Raja Sharma is the advocate."
+    assert "Years,\n\nShri Raja" in I.clean(party)["cleaned"]  # ends in a comma: the break stays
+    short = "Heading line without a stop\n\nShri Raja Sharma is the advocate."
+    assert "stop\n\nShri Raja" in I.clean(short)["cleaned"]  # under 45 characters: the break stays
+
+
+def test_pc15_left_out_limit_is_a_flat_35_percent_of_the_body_and_the_header_is_reported_apart():
+    def b(n_chars, repeated, caption=0):
+        facts = [{"text": "x" * 300}] * max(1, round(0.0022 * n_chars))
+        spans = [{"status": "repeated_line", "cleaned_start": 0, "cleaned_end": repeated}]
+        if caption:
+            spans.append({"status": "caption", "cleaned_start": 0, "cleaned_end": caption})
+        return {"n_chars": n_chars, "facts": facts, "not_citable": spans, "cleaned": "x" * n_chars}
+
+    for n in (5_000, 10_000):  # flat: the same limit for short and long texts
+        assert I.fact_list_usable(b(n, int(n * 0.35)))["pass"] is True, n
+        assert I.fact_list_usable(b(n, int(n * 0.36)))["pass"] is False, n
+    # a long header is not body: 4,000 of 10,000 in the caption and 35% of the other 6,000 left out passes
+    r = I.fact_list_usable(b(10_000, 2_100, caption=4_000))
+    assert r["pass"] is True and r["caption_share"] == 0.4 and r["left_out_share"] == 0.35
+    assert I.fact_list_usable(b(10_000, 2_200, caption=4_000))["pass"] is False  # 36.7% of the body
+
+
+def test_pc16_page_counters_without_form_feeds_are_furniture_only_when_they_count_up_three_times():
+    def doc(nums, form="Page {n} of 9"):
+        return "\n\n".join(f"{BODY[:100]} item {i}.\n{form.replace('N', str(n))}" for i, n in enumerate(nums))
+
+    for form in ("Page N of 9", "{{ N }}", "- N -"):
+        c = I.clean(doc([1, 2, 3, 4], form))
+        assert sum(1 for d in c["deletions"] if d[2] == "furniture") == 4, form  # arm 1: a run of four counts
+    two = doc([1, 2], "Page N of 9")
+    assert [d for d in I.clean(two)["deletions"] if d[2] == "furniture"] == []  # arm 2: two is not a run
+    assert [
+        d for d in I.clean(doc([1, 3, 5, 7], "Page N of 9"))["deletions"] if d[2] == "furniture"
+    ] == []  # not counting up by one
+    four = doc([1, 2, 3, 4], "Page N of 9")
+    c = I.clean(four)
+    assert all(v["pass"] for v in I.check_clean(four, c["cleaned"], c["segments"], c["deletions"]).values())
+
+
+def test_pc17_header_cues_end_the_caption_and_ordinary_prose_about_counsel_does_not_start_it():
+    head = "ZORVAN QUILLERIE, aged about 49 years, S/o Mr Hendrik Quillerie, resident of 14 Marlowe Lane, Thistleby ...Appellant"
+    prose = (
+        "Learned counsel for the appellant submits that the appellant was not present at the gate at the time of the visit, "
+        "as the records of the gate register and the guard's own diary show."
+    )
+    assert len(prose) >= I.LONG_PARA
+    raw = "IN THE HIGH COURT\n\nBETWEEN:\n\n" + head + "\n\nCORAM: HON'BLE MR JUSTICE FENWORTH\n\n" + prose + "\n\n" + BODY + "\n"
+    b = I.build_bundle(raw)
+    cap = next(n for n in b["not_citable"] if n["status"] == "caption")
+    left_out = b["cleaned"][cap["cleaned_start"] : cap["cleaned_end"]]
+    assert "Hendrik" in left_out and "FENWORTH" in left_out
+    assert facts_text(b)[0].startswith("Learned counsel for the appellant")  # arm 2: prose with counsel/appellant words is a fact
+    assert not any("Hendrik" in t or "FENWORTH" in t for t in facts_text(b))
+
+
+def test_pc18_a_heading_needs_two_header_pieces_before_it_and_a_header_over_half_the_text_is_not_one():
+    one_cue = "CORAM: HON'BLE MR JUSTICE FENWORTH\n\nJUDGMENT\n\n" + BODY + "\n\n" + BODY + "\n"
+    cl = I.clean(one_cue)["cleaned"]
+    cap = [e for e in _plan(one_cue)["excluded"] if e["status"] == "caption"]
+    assert (
+        len(cap) == 1 and "JUDGMENT" in cl[cap[0]["cleaned_start"] : cap[0]["cleaned_end"]]
+    )  # one cue: the long-paragraph rule decides
+    party = "Party {} aged about 4{} years, S/o Mr X, resident of Y ...Appellant"
+    mostly_header = "\n\n".join([party.format(i, i) for i in range(8)] + ["JUDGMENT", BODY[:160]]) + "\n"
+    assert [
+        e for e in _plan(mostly_header)["excluded"] if e["status"] == "caption"
+    ] == []  # over half the text: not treated as a header
+
+
+# ---- R2's review of #437: defects A and B and the boundary gaps of the usable rule ---------------------------------
+def test_r2a_payment_lines_that_differ_only_in_numbers_are_kept_and_page_stamps_are_excluded():
+    pay = [
+        "Paid Rs. 5000 on 1.1.2020",
+        "Paid Rs. 7000 on 2.2.2021",
+        "Paid Rs. 9000 on 3.3.2022",
+    ]
+    raw = "\n\n".join(["1. " + BODY[:150] + ".", *pay, "2. " + BODY[:150] + "."]) + "\n"
+    p = _plan(raw)
+    assert [e["status"] for e in p["excluded"]] == []  # arm 1: amounts and dates are content
+    joined = I.build_bundle(raw)["cleaned"]
+    for line in pay:
+        assert line in joined
+    # amounts without a currency word, three numbers in a line, a percentage: still content
+    for line in ("Interest at 12% for 3 years", "Entry 12 of 2020 dated 3.4.2021", "Paid 5000 on 3.3.2022"):
+        r = (
+            "\n\n".join(
+                ["1. " + BODY[:150] + ".", line, line.replace("3", "4"), line.replace("3", "5"), "2. " + BODY[:150] + "."]
+            )
+            + "\n"
+        )
+        assert [e["status"] for e in _plan(r)["excluded"] if e["status"] == "repeated_line"] == [], line
+    # arm 2: a real page stamp (two numbers at most, no amount) repeated three times is still excluded
+    stamp = (
+        "\n\n".join(["1. " + BODY[:150] + ".", *[f"Page stamp {n} of 99" for n in (7, 8, 9)], "2. " + BODY[:150] + "."]) + "\n"
+    )
+    assert [e["status"] for e in _plan(stamp)["excluded"]] == ["repeated_line"] * 3
+
+
+def test_r2b_text_before_the_body_stays_unless_it_holds_a_header_cue_and_prose_around_a_header_stays():
+    complaint = "The tenant paid rent.\n\nThe landlord sued.\n\nThe court heard it.\n\n" + BODY + "\n"
+    b = I.build_bundle(complaint)
+    assert [n for n in b["not_citable"] if n["status"] == "caption"] == [] and facts_text(b)[0].startswith(
+        "The tenant paid rent."
+    )
+    # a header with a cue in the middle: the prose line before it and the long prose after it stay as facts
+    mixed = (
+        "The complainant was robbed.\n\nIN THE HIGH COURT\n\nBETWEEN:\n\nZORVAN, aged about 49 years ...Appellant\n\n"
+        + BODY
+        + "\n"
+    )
+    m = I.build_bundle(mixed)
+    cap = next(n for n in m["not_citable"] if n["status"] == "caption")
+    left = m["cleaned"][cap["cleaned_start"] : cap["cleaned_end"]]
+    assert "ZORVAN" in left and "The complainant was robbed." not in left
+    assert facts_text(m)[0].startswith("The complainant was robbed.") and not any("ZORVAN" in t for t in facts_text(m))
+    # short lines right after the last header line (a counsel line) belong to the header
+    tail = "BETWEEN:\n\nZORVAN, aged about 49 years ...Appellant\n\nSri Oswin Pardue, Advocate\n\n" + BODY + "\n"
+    t = I.build_bundle(tail)
+    assert not any("Pardue" in x for x in facts_text(t))
+
+
+def test_r2_usable_rule_boundaries():
+    def bundle(n_chars, lens, not_citable=(), cleaned_len=None):
+        return {
+            "n_chars": n_chars,
+            "facts": [{"text": "x" * n} for n in lens],
+            "not_citable": list(not_citable),
+            "cleaned": "x" * (cleaned_len if cleaned_len is not None else n_chars),
+        }
+
+    ok = [300] * 24
+    # the applicability bound: 1,999 is not judged, 2,000 is (and fails with no facts)
+    assert I.fact_list_usable(bundle(1_999, []))["applies"] is False
+    assert I.fact_list_usable(bundle(2_000, []))["applies"] is True and I.fact_list_usable(bundle(2_000, []))["pass"] is False
+    # short-fact share exactly 0.20 passes, just over fails
+    assert I.fact_list_usable(bundle(10_000, [300] * 20 + [20] * 5))["pass"] is True  # 5 of 25
+    assert I.fact_list_usable(bundle(10_000, [300] * 19 + [20] * 5))["pass"] is False  # 5 of 24 = 0.208
+
+    # what counts as left out of the body: repeated_line, no_words and duplicate count; caption is apart; the rest do not
+    def span(status):
+        return {"status": status, "cleaned_start": 0, "cleaned_end": 4000}
+
+    for status in ("repeated_line", "no_words", "duplicate"):
+        assert I.fact_list_usable(bundle(10_000, ok, [span(status)]))["pass"] is False, status
+    for status in ("paraphrase", "excluded"):
+        assert I.fact_list_usable(bundle(10_000, ok, [span(status)]))["pass"] is True, status
+    assert I.fact_list_usable(bundle(10_000, ok, [span("caption")]))["pass"] is True  # the header is not body
+    # the share is taken over the CLEANED text minus the header: 3,600 of 10,000 cleaned fails even though n_chars is 20,000
+    rep = {"status": "repeated_line", "cleaned_start": 0, "cleaned_end": 3_600}
+    assert I.fact_list_usable(bundle(20_000, [300] * 48, [rep], cleaned_len=10_000))["pass"] is False
+    assert I.fact_list_usable(bundle(20_000, [300] * 48, [rep], cleaned_len=20_000))["pass"] is True
+    # the displayed share is not rounded up to hide a failure: 0.354 shows 0.354 and fails
+    r = I.fact_list_usable(bundle(10_000, ok, [{**rep, "cleaned_end": 3_540}]))
+    assert r["left_out_share"] == 0.354 and r["pass"] is False
+
+
+def test_r2_title_case_party_lines_are_not_prose_and_numbered_prose_is():
+    assert not I._numbered_prose("1. Ranjeet Narayan Mishra") and not I._numbered_prose("2. The State of Jharkhand")
+    assert I._numbered_prose("1. The tenant paid rent.") and I._numbered_prose("12. He said that the gate was open.")
+    head = (
+        "IN THE HIGH COURT\n\n1. Ranjeet Narayan Mishra\n\n2. Lalit Kumar Jha\n\n-Versus-\n\n"
+        "The State of Exampleshire ...Respondent\n\n"
+    )
+    b = I.build_bundle(head + BODY + "\n")
+    assert any(n["status"] == "caption" for n in b["not_citable"]) and not any("Ranjeet" in t for t in facts_text(b))
+
+
+# ---- R2's last change: a long piece is header only with an identity cue or two kinds of cue --------------------------
+WEAK = (
+    "1. The prosecution case is that the deceased, aged 45 years, was found dead in the field near the village road on the "
+    "morning of 3 March after the heavy rain of the night before."
+)
+IDENT = (
+    "1. ZORVAN QUILLERIE, S/o Hendrik Quillerie, aged 35 years, resident of 14 Marlowe Lane Thistleby, who is the accused in the "
+    "case and is represented before this court by learned counsel of his own choice"
+)
+
+
+def test_r2_last_a_long_numbered_paragraph_with_one_weak_cue_is_a_fact_and_one_with_an_identity_cue_is_header():
+    assert len(WEAK) >= I.LONG_PARA and len(IDENT) >= I.LONG_PARA
+    assert I._cue_families(WEAK) == {"age"} and not I._caption_like(WEAK)  # one weak cue: body
+    assert {"identity", "age"} <= I._cue_families(IDENT) and I._caption_like(IDENT)  # identity cue: header
+    head = "IN THE HIGH COURT\n\nBETWEEN:\n\nCORAM: HON'BLE MR JUSTICE FENWORTH\n\n"
+    weak = I.build_bundle(head + WEAK + "\n\n2. " + BODY[:150] + ".\n\n3. " + BODY[:150] + ".\n")
+    assert facts_text(weak)[0].startswith("1. The prosecution case is that the deceased, aged 45 years")  # arm 1: kept
+    assert [n["status"] for n in weak["not_citable"]] == ["caption"]
+    ident = I.build_bundle(head + IDENT + "\n\n2. " + BODY[:150] + ".\n\n3. " + BODY[:150] + ".\n")
+    assert not any("Quillerie" in t or "Marlowe" in t for t in facts_text(ident))  # arm 2: excluded with the header
+    assert facts_text(ident)[0].startswith("2. The petitioner says")
+    two_kinds = (
+        "1. "
+        + "x" * 10
+        + " aged about 40 years, for the appellant: Mr Sharma, and the matter was listed on the date given "
+        + "y" * 60
+    )
+    assert len(two_kinds) >= I.LONG_PARA and I._cue_families(two_kinds) == {"age", "counsel"} and I._caption_like(two_kinds)
+
+
+def test_r2_last_long_prose_without_a_cue_between_header_pieces_is_kept_and_short_lines_between_them_are_header():
+    prose = BODY  # 200+ characters, no cue
+    raw = (
+        "BETWEEN:\n\nZORVAN, aged about 49 years ...Appellant\n\n" + prose + "\n\n"
+        "Sri Oswin Pardue, Advocate\n\nCORAM: HON'BLE MR JUSTICE FENWORTH\n\nJUDGMENT\n\n"
+        + "\n\n".join(f"{n}. " + BODY[:150] + "." for n in range(1, 5))
+        + "\n"
+    )
+    b = I.build_bundle(raw)
+    caps = [b["cleaned"][n["cleaned_start"] : n["cleaned_end"]] for n in b["not_citable"] if n["status"] == "caption"]
+    assert (
+        len(caps) == 2 and "ZORVAN" in caps[0] and "FENWORTH" in caps[1] and "Pardue" in caps[1]
+    )  # two runs; the short counsel line is header
+    assert facts_text(b)[0].startswith("The petitioner says")  # the cue-less long prose between the runs is a fact
+    assert not any("ZORVAN" in t or "Pardue" in t or "FENWORTH" in t for t in facts_text(b))
+
+
+def test_usable_median_is_none_not_zero_when_there_are_no_facts_and_the_rule_fails():
+    r = I.fact_list_usable({"n_chars": 5000, "facts": [], "not_citable": [], "cleaned": "x" * 5000})
+    assert r["median_fact_chars"] is None and r["pass"] is False and "median fact length outside the range" in r["reasons"]
+    ok = I.fact_list_usable({"n_chars": 10_000, "facts": [{"text": "x" * 300}] * 24, "not_citable": [], "cleaned": "x" * 10_000})
+    assert ok["median_fact_chars"] == 300 and ok["pass"] is True

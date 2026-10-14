@@ -97,15 +97,18 @@ class Deps:
 
 
 INTAKE_USER_MESSAGE_PREFIX = (
-    "Prepare this pasted matter text with your tools, exactly as your rules say. "
-    "The text, as JSON (copy it exactly as written):\n"
+    "Prepare this matter with your tools, exactly as your rules say. "
+    "Its numbered facts, as JSON (the header of the order is not included):\n"
 )
 
 
 def intake_user_message(request: dict[str, Any]) -> str:
-    """The first message of an intake session: the pasted text, as message content, exactly as the screening message carries
-    its facts. Nothing is stored; the session is deleted after the run."""
-    return INTAKE_USER_MESSAGE_PREFIX + json.dumps({"text": request["text"]}, ensure_ascii=False)
+    """The first message of an intake session: the NUMBERED FACTS of the pasted text and nothing else. The header of the order
+    (parties with age, parent's name and address, counsel, bench, dates) is an excluded span and never leaves the engine; the
+    tools run on the engine's own copy of the text. Nothing is stored; the session is deleted after the run."""
+    from pravrudhi.application.a0_assist import intake
+
+    return INTAKE_USER_MESSAGE_PREFIX + json.dumps({"facts": intake.facts_for_model(request["text"])}, ensure_ascii=False)
 
 
 def user_message(request: dict[str, Any]) -> str:
