@@ -321,3 +321,12 @@ def test_open_stream_refuses_a_non_200_and_records_it():
 def test_module_has_no_file_or_upload_helpers_and_no_secret_logging():
     src = Path(TR.__file__).read_text()
     assert "/v1/files" not in src and "multipart" not in src and "logging" not in src and "print(" not in src
+
+
+@pytest.mark.parametrize("body", [[], "x", 5, None])
+def test_a_session_answer_that_is_not_a_json_object_is_an_upstream_error(body):
+    t, _ = make(lambda r: httpx.Response(200, json=body))
+    with pytest.raises(TR.UpstreamError):
+        t.get_session("sesn_1")
+    with pytest.raises(TR.UpstreamError):
+        t.create_session("a", 1, "e", 5)

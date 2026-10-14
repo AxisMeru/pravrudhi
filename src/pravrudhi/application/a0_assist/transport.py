@@ -142,6 +142,13 @@ class AnthropicTransport:
         self._note(response.status_code)
         return response
 
+    def _object(self, method: str, path: str, **kw: Any) -> dict[str, Any]:
+        """A JSON answer that must be an object (a session); anything else is an upstream error, never a guess."""
+        out = self._json(method, path, **kw)
+        if not isinstance(out, dict):
+            raise UpstreamError(200, "the answer is not a JSON object")
+        return out
+
     def _json(self, method: str, path: str, **kw: Any) -> Any:
         r = self._send(method, path, **kw)
         if r.status_code >= 400:
@@ -157,7 +164,7 @@ class AnthropicTransport:
             raise TransportRefused("budget_cents must be an integer in [1, 100]")
         if isinstance(version, bool) or not isinstance(version, int) or version < 1 or not agent_id or not environment_id:
             raise TransportRefused("the session needs a pinned agent id and version and an environment id")
-        return self._json(
+        return self._object(
             "POST",
             "/v1/sessions",
             body={
@@ -182,7 +189,7 @@ class AnthropicTransport:
         return self.send_events(session_id, [{"type": "user.interrupt"}])
 
     def get_session(self, session_id: str) -> dict[str, Any]:
-        return self._json("GET", f"/v1/sessions/{session_id}")
+        return self._object("GET", f"/v1/sessions/{session_id}")
 
     def list_events(self, session_id: str) -> list[dict[str, Any]]:
         out: list[dict[str, Any]] = []
