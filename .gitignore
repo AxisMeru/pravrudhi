@@ -73,3 +73,6 @@ deploy/docker/nyaya/score
 
 # Local fleet (machines, addresses, user names): operator-specific, never committed. See configs/hosts.example.yaml.
 configs/hosts.yaml
+
+# --- deploy/docker/citation: never the slim citation index in the repo (#908), only the .keep placeholder ---
+deploy/docker/citation/*.sqlite3
