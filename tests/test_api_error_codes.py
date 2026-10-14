@@ -65,7 +65,7 @@ def test_partner_capacity_is_a_coded_503(monkeypatch: pytest.MonkeyPatch, tmp_pa
 
     class _Full:
         def __init__(self, _n: int) -> None: ...
-        def acquire(self) -> bool:
+        def acquire(self, timeout: float = 0.0) -> bool:
             return False
 
         def release(self) -> None:

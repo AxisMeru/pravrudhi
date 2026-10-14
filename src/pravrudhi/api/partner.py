@@ -51,6 +51,7 @@ import hashlib
 import hmac
 import json
 import logging
+import math
 import os
 import sqlite3
 import subprocess
@@ -174,6 +175,9 @@ class PartnerApiConfig:
     #: hold at once.
     job_retention_s: float = 3600.0
     job_max_unfinished_per_key: int = 8
+    #: Async jobs (#406): how long an accepted job may WAIT for a free agent slot (`max_concurrent`) before it fails with
+    #: `agent_at_capacity`. A job was accepted with 202, so it queues; the sync route stays non-blocking (0 = never wait).
+    job_slot_wait_s: float = 600.0
     #: Audit rows (#148) older than this are dropped on write and never served.
     audit_retention_s: float = 90 * 86400.0
     #: `POST /verify-citations` (#302): how many lookups may run at once (non-blocking: an extra one is a 503) and the
@@ -223,10 +227,29 @@ def load_partner_api_config(root: Path) -> PartnerApiConfig:
         judge_warm_retry_s=float(body.get("judge_warm_retry_s", 30.0)),
         job_retention_s=float(body.get("job_retention_s", 3600.0)),
         job_max_unfinished_per_key=int(body.get("job_max_unfinished_per_key", 8)),
+        job_slot_wait_s=_job_slot_wait(body.get("job_slot_wait_s", 600.0)),
         audit_retention_s=float(body.get("audit_retention_s", 90 * 86400.0)),
         verify_max_concurrent=int(body.get("verify_max_concurrent", 2)),
         verify_timeout_s=float(body.get("verify_timeout_s", 5.0)),
     )
+
+
+#: One day: more than any job should queue, and far below `threading.TIMEOUT_MAX` (a larger wait raises OverflowError).
+MAX_JOB_SLOT_WAIT_S = 86_400.0
+
+
+def _job_slot_wait(raw: Any) -> float:
+    """`job_slot_wait_s`: a finite number from 0 to one day (a bool, NaN, inf, a negative or a larger value is a config
+    error, never a silent default)."""
+    ok = isinstance(raw, (int, float)) and not isinstance(raw, bool)
+    if ok:
+        try:
+            ok = math.isfinite(raw) and 0 <= raw <= MAX_JOB_SLOT_WAIT_S
+        except OverflowError:  # an int too large for a float
+            ok = False
+    if not ok:
+        raise ValueError(f"job_slot_wait_s must be a number from 0 to {MAX_JOB_SLOT_WAIT_S:.0f} seconds, got {raw!r}"[:200])
+    return float(raw)
 
 
 _RATE_LIMIT_HEADER_DOCS: dict[str, Any] = {
@@ -351,7 +374,11 @@ class ConcurrencyLimiter:
     def __init__(self, max_concurrent: int) -> None:
         self._sem = threading.Semaphore(max_concurrent)
 
-    def acquire(self) -> bool:
+    def acquire(self, timeout: float = 0.0) -> bool:
+        """Non-blocking by default. With `timeout` > 0 (async jobs only, #406) waits up to that many seconds for a slot."""
+        if timeout > 0:
+            # a longer wait than TIMEOUT_MAX raises OverflowError even for a free slot
+            return self._sem.acquire(timeout=min(timeout, threading.TIMEOUT_MAX))
         return self._sem.acquire(blocking=False)
 
     def release(self) -> None:
@@ -1583,10 +1610,10 @@ def build_partner_router(
             store.discard(job_id)
             return admitted
 
-        def task() -> None:
+        def _run_job() -> None:
             store.start(job_id)
             try:
-                out = _run(req, admitted, debug_second_judge)
+                out = _run(req, admitted, debug_second_judge, slot_held=True)
                 if isinstance(out, dict):
                     out = AnalyseFactsResponse(**out).model_dump(mode="json", exclude_unset=True)
             except HTTPException as e:
@@ -1608,6 +1635,20 @@ def build_partner_router(
                 return
             _audit(metered, req, "job", status_code=200, out=out)
             store.finish(job_id, result=out)
+
+        def task() -> None:
+            # #406: an accepted job stays "pending" until it holds an agent slot, and waits for one up to job_slot_wait_s
+            # (counted from the moment a pool thread picks it up). Only then does it run; running jobs hold the slot.
+            if not admitted.concurrency.acquire(admitted.cfg.job_slot_wait_s):
+                if metered:
+                    _record_usage(metered[0], failed=True)
+                _audit(metered, req, "job", status_code=503)
+                store.fail(job_id, status_code=503, body=json.loads(bytes(coded_503(AGENT_AT_CAPACITY).body)))
+                return
+            try:
+                _run_job()
+            finally:
+                admitted.concurrency.release()
 
         _submit(task)
         return {"job_id": job_id, "status": "pending"}
