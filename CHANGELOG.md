@@ -3,7 +3,9 @@
 Release notes for the engine (`pravrudhi`). Versions before 0.5.44 are described in their GitHub release notes and commit
 messages.
 
-## Unreleased
+## 0.6.9 (2026-10-14)
+
+PATCH release on 0.6.8: the client-address diagnostic on `GET /api/health` no longer says why a proof failed (#451), and the assisted screening route refuses `workflow: "intake"` with an error naming the intake routes (#453). **Rebuild the image.** The changes are under `src/`, so they reach a running container only by a rebuild of the engine image and the RunPod worker template from 0.6.9.
 
 ### Changed
 
