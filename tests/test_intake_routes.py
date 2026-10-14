@@ -237,17 +237,62 @@ def test_without_an_intake_agent_the_route_answers_with_the_deterministic_bundle
     assert c.rt.transport.calls == [] and c.rt.store.log == []  # type: ignore[attr-defined]
 
 
-def test_the_shipped_config_has_no_intake_agent_yet() -> None:
+def test_the_shipped_config_names_the_pinned_intake_agent() -> None:
     raw = yaml.safe_load((REPO / "configs" / "assistant_tier.yaml").read_text())
-    assert raw["workflows"] == {}
+    assert raw["workflows"]["intake"] == {
+        "agent_id": "agent_019uQC3eQvCfo6viBX6xpErE",
+        "agent_version": 1,
+        "environment_id": "env_01NqsSVpfUrUMX6PiS7fGG9W",
+    }
 
 
-def test_the_intake_message_is_json_of_the_text_only() -> None:
+def test_the_intake_message_is_json_of_the_numbered_facts_only() -> None:
     m = AS.intake_user_message({"text": 'a "quoted" line\n\nnext'})
-    body = m[len(AS.INTAKE_USER_MESSAGE_PREFIX):]
+    body = m[len(AS.INTAKE_USER_MESSAGE_PREFIX) :]
     assert m.startswith(AS.INTAKE_USER_MESSAGE_PREFIX) and "contract_ids" not in m
-    assert json.loads(body) == {"text": 'a "quoted" line\n\nnext'}  # the text round-trips exactly as JSON
+    assert json.loads(body) == {"facts": [{"id": "F1", "text": 'a "quoted" line next'}]}  # facts only, round-tripping as JSON
     assert intake.SCAN_LINE not in m
+
+
+HEADER_ORDER = (
+    "IN THE HIGH COURT OF EXAMPLEPUR\n\nBETWEEN:\n\n"
+    "1. ZORVAN QUILLERIE, aged about 49 years, S/o Mr Hendrik Quillerie, resident of 14 Marlowe Lane, Thistleby\n\n"
+    "...Appellant (By Sri Oswin Pardue, Advocate)\n\nAND:\n\nThe State of Exampleshire ...Respondent\n\n"
+    "CORAM: HON'BLE MR JUSTICE ALDRIC FENWORTH\n\nDATE OF JUDGMENT: 02.01.2023\n\nJUDGMENT\n\n"
+    "1. The appellant was convicted of cheating after the complainant paid a deposit for a flat on 3 March.\n\n"
+    "2. The complainant says the flat was never handed over and the deposit was not refunded to him.\n\n"
+    "3. The trial court held that the appellant had promised possession by June and had made no arrangement to give it.\n\n"
+    "4. The appellant argues that the delay was caused by the builder and that he never meant to deceive anyone at all.\n"
+)
+HEADER_STRINGS = ["ZORVAN", "Hendrik", "Marlowe Lane", "aged about 49", "Oswin Pardue", "FENWORTH", "02.01.2023"]
+
+
+def test_header_of_the_order_never_reaches_the_model_only_the_numbered_facts_do(tmp_path: Path) -> None:
+    # arm 1: the header details ARE in the request the caller sent, and the plain (no-model) route excludes them from the facts
+    assert all(h in HEADER_ORDER for h in HEADER_STRINGS)
+    plain = _client(tmp_path / "p").post(PLAIN, json={"text": HEADER_ORDER}).json()["bundle"]
+    assert [n["status"] for n in plain["not_citable"] if n["status"] == "caption"] == ["caption"]
+    assert not any(h in f["text"] for f in plain["facts"] for h in HEADER_STRINGS) and len(plain["facts"]) == 4
+    # arm 2: the assisted route: all that is posted to the model (first message, tool results) has the facts, not the header
+    c = _assist_client(tmp_path, program=_program(HEADER_ORDER))
+    r = c.post(ASSIST, json={"text": HEADER_ORDER, "consent": True})
+    assert r.status_code == 200 and r.json()["assistant"]["used"] is True
+    posted = json.dumps(c.rt.transport.posted, ensure_ascii=False)  # type: ignore[attr-defined]
+    assert "The appellant was convicted of cheating" in posted and "flat was never handed over" in posted  # the facts are there
+    for h in HEADER_STRINGS:
+        assert h not in posted, h  # the header details are not
+
+
+def test_the_message_builder_alone_excludes_the_header_and_a_text_with_no_header_is_unchanged() -> None:
+    m = AS.intake_user_message({"text": HEADER_ORDER})
+    assert not any(h in m for h in HEADER_STRINGS) and "The appellant was convicted" in m
+    plain = "1. First fact is here and it is long enough.\n\n2. Second fact is here and it is also long enough.\n"
+    assert [
+        f["text"] for f in json.loads(AS.intake_user_message({"text": plain})[len(AS.INTAKE_USER_MESSAGE_PREFIX) :])["facts"]
+    ] == [
+        "1. First fact is here and it is long enough.",
+        "2. Second fact is here and it is also long enough.",
+    ]
 
 
 # ---- the pre-check's findings --------------------------------------------------------------------------------------------------

@@ -29,6 +29,7 @@ class HealthResponse(BaseModel):
                     "ledger": False,
                     "frontier_reader_available": False,
                     "assistant_tier": {"state": "unavailable", "reason": "no_key"},
+                    "tenancy_store": "file",
                 }
             ]
         }
@@ -43,6 +44,9 @@ class HealthResponse(BaseModel):
     frontier_reader_available: bool = False
     #: #122 additive: the assistant tier's state and reason (application/assistant_tier.py).
     assistant_tier: AssistantTierStatus = AssistantTierStatus(state="unavailable", reason="disabled")
+    #: #920 additive: where partner keys, usage and the audit log are kept: `file` (a local engine), or the hosted store's state
+    #: (`ok`, `unavailable`, `checking`). A label only: no value, no path.
+    tenancy_store: Literal["file", "ok", "unavailable", "checking"] = "file"
 
 
 class AssistantStatusResponse(BaseModel):

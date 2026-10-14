@@ -20,7 +20,7 @@ REPO = Path(__file__).resolve().parent.parent
 #: The shipped file turns the route on (0.6.5); these tests start from its dark form.
 DARK = {"assist_route_enabled": False, "agent_id": None, "agent_version": None, "environment_id": None}
 _SHIPPED = yaml.safe_load((REPO / "configs" / "assistant_tier.yaml").read_text())
-CFG = C.parse({**_SHIPPED, **DARK})  # the shipped file is enabled (0.6.5); these tests start dark
+CFG = C.parse({**_SHIPPED, **DARK, "workflows": {}})  # the shipped file is enabled (0.6.5); these tests start dark
 
 
 def pend(*ids):
@@ -277,7 +277,8 @@ def test_an_unknown_mode_is_refused():
 def cfg_with_agent():
     raw = yaml.safe_load((REPO / "configs" / "assistant_tier.yaml").read_text())
     raw.update(
-        assist_route_enabled=True, agent_id="agent_prod", agent_version=1, environment_id="env_p", store_ca_file="/app/ca.crt"
+        assist_route_enabled=True, agent_id="agent_prod", agent_version=1, environment_id="env_p", store_ca_file="/app/ca.crt",
+        workflows={},
     )
     return C.parse(raw)
 
