@@ -230,11 +230,20 @@ def _block(used: bool, outcome: str, reason: str | None, **kw: Any) -> dict[str,
 
 
 def _driver_stage_names(driver: Any) -> frozenset[str]:
-    """The tool names this driver defines (its `STAGES`: a class attribute, or the module's constant for the older drivers)."""
+    """The tool names this driver defines: its `STAGES` (a class attribute, found through the class hierarchy) or, for the older
+    drivers, the `STAGES` constant of the module that defines the class; anything else is an empty set (the field is then null)."""
+    if driver is None:
+        return frozenset()
     names = getattr(driver, "STAGES", None)
-    if names is None and driver is not None:
-        names = getattr(sys.modules.get(type(driver).__module__), "STAGES", None)
-    return frozenset(names) if isinstance(names, (tuple, list, frozenset)) else frozenset()
+    if names is None:
+        for klass in type(driver).__mro__:
+            found = getattr(sys.modules.get(klass.__module__), "STAGES", None)
+            if found is not None:
+                names = found
+                break
+    if isinstance(names, str) or not isinstance(names, (tuple, list, set, frozenset, dict)):
+        return frozenset()
+    return frozenset(n for n in names if isinstance(n, str))
 
 
 def _progress(run: _Run, cfg: AssistConfig) -> dict[str, Any] | None:

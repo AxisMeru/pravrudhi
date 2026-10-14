@@ -29,7 +29,11 @@ SENTINEL = "SENTINEL-client-text-91c2"
 def make_cfg(**over):
     raw = yaml.safe_load((REPO / "configs" / "assistant_tier.yaml").read_text())
     raw.update(
-        assist_route_enabled=True, agent_id="agent_p", agent_version=1, environment_id="env_p", store_ca_file="/app/ca.crt",
+        assist_route_enabled=True,
+        agent_id="agent_p",
+        agent_version=1,
+        environment_id="env_p",
+        store_ca_file="/app/ca.crt",
         workflows={},  # the shipped file names the workflow agents; these tests start with screening only
     )
     raw.update(over)
@@ -207,8 +211,10 @@ def ideal_ref(summary="Done.", stop="end_turn"):
                         i := i + 1,
                         "judge_element",
                         {
-                            "ingest_ref": ing["call_ref"], "contract_id": CID,
-                            "element": e["element_id"], "is_denial": e["is_denial"],
+                            "ingest_ref": ing["call_ref"],
+                            "contract_id": CID,
+                            "element": e["element_id"],
+                            "is_denial": e["is_denial"],
                         },
                     )
                 )
@@ -220,7 +226,8 @@ def ideal_ref(summary="Done.", stop="end_turn"):
         asm = yield tool_use(i := i + 1, "assemble", {"contract_id": CID, "element_refs": refs})
         lc = yield tool_use(i := i + 1, "lean_check", {"contract_id": CID, "assemble_ref": asm["call_ref"]})
         yield tool_use(
-            i := i + 1, "decide",
+            i := i + 1,
+            "decide",
             {"contract_id": CID, "element_refs": refs, "assemble_ref": asm["call_ref"], "lean_ref": lc["call_ref"]},
         )
         yield {"id": "m1", "type": "agent.message", "content": [{"type": "text", "text": summary}]}
@@ -870,6 +877,7 @@ def test_the_summary_hook_gets_a_copy_of_the_events(tmp_path):
 def test_the_screening_summary_rule_is_not_swallowed(tmp_path, monkeypatch):
     """Unchanged: an exception in the SCREENING default still ends in the ordinary result (only a workflow's own hook is
     display-only)."""
+
     def boom(*a, **k):
         raise RuntimeError("summary rule broke")
 
@@ -951,3 +959,20 @@ def test_every_driver_exposes_the_stage_names_the_progress_block_allows():
     assert "ingest" in AS._driver_stage_names(A0Driver.__new__(A0Driver))
     assert "bundle" in AS._driver_stage_names(intake_driver.IntakeDriver.__new__(intake_driver.IntakeDriver))
     assert AS._driver_stage_names(object()) == frozenset()
+
+
+def test_the_stage_names_follow_the_class_hierarchy_and_ignore_what_is_not_a_collection_of_names():
+    from pravrudhi.application.a0_assist import intake_driver
+
+    class Sub(intake_driver.IntakeDriver):  # a subclass in THIS module: the base's module constant is found through the MRO
+        pass
+
+    assert "bundle" in AS._driver_stage_names(Sub.__new__(Sub))
+
+    class Ext:
+        STAGES = {"a", "b"}
+
+    class Bad:
+        STAGES = "abc"
+
+    assert AS._driver_stage_names(Ext()) == frozenset({"a", "b"}) and AS._driver_stage_names(Bad()) == frozenset()
