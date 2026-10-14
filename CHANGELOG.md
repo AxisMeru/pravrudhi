@@ -8,6 +8,7 @@ messages.
 ### Changed
 
 - **`GET /api/health` no longer says why the client-address proof failed (caller-visible).** The response header `X-Pravrudhi-Client-Ip-Source` still says where the engine took the caller's address from, now only as `signed`, `proxy` or `peer`. The header `X-Pravrudhi-Client-Ip-Proof` is sent only to a caller that presents the provisioning secret; its values are documented for the holder of that secret. The reason is also written to the engine log when it changes. The body is unchanged. The change is under `src/`, so it reaches a running container only by a rebuild of the engine image.
+- **The assisted screening route refuses `workflow: "intake"` with a clear error (caller-visible).** `POST /api/v1/analyse-facts/assist` accepts `screening` and `hearing_prep` only; naming `intake` there answered 200 with the ordinary result and `not_configured`. It now answers 422, and the error names the intake routes: `POST /api/v1/intake` and `POST /api/v1/intake/assist`. The intake routes are unchanged. The change is under `src/`, so it reaches a running container only by a rebuild of the engine image.
 
 ## 0.6.8 (2026-10-14)
 
