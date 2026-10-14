@@ -178,6 +178,10 @@ class PartnerApiConfig:
     #: Async jobs (#406): how long an accepted job may WAIT for a free agent slot (`max_concurrent`) before it fails with
     #: `agent_at_capacity`. A job was accepted with 202, so it queues; the sync route stays non-blocking (0 = never wait).
     job_slot_wait_s: float = 600.0
+    #: Failed-key attempts per address per minute before further key checks from it are refused with 429 (#396). None = the
+    #: same as `rate_limit_per_minute` (the default). Set it higher when callers behind a gateway share one peer address and
+    #: a flood of bad keys must not lock the valid keyed callers out; env override PRAVRUDHI_BAD_KEY_BUDGET_PER_MINUTE.
+    bad_key_budget_per_minute: int | None = None
     #: Audit rows (#148) older than this are dropped on write and never served.
     audit_retention_s: float = 90 * 86400.0
     #: `POST /verify-citations` (#302): how many lookups may run at once (non-blocking: an extra one is a 503) and the
@@ -186,12 +190,37 @@ class PartnerApiConfig:
     verify_timeout_s: float = 5.0
 
     def __post_init__(self) -> None:
+        b = self.bad_key_budget_per_minute
+        if b is not None and (isinstance(b, bool) or not isinstance(b, int) or not 1 <= b <= MAX_BAD_KEY_BUDGET):
+            raise ValueError(
+                f"bad_key_budget_per_minute must be None or an integer from 1 to {MAX_BAD_KEY_BUDGET}, got {b!r}"[:200]
+            )
         if self.trust_proxy_header and not self.trusted_proxies:
             raise ValueError(
                 "trust_proxy_header is set but trusted_proxies is empty -- refusing to start: an "
                 "X-Forwarded-For header trusted with no allowlist of who may set it is a free rate-limit "
                 "bypass for any caller"
             )
+
+
+BAD_KEY_BUDGET_ENV = "PRAVRUDHI_BAD_KEY_BUDGET_PER_MINUTE"
+MAX_BAD_KEY_BUDGET = 1_000  # each failed attempt costs a password-hash check: keep the worst case small
+
+
+def _bad_key_budget(yaml_value: Any) -> int | None:
+    """The failed-key budget per address per minute: the environment variable wins over the yaml key; unset or null = None (the
+    caller then uses `rate_limit_per_minute`). A bool, a non-integer, zero, a negative or a value above the cap is a config
+    error, never a silent default."""
+    raw: Any = os.environ.get(BAD_KEY_BUDGET_ENV, "").strip() or yaml_value
+    if raw is None:
+        return None
+    if isinstance(raw, str):
+        if not raw.isascii() or not raw.isdigit():
+            raise ValueError(f"{BAD_KEY_BUDGET_ENV} / bad_key_budget_per_minute must be a whole number, got {raw[:40]!r}")
+        raw = int(raw)
+    if isinstance(raw, bool) or not isinstance(raw, int) or not 1 <= raw <= MAX_BAD_KEY_BUDGET:
+        raise ValueError(f"bad_key_budget_per_minute must be an integer from 1 to {MAX_BAD_KEY_BUDGET}, got {raw!r}"[:200])
+    return raw
 
 
 def load_partner_api_config(root: Path) -> PartnerApiConfig:
@@ -228,6 +257,7 @@ def load_partner_api_config(root: Path) -> PartnerApiConfig:
         job_retention_s=float(body.get("job_retention_s", 3600.0)),
         job_max_unfinished_per_key=int(body.get("job_max_unfinished_per_key", 8)),
         job_slot_wait_s=_job_slot_wait(body.get("job_slot_wait_s", 600.0)),
+        bad_key_budget_per_minute=_bad_key_budget(body.get("bad_key_budget_per_minute")),
         audit_retention_s=float(body.get("audit_retention_s", 90 * 86400.0)),
         verify_max_concurrent=int(body.get("verify_max_concurrent", 2)),
         verify_timeout_s=float(body.get("verify_timeout_s", 5.0)),
@@ -914,9 +944,33 @@ def _warn_short_client_ip_secret_once() -> None:
     )
 
 
-def _client_ip(
+def client_ip_proof(request: Request) -> str:
+    """Whether the request carries a valid proof that the gateway read the client address: a label, never a value.
+
+    "valid" (the shared secret matches and an address came with it), "no_ip" (the secret matches, no address came), "mismatch"
+    (a proof header was sent and it is wrong), "none" (no proof header was sent: the gateway is not signing), "engine_unset"
+    (this engine has no secret) or "engine_short" (this engine's secret is shorter than the minimum, so it is ignored)."""
+    secret = os.environ.get(CLIENT_IP_SECRET_ENV, "")
+    if not secret:
+        return "engine_unset"
+    if len(secret) < MIN_CLIENT_IP_SECRET_LENGTH:
+        _warn_short_client_ip_secret_once()
+        return "engine_short"
+    presented = request.headers.get(CLIENT_IP_SECRET_HEADER, "")
+    if not presented:
+        return "none"
+    # bytes, not str: compare_digest raises TypeError on a non-ASCII str (a header byte above 0x7f arrives as latin-1)
+    if not hmac.compare_digest(presented.encode("utf-8"), secret.encode("utf-8")):
+        return "mismatch"
+    return "valid" if request.headers.get(CLIENT_IP_HEADER, "").strip() else "no_ip"
+
+
+def client_ip_and_source(
     request: Request, *, trust_proxy_header: bool, trusted_proxies: tuple[str, ...], caller_key: str | None = None
-) -> str:
+) -> tuple[str, str]:
+    """(address, source). `source` is "signed" (the proof held), "proxy" (a trusted proxy's X-Forwarded-For), "caller" (no
+    proven address: bucketed by the caller's own identity) or "peer" (the socket peer: behind a gateway that is one shared
+    address for every anonymous caller)."""
     # Preferred over everything below: a caller-specific key proven, by the shared secret, to have come
     # from the Worker's own read of Cloudflare's CF-Connecting-IP -- correct even when this engine sits
     # behind a proxy (RunPod's LB, a cloudflared tunnel) that presents every real caller as the same socket
@@ -924,16 +978,8 @@ def _client_ip(
     # once. Fails CLOSED, never open: a missing or too-short secret, a missing client-IP header, or a
     # mismatched secret all fall through to the existing (stricter, shared-key-prone) behavior below rather
     # than trusting an unproven header.
-    secret = os.environ.get(CLIENT_IP_SECRET_ENV, "")
-    if secret and len(secret) < MIN_CLIENT_IP_SECRET_LENGTH:
-        _warn_short_client_ip_secret_once()
-        secret = ""
-    if secret:
-        presented = request.headers.get(CLIENT_IP_SECRET_HEADER, "")
-        if presented and hmac.compare_digest(presented, secret):
-            client_ip = request.headers.get(CLIENT_IP_HEADER, "").strip()
-            if client_ip:
-                return client_ip
+    if client_ip_proof(request) == "valid":
+        return request.headers.get(CLIENT_IP_HEADER, "").strip(), "signed"
 
     client = request.client
     socket_peer = client.host if client is not None else "unknown"
@@ -946,14 +992,22 @@ def _client_ip(
     if trust_proxy_header and socket_peer in trusted_proxies:
         forwarded = request.headers.get("x-forwarded-for")
         if forwarded:
-            return forwarded.split(",")[0].strip()
+            return forwarded.split(",")[0].strip(), "proxy"
     # No proven client address. Behind the gateway the socket peer is the proxy itself, so every caller would share ONE
     # bucket: a caller that is identified (an API key, or a signed-in user) is bucketed by that identity instead. A client
     # address header that is not signed with the shared secret is never read, so a forged one can neither raise nor dodge
     # a limit: rotating it changes nothing. An anonymous caller keeps the socket peer (the stricter shared bucket).
     if caller_key:
-        return caller_key
-    return socket_peer
+        return caller_key, "caller"
+    return socket_peer, "peer"
+
+
+def _client_ip(
+    request: Request, *, trust_proxy_header: bool, trusted_proxies: tuple[str, ...], caller_key: str | None = None
+) -> str:
+    return client_ip_and_source(
+        request, trust_proxy_header=trust_proxy_header, trusted_proxies=trusted_proxies, caller_key=caller_key
+    )[0]
 
 
 @functools.lru_cache(maxsize=1)
@@ -1047,7 +1101,7 @@ def build_partner_router(
                 # Failed-key attempts per proven address (or socket peer): a request with a key that does not verify costs a
                 # password-hash check, so these are budgeted BEFORE the check and charged only when it fails.
                 _state["bad_key_limiter"] = RateLimiter(
-                    cfg.rate_limit_per_minute, max_keys=cfg.rate_limit_max_keys, **clock_kw
+                    cfg.bad_key_budget_per_minute or cfg.rate_limit_per_minute, max_keys=cfg.rate_limit_max_keys, **clock_kw
                 )
             return (
                 _state["cfg"], _state["rate_limiter"], _state["concurrency"], _state["provision_rate_limiter"],
