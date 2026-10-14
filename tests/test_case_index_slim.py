@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 
 from pravrudhi.application.case_index import CaseRecord, insert_case, open_index
-from pravrudhi.application.case_index_slim import SlimBuildError, build_slim_index, is_existence_only, read_meta
+from pravrudhi.application.case_index_slim import SlimBuildError, build_slim_index, read_meta
 from pravrudhi.application.verify import VerifyResult, exists_in_index
 
 SENTINEL_A = "zorbathian-sentinel-passage"
@@ -161,15 +161,14 @@ def test_a_missing_source_refuses(tmp_path: Path) -> None:
         build_slim_index(tmp_path / "nope.sqlite3", tmp_path / "out.sqlite3")
 
 
-def test_the_existence_only_reader_fails_closed(tmp_path: Path) -> None:
+def test_read_meta_returns_none_for_a_full_index_and_the_rows_for_a_slim_one(tmp_path: Path) -> None:
+    """The route decides what a missing `meta` table or key means (api/partner.py); this module only reads the rows."""
     db = sqlite3.connect(tmp_path / "x.sqlite3")
-    assert is_existence_only(db) is False and read_meta(db) is None  # no meta table = a full index
+    assert read_meta(db) is None
     db.execute("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
-    assert is_existence_only(db) is True  # a meta table without the key reads as existence-only
-    for value, expect in (("1", True), ("0", False), ("yes", True), ("", True)):
-        db.execute("DELETE FROM meta")
-        db.execute("INSERT INTO meta VALUES ('existence_only', ?)", (value,))
-        assert is_existence_only(db) is expect, value
+    assert read_meta(db) == {}
+    db.execute("INSERT INTO meta VALUES ('existence_only', '1')")
+    assert read_meta(db) == {"existence_only": "1"}
 
 
 def test_the_script_builds_and_prints_the_counts(tmp_path: Path, full: Path, capsys: pytest.CaptureFixture[str]) -> None:

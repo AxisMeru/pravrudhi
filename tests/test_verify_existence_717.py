@@ -212,3 +212,20 @@ def test_the_list_is_in_the_wheel_assets_tree() -> None:
         "nondistinctive_tokens.json",
     ) or V._NONDISTINCTIVE_FILE.parts[-3:] == ("assets", "citation", "nondistinctive_tokens.json")
     assert V._NONDISTINCTIVE_FILE.is_file()
+
+
+def test_the_shipped_extra_word_limit_is_zero() -> None:
+    """The decision on record: beyond the config list a title may carry NO extra distinctive word."""
+    assert V.EXISTENCE_MAX_EXTRA_TITLE_TOKENS == 0
+
+
+def test_no_surviving_case_is_not_in_index(tmp_path: Path) -> None:
+    """The alias resolves to a case, but only OUTSIDE the cited year's window: zero cases survive: no evidence either way."""
+    conn = _db(tmp_path, "zero", [("far", "Aldric Vennoway vs B R Telmark", 2010)])
+    assert exists_in_index(conn, KEY) == VerifyResult.NOT_IN_INDEX
+
+
+def test_a_party_title_test_failure_leaves_no_surviving_case(tmp_path: Path) -> None:
+    """A case within the window that carries only SOME of the cited parties' words is not the cited case: zero survivors."""
+    conn = _db(tmp_path, "zero2", [("partial", "Aldric Someoneelse vs Another Respondent", 2083)])
+    assert exists_in_index(conn, KEY) == VerifyResult.NOT_IN_INDEX

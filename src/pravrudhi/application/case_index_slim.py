@@ -140,13 +140,3 @@ def read_meta(conn: sqlite3.Connection) -> dict[str, str] | None:
         if "no such table" not in str(e):
             raise
         return None
-
-
-def is_existence_only(conn: sqlite3.Connection) -> bool:
-    """True when the index is a slim file: a `meta` table whose `existence_only` value is anything but '0' (fail
-    closed: a missing key,
-    an empty or unreadable value reads as existence-only). No `meta` table = a full index."""
-    meta = read_meta(conn)
-    if meta is None:
-        return False
-    return meta.get("existence_only", "1") != "0"
