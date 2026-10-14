@@ -3,6 +3,12 @@
 Release notes for the engine (`pravrudhi`). Versions before 0.5.44 are described in their GitHub release notes and commit
 messages.
 
+## Unreleased
+
+### Changed
+
+- **The service window can be open at every instant (caller-visible).** `service_window` in `configs/partner_api.yaml` accepts `always_open: true`, which makes `open_now` true at every moment. The shipped window sets it, so `GET /api/v1/status` no longer reads closed for the one minute from 23:59 to 00:00 that a 00:00 to 23:59 window had. `open` and `close` are still reported and must still differ. A window without the key behaves as before, and `enforce` is unchanged.
+
 ## 0.6.10 (2026-10-14)
 
 PATCH release on 0.6.9: the service window now covers the whole day, so a signed-in user is no longer shown disabled run buttons after 21:00.
