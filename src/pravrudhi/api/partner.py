@@ -315,12 +315,18 @@ class RateLimiter:
 
 
 def rate_limited_response(
-    *, limit: int, retry_after: int, scope: str, headers: dict[str, str] | None = None
+    *, limit: int, retry_after: int, scope: str, headers: dict[str, str] | None = None, sign_in: bool = True
 ) -> JSONResponse:
     """The 429 body (#403): the machine field `detail` and the `Retry-After` header are unchanged; the added fields say the
     limit, the window and what to do. `scope` is "anonymous" (no signed-in user and no key), "caller" (a signed-in user
     or key whose address bucket fired) or "key" (a key's own per-minute limit)."""
-    if scope == "anonymous":
+    if scope == "anonymous" and not sign_in:
+        # a route that only knows API keys (verify-citations): signing in would not give a separate limit there
+        message = (
+            f"You have reached the limit for callers without an API key ({limit} requests per minute). "
+            f"Try again in {retry_after} seconds, or use an API key to get your own limit."
+        )
+    elif scope == "anonymous":
         message = (
             f"You have reached the limit for visitors who are not signed in ({limit} requests per minute). "
             f"Try again in {retry_after} seconds, or sign in or use an API key to get your own limit."
@@ -1664,7 +1670,7 @@ def build_partner_router(
         if not rate_limiter.allow(ip):
             return rate_limited_response(
                 limit=rate_limiter.per_minute, retry_after=rate_limiter.retry_after_seconds(),
-                scope="caller" if principal is not None else "anonymous",
+                scope="caller" if principal is not None else "anonymous", sign_in=False,
             )
         if principal is not None:
             key = next((k for k in tenancy.keys_for_org(engine_root, principal.org_id) if k.key_id == principal.key_id), None)
