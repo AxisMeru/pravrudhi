@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import threading
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -110,9 +111,14 @@ def test_intake_does_not_need_the_judges_so_a_parked_judge_does_not_block_it(tmp
     cfg = PartnerApiConfig(rate_limit_per_minute=1000, max_concurrent=1, trust_proxy_header=False, judge_health_check=True)
     app = FastAPI()
     agent = _agent(tmp_path, _proof_script())
+    agent.config = replace(agent.config, house_judge={"base_url": "https://api.runpod.ai/v2/ep123/openai/v1"})
     app.include_router(build_partner_router(tmp_path, agent_factory=lambda _r: agent, config=cfg, judge_health_fetch=fetch))
     app.dependency_overrides[identity.current_user] = lambda: USER
-    assert TestClient(app).post(PLAIN, json={"text": TEXT}).status_code == 200 and calls == []
+    c = TestClient(app)
+    assert c.post(PLAIN, json={"text": TEXT}).status_code == 200 and calls == []  # intake never reads the judge health
+    # control: the same app DOES refuse a screening call, so this test would catch intake being gated on the judges
+    body = {"facts": ["a fact."], "narrative": "", "contract_ids": ["bns69"]}
+    assert c.post("/api/v1/analyse-facts", json=body).json() == {"error": "judges_offline"} and calls
 
 
 def test_the_intake_routes_are_not_in_the_public_contract(tmp_path: Path) -> None:
