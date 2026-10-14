@@ -3,6 +3,12 @@
 Release notes for the engine (`pravrudhi`). Versions before 0.5.44 are described in their GitHub release notes and commit
 messages.
 
+## Unreleased
+
+### Fixed
+
+- **The first citation check after a start is no longer slowed by the coverage summary (caller-visible).** The coverage summary that comes with a citation answer is now computed with a query that stays fast on the container image's SQLite (3.46); on the slim index the old query took about 30 seconds, and the first citation check after each start waited for it. The answers and the coverage figures are unchanged. The change is under `src/`, so it reaches a running container only by a rebuild of the engine image.
+
 ## 0.6.7 (2026-10-14)
 
 Release on 0.6.6.1: the partner API key works on the partner routes of the hosted deployment (#436), the intake and hearing-preparation workflows are added, each with its own pinned assistant agent (#430, #420, #431, #437), the steps appendix on an assisted screening arrives (#421), the audit page answers for a key that called the assisted route (#428), the gateway client-address diagnostic and the bad-key budget knob arrive (#426), and partner keys, usage counts and the audit log can live in the Supabase database in hosted deployments (#439). **Rebuild the image.** The changes are under `src/`, `configs/` and `docs/api/`, so they reach a running container only by a rebuild of the engine image and the RunPod worker template from 0.6.7.

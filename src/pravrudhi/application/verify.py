@@ -603,9 +603,11 @@ def index_coverage(conn: sqlite3.Connection, path: str, mtime_ns: int) -> dict[s
     conn.row_factory = sqlite3.Row
     held_sql = "SELECT court, COUNT(*) AS n FROM cases GROUP BY court ORDER BY n DESC"
     held = {r["court"]: r["n"] for r in conn.execute(held_sql)}
+    # IN over a subquery, not a JOIN: `cases` is an FTS5 table and SQLite 3.46 (the container image) plans the JOIN as a full
+    # scan of `cases` per alias row (~30 s on the slim index). Same counts. Do not make it NOT IN (a NULL alias case_id matters).
     res_sql = (
-        "SELECT c.court AS court, COUNT(DISTINCT c.case_id) AS n FROM cases c JOIN citation_aliases a ON a.case_id = c.case_id "
-        "GROUP BY c.court ORDER BY n DESC"
+        "SELECT c.court AS court, COUNT(DISTINCT c.case_id) AS n FROM cases c "
+        "WHERE c.case_id IN (SELECT case_id FROM citation_aliases) GROUP BY c.court ORDER BY n DESC"
     )
     res = {r["court"]: r["n"] for r in conn.execute(res_sql)}
     held_yr = conn.execute("SELECT MIN(year) AS lo, MAX(year) AS hi FROM cases").fetchone()
