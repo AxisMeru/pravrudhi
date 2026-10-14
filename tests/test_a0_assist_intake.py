@@ -184,10 +184,18 @@ def test_long_paragraph_is_cut_at_sentence_ends_not_after_abbreviations():
     assert not any(f["text"].startswith(("Kumar", "Kumar,")) for f in b["facts"])
 
 
-def test_too_many_candidates_refused():
-    raw = "\n\n".join(f"{i}. Fact number {i} is here." for i in range(I.MAX_FACTS + 1))
+def test_many_paragraphs_are_merged_not_refused():
+    raw = "\n\n".join(f"{i}. Fact number {i} is here." for i in range(I.MAX_FACTS * 2))
+    b = I.build_bundle(raw)
+    assert 0 < len(b["facts"]) <= I.MAX_FACTS and all(v["pass"] for v in b["checks"].values())
+
+
+def test_agent_candidates_beyond_twice_the_cap_are_refused():
+    raw = "1. A fact is here.\n"
+    b = I.build_bundle(raw)
+    prop = {**fresh(b), "facts": [{"cleaned_start": 0, "cleaned_end": 3}] * (I.MAX_FACTS * 2 + 1)}
     with pytest.raises(I.IntakeRefused):
-        I.build_bundle(raw)
+        I.build_bundle(raw, proposal=prop)
 
 
 # ---- the bundle: C1..C7 on the baseline --------------------------------------------------------------------------------
@@ -441,3 +449,132 @@ def test_no_test_launches_its_own_suite():
 
 def test_scan_line_is_the_signed_wording():
     assert I.SCAN_LINE == "This file looks like a scan, so its text cannot be read here. Paste the text instead."
+
+
+# ---- regressions from the isolated Sonnet pre-check (records: precheck_intake) -----------------------------------------------
+import contextlib  # noqa: E402
+import signal  # noqa: E402
+
+
+@contextlib.contextmanager
+def deadline(seconds: int):
+    """A hang or a quadratic/exponential blow-up fails the test instead of stalling the suite."""
+
+    def boom(*_a):
+        raise TimeoutError(f"took longer than {seconds}s")
+
+    old = signal.signal(signal.SIGALRM, boom)
+    signal.alarm(seconds)
+    try:
+        yield
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, old)
+
+
+@pytest.mark.parametrize("dels", [[[2, 2, "furniture"]], [[2, 3, "furniture"], [3, 2, "furniture"]]])
+def test_zero_length_or_cyclic_deletions_do_not_hang_and_fail_c1(dels):
+    raw = "a b"
+    segs = [[0, 1, 0, 1, "c"], [1, 2, 1, 2, "w"], [2, 3, 2, 3, "c"]]
+    with deadline(5):
+        ck = I.check_clean(raw, "a b", segs, dels)
+        out = I.build_bundle(raw, proposal={"cleaned": "a b", "segments": segs, "deletions": dels})
+    assert not ck["C1"]["pass"] and out["clean_status"] == "served_raw"
+
+
+def test_caption_guard_is_linear_on_one_huge_page():
+    raw = "\n".join(["A B C"] * 4000 + ["A B C petitioner"] * 4000)
+    with deadline(10):
+        I.clean(raw)
+
+
+def test_sentence_ends_are_linear_on_one_huge_paragraph():
+    raw = "A. B. " * 30000
+    with deadline(10):
+        b = I.build_bundle(raw)
+    assert b["checks"]["C1"]["pass"]
+
+
+def test_stamp_grammar_does_not_backtrack_exponentially():
+    bad = "CR." * 35 + "!"
+    raw = pages(*[f"{bad}\ntext {i}\n{i}" for i in (1, 2, 3)])
+    with deadline(5):
+        I.clean(raw)
+    with deadline(5):
+        assert I._is_stamp(bad) is False
+
+
+def test_many_tiny_pages_are_linear():
+    raw = "\f".join(str(i % 999 + 1) for i in range(20000))
+    with deadline(10):
+        I.clean(raw)
+
+
+def test_c6_fails_on_a_parser_span_outside_the_text(monkeypatch):
+    monkeypatch.setattr(I, "extract_citations", lambda raw: [{"start": 5, "end": 2, "text": "", "reporter": "SCC", "year": 1}])
+    b = I.build_bundle("1. A fact is here.\n")
+    assert b["checks"]["C6"]["pass"] is False and b["citations"] == []
+
+
+def test_dropping_a_space_between_devanagari_words_is_caught():
+    raw = "वह नहीं गया"
+    i = raw.index(" ")
+    prop = {"cleaned": "वहनहीं गया", "segments": [[0, i, 0, i, "c"], [i, 10, i + 1, 11, "c"]], "deletions": [[i, i + 1, "ws"]]}
+    ck = I.check_clean(raw, prop["cleaned"], prop["segments"], prop["deletions"])
+    assert not (ck["C2"]["pass"] and ck["C3"]["pass"])
+    assert I.build_bundle(raw, proposal=prop)["clean_status"] == "served_raw"
+
+
+def test_merging_two_latin_words_by_a_ws_deletion_is_caught():
+    raw = "1. a b c is here.\n"
+    prop = {
+        "cleaned": "1. ab c is here.",
+        "segments": [[0, 4, 0, 4, "c"], [4, 16, 5, 17, "c"]],
+        "deletions": [[4, 5, "ws"], [17, 18, "ws"]],
+    }
+    assert I.build_bundle(raw, proposal=prop)["clean_status"] == "served_raw"
+
+
+@pytest.mark.parametrize("prop", [[1], "x", 5])
+def test_non_mapping_proposal_is_refused_not_a_crash(prop):
+    with pytest.raises(I.IntakeRefused):
+        I.build_bundle("1. A fact is here.\n", proposal=prop)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("facts", ["abc", [1], [None], ["x"]])
+def test_bad_facts_container_is_refused_not_a_crash(facts):
+    raw = "1. A fact is here.\n"
+    b = I.build_bundle(raw)
+    with pytest.raises(I.IntakeRefused):
+        I.build_bundle(raw, proposal={**fresh(b), "facts": facts})
+
+
+def test_unread_pages_are_validated_and_bools_are_not_offsets():
+    raw = "1. A fact is here.\n"
+    b = I.build_bundle(raw)
+    out = I.build_bundle(raw, proposal={**fresh(b), "unread_pages": [[1], "a", True, 0, 7, -1]})
+    assert out["unread_pages"] == [0]
+    out2 = I.build_bundle(raw, proposal={**fresh(b), "facts": [{"cleaned_start": True, "cleaned_end": 5}]})
+    assert out2["facts"] == [] and out2["not_citable"][0]["cleaned_start"] is None
+
+
+def test_lone_surrogate_is_refused_not_a_crash():
+    with pytest.raises(I.IntakeRefused):
+        I.read_input("abc\ud800")
+
+
+def test_text_with_no_sentence_end_is_hard_cut_at_whitespace():
+    raw = "1. " + "word " * 500
+    b = I.build_bundle(raw)
+    assert len(b["facts"]) > 1 and all(len(f["text"]) <= I.MAX_FACT_CHARS for f in b["facts"])
+    assert all(not f["text"].startswith("ord") for f in b["facts"])
+
+
+def test_a_short_sentence_final_word_is_a_sentence_end_not_an_abbreviation():
+    par = "He went to do so. Then he left the house and the market for a long time. " * 12
+    assert any(par[:e].endswith("do so.") for e in I._sentence_ends(par))
+
+
+def test_zero_citable_facts_fails_c4():
+    b = I.build_bundle("12345")
+    assert b["facts"] == [] and b["checks"]["C4"]["pass"] is False

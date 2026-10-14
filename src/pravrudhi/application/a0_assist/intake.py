@@ -5,13 +5,13 @@ Nothing here uses a model, the network, a file or a clock. Every function is pur
 
 Tools (the agent may call them as tool calls; the baseline route calls them in-process, with no model at all):
   read_input         the request's raw text: sha256, length, page starts; refuses empty or over-cap text.
-  clean              F0 v1: delete admitted page furniture (behind the E1d caption guard), join hyphenated line breaks,
+  clean              F0 v1: delete admitted page furniture (behind a caption guard), join hyphenated line breaks,
                      collapse whitespace; returns the cleaned text plus a segment map and the list of deleted raw spans.
   split_facts        rule-based paragraph / sentence-group candidates over the CLEANED text, as index spans only.
   extract_citations  the existing typed parser (citations.parse_citations) over the RAW text, with raw spans.
   build_bundle       FINAL. Recomputes every check from the raw text; only what verifies is marked citable.
 
-The bundle's checks (see docs: INTAKE_DESIGN_NOTE_2026-10-14): C1 offset round-trip cleaned to raw; C2 every deletion is
+The bundle checks: C1 offset round-trip cleaned to raw; C2 every deletion is
 admissible by recomputation; C3 protected tokens; C4 each fact a contiguous raw span (else paraphrase, not citable);
 C5 coverage (reported); C6 citation spans and verifier status shown unchanged; C7 determinism (bundle sha).
 Offsets are Unicode code-point offsets into the raw text exactly as received (no normalisation of the raw text).
@@ -73,6 +73,10 @@ def read_input(raw: str) -> dict[str, Any]:
         raise IntakeRefused("no text to read")
     if len(raw) > MAX_CHARS:
         raise IntakeRefused(f"text is longer than {MAX_CHARS} characters")
+    try:
+        raw.encode("utf-8")
+    except UnicodeEncodeError:
+        raise IntakeRefused("text has characters that cannot be read") from None
     starts = [0]
     for i, c in enumerate(raw):
         if c == "\f":
@@ -80,7 +84,7 @@ def read_input(raw: str) -> dict[str, Any]:
     return {"raw_sha256": sha(raw), "n_chars": len(raw), "page_starts": starts}
 
 
-# ---- page furniture (ported from the E1c/E1d research cleaner; only the admitted kinds are used) ------------------------
+# ---- page furniture (ported from a research cleaner; only the admitted kinds are used) ------------------------
 _MAX_LINE = 120
 _CURR = re.compile(r"(?:\bRs\b\.?|\bINR\b|₹|\brupees?\b)", re.I)
 _NEGW = re.compile(
@@ -139,8 +143,11 @@ _PARA_START = re.compile(r"(?:\d{1,3}[.)]|\([0-9]{1,3}\)|\([ivxIVX]{1,5}\))\s+\S
 
 def _next_kept(e: int, ends_by_start: dict[int, int]) -> int:
     """Where the next kept text begins: skip the deletions that start right at `e`."""
-    while e in ends_by_start:
-        e = ends_by_start[e]
+    for _ in range(len(ends_by_start) + 1):
+        nxt = ends_by_start.get(e)
+        if nxt is None or nxt <= e:
+            break
+        e = nxt
     return e
 
 
@@ -199,6 +206,8 @@ def _guards_ok(t: str) -> bool:
 
 def _is_stamp(t: str) -> bool:
     t = _ws(t)
+    if len(t) > _MAX_LINE or t.count(".") > 8:  # bounds the stamp grammar's backtracking
+        return False
     return bool(t) and bool(_STAMP.match(t)) and bool(re.search(r"[A-Za-z]", t))
 
 
@@ -294,6 +303,13 @@ def _protected_lines(text: str) -> set[tuple[int, int]]:
     for pi, pg in enumerate(pages):
         ne = [i for i, (_, _, ln) in enumerate(pg) if ln.strip()]
         g2 = {i for i in ne if _CAP_VOCAB.search(pg[i][2])}
+        pos_of = {i: k for k, i in enumerate(ne)}
+        g2pos = sorted(pos_of[j] for j in g2)
+
+        def near(k: int, g2pos: list[int] = g2pos) -> bool:
+            x = bisect.bisect_left(g2pos, k)
+            return any(0 <= y < len(g2pos) and abs(g2pos[y] - k) <= 2 for y in (x - 1, x))
+
         for i in ne:
             t = _ws(pg[i][2])
             if (
@@ -303,20 +319,22 @@ def _protected_lines(text: str) -> set[tuple[int, int]]:
                 and not _URL.search(t)
             ):
                 prot.add((pg[i][0], pg[i][1]))
-            if i in g2 or len(t.split()) >= 3 and _upper_share(t) >= 0.5 and any(abs(ne.index(i) - ne.index(j)) <= 2 for j in g2):
+            if i in g2 or len(t.split()) >= 3 and _upper_share(t) >= 0.5 and near(pos_of[i]):
                 prot.add((pg[i][0], pg[i][1]))
     return prot
 
 
-def _n_has_stamp_neighbour(pages: list[list[tuple[int, int, str]]], span: tuple[int, int]) -> bool:
+def _stamp_neighbours(pages: list[list[tuple[int, int, str]]]) -> dict[tuple[int, int], bool]:
+    """For every line (start, end): is the previous or next non-empty line of its page a header stamp? Built once per text."""
+    out: dict[tuple[int, int], bool] = {}
     for pg in pages:
-        for k, (a, b, _) in enumerate(pg):
-            if (a, b) == span:
-                ne = [i for i, (_, _, ln) in enumerate(pg) if ln.strip()]
-                pos = ne.index(k)
-                nb = [ne[j] for j in (pos - 1, pos + 1) if 0 <= j < len(ne)]
-                return any(_is_stamp(pg[i][2]) or bool(_NEUTRAL.search(pg[i][2])) for i in nb)
-    return False
+        ne = [i for i, (_, _, ln) in enumerate(pg) if ln.strip()]
+        for pos, k in enumerate(ne):
+            nb = [ne[j] for j in (pos - 1, pos + 1) if 0 <= j < len(ne)]
+            out[(pg[k][0], pg[k][1])] = any(
+                len(pg[i][2]) <= 200 and (_is_stamp(pg[i][2]) or bool(_NEUTRAL.search(pg[i][2]))) for i in nb
+            )
+    return out
 
 
 def furniture_lines(raw: str) -> list[tuple[int, int, str]]:
@@ -324,15 +342,21 @@ def furniture_lines(raw: str) -> list[tuple[int, int, str]]:
     separated by form feed); a text with no page breaks yields none.
     Never a caption line; never a class outside ADMITTED_KINDS."""
     pages = _pages_and_lines(raw)
-    prot = _protected_lines(raw)
+    prot = sorted(_protected_lines(raw))
+    pstarts = [ps for ps, _ in prot]
+    nbmap = _stamp_neighbours(pages)
     out = []
     for a, b, c in _f2_spans(raw):
         t = _ws(raw[a:b])
         if c == "N":  # noqa: SIM108
-            ok = _n_has_stamp_neighbour(pages, (a, b))
+            ok = nbmap.get((a, b), False)
         else:
             ok = _is_stamp(t)
-        if ok and _kind(t) in ADMITTED_KINDS and not any(a < pe and ps < b for ps, pe in prot):
+        j = (
+            bisect.bisect_left(pstarts, b) - 1
+        )  # protected lines are disjoint and sorted: only the last one starting before b can overlap
+        overlaps = j >= 0 and prot[j][1] > a
+        if ok and _kind(t) in ADMITTED_KINDS and not overlaps:
             out.append((a, b, "furniture"))
     return out
 
@@ -425,14 +449,14 @@ def check_clean(raw: str, cleaned: str, segments: Sequence[Sequence[Any]], delet
         )
         pos = 0
         for a, e, _kind, _it in items:
-            if a != pos or e < a:
+            if a != pos or e <= a:
                 c1_err.append(f"raw not tiled at {pos}")
                 break
             pos = e
         else:
             if pos != len(raw):
                 c1_err.append("raw not covered to its end")
-        dstarts = {d[0]: d[1] for d in deletions if d[2] != "ws"}
+        dstarts = {d[0]: d[1] for d in deletions if d[2] != "ws" and d[1] > d[0]}
         cpos = 0
         rebuilt: list[str] = []
         for s in segments:
@@ -461,14 +485,15 @@ def check_clean(raw: str, cleaned: str, segments: Sequence[Sequence[Any]], delet
     except (TypeError, ValueError, IndexError) as e:
         c1_err.append(f"malformed map: {type(e).__name__}")
     adm = _admissible_deletions(raw)
+    base_ws = {(d[0], d[1]) for d in clean(raw)["deletions"] if d[2] == "ws"}
     c2_err: list[str] = []
     c3_err: list[str] = []
     try:
         for d in deletions:
             a, end, cls = d[0], d[1], d[2]
             if cls == "ws":
-                if not raw[a:end] or not raw[a:end].isspace():
-                    c2_err.append(f"ws deletion at {a} is not whitespace")
+                if not raw[a:end] or not raw[a:end].isspace() or (a, end) not in base_ws:
+                    c2_err.append(f"ws deletion at {a} is not one the cleaner makes")
             elif adm.get((a, end)) != cls:
                 c2_err.append(f"deletion {a}:{end} ({cls}) is not admissible")
         if not c1_err:
@@ -491,12 +516,12 @@ def check_clean(raw: str, cleaned: str, segments: Sequence[Sequence[Any]], delet
     }
 
 
-_PROT = re.compile(r"\d[\d,./-]*\d|\d|\b[A-Z][A-Za-z]+\b|\b(?:not|no|never|nor|without|cannot|neither|none)\b|n't", re.I)
+_PROT = re.compile(r"\d[\d,./-]*\d|\d|[^\W\d_]+")
 
 
 def _protected(text: str) -> Counter[str]:
-    """Multiset of load-bearing tokens: numbers (amounts, dates, sections), negations, capitalised words (names). Hyphen joins
-    and whitespace do not change it because the tokens are matched on text with hyphen-newline joins removed."""
+    """Multiset of load-bearing tokens: numbers (amounts, dates, sections) and every word of any script (negations, names).
+    Hyphen joins and whitespace do not change it because the tokens are matched on text with the joins removed."""
     t = _HYPHEN.sub(lambda m: "" if m.string[m.end()].islower() else m.group(), text)
     return Counter(m.group() for m in _PROT.finditer(t))
 
@@ -515,23 +540,58 @@ _SENT_END = re.compile(r"[.?!]['\"”’)\]]*\s+(?=[A-Z0-9\"'(“ऀ-ॿ])")
 def _sentence_ends(par: str) -> list[int]:
     cuts: list[int] = []
     for m in _SENT_END.finditer(par):
-        word = (re.search(r"(\S+)$", par[: m.start() + 1]) or re.search(r"(.)$", "x")).group(1)  # type: ignore[union-attr]
-        w = word.strip("'\"()[]“”").rstrip(".?!").lower()
+        i = m.start() + 1
+        j = i
+        while j > 0 and not par[j - 1].isspace():
+            j -= 1
+        word = par[j:i]
+        wo = word.strip("'\"()[]“”").rstrip(".?!")
+        w = wo.lower()
         if (
             w in _ABBR
             or re.fullmatch(r"(?:[a-z]\.){1,}[a-z]?", word.strip("'\"()[]").lower())
-            or re.fullmatch(r"[a-z]{1,2}", w)
-            and word.endswith(".")
+            or (re.fullmatch(r"[A-Z]{1,2}", wo) and word.endswith("."))
         ):
             continue
         cuts.append(m.start() + len(m.group().rstrip()))
     return cuts
 
 
+def _hard_cut(par: str, a: int, spans: list[dict[str, int]]) -> None:
+    """Cut a piece with no usable sentence end at whitespace near MAX_FACT_CHARS (never inside a word)."""
+    start = 0
+    while len(par) - start > MAX_FACT_CHARS:
+        cut = par.rfind(" ", start + MAX_FACT_CHARS // 2, start + MAX_FACT_CHARS)
+        if cut <= start:
+            cut = start + MAX_FACT_CHARS
+        spans.append({"cleaned_start": a + start, "cleaned_end": a + cut})
+        start = cut
+        while start < len(par) and par[start].isspace():
+            start += 1
+    if start < len(par):
+        spans.append({"cleaned_start": a + start, "cleaned_end": a + len(par)})
+
+
+def _merge_down(spans: list[dict[str, int]], cleaned: str) -> list[dict[str, int]]:
+    """When there are more than MAX_FACTS candidates, merge neighbours (a contiguous cleaned slice) under a growing size cap."""
+    cap = MAX_FACT_CHARS
+    while len(spans) > MAX_FACTS and cap < MAX_CHARS:
+        cap *= 2
+        merged: list[dict[str, int]] = []
+        for s in spans:
+            if merged and s["cleaned_end"] - merged[-1]["cleaned_start"] <= cap:
+                merged[-1] = {"cleaned_start": merged[-1]["cleaned_start"], "cleaned_end": s["cleaned_end"]}
+            else:
+                merged.append(dict(s))
+        spans = merged
+    return spans
+
+
 def split_facts(cleaned: str) -> list[dict[str, int]]:
     """Index spans over the CLEANED text: one candidate per paragraph (blank-line separated); a paragraph longer than
-    MAX_FACT_CHARS is cut at sentence ends into groups of at most MAX_FACT_CHARS. Pure-number and letterless
-    paragraphs are skipped."""
+    MAX_FACT_CHARS is cut at sentence ends into groups of at most MAX_FACT_CHARS (hard-cut at whitespace when a
+    sentence is longer). Pure-number and letterless paragraphs are skipped. More than MAX_FACTS candidates are merged
+    into larger neighbours rather than refused."""
     spans: list[dict[str, int]] = []
     pos = 0
     for par in re.split(r"\n\n", cleaned):
@@ -545,16 +605,22 @@ def split_facts(cleaned: str) -> list[dict[str, int]]:
         ends = [*_sentence_ends(par), len(par)]
         start = 0
         last = 0
+        pieces: list[tuple[int, int]] = []
         for e in ends:
             if e - start > MAX_FACT_CHARS and last > start:
-                spans.append({"cleaned_start": a + start, "cleaned_end": a + last})
+                pieces.append((start, last))
                 start = last
                 while start < len(par) and par[start].isspace():
                     start += 1
             last = e
         if start < len(par):
-            spans.append({"cleaned_start": a + start, "cleaned_end": a + len(par)})
-    return spans
+            pieces.append((start, len(par)))
+        for s0, e0 in pieces:
+            if e0 - s0 > MAX_FACT_CHARS:
+                _hard_cut(par[s0:e0], a + s0, spans)
+            else:
+                spans.append({"cleaned_start": a + s0, "cleaned_end": a + e0})
+    return _merge_down(spans, cleaned)
 
 
 # ---- tool: extract_citations --------------------------------------------------------------------------------------------
@@ -597,7 +663,13 @@ def build_bundle(
     The agent can never add
     text: a fact is the cleaned slice at its indexes, or it is marked paraphrase and is not citable."""
     ri = read_input(raw)
+    if proposal is not None and not isinstance(proposal, dict):
+        raise IntakeRefused("proposal must be a mapping")
     prop = proposal or {}
+    if prop.get("facts") is not None and not (
+        isinstance(prop["facts"], list) and all(isinstance(f, dict) for f in prop["facts"])
+    ):
+        raise IntakeRefused("facts must be a list of index spans")
     base = clean(raw)
     cl = {k: prop.get(k, base[k]) for k in ("cleaned", "segments", "deletions")} if prop.get("cleaned") is not None else base
     checks = check_clean(raw, cl["cleaned"], cl["segments"], cl["deletions"])
@@ -607,16 +679,18 @@ def build_bundle(
         cl = {"cleaned": raw, "segments": [[0, len(raw), 0, len(raw), "c"]], "deletions": []}
     cleaned, segments, deletions = cl["cleaned"], cl["segments"], cl["deletions"]
     cand: list[dict[str, Any]] = prop["facts"] if (prop.get("facts") is not None and clean_ok) else split_facts(cleaned)
-    if len(cand) > MAX_FACTS:
-        raise IntakeRefused(f"more than {MAX_FACTS} fact candidates")
+    if len(cand) > MAX_FACTS * 2:
+        raise IntakeRefused(f"more than {MAX_FACTS * 2} fact candidates")
     facts: list[dict[str, Any]] = []
     not_citable: list[dict[str, Any]] = []
     seen: dict[str, str] = {}
     last_end = -1
     for c in cand:
-        cs, ce = c.get("cleaned_start"), c.get("cleaned_end")
+        cs0, ce0 = c.get("cleaned_start"), c.get("cleaned_end")
+        cs = cs0 if isinstance(cs0, int) and not isinstance(cs0, bool) else None
+        ce = ce0 if isinstance(ce0, int) and not isinstance(ce0, bool) else None
         item: dict[str, Any] = {"cleaned_start": cs, "cleaned_end": ce}
-        if not (isinstance(cs, int) and isinstance(ce, int)) or not (0 <= cs < ce <= len(cleaned)) or cs < last_end:
+        if cs is None or ce is None or not (0 <= cs < ce <= len(cleaned)) or cs < last_end:
             not_citable.append({**item, "status": "paraphrase", "reason": "span out of range, empty, or out of order"})
             continue
         last_end = ce
@@ -661,8 +735,8 @@ def build_bundle(
         )
     c4_bad = [n for n in not_citable if n["status"] == "paraphrase"]
     checks["C4"] = {
-        "pass": not c4_bad,
-        "detail": [n["reason"] for n in c4_bad[:3]],
+        "pass": not c4_bad and bool(facts),
+        "detail": [n["reason"] for n in c4_bad[:3]] or ([] if facts else ["no citable fact was found"]),
         "citable": len(facts),
         "not_citable": len(not_citable),
     }
@@ -680,7 +754,7 @@ def build_bundle(
     cits = []
     c6_bad = []
     for c in extract_citations(raw):
-        if raw[c["start"] : c["end"]] != c["text"]:
+        if not (0 <= c["start"] < c["end"] <= len(raw)) or raw[c["start"] : c["end"]] != c["text"]:
             c6_bad.append(c["start"])
             continue
         try:
@@ -690,7 +764,13 @@ def build_bundle(
         in_facts = [f["id"] for f in facts if f["raw_start"] <= c["start"] and c["end"] <= f["raw_end"]]
         cits.append({**c, "verifier_status": str(status), "fact_ids": in_facts})
     checks["C6"] = {"pass": not c6_bad, "detail": c6_bad[:3], "count": len(cits)}
-    unread = sorted(set(prop.get("unread_pages", []))) if isinstance(prop.get("unread_pages", []), list) else []
+    n_pages = len(ri["page_starts"])
+    up = prop.get("unread_pages", [])
+    unread = (
+        sorted({i for i in up if isinstance(i, int) and not isinstance(i, bool) and 0 <= i < n_pages})
+        if isinstance(up, list)
+        else []
+    )
     body = {
         "raw_sha256": ri["raw_sha256"],
         "n_chars": ri["n_chars"],
