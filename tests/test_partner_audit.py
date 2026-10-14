@@ -135,3 +135,38 @@ def test_text_smuggled_in_contract_ids_is_not_stored(monkeypatch: Any, tmp_path:
     row = _rows(c, secret)["rows"][0]
     assert row["contract_ids"] == ["invalid-id"] and row["status_code"] == 422
     assert smuggled not in (tmp_path / ".pravrudhi" / "audit" / "calls.jsonl").read_text()
+
+
+# ---- #422: every mode the engine writes is readable back ----------------------------------------------------------------------
+def test_a_keyed_assisted_call_leaves_a_row_the_audit_page_can_serve(tmp_path: Path) -> None:
+    """Found by Track C: mode 'assist' was written but not in AuditRowOut.mode, so GET /audit answered 500 for the key's whole page."""
+    from pravrudhi.application import tenancy as ten
+
+    c = TestClient(_app(tmp_path, Clock()))
+    import os
+
+    os.environ["PRAVRUDHI_ADMINS"] = ADMIN.id
+    try:
+        secret = _key(c, "acme")
+    finally:
+        os.environ.pop("PRAVRUDHI_ADMINS", None)
+    from pravrudhi.application import audit as audit_mod
+
+    audit_mod.record(tmp_path, key_id=next(k.key_id for k in ten.keys_for_org(tmp_path, "acme")), mode="assist", status_code=200,
+                     contract_ids=["bns69"], run_id="nyaya-assist-x", outcomes={"bns69": "PROOF"}, retention_s=1000.0, now=T0)
+    r = c.get(AUDIT, headers={H: secret})
+    assert r.status_code == 200 and [row["mode"] for row in r.json()["rows"]] == ["assist"]
+
+
+def test_every_mode_the_engine_writes_is_a_mode_the_audit_page_declares() -> None:
+    """A guard against the same drift: each literal mode passed to the audit writers in partner.py is in AuditRowOut.mode."""
+    import re
+    from typing import get_args
+
+    from pravrudhi.api import partner
+
+    declared = set(get_args(partner.AuditRowOut.model_fields["mode"].annotation))
+    src = Path(partner.__file__).read_text()
+    written = set(re.findall(r'_audit\(metered, req, "([a-z_]+)"', src))  # the analyse-facts routes (sync, job, assist)
+    written |= set(re.findall(r'audit\.record\([^)]*?mode="([a-z_]+)"', src, flags=re.S))  # verify-citations
+    assert written and written <= declared, written - declared
