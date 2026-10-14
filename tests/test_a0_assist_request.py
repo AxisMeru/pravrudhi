@@ -674,13 +674,20 @@ class _SpyTransport(FakeTransport):
         return super().create_session(agent_id, version, env, budget)
 
 
+def _register_hp(e):
+    """What a workflow's wiring does: its driver set and its own first message and summary (here the screening ones)."""
+    e.deps.workflows = frozenset({"screening", "hearing_prep"})
+    e.deps.user_message = AS.user_message
+    e.deps.summarise = AS.screening_summarise
+
+
 def _hp_cfg(**over):
     return make_cfg(workflows={"hearing_prep": {"agent_id": "agent_hp", "agent_version": 3, "environment_id": "env_hp"}}, **over)
 
 
 def test_an_assisted_run_of_a_workflow_creates_its_session_on_that_workflows_agent(tmp_path):
     e = Env(tmp_path, cfg=_hp_cfg())
-    e.deps.workflows = frozenset({"screening", "hearing_prep"})
+    _register_hp(e)
     e.tr = e.deps.transport = _SpyTransport(ideal(), e.clock)
     out = AS.run_assisted(REQ, AS.Caller(True, "u1", "o1", "1.2.3.4"), True, "c1", e.deps, workflow="hearing_prep")
     assert e.tr.created_with == ("agent_hp", 3, "env_hp", e.cfg.session_budget_cents)
@@ -722,7 +729,7 @@ def test_a_configured_workflow_with_no_driver_in_these_deps_is_still_not_configu
     assert e.deps.workflows == frozenset({"screening"})
     out = AS.run_assisted(REQ, AS.Caller(True, "u1", "o1", "1.2.3.4"), True, "c1", e.deps, workflow="hearing_prep")
     assert block(out)["reason"] == "not_configured" and e.tr.calls == [] and e.store.log == []
-    e.deps.workflows = frozenset({"screening", "hearing_prep"})  # a workflow's PR registers its own driver set
+    _register_hp(e)  # a workflow's PR registers its own driver set and hooks
     e.tr = e.deps.transport = _SpyTransport(ideal(), e.clock)
     out = AS.run_assisted(REQ, AS.Caller(True, "u1", "o1", "1.2.3.4"), True, "c1", e.deps, workflow="hearing_prep")
     assert e.tr.created_with[0] == "agent_hp" and block(out)["used"] is True
@@ -775,3 +782,59 @@ def test_a_workflow_message_that_raises_gives_core_and_still_deletes(tmp_path):
     e.deps.user_message = boom
     out = e.run()
     assert out["run_id"] == "core-run" and block(out)["used"] is False and "delete_session" in e.tr.calls
+
+
+def test_a_non_screening_workflow_must_set_its_own_message_and_summary_no_silent_screening_default(tmp_path):
+    for missing in ("user_message", "summarise", "both"):
+        e = Env(tmp_path / missing, cfg=_hp_cfg())
+        _register_hp(e)
+        if missing in ("user_message", "both"):
+            e.deps.user_message = None
+        if missing in ("summarise", "both"):
+            e.deps.summarise = None
+        out = AS.run_assisted(REQ, AS.Caller(True, "u1", "o1", "1.2.3.4"), True, "c1", e.deps, workflow="hearing_prep")
+        assert block(out)["reason"] == "not_configured" and e.tr.calls == [] and e.store.log == []
+
+
+def test_screening_without_hooks_is_unchanged(tmp_path):
+    e = Env(tmp_path)
+    assert e.deps.user_message is None and e.deps.summarise is None
+    assert block(e.run())["used"] is True
+
+
+def test_a_hook_summary_that_is_not_text_is_no_summary(tmp_path):
+    e = Env(tmp_path)
+    e.deps.summarise = lambda driver, events: {"x": 1}
+    assert block(e.run())["summary"] is None
+
+
+@pytest.mark.parametrize("bad", ["", "   ", None, 5, b"x"])
+def test_a_workflow_first_message_that_is_not_text_gives_core_and_still_deletes(tmp_path, bad):
+    e = Env(tmp_path)
+    e.deps.user_message = lambda request: bad
+    out = e.run()
+    assert out["run_id"] == "core-run" and block(out)["used"] is False and "delete_session" in e.tr.calls
+
+
+def test_the_summary_hook_gets_a_copy_of_the_events(tmp_path):
+    e = Env(tmp_path)
+
+    def mutate(driver, events):
+        events.clear()
+        return "ok"
+
+    e.deps.summarise = mutate
+    out = e.run()
+    assert block(out)["summary"] == "ok" and block(out)["used"] is True  # the run's own events were not emptied under it
+
+
+def test_the_screening_summary_rule_still_fails_the_run_when_the_decide_results_are_unreadable(tmp_path):
+    """Unchanged: an exception in the SCREENING default is not swallowed (only a workflow's own hook is display-only)."""
+    e = Env(tmp_path)
+    orig = D.A0Driver.complete
+    D.A0Driver.complete = lambda self: (setattr(self, "_selected", ["not-decided"]) or orig(self))  # type: ignore[method-assign]
+    try:
+        out = e.run()
+    finally:
+        D.A0Driver.complete = orig  # type: ignore[method-assign]
+    assert out["run_id"] == "core-run" and block(out)["used"] is False
