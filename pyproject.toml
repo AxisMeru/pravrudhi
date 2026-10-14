@@ -33,6 +33,9 @@ dependencies = [
   "pypdf>=6.19.0",
 ]
 
+[project.optional-dependencies]
+assist = ["pg8000==1.31.5"]     # A0 spend store (Supabase Postgres); imported lazily, never a core dependency
+
 [project.scripts]
 pravrudhi = "pravrudhi.cli.app:main"
 
@@ -99,5 +102,5 @@ packages = ["pravrudhi_kernel", "pravrudhi"]
 mypy_path = "src:pravrudhi_kernel/src"
 
 [[tool.mypy.overrides]]
-module = ["pyarrow", "pyarrow.*", "torch", "torch.*", "transformers", "transformers.*", "huggingface_hub", "huggingface_hub.*"]
+module = ["pyarrow", "pyarrow.*", "torch", "torch.*", "transformers", "transformers.*", "huggingface_hub", "huggingface_hub.*", "pg8000", "pg8000.*"]
 ignore_missing_imports = true

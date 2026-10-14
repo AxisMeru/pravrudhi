@@ -17,4 +17,35 @@ failure_ttl_s: 300
 # Limits for any CMA/A0 call site: a call that exceeds the timeout falls back to the core result; one session may not
 # spend more than the budget (USD).
 call_timeout_s: 60
-session_budget_usd: 1.0
+session_budget_usd: 0.25
+
+# --- A0 screening assistance (pravrudhi-app#125): every key below is read by application/a0_assist/config.py; a missing or malformed key keeps the route OFF (fail closed), never a default in code.
+# Ship dark: the assisted route is enabled only when assist_route_enabled is true AND the product agent ids below are set AND the delete canary has passed.
+assist_route_enabled: false
+daily_ceiling_usd: 4.00
+# Per-session budget is session_budget_usd (above). abandon_after_min: at least call_timeout_s + the interrupt wait + the delete time (store also keeps its own minimum).
+abandon_after_min: 30
+store_timeout_s: 3
+max_concurrent_sessions: 2
+# The product agent resource (NOT the research agent: the sweeper lists by this agent id, so a research session can never be returned). null until the product agent is created.
+agent_id: null
+agent_version: null
+environment_id: null
+# Names of environment variables (values arrive as RunPod secret references, never here).
+workspace_id_env: ANTHROPIC_WORKSPACE_ID
+store_dsn_env: SUPABASE_ASSIST_DB_URL
+sweeper_dsn_env: SUPABASE_ASSIST_DB_URL_SWEEPER     # the sweeper's own narrow role (assist_sweeper_rpc)
+# The store DSN (secret, env only) points at the session pooler on port 5432; its host name is part of the verified certificate.
+store_ca_file: null     # path of the public Supabase root CA inside the image (pinned in the release package list); null = system bundle
+# Anti-abuse (in memory, per worker; the store's daily ceiling is the hard stop).
+assist_runs_per_user_per_day: 20
+assist_runs_per_org_per_day: 100
+assist_per_ip_per_minute: 5
+# Retention (the notice states 2 hours): delete the Anthropic session after the result is read.
+delete_after_run: true
+retention_max_hours: 2
+sweep_interval_min: 10
+max_pending_deletes: 5
+# Standing canary: hourly, and a canary older than 3 hours (or never run, or failed, or erroring) pauses the tier.
+canary_interval_min: 60
+canary_stale_min: 180
