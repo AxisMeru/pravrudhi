@@ -462,13 +462,14 @@ def revoke_key(root: Path, key_id: str) -> ApiKeyRecord:
     return _with_store(root, "keys", mutate)
 
 
-def key_record(root: Path, key_id: str, *, org_id: str | None = None) -> ApiKeyRecord | None:
-    """The stored record of ONE key (rate limit, label, revoked flag), or None when no such key exists (or it belongs to another
-    org than `org_id`, when given). In the hosted backend this is the row `verify_key` has just read, from the short positive
-    cache: a keyed request no longer lists the whole org's keys from the database to find its own. The record carries the hash
-    (as the file backend always did); callers use it for limits and flags only."""
+def key_record(root: Path, key_id: str, *, org_id: str) -> ApiKeyRecord | None:
+    """The stored record of ONE key (rate limit, label, revoked flag), or None when no such key exists or it belongs to another
+    org than `org_id` (required: a lookup by key id alone is not offered). In the hosted backend this is the row `verify_key`
+    has just read, from the short positive cache: a keyed request no longer lists the whole org's keys from the database to find
+    its own. A rate limit is therefore as fresh as the cache (15 s); nothing changes a limit after a key is created. The record
+    carries the hash (as the file backend always did); callers use it for limits and flags only."""
     row = _key_row(root, key_id)
-    if row is None or (org_id is not None and row.get("org_id") != org_id):
+    if row is None or row.get("org_id") != org_id:
         return None
     return ApiKeyRecord(**row)
 
