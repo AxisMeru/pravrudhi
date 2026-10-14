@@ -364,3 +364,143 @@ def test_a_failing_coverage_read_degrades_to_null_and_keeps_the_answer(tmp_path:
     monkeypatch.setattr(partner, "index_coverage", boom)
     r = _post(_client(tmp_path, _index(tmp_path)))
     assert r.status_code == 200 and r.json()["result"] == "VERIFIED" and r.json()["coverage"] is None
+
+
+# ---- existence-only (slim) index: a quote is never checked, never VERIFIED ----
+def _slim(
+    tmp_path: Path, value: str | None = "1", *, name: str = "slim.sqlite3", columns: str = "key TEXT PRIMARY KEY, value TEXT"
+) -> Path:
+    p = _index(tmp_path)
+    q = tmp_path / name
+    p.rename(q)
+    conn = sqlite3.connect(q)
+    conn.execute(f"CREATE TABLE meta ({columns})")
+    if value is not None:
+        conn.execute("INSERT INTO meta (key, value) VALUES ('existence_only', ?)", (value,))
+        conn.execute("INSERT INTO meta (key, value) VALUES ('built_utc', 'invented')")
+    conn.commit()
+    conn.close()
+    return q
+
+
+def test_a_quote_against_an_existence_only_index_is_422_quote_not_served_and_never_verified(tmp_path: Path) -> None:
+    r = _post(_client(tmp_path, _slim(tmp_path)))
+    assert r.status_code == 422 and r.json() == {"error": "quote_not_served"}
+    for quote in ("time is not ordinarily of the essence", "the moon is made of cheese", "x"):
+        r = _post(_client(tmp_path, _slim(tmp_path, name="s2.sqlite3")), quote=quote)
+        assert r.status_code == 422 and "VERIFIED" not in r.text
+
+
+def test_the_same_citation_without_a_quote_is_answered_from_an_existence_only_index(tmp_path: Path) -> None:
+    c = _client(tmp_path, _slim(tmp_path))
+    ok = c.post("/api/v1/verify-citations", json={"citation": "(1977) 3 SCC 247"})
+    assert ok.status_code == 200 and ok.json()["verified"] is False and isinstance(ok.json()["coverage"], dict)
+    absent = c.post("/api/v1/verify-citations", json={"citation": "AIR 1950 SC 27"})
+    assert absent.status_code == 200 and absent.json()["result"] == "NOT_IN_INDEX"
+    bad = c.post("/api/v1/verify-citations", json={"citation": "not a citation"})
+    assert bad.status_code == 200 and bad.json()["result"] == "MALFORMED"
+
+
+def test_a_full_index_with_no_meta_table_is_unchanged(tmp_path: Path) -> None:
+    r = _post(_client(tmp_path, _index(tmp_path)))
+    assert r.status_code == 200 and r.json()["result"] == "VERIFIED"
+
+
+def test_a_meta_table_without_the_existence_only_row_is_a_full_index(tmp_path: Path) -> None:
+    r = _post(_client(tmp_path, _slim(tmp_path, value=None)))
+    assert r.status_code == 200 and r.json()["result"] == "VERIFIED"
+
+
+def test_existence_only_set_to_exactly_zero_is_the_full_behaviour(tmp_path: Path) -> None:
+    r = _post(_client(tmp_path, _slim(tmp_path, value="0")))
+    assert r.status_code == 200 and r.json()["result"] == "VERIFIED"
+
+
+@pytest.mark.parametrize(
+    "value", ["1", "yes", "true", "", " ", "0 ", " 0", "00", "false", "False", "no", "2", "-1", "0.0", "None"]
+)
+def test_any_value_other_than_exactly_zero_is_existence_only_fail_closed(tmp_path: Path, value: str) -> None:
+    r = _post(_client(tmp_path, _slim(tmp_path, value=value)))
+    assert r.status_code == 422 and r.json() == {"error": "quote_not_served"}
+
+
+def test_a_null_existence_only_value_is_existence_only(tmp_path: Path) -> None:
+    p = _slim(tmp_path, value="1")
+    conn = sqlite3.connect(p)
+    conn.execute("UPDATE meta SET value = NULL WHERE key = 'existence_only'")
+    conn.commit()
+    conn.close()
+    assert _post(_client(tmp_path, p)).status_code == 422
+
+
+def test_an_unreadable_meta_table_is_a_503_never_a_quote_check(tmp_path: Path) -> None:
+    r = _post(_client(tmp_path, _slim(tmp_path, columns="key TEXT PRIMARY KEY, v TEXT", value=None)))
+    assert r.status_code == 503 and "VERIFIED" not in r.text
+
+
+def test_a_blank_quote_is_still_the_validators_422_not_quote_not_served(tmp_path: Path) -> None:
+    c = _client(tmp_path, _slim(tmp_path))
+    r = _post(c, quote="   ")
+    assert r.status_code == 422 and r.json() != {"error": "quote_not_served"} and "detail" in r.json()
+
+
+def test_the_guard_runs_after_admission_a_rate_limited_caller_gets_429_not_422(tmp_path: Path) -> None:
+    app = FastAPI()
+    cfg = PartnerApiConfig(rate_limit_per_minute=1, max_concurrent=100, trust_proxy_header=False)
+    app.include_router(
+        build_partner_router(tmp_path, config=cfg, citation_index_path=_slim(tmp_path), rate_clock=lambda: 1_000_030.0)
+    )
+    c = TestClient(app)
+    assert _post(c).status_code == 422
+    assert _post(c).status_code == 429
+
+
+def test_the_guard_runs_after_the_key_check_a_bad_key_is_401_not_422(tmp_path: Path) -> None:
+    c = _client(tmp_path, _slim(tmp_path))
+    r = c.post(
+        "/api/v1/verify-citations",
+        json={"citation": "(1977) 3 SCC 247", "quote": "time is not ordinarily of the essence"},
+        headers={"X-Pravrudhi-Api-Key": "invented-not-a-real-key"},
+    )
+    assert r.status_code == 401
+
+
+def test_the_422_is_audited_as_422_for_a_keyed_caller(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from pravrudhi.api import identity
+    from pravrudhi.api.identity import User
+    from pravrudhi.application import audit
+
+    admin = User(id="op-1", email="op@example.com", role="authenticated")
+    monkeypatch.setenv("PRAVRUDHI_ADMINS", admin.id)
+    seen: list[dict[str, object]] = []
+    monkeypatch.setattr(audit, "record", lambda root, **kw: seen.append(kw))
+    app = FastAPI()
+    app.include_router(build_partner_router(tmp_path, config=_CFG, citation_index_path=_slim(tmp_path)))
+    app.dependency_overrides[identity.current_user] = lambda: admin
+    c = TestClient(app)
+    c.post("/api/v1/orgs", json={"org_id": "acme", "name": "acme"})
+    secret = str(c.post("/api/v1/orgs/acme/keys", json={}).json()["secret"])
+    h = {"X-Pravrudhi-Api-Key": secret}
+    assert (
+        c.post("/api/v1/verify-citations", json={"citation": "(1977) 3 SCC 247", "quote": "time is not"}, headers=h).status_code
+        == 422
+    )
+    assert c.post("/api/v1/verify-citations", json={"citation": "(1977) 3 SCC 247"}, headers=h).status_code == 200
+    verify = [kw for kw in seen if kw.get("mode") == "verify"]
+    assert [kw["status_code"] for kw in verify] == [422, 200]
+
+
+def test_many_422s_do_not_leak_the_concurrency_gate(tmp_path: Path) -> None:
+    c = _client(tmp_path, _slim(tmp_path))
+    codes = {_post(c).status_code for _ in range(30)}
+    assert codes == {422}
+    assert c.post("/api/v1/verify-citations", json={"citation": "(1977) 3 SCC 247"}).status_code == 200
+
+
+def test_the_documented_422_is_in_the_checked_in_contract() -> None:
+    import json
+
+    root = Path(__file__).resolve().parent.parent
+    doc = json.loads((root / "docs" / "api" / "openapi-v1.json").read_text())
+    desc = doc["paths"]["/api/v1/verify-citations"]["post"]["responses"]["422"]["description"]
+    assert "quote_not_served" in desc and "existence-only" in desc
