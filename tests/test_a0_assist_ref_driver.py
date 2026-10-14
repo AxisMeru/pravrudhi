@@ -97,7 +97,7 @@ def test_a_ref_run_through_the_steps_summary_has_the_fixed_stage_names(tmp_path)
     assert names[0] == "ingest" and names[-1] == "decide" and "judge_element" in names
 
 
-# ---- one test per refusal code ---------------------------------------------------------------------------------------------------
+# ---- one test per refusal code ----------------------------------------------------------------------------------
 def test_bad_args(tmp_path):
     d = fresh(tmp_path)
     ing = d.call("ingest", {"facts": list(FACTS), "narrative": ""})
@@ -263,3 +263,54 @@ def test_the_pinned_tools_file_matches_this_drivers_inputs():
             out = d.call(tool, {k: "x" for k in keys if k != missing})
             assert code(out) == "bad_args" and missing in out["error"], (tool, missing)
     assert T is not None and agent_mod is not None and json is not None
+
+
+# ---- the pinned product agent's tools file (a copy of the tool definitions; no secret in it) -------------------------
+TOOLS_FILE = "tests/fixtures/a0_tools_v2_E4b.json"
+#: = tools_file_sha256 in the product-agent manifest (MANIFEST_PRODUCT_agent_env.json, 5fb55e20...)
+TOOLS_SHA256_PREFIX = "ab252d6536a6"
+
+
+def _tools():
+    import hashlib
+    from pathlib import Path
+
+    raw = (Path(__file__).resolve().parent.parent / TOOLS_FILE).read_bytes()
+    assert hashlib.sha256(raw).hexdigest().startswith(TOOLS_SHA256_PREFIX)
+    data = json.loads(raw)
+    return {t["name"]: t for t in (data if isinstance(data, list) else data["tools"])}
+
+
+def test_the_fixture_is_the_pinned_tools_file_and_names_the_drivers_stages():
+    assert list(_tools()) == list(R.D.STAGES)
+
+
+@pytest.mark.parametrize("tool", sorted(R.D.STAGES))
+def test_every_required_argument_of_the_pinned_schema_is_one_the_driver_needs(tmp_path, tool):
+    """For each tool the schema's required keys are exactly what the driver demands: leaving one out is `bad_args` naming it, and
+    giving all of them is never `bad_args` (the driver gets past the argument check)."""
+    required = _tools()[tool]["input_schema"].get("required", [])
+    d = fresh(tmp_path)
+    sample = {"facts": list(FACTS), "narrative": "", "contract_ids": [CID], "contract_id": CID,
+              "ingest_ref": "I1", "judge_ref": "J1", "element": "x", "is_denial": False, "element_refs": ["J1"],
+              "assemble_ref": "A1", "lean_ref": "L1"}
+    for missing in required:
+        out = d.call(tool, {k: sample[k] for k in required if k != missing})
+        if tool in ("ingest", "select_contracts", "describe_contract"):
+            continue  # these take their values as given (the driver's own binding checks apply)
+        assert code(out) == "bad_args" and missing in out["error"], (tool, missing)
+    if tool not in ("ingest", "select_contracts", "describe_contract"):
+        assert code(d.call(tool, {k: sample[k] for k in required})) != "bad_args"
+
+
+def test_a_copy_style_agent_is_refused_at_the_first_judge_call_not_silently_accepted(tmp_path):
+    """The failure the live agent would have had on the copy driver, pinned from the other side: a COPY-style call to the ref
+    driver is refused (the agent was pinned to refs)."""
+    d = fresh(tmp_path)
+    ing = d.call("ingest", {"facts": list(FACTS), "narrative": ""})
+    d.call("select_contracts", {"contract_ids": [CID]})
+    desc = d.call("describe_contract", {"contract_id": CID})
+    e = desc["elements"][0]
+    copy_call = {"contract_id": CID, "element": e["element_id"], "is_denial": e["is_denial"],
+                 "facts": ing["facts"], "narrative": ""}
+    assert code(d.call("judge_element", copy_call)) == "bad_args"
