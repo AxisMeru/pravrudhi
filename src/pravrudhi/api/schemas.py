@@ -39,7 +39,7 @@ class HealthResponse(BaseModel):
     kernel: str
     ledger: bool
     #: #832 F1-lite: whether a frontier reader is configured for this deployment. Always false until batch 2. Additive.
-    #: Always false whenever `assistant_tier.state` is "unavailable".
+    #: Stays false in every state: it flips only in the change that ships the reader. The app reads `assistant_tier`.
     frontier_reader_available: bool = False
     #: #122 additive: the assistant tier's state and reason (application/assistant_tier.py).
     assistant_tier: AssistantTierStatus = AssistantTierStatus(state="unavailable", reason="disabled")

@@ -192,7 +192,7 @@ def client(root):
 def test_health_shape_available(tmp_path, monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
     body = client(root_with(tmp_path)).get("/api/health").json()
-    assert body["assistant_tier"] == {"state": "available", "reason": None} and body["frontier_reader_available"] is True
+    assert body["assistant_tier"] == {"state": "available", "reason": None} and body["frontier_reader_available"] is False
     assert {"ok", "version", "kernel", "ledger"} <= set(body)
 
 
@@ -222,3 +222,17 @@ def test_the_call_site_contract_is_stated_in_the_module():
     doc = T.__doc__
     assert "BINDING CONTRACT" in doc and 'limits(root)["call_timeout_s"]' in doc and 'limits(root)["session_budget_usd"]' in doc and "record_outcome(http_status)" in doc
     assert "402/429 = quota" in doc and "upstream_error" in doc and "falls back to the core result" in doc
+
+
+@pytest.mark.parametrize("scenario", ["available", "no_key", "forced", "quota", "budget"])
+def test_frontier_reader_available_is_false_in_every_state(tmp_path, monkeypatch, scenario):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+    cfg = base_cfg()
+    if scenario == "no_key": monkeypatch.delenv("ANTHROPIC_API_KEY")
+    if scenario == "forced": cfg["force_unavailable"] = True
+    if scenario == "budget": cfg["budget_file"] = str(tmp_path / "missing.json")
+    c = client(root_with(tmp_path, cfg))
+    if scenario == "quota": T.record_outcome(429)
+    body = c.get("/api/health").json()
+    assert body["frontier_reader_available"] is False
+    assert (body["assistant_tier"]["state"] == "available") == (scenario == "available")
