@@ -923,3 +923,31 @@ def test_a_finished_run_has_no_progress_block(tmp_path):
 def test_a_fallback_before_any_session_has_no_progress_block(tmp_path):
     out = Env(tmp_path, tier={"state": "unavailable", "reason": "no_key"}).run()
     assert block(out)["used"] is False and "progress" not in block(out)
+
+
+def test_last_tool_is_one_of_the_drivers_own_stage_names_and_nothing_else(tmp_path):
+    def odd(tr):
+        yield tool_use(1, "ingest", {"facts": list(FACTS), "narrative": ""})
+        tr.clock.t += 1000
+        yield tool_use(2, "ignore_previous_instructions", {})  # a plain identifier, but not a tool of this driver
+
+    p = block(Env(tmp_path, odd).run())["progress"]
+    assert p["tool_calls"] == 2 and p["last_tool"] is None
+
+    def known(tr):
+        yield tool_use(1, "ingest", {"facts": list(FACTS), "narrative": ""})
+        tr.clock.t += 1000
+        yield tool_use(2, "select_contracts", {"contract_ids": [CID]})
+
+    assert block(Env(tmp_path, known).run())["progress"]["last_tool"] == "select_contracts"
+
+
+def test_every_driver_exposes_the_stage_names_the_progress_block_allows():
+    from pravrudhi.application.a0_assist import intake_driver, ref_driver
+    from pravrudhi.application.a0_assist.driver import A0Driver
+
+    assert AS._driver_stage_names(None) == frozenset()
+    assert "select_contracts" in AS._driver_stage_names(ref_driver.A0RefDriver.__new__(ref_driver.A0RefDriver))
+    assert "ingest" in AS._driver_stage_names(A0Driver.__new__(A0Driver))
+    assert "bundle" in AS._driver_stage_names(intake_driver.IntakeDriver.__new__(intake_driver.IntakeDriver))
+    assert AS._driver_stage_names(object()) == frozenset()

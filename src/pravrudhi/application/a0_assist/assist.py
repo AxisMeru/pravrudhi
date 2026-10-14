@@ -20,6 +20,7 @@ import contextlib
 import json
 import math
 import re
+import sys
 import threading
 import time
 from collections.abc import Callable, Iterable
@@ -228,6 +229,14 @@ def _block(used: bool, outcome: str, reason: str | None, **kw: Any) -> dict[str,
     return block
 
 
+def _driver_stage_names(driver: Any) -> frozenset[str]:
+    """The tool names this driver defines (its `STAGES`: a class attribute, or the module's constant for the older drivers)."""
+    names = getattr(driver, "STAGES", None)
+    if names is None and driver is not None:
+        names = getattr(sys.modules.get(type(driver).__module__), "STAGES", None)
+    return frozenset(names) if isinstance(names, (tuple, list, frozenset)) else frozenset()
+
+
 def _progress(run: _Run, cfg: AssistConfig) -> dict[str, Any] | None:
     """Where a run that did not finish stopped: counts, seconds, last tool name; never text. None when no session ran or when
     the diagnostics themselves cannot be built (a diagnostic must never turn a clean fallback into an error). `events` is
@@ -245,8 +254,8 @@ def _progress(run: _Run, cfg: AssistConfig) -> dict[str, Any] | None:
             "max_events": cfg.max_events,
             "elapsed_s": None if run.elapsed_s is None else round(run.elapsed_s, 1),
             "wall_limit_s": cfg.call_timeout_s,
-            # a tool name is model-supplied: only a plain identifier of sensible length is echoed
-            "last_tool": last if isinstance(last, str) and re.fullmatch(r"[a-z][a-z0-9_]{0,39}", last) else None,
+            # a tool name is model-supplied: only one of THIS driver's own stage names is echoed, never anything else
+            "last_tool": last if isinstance(last, str) and last in _driver_stage_names(run.driver) else None,
         }
     except Exception:  # noqa: BLE001 - see the docstring
         return None
