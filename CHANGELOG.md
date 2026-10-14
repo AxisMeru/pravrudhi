@@ -5,13 +5,13 @@ messages.
 
 ## 0.6.2 (2026-10-14)
 
-PATCH release: a faster verify-citations lookup with byte-identical answers (#380), and one additive field on `/api/health` for the optional assistant (#122, engine half). No existing field, reason code or route changes meaning. No Anthropic call site exists in the engine in this release; the assisted route ships later under its own release.
+PATCH release: a faster verify-citations lookup (#380), and one additive field on `/api/health` for the optional assistant (#122, engine half). No existing field, reason code or route changes meaning. No call to Anthropic's session or message endpoints exists in the engine in this release (the only Anthropic request is the existing key check on the models endpoint); the assisted route ships later under its own release.
 
 **Rebuild the image.** The changes are under `src/` and `configs/`, so they reach a running container only by a rebuild of the engine image and the RunPod worker template from 0.6.2.
 
 ### Changed
 
-- **verify-citations: the year of each candidate case is resolved with one batched lookup per candidate set instead of one full scan per case (#380, #387).** A derived `case_year` table is used only while `case_year_meta` matches `max(rowid)` of `cases`; otherwise the previous path runs. Answers are unchanged (12,000 calls on a deterministic sample of 2,000 citations: no answer differs); the median typed lookup is about four times faster.
+- **verify-citations: the year of each candidate case is resolved with one batched lookup per candidate set instead of one full scan per case (#380, #387).** A derived `case_year` table is used only while `case_year_meta` matches `max(rowid)` of `cases`; otherwise the previous path runs. Answers were identical on the 12,000-call comparison (#380: a deterministic sample of 2,000 citations); the median typed lookup is about four times faster.
 
 ### Added
 
