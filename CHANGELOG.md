@@ -3,6 +3,23 @@
 Release notes for the engine (`pravrudhi`). Versions before 0.5.44 are described in their GitHub release notes and commit
 messages.
 
+## 0.6.3 (2026-10-14)
+
+PATCH release: the optional assistant tier ships DARK. The engine gains the code, configuration and backstop tooling for an Anthropic-backed assisted screening path, but the assisted route is disabled by default: `POST /v1/analyse-facts/assist` answers 404, is not in the public OpenAPI contract, and `assist_route_enabled` is false. Screening, its results and every existing route behave exactly as in 0.6.2. No existing field, reason code or route changes meaning.
+
+**Rebuild the image.** The changes are under `src/`, `configs/` and `deploy/`, so they reach a running container only by a rebuild of the engine image and the RunPod worker template from 0.6.3. The image now installs `pravrudhi[assist]` (`pg8000==1.31.5`, imported lazily and never a core dependency) and ships the public Supabase root CA at `/opt/pravrudhi/certs/supabase-prod-ca.crt` (sha256 pinned as a build argument; the build fails on a mismatch).
+
+### Added
+
+- **Assisted screening path, disabled by default (#390, #391).** The assistant drives the same engine stages through custom tools, and the verdict a firm sees is always the engine's own decision result; the route stays off until it is switched on in a later, separately recorded step. Per-request consent is required, and a failed, slow or over-budget assistant falls back to the core result.
+- **Spend and session store.** A small Postgres store (schema `assist`; ids, integer cents and timestamps only, never facts or session content) keeps a per-session budget and a per-day ceiling (4.00 USD) and records each assistant session so it can be deleted. It is reached over TLS verified against the pinned CA, with a narrow login role.
+- **Backstop and canary.** `python -m pravrudhi.application.a0_assist.backstop` (with `--canary`, `--prune`, `--spend`) deletes any assistant session still pending after the retention window, runs the standing privilege canary, and prints counts only; two systemd unit pairs for the host (15 minutes; hourly) are in `deploy/systemd`.
+
+### Changed
+
+- **`assistant_tier` reasons.** `upstream_error` now also covers the assistant's guard pauses (a store that is unreachable, not initialised, over its ceiling or failing its canary pauses the tier); a failed workspace check at startup pauses it too. The field's shape is unchanged, and a client that does not know a reason treats the tier as not offered.
+- **`/api/health` `assistant_tier` and `configs/assistant_tier.yaml`** carry the new limits (`session_budget_usd`, `daily_ceiling_usd`, store and CA settings); nothing here changes screening.
+
 ## 0.6.2 (2026-10-14)
 
 PATCH release: a faster verify-citations lookup (#380), and one additive field on `/api/health` for the optional assistant (#122, engine half). No existing field, reason code or route changes meaning. No call to Anthropic's session or message endpoints exists in the engine in this release (the only Anthropic request is the existing key check on the models endpoint); the assisted route ships later under its own release.
