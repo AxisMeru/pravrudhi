@@ -71,7 +71,7 @@ def post(c: TestClient, path: str, body: dict[str, Any], headers: dict[str, str]
 
 
 def keys(c: TestClient, who: Who, *orgs: str) -> list[str]:
-    who.user = ADMIN  # org and key provisioning needs the operator identity
+    who.user = ADMIN  # org and key provisioning needs the admin identity
     return [_key(c, o) for o in orgs]
 
 
