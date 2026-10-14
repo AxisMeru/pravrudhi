@@ -603,9 +603,8 @@ def index_coverage(conn: sqlite3.Connection, path: str, mtime_ns: int) -> dict[s
     conn.row_factory = sqlite3.Row
     held_sql = "SELECT court, COUNT(*) AS n FROM cases GROUP BY court ORDER BY n DESC"
     held = {r["court"]: r["n"] for r in conn.execute(held_sql)}
-    # The semi-join form (IN over a subquery), not a JOIN: `cases` is an FTS5 virtual table, and on SQLite 3.46 (the Python 3.13
-    # container image) the JOIN is planned as a full scan of `cases` for every alias row (about 30 s on the 10 MB slim index, paid
-    # by the first verify call after start). The IN form gives the same counts in milliseconds on every SQLite version.
+    # IN over a subquery, not a JOIN: `cases` is an FTS5 table and SQLite 3.46 (the container image) plans the JOIN as a full
+    # scan of `cases` per alias row (~30 s on the slim index). Same counts. Do not make it NOT IN (a NULL alias case_id matters).
     res_sql = (
         "SELECT c.court AS court, COUNT(DISTINCT c.case_id) AS n FROM cases c "
         "WHERE c.case_id IN (SELECT case_id FROM citation_aliases) GROUP BY c.court ORDER BY n DESC"
