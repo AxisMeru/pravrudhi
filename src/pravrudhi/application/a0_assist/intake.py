@@ -355,6 +355,7 @@ _COUNTERS = (
     re.compile(r"^\s*Page\s+(\d+)\s+of\s+\d+\s*$", re.I),
     re.compile(r"^\s*\{\{\s*(\d+)\s*\}\}\s*$"),
     re.compile(r"^\s*-\s*(\d+)\s*-\s*$"),
+    re.compile(r"^\s*::\s*(\d+)\s*::\s*$"),
 )
 
 
@@ -651,9 +652,12 @@ _BODY_HEADING = re.compile(
 
 
 def _numbered_prose(par: str) -> bool:
-    """A numbered paragraph that reads as prose (three words or more, a letter that is not upper case, so also Devanagari):
-    not a party line such as "1. AMARESH"."""
-    return bool(_PARA_START.match(par[:16])) and len(par.split()) >= 3 and any(c.isalpha() and not c.isupper() for c in par)
+    """A numbered paragraph that reads as prose: at least two words that do not start with a capital letter (so also
+    Devanagari). A party line such as "1. AMARESH" or "1. Ranjeet Narayan Mishra" is not prose."""
+    if not _PARA_START.match(par[:16]):
+        return False
+    words = [w for w in par.split()[1:] if re.search(r"[^\W\d_]", w)]
+    return sum(1 for w in words if not next(c for c in w if c.isalpha()).isupper()) >= 2
 
 
 def _merge_letterless(facts: list[dict[str, int]], cleaned: str) -> list[dict[str, int]]:
@@ -755,6 +759,8 @@ def split_plan(cleaned: str) -> dict[str, list[dict[str, Any]]]:
         units.extend((x, y, len(pieces) == 1) for x, y in pieces)
     excluded: list[dict[str, Any]] = []
     body_i = 0
+    total = sum(b - a for a, b, _ in units)
+    caption_flags: list[bool] = []
     if units:
         caption_flags = [_caption_like(cleaned[a:b]) for a, b, _ in units]
         heading = next(
@@ -776,19 +782,43 @@ def split_plan(cleaned: str) -> dict[str, list[dict[str, Any]]]:
                 ),
                 0,
             )
-        total = sum(b - a for a, b, _ in units)
-        if body_i > 0 and sum(b - a for a, b, _ in units[:body_i]) > total / 2:
-            body_i = 0
+    cap_lo = cap_hi = -1
     if body_i > 0:
+
+        def header_ish(i: int) -> bool:
+            a, b, _ = units[i]
+            line = cleaned[a:b]
+            return (
+                caption_flags[i]
+                or bool(_BODY_HEADING.match(line))
+                or (len(line) < LONG_PARA and _mostly_upper(line, 0.6))
+                or line.upper().startswith(("IN THE ", "BEFORE"))
+            )
+
+        marks = [i for i in range(body_i) if header_ish(i)]
+        # fail toward keeping text: the block is a header only if it holds a real header cue; prose before it or after it stays
+        if marks and any(caption_flags[i] for i in marks):
+            cap_lo, cap_hi = marks[0], marks[-1]
+            while cap_hi + 1 < body_i and units[cap_hi + 1][1] - units[cap_hi + 1][0] < MIN_FACT_CHARS:
+                cap_hi += 1  # short lines right after the last header line (a counsel or bench line) belong to it
+            if sum(b - a for a, b, _ in units[cap_lo : cap_hi + 1]) > total / 2:
+                cap_lo = cap_hi = -1
+    if cap_lo >= 0:
         excluded.append(
             {
-                "cleaned_start": units[0][0],
-                "cleaned_end": units[body_i - 1][1],
+                "cleaned_start": units[cap_lo][0],
+                "cleaned_end": units[cap_hi][1],
                 "status": "caption",
                 "reason": "the header of the order, before its body",
             }
         )
-    body = units[body_i:]
+    body: list[tuple[int, int, bool] | None] = []
+    for i, unit in enumerate(units):
+        if cap_lo >= 0 and cap_lo <= i <= cap_hi:
+            if i == cap_lo:
+                body.append(None)  # the header ends a group
+            continue
+        body.append(unit)
 
     def repeats(a: int, b: int, whole: bool) -> bool:
         line = cleaned[a:b]
@@ -796,11 +826,24 @@ def split_plan(cleaned: str) -> dict[str, list[dict[str, Any]]]:
             re.search(r"\d", line) or _URL.search(line) or (len(line.split()) >= 2 and _mostly_upper(line, 0.7))
         )
         # a numbered paragraph is body; so is a short line with a negation ("No.", "Not allowed")
-        return whole and b - a < 100 and looks_like_furniture and not _PARA_START.match(line[:16]) and not _has_negation(line)
+        # a page stamp differs from the next one by a number or two; a line with amounts, dates or a percentage is content
+        content_numbers = len(re.findall(r"\d+", line)) > 2 or bool(_CURR.search(line)) or "%" in line
+        return (
+            whole
+            and b - a < 100
+            and looks_like_furniture
+            and not content_numbers
+            and not _PARA_START.match(line[:16])
+            and not _has_negation(line)
+        )
 
-    seen: Counter[str] = Counter(_dn(cleaned[a:b]) for a, b, w in body if repeats(a, b, w))
+    seen: Counter[str] = Counter(_dn(cleaned[x[0] : x[1]]) for x in body if x is not None and repeats(x[0], x[1], x[2]))
     packed: list[tuple[int, int] | None] = []  # None = a group break (an excluded line)
-    for a, b, w in body:
+    for item in body:
+        if item is None:
+            packed.append(None)
+            continue
+        a, b, w = item
         if repeats(a, b, w) and seen[_dn(cleaned[a:b])] >= REPEAT_MIN:
             excluded.append(
                 {
@@ -862,20 +905,22 @@ def split_facts(cleaned: str) -> list[dict[str, int]]:
 
 # ---- the stated range for a usable fact list ----------------------------------------------------------------------------
 USABLE_MIN_TEXT_CHARS = 2000  # shorter texts are not judged (a short note has few facts)
-USABLE_FACTS_PER_10K = (10.0, 60.0)  # observed on 39 cleared public orders: 13.6 to 45.5 (median 22.4)
-USABLE_MEDIAN_FACT_CHARS = (100, MAX_FACT_CHARS)  # observed: median fact 152 to 517 characters (median of medians 377)
-USABLE_SHORT_FACT_SHARE_MAX = 0.20  # facts under 40 characters; observed maximum 0.16
+USABLE_FACTS_PER_10K = (10.0, 60.0)  # observed on 39 cleared public orders: 11.9 to 28.3 (median 21.0)
+USABLE_MEDIAN_FACT_CHARS = (100, MAX_FACT_CHARS)  # observed: median fact 145 to 517 characters (median of medians 373)
+USABLE_SHORT_FACT_SHARE_MAX = 0.20  # facts under 40 characters; observed maximum 0.15
 
 
-USABLE_EXCLUDED_SHARE_MAX = 0.35  # left out as caption, repeated lines or marks, texts of 10,000 characters or more
-USABLE_EXCLUDED_SHARE_MAX_SHORT = 0.50  # texts of 2,000 to 9,999 characters: the header of a short order is a larger share
+USABLE_LEFT_OUT_SHARE_MAX = (
+    0.35  # of the BODY (the text minus the recognised header) not in any fact; observed maximum is in the PR
+)
+LEFT_OUT_STATUSES = ("repeated_line", "no_words", "duplicate")  # body text in no fact (the header is apart)
 
 
 def fact_list_usable(bundle: dict[str, Any]) -> dict[str, Any]:
     """The stated range of a usable fact list for one order (a rule, not a bundle check): facts per 10,000 characters within
     USABLE_FACTS_PER_10K, the median fact length within USABLE_MEDIAN_FACT_CHARS, no fact longer than MAX_FACT_CHARS, at most
-    USABLE_SHORT_FACT_SHARE_MAX of the facts under 40 characters, at most USABLE_EXCLUDED_SHARE_MAX of the text left out
-    (USABLE_EXCLUDED_SHARE_MAX_SHORT under 10,000 characters).
+    USABLE_SHORT_FACT_SHARE_MAX of the facts under 40 characters, and at most USABLE_LEFT_OUT_SHARE_MAX of the BODY left out of
+    the facts (the body is the cleaned text minus the recognised header; the header's own share is reported as `caption_share`).
     Not applied to texts under USABLE_MIN_TEXT_CHARS. A bundle that cannot be read FAILS (no length, no facts list)."""
     n_chars = bundle.get("n_chars")
     facts = bundle.get("facts")
@@ -883,11 +928,9 @@ def fact_list_usable(bundle: dict[str, Any]) -> dict[str, Any]:
         return {"applies": True, "pass": False, "reasons": ["the bundle has no readable length or fact list"], "n_facts": 0}
     try:
         lens = sorted(len(f["text"]) for f in facts)
-        left_out = sum(
-            n["cleaned_end"] - n["cleaned_start"]
-            for n in bundle.get("not_citable", [])
-            if n.get("status") in ("caption", "repeated_line", "no_words")
-        )
+        spans = bundle.get("not_citable", [])
+        caption = sum(n["cleaned_end"] - n["cleaned_start"] for n in spans if n.get("status") == "caption")
+        left_out = sum(n["cleaned_end"] - n["cleaned_start"] for n in spans if n.get("status") in LEFT_OUT_STATUSES)
         cleaned_len = len(bundle.get("cleaned", "")) or n_chars
     except (KeyError, TypeError):
         return {"applies": True, "pass": False, "reasons": ["the bundle has no readable length or fact list"], "n_facts": 0}
@@ -897,13 +940,15 @@ def fact_list_usable(bundle: dict[str, Any]) -> dict[str, Any]:
     per10k = len(lens) / (n_chars / 10_000)
     median = lens[len(lens) // 2] if lens else 0
     short = (sum(1 for x in lens if x < 40) / len(lens)) if lens else 1.0
-    excluded_share = left_out / cleaned_len if cleaned_len else 0.0
+    body_len = max(1, cleaned_len - caption)
+    left_out_share = left_out / body_len
     out.update(
         facts_per_10k=round(per10k, 1),
         median_fact_chars=median,
         short_fact_share=round(short, 2),
         longest_fact_chars=lens[-1] if lens else 0,
-        excluded_share=round(excluded_share, 2),
+        caption_share=round(caption / cleaned_len, 3) if cleaned_len else 0.0,
+        left_out_share=round(left_out_share, 3),
     )
     if not USABLE_FACTS_PER_10K[0] <= per10k <= USABLE_FACTS_PER_10K[1]:
         out["reasons"].append("facts per 10,000 characters outside the range")
@@ -913,8 +958,8 @@ def fact_list_usable(bundle: dict[str, Any]) -> dict[str, Any]:
         out["reasons"].append("a fact is longer than the cap")
     if short > USABLE_SHORT_FACT_SHARE_MAX:
         out["reasons"].append("too many facts under 40 characters")
-    if excluded_share > (USABLE_EXCLUDED_SHARE_MAX if n_chars >= 10_000 else USABLE_EXCLUDED_SHARE_MAX_SHORT):
-        out["reasons"].append("most of the text was left out of the facts")
+    if left_out_share > USABLE_LEFT_OUT_SHARE_MAX:
+        out["reasons"].append("too much of the body was left out of the facts")
     out["pass"] = not out["reasons"]
     return out
 
