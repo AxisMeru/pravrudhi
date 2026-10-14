@@ -876,3 +876,40 @@ def test_the_screening_summary_rule_is_not_swallowed(tmp_path, monkeypatch):
     e = Env(tmp_path)
     out = e.run()
     assert out["run_id"] == "core-run" and block(out)["used"] is False and "delete_session" in e.tr.calls
+
+
+# ---- progress: where a run that did not finish stopped (counts and seconds, never text) ----------------------------------
+def test_a_wall_timeout_records_where_it_stopped(tmp_path):
+    def slow(tr):
+        yield tool_use(1, "ingest", {"facts": list(FACTS), "narrative": ""})
+        tr.clock.t += 1000
+        yield tool_use(2, "select_contracts", {"contract_ids": [CID]})
+
+    e = Env(tmp_path, slow)
+    p = block(e.run())["progress"]
+    assert p["tool_calls"] == 2 and p["events"] == 2 and p["last_tool"] == "select_contracts"
+    assert p["elapsed_s"] >= 1000 and p["wall_limit_s"] == e.cfg.call_timeout_s and p["max_events"] == e.cfg.max_events
+    assert set(p) == {"tool_calls", "refused_calls", "events", "max_events", "elapsed_s", "wall_limit_s", "last_tool"}
+
+
+def test_an_event_count_timeout_says_it_was_the_event_cap_not_the_clock(tmp_path):
+    e = Env(tmp_path, cfg=make_cfg(max_events=10))
+    cfg = e.cfg
+
+    def chatty(tr):
+        for i in range(cfg.max_events + 5):
+            yield {"id": f"m{i}", "type": "agent.message", "content": [{"type": "text", "text": "x"}]}
+
+    e = Env(tmp_path, chatty, cfg=cfg)
+    p = block(e.run())["progress"]
+    assert block(e.run())["reason"] == "timeout" and p["events"] >= p["max_events"] and p["elapsed_s"] < p["wall_limit_s"]
+
+
+def test_a_finished_run_has_no_progress_block(tmp_path):
+    out = Env(tmp_path).run()
+    assert block(out)["used"] is True and "progress" not in block(out)
+
+
+def test_a_fallback_before_any_session_has_no_progress_block(tmp_path):
+    out = Env(tmp_path, tier={"state": "unavailable", "reason": "no_key"}).run()
+    assert block(out)["used"] is False and "progress" not in block(out)
