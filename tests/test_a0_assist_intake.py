@@ -1174,3 +1174,10 @@ def test_r2_last_long_prose_without_a_cue_between_header_pieces_is_kept_and_shor
     )  # two runs; the short counsel line is header
     assert facts_text(b)[0].startswith("The petitioner says")  # the cue-less long prose between the runs is a fact
     assert not any("ZORVAN" in t or "Pardue" in t or "FENWORTH" in t for t in facts_text(b))
+
+
+def test_usable_median_is_none_not_zero_when_there_are_no_facts_and_the_rule_fails():
+    r = I.fact_list_usable({"n_chars": 5000, "facts": [], "not_citable": [], "cleaned": "x" * 5000})
+    assert r["median_fact_chars"] is None and r["pass"] is False and "median fact length outside the range" in r["reasons"]
+    ok = I.fact_list_usable({"n_chars": 10_000, "facts": [{"text": "x" * 300}] * 24, "not_citable": [], "cleaned": "x" * 10_000})
+    assert ok["median_fact_chars"] == 300 and ok["pass"] is True

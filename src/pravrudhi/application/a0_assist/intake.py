@@ -965,7 +965,7 @@ def fact_list_usable(bundle: dict[str, Any]) -> dict[str, Any]:
     if not out["applies"]:
         return out
     per10k = len(lens) / (n_chars / 10_000)
-    median = lens[len(lens) // 2] if lens else 0
+    median = lens[len(lens) // 2] if lens else None  # no facts: the median is not computed (None), never a measured 0
     short = (sum(1 for x in lens if x < 40) / len(lens)) if lens else 1.0
     body_len = max(1, cleaned_len - caption)
     left_out_share = left_out / body_len
@@ -979,7 +979,7 @@ def fact_list_usable(bundle: dict[str, Any]) -> dict[str, Any]:
     )
     if not USABLE_FACTS_PER_10K[0] <= per10k <= USABLE_FACTS_PER_10K[1]:
         out["reasons"].append("facts per 10,000 characters outside the range")
-    if not USABLE_MEDIAN_FACT_CHARS[0] <= median <= USABLE_MEDIAN_FACT_CHARS[1]:
+    if median is None or not USABLE_MEDIAN_FACT_CHARS[0] <= median <= USABLE_MEDIAN_FACT_CHARS[1]:
         out["reasons"].append("median fact length outside the range")
     if lens and lens[-1] > MAX_FACT_CHARS:
         out["reasons"].append("a fact is longer than the cap")
