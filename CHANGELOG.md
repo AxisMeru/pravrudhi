@@ -3,11 +3,21 @@
 Release notes for the engine (`pravrudhi`). Versions before 0.5.44 are described in their GitHub release notes and commit
 messages.
 
-## Unreleased
+## 0.6.6 (2026-10-14)
+
+PATCH release: the assisted route now hands the pinned product agent its earlier results by reference (#423), an accepted job waits for a free agent slot (#412), and the anonymous verify-citations 429 no longer tells a caller to sign in (#413). **Not every existing route behaves exactly as in 0.6.2** (true since 0.6.4): see the caller-visible lines below.
+
+**Rebuild the image.** The changes are under `src/` and `configs/`, so they reach a running container only by a rebuild of the engine image and the RunPod worker template from 0.6.6. The release build passes `--build-arg REQUIRE_CITATION_INDEX=1`, as for 0.6.5.
+
+### Added
+
+- **By-reference hand-over for the assisted route (#423).** `A0RefDriver` (`src/pravrudhi/application/a0_assist/ref_driver.py`) runs the pinned product agent's by-reference tools: every tool result carries a driver-assigned `call_ref`, later tools take refs, and the driver resolves them to the stored outputs with their sha256 re-checked, so the agent cannot alter a stage output between calls. A refused call is recorded with its code and the agent may call again. The screening route uses it; a copy-style agent still falls back to the unassisted result. The agent id and version are unchanged.
 
 ### Changed
 
-- **`/api/v1/verify-citations` 429 wording (caller-visible).** The `message` of its anonymous 429 no longer says to sign in: that route knows only API keys, so it now reads "You have reached the limit for callers without an API key ({limit} requests per minute). Try again in {retry} seconds, or use an API key to get your own limit." The limit is the same per-address limit (the same limiter as analyse-facts, 6 per minute per address in the shipped config); the analyse-facts text, the machine fields and `Retry-After` are unchanged.
+- **An accepted job waits for a free agent slot (#412, caller-visible).** A job accepted with 202 stays `pending` until it holds a slot and waits for one up to `job_slot_wait_s` (600 seconds in the shipped `configs/partner_api.yaml`, capped at one day), then fails with `agent_at_capacity`. The synchronous route never waits (503 at once). A value of 0 means jobs do not wait either.
+
+- **`/api/v1/verify-citations` 429 wording (#413, caller-visible).** The `message` of its anonymous 429 no longer says to sign in: that route knows only API keys, so it now reads "You have reached the limit for callers without an API key ({limit} requests per minute). Try again in {retry} seconds, or use an API key to get your own limit." The limit is the same per-address limit (the same limiter as analyse-facts, 6 per minute per address in the shipped config); the analyse-facts text, the machine fields and `Retry-After` are unchanged.
 
 ### Added
 
