@@ -361,7 +361,7 @@ def test_no_text_the_judge_produced_reaches_the_pack(tmp_path):
 
 
 def test_the_base_driver_problem_strings_the_pack_driver_filters_still_exist(tmp_path):
-    """PackDriver.complete drops the screening driver's own 'decide is not the last stage' string: pin it so a reworded base cannot hide a problem."""
+    """PackDriver.complete drops the base 'decide is not the last stage' string: pin it so a rewording cannot hide it."""
     _, agent = AD.agents(tmp_path, AD.s_proof)
     base = AD.drive(agent)  # a screening run whose last stage is decide
     assert A0.A0Driver.complete(base) == []
