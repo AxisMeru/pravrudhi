@@ -665,9 +665,11 @@ def test_a_live_shaped_cost_below_the_reserve_is_reported_as_read(tmp_path):
     e.tr.list_events = lambda sid: [{"type": "session.usage", "list_cost": e.tr.cost}]
     out = e.run()
     assert e.store.log[2][2] == 3 and block(out)["cost"]["used_cents"] == 3
-# ---- follow-up: the three test gaps R2 named ----
 
-# ---- follow-up: the three test gaps R2 named ----
+
+# ---- additional cost-parser and transport-note cases ----
+
+
 @pytest.mark.parametrize("v", ["1.2.3", ".", "1.", ".5", "1,5", " 5", "5 ", "+5", "1e2", "0x10", "٣"])
 def test_cost_strings_that_are_not_a_plain_decimal_are_unreadable(v):
     assert AS.cost_amount_cents(v) is None
