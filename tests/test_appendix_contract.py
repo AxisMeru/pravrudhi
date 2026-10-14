@@ -4,7 +4,8 @@ Shape recorded from production engine 0.6.8 (Track B round 6; recorded file sha1
 key of the response, NOT inside `assistant`:
   appendix = {appendix_version: 1, steps: [{name, calls, check?}], per_contract: [{contract_id, elements_judged, quotes_checked,
               quotes_valid, lean_agrees}], refused_calls}
-Step names are the engine's own stage names. Renaming, moving or retyping any field is a change the app must be told about."""
+Step names are the engine's own stage names. The key sets are EXACT on purpose: renaming, moving, retyping OR ADDING a field
+is a change the app must be told about (update this file and the app together, or bump appendix_version)."""
 
 from __future__ import annotations
 
@@ -34,7 +35,7 @@ STEP_KEYS_ALL = {"name", "calls", "check"}
 PER_CONTRACT_KEYS = {"contract_id", "elements_judged", "quotes_checked", "quotes_valid", "lean_agrees"}
 #: The step names of the production run the shape was recorded from, in the engine's order.
 RECORDED_STEP_NAMES = ["ingest", "select_contracts", "describe_contract", "judge_element", "assemble", "lean_check", "decide"]
-CHECK_VALUES = {"agrees", "differs", "valid", "invalid"}
+CHECK_VALUES = {"lean_check": {"agrees", "differs"}, "quote_check": {"valid", "invalid"}}
 
 
 def check_appendix_shape(ap: Any) -> None:
@@ -45,7 +46,7 @@ def check_appendix_shape(ap: Any) -> None:
         assert isinstance(s, dict) and STEP_KEYS_REQUIRED <= set(s) <= STEP_KEYS_ALL, s
         assert s["name"] in A0.STAGES and type(s["calls"]) is int and s["calls"] >= 1, s
         if "check" in s:
-            assert s["check"] in CHECK_VALUES and s["name"] in ("lean_check", "quote_check"), s
+            assert s["name"] in CHECK_VALUES and s["check"] in CHECK_VALUES[s["name"]], s
     assert isinstance(ap["per_contract"], list) and ap["per_contract"]
     for row in ap["per_contract"]:
         assert isinstance(row, dict) and set(row) == PER_CONTRACT_KEYS, row
@@ -71,12 +72,13 @@ def test_the_steps_are_the_engines_stage_names_in_run_order_and_match_the_record
     assert names[0] == "ingest" and names[-1] == "decide"
     assert set(names) <= set(A0.STAGES)
     # the recorded production run used exactly these steps; the engine may add quote_check when it checks quotes, nothing else
-    assert [n for n in names if n != "quote_check"] == [n for n in RECORDED_STEP_NAMES if n in names]
+    assert [n for n in names if n != "quote_check"] == RECORDED_STEP_NAMES  # all seven, once each, in order
 
 
 def test_the_appendix_exists_only_on_a_finished_run(tmp_path):
     anonymous = client(tmp_path, user=None).post(URL, json=BODY).json()
-    assert anonymous["assistant"]["used"] is False and "appendix" not in anonymous  # a fallback carries no appendix
+    assert anonymous["assistant"]["used"] is False
+    assert "appendix" not in anonymous  # a fallback carries no appendix (not even a null one)
 
 
 def test_build_appendix_alone_has_the_same_contract_as_the_route_output():
