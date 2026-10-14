@@ -3,6 +3,18 @@
 Release notes for the engine (`pravrudhi`). Versions before 0.5.44 are described in their GitHub release notes and commit
 messages.
 
+## 0.6.6.1 (2026-10-14)
+
+PATCH release on 0.6.6, assisted route only: a screening or hearing pack over about five contracts can now finish with the assistant, and a run that does not finish says where it stopped. It carries exactly two changes, #432 and #433, and nothing else from main. **Rebuild the image.** The changes are under `src/` and `configs/`, so they reach a running container only by a rebuild of the engine image and the RunPod worker template from 0.6.6.1.
+
+### Changed
+
+- **The assisted route allows a longer run (#433, caller-visible).** The assistant's wall limit (`call_timeout_s`) is 150 s, up from 60 s, and its stream-event cap (`max_events`) is 1000, up from 400. A screening or hearing pack over about five contracts took about 57 s of agent turns (dev stack measurement), so 60 s left almost no margin and the run fell back to the ordinary result with `assistant.used: false`; it can now finish with the assistant. A run that still exceeds the limit falls back exactly as before. The route stays synchronous.
+
+### Added
+
+- **A run that did not finish records where it stopped (#432, caller-visible).** On such a run the response's `assistant` block carries `progress`: `tool_calls`, `refused_calls`, `events`, `max_events`, `elapsed_s`, `wall_limit_s` and `last_tool`. Counts, seconds and one tool name only (a name that is not a plain identifier is not echoed); never text. It is absent when no session ran. Building it cannot turn a clean fallback into an error.
+
 ## 0.6.6 (2026-10-14)
 
 PATCH release: the assisted route now hands the pinned product agent its earlier results by reference (#423), an accepted job waits for a free agent slot (#412), and the anonymous verify-citations 429 no longer tells a caller to sign in (#413). **Not every existing route behaves exactly as in 0.6.2** (true since 0.6.4): see the caller-visible lines below.
