@@ -2007,7 +2007,7 @@
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Validation error, or `quote_not_served` ({\"error\": \"quote_not_served\"}): a quote was sent but this deployment's index is existence-only (it holds no judgment text), so no quote can be checked. Send the citation without a quote."
           },
           "429": {
             "description": "Over the rate limit; wait Retry-After seconds.",
