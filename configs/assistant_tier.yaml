@@ -16,7 +16,7 @@ budget_file: null
 failure_ttl_s: 300
 # Limits for any CMA/A0 call site: a call that exceeds the timeout falls back to the core result; one session may not
 # spend more than the budget (USD).
-call_timeout_s: 60
+call_timeout_s: 150   # was 60: a five-contract assisted run takes about 57 s of agent turns (dev measurement), so 60 s left a 3 s margin; the route stays synchronous (app timeout 320 s)
 session_budget_usd: 0.25
 
 # --- A0 screening assistance (pravrudhi-app#125): every key below is read by application/a0_assist/config.py; a missing or malformed key keeps the route OFF (fail closed), never a default in code.
@@ -51,7 +51,7 @@ retention_max_hours: 2
 sweep_interval_min: 10
 max_pending_deletes: 5
 # One assisted run: at most this many events are read, and after the run the session gets this long to go idle before it is deleted.
-max_events: 400
+max_events: 1000   # was 400: five contracts use about 230 stream events, ten would pass the old cap
 interrupt_wait_s: 15
 # Standing canary: hourly, and a canary older than 3 hours (or never run, or failed, or erroring) pauses the tier.
 canary_interval_min: 60
