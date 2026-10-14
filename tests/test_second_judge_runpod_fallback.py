@@ -422,3 +422,112 @@ def test_no_record_dir_means_no_gate(tmp_path: Path) -> None:
     second_cfg = {k: v for k, v in cfg.second_judge.items() if k != "fallback_record_dir"}
     cfg = AgentConfig(**{**cfg.__dict__, "second_judge": second_cfg})  # type: ignore[arg-type]
     assert _second_of(NyayaAgent.house(tmp_path, config=cfg)).fallback_gate is None
+
+
+# -- R2's named items on the first review ---------------------------------------------------------------------------------
+def test_the_typed_layer_refuses_a_config_that_asks_for_the_allowlist_or_the_record_gate(tmp_path: Path) -> None:
+    (tmp_path / "rec").mkdir()
+    cfg = _agent_config(tmp_path, tmp_path / "rec")
+    typed = AgentConfig(**{**cfg.__dict__, "typed_layer": True})  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="typed layer does not install"):
+        NyayaAgent.house(tmp_path, config=typed)
+
+
+@pytest.mark.parametrize("drop", ["fallback_key_endpoint_ids", "fallback_record_dir"])
+def test_the_typed_layer_refuses_each_key_on_its_own(tmp_path: Path, drop: str) -> None:
+    (tmp_path / "rec").mkdir()
+    cfg = _agent_config(tmp_path, tmp_path / "rec")
+    assert cfg.second_judge is not None
+    keep = "fallback_record_dir" if drop == "fallback_key_endpoint_ids" else "fallback_key_endpoint_ids"
+    other = ("fallback_key_endpoint_ids", "fallback_record_dir")
+    second = {k: v for k, v in cfg.second_judge.items() if k not in other or k == keep}
+    typed = AgentConfig(**{**cfg.__dict__, "typed_layer": True, "second_judge": second})  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="typed layer does not install"):
+        NyayaAgent.house(tmp_path, config=typed)
+
+
+def test_the_typed_layer_without_those_keys_builds_as_before(tmp_path: Path) -> None:
+    cfg = _agent_config(tmp_path, tmp_path / "rec")
+    assert cfg.second_judge is not None
+    second = {k: v for k, v in cfg.second_judge.items() if k not in ("fallback_key_endpoint_ids", "fallback_record_dir")}
+    second["base_urls_fallback"] = []
+    typed = AgentConfig(**{**cfg.__dict__, "typed_layer": True, "second_judge": second})  # type: ignore[arg-type]
+    NyayaAgent.house(tmp_path, config=typed)  # no error
+
+
+class _Chat302(http.server.BaseHTTPRequestHandler):
+    seen: list[str | None] = []
+    target = ""
+
+    def do_POST(self) -> None:  # noqa: N802
+        n = int(self.headers.get("Content-Length") or 0)
+        self.rfile.read(n)
+        if self.path.startswith("/start"):
+            self.send_response(302)
+            self.send_header("Location", _Chat302.target + "/hop")
+            self.end_headers()
+            return
+        _Chat302.seen.append(self.headers.get("Authorization"))
+        body = b'{"model":"m","choices":[{"message":{"content":"x"},"finish_reason":"stop"}]}'
+        self.send_response(200)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    do_GET = do_POST  # noqa: N815
+
+    def log_message(self, *a: object) -> None:
+        pass
+
+
+def test_chat_never_carries_the_key_onto_a_redirect() -> None:
+    from pravrudhi.models.openai_compat import ChatClient
+
+    a = http.server.HTTPServer(("127.0.0.1", 0), _Chat302)
+    b = http.server.HTTPServer(("127.0.0.1", 0), _Chat302)
+    _Chat302.target = f"http://127.0.0.1:{b.server_port}"
+    _Chat302.seen = []
+    ts = [threading.Thread(target=s.serve_forever, daemon=True) for s in (a, b)]
+    for t in ts:
+        t.start()
+    try:
+        ChatClient(base_url=f"http://127.0.0.1:{a.server_port}/start", model="m", api_key="secret", timeout_s=5).chat(
+            [{"role": "user", "content": "hi"}], max_tokens=5
+        )
+    except Exception:  # noqa: BLE001 -- the hop may also be refused; what matters is that no request carried the key
+        pass
+    finally:
+        for s in (a, b):
+            s.shutdown()
+            s.server_close()
+    assert all(h is None for h in _Chat302.seen)
+
+
+def _ok_fallback(allowed: set[str]) -> Any:
+    return lambda endpoint, block: endpoint in allowed
+
+
+def test_a_ready_fallback_the_engine_would_refuse_is_not_a_way_to_answer() -> None:
+    check = _check({"epaaa": _health(), "epbbb": _health(ready=1)})
+    block = {"base_url": PRIMARY, "base_urls_fallback": [CLONE]}
+    assert check.offline({"second": block}, {"second": "K"}, fallback_ok=_ok_fallback(set()))  # no passing record: offline
+    check2 = _check({"epaaa": _health(), "epbbb": _health(ready=1)})
+    assert not check2.offline({"second": block}, {"second": "K"}, fallback_ok=_ok_fallback({"epbbb"}))  # record passes
+
+
+def test_a_non_runpod_fallback_still_counts_whatever_the_gate_says() -> None:
+    check = _check({"epaaa": _health()})
+    block = {"base_url": PRIMARY, "base_urls_fallback": [LOCAL]}
+    assert not check.offline({"second": block}, {"second": "K"}, fallback_ok=_ok_fallback(set()))
+
+
+def test_the_partner_gate_uses_the_same_record_rule_as_the_engine(tmp_path: Path) -> None:
+    from pravrudhi.application.second_judge_positive_control import fallback_record_ok
+
+    d = tmp_path / "rec"
+    d.mkdir()
+    sj = {"fallback_record_dir": str(d), "adapter_sha": "ad1"}
+    assert fallback_record_ok(sj, "epbbb", max_age_hours=24.0)[0] is False  # no record
+    _record(d)
+    assert fallback_record_ok(sj, "epbbb", max_age_hours=24.0)[0] is True
+    assert fallback_record_ok({"adapter_sha": "ad1"}, "epbbb", max_age_hours=24.0)[0] is False  # no dir configured

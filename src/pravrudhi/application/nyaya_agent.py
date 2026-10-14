@@ -1195,6 +1195,13 @@ def _build_house_judge(hj_cfg: Mapping[str, Any], *, tau: float, typed: bool, ap
     if typed:
         if "collapse_facts" in hj_cfg and hj_cfg["collapse_facts"] is not False:  # strict: any value but absent/False refuses
             raise ValueError("house_judge.collapse_facts is for the plain HouseJudge only; the typed judge would ignore it")
+        if hj_cfg.get("fallback_key_endpoint_ids") or hj_cfg.get("fallback_record_dir"):
+            # The key allowlist and the per-endpoint record gate live in the plain HouseJudge; the typed decoder installs
+            # neither, so a config that asks for them with the typed layer on must not start (a silent downgrade).
+            raise ValueError(
+                "the typed layer does not install the fallback key allowlist or the per-endpoint record gate: "
+                "refusing to start with fallback_key_endpoint_ids / fallback_record_dir set and typed_layer on"
+            )
         from pravrudhi.application.typed.decoder import VLLMDecoder
         from pravrudhi.application.typed.house_judge import TypedHouseJudge
 
@@ -1439,14 +1446,12 @@ class NyayaAgent:
                 sj_cfg = cfg.second_judge
                 record_dir = sj_cfg.get("fallback_record_dir")
                 if record_dir and isinstance(second, HouseJudge):
-                    from pravrudhi.application.second_judge_positive_control import check_record, read_record
+                    from pravrudhi.application.second_judge_positive_control import fallback_record_ok
 
-                    def _fallback_gate(endpoint_id: str, _dir: str = str(record_dir)) -> tuple[bool, str]:
-                        return check_record(
-                            read_record(Path(_dir) / f"{endpoint_id}.json"),
+                    def _fallback_gate(endpoint_id: str) -> tuple[bool, str]:
+                        return fallback_record_ok(
+                            sj_cfg, endpoint_id,
                             max_age_hours=float(cfg.second_judge_positive_control.get("max_age_hours", 24.0)),
-                            expected_endpoint_id=endpoint_id,
-                            expected_adapter_sha=sj_cfg.get("adapter_sha"),
                         )
 
                     second.fallback_gate = _fallback_gate

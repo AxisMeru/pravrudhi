@@ -748,6 +748,22 @@ def check_record(
     return True, "ok"
 
 
+def fallback_record_ok(
+    second_judge: Mapping[str, Any], endpoint_id: str, *, max_age_hours: float, now: float | None = None
+) -> tuple[bool, str]:
+    """May the engine call the RunPod fallback `endpoint_id`? Only while `<fallback_record_dir>/<endpoint_id>.json` is a
+    passing, fresh record naming that endpoint id and the second judge's adapter sha (`check_record`). No record dir, no
+    record, a failed or stale one, or another endpoint's or adapter's: not ok. One rule for the engine's gate and for the
+    offline check, so they cannot disagree."""
+    record_dir = second_judge.get("fallback_record_dir")
+    if not record_dir:
+        return False, "no fallback_record_dir configured"
+    return check_record(
+        read_record(Path(str(record_dir)) / f"{endpoint_id}.json"), max_age_hours=max_age_hours,
+        expected_endpoint_id=endpoint_id, expected_adapter_sha=second_judge.get("adapter_sha"), now=now,
+    )
+
+
 class RecordGatedJudge:
     """Wraps a real second-judge `Judge`. Before EVERY call, checks the positive-control record -- if it
     isn't fresh and matching, raises `RecordCheckFailed` instead of ever reaching the real endpoint.

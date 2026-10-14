@@ -142,7 +142,24 @@ class JudgeOfflineCheck:
         self._cache[base_url] = (now, st)
         return st
 
-    def offline(self, judges: Mapping[str, Mapping[str, Any]], key_env: Mapping[str, str]) -> bool:
+    def _fallback_can_answer(
+        self, url: str, key: str | None, block: Mapping[str, Any],
+        fallback_ok: Callable[[str, Mapping[str, Any]], bool] | None,
+    ) -> bool:
+        """A non-RunPod fallback is never health-checked here and counts as able to answer. A RunPod fallback counts only if
+        it is not parked (an unreadable state is not parked) AND, when the engine gates it on a positive-control record
+        (`fallback_ok`), that record passes: a fallback the engine would refuse to call is not a way to answer."""
+        endpoint = runpod_endpoint_id(url)
+        if endpoint is None:
+            return True
+        if self.state(url, key).status == "parked":
+            return False
+        return fallback_ok is None or fallback_ok(endpoint, block)
+
+    def offline(
+        self, judges: Mapping[str, Mapping[str, Any]], key_env: Mapping[str, str],
+        *, fallback_ok: Callable[[str, Mapping[str, Any]], bool] | None = None,
+    ) -> bool:
         """True only when a judge this deployment needs (primary, and the second judge when configured) is PARKED.
         Every other state, `unknown` included, is False."""
         for name, block in judges.items():
@@ -156,7 +173,7 @@ class JudgeOfflineCheck:
             # RunPod endpoint (never health-checked here) counts as able to answer, and a RunPod fallback only if it is
             # not itself parked. `unknown` is never parked. Only a judge with no way to answer makes the deployment offline.
             fallbacks = [str(u) for u in ((block or {}).get("base_urls_fallback") or [])]
-            if any(runpod_endpoint_id(u) is None or self.state(u, key).status != "parked" for u in fallbacks):
+            if any(self._fallback_can_answer(u, key, block, fallback_ok) for u in fallbacks):
                 continue
             return True
         return False

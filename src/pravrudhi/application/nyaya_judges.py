@@ -488,10 +488,10 @@ class HouseJudge:
                 raise ValueError("HouseJudge needs a base_url or a complete transport")
 
             # One client per backend. The bearer key is the primary's (the RunPod endpoint); a fallback is the
-            # operator's own vLLM and never receives it. Each backend answers under its own model id.
+            # deployment's own vLLM and never receives it. Each backend answers under its own model id.
             # A fallback on the SAME scheme+host as the primary (a second RunPod endpoint on api.runpod.ai) is the same
             # account's service: it gets the same key and, being a clone of the primary, the same model id. Any other
-            # host (the operator's own vLLM) never gets the key and answers under its own id.
+            # host (the deployment's own vLLM) never gets the key and answers under its own id.
             urls = [base_url, *self.fallback_urls]
             # The primary always gets the key (today's rule). A fallback gets it only if its endpoint id is on OUR allowlist.
             same_host = [i == 0 or key_may_follow(url, self.key_endpoint_ids) for i, url in enumerate(urls)]
