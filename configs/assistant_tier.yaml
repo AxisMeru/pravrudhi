@@ -34,7 +34,18 @@ agent_version: 1
 environment_id: env_01MAG6qEGC999A8r8MogP5bt
 # One pinned agent per OTHER workflow (hearing_prep, intake), each {agent_id, agent_version, environment_id} from its own sha-pinned
 # manifest. Empty = those workflows stay dark (the caller gets the ordinary result). Screening uses the three keys above.
-workflows: {}
+# Ids from the sha-pinned manifests (ids only, no secrets; each agent has its own no-network environment; created 14 Oct, no session yet):
+#   hearing_prep: MANIFEST_hearing_prep_agent.json sha256 ce5ac30c18d527ce...
+#   intake:       MANIFEST_intake_agent.json sha256 e81fed0be76172a7...
+workflows:
+  hearing_prep:
+    agent_id: agent_01JvEU8nHU2JpQtUGEzrmmkX
+    agent_version: 1
+    environment_id: env_018P77Nk1DHCMD1tatmY4smL
+  intake:
+    agent_id: agent_01M99gqroanbSDRGEr4n2Nns
+    agent_version: 1
+    environment_id: env_01NqsSVpfUrUMX6PiS7fGG9W
 # Names of environment variables (values arrive as RunPod secret references, never here).
 workspace_id_env: ANTHROPIC_WORKSPACE_ID
 store_dsn_env: SUPABASE_ASSIST_DB_URL

@@ -331,12 +331,19 @@ HP = {"agent_id": "agent_hp", "agent_version": 3, "environment_id": "env_hp"}
 IN = {"agent_id": "agent_in", "agent_version": 1, "environment_id": "env_in"}
 
 
-def test_workflows_is_a_required_key_and_the_shipped_file_has_none_yet():
+def test_workflows_is_a_required_key_and_the_shipped_file_names_the_two_pinned_agents():
     cfg = base()
     del cfg["workflows"]
     with pytest.raises(C.AssistConfigError, match="workflows"):
         C.parse(cfg)
-    assert C.parse(base()).workflows == {}
+    shipped = C.parse(base()).workflows
+    assert shipped == {
+        "hearing_prep": C.WorkflowAgent("agent_01JvEU8nHU2JpQtUGEzrmmkX", 1, "env_018P77Nk1DHCMD1tatmY4smL"),
+        "intake": C.WorkflowAgent("agent_01M99gqroanbSDRGEr4n2Nns", 1, "env_01NqsSVpfUrUMX6PiS7fGG9W"),
+    }
+    # one environment per workflow, none shared with screening or each other
+    envs = [a.environment_id for a in shipped.values()] + [C.parse(base()).environment_id]
+    assert len(set(envs)) == len(envs)
 
 
 def test_a_configured_workflow_has_its_own_agent_and_screening_keeps_the_top_level_keys():
@@ -383,3 +390,13 @@ def test_a_malformed_workflows_block_is_refused(bad):
 
 def test_workflows_null_means_none():
     assert C.parse(base(workflows=None)).workflows == {}
+
+
+def test_the_shipped_file_serves_both_workflows_and_dropping_the_entries_makes_them_dark_again():
+    raw = yaml.safe_load((REPO / "configs" / "assistant_tier.yaml").read_text())
+    shipped = C.parse(raw)
+    assert shipped.agent_for("intake") is not None and shipped.agent_for("hearing_prep") is not None
+    assert shipped.agent_for("screening") == C.WorkflowAgent("agent_012zKjNLSVQoivwTqEPBkVUZ", 1, "env_01MAG6qEGC999A8r8MogP5bt")
+    assert len(shipped.all_agent_ids()) == 3  # the orphan scan covers all three agents
+    dark = C.parse({**raw, "workflows": {}})
+    assert dark.agent_for("intake") is None and dark.agent_for("hearing_prep") is None and len(dark.all_agent_ids()) == 1

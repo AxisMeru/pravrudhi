@@ -29,7 +29,8 @@ SENTINEL = "SENTINEL-client-text-91c2"
 def make_cfg(**over):
     raw = yaml.safe_load((REPO / "configs" / "assistant_tier.yaml").read_text())
     raw.update(
-        assist_route_enabled=True, agent_id="agent_p", agent_version=1, environment_id="env_p", store_ca_file="/app/ca.crt"
+        assist_route_enabled=True, agent_id="agent_p", agent_version=1, environment_id="env_p", store_ca_file="/app/ca.crt",
+        workflows={},  # the shipped file names the workflow agents; these tests start with screening only
     )
     raw.update(over)
     return C.parse(raw)
