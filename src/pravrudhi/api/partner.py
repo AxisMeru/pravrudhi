@@ -51,6 +51,7 @@ import hashlib
 import hmac
 import json
 import logging
+import math
 import os
 import sqlite3
 import subprocess
@@ -174,6 +175,9 @@ class PartnerApiConfig:
     #: hold at once.
     job_retention_s: float = 3600.0
     job_max_unfinished_per_key: int = 8
+    #: Async jobs (#406): how long an accepted job may WAIT for a free agent slot (`max_concurrent`) before it fails with
+    #: `agent_at_capacity`. A job was accepted with 202, so it queues; the sync route stays non-blocking (0 = never wait).
+    job_slot_wait_s: float = 600.0
     #: Failed-key attempts per address per minute before further key checks from it are refused with 429 (#396). None = the
     #: same as `rate_limit_per_minute` (the default). Set it higher when callers behind a gateway share one peer address and
     #: a flood of bad keys must not lock the valid keyed callers out; env override PRAVRUDHI_BAD_KEY_BUDGET_PER_MINUTE.
@@ -252,11 +256,30 @@ def load_partner_api_config(root: Path) -> PartnerApiConfig:
         judge_warm_retry_s=float(body.get("judge_warm_retry_s", 30.0)),
         job_retention_s=float(body.get("job_retention_s", 3600.0)),
         job_max_unfinished_per_key=int(body.get("job_max_unfinished_per_key", 8)),
+        job_slot_wait_s=_job_slot_wait(body.get("job_slot_wait_s", 600.0)),
         bad_key_budget_per_minute=_bad_key_budget(body.get("bad_key_budget_per_minute")),
         audit_retention_s=float(body.get("audit_retention_s", 90 * 86400.0)),
         verify_max_concurrent=int(body.get("verify_max_concurrent", 2)),
         verify_timeout_s=float(body.get("verify_timeout_s", 5.0)),
     )
+
+
+#: One day: more than any job should queue, and far below `threading.TIMEOUT_MAX` (a larger wait raises OverflowError).
+MAX_JOB_SLOT_WAIT_S = 86_400.0
+
+
+def _job_slot_wait(raw: Any) -> float:
+    """`job_slot_wait_s`: a finite number from 0 to one day (a bool, NaN, inf, a negative or a larger value is a config
+    error, never a silent default)."""
+    ok = isinstance(raw, (int, float)) and not isinstance(raw, bool)
+    if ok:
+        try:
+            ok = math.isfinite(raw) and 0 <= raw <= MAX_JOB_SLOT_WAIT_S
+        except OverflowError:  # an int too large for a float
+            ok = False
+    if not ok:
+        raise ValueError(f"job_slot_wait_s must be a number from 0 to {MAX_JOB_SLOT_WAIT_S:.0f} seconds, got {raw!r}"[:200])
+    return float(raw)
 
 
 _RATE_LIMIT_HEADER_DOCS: dict[str, Any] = {
@@ -345,12 +368,18 @@ class RateLimiter:
 
 
 def rate_limited_response(
-    *, limit: int, retry_after: int, scope: str, headers: dict[str, str] | None = None
+    *, limit: int, retry_after: int, scope: str, headers: dict[str, str] | None = None, sign_in: bool = True
 ) -> JSONResponse:
     """The 429 body (#403): the machine field `detail` and the `Retry-After` header are unchanged; the added fields say the
     limit, the window and what to do. `scope` is "anonymous" (no signed-in user and no key), "caller" (a signed-in user
     or key whose address bucket fired) or "key" (a key's own per-minute limit)."""
-    if scope == "anonymous":
+    if scope == "anonymous" and not sign_in:
+        # a route that only knows API keys (verify-citations): signing in would not give a separate limit there
+        message = (
+            f"You have reached the limit for callers without an API key ({limit} requests per minute). "
+            f"Try again in {retry_after} seconds, or use an API key to get your own limit."
+        )
+    elif scope == "anonymous":
         message = (
             f"You have reached the limit for visitors who are not signed in ({limit} requests per minute). "
             f"Try again in {retry_after} seconds, or sign in or use an API key to get your own limit."
@@ -381,7 +410,11 @@ class ConcurrencyLimiter:
     def __init__(self, max_concurrent: int) -> None:
         self._sem = threading.Semaphore(max_concurrent)
 
-    def acquire(self) -> bool:
+    def acquire(self, timeout: float = 0.0) -> bool:
+        """Non-blocking by default. With `timeout` > 0 (async jobs only, #406) waits up to that many seconds for a slot."""
+        if timeout > 0:
+            # a longer wait than TIMEOUT_MAX raises OverflowError even for a free slot
+            return self._sem.acquire(timeout=min(timeout, threading.TIMEOUT_MAX))
         return self._sem.acquire(blocking=False)
 
     def release(self) -> None:
@@ -1463,14 +1496,14 @@ def build_partner_router(
     ) -> dict[str, Any] | JSONResponse:
         from pravrudhi.application import assistant_tier
         from pravrudhi.application.a0_assist import assist as a0
-        from pravrudhi.application.a0_assist import driver as a0drv
+        from pravrudhi.application.a0_assist import ref_driver as a0rd
 
         matter = {"facts": list(req.facts), "narrative": req.narrative, "contract_ids": list(req.contract_ids)}
         box: dict[str, Any] = {}
 
         def make_driver() -> Any:
             box["agent"] = factory(engine_root)
-            return a0drv.A0Driver(box["agent"], request=matter, proceeding_posture=req.proceeding_posture)
+            return a0rd.A0RefDriver(box["agent"], request=matter, proceeding_posture=req.proceeding_posture)
 
         def finalize(driver: Any) -> dict[str, Any]:
             agent = box["agent"]
@@ -1637,10 +1670,10 @@ def build_partner_router(
             store.discard(job_id)
             return admitted
 
-        def task() -> None:
+        def _run_job() -> None:
             store.start(job_id)
             try:
-                out = _run(req, admitted, debug_second_judge)
+                out = _run(req, admitted, debug_second_judge, slot_held=True)
                 if isinstance(out, dict):
                     out = AnalyseFactsResponse(**out).model_dump(mode="json", exclude_unset=True)
             except HTTPException as e:
@@ -1662,6 +1695,20 @@ def build_partner_router(
                 return
             _audit(metered, req, "job", status_code=200, out=out)
             store.finish(job_id, result=out)
+
+        def task() -> None:
+            # #406: an accepted job stays "pending" until it holds an agent slot, and waits for one up to job_slot_wait_s
+            # (counted from the moment a pool thread picks it up). Only then does it run; running jobs hold the slot.
+            if not admitted.concurrency.acquire(admitted.cfg.job_slot_wait_s):
+                if metered:
+                    _record_usage(metered[0], failed=True)
+                _audit(metered, req, "job", status_code=503)
+                store.fail(job_id, status_code=503, body=json.loads(bytes(coded_503(AGENT_AT_CAPACITY).body)))
+                return
+            try:
+                _run_job()
+            finally:
+                admitted.concurrency.release()
 
         _submit(task)
         return {"job_id": job_id, "status": "pending"}
@@ -1720,7 +1767,7 @@ def build_partner_router(
         if not rate_limiter.allow(ip):
             return rate_limited_response(
                 limit=rate_limiter.per_minute, retry_after=rate_limiter.retry_after_seconds(),
-                scope="caller" if principal is not None else "anonymous",
+                scope="caller" if principal is not None else "anonymous", sign_in=False,
             )
         if principal is not None:
             key = next((k for k in tenancy.keys_for_org(engine_root, principal.org_id) if k.key_id == principal.key_id), None)

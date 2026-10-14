@@ -5,6 +5,10 @@ messages.
 
 ## Unreleased
 
+### Changed
+
+- **`/api/v1/verify-citations` 429 wording (caller-visible).** The `message` of its anonymous 429 no longer says to sign in: that route knows only API keys, so it now reads "You have reached the limit for callers without an API key ({limit} requests per minute). Try again in {retry} seconds, or use an API key to get your own limit." The limit is the same per-address limit (the same limiter as analyse-facts, 6 per minute per address in the shipped config); the analyse-facts text, the machine fields and `Retry-After` are unchanged.
+
 ### Added
 
 - **Client-address diagnostic on `GET /api/health` (response headers only; no body change).** `X-Pravrudhi-Client-Ip-Source` says where the engine took the caller's address from (`signed`, `proxy`, `caller` or `peer`), and `X-Pravrudhi-Client-Ip-Proof` says whether the gateway's signed-address proof arrived and held (`valid`, `none`, `mismatch`, `no_ip`, `engine_unset`, `engine_short`). Labels only: never the address and never the secret. It lets anyone check, through the gateway, whether the signed address path works (found necessary on 14 Oct, when production answered with the shared peer address for every caller).

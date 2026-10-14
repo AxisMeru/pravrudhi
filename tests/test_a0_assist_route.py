@@ -35,7 +35,7 @@ def make_runtime(tmp_path, **tr_kw):
     clock = RQ.Clock()
     rt = RT.Runtime(cfg)
     rt.store = RQ.FakeStore()
-    rt.transport = RQ.FakeTransport(RQ.ideal(), clock, **tr_kw)
+    rt.transport = RQ.FakeTransport(RQ.ideal_ref(), clock, **tr_kw)
     rt.limiter = L.AssistLimiter(cfg.runs_per_user_per_day, cfg.runs_per_org_per_day, cfg.per_ip_per_minute)
     rt.slots = threading.BoundedSemaphore(cfg.max_concurrent_sessions)
     return rt
@@ -186,3 +186,13 @@ def test_a_workflow_with_no_agent_answers_with_the_ordinary_result_and_not_confi
     a = r.json()["assistant"]
     assert a["used"] is False and a["reason"] == "not_configured" and r.json()["contracts"]
     assert c.rt.transport.calls == before and c.rt.store.log == []
+
+
+def test_a_copy_style_agent_is_refused_and_the_caller_gets_the_core_result(tmp_path):
+    """The pinned product agent speaks by reference; a copy-style session (the old hand-over) is refused at its first judge call,
+    the run is incomplete, and the caller still gets the ordinary result with `used: false` (never an error, never a partial)."""
+    c = client(tmp_path)
+    c.rt.transport.program = RQ.ideal()  # copy style
+    r = c.post(URL, json=BODY)
+    assert r.status_code == 200 and r.json()["assistant"]["used"] is False and r.json()["contracts"]
+    assert "delete_session" in c.rt.transport.calls

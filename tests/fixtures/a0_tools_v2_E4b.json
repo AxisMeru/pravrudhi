@@ -1,0 +1,190 @@
+[
+ {
+  "type": "custom",
+  "name": "ingest",
+  "description": "Stage 1. Assigns the fact ids F1..Fn in the caller's order; returns {facts:[{id,text,sha256}], narrative, call_ref}. Call exactly once per matter, first. The returned call_ref (I1) is what later tools take as ingest_ref; you never copy facts into later calls.",
+  "input_schema": {
+   "type": "object",
+   "properties": {
+    "facts": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "description": "The caller's facts as plain strings, in the caller's order."
+    },
+    "narrative": {
+     "type": "string",
+     "description": "Optional narrative text; empty string when none."
+    }
+   },
+   "required": [
+    "facts"
+   ]
+  }
+ },
+ {
+  "type": "custom",
+  "name": "select_contracts",
+  "description": "Stage 2. Returns the contracts to screen as {contracts:[{contract_id,source_sections}], call_ref}. Pass contract_ids OR sections (the API does not allow a schema-level either/or; the driver refuses both or neither).",
+  "input_schema": {
+   "type": "object",
+   "properties": {
+    "contract_ids": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "sections": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    }
+   },
+   "required": []
+  }
+ },
+ {
+  "type": "custom",
+  "name": "describe_contract",
+  "description": "Stage 3. Returns the contract's elements {element_id, description, is_denial}, required_elements and defeaters, plus call_ref (D1...). Call once per selected contract.",
+  "input_schema": {
+   "type": "object",
+   "properties": {
+    "contract_id": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "contract_id"
+   ]
+  }
+ },
+ {
+  "type": "custom",
+  "name": "judge_element",
+  "description": "Stage 4. Judges ONE element of ONE contract on the ingested facts. You pass only the ingest call_ref and the element exactly as describe_contract listed it (same text, same is_denial); the driver supplies the facts and narrative. Returns the element result plus call_ref (J1, J2, ...). Keep the call_ref: assemble and decide take the J refs, never the result text.",
+  "input_schema": {
+   "type": "object",
+   "properties": {
+    "ingest_ref": {
+     "type": "string",
+     "description": "The call_ref returned by ingest (I1)."
+    },
+    "contract_id": {
+     "type": "string"
+    },
+    "element": {
+     "type": "string",
+     "description": "The element description exactly as describe_contract listed it."
+    },
+    "is_denial": {
+     "type": "boolean"
+    }
+   },
+   "required": [
+    "ingest_ref",
+    "contract_id",
+    "element",
+    "is_denial"
+   ]
+  }
+ },
+ {
+  "type": "custom",
+  "name": "quote_check",
+  "description": "Stage 5. Verifies the quote of one judge_element result against the ingested facts (the system computes the offsets). Required for EVERY judge_element result that returned a quote, before assemble. Returns the check plus call_ref (Q1, ...). A judge_element result with no quote needs no quote_check.",
+  "input_schema": {
+   "type": "object",
+   "properties": {
+    "judge_ref": {
+     "type": "string",
+     "description": "The call_ref of the judge_element result (J1...)."
+    }
+   },
+   "required": [
+    "judge_ref"
+   ]
+  }
+ },
+ {
+  "type": "custom",
+  "name": "assemble",
+  "description": "Stage 6. Assembles the contract's assertions and wire line from the judge_element results. Pass the J refs of EVERY element of the contract, in the contract's element order; the driver resolves them (you never copy result JSON). Refused while any returned quote has no quote_check. Returns the assertions and wire plus call_ref (A1, ...).",
+  "input_schema": {
+   "type": "object",
+   "properties": {
+    "contract_id": {
+     "type": "string"
+    },
+    "element_refs": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "description": "The judge_element call_refs (J...), one per element, in the contract's element order."
+    }
+   },
+   "required": [
+    "contract_id",
+    "element_refs"
+   ]
+  }
+ },
+ {
+  "type": "custom",
+  "name": "lean_check",
+  "description": "Stage 7. Checks the assembled wire with the pinned Lean score binary. Pass the assemble call_ref; the driver supplies the wire. Returns lean_outcome and attestation plus call_ref (L1, ...).",
+  "input_schema": {
+   "type": "object",
+   "properties": {
+    "contract_id": {
+     "type": "string"
+    },
+    "assemble_ref": {
+     "type": "string",
+     "description": "The call_ref of the assemble result (A1...)."
+    }
+   },
+   "required": [
+    "contract_id",
+    "assemble_ref"
+   ]
+  }
+ },
+ {
+  "type": "custom",
+  "name": "decide",
+  "description": "Stage 8, ONCE per contract, last (a second decide for the same contract is refused). Pass the same J refs as assemble, the assemble ref and the lean_check ref; the driver resolves them. The result (outcome, reason, elements, attestation) IS the product answer: the driver takes it from this tool result by reference. It carries no call_ref. Your last chat message is display only.",
+  "input_schema": {
+   "type": "object",
+   "properties": {
+    "contract_id": {
+     "type": "string"
+    },
+    "element_refs": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "description": "The judge_element call_refs (J...), exactly as given to assemble."
+    },
+    "assemble_ref": {
+     "type": "string"
+    },
+    "lean_ref": {
+     "type": "string",
+     "description": "The call_ref of the lean_check result (L1...)."
+    }
+   },
+   "required": [
+    "contract_id",
+    "element_refs",
+    "assemble_ref",
+    "lean_ref"
+   ]
+  }
+ }
+]

@@ -190,6 +190,44 @@ def ideal(summary="Done.", tamper=None, stop="end_turn"):
     return program
 
 
+def ideal_ref(summary="Done.", stop="end_turn"):
+    """The same scripted agent as `ideal`, but BY REFERENCE: the hand-over the pinned product agent's tools use."""
+
+    def program(tr):
+        i = 0
+        ing = yield tool_use(i := i + 1, "ingest", {"facts": list(FACTS), "narrative": ""})
+        yield tool_use(i := i + 1, "select_contracts", {"contract_ids": [CID]})
+        desc = yield tool_use(i := i + 1, "describe_contract", {"contract_id": CID})
+        outs = []
+        for e in desc["elements"]:
+            outs.append(
+                (
+                    yield tool_use(
+                        i := i + 1,
+                        "judge_element",
+                        {
+                            "ingest_ref": ing["call_ref"], "contract_id": CID,
+                            "element": e["element_id"], "is_denial": e["is_denial"],
+                        },
+                    )
+                )
+            )
+        for o in outs:
+            if o.get("quote"):
+                yield tool_use(i := i + 1, "quote_check", {"judge_ref": o["call_ref"]})
+        refs = [o["call_ref"] for o in outs]
+        asm = yield tool_use(i := i + 1, "assemble", {"contract_id": CID, "element_refs": refs})
+        lc = yield tool_use(i := i + 1, "lean_check", {"contract_id": CID, "assemble_ref": asm["call_ref"]})
+        yield tool_use(
+            i := i + 1, "decide",
+            {"contract_id": CID, "element_refs": refs, "assemble_ref": asm["call_ref"], "lean_ref": lc["call_ref"]},
+        )
+        yield {"id": "m1", "type": "agent.message", "content": [{"type": "text", "text": summary}]}
+        yield {"id": "z", "type": "session.status_idle", "stop_reason": {"type": stop}}
+
+    return program
+
+
 CORE = {"run_id": "core-run", "contracts": [{"contract_id": CID, "outcome": "ABSTAIN"}]}
 
 
