@@ -267,7 +267,9 @@
               "sync",
               "job",
               "verify",
-              "assist"
+              "assist",
+              "intake",
+              "intake_assist"
             ],
             "title": "Mode",
             "type": "string"

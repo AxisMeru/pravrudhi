@@ -175,6 +175,8 @@ def _call_modes(tree: Any) -> set[str]:
         name = fn.id if isinstance(fn, ast.Name) else (fn.attr if isinstance(fn, ast.Attribute) else "")
         if name == "_audit" and len(node.args) >= 3 and isinstance(node.args[2], ast.Constant):
             found.add(str(node.args[2].value))
+        if name == "_intake_audit" and len(node.args) >= 2 and isinstance(node.args[1], ast.Constant):
+            found.add(str(node.args[1].value))
         if name == "record":
             for kw in node.keywords:
                 if kw.arg == "mode" and isinstance(kw.value, ast.Constant):
@@ -192,6 +194,6 @@ def test_every_mode_the_engine_writes_is_a_mode_the_audit_page_declares() -> Non
 
     declared = set(get_args(partner.AuditRowOut.model_fields["mode"].annotation))
     written = _call_modes(ast.parse(Path(partner.__file__).read_text()))
-    assert {"sync", "job", "assist", "verify"} <= written  # the writers that exist today
+    assert {"sync", "job", "assist", "verify", "intake", "intake_assist"} <= written  # the writers that exist today
     assert written <= declared, written - declared
     assert declared == written, "a declared mode nothing writes any more: remove it from the contract deliberately"
