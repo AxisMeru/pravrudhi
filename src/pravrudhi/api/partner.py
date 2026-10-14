@@ -234,10 +234,17 @@ def load_partner_api_config(root: Path) -> PartnerApiConfig:
     )
 
 
+#: One day: more than any job should queue, and far below `threading.TIMEOUT_MAX` (a larger wait raises OverflowError).
+MAX_JOB_SLOT_WAIT_S = 86_400.0
+
+
 def _job_slot_wait(raw: Any) -> float:
-    """`job_slot_wait_s`: a finite number >= 0 (a bool, NaN, inf or a negative is a config error, never a silent default)."""
-    if isinstance(raw, bool) or not isinstance(raw, (int, float)) or not math.isfinite(raw) or raw < 0:
-        raise ValueError(f"job_slot_wait_s must be a finite number >= 0, got {raw!r}")
+    """`job_slot_wait_s`: a finite number from 0 to one day (a bool, NaN, inf, a negative or a larger value is a config
+    error, never a silent default)."""
+    if isinstance(raw, bool) or not isinstance(raw, (int, float)) or not math.isfinite(raw):
+        raise ValueError(f"job_slot_wait_s must be a number from 0 to {MAX_JOB_SLOT_WAIT_S:.0f} seconds, got {raw!r}")
+    if not 0 <= raw <= MAX_JOB_SLOT_WAIT_S:
+        raise ValueError(f"job_slot_wait_s must be a number from 0 to {MAX_JOB_SLOT_WAIT_S:.0f} seconds, got {raw!r}")
     return float(raw)
 
 
@@ -366,7 +373,8 @@ class ConcurrencyLimiter:
     def acquire(self, timeout: float = 0.0) -> bool:
         """Non-blocking by default. With `timeout` > 0 (async jobs only, #406) waits up to that many seconds for a slot."""
         if timeout > 0:
-            return self._sem.acquire(timeout=timeout)
+            # a longer wait than TIMEOUT_MAX raises OverflowError even for a free slot
+            return self._sem.acquire(timeout=min(timeout, threading.TIMEOUT_MAX))
         return self._sem.acquire(blocking=False)
 
     def release(self) -> None:

@@ -66,6 +66,15 @@ def _client(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, gate: Gate, wait_s:
     return c, _key(c, "acme")
 
 
+def _until(cond: Any, timeout: float = 10.0) -> None:
+    end = time.monotonic() + timeout
+    while time.monotonic() < end:
+        if cond():
+            return
+        time.sleep(0.02)
+    raise AssertionError("condition not reached")
+
+
 def _submit(c: TestClient, secret: str, n: int) -> list[str]:
     ids = []
     for _ in range(n):
@@ -91,8 +100,10 @@ def test_six_simultaneous_jobs_all_finish_and_never_more_than_two_run_at_once(
     gate = Gate()
     c, secret = _client(monkeypatch, tmp_path, gate, wait_s=30.0)
     ids = _submit(c, secret, 6)
-    time.sleep(0.5)  # the first two hold the slots; the others are waiting, not failed
+    _until(lambda: gate.now == 2)  # the first two hold the slots; the others are waiting, not failed
+    time.sleep(0.3)
     assert gate.now == 2
+    assert all(c.get(f"{JOBS}/{i}", headers={H: secret}).json()["status"] != "failed" for i in ids)
     gate.event.set()
     jobs = _settle(c, secret, ids)
     assert [j["status"] for j in jobs] == ["done"] * 6
@@ -103,13 +114,13 @@ def test_with_the_wait_off_the_old_behaviour_is_kept(monkeypatch: pytest.MonkeyP
     gate = Gate()
     c, secret = _client(monkeypatch, tmp_path, gate, wait_s=0.0)
     ids = _submit(c, secret, 6)
-    time.sleep(0.5)
+    _until(lambda: sum(1 for i in ids if c.get(f"{JOBS}/{i}", headers={H: secret}).json()["status"] == "failed") == 4)
     gate.event.set()
     jobs = _settle(c, secret, ids)
     failed = [j for j in jobs if j["status"] == "failed"]
     assert len(failed) == 4 and all(j["error"]["status_code"] == 503 for j in failed)
     assert all(j["error"]["body"] == {"error": "agent_at_capacity", "detail": "the nyaya agent is at capacity; retry shortly"}
-               or j["error"]["body"].get("error") == "agent_at_capacity" for j in failed)
+               for j in failed)
     assert len([j for j in jobs if j["status"] == "done"]) == 2
 
 
@@ -119,9 +130,9 @@ def test_a_bounded_wait_that_runs_out_fails_honestly_with_agent_at_capacity(
     gate = Gate()
     c, secret = _client(monkeypatch, tmp_path, gate, wait_s=0.3)
     ids = _submit(c, secret, 4)
-    time.sleep(1.0)  # past the wait: the two that never got a slot have failed while the first two still hold theirs
-    jobs = [c.get(f"{JOBS}/{i}", headers={H: secret}).json() for i in ids]
-    assert sorted(j["status"] for j in jobs).count("failed") == 2
+    _until(lambda: sum(1 for i in ids if c.get(f"{JOBS}/{i}", headers={H: secret}).json()["status"] == "failed") == 2)
+    # past the wait: the two that never got a slot have failed while the first two still hold theirs
+    assert gate.now == 2
     gate.event.set()
     jobs = _settle(c, secret, ids)
     assert sorted(j["status"] for j in jobs) == ["done", "done", "failed", "failed"]
@@ -135,8 +146,7 @@ def test_the_synchronous_route_never_waits(monkeypatch: pytest.MonkeyPatch, tmp_
                for _ in range(2)]
     for t in holders:
         t.start()
-    time.sleep(0.5)
-    assert gate.now == 2
+    _until(lambda: gate.now == 2)
     t0 = time.monotonic()
     r = c.post("/api/v1/analyse-facts", json=_req(), headers={H: secret})
     assert r.status_code == 503 and time.monotonic() - t0 < 2.0  # at once, not after the 30 s job wait
@@ -155,8 +165,15 @@ def test_the_limiter_waits_only_when_asked() -> None:
     assert lim.acquire(5.0) is True  # a release inside the wait hands the slot over
 
 
-@pytest.mark.parametrize("bad", [-1, float("nan"), float("inf"), True, "10", None])
-def test_job_slot_wait_s_must_be_a_finite_number_not_below_zero(tmp_path: Path, bad: Any) -> None:
+def test_an_absurd_wait_is_clamped_not_an_overflow_error() -> None:
+    lim = ConcurrencyLimiter(1)
+    assert lim.acquire(1e12) is True  # a free slot: returns at once, no OverflowError from the semaphore
+    threading.Timer(0.1, lim.release).start()
+    assert lim.acquire(1e12) is True
+
+
+@pytest.mark.parametrize("bad", [-1, float("nan"), float("inf"), True, "10", None, 1e12, 86_401])
+def test_job_slot_wait_s_must_be_a_number_from_zero_to_one_day(tmp_path: Path, bad: Any) -> None:
     (tmp_path / "configs").mkdir()
     import yaml
 
