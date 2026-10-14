@@ -8,6 +8,11 @@
 # not a rolling average -- simple, and enough to stop one caller from burning the 5090's GPU time.
 rate_limit_per_minute: 6
 
+# Failed-key attempts per address per minute before further key checks from that address get 429 (#396). null = the same
+# number as rate_limit_per_minute. Raise it (or set PRAVRUDHI_BAD_KEY_BUDGET_PER_MINUTE, which wins) when callers behind a gateway
+# share one peer address and a flood of bad keys must not lock the valid keyed callers out; it does not change the anonymous limit.
+bad_key_budget_per_minute: null
+
 # The house judge is one vLLM server on one 5090 -- there is no queue depth that makes waiting sensible for
 # an anonymous caller. A request that arrives once this many analyse-facts calls are already in flight gets
 # a 503 immediately, never queued.
