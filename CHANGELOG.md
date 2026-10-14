@@ -3,6 +3,14 @@
 Release notes for the engine (`pravrudhi`). Versions before 0.5.44 are described in their GitHub release notes and commit
 messages.
 
+## 0.6.10 (2026-10-14)
+
+PATCH release on 0.6.9: the service window now covers the whole day, so a signed-in user is no longer shown disabled run buttons after 21:00.
+
+### Changed
+
+- **The service window reads open around the clock (caller-visible).** `GET /api/v1/status` reports the service window as 00:00 to 23:59 Europe/London, so `open_now` is true at any hour except the single minute from 23:59 to 00:00. Before this release it reported 09:00 to 21:00 and `open_now` false in the evening, which made the app disable Screening and Analyse after 21:00 although the engine never refused a call: enforcement stays off (`enforce: false`). Calls are answered at all hours, as before.
+
 ## 0.6.9 (2026-10-14)
 
 PATCH release on 0.6.8: the client-address diagnostic on `GET /api/health` no longer says why a proof failed (#451), and the assisted screening route refuses `workflow: "intake"` with an error naming the intake routes (#453). **Rebuild the image.** The changes are under `src/`, so they reach a running container only by a rebuild of the engine image and the RunPod worker template from 0.6.9.
