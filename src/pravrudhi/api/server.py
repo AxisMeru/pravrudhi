@@ -220,6 +220,18 @@ class UpdateApplyRequest(BaseModel):
     channel: Literal["dev", "release"] | None = None
 
 
+_last_proof_label: list[str] = []
+
+
+def _log_proof_label(proof: str) -> None:
+    """One log line when the client-address proof state changes and is not `valid` (the reason is not public: see /api/health)."""
+    if _last_proof_label and _last_proof_label[0] == proof:
+        return
+    _last_proof_label[:] = [proof]
+    if proof != "valid":
+        logging.getLogger(__name__).warning("client address proof is not valid: %s", proof)
+
+
 def _warm_up_house_judge_in_background(root: Path) -> None:
     """Best-effort only, never blocks or fails server startup: a deployment that doesn't use Nyaya at all has
     no `configs/nyaya_agent.yaml`, and `load_agent_config` is allowed to raise for that (FileNotFoundError,
@@ -602,22 +614,27 @@ def create_app(root: Path, *, nyaya_ask_fn: Any | None = None) -> FastAPI:
     @api.get("/health")
     def health(http_request: HttpRequest, response: Response) -> HealthResponse:
         from pravrudhi.api.partner import client_ip_and_source, client_ip_proof, load_partner_api_config
-        from pravrudhi.application import assistant_tier
+        from pravrudhi.application import assistant_tier, tenancy
 
-        # Two label-only response headers that let anyone see, end to end through the gateway, whether the client-address proof
-        # held: where the engine took the caller's address from, and whether the proof arrived (never an address or a secret).
+        # Where the engine took the caller's address from is public as a label only (`signed`, `proxy` or `peer`; never an address
+        # or a secret). WHY a proof failed (`engine_unset`, `engine_short`, `mismatch`, ...) names the engine's own configuration,
+        # so it is not public: it goes to the log when it changes, and to a caller holding the provisioning secret as a header.
         trust, proxies = _health_proxy_config(root, load_partner_api_config)
-        response.headers["X-Pravrudhi-Client-Ip-Source"] = client_ip_and_source(
-            http_request, trust_proxy_header=trust, trusted_proxies=proxies
-        )[1]
-        response.headers["X-Pravrudhi-Client-Ip-Proof"] = client_ip_proof(http_request)
+        source = client_ip_and_source(http_request, trust_proxy_header=trust, trusted_proxies=proxies)[1]
+        response.headers["X-Pravrudhi-Client-Ip-Source"] = source if source in ("signed", "proxy") else "peer"
+        proof = client_ip_proof(http_request)
+        _log_proof_label(proof)
+        try:
+            show_proof = tenancy.is_tenancy_admin(None, http_request.headers)
+        except Exception:  # noqa: BLE001 - a malformed admin header is simply not an admin
+            show_proof = False
+        if show_proof:
+            response.headers["X-Pravrudhi-Client-Ip-Proof"] = proof
 
         try:
             tier = assistant_tier.status(root)
         except Exception:  # the app's probe is fail-closed: any fault reads as unavailable, never a 500
             tier = {"state": "unavailable", "reason": "disabled"}
-        from pravrudhi.application import tenancy
-
         try:
             tenancy_store = tenancy.store_status()
         except Exception:  # noqa: BLE001 - a label, never a 500
