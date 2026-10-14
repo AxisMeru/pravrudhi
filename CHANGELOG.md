@@ -15,6 +15,22 @@ Citation lookup without a quote (existence only), and the metadata-only index th
 
 - **Slim citation index builder.** `scripts/build_slim_citation_index.py` (`pravrudhi.application.case_index_slim`) writes a metadata-only copy of the case index: titles, courts, years and mined citation strings; no judgment text and no source path (10.8 MB for 38,657 judgments, against 2.0 GB). Its `meta` table marks it `existence_only`, records the source index's modification time (`source_mtime_utc`), the sources, the counts and the provenance record's sha256. An optional source filter builds a one-source copy.
 
+## 0.6.4 (2026-10-14)
+
+PATCH release: the assisted-screening backstop works under its own narrow database role (#399), and the public API gains two caller-visible changes (#394, #395). **From 0.6.4 not every existing route behaves exactly as in 0.6.2** (0.6.3's statement that it did stops being true here): the rate-limit bucket change (#394) and the `quote_not_served` answer (#395) are what a caller can see. The assisted route stays dark.
+
+**Rebuild the image.** The changes are under `src/` and `docs/api/`, so they reach a running container only by a rebuild of the engine image and the RunPod worker template from 0.6.4.
+
+### Fixed
+
+- **Backstop sweeper no longer alerts on every run (#399).** In backstop mode the sweeper called `abandon_stale` and `sweep_ok`, which belong to the engine role; the sweeper role is granted only `list_pending`, `mark_deleted`, `prune`, `canary` and `spend_summary`, so every backstop and canary pass failed with a store error and exited 2. Those two calls now run only in engine mode. The database roles and grants are unchanged.
+
+### Changed (what a caller sees)
+
+- **Rate-limit bucket (#394).** Behind the gateway, a request with no signed client address is bucketed by its caller identity (an API key, or a signed-in user) instead of by the shared proxy peer; anonymous callers keep the shared peer bucket. An unsigned client-address header is never read. Applies to `/api/v1/analyse-facts` and `/api/v1/verify-citations`; signed-in users now each get their own per-address bucket.
+- **Known limit (the bad-key 429 is held, #396).** A garbage API key on `/api/v1/verify-citations` still answers 401 without being throttled per address in 0.6.4; the 429 for bad-key floods ships in a later release.
+- **`verify-citations` with a quote against an existence-only index (#395).** The answer is HTTP 422 `{"error": "quote_not_served"}` (documented in `docs/api/openapi-v1.json`); a request without a quote is unchanged, and an unreadable index metadata table answers 503.
+
 ## 0.6.3 (2026-10-14)
 
 PATCH release: the optional assistant tier ships DARK. The engine gains the code, configuration and backstop tooling for an Anthropic-backed assisted screening path, but the assisted route is disabled by default: `POST /v1/analyse-facts/assist` answers 404, is the only new route outside the public OpenAPI contract, and `assist_route_enabled` is false. Screening, its results and every existing route behave exactly as in 0.6.2. No existing field, reason code or route changes meaning.

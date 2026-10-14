@@ -801,7 +801,9 @@ def _warn_short_client_ip_secret_once() -> None:
     )
 
 
-def _client_ip(request: Request, *, trust_proxy_header: bool, trusted_proxies: tuple[str, ...]) -> str:
+def _client_ip(
+    request: Request, *, trust_proxy_header: bool, trusted_proxies: tuple[str, ...], caller_key: str | None = None
+) -> str:
     # Preferred over everything below: a caller-specific key proven, by the shared secret, to have come
     # from the Worker's own read of Cloudflare's CF-Connecting-IP -- correct even when this engine sits
     # behind a proxy (RunPod's LB, a cloudflared tunnel) that presents every real caller as the same socket
@@ -832,6 +834,12 @@ def _client_ip(request: Request, *, trust_proxy_header: bool, trusted_proxies: t
         forwarded = request.headers.get("x-forwarded-for")
         if forwarded:
             return forwarded.split(",")[0].strip()
+    # No proven client address. Behind the gateway the socket peer is the proxy itself, so every caller would share ONE
+    # bucket: a caller that is identified (an API key, or a signed-in user) is bucketed by that identity instead. A client
+    # address header that is not signed with the shared secret is never read, so a forged one can neither raise nor dodge
+    # a limit: rotating it changes nothing. An anonymous caller keeps the socket peer (the stricter shared bucket).
+    if caller_key:
+        return caller_key
     return socket_peer
 
 
@@ -907,14 +915,15 @@ def build_partner_router(
             if not _state:
                 cfg = config or load_partner_api_config(engine_root)
                 _state["cfg"] = cfg
-                _state["rate_limiter"] = RateLimiter(cfg.rate_limit_per_minute, max_keys=cfg.rate_limit_max_keys)
+                clock_kw: dict[str, Any] = {} if rate_clock is None else {"now": rate_clock}
+                _state["rate_limiter"] = RateLimiter(cfg.rate_limit_per_minute, max_keys=cfg.rate_limit_max_keys, **clock_kw)
                 _state["concurrency"] = ConcurrencyLimiter(cfg.max_concurrent)
                 # A separate, much lower-budget limiter for the tenancy provisioning routes: sharing the
                 # analyse-facts limiter would mean a normal partner workload and a guessed-secret attempt
                 # against /api/v1/orgs draw from the same 6-per-minute budget, which is generous for the
                 # latter and would also let provisioning traffic starve analyse-facts's own limit.
                 _state["provision_rate_limiter"] = RateLimiter(
-                    cfg.provision_rate_limit_per_minute, max_keys=cfg.rate_limit_max_keys
+                    cfg.provision_rate_limit_per_minute, max_keys=cfg.rate_limit_max_keys, **clock_kw
                 )
                 # Issue #35: ONE breaker for this process's whole lifetime, shared across every request's
                 # NyayaAgent (and its whole judge_pool) -- a real second-judge failure trips it for every
@@ -1170,7 +1179,12 @@ def build_partner_router(
 
             serving_org.set(principal.org_id)
         authenticated = user is not None or principal is not None
-        ip = _client_ip(request, trust_proxy_header=cfg.trust_proxy_header, trusted_proxies=cfg.trusted_proxies)
+        caller_key = (
+            f"key:{principal.key_id}" if principal is not None else (f"user:{user.id}" if user is not None else None)
+        )
+        ip = _client_ip(
+            request, trust_proxy_header=cfg.trust_proxy_header, trusted_proxies=cfg.trusted_proxies, caller_key=caller_key
+        )
         if not rate_limiter.allow(ip):
             return JSONResponse(
                 status_code=429,
@@ -1546,14 +1560,19 @@ def build_partner_router(
             cfg, rate_limiter = _get_state()[:2]
         except FileNotFoundError:
             return JSONResponse(status_code=503, content={"error": "service_config_missing"})
-        ip = _client_ip(request, trust_proxy_header=cfg.trust_proxy_header, trusted_proxies=cfg.trusted_proxies)
+        principal = tenancy.principal_from_headers(engine_root, request.headers)  # verified: a bad key header is a 401 here
+        ip = _client_ip(
+            request,
+            trust_proxy_header=cfg.trust_proxy_header,
+            trusted_proxies=cfg.trusted_proxies,
+            caller_key=f"key:{principal.key_id}" if principal is not None else None,
+        )
         if not rate_limiter.allow(ip):
             return JSONResponse(
                 status_code=429,
                 content={"detail": "rate limit exceeded"},
                 headers={"Retry-After": str(rate_limiter.retry_after_seconds())},
             )
-        principal = tenancy.principal_from_headers(engine_root, request.headers)
         if principal is not None:
             key = next((k for k in tenancy.keys_for_org(engine_root, principal.org_id) if k.key_id == principal.key_id), None)
             if key is None:
@@ -1589,6 +1608,21 @@ def build_partner_router(
         with _verify_gates_lock:
             return _verify_gates.setdefault(size, ConcurrencyLimiter(size))
 
+    class _QuoteNotServed(Exception):  # noqa: N818 - control flow inside this closure, never leaves the route
+        """The index holds no judgment text, so a quote can never be checked against it."""
+
+    def _existence_only(conn: sqlite3.Connection) -> bool:
+        """True when the index says it is existence-only (a slim index: citations without judgment text). FAIL CLOSED: a
+        `meta` table with an `existence_only` row whose value is anything but exactly '0' is existence-only. No `meta` table
+        at all is a full index (unchanged behaviour). Any other read problem raises and the route answers 503."""
+        try:
+            row = conn.execute("SELECT value FROM meta WHERE key = 'existence_only'").fetchone()
+        except sqlite3.OperationalError as e:
+            if "no such table" in str(e).lower():
+                return False
+            raise
+        return row is not None and row[0] != "0"
+
     def _lookup(
         path: Path, req: VerifyCitationRequest, timeout_s: float
     ) -> tuple[citation_status.CitationStatus, dict[str, Any] | None]:
@@ -1601,6 +1635,8 @@ def build_partner_router(
             if req.quote is None:
                 found = citation_status.status_for(exists_in_index(conn, req.citation))
             else:
+                if _existence_only(conn):
+                    raise _QuoteNotServed
                 found = citation_status.status_for(verify_citation(conn, req.citation, req.quote))
             conn.set_progress_handler(None, 0)  # the deadline bounds the lookup; the (cached) coverage read is outside it
             try:
@@ -1619,6 +1655,10 @@ def build_partner_router(
             401: {"description": "The API key is invalid or revoked."},
             429: {"description": "Over the rate limit; wait Retry-After seconds.",
                   "headers": {**_RATE_LIMIT_HEADER_DOCS, "Retry-After": _RETRY_AFTER_DOC}},
+            422: {"description": "Validation error, or `quote_not_served` ({\"error\": \"quote_not_served\"}): a quote was "
+                  "sent but this deployment's index is existence-only (it holds no judgment text), so no quote can be "
+                  "checked. Send the citation without a quote.",
+                  "content": {"application/json": {"schema": {"$ref": "#/components/schemas/HTTPValidationError"}}}},
             503: {"description": "No case index, the lookup timed out, or too many lookups are running."},
         },
     )
@@ -1641,6 +1681,9 @@ def build_partner_router(
             return JSONResponse(status_code=503, content={"error": "verify_at_capacity"}, headers={"Retry-After": "5"})
         try:
             result, coverage = _lookup(Path(path), req, cfg.verify_timeout_s)
+        except _QuoteNotServed:
+            _verify_audit(metered, 422)
+            return JSONResponse(status_code=422, content={"error": "quote_not_served"})
         except sqlite3.Error as e:
             timed_out = "interrupt" in str(e).lower()
             _verify_audit(metered, 503)
