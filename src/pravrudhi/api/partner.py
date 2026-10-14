@@ -1664,6 +1664,21 @@ def build_partner_router(
         with _verify_gates_lock:
             return _verify_gates.setdefault(size, ConcurrencyLimiter(size))
 
+    class _QuoteNotServed(Exception):  # noqa: N818 - control flow inside this closure, never leaves the route
+        """The index holds no judgment text, so a quote can never be checked against it."""
+
+    def _existence_only(conn: sqlite3.Connection) -> bool:
+        """True when the index says it is existence-only (a slim index: citations without judgment text). FAIL CLOSED: a
+        `meta` table with an `existence_only` row whose value is anything but exactly '0' is existence-only. No `meta` table
+        at all is a full index (unchanged behaviour). Any other read problem raises and the route answers 503."""
+        try:
+            row = conn.execute("SELECT value FROM meta WHERE key = 'existence_only'").fetchone()
+        except sqlite3.OperationalError as e:
+            if "no such table" in str(e).lower():
+                return False
+            raise
+        return row is not None and row[0] != "0"
+
     def _lookup(
         path: Path, req: VerifyCitationRequest, timeout_s: float
     ) -> tuple[citation_status.CitationStatus, dict[str, Any] | None]:
@@ -1676,6 +1691,8 @@ def build_partner_router(
             if req.quote is None:
                 found = citation_status.status_for(exists_in_index(conn, req.citation))
             else:
+                if _existence_only(conn):
+                    raise _QuoteNotServed
                 found = citation_status.status_for(verify_citation(conn, req.citation, req.quote))
             conn.set_progress_handler(None, 0)  # the deadline bounds the lookup; the (cached) coverage read is outside it
             try:
@@ -1694,6 +1711,10 @@ def build_partner_router(
             401: {"description": "The API key is invalid or revoked."},
             429: {"description": "Over the rate limit; wait Retry-After seconds.",
                   "headers": {**_RATE_LIMIT_HEADER_DOCS, "Retry-After": _RETRY_AFTER_DOC}},
+            422: {"description": "Validation error, or `quote_not_served` ({\"error\": \"quote_not_served\"}): a quote was "
+                  "sent but this deployment's index is existence-only (it holds no judgment text), so no quote can be "
+                  "checked. Send the citation without a quote.",
+                  "content": {"application/json": {"schema": {"$ref": "#/components/schemas/HTTPValidationError"}}}},
             503: {"description": "No case index, the lookup timed out, or too many lookups are running."},
         },
     )
@@ -1716,6 +1737,9 @@ def build_partner_router(
             return JSONResponse(status_code=503, content={"error": "verify_at_capacity"}, headers={"Retry-After": "5"})
         try:
             result, coverage = _lookup(Path(path), req, cfg.verify_timeout_s)
+        except _QuoteNotServed:
+            _verify_audit(metered, 422)
+            return JSONResponse(status_code=422, content={"error": "quote_not_served"})
         except sqlite3.Error as e:
             timed_out = "interrupt" in str(e).lower()
             _verify_audit(metered, 503)
