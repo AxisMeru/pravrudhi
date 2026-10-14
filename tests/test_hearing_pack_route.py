@@ -1,5 +1,8 @@
-"""POST /v1/analyse-facts/assist with workflow=hearing_prep over real FastAPI routing (#415): the pack comes from the engine's
-own decide results, on the assisted path AND on every fallback path; the A0 rules (consent, sign-in, workflow agent) are unchanged."""
+"""POST /v1/analyse-facts/assist with workflow=hearing_prep over real FastAPI routing (#415).
+
+The pack comes from the engine's own decide results, on the assisted path AND on every fallback path; the A0 rules
+(consent, sign-in, workflow agent) are unchanged.
+"""
 
 from __future__ import annotations
 
