@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import shutil
 import threading
 from pathlib import Path
 
 import pytest
+import yaml
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -20,6 +20,9 @@ from tests import test_a0_assist_request as RQ
 from tests import test_nyaya_agent as T
 
 REPO = Path(__file__).resolve().parent.parent
+
+#: The shipped file turns the route on (0.6.5); these tests start from its dark form.
+DARK = {"assist_route_enabled": False, "agent_id": None, "agent_version": None, "environment_id": None}
 FACTS = list(T.TOY_FACTS)
 BODY = {"facts": FACTS, "narrative": "", "contract_ids": ["bns69"], "consent": True, "session_id": "client-xyz"}
 USER = identity.User("u1", "user@example.test", "user")
@@ -40,7 +43,9 @@ def make_runtime(tmp_path, **tr_kw):
 
 def client(tmp_path, *, user=USER, runtime="enabled", **tr_kw):
     (tmp_path / "configs").mkdir(parents=True, exist_ok=True)
-    shutil.copy(REPO / "configs" / "assistant_tier.yaml", tmp_path / "configs" / "assistant_tier.yaml")
+    shipped = yaml.safe_load((REPO / "configs" / "assistant_tier.yaml").read_text())
+    shipped.update(DARK)  # the shipped file is enabled (0.6.5); the tests set what they need
+    (tmp_path / "configs" / "assistant_tier.yaml").write_text(yaml.safe_dump(shipped))
     agent = agent_mod.NyayaAgent(T.ScriptedJudge(T._proof_script(FACTS)), T._registry(), T._config(tmp_path))
     app = FastAPI()
     app.include_router(build_partner_router(tmp_path, agent_factory=lambda _root: agent, config=CFG))

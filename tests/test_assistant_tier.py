@@ -13,12 +13,16 @@ from pravrudhi.api.server import create_app
 from pravrudhi.application import assistant_tier as T
 
 REPO = Path(__file__).resolve().parent.parent
+
+#: The shipped file turns the route on (0.6.5); these tests start from its dark form.
+DARK = {"assist_route_enabled": False, "agent_id": None, "agent_version": None, "environment_id": None}
 KEY = {"ANTHROPIC_API_KEY": "sk-test"}
 UNAVAILABLE = "unavailable"
 
 
 def base_cfg(**over):
     cfg = yaml.safe_load((REPO / "configs" / "assistant_tier.yaml").read_text())
+    cfg.update(DARK)  # the shipped file is enabled (0.6.5); these tests start dark
     cfg.update(over)
     return cfg
 

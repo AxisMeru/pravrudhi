@@ -21,16 +21,17 @@ session_budget_usd: 0.25
 
 # --- A0 screening assistance (pravrudhi-app#125): every key below is read by application/a0_assist/config.py; a missing or malformed key keeps the route OFF (fail closed), never a default in code.
 # Ship dark: the assisted route is enabled only when assist_route_enabled is true AND the product agent ids below are set AND the delete canary has passed.
-assist_route_enabled: false
+assist_route_enabled: true   # on from 0.6.5 (Lead-2, 14 Oct): the product agent below exists; the delete canary and the store still gate every call
 daily_ceiling_usd: 4.00
 # Per-session budget is session_budget_usd (above). abandon_after_min: at least call_timeout_s + the interrupt wait + the delete time (store also keeps its own minimum).
 abandon_after_min: 30
 store_timeout_s: 3
 max_concurrent_sessions: 2
 # The product agent resource (NOT the research agent: the sweeper lists by this agent id, so a research session can never be returned). null until the product agent is created.
-agent_id: null
-agent_version: null
-environment_id: null
+# Ids from the product-agent manifest MANIFEST_PRODUCT_agent_env.json (sha256 5fb55e20ceb3...; create_product_agent.py, 2026-10-14T09:52:58Z, model claude-sonnet-5-5). Ids only, no secrets.
+agent_id: agent_012zKjNLSVQoivwTqEPBkVUZ
+agent_version: 1
+environment_id: env_01MAG6qEGC999A8r8MogP5bt
 # Names of environment variables (values arrive as RunPod secret references, never here).
 workspace_id_env: ANTHROPIC_WORKSPACE_ID
 store_dsn_env: SUPABASE_ASSIST_DB_URL

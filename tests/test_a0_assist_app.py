@@ -14,9 +14,13 @@ from pravrudhi.application.a0_assist import runtime as R
 
 REPO = Path(__file__).resolve().parent.parent
 
+#: The shipped file turns the route on (0.6.5); these tests start from its dark form.
+DARK = {"assist_route_enabled": False, "agent_id": None, "agent_version": None, "environment_id": None}
+
 
 def root_with(tmp_path, **over):
     cfg = yaml.safe_load((REPO / "configs" / "assistant_tier.yaml").read_text())
+    cfg.update(DARK)  # the shipped file is enabled (0.6.5); these tests start dark
     cfg.update(over)
     (tmp_path / "configs").mkdir(parents=True, exist_ok=True)
     (tmp_path / "configs" / "assistant_tier.yaml").write_text(yaml.safe_dump(cfg))

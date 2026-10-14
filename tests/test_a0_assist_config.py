@@ -12,8 +12,13 @@ from pravrudhi.application.a0_assist import config as C
 REPO = Path(__file__).resolve().parent.parent
 
 
+#: The shipped file turns the route on (0.6.5); every rule test below starts from the DARK form of it.
+DARK = {"assist_route_enabled": False, "agent_id": None, "agent_version": None, "environment_id": None}
+
+
 def base(**over):
     cfg = yaml.safe_load((REPO / "configs" / "assistant_tier.yaml").read_text())
+    cfg.update(DARK)
     cfg.update(over)
     return cfg
 
@@ -26,7 +31,19 @@ def enabled(**over):
     return cfg
 
 
-def test_the_shipped_config_parses_and_ships_dark():
+def test_the_shipped_config_parses_enabled_with_the_product_agent_ids():
+    # Lead-2's go, 14 Oct: ids from MANIFEST_PRODUCT_agent_env.json (sha256 5fb55e20ceb3...), ids only, no secrets
+    shipped = yaml.safe_load((REPO / "configs" / "assistant_tier.yaml").read_text())
+    c = C.parse(shipped)
+    assert c.route_enabled is True
+    assert (c.agent_id, c.agent_version, c.environment_id) == (
+        "agent_012zKjNLSVQoivwTqEPBkVUZ", 1, "env_01MAG6qEGC999A8r8MogP5bt"
+    )
+    assert c.store_ca_file == "/opt/pravrudhi/certs/supabase-prod-ca.crt" and c.delete_after_run is True
+    assert not any("sk-" in str(v) for v in shipped.values())  # no key material in the file
+
+
+def test_the_dark_form_of_the_shipped_config_parses_dark():
     c = C.parse(base())
     assert (
         c.route_enabled is False
