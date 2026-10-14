@@ -92,7 +92,7 @@ from pravrudhi.application.nyaya_quote import Reason as QuoteCheck
 from pravrudhi.application.second_judge_positive_control import fallback_record_ok
 from pravrudhi.application.service_window import ServiceWindow
 from pravrudhi.application.statute_citations import contract_citations
-from pravrudhi.application.steps_appendix.appendix import build_appendix
+from pravrudhi.application.steps_appendix.appendix import safe_appendix
 from pravrudhi.application.verify import exists_in_index, index_coverage
 from pravrudhi.application.verify import verify as verify_citation
 
@@ -1443,7 +1443,9 @@ def build_partner_router(
                 },
             }
             shaped = _shape_body(agent, body, driver.listed, admitted.authenticated, debug_second_judge, admitted.cfg)
-            shaped["appendix"] = build_appendix(driver.calls)  # counted from the recorded calls only: no agent text
+            appendix = safe_appendix(driver.calls)  # counted from the recorded calls only: no agent text
+            if appendix is not None:
+                shaped["appendix"] = appendix
             return shaped
 
         deps = a0.Deps(
