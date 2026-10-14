@@ -937,8 +937,8 @@ def split_facts(cleaned: str) -> list[dict[str, int]]:
 
 # ---- the stated range for a usable fact list ----------------------------------------------------------------------------
 USABLE_MIN_TEXT_CHARS = 2000  # shorter texts are not judged (a short note has few facts)
-USABLE_FACTS_PER_10K = (10.0, 60.0)  # observed on 39 cleared public orders: 11.9 to 28.4 (median 21.0)
-USABLE_MEDIAN_FACT_CHARS = (100, MAX_FACT_CHARS)  # observed: median fact 165 to 517 characters (median of medians 381)
+USABLE_FACTS_PER_10K = (10.0, 60.0)  # observed on 39 cleared public orders: 11.9 to 30.1 (median 21.0)
+USABLE_MEDIAN_FACT_CHARS = (100, MAX_FACT_CHARS)  # observed: median fact 193 to 517 characters (median of medians 381)
 USABLE_SHORT_FACT_SHARE_MAX = 0.20  # facts under 40 characters; observed maximum 0.09
 
 
