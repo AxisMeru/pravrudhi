@@ -634,3 +634,10 @@ def test_s3_c1_tiling_gap_and_overlap_each_fail_c1_on_their_own(segs):
     assert all(cleaned[s[0] : s[1]] == raw[s[2] : s[3]] for s in segs)
     ck = I.check_clean(raw, cleaned, segs, [])
     assert not ck["C1"]["pass"] and "tiled" in " ".join(ck["C1"]["detail"])
+
+
+def test_mostly_upper_both_arms_and_no_letters_is_not_upper():
+    assert I._mostly_upper("RAJA SAMPLE") is True
+    assert I._mostly_upper("abc DEF ghi") is False  # 3 of 9 letters
+    assert I._mostly_upper("abc DEF", share=0.4) is True
+    assert I._mostly_upper("123 456 789") is False and I._mostly_upper("") is False

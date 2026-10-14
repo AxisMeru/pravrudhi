@@ -291,9 +291,12 @@ def _f2_spans(text: str) -> list[tuple[int, int, str]]:
     return sorted(set(res))
 
 
-def _upper_share(t: str) -> float:
+def _mostly_upper(t: str, share: float = 0.5) -> bool:
+    """Yes/no: at least `share` of the letters are upper case. With no letters the answer is no (no rate is made up)."""
     ls = [c for c in t if c.isalpha()]
-    return sum(c.isupper() for c in ls) / len(ls) if ls else 0.0
+    if not ls:
+        return False
+    return sum(c.isupper() for c in ls) / len(ls) >= share
 
 
 def _protected_lines(text: str) -> set[tuple[int, int]]:
@@ -319,7 +322,7 @@ def _protected_lines(text: str) -> set[tuple[int, int]]:
                 and not _URL.search(t)
             ):
                 prot.add((pg[i][0], pg[i][1]))
-            if i in g2 or len(t.split()) >= 3 and _upper_share(t) >= 0.5 and near(pos_of[i]):
+            if i in g2 or len(t.split()) >= 3 and _mostly_upper(t) and near(pos_of[i]):
                 prot.add((pg[i][0], pg[i][1]))
     return prot
 
