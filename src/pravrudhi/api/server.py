@@ -15,9 +15,10 @@ import time
 from pathlib import Path
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException
+from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Response
 from fastapi.routing import APIRoute
 from pydantic import BaseModel
+from starlette.requests import Request as HttpRequest
 
 from pravrudhi import KERNEL_VERSION, __version__
 from pravrudhi.agents.registry import survey
@@ -250,6 +251,29 @@ def _start_assist_runtime(root: Path) -> None:
         a0rt.get(root)
     except Exception:  # noqa: BLE001
         logging.getLogger(__name__).exception("assisted tier runtime could not start; the route stays off")
+
+
+_PROXY_CFG_CACHE: dict[str, tuple[int, tuple[bool, tuple[str, ...]]]] = {}
+
+
+def _health_proxy_config(root: Path, load: Any) -> tuple[bool, tuple[str, ...]]:
+    """(trust_proxy_header, trusted_proxies) for the health labels, re-read only when the partner config file changes. A config
+    that cannot be read gives the safe defaults (not trusted) and is not cached; the source label then reads `peer`."""
+    path = Path(root) / "configs" / "partner_api.yaml"
+    try:
+        stamp = path.stat().st_mtime_ns
+    except OSError:
+        stamp = -1
+    hit = _PROXY_CFG_CACHE.get(str(path))
+    if hit is not None and hit[0] == stamp:
+        return hit[1]
+    try:
+        cfg = load(root)
+        value = (bool(cfg.trust_proxy_header), tuple(cfg.trusted_proxies))
+    except Exception:
+        return (False, ())
+    _PROXY_CFG_CACHE[str(path)] = (stamp, value)
+    return value
 
 
 def create_app(root: Path, *, nyaya_ask_fn: Any | None = None) -> FastAPI:
@@ -576,8 +600,17 @@ def create_app(root: Path, *, nyaya_ask_fn: Any | None = None) -> FastAPI:
         return MarkdownResponse.model_validate({"markdown": render_h1(ledger, parsed_nights, track)})
 
     @api.get("/health")
-    def health() -> HealthResponse:
+    def health(http_request: HttpRequest, response: Response) -> HealthResponse:
+        from pravrudhi.api.partner import client_ip_and_source, client_ip_proof, load_partner_api_config
         from pravrudhi.application import assistant_tier
+
+        # Two label-only response headers that let anyone see, end to end through the gateway, whether the client-address proof
+        # held: where the engine took the caller's address from, and whether the proof arrived (never an address or a secret).
+        trust, proxies = _health_proxy_config(root, load_partner_api_config)
+        response.headers["X-Pravrudhi-Client-Ip-Source"] = client_ip_and_source(
+            http_request, trust_proxy_header=trust, trusted_proxies=proxies
+        )[1]
+        response.headers["X-Pravrudhi-Client-Ip-Proof"] = client_ip_proof(http_request)
 
         try:
             tier = assistant_tier.status(root)

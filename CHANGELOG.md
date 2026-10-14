@@ -8,6 +8,29 @@ messages.
 ### Added
 
 - **Steps appendix for an assisted screening (#416).** A finished assisted run (`POST /api/v1/analyse-facts/assist`) now also returns `appendix`: the steps it took, counted from the recorded tool calls only: each stage with how many times it ran, the quote and Lean check results, and per contract the elements judged, quotes checked and found valid, and whether the Lean check agreed with the engine's own assembly. No text from the assistant is in it. It is absent whenever the run falls back to the ordinary result.
+- **Hearing-preparation pack (#415).** `POST /api/v1/analyse-facts/assist` takes `workflow: "hearing_prep"` (default `screening`; the workflow stays dark until it has its own agent under `workflows:` in `configs/assistant_tier.yaml`). The response gains a `pack`: a checklist built by fixed rules from the screening result. It lists the ingredients still open (each with a fixed prompt id and default text), the cited facts that may defeat the claim (prompts for review, never findings), the plain reason sentence from the signed reason table (the machine reason code travels in a separate field for the app's mapping, never in a display field), and the legal citations found in the facts, each as a ready body for `POST /verify-citations`. Nothing in it is written by a model, and it adds no fact and no law. A list of more than 50 citations is cut and says so (`citations_truncated`). When the assisted run does not finish, or the workflow has no agent, the ordinary result comes back with the same pack built from it (`assistant.used: false`).
+- **Client-address diagnostic on `GET /api/health` (response headers only; no body change).** `X-Pravrudhi-Client-Ip-Source` says where the engine took the caller's address from (`signed`, `proxy`, `caller` or `peer`), and `X-Pravrudhi-Client-Ip-Proof` says whether the gateway's signed-address proof arrived and held (`valid`, `none`, `mismatch`, `no_ip`, `engine_unset`, `engine_short`). Labels only: never the address and never the secret. Added so the client-address check can be confirmed end to end through the gateway.
+- **`bad_key_budget_per_minute` (config) and `PRAVRUDHI_BAD_KEY_BUDGET_PER_MINUTE` (environment, wins).** The failed-key attempts allowed per address per minute (#396). Default unchanged: the same number as `rate_limit_per_minute`. Raising it stops a flood of bad keys from refusing valid keyed callers behind a shared gateway address; the anonymous limit is not affected.
+
+### Fixed
+
+- **`GET /api/v1/audit` no longer answers 500 for a key that has called the assisted route (#422, caller-visible).** The assisted route's audit rows carry the mode `assist`; the audit page's `mode` enum did not declare it, so the whole page failed. The enum now reads `sync`, `job`, `verify`, `assist` (one value added to the public OpenAPI response enum: a client generated with a closed enum must accept the new value). A guard test compares every mode the engine writes with the declared enum.
+
+## 0.6.6 (2026-10-14)
+
+PATCH release: the assisted route now hands the pinned product agent its earlier results by reference (#423), an accepted job waits for a free agent slot (#412), and the anonymous verify-citations 429 no longer tells a caller to sign in (#413). **Not every existing route behaves exactly as in 0.6.2** (true since 0.6.4): see the caller-visible lines below.
+
+**Rebuild the image.** The changes are under `src/` and `configs/`, so they reach a running container only by a rebuild of the engine image and the RunPod worker template from 0.6.6. The release build passes `--build-arg REQUIRE_CITATION_INDEX=1`, as for 0.6.5.
+
+### Added
+
+- **By-reference hand-over for the assisted route (#423).** `A0RefDriver` (`src/pravrudhi/application/a0_assist/ref_driver.py`) runs the pinned product agent's by-reference tools: every tool result carries a driver-assigned `call_ref`, later tools take refs, and the driver resolves them to the stored outputs with their sha256 re-checked, so the agent cannot alter a stage output between calls. A refused call is recorded with its code and the agent may call again. The screening route uses it; a copy-style agent still falls back to the unassisted result. The agent id and version are unchanged.
+
+### Changed
+
+- **An accepted job waits for a free agent slot (#412, caller-visible).** A job accepted with 202 stays `pending` until it holds a slot and waits for one up to `job_slot_wait_s` (600 seconds in the shipped `configs/partner_api.yaml`, capped at one day), then fails with `agent_at_capacity`. The synchronous route never waits (503 at once). A value of 0 means jobs do not wait either.
+
+- **`/api/v1/verify-citations` 429 wording (#413, caller-visible).** The `message` of its anonymous 429 no longer says to sign in: that route knows only API keys, so it now reads "You have reached the limit for callers without an API key ({limit} requests per minute). Try again in {retry} seconds, or use an API key to get your own limit." The limit is the same per-address limit (the same limiter as analyse-facts, 6 per minute per address in the shipped config); the analyse-facts text, the machine fields and `Retry-After` are unchanged.
 
 ## 0.6.5 (2026-10-14)
 

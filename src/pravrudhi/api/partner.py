@@ -46,11 +46,13 @@ version's error mapping to a bare 500 -- is now mapped to 503 like every other s
 from __future__ import annotations
 
 import contextvars
+import copy
 import functools
 import hashlib
 import hmac
 import json
 import logging
+import math
 import os
 import sqlite3
 import subprocess
@@ -66,7 +68,7 @@ from typing import Any, Literal, Protocol
 
 import yaml
 from fastapi import APIRouter, HTTPException, Query, Request, Response
-from pydantic import BaseModel, Field, computed_field, field_validator
+from pydantic import BaseModel, Field, StrictBool, computed_field, field_validator
 from starlette.responses import JSONResponse
 
 from pravrudhi import __version__
@@ -76,6 +78,8 @@ from pravrudhi.application import audit, citation_status, tenancy
 from pravrudhi.application import nyaya_lean_registry as reg
 from pravrudhi.application.citation_wording import citation_note
 from pravrudhi.application.config_files import config_file
+from pravrudhi.application.hearing_pack.driver import PackDriver
+from pravrudhi.application.hearing_pack.pack import attach_pack
 from pravrudhi.application.jobs import JobStore
 from pravrudhi.application.judge_endpoint_state import Fetch, JudgeOfflineCheck
 from pravrudhi.application.nyaya_agent import (
@@ -175,6 +179,13 @@ class PartnerApiConfig:
     #: hold at once.
     job_retention_s: float = 3600.0
     job_max_unfinished_per_key: int = 8
+    #: Async jobs (#406): how long an accepted job may WAIT for a free agent slot (`max_concurrent`) before it fails with
+    #: `agent_at_capacity`. A job was accepted with 202, so it queues; the sync route stays non-blocking (0 = never wait).
+    job_slot_wait_s: float = 600.0
+    #: Failed-key attempts per address per minute before further key checks from it are refused with 429 (#396). None = the
+    #: same as `rate_limit_per_minute` (the default). Set it higher when callers behind a gateway share one peer address and
+    #: a flood of bad keys must not lock the valid keyed callers out; env override PRAVRUDHI_BAD_KEY_BUDGET_PER_MINUTE.
+    bad_key_budget_per_minute: int | None = None
     #: Audit rows (#148) older than this are dropped on write and never served.
     audit_retention_s: float = 90 * 86400.0
     #: `POST /verify-citations` (#302): how many lookups may run at once (non-blocking: an extra one is a 503) and the
@@ -183,12 +194,37 @@ class PartnerApiConfig:
     verify_timeout_s: float = 5.0
 
     def __post_init__(self) -> None:
+        b = self.bad_key_budget_per_minute
+        if b is not None and (isinstance(b, bool) or not isinstance(b, int) or not 1 <= b <= MAX_BAD_KEY_BUDGET):
+            raise ValueError(
+                f"bad_key_budget_per_minute must be None or an integer from 1 to {MAX_BAD_KEY_BUDGET}, got {b!r}"[:200]
+            )
         if self.trust_proxy_header and not self.trusted_proxies:
             raise ValueError(
                 "trust_proxy_header is set but trusted_proxies is empty -- refusing to start: an "
                 "X-Forwarded-For header trusted with no allowlist of who may set it is a free rate-limit "
                 "bypass for any caller"
             )
+
+
+BAD_KEY_BUDGET_ENV = "PRAVRUDHI_BAD_KEY_BUDGET_PER_MINUTE"
+MAX_BAD_KEY_BUDGET = 1_000  # each failed attempt costs a password-hash check: keep the worst case small
+
+
+def _bad_key_budget(yaml_value: Any) -> int | None:
+    """The failed-key budget per address per minute: the environment variable wins over the yaml key; unset or null = None (the
+    caller then uses `rate_limit_per_minute`). A bool, a non-integer, zero, a negative or a value above the cap is a config
+    error, never a silent default."""
+    raw: Any = os.environ.get(BAD_KEY_BUDGET_ENV, "").strip() or yaml_value
+    if raw is None:
+        return None
+    if isinstance(raw, str):
+        if not raw.isascii() or not raw.isdigit():
+            raise ValueError(f"{BAD_KEY_BUDGET_ENV} / bad_key_budget_per_minute must be a whole number, got {raw[:40]!r}")
+        raw = int(raw)
+    if isinstance(raw, bool) or not isinstance(raw, int) or not 1 <= raw <= MAX_BAD_KEY_BUDGET:
+        raise ValueError(f"bad_key_budget_per_minute must be an integer from 1 to {MAX_BAD_KEY_BUDGET}, got {raw!r}"[:200])
+    return raw
 
 
 def load_partner_api_config(root: Path) -> PartnerApiConfig:
@@ -224,10 +260,30 @@ def load_partner_api_config(root: Path) -> PartnerApiConfig:
         judge_warm_retry_s=float(body.get("judge_warm_retry_s", 30.0)),
         job_retention_s=float(body.get("job_retention_s", 3600.0)),
         job_max_unfinished_per_key=int(body.get("job_max_unfinished_per_key", 8)),
+        job_slot_wait_s=_job_slot_wait(body.get("job_slot_wait_s", 600.0)),
+        bad_key_budget_per_minute=_bad_key_budget(body.get("bad_key_budget_per_minute")),
         audit_retention_s=float(body.get("audit_retention_s", 90 * 86400.0)),
         verify_max_concurrent=int(body.get("verify_max_concurrent", 2)),
         verify_timeout_s=float(body.get("verify_timeout_s", 5.0)),
     )
+
+
+#: One day: more than any job should queue, and far below `threading.TIMEOUT_MAX` (a larger wait raises OverflowError).
+MAX_JOB_SLOT_WAIT_S = 86_400.0
+
+
+def _job_slot_wait(raw: Any) -> float:
+    """`job_slot_wait_s`: a finite number from 0 to one day (a bool, NaN, inf, a negative or a larger value is a config
+    error, never a silent default)."""
+    ok = isinstance(raw, (int, float)) and not isinstance(raw, bool)
+    if ok:
+        try:
+            ok = math.isfinite(raw) and 0 <= raw <= MAX_JOB_SLOT_WAIT_S
+        except OverflowError:  # an int too large for a float
+            ok = False
+    if not ok:
+        raise ValueError(f"job_slot_wait_s must be a number from 0 to {MAX_JOB_SLOT_WAIT_S:.0f} seconds, got {raw!r}"[:200])
+    return float(raw)
 
 
 _RATE_LIMIT_HEADER_DOCS: dict[str, Any] = {
@@ -316,12 +372,18 @@ class RateLimiter:
 
 
 def rate_limited_response(
-    *, limit: int, retry_after: int, scope: str, headers: dict[str, str] | None = None
+    *, limit: int, retry_after: int, scope: str, headers: dict[str, str] | None = None, sign_in: bool = True
 ) -> JSONResponse:
     """The 429 body (#403): the machine field `detail` and the `Retry-After` header are unchanged; the added fields say the
     limit, the window and what to do. `scope` is "anonymous" (no signed-in user and no key), "caller" (a signed-in user
     or key whose address bucket fired) or "key" (a key's own per-minute limit)."""
-    if scope == "anonymous":
+    if scope == "anonymous" and not sign_in:
+        # a route that only knows API keys (verify-citations): signing in would not give a separate limit there
+        message = (
+            f"You have reached the limit for callers without an API key ({limit} requests per minute). "
+            f"Try again in {retry_after} seconds, or use an API key to get your own limit."
+        )
+    elif scope == "anonymous":
         message = (
             f"You have reached the limit for visitors who are not signed in ({limit} requests per minute). "
             f"Try again in {retry_after} seconds, or sign in or use an API key to get your own limit."
@@ -352,7 +414,11 @@ class ConcurrencyLimiter:
     def __init__(self, max_concurrent: int) -> None:
         self._sem = threading.Semaphore(max_concurrent)
 
-    def acquire(self) -> bool:
+    def acquire(self, timeout: float = 0.0) -> bool:
+        """Non-blocking by default. With `timeout` > 0 (async jobs only, #406) waits up to that many seconds for a slot."""
+        if timeout > 0:
+            # a longer wait than TIMEOUT_MAX raises OverflowError even for a free slot
+            return self._sem.acquire(timeout=min(timeout, threading.TIMEOUT_MAX))
         return self._sem.acquire(blocking=False)
 
     def release(self) -> None:
@@ -458,6 +524,27 @@ class AssistFactsRequest(AnalyseFactsRequest):
     session_id: str | None = Field(default=None, max_length=128)
     #: Which assisted workflow to run (a workflow with no configured agent answers with the ordinary result, `not_configured`).
     workflow: Literal["screening", "hearing_prep", "intake"] = "screening"
+
+
+#: Citation lookups per intake request; further citations are listed with the status NOT_CHECKED.
+INTAKE_MAX_CITATION_LOOKUPS = 50
+#: Total seconds one intake request may spend on citation lookups; later citations are listed NOT_CHECKED.
+INTAKE_LOOKUP_BUDGET_S = 15.0
+
+
+class IntakeRequest(BaseModel):
+    """Intake (pravrudhi#414): pasted text only. The text is read and cleaned by the engine; nothing is stored."""
+
+    text: str = Field(min_length=1, max_length=200_000)
+    consent: StrictBool = False  # strict: "1" or "yes" must never send a user's text to a third party
+    session_id: str | None = Field(default=None, max_length=128)
+
+    @field_validator("text")
+    @classmethod
+    def _not_blank(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("text must not be blank")
+        return v
 
 
 #: The exact keys `analyse_facts_ep` strips out of each element's dict when the debug gate is off -- listed
@@ -711,6 +798,22 @@ class AssistFactsResponse(AnalyseFactsResponse):
     assistant: dict[str, Any]
     #: A finished assisted run: the steps it took, counted from the recorded tool calls (#416). Absent on every fallback.
     appendix: dict[str, Any] | None = None
+    #: Only for `workflow: "hearing_prep"`: the hearing-preparation pack, built by fixed rules from the decide result (#415).
+    pack: dict[str, Any] | None = None
+
+
+class IntakeResponse(BaseModel):
+    """The deterministic intake result: the bundle of machine tokens (no model prose)."""
+
+    run_id: str
+    client_data: bool
+    bundle: dict[str, Any]
+
+
+class IntakeAssistResponse(IntakeResponse):
+    """The intake bundle plus the `assistant` block (see application/a0_assist/assist.py)."""
+
+    assistant: dict[str, Any]
 
 
 AgentFactory = Callable[[Path], AgentLike]
@@ -764,7 +867,7 @@ class JobOut(BaseModel):
 class AuditRowOut(BaseModel):
     ts: str
     key_id: str
-    mode: Literal["sync", "job", "verify"]
+    mode: Literal["sync", "job", "verify", "assist", "intake", "intake_assist"]
     status_code: int
     run_id: str | None = None
     contract_ids: list[str]
@@ -849,9 +952,33 @@ def _warn_short_client_ip_secret_once() -> None:
     )
 
 
-def _client_ip(
+def client_ip_proof(request: Request) -> str:
+    """Whether the request carries a valid proof that the gateway read the client address: a label, never a value.
+
+    "valid" (the shared secret matches and an address came with it), "no_ip" (the secret matches, no address came), "mismatch"
+    (a proof header was sent and it is wrong), "none" (no proof header was sent: the gateway is not signing), "engine_unset"
+    (this engine has no secret) or "engine_short" (this engine's secret is shorter than the minimum, so it is ignored)."""
+    secret = os.environ.get(CLIENT_IP_SECRET_ENV, "")
+    if not secret:
+        return "engine_unset"
+    if len(secret) < MIN_CLIENT_IP_SECRET_LENGTH:
+        _warn_short_client_ip_secret_once()
+        return "engine_short"
+    presented = request.headers.get(CLIENT_IP_SECRET_HEADER, "")
+    if not presented:
+        return "none"
+    # bytes, not str: compare_digest raises TypeError on a non-ASCII str (a header byte above 0x7f arrives as latin-1)
+    if not hmac.compare_digest(presented.encode("utf-8"), secret.encode("utf-8")):
+        return "mismatch"
+    return "valid" if request.headers.get(CLIENT_IP_HEADER, "").strip() else "no_ip"
+
+
+def client_ip_and_source(
     request: Request, *, trust_proxy_header: bool, trusted_proxies: tuple[str, ...], caller_key: str | None = None
-) -> str:
+) -> tuple[str, str]:
+    """(address, source). `source` is "signed" (the proof held), "proxy" (a trusted proxy's X-Forwarded-For), "caller" (no
+    proven address: bucketed by the caller's own identity) or "peer" (the socket peer: behind a gateway that is one shared
+    address for every anonymous caller)."""
     # Preferred over everything below: a caller-specific key proven, by the shared secret, to have come
     # from the Worker's own read of Cloudflare's CF-Connecting-IP -- correct even when this engine sits
     # behind a proxy (RunPod's LB, a cloudflared tunnel) that presents every real caller as the same socket
@@ -859,16 +986,8 @@ def _client_ip(
     # once. Fails CLOSED, never open: a missing or too-short secret, a missing client-IP header, or a
     # mismatched secret all fall through to the existing (stricter, shared-key-prone) behavior below rather
     # than trusting an unproven header.
-    secret = os.environ.get(CLIENT_IP_SECRET_ENV, "")
-    if secret and len(secret) < MIN_CLIENT_IP_SECRET_LENGTH:
-        _warn_short_client_ip_secret_once()
-        secret = ""
-    if secret:
-        presented = request.headers.get(CLIENT_IP_SECRET_HEADER, "")
-        if presented and hmac.compare_digest(presented, secret):
-            client_ip = request.headers.get(CLIENT_IP_HEADER, "").strip()
-            if client_ip:
-                return client_ip
+    if client_ip_proof(request) == "valid":
+        return request.headers.get(CLIENT_IP_HEADER, "").strip(), "signed"
 
     client = request.client
     socket_peer = client.host if client is not None else "unknown"
@@ -881,14 +1000,22 @@ def _client_ip(
     if trust_proxy_header and socket_peer in trusted_proxies:
         forwarded = request.headers.get("x-forwarded-for")
         if forwarded:
-            return forwarded.split(",")[0].strip()
+            return forwarded.split(",")[0].strip(), "proxy"
     # No proven client address. Behind the gateway the socket peer is the proxy itself, so every caller would share ONE
     # bucket: a caller that is identified (an API key, or a signed-in user) is bucketed by that identity instead. A client
     # address header that is not signed with the shared secret is never read, so a forged one can neither raise nor dodge
     # a limit: rotating it changes nothing. An anonymous caller keeps the socket peer (the stricter shared bucket).
     if caller_key:
-        return caller_key
-    return socket_peer
+        return caller_key, "caller"
+    return socket_peer, "peer"
+
+
+def _client_ip(
+    request: Request, *, trust_proxy_header: bool, trusted_proxies: tuple[str, ...], caller_key: str | None = None
+) -> str:
+    return client_ip_and_source(
+        request, trust_proxy_header=trust_proxy_header, trusted_proxies=trusted_proxies, caller_key=caller_key
+    )[0]
 
 
 @functools.lru_cache(maxsize=1)
@@ -982,7 +1109,7 @@ def build_partner_router(
                 # Failed-key attempts per proven address (or socket peer): a request with a key that does not verify costs a
                 # password-hash check, so these are budgeted BEFORE the check and charged only when it fails.
                 _state["bad_key_limiter"] = RateLimiter(
-                    cfg.rate_limit_per_minute, max_keys=cfg.rate_limit_max_keys, **clock_kw
+                    cfg.bad_key_budget_per_minute or cfg.rate_limit_per_minute, max_keys=cfg.rate_limit_max_keys, **clock_kw
                 )
             return (
                 _state["cfg"], _state["rate_limiter"], _state["concurrency"], _state["provision_rate_limiter"],
@@ -1249,7 +1376,8 @@ def build_partner_router(
         return _run(req, admitted, debug_second_judge)
 
     def _admit(
-        req: AnalyseFactsRequest, request: Request, user: User | None, metered: list[str], per_minute: list[int]
+        req: Any, request: Request, user: User | None, metered: list[str], per_minute: list[int],
+        *, screening: bool = True,
     ) -> _Admitted | JSONResponse:
         """Everything that decides whether a call may run at all (window, limits, metering, validation), shared
         by the synchronous route and job submission so a job is admitted by exactly the same rules."""
@@ -1262,7 +1390,7 @@ def build_partner_router(
         closed = _window_closed(cfg)
         if closed is not None:
             return closed
-        offline = _judges_offline(cfg)
+        offline = _judges_offline(cfg) if screening else None  # intake (not screening) uses no judge
         if offline is not None:
             return offline
         # QUEUE.md 2026-09-27: per-leg second-judge scores are visible to an AUTHENTICATED caller -- a
@@ -1303,11 +1431,12 @@ def build_partner_router(
             metered.append(key.key_id)
             per_minute.append(key.rate_limit_per_minute)
             _record_usage(key.key_id)
-        if not any(f.strip() for f in req.facts):
-            raise HTTPException(422, "at least one non-empty fact is required")
-        for f in req.facts:
-            if len(f) > 4000:
-                raise HTTPException(422, "a fact may not exceed 4000 characters")
+        if screening:
+            if not any(f.strip() for f in req.facts):
+                raise HTTPException(422, "at least one non-empty fact is required")
+            for f in req.facts:
+                if len(f) > 4000:
+                    raise HTTPException(422, "a fact may not exceed 4000 characters")
         return _Admitted(
             cfg,
             concurrency,
@@ -1417,9 +1546,15 @@ def build_partner_router(
         matter = {"facts": list(req.facts), "narrative": req.narrative, "contract_ids": list(req.contract_ids)}
         box: dict[str, Any] = {}
 
+        hearing = req.workflow == "hearing_prep"
+
         def make_driver() -> Any:
             box["agent"] = factory(engine_root)
-            return a0rd.A0RefDriver(box["agent"], request=matter, proceeding_posture=req.proceeding_posture)
+            driver_cls: Any = PackDriver if hearing else a0rd.A0RefDriver
+            return driver_cls(box["agent"], request=matter, proceeding_posture=req.proceeding_posture)
+
+        def with_pack(body: Any) -> Any:
+            return attach_pack(body, list(req.facts), req.narrative or "") if hearing else body
 
         def finalize(driver: Any) -> dict[str, Any]:
             agent = box["agent"]
@@ -1446,6 +1581,9 @@ def build_partner_router(
             appendix = safe_appendix(driver.calls)  # counted from the recorded calls only: no agent text
             if appendix is not None:
                 shaped["appendix"] = appendix
+            if hearing and driver._pack is not None:
+                # the `pack` tool's own output (decide results in, fixed rules): never agent text
+                shaped["pack"] = copy.deepcopy(driver._pack)
             return shaped
 
         deps = a0.Deps(
@@ -1455,9 +1593,13 @@ def build_partner_router(
             transport=rt.transport,
             limiter=rt.limiter,
             slots=rt.slots,
-            core=lambda: _run(req, admitted, debug_second_judge, slot_held=True),
+            core=lambda: with_pack(_run(req, admitted, debug_second_judge, slot_held=True)),
             make_driver=make_driver,
             finalize=finalize,
+            workflows=frozenset({"screening", "hearing_prep"}),
+            # a workflow other than screening must name its first message and its summary explicitly (#419)
+            user_message=a0.user_message,
+            summarise=a0.screening_summarise,
         )
         caller = a0.Caller(admitted.authenticated, admitted.user_id, admitted.org_id, admitted.ip)
         out = a0.run_assisted(matter, caller, req.consent, req.session_id, deps, workflow=req.workflow)
@@ -1521,6 +1663,152 @@ def build_partner_router(
         else:
             _audit(metered, req, "assist", status_code=200, out=out)
         return out
+
+    # --- intake (pravrudhi#414): pasted text -> a verified bundle; plain deterministic route and the assisted route ---------
+    def _intake_exists_fn(cfg: PartnerApiConfig) -> Callable[[str], str] | None:
+        """Citation text -> the verifier's own existence result, or None when this deployment has no citation index (the
+        bundle then marks every citation NOT_CHECKED, never a guessed status)."""
+        env_path = os.environ.get("PRAVRUDHI_CITATION_INDEX")
+        path = citation_index_path or (Path(env_path) if env_path else None)
+        if path is None or not Path(path).is_file():
+            return None
+
+        looked_up = [0]
+        seen: dict[str, str] = {}
+        started = time.monotonic()
+
+        def exists(text: str) -> str:
+            # a pasted text can hold thousands of citations: bound the lookups (each can take verify_timeout_s) by count and by
+            # total time, and answer a repeated citation from the first answer (consistent, and free)
+            if text in seen:
+                return seen[text]
+            if looked_up[0] >= INTAKE_MAX_CITATION_LOOKUPS or time.monotonic() - started > INTAKE_LOOKUP_BUDGET_S:
+                return "NOT_CHECKED"
+            looked_up[0] += 1
+            result, _cov = _lookup(Path(path), VerifyCitationRequest(citation=text), cfg.verify_timeout_s)
+            seen[text] = result.result
+            return result.result
+
+        return exists
+
+    def _intake_core(req: IntakeRequest, exists_fn: Callable[[str], str] | None) -> dict[str, Any]:
+        """The plain deterministic intake result (no model): the same bundle the assisted run falls back to."""
+        from pravrudhi.application.a0_assist import intake
+
+        try:
+            bundle = intake.build_bundle(req.text, verify_fn=exists_fn)
+        except intake.IntakeRefused as e:
+            raise HTTPException(422, str(e)) from e
+        return {"run_id": f"nyaya-intake-{os.urandom(5).hex()}", "client_data": True, "bundle": bundle}
+
+    def _intake_audit(metered: list[str], mode: str, status_code: int, out: dict[str, Any] | None = None) -> None:
+        """One audit row per key-admitted intake call: key, time, run id and HTTP status; never the text. A failure to write is
+        logged, never allowed to change the answer."""
+        if not metered:
+            return
+        try:
+            audit.record(
+                engine_root, key_id=metered[0], mode=mode, status_code=status_code, contract_ids=[],
+                run_id=(out or {}).get("run_id"), outcomes={}, retention_s=_get_state()[0].audit_retention_s, now=_now(),
+            )
+        except Exception:
+            _logger.exception("audit write failed for key %s", metered[0])
+
+    def _intake_admit(req: IntakeRequest, request: Request, user: User | None, metered: list[str], per_minute: list[int]) -> Any:
+        admitted = _admit(req, request, user, metered, per_minute, screening=False)
+        if isinstance(admitted, JSONResponse):
+            return admitted
+        if not admitted.authenticated:
+            return JSONResponse(status_code=401, content={"detail": "intake is offered only to signed-in users"})
+        return admitted
+
+    @router.post("/intake", include_in_schema=False, response_model=IntakeResponse)
+    def intake_ep(
+        req: IntakeRequest, request: Request, response: Response, user: User | None = CurrentUserDep
+    ) -> dict[str, Any] | JSONResponse:
+        metered: list[str] = []
+        per_minute: list[int] = []
+        admitted = _intake_admit(req, request, user, metered, per_minute)
+        if isinstance(admitted, JSONResponse):
+            return admitted
+        if not admitted.concurrency.acquire():
+            _intake_audit(metered, "intake", 503)
+            return coded_503(AGENT_AT_CAPACITY)
+        try:
+            out = _intake_core(req, _intake_exists_fn(admitted.cfg))
+        except HTTPException as e:
+            _intake_audit(metered, "intake", e.status_code)
+            raise
+        except Exception:
+            _intake_audit(metered, "intake", 500)
+            raise
+        finally:
+            admitted.concurrency.release()
+        if metered:
+            response.headers.update(_rate_headers(metered[0], per_minute[0]))
+        _intake_audit(metered, "intake", 200, out)
+        return out
+
+    @router.post("/intake/assist", include_in_schema=False, response_model=IntakeAssistResponse)
+    def intake_assist_ep(
+        req: IntakeRequest, request: Request, response: Response, user: User | None = CurrentUserDep
+    ) -> dict[str, Any] | JSONResponse:
+        from pravrudhi.application import assistant_tier
+        from pravrudhi.application.a0_assist import assist as a0
+        from pravrudhi.application.a0_assist import runtime as a0rt
+        from pravrudhi.application.a0_assist.intake_driver import IntakeDriver
+
+        rt = a0rt.get(engine_root)
+        if rt is None or not rt.enabled or rt.limiter is None or rt.slots is None:
+            raise HTTPException(404, "assist_not_enabled")
+        if req.consent is not True:
+            return JSONResponse(status_code=400, content={"error": "consent_required"})
+        metered: list[str] = []
+        per_minute: list[int] = []
+        admitted = _intake_admit(req, request, user, metered, per_minute)
+        if isinstance(admitted, JSONResponse):
+            return admitted
+        exists_fn = _intake_exists_fn(admitted.cfg)
+
+        def finalize(driver: Any) -> dict[str, Any]:
+            return {"run_id": f"nyaya-intake-{os.urandom(5).hex()}", "client_data": True, "bundle": driver.result}
+
+        deps = a0.Deps(
+            cfg=rt.cfg,
+            tier_status=lambda: assistant_tier.status(engine_root),
+            store=rt.store,
+            transport=rt.transport,
+            limiter=rt.limiter,
+            slots=rt.slots,
+            core=lambda: _intake_core(req, exists_fn),
+            make_driver=lambda: IntakeDriver(req.text, exists_fn=exists_fn),
+            finalize=finalize,
+            workflows=frozenset({"intake"}),
+            user_message=a0.intake_user_message,
+            summarise=lambda driver, events: None,  # the result is the bundle; the agent's prose is never shown
+        )
+        caller = a0.Caller(admitted.authenticated, admitted.user_id, admitted.org_id, admitted.ip)
+        if not admitted.concurrency.acquire():
+            _intake_audit(metered, "intake_assist", 503)
+            return coded_503(AGENT_AT_CAPACITY)
+        try:
+            out = a0.run_assisted({"text": req.text}, caller, req.consent, req.session_id, deps, workflow="intake")
+        except HTTPException as e:
+            _intake_audit(metered, "intake_assist", e.status_code)
+            raise
+        except Exception:
+            _intake_audit(metered, "intake_assist", 500)
+            raise
+        finally:
+            admitted.concurrency.release()
+        if isinstance(out, dict):
+            out.pop("retention_notice", None)
+        if metered and isinstance(out, dict):
+            response.headers.update(_rate_headers(metered[0], per_minute[0]))
+        status = out.status_code if isinstance(out, JSONResponse) else 200
+        _intake_audit(metered, "intake_assist", status, out if isinstance(out, dict) else None)
+        result: dict[str, Any] | JSONResponse = out
+        return result
 
     # --- async job mode (#146): same admission, same agent run, collected by polling -------------------------
     _jobs_lock = threading.Lock()
@@ -1590,10 +1878,10 @@ def build_partner_router(
             store.discard(job_id)
             return admitted
 
-        def task() -> None:
+        def _run_job() -> None:
             store.start(job_id)
             try:
-                out = _run(req, admitted, debug_second_judge)
+                out = _run(req, admitted, debug_second_judge, slot_held=True)
                 if isinstance(out, dict):
                     out = AnalyseFactsResponse(**out).model_dump(mode="json", exclude_unset=True)
             except HTTPException as e:
@@ -1615,6 +1903,20 @@ def build_partner_router(
                 return
             _audit(metered, req, "job", status_code=200, out=out)
             store.finish(job_id, result=out)
+
+        def task() -> None:
+            # #406: an accepted job stays "pending" until it holds an agent slot, and waits for one up to job_slot_wait_s
+            # (counted from the moment a pool thread picks it up). Only then does it run; running jobs hold the slot.
+            if not admitted.concurrency.acquire(admitted.cfg.job_slot_wait_s):
+                if metered:
+                    _record_usage(metered[0], failed=True)
+                _audit(metered, req, "job", status_code=503)
+                store.fail(job_id, status_code=503, body=json.loads(bytes(coded_503(AGENT_AT_CAPACITY).body)))
+                return
+            try:
+                _run_job()
+            finally:
+                admitted.concurrency.release()
 
         _submit(task)
         return {"job_id": job_id, "status": "pending"}
@@ -1673,7 +1975,7 @@ def build_partner_router(
         if not rate_limiter.allow(ip):
             return rate_limited_response(
                 limit=rate_limiter.per_minute, retry_after=rate_limiter.retry_after_seconds(),
-                scope="caller" if principal is not None else "anonymous",
+                scope="caller" if principal is not None else "anonymous", sign_in=False,
             )
         if principal is not None:
             key = next((k for k in tenancy.keys_for_org(engine_root, principal.org_id) if k.key_id == principal.key_id), None)

@@ -266,7 +266,10 @@
             "enum": [
               "sync",
               "job",
-              "verify"
+              "verify",
+              "assist",
+              "intake",
+              "intake_assist"
             ],
             "title": "Mode",
             "type": "string"

@@ -24,11 +24,10 @@ import threading
 import time
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Protocol
 
 import httpx
 
-from pravrudhi.application.a0_assist import driver as drv
 from pravrudhi.application.a0_assist.config import MAX_SESSION_CENTS, AssistConfig, WorkflowAgent
 from pravrudhi.application.a0_assist.limits import AssistLimiter
 from pravrudhi.application.a0_assist.store import SpendStore, StoreError, new_session_key
@@ -61,6 +60,18 @@ class Caller:
     ip: str | None
 
 
+class WorkflowDriver(Protocol):
+    """What the runner needs from any workflow's driver: tool calls answered in-process, a record of every call, the binding
+    refusals, and the list of problems that make a run incomplete (empty = complete)."""
+
+    calls: list[dict[str, Any]]
+    refusals: list[str]
+
+    def call(self, tool: str, inp: dict[str, Any]) -> dict[str, Any]: ...
+
+    def complete(self) -> list[str]: ...
+
+
 @dataclass
 class Deps:
     cfg: AssistConfig
@@ -70,8 +81,8 @@ class Deps:
     limiter: AssistLimiter
     slots: threading.BoundedSemaphore
     core: Callable[[], Any]
-    make_driver: Callable[[], drv.A0Driver]
-    finalize: Callable[[drv.A0Driver], dict[str, Any]]
+    make_driver: Callable[[], WorkflowDriver]
+    finalize: Callable[[Any], dict[str, Any]]
     #: The workflows THIS Deps can drive (its `make_driver` and `finalize` belong to them). A workflow outside this set is
     #: answered as not configured even if the config has an agent for it: one workflow's driver is never used for another.
     workflows: frozenset[str] = frozenset({"screening"})
@@ -83,6 +94,18 @@ class Deps:
     summarise: Callable[[Any, list[dict[str, Any]]], str | None] | None = None
     clock: Callable[[], float] = time.monotonic
     sleep: Callable[[float], None] = time.sleep
+
+
+INTAKE_USER_MESSAGE_PREFIX = (
+    "Prepare this pasted matter text with your tools, exactly as your rules say. "
+    "The text, as JSON (copy it exactly as written):\n"
+)
+
+
+def intake_user_message(request: dict[str, Any]) -> str:
+    """The first message of an intake session: the pasted text, as message content, exactly as the screening message carries
+    its facts. Nothing is stored; the session is deleted after the run."""
+    return INTAKE_USER_MESSAGE_PREFIX + json.dumps({"text": request["text"]}, ensure_ascii=False)
 
 
 def user_message(request: dict[str, Any]) -> str:
@@ -221,7 +244,7 @@ class _Run:
         self.key: str | None = None
         self.events: list[dict[str, Any]] = []
         self.stop: str | None = None  # end_turn | budget | timeout | error
-        self.driver: drv.A0Driver | None = None
+        self.driver: WorkflowDriver | None = None
 
 
 def run_assisted(

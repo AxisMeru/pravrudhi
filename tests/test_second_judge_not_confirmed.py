@@ -206,3 +206,20 @@ def test_the_driver_decides_the_same_for_a_vetoed_defeater_and_a_primary_bound_e
     run2 = native.run(A.FACTS, contract_ids=[A.CID]).to_dict()
     d2 = A.drive(driven)
     assert run2["contracts"][0]["reason"] == "missing_element" == d2._decided[A.CID]["reason"]
+
+
+def test_the_driver_keeps_a_denial_a_denial_with_a_declined_required_element(tmp_path: Path) -> None:
+    """R2's gap on #407: the driver's rung is `lean_outcome == "ABSTAIN"` only, so a DENIAL must stay a DENIAL there too
+    (the driver can only over-refer: a mutant that drops the ABSTAIN guard must fail here)."""
+    from tests import test_a0_assist_driver as A
+
+    def build(sub: Path) -> NyayaAgent:
+        sub.mkdir()
+        gate = AndGateJudge(ScriptedJudge(_denial_script(A.FACTS)), ScriptedJudge(_second_all(0.30)),
+                            tau_primary=0.74, tau_second=TAU2)
+        return NyayaAgent(gate, _registry(), _config(sub, second_judge={"tau": TAU2}))
+
+    run = build(tmp_path / "n").run(A.FACTS, contract_ids=[A.CID]).to_dict()
+    d = A.drive(build(tmp_path / "d"))
+    assert run["contracts"][0]["outcome"] == "DENIAL" == d._decided[A.CID]["outcome"]
+    assert d._decided[A.CID]["reason"] == run["contracts"][0]["reason"] == "denial_established"
