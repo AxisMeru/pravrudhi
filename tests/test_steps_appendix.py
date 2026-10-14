@@ -233,3 +233,32 @@ def test_every_mid_run_fallback_returns_the_core_keys_and_no_appendix(tmp_path, 
         out = cl.post(R.URL, json=R.BODY).json()
         assert out["assistant"]["used"] is False and "appendix" not in out
         assert set(out) - {"assistant"} == core_keys - {"retention_notice"}
+
+
+# ---- the by-reference driver's traces (the hand-over the product agent uses)
+def ref_calls(tmp_path, name):
+    from tests import test_a0_assist_ref_driver as RD
+
+    d = RD.fresh(tmp_path, AD.SCRIPTS[name])
+    RD.full(d)
+    return d, RD
+
+
+@pytest.mark.parametrize("name", sorted(AD.SCRIPTS))
+def test_the_appendix_of_a_by_reference_run_equals_an_independent_count(tmp_path, name):
+    d, _ = ref_calls(tmp_path, name)
+    ap = build_appendix(d.calls)
+    n_judged, n_quotes, n_valid = expected(d.calls)
+    (row,) = ap["per_contract"]
+    assert (row["elements_judged"], row["quotes_checked"], row["quotes_valid"]) == (n_judged, n_quotes, n_valid)
+    assert row["lean_agrees"] is True and ap["refused_calls"] == 0
+    assert [s["name"] for s in ap["steps"]][0] == "ingest" and [s["name"] for s in ap["steps"]][-1] == "decide"
+    assert "call_ref" not in json.dumps(ap) and "J1" not in json.dumps(ap)
+
+
+def test_a_refused_by_reference_call_is_excluded_and_counted(tmp_path):
+    d, RD = ref_calls(tmp_path, "proof")
+    clean = build_appendix(d.calls)
+    assert RD.code(d.call("decide", {"contract_id": AD.CID})) == "bad_args"  # refused: the ref driver records it
+    ap = build_appendix(d.calls)
+    assert ap["refused_calls"] == 1 and ap["steps"] == clean["steps"] and ap["per_contract"] == clean["per_contract"]
