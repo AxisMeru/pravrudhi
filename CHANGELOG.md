@@ -3,6 +3,21 @@
 Release notes for the engine (`pravrudhi`). Versions before 0.5.44 are described in their GitHub release notes and commit
 messages.
 
+## 0.6.2 (2026-10-14)
+
+PATCH release: a faster verify-citations lookup with byte-identical answers (#380), and one additive field on `/api/health` for the optional assistant (#122, engine half). No existing field, reason code or route changes meaning. No Anthropic call site exists in the engine in this release; the assisted route ships later under its own release.
+
+**Rebuild the image.** The changes are under `src/` and `configs/`, so they reach a running container only by a rebuild of the engine image and the RunPod worker template from 0.6.2.
+
+### Changed
+
+- **verify-citations: the year of each candidate case is resolved with one batched lookup per candidate set instead of one full scan per case (#380, #387).** A derived `case_year` table is used only while `case_year_meta` matches `max(rowid)` of `cases`; otherwise the previous path runs. Answers are unchanged (12,000 calls on a deterministic sample of 2,000 citations: no answer differs); the median typed lookup is about four times faster.
+
+### Added
+
+- **`/api/health` gains the additive field `assistant_tier` (#122, #388):** `{"state": "available" | "unavailable", "reason": null | "no_key" | "upstream_error" | "quota" | "budget_floor" | "disabled"}`. It reports whether the optional Anthropic-backed assistant can be offered right now: unavailable when the configuration switches it off or cannot be read, when no configured key variable is set, when a recent Anthropic-backed call got a 4xx/5xx/quota answer, or when a configured balance is below the floor. `frontier_reader_available` is unchanged and stays false in every state. A client that does not know the field ignores it.
+- **`configs/assistant_tier.yaml`** (shipped in the wheel): the switches and limits behind that field, including a live-read override (`force_unavailable`) and the timeout and per-session budget any future assistant call must use.
+
 ## 0.6.1 (2026-10-13)
 
 PATCH release: one fix to the quote check. Nothing else changes; the only addition is an audit-record field `match` on the quote_check step; no response field, reason code or route is added or changed.
