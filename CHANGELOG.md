@@ -3,6 +3,12 @@
 Release notes for the engine (`pravrudhi`). Versions before 0.5.44 are described in their GitHub release notes and commit
 messages.
 
+## Unreleased
+
+### Changed
+
+- **`GET /api/health` no longer says why the client-address proof failed (caller-visible).** The response header `X-Pravrudhi-Client-Ip-Source` still says where the engine took the caller's address from, now only as `signed`, `proxy` or `peer`. The header `X-Pravrudhi-Client-Ip-Proof` is sent only to a caller that presents the provisioning secret; its values are documented for the holder of that secret. The reason is also written to the engine log when it changes. The body is unchanged. The change is under `src/`, so it reaches a running container only by a rebuild of the engine image.
+
 ## 0.6.8 (2026-10-14)
 
 PATCH release on 0.6.7: the first citation check after an engine start is no longer slowed by about 30 seconds on the container image (#443), and a keyed request on the Supabase tenancy backend reads its own key row instead of listing the organisation's keys (#441, internal; no change in answers). **Rebuild the image.** The changes are under `src/`, so they reach a running container only by a rebuild of the engine image and the RunPod worker template from 0.6.8.
