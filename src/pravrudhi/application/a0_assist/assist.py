@@ -188,7 +188,7 @@ def steps_from(calls: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def _block(used: bool, outcome: str, reason: str | None, **kw: Any) -> dict[str, Any]:
-    return {
+    block = {
         "used": used,
         "outcome": outcome,
         "reason": reason,
@@ -197,6 +197,33 @@ def _block(used: bool, outcome: str, reason: str | None, **kw: Any) -> dict[str,
         "summary": kw.get("summary"),
         "session_id": kw.get("session_id"),
     }
+    if kw.get("progress") is not None:
+        block["progress"] = kw["progress"]  # only on a run that did not finish: where it stopped (counts and times, no text)
+    return block
+
+
+def _progress(run: _Run, cfg: AssistConfig) -> dict[str, Any] | None:
+    """Where a run that did not finish stopped: counts, seconds, last tool name; never text. None when no session ran or when
+    the diagnostics themselves cannot be built (a diagnostic must never turn a clean fallback into an error). `events` is
+    the stream-event count the event cap uses (replays included)."""
+    if run.sid is None:
+        return None
+    try:
+        calls = [c for c in (run.driver.calls if run.driver is not None else []) if isinstance(c, dict)]
+        refused = sum(1 for c in calls if isinstance(c.get("output"), dict) and c["output"].get("refused"))
+        last = calls[-1].get("tool") if calls else None
+        return {
+            "tool_calls": len(calls),
+            "refused_calls": refused,
+            "events": run.n,
+            "max_events": cfg.max_events,
+            "elapsed_s": None if run.elapsed_s is None else round(run.elapsed_s, 1),
+            "wall_limit_s": cfg.call_timeout_s,
+            # a tool name is model-supplied: only a plain identifier of sensible length is echoed
+            "last_tool": last if isinstance(last, str) and re.fullmatch(r"[a-z][a-z0-9_]{0,39}", last) else None,
+        }
+    except Exception:  # noqa: BLE001 - see the docstring
+        return None
 
 
 def _with(body: Any, block: dict[str, Any]) -> Any:
@@ -222,6 +249,8 @@ class _Run:
         self.events: list[dict[str, Any]] = []
         self.stop: str | None = None  # end_turn | budget | timeout | error
         self.driver: drv.A0Driver | None = None
+        self.n = 0  # stream events seen
+        self.elapsed_s: float | None = None  # seconds from the first message to the end of the conversation
 
 
 def run_assisted(
@@ -303,7 +332,9 @@ def _run_with_slot(
         return _with(decided_body, block)
     outcome, reason = outcome_reason
     steps = steps_from(run.driver.calls) if run.driver and outcome == "refused" and reason == "safety" else []
-    return _fallback(deps, outcome, reason or "error", client_sid, steps=steps, cost=cost_block)
+    return _fallback(
+        deps, outcome, reason or "error", client_sid, steps=steps, cost=cost_block, progress=_progress(run, cfg)
+    )
 
 
 def screening_summarise(driver: Any, events: list[dict[str, Any]]) -> str | None:
@@ -342,6 +373,7 @@ def _converse(request: dict[str, Any], run: _Run, deps: Deps, cfg: AssistConfig,
         tr.send_events(sid, [{"type": "user.message", "content": [{"type": "text", "text": first}]}])
         for ev in stream:
             n += 1
+            run.n = n
             if ev.get("id") in seen:
                 continue
             seen.add(ev.get("id"))
@@ -379,6 +411,7 @@ def _converse(request: dict[str, Any], run: _Run, deps: Deps, cfg: AssistConfig,
         return "refused", "error"
     finally:
         stream.close()
+        run.elapsed_s = deps.clock() - t0
 
 
 def _close(run: _Run, deps: Deps, cfg: AssistConfig) -> int | None:
