@@ -221,3 +221,10 @@ def test_a_revoked_key_is_401_on_every_listed_route_and_never_runs_as_anonymous(
     tenancy.revoke_key(tmp_path / "root", created.record.key_id)
     r = _call(c, method, path, body, {tenancy.API_KEY_HEADER: created.secret})
     assert r.status_code == 401 and r.json()["detail"] == "Invalid or revoked API key", (path, r.status_code, r.text[:100])
+
+
+@pytest.mark.parametrize("method", ["POST", "DELETE", "PUT", "PATCH"])
+def test_another_method_on_the_org_usage_route_is_refused_to_an_org_key(env: Any, method: str) -> None:
+    c, key = env
+    r = c.request(method, "/api/v1/orgs/acme/usage", headers={tenancy.API_KEY_HEADER: key})
+    assert r.status_code == 401 and r.json()["detail"] == "Missing bearer token", (method, r.status_code)
