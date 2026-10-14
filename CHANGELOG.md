@@ -7,7 +7,7 @@ messages.
 
 ### Changed
 
-- **`GET /api/health` no longer says why the client-address proof failed (caller-visible).** The response header `X-Pravrudhi-Client-Ip-Source` still says where the engine took the caller's address from, now only as `signed`, `proxy` or `peer`. The header `X-Pravrudhi-Client-Ip-Proof` (`valid`, `none`, `mismatch`, `no_ip`, `engine_unset`, `engine_short`) is sent only to a caller that presents the provisioning secret; the reason is also written to the engine log when it changes. The body is unchanged. The change is under `src/`, so it reaches a running container only by a rebuild of the engine image.
+- **`GET /api/health` no longer says why the client-address proof failed (caller-visible).** The response header `X-Pravrudhi-Client-Ip-Source` still says where the engine took the caller's address from, now only as `signed`, `proxy` or `peer`. The header `X-Pravrudhi-Client-Ip-Proof` is sent only to a caller that presents the provisioning secret; its values are documented for the holder of that secret. The reason is also written to the engine log when it changes. The body is unchanged. The change is under `src/`, so it reaches a running container only by a rebuild of the engine image.
 
 ## 0.6.8 (2026-10-14)
 
