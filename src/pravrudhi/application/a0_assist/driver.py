@@ -79,6 +79,12 @@ class A0Driver:
         self._statute: dict[str, dict[str, Any]] = {}
         self.listed: dict[str, list[str]] | None = None
 
+    def _ing(self) -> dict[str, Any]:
+        """The ingest output; the stage order check guarantees it exists before any stage that reads it."""
+        if self._ingested is None:
+            raise Refused("ingest has not run")
+        return self._ingested
+
     # ---- dispatch ------------------------------------------------------------------------------------------
     def call(self, tool: str, inp: dict[str, Any]) -> dict[str, Any]:
         """Execute one stage tool; returns its output dict, or {"error": ...} when refused. Always recorded."""
@@ -90,7 +96,8 @@ class A0Driver:
             self.refusals.append(f"{tool}: {e}")
             out = {"error": str(e), "refused": True}
         self.calls.append({"tool": tool, "input": inp, "output": out})
-        return out
+        result: dict[str, Any] = out
+        return result
 
     # ---- helpers -------------------------------------------------------------------------------------------
     def _need(self, cond: bool, msg: str) -> None:
@@ -98,7 +105,7 @@ class A0Driver:
             raise Refused(msg)
 
     def _facts_tuple(self) -> tuple[Any, ...]:
-        return tuple(self.eng.agent.Fact(f["id"], f["text"], f["sha256"]) for f in self._ingested["facts"])  # type: ignore[index]
+        return tuple(self.eng.agent.Fact(f["id"], f["text"], f["sha256"]) for f in self._ing()["facts"])
 
     def _statute_view(self, cid: str) -> dict[str, Any]:
         """The statute fields `_run_contract` computes before judging (judge training text vs the binary's official text)."""
@@ -153,7 +160,7 @@ class A0Driver:
 
     # ---- stage 3 -------------------------------------------------------------------------------------------
     def _t_describe_contract(self, inp: dict[str, Any]) -> dict[str, Any]:
-        cid = inp.get("contract_id")
+        cid: Any = inp.get("contract_id")
         self._need(
             self._selected is not None and cid in self._selected, "describe_contract names a contract select_contracts returned"
         )
@@ -172,7 +179,9 @@ class A0Driver:
 
     # ---- stage 4 -------------------------------------------------------------------------------------------
     def _t_judge_element(self, inp: dict[str, Any]) -> dict[str, Any]:
-        cid, element, is_denial = inp.get("contract_id"), inp.get("element"), inp.get("is_denial")
+        cid: Any = inp.get("contract_id")
+        element: Any = inp.get("element")
+        is_denial: Any = inp.get("is_denial")
         self._need(cid in self._described, "judge_element comes after describe_contract for the contract")
         d = self._described[cid]
         listed = d.denials if is_denial is True else d.elements
@@ -182,12 +191,12 @@ class A0Driver:
         )
         self._need(all(r["element"] != element for r in self._judged.get(cid, [])), "an element is judged once")
         self._need(
-            canon(inp.get("facts")) == canon(self._ingested["facts"]), "judge_element input facts differ from the ingest output"
-        )  # type: ignore[index]
+            canon(inp.get("facts")) == canon(self._ing()["facts"]), "judge_element input facts differ from the ingest output"
+        )
         self._need(
-            canon(inp.get("narrative", "")) == canon(self._ingested["narrative"]),
+            canon(inp.get("narrative", "")) == canon(self._ing()["narrative"]),
             "judge_element narrative differs from the ingest output",
-        )  # type: ignore[index]
+        )
         st = self._statute_view(cid)
         self._need(
             st["training"] is not None, "no training statute text for the contract (the engine would ABSTAIN without judging)"
@@ -200,9 +209,9 @@ class A0Driver:
             is_denial,
             st["training"],
             self._facts_tuple(),
-            self._ingested["narrative"],
+            self._ing()["narrative"],
             self.posture,
-        )  # type: ignore[index]
+        )
         out = dataclasses.asdict(res)
         self._judged.setdefault(cid, []).append(out)
         return out
@@ -216,13 +225,13 @@ class A0Driver:
     def _t_quote_check(self, inp: dict[str, Any]) -> dict[str, Any]:
         self._need(self._ingested is not None, "quote_check comes after ingest")
         self._need(
-            canon(inp.get("facts")) == canon(self._ingested["facts"]), "quote_check input facts differ from the ingest output"
-        )  # type: ignore[index]
+            canon(inp.get("facts")) == canon(self._ing()["facts"]), "quote_check input facts differ from the ingest output"
+        )
         cited = {(r["fact_id"], r["quote"]) for rs in self._judged.values() for r in rs if r.get("quote")}
         self._need((inp.get("fact_id"), inp.get("quote")) in cited, "quote_check cites a quote no judge_element returned")
         loc = self.eng.quote.locate_quote(
-            {f["id"]: f["text"] for f in self._ingested["facts"]}, fact_id=inp["fact_id"], quote=inp["quote"]
-        )  # type: ignore[index]
+            {f["id"]: f["text"] for f in self._ing()["facts"]}, fact_id=inp["fact_id"], quote=inp["quote"]
+        )
         return {
             "valid": loc.valid,
             "reason": loc.reason,
@@ -245,7 +254,7 @@ class A0Driver:
         return [self.eng.agent.ElementResult(**r) for r in self._judged[cid]]
 
     def _t_assemble(self, inp: dict[str, Any]) -> dict[str, Any]:
-        cid = inp.get("contract_id")
+        cid: Any = inp.get("contract_id")
         self._need(cid in self._described and cid not in self._assembled, "assemble is called once per described contract")
         results = self._results_for(cid, inp.get("element_results"))
         a = self.eng.agent
@@ -261,7 +270,7 @@ class A0Driver:
 
     # ---- stage 7 -------------------------------------------------------------------------------------------
     def _t_lean_check(self, inp: dict[str, Any]) -> dict[str, Any]:
-        cid = inp.get("contract_id")
+        cid: Any = inp.get("contract_id")
         self._need(cid in self._assembled and cid not in self._lean, "lean_check is called once per assembled contract")
         self._need(
             canon(inp.get("wire")) == canon(self._assembled[cid]["wire"]), "lean_check wire differs from the assemble output"
@@ -286,7 +295,7 @@ class A0Driver:
 
     # ---- stage 8 -------------------------------------------------------------------------------------------
     def _t_decide(self, inp: dict[str, Any]) -> dict[str, Any]:
-        cid = inp.get("contract_id")
+        cid: Any = inp.get("contract_id")
         self._need(cid in self._lean and cid not in self._decided, "decide is called once per contract, after lean_check")
         self._need(
             canon(inp.get("lean_outcome")) == canon(self._lean[cid]["lean_outcome"]),
@@ -320,9 +329,10 @@ class A0Driver:
             def early(name: str) -> list[str]:
                 """Early decisions never compute these lists; absent means none (the engine default)."""
                 try:
-                    return kw[name]
+                    value: list[str] = kw[name]
                 except KeyError:
                     return []
+                return value
 
             res = a.ContractResult(
                 cid,

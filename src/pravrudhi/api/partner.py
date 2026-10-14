@@ -1350,7 +1350,8 @@ def build_partner_router(
             # The facts went to a third party for this request (or may have): the ordinary retention notice would be wrong here,
             # so no response of this route carries one. The consent line and the data-handling page say what is true.
             out.pop("retention_notice", None)
-        return out
+        result: dict[str, Any] | JSONResponse = out
+        return result
 
     @router.post(
         "/analyse-facts/assist",

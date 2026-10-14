@@ -136,8 +136,8 @@ def spend(root: Path, env: Mapping[str, str], *, store: ST.SpendStore | None = N
         doc = store.spend_summary()
     except ST.StoreError:
         return EXIT_ALERT, {"ok": False, "alert": "store"}
-    out = {k: doc.get(k) for k in SPEND_KEYS}
-    ints = all(isinstance(out[k], int) and not isinstance(out[k], bool) and out[k] >= 0 for k in SPEND_KEYS[2:])
+    out: dict[str, Any] = {k: doc.get(k) for k in SPEND_KEYS}
+    ints = all(isinstance(v := out[k], int) and not isinstance(v, bool) and v >= 0 for k in SPEND_KEYS[2:])
     if not ints or not all(isinstance(out[k], str) for k in SPEND_KEYS[:2]):
         return EXIT_ALERT, {"ok": False, "alert": "unexpected_shape"}
     return EXIT_OK, {"ok": True, **out}

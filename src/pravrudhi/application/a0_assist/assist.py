@@ -154,7 +154,7 @@ def steps_from(calls: list[dict[str, Any]]) -> list[dict[str, Any]]:
     steps: list[dict[str, Any]] = []
     seen: dict[str, dict[str, Any]] = {}
     verdicts: dict[str, list[bool]] = {"quote_check": [], "lean_check": []}
-    assembled: dict[str, str] = {}
+    assembled: dict[str, Any] = {}
     for c in calls:
         out = c.get("output") or {}
         if out.get("refused"):
@@ -166,7 +166,7 @@ def steps_from(calls: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if name == "quote_check" and "valid" in out:
             verdicts["quote_check"].append(out["valid"] is True)
         if name == "assemble":
-            assembled[out.get("contract_id", "")] = out.get("expected_outcome")
+            assembled[str(out.get("contract_id", ""))] = out.get("expected_outcome")
         if name == "lean_check":
             verdicts["lean_check"].append(assembled.get(out.get("contract_id", "")) == out.get("lean_outcome"))
     for name, vs in verdicts.items():
