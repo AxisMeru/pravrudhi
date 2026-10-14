@@ -485,6 +485,7 @@
               "uncertain",
               "uncertain_second_judge",
               "second_judge_unavailable",
+              "second_judge_not_confirmed",
               "gate1_unavailable",
               "gate1_not_entailed",
               "gate1_contradiction",

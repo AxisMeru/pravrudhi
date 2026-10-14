@@ -94,7 +94,7 @@ Outcome = Literal["PROOF", "DENIAL", "ABSTAIN", "REFER_TO_LAWYER"]
 ContractReason = Literal[
     "all_elements_established", "denial_established", "missing_element", "no_training_statute_text",
     "judge_error", "assembly_lean_mismatch", "denial_unquotable", "second_judge_defeater_disagreement",
-    "uncertain", "uncertain_second_judge", "second_judge_unavailable", "gate1_unavailable",
+    "uncertain", "uncertain_second_judge", "second_judge_unavailable", "second_judge_not_confirmed", "gate1_unavailable",
     "gate1_not_entailed", "gate1_contradiction", "contract_not_validated", "input_too_long",
 ]
 CONFIG_PATH = Path("configs") / "nyaya_agent.yaml"
@@ -1776,6 +1776,17 @@ class NyayaAgent:
             return finish("REFER_TO_LAWYER", "gate1_not_entailed", **kw)
         if gate1_contradiction:
             return finish("REFER_TO_LAWYER", "gate1_contradiction", **kw)
+        # #404: a required element the primary judge established and the second judge then declined must never read as
+        # `missing_element` ("the facts do not show it"): the facts did show it to one check. Refer, with its own reason.
+        # Required elements only (a second judge declining a defeater just treats it as absent), and only where the contract
+        # would otherwise ABSTAIN, so every reason above keeps its precedence and a PROOF/DENIAL is never touched.
+        # `binding_leg == "second"` is only ever set on a non-established element (`_truthful_status` returns no binding leg
+        # for an established one, or for the `not_evaluated_second_unavailable` label), so no separate status or unavailable
+        # test is needed.
+        if lean_outcome == "ABSTAIN" and any(
+            not r.is_denial and r.binding_leg == "second" for r in results
+        ):
+            return finish("REFER_TO_LAWYER", "second_judge_not_confirmed", **kw)
         # Safety gate, allowlist form (Lead-2, 2026-09-25; inverted to fail-closed, issue #36, 2026-09-26+):
         # a contract not in `validated_contracts` never reaches the user as a PROOF or DENIAL. Every element
         # judged, quoted and Lean-checked above stays visible in `results` and the audit trail -- only the
