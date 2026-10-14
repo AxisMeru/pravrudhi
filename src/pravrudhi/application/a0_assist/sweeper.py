@@ -105,7 +105,7 @@ class Sweeper:
         are older than `abandon_after_min` (a crash between creating a session and recording it): delete them too. Each
         listing is filtered by a configured agent id, so a session of any other agent (a research session) can never be
         returned, and a young in-flight session is spared by its age."""
-        assert self._tr is not None and self._cfg.agent_id
+        assert self._tr is not None
         cutoff = self._wall() - self._cfg.abandon_after_min * 60
         out["orphans_deleted"] = 0
         for agent_id in self._cfg.all_agent_ids():  # every workflow's agent: each lists only its own sessions
@@ -168,7 +168,7 @@ class Sweeper:
             if self._mode == "engine" and self._workspace_ok and not self._delete_canary_ok and self._cfg.agent_id:
                 self._delete_canary()
             known = self._delete_pending(out)
-            if self._scan_orphans and self._cfg.agent_id:
+            if self._scan_orphans and self._cfg.all_agent_ids():
                 self._orphans(out, known)
             if self._mode == "engine":
                 # the engine role's functions: reservations belong to the engine, and the sweep marker is what its own pause rules

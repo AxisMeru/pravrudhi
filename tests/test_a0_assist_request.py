@@ -680,6 +680,7 @@ def _hp_cfg(**over):
 
 def test_an_assisted_run_of_a_workflow_creates_its_session_on_that_workflows_agent(tmp_path):
     e = Env(tmp_path, cfg=_hp_cfg())
+    e.deps.workflows = frozenset({"screening", "hearing_prep"})
     e.tr = e.deps.transport = _SpyTransport(ideal(), e.clock)
     out = AS.run_assisted(REQ, AS.Caller(True, "u1", "o1", "1.2.3.4"), True, "c1", e.deps, workflow="hearing_prep")
     assert e.tr.created_with == ("agent_hp", 3, "env_hp", e.cfg.session_budget_cents)
@@ -706,3 +707,22 @@ def test_an_unconfigured_workflow_does_not_take_a_slot_or_a_reservation(tmp_path
     AS.run_assisted(REQ, AS.Caller(True, "u1", "o1", "1.2.3.4"), True, "c1", e.deps, workflow="intake")
     assert e.deps.slots.acquire(blocking=False)  # still free (the slot was never taken)
     assert [x for x in e.store.log if x[0] == "reserve"] == []
+
+
+def test_an_unconfigured_workflow_is_not_charged_against_the_callers_quota(tmp_path):
+    e = Env(tmp_path)
+    for _ in range(e.cfg.per_ip_per_minute + 3):
+        AS.run_assisted(REQ, AS.Caller(True, "u1", "o1", "1.2.3.4"), True, "c1", e.deps, workflow="intake")
+    out = e.run()  # screening for the same caller: the quota is untouched
+    assert block(out)["used"] is True
+
+
+def test_a_configured_workflow_with_no_driver_in_these_deps_is_still_not_configured(tmp_path):
+    e = Env(tmp_path, cfg=_hp_cfg())  # the config has a hearing_prep agent; these Deps drive screening only
+    assert e.deps.workflows == frozenset({"screening"})
+    out = AS.run_assisted(REQ, AS.Caller(True, "u1", "o1", "1.2.3.4"), True, "c1", e.deps, workflow="hearing_prep")
+    assert block(out)["reason"] == "not_configured" and e.tr.calls == [] and e.store.log == []
+    e.deps.workflows = frozenset({"screening", "hearing_prep"})  # a workflow's PR registers its own driver set
+    e.tr = e.deps.transport = _SpyTransport(ideal(), e.clock)
+    out = AS.run_assisted(REQ, AS.Caller(True, "u1", "o1", "1.2.3.4"), True, "c1", e.deps, workflow="hearing_prep")
+    assert e.tr.created_with[0] == "agent_hp" and block(out)["used"] is True

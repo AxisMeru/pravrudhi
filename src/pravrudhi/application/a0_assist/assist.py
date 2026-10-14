@@ -72,6 +72,9 @@ class Deps:
     core: Callable[[], Any]
     make_driver: Callable[[], drv.A0Driver]
     finalize: Callable[[drv.A0Driver], dict[str, Any]]
+    #: The workflows THIS Deps can drive (its `make_driver` and `finalize` belong to them). A workflow outside this set is
+    #: answered as not configured even if the config has an agent for it: one workflow's driver is never used for another.
+    workflows: frozenset[str] = frozenset({"screening"})
     clock: Callable[[], float] = time.monotonic
     sleep: Callable[[float], None] = time.sleep
 
@@ -224,14 +227,18 @@ def run_assisted(
         raise ConsentRequired()
     if not caller.authenticated:
         return _fallback(deps, "refused", "sign_in_required", client_session_id)
+    # A workflow with no agent, or with no driver in this Deps, stays dark. Decided BEFORE the limiter so a request that can
+    # never run is not charged against anyone's quota.
+    agent = cfg.agent_for(workflow) if workflow in deps.workflows else None
+    if agent is None:
+        return _fallback(deps, "refused", "not_configured", client_session_id)
     if deps.limiter.admit(caller.user_id, caller.org_id, caller.ip) is not None:
         return _fallback(deps, "refused", "rate_limited", client_session_id)
     tier = deps.tier_status()
     if tier.get("state") != "available":
         return _fallback(deps, "refused", _tier_reason(tier), client_session_id)
-    agent = cfg.agent_for(workflow)
-    if deps.store is None or deps.transport is None or agent is None:
-        return _fallback(deps, "refused", "not_configured", client_session_id)  # a workflow with no agent stays dark
+    if deps.store is None or deps.transport is None:
+        return _fallback(deps, "refused", "not_configured", client_session_id)
     if not deps.slots.acquire(blocking=False):
         return _fallback(deps, "refused", "rate_limited", client_session_id)
     try:
