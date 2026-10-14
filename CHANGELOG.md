@@ -3,11 +3,19 @@
 Release notes for the engine (`pravrudhi`). Versions before 0.5.44 are described in their GitHub release notes and commit
 messages.
 
-## Unreleased
+## 0.6.5 (2026-10-14)
 
-Citation lookup without a quote (existence only), and the metadata-only index the hosted engine will serve (#908, #717). The hosted verify-citations route stays 503 until an index is configured.
+PATCH release: the hosted citation check gets its metadata-only index and a stricter existence-only answer (#398, #401, #402); failed API keys are throttled per address (#396) and a 429 says what to do (#410); a second-check decline refers (#407); a second RunPod endpoint can serve as the fallback second judge (#405, off until configured); and the assisted route is switched ON in the shipped configuration (#408; it still serves only when the store is reachable, the delete canary has passed and the tier is available, and the app's entry stays behind its own flag). **Not every existing route behaves exactly as in 0.6.2** (true since 0.6.4; the changes below are what a caller can see).
+
+**Rebuild the image.** The changes are under `src/`, `configs/`, `deploy/` and `docs/api/`, so they reach a running container only by a rebuild of the engine image and the RunPod worker template from 0.6.5. The Dockerfile default (`REQUIRE_CITATION_INDEX=0`) only warns when the slim citation index is missing; the release build passes `--build-arg REQUIRE_CITATION_INDEX=1`, so a build without the index fails instead of quietly answering 503.
+
+Citation lookup without a quote (existence only), and the metadata-only index the hosted engine serves (#908, #717).
 
 ### Changed
+
+- **Failed API keys are throttled per address before the hash check (#396, caller-visible).** On `/api/v1/analyse-facts` and `/api/v1/verify-citations`, an address that has presented bad keys at least `rate_limit_per_minute` times in a minute gets HTTP 429 before any password-hash check is spent on it. A valid key is never charged and a request with no key is untouched. Until `PRAVRUDHI_CLIENT_IP_SECRET` is configured, the shared proxy address is the bucket, so valid keyed callers behind it can also be limited for that minute. This ends the unthrottled garbage-key 401 noted in 0.6.4.
+
+- **The 429 body says what to do (#410, caller-visible).** The per-address and per-key limiters now add `message`, `limit_per_minute`, `window_seconds`, `retry_after_seconds` and `scope`. `detail` stays `"rate limit exceeded"`, `Retry-After` is kept, and the anonymous limit of 6 per minute per address is unchanged.
 
 - **A second-check decline no longer reads as a missing ingredient (#404, caller-visible).** In deployments with a second check, an ingredient that one check supported and the second declined now returns `REFER_TO_LAWYER` with `reason` `second_judge_not_confirmed` where it returned `ABSTAIN` with `missing_element`. Only required ingredients count (a second check declining a defeating fact is unchanged), only where the contract would otherwise abstain, and every other referral reason keeps its precedence. The value is added to the public `reason` enum; no existing value changes.
 
@@ -16,6 +24,12 @@ Citation lookup without a quote (existence only), and the metadata-only index th
 - **`NOT_IN_INDEX` wording (caller-visible).** The human `label` is now "Not found in our index" (was "not in index") and the `note` reads "We could not match this citation to exactly one case in our index. That does not show whether the citation is real: the index does not hold every judgment." (was "The case was not found in our index. …"): under the #717 rule `NOT_IN_INDEX` also covers several matches and a longer title, so the old note was inexact. The machine fields (`result`, `status`, the enum values) are unchanged.
 
 ### Added
+
+- **A second RunPod endpoint can be the fallback second judge (#405).** Off unless configured. The funded key goes to a fallback only if its host equals an exact host built from our endpoint ids; redirects never carry the key; an endpoint needs its own passing positive-control record before the engine will call it. Nothing changes until `NYAYA_SECOND_JUDGE_FALLBACK_URLS` and the matching endpoint-id and record settings are set.
+
+- **The assisted route is on in the shipped configuration (#408).** `configs/assistant_tier.yaml` now carries `assist_route_enabled: true` and the product agent ids (ids only, no secret). The route still needs the spend store reachable, the delete canary passed and the tier available.
+
+- **The slim citation index is baked into the image at build time (#401).** `deploy/docker/Dockerfile` copies `slim_all.sqlite3` (sha256-pinned; a different file fails the build) and sets `PRAVRUDHI_CITATION_INDEX`. The file is not in the repository.
 
 - **Slim citation index builder.** `scripts/build_slim_citation_index.py` (`pravrudhi.application.case_index_slim`) writes a metadata-only copy of the case index: titles, courts, years and mined citation strings; no judgment text and no source path (10.8 MB for 38,657 judgments, against 2.0 GB). Its `meta` table marks it `existence_only`, records the source index's modification time (`source_mtime_utc`), the sources, the counts and the provenance record's sha256. An optional source filter builds a one-source copy.
 
