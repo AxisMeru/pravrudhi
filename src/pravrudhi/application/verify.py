@@ -12,12 +12,15 @@ correctly comes back NOT_IN_INDEX -- an honest "no alias evidence", not a false 
 
 from __future__ import annotations
 
+import json
 import re
 import sqlite3
 import unicodedata
 from dataclasses import dataclass
 from difflib import SequenceMatcher
 from enum import StrEnum
+from functools import lru_cache
+from pathlib import Path
 from typing import Any
 
 from pravrudhi.application.citations import Citation, parse_citations
@@ -527,6 +530,23 @@ def verify(
 EXISTENCE_MAX_EXTRA_TITLE_TOKENS = 0
 
 
+_NONDISTINCTIVE_FILE = Path(__file__).resolve().parents[1] / "assets" / "citation" / "nondistinctive_tokens.json"
+
+
+@lru_cache(maxsize=1)
+def _nondistinctive_tokens() -> frozenset[str]:
+    """The words an existence-only answer does not count as extra title words (config:
+    assets/citation/nondistinctive_tokens.json). A missing or
+    unreadable file, or one that is not a list of strings, is the EMPTY set: the strict rule, never a looser one."""
+    try:
+        raw = json.loads(_NONDISTINCTIVE_FILE.read_text())["tokens"]
+        if not isinstance(raw, list) or not all(isinstance(t, str) for t in raw):
+            return frozenset()
+    except (OSError, ValueError, KeyError, TypeError):
+        return frozenset()
+    return frozenset(t for w in raw for t in _distinctive_tokens(w))
+
+
 def _extra_title_tokens(conn: sqlite3.Connection, key: str, title: str) -> int:
     """How many distinctive words the title carries beyond the words of the citation key's alias group that fits it best
     (the group with the fewest extra words). No alias group = 0 (nothing to compare)."""
@@ -534,7 +554,8 @@ def _extra_title_tokens(conn: sqlite3.Connection, key: str, title: str) -> int:
     groups = list(conn.execute("SELECT DISTINCT party_1, party_2 FROM citation_aliases WHERE citation = ?", (key,)))
     if not groups:
         return 0
-    return min(len(tokens - (_distinctive_tokens(p1) | _distinctive_tokens(p2))) for p1, p2 in groups)
+    free = _nondistinctive_tokens()
+    return min(len(tokens - (_distinctive_tokens(p1) | _distinctive_tokens(p2)) - free) for p1, p2 in groups)
 
 
 def exists_in_index(conn: sqlite3.Connection, citation_text: str, claimed_name: str | None = None) -> VerifyResult:

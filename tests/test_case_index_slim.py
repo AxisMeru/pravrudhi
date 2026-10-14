@@ -20,8 +20,8 @@ from pravrudhi.application.verify import VerifyResult, exists_in_index
 
 SENTINEL_A = "zorbathian-sentinel-passage"
 SENTINEL_B = "quillfeather-sentinel-passage"
-KEY_A = "(1990) 2 SCC 100"
-KEY_B = "(1991) 3 SCC 200"
+KEY_A = "(2090) 2 SCC 100"
+KEY_B = "(2091) 3 SCC 200"
 
 
 def _case(conn: sqlite3.Connection, cid: str, title: str, year: int, source: str, text: str, path: str = "") -> None:
@@ -44,12 +44,12 @@ def full(tmp_path: Path) -> Path:
     p = tmp_path / "full.sqlite3"
     c = open_index(p)
     # two real cases (one per source) and two citing judgments (one per source) whose text mines the citation strings
-    _case(c, "A", "Zorbatha Mendelsohn vs Quillfeather Aerospace", 1990, "sc_pdf", f"Held: {SENTINEL_A}.")
+    _case(c, "A", "Zorbatha Mendelsohn vs Quillfeather Aerospace", 2090, "sc_pdf", f"Held: {SENTINEL_A}.")
     _case(
         c,
         "B",
         "Brandolini Vexworth vs Thistledown Estates",
-        1991,
+        2091,
         "injudgements",
         f"Held: {SENTINEL_B}.",
         "https://example.invalid/doc/1",
@@ -94,7 +94,7 @@ def test_all_sources_keeps_every_case_and_alias_and_writes_no_text_or_path(tmp_p
     )
     # the title, court, year and source survive
     row = s.execute("SELECT title, court, year, source FROM cases WHERE case_id = 'A'").fetchone()
-    assert row == ("Zorbatha Mendelsohn vs Quillfeather Aerospace", "Supreme Court", 1990, "sc_pdf")
+    assert row == ("Zorbatha Mendelsohn vs Quillfeather Aerospace", "Supreme Court", 2090, "sc_pdf")
 
 
 def test_the_meta_table_says_what_the_file_is(tmp_path: Path, full: Path) -> None:
@@ -104,7 +104,7 @@ def test_the_meta_table_says_what_the_file_is(tmp_path: Path, full: Path) -> Non
     assert m is not None and m["existence_only"] == "1" and m["schema"] == "slim-v1" and m["provenance_sha256"] == "cd" * 32
     assert m["sources"] == "injudgements,sc_pdf" and m["source_filter"] == "all"
     assert json.loads(m["counts"])["cases"] == 4
-    assert m["built_utc"].endswith("Z")
+    assert m["source_mtime_utc"].endswith("Z") and "built_utc" not in m
 
 
 def test_one_source_keeps_only_its_cases_and_the_aliases_mined_from_its_own_judgments(tmp_path: Path, full: Path) -> None:
@@ -124,7 +124,7 @@ def test_lookups_on_the_slim_file_equal_those_on_the_full_file(tmp_path: Path, f
     out = tmp_path / "slim.sqlite3"
     build_slim_index(full, out)
     f, s = sqlite3.connect(full), sqlite3.connect(out)
-    for cite in (KEY_A, KEY_B, "(2099) 9 SCC 999", "(1990) 2 SCC 101", "not a citation"):
+    for cite in (KEY_A, KEY_B, "(2099) 9 SCC 999", "(2090) 2 SCC 101", "not a citation"):
         assert exists_in_index(f, cite) == exists_in_index(s, cite)
 
 
