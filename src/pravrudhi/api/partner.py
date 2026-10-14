@@ -186,6 +186,11 @@ class PartnerApiConfig:
     verify_timeout_s: float = 5.0
 
     def __post_init__(self) -> None:
+        b = self.bad_key_budget_per_minute
+        if b is not None and (isinstance(b, bool) or not isinstance(b, int) or not 1 <= b <= MAX_BAD_KEY_BUDGET):
+            raise ValueError(
+                f"bad_key_budget_per_minute must be None or an integer from 1 to {MAX_BAD_KEY_BUDGET}, got {b!r}"[:200]
+            )
         if self.trust_proxy_header and not self.trusted_proxies:
             raise ValueError(
                 "trust_proxy_header is set but trusted_proxies is empty -- refusing to start: an "
@@ -195,7 +200,7 @@ class PartnerApiConfig:
 
 
 BAD_KEY_BUDGET_ENV = "PRAVRUDHI_BAD_KEY_BUDGET_PER_MINUTE"
-MAX_BAD_KEY_BUDGET = 100_000
+MAX_BAD_KEY_BUDGET = 1_000  # each failed attempt costs a password-hash check: keep the worst case small
 
 
 def _bad_key_budget(yaml_value: Any) -> int | None:
@@ -207,7 +212,7 @@ def _bad_key_budget(yaml_value: Any) -> int | None:
         return None
     if isinstance(raw, str):
         if not raw.isascii() or not raw.isdigit():
-            raise ValueError(f"{BAD_KEY_BUDGET_ENV} / bad_key_budget_per_minute must be a whole number, got {raw!r}")
+            raise ValueError(f"{BAD_KEY_BUDGET_ENV} / bad_key_budget_per_minute must be a whole number, got {raw[:40]!r}")
         raw = int(raw)
     if isinstance(raw, bool) or not isinstance(raw, int) or not 1 <= raw <= MAX_BAD_KEY_BUDGET:
         raise ValueError(f"bad_key_budget_per_minute must be an integer from 1 to {MAX_BAD_KEY_BUDGET}, got {raw!r}"[:200])
@@ -886,7 +891,8 @@ def client_ip_proof(request: Request) -> str:
     presented = request.headers.get(CLIENT_IP_SECRET_HEADER, "")
     if not presented:
         return "none"
-    if not hmac.compare_digest(presented, secret):
+    # bytes, not str: compare_digest raises TypeError on a non-ASCII str (a header byte above 0x7f arrives as latin-1)
+    if not hmac.compare_digest(presented.encode("utf-8"), secret.encode("utf-8")):
         return "mismatch"
     return "valid" if request.headers.get(CLIENT_IP_HEADER, "").strip() else "no_ip"
 

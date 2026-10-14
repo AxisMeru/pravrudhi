@@ -60,15 +60,6 @@ def test_proof_labels_cover_every_branch(monkeypatch: pytest.MonkeyPatch) -> Non
     assert client_ip_proof(req(signed)) == "valid"
 
 
-def test_the_proof_label_never_contains_the_secret_or_the_address(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv(CLIENT_IP_SECRET_ENV, SECRET)
-    wrong = {CLIENT_IP_HEADER: ADDR, CLIENT_IP_SECRET_HEADER: OTHER}
-    right = {CLIENT_IP_HEADER: ADDR, CLIENT_IP_SECRET_HEADER: SECRET}
-    for headers in ({}, wrong, right):
-        label = client_ip_proof(req(headers))
-        assert SECRET not in label and OTHER not in label and ADDR not in label
-
-
 # ---- the source label and the address, unchanged -------------------------------------------------------------------------------
 def test_source_signed_proxy_caller_and_peer(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv(CLIENT_IP_SECRET_ENV, SECRET)
@@ -166,14 +157,14 @@ def test_the_yaml_key_sets_it_and_the_env_wins(tmp_path: Path, monkeypatch: pyte
     assert load_partner_api_config(write_cfg(tmp_path)).bad_key_budget_per_minute == 90  # env alone
 
 
-@pytest.mark.parametrize("bad", ["0", "-1", "abc", "1.5", "100001", "٣"])
+@pytest.mark.parametrize("bad", ["0", "-1", "abc", "1.5", "1001", "٣"])
 def test_an_invalid_env_value_is_refused(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, bad: str) -> None:
     monkeypatch.setenv(BAD_KEY_BUDGET_ENV, bad)
     with pytest.raises(ValueError, match="bad_key_budget|BUDGET"):
         load_partner_api_config(write_cfg(tmp_path))
 
 
-@pytest.mark.parametrize("bad", [0, -3, True, 1.5, "x", 10**9, [5]])
+@pytest.mark.parametrize("bad", [0, -3, True, 1.5, "x", 10**9, 1001, [5]])
 def test_an_invalid_yaml_value_is_refused(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, bad: Any) -> None:
     monkeypatch.delenv(BAD_KEY_BUDGET_ENV, raising=False)
     with pytest.raises(ValueError, match="bad_key_budget|BUDGET"):
@@ -210,6 +201,63 @@ def test_with_the_knob_raised_more_failed_attempts_are_checked_before_the_thrott
     c = client_for(tmp_path, monkeypatch, bad_key_budget_per_minute=5)
     codes = [bad_key_call(c) for _ in range(7)]
     assert codes == [401] * 5 + [429, 429]
-    # the anonymous per-address limit is untouched by the knob: 2 per minute
+    # the anonymous per-address limit is untouched by the knob: 2 per minute (bad-key attempts use their own bucket)
     anon = [c.post("/api/v1/analyse-facts", json=_req()).status_code for _ in range(3)]
-    assert anon[2] == 429
+    assert anon[:2] != [429, 429] and anon[2] == 429
+
+
+# ---- the pre-check's findings ------------------------------------------------------------------------------------
+def test_a_non_ascii_proof_header_is_a_mismatch_not_a_500(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(CLIENT_IP_SECRET_ENV, SECRET)
+    assert client_ip_proof(req({CLIENT_IP_HEADER: ADDR, CLIENT_IP_SECRET_HEADER: "\u00e9" * 32})) == "mismatch"
+    raw = TestClient(create_app(tmp_path), base_url="http://127.0.0.1:8008")
+    bad = [(CLIENT_IP_SECRET_HEADER.encode(), b"\xe9\xe9\xe9"), (CLIENT_IP_HEADER.encode(), b"x")]
+    r = raw.get("/api/health", headers=bad)
+    assert r.status_code == 200 and r.headers[PROOF_HDR] == "mismatch"
+
+
+def test_the_budget_object_refuses_an_invalid_value_even_when_built_directly() -> None:
+    for bad in (0, -1, True, 1.5, "5", 1001):
+        with pytest.raises(ValueError, match="bad_key_budget"):
+            PartnerApiConfig(rate_limit_per_minute=2, max_concurrent=1, trust_proxy_header=False,
+                             bad_key_budget_per_minute=bad)  # type: ignore[arg-type]
+    ok = PartnerApiConfig(rate_limit_per_minute=2, max_concurrent=1, trust_proxy_header=False, bad_key_budget_per_minute=1000)
+    assert ok.bad_key_budget_per_minute == 1000
+
+
+def test_health_proxy_source_with_a_real_config_and_a_trusted_proxy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv(CLIENT_IP_SECRET_ENV, raising=False)
+    write_cfg(tmp_path, trust_proxy_header=True, trusted_proxies=["testclient"])
+    c = TestClient(create_app(tmp_path), base_url="http://127.0.0.1:8008")
+    r = c.get("/api/health", headers={"x-forwarded-for": "192.0.2.5"})
+    assert r.headers[SRC_HDR] == "proxy" and "192.0.2.5" not in str(dict(r.headers))
+    plain = TestClient(create_app(tmp_path / "other"), base_url="http://127.0.0.1:8008").get("/api/health")
+    assert plain.headers[SRC_HDR] == "peer"  # no partner config there: the safe default (not trusted)
+
+
+def test_a_broken_partner_config_reads_peer_and_is_not_cached(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(BAD_KEY_BUDGET_ENV, "abc")
+    write_cfg(tmp_path, trust_proxy_header=True, trusted_proxies=["testclient"])
+    c = TestClient(create_app(tmp_path), base_url="http://127.0.0.1:8008")
+    first = c.get("/api/health", headers={"x-forwarded-for": "192.0.2.5"})
+    assert first.headers[SRC_HDR] == "peer"  # config refused: the safe default
+    monkeypatch.delenv(BAD_KEY_BUDGET_ENV)
+    assert c.get("/api/health", headers={"x-forwarded-for": "192.0.2.5"}).headers[SRC_HDR] == "proxy"  # healthy again: not stuck
+
+
+def test_the_proxy_config_is_cached_until_the_file_changes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from pravrudhi.api import server
+
+    monkeypatch.delenv(BAD_KEY_BUDGET_ENV, raising=False)
+    write_cfg(tmp_path)
+    calls = []
+
+    def load(root: Path) -> Any:
+        calls.append(1)
+        return load_partner_api_config(root)
+
+    server._health_proxy_config(tmp_path, load)
+    server._health_proxy_config(tmp_path, load)
+    assert len(calls) == 1
+    write_cfg(tmp_path, trust_proxy_header=True, trusted_proxies=["testclient"])
+    assert server._health_proxy_config(tmp_path, load) == (True, ("testclient",)) and len(calls) == 2

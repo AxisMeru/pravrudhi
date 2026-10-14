@@ -253,6 +253,29 @@ def _start_assist_runtime(root: Path) -> None:
         logging.getLogger(__name__).exception("assisted tier runtime could not start; the route stays off")
 
 
+_PROXY_CFG_CACHE: dict[str, tuple[int, tuple[bool, tuple[str, ...]]]] = {}
+
+
+def _health_proxy_config(root: Path, load: Any) -> tuple[bool, tuple[str, ...]]:
+    """(trust_proxy_header, trusted_proxies) for the health labels, re-read only when the partner config file changes. A config
+    that cannot be read gives the safe defaults (not trusted) and is not cached; the source label then reads `peer`."""
+    path = Path(root) / "configs" / "partner_api.yaml"
+    try:
+        stamp = path.stat().st_mtime_ns
+    except OSError:
+        stamp = -1
+    hit = _PROXY_CFG_CACHE.get(str(path))
+    if hit is not None and hit[0] == stamp:
+        return hit[1]
+    try:
+        cfg = load(root)
+        value = (bool(cfg.trust_proxy_header), tuple(cfg.trusted_proxies))
+    except Exception:
+        return (False, ())
+    _PROXY_CFG_CACHE[str(path)] = (stamp, value)
+    return value
+
+
 def create_app(root: Path, *, nyaya_ask_fn: Any | None = None) -> FastAPI:
     root = Path(root)
     app = FastAPI(title="pravrudhi", version=__version__)
@@ -583,11 +606,7 @@ def create_app(root: Path, *, nyaya_ask_fn: Any | None = None) -> FastAPI:
 
         # Two label-only response headers that let anyone see, end to end through the gateway, whether the client-address proof
         # held: where the engine took the caller's address from, and whether the proof arrived (never an address or a secret).
-        try:
-            pcfg = load_partner_api_config(root)
-            trust, proxies = pcfg.trust_proxy_header, pcfg.trusted_proxies
-        except Exception:  # no partner config: the same defaults the engine would refuse to serve with, labels still work
-            trust, proxies = False, ()
+        trust, proxies = _health_proxy_config(root, load_partner_api_config)
         response.headers["X-Pravrudhi-Client-Ip-Source"] = client_ip_and_source(
             http_request, trust_proxy_header=trust, trusted_proxies=proxies
         )[1]
