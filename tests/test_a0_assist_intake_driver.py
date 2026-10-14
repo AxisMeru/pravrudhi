@@ -130,3 +130,12 @@ def test_verifier_fault_is_shown_not_guessed():
 def test_empty_text_is_refused_at_read_input():
     d = IntakeDriver("   ")
     assert d.call("read_input", {}).get("refused") is True
+
+
+def test_s4_bundle_is_called_once_and_the_first_result_stands():
+    d = IntakeDriver(RAW)
+    run_all(d)
+    first = d.result
+    again = d.call("bundle", {"raw_sha256": d.calls[0]["output"]["raw_sha256"]})
+    assert again.get("refused") is True and "once" in again["error"]
+    assert d.result is first and "a tool call was refused" in d.complete()

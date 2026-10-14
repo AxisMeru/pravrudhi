@@ -578,3 +578,59 @@ def test_a_short_sentence_final_word_is_a_sentence_end_not_an_abbreviation():
 def test_zero_citable_facts_fails_c4():
     b = I.build_bundle("12345")
     assert b["facts"] == [] and b["checks"]["C4"]["pass"] is False
+
+
+# ---- reviewer gaps S1-S3 (R2, #418 at 137d9747): each test fails if the check it names is removed ------------------------------
+def test_s1_raw_fallback_arm_when_kept_raw_tokens_differ_from_the_cleaned_text(monkeypatch):
+    raw = "1. The gate was open. Then Ravi left.\n"
+    real = I._raw_span
+
+    def widened(cs, ce, segments):
+        rs = real(cs, ce, segments)
+        return None if rs is None else (rs[0], min(len(raw), rs[1] + 6))  # the raw slice carries a word the cleaned slice lacks
+
+    monkeypatch.setattr(I, "_raw_span", widened)
+    b = I.build_bundle(raw, proposal={**fresh(I.build_bundle(raw)), "facts": [{"cleaned_start": 0, "cleaned_end": 21}]})
+    f = b["facts"][0]
+    assert f["status"] == "raw_fallback" and f["text"] == I._ws(raw[f["raw_start"] : f["raw_end"]])
+    assert I.build_bundle(raw)["facts"][0]["status"] == "span"  # the other arm
+
+
+def test_s2_c2_bites_on_a_ws_deletion_the_cleaner_does_not_make():
+    raw = "1. A fact is here.\n"
+    base = I.clean(raw)
+    # carried: the single space after "1." is dropped as a ws deletion; the tiling, the map and the words all stay valid
+    segs: list[list] = [[0, 2, 0, 2, "c"]]
+    dels: list[list] = [[2, 3, "ws"]]
+    pos_c = 2
+    for m in re.finditer(r"\s+|\S+", raw[3:]):
+        s0, e0 = 3 + m.start(), 3 + m.end()
+        if m.group().isspace() and e0 == len(raw):
+            dels.append([s0, e0, "ws"])  # the trailing newline is a deletion, as the cleaner does
+        elif m.group().isspace():
+            segs.append([pos_c, pos_c + 1, s0, e0, "w"])
+            pos_c += 1
+        else:
+            segs.append([pos_c, pos_c + e0 - s0, s0, e0, "c"])
+            pos_c += e0 - s0
+    cleaned = "1.A fact is here."
+    assert (2, 3) not in {(d[0], d[1]) for d in base["deletions"]}
+    ck = I.check_clean(raw, cleaned, segs, dels)
+    assert ck["C1"]["pass"] and ck["C3"]["pass"] and not ck["C2"]["pass"]
+    assert I.build_bundle(raw, proposal={"cleaned": cleaned, "segments": segs, "deletions": dels})["clean_status"] == "served_raw"
+
+
+@pytest.mark.parametrize(
+    "segs",
+    [
+        [[0, 2, 0, 2, "c"], [2, 4, 3, 5, "c"], [4, 5, 5, 6, "c"]],  # a gap: raw [2,3) is in neither a segment nor a deletion
+        [[0, 3, 0, 3, "c"], [3, 5, 2, 4, "c"], [5, 6, 4, 5, "c"]],  # an overlap: raw [2,3) is claimed twice
+    ],
+)
+def test_s3_c1_tiling_gap_and_overlap_each_fail_c1_on_their_own(segs):
+    raw = "abXcdY"[:5] + "Z"
+    # raw = "abXcdZ"; each carried map rebuilds its own cleaned text and every copy segment equals its raw slice
+    cleaned = "".join(raw[s[2] : s[3]] for s in segs)
+    assert all(cleaned[s[0] : s[1]] == raw[s[2] : s[3]] for s in segs)
+    ck = I.check_clean(raw, cleaned, segs, [])
+    assert not ck["C1"]["pass"] and "tiled" in " ".join(ck["C1"]["detail"])
