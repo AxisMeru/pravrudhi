@@ -641,3 +641,159 @@ def test_mostly_upper_both_arms_and_no_letters_is_not_upper():
     assert I._mostly_upper("abc DEF ghi") is False  # 3 of 9 letters
     assert I._mostly_upper("abc DEF", share=0.4) is True
     assert I._mostly_upper("123 456 789") is False and I._mostly_upper("") is False
+
+
+# ---- real-text fixes (dev-stack run on cleared public orders, 14 Oct): D1 hyphen before furniture, D2 caption lines ---------
+def _hyphen_then_furniture_doc():
+    hdr = "http://www.example.test/doc\n{n}/40"
+    return pages(
+        "1. The clause is in contravention of by-\n" + hdr.format(n=1),
+        "law and rule 5 of the schedule applies here.\n" + hdr.format(n=2),
+        "2. Nothing further was found on the second day.\n" + hdr.format(n=3),
+        "3. The matter was listed again later.\n" + hdr.format(n=4),
+    )
+
+
+def test_d1_no_hyphen_join_into_a_deleted_furniture_line_and_all_checks_pass():
+    raw = _hyphen_then_furniture_doc()
+    c = I.clean(raw)
+    assert [d for d in c["deletions"] if d[2] == "furniture"], "the fixture must have furniture"
+    assert not [d for d in c["deletions"] if d[2] == "hyphen_join"]  # arm 1: the hyphen before the furniture line stays
+    ck = I.check_clean(raw, c["cleaned"], c["segments"], c["deletions"])
+    assert all(v["pass"] for v in ck.values())
+    b = I.build_bundle(raw)
+    assert b["clean_status"] == "cleaned" and all(v["pass"] for v in b["checks"].values())
+    assert "by-" in b["cleaned"] and "bylaw" not in b["cleaned"]
+
+
+def test_d1_a_hyphen_join_elsewhere_still_happens_next_to_furniture():
+    raw = four_page("The person was arrest-\ned at noon.\n")  # arm 2: a join whose next line is body text is made
+    c = I.clean(raw)
+    assert any(d[2] == "hyphen_join" for d in c["deletions"]) and any(d[2] == "furniture" for d in c["deletions"])
+    assert all(v["pass"] for v in I.check_clean(raw, c["cleaned"], c["segments"], c["deletions"]).values())
+
+
+def test_d1_protected_tokeniser_is_pure_and_c3_applies_only_the_carried_joins():
+    assert I._protected("arrest-\ned") != I._protected("arrested")  # no hidden join inside the tokeniser
+    raw = "1. The person was arrest-\ned at noon.\n"
+    c = I.clean(raw)
+    assert I.check_clean(raw, c["cleaned"], c["segments"], c["deletions"])["C3"]["pass"]
+    # a join that was NOT carried must not be assumed: dropping the carried join record makes C1 or C3 fail
+    no_join = [d for d in c["deletions"] if d[2] != "hyphen_join"]
+    ck = I.check_clean(raw, c["cleaned"], c["segments"], no_join)
+    assert not (ck["C1"]["pass"] and ck["C2"]["pass"] and ck["C3"]["pass"])
+
+
+# ---- D2: facts from the body of the order, not every caption line (split_plan) ------------------------------------------------
+BODY = "The petitioner says the gate was open and the guard was away for the whole of the afternoon in question. " * 2
+
+
+def _plan(text):
+    return I.split_plan(I.clean(text)["cleaned"])
+
+
+def test_d2_caption_before_an_order_heading_is_one_excluded_span_and_not_a_fact():
+    raw = (
+        "IN THE HIGH COURT\n\nBEFORE\n\nTHE HON'BLE MR JUSTICE SAMPLE\n\nBETWEEN:\n\nORDER\n\n"
+        + BODY
+        + "\n\n2. Next numbered paragraph.\n"
+    )
+    b = I.build_bundle(raw)
+    assert [n["status"] for n in b["not_citable"]] == ["caption"] and b["checks"]["C4"]["pass"] is True
+    cap = b["not_citable"][0]
+    assert "BETWEEN" in b["cleaned"][cap["cleaned_start"] : cap["cleaned_end"]] and "ORDER" not in " ".join(facts_text(b)[:1])[:5]
+    assert facts_text(b)[0].startswith("The petitioner says") and facts_text(b)[-1].startswith("2. Next")
+
+
+def test_d2_caption_ends_at_the_first_long_paragraph_when_there_is_no_heading_and_nowhere_when_all_are_short():
+    with_long = "IN THE HIGH COURT\n\nBEFORE\n\nJUSTICE SAMPLE\n\n" + BODY + "\n"
+    p = _plan(with_long)
+    assert [e["status"] for e in p["excluded"]] == ["caption"] and len(p["facts"]) == 1
+    all_short = "IN THE HIGH COURT\n\nBEFORE\n\nJUSTICE SAMPLE\n"
+    p2 = _plan(all_short)
+    assert p2["excluded"] == [] and len(p2["facts"]) == 1  # nothing to call a caption: the three lines are one fact
+
+
+def test_d2_an_order_heading_late_in_the_text_is_body_not_a_caption_boundary():
+    paras = "\n\n".join(
+        f"{i}. Paragraph {i} says that the gate was open and the guard was away for the afternoon." for i in range(1, 11)
+    )
+    raw = paras + "\n\nORDER\n\n11. The last paragraph is here.\n"
+    assert [e["status"] for e in _plan(raw)["excluded"]] == []  # the heading is past 40% of the paragraphs
+
+
+def test_d2_a_short_line_repeated_three_times_is_excluded_twice_is_kept():
+    def doc(n):
+        return "\n\n".join(
+            ["1. " + BODY[:150] + ".", *(["Page stamp 12 of 99"] * n), "2. " + BODY[:150] + ".", "Closing line here"]
+        )
+
+    assert [e["status"] for e in _plan(doc(3))["excluded"]] == ["repeated_line"] * 3
+    assert _plan(doc(2))["excluded"] == []
+    # an excluded line ends the group: the two numbered paragraphs stay separate facts either way
+    assert len(_plan(doc(3))["facts"]) == 2  # the unnumbered closing line joins the last numbered paragraph
+
+
+def test_d2_numbered_paragraphs_each_start_a_fact_and_a_short_heading_joins_the_numbered_one():
+    raw = "HEADING LINE\n\n1. Short one.\n\n2. Another short one.\n\n(3) And a third.\n"
+    assert facts_text(I.build_bundle(raw)) == ["HEADING LINE\n\n1. Short one.", "2. Another short one.", "(3) And a third."]
+
+
+def test_d2_unnumbered_short_paragraphs_pack_until_the_target_and_never_past_the_cap():
+    paras = [
+        f"Account line {i}: the witness {chr(97 + i % 26) * (3 + i % 5)} saw the gate open at {i} o'clock." for i in range(40)
+    ]
+    b = I.build_bundle("\n\n".join(paras) + "\n")
+    sizes = [len(f["text"]) for f in b["facts"]]
+    assert len(b["facts"]) < 15 and max(sizes) <= I.MAX_FACT_CHARS and min(sizes[:-1]) >= I.TARGET_FACT_CHARS
+
+
+def test_d2_a_long_paragraph_is_cut_at_sentence_ends_and_the_agent_path_equals_the_baseline():
+    raw = "1. " + " ".join(
+        f"On visit {i} the accused went to the market and returned home at {i + 1} o'clock." for i in range(40)
+    )
+    b = I.build_bundle(raw)
+    assert len(b["facts"]) > 1 and all(len(f["text"]) <= I.MAX_FACT_CHARS for f in b["facts"])
+    prop = {**fresh(b), "facts": [{"cleaned_start": f["cleaned_start"], "cleaned_end": f["cleaned_end"]} for f in b["facts"]]}
+    assert I.build_bundle(raw, proposal=prop)["bundle_sha256"] == b["bundle_sha256"]
+
+
+# ---- the stated range of a usable fact list (a rule with both arms) -----------------------------------------------------------
+def _bundle(n_chars, lens):
+    return {"n_chars": n_chars, "facts": [{"text": "x" * n} for n in lens]}
+
+
+@pytest.mark.parametrize(
+    "n_chars,lens,ok,why",
+    [
+        (10_000, [300] * 24, True, None),  # the median order of the 39 cleared orders
+        (10_000, [300] * 16, True, None),  # lower edge of the observed range
+        (10_000, [150] * 46, True, None),
+        (10_000, [300] * 9, False, "facts per 10,000"),  # too few
+        (10_000, [300] * 61, False, "facts per 10,000"),  # one fact per line
+        (10_000, [90] * 24, False, "median fact length"),
+        (10_000, [300] * 23 + [601], False, "longer than the cap"),
+        (10_000, [300] * 18 + [20] * 6, False, "under 40"),  # 25% of the facts are fragments
+        (10_000, [300] * 19 + [20] * 5, True, None),  # 21% is over; 20.8% -> see next test for the edge
+    ],
+)
+def test_usable_range_both_arms(n_chars, lens, ok, why):
+    r = I.fact_list_usable(_bundle(n_chars, lens))
+    if lens.count(20) == 5:  # 5 of 24 = 20.8% is over the 20% limit: the edge case fails, by design
+        ok, why = False, "under 40"
+    assert r["applies"] is True and r["pass"] is ok
+    assert (why is None) or any(why in x for x in r["reasons"])
+
+
+def test_usable_range_is_not_applied_to_short_texts_and_an_empty_list_fails():
+    assert I.fact_list_usable(_bundle(1_999, [10]))["applies"] is False and I.fact_list_usable(_bundle(1_999, []))["pass"] is True
+    assert I.fact_list_usable(_bundle(5_000, []))["pass"] is False
+
+
+def test_usable_range_holds_for_a_caption_heavy_invented_order():
+    caps = "\n\n".join(["IN THE HIGH COURT", "BEFORE", "JUSTICE SAMPLE", "BETWEEN:", "ORDER"] + [f"LINE {i}" for i in range(20)])
+    body = "\n\n".join(
+        f"{i}. " + f"On visit {i} the petitioner says the gate was open and the guard was away. " * 5 for i in range(1, 50)
+    )
+    r = I.fact_list_usable(I.build_bundle(caps + "\n\n" + body + "\n"))
+    assert r["applies"] and r["pass"], r
