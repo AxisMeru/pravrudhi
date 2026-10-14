@@ -209,5 +209,5 @@ def test_the_failed_key_budget_follows_the_configured_limit(tmp_path, monkeypatc
 def test_a_key_that_verifies_but_is_gone_from_the_org_is_a_failure_and_is_charged(tmp_path, monkeypatch, path, body, ok):
     e = Env(tmp_path, monkeypatch)
     secret, _ = e.key("acme")
-    monkeypatch.setattr(tenancy, "keys_for_org", lambda root, org_id: [])
+    monkeypatch.setattr(tenancy, "key_record", lambda root, key_id, org_id: None)
     assert [e.post(path, body, {H: secret}) for _ in range(7)] == [401] * 6 + [429]

@@ -462,6 +462,18 @@ def revoke_key(root: Path, key_id: str) -> ApiKeyRecord:
     return _with_store(root, "keys", mutate)
 
 
+def key_record(root: Path, key_id: str, *, org_id: str) -> ApiKeyRecord | None:
+    """The stored record of ONE key (rate limit, label, revoked flag), or None when no such key exists or it belongs to another
+    org than `org_id` (required: a lookup by key id alone is not offered). In the hosted backend this is the row `verify_key`
+    has just read, from the short positive cache: a keyed request no longer lists the whole org's keys from the database to find
+    its own. A rate limit is therefore as fresh as the cache (15 s); nothing changes a limit after a key is created. The record
+    carries the hash (as the file backend always did); callers use it for limits and flags only."""
+    row = _key_row(root, key_id)
+    if row is None or row.get("org_id") != org_id:
+        return None
+    return ApiKeyRecord(**row)
+
+
 def keys_for_org(root: Path, org_id: str) -> list[ApiKeyRecord]:
     pg = _pg()
     if pg is not None:
@@ -897,7 +909,7 @@ __all__ = [
     "API_KEY_HEADER", "ApiKeyRecord", "CreatedApiKey", "InvalidApiKey", "KeyRateLimiter", "MEMBER_ROLES",
     "MIN_PROVISION_SECRET_LENGTH", "Membership", "Org", "OrgPrincipal", "TENANCY_PROVISION_HEADER",
     "TENANCY_PROVISION_SECRET_ENV", "TenancyError", "add_member", "create_key", "create_org", "get_org",
-    "is_tenancy_admin", "keys_for_org", "list_orgs", "membership_role", "memberships_for_org",
+    "is_tenancy_admin", "key_record", "keys_for_org", "list_orgs", "membership_role", "memberships_for_org",
     "principal_from_headers", "require_org_access", "require_tenancy_admin", "record_usage", "revoke_key",
     "usage_counts", "usage_summary", "verify_key",
 ]
