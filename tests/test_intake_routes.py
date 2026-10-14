@@ -237,9 +237,13 @@ def test_without_an_intake_agent_the_route_answers_with_the_deterministic_bundle
     assert c.rt.transport.calls == [] and c.rt.store.log == []  # type: ignore[attr-defined]
 
 
-def test_the_shipped_config_has_no_intake_agent_yet() -> None:
+def test_the_shipped_config_names_the_pinned_intake_agent() -> None:
     raw = yaml.safe_load((REPO / "configs" / "assistant_tier.yaml").read_text())
-    assert raw["workflows"] == {}
+    assert raw["workflows"]["intake"] == {
+        "agent_id": "agent_019uQC3eQvCfo6viBX6xpErE",
+        "agent_version": 1,
+        "environment_id": "env_01NqsSVpfUrUMX6PiS7fGG9W",
+    }
 
 
 def test_the_intake_message_is_json_of_the_numbered_facts_only() -> None:
