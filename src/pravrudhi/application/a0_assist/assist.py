@@ -231,7 +231,7 @@ def _block(used: bool, outcome: str, reason: str | None, **kw: Any) -> dict[str,
 
 def _driver_stage_names(driver: Any) -> frozenset[str]:
     """The tool names this driver defines: its `STAGES` (a class attribute, found through the class hierarchy) or, for the older
-    drivers, the `STAGES` constant of the module that defines the class; anything else is an empty set (the field is then null)."""
+    drivers, the `STAGES` constant of the module that defines the class; anything else is an empty set (the field is null)."""
     if driver is None:
         return frozenset()
     names = getattr(driver, "STAGES", None)
