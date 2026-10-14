@@ -5,7 +5,7 @@ messages.
 
 ## 0.6.10 (2026-10-14)
 
-PATCH release on 0.6.9: the hosted service is open around the clock, so a signed-in user is no longer shown disabled run buttons after 21:00 (pravrudhi-app#180).
+PATCH release on 0.6.9: the service window now covers the whole day, so a signed-in user is no longer shown disabled run buttons after 21:00.
 
 ### Changed
 
