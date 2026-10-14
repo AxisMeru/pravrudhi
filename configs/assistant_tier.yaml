@@ -1,0 +1,20 @@
+# The assistant tier (#122, engine half): whether the Anthropic-backed assistant (the frontier reader and any CMA/A0 call)
+# can be offered right now. /api/health reports it as "assistant_tier": {"state", "reason"}. Nothing here has a default in
+# code: a missing key, an unreadable file or a malformed value is "unavailable", never an assumed available.
+enabled: true
+# Live-read override: true forces the tier unavailable (reason "disabled") without touching keys or budget.
+force_unavailable: false
+# The tier needs at least one of these environment variables to be set and non-empty.
+key_env_names:
+  - ANTHROPIC_API_KEY
+# Below this remaining balance (USD) the tier is unavailable (reason "budget_floor").
+budget_floor_usd: 20
+# Optional JSON file {"remaining_usd": <number>}. Configured but missing, unreadable or malformed = unavailable
+# (fail closed). null = skip the budget check.
+budget_file: null
+# How long a failed Anthropic-backed call (4xx/5xx/quota) keeps the tier unavailable; a later success clears it.
+failure_ttl_s: 300
+# Limits for any CMA/A0 call site: a call that exceeds the timeout falls back to the core result; one session may not
+# spend more than the budget (USD).
+call_timeout_s: 60
+session_budget_usd: 1.0

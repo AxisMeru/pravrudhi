@@ -9,6 +9,13 @@ from pravrudhi_kernel.ledger.replay import Badge, CandidateView, Locks
 from pravrudhi_kernel.schema import LedgerEvent
 
 
+class AssistantTierStatus(BaseModel):
+    """#122: whether the Anthropic-backed assistant can be offered right now, and why not."""
+
+    state: Literal["available", "unavailable"]
+    reason: Literal["no_key", "upstream_error", "quota", "budget_floor", "disabled"] | None = None
+
+
 class HealthResponse(BaseModel):
     """Service identity and ledger presence were invisible to generated clients."""
 
@@ -21,6 +28,7 @@ class HealthResponse(BaseModel):
                     "kernel": "0.1.0",
                     "ledger": False,
                     "frontier_reader_available": False,
+                    "assistant_tier": {"state": "unavailable", "reason": "no_key"},
                 }
             ]
         }
@@ -31,7 +39,10 @@ class HealthResponse(BaseModel):
     kernel: str
     ledger: bool
     #: #832 F1-lite: whether a frontier reader is configured for this deployment. Always false until batch 2. Additive.
+    #: Always false whenever `assistant_tier.state` is "unavailable".
     frontier_reader_available: bool = False
+    #: #122 additive: the assistant tier's state and reason (application/assistant_tier.py).
+    assistant_tier: AssistantTierStatus = AssistantTierStatus(state="unavailable", reason="disabled")
 
 
 class UninitialisedStatus(BaseModel):
