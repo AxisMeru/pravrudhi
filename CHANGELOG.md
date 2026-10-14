@@ -11,7 +11,7 @@ PATCH release: a faster verify-citations lookup (#380), and one additive field o
 
 ### Changed
 
-- **verify-citations: the year of each candidate case is resolved with one batched lookup per candidate set instead of one full scan per case (#380, #387).** A derived `case_year` table is used only while `case_year_meta` matches `max(rowid)` of `cases`; otherwise the previous path runs. Answers were identical on the 12,000-call comparison (#380: a deterministic sample of 2,000 citations); the median typed lookup is about four times faster.
+- **verify-citations: the year of each candidate case is resolved with one batched lookup per candidate set instead of one full scan per case (#380, #387).** A derived `case_year` table is used only while `case_year_meta` matches `max(rowid)` of `cases`; otherwise the previous path runs. Answers are unchanged: 12,000 calls on 2,000 citations were compared with 0.6.1; the only differences were 5 calls that reached the 60 s limit on the new engine under load and gave the same answer when re-run, and 597 calls where 0.6.1 itself reached the limit have no comparison. Median lookup time in the #380 timing summary fell from 2.74 s to 0.29 s on one citation set and from 0.27 s to 0.15 s on another.
 
 ### Added
 
