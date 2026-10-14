@@ -459,7 +459,9 @@ def test_intake_is_not_a_workflow_of_the_screening_assist_route(tmp_path: Path) 
     c = _assist_client(tmp_path)
     body = {"facts": ["A person was seen near the shop."], "contract_ids": ["ipc405"], "consent": True}
     r = c.post("/api/v1/analyse-facts/assist", json={**body, "workflow": "intake"})
-    assert r.status_code == 422 and "workflow" in str(r.json())
+    assert (
+        r.status_code == 422 and "workflow" in str(r.json()) and "/api/v1/intake" in str(r.json())
+    )  # the error names the intake routes
     assert c.post(ASSIST, json={"text": TEXT, "consent": True}).status_code == 200  # intake's own assisted route is unchanged
     for ok in ("screening", "hearing_prep"):  # the two real workflows pass the `workflow` validation
         r2 = c.post("/api/v1/analyse-facts/assist", json={**body, "workflow": ok})

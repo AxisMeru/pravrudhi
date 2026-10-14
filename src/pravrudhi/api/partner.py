@@ -526,6 +526,13 @@ class AssistFactsRequest(AnalyseFactsRequest):
     #: Intake has its own routes (`/intake`, `/intake/assist`); it is not a value here (it would only answer `not_configured`).
     workflow: Literal["screening", "hearing_prep"] = "screening"
 
+    @field_validator("workflow", mode="before")
+    @classmethod
+    def _intake_has_its_own_routes(cls, v: Any) -> Any:
+        if v == "intake":
+            raise ValueError("intake has its own routes: use POST /api/v1/intake or POST /api/v1/intake/assist")
+        return v
+
 
 #: Citation lookups per intake request; further citations are listed with the status NOT_CHECKED.
 INTAKE_MAX_CITATION_LOOKUPS = 50
