@@ -173,7 +173,10 @@ def test_signed_in_users_behind_one_peer_get_separate_buckets_and_one_user_gets_
 
 
 # ---- _client_ip precedence, unit ----
-def req(headers: dict[str, str], peer: str = "10.0.0.1") -> Request:
+PROXIES = ("203.0.113.250",)
+
+
+def req(headers: dict[str, str], peer: str = "203.0.113.250") -> Request:
     return Request(
         {"type": "http", "headers": [(k.lower().encode(), v.encode()) for k, v in headers.items()], "client": (peer, 5000)}
     )
@@ -182,16 +185,16 @@ def req(headers: dict[str, str], peer: str = "10.0.0.1") -> Request:
 def test_precedence_signed_address_then_trusted_forwarded_then_caller_key_then_peer(monkeypatch):
     monkeypatch.setenv(CLIENT_IP_SECRET_ENV, SECRET)
     signed = {CLIENT_IP_HEADER: "198.51.100.7", CLIENT_IP_SECRET_HEADER: SECRET, "x-forwarded-for": "192.0.2.5"}
-    assert _client_ip(req(signed), trust_proxy_header=True, trusted_proxies=("10.0.0.1",), caller_key="key:k1") == "198.51.100.7"
+    assert _client_ip(req(signed), trust_proxy_header=True, trusted_proxies=PROXIES, caller_key="key:k1") == "198.51.100.7"
     xff = {"x-forwarded-for": "192.0.2.5"}
-    assert _client_ip(req(xff), trust_proxy_header=True, trusted_proxies=("10.0.0.1",), caller_key="key:k1") == "192.0.2.5"
+    assert _client_ip(req(xff), trust_proxy_header=True, trusted_proxies=PROXIES, caller_key="key:k1") == "192.0.2.5"
     assert _client_ip(req(xff), trust_proxy_header=False, trusted_proxies=(), caller_key="key:k1") == "key:k1"
     assert (
-        _client_ip(req(xff, peer="10.9.9.9"), trust_proxy_header=True, trusted_proxies=("10.0.0.1",), caller_key="key:k1")
+        _client_ip(req(xff, peer="203.0.113.99"), trust_proxy_header=True, trusted_proxies=PROXIES, caller_key="key:k1")
         == "key:k1"
     )
-    assert _client_ip(req(xff), trust_proxy_header=False, trusted_proxies=(), caller_key=None) == "10.0.0.1"
-    assert _client_ip(req(xff), trust_proxy_header=False, trusted_proxies=()) == "10.0.0.1"
+    assert _client_ip(req(xff), trust_proxy_header=False, trusted_proxies=(), caller_key=None) == "203.0.113.250"
+    assert _client_ip(req(xff), trust_proxy_header=False, trusted_proxies=()) == "203.0.113.250"
 
 
 def test_caller_keys_cannot_collide_with_an_address(monkeypatch):
