@@ -346,3 +346,32 @@ def test_health_with_a_non_utf8_config_is_not_a_500(tmp_path):
     (root / "configs" / "assistant_tier.yaml").write_bytes(b"\xff\xfe")
     r = client(root).get("/api/health")
     assert r.status_code == 200 and r.json()["assistant_tier"]["reason"] == "disabled"
+
+
+def test_a_pause_source_with_a_code_makes_the_tier_disabled(tmp_path):
+    root = root_with(tmp_path)
+    T.set_pause_source(lambda: "canary_failed")
+    assert T.status(root, env=KEY) == {"state": UNAVAILABLE, "reason": "disabled"}
+
+
+def test_a_pause_source_returning_none_leaves_the_tier_as_it_was(tmp_path):
+    root = root_with(tmp_path)
+    T.set_pause_source(lambda: None)
+    assert T.status(root, env=KEY)["state"] == "available"
+
+
+def test_a_pause_source_that_raises_pauses_the_tier_never_raises(tmp_path):
+    root = root_with(tmp_path)
+
+    def boom():
+        raise RuntimeError("x")
+
+    T.set_pause_source(boom)
+    assert T.status(root, env=KEY) == {"state": UNAVAILABLE, "reason": "disabled"}
+
+
+def test_clearing_the_pause_source_restores_the_tier(tmp_path):
+    root = root_with(tmp_path)
+    T.set_pause_source(lambda: "x")
+    T.set_pause_source(None)
+    assert T.status(root, env=KEY)["state"] == "available"

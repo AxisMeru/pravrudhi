@@ -35,6 +35,15 @@ QUOTA_STATUSES = (402, 429)
 
 _lock = threading.Lock()
 _last: dict[str, Any] = {"status": None, "at": None}
+_pause_source: Callable[[], str | None] | None = None
+
+
+def set_pause_source(source: Callable[[], str | None] | None) -> None:
+    """Install (or clear) a callable returning a pause code, or None when nothing pauses the tier. While it returns a
+    code the tier is unavailable with reason "disabled"; a source that raises counts as a pause (fail closed)."""
+    global _pause_source
+    with _lock:
+        _pause_source = source
 
 
 def _unavailable(reason: str) -> dict[str, Any]:
@@ -63,8 +72,10 @@ def record_outcome(http_status: int, *, now: Callable[[], float] = time.monotoni
 
 
 def reset() -> None:
+    global _pause_source
     with _lock:
         _last["status"], _last["at"] = None, None
+        _pause_source = None
 
 
 def _failure_reason(ttl: float, now: float) -> str | None:
@@ -88,6 +99,15 @@ def status(root: Path, *, env: Any = None, now: Callable[[], float] = time.monot
     cfg = _load(Path(root))
     if cfg is None or cfg.get("enabled") is not True or cfg.get("force_unavailable") is not False:
         return _unavailable("disabled")
+    with _lock:
+        source = _pause_source
+    if source is not None:
+        try:
+            paused = source()
+        except Exception:  # noqa: BLE001 - a broken pause source must pause, never raise
+            paused = "pause_source_error"
+        if paused:
+            return _unavailable("disabled")
     names = cfg.get("key_env_names")
     if not isinstance(names, list) or not names or not any(isinstance(n, str) and env.get(n) for n in names):
         return _unavailable("no_key")
