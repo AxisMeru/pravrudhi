@@ -466,3 +466,13 @@ def test_intake_is_not_a_workflow_of_the_screening_assist_route(tmp_path: Path) 
     for ok in ("screening", "hearing_prep"):  # the two real workflows pass the `workflow` validation
         r2 = c.post("/api/v1/analyse-facts/assist", json={**body, "workflow": ok})
         assert "workflow" not in str(r2.json()) if r2.status_code == 422 else True
+
+
+def test_odd_workflow_values_are_a_422_with_a_json_body_never_a_500(tmp_path: Path) -> None:
+    c = _assist_client(tmp_path)
+    body = {"facts": ["A person was seen near the shop."], "contract_ids": ["ipc405"], "consent": True}
+    for odd in (None, [], {}, 1, True, "Intake", " intake", ["intake"], "foo"):
+        r = c.post("/api/v1/analyse-facts/assist", json={**body, "workflow": odd})
+        assert r.status_code == 422 and isinstance(r.json(), dict), (odd, r.status_code)
+    r = c.post("/api/v1/analyse-facts/assist", json={**body, "workflow": "intake"})
+    assert r.status_code == 422 and r.json()["detail"][0]["loc"][-1] == "workflow"
