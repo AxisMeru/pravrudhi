@@ -91,7 +91,7 @@ def test_a_workspace_user_with_no_org_is_admitted_and_only_the_user_and_ip_limit
 def test_a_missing_ip_skips_only_the_per_ip_limit():
     lim, _ = mk()
     for _ in range(lim.per_ip_minute + 2):
-        assert lim.admit("u%d" % _, "o%d" % _, None) is None
+        assert lim.admit(f"u{_}", f"o{_}", None) is None
     assert lim._ip == {} or all(not q for q in lim._ip.values())
 
 
