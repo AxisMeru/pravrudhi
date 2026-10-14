@@ -282,22 +282,42 @@ def test_a_failing_store_drops_usage_rows_and_counts_them_without_raising(sb: An
     assert tenancy.usage_queue_stats()["dropped"] == before + 1
 
 
-def test_the_usage_queue_is_bounded(sb: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_usage_queue_is_bounded_and_overflow_is_counted_not_raised(sb: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    import threading
+
     store, root = sb
-    tenancy.record_usage(root, "warm", now=NOW)  # starts the worker
-    assert tenancy.flush_usage()
+    gate = threading.Event()
+    started = threading.Event()
+    real = store.record_usage
+
+    def blocking(key_id: str, day: str, failed: bool) -> None:
+        started.set()
+        gate.wait(5)
+        real(key_id, day, failed)
+
+    store.record_usage = blocking  # type: ignore[method-assign]
     monkeypatch.setattr(tenancy, "_USAGE_MAX", 3)
-    with tenancy._usage_cond:  # hold the worker out while we fill the queue
-        before = tenancy.usage_queue_stats()["dropped"]
-        for _ in range(5):
-            if len(tenancy._usage_q) >= tenancy._USAGE_MAX:
-                tenancy._usage_stats["dropped"] += 1
-            else:
-                tenancy._usage_q.append(("record_usage", ("k", "2026-10-14", False)))
-                tenancy._usage_stats["queued"] += 1
-        assert tenancy.usage_queue_stats()["dropped"] == before + 2
-        tenancy._usage_cond.notify_all()
+    before = tenancy.usage_queue_stats()["dropped"]
+    tenancy.record_usage(root, "k0", now=NOW)
+    assert started.wait(5)  # the worker holds one item; the queue itself is now empty
+    for i in range(5):
+        tenancy.record_usage(root, f"k{i + 1}", now=NOW)  # 3 fit, 2 overflow
+    assert tenancy.usage_queue_stats()["dropped"] == before + 2
+    gate.set()
     assert tenancy.flush_usage()
+    assert len(store.usage) == 4  # k0 + the three that fit
+
+
+def test_a_key_unknown_a_moment_ago_is_not_remembered_as_unknown(sb: Any) -> None:
+    store, root = sb
+    tenancy.create_org(root, "acme", "Acme")
+    k = tenancy.create_key(root, "acme")
+    tenancy.reset_backend_for_tests()
+    row = store.keys.pop(k.record.key_id)  # as if another replica has not written it yet
+    with pytest.raises(tenancy.InvalidApiKey):
+        tenancy.verify_key(root, k.secret)
+    store.keys[k.record.key_id] = row
+    assert tenancy.verify_key(root, k.secret).org_id == "acme"  # only an existing row is cached, never an unknown one
 
 
 def test_audit_rows_go_to_the_store_and_page_back_newest_first(sb: Any) -> None:
