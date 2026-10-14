@@ -3,6 +3,13 @@
 Release notes for the engine (`pravrudhi`). Versions before 0.5.44 are described in their GitHub release notes and commit
 messages.
 
+## Unreleased
+
+### Added
+
+- **Client-address diagnostic on `GET /api/health` (response headers only; no body change).** `X-Pravrudhi-Client-Ip-Source` says where the engine took the caller's address from (`signed`, `proxy`, `caller` or `peer`), and `X-Pravrudhi-Client-Ip-Proof` says whether the gateway's signed-address proof arrived and held (`valid`, `none`, `mismatch`, `no_ip`, `engine_unset`, `engine_short`). Labels only: never the address and never the secret. It lets anyone check, through the gateway, whether the signed address path works (found necessary on 14 Oct, when production answered with the shared peer address for every caller).
+- **`bad_key_budget_per_minute` (config) and `PRAVRUDHI_BAD_KEY_BUDGET_PER_MINUTE` (environment, wins).** The failed-key attempts allowed per address per minute (#396). Default unchanged: the same number as `rate_limit_per_minute`. Raising it stops a flood of bad keys from refusing valid keyed callers behind a shared gateway address; the anonymous limit is not affected.
+
 ## 0.6.5 (2026-10-14)
 
 PATCH release: the hosted citation check gets its metadata-only index and a stricter existence-only answer (#398, #401, #402); failed API keys are throttled per address (#396) and a 429 says what to do (#410); a second-check decline refers (#407); a second RunPod endpoint can serve as the fallback second judge (#405, off until configured); and the assisted route is switched ON in the shipped configuration (#408; it still serves only when the store is reachable, the delete canary has passed and the tier is available, and the app's entry stays behind its own flag). **Not every existing route behaves exactly as in 0.6.2** (true since 0.6.4; the changes below are what a caller can see).
