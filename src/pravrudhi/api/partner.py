@@ -52,6 +52,7 @@ import hashlib
 import hmac
 import json
 import logging
+import math
 import os
 import sqlite3
 import subprocess
@@ -177,6 +178,13 @@ class PartnerApiConfig:
     #: hold at once.
     job_retention_s: float = 3600.0
     job_max_unfinished_per_key: int = 8
+    #: Async jobs (#406): how long an accepted job may WAIT for a free agent slot (`max_concurrent`) before it fails with
+    #: `agent_at_capacity`. A job was accepted with 202, so it queues; the sync route stays non-blocking (0 = never wait).
+    job_slot_wait_s: float = 600.0
+    #: Failed-key attempts per address per minute before further key checks from it are refused with 429 (#396). None = the
+    #: same as `rate_limit_per_minute` (the default). Set it higher when callers behind a gateway share one peer address and
+    #: a flood of bad keys must not lock the valid keyed callers out; env override PRAVRUDHI_BAD_KEY_BUDGET_PER_MINUTE.
+    bad_key_budget_per_minute: int | None = None
     #: Audit rows (#148) older than this are dropped on write and never served.
     audit_retention_s: float = 90 * 86400.0
     #: `POST /verify-citations` (#302): how many lookups may run at once (non-blocking: an extra one is a 503) and the
@@ -185,12 +193,37 @@ class PartnerApiConfig:
     verify_timeout_s: float = 5.0
 
     def __post_init__(self) -> None:
+        b = self.bad_key_budget_per_minute
+        if b is not None and (isinstance(b, bool) or not isinstance(b, int) or not 1 <= b <= MAX_BAD_KEY_BUDGET):
+            raise ValueError(
+                f"bad_key_budget_per_minute must be None or an integer from 1 to {MAX_BAD_KEY_BUDGET}, got {b!r}"[:200]
+            )
         if self.trust_proxy_header and not self.trusted_proxies:
             raise ValueError(
                 "trust_proxy_header is set but trusted_proxies is empty -- refusing to start: an "
                 "X-Forwarded-For header trusted with no allowlist of who may set it is a free rate-limit "
                 "bypass for any caller"
             )
+
+
+BAD_KEY_BUDGET_ENV = "PRAVRUDHI_BAD_KEY_BUDGET_PER_MINUTE"
+MAX_BAD_KEY_BUDGET = 1_000  # each failed attempt costs a password-hash check: keep the worst case small
+
+
+def _bad_key_budget(yaml_value: Any) -> int | None:
+    """The failed-key budget per address per minute: the environment variable wins over the yaml key; unset or null = None (the
+    caller then uses `rate_limit_per_minute`). A bool, a non-integer, zero, a negative or a value above the cap is a config
+    error, never a silent default."""
+    raw: Any = os.environ.get(BAD_KEY_BUDGET_ENV, "").strip() or yaml_value
+    if raw is None:
+        return None
+    if isinstance(raw, str):
+        if not raw.isascii() or not raw.isdigit():
+            raise ValueError(f"{BAD_KEY_BUDGET_ENV} / bad_key_budget_per_minute must be a whole number, got {raw[:40]!r}")
+        raw = int(raw)
+    if isinstance(raw, bool) or not isinstance(raw, int) or not 1 <= raw <= MAX_BAD_KEY_BUDGET:
+        raise ValueError(f"bad_key_budget_per_minute must be an integer from 1 to {MAX_BAD_KEY_BUDGET}, got {raw!r}"[:200])
+    return raw
 
 
 def load_partner_api_config(root: Path) -> PartnerApiConfig:
@@ -226,10 +259,30 @@ def load_partner_api_config(root: Path) -> PartnerApiConfig:
         judge_warm_retry_s=float(body.get("judge_warm_retry_s", 30.0)),
         job_retention_s=float(body.get("job_retention_s", 3600.0)),
         job_max_unfinished_per_key=int(body.get("job_max_unfinished_per_key", 8)),
+        job_slot_wait_s=_job_slot_wait(body.get("job_slot_wait_s", 600.0)),
+        bad_key_budget_per_minute=_bad_key_budget(body.get("bad_key_budget_per_minute")),
         audit_retention_s=float(body.get("audit_retention_s", 90 * 86400.0)),
         verify_max_concurrent=int(body.get("verify_max_concurrent", 2)),
         verify_timeout_s=float(body.get("verify_timeout_s", 5.0)),
     )
+
+
+#: One day: more than any job should queue, and far below `threading.TIMEOUT_MAX` (a larger wait raises OverflowError).
+MAX_JOB_SLOT_WAIT_S = 86_400.0
+
+
+def _job_slot_wait(raw: Any) -> float:
+    """`job_slot_wait_s`: a finite number from 0 to one day (a bool, NaN, inf, a negative or a larger value is a config
+    error, never a silent default)."""
+    ok = isinstance(raw, (int, float)) and not isinstance(raw, bool)
+    if ok:
+        try:
+            ok = math.isfinite(raw) and 0 <= raw <= MAX_JOB_SLOT_WAIT_S
+        except OverflowError:  # an int too large for a float
+            ok = False
+    if not ok:
+        raise ValueError(f"job_slot_wait_s must be a number from 0 to {MAX_JOB_SLOT_WAIT_S:.0f} seconds, got {raw!r}"[:200])
+    return float(raw)
 
 
 _RATE_LIMIT_HEADER_DOCS: dict[str, Any] = {
@@ -318,12 +371,18 @@ class RateLimiter:
 
 
 def rate_limited_response(
-    *, limit: int, retry_after: int, scope: str, headers: dict[str, str] | None = None
+    *, limit: int, retry_after: int, scope: str, headers: dict[str, str] | None = None, sign_in: bool = True
 ) -> JSONResponse:
     """The 429 body (#403): the machine field `detail` and the `Retry-After` header are unchanged; the added fields say the
     limit, the window and what to do. `scope` is "anonymous" (no signed-in user and no key), "caller" (a signed-in user
     or key whose address bucket fired) or "key" (a key's own per-minute limit)."""
-    if scope == "anonymous":
+    if scope == "anonymous" and not sign_in:
+        # a route that only knows API keys (verify-citations): signing in would not give a separate limit there
+        message = (
+            f"You have reached the limit for callers without an API key ({limit} requests per minute). "
+            f"Try again in {retry_after} seconds, or use an API key to get your own limit."
+        )
+    elif scope == "anonymous":
         message = (
             f"You have reached the limit for visitors who are not signed in ({limit} requests per minute). "
             f"Try again in {retry_after} seconds, or sign in or use an API key to get your own limit."
@@ -354,7 +413,11 @@ class ConcurrencyLimiter:
     def __init__(self, max_concurrent: int) -> None:
         self._sem = threading.Semaphore(max_concurrent)
 
-    def acquire(self) -> bool:
+    def acquire(self, timeout: float = 0.0) -> bool:
+        """Non-blocking by default. With `timeout` > 0 (async jobs only, #406) waits up to that many seconds for a slot."""
+        if timeout > 0:
+            # a longer wait than TIMEOUT_MAX raises OverflowError even for a free slot
+            return self._sem.acquire(timeout=min(timeout, threading.TIMEOUT_MAX))
         return self._sem.acquire(blocking=False)
 
     def release(self) -> None:
@@ -766,7 +829,7 @@ class JobOut(BaseModel):
 class AuditRowOut(BaseModel):
     ts: str
     key_id: str
-    mode: Literal["sync", "job", "verify"]
+    mode: Literal["sync", "job", "verify", "assist"]
     status_code: int
     run_id: str | None = None
     contract_ids: list[str]
@@ -851,9 +914,33 @@ def _warn_short_client_ip_secret_once() -> None:
     )
 
 
-def _client_ip(
+def client_ip_proof(request: Request) -> str:
+    """Whether the request carries a valid proof that the gateway read the client address: a label, never a value.
+
+    "valid" (the shared secret matches and an address came with it), "no_ip" (the secret matches, no address came), "mismatch"
+    (a proof header was sent and it is wrong), "none" (no proof header was sent: the gateway is not signing), "engine_unset"
+    (this engine has no secret) or "engine_short" (this engine's secret is shorter than the minimum, so it is ignored)."""
+    secret = os.environ.get(CLIENT_IP_SECRET_ENV, "")
+    if not secret:
+        return "engine_unset"
+    if len(secret) < MIN_CLIENT_IP_SECRET_LENGTH:
+        _warn_short_client_ip_secret_once()
+        return "engine_short"
+    presented = request.headers.get(CLIENT_IP_SECRET_HEADER, "")
+    if not presented:
+        return "none"
+    # bytes, not str: compare_digest raises TypeError on a non-ASCII str (a header byte above 0x7f arrives as latin-1)
+    if not hmac.compare_digest(presented.encode("utf-8"), secret.encode("utf-8")):
+        return "mismatch"
+    return "valid" if request.headers.get(CLIENT_IP_HEADER, "").strip() else "no_ip"
+
+
+def client_ip_and_source(
     request: Request, *, trust_proxy_header: bool, trusted_proxies: tuple[str, ...], caller_key: str | None = None
-) -> str:
+) -> tuple[str, str]:
+    """(address, source). `source` is "signed" (the proof held), "proxy" (a trusted proxy's X-Forwarded-For), "caller" (no
+    proven address: bucketed by the caller's own identity) or "peer" (the socket peer: behind a gateway that is one shared
+    address for every anonymous caller)."""
     # Preferred over everything below: a caller-specific key proven, by the shared secret, to have come
     # from the Worker's own read of Cloudflare's CF-Connecting-IP -- correct even when this engine sits
     # behind a proxy (RunPod's LB, a cloudflared tunnel) that presents every real caller as the same socket
@@ -861,16 +948,8 @@ def _client_ip(
     # once. Fails CLOSED, never open: a missing or too-short secret, a missing client-IP header, or a
     # mismatched secret all fall through to the existing (stricter, shared-key-prone) behavior below rather
     # than trusting an unproven header.
-    secret = os.environ.get(CLIENT_IP_SECRET_ENV, "")
-    if secret and len(secret) < MIN_CLIENT_IP_SECRET_LENGTH:
-        _warn_short_client_ip_secret_once()
-        secret = ""
-    if secret:
-        presented = request.headers.get(CLIENT_IP_SECRET_HEADER, "")
-        if presented and hmac.compare_digest(presented, secret):
-            client_ip = request.headers.get(CLIENT_IP_HEADER, "").strip()
-            if client_ip:
-                return client_ip
+    if client_ip_proof(request) == "valid":
+        return request.headers.get(CLIENT_IP_HEADER, "").strip(), "signed"
 
     client = request.client
     socket_peer = client.host if client is not None else "unknown"
@@ -883,14 +962,22 @@ def _client_ip(
     if trust_proxy_header and socket_peer in trusted_proxies:
         forwarded = request.headers.get("x-forwarded-for")
         if forwarded:
-            return forwarded.split(",")[0].strip()
+            return forwarded.split(",")[0].strip(), "proxy"
     # No proven client address. Behind the gateway the socket peer is the proxy itself, so every caller would share ONE
     # bucket: a caller that is identified (an API key, or a signed-in user) is bucketed by that identity instead. A client
     # address header that is not signed with the shared secret is never read, so a forged one can neither raise nor dodge
     # a limit: rotating it changes nothing. An anonymous caller keeps the socket peer (the stricter shared bucket).
     if caller_key:
-        return caller_key
-    return socket_peer
+        return caller_key, "caller"
+    return socket_peer, "peer"
+
+
+def _client_ip(
+    request: Request, *, trust_proxy_header: bool, trusted_proxies: tuple[str, ...], caller_key: str | None = None
+) -> str:
+    return client_ip_and_source(
+        request, trust_proxy_header=trust_proxy_header, trusted_proxies=trusted_proxies, caller_key=caller_key
+    )[0]
 
 
 @functools.lru_cache(maxsize=1)
@@ -984,7 +1071,7 @@ def build_partner_router(
                 # Failed-key attempts per proven address (or socket peer): a request with a key that does not verify costs a
                 # password-hash check, so these are budgeted BEFORE the check and charged only when it fails.
                 _state["bad_key_limiter"] = RateLimiter(
-                    cfg.rate_limit_per_minute, max_keys=cfg.rate_limit_max_keys, **clock_kw
+                    cfg.bad_key_budget_per_minute or cfg.rate_limit_per_minute, max_keys=cfg.rate_limit_max_keys, **clock_kw
                 )
             return (
                 _state["cfg"], _state["rate_limiter"], _state["concurrency"], _state["provision_rate_limiter"],
@@ -1602,10 +1689,10 @@ def build_partner_router(
             store.discard(job_id)
             return admitted
 
-        def task() -> None:
+        def _run_job() -> None:
             store.start(job_id)
             try:
-                out = _run(req, admitted, debug_second_judge)
+                out = _run(req, admitted, debug_second_judge, slot_held=True)
                 if isinstance(out, dict):
                     out = AnalyseFactsResponse(**out).model_dump(mode="json", exclude_unset=True)
             except HTTPException as e:
@@ -1627,6 +1714,20 @@ def build_partner_router(
                 return
             _audit(metered, req, "job", status_code=200, out=out)
             store.finish(job_id, result=out)
+
+        def task() -> None:
+            # #406: an accepted job stays "pending" until it holds an agent slot, and waits for one up to job_slot_wait_s
+            # (counted from the moment a pool thread picks it up). Only then does it run; running jobs hold the slot.
+            if not admitted.concurrency.acquire(admitted.cfg.job_slot_wait_s):
+                if metered:
+                    _record_usage(metered[0], failed=True)
+                _audit(metered, req, "job", status_code=503)
+                store.fail(job_id, status_code=503, body=json.loads(bytes(coded_503(AGENT_AT_CAPACITY).body)))
+                return
+            try:
+                _run_job()
+            finally:
+                admitted.concurrency.release()
 
         _submit(task)
         return {"job_id": job_id, "status": "pending"}
@@ -1685,7 +1786,7 @@ def build_partner_router(
         if not rate_limiter.allow(ip):
             return rate_limited_response(
                 limit=rate_limiter.per_minute, retry_after=rate_limiter.retry_after_seconds(),
-                scope="caller" if principal is not None else "anonymous",
+                scope="caller" if principal is not None else "anonymous", sign_in=False,
             )
         if principal is not None:
             key = next((k for k in tenancy.keys_for_org(engine_root, principal.org_id) if k.key_id == principal.key_id), None)

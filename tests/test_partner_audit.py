@@ -135,3 +135,63 @@ def test_text_smuggled_in_contract_ids_is_not_stored(monkeypatch: Any, tmp_path:
     row = _rows(c, secret)["rows"][0]
     assert row["contract_ids"] == ["invalid-id"] and row["status_code"] == 422
     assert smuggled not in (tmp_path / ".pravrudhi" / "audit" / "calls.jsonl").read_text()
+
+
+# ---- #422: every mode the engine writes is readable back ----------------------------------------------------------------------
+def test_a_keyed_assisted_call_leaves_a_row_the_audit_page_can_serve(tmp_path: Path, monkeypatch: Any) -> None:
+    """Found by Track C: the assisted route wrote mode 'assist', which AuditRowOut did not declare, so GET /audit answered 500 for
+    the key's whole page. Through the real route this time (a keyed, consenting call), then the page."""
+    from pravrudhi.application import assistant_tier as tier
+    from pravrudhi.application.a0_assist import runtime as rt
+    from tests.test_a0_assist_route import BODY, URL
+    from tests.test_a0_assist_route import client as assist_client
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-not-real")
+    monkeypatch.setenv("PRAVRUDHI_ADMINS", ADMIN.id)
+    tier.reset()
+    try:
+        c = assist_client(tmp_path, user=ADMIN)
+        secret = _key(c, "acme")
+        done = c.post(URL, json=BODY, headers={H: secret})
+        assert done.status_code == 200 and done.json()["assistant"]["used"] is True
+        page = c.get(AUDIT, headers={H: secret})
+        assert page.status_code == 200
+        modes = [row["mode"] for row in page.json()["rows"]]
+        assert modes == ["assist"]
+    finally:
+        rt.reset()
+        tier.reset()
+
+
+def _call_modes(tree: Any) -> set[str]:
+    """Every string-constant mode passed to the audit writers in partner.py, found from the syntax tree (not by pattern)."""
+    import ast
+
+    found: set[str] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        fn = node.func
+        name = fn.id if isinstance(fn, ast.Name) else (fn.attr if isinstance(fn, ast.Attribute) else "")
+        if name == "_audit" and len(node.args) >= 3 and isinstance(node.args[2], ast.Constant):
+            found.add(str(node.args[2].value))
+        if name == "record":
+            for kw in node.keywords:
+                if kw.arg == "mode" and isinstance(kw.value, ast.Constant):
+                    found.add(str(kw.value.value))
+    return found
+
+
+def test_every_mode_the_engine_writes_is_a_mode_the_audit_page_declares() -> None:
+    """A guard against the same drift: every literal mode passed to the audit writers in partner.py is declared in
+    AuditRowOut.mode, and the writers it must find are pinned, so a refactor cannot silently make the scan see nothing."""
+    import ast
+    from typing import get_args
+
+    from pravrudhi.api import partner
+
+    declared = set(get_args(partner.AuditRowOut.model_fields["mode"].annotation))
+    written = _call_modes(ast.parse(Path(partner.__file__).read_text()))
+    assert {"sync", "job", "assist", "verify"} <= written  # the writers that exist today
+    assert written <= declared, written - declared
+    assert declared == written, "a declared mode nothing writes any more: remove it from the contract deliberately"
