@@ -955,3 +955,14 @@ def test_pc13_a_blank_line_after_every_printed_line_is_joined_inside_a_sentence_
     assert "\n\nThe second sentence" in b["cleaned"] and all(v["pass"] for v in b["checks"].values())
     c = I.clean("Heading line without a stop\n\nBEFORE THE COURT\n\nand then more text here.\n")
     assert "Heading line without a stop\n\nBEFORE" in c["cleaned"] and "BEFORE THE COURT and then" in c["cleaned"]
+
+
+def test_pc14_a_wrapped_full_width_line_ending_in_lower_case_continues_a_party_line_does_not():
+    wrapped = "This application has been preferred against the judgment of acquittal rendered by\n\nthe Trial Court."
+    assert "rendered by the Trial Court." in I.clean(wrapped)["cleaned"]  # lower-case next word: continues
+    long_line = "The accused went to the market and returned home late in the evening\n\nShri Ravi was then seen at the gate."
+    assert "evening Shri Ravi" in I.clean(long_line)["cleaned"]  # 45+ characters, ends in a lower-case letter: continues
+    party = "Ku. Seema Dewangan, D/o Shri Shankarlal Dewangan, Aged About 51 Years,\n\nShri Raja Sharma is the advocate."
+    assert "Years,\n\nShri Raja" in I.clean(party)["cleaned"]  # ends in a comma: the break stays
+    short = "Heading line without a stop\n\nShri Raja Sharma is the advocate."
+    assert "stop\n\nShri Raja" in I.clean(short)["cleaned"]  # under 45 characters: the break stays

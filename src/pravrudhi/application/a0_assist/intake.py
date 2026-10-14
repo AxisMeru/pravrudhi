@@ -161,12 +161,12 @@ def _ws_piece(raw: str, s: int, e: int, ends_by_start: dict[int, int]) -> str:
     if run.count("\n") >= 2:
         # a text layer that puts a blank line after every printed line: a break after a line that does not end a sentence is
         # the same sentence continuing when the next word is lower case, a digit, "&" or "(", or when the line was a full-width
-        # printed line (45 characters or more, so not a heading)
+        # printed line (45 characters or more) that ends in a lower-case letter (so not a heading or a party line)
         before = raw[s - 1] if s > 0 else "."
         after = raw[nxt] if nxt < len(raw) else "A"
         line_len = s - (raw.rfind("\n", 0, s) + 1)
         open_line = before not in ".?!:;)\"'\u201d\u2019\u0964"
-        if open_line and (after.islower() or after.isdigit() or after in "&(" or line_len >= 45):
+        if open_line and (after.islower() or after.isdigit() or after in "&(" or (before.islower() and line_len >= 45)):
             return " "
         return "\n\n"
     return " "
