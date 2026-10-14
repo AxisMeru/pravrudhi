@@ -133,7 +133,8 @@ class A0RefDriver(D.A0Driver):
                 "refused": code is not None or bool(out.get("refused")), "refusal_code": code, "output_sha256": sha(out),
             }
         )
-        return dict(copy.deepcopy(out), call_ref=ref) if ref else out
+        # the agent gets a copy, never the stored object
+        return dict(copy.deepcopy(out), call_ref=ref) if ref else copy.deepcopy(out)
 
     def _resolve(self, tool: str, a: dict[str, Any]) -> dict[str, Any]:
         """The agent's by-reference arguments -> the parent's by-value input, taken from the stored outputs."""
@@ -142,6 +143,15 @@ class A0RefDriver(D.A0Driver):
             miss = [k for k in keys if k not in a]
             if miss:
                 raise RefusedCode("bad_args", f"{tool} needs {miss}")
+            for k in keys:  # a value of the wrong type is bad_args here, never an exception from a dict lookup further down
+                if k == "is_denial":
+                    ok = isinstance(a[k], bool)
+                elif k == "element_refs":
+                    ok = isinstance(a[k], list)
+                else:
+                    ok = isinstance(a[k], str)
+                if not ok:
+                    raise RefusedCode("bad_args", f"{tool}: {k} has the wrong type")
 
         if tool in ("ingest", "select_contracts", "describe_contract"):
             return a
@@ -226,7 +236,8 @@ class A0RefDriver(D.A0Driver):
 
     def complete(self) -> list[str]:
         """Problems that make the run incomplete (empty = complete): a missing stage (quote_check only where a quote exists),
-        decide not last, a selected contract not decided, any refused call."""
+        decide not last, a selected contract not decided. Refused calls are in `refusals`; the runner (assist.py) treats any of
+        them as a safety refusal and falls back to the core result."""
         p: list[str] = []
         order = [c["tool"] for c in self.calls if not c["refused"]]
         for s in ("ingest", "select_contracts", "describe_contract", "judge_element", "assemble", "lean_check", "decide"):

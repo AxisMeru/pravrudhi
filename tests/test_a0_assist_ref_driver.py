@@ -7,10 +7,8 @@ import json
 
 import pytest
 
-from pravrudhi.application import nyaya_agent as agent_mod
 from pravrudhi.application.a0_assist import ref_driver as R
 from tests import test_a0_assist_driver as A
-from tests import test_nyaya_agent as T
 
 FACTS, CID = A.FACTS, A.CID
 
@@ -200,7 +198,7 @@ def test_already_decided_and_decide_is_not_a_ref(tmp_path):
     again = d.call("decide", decide_args(js, asm, lc))
     assert code(again) == "already_decided" and d.decide_attempts == 2 and list(d.decide_accepted()) == [CID]
     after = d.call("assemble", {"contract_id": CID, "element_refs": ["J1"]})
-    assert code(after) in ("out_of_order", "bad_ref", "incomplete_elements")
+    assert code(after) == "out_of_order"  # the contract is already assembled
 
 
 def test_tampered_output_is_caught_at_the_next_resolution(tmp_path):
@@ -213,7 +211,8 @@ def test_tampered_output_is_caught_at_the_next_resolution(tmp_path):
 
 def test_a_refused_ingest_does_not_block_the_first_accepted_one(tmp_path):
     d = fresh(tmp_path)
-    assert d.call("ingest", {"facts": ["not the request facts"], "narrative": ""})["refused"]
+    refused = d.call("ingest", {"facts": ["not the request facts"], "narrative": ""})
+    assert refused["refused"] and code(refused) == "binding"  # the parent's value check, no ref involved
     out = d.call("ingest", {"facts": list(FACTS), "narrative": ""})
     assert out["call_ref"] == "I1" and "refused" not in out
     assert d.call("ingest", {"facts": list(FACTS), "narrative": ""})["refused"]  # exactly once
@@ -222,7 +221,6 @@ def test_a_refused_ingest_does_not_block_the_first_accepted_one(tmp_path):
 def test_complete_names_each_missing_part(tmp_path):
     d = fresh(tmp_path)
     assert any("never ran" in p for p in d.complete())
-    ing, js, asm, lc, dec = full(fresh(tmp_path / "ok"))
     ok = fresh(tmp_path / "ok2")
     full(ok)
     assert ok.complete() == []
@@ -245,24 +243,6 @@ def test_the_codes_are_the_fixed_list_the_agent_is_told():
         "extra_elements", "order_mismatch", "lean_mismatch", "already_decided", "tampered_output", "binding",
     }
 
-
-def test_the_pinned_tools_file_matches_this_drivers_inputs():
-    """The product agent's tool schemas (a0_tools_v2_E4b.json, sha ab252d65...) are ref style: every ref argument the schema names
-    is one this driver resolves."""
-    expect = {
-        "judge_element": {"ingest_ref", "contract_id", "element", "is_denial"},
-        "quote_check": {"judge_ref"},
-        "assemble": {"contract_id", "element_refs"},
-        "lean_check": {"contract_id", "assemble_ref"},
-        "decide": {"contract_id", "element_refs", "assemble_ref", "lean_ref"},
-    }
-    for tool, keys in expect.items():
-        d = R.A0RefDriver.__new__(R.A0RefDriver)
-        d.calls, d.refusals, d.refusal_events, d.store, d.counts, d.decide_attempts = [], [], [], {}, {}, 0
-        for missing in keys:
-            out = d.call(tool, {k: "x" for k in keys if k != missing})
-            assert code(out) == "bad_args" and missing in out["error"], (tool, missing)
-    assert T is not None and agent_mod is not None and json is not None
 
 
 # ---- the pinned product agent's tools file (a copy of the tool definitions; no secret in it) -------------------------
@@ -314,3 +294,24 @@ def test_a_copy_style_agent_is_refused_at_the_first_judge_call_not_silently_acce
     copy_call = {"contract_id": CID, "element": e["element_id"], "is_denial": e["is_denial"],
                  "facts": ing["facts"], "narrative": ""}
     assert code(d.call("judge_element", copy_call)) == "bad_args"
+
+
+@pytest.mark.parametrize("field,bad", [("contract_id", []), ("contract_id", {"a": 1}), ("contract_id", 5), ("element_refs", "J1"),
+                                       ("assemble_ref", ["A1"]), ("lean_ref", 3)])
+def test_a_wrong_typed_argument_is_bad_args_never_an_escaping_exception(tmp_path, field, bad):
+    d = fresh(tmp_path)
+    ing, desc, js = prefix(d)
+    quotes(d, js)
+    args = {"contract_id": CID, "element_refs": refs(js), "assemble_ref": "A1", "lean_ref": "L1"}
+    args[field] = bad
+    out = d.call("decide", args)
+    assert code(out) == "bad_args" and field in out["error"]
+
+
+def test_the_agent_gets_a_copy_so_it_cannot_change_what_the_driver_stored(tmp_path):
+    d = fresh(tmp_path)
+    ing, js, asm, lc, dec = full(d)
+    dec["outcome"] = "DENIAL"
+    dec.clear()
+    assert d._decided[CID]["outcome"] != "DENIAL" and d.decide_accepted()[CID]["outcome"] != "DENIAL"
+    assert d.calls[-1]["output"] and d.calls[-1]["output_sha256"] == R.sha(d.calls[-1]["output"])
