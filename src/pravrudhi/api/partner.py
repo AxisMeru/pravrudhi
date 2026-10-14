@@ -1409,14 +1409,14 @@ def build_partner_router(
     ) -> dict[str, Any] | JSONResponse:
         from pravrudhi.application import assistant_tier
         from pravrudhi.application.a0_assist import assist as a0
-        from pravrudhi.application.a0_assist import driver as a0drv
+        from pravrudhi.application.a0_assist import ref_driver as a0rd
 
         matter = {"facts": list(req.facts), "narrative": req.narrative, "contract_ids": list(req.contract_ids)}
         box: dict[str, Any] = {}
 
         def make_driver() -> Any:
             box["agent"] = factory(engine_root)
-            return a0drv.A0Driver(box["agent"], request=matter, proceeding_posture=req.proceeding_posture)
+            return a0rd.A0RefDriver(box["agent"], request=matter, proceeding_posture=req.proceeding_posture)
 
         def finalize(driver: Any) -> dict[str, Any]:
             agent = box["agent"]
