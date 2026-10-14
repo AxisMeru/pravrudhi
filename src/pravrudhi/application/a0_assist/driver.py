@@ -401,8 +401,7 @@ class A0Driver:
         if gate1_contradiction:
             return finish("REFER_TO_LAWYER", "gate1_contradiction", **kw)
         if lean_outcome == "ABSTAIN" and any(
-            not r.is_denial and r.binding_leg == "second" and r.status != "established" and not r.second_unavailable
-            for r in results
+            not r.is_denial and r.binding_leg == "second" for r in results
         ):
             return finish("REFER_TO_LAWYER", "second_judge_not_confirmed", **kw)
         if lean_outcome in ("PROOF", "DENIAL") and cid not in cfg.validated_contracts:

@@ -139,3 +139,70 @@ def test_a_denial_outcome_with_a_declined_required_element_stays_a_denial(tmp_pa
     # the rung fires only where the contract would otherwise ABSTAIN: a DENIAL (defeater established by both) is not changed
     c = _run(tmp_path, _denial_script(TOY_FACTS), _second_all(0.30))
     assert c.outcome == "DENIAL" and c.reason == "denial_established"
+
+
+# -- kill the conjuncts R2 named: a defeater whose second-judge veto is reported as a veto (not as a disagreement) ----------
+def _veto_by_second(p: float = 0.3) -> Any:
+    """A judge double that reports a second-judge veto on whatever it is asked (status not_established, vetoed_by second):
+    AndGateJudge itself never does this for a DEFEATER (it keeps the primary's call and sets the disagreement flag), so this is
+    the only way to reach the `not is_denial` conjunct: it must still not refer."""
+    from pravrudhi.application.nyaya_judges import ElementJudgment
+
+    return ElementJudgment("not_established", 0.9, second_judge="house", second_status="not_established",
+                           p_established_second=p, tau_primary=0.74, tau_second=TAU2, vetoed_by="second")
+
+
+def _veto_script(*, defeater_only: bool) -> dict[str, list[Any]]:
+    # defeater_only: a required element the primary itself did not establish (the contract abstains) plus a VETOED defeater;
+    # otherwise the required element is the vetoed one
+    s = _proof_script(TOY_FACTS)
+    s[BNS69_DENY] = [_veto_by_second()]
+    s[BNS69_EL[0]] = [_not()] if defeater_only else [_veto_by_second()]
+    return s
+
+
+def _plain(tmp_path: Path, script: dict[str, list[Any]]) -> Any:
+    agent = NyayaAgent(ScriptedJudge(script), _registry(), _config(tmp_path, second_judge={"tau": TAU2}))
+    return agent.run(TOY_FACTS, narrative="TOY narrative.", contract_ids=["bns69"]).contracts[0]
+
+
+def test_a_vetoed_defeater_alone_never_triggers_the_reason(tmp_path: Path) -> None:
+    c = _plain(tmp_path, _veto_script(defeater_only=True))
+    assert (c.outcome, c.reason) == ("ABSTAIN", "missing_element")
+
+
+def test_a_vetoed_required_element_triggers_it_even_with_a_vetoed_defeater_present(tmp_path: Path) -> None:
+    c = _plain(tmp_path, _veto_script(defeater_only=False))
+    assert (c.outcome, c.reason) == ("REFER_TO_LAWYER", "second_judge_not_confirmed")
+
+
+def test_the_driver_decides_the_same_for_a_vetoed_defeater_and_a_primary_bound_element(tmp_path: Path) -> None:
+    from tests import test_a0_assist_driver as A
+
+    def build(sub: Path, script: dict[str, list[Any]]) -> NyayaAgent:
+        sub.mkdir()
+        return NyayaAgent(ScriptedJudge(script), _registry(), _config(sub, second_judge={"tau": TAU2}))
+
+    # a vetoed defeater: the driver must not refer (kills the driver's `not is_denial`)
+    s1 = _veto_script(defeater_only=True)
+    run = build(tmp_path / "n1", s1).run(A.FACTS, contract_ids=[A.CID]).to_dict()
+    d = A.drive(build(tmp_path / "d1", _veto_script(defeater_only=True)))
+    assert d._decided[A.CID]["reason"] == run["contracts"][0]["reason"] == "missing_element"
+    # a required element bound by the PRIMARY (primary says not established): the driver keeps missing_element
+    # (kills the driver's `binding_leg == "second"`)
+    def primary_bound() -> dict[str, list[Any]]:
+        s = _proof_script(A.FACTS)
+        s[BNS69_EL[1]] = [_not()]
+        return s
+
+    gate_native = AndGateJudge(ScriptedJudge(primary_bound()), ScriptedJudge(_second_answers_everything()),
+                               tau_primary=0.74, tau_second=TAU2)
+    gate_driven = AndGateJudge(ScriptedJudge(primary_bound()), ScriptedJudge(_second_answers_everything()),
+                               tau_primary=0.74, tau_second=TAU2)
+    (tmp_path / "n2").mkdir()
+    (tmp_path / "d2").mkdir()
+    native = NyayaAgent(gate_native, _registry(), _config(tmp_path / "n2", second_judge={"tau": TAU2}))
+    driven = NyayaAgent(gate_driven, _registry(), _config(tmp_path / "d2", second_judge={"tau": TAU2}))
+    run2 = native.run(A.FACTS, contract_ids=[A.CID]).to_dict()
+    d2 = A.drive(driven)
+    assert run2["contracts"][0]["reason"] == "missing_element" == d2._decided[A.CID]["reason"]

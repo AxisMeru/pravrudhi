@@ -1780,9 +1780,11 @@ class NyayaAgent:
         # `missing_element` ("the facts do not show it"): the facts did show it to one check. Refer, with its own reason.
         # Required elements only (a second judge declining a defeater just treats it as absent), and only where the contract
         # would otherwise ABSTAIN, so every reason above keeps its precedence and a PROOF/DENIAL is never touched.
+        # `binding_leg == "second"` is only ever set on a non-established element (`_truthful_status` returns no binding leg
+        # for an established one, or for the `not_evaluated_second_unavailable` label), so no separate status or unavailable
+        # test is needed.
         if lean_outcome == "ABSTAIN" and any(
-            not r.is_denial and r.binding_leg == "second" and r.status != "established" and not r.second_unavailable
-            for r in results
+            not r.is_denial and r.binding_leg == "second" for r in results
         ):
             return finish("REFER_TO_LAWYER", "second_judge_not_confirmed", **kw)
         # Safety gate, allowlist form (Lead-2, 2026-09-25; inverted to fail-closed, issue #36, 2026-09-26+):
