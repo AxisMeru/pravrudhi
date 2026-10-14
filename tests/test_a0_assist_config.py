@@ -398,5 +398,6 @@ def test_the_shipped_file_serves_both_workflows_and_dropping_the_entries_makes_t
     assert shipped.agent_for("intake") is not None and shipped.agent_for("hearing_prep") is not None
     assert shipped.agent_for("screening") == C.WorkflowAgent("agent_012zKjNLSVQoivwTqEPBkVUZ", 1, "env_01MAG6qEGC999A8r8MogP5bt")
     assert len(shipped.all_agent_ids()) == 3  # the orphan scan covers all three agents
+    assert len(set(shipped.all_agent_ids())) == 3  # three different agents, none pasted twice
     dark = C.parse({**raw, "workflows": {}})
     assert dark.agent_for("intake") is None and dark.agent_for("hearing_prep") is None and len(dark.all_agent_ids()) == 1
