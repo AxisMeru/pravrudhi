@@ -391,6 +391,6 @@ def test_the_shipped_wall_limit_and_event_cap_cover_a_five_contract_run_with_mar
     c = C.parse(raw)
     assert (c.call_timeout_s, c.max_events) == (150.0, 1000)
     assert c.call_timeout_s >= 2 * 57 and c.max_events >= 2 * 232
-    # the sweeper never abandons a run that is still allowed to be running: wall limit + the interrupt wait + a minute for the delete
+    # the sweeper never abandons a run still allowed to run: wall limit + interrupt wait + a minute for the delete
     assert c.abandon_after_min * 60 >= c.call_timeout_s + c.interrupt_wait_s + 60
     assert c.call_timeout_s < 320  # inside the app's own request timeout
