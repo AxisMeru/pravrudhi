@@ -350,3 +350,73 @@ def test_exact_host_set_decides_who_gets_the_key(url: str, expected: bool) -> No
 def test_host_form_and_path_form_do_not_cross_match() -> None:
     assert not key_may_follow("https://api.runpod.ai/v2/epbbb111/openai/v1", frozenset({"epaaa111"}))
     assert not key_may_follow("https://epbbb111.api.runpod.ai/v1", frozenset())
+
+
+# -- order and the per-endpoint record gate through the real agent build --------------------------------------------
+import time  # noqa: E402
+
+from pravrudhi.application.nyaya_agent import AgentConfig, NyayaAgent  # noqa: E402
+from pravrudhi.application.second_judge_positive_control import write_record  # noqa: E402
+
+
+def test_the_clone_is_called_only_after_the_primary_has_failed(monkeypatch: pytest.MonkeyPatch) -> None:
+    net = _Net({PRIMARY: "timeout", CLONE: "ok"})
+    _judge(monkeypatch, net, [CLONE]).judge(_req())
+    order = [c["base"] for c in net.calls]
+    assert order == [PRIMARY, CLONE]  # strictly one after the other: no hedged double send
+    net_ok = _Net({PRIMARY: "ok", CLONE: "ok"})
+    _judge(monkeypatch, net_ok, [CLONE]).judge(_req())
+    assert [c["base"] for c in net_ok.calls] == [PRIMARY]
+
+
+def _agent_config(tmp_path: Path, record_dir: Path) -> AgentConfig:
+    score_bin = tmp_path / "score"
+    score_bin.write_bytes(b"")
+    hj = {"base_url": "http://fake.invalid/v1", "model": "m", "statute_chars": 600, "max_tokens": 30, "top_logprobs": 20,
+          "timeout_s": 60, "label_mass_floor": 0.5}
+    sj = {**hj, "base_url": PRIMARY, "model": "judge32b", "tau": 0.97, "base_urls_fallback": [CLONE],
+          "fallback_key_endpoint_ids": ["epaaa", "epbbb"], "fallback_record_dir": str(record_dir), "adapter_sha": "ad1"}
+    return AgentConfig(tau=0.74, refer_band=(0.5, 0.74), max_retries=2, audit_dir=tmp_path / "audit", score_bin=score_bin,
+                       house_judge=hj, second_judge=sj,
+                       second_judge_positive_control={"max_age_hours": 24.0})  # type: ignore[arg-type]
+
+
+def _second_of(agent: NyayaAgent) -> HouseJudge:
+    second = agent.judge.second  # type: ignore[attr-defined]
+    assert isinstance(second, HouseJudge)
+    return second
+
+
+def _record(d: Path, **over: Any) -> None:
+    write_record(d / "epbbb.json", **{"available": True, "endpoint_id": "epbbb", "adapter_sha": "ad1", "reasons": [], **over})
+
+
+@pytest.mark.parametrize("name,over,ok", [
+    ("passing", {}, True),
+    ("failed control", {"available": False, "reasons": ["parity"]}, False),
+    ("another endpoint's record", {"endpoint_id": "epother"}, False),
+    ("another adapter", {"adapter_sha": "zzz"}, False),
+])
+def test_the_built_second_judge_gates_the_fallback_on_its_own_record(tmp_path: Path, name: str, over: dict[str, Any], ok: bool) -> None:
+    (tmp_path / "rec").mkdir()
+    _record(tmp_path / "rec", **over)
+    gate = _second_of(NyayaAgent.house(tmp_path, config=_agent_config(tmp_path, tmp_path / "rec"))).fallback_gate
+    assert gate is not None
+    assert gate("epbbb")[0] is ok, name
+
+
+def test_a_missing_or_stale_record_refuses_the_fallback(tmp_path: Path) -> None:
+    (tmp_path / "rec").mkdir()
+    gate = _second_of(NyayaAgent.house(tmp_path, config=_agent_config(tmp_path, tmp_path / "rec"))).fallback_gate
+    assert gate is not None and gate("epbbb")[0] is False  # no record file
+    write_record(tmp_path / "rec" / "epbbb.json", available=True, endpoint_id="epbbb", adapter_sha="ad1", reasons=[],
+                 timestamp=time.time() - 3 * 86400)
+    assert gate("epbbb")[0] is False  # older than max_age_hours
+
+
+def test_no_record_dir_means_no_gate(tmp_path: Path) -> None:
+    cfg = _agent_config(tmp_path, tmp_path / "rec")
+    assert cfg.second_judge is not None
+    second_cfg = {k: v for k, v in cfg.second_judge.items() if k != "fallback_record_dir"}
+    cfg = AgentConfig(**{**cfg.__dict__, "second_judge": second_cfg})  # type: ignore[arg-type]
+    assert _second_of(NyayaAgent.house(tmp_path, config=cfg)).fallback_gate is None
