@@ -33,7 +33,7 @@ from cryptography.x509.oid import NameOID  # noqa: E402
 
 from pravrudhi.application.a0_assist import store as ST  # noqa: E402
 
-NAME, PORT, ROLE, PW = "trackc-a0-store-it", 55434, "assist_it_role", "it-" + os.urandom(6).hex()
+NAME, PORT, ROLE, PW = "a0-store-it", 55434, "assist_it_role", "it-" + os.urandom(6).hex()
 
 
 def _key():
