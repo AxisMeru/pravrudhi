@@ -1467,6 +1467,9 @@ def build_partner_router(
             make_driver=make_driver,
             finalize=finalize,
             workflows=frozenset({"screening", "hearing_prep"}),
+            # a workflow other than screening must name its first message and its summary explicitly (#419)
+            user_message=a0.user_message,
+            summarise=a0.screening_summarise,
         )
         caller = a0.Caller(admitted.authenticated, admitted.user_id, admitted.org_id, admitted.ip)
         out = a0.run_assisted(matter, caller, req.consent, req.session_id, deps, workflow=req.workflow)
