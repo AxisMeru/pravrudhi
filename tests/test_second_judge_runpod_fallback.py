@@ -397,7 +397,9 @@ def _record(d: Path, **over: Any) -> None:
     ("another endpoint's record", {"endpoint_id": "epother"}, False),
     ("another adapter", {"adapter_sha": "zzz"}, False),
 ])
-def test_the_built_second_judge_gates_the_fallback_on_its_own_record(tmp_path: Path, name: str, over: dict[str, Any], ok: bool) -> None:
+def test_the_built_second_judge_gates_the_fallback_on_its_own_record(
+    tmp_path: Path, name: str, over: dict[str, Any], ok: bool
+) -> None:
     (tmp_path / "rec").mkdir()
     _record(tmp_path / "rec", **over)
     gate = _second_of(NyayaAgent.house(tmp_path, config=_agent_config(tmp_path, tmp_path / "rec"))).fallback_gate
