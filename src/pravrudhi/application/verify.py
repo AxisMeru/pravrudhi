@@ -526,7 +526,7 @@ def verify(
 
 
 #: #717: the most distinctive title words, beyond the cited parties' own words, that an existence-only IN_INDEX tolerates.
-#: 0 keeps only titles that carry no extra word; the value is set from the measured distribution on the dev index (#908 record).
+#: 0 keeps only titles that carry no extra word; the value was set from the measured distribution on the dev index (see CHANGELOG).
 EXISTENCE_MAX_EXTRA_TITLE_TOKENS = 0
 
 
