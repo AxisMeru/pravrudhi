@@ -18,6 +18,7 @@ messages.
 
 ### Fixed
 
+- **A partner API key now works on the partner routes (caller-visible).** In a hosted deployment that requires sign-in, a partner key is accepted on `verify-citations`, the asynchronous jobs, the assisted route, intake and the audit log, as well as on `analyse-facts` and the offence registry (before, only those two accepted a key). An organisation's own key can read its own usage (`GET /api/v1/orgs/{id}/usage`); another organisation's key gets 403. The organisation and key admin routes accept the provisioning secret as before. A bad or revoked key gets 401 and is never treated as anonymous. `GET /api/v1/status` still needs a signed-in user and is not opened to a key.
 - **`GET /api/v1/audit` no longer answers 500 for a key that has called the assisted route (#422, caller-visible).** The assisted route's audit rows carry the mode `assist`; the audit page's `mode` enum did not declare it, so the whole page failed. The enum now reads `sync`, `job`, `verify`, `assist` (one value added to the public OpenAPI response enum: a client generated with a closed enum must accept the new value). A guard test compares every mode the engine writes with the declared enum.
 
 ## 0.6.6 (2026-10-14)
