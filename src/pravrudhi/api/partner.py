@@ -51,6 +51,7 @@ import hashlib
 import hmac
 import json
 import logging
+import math
 import os
 import sqlite3
 import subprocess
@@ -174,6 +175,9 @@ class PartnerApiConfig:
     #: hold at once.
     job_retention_s: float = 3600.0
     job_max_unfinished_per_key: int = 8
+    #: Async jobs (#406): how long an accepted job may WAIT for a free agent slot (`max_concurrent`) before it fails with
+    #: `agent_at_capacity`. A job was accepted with 202, so it queues; the sync route stays non-blocking (0 = never wait).
+    job_slot_wait_s: float = 600.0
     #: Audit rows (#148) older than this are dropped on write and never served.
     audit_retention_s: float = 90 * 86400.0
     #: `POST /verify-citations` (#302): how many lookups may run at once (non-blocking: an extra one is a 503) and the
@@ -223,10 +227,18 @@ def load_partner_api_config(root: Path) -> PartnerApiConfig:
         judge_warm_retry_s=float(body.get("judge_warm_retry_s", 30.0)),
         job_retention_s=float(body.get("job_retention_s", 3600.0)),
         job_max_unfinished_per_key=int(body.get("job_max_unfinished_per_key", 8)),
+        job_slot_wait_s=_job_slot_wait(body.get("job_slot_wait_s", 600.0)),
         audit_retention_s=float(body.get("audit_retention_s", 90 * 86400.0)),
         verify_max_concurrent=int(body.get("verify_max_concurrent", 2)),
         verify_timeout_s=float(body.get("verify_timeout_s", 5.0)),
     )
+
+
+def _job_slot_wait(raw: Any) -> float:
+    """`job_slot_wait_s`: a finite number >= 0 (a bool, NaN, inf or a negative is a config error, never a silent default)."""
+    if isinstance(raw, bool) or not isinstance(raw, (int, float)) or not math.isfinite(raw) or raw < 0:
+        raise ValueError(f"job_slot_wait_s must be a finite number >= 0, got {raw!r}")
+    return float(raw)
 
 
 _RATE_LIMIT_HEADER_DOCS: dict[str, Any] = {
@@ -351,7 +363,10 @@ class ConcurrencyLimiter:
     def __init__(self, max_concurrent: int) -> None:
         self._sem = threading.Semaphore(max_concurrent)
 
-    def acquire(self) -> bool:
+    def acquire(self, timeout: float = 0.0) -> bool:
+        """Non-blocking by default. With `timeout` > 0 (async jobs only, #406) waits up to that many seconds for a slot."""
+        if timeout > 0:
+            return self._sem.acquire(timeout=timeout)
         return self._sem.acquire(blocking=False)
 
     def release(self) -> None:
@@ -1313,10 +1328,11 @@ def build_partner_router(
         )
 
     def _run(
-        req: AnalyseFactsRequest, admitted: _Admitted, debug_second_judge: bool, *, slot_held: bool = False
+        req: AnalyseFactsRequest, admitted: _Admitted, debug_second_judge: bool, *, slot_held: bool = False,
+        wait_s: float = 0.0,
     ) -> dict[str, Any] | JSONResponse:
         cfg, concurrency, authenticated = admitted.cfg, admitted.concurrency, admitted.authenticated
-        if not slot_held and not concurrency.acquire():
+        if not slot_held and not concurrency.acquire(wait_s):
             return coded_503(AGENT_AT_CAPACITY)
         try:
             agent = factory(engine_root)
@@ -1584,7 +1600,7 @@ def build_partner_router(
         def task() -> None:
             store.start(job_id)
             try:
-                out = _run(req, admitted, debug_second_judge)
+                out = _run(req, admitted, debug_second_judge, wait_s=admitted.cfg.job_slot_wait_s)
                 if isinstance(out, dict):
                     out = AnalyseFactsResponse(**out).model_dump(mode="json", exclude_unset=True)
             except HTTPException as e:
