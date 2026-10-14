@@ -149,6 +149,14 @@ class JudgeOfflineCheck:
             url = str((block or {}).get("base_url") or "")
             if runpod_endpoint_id(url) is None:
                 continue
-            if self.state(url, os.environ.get(key_env.get(name, "")) or (block or {}).get("api_key")).status == "parked":
-                return True
+            key = os.environ.get(key_env.get(name, "")) or (block or {}).get("api_key")
+            if self.state(url, key).status != "parked":
+                continue
+            # The primary is parked. A fallback that can answer keeps the judge available: any fallback that is not a
+            # RunPod endpoint (never health-checked here) counts as able to answer, and a RunPod fallback only if it is
+            # not itself parked. `unknown` is never parked. Only a judge with no way to answer makes the deployment offline.
+            fallbacks = [str(u) for u in ((block or {}).get("base_urls_fallback") or [])]
+            if any(runpod_endpoint_id(u) is None or self.state(u, key).status != "parked" for u in fallbacks):
+                continue
+            return True
         return False
