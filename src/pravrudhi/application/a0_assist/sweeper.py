@@ -1,6 +1,11 @@
 """The retention sweeper: deletes every Anthropic session this product created that is still undeleted, keeps the
 sweep marker fresh, abandons stale spend reservations, runs the standing canary on its interval and prunes the log.
 
+Two modes, matching the two database roles. "engine" (the narrow engine role): deletes pending sessions and records each
+delete with `session_deleted`, abandons stale reservations, marks the sweep and reads the pause rules; it never runs the
+canary or prune (those functions are not granted to that role). "backstop" (the sweeper role, in a separate process):
+the same deletes recorded with `mark_deleted`, plus the standing canary on its interval and the daily prune.
+
 `Sweeper.run_once()` is one pass and never raises: every store or upstream failure becomes a named entry in the
 returned summary and leaves the session pending for the next pass (a delete is only recorded when the API answered
 200, 204 or 404). It works only from the store's list of sessions this product created, never from a listing of the
@@ -38,7 +43,11 @@ class Sweeper:
         *,
         engine_store: SpendStore | None = None,
         clock: Callable[[], float] = time.monotonic,
+        mode: str = "backstop",
     ) -> None:
+        if mode not in ("engine", "backstop"):
+            raise ValueError("mode is engine or backstop")
+        self._mode = mode
         self._cfg, self._store, self._tr, self._pauses, self._engine = cfg, sweeper_store, transport, pauses, engine_store
         self._clock = clock
         self._last_canary: float | None = None
@@ -55,7 +64,10 @@ class Sweeper:
             except (UpstreamError, TransportRefused, httpx.HTTPError):
                 status = 599
             if status in DELETED:
-                self._store.mark_deleted(sid, status)
+                if self._mode == "engine":
+                    self._store.session_deleted(sid, status)
+                else:
+                    self._store.mark_deleted(sid, status)
                 out["deleted"] += 1
             else:
                 out["failed"] += 1
@@ -76,7 +88,8 @@ class Sweeper:
         if self._store is None or self._tr is None:
             out["error"] = "not_configured"
             self._pauses.set("sweeper", "sweeper_not_configured")
-            guard.run_canary(None, self._pauses)
+            if self._mode == "backstop":
+                guard.run_canary(None, self._pauses)
             return out
         try:
             self._delete_pending(out)
@@ -87,10 +100,12 @@ class Sweeper:
             out["error"] = "store"
             self._pauses.set("sweeper", "sweeper_store_error")
         now = self._clock()
-        if self._last_canary is None or now - self._last_canary >= self._cfg.canary_interval_min * 60:
+        if self._mode == "backstop" and (
+            self._last_canary is None or now - self._last_canary >= self._cfg.canary_interval_min * 60
+        ):
             out["canary"] = guard.run_canary(self._store, self._pauses)
             self._last_canary = now
-        if self._last_prune is None or now - self._last_prune >= PRUNE_EVERY_S:
+        if self._mode == "backstop" and (self._last_prune is None or now - self._last_prune >= PRUNE_EVERY_S):
             try:
                 out["pruned"] = self._store.prune()
                 self._last_prune = now

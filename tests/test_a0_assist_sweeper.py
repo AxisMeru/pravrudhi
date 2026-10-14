@@ -39,6 +39,11 @@ class FakeStore:
         self._do("list_pending")
         return self.pending
 
+    def session_deleted(self, sid, status):
+        self._do("session_deleted")
+        self.marked.append((sid, status))
+        return {"ok": True}
+
     def mark_deleted(self, sid, status):
         self._do("mark_deleted")
         self.marked.append((sid, status))
@@ -216,3 +221,43 @@ def test_the_engine_store_status_feeds_the_pause_rules():
     p = G.Pauses()
     SW.Sweeper(CFG, FakeStore(), FakeTransport(), p, engine_store=engine).run_once()
     assert p.snapshot()["store"] == "canary_failed"
+
+
+def make_engine(store, tr, clock=None):
+    p = G.Pauses()
+    return SW.Sweeper(CFG, store, tr, p, clock=clock or Clock(), mode="engine"), p
+
+
+def test_engine_mode_records_with_session_deleted_and_never_runs_canary_or_prune():
+    st = FakeStore(pend("sesn_a"))
+    sw, p = make_engine(st, FakeTransport({"sesn_a": 404}))
+    out = sw.run_once()
+    assert st.marked == [("sesn_a", 404)] and "mark_deleted" not in st.calls
+    assert "canary" not in st.calls and "prune" not in st.calls and out["canary"] is None
+    assert "status" in st.calls and p.reason() is None
+
+
+def test_engine_mode_reads_the_canary_staleness_from_status_so_a_stale_canary_pauses():
+    st = FakeStore(
+        status={
+            "initialised": True,
+            "canary_failed": False,
+            "canary_age_s": 3 * 3600 + 60,
+            "sweep_last_ok_age_s": 1,
+            "pending_deletes": 0,
+            "oldest_pending_delete_age_s": 0,
+        }
+    )
+    sw, p = make_engine(st, FakeTransport())
+    sw.run_once()
+    assert p.snapshot()["store"] == "canary_stale"
+
+
+def test_a_sweeper_without_a_store_in_engine_mode_pauses_without_a_canary_call():
+    sw, p = make_engine(None, FakeTransport())
+    assert sw.run_once()["error"] == "not_configured" and p.snapshot() == {"sweeper": "sweeper_not_configured"}
+
+
+def test_an_unknown_mode_is_refused():
+    with pytest.raises(ValueError):
+        SW.Sweeper(CFG, FakeStore(), FakeTransport(), G.Pauses(), mode="other")
