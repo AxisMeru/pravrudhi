@@ -164,9 +164,14 @@ def _ws_piece(raw: str, s: int, e: int, ends_by_start: dict[int, int]) -> str:
         # printed line (45 characters or more) that ends in a lower-case letter (so not a heading or a party line)
         before = raw[s - 1] if s > 0 else "."
         after = raw[nxt] if nxt < len(raw) else "A"
-        line_len = s - (raw.rfind("\n", 0, s) + 1)
-        open_line = before not in ".?!:;)\"'\u201d\u2019\u0964"
-        if open_line and (after.islower() or after.isdigit() or after in "&(" or (before.islower() and line_len >= 45)):
+        line_start = raw.rfind("\n", 0, s) + 1
+        line_len = s - line_start
+        families = _cue_families(raw[line_start:s])
+        open_line = (
+            before not in ".?!:;)\"'\u201d\u2019\u0964" and "identity" not in families
+        )  # a header identity line never continues
+        full_width = before.islower() and line_len >= 45 and not families  # nor does any other header-cue line, by width alone
+        if open_line and (after.islower() or after.isdigit() or after in "&(" or full_width):
             return " "
         return "\n\n"
     return " "
@@ -749,14 +754,14 @@ def _cue_families(par: str) -> set[str]:
 
 def _caption_like(par: str) -> bool:
     """A party block, counsel line, bench, date line or appeal preamble of the header of an order (privacy: age, parent's name,
-    address), or a long all-capitals paragraph. A piece is header-like with one cue, EXCEPT a long (150 characters or more)
-    numbered prose paragraph, which is header-like only with an identity cue (S/o, D/o, W/o, R/o, resident of, residing at) or
+    address), or a long all-capitals paragraph. A piece is header-like with one cue, EXCEPT a numbered prose paragraph (any
+    length), which is header-like only with an identity cue (S/o, D/o, W/o, R/o, resident of, residing at) or
     two different kinds of cue: a numbered paragraph that says "aged 45 years" is the body."""
     families = _cue_families(par)
+    if _numbered_prose(par):  # at any length: one weak cue ("aged 45 years") is the body, not the header
+        return "identity" in families or len(families) >= 2
     if len(par) < LONG_PARA:
         return bool(families)
-    if _numbered_prose(par):
-        return "identity" in families or len(families) >= 2
     return bool(families) or _mostly_upper(par, 0.75)
 
 

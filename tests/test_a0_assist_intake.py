@@ -1174,3 +1174,37 @@ def test_r2_last_long_prose_without_a_cue_between_header_pieces_is_kept_and_shor
     )  # two runs; the short counsel line is header
     assert facts_text(b)[0].startswith("The petitioner says")  # the cue-less long prose between the runs is a fact
     assert not any("ZORVAN" in t or "Pardue" in t or "FENWORTH" in t for t in facts_text(b))
+
+
+# ---- prabhasa-nyaya#926: R2's limitations L1 and L2 --------------------------------------------------------------------
+def test_l1_a_short_numbered_prose_paragraph_follows_the_same_identity_or_two_kinds_rule():
+    weak = "1. The deceased, aged 45 years, was found dead in the field."
+    ident = "1. Zorvan Quillerie, S/o Hendrik, aged 35, resident of Thistleby, Exampleshire"
+    assert len(weak) < I.LONG_PARA and len(ident) < I.LONG_PARA
+    assert I._numbered_prose(weak) and I._cue_families(weak) == {"age"} and not I._caption_like(weak)  # arm 1: body
+    assert I._numbered_prose(ident) and "identity" in I._cue_families(ident) and I._caption_like(ident)  # arm 2: header
+    head = "IN THE HIGH COURT\n\nBETWEEN:\n\nCORAM: HON'BLE MR JUSTICE FENWORTH\n\n"
+    b = I.build_bundle(head + weak + "\n\n2. " + BODY[:150] + ".\n\n3. " + BODY[:150] + ".\n")
+    assert facts_text(b)[0].startswith("1. The deceased, aged 45 years")  # the short weak-cue paragraph is a fact
+    c = I.build_bundle(head + ident + "\n\n2. " + BODY[:150] + ".\n\n3. " + BODY[:150] + ".\n")
+    assert not any("Quillerie" in t or "Thistleby" in t for t in facts_text(c))  # the short identity paragraph is header
+    # an unnumbered short line keeps the one-cue rule
+    assert I._caption_like("CORAM: HON'BLE MR JUSTICE FENWORTH") and I._caption_like("Zorvan, aged about 49 years ...Appellant")
+
+
+def test_l2_a_header_identity_line_is_never_joined_to_the_next_paragraph_by_width_or_continuation():
+    ident_line = "Zorvan Quillerie, S/o Hendrik Quillerie, resident of Thistleby near the old mill road"
+    nxt = "Sri Oswin Pardue, Advocate for the Appellant"
+    assert len(ident_line) >= 45 and ident_line[-1].islower()
+    c = I.clean(ident_line + "\n\n" + nxt + "\n")
+    assert "road\n\nSri Oswin" in c["cleaned"]  # arm 1: the header identity line keeps its break
+    plain = "The accused went to the market and returned home late in the evening\n\nShri Ravi was then seen at the gate."
+    assert "evening Shri Ravi" in I.clean(plain)["cleaned"]  # arm 2: ordinary full-width prose still continues
+    other_cue = "BETWEEN: the parties as named in the title of the cause listed below for the hearing\n\nShri Ravi was seen."
+    assert "hearing\n\nShri Ravi" in I.clean(other_cue)["cleaned"]  # any header-cue line keeps its break by width alone
+    raw = (
+        "IN THE HIGH COURT\n\nBETWEEN:\n\n" + ident_line + "\n\n" + nxt + "\n\nCORAM: HON'BLE MR JUSTICE FENWORTH\n\nJUDGMENT\n\n"
+    )
+    raw += "\n\n".join(f"{i}. " + BODY[:150] + "." for i in range(1, 4)) + "\n"
+    b = I.build_bundle(raw)
+    assert not any("Quillerie" in t or "Pardue" in t for t in facts_text(b)) and all(v["pass"] for v in b["checks"].values())
