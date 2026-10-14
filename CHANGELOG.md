@@ -3,7 +3,9 @@
 Release notes for the engine (`pravrudhi`). Versions before 0.5.44 are described in their GitHub release notes and commit
 messages.
 
-## Unreleased
+## 0.6.8 (2026-10-14)
+
+PATCH release on 0.6.7: the first citation check after an engine start no longer waits about 30 seconds (#443), and a keyed request on the Supabase tenancy backend reads its own key row instead of listing the organisation's keys (#441, internal; no change in answers). **Rebuild the image.** The changes are under `src/`, so they reach a running container only by a rebuild of the engine image and the RunPod worker template from 0.6.8.
 
 ### Fixed
 
