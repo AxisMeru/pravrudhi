@@ -374,10 +374,12 @@ def _admissible_deletions(raw: str) -> dict[tuple[int, int], str]:
     for a, b, _ in furniture_lines(raw):
         e = b + (1 if b < len(raw) and raw[b] == "\n" else 0)
         out[(a, e)] = "furniture"
-    furniture_starts = {a for (a, _e), cls in out.items() if cls == "furniture"}
+    furniture = [(a, e) for (a, e), cls in out.items() if cls == "furniture"]
+    furniture_starts = {a for a, _e in furniture}
     for m in _HYPHEN.finditer(raw):
-        # no join into a line the cleaner deletes: the word would be glued to whatever follows the deleted line
-        if raw[m.end()].islower() and m.end() not in furniture_starts:
+        # no join into a line the cleaner deletes (the word would be glued to whatever follows it), and none inside one
+        inside = any(a <= m.start() < e for a, e in furniture)
+        if raw[m.end()].islower() and m.end() not in furniture_starts and not inside:
             out[(m.start(), m.end())] = "hyphen_join"
     return out
 
@@ -580,14 +582,18 @@ def _hard_cut(par: str, a: int, spans: list[dict[str, int]]) -> None:
         spans.append({"cleaned_start": a + start, "cleaned_end": a + len(par)})
 
 
-def _merge_down(spans: list[dict[str, int]], cleaned: str) -> list[dict[str, int]]:
-    """When there are more than MAX_FACTS candidates, merge neighbours (a contiguous cleaned slice) under a growing size cap."""
+def _merge_down(spans: list[dict[str, int]], cleaned: str, excluded: Sequence[dict[str, Any]] = ()) -> list[dict[str, int]]:
+    """When there are more than MAX_FACTS candidates, merge neighbours (a contiguous cleaned slice) under a growing size cap.
+    Two facts are never merged across an excluded span."""
     cap = MAX_FACT_CHARS
     while len(spans) > MAX_FACTS and cap < MAX_CHARS:
         cap *= 2
         merged: list[dict[str, int]] = []
         for s in spans:
-            if merged and s["cleaned_end"] - merged[-1]["cleaned_start"] <= cap:
+            gap_free = not merged or not any(
+                e["cleaned_start"] < s["cleaned_start"] and e["cleaned_end"] > merged[-1]["cleaned_end"] for e in excluded
+            )
+            if merged and gap_free and s["cleaned_end"] - merged[-1]["cleaned_start"] <= cap:
                 merged[-1] = {"cleaned_start": merged[-1]["cleaned_start"], "cleaned_end": s["cleaned_end"]}
             else:
                 merged.append(dict(s))
@@ -604,13 +610,49 @@ _BODY_HEADING = re.compile(
 )
 
 
+def _numbered_prose(par: str) -> bool:
+    """A numbered paragraph that reads as prose (three words or more, a letter that is not upper case, so also Devanagari):
+    not a party line such as "1. AMARESH"."""
+    return bool(_PARA_START.match(par[:16])) and len(par.split()) >= 3 and any(c.isalpha() and not c.isupper() for c in par)
+
+
+def _merge_letterless(facts: list[dict[str, int]], cleaned: str) -> list[dict[str, int]]:
+    """A fact with no letters (a stray "102." left by a sentence cut) is joined to the fact before it, else the one after."""
+    out: list[dict[str, int]] = []
+    carry: dict[str, int] | None = None
+    for f in facts:
+        if carry is not None:
+            f = {"cleaned_start": carry["cleaned_start"], "cleaned_end": f["cleaned_end"]}
+            carry = None
+        if re.search(r"[^\W\d_]", cleaned[f["cleaned_start"] : f["cleaned_end"]]):
+            out.append(f)
+        elif out:
+            out[-1] = {"cleaned_start": out[-1]["cleaned_start"], "cleaned_end": f["cleaned_end"]}
+        else:
+            carry = f
+    return out
+
+
 def _paragraphs(cleaned: str) -> list[tuple[int, int]]:
     out, pos = [], 0
     for par in re.split(r"\n\n", cleaned):
-        a = pos
+        a = pos + (len(par) - len(par.lstrip()))
+        e = pos + len(par.rstrip())
         pos += len(par) + 2
-        if re.search(r"[^\W\d_]", par):
-            out.append((a, a + len(par)))
+        if e > a and re.search(r"[^\W\d_]", par):
+            out.append((a, e))
+    return out
+
+
+def _letterless(cleaned: str) -> list[tuple[int, int]]:
+    """Paragraphs with no letters at all (a page number, an amount, a mark): never facts."""
+    out, pos = [], 0
+    for par in re.split(r"\n\n", cleaned):
+        a = pos + (len(par) - len(par.lstrip()))
+        e = pos + len(par.rstrip())
+        pos += len(par) + 2
+        if e > a and not re.search(r"[^\W\d_]", par):
+            out.append((a, e))
     return out
 
 
@@ -652,12 +694,14 @@ def split_plan(cleaned: str) -> dict[str, list[dict[str, Any]]]:
     paras = _paragraphs(cleaned)
     excluded: list[dict[str, Any]] = []
     body_i = 0
-    first_long = next((i for i, (a, b) in enumerate(paras) if b - a >= LONG_PARA), None)
+    first_long = next(
+        (i for i, (a, b) in enumerate(paras) if b - a >= LONG_PARA or _numbered_prose(cleaned[a:b])), None
+    )  # a long paragraph or the first numbered paragraph of prose is where the body starts
     heading = next(
         (
             i
             for i, (a, b) in enumerate(paras[: max(1, int(len(paras) * 0.4))])
-            if _BODY_HEADING.match(cleaned[a:b]) and i + 1 < len(paras)
+            if _BODY_HEADING.match(cleaned[a:b]) and i + 1 < len(paras) and (first_long is None or i < first_long)
         ),
         None,
     )
@@ -677,7 +721,12 @@ def split_plan(cleaned: str) -> dict[str, list[dict[str, Any]]]:
     body = paras[body_i:]
 
     def repeats(a: int, b: int) -> bool:
-        return b - a < 100 and not _PARA_START.match(cleaned[a : a + 16])  # a numbered paragraph is body, never page furniture
+        line = cleaned[a:b]
+        looks_like_furniture = bool(
+            re.search(r"\d", line) or _URL.search(line) or (len(line.split()) >= 2 and _mostly_upper(line, 0.7))
+        )
+        # a numbered paragraph is body; so is a short line with a negation ("No.", "Not allowed")
+        return b - a < 100 and looks_like_furniture and not _PARA_START.match(line[:16]) and not _has_negation(line)
 
     seen: Counter[str] = Counter(_dn(cleaned[a:b]) for a, b in body if repeats(a, b))
     units: list[tuple[int, int] | None] = []  # None = a group break (an excluded line)
@@ -721,7 +770,19 @@ def split_plan(cleaned: str) -> dict[str, list[dict[str, Any]]]:
             has_numbered = has_numbered or numbered
     if cur:
         facts.append({"cleaned_start": cur[0], "cleaned_end": cur[1]})
-    return {"facts": _merge_down(facts, cleaned), "excluded": sorted(excluded, key=lambda e: e["cleaned_start"])}
+    facts = _merge_down(_merge_letterless(facts, cleaned), cleaned, excluded)
+    covered = [(f["cleaned_start"], f["cleaned_end"]) for f in facts] + [(e["cleaned_start"], e["cleaned_end"]) for e in excluded]
+    for a, b in _letterless(cleaned):
+        if not any(a < ce and cs < b for cs, ce in covered):
+            excluded.append(
+                {
+                    "cleaned_start": a,
+                    "cleaned_end": b,
+                    "status": "no_words",
+                    "reason": "no words in the line (a number or a mark)",
+                }
+            )
+    return {"facts": facts, "excluded": sorted(excluded, key=lambda e: e["cleaned_start"])}
 
 
 def split_facts(cleaned: str) -> list[dict[str, int]]:
@@ -736,23 +797,41 @@ USABLE_MEDIAN_FACT_CHARS = (100, MAX_FACT_CHARS)  # observed: median fact 152 to
 USABLE_SHORT_FACT_SHARE_MAX = 0.20  # facts under 40 characters; observed maximum 0.16
 
 
+USABLE_EXCLUDED_SHARE_MAX = 0.5  # characters left out as caption, repeated lines or marks; observed maximum 0.25
+
+
 def fact_list_usable(bundle: dict[str, Any]) -> dict[str, Any]:
     """The stated range of a usable fact list for one order (a rule, not a bundle check): facts per 10,000 characters within
     USABLE_FACTS_PER_10K, the median fact length within USABLE_MEDIAN_FACT_CHARS, no fact longer than MAX_FACT_CHARS, at most
-    USABLE_SHORT_FACT_SHARE_MAX of the facts under 40 characters. Not applied to texts under USABLE_MIN_TEXT_CHARS."""
-    n_chars = int(bundle.get("n_chars", 0))
-    lens = sorted(len(f["text"]) for f in bundle.get("facts", []))
+    USABLE_SHORT_FACT_SHARE_MAX of the facts under 40 characters, at most USABLE_EXCLUDED_SHARE_MAX of the text left out.
+    Not applied to texts under USABLE_MIN_TEXT_CHARS. A bundle that cannot be read FAILS (no length, no facts list)."""
+    n_chars = bundle.get("n_chars")
+    facts = bundle.get("facts")
+    if not isinstance(n_chars, int) or isinstance(n_chars, bool) or n_chars < 0 or not isinstance(facts, list):
+        return {"applies": True, "pass": False, "reasons": ["the bundle has no readable length or fact list"], "n_facts": 0}
+    try:
+        lens = sorted(len(f["text"]) for f in facts)
+        left_out = sum(
+            n["cleaned_end"] - n["cleaned_start"]
+            for n in bundle.get("not_citable", [])
+            if n.get("status") in ("caption", "repeated_line", "no_words")
+        )
+        cleaned_len = len(bundle.get("cleaned", "")) or n_chars
+    except (KeyError, TypeError):
+        return {"applies": True, "pass": False, "reasons": ["the bundle has no readable length or fact list"], "n_facts": 0}
     out: dict[str, Any] = {"applies": n_chars >= USABLE_MIN_TEXT_CHARS, "pass": True, "reasons": [], "n_facts": len(lens)}
     if not out["applies"]:
         return out
     per10k = len(lens) / (n_chars / 10_000)
     median = lens[len(lens) // 2] if lens else 0
     short = (sum(1 for x in lens if x < 40) / len(lens)) if lens else 1.0
+    excluded_share = left_out / cleaned_len if cleaned_len else 0.0
     out.update(
         facts_per_10k=round(per10k, 1),
         median_fact_chars=median,
         short_fact_share=round(short, 2),
         longest_fact_chars=lens[-1] if lens else 0,
+        excluded_share=round(excluded_share, 2),
     )
     if not USABLE_FACTS_PER_10K[0] <= per10k <= USABLE_FACTS_PER_10K[1]:
         out["reasons"].append("facts per 10,000 characters outside the range")
@@ -762,6 +841,8 @@ def fact_list_usable(bundle: dict[str, Any]) -> dict[str, Any]:
         out["reasons"].append("a fact is longer than the cap")
     if short > USABLE_SHORT_FACT_SHARE_MAX:
         out["reasons"].append("too many facts under 40 characters")
+    if excluded_share > USABLE_EXCLUDED_SHARE_MAX:
+        out["reasons"].append("most of the text was left out of the facts")
     out["pass"] = not out["reasons"]
     return out
 
@@ -836,6 +917,11 @@ def build_bundle(
         item: dict[str, Any] = {"cleaned_start": cs, "cleaned_end": ce}
         if cs is None or ce is None or not (0 <= cs < ce <= len(cleaned)) or cs < last_end:
             not_citable.append({**item, "status": "paraphrase", "reason": "span out of range, empty, or out of order"})
+            continue
+        if any(e["cleaned_start"] < ce and cs < e["cleaned_end"] for e in plan["excluded"]):
+            not_citable.append(
+                {**item, "status": "excluded", "reason": "the span overlaps a part of the text that is not a fact"}
+            )
             continue
         last_end = ce
         text = cleaned[cs:ce]

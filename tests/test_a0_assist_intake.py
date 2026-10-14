@@ -734,9 +734,19 @@ def test_d2_a_short_line_repeated_three_times_is_excluded_twice_is_kept():
     assert len(_plan(doc(3))["facts"]) == 2  # the unnumbered closing line joins the last numbered paragraph
 
 
-def test_d2_numbered_paragraphs_each_start_a_fact_and_a_short_heading_joins_the_numbered_one():
-    raw = "HEADING LINE\n\n1. Short one.\n\n2. Another short one.\n\n(3) And a third.\n"
-    assert facts_text(I.build_bundle(raw)) == ["HEADING LINE\n\n1. Short one.", "2. Another short one.", "(3) And a third."]
+def test_d2_numbered_paragraphs_each_start_a_fact_an_unnumbered_line_after_one_continues_it():
+    raw = "1. Short one.\n\nContinuation line\n\n2. Another short one.\n\n(3) And a third.\n"
+    assert facts_text(I.build_bundle(raw)) == ["1. Short one.\n\nContinuation line", "2. Another short one.", "(3) And a third."]
+    # a heading before the FIRST numbered paragraph is the caption of the order, not a fact
+    b = I.build_bundle("HEADING LINE\n\n1. Short one.\n\n2. Another.\n")
+    assert [n["status"] for n in b["not_citable"]] == ["caption"] and facts_text(b) == ["1. Short one.", "2. Another."]
+
+
+def test_d2_a_short_heading_after_an_excluded_line_joins_the_numbered_paragraph_that_follows():
+    raw = "\n\n".join(["1. " + BODY[:120] + ".", *["Page stamp 7 of 99"] * 3, "Sub-heading line", "2. Another short one."]) + "\n"
+    assert facts_text(I.build_bundle(raw))[-1] == "Sub-heading line\n\n2. Another short one."  # arm 1: lead joins forward
+    raw2 = "\n\n".join(["1. " + BODY[:120] + ".", *["Page stamp 7 of 99"] * 3, "2. Another short one."]) + "\n"
+    assert facts_text(I.build_bundle(raw2))[-1] == "2. Another short one."  # arm 2: no heading, nothing joined
 
 
 def test_d2_unnumbered_short_paragraphs_pack_until_the_target_and_never_past_the_cap():
@@ -797,3 +807,133 @@ def test_usable_range_holds_for_a_caption_heavy_invented_order():
     )
     r = I.fact_list_usable(I.build_bundle(caps + "\n\n" + body + "\n"))
     assert r["applies"] and r["pass"], r
+
+
+# ---- the isolated pre-check of the D1/D2 change (record: precheck_intake2) --------------------------------------------------
+def test_pc1_a_proposed_fact_inside_an_excluded_span_is_not_citable_and_lists_do_not_overlap():
+    raw = "IN THE HIGH COURT\n\nBEFORE\n\nORDER\n\n" + BODY + "\n"
+    b = I.build_bundle(raw)
+    cap = next(n for n in b["not_citable"] if n["status"] == "caption")
+    prop = {
+        **fresh(b),
+        "facts": [
+            {"cleaned_start": 0, "cleaned_end": 10},
+            *({k: f[k] for k in ("cleaned_start", "cleaned_end")} for f in b["facts"]),
+        ],
+    }
+    out = I.build_bundle(raw, proposal=prop)
+    assert [n["status"] for n in out["not_citable"] if n["cleaned_start"] == 0 and n["status"] != "caption"] == ["excluded"]
+    spans = [(f["cleaned_start"], f["cleaned_end"]) for f in out["facts"]]
+    assert all(not (cap["cleaned_start"] < e and s0 < cap["cleaned_end"]) for s0, e in spans)
+
+
+def test_pc2_merged_facts_never_span_an_excluded_line():
+    paras = []
+    for i in range(1, 2 * I.MAX_FACTS + 40):
+        paras.append(
+            f"{i}. Numbered paragraph {i} of the account, long enough to stand alone as a single fact in this test text."
+        )
+        if i % 100 == 0:
+            paras += ["Page stamp 7 of 99"] * 3
+    plan = I.split_plan("\n\n".join(paras) + "\n")
+    assert len(plan["facts"]) <= I.MAX_FACTS and [e["status"] for e in plan["excluded"]].count("repeated_line") >= 3
+    for f in plan["facts"]:
+        assert not any(e["cleaned_start"] < f["cleaned_end"] and f["cleaned_start"] < e["cleaned_end"] for e in plan["excluded"])
+
+
+def test_pc3_short_numbered_paragraphs_before_the_first_long_one_are_facts_not_caption():
+    raw = "\n\n".join(f"{i}. The tenant paid rent." for i in range(1, 21)) + "\n\n" + BODY + "\n"
+    b = I.build_bundle(raw)
+    assert not [n for n in b["not_citable"] if n["status"] == "caption"] and facts_text(b)[0].startswith("1. The tenant")
+
+
+def test_pc4_a_long_paragraph_before_an_order_heading_is_a_fact_not_caption():
+    raw = BODY + "\n\nORDER\n\n1. Next numbered paragraph.\n\n2. And another.\n\n3. And a third.\n\n4. Fourth.\n"
+    p = _plan(raw)
+    assert [e["status"] for e in p["excluded"]] == [] and facts_text(I.build_bundle(raw))[0].startswith("The petitioner says")
+
+
+def test_pc5_letterless_paragraphs_are_listed_when_they_are_in_no_fact():
+    raw = "1,00,000/-\n\n" + BODY + "\n\n12\n\nThe tenant paid rent late.\n"
+    b = I.build_bundle(raw)
+    kinds = [(n["status"], b["cleaned"][n["cleaned_start"] : n["cleaned_end"]]) for n in b["not_citable"]]
+    assert ("no_words", "1,00,000/-") in kinds
+    for c in b["facts"]:  # nothing is both a fact and excluded
+        assert not any(n["cleaned_start"] < c["cleaned_end"] and c["cleaned_start"] < n["cleaned_end"] for n in b["not_citable"])
+
+
+def test_pc6_usable_rule_fails_closed_on_a_bundle_it_cannot_read_and_on_a_mostly_excluded_text():
+    assert I.fact_list_usable({})["pass"] is False
+    assert I.fact_list_usable({"n_chars": 5000})["pass"] is False  # no facts list
+    assert I.fact_list_usable({"n_chars": 5000, "facts": [{}]})["pass"] is False  # a fact without text
+    ok = {"n_chars": 10_000, "facts": [{"text": "x" * 300}] * 24, "not_citable": [], "cleaned": "x" * 10_000}
+    assert I.fact_list_usable(ok)["pass"] is True
+    cap = {"status": "caption", "cleaned_start": 0, "cleaned_end": 6000}
+    assert I.fact_list_usable({**ok, "not_citable": [cap]})["pass"] is False  # 60% of the text left out
+
+
+def test_pc7_paragraph_spans_never_start_or_end_on_whitespace_even_with_three_newlines():
+    for a, b in I._paragraphs("A first line here\n\n\n\nB second line here\n\n\n"):
+        t = ("A first line here\n\n\n\nB second line here\n\n\n")[a:b]
+        assert t == t.strip() and t
+
+
+def test_pc8_short_negation_lines_repeated_three_times_are_kept_as_facts():
+    raw = "1. " + BODY[:100] + "\n\nNo.\n\nNo.\n\nNo.\n\n2. " + BODY[:100] + "\n"
+    assert [e["status"] for e in _plan(raw)["excluded"]] == []
+
+
+def test_pc9_a_hyphen_at_the_end_of_a_furniture_line_is_not_joined_and_checks_pass():
+    hdr = "- {n} -\nhttp://www.example.test/doc-\n"
+    raw = pages(
+        *[
+            ("1. Body text of page one is here.\n" if i == 1 else f"{i}. Body text of page {i} is here.\n")
+            + hdr.format(n=i)
+            + "next line text\n"
+            for i in range(1, 5)
+        ]
+    )
+    c = I.clean(raw)
+    assert all(v["pass"] for v in I.check_clean(raw, c["cleaned"], c["segments"], c["deletions"]).values())
+    spans = sorted((d[0], d[1]) for d in c["deletions"])
+    assert all(spans[i][1] <= spans[i + 1][0] for i in range(len(spans) - 1))  # no overlapping deletions
+
+
+def test_pc10_numbered_party_lines_are_caption_but_numbered_prose_starts_the_body():
+    parties = "IN THE HIGH COURT\n\nBETWEEN:\n\n1. AMARESH\n\n2. S.UMESH\n\n3. VAGEESH\n\n"
+    b = I.build_bundle(
+        parties
+        + "THIS PETITION IS FILED BY THE ADVOCATE FOR THE PETITIONER PRAYING THAT "
+        + "THE COURT BE PLEASED TO QUASH THE PROCEEDINGS. " * 4
+        + "\n"
+    )
+    cap = next(n for n in b["not_citable"] if n["status"] == "caption")
+    assert "3. VAGEESH" in b["cleaned"][cap["cleaned_start"] : cap["cleaned_end"]] and facts_text(b)[0].startswith(
+        "THIS PETITION"
+    )
+    assert (
+        I._numbered_prose("1. The tenant paid rent.")
+        and not I._numbered_prose("1. AMARESH")
+        and not I._numbered_prose("2. S.UMESH")
+    )
+
+
+def test_pc11_a_letterless_fact_is_joined_to_a_neighbour_both_arms():
+    cl = "First sentence is here. 102. Second sentence is here."
+    a = cl.index("102.")
+    facts = [
+        {"cleaned_start": 0, "cleaned_end": 22},
+        {"cleaned_start": a, "cleaned_end": a + 4},
+        {"cleaned_start": a + 5, "cleaned_end": len(cl)},
+    ]
+    assert I._merge_letterless(facts, cl) == [
+        {"cleaned_start": 0, "cleaned_end": a + 4},
+        {"cleaned_start": a + 5, "cleaned_end": len(cl)},
+    ]
+    lead = [{"cleaned_start": a, "cleaned_end": a + 4}, {"cleaned_start": a + 5, "cleaned_end": len(cl)}]
+    assert I._merge_letterless(lead, cl) == [{"cleaned_start": a, "cleaned_end": len(cl)}]
+    assert I._merge_letterless(facts[:1] + facts[2:], cl) == facts[:1] + facts[2:]  # no letterless fact: unchanged
+
+
+def test_pc12_numbered_devanagari_counts_as_prose():
+    assert I._numbered_prose("1. धारा 302 के अंतर्गत आरोप है।")
