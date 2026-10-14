@@ -106,7 +106,8 @@ def test_the_assisted_body_has_the_same_top_level_keys_as_the_core_body_plus_ass
     c = client(tmp_path)
     assisted = c.post(URL, json=BODY).json()
     core = c.post("/api/v1/analyse-facts", json={k: v for k, v in BODY.items() if k not in ("consent", "session_id")}).json()
-    assert set(assisted) - {"assistant"} == set(core) - {"retention_notice"}  # no retention notice on this route (see below)
+    # no retention notice on this route (see below); a finished assisted run also carries `appendix` (#416)
+    assert set(assisted) - {"assistant", "appendix"} == set(core) - {"retention_notice"}
 
 
 def test_an_anonymous_caller_gets_the_core_result_with_sign_in_required(tmp_path):
