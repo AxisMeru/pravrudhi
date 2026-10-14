@@ -383,3 +383,14 @@ def test_a_malformed_workflows_block_is_refused(bad):
 
 def test_workflows_null_means_none():
     assert C.parse(base(workflows=None)).workflows == {}
+
+
+def test_the_shipped_wall_limit_and_event_cap_cover_a_five_contract_run_with_margin():
+    """Dev measurement (14 Oct): five contracts = about 57 s of agent turns and 232 stream events. 60 s / 400 left no margin."""
+    raw = yaml.safe_load((REPO / "configs" / "assistant_tier.yaml").read_text())
+    c = C.parse(raw)
+    assert (c.call_timeout_s, c.max_events) == (150.0, 1000)
+    assert c.call_timeout_s >= 2 * 57 and c.max_events >= 2 * 232
+    # the sweeper never abandons a run still allowed to run: wall limit + interrupt wait + a minute for the delete
+    assert c.abandon_after_min * 60 >= c.call_timeout_s + c.interrupt_wait_s + 60
+    assert c.call_timeout_s < 320  # inside the app's own request timeout
