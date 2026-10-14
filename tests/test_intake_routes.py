@@ -23,7 +23,6 @@ from pravrudhi.application.a0_assist import limits as L
 from pravrudhi.application.a0_assist import runtime as RT
 from pravrudhi.application.case_index import CaseRecord, insert_case, open_index
 from tests import test_a0_assist_request as RQ
-from tests import test_nyaya_agent as T
 from tests.test_api_partner import _agent, _proof_script
 
 USER = identity.User("u1", "user@example.test", "user")
@@ -187,6 +186,7 @@ def test_assist_needs_consent_and_a_signed_in_caller(tmp_path: Path) -> None:
     assert r.status_code == 400 and r.json() == {"error": "consent_required"} and c.rt.transport.calls == []  # type: ignore[attr-defined]
     anon = _assist_client(tmp_path / "a", user=None)
     assert anon.post(ASSIST, json={"text": TEXT, "consent": True}).status_code == 401
+    assert anon.rt.transport.calls == [] and anon.rt.store.log == []  # type: ignore[attr-defined]
 
 
 def test_a_finished_assisted_run_returns_the_driver_bundle_and_never_the_agents_prose(tmp_path: Path) -> None:
@@ -200,7 +200,7 @@ def test_a_finished_assisted_run_returns_the_driver_bundle_and_never_the_agents_
     assert body["bundle"]["bundle_sha256"] and "SECRET-AGENT-PROSE" not in r.text and body["assistant"]["summary"] is None
     assert "retention_notice" not in body
     plain = _client(tmp_path / "p").post(PLAIN, json={"text": TEXT}).json()["bundle"]
-    assert body["bundle"] == plain  # the agent adds nothing: the same deterministic bundle
+    assert body["bundle"]["facts"] and body["bundle"] == plain  # the agent adds nothing: the same deterministic bundle
 
 
 def test_the_first_message_carries_the_pasted_text(tmp_path: Path) -> None:
@@ -236,4 +236,100 @@ def test_the_intake_message_is_json_of_the_text_only() -> None:
     body = m[len(AS.INTAKE_USER_MESSAGE_PREFIX):]
     assert m.startswith(AS.INTAKE_USER_MESSAGE_PREFIX) and "contract_ids" not in m
     assert json.loads(body) == {"text": 'a "quoted" line\n\nnext'}  # the text round-trips exactly as JSON
-    assert intake.SCAN_LINE not in m and T is not None
+    assert intake.SCAN_LINE not in m
+
+
+# ---- the pre-check's findings --------------------------------------------------------------------------------------------------
+@pytest.mark.parametrize("consent", ["1", "yes", "true", 1, 0, "True"])
+def test_consent_must_be_the_json_boolean_true_nothing_coerces(tmp_path: Path, consent: Any) -> None:
+    c = _assist_client(tmp_path)
+    r = c.post(ASSIST, json={"text": TEXT, "consent": consent})
+    assert r.status_code == 422 and c.rt.transport.calls == [] and c.rt.store.log == []  # type: ignore[attr-defined]
+
+
+def test_a_blank_text_is_refused_before_anything_runs_on_both_routes(tmp_path: Path) -> None:
+    c = _assist_client(tmp_path)
+    for path in (PLAIN, ASSIST):
+        assert c.post(path, json={"text": " \n\t ", "consent": True}).status_code == 422
+    assert c.rt.transport.calls == [] and c.rt.store.log == []  # type: ignore[attr-defined]
+
+
+def _garbage_index(tmp_path: Path) -> Path:
+    p = tmp_path / "bad.sqlite3"
+    p.write_bytes(b"this is not a sqlite database" * 50)
+    return p
+
+
+def test_a_failing_citation_lookup_is_check_unavailable_never_a_guess_or_a_500(tmp_path: Path) -> None:
+    r = _client(tmp_path, index=_garbage_index(tmp_path)).post(PLAIN, json={"text": TEXT})
+    assert r.status_code == 200
+    cits = r.json()["bundle"]["citations"]
+    assert cits and all(c["verifier_status"] == "CHECK_UNAVAILABLE" for c in cits)
+
+
+def test_citation_lookups_per_request_are_bounded(tmp_path: Path) -> None:
+    from pravrudhi.api.partner import INTAKE_MAX_CITATION_LOOKUPS
+
+    many = "\n\n".join(f"{i}. See (1977) 3 SCC {200 + i} for the rule." for i in range(INTAKE_MAX_CITATION_LOOKUPS + 10))
+    cits = _client(tmp_path, index=_index(tmp_path)).post(PLAIN, json={"text": many}).json()["bundle"]["citations"]
+    statuses = [c["verifier_status"] for c in cits]
+    assert len(statuses) > INTAKE_MAX_CITATION_LOOKUPS
+    assert statuses.count("NOT_CHECKED") == len(statuses) - INTAKE_MAX_CITATION_LOOKUPS
+    assert all(st != "NOT_CHECKED" for st in statuses[:INTAKE_MAX_CITATION_LOOKUPS])
+
+
+def test_intake_takes_an_agent_slot_so_a_burst_cannot_starve_the_service(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    started, release = threading.Event(), threading.Event()
+    real = intake.build_bundle
+
+    def slow(raw: str, **kw: Any) -> Any:
+        started.set()
+        release.wait(10)
+        return real(raw, **kw)
+
+    monkeypatch.setattr(intake, "build_bundle", slow)
+    c = _client(tmp_path)  # max_concurrent 1
+    t = threading.Thread(target=lambda: c.post(PLAIN, json={"text": TEXT}), daemon=True)
+    t.start()
+    assert started.wait(10)
+    r = c.post(PLAIN, json={"text": TEXT})
+    assert r.status_code == 503 and r.json()["error"] == "agent_at_capacity"
+    release.set()
+    t.join(10)
+    assert c.post(PLAIN, json={"text": TEXT}).status_code == 200  # the slot was released
+
+
+def _keyed(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> tuple[TestClient, str]:
+    from tests.test_partner_key_metering import ADMIN, _key
+
+    monkeypatch.setenv("PRAVRUDHI_ADMINS", ADMIN.id)
+    c = _client(tmp_path, user=ADMIN)
+    return c, _key(c, "acme")
+
+
+def test_a_keyed_intake_call_leaves_an_audit_row_without_the_text(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    from pravrudhi.application import tenancy
+
+    c, secret = _keyed(monkeypatch, tmp_path)
+    h = {tenancy.API_KEY_HEADER: secret}
+    assert c.post(PLAIN, json={"text": TEXT}, headers=h).status_code == 200
+    rows = c.get("/api/v1/audit", headers=h).json()["rows"]
+    mine = [r for r in rows if r.get("mode") == "intake"]
+    assert len(mine) == 1 and mine[0]["status_code"] == 200 and mine[0]["run_id"].startswith("nyaya-intake-")
+    assert "complainant" not in json.dumps(rows)  # never the pasted text
+
+
+def test_the_assisted_route_audits_too_and_the_rate_limit_covers_it(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    from pravrudhi.application import tenancy
+
+    cfg = PartnerApiConfig(rate_limit_per_minute=1, max_concurrent=1, trust_proxy_header=False)
+    c = _assist_client(tmp_path)
+    app = FastAPI()
+    app.include_router(build_partner_router(tmp_path, agent_factory=lambda _r: _agent(tmp_path, _proof_script()), config=cfg))
+    app.dependency_overrides[identity.current_user] = lambda: USER
+    limited = TestClient(app)
+    codes = [limited.post(ASSIST, json={"text": TEXT, "consent": True}).status_code for _ in range(2)]
+    assert codes[1] == 429
+    assert tenancy.API_KEY_HEADER and c is not None

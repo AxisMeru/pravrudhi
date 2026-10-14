@@ -67,7 +67,7 @@ from typing import Any, Literal, Protocol
 
 import yaml
 from fastapi import APIRouter, HTTPException, Query, Request, Response
-from pydantic import BaseModel, Field, computed_field, field_validator
+from pydantic import BaseModel, Field, StrictBool, computed_field, field_validator
 from starlette.responses import JSONResponse
 
 from pravrudhi import __version__
@@ -492,12 +492,23 @@ class AssistFactsRequest(AnalyseFactsRequest):
     workflow: Literal["screening", "hearing_prep", "intake"] = "screening"
 
 
+#: Citation lookups per intake request; further citations are listed with the status NOT_CHECKED.
+INTAKE_MAX_CITATION_LOOKUPS = 50
+
+
 class IntakeRequest(BaseModel):
     """Intake (pravrudhi#414): pasted text only. The text is read and cleaned by the engine; nothing is stored."""
 
     text: str = Field(min_length=1, max_length=200_000)
-    consent: bool = False
+    consent: StrictBool = False  # strict: "1" or "yes" must never send a user's text to a third party
     session_id: str | None = Field(default=None, max_length=128)
+
+    @field_validator("text")
+    @classmethod
+    def _not_blank(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("text must not be blank")
+        return v
 
 
 #: The exact keys `analyse_facts_ep` strips out of each element's dict when the debug gate is off -- listed
@@ -1567,7 +1578,13 @@ def build_partner_router(
         if path is None or not Path(path).is_file():
             return None
 
+        looked_up = [0]
+
         def exists(text: str) -> str:
+            # a pasted text can hold thousands of citations: bound the lookups (each can take verify_timeout_s)
+            if looked_up[0] >= INTAKE_MAX_CITATION_LOOKUPS:
+                return "NOT_CHECKED"
+            looked_up[0] += 1
             result, _cov = _lookup(Path(path), VerifyCitationRequest(citation=text), cfg.verify_timeout_s)
             return result.result
 
@@ -1582,6 +1599,19 @@ def build_partner_router(
         except intake.IntakeRefused as e:
             raise HTTPException(422, str(e)) from e
         return {"run_id": f"nyaya-intake-{os.urandom(5).hex()}", "client_data": True, "bundle": bundle}
+
+    def _intake_audit(metered: list[str], mode: str, status_code: int, out: dict[str, Any] | None = None) -> None:
+        """One audit row per key-admitted intake call: key, time, run id and HTTP status; never the text. A failure to write is
+        logged, never allowed to change the answer."""
+        if not metered:
+            return
+        try:
+            audit.record(
+                engine_root, key_id=metered[0], mode=mode, status_code=status_code, contract_ids=[],
+                run_id=(out or {}).get("run_id"), outcomes={}, retention_s=_get_state()[0].audit_retention_s, now=_now(),
+            )
+        except Exception:
+            _logger.exception("audit write failed for key %s", metered[0])
 
     def _intake_admit(req: IntakeRequest, request: Request, user: User | None, metered: list[str], per_minute: list[int]) -> Any:
         admitted = _admit(req, request, user, metered, per_minute, screening=False)
@@ -1600,9 +1630,19 @@ def build_partner_router(
         admitted = _intake_admit(req, request, user, metered, per_minute)
         if isinstance(admitted, JSONResponse):
             return admitted
-        out = _intake_core(req, admitted)
+        if not admitted.concurrency.acquire():
+            _intake_audit(metered, "intake", 503)
+            return coded_503(AGENT_AT_CAPACITY)
+        try:
+            out = _intake_core(req, admitted)
+        except HTTPException as e:
+            _intake_audit(metered, "intake", e.status_code)
+            raise
+        finally:
+            admitted.concurrency.release()
         if metered:
             response.headers.update(_rate_headers(metered[0], per_minute[0]))
+        _intake_audit(metered, "intake", 200, out)
         return out
 
     @router.post("/intake/assist", include_in_schema=False, response_model=None)
@@ -1644,11 +1684,21 @@ def build_partner_router(
             summarise=lambda driver, events: None,  # the result is the bundle; the agent's prose is never shown
         )
         caller = a0.Caller(admitted.authenticated, admitted.user_id, admitted.org_id, admitted.ip)
-        out = a0.run_assisted({"text": req.text}, caller, req.consent, req.session_id, deps, workflow="intake")
+        if not admitted.concurrency.acquire():
+            _intake_audit(metered, "intake_assist", 503)
+            return coded_503(AGENT_AT_CAPACITY)
+        try:
+            out = a0.run_assisted({"text": req.text}, caller, req.consent, req.session_id, deps, workflow="intake")
+        except HTTPException as e:
+            _intake_audit(metered, "intake_assist", e.status_code)
+            raise
+        finally:
+            admitted.concurrency.release()
         if isinstance(out, dict):
             out.pop("retention_notice", None)
         if metered and isinstance(out, dict):
             response.headers.update(_rate_headers(metered[0], per_minute[0]))
+        _intake_audit(metered, "intake_assist", 200, out if isinstance(out, dict) else None)
         result: dict[str, Any] | JSONResponse = out
         return result
 
