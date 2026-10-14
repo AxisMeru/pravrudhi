@@ -33,6 +33,15 @@ class StoreError(RuntimeError):
     """The store cannot be used right now: fail closed (no session starts)."""
 
 
+class StoreTimeout(StoreError):
+    """A statement, lock or socket timeout: reported as its own reason, never folded into a generic failure."""
+
+
+def _is_timeout(exc: BaseException) -> bool:
+    text = str(exc).lower()
+    return isinstance(exc, TimeoutError) or "statement timeout" in text or "lock timeout" in text or "timed out" in text
+
+
 class StoreNotConfigured(StoreError):
     """No DSN, no driver, or a DSN that is refused: the assisted route is not configured."""
 
@@ -167,6 +176,8 @@ class PgSpendStore:
         except StoreError:
             raise
         except Exception as exc:  # noqa: BLE001 - deliberately broad: the driver, ssl and socket layers raise unrelated types; every one fails closed to a StoreError that names only its class
+            if _is_timeout(exc):
+                raise StoreTimeout(f"the store call timed out ({type(exc).__name__})") from None
             raise StoreError(f"the store call failed ({type(exc).__name__})") from None
         finally:
             if conn is not None:

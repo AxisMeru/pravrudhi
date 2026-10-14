@@ -144,3 +144,14 @@ def test_two_sources_pause_independently_and_clear_independently():
     assert p.reason() == "canary_error"
     p.set("canary", None)
     assert p.reason() is None
+
+
+def test_a_canary_timeout_pauses_with_its_own_reason():
+    p = G.Pauses()
+
+    class Slow:
+        def canary(self):
+            raise ST.StoreTimeout("t")
+
+    r = G.run_canary(Slow(), p)
+    assert r == {"ok": False, "error": "timeout"} and p.snapshot() == {"canary": "canary_timeout"}

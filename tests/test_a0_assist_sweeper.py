@@ -219,7 +219,7 @@ def test_the_engine_store_status_feeds_the_pause_rules():
         }
     )
     p = G.Pauses()
-    SW.Sweeper(CFG, FakeStore(), FakeTransport(), p, engine_store=engine).run_once()
+    SW.Sweeper(CFG, FakeStore(), FakeTransport(), p, engine_store=engine, mode="engine").run_once()
     assert p.snapshot()["store"] == "canary_failed"
 
 

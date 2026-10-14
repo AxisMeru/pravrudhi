@@ -57,12 +57,18 @@ class Sweeper:
         mode: str = "backstop",
         scan_orphans: bool | None = None,
         wall_clock: Callable[[], float] = time.time,
+        min_age_min: int = 0,
+        canary_enabled: bool | None = None,
+        prune_enabled: bool | None = None,
     ) -> None:
         if mode not in ("engine", "backstop"):
             raise ValueError("mode is engine or backstop")
         self._mode = mode
         self._scan_orphans = (mode == "engine") if scan_orphans is None else scan_orphans
         self._wall = wall_clock
+        self._min_age = min_age_min
+        self._canary_on = (mode == "backstop") if canary_enabled is None else canary_enabled
+        self._prune_on = (mode == "backstop") if prune_enabled is None else prune_enabled
         self._delete_canary_ok = False
         self._cfg, self._store, self._tr, self._pauses, self._engine = cfg, sweeper_store, transport, pauses, engine_store
         self._clock = clock
@@ -71,7 +77,7 @@ class Sweeper:
 
     def _delete_pending(self, out: dict[str, Any]) -> set[str]:
         assert self._store is not None and self._tr is not None
-        pending = self._store.list_pending(0)
+        pending = self._store.list_pending(self._min_age)
         out["pending"] = len(pending)
         for row in pending[:MAX_PER_PASS]:
             sid = row["anthropic_session_id"]
@@ -144,7 +150,7 @@ class Sweeper:
         if self._store is None or self._tr is None:
             out["error"] = "not_configured"
             self._pauses.set("sweeper", "sweeper_not_configured")
-            if self._mode == "backstop":
+            if self._canary_on:
                 guard.run_canary(None, self._pauses)
             return out
         try:
@@ -160,18 +166,17 @@ class Sweeper:
             out["error"] = "store"
             self._pauses.set("sweeper", "sweeper_store_error")
         now = self._clock()
-        if self._mode == "backstop" and (
-            self._last_canary is None or now - self._last_canary >= self._cfg.canary_interval_min * 60
-        ):
+        if self._canary_on and (self._last_canary is None or now - self._last_canary >= self._cfg.canary_interval_min * 60):
             out["canary"] = guard.run_canary(self._store, self._pauses)
             self._last_canary = now
-        if self._mode == "backstop" and (self._last_prune is None or now - self._last_prune >= PRUNE_EVERY_S):
+        if self._prune_on and (self._last_prune is None or now - self._last_prune >= PRUNE_EVERY_S):
             try:
                 out["pruned"] = self._store.prune()
                 self._last_prune = now
             except StoreError:
                 out["pruned"] = None
-        guard.check_store(self._engine if self._engine is not None else self._store, self._cfg, self._pauses)
+        if self._mode == "engine":  # the sweeper role may not read status(); the backstop never evaluates the pause rules
+            guard.check_store(self._engine if self._engine is not None else self._store, self._cfg, self._pauses)
         return out
 
     def run_loop(self, stop: threading.Event) -> None:

@@ -394,3 +394,26 @@ def test_canary_and_prune_fail_closed_on_a_bad_shape_or_a_dead_store():
             make(rows=[[bad]])[0].prune()
     with pytest.raises(ST.StoreError):
         make(fail_connect=OSError("down"))[0].canary()
+
+
+@pytest.mark.parametrize(
+    "exc",
+    [
+        Exception("canceling statement due to statement timeout"),
+        Exception("canceling statement due to lock timeout"),
+        TimeoutError("x"),
+        OSError("timed out"),
+    ],
+)
+def test_a_timeout_is_a_distinct_store_timeout_and_still_a_store_error(exc):
+    s, _, _ = make(fail_execute=exc)
+    with pytest.raises(ST.StoreTimeout) as e:
+        s.canary()
+    assert isinstance(e.value, ST.StoreError) and "db.example" not in str(e.value) and "pw" not in str(e.value)
+
+
+def test_a_non_timeout_failure_is_not_a_store_timeout():
+    s, _, _ = make(fail_execute=Exception("syntax error"))
+    with pytest.raises(ST.StoreError) as e:
+        s.canary()
+    assert not isinstance(e.value, ST.StoreTimeout)

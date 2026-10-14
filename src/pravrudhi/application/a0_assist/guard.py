@@ -11,12 +11,15 @@ source makes the tier unavailable with reason "disabled".
 
 from __future__ import annotations
 
+import logging
 import threading
 from collections.abc import Callable
 from typing import Any
 
 from pravrudhi.application.a0_assist.config import AssistConfig
-from pravrudhi.application.a0_assist.store import SpendStore, StoreError
+from pravrudhi.application.a0_assist.store import SpendStore, StoreError, StoreTimeout
+
+_log = logging.getLogger(__name__)
 
 
 def _nonneg_int(v: Any) -> int | None:
@@ -92,6 +95,11 @@ def run_canary(sweeper_store: SpendStore | None, pauses: Pauses) -> dict[str, An
         return {"ok": False, "error": "no_sweeper_store"}
     try:
         res = sweeper_store.canary()
+    except StoreTimeout:
+        # its own reason: a hosted catalog large enough to outrun the role's statement timeout must be visible, not silent
+        pauses.set("canary", "canary_timeout")
+        _log.warning("assisted tier: the standing canary timed out (statement or lock timeout); the tier stays paused")
+        return {"ok": False, "error": "timeout"}
     except StoreError:
         pauses.set("canary", "canary_error")
         return {"ok": False, "error": "store"}
