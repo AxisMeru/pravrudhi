@@ -343,3 +343,10 @@ def test_workspace_ok_is_false_on_a_transport_failure():
 
     t, _ = make(boom)
     assert t.workspace_ok() is False
+@pytest.mark.parametrize("body", [[], "x", 5])
+def test_a_session_answer_that_is_not_a_json_object_is_an_upstream_error(body):
+    t, _ = make(lambda r: httpx.Response(200, json=body))
+    with pytest.raises(TR.UpstreamError):
+        t.get_session("sesn_1")
+    with pytest.raises(TR.UpstreamError):
+        t.create_session("a", 1, "e", 5)
