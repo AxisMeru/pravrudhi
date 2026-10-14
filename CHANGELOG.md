@@ -17,7 +17,7 @@ PATCH release: the optional assistant tier ships DARK. The engine gains the code
 
 ### Changed
 
-- **`assistant_tier` reasons.** `upstream_error` now also covers the assistant's guard pauses (a store that is unreachable, not initialised, over its ceiling or failing its canary pauses the tier); a failed workspace check at startup pauses it too. The field's shape is unchanged, and a client that does not know a reason treats the tier as not offered.
+- **`assistant_tier` reasons.** `upstream_error` now also covers the assistant's guard pauses (the spend store, its ceiling, its canary and the startup workspace check). The field's shape is unchanged.
 - **`/api/health` `assistant_tier` and `configs/assistant_tier.yaml`** carry the new limits (`session_budget_usd`, `daily_ceiling_usd`, store and CA settings); nothing here changes screening.
 
 ## 0.6.2 (2026-10-14)
