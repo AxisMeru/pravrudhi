@@ -1026,7 +1026,7 @@ def test_no_window_configured_means_status_says_null_and_analyse_is_unchanged(tm
 def test_the_shipped_config_defines_the_hosted_window_but_does_not_enforce_it_by_default() -> None:
     cfg = load_partner_api_config(Path(__file__).resolve().parent.parent)
     assert cfg.service_window is not None and cfg.service_window.tz == "Europe/London"
-    assert (cfg.service_window.open.hour, cfg.service_window.close.hour) == (9, 21)
+    assert (cfg.service_window.open.hour, cfg.service_window.close.hour) == (0, 23)
     assert cfg.service_window_enforce is False
 
 
