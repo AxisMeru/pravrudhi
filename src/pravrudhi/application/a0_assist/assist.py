@@ -29,7 +29,7 @@ from typing import Any
 import httpx
 
 from pravrudhi.application.a0_assist import driver as drv
-from pravrudhi.application.a0_assist.config import MAX_SESSION_CENTS, AssistConfig
+from pravrudhi.application.a0_assist.config import MAX_SESSION_CENTS, AssistConfig, WorkflowAgent
 from pravrudhi.application.a0_assist.limits import AssistLimiter
 from pravrudhi.application.a0_assist.store import SpendStore, StoreError, new_session_key
 from pravrudhi.application.a0_assist.transport import AnthropicTransport, TransportRefused, UpstreamError
@@ -215,7 +215,10 @@ class _Run:
         self.driver: drv.A0Driver | None = None
 
 
-def run_assisted(request: dict[str, Any], caller: Caller, consent: bool, client_session_id: str | None, deps: Deps) -> Any:
+def run_assisted(
+    request: dict[str, Any], caller: Caller, consent: bool, client_session_id: str | None, deps: Deps,
+    workflow: str = "screening",
+) -> Any:
     cfg = deps.cfg
     if consent is not True:
         raise ConsentRequired()
@@ -226,17 +229,18 @@ def run_assisted(request: dict[str, Any], caller: Caller, consent: bool, client_
     tier = deps.tier_status()
     if tier.get("state") != "available":
         return _fallback(deps, "refused", _tier_reason(tier), client_session_id)
-    if deps.store is None or deps.transport is None:
-        return _fallback(deps, "refused", "not_configured", client_session_id)
+    agent = cfg.agent_for(workflow)
+    if deps.store is None or deps.transport is None or agent is None:
+        return _fallback(deps, "refused", "not_configured", client_session_id)  # a workflow with no agent stays dark
     if not deps.slots.acquire(blocking=False):
         return _fallback(deps, "refused", "rate_limited", client_session_id)
     try:
-        return _run_with_slot(request, client_session_id, deps, cfg)
+        return _run_with_slot(request, client_session_id, deps, cfg, agent)
     finally:
         deps.slots.release()
 
 
-def _run_with_slot(request: dict[str, Any], client_sid: str | None, deps: Deps, cfg: AssistConfig) -> Any:
+def _run_with_slot(request: dict[str, Any], client_sid: str | None, deps: Deps, cfg: AssistConfig, agent: WorkflowAgent) -> Any:
     store, tr = deps.store, deps.transport
     assert store is not None and tr is not None
     key = new_session_key()
@@ -255,7 +259,7 @@ def _run_with_slot(request: dict[str, Any], client_sid: str | None, deps: Deps, 
     try:
         driver = deps.make_driver()
         run.driver = driver
-        outcome_reason = _converse(request, run, deps, cfg)
+        outcome_reason = _converse(request, run, deps, cfg, agent)
         if outcome_reason == ("finished", None):
             problems = driver.complete()
             if driver.refusals:
@@ -287,10 +291,10 @@ def _run_with_slot(request: dict[str, Any], client_sid: str | None, deps: Deps, 
     return _fallback(deps, outcome, reason or "error", client_sid, steps=steps, cost=cost_block)
 
 
-def _converse(request: dict[str, Any], run: _Run, deps: Deps, cfg: AssistConfig) -> tuple[str, str | None]:
+def _converse(request: dict[str, Any], run: _Run, deps: Deps, cfg: AssistConfig, agent: WorkflowAgent) -> tuple[str, str | None]:
     tr = deps.transport
     assert tr is not None and run.driver is not None and run.key is not None
-    sess = tr.create_session(cfg.agent_id or "", cfg.agent_version or 0, cfg.environment_id or "", cfg.session_budget_cents)
+    sess = tr.create_session(agent.agent_id, agent.agent_version, agent.environment_id, cfg.session_budget_cents)
     sid = sess["id"]
     run.sid = sid
     deps.store.session_created(sid, run.key)  # type: ignore[union-attr]

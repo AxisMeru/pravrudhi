@@ -167,3 +167,22 @@ def test_no_retention_notice_on_any_response_of_the_assist_route_finished_or_fal
     assert fallback["assistant"]["used"] is False and "retention_notice" not in fallback
     core = c2.post("/api/v1/analyse-facts", json={k: v for k, v in BODY.items() if k not in ("consent", "session_id")}).json()
     assert "retention_notice" in core  # the ordinary route is unchanged
+
+
+# ---- the workflow field (workflow hook) ----------------------------------------------------------------------------------------
+def test_workflow_defaults_to_screening_and_an_unknown_value_is_422(tmp_path):
+    c = client(tmp_path)
+    assert c.post(URL, json=BODY).status_code == 200  # no workflow field: screening, as before
+    assert c.post(URL, json={**BODY, "workflow": "screening"}).status_code == 200
+    r = c.post(URL, json={**BODY, "workflow": "nonsense"})
+    assert r.status_code == 422 and c.rt.transport.calls.count("create_session") == 2  # the two good runs only
+
+
+def test_a_workflow_with_no_agent_answers_with_the_ordinary_result_and_not_configured(tmp_path):
+    c = client(tmp_path)
+    before = list(c.rt.transport.calls)
+    r = c.post(URL, json={**BODY, "workflow": "hearing_prep"})
+    assert r.status_code == 200
+    a = r.json()["assistant"]
+    assert a["used"] is False and a["reason"] == "not_configured" and r.json()["contracts"]
+    assert c.rt.transport.calls == before and c.rt.store.log == []

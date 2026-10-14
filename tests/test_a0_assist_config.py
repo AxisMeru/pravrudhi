@@ -324,3 +324,62 @@ def test_the_shipped_ca_path_the_dockerfile_copy_and_the_pinned_sha_agree():
     assert hashlib.sha256(cert.read_bytes()).hexdigest() == pinned
     assert cert.read_text().count("BEGIN CERTIFICATE") == 1
     assert 'pip install --no-cache-dir --quiet "$kernel" "pravrudhi[assist] @ $engine"' in docker  # the image installs the extra
+
+
+# ---- per-workflow agents (workflow hook) -------------------------------------------------------------------------------------
+HP = {"agent_id": "agent_hp", "agent_version": 3, "environment_id": "env_hp"}
+IN = {"agent_id": "agent_in", "agent_version": 1, "environment_id": "env_in"}
+
+
+def test_workflows_is_a_required_key_and_the_shipped_file_has_none_yet():
+    cfg = base()
+    del cfg["workflows"]
+    with pytest.raises(C.AssistConfigError, match="workflows"):
+        C.parse(cfg)
+    assert C.parse(base()).workflows == {}
+
+
+def test_a_configured_workflow_has_its_own_agent_and_screening_keeps_the_top_level_keys():
+    c = C.parse(enabled(workflows={"hearing_prep": HP, "intake": IN}))
+    assert c.agent_for("hearing_prep") == C.WorkflowAgent("agent_hp", 3, "env_hp")
+    assert c.agent_for("intake") == C.WorkflowAgent("agent_in", 1, "env_in")
+    assert c.agent_for("screening") == C.WorkflowAgent("agent_x", 2, "env_x")
+    assert c.all_agent_ids() == ("agent_x", "agent_hp", "agent_in")
+
+
+def test_a_workflow_without_an_entry_has_no_agent_and_stays_dark():
+    c = C.parse(enabled(workflows={"hearing_prep": HP}))
+    assert c.agent_for("intake") is None and c.agent_for("unknown") is None
+    assert C.parse(base()).agent_for("screening") is None  # dark config: no product agent either
+
+
+def test_all_agent_ids_drops_duplicates_and_keeps_screening_first():
+    same = {**HP, "agent_id": "agent_x"}
+    assert C.parse(enabled(workflows={"hearing_prep": same})).all_agent_ids() == ("agent_x",)
+
+
+@pytest.mark.parametrize("bad", [
+    {"screening": HP},  # screening is the top-level keys
+    {"nonsense": HP},
+    {"hearing_prep": {"agent_id": "a", "agent_version": 1}},  # missing key
+    {"hearing_prep": {**HP, "extra": 1}},
+    {"hearing_prep": {**HP, "agent_version": 0}},
+    {"hearing_prep": {**HP, "agent_version": True}},
+    {"hearing_prep": {**HP, "agent_version": "2"}},
+    {"hearing_prep": {**HP, "agent_id": ""}},
+    {"hearing_prep": {**HP, "environment_id": "  "}},
+    {"hearing_prep": {**HP, "agent_id": 5}},
+    {"hearing_prep": "agent"},
+    ["hearing_prep"],
+    "x",
+    5,
+])
+def test_a_malformed_workflows_block_is_refused(bad):
+    with pytest.raises(C.AssistConfigError):
+        C.parse(base(workflows=bad))
+    with pytest.raises(C.AssistConfigError):
+        C.parse(enabled(workflows=bad))
+
+
+def test_workflows_null_means_none():
+    assert C.parse(base(workflows=None)).workflows == {}

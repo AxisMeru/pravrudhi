@@ -25,6 +25,20 @@ class AssistConfigError(ValueError):
     """The assist configuration cannot be trusted: the route stays off and the tier reports not configured."""
 
 
+#: The workflows the assisted route can serve. "screening" is the product agent in the top-level keys; every other entry
+#: needs its own agent under `workflows:` (one pinned agent per workflow) and stays dark until it has one.
+KNOWN_WORKFLOWS = ("screening", "hearing_prep", "intake")
+
+
+@dataclass(frozen=True, slots=True)
+class WorkflowAgent:
+    """One workflow's pinned managed agent: the ids a session is created with."""
+
+    agent_id: str
+    agent_version: int
+    environment_id: str
+
+
 @dataclass(frozen=True, slots=True)
 class AssistConfig:
     route_enabled: bool
@@ -53,6 +67,21 @@ class AssistConfig:
     max_events: int
     canary_interval_min: int
     canary_stale_min: int
+    workflows: dict[str, WorkflowAgent]
+
+    def agent_for(self, workflow: str) -> WorkflowAgent | None:
+        """The pinned agent for `workflow`, or None when it has none (that workflow then stays dark: the caller gets the
+        ordinary result). Screening reads the top-level product-agent keys; any other workflow reads `workflows:`."""
+        if workflow == "screening":
+            if self.agent_id and self.agent_version and self.environment_id:
+                return WorkflowAgent(self.agent_id, self.agent_version, self.environment_id)
+            return None
+        return self.workflows.get(workflow)
+
+    def all_agent_ids(self) -> tuple[str, ...]:
+        """Every configured agent id, screening first (the sweeper scans the sessions of each)."""
+        ids = [a.agent_id for a in (self.agent_for(w) for w in KNOWN_WORKFLOWS) if a is not None]
+        return tuple(dict.fromkeys(ids))
 
 
 def _need(cfg: dict[str, Any], key: str) -> Any:
@@ -112,6 +141,30 @@ def _env_name(cfg: dict[str, Any], key: str) -> str:
     return v
 
 
+def _workflows(cfg: dict[str, Any]) -> dict[str, WorkflowAgent]:
+    raw = _need(cfg, "workflows")
+    if raw is None:
+        return {}
+    if not isinstance(raw, dict):
+        raise AssistConfigError(f"{CONFIG_NAME}: workflows must be a mapping of workflow name to its agent")
+    out: dict[str, WorkflowAgent] = {}
+    for name, entry in raw.items():
+        if name == "screening" or name not in KNOWN_WORKFLOWS:
+            raise AssistConfigError(
+                f"{CONFIG_NAME}: workflows.{name}: not a workflow with its own agent (known: {', '.join(KNOWN_WORKFLOWS[1:])}; "
+                "screening uses the top-level agent keys)"
+            )
+        if not isinstance(entry, dict) or set(entry) != {"agent_id", "agent_version", "environment_id"}:
+            raise AssistConfigError(f"{CONFIG_NAME}: workflows.{name} must have exactly agent_id, agent_version, environment_id")
+        aid, ver, env = entry["agent_id"], entry["agent_version"], entry["environment_id"]
+        if not (isinstance(aid, str) and aid.strip() and isinstance(env, str) and env.strip()):
+            raise AssistConfigError(f"{CONFIG_NAME}: workflows.{name}: agent_id and environment_id must be non-empty strings")
+        if isinstance(ver, bool) or not isinstance(ver, int) or ver < 1:
+            raise AssistConfigError(f"{CONFIG_NAME}: workflows.{name}: agent_version must be a positive integer")
+        out[name] = WorkflowAgent(aid.strip(), ver, env.strip())
+    return out
+
+
 def parse(cfg: Any) -> AssistConfig:
     if not isinstance(cfg, dict):
         raise AssistConfigError(f"{CONFIG_NAME} is not a mapping")
@@ -148,6 +201,7 @@ def parse(cfg: Any) -> AssistConfig:
         max_events=_int(cfg, "max_events", 10, 10_000),
         canary_interval_min=_int(cfg, "canary_interval_min", 1, 24 * 60),
         canary_stale_min=_int(cfg, "canary_stale_min", 1, 7 * 24 * 60),
+        workflows=_workflows(cfg),
     )
     if out.session_budget_cents > out.daily_ceiling_cents:
         raise AssistConfigError(f"{CONFIG_NAME}: session_budget_usd exceeds daily_ceiling_usd")

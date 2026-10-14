@@ -538,3 +538,17 @@ def test_the_role_lists_used_by_these_tests_equal_the_grants_of_the_migration_wh
 
     g = grants_of(Path(path).read_text())
     assert g["assist_sweeper_rpc"] == SWEEPER_ROLE and g["assist_spend_rpc"] == ENGINE_ROLE
+
+
+def test_the_orphan_scan_lists_the_sessions_of_every_configured_workflow_agent():
+    raw = yaml.safe_load((REPO / "configs" / "assistant_tier.yaml").read_text())
+    raw.update(
+        assist_route_enabled=True, agent_id="agent_prod", agent_version=1, environment_id="env_p", store_ca_file="/app/ca.crt",
+        workflows={"hearing_prep": {"agent_id": "agent_hp", "agent_version": 2, "environment_id": "env_hp"}},
+    )
+    cfg = C.parse(raw)
+    listed = [{"id": "sesn_old", "created_at": iso(cfg.abandon_after_min + 1)}]
+    tr = AgentTransport({"sesn_canary": 204, "sesn_old": 204}, listed=listed)
+    sw = SW.Sweeper(cfg, FakeStore(), tr, G.Pauses(), mode="engine", wall_clock=lambda: NOW, clock=Clock())
+    out = sw.run_once()
+    assert tr.list_agent_ids == ["agent_prod", "agent_hp"] and out["orphans_deleted"] >= 1

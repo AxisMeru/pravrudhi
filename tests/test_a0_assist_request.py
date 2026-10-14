@@ -665,3 +665,44 @@ def test_a_live_shaped_cost_below_the_reserve_is_reported_as_read(tmp_path):
     e.tr.list_events = lambda sid: [{"type": "session.usage", "list_cost": e.tr.cost}]
     out = e.run()
     assert e.store.log[2][2] == 3 and block(out)["cost"]["used_cents"] == 3
+
+
+# ---- per-workflow agents (workflow hook) -------------------------------------------------------------------------------------
+class _SpyTransport(FakeTransport):
+    def create_session(self, agent_id, version, env, budget):
+        self.created_with = (agent_id, version, env, budget)
+        return super().create_session(agent_id, version, env, budget)
+
+
+def _hp_cfg(**over):
+    return make_cfg(workflows={"hearing_prep": {"agent_id": "agent_hp", "agent_version": 3, "environment_id": "env_hp"}}, **over)
+
+
+def test_an_assisted_run_of_a_workflow_creates_its_session_on_that_workflows_agent(tmp_path):
+    e = Env(tmp_path, cfg=_hp_cfg())
+    e.tr = e.deps.transport = _SpyTransport(ideal(), e.clock)
+    out = AS.run_assisted(REQ, AS.Caller(True, "u1", "o1", "1.2.3.4"), True, "c1", e.deps, workflow="hearing_prep")
+    assert e.tr.created_with == ("agent_hp", 3, "env_hp", e.cfg.session_budget_cents)
+    assert block(out)["used"] is True
+
+
+def test_screening_still_uses_the_top_level_agent_and_is_the_default(tmp_path):
+    e = Env(tmp_path, cfg=_hp_cfg())
+    e.tr = e.deps.transport = _SpyTransport(ideal(), e.clock)
+    out = e.run()  # no workflow argument
+    assert e.tr.created_with[:3] == ("agent_p", 1, "env_p") and block(out)["used"] is True
+
+
+@pytest.mark.parametrize("workflow", ["hearing_prep", "intake", "nonsense"])
+def test_a_workflow_with_no_agent_is_not_configured_and_costs_nothing(tmp_path, workflow):
+    e = Env(tmp_path)  # no workflows block
+    out = AS.run_assisted(REQ, AS.Caller(True, "u1", "o1", "1.2.3.4"), True, "c1", e.deps, workflow=workflow)
+    assert out["run_id"] == "core-run" and block(out)["used"] is False and block(out)["reason"] == "not_configured"
+    assert e.store.log == [] and e.tr.calls == [] and e.core_calls == 1
+
+
+def test_an_unconfigured_workflow_does_not_take_a_slot_or_a_reservation(tmp_path):
+    e = Env(tmp_path)
+    AS.run_assisted(REQ, AS.Caller(True, "u1", "o1", "1.2.3.4"), True, "c1", e.deps, workflow="intake")
+    assert e.deps.slots.acquire(blocking=False)  # still free (the slot was never taken)
+    assert [x for x in e.store.log if x[0] == "reserve"] == []
