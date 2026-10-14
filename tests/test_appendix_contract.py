@@ -22,11 +22,15 @@ from tests.test_a0_assist_route import BODY, URL, client
 
 @pytest.fixture(autouse=True)
 def _env(monkeypatch):
+    """Own runtime for this module, and the process-wide one put back as found (later modules may rely on it)."""
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-not-real")  # the same set-up as tests/test_a0_assist_route.py
+    prev = RT._runtime
+    RT._runtime = None
     TIER.reset()
     yield
     RT.reset()
     TIER.reset()
+    RT._runtime = prev
 
 
 APPENDIX_KEYS = {"appendix_version", "steps", "per_contract", "refused_calls"}
