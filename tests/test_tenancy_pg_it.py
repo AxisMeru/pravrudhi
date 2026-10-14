@@ -286,3 +286,32 @@ def test_request_path_latency_of_the_store_on_loopback(backend: PgTenancyStore, 
     if os.environ.get("PRAVRUDHI_TENANCY_LATENCY_LOG"):
         Path(os.environ["PRAVRUDHI_TENANCY_LATENCY_LOG"]).write_text(json.dumps(out, indent=1))
     assert out["get_key_ms"]["p95"] < 100
+
+
+def test_the_write_prunes_that_keys_rows_past_retention_in_the_table_itself(backend: PgTenancyStore, tmp_path: Path) -> None:
+    kid = "prunekey00000001"
+    audit.record(tmp_path, key_id=kid, mode="sync", status_code=200, contract_ids=[], run_id="old", retention_s=1000.0, now=NOW)
+    assert tenancy.flush_usage()
+    assert psql(f"select count(*) from tenancy.audit where key_id = '{kid}'")[1] == "1"
+    audit.record(
+        tmp_path,
+        key_id=kid,
+        mode="sync",
+        status_code=200,
+        contract_ids=[],
+        run_id="new",
+        retention_s=1000.0,
+        now=NOW + timedelta(seconds=5000),
+    )
+    assert tenancy.flush_usage()
+    assert psql(f"select count(*) from tenancy.audit where key_id = '{kid}'")[1] == "1"  # the old row is gone, not just hidden
+
+
+def test_the_canary_turns_false_when_a_table_grant_appears_and_true_again_after(db: PgTenancyStore) -> None:
+    assert db.canary()["ok"] is True
+    psql("grant select on tenancy.org to tenancy_rpc")
+    try:
+        assert db.canary()["ok"] is False
+    finally:
+        psql("revoke select on tenancy.org from tenancy_rpc")
+    assert db.canary()["ok"] is True
