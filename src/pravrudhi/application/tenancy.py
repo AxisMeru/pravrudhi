@@ -675,7 +675,8 @@ def is_tenancy_admin(user: User | None, headers: Mapping[str, str]) -> bool:
         secret = ""
     if secret:
         presented = headers.get(TENANCY_PROVISION_HEADER, "")
-        if presented and hmac.compare_digest(presented, secret):
+        # bytes, not str: compare_digest raises TypeError on a non-ASCII str (a header byte above 0x7f arrives as latin-1)
+        if presented and hmac.compare_digest(presented.encode("utf-8"), secret.encode("utf-8")):
             return True
     return False
 

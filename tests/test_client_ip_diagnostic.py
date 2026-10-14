@@ -32,6 +32,7 @@ from tests.test_partner_key_metering import ADMIN, FakeClock, _req
 
 SECRET = "s" * 32
 OTHER = "t" * 32
+ADMIN_SECRET = "p" * 40
 ADDR = "198.51.100.7"
 PROXIES = ("203.0.113.250",)
 REPO = Path(__file__).resolve().parent.parent
@@ -103,17 +104,21 @@ def health(tmp_path: Path, headers: dict[str, str] | None = None) -> Any:
 def test_health_reports_the_labels_and_stays_unauthenticated(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv(CLIENT_IP_SECRET_ENV, SECRET)
     r = health(tmp_path)
-    assert r.status_code == 200 and r.headers[SRC_HDR] == "peer" and r.headers[PROOF_HDR] == "none"
+    assert r.status_code == 200 and r.headers[SRC_HDR] == "peer"
+    assert PROOF_HDR not in r.headers  # the reason a proof failed is not public
     assert set(r.json()) >= {"ok", "version", "kernel", "ledger"}  # the body is unchanged: the labels are headers only
 
 
-@pytest.mark.parametrize(("env", "headers", "proof", "source"), [
-    (None, {CLIENT_IP_HEADER: ADDR, CLIENT_IP_SECRET_HEADER: SECRET}, "engine_unset", "peer"),
-    ("short", {CLIENT_IP_HEADER: ADDR, CLIENT_IP_SECRET_HEADER: SECRET}, "engine_short", "peer"),
-    (SECRET, {CLIENT_IP_HEADER: ADDR, CLIENT_IP_SECRET_HEADER: OTHER}, "mismatch", "peer"),
-    (SECRET, {CLIENT_IP_SECRET_HEADER: SECRET}, "no_ip", "peer"),
-    (SECRET, {CLIENT_IP_HEADER: ADDR, CLIENT_IP_SECRET_HEADER: SECRET}, "valid", "signed"),
-])
+@pytest.mark.parametrize(
+    ("env", "headers", "proof", "source"),
+    [
+        (None, {CLIENT_IP_HEADER: ADDR, CLIENT_IP_SECRET_HEADER: SECRET}, "engine_unset", "peer"),
+        ("short", {CLIENT_IP_HEADER: ADDR, CLIENT_IP_SECRET_HEADER: SECRET}, "engine_short", "peer"),
+        (SECRET, {CLIENT_IP_HEADER: ADDR, CLIENT_IP_SECRET_HEADER: OTHER}, "mismatch", "peer"),
+        (SECRET, {CLIENT_IP_SECRET_HEADER: SECRET}, "no_ip", "peer"),
+        (SECRET, {CLIENT_IP_HEADER: ADDR, CLIENT_IP_SECRET_HEADER: SECRET}, "valid", "signed"),
+    ],
+)
 def test_health_labels_follow_what_the_gateway_sent(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, env: str | None, headers: dict[str, str], proof: str, source: str
 ) -> None:
@@ -122,8 +127,14 @@ def test_health_labels_follow_what_the_gateway_sent(
     else:
         monkeypatch.setenv(CLIENT_IP_SECRET_ENV, env)
     r = health(tmp_path, headers)
-    assert (r.headers[PROOF_HDR], r.headers[SRC_HDR]) == (proof, source)
+    assert r.headers[SRC_HDR] == source and PROOF_HDR not in r.headers  # anonymous: the source label only
     assert ADDR not in str(dict(r.headers)) and SECRET not in str(dict(r.headers))  # labels only: never the address or the secret
+    monkeypatch.setenv(tenancy.TENANCY_PROVISION_SECRET_ENV, ADMIN_SECRET)
+    admin = health(tmp_path, {**headers, tenancy.TENANCY_PROVISION_HEADER: ADMIN_SECRET})
+    assert (admin.headers[PROOF_HDR], admin.headers[SRC_HDR]) == (proof, source)  # the provisioning-secret holder sees the reason
+    assert ADMIN_SECRET not in str(dict(admin.headers))
+    wrong = health(tmp_path, {**headers, tenancy.TENANCY_PROVISION_HEADER: "w" * 40})
+    assert PROOF_HDR not in wrong.headers and wrong.status_code == 200  # a wrong secret is just an anonymous caller
 
 
 def test_health_works_when_the_partner_config_is_missing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -176,8 +187,11 @@ def client_for(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, **cfg_over: Any)
     monkeypatch.delenv(CLIENT_IP_SECRET_ENV, raising=False)
     cfg = PartnerApiConfig(rate_limit_per_minute=2, max_concurrent=100, trust_proxy_header=False, **cfg_over)
     app = FastAPI()
-    app.include_router(build_partner_router(tmp_path, agent_factory=lambda _r: _agent(tmp_path, _proof_script()), config=cfg,
-                                            rate_clock=FakeClock()))
+    app.include_router(
+        build_partner_router(
+            tmp_path, agent_factory=lambda _r: _agent(tmp_path, _proof_script()), config=cfg, rate_clock=FakeClock()
+        )
+    )
     app.dependency_overrides[identity.current_user] = lambda: None
     return TestClient(app)
 
@@ -213,14 +227,18 @@ def test_a_non_ascii_proof_header_is_a_mismatch_not_a_500(tmp_path: Path, monkey
     raw = TestClient(create_app(tmp_path), base_url="http://127.0.0.1:8008")
     bad = [(CLIENT_IP_SECRET_HEADER.encode(), b"\xe9\xe9\xe9"), (CLIENT_IP_HEADER.encode(), b"x")]
     r = raw.get("/api/health", headers=bad)
-    assert r.status_code == 200 and r.headers[PROOF_HDR] == "mismatch"
+    assert r.status_code == 200 and PROOF_HDR not in r.headers and r.headers[SRC_HDR] == "peer"
+    bad_admin = [
+        *bad,
+        (tenancy.TENANCY_PROVISION_HEADER.encode(), b"\xe9\xe9"),
+    ]  # a non-ASCII admin header is not an admin, not a 500
+    assert raw.get("/api/health", headers=bad_admin).status_code == 200
 
 
 def test_the_budget_object_refuses_an_invalid_value_even_when_built_directly() -> None:
     for bad in (0, -1, True, 1.5, "5", 1001):
         with pytest.raises(ValueError, match="bad_key_budget"):
-            PartnerApiConfig(rate_limit_per_minute=2, max_concurrent=1, trust_proxy_header=False,
-                             bad_key_budget_per_minute=bad)  # type: ignore[arg-type]
+            PartnerApiConfig(rate_limit_per_minute=2, max_concurrent=1, trust_proxy_header=False, bad_key_budget_per_minute=bad)  # type: ignore[arg-type]
     ok = PartnerApiConfig(rate_limit_per_minute=2, max_concurrent=1, trust_proxy_header=False, bad_key_budget_per_minute=1000)
     assert ok.bad_key_budget_per_minute == 1000
 
@@ -261,3 +279,68 @@ def test_the_proxy_config_is_cached_until_the_file_changes(tmp_path: Path, monke
     assert len(calls) == 1
     write_cfg(tmp_path, trust_proxy_header=True, trusted_proxies=["testclient"])
     assert server._health_proxy_config(tmp_path, load) == (True, ("testclient",)) and len(calls) == 2
+
+
+def test_the_source_label_is_only_ever_signed_proxy_or_peer(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(CLIENT_IP_SECRET_ENV, SECRET)
+    seen = {
+        health(tmp_path, h).headers[SRC_HDR]
+        for h in (
+            {},
+            {CLIENT_IP_HEADER: ADDR, CLIENT_IP_SECRET_HEADER: SECRET},
+            {CLIENT_IP_HEADER: ADDR, CLIENT_IP_SECRET_HEADER: OTHER},
+            {"x-forwarded-for": ADDR},
+        )
+    }
+    assert seen <= {"signed", "proxy", "peer"} and {"signed", "peer"} <= seen
+
+
+def test_only_the_engines_own_proof_state_is_logged_and_only_when_it_changes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    from pravrudhi.api import server
+
+    server._last_engine_proof_state.clear()
+    monkeypatch.delenv(CLIENT_IP_SECRET_ENV, raising=False)
+    with caplog.at_level("INFO"):
+        health(tmp_path)
+        health(tmp_path)
+        monkeypatch.setenv(CLIENT_IP_SECRET_ENV, SECRET)
+        for h in ({}, {CLIENT_IP_HEADER: ADDR, CLIENT_IP_SECRET_HEADER: OTHER}, {CLIENT_IP_SECRET_HEADER: SECRET}, {}):
+            health(tmp_path, h)  # none, mismatch, no_ip, none: all caller-dependent, none logged
+    msgs = [r.getMessage() for r in caplog.records if "client address proof" in r.getMessage()]
+    assert msgs == [
+        "client address proof cannot be checked on this engine: engine_unset",
+        "client address proof configuration is back to normal",
+    ]
+    assert ADDR not in " ".join(msgs) and SECRET not in " ".join(msgs)
+
+
+def test_an_anonymous_caller_alternating_proofs_cannot_flood_the_log(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    from pravrudhi.api import server
+
+    server._last_engine_proof_state.clear()
+    monkeypatch.setenv(CLIENT_IP_SECRET_ENV, SECRET)
+    with caplog.at_level("INFO"):
+        for i in range(20):
+            health(tmp_path, {CLIENT_IP_HEADER: ADDR, CLIENT_IP_SECRET_HEADER: OTHER} if i % 2 else {})
+    assert [r for r in caplog.records if "client address proof" in r.getMessage()] == []
+
+
+def test_a_non_ascii_provisioning_secret_is_not_an_admin_and_not_an_error() -> None:
+    monkeypatch_env = pytest.MonkeyPatch()
+    monkeypatch_env.setenv(tenancy.TENANCY_PROVISION_SECRET_ENV, ADMIN_SECRET)
+    try:
+        assert tenancy.is_tenancy_admin(None, {tenancy.TENANCY_PROVISION_HEADER: "\u00e9" * 40}) is False
+        assert tenancy.is_tenancy_admin(None, {tenancy.TENANCY_PROVISION_HEADER: ADMIN_SECRET}) is True
+        assert tenancy.is_tenancy_admin(None, {tenancy.TENANCY_PROVISION_HEADER: ""}) is False
+        assert tenancy.is_tenancy_admin(None, {}) is False
+    finally:
+        monkeypatch_env.undo()
+    monkeypatch_env.setenv(tenancy.TENANCY_PROVISION_SECRET_ENV, "")
+    try:
+        assert tenancy.is_tenancy_admin(None, {tenancy.TENANCY_PROVISION_HEADER: ""}) is False  # an unset secret never matches ""
+    finally:
+        monkeypatch_env.undo()
