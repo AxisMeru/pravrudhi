@@ -339,7 +339,7 @@ def test_workflows_is_a_required_key_and_the_shipped_file_names_the_two_pinned_a
     shipped = C.parse(base()).workflows
     assert shipped == {
         "hearing_prep": C.WorkflowAgent("agent_01JvEU8nHU2JpQtUGEzrmmkX", 1, "env_018P77Nk1DHCMD1tatmY4smL"),
-        "intake": C.WorkflowAgent("agent_01M99gqroanbSDRGEr4n2Nns", 1, "env_01NqsSVpfUrUMX6PiS7fGG9W"),
+        "intake": C.WorkflowAgent("agent_019uQC3eQvCfo6viBX6xpErE", 1, "env_01NqsSVpfUrUMX6PiS7fGG9W"),
     }
     # one environment per workflow, none shared with screening or each other
     envs = [a.environment_id for a in shipped.values()] + [C.parse(base()).environment_id]
@@ -401,3 +401,14 @@ def test_the_shipped_file_serves_both_workflows_and_dropping_the_entries_makes_t
     assert len(set(shipped.all_agent_ids())) == 3  # three different agents, none pasted twice
     dark = C.parse({**raw, "workflows": {}})
     assert dark.agent_for("intake") is None and dark.agent_for("hearing_prep") is None and len(dark.all_agent_ids()) == 1
+
+
+def test_the_shipped_wall_limit_and_event_cap_cover_a_five_contract_run_with_margin():
+    """Dev measurement (14 Oct): five contracts = about 57 s of agent turns and 232 stream events. 60 s / 400 left no margin."""
+    raw = yaml.safe_load((REPO / "configs" / "assistant_tier.yaml").read_text())
+    c = C.parse(raw)
+    assert (c.call_timeout_s, c.max_events) == (150.0, 1000)
+    assert c.call_timeout_s >= 2 * 57 and c.max_events >= 2 * 232
+    # the sweeper never abandons a run still allowed to run: wall limit + interrupt wait + a minute for the delete
+    assert c.abandon_after_min * 60 >= c.call_timeout_s + c.interrupt_wait_s + 60
+    assert c.call_timeout_s < 320  # inside the app's own request timeout

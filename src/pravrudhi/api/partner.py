@@ -96,6 +96,7 @@ from pravrudhi.application.nyaya_quote import Reason as QuoteCheck
 from pravrudhi.application.second_judge_positive_control import fallback_record_ok
 from pravrudhi.application.service_window import ServiceWindow
 from pravrudhi.application.statute_citations import contract_citations
+from pravrudhi.application.steps_appendix.appendix import safe_appendix
 from pravrudhi.application.verify import exists_in_index, index_coverage
 from pravrudhi.application.verify import verify as verify_citation
 
@@ -795,6 +796,8 @@ class AssistFactsResponse(AnalyseFactsResponse):
     """The analyse-facts response plus the `assistant` block (see application/a0_assist/assist.py)."""
 
     assistant: dict[str, Any]
+    #: A finished assisted run: the steps it took, counted from the recorded tool calls (#416). Absent on every fallback.
+    appendix: dict[str, Any] | None = None
     #: Only for `workflow: "hearing_prep"`: the hearing-preparation pack, built by fixed rules from the decide result (#415).
     pack: dict[str, Any] | None = None
 
@@ -1575,6 +1578,9 @@ def build_partner_router(
                 },
             }
             shaped = _shape_body(agent, body, driver.listed, admitted.authenticated, debug_second_judge, admitted.cfg)
+            appendix = safe_appendix(driver.calls)  # counted from the recorded calls only: no agent text
+            if appendix is not None:
+                shaped["appendix"] = appendix
             if hearing and driver._pack is not None:
                 # the `pack` tool's own output (decide results in, fixed rules): never agent text
                 shaped["pack"] = copy.deepcopy(driver._pack)

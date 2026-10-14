@@ -240,7 +240,7 @@ def test_without_an_intake_agent_the_route_answers_with_the_deterministic_bundle
 def test_the_shipped_config_names_the_pinned_intake_agent() -> None:
     raw = yaml.safe_load((REPO / "configs" / "assistant_tier.yaml").read_text())
     assert raw["workflows"]["intake"] == {
-        "agent_id": "agent_01M99gqroanbSDRGEr4n2Nns",
+        "agent_id": "agent_019uQC3eQvCfo6viBX6xpErE",
         "agent_version": 1,
         "environment_id": "env_01NqsSVpfUrUMX6PiS7fGG9W",
     }
