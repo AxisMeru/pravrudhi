@@ -14,6 +14,7 @@ from __future__ import annotations
 import contextlib
 import json
 import threading
+import time
 from collections.abc import Callable, Mapping
 from typing import Any
 
@@ -21,6 +22,11 @@ from pravrudhi.application.a0_assist.store import StoreNotConfigured, parse_dsn,
 
 DSN_ENV = "SUPABASE_TENANCY_DB_URL"
 DEFAULT_CA_FILE = "/opt/pravrudhi/certs/supabase-prod-ca.crt"
+IDLE_REOPEN_S = 20.0
+IDEMPOTENT = frozenset(
+    {"get_org", "list_orgs", "add_member", "memberships_for_org", "get_key", "revoke_key", "keys_for_org", "purge_key",
+     "usage_counts", "usage_summary", "audit_page", "canary"}
+)
 
 
 class TenancyStoreDown(Exception):
@@ -45,6 +51,7 @@ class PgTenancyStore:
         self._connect_fn = connect
         self._lock = threading.Lock()
         self._conn: Any = None
+        self._last_used = 0.0
 
     def __repr__(self) -> str:
         return "PgTenancyStore(<redacted>)"
@@ -65,12 +72,28 @@ class PgTenancyStore:
         conn.autocommit = True
         return conn
 
+    def clone(self) -> PgTenancyStore:
+        """A second store on the same DSN with its own connection (the background writer must not queue behind a request)."""
+        other = PgTenancyStore.__new__(PgTenancyStore)
+        other._p, other._timeout, other._connect_fn = dict(self._p), self._timeout, self._connect_fn
+        other._lock, other._conn, other._last_used = threading.Lock(), None, 0.0
+        return other
+
     def _call(self, fn: str, *args: Any) -> Any:
-        """`select tenancy.<fn>(...)` -> the parsed JSON value. One reconnect per call; any failure is TenancyStoreDown."""
+        """`select tenancy.<fn>(...)` -> the parsed JSON value. Any failure is TenancyStoreDown. A call is retried once on a fresh
+        connection ONLY when it is idempotent (reads, revoke, add_member, purge): a write whose reply was lost must not run twice.
+        A connection idle for over IDLE_REOPEN_S is reopened BEFORE the call (a pooler that dropped it is not the failure)."""
         marks = ", ".join(["%s"] * len(args))
         sql = f"select tenancy.{fn}({marks})"  # fn is a fixed name from this module, never caller text
-        with self._lock:
-            for attempt in (1, 2):
+        attempts = (1, 2) if fn in IDEMPOTENT else (1,)
+        if not self._lock.acquire(timeout=self._timeout + 1.0):
+            raise TenancyStoreDown("the tenancy store connection is busy")
+        try:
+            if self._conn is not None and time.monotonic() - self._last_used > IDLE_REOPEN_S:
+                with contextlib.suppress(Exception):
+                    self._conn.close()
+                self._conn = None
+            for attempt in attempts:
                 try:
                     if self._conn is None:
                         self._conn = self._open()
@@ -82,16 +105,17 @@ class PgTenancyStore:
                         with contextlib.suppress(Exception):
                             cur.close()
                     v = rows[0][0]
+                    self._last_used = time.monotonic()
                     return json.loads(v) if isinstance(v, (str, bytes)) else v
-                except StoreNotConfigured:
-                    raise
-                except Exception as exc:  # noqa: BLE001 - driver, ssl and socket layers raise unrelated types; all fail closed
+                except Exception as exc:  # noqa: BLE001 - driver, ssl, socket and config errors all fail closed to one type
                     with contextlib.suppress(Exception):
                         if self._conn is not None:
                             self._conn.close()
                     self._conn = None
-                    if attempt == 2:
+                    if attempt == attempts[-1]:
                         raise TenancyStoreDown(f"the tenancy store call failed ({type(exc).__name__})") from None
+        finally:
+            self._lock.release()
         raise TenancyStoreDown("unreachable")  # pragma: no cover
 
     # ---- orgs and memberships -------------------------------------------------------------------------------------------
@@ -99,8 +123,7 @@ class PgTenancyStore:
         return _ok_dict(self._call("create_org", org_id, name, created))
 
     def get_org(self, org_id: str) -> dict[str, Any] | None:
-        v = self._call("get_org", org_id)
-        return dict(v) if isinstance(v, Mapping) else None
+        return _row_or_none(self._call("get_org", org_id))
 
     def list_orgs(self) -> list[dict[str, Any]]:
         return _list(self._call("list_orgs"))
@@ -117,8 +140,7 @@ class PgTenancyStore:
         return _ok_dict(self._call("create_key", *args))
 
     def get_key(self, key_id: str) -> dict[str, Any] | None:
-        v = self._call("get_key", key_id)
-        return dict(v) if isinstance(v, Mapping) else None
+        return _row_or_none(self._call("get_key", key_id))
 
 
     def revoke_key(self, key_id: str, at: str) -> dict[str, Any]:
@@ -143,12 +165,13 @@ class PgTenancyStore:
     def usage_summary(self, org_id: str, first_day: str) -> list[dict[str, Any]]:
         return _list(self._call("usage_summary", org_id, first_day))
 
-    def audit_record(self, row: Mapping[str, Any], cutoff: str) -> None:
+    def audit_record(self, row: Mapping[str, Any], retention_s: int) -> dict[str, Any]:
+        """{"ok": True} or {"ok": False, "reason": "bad_args"}: the database refuses a row that could carry text."""
         args = (row["ts"], row["key_id"], row["mode"], row["status_code"], row["run_id"], list(row["contract_ids"]))
-        _ok_dict(self._call("audit_record", *args, json.dumps(row["outcomes"]), cutoff))
+        return _ok_dict(self._call("audit_record", *args, json.dumps(row["outcomes"]), int(retention_s)))
 
-    def audit_page(self, key_id: str, offset: int, limit: int, cutoff: str) -> tuple[list[dict[str, Any]], int]:
-        v = self._call("audit_page", key_id, offset, limit, cutoff)
+    def audit_page(self, key_id: str, offset: int, limit: int, retention_s: int) -> tuple[list[dict[str, Any]], int]:
+        v = self._call("audit_page", key_id, offset, limit, int(retention_s))
         if not isinstance(v, Mapping) or not isinstance(v.get("rows"), list):
             raise TenancyStoreDown("the tenancy store answered with an unexpected shape")
         return [dict(r) for r in v["rows"]], int(v.get("total", 0))
@@ -164,6 +187,15 @@ class PgTenancyStore:
             if self._conn is not None:
                 self._conn.close()
             self._conn = None
+
+
+def _row_or_none(v: Any) -> dict[str, Any] | None:
+    """Only a genuine JSON null is 'no such row'; any other non-object answer is a broken store, never 'unknown'."""
+    if v is None:
+        return None
+    if isinstance(v, Mapping):
+        return dict(v)
+    raise TenancyStoreDown("the tenancy store answered with an unexpected shape")
 
 
 def _ok_dict(v: Any) -> dict[str, Any]:
@@ -186,6 +218,8 @@ def from_env(env: Mapping[str, str], *, connect: Callable[..., Any] | None = Non
     from pathlib import Path
 
     ca = env.get("PRAVRUDHI_TENANCY_CA_FILE", DEFAULT_CA_FILE)
+    if connect is None and not Path(ca).is_file():
+        return None  # the pinned CA is part of the hosted image; a missing file means 'not configured', as for the assist store
     try:
         return PgTenancyStore(dsn, connect=connect, ca_file=ca if Path(ca).is_file() else None)
     except StoreNotConfigured:

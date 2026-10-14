@@ -53,10 +53,12 @@ def record(
     }
     from pravrudhi.application import tenancy
 
-    pg = tenancy._pg()  # None = the file log; the hosted shape REQUIRES the Supabase store (TenancyUnavailable otherwise)
-    if pg is not None:
-        cutoff_iso = (at - timedelta(seconds=retention_s)).isoformat()
-        tenancy.enqueue_store_write("audit_record", row, cutoff_iso)  # off the request path
+    try:
+        hosted = tenancy._pg() is not None  # None = the file log; the hosted shape REQUIRES the Supabase store
+    except tenancy.TenancyUnavailable:
+        return  # an audit row is best effort: it never raises into the call that produced it
+    if hosted:
+        tenancy.enqueue_store_write("audit_record", row, int(retention_s))  # off the request path
         return
     p = _path(root)
     p.parent.mkdir(parents=True, exist_ok=True)
@@ -87,8 +89,9 @@ def page(
     pg = tenancy._pg()
     if pg is not None:
         limit = max(1, min(limit, MAX_PAGE))
+        offset = max(0, offset)
         try:
-            rows, total = pg.audit_page(key_id, offset, limit, (now() - timedelta(seconds=retention_s)).isoformat())
+            rows, total = pg.audit_page(key_id, offset, limit, int(retention_s))
         except TenancyStoreDown as exc:
             raise tenancy.TenancyUnavailable() from exc
         return rows, (offset + limit if offset + limit < total else None)

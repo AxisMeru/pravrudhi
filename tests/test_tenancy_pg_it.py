@@ -29,6 +29,7 @@ pytestmark = pytest.mark.skipif(
     reason="integration test; set PRAVRUDHI_TENANCY_PG_IT=1 and PRAVRUDHI_TENANCY_MIGRATION=<migration file>",
 )
 
+HASH = "$argon2id$v=19$m=65536,t=3,p=4$c29tZXNhbHQ$aGFzaGhhc2hoYXNoaGFzaGhhc2g"
 IMAGE = "supabase/postgres@sha256:b3bfedb107413abb3b8cb0d0874b0414a1dceb3d55bc0c778de6ad22d1f7dc86"
 NAME, PORT = "tenancy-it", 55438
 PW = {"postgres": secrets.token_hex(8), "tenancy_rpc": secrets.token_hex(8)}
@@ -146,7 +147,7 @@ def test_the_sql_refuses_bad_arguments(db: PgTenancyStore) -> None:
     assert db.create_org("ok-org", "   ", "t")["reason"] == "bad_args"
     assert db.create_org("ok-org", "Ok", "t")["ok"] is True
     assert db.create_org("ok-org", "Ok", "t")["reason"] == "exists"
-    row = {"key_id": "short", "org_id": "ok-org", "label": "", "hash": "h" * 30, "created": "t", "rate_limit_per_minute": 60}
+    row = {"key_id": "short", "org_id": "ok-org", "label": "", "hash": HASH, "created": "t", "rate_limit_per_minute": 60}
     assert db.create_key(row)["reason"] == "bad_args"
     assert db.create_key({**row, "key_id": "abcdefgh12345678", "org_id": "nope"})["reason"] == "no_org"
     assert db.create_key({**row, "key_id": "abcdefgh12345678", "hash": "tooshort"})["reason"] == "bad_args"
@@ -188,7 +189,7 @@ def test_keys_usage_and_audit_survive_an_engine_restart(backend: PgTenancyStore,
         run_id="r1",
         outcomes={"bns69": "established"},
         retention_s=7776000.0,
-        now=NOW,
+        now=datetime.now(UTC),
     )
     tenancy.record_usage(tmp_path, k.record.key_id, now=NOW)
     assert tenancy.flush_usage()
@@ -202,8 +203,9 @@ def test_keys_usage_and_audit_survive_an_engine_restart(backend: PgTenancyStore,
     assert tenancy.usage_counts(fresh_root, k.record.key_id) == (1, 0)
 
 
-def test_audit_retention_paging_and_the_90_day_cut(backend: PgTenancyStore, tmp_path: Path) -> None:
+def test_audit_paging_newest_first_and_retention_is_decided_by_the_database(backend: PgTenancyStore, tmp_path: Path) -> None:
     kid = "auditkey00000001"
+    base = datetime.now(UTC) - timedelta(minutes=10)
     for i in range(5):
         audit.record(
             tmp_path,
@@ -212,27 +214,60 @@ def test_audit_retention_paging_and_the_90_day_cut(backend: PgTenancyStore, tmp_
             status_code=200,
             contract_ids=[],
             run_id=f"r{i}",
-            retention_s=1000.0,
-            now=NOW + timedelta(seconds=i),
+            retention_s=3600.0,
+            now=base + timedelta(seconds=i),
         )
     assert tenancy.flush_usage()
-    rows, nxt = audit.page(tmp_path, kid, offset=0, limit=2, retention_s=1000.0, now=lambda: NOW + timedelta(seconds=10))
+    rows, nxt = audit.page(tmp_path, kid, offset=0, limit=2, retention_s=3600.0, now=datetime.now)
     assert [r["run_id"] for r in rows] == ["r4", "r3"] and nxt == 2
-    old, _ = audit.page(tmp_path, kid, offset=0, limit=10, retention_s=1000.0, now=lambda: NOW + timedelta(seconds=5000))
-    assert old == []  # past retention is never served
-    audit.record(
-        tmp_path,
-        key_id=kid,
-        mode="assist",
-        status_code=200,
-        contract_ids=[],
-        run_id="late",
-        retention_s=1000.0,
-        now=NOW + timedelta(seconds=5000),
-    )
-    assert tenancy.flush_usage()
-    rows3, _ = audit.page(tmp_path, kid, offset=0, limit=10, retention_s=1000.0, now=lambda: NOW + timedelta(seconds=5001))
-    assert [r["run_id"] for r in rows3] == ["late"]  # the write pruned the old rows of that key
+    rows2, nxt2 = audit.page(tmp_path, kid, offset=4, limit=2, retention_s=3600.0, now=datetime.now)
+    assert [r["run_id"] for r in rows2] == ["r0"] and nxt2 is None
+    # a row older than the retention is never served even if nothing pruned it: insert one directly (no write-time prune)
+    psql(f"insert into tenancy.audit (ts, key_id, mode, status_code) values (now() - interval '3 hours', '{kid}', 'sync', 200)")
+    assert audit.page(tmp_path, kid, offset=0, limit=50, retention_s=3600.0, now=datetime.now)[0].__len__() == 5
+    assert len(audit.page(tmp_path, kid, offset=0, limit=50, retention_s=86400.0, now=datetime.now)[0]) == 6
+    # the caller cannot shorten retention below an hour to erase rows: a 1 second retention is raised to the 1 hour floor
+    assert len(audit.page(tmp_path, kid, offset=0, limit=50, retention_s=1.0, now=datetime.now)[0]) == 5
+
+
+def test_the_database_refuses_audit_rows_that_could_carry_text(db: PgTenancyStore) -> None:
+    ok = {
+        "ts": datetime.now(UTC).isoformat(),
+        "key_id": "validation00000001",
+        "mode": "sync",
+        "status_code": 200,
+        "run_id": "r1",
+        "contract_ids": ["bns69"],
+        "outcomes": {"bns69": "established"},
+    }
+    db.audit_record(ok, 3600)
+    for bad in (
+        {**ok, "outcomes": {"bns69": "the accused said he was at home"}},
+        {**ok, "outcomes": {"free text key": "established"}},
+        {**ok, "contract_ids": ["a b c"]},
+        {**ok, "run_id": "has spaces and text"},
+        {**ok, "mode": "SYNC"},
+    ):
+        assert db.audit_record(bad, 3600)["reason"] == "bad_args"
+    assert psql("select count(*) from tenancy.audit where key_id = 'validation00000001'")[1] == "1"
+
+
+def test_the_hash_is_returned_by_get_key_only(backend: PgTenancyStore, tmp_path: Path) -> None:
+    tenancy.create_org(tmp_path, "hash-org", "H")
+    k = tenancy.create_key(tmp_path, "hash-org")
+    assert backend.get_key(k.record.key_id)["hash"].startswith("$argon2id$")  # type: ignore[index]
+    assert all("hash" not in r for r in backend.keys_for_org("hash-org"))
+    assert "hash" not in backend.revoke_key(k.record.key_id, "t")["key"]
+    assert "hash" not in json.dumps(backend._call("canary"))
+    row = {
+        "key_id": "plainsecret000001",
+        "org_id": "hash-org",
+        "label": "",
+        "hash": "plaintext-secret-not-a-hash-xxxxx",
+        "created": "t",
+        "rate_limit_per_minute": 60,
+    }
+    assert backend.create_key(row)["reason"] == "bad_args"  # only an argon2id hash is accepted
 
 
 def test_purge_removes_the_key_its_usage_and_its_audit(backend: PgTenancyStore, tmp_path: Path) -> None:
@@ -243,7 +278,7 @@ def test_purge_removes_the_key_its_usage_and_its_audit(backend: PgTenancyStore, 
     assert tenancy.flush_usage()
     assert backend.purge_key(k.record.key_id)["ok"] is True
     assert backend.get_key(k.record.key_id) is None and backend.usage_counts(k.record.key_id) == (0, 0)
-    assert backend.audit_page(k.record.key_id, 0, 10, "1970-01-01T00:00:00+00:00")[1] == 0
+    assert backend.audit_page(k.record.key_id, 0, 10, 3600)[1] == 0
 
 
 def test_request_path_latency_of_the_store_on_loopback(backend: PgTenancyStore, tmp_path: Path) -> None:
@@ -290,8 +325,7 @@ def test_request_path_latency_of_the_store_on_loopback(backend: PgTenancyStore, 
 
 def test_the_write_prunes_that_keys_rows_past_retention_in_the_table_itself(backend: PgTenancyStore, tmp_path: Path) -> None:
     kid = "prunekey00000001"
-    audit.record(tmp_path, key_id=kid, mode="sync", status_code=200, contract_ids=[], run_id="old", retention_s=1000.0, now=NOW)
-    assert tenancy.flush_usage()
+    psql(f"insert into tenancy.audit (ts, key_id, mode, status_code) values (now() - interval '3 hours', '{kid}', 'sync', 200)")
     assert psql(f"select count(*) from tenancy.audit where key_id = '{kid}'")[1] == "1"
     audit.record(
         tmp_path,
@@ -300,11 +334,24 @@ def test_the_write_prunes_that_keys_rows_past_retention_in_the_table_itself(back
         status_code=200,
         contract_ids=[],
         run_id="new",
-        retention_s=1000.0,
-        now=NOW + timedelta(seconds=5000),
+        retention_s=3600.0,
+        now=datetime.now(UTC),
     )
     assert tenancy.flush_usage()
     assert psql(f"select count(*) from tenancy.audit where key_id = '{kid}'")[1] == "1"  # the old row is gone, not just hidden
+    audit.record(
+        tmp_path,
+        key_id="otherkey00000001",
+        mode="sync",
+        status_code=200,
+        contract_ids=[],
+        retention_s=3600.0,
+        now=datetime.now(UTC),
+    )
+    assert tenancy.flush_usage()
+    assert (
+        psql(f"select count(*) from tenancy.audit where key_id = '{kid}'")[1] == "1"
+    )  # another key's write leaves this key's rows alone
 
 
 def test_the_canary_turns_false_when_a_table_grant_appears_and_true_again_after(db: PgTenancyStore) -> None:
@@ -315,3 +362,32 @@ def test_the_canary_turns_false_when_a_table_grant_appears_and_true_again_after(
     finally:
         psql("revoke select on tenancy.org from tenancy_rpc")
     assert db.canary()["ok"] is True
+
+
+def test_the_canary_notices_a_missing_or_an_extra_function_grant(db: PgTenancyStore) -> None:
+    assert db.canary()["ok"] is True
+    psql("revoke execute on function tenancy.list_orgs() from tenancy_rpc")
+    try:
+        assert db.canary()["ok"] is False  # 15 of the 16 expected functions
+    finally:
+        psql("grant execute on function tenancy.list_orgs() to tenancy_rpc")
+    psql("create function tenancy.extra_fn() returns int language sql as 'select 1'")
+    try:
+        psql("grant execute on function tenancy.extra_fn() to tenancy_rpc")
+        assert db.canary()["ok"] is False  # 17 executable
+    finally:
+        psql("drop function tenancy.extra_fn()")
+    assert db.canary()["ok"] is True
+
+
+def test_more_than_five_contract_ids_is_bad_args_not_an_error(db: PgTenancyStore) -> None:
+    row = {
+        "ts": datetime.now(UTC).isoformat(),
+        "key_id": "toomany000000001",
+        "mode": "sync",
+        "status_code": 200,
+        "run_id": None,
+        "contract_ids": [f"c{i}" for i in range(6)],
+        "outcomes": {},
+    }
+    assert db.audit_record(row, 3600)["reason"] == "bad_args"

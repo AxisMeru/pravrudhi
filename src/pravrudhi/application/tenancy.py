@@ -80,10 +80,16 @@ class TenancyUnavailable(HTTPException):
 _pg_lock = threading.Lock()
 _pg_cache: dict[str, PgTenancyStore | None] = {}
 _key_cache: dict[str, tuple[float, dict[str, Any]]] = {}
+_key_epoch = 0  # bumped by revoke/purge: a row read before the bump is never cached after it
 
 
 def _backend_is_supabase() -> bool:
-    return os.environ.get(BACKEND_ENV, "file").strip().lower() == "supabase"
+    """`file` (the default: a local engine) or `supabase` (the hosted shape). Any other value is a typo in a hosted setting
+    and must not silently select the volatile files: it fails closed (TenancyUnavailable) like a missing store."""
+    v = os.environ.get(BACKEND_ENV, "file").strip().lower()
+    if v not in ("file", "supabase"):
+        raise TenancyUnavailable()
+    return v == "supabase"
 
 
 def _pg() -> PgTenancyStore | None:
@@ -102,7 +108,7 @@ def _pg() -> PgTenancyStore | None:
 
 
 _status_lock = threading.Lock()
-_status: dict[str, Any] = {"value": "checking", "at": 0.0, "running": False}
+_status: dict[str, Any] = {"value": "checking", "at": None, "running": False}
 _STATUS_TTL_S = 30.0
 
 
@@ -114,7 +120,7 @@ def store_status() -> str:
         return "file"
     now = time.monotonic()
     with _status_lock:
-        stale = now - float(_status["at"]) > _STATUS_TTL_S
+        stale = _status["at"] is None or now - float(_status["at"]) > _STATUS_TTL_S
         start = stale and not _status["running"]
         if start:
             _status["running"] = True
@@ -137,10 +143,32 @@ def store_status() -> str:
 
 def reset_backend_for_tests() -> None:
     with _status_lock:
-        _status.update(value="checking", at=0.0, running=False)
+        _status.update(value="checking", at=None, running=False)
     with _pg_lock:
         _pg_cache.clear()
         _key_cache.clear()
+        _writers.clear()
+
+
+def _forget_key(key_id: str) -> None:
+    global _key_epoch
+    _key_epoch += 1
+    _key_cache.pop(key_id, None)
+
+
+def purge_key(root: Path, key_id: str) -> bool:
+    """Admin removal of a key with its usage and audit rows (a partner leaves). Not reachable from a partner route."""
+    pg = _pg()
+    if pg is None:
+        raise TenancyError("purge is a hosted-store operation")
+    _forget_key(key_id)
+    try:
+        res = pg.purge_key(key_id)
+    except TenancyStoreDown as exc:
+        raise _down() from exc
+    finally:
+        _forget_key(key_id)
+    return res.get("removed") is True
 
 
 def _key_cache_s() -> float:
@@ -410,14 +438,16 @@ def create_key(root: Path, org_id: str, *, label: str = "", rate_limit_per_minut
 def revoke_key(root: Path, key_id: str) -> ApiKeyRecord:
     pg = _pg()
     if pg is not None:
+        _forget_key(key_id)  # before the call too: a reply lost after the commit must not leave the key cached
         try:
             res = pg.revoke_key(key_id, _now())
         except TenancyStoreDown as exc:
             raise _down() from exc
-        _key_cache.pop(key_id, None)  # this process stops honouring the key at once (other replicas within the cache TTL)
+        finally:
+            _forget_key(key_id)  # this process stops honouring the key at once (other replicas within the cache TTL)
         if res.get("ok") is not True:
             raise TenancyError(f"key {key_id!r} does not exist")
-        return ApiKeyRecord(**res["key"])
+        return ApiKeyRecord(**{**res["key"], "hash": ""})  # the hash is returned by get_key only
 
     def mutate(rows: dict[str, dict[str, Any]]) -> ApiKeyRecord:
         row = rows.get(key_id)
@@ -434,7 +464,7 @@ def keys_for_org(root: Path, org_id: str) -> list[ApiKeyRecord]:
     pg = _pg()
     if pg is not None:
         try:
-            return [ApiKeyRecord(**r) for r in pg.keys_for_org(org_id)]
+            return [ApiKeyRecord(**{**r, "hash": ""}) for r in pg.keys_for_org(org_id)]
         except TenancyStoreDown as exc:
             raise _down() from exc
     rows = _read_store(root, "keys")
@@ -460,15 +490,16 @@ def _key_row(root: Path, key_id: str) -> dict[str, Any] | None:
     now = time.monotonic()
     hit = _key_cache.get(key_id)
     if hit is not None and hit[0] > now:
-        return hit[1]
+        return dict(hit[1])
+    epoch = _key_epoch
     try:
         row = pg.get_key(key_id)
     except TenancyStoreDown as exc:
         raise _down() from exc
-    if row is not None and ttl > 0:
+    if row is not None and ttl > 0 and epoch == _key_epoch:
         if len(_key_cache) > 10_000:
             _key_cache.clear()
-        _key_cache[key_id] = (now + ttl, row)
+        _key_cache[key_id] = (now + ttl, dict(row))
     return row
 
 
@@ -708,16 +739,31 @@ class KeyRateLimiter:
             return self._usage_total.get(key_id, 0)
 
 
-# Usage counters in the Supabase backend are written OFF the request path through a bounded in-memory queue and one worker thread:
-# counting must never slow or fail a call. On overflow or a store error the row is dropped and counted (`usage_queue_stats`).
+# Usage counters and audit rows in the Supabase backend are written OFF the request path through a bounded in-memory queue and one
+# worker thread with its OWN database connection: a write never waits behind, or holds up, a keyed request. On overflow or a
+# store error the row is dropped and counted (`usage_queue_stats`); the queue is best effort and not flushed at shutdown.
 _USAGE_MAX = 1000
 _usage_q: Any = None
-_usage_stats = {"queued": 0, "written": 0, "dropped": 0}
+_usage_stats = {"queued": 0, "written": 0, "dropped": 0, "processed": 0}
 _usage_cond = threading.Condition()
+_writers: dict[int, PgTenancyStore] = {}
 
 
 def usage_queue_stats() -> dict[str, int]:
-    return dict(_usage_stats)
+    with _usage_cond:
+        return dict(_usage_stats)
+
+
+def _writer_store() -> PgTenancyStore | None:
+    pg = _pg()
+    if pg is None:
+        return None
+    with _pg_lock:
+        w = _writers.get(id(pg))
+        if w is None:
+            w = pg.clone() if hasattr(pg, "clone") else pg
+            _writers[id(pg)] = w
+    return w
 
 
 def _usage_worker() -> None:
@@ -726,29 +772,28 @@ def _usage_worker() -> None:
             while not _usage_q:
                 _usage_cond.wait()
             item = _usage_q.popleft()
+        wrote = False
         try:
-            pg = _pg()
+            pg = _writer_store()
             if pg is not None:
                 name, args = item
                 getattr(pg, name)(*args)
-                _usage_stats["written"] += 1
-        except (TenancyStoreDown, HTTPException):
-            _usage_stats["dropped"] += 1
-        except Exception:  # noqa: BLE001 - a counter write must never kill the worker
-            _usage_stats["dropped"] += 1
+                wrote = True
+        except Exception:  # noqa: BLE001 - a best-effort write must never kill the worker
+            wrote = False
         with _usage_cond:
+            _usage_stats["written" if wrote else "dropped"] += 1
+            _usage_stats["processed"] += 1
             _usage_cond.notify_all()
 
 
 def flush_usage(timeout_s: float = 5.0) -> bool:
-    """Wait until the usage queue is empty (tests, shutdown). True when it drained in time."""
+    """Wait until every queued write has been processed (tests, shutdown). True when it drained in time."""
     deadline = time.monotonic() + timeout_s
     with _usage_cond:
-        while _usage_q and time.monotonic() < deadline:
+        while _usage_stats["processed"] < _usage_stats["queued"] and time.monotonic() < deadline:
             _usage_cond.wait(0.05)
-        done = not _usage_q
-    time.sleep(0.05)  # the item being written when the queue emptied
-    return done
+        return _usage_stats["processed"] >= _usage_stats["queued"]
 
 
 def _enqueue_usage(key_id: str, day: str, failed: bool) -> None:
