@@ -191,13 +191,22 @@ def test_a_repeated_key_header_is_not_a_credential_the_gate_trusts(env: Any) -> 
 
 
 @pytest.mark.parametrize("method", ["DELETE", "PATCH", "PUT"])
-def test_another_method_on_a_listed_path_is_not_opened(env: Any, method: str) -> None:
+def test_another_method_on_a_listed_path_is_refused_by_the_gate(env: Any, method: str) -> None:
     c, key = env
     for path, header, value in (
         ("/api/v1/audit", tenancy.API_KEY_HEADER, key),
         ("/api/v1/orgs/acme/keys", tenancy.TENANCY_PROVISION_HEADER, SECRET),
+        ("/api/v1/analyse-facts/jobs/abc", tenancy.API_KEY_HEADER, key),
     ):
         r = c.request(method, path, headers={header: value})
-        assert r.status_code in (401, 405)
-        if r.status_code == 401:
-            assert r.json()["detail"] == "Missing bearer token"
+        assert r.status_code == 401 and r.json()["detail"] == "Missing bearer token", (method, path, r.status_code)
+
+
+@pytest.mark.parametrize(
+    "path", ["/api/v1/analyse-facts/jobs/abc/extra", "/api/v1/orgs/acme/usage/extra", "/api/v1/orgs/acme/keys/kid"]
+)
+def test_a_longer_path_than_a_listed_one_is_not_opened(env: Any, path: str) -> None:
+    c, key = env
+    for header, value in ((tenancy.API_KEY_HEADER, key), (tenancy.TENANCY_PROVISION_HEADER, SECRET)):
+        r = c.get(path, headers={header: value})
+        assert r.status_code == 401 and r.json()["detail"] == "Missing bearer token", (path, r.status_code)
