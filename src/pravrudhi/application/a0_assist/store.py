@@ -166,7 +166,7 @@ class PgSpendStore:
             return rows
         except StoreError:
             raise
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 - deliberately broad: the driver, ssl and socket layers raise unrelated types; every one fails closed to a StoreError that names only its class
             raise StoreError(f"the store call failed ({type(exc).__name__})") from None
         finally:
             if conn is not None:

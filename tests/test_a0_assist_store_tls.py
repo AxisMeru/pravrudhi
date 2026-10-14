@@ -122,6 +122,8 @@ def test_with_a_ca_file_only_the_strict_flag_is_cleared_and_nothing_else_is_rela
     assert ctx.verify_mode == ssl.CERT_REQUIRED and ctx.check_hostname is True
     assert ctx.verify_flags == ref.verify_flags & ~ssl.VERIFY_X509_STRICT
     assert not ctx.verify_flags & ssl.VERIFY_X509_STRICT
+    # the literal value: the interpreter's default flags (trusted-first, partial-chain) minus strict, nothing added or removed
+    assert ctx.verify_flags == ssl.VERIFY_X509_TRUSTED_FIRST | ssl.VERIFY_X509_PARTIAL_CHAIN
     assert ctx.minimum_version >= ssl.TLSVersion.TLSv1_2
 
 

@@ -19,7 +19,11 @@ def base(**over):
 
 
 def enabled(**over):
-    return base(assist_route_enabled=True, agent_id="agent_x", agent_version=2, environment_id="env_x", **over)
+    cfg = base(
+        assist_route_enabled=True, agent_id="agent_x", agent_version=2, environment_id="env_x", store_ca_file="/app/certs/ca.crt"
+    )
+    cfg.update(over)
+    return cfg
 
 
 def test_the_shipped_config_parses_and_ships_dark():
@@ -281,3 +285,10 @@ def test_an_unreadable_or_non_mapping_config_keeps_the_route_off(monkeypatch, tm
     assert C.load_or_none(tmp_path)[0] is None
     f.write_text("- just\n- a list\n")
     assert C.load_or_none(tmp_path)[0] is None
+
+
+def test_an_enabled_route_refuses_to_parse_without_the_pinned_ca_path():
+    with pytest.raises(C.AssistConfigError):
+        C.parse(enabled(store_ca_file=None))
+    assert C.parse(enabled()).store_ca_file == "/app/certs/ca.crt"
+    assert C.parse(base()).route_enabled is False  # dark with a null CA is fine

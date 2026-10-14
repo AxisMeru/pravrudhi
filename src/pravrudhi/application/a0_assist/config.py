@@ -158,6 +158,8 @@ def parse(cfg: Any) -> AssistConfig:
             raise AssistConfigError(
                 f"{CONFIG_NAME}: the route is enabled but the product agent_id, agent_version and environment_id are not all set"
             )
+        if not out.store_ca_file:
+            raise AssistConfigError(f"{CONFIG_NAME}: the route is enabled but store_ca_file is not set (the pinned CA path)")
         if not out.delete_after_run:
             raise AssistConfigError(f"{CONFIG_NAME}: the route refuses to enable with delete_after_run false")
         if out.abandon_after_min * 60 < out.call_timeout_s:
