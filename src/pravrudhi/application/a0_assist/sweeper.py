@@ -101,23 +101,24 @@ class Sweeper:
         return {r["anthropic_session_id"] for r in pending}
 
     def _orphans(self, out: dict[str, Any], known: set[str]) -> None:
-        """Sessions of the PRODUCT agent that the store does not list as pending and that are older than `abandon_after_min`
-        (a crash between creating a session and recording it): delete them too. The listing is filtered by the product agent
-        id, so a session of any other agent (a research session) can never be returned, and a young in-flight session is
-        spared by its age."""
-        assert self._tr is not None and self._cfg.agent_id
+        """Sessions of every configured workflow agent (screening first) that the store does not list as pending and that
+        are older than `abandon_after_min` (a crash between creating a session and recording it): delete them too. Each
+        listing is filtered by a configured agent id, so a session of any other agent (a research session) can never be
+        returned, and a young in-flight session is spared by its age."""
+        assert self._tr is not None
         cutoff = self._wall() - self._cfg.abandon_after_min * 60
         out["orphans_deleted"] = 0
-        try:
-            for item in self._tr.list_sessions(self._cfg.agent_id):
-                sid, created = item.get("id"), _epoch(item.get("created_at"))
-                if not isinstance(sid, str) or sid in known or created is None or created > cutoff:
-                    continue
-                with contextlib.suppress(*UPSTREAM):
-                    if self._tr.delete_session(sid) in DELETED:
-                        out["orphans_deleted"] += 1
-        except UPSTREAM:
-            out["orphan_scan"] = "failed"
+        for agent_id in self._cfg.all_agent_ids():  # every workflow's agent: each lists only its own sessions
+            try:
+                for item in self._tr.list_sessions(agent_id):
+                    sid, created = item.get("id"), _epoch(item.get("created_at"))
+                    if not isinstance(sid, str) or sid in known or created is None or created > cutoff:
+                        continue
+                    with contextlib.suppress(*UPSTREAM):
+                        if self._tr.delete_session(sid) in DELETED:
+                            out["orphans_deleted"] += 1
+            except UPSTREAM:
+                out["orphan_scan"] = "failed"
 
     def _workspace_check(self) -> None:
         """The engine checks itself: its key must get a 200 from GET /v1/models with the configured workspace id, or the tier is
@@ -167,7 +168,7 @@ class Sweeper:
             if self._mode == "engine" and self._workspace_ok and not self._delete_canary_ok and self._cfg.agent_id:
                 self._delete_canary()
             known = self._delete_pending(out)
-            if self._scan_orphans and self._cfg.agent_id:
+            if self._scan_orphans and self._cfg.all_agent_ids():
                 self._orphans(out, known)
             if self._mode == "engine":
                 # the engine role's functions: reservations belong to the engine, and the sweep marker is what its own pause rules

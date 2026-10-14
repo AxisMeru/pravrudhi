@@ -538,3 +538,61 @@ def test_the_role_lists_used_by_these_tests_equal_the_grants_of_the_migration_wh
 
     g = grants_of(Path(path).read_text())
     assert g["assist_sweeper_rpc"] == SWEEPER_ROLE and g["assist_spend_rpc"] == ENGINE_ROLE
+
+
+class _PerAgentTransport(AgentTransport):
+    """Lists a different session per agent id (a session of one agent is never returned for another); an agent can fail."""
+
+    def __init__(self, statuses, per_agent, fail_for=()):
+        super().__init__(statuses)
+        self.per_agent, self.fail_for = per_agent, set(fail_for)
+
+    def list_sessions(self, agent_id, *, limit=100):
+        self.list_agent_ids.append(agent_id)
+        if agent_id in self.fail_for:
+            raise TR.UpstreamError(500, "server_error")
+        yield from self.per_agent.get(agent_id, [])
+
+
+def _wf_cfg(**over):
+    raw = yaml.safe_load((REPO / "configs" / "assistant_tier.yaml").read_text())
+    raw.update(
+        assist_route_enabled=True, agent_id="agent_prod", agent_version=1, environment_id="env_p", store_ca_file="/app/ca.crt",
+        workflows={"hearing_prep": {"agent_id": "agent_hp", "agent_version": 2, "environment_id": "env_hp"}},
+    )
+    raw.update(over)
+    return C.parse(raw)
+
+
+def _sweeper(cfg, tr):
+    return SW.Sweeper(cfg, FakeStore(), tr, G.Pauses(), mode="engine", wall_clock=lambda: NOW, clock=Clock())
+
+
+def test_the_orphan_scan_deletes_the_old_sessions_of_each_workflow_agent():
+    cfg = _wf_cfg()
+    old = iso(cfg.abandon_after_min + 1)
+    per_agent = {"agent_prod": [{"id": "sesn_a", "created_at": old}], "agent_hp": [{"id": "sesn_b", "created_at": old}]}
+    tr = _PerAgentTransport({"sesn_canary": 204, "sesn_a": 204, "sesn_b": 204}, per_agent)
+    out = _sweeper(cfg, tr).run_once()
+    assert tr.list_agent_ids == ["agent_prod", "agent_hp"]
+    assert out["orphans_deleted"] == 2 and "sesn_a" in tr.deleted and "sesn_b" in tr.deleted
+
+
+def test_a_failing_listing_for_one_agent_does_not_stop_the_other_agents_scan():
+    cfg = _wf_cfg()
+    old = iso(cfg.abandon_after_min + 1)
+    tr = _PerAgentTransport(
+        {"sesn_canary": 204, "sesn_a": 204}, {"agent_prod": [{"id": "sesn_a", "created_at": old}]}, fail_for={"agent_hp"}
+    )
+    out = _sweeper(cfg, tr).run_once()
+    assert out["orphan_scan"] == "failed" and "sesn_a" in tr.deleted and out["orphans_deleted"] == 1
+
+
+def test_a_failure_on_the_first_agent_still_scans_the_second():
+    cfg = _wf_cfg()
+    old = iso(cfg.abandon_after_min + 1)
+    tr = _PerAgentTransport(
+        {"sesn_canary": 204, "sesn_b": 204}, {"agent_hp": [{"id": "sesn_b", "created_at": old}]}, fail_for={"agent_prod"}
+    )
+    out = _sweeper(cfg, tr).run_once()
+    assert tr.list_agent_ids == ["agent_prod", "agent_hp"] and "sesn_b" in tr.deleted and out["orphan_scan"] == "failed"

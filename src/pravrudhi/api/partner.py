@@ -455,6 +455,8 @@ class AssistFactsRequest(AnalyseFactsRequest):
 
     consent: bool = False
     session_id: str | None = Field(default=None, max_length=128)
+    #: Which assisted workflow to run (a workflow with no configured agent answers with the ordinary result, `not_configured`).
+    workflow: Literal["screening", "hearing_prep", "intake"] = "screening"
 
 
 #: The exact keys `analyse_facts_ep` strips out of each element's dict when the debug gate is off -- listed
@@ -1451,7 +1453,7 @@ def build_partner_router(
             finalize=finalize,
         )
         caller = a0.Caller(admitted.authenticated, admitted.user_id, admitted.org_id, admitted.ip)
-        out = a0.run_assisted(matter, caller, req.consent, req.session_id, deps)
+        out = a0.run_assisted(matter, caller, req.consent, req.session_id, deps, workflow=req.workflow)
         if isinstance(out, dict):
             # The facts went to a third party for this request (or may have): the ordinary retention notice would be wrong here,
             # so no response of this route carries one. The consent line and the data-handling page say what is true.

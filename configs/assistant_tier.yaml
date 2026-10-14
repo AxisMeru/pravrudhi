@@ -32,6 +32,9 @@ max_concurrent_sessions: 2
 agent_id: agent_012zKjNLSVQoivwTqEPBkVUZ
 agent_version: 1
 environment_id: env_01MAG6qEGC999A8r8MogP5bt
+# One pinned agent per OTHER workflow (hearing_prep, intake), each {agent_id, agent_version, environment_id} from its own sha-pinned
+# manifest. Empty = those workflows stay dark (the caller gets the ordinary result). Screening uses the three keys above.
+workflows: {}
 # Names of environment variables (values arrive as RunPod secret references, never here).
 workspace_id_env: ANTHROPIC_WORKSPACE_ID
 store_dsn_env: SUPABASE_ASSIST_DB_URL

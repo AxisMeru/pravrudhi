@@ -29,7 +29,7 @@ from typing import Any
 import httpx
 
 from pravrudhi.application.a0_assist import driver as drv
-from pravrudhi.application.a0_assist.config import MAX_SESSION_CENTS, AssistConfig
+from pravrudhi.application.a0_assist.config import MAX_SESSION_CENTS, AssistConfig, WorkflowAgent
 from pravrudhi.application.a0_assist.limits import AssistLimiter
 from pravrudhi.application.a0_assist.store import SpendStore, StoreError, new_session_key
 from pravrudhi.application.a0_assist.transport import AnthropicTransport, TransportRefused, UpstreamError
@@ -72,6 +72,9 @@ class Deps:
     core: Callable[[], Any]
     make_driver: Callable[[], drv.A0Driver]
     finalize: Callable[[drv.A0Driver], dict[str, Any]]
+    #: The workflows THIS Deps can drive (its `make_driver` and `finalize` belong to them). A workflow outside this set is
+    #: answered as not configured even if the config has an agent for it: one workflow's driver is never used for another.
+    workflows: frozenset[str] = frozenset({"screening"})
     clock: Callable[[], float] = time.monotonic
     sleep: Callable[[float], None] = time.sleep
 
@@ -215,12 +218,20 @@ class _Run:
         self.driver: drv.A0Driver | None = None
 
 
-def run_assisted(request: dict[str, Any], caller: Caller, consent: bool, client_session_id: str | None, deps: Deps) -> Any:
+def run_assisted(
+    request: dict[str, Any], caller: Caller, consent: bool, client_session_id: str | None, deps: Deps,
+    workflow: str = "screening",
+) -> Any:
     cfg = deps.cfg
     if consent is not True:
         raise ConsentRequired()
     if not caller.authenticated:
         return _fallback(deps, "refused", "sign_in_required", client_session_id)
+    # A workflow with no agent, or with no driver in this Deps, stays dark. Decided BEFORE the limiter so a request that can
+    # never run is not charged against anyone's quota.
+    agent = cfg.agent_for(workflow) if workflow in deps.workflows else None
+    if agent is None:
+        return _fallback(deps, "refused", "not_configured", client_session_id)
     if deps.limiter.admit(caller.user_id, caller.org_id, caller.ip) is not None:
         return _fallback(deps, "refused", "rate_limited", client_session_id)
     tier = deps.tier_status()
@@ -231,12 +242,12 @@ def run_assisted(request: dict[str, Any], caller: Caller, consent: bool, client_
     if not deps.slots.acquire(blocking=False):
         return _fallback(deps, "refused", "rate_limited", client_session_id)
     try:
-        return _run_with_slot(request, client_session_id, deps, cfg)
+        return _run_with_slot(request, client_session_id, deps, cfg, agent)
     finally:
         deps.slots.release()
 
 
-def _run_with_slot(request: dict[str, Any], client_sid: str | None, deps: Deps, cfg: AssistConfig) -> Any:
+def _run_with_slot(request: dict[str, Any], client_sid: str | None, deps: Deps, cfg: AssistConfig, agent: WorkflowAgent) -> Any:
     store, tr = deps.store, deps.transport
     assert store is not None and tr is not None
     key = new_session_key()
@@ -255,7 +266,7 @@ def _run_with_slot(request: dict[str, Any], client_sid: str | None, deps: Deps, 
     try:
         driver = deps.make_driver()
         run.driver = driver
-        outcome_reason = _converse(request, run, deps, cfg)
+        outcome_reason = _converse(request, run, deps, cfg, agent)
         if outcome_reason == ("finished", None):
             problems = driver.complete()
             if driver.refusals:
@@ -287,10 +298,10 @@ def _run_with_slot(request: dict[str, Any], client_sid: str | None, deps: Deps, 
     return _fallback(deps, outcome, reason or "error", client_sid, steps=steps, cost=cost_block)
 
 
-def _converse(request: dict[str, Any], run: _Run, deps: Deps, cfg: AssistConfig) -> tuple[str, str | None]:
+def _converse(request: dict[str, Any], run: _Run, deps: Deps, cfg: AssistConfig, agent: WorkflowAgent) -> tuple[str, str | None]:
     tr = deps.transport
     assert tr is not None and run.driver is not None and run.key is not None
-    sess = tr.create_session(cfg.agent_id or "", cfg.agent_version or 0, cfg.environment_id or "", cfg.session_budget_cents)
+    sess = tr.create_session(agent.agent_id, agent.agent_version, agent.environment_id, cfg.session_budget_cents)
     sid = sess["id"]
     run.sid = sid
     deps.store.session_created(sid, run.key)  # type: ignore[union-attr]
