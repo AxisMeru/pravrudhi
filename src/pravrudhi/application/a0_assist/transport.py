@@ -28,6 +28,7 @@ ALLOWED: tuple[tuple[str, re.Pattern[str]], ...] = tuple(
     for m, p in (
         ("POST", r"^/v1/sessions$"),
         ("GET", r"^/v1/sessions$"),
+        ("GET", r"^/v1/models$"),
         ("GET", rf"^/v1/sessions/{_ID}$"),
         ("DELETE", rf"^/v1/sessions/{_ID}$"),
         ("POST", rf"^/v1/sessions/{_ID}/events$"),
@@ -203,6 +204,14 @@ class AnthropicTransport:
         """The HTTP status of DELETE /v1/sessions/{id}: 200/204 = deleted, 404 = already gone, anything else the caller
         treats as a failed delete. Raises only on a transport failure (599)."""
         return self._send("DELETE", f"/v1/sessions/{session_id}").status_code
+
+    def workspace_ok(self) -> bool:
+        """True only when GET /v1/models answers 200 with this key and the configured workspace id. A key that is not valid in
+        that workspace (or any failure, timeout or error) is False: fail closed. Nothing about the answer is returned."""
+        try:
+            return self._send("GET", "/v1/models", params={"limit": 1}).status_code == 200
+        except UpstreamError:
+            return False
 
     def list_sessions(self, agent_id: str, *, limit: int = 100) -> Iterator[dict[str, Any]]:
         """EVERY session of the given agent: walks every page until next_page is null."""

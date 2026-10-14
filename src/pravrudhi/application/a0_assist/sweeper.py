@@ -70,6 +70,7 @@ class Sweeper:
         self._canary_on = (mode == "backstop") if canary_enabled is None else canary_enabled
         self._prune_on = (mode == "backstop") if prune_enabled is None else prune_enabled
         self._delete_canary_ok = False
+        self._workspace_ok = False
         self._cfg, self._store, self._tr, self._pauses, self._engine = cfg, sweeper_store, transport, pauses, engine_store
         self._clock = clock
         self._last_canary: float | None = None
@@ -118,6 +119,13 @@ class Sweeper:
         except UPSTREAM:
             out["orphan_scan"] = "failed"
 
+    def _workspace_check(self) -> None:
+        """The engine checks itself: its key must get a 200 from GET /v1/models with the configured workspace id, or the tier is
+        paused (fail closed; no value in any log). Runs on every pass until it succeeds (a key change needs a restart)."""
+        assert self._tr is not None
+        self._workspace_ok = self._tr.workspace_ok() is True
+        self._pauses.set("workspace", None if self._workspace_ok else "workspace_check_failed")
+
     def _delete_canary(self) -> None:
         """A key that cannot delete would make every delete fail: create a session without events and delete it. Runs on the
         first pass of every process (a key change needs a restart) and again on every pass until it succeeds. A failure
@@ -154,7 +162,9 @@ class Sweeper:
                 guard.run_canary(None, self._pauses)
             return out
         try:
-            if self._mode == "engine" and not self._delete_canary_ok and self._cfg.agent_id:
+            if self._mode == "engine" and not self._workspace_ok:
+                self._workspace_check()
+            if self._mode == "engine" and self._workspace_ok and not self._delete_canary_ok and self._cfg.agent_id:
                 self._delete_canary()
             known = self._delete_pending(out)
             if self._scan_orphans and self._cfg.agent_id:

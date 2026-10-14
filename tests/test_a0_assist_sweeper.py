@@ -87,6 +87,12 @@ class FakeTransport:
             raise self.raises
         return self.statuses.get(sid, 204)
 
+    workspace_result = True
+
+    def workspace_ok(self):
+        self.calls_ws = getattr(self, "calls_ws", 0) + 1
+        return self.workspace_result
+
     def interrupt(self, sid):
         self.interrupted.append(sid)
         if self.raises:
@@ -395,3 +401,28 @@ def test_a_failed_orphan_delete_does_not_stop_the_scan():
     )
     out = eng_sweeper(FakeStore(), tr)[0].run_once()
     assert out["orphans_deleted"] == 1 and "sesn_y" in tr.deleted
+
+
+def test_the_engine_checks_its_own_workspace_first_and_a_failure_pauses_without_the_delete_canary():
+    tr = AgentTransport({"sesn_canary": 204})
+    tr.workspace_result = False
+    sw, p = eng_sweeper(FakeStore(), tr)
+    sw.run_once()
+    assert p.snapshot()["workspace"] == "workspace_check_failed" and tr.created == 0
+    tr.workspace_result = True
+    sw.run_once()
+    assert "workspace" not in p.snapshot() and tr.created == 1 and "delete_canary" not in p.snapshot()
+
+
+def test_the_workspace_check_stops_being_repeated_once_it_has_passed():
+    tr = AgentTransport({"sesn_canary": 204})
+    sw, _ = eng_sweeper(FakeStore(), tr)
+    sw.run_once()
+    sw.run_once()
+    assert tr.calls_ws == 1
+
+
+def test_the_backstop_mode_does_not_run_the_engine_workspace_check():
+    tr = FakeTransport()
+    SW.Sweeper(CFG, FakeStore(), tr, G.Pauses(), mode="backstop", clock=Clock()).run_once()
+    assert getattr(tr, "calls_ws", 0) == 0

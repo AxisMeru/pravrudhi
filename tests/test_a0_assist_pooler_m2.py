@@ -74,3 +74,27 @@ def test_the_engine_role_cannot_call_the_sweepers_prune_but_can_call_the_canary(
     with pytest.raises(ST.StoreError):
         eng.prune()
     assert eng.canary().get("checks_version") == 2
+
+
+def _key(file_env: str, var_env: str) -> str:
+    path = os.environ.get(file_env, "")
+    return (Path(path).read_text().strip() if path else os.environ.get(var_env, "")).strip()
+
+
+def test_the_engine_key_and_the_sweeper_key_act_in_the_same_workspace():
+    """Fails closed: a key that cannot list the product agent's sessions in the configured workspace is named (never printed)."""
+    from pravrudhi.application.a0_assist import config as C
+    from pravrudhi.application.a0_assist import preflight as PF
+    from pravrudhi.application.a0_assist import transport as TR
+
+    cfg, why = C.load_or_none(Path(os.environ.get("A0_M2_ROOT", ".")))
+    assert cfg is not None and cfg.agent_id, "the config must be readable and name the product agent"
+    ws = os.environ.get(cfg.workspace_id_env, "").strip()
+    keys = {
+        "engine": _key("A0_M2_ENGINE_KEY_FILE", "ANTHROPIC_API_KEY"),
+        "sweeper": _key("A0_M2_SWEEPER_KEY_FILE", "ANTHROPIC_SWEEPER_KEY"),
+    }
+    assert ws and all(keys.values()), "workspace id and both keys must be provided"
+    assert keys["engine"] != keys["sweeper"], "the backstop must hold its own key"
+    transports = {n: TR.AnthropicTransport(k, ws, timeout_s=20) for n, k in keys.items()}
+    assert PF.same_workspace(transports) == []

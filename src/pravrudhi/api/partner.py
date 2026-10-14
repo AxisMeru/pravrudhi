@@ -1323,7 +1323,6 @@ def build_partner_router(
                 "provenance": "agama",
                 "judge_accounting": {},
                 "client_data": True,
-                "retention_notice": RETENTION_NOTICE,
                 "standard": {
                     "requested": standard,
                     "applied": standard if in_prompt else None,
@@ -1346,7 +1345,12 @@ def build_partner_router(
             finalize=finalize,
         )
         caller = a0.Caller(admitted.authenticated, admitted.user_id, admitted.org_id, admitted.ip)
-        return a0.run_assisted(matter, caller, req.consent, req.session_id, deps)
+        out = a0.run_assisted(matter, caller, req.consent, req.session_id, deps)
+        if isinstance(out, dict):
+            # The facts went to a third party for this request (or may have): the ordinary retention notice would be wrong here,
+            # so no response of this route carries one. The consent line and the data-handling page say what is true.
+            out.pop("retention_notice", None)
+        return out
 
     @router.post(
         "/analyse-facts/assist",

@@ -36,3 +36,8 @@ def test_the_exec_lines_run_the_real_module_with_real_flags():
 
 def test_the_backstop_units_are_not_in_the_developer_channel_installer():
     assert "assist" not in (UNITS / "install.sh").read_text()
+
+
+def test_the_units_name_the_workspace_variable_beside_the_other_two():
+    text = (UNITS / "pravrudhi-assist-backstop.service").read_text()
+    assert all(n in text for n in ("SUPABASE_ASSIST_DB_URL_SWEEPER", "ANTHROPIC_SWEEPER_KEY", "ANTHROPIC_WORKSPACE_ID"))

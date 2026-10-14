@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import math
 import re
 import threading
 import time
@@ -28,7 +29,7 @@ from typing import Any
 import httpx
 
 from pravrudhi.application.a0_assist import driver as drv
-from pravrudhi.application.a0_assist.config import AssistConfig
+from pravrudhi.application.a0_assist.config import MAX_SESSION_CENTS, AssistConfig
 from pravrudhi.application.a0_assist.limits import AssistLimiter
 from pravrudhi.application.a0_assist.store import SpendStore, StoreError, new_session_key
 from pravrudhi.application.a0_assist.transport import AnthropicTransport, TransportRefused, UpstreamError
@@ -80,8 +81,33 @@ def user_message(request: dict[str, Any]) -> str:
     return USER_MESSAGE_PREFIX + json.dumps(payload, ensure_ascii=False)
 
 
-def list_cost_cents(events: Iterable[dict[str, Any]], session: dict[str, Any] | None) -> int | None:
-    """The session's tracked list cost in whole cents, or None when unreadable (the store then charges the full reserve)."""
+def cost_amount_cents(v: Any, bound: int = MAX_SESSION_CENTS) -> int | None:
+    """One list_cost value to whole cents, ROUNDED UP, fail closed. The live API returns an object
+    {"amount": "10", "currency": "USD"} (the unit is cents, like the budget's own amount). Readable = a dict with EXACTLY the keys
+    amount and currency, currency "USD", and an amount that is a plain decimal string or a finite number in [0, bound]; a bare
+    string or number is read the same way. Anything else (no amount, a non-numeric amount, another currency, a bool, NaN or inf,
+    a negative, an amount above the engine's own per-session limit, which is a unit error) is None = unreadable: the store then
+    charges the full reserve, never zero."""
+    if isinstance(v, dict):
+        if set(v) != {"amount", "currency"} or v["currency"] != "USD":
+            return None
+        v = v["amount"]
+    if isinstance(v, bool):
+        return None
+    if isinstance(v, str):
+        if not re.fullmatch(r"\d+(\.\d+)?", v):
+            return None
+        v = float(v)
+    if isinstance(v, (int, float)):
+        return math.ceil(v) if math.isfinite(v) and 0 <= v <= bound else None
+    return None
+
+
+def list_cost_cents(
+    events: Iterable[dict[str, Any]], session: dict[str, Any] | None, bound: int = MAX_SESSION_CENTS
+) -> int | None:
+    """The session's tracked list cost in whole cents: the last session.usage event (top level or under usage), else the session
+    object's usage. The first READABLE candidate wins; None when none is readable (the caller charges the full reserve)."""
     cands: list[Any] = []
     for e in reversed(list(events)):
         if e.get("type") == "session.usage":
@@ -90,14 +116,11 @@ def list_cost_cents(events: Iterable[dict[str, Any]], session: dict[str, Any] | 
     if session is not None:
         cands.append((session.get("usage") or {}).get("list_cost"))
     for v in cands:
-        if v is None or isinstance(v, bool):
+        if v is None:
             continue
-        try:
-            n = int(round(float(v)))
-        except (TypeError, ValueError, OverflowError):
-            continue
-        if n >= 0:
-            return n
+        c = cost_amount_cents(v, bound)
+        if c is not None:
+            return c
     return None
 
 

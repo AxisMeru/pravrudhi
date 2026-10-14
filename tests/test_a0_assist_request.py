@@ -589,3 +589,79 @@ def test_the_raw_lean_outcome_never_appears_in_the_steps():
     ]
     steps = AS.steps_from(calls)
     assert steps == [{"name": "assemble"}, {"name": "lean_check", "check": "differs"}] and "PROOF" not in json.dumps(steps)
+
+
+# ---- the cost parser: the live shape, ceil, fail closed -------------------------------------------------------------------
+@pytest.mark.parametrize(
+    ("v", "cents"),
+    [
+        ({"amount": "10", "currency": "USD"}, 10),
+        ({"amount": "2.4", "currency": "USD"}, 3),
+        ({"amount": "0", "currency": "USD"}, 0),
+        ({"amount": 7, "currency": "USD"}, 7),
+        ({"amount": 7.2, "currency": "USD"}, 8),
+        ("12", 12),
+        ("2.4", 3),
+        (5, 5),
+        (100, 100),
+    ],
+)
+def test_cost_amount_cents_reads_the_live_shape_and_rounds_up(v, cents):
+    assert AS.cost_amount_cents(v) == cents
+
+
+@pytest.mark.parametrize(
+    "v",
+    [
+        {"amount": "10", "currency": "EUR"},
+        {"amount": "10", "currency": "USD", "extra": 1},
+        {"amount": "10"},
+        {"currency": "USD"},
+        {"amount": "-1", "currency": "USD"},
+        {"amount": float("nan"), "currency": "USD"},
+        {"amount": float("inf"), "currency": "USD"},
+        {"amount": True, "currency": "USD"},
+        {"amount": "1e3", "currency": "USD"},
+        {"amount": "abc", "currency": "USD"},
+        {"amount": "101", "currency": "USD"},
+        True,
+        False,
+        None,
+        "",
+        "-3",
+        -3,
+        float("nan"),
+        [],
+        {},
+    ],
+)
+def test_cost_amount_cents_is_none_for_anything_else(v):
+    assert AS.cost_amount_cents(v) is None
+
+
+def test_list_cost_reads_an_object_shaped_usage_event_and_session():
+    ev = [{"type": "session.usage", "list_cost": {"amount": "10", "currency": "USD"}}]
+    assert AS.list_cost_cents(ev, None) == 10
+    assert AS.list_cost_cents([{"type": "session.usage", "usage": {"list_cost": {"amount": "4", "currency": "USD"}}}], None) == 4
+    assert AS.list_cost_cents([], {"usage": {"list_cost": {"amount": "7", "currency": "USD"}}}) == 7
+
+
+def test_the_first_readable_candidate_wins_over_an_unreadable_one():
+    ev = [{"type": "session.usage", "list_cost": {"amount": "x", "currency": "USD"}, "usage": {"list_cost": "6"}}]
+    assert AS.list_cost_cents(ev, None) == 6
+
+
+def test_a_live_shaped_cost_flows_through_a_run_and_an_overshoot_is_charged_in_full_and_flagged(tmp_path):
+    before = AS.SAFETY_EVENTS["over_reserve"]
+    e = Env(tmp_path, cost={"amount": "40", "currency": "USD"})
+    e.tr.list_events = lambda sid: [{"type": "session.usage", "list_cost": e.tr.cost}]
+    out = e.run()
+    assert e.store.log[2][2] == 40 and AS.SAFETY_EVENTS["over_reserve"] == before + 1
+    assert block(out)["cost"]["used_cents"] == 40
+
+
+def test_a_live_shaped_cost_below_the_reserve_is_reported_as_read(tmp_path):
+    e = Env(tmp_path, cost={"amount": "3", "currency": "USD"})
+    e.tr.list_events = lambda sid: [{"type": "session.usage", "list_cost": e.tr.cost}]
+    out = e.run()
+    assert e.store.log[2][2] == 3 and block(out)["cost"]["used_cents"] == 3

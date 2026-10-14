@@ -3,8 +3,9 @@
 # when no engine worker is alive. Exit code 2 = ALERT (the unit shows failed): a delete failed, or a session was pending
 # past the window. Install on the host that runs the health probe; not part of the developer-channel install.
 #
-# EnvironmentFile (0600, never in this repo) carries SUPABASE_ASSIST_DB_URL_SWEEPER, ANTHROPIC_SWEEPER_KEY and the
-# workspace id variable named in configs/assistant_tier.yaml.
+# EnvironmentFile (0600, never in this repo) carries SUPABASE_ASSIST_DB_URL_SWEEPER, ANTHROPIC_SWEEPER_KEY and
+# ANTHROPIC_WORKSPACE_ID (the workspace id named by workspace_id_env in configs/assistant_tier.yaml; a plain variable, not a secret,
+# and the SAME workspace as the engine's key: tests/test_a0_assist_pooler_m2.py checks both keys against it).
 [Unit]
 Description=Assisted screening backstop sweeper (sweeper role only): delete sessions pending over an hour
 After=network-online.target

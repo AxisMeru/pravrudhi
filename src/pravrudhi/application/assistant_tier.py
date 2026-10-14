@@ -18,6 +18,7 @@ No call site exists in the engine or the app today, so none is wired here.
 from __future__ import annotations
 
 import json
+import logging
 import math
 import os
 import threading
@@ -36,11 +37,21 @@ QUOTA_STATUSES = (402, 429)
 _lock = threading.Lock()
 _last: dict[str, Any] = {"status": None, "at": None}
 _pause_source: Callable[[], str | None] | None = None
+_pause_cause: str | None = None
+_log = logging.getLogger(__name__)
+
+
+def pause_cause() -> str | None:
+    """The fine-grained internal cause of the current guard pause (for logs and operators), or None. It is never part of the
+    public status: on the wire a guard pause is the documented `upstream_error`."""
+    with _lock:
+        return _pause_cause
 
 
 def set_pause_source(source: Callable[[], str | None] | None) -> None:
     """Install (or clear) a callable returning a pause code, or None when nothing pauses the tier. While it returns a
-    code the tier is unavailable with reason "disabled"; a source that raises counts as a pause (fail closed)."""
+    code the tier is unavailable with the documented paused reason `upstream_error` (`disabled` stays for config off only); a
+    source that raises counts as a pause (fail closed). The code itself is kept as the internal cause (`pause_cause`)."""
     global _pause_source
     with _lock:
         _pause_source = source
@@ -72,10 +83,11 @@ def record_outcome(http_status: int, *, now: Callable[[], float] = time.monotoni
 
 
 def reset() -> None:
-    global _pause_source
+    global _pause_source, _pause_cause
     with _lock:
         _last["status"], _last["at"] = None, None
         _pause_source = None
+        _pause_cause = None
 
 
 def _failure_reason(ttl: float, now: float) -> str | None:
@@ -95,6 +107,7 @@ def _budget_ok(path: Any, floor: float) -> bool:
 
 
 def status(root: Path, *, env: Any = None, now: Callable[[], float] = time.monotonic) -> dict[str, Any]:
+    global _pause_cause
     env = os.environ if env is None else env
     cfg = _load(Path(root))
     if cfg is None or cfg.get("enabled") is not True or cfg.get("force_unavailable") is not False:
@@ -106,8 +119,13 @@ def status(root: Path, *, env: Any = None, now: Callable[[], float] = time.monot
             paused = source()
         except Exception:  # noqa: BLE001 - a broken pause source must pause, never raise
             paused = "pause_source_error"
+        with _lock:
+            changed = paused != _pause_cause
+            _pause_cause = paused or None
+        if changed:
+            _log.warning("assisted tier %s: %s", "paused" if paused else "pause cleared", paused or "ok")
         if paused:
-            return _unavailable("disabled")
+            return _unavailable("upstream_error")
     names = cfg.get("key_env_names")
     if not isinstance(names, list) or not names or not any(isinstance(n, str) and env.get(n) for n in names):
         return _unavailable("no_key")

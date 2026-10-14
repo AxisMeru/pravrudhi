@@ -54,10 +54,10 @@ def test_a_dark_config_builds_an_inert_runtime_and_leaves_health_as_it_was(tmp_p
     assert c.get("/api/health").json()["assistant_tier"]["state"] == "available"
 
 
-def test_an_enabled_config_is_paused_from_startup_so_health_reads_disabled(tmp_path):
+def test_an_enabled_config_is_paused_from_startup_so_health_reads_paused(tmp_path):
     c = TestClient(create_app(root_with(tmp_path, **ENABLED)), base_url="http://127.0.0.1:8008")
     assert R._runtime is not None and R._runtime.enabled is True and T._pause_source is not None
-    assert c.get("/api/health").json()["assistant_tier"] == {"state": "unavailable", "reason": "disabled"}
+    assert c.get("/api/health").json()["assistant_tier"] == {"state": "unavailable", "reason": "upstream_error"}
 
 
 def test_a_broken_config_leaves_the_route_off_and_the_app_up(tmp_path):

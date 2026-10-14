@@ -101,7 +101,7 @@ def test_the_assisted_body_has_the_same_top_level_keys_as_the_core_body_plus_ass
     c = client(tmp_path)
     assisted = c.post(URL, json=BODY).json()
     core = c.post("/api/v1/analyse-facts", json={k: v for k, v in BODY.items() if k not in ("consent", "session_id")}).json()
-    assert set(assisted) - {"assistant"} == set(core)
+    assert set(assisted) - {"assistant"} == set(core) - {"retention_notice"}  # no retention notice on this route (see below)
 
 
 def test_an_anonymous_caller_gets_the_core_result_with_sign_in_required(tmp_path):
@@ -132,11 +132,11 @@ def test_an_unavailable_tier_gives_the_core_result_and_no_anthropic_call(tmp_pat
     assert r.json()["assistant"]["reason"] == "not_configured" and c.rt.transport.calls == [] and c.rt.store.log == []
 
 
-def test_a_pause_source_code_pauses_the_route_with_the_disabled_tier(tmp_path):
+def test_a_pause_source_code_pauses_the_route_with_the_paused_reason(tmp_path):
     c = client(tmp_path)
     TIER.set_pause_source(lambda: "canary_failed")
     r = c.post(URL, json=BODY)
-    assert r.json()["assistant"]["reason"] == "not_configured" and c.rt.transport.calls == []
+    assert r.json()["assistant"]["reason"] == "paused" and c.rt.transport.calls == []
 
 
 def test_a_validation_error_in_the_body_is_422_and_touches_nothing(tmp_path):
@@ -151,3 +151,14 @@ def test_the_assist_route_is_not_in_the_public_openapi_contract(tmp_path):
         if c.get("/openapi.json").status_code == 200
         else True
     )
+
+
+def test_no_retention_notice_on_any_response_of_the_assist_route_finished_or_fallback(tmp_path):
+    c = client(tmp_path)
+    finished = c.post(URL, json=BODY).json()
+    assert finished["assistant"]["used"] is True and "retention_notice" not in finished
+    c2 = client(tmp_path / "b", user=None)
+    fallback = c2.post(URL, json=BODY).json()
+    assert fallback["assistant"]["used"] is False and "retention_notice" not in fallback
+    core = c2.post("/api/v1/analyse-facts", json={k: v for k, v in BODY.items() if k not in ("consent", "session_id")}).json()
+    assert "retention_notice" in core  # the ordinary route is unchanged
