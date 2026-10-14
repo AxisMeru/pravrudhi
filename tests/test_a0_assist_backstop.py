@@ -159,3 +159,62 @@ def test_a_canary_timeout_is_its_own_alert_not_a_generic_error(tmp_path, caplog)
         code, out = go(tmp_path, Slow(), FakeTransport(), canary=True)
     assert code == 2 and "canary_timeout" in out["alert"] and "canary_error" not in out["alert"]
     assert "timed out" in caplog.text
+
+
+# ---- --spend: the read-only totals for the daily billing close -------------------------------------------------------------
+class SpendStore(Store):
+    def __init__(self, doc=None, **kw):
+        super().__init__(**kw)
+        self.doc = doc
+
+    def spend_summary(self):
+        self._do("spend_summary")
+        return self.doc
+
+
+GOOD = {
+    "day": "2026-10-14",
+    "month_start": "2026-10-01",
+    "spent_today_cents": 40,
+    "spent_month_cents": 65,
+    "reserved_open_cents": 25,
+}
+
+
+def test_spend_prints_only_the_totals_and_exits_0(tmp_path):
+    code, out = B.spend(root_with(tmp_path), {}, store=SpendStore({**GOOD, "extra_secret": "x"}))
+    assert code == 0 and out == {"ok": True, **GOOD}
+
+
+def test_spend_needs_no_anthropic_key_no_transport_and_makes_no_write_call(tmp_path):
+    st = SpendStore(GOOD)
+    B.spend(root_with(tmp_path), {}, store=st)
+    assert st.calls == ["spend_summary"]
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        {},
+        {**GOOD, "spent_today_cents": -1},
+        {**GOOD, "spent_month_cents": True},
+        {**GOOD, "spent_today_cents": "40"},
+        {**GOOD, "day": None},
+        None,
+    ],
+)
+def test_a_malformed_answer_is_an_alert_not_a_number(tmp_path, bad):
+    code, out = B.spend(root_with(tmp_path), {}, store=SpendStore(bad if bad is not None else {}))
+    assert code == 2 and out["ok"] is False and out["alert"] == "unexpected_shape"
+
+
+def test_a_store_error_is_an_alert_and_no_store_is_exit_3(tmp_path):
+    assert B.spend(root_with(tmp_path), {}, store=SpendStore(GOOD, fail={"spend_summary": 1}))[0] == 2
+    assert B.spend(root_with(tmp_path), {})[0] == 3
+
+
+def test_main_spend_prints_one_json_line(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(ST, "from_env", lambda *a, **k: (SpendStore(GOOD), None))
+    code = B.main(["--root", str(root_with(tmp_path)), "--spend"])
+    out = capsys.readouterr().out.strip().splitlines()
+    assert code == 0 and len(out) == 1 and json.loads(out[0])["spent_month_cents"] == 65

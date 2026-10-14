@@ -417,3 +417,10 @@ def test_a_non_timeout_failure_is_not_a_store_timeout():
     with pytest.raises(ST.StoreError) as e:
         s.canary()
     assert not isinstance(e.value, ST.StoreTimeout)
+
+
+def test_spend_summary_is_a_bound_parameterless_call_and_fails_closed():
+    s, conns, _ = make(rows=[[{"day": "2026-10-14", "spent_today_cents": 1}]])
+    assert s.spend_summary()["spent_today_cents"] == 1 and conns[0].executed[0] == ("select assist.spend_summary()", ())
+    with pytest.raises(ST.StoreError):
+        make(rows=[["not-a-dict"]])[0].spend_summary()

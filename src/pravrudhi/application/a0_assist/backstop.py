@@ -1,6 +1,7 @@
 """The backstop sweeper: one pass, from a separate process that holds ONLY the sweeper database role.
 
     python -m pravrudhi.application.a0_assist.backstop [--root DIR] [--canary] [--prune]
+    python -m pravrudhi.application.a0_assist.backstop [--root DIR] --spend
 
 It reads the sessions the store lists as pending for more than `BACKSTOP_MIN_AGE_MIN` minutes (ids, created time and state
 only), deletes each at Anthropic with its own key, records the observed status, and optionally runs the standing canary
@@ -118,12 +119,41 @@ def run(
     return (EXIT_ALERT if alerts else EXIT_OK), summary
 
 
+SPEND_KEYS = ("day", "month_start", "spent_today_cents", "spent_month_cents", "reserved_open_cents")
+
+
+def spend(root: Path, env: Mapping[str, str], *, store: ST.SpendStore | None = None) -> tuple[int, dict[str, Any]]:
+    """The read-only spend totals for the daily billing close: cents and two dates, nothing else. Needs only the sweeper
+    role (no Anthropic key, no deletion, no write). Exit 0 with the numbers, 2 if the store cannot answer, 3 if not configured."""
+    cfg, _why = C.load_or_none(Path(root))
+    if cfg is None:
+        return EXIT_NOT_CONFIGURED, {"ok": False, "alert": "config_unreadable"}
+    if store is None:
+        store, _ = ST.from_env(env, cfg.sweeper_dsn_env, timeout_s=cfg.store_timeout_s, ca_file=cfg.store_ca_file)
+    if store is None:
+        return EXIT_NOT_CONFIGURED, {"ok": False, "alert": "not_configured"}
+    try:
+        doc = store.spend_summary()
+    except ST.StoreError:
+        return EXIT_ALERT, {"ok": False, "alert": "store"}
+    out = {k: doc.get(k) for k in SPEND_KEYS}
+    ints = all(isinstance(out[k], int) and not isinstance(out[k], bool) and out[k] >= 0 for k in SPEND_KEYS[2:])
+    if not ints or not all(isinstance(out[k], str) for k in SPEND_KEYS[:2]):
+        return EXIT_ALERT, {"ok": False, "alert": "unexpected_shape"}
+    return EXIT_OK, {"ok": True, **out}
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="a0-assist-backstop")
     ap.add_argument("--root", default=os.environ.get("PRAVRUDHI_ROOT", "."))
     ap.add_argument("--canary", action="store_true")
     ap.add_argument("--prune", action="store_true")
+    ap.add_argument("--spend", action="store_true", help="print the read-only spend totals (cents) and nothing else")
     a = ap.parse_args(argv)
+    if a.spend:
+        code, summary = spend(Path(a.root), os.environ)
+        print(json.dumps(summary, sort_keys=True))
+        return code
     code, summary = run(Path(a.root), os.environ, canary=a.canary, prune=a.prune)
     print(json.dumps(summary, sort_keys=True))
     return code

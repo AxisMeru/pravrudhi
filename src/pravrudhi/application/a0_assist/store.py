@@ -58,6 +58,7 @@ class SpendStore(Protocol):
     def canary(self) -> dict[str, Any]: ...
     def mark_deleted(self, anthropic_session_id: str, http_status: int) -> dict[str, Any]: ...
     def prune(self) -> int: ...
+    def spend_summary(self) -> dict[str, Any]: ...
 
 
 def new_session_key() -> str:
@@ -185,13 +186,13 @@ class PgSpendStore:
                     conn.close()
 
     @staticmethod
-    def _json(rows: Any) -> dict[str, Any]:
+    def _json(rows: Any, need: tuple[str, ...] = ("ok", "initialised")) -> dict[str, Any]:
         try:
             v = rows[0][0]
             v = json.loads(v) if isinstance(v, (str, bytes)) else v
         except (IndexError, TypeError, ValueError):
             raise StoreError("the store answered with something that is not JSON") from None
-        if not isinstance(v, Mapping) or "ok" not in v and "initialised" not in v:
+        if not isinstance(v, Mapping) or not any(k in v for k in need):
             raise StoreError("the store answered with an unexpected shape")
         return dict(v)
 
@@ -228,6 +229,9 @@ class PgSpendStore:
 
     def mark_deleted(self, anthropic_session_id: str, http_status: int) -> dict[str, Any]:
         return self._json(self._call("select assist.mark_deleted(%s, %s)", (_sid(anthropic_session_id), _int(http_status, 100))))
+
+    def spend_summary(self) -> dict[str, Any]:
+        return self._json(self._call("select assist.spend_summary()", ()), need=("spent_today_cents",))
 
     def prune(self) -> int:
         rows = self._call("select assist.prune()", ())
