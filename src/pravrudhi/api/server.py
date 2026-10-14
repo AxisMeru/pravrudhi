@@ -616,9 +616,15 @@ def create_app(root: Path, *, nyaya_ask_fn: Any | None = None) -> FastAPI:
             tier = assistant_tier.status(root)
         except Exception:  # the app's probe is fail-closed: any fault reads as unavailable, never a 500
             tier = {"state": "unavailable", "reason": "disabled"}
+        from pravrudhi.application import tenancy
+
+        try:
+            tenancy_store = tenancy.store_status()
+        except Exception:  # noqa: BLE001 - a label, never a 500
+            tenancy_store = "unavailable"
         return HealthResponse.model_validate(
             {"ok": True, "version": __version__, "kernel": KERNEL_VERSION, "ledger": ledger.exists(),
-             "frontier_reader_available": False, "assistant_tier": tier}
+             "frontier_reader_available": False, "assistant_tier": tier, "tenancy_store": tenancy_store}
         )
 
     @api.get("/assistant", response_model=AssistantStatusResponse, response_model_exclude_unset=True)

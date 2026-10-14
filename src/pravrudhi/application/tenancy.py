@@ -55,6 +55,8 @@ from fastapi import HTTPException
 from pravrudhi.api.identity import User
 from pravrudhi.api.roles import admin_ids
 from pravrudhi.application.portable_lock import exclusive_lock
+from pravrudhi.application.tenancy_store import PgTenancyStore, TenancyStoreDown
+from pravrudhi.application.tenancy_store import from_env as _store_from_env
 
 ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,62}$")
 _KEY_ID_ALPHABET = "0123456789abcdefghijklmnopqrstuvwxyz"
@@ -62,6 +64,125 @@ KEY_PREFIX = "pnk"
 
 _hasher = PasswordHasher()
 _logger = logging.getLogger(__name__)
+
+BACKEND_ENV = "PRAVRUDHI_TENANCY_BACKEND"
+KEY_CACHE_ENV = "PRAVRUDHI_TENANCY_KEY_CACHE_S"
+DEFAULT_KEY_CACHE_S = 15.0
+
+
+class TenancyUnavailable(HTTPException):
+    """The tenancy store cannot answer: a keyed request is refused with 503, never read as an unknown key and never accepted."""
+
+    def __init__(self) -> None:
+        super().__init__(status_code=503, detail="key service unavailable")
+
+
+_pg_lock = threading.Lock()
+_pg_cache: dict[str, PgTenancyStore | None] = {}
+_key_cache: dict[str, tuple[float, dict[str, Any]]] = {}
+_key_epoch = 0  # bumped by revoke/purge: a row read before the bump is never cached after it
+
+
+def _backend_is_supabase() -> bool:
+    """`file` (the default: a local engine) or `supabase` (the hosted shape). Any other value is a typo in a hosted setting
+    and must not silently select the volatile files: it fails closed (TenancyUnavailable) like a missing store."""
+    v = os.environ.get(BACKEND_ENV, "file").strip().lower()
+    if v not in ("file", "supabase"):
+        raise TenancyUnavailable()
+    return v == "supabase"
+
+
+def _pg() -> PgTenancyStore | None:
+    """None = the file backend (dev, tests, a local engine). In the hosted shape `PRAVRUDHI_TENANCY_BACKEND=supabase` REQUIRES the
+    store: a missing DSN or driver raises TenancyUnavailable, it never falls back to the volatile files (that IS the bug)."""
+    if not _backend_is_supabase():
+        return None
+    with _pg_lock:
+        key = os.environ.get("SUPABASE_TENANCY_DB_URL", "")
+        store = _pg_cache.get(key)
+        if store is None:  # a missing store is NOT remembered: a DSN or CA file that appears later is picked up at once
+            store = _store_from_env(os.environ)
+            if store is not None:
+                _pg_cache[key] = store
+    if store is None:
+        raise TenancyUnavailable()
+    return store
+
+
+_status_lock = threading.Lock()
+_status: dict[str, Any] = {"value": "checking", "at": None, "running": False}
+_STATUS_TTL_S = 30.0
+
+
+def store_status() -> str:
+    """`file` (local backend), or the hosted store's state: `ok`, `unavailable` or `checking` (first call before an answer).
+    Published on /api/health as a label only (no value, no path). Never blocks the caller: a stale answer starts one background
+    re-check and returns the last known state."""
+    if not _backend_is_supabase():
+        return "file"
+    now = time.monotonic()
+    with _status_lock:
+        stale = _status["at"] is None or now - float(_status["at"]) > _STATUS_TTL_S
+        start = stale and not _status["running"]
+        if start:
+            _status["running"] = True
+        value = str(_status["value"])
+
+    def check() -> None:
+        try:
+            pg = _pg()
+            ok = pg is not None and pg.canary().get("ok") is True
+            result = "ok" if ok else "unavailable"
+        except Exception:  # noqa: BLE001 - a health label must never raise
+            result = "unavailable"
+        with _status_lock:
+            _status.update(value=result, at=time.monotonic(), running=False)
+
+    if start:
+        threading.Thread(target=check, name="tenancy-status", daemon=True).start()
+    return value
+
+
+def reset_backend_for_tests() -> None:
+    with _status_lock:
+        _status.update(value="checking", at=None, running=False)
+    with _pg_lock:
+        _pg_cache.clear()
+        _key_cache.clear()
+        _writers.clear()
+
+
+def _forget_key(key_id: str) -> None:
+    global _key_epoch
+    _key_epoch += 1
+    _key_cache.pop(key_id, None)
+
+
+def purge_key(root: Path, key_id: str) -> bool:
+    """Admin removal of a key with its usage and audit rows (a partner leaves). Not reachable from a partner route."""
+    pg = _pg()
+    if pg is None:
+        raise TenancyError("purge is a hosted-store operation")
+    _forget_key(key_id)
+    try:
+        res = pg.purge_key(key_id)
+    except TenancyStoreDown as exc:
+        raise _down() from exc
+    finally:
+        _forget_key(key_id)
+    return res.get("removed") is True
+
+
+def _key_cache_s() -> float:
+    try:
+        v = float(os.environ.get(KEY_CACHE_ENV, DEFAULT_KEY_CACHE_S))
+    except ValueError:
+        return DEFAULT_KEY_CACHE_S
+    return v if 0 <= v <= 300 else DEFAULT_KEY_CACHE_S
+
+
+def _down() -> TenancyUnavailable:
+    return TenancyUnavailable()
 
 
 class TenancyError(ValueError):
@@ -142,6 +263,15 @@ def create_org(root: Path, org_id: str, name: str) -> Org:
     oid = _validate_id(org_id, label="org id")
     if not name.strip():
         raise TenancyError("org name must not be blank")
+    pg = _pg()
+    if pg is not None:
+        try:
+            res = pg.create_org(oid, name.strip(), _now())
+        except TenancyStoreDown as exc:
+            raise _down() from exc
+        if res.get("ok") is not True:
+            raise TenancyError(f"org {oid!r} already exists" if res.get("reason") == "exists" else "org could not be created")
+        return Org(**res["org"])
 
     def mutate(rows: dict[str, dict[str, Any]]) -> Org:
         if oid in rows:
@@ -154,11 +284,24 @@ def create_org(root: Path, org_id: str, name: str) -> Org:
 
 
 def get_org(root: Path, org_id: str) -> Org | None:
+    pg = _pg()
+    if pg is not None:
+        try:
+            row = pg.get_org(org_id)
+        except TenancyStoreDown as exc:
+            raise _down() from exc
+        return Org(**row) if row else None
     row = _read_store(root, "orgs").get(org_id)
     return Org(**row) if row else None
 
 
 def list_orgs(root: Path) -> list[Org]:
+    pg = _pg()
+    if pg is not None:
+        try:
+            return [Org(**r) for r in pg.list_orgs()]
+        except TenancyStoreDown as exc:
+            raise _down() from exc
     return [Org(**row) for row in sorted(_read_store(root, "orgs").values(), key=lambda r: r["id"])]
 
 
@@ -183,6 +326,15 @@ def add_member(root: Path, org_id: str, user_id: str, role: str = "member") -> M
     if not user_id.strip():
         raise TenancyError("user id must not be blank")
     uid = user_id.strip()
+    pg = _pg()
+    if pg is not None:
+        try:
+            res = pg.add_member(oid, uid, role)
+        except TenancyStoreDown as exc:
+            raise _down() from exc
+        if res.get("ok") is not True:
+            raise TenancyError("org does not exist" if res.get("reason") == "no_org" else "membership could not be added")
+        return Membership(org_id=oid, user_id=uid, role=role)
 
     def mutate(rows: dict[str, dict[str, Any]]) -> Membership:
         org_rows = rows.setdefault(oid, {})
@@ -193,11 +345,19 @@ def add_member(root: Path, org_id: str, user_id: str, role: str = "member") -> M
 
 
 def memberships_for_org(root: Path, org_id: str) -> list[Membership]:
+    pg = _pg()
+    if pg is not None:
+        try:
+            return [Membership(**r) for r in pg.memberships_for_org(org_id)]
+        except TenancyStoreDown as exc:
+            raise _down() from exc
     org_rows = _read_store(root, "memberships").get(org_id, {})
     return [Membership(org_id=org_id, user_id=uid, role=row["role"]) for uid, row in sorted(org_rows.items())]
 
 
 def membership_role(root: Path, org_id: str, user_id: str) -> str | None:
+    if _pg() is not None:
+        return next((m.role for m in memberships_for_org(root, org_id) if m.user_id == user_id), None)
     org_rows = _read_store(root, "memberships").get(org_id, {})
     row = org_rows.get(user_id)
     return row["role"] if row else None
@@ -260,6 +420,16 @@ def create_key(root: Path, org_id: str, *, label: str = "", rate_limit_per_minut
         rate_limit_per_minute=rate_limit_per_minute,
     )
 
+    pg = _pg()
+    if pg is not None:
+        try:
+            res = pg.create_key(record.to_dict())
+        except TenancyStoreDown as exc:
+            raise _down() from exc
+        if res.get("ok") is not True:
+            raise TenancyError("key could not be created")
+        return CreatedApiKey(record=record, secret=token)
+
     def mutate(rows: dict[str, dict[str, Any]]) -> None:
         rows[key_id] = record.to_dict()
 
@@ -268,6 +438,19 @@ def create_key(root: Path, org_id: str, *, label: str = "", rate_limit_per_minut
 
 
 def revoke_key(root: Path, key_id: str) -> ApiKeyRecord:
+    pg = _pg()
+    if pg is not None:
+        _forget_key(key_id)  # before the call too: a reply lost after the commit must not leave the key cached
+        try:
+            res = pg.revoke_key(key_id, _now())
+        except TenancyStoreDown as exc:
+            raise _down() from exc
+        finally:
+            _forget_key(key_id)  # this process stops honouring the key at once (other replicas within the cache TTL)
+        if res.get("ok") is not True or not isinstance(res.get("key"), dict):
+            raise TenancyError(f"key {key_id!r} does not exist")
+        return ApiKeyRecord(**{**res["key"], "hash": ""})  # the hash is returned by get_key only
+
     def mutate(rows: dict[str, dict[str, Any]]) -> ApiKeyRecord:
         row = rows.get(key_id)
         if row is None:
@@ -280,6 +463,12 @@ def revoke_key(root: Path, key_id: str) -> ApiKeyRecord:
 
 
 def keys_for_org(root: Path, org_id: str) -> list[ApiKeyRecord]:
+    pg = _pg()
+    if pg is not None:
+        try:
+            return [ApiKeyRecord(**{**r, "hash": ""}) for r in pg.keys_for_org(org_id)]
+        except TenancyStoreDown as exc:
+            raise _down() from exc
     rows = _read_store(root, "keys")
     return [
         ApiKeyRecord(**row) for row in sorted(rows.values(), key=lambda r: r["created"]) if row["org_id"] == org_id
@@ -291,6 +480,29 @@ class InvalidApiKey(ValueError):
     failure shape (malformed, unknown key id, wrong secret, revoked) so a caller can never distinguish
     "this key id does not exist" from "this key id exists but the secret is wrong", which would otherwise
     let an attacker enumerate valid key ids by timing or error-shape alone."""
+
+
+def _key_row(root: Path, key_id: str) -> dict[str, Any] | None:
+    """The stored row for a key id: the file store's dict, or the Supabase row through a short positive cache (`key_cache_s`).
+    A store failure raises TenancyUnavailable (503): it is never read as 'unknown key'. Only a row that EXISTS is cached."""
+    pg = _pg()
+    if pg is None:
+        return _read_store(root, "keys").get(key_id)
+    ttl = _key_cache_s()
+    now = time.monotonic()
+    hit = _key_cache.get(key_id)
+    if hit is not None and hit[0] > now:
+        return dict(hit[1])
+    epoch = _key_epoch
+    try:
+        row = pg.get_key(key_id)
+    except TenancyStoreDown as exc:
+        raise _down() from exc
+    if row is not None and ttl > 0 and epoch == _key_epoch:
+        if len(_key_cache) > 10_000:
+            _key_cache.clear()
+        _key_cache[key_id] = (now + ttl, dict(row))
+    return row
 
 
 def verify_key(root: Path, token: str) -> ApiKeyRecord:
@@ -308,8 +520,7 @@ def verify_key(root: Path, token: str) -> ApiKeyRecord:
     if len(parts) != 3 or parts[0] != KEY_PREFIX:
         raise InvalidApiKey("malformed token")
     _prefix, key_id, secret_part = parts
-    rows = _read_store(root, "keys")
-    row = rows.get(key_id)
+    row = _key_row(root, key_id)
     if row is None:
         # Still pay the hashing cost so "unknown key id" takes comparable time to every other failure --
         # verified against a fixed dummy hash rather than skipping straight to the raise.
@@ -530,10 +741,105 @@ class KeyRateLimiter:
             return self._usage_total.get(key_id, 0)
 
 
+# Usage counters and audit rows in the Supabase backend are written OFF the request path through a bounded in-memory queue and one
+# worker thread with its OWN database connection: a write never waits behind, or holds up, a keyed request. On overflow or a
+# store error the row is dropped and counted (`usage_queue_stats`); the queue is best effort and not flushed at shutdown.
+_USAGE_MAX = 1000
+_usage_q: Any = None
+_usage_stats = {"queued": 0, "written": 0, "dropped": 0, "processed": 0}
+_usage_cond = threading.Condition()
+_writers: dict[int, PgTenancyStore] = {}
+
+
+def usage_queue_stats() -> dict[str, int]:
+    with _usage_cond:
+        return dict(_usage_stats)
+
+
+def _writer_store() -> PgTenancyStore | None:
+    pg = _pg()
+    if pg is None:
+        return None
+    with _pg_lock:
+        w = _writers.get(id(pg))
+        if w is None:
+            w = pg.clone() if hasattr(pg, "clone") else pg
+            _writers[id(pg)] = w
+    return w
+
+
+def _usage_worker() -> None:
+    while True:
+        with _usage_cond:
+            while not _usage_q:
+                _usage_cond.wait()
+            item = _usage_q.popleft()
+        wrote = False
+        try:
+            pg = _writer_store()
+            if pg is not None:
+                name, args = item
+                res = getattr(pg, name)(*args)
+                wrote = not (isinstance(res, dict) and res.get("ok") is False)  # a refused row is a drop, not a write
+                if not wrote:
+                    _logger.warning("tenancy store refused a %s row: %s", name, res.get("reason"))
+        except Exception as exc:  # noqa: BLE001 - a best-effort write must never kill the worker
+            wrote = False
+            _logger.warning("tenancy store write %s dropped (%s)", item[0], type(exc).__name__)
+        with _usage_cond:
+            idle = not _usage_q
+            _usage_stats["written" if wrote else "dropped"] += 1
+            _usage_stats["processed"] += 1
+            _usage_cond.notify_all()
+        if idle:  # the writer's own connection is released between bursts (the role has a small connection limit)
+            with contextlib.suppress(Exception):
+                w = _writer_store()
+                if w is not None and hasattr(w, "close"):
+                    w.close()
+
+
+def flush_usage(timeout_s: float = 5.0) -> bool:
+    """Wait until every queued write has been processed (tests, shutdown). True when it drained in time."""
+    deadline = time.monotonic() + timeout_s
+    with _usage_cond:
+        while _usage_stats["processed"] < _usage_stats["queued"] and time.monotonic() < deadline:
+            _usage_cond.wait(0.05)
+        return _usage_stats["processed"] >= _usage_stats["queued"]
+
+
+def _enqueue_usage(key_id: str, day: str, failed: bool) -> None:
+    enqueue_store_write("record_usage", key_id, day, failed)
+
+
+def enqueue_store_write(name: str, *args: Any) -> None:
+    """A best-effort write to the tenancy store off the request path (usage counters, audit rows): bounded, dropped and counted
+    on overflow or on a store error, never raising into the call that produced it."""
+    global _usage_q
+    from collections import deque
+
+    with _usage_cond:
+        if _usage_q is None:
+            _usage_q = deque()
+            threading.Thread(target=_usage_worker, name="tenancy-usage", daemon=True).start()
+        if len(_usage_q) >= _USAGE_MAX:
+            _usage_stats["dropped"] += 1
+            return
+        _usage_q.append((name, args))
+        _usage_stats["queued"] += 1
+        _usage_cond.notify_all()
+
+
 def record_usage(root: Path, key_id: str, *, failed: bool = False, now: datetime | None = None) -> None:
     """Persist one analyse-facts call against `key_id` (`failed=True` additionally counts that call's 503; every
     admitted call is in `calls` first, so failed <= calls).
     Survives a restart and is shared by replicas on one volume, unlike `KeyRateLimiter`."""
+    try:
+        hosted = _backend_is_supabase()
+    except TenancyUnavailable:
+        return  # best effort: a misconfigured backend never raises into the call
+    if hosted:
+        _enqueue_usage(key_id, (now or datetime.now(UTC)).astimezone(UTC).date().isoformat(), failed)
+        return
 
     def mutate(rows: dict[str, dict[str, Any]]) -> None:
         row = rows.setdefault(key_id, {"calls": 0, "failed": 0})
@@ -555,6 +861,12 @@ def usage_summary(root: Path, org_id: str, *, now: datetime, days: int) -> list[
     included), oldest first. Only days with at least one call appear. Reads the persistent store; the counts
     for a day are those recorded under that UTC date at call time."""
     first = (now.astimezone(UTC).date() - timedelta(days=days - 1)).isoformat()
+    pg = _pg()
+    if pg is not None:
+        try:
+            return pg.usage_summary(org_id, first)
+        except TenancyStoreDown as exc:
+            raise _down() from exc
     daily = _read_store(root, "usage_daily")
     out: list[dict[str, Any]] = []
     for k in keys_for_org(root, org_id):
@@ -571,6 +883,12 @@ def usage_summary(root: Path, org_id: str, *, now: datetime, days: int) -> list[
 
 def usage_counts(root: Path, key_id: str) -> tuple[int, int]:
     """(admitted calls, of which failed 503s) for this key, from the persistent store."""
+    pg = _pg()
+    if pg is not None:
+        try:
+            return pg.usage_counts(key_id)
+        except TenancyStoreDown as exc:
+            raise _down() from exc
     row = _read_store(root, "usage").get(key_id, {})
     return int(row.get("calls", 0)), int(row.get("failed", 0))
 

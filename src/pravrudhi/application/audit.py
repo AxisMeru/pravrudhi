@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from pravrudhi.application.portable_lock import exclusive_lock
+from pravrudhi.application.tenancy_store import TenancyStoreDown
 
 _ID = re.compile(r"^[A-Za-z0-9_.:-]{1,64}$")
 _OUTCOME = re.compile(r"^[A-Za-z0-9_]{1,40}$")
@@ -50,6 +51,15 @@ def record(
             (c if _ID.match(c) else "invalid-id"): (o if _OUTCOME.match(o) else "invalid") for c, o in (outcomes or {}).items()
         },
     }
+    from pravrudhi.application import tenancy
+
+    try:
+        hosted = tenancy._pg() is not None  # None = the file log; the hosted shape REQUIRES the Supabase store
+    except tenancy.TenancyUnavailable:
+        return  # an audit row is best effort: it never raises into the call that produced it
+    if hosted:
+        tenancy.enqueue_store_write("audit_record", row, int(retention_s))  # off the request path
+        return
     p = _path(root)
     p.parent.mkdir(parents=True, exist_ok=True)
     with exclusive_lock(p.with_name(".calls.lock")):
@@ -74,6 +84,17 @@ def page(
 ) -> tuple[list[dict[str, Any]], int | None]:
     """The calling key's rows, newest first, retention applied at read time as well (a row past retention is never
     served even if no write has pruned it yet). Returns (rows, next_offset or None)."""
+    from pravrudhi.application import tenancy
+
+    pg = tenancy._pg()
+    if pg is not None:
+        limit = max(1, min(limit, MAX_PAGE))
+        offset = max(0, offset)
+        try:
+            rows, total = pg.audit_page(key_id, offset, limit, int(retention_s))
+        except TenancyStoreDown as exc:
+            raise tenancy.TenancyUnavailable() from exc
+        return rows, (offset + limit if offset + limit < total else None)
     p = _path(root)
     if not p.exists():
         return [], None
