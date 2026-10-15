@@ -3,6 +3,18 @@
 Release notes for the engine (`pravrudhi`). Versions before 0.5.44 are described in their GitHub release notes and commit
 messages.
 
+## 0.6.17 (2026-10-15)
+
+PATCH release on 0.6.16: the intake no longer fails on a word made only of number-like characters. **Rebuild the image.** The change is under `src/`, so it reaches a running container only by a rebuild of the engine image and the RunPod worker template from 0.6.17; the citation index is unchanged.
+
+### Changed
+
+- **The intake reads a word made only of number-like characters (caller-visible).** A numbered paragraph containing a word made only of characters such as ½, ², ① or Ⅶ made the intake answer with a server error for some judgments; it now reads such a paragraph like any other. Texts without such words give exactly the same result as before.
+
+### Unchanged
+
+- Every response field, answer, `reason` value and route; the rate limits; the intake time budget; the 5 second lookup limit; the citation index and the existence rules.
+
 ## 0.6.16 (2026-10-15)
 
 PATCH release on 0.6.15: the intake is bounded in time, and three more text checks no longer slow down on a very long run of spaces. Results inside the time budget are identical. **Rebuild the image.** The change is under `src/`, so it reaches a running container only by a rebuild of the engine image and the RunPod worker template from 0.6.16; the citation index is unchanged.
