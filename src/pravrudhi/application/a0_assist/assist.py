@@ -380,17 +380,17 @@ def _run_with_slot(
     finally:
         cost = _close(run, deps, cfg)
     cost_block = {"used_cents": cost if cost is not None else cfg.session_budget_cents, "budget_cents": cfg.session_budget_cents}
-    if decided_body is not None and outcome_reason == ("finished", None):
-        steps = steps_from(run.driver.calls if run.driver else [])
-        block = _block(True, "finished", None, steps=steps, cost=cost_block, summary=summary, session_id=client_sid)
-        return _with(decided_body, block)
-    outcome, reason = outcome_reason
-    steps = steps_from(run.driver.calls) if run.driver and outcome == "refused" and reason == "safety" else []
-    try:
+    try:  # from here on the session is billed: any failure of the tail (the finished block, the core fallback) is said so
+        if decided_body is not None and outcome_reason == ("finished", None):
+            steps = steps_from(run.driver.calls if run.driver else [])
+            block = _block(True, "finished", None, steps=steps, cost=cost_block, summary=summary, session_id=client_sid)
+            return _with(decided_body, block)
+        outcome, reason = outcome_reason
+        steps = steps_from(run.driver.calls) if run.driver and outcome == "refused" and reason == "safety" else []
         return _fallback(
             deps, outcome, reason or "error", client_sid, steps=steps, cost=cost_block, progress=_progress(run, cfg)
         )
-    except Exception as exc:  # noqa: BLE001 - the session is already billed: say so instead of letting it look like a plain failure
+    except Exception as exc:  # noqa: BLE001 - say the session was billed instead of letting it look like a plain failure
         safety_event("core_failed_after_spend", 1)
         raise CoreFailedAfterSpend(
             _block(False, "refused", "core_error", steps=[], cost=cost_block, session_id=client_sid)
@@ -481,10 +481,12 @@ def _close(run: _Run, deps: Deps, cfg: AssistConfig) -> int | None:
     cost: int | None = None
     session: dict[str, Any] | None = None
     if run.sid is not None:
-        with contextlib.suppress(*UPSTREAM):
+        # Every step is guarded against ANY exception, not only the upstream ones: an odd upstream shape (a usage object that is
+        # not a mapping, an absurd number) must never skip the deletion of the session or the settling of the reservation below.
+        with contextlib.suppress(Exception):
             session = tr.get_session(run.sid)
             if (session or {}).get("status") not in DONE_STATUSES:
-                with contextlib.suppress(*UPSTREAM):
+                with contextlib.suppress(Exception):
                     tr.interrupt(run.sid)
                 deadline = deps.clock() + cfg.interrupt_wait_s
                 while deps.clock() < deadline:
@@ -493,20 +495,23 @@ def _close(run: _Run, deps: Deps, cfg: AssistConfig) -> int | None:
                     if (session or {}).get("status") in DONE_STATUSES:
                         break
         listed: list[dict[str, Any]] = []
-        with contextlib.suppress(*UPSTREAM):
+        with contextlib.suppress(Exception):
             listed = tr.list_events(run.sid)
-        cost = list_cost_cents(listed or run.events, session)
+        try:
+            cost = list_cost_cents(listed or run.events, session)
+        except Exception:  # noqa: BLE001 - an unreadable cost is no cost (the reservation is then charged in full)
+            cost = None
     if run.key is not None:
         try:
             fin = store.finish(run.key, cost)
             if isinstance(fin, dict) and fin.get("over_reserve"):
                 safety_event("over_reserve")
-        except StoreError:
-            pass  # the open reservation is charged in full by the stale sweep
+        except Exception:  # noqa: BLE001 - the open reservation is charged in full by the stale sweep
+            pass
     if run.sid is not None:
         status = 599
-        with contextlib.suppress(*UPSTREAM):
+        with contextlib.suppress(Exception):
             status = tr.delete_session(run.sid)
-        with contextlib.suppress(StoreError):
+        with contextlib.suppress(Exception):
             store.session_deleted(run.sid, status)
     return cost

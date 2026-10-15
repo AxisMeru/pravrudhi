@@ -1656,7 +1656,7 @@ def build_partner_router(
         try:
             out = a0.run_assisted(matter, caller, req.consent, req.session_id, deps, workflow=req.workflow)
         except a0.CoreFailedAfterSpend as e:
-            return _billed_core_failure(e)
+            return _billed_core_failure(e, "/analyse-facts/assist")
         if isinstance(out, dict):
             # The facts went to a third party for this request (or may have): the ordinary retention notice would be wrong here,
             # so no response of this route carries one. The consent line and the data-handling page say what is true.
@@ -1745,9 +1745,11 @@ def build_partner_router(
 
         return exists
 
-    def _billed_core_failure(exc: Any) -> JSONResponse:
+    def _billed_core_failure(exc: Any, route: str) -> JSONResponse:
         """The assisted session was billed and the core result then failed: a coded 502 that is NOT `internal_error` (so a client
-        does not read it as retry-safe), with the `assistant` block (cost, session id; no text)."""
+        does not read it as retry-safe), with the `assistant` block (cost, session id; no text). Only the type of the exception
+        that caused it and the route are logged."""
+        _logger.error("assistant_session_billed on %s: the core raised %s", route, type(exc.__cause__).__name__)
         return JSONResponse(
             status_code=502,
             content={"error": ASSISTANT_SESSION_BILLED, "detail": MESSAGES[ASSISTANT_SESSION_BILLED], "assistant": exc.block},
@@ -1861,7 +1863,7 @@ def build_partner_router(
             out = a0.run_assisted({"text": req.text}, caller, req.consent, req.session_id, deps, workflow="intake")
         except a0.CoreFailedAfterSpend as e:
             _intake_audit(metered, "intake_assist", 502)
-            return _billed_core_failure(e)
+            return _billed_core_failure(e, "/intake/assist")
         except IntakeTimeout:
             _intake_audit(metered, "intake_assist", 503)
             return coded_503(INTAKE_TIMEOUT)

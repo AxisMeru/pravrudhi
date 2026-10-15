@@ -109,3 +109,79 @@ def test_the_analyse_facts_assist_route_the_app_calls_answers_the_same_stable_50
     assert body["assistant"]["outcome"] == "refused" and body["assistant"]["reason"] == "core_error"
     assert "secret" not in r.text and "/home" not in r.text and "retry-after" not in {k.lower() for k in r.headers}
     assert len([x for x in c.rt.transport.calls if x == "create_session"]) == 1  # type: ignore[attr-defined]
+
+
+# ---- #505: every step of the close is guarded (an odd upstream shape never skips the deletion or the settling) ----
+@pytest.mark.parametrize("exc", [AttributeError("usage is not a mapping"), OverflowError("cost too large"), ValueError("odd")])
+def test_an_unreadable_cost_is_no_cost_and_the_session_is_still_deleted_and_settled(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, exc: Exception
+) -> None:
+    def raising(*_a: object, **_k: object) -> int:
+        raise exc
+
+    monkeypatch.setattr(AS, "list_cost_cents", raising)
+    e = RQ.Env(tmp_path)  # an ideal, finishing session
+    out = e.run()
+    assert out["assistant"]["used"] is True  # the run still finished
+    assert "delete_session" in e.tr.calls and e.store.names()[-2:] == ["finish", "session_deleted"]
+    assert e.store.log[[x[0] for x in e.store.log].index("finish")][2] is None  # the cost was passed on as unreadable
+
+
+@pytest.mark.parametrize("step", ["get_session", "list_events", "interrupt", "delete_session"])
+def test_a_non_upstream_failure_of_any_transport_step_skips_nothing_else(tmp_path: Path, step: str) -> None:
+    e = RQ.Env(tmp_path)
+
+    def broken(*_a: object, **_k: object) -> object:
+        raise RuntimeError(f"{step} broke")
+
+    setattr(e.tr, step, broken)
+    out = e.run()
+    assert out["assistant"] is not None  # a result, never an exception
+    names = e.store.names()
+    assert "finish" in names  # the reservation was settled whatever broke
+
+
+@pytest.mark.parametrize("step", ["finish", "session_deleted"])
+def test_a_non_upstream_failure_of_a_store_step_is_contained(tmp_path: Path, step: str) -> None:
+    e = RQ.Env(tmp_path)
+
+    def broken(*_a: object, **_k: object) -> object:
+        raise RuntimeError(f"{step} broke")
+
+    setattr(e.store, step, broken)
+    out = e.run()
+    assert out["assistant"] is not None and "delete_session" in e.tr.calls
+
+
+# ---- L2: a finished run whose tail fails after the spend is also said to be billed --------------------
+def test_a_failure_in_the_finished_tail_after_the_spend_raises_core_failed_after_spend(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def broken(*_a: object, **_k: object) -> list:
+        raise RuntimeError("tail broke")
+
+    monkeypatch.setattr(AS, "steps_from", broken)
+    e = RQ.Env(tmp_path)
+    with pytest.raises(AS.CoreFailedAfterSpend):
+        e.run()
+    assert "delete_session" in e.tr.calls
+
+
+# ---- #506: the exception type and route behind the 502 are logged (no text) --------------------
+def test_the_502_logs_the_exception_type_and_route_only(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    def bad(tr):  # noqa: ANN001, ANN202
+        yield BAD_SESSION
+
+    c = _assist_client(tmp_path, program=bad)
+
+    def boom(*_a: object, **_k: object) -> dict:
+        raise RuntimeError("secret detail /home/someone/x")
+
+    monkeypatch.setattr(intake, "build_bundle", boom)
+    with caplog.at_level("ERROR"):
+        c.post(ASSIST, json={"text": TEXT, "consent": True})
+    msgs = [m for m in caplog.messages if "assistant_session_billed" in m]
+    assert msgs == ["assistant_session_billed on /intake/assist: the core raised RuntimeError"]
+    assert "secret" not in " ".join(caplog.messages)
