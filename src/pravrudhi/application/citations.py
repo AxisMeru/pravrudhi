@@ -31,40 +31,47 @@ class Citation:
     span: tuple[int, int]
 
 
+#: A page is at most this many digits and a volume at most four (every real citation is far below both). A longer digit run is not
+#: a page, and `int()` raises ValueError on a run of more than 4,300 digits, which in text pasted into a route (intake takes up to
+#: 200,000 characters) was an uncaught error. The patterns below bound their digit runs, so such a run simply does not match.
+_MAX_PAGE_DIGITS = 9
+
 # Real judgment text carries a stray newline or extra space wherever a PDF's line wrapped mid-citation (see
 # test_insc_embedded_newline_mined) -- every pattern below uses `\s+` (not a literal space) between tokens for
 # exactly that reason, and `\s*` where the mined fixtures show both "SCR197" and "SCR 197" for the same
 # reporter.
 
-_AIR = re.compile(r"\bAIR\s+(?P<year>\d{4})\s+(?P<court>[A-Z]{2,4}|[A-Z][a-z]+)\s+(?P<page>\d+)\b")
+_AIR = re.compile(r"\bAIR\s+(?P<year>\d{4})\s+(?P<court>[A-Z]{2,4}|[A-Z][a-z]+)\s+(?P<page>\d{1,9})\b")
 
 # SCC citations appear in the corpus under three different bracket placements for the same citation --
 # found by a real verify() miss (P3 audit, 2026-09-24): a case's own "Equivalent citations" line cited
 # itself as "1996 SCC (3) 709", not the "(1996) 3 SCC 709" form the parser only handled before. All three
 # are MINED (see tests/test_citations.py for the exact real strings each was built and checked against).
-_SCC = re.compile(r"\((?P<year>\d{4})\)\s*(?P<volume>\d+)\s*SCC\s+(?P<page>\d+)\b")
-_SCC_YEAR_SCC_PAREN_VOLUME = re.compile(r"\b(?P<year>\d{4})\s*SCC\s*\((?P<volume>\d+)\)\s*(?P<page>\d+)\b")
-_SCC_YEAR_PAREN_VOLUME_SCC = re.compile(r"\b(?P<year>\d{4})\s*\((?P<volume>\d+)\)\s*SCC\s*(?P<page>\d+)\b")
+_SCC = re.compile(r"\((?P<year>\d{4})\)\s*(?P<volume>\d{1,4})\s*SCC\s+(?P<page>\d{1,9})\b")
+_SCC_YEAR_SCC_PAREN_VOLUME = re.compile(r"\b(?P<year>\d{4})\s*SCC\s*\((?P<volume>\d{1,4})\)\s*(?P<page>\d{1,9})\b")
+_SCC_YEAR_PAREN_VOLUME_SCC = re.compile(r"\b(?P<year>\d{4})\s*\((?P<volume>\d{1,4})\)\s*SCC\s*(?P<page>\d{1,9})\b")
 
 # The SCC supplementary-volume form, "1992 Supp (1) SCC 335" or "(1992) Supp (1) SCC 335": a real reporter form the index does not
 # mine, so it parses and then answers NOT_IN_INDEX (a reporter the check cannot look up), never MALFORMED (the caller's error).
-_SCC_SUPP = re.compile(r"\(?\b(?P<year>\d{4})\)?\s*Supp\.?\s*(?:\((?P<volume>\d+)\)\s*)?SCC\s+(?P<page>\d+)\b", re.IGNORECASE)
+_SCC_SUPP = re.compile(
+    r"\(?\b(?P<year>\d{4})\)?\s*Supp\.?\s*(?:\((?P<volume>\d{1,4})\)\s*)?SCC\s+(?P<page>\d{1,9})\b", re.IGNORECASE
+)
 
 _SCC_ONLINE = re.compile(
-    r"\b(?P<year>\d{4})\s+SCC\s+OnLine\s+(?P<court>[A-Za-z]{2,4})\s+(?P<page>\d+)\b"
+    r"\b(?P<year>\d{4})\s+SCC\s+OnLine\s+(?P<court>[A-Za-z]{2,4})\s+(?P<page>\d{1,9})\b"
 )
 
-_INSC = re.compile(r"\b(?P<year>\d{4})\s+INSC\s+(?P<page>\d+)\b")
+_INSC = re.compile(r"\b(?P<year>\d{4})\s+INSC\s+(?P<page>\d{1,9})\b")
 
-_SCR = re.compile(
-    r"\[(?P<year>\d{4})\]\s*(?P<volume>\d+)?\s*SCR\s*(?P<page>\d+)\b"
-)
+# The volume and the whitespace after it are ONE optional group: two adjacent `\s*` around an optional group backtracked
+# quadratically on a long run of whitespace after the bracketed year (R2).
+_SCR = re.compile(r"\[(?P<year>\d{4})\]\s*(?:(?P<volume>\d{1,4})\s*)?SCR\s*(?P<page>\d{1,9})\b")
 
 # Published circular format (e.g. Delhi HC's 2023 neutral-citation practice direction): YYYY:CODE:NNNN. No
 # real hit in either corpus available here (see module docstring on `test_hc_neutral_spec`); the strict
 # no-whitespace form below is the documented shape, deliberately not loosened to also match the false
 # positives found while mining ("2014:\nBETWEEN:\n1" etc. -- see the mining note in tests).
-_HC_NEUTRAL = re.compile(r"\b(?P<year>\d{4}):(?P<court>[A-Z]{2,6}):(?P<page>\d+)\b")
+_HC_NEUTRAL = re.compile(r"\b(?P<year>\d{4}):(?P<court>[A-Z]{2,6}):(?P<page>\d{1,9})\b")
 
 
 def _air(m: re.Match[str]) -> Citation:
@@ -168,7 +175,7 @@ def _bracket_tag(m: re.Match[str]) -> Citation:
     act, _, rest = body.partition("/")
     rest = rest.removeprefix("Section ").removeprefix("Article ")
     section_num = re.match(r"\d+", rest)
-    page = int(section_num.group()) if section_num else 0
+    page = int(section_num.group()) if section_num and len(section_num.group()) <= _MAX_PAGE_DIGITS else 0
     return Citation(reporter=act, year=None, volume=None, page=page, court=None, span=m.span())
 
 
