@@ -27,6 +27,10 @@ from collections import Counter
 from collections.abc import Callable, Sequence
 from typing import Any
 
+from pravrudhi.application.a0_assist.intake_budget import IntakeTimeout as IntakeTimeout  # re-exported
+from pravrudhi.application.a0_assist.intake_budget import deadline as deadline  # re-exported
+from pravrudhi.application.a0_assist.intake_budget import tick as _tick
+
 MAX_CHARS = 200_000
 MAX_FACTS = 400
 MAX_FACT_CHARS = 600
@@ -41,6 +45,7 @@ class IntakeRefused(Exception):
     """A request or a tool call refused with a plain reason (nothing is produced)."""
 
 
+# The wall-clock budget lives in its own module so this one stays free of a clock (the same text always gives the same bundle).
 def canon(x: Any) -> str:
     return json.dumps(x, sort_keys=True, ensure_ascii=False)
 
@@ -247,6 +252,7 @@ def _kind(t: str) -> str:
 def _pages_and_lines(text: str) -> list[list[tuple[int, int, str]]]:
     out, base = [], 0
     for seg in text.split("\f"):
+        _tick()
         ls, pos = [], 0
         for ln in seg.split("\n"):
             ls.append((base + pos, base + pos + len(ln), ln))
@@ -478,6 +484,7 @@ def clean(raw: str) -> dict[str, Any]:
 
     pos = 0
     for a, e in [*kept_marks, (len(raw), len(raw))]:
+        _tick()
         if a > pos:
             emit_text(pos, a)
         if e > a:
@@ -782,6 +789,7 @@ def split_plan(cleaned: str) -> dict[str, list[dict[str, Any]]]:
     More than MAX_FACTS facts are merged into larger neighbours rather than refused."""
     units: list[tuple[int, int, bool]] = []  # (start, end, whole paragraph)
     for a, b in _paragraphs(cleaned):
+        _tick()
         pieces = _pieces(cleaned, a, b)
         units.extend((x, y, len(pieces) == 1) for x, y in pieces)
     excluded: list[dict[str, Any]] = []
@@ -850,6 +858,7 @@ def split_plan(cleaned: str) -> dict[str, list[dict[str, Any]]]:
     body: list[tuple[int, int, bool] | None] = []
     run_starts = {lo for lo, _ in runs}
     for i, unit in enumerate(units):
+        _tick()
         if i in header_idx:
             if i in run_starts:
                 body.append(None)  # a header run ends a group
@@ -1018,6 +1027,7 @@ def extract_citations(raw: str) -> list[dict[str, Any]]:
 
     out = []
     for c in parse_citations(raw):
+        _tick()
         a, b = c.span
         out.append({"start": a, "end": b, "text": raw[a:b], "reporter": c.reporter, "year": c.year})
     return out
@@ -1051,6 +1061,7 @@ def build_bundle(
     optional "text"}]}); without one the deterministic baseline runs. Every check is recomputed from `raw`.
     The agent can never add
     text: a fact is the cleaned slice at its indexes, or it is marked paraphrase and is not citable."""
+    _tick()
     ri = read_input(raw)
     if proposal is not None and not isinstance(proposal, dict):
         raise IntakeRefused("proposal must be a mapping")
@@ -1060,6 +1071,7 @@ def build_bundle(
     ):
         raise IntakeRefused("facts must be a list of index spans")
     base = clean(raw)
+    _tick()
     cl = {k: prop.get(k, base[k]) for k in ("cleaned", "segments", "deletions")} if prop.get("cleaned") is not None else base
     checks = check_clean(raw, cl["cleaned"], cl["segments"], cl["deletions"])
     clean_ok = all(checks[k]["pass"] for k in ("C1", "C2", "C3"))
@@ -1068,6 +1080,7 @@ def build_bundle(
         cl = {"cleaned": raw, "segments": [[0, len(raw), 0, len(raw), "c"]], "deletions": []}
     cleaned, segments, deletions = cl["cleaned"], cl["segments"], cl["deletions"]
     plan = split_plan(cleaned)
+    _tick()
     cand: list[dict[str, Any]] = prop["facts"] if (prop.get("facts") is not None and clean_ok) else plan["facts"]
     if len(cand) > MAX_FACTS * 2:
         raise IntakeRefused(f"more than {MAX_FACTS * 2} fact candidates")
@@ -1076,6 +1089,7 @@ def build_bundle(
     seen: dict[str, str] = {}
     last_end = -1
     for c in cand:
+        _tick()
         cs0, ce0 = c.get("cleaned_start"), c.get("cleaned_end")
         cs = cs0 if isinstance(cs0, int) and not isinstance(cs0, bool) else None
         ce = ce0 if isinstance(ce0, int) and not isinstance(ce0, bool) else None

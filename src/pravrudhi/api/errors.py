@@ -15,6 +15,7 @@ CHECKER_UNAVAILABLE = "checker_unavailable"
 REGISTRY_CHECKER_UNAVAILABLE = "registry_checker_unavailable"
 CHAT_ENDPOINT_UNREACHABLE = "chat_endpoint_unreachable"
 VENDOR_NOT_ALLOWED = "vendor_not_allowed"
+INTAKE_TIMEOUT = "intake_timeout"
 
 #: code -> the one fixed message that goes with it.
 MESSAGES: dict[str, str] = {
@@ -24,6 +25,7 @@ MESSAGES: dict[str, str] = {
     REGISTRY_CHECKER_UNAVAILABLE: "the registry checker is unavailable; retry later",
     CHAT_ENDPOINT_UNREACHABLE: "the chat model endpoint is unreachable; retry later",
     VENDOR_NOT_ALLOWED: "vendor not allowed for API callers",
+    INTAKE_TIMEOUT: "the intake took too long and was stopped; send a shorter text",
 }
 
 
