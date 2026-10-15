@@ -176,7 +176,7 @@ def load_all(root: Path) -> list[Objective]:
     for p in sorted(d.glob("*.yaml")) if d.exists() else []:
         try:
             out.append(load(p))
-        except (ObjectiveError, yaml.YAMLError):
+        except (ObjectiveError, yaml.YAMLError, OSError):  # an OSError: the file vanished or became unreadable after the glob
             continue
     return out
 
@@ -188,8 +188,12 @@ def problems(root: Path) -> list[tuple[str, str]]:
     for p in sorted(d.glob("*.yaml")) if d.exists() else []:
         try:
             load(p)
+        except FileNotFoundError:
+            continue  # removed after the glob: nothing to report
         except (ObjectiveError, yaml.YAMLError) as e:
             out.append((p.name, str(e)))
+        except OSError as e:  # the message of an OSError carries the absolute path: report the cause only
+            out.append((p.name, f"could not be read ({e.strerror or type(e).__name__})"))
     return out
 
 

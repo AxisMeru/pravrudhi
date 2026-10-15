@@ -262,6 +262,20 @@ def system_prompt() -> str:
     return "\n".join(lines)
 
 
+#: How much of a model-supplied id an error message echoes: the id is untrusted text of any length and may hold characters whose
+#: repr is longer than they are (NUL, bidi marks, backslashes), so the bound is applied AFTER the repr.
+_SHOWN_ID_CHARS = 80
+_SHOWN_REPR_CHARS = 84
+
+
+def _shown(oid: str) -> str:
+    """The repr of the first characters of `oid`, at most `_SHOWN_REPR_CHARS` long, with "..." when anything was cut."""
+    r = repr(oid[:_SHOWN_ID_CHARS])
+    if len(oid) > _SHOWN_ID_CHARS or len(r) > _SHOWN_REPR_CHARS:
+        return r[:_SHOWN_REPR_CHARS] + "..."
+    return r
+
+
 def _objective_summary(root: Path, oid: str) -> dict[str, Any] | None:
     from pravrudhi.application.objectives import load_all, summary
 
@@ -395,7 +409,7 @@ def dispatch(root: Path, store: MemoryStore, tool: str, args: dict[str, Any]) ->
         oid = str(args.get("id") or "").strip()
         found = _objective_summary(root, oid)
         if found is None:
-            result = {"error": f"no objective named {oid!r} in this workspace"}
+            result = {"error": f"no objective named {_shown(oid)} in this workspace"}
         elif tool == "objective_progress":
             result = {"objective": oid, "progress": found["progress"]}
         else:
@@ -407,7 +421,7 @@ def dispatch(root: Path, store: MemoryStore, tool: str, args: dict[str, Any]) ->
 
             obj = next((o for o in load_all(root) if o.id == oid), None)
             if obj is None:  # gone between the summary read and this one: the same plain error as an unknown id
-                result = {"error": f"no objective named {oid!r} in this workspace"}
+                result = {"error": f"no objective named {_shown(oid)} in this workspace"}
             else:
                 plan = compile_intent(obj, tuple(library()), installed_skills=frozenset(installed()))
                 result = {**_asdict(plan), "objective": oid}
