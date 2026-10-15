@@ -97,7 +97,7 @@ from pravrudhi.application.second_judge_positive_control import fallback_record_
 from pravrudhi.application.service_window import ServiceWindow
 from pravrudhi.application.statute_citations import contract_citations
 from pravrudhi.application.steps_appendix.appendix import safe_appendix
-from pravrudhi.application.verify import exists_in_index, index_coverage
+from pravrudhi.application.verify import exists_in_index, index_coverage, warm_title_cache
 from pravrudhi.application.verify import verify as verify_citation
 
 CONFIG_PATH = Path("configs") / "partner_api.yaml"
@@ -1058,6 +1058,15 @@ def _attach_citations(agent: Any, body: dict[str, Any], listed: dict[str, list[s
         contract["citations"] = contract_citations(list(listed.get(contract["contract_id"], [])), corpus)
 
 
+def _warm_citation_index(path: str) -> None:
+    """The start-up warm-up thread's body: fail-open. Nothing waits for it (/health and the routes do not), a failure is logged
+    once and the first lookup then loads what it needs itself, as before (#478)."""
+    try:
+        warm_title_cache(path)
+    except Exception:
+        _logger.warning("citation index warm-up failed; the first lookup will load the titles itself", exc_info=True)
+
+
 def build_partner_router(
     root: Path,
     *,
@@ -1079,6 +1088,13 @@ def build_partner_router(
     itself uses, so this router's own tests cover HTTP wiring only, not re-proving the agent's decision logic.
     `config` is likewise injectable for tests; production reads `configs/partner_api.yaml`.
     """
+    # Engine start: load the citation index's titles into memory (and its file into the OS cache) off the request path, so the
+    # first lookup after a start or a long idle does not pay for it inside the 5 s deadline (#478). Only the env-named index:
+    # a test that injects `citation_index_path` builds its own small index and needs no warm-up. PRAVRUDHI_CITATION_WARM=0
+    # opts out.
+    _warm_path = os.environ.get("PRAVRUDHI_CITATION_INDEX")
+    if citation_index_path is None and _warm_path and os.environ.get("PRAVRUDHI_CITATION_WARM", "1") != "0":
+        threading.Thread(target=_warm_citation_index, args=(_warm_path,), daemon=True, name="citation-warm").start()
     engine_root = Path(root)
     # `factory`'s definition references `_get_state` below (a closure, resolved at call time, not here) --
     # production leaves `agent_factory` None and gets ONE breaker shared across every request via
