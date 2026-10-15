@@ -104,7 +104,9 @@ _CASE = re.compile(
     re.I,
 )
 _URL = re.compile(r"https?://|www\.", re.I)
-_PAGEFRAG = re.compile(r"^\W*page\s*(?:no\.?)?\s*#?\W*(?:\d+(?:\s*(?:/|of)\s*\d+)?)?\W*$", re.I)
+# Equivalent to the earlier `page\s*(?:no\.?)?\s*#?\W*(?:digits)?\W*`, with no two adjacent quantifiers over the same
+# characters (`\s`, `#` and `.` are all `\W`): the earlier form backtracked about quartically on a long whitespace run (#476).
+_PAGEFRAG = re.compile(r"^\W*page(?:\s*no)?\W*(?:\d+(?:\s*(?:/|of)\s*\d+)?\W*)?$", re.I)
 _BOUNDARY_W = 3
 _CAP_VOCAB = re.compile(
     r"\b(?:petitioners?|respondents?|appellants?|accused|complainants?|advocates?|counsel|represented\s+by|aged\s+about|s/o|d/o|w/o|r/o|"
