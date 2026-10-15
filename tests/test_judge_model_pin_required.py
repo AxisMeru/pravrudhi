@@ -69,7 +69,7 @@ def test_the_env_var_or_the_yaml_can_name_the_model(tmp_path: Path, monkeypatch:
 def test_a_second_judge_block_must_name_its_model_too(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("PRAVRUDHI_EDITION", "studio")
     monkeypatch.setenv("NYAYA_HOUSE_JUDGE_MODEL", "nyaya-judge-4b")
-    second = {"base_url": "http://127.0.0.1:8111/v1", "tau": 0.97}
+    second = {"base_url": "http://127.0.0.1:8111/v1", "tau": 0.97, "timeout_s": 60}
     with pytest.raises(ValueError, match="second_judge.model is not set"):
         nyaya_agent.load_agent_config(_root(tmp_path / "a", second=second))
     monkeypatch.setenv("NYAYA_SECOND_JUDGE_MODEL", "judge32b")

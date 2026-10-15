@@ -198,6 +198,10 @@ USER_FACING: frozenset[str] = frozenset({
     # L4 partner API (LEG-PLAN-2026-09-23): the agentic loop over the same registry contracts, facts in.
     "/api/v1/analyse-facts", "/api/v1/status", "/api/v1/verify-citations",
     "/api/v1/analyse-facts/jobs", "/api/v1/analyse-facts/jobs/{job_id}", "/api/v1/audit",
+    # A0 assisted screening (ships dark: 404 until the route is enabled in the config).
+    "/api/v1/analyse-facts/assist", "/api/assistant",
+    # Intake (ships dark as well: not in the public contract; signed-in callers only, enforced in the route).
+    "/api/v1/intake", "/api/v1/intake/assist",
     # L4 tenancy (application/tenancy.py): org and API-key provisioning. Not admin-only in the ADMIN_ONLY
     # sense above -- these are not surfaces about Pravrudhi improving itself, they are how a partner account
     # is set up -- so each route gates itself internally (partner.py) rather than disappearing entirely on a

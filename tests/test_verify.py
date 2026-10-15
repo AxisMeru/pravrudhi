@@ -295,3 +295,337 @@ def test_conflict_when_alias_maps_citation_to_two_different_party_pairs(db: sqli
     db.commit()
     result = verify(db, "(1977) 3 SCC 247", "any proposition")
     assert result == VerifyResult.CONFLICT
+
+
+# --- #330: disambiguate a multi-candidate SCC key by claimed party names and year; tolerant punctuation in quotes ---
+
+
+def _second_pair(db: sqlite3.Connection, parties: str = "Totally Different Party v. Another Stranger") -> None:
+    insert_case(
+        db,
+        CaseRecord(
+            case_id="citer2",
+            title="A Different Later Case",
+            court="Supreme Court",
+            year=2010,
+            source="sc_pdf",
+            path_or_url="/fake/citer2.pdf",
+            text=f"This Court in {parties} (1977) 3 SCC 247 held that",
+        ),
+    )
+    db.commit()
+
+
+def test_claimed_name_picks_the_one_group_before_conflict(db: sqlite3.Connection) -> None:
+    _second_pair(db)
+    quote = "time is not ordinarily of the essence of the contract"
+    assert verify(db, "(1977) 3 SCC 247", quote) == VerifyResult.CONFLICT  # no claim: unchanged
+    assert verify(db, "(1977) 3 SCC 247", quote, claimed_name="Narandas Karsondas v. S.A. Kamtam") == VerifyResult.VERIFIED
+    # the right group but a quote that is not in the text is still not verified
+    assert (
+        verify(db, "(1977) 3 SCC 247", "words that are not there", claimed_name="Narandas Karsondas v. Kamtam")
+        == VerifyResult.EXISTS_QUOTE_NOT_FOUND
+    )
+
+
+def test_a_claimed_name_that_matches_no_group_or_only_one_side_stays_conflict(db: sqlite3.Connection) -> None:
+    _second_pair(db)
+    q = "time is not ordinarily of the essence of the contract"
+    assert verify(db, "(1977) 3 SCC 247", q, claimed_name="Unrelated Person v. Nobody Else") == VerifyResult.CONFLICT
+    assert (
+        verify(db, "(1977) 3 SCC 247", q, claimed_name="Narandas Karsondas v. Nobody Else") == VerifyResult.CONFLICT
+    )  # two-sided: one side is not enough
+    assert (
+        verify(db, "(1977) 3 SCC 247", q, claimed_name="the State v. the Union") == VerifyResult.CONFLICT
+    )  # only common tokens: cannot discriminate
+
+
+def test_two_groups_that_both_agree_are_split_by_year_else_stay_conflict(db: sqlite3.Connection) -> None:
+    insert_case(
+        db,
+        CaseRecord(
+            case_id="other",
+            title="Narandas Karsondas vs S A Kamtam Later Round",
+            court="Supreme Court",
+            year=1999,
+            source="sc_pdf",
+            path_or_url="/fake/o.pdf",
+            text="a different passage about a later round",
+        ),
+    )
+    _second_pair(
+        db, "Narandas Karsondas Jr v. S.A. Kamtam"
+    )  # a second alias group, same distinctive tokens, resolving to both cases
+    claim = "Narandas Karsondas v. S.A. Kamtam"
+    # two candidate cases (decided 1977 and 1999): the citation's year (1977) picks the 1977 case, so ITS text is the one checked
+    assert (
+        verify(db, "(1977) 3 SCC 247", "time is not ordinarily of the essence of the contract", claimed_name=claim)
+        == VerifyResult.VERIFIED
+    )
+    assert (
+        verify(db, "(1977) 3 SCC 247", "a different passage", claimed_name=claim) == VerifyResult.EXISTS_QUOTE_NOT_FOUND
+    )  # the 1999 case is not used
+    # when the year does not separate them (both within one year of the citation) both stay candidates: the quote
+    # found in exactly ONE of them verifies (Lead-2, 8 Oct), a quote found in neither stays a CONFLICT
+    db.execute("UPDATE cases SET year = 1978 WHERE case_id = 'other'")
+    db.commit()
+    assert (
+        verify(db, "(1977) 3 SCC 247", "time is not ordinarily of the essence of the contract", claimed_name=claim)
+        == VerifyResult.VERIFIED
+    )
+    assert verify(db, "(1977) 3 SCC 247", "words that are in neither case", claimed_name=claim) == VerifyResult.CONFLICT
+
+
+def test_punctuation_variants_in_the_quote_still_match_but_nothing_looser(db: sqlite3.Connection) -> None:
+    insert_case(
+        db,
+        CaseRecord(
+            case_id="p1",
+            title="Punct Alpha vs Punct Beta",
+            court="Supreme Court",
+            year=1980,
+            source="sc_pdf",
+            path_or_url="/p",
+            text='The Court said "time is not of the essence" and held - on these facts - that the term was waived.',
+        ),
+    )
+    insert_case(
+        db,
+        CaseRecord(
+            case_id="citer3",
+            title="Citer Three",
+            court="Supreme Court",
+            year=1990,
+            source="sc_pdf",
+            path_or_url="/c",
+            text="In Punct Alpha v. Punct Beta (1980) 2 SCC 10 the court held",
+        ),
+    )
+    db.commit()
+    assert (
+        verify(db, "(1980) 2 SCC 10", "“time is not of the essence” and held – on these facts – that the term was waived")
+        == VerifyResult.VERIFIED
+    )
+    assert (
+        verify(db, "(1980) 2 SCC 10", "'time is not of the essence'") == VerifyResult.EXISTS_QUOTE_NOT_FOUND
+    )  # a single quote is not a double quote: no loosening beyond the fold
+    assert verify(db, "(1980) 2 SCC 10", "TIME IS NOT OF THE ESSENCE") == VerifyResult.EXISTS_QUOTE_NOT_FOUND  # no case folding
+    assert (
+        verify(db, "(1980) 2 SCC 10", "time is not of the essence and held that the term was waived")
+        == VerifyResult.EXISTS_QUOTE_NOT_FOUND
+    )  # no partial match
+
+
+# --- R2 on #331: fail-closed defects ---
+
+
+@pytest.mark.parametrize("quote", ["", "   ", "\n\t "])
+def test_an_empty_or_whitespace_quote_never_verifies(db: sqlite3.Connection, quote: str) -> None:
+    # single-group key (live on main before this change): the empty string is "in" every text
+    assert verify(db, "(1977) 3 SCC 247", quote) == VerifyResult.EXISTS_QUOTE_NOT_FOUND
+    assert (
+        verify(db, "(1977) 3 SCC 247", quote, claimed_name="Narandas Karsondas v. S.A. Kamtam")
+        == VerifyResult.EXISTS_QUOTE_NOT_FOUND
+    )
+    # multi-group key resolved by the claimed name: still never VERIFIED
+    _second_pair(db)
+    assert (
+        verify(db, "(1977) 3 SCC 247", quote, claimed_name="Narandas Karsondas v. S.A. Kamtam")
+        == VerifyResult.EXISTS_QUOTE_NOT_FOUND
+    )
+    assert verify(db, "(1977) 3 SCC 247", quote) == VerifyResult.CONFLICT  # no claim: unchanged
+
+
+def test_a_name_agreeing_group_that_does_not_resolve_keeps_the_conflict(db: sqlite3.Connection) -> None:
+    _second_pair(db, "Narandas Karsondas v. Zorbulon")  # a second alias group with no case in the index
+    quote = "time is not ordinarily of the essence of the contract"
+    assert verify(db, "(1977) 3 SCC 247", quote) == VerifyResult.CONFLICT
+    # the claim agrees with BOTH groups; the unresolvable one is a candidate too, so the sibling is not picked
+    assert verify(db, "(1977) 3 SCC 247", quote, claimed_name="Narandas Karsondas v. Kamtam Zorbulon") == VerifyResult.CONFLICT
+    # a claim that agrees with only the resolvable group still resolves it
+    assert verify(db, "(1977) 3 SCC 247", quote, claimed_name="Narandas Karsondas v. S.A. Kamtam") == VerifyResult.VERIFIED
+
+
+def test_same_surname_groups_are_not_told_apart_by_a_shared_surname_and_state(db: sqlite3.Connection) -> None:
+    for cid, first, year in (("ra", "Ram Singh", 1977), ("mo", "Mohan Singh", 1978)):
+        insert_case(
+            db,
+            CaseRecord(
+                case_id=cid,
+                title=f"{first} vs State of Punjab",
+                court="Supreme Court",
+                year=year,
+                source="sc_pdf",
+                path_or_url=f"/{cid}",
+                text=f"holding of {first} about the same point",
+            ),
+        )
+        insert_case(
+            db,
+            CaseRecord(
+                case_id=f"cit-{cid}",
+                title=f"Citer {cid}",
+                court="Supreme Court",
+                year=1990,
+                source="sc_pdf",
+                path_or_url=f"/c{cid}",
+                text=f"In {first} v. State of Punjab (1977) 9 SCC 900 the court held",
+            ),
+        )
+    db.commit()
+    # a bare surname (+ state) is 0.5 of either party's tokens: agrees with neither group, nothing is picked on a surname
+    assert (
+        verify(db, "(1977) 9 SCC 900", "holding of Ram Singh about the same point", claimed_name="Singh v. State of Punjab")
+        == VerifyResult.CONFLICT
+    )
+    # the full name separates them
+    assert (
+        verify(db, "(1977) 9 SCC 900", "holding of Ram Singh about the same point", claimed_name="Ram Singh v. State of Punjab")
+        == VerifyResult.VERIFIED
+    )
+    assert (
+        verify(db, "(1977) 9 SCC 900", "holding of Ram Singh about the same point", claimed_name="Mohan Singh v. State of Punjab")
+        == VerifyResult.EXISTS_QUOTE_NOT_FOUND
+    )
+
+
+# --- #533: a quote must not verify against a DIFFERENT case that shares the party tokens ---------------------------------
+
+
+def test_a_quote_found_only_in_a_different_year_case_does_not_verify(tmp_path: Path) -> None:
+    """The party lookup matches titles by each party's first token, so a later case between similar parties can be a
+    candidate. The cited year gates which candidate the quote may be checked against (Track C's wrong-case finding)."""
+    conn = open_index(tmp_path / "wrong_case.sqlite3")
+    insert_case(conn, CaseRecord("citer", "Later v Other", "Supreme Court", 2005, "sc_pdf", "/x", _CITING_TEXT))
+    insert_case(conn, CaseRecord("right", "Narandas Karsondas vs S A Kamtam and Anr", "Supreme Court", 1977, "sc_pdf", "/y",
+                                 _RESOLVED_CASE_TEXT))
+    wrong_text = "A wholly different holding about arbitration clauses and their severability."
+    insert_case(conn, CaseRecord("wrong", "Narandas Karsondas vs S A Kamtam Industries Ltd", "Supreme Court", 1994, "sc_pdf",
+                                 "/z", wrong_text))
+    conn.commit()
+    assert verify(conn, "(1977) 3 SCC 247", "arbitration clauses and their severability") == VerifyResult.EXISTS_QUOTE_NOT_FOUND
+    assert verify(conn, "(1977) 3 SCC 247", "time is not ordinarily of the essence") == VerifyResult.VERIFIED
+
+
+def test_when_no_candidate_is_in_the_cited_year_nothing_verifies(tmp_path: Path) -> None:
+    conn = open_index(tmp_path / "no_year.sqlite3")
+    insert_case(conn, CaseRecord("citer", "Later v Other", "Supreme Court", 2005, "sc_pdf", "/x", _CITING_TEXT))
+    insert_case(conn, CaseRecord("only", "Narandas Karsondas vs S A Kamtam Industries Ltd", "Supreme Court", 1994, "sc_pdf", "/z",
+                                 _RESOLVED_CASE_TEXT))
+    conn.commit()
+    # the quote IS in the only candidate, but that candidate is a 1994 case, not the 1977 case the citation names
+    assert verify(conn, "(1977) 3 SCC 247", "time is not ordinarily of the essence") == VerifyResult.NOT_IN_INDEX
+
+
+def test_a_decision_one_year_before_the_reporting_year_still_verifies(tmp_path: Path) -> None:
+    conn = open_index(tmp_path / "off_by_one.sqlite3")
+    insert_case(conn, CaseRecord("citer", "Later v Other", "Supreme Court", 2005, "sc_pdf", "/x", _CITING_TEXT))
+    insert_case(conn, CaseRecord("dec", "Narandas Karsondas vs S A Kamtam and Anr", "Supreme Court", 1976, "sc_pdf", "/y",
+                                 _RESOLVED_CASE_TEXT))
+    conn.commit()
+    assert verify(conn, "(1977) 3 SCC 247", "time is not ordinarily of the essence") == VerifyResult.VERIFIED
+
+
+# --- a candidate with NO recorded decision year can never be checked against the cited year (pinned as intended) ---------------
+
+_MISSING_YEAR_CITING = (
+    "In Zorvak Holdings Ltd v. Pendle Transit Authority (1991) 4 SCC 111 the Court declined to read an implied term."
+)
+_MISSING_YEAR_TEXT = "No implied term as to renewal can be read into a lease that is silent on renewal."
+
+
+def _missing_year_index(tmp_path: Path, *, dated: bool) -> sqlite3.Connection:
+    conn = open_index(tmp_path / ("dated.sqlite3" if dated else "undated.sqlite3"))
+    insert_case(conn, CaseRecord("citer", "Later v Other", "Supreme Court", 2005, "sc_pdf", "/x", _MISSING_YEAR_CITING))
+    insert_case(conn, CaseRecord("undated", "Zorvak Holdings Ltd vs Pendle Transit Authority", "Supreme Court", None, "sc_pdf",
+                                 "/y", _MISSING_YEAR_TEXT))
+    if dated:
+        insert_case(conn, CaseRecord("dated", "Zorvak Holdings Ltd vs Pendle Transit Authority Anr", "Supreme Court", 1991,
+                                     "sc_pdf", "/z", "A wholly different holding about notice periods in commercial leases."))
+    conn.commit()
+    return conn
+
+
+def test_a_candidate_with_no_recorded_year_is_not_checked_even_when_it_holds_the_quote(tmp_path: Path) -> None:
+    """INTENDED (#335, `_rows_in_cited_year`: "an unreadable year is not a match"): the cited year gates which candidate the quote
+    may be checked against, so a record with no year cannot qualify and the answer is NOT_IN_INDEX even though the case is in the
+    index and holds the quote. Conservative (never toward VERIFIED); a distinct "year cannot be gated" status is post-MVP."""
+    conn = _missing_year_index(tmp_path, dated=False)
+    assert verify(conn, "(1991) 4 SCC 111", "No implied term as to renewal can be read") == VerifyResult.NOT_IN_INDEX
+
+
+def test_with_a_dated_candidate_beside_an_undated_one_only_the_dated_one_is_checked(tmp_path: Path) -> None:
+    conn = _missing_year_index(tmp_path, dated=True)
+    # the quote is only in the undated record: it is not looked at, so the dated candidate lacks it
+    assert verify(conn, "(1991) 4 SCC 111", "No implied term as to renewal can be read") == VerifyResult.EXISTS_QUOTE_NOT_FOUND
+    # the quote in the dated candidate verifies
+    assert verify(conn, "(1991) 4 SCC 111", "notice periods in commercial leases") == VerifyResult.VERIFIED
+
+
+def test_with_no_cited_year_nothing_verifies(tmp_path: Path) -> None:
+    from pravrudhi.application.verify import _rows_in_cited_year
+
+    conn = _missing_year_index(tmp_path, dated=True)
+    conn.row_factory = sqlite3.Row
+    rows = conn.execute("SELECT case_id FROM cases WHERE case_id IN ('dated', 'undated')").fetchall()
+    assert _rows_in_cited_year(conn, rows, None) == []
+    assert [r["case_id"] for r in _rows_in_cited_year(conn, rows, 1991)] == ["dated"]
+
+
+# --- #723 / #717: a quote may verify only against a candidate that carries the cited parties' words ----------------------
+
+
+def _two_candidates(tmp_path: Path, name: str) -> sqlite3.Connection:
+    """The Q161-c1 shape: alias 'State of Rajasthan v. Balchand'; the right case's title ADDS words, the wrong case shares
+    only one party word ('Balchand') and is within the year window."""
+    conn = open_index(tmp_path / f"{name}.sqlite3")
+    citer = "In State of Rajasthan v. Balchand (1977) 4 SCC 308 the Court held that bail is the rule"
+    insert_case(conn, CaseRecord("citer", "Later v Other", "Supreme Court", 2005, "sc_pdf", "/x", citer))
+    insert_case(conn, CaseRecord("right", "State Of Rajasthan Jaipur vs Balchand Baliay", "Supreme Court", 1977, "sc_pdf", "/y",
+                                 "The basic rule may perhaps be tersely put as bail, not jail."))
+    insert_case(conn, CaseRecord("wrong", "Balchand Jain vs State Of Madhya Pradesh", "Supreme Court", 1976, "sc_pdf", "/z",
+                                 "An unrelated holding on the scope of the habeas corpus writ."))
+    conn.commit()
+    return conn
+
+
+def test_a_right_case_whose_title_adds_words_still_verifies(tmp_path: Path) -> None:
+    conn = _two_candidates(tmp_path, "adds_words")
+    assert verify(conn, "(1977) 4 SCC 308", "bail, not jail") == VerifyResult.VERIFIED
+
+
+def test_a_quote_found_only_in_a_case_that_shares_some_party_words_does_not_verify(tmp_path: Path) -> None:
+    conn = _two_candidates(tmp_path, "shares_some")
+    # the quote is in the 'wrong' case only; that case has Balchand but not Rajasthan, so it is not the cited case
+    assert verify(conn, "(1977) 4 SCC 308", "scope of the habeas corpus writ") == VerifyResult.EXISTS_QUOTE_NOT_FOUND
+
+
+def test_when_only_a_partly_matching_case_is_in_the_year_window_nothing_verifies(tmp_path: Path) -> None:
+    conn = open_index(tmp_path / "only_wrong.sqlite3")
+    citer = "In State of Rajasthan v. Balchand (1977) 4 SCC 308 the Court held that bail is the rule"
+    insert_case(conn, CaseRecord("citer", "Later v Other", "Supreme Court", 2005, "sc_pdf", "/x", citer))
+    insert_case(conn, CaseRecord("wrong", "Balchand Jain vs State Of Madhya Pradesh", "Supreme Court", 1977, "sc_pdf", "/z",
+                                 "An unrelated holding on the scope of the habeas corpus writ."))
+    conn.commit()
+    assert verify(conn, "(1977) 4 SCC 308", "scope of the habeas corpus writ") == VerifyResult.NOT_IN_INDEX
+
+
+def test_a_spelling_variant_of_the_cited_parties_still_verifies(tmp_path: Path) -> None:
+    conn = open_index(tmp_path / "spelling.sqlite3")
+    citer = "In Ramchandran v. Pillai (1977) 5 SCC 100 the Court held"
+    insert_case(conn, CaseRecord("citer", "Later v Other", "Supreme Court", 2005, "sc_pdf", "/x", citer))
+    insert_case(conn, CaseRecord("real", "Ramachandran vs Pillai", "Supreme Court", 1977, "sc_pdf", "/y",
+                                 "the holding on limitation"))
+    conn.commit()
+    assert verify(conn, "(1977) 5 SCC 100", "the holding on limitation") == VerifyResult.VERIFIED
+
+
+def test_the_stated_limit_a_title_that_contains_all_the_alias_words_plus_others_is_not_caught(tmp_path: Path) -> None:
+    """Documented, not hidden: containment cannot tell 'Kamtam' from 'Kamtam Industries'. Only the verbatim quote check
+    stands between such a case and VERIFIED; the response carries no case key. If this ever changes, change the note."""
+    conn = open_index(tmp_path / "limit.sqlite3")
+    insert_case(conn, CaseRecord("citer", "Later v Other", "Supreme Court", 2005, "sc_pdf", "/x", _CITING_TEXT))
+    insert_case(conn, CaseRecord("wrong", "Narandas Karsondas vs S A Kamtam Industries Ltd", "Supreme Court", 1977, "sc_pdf",
+                                 "/z", "A wholly different holding about arbitration clauses and their severability."))
+    conn.commit()
+    assert verify(conn, "(1977) 3 SCC 247", "arbitration clauses and their severability") == VerifyResult.VERIFIED

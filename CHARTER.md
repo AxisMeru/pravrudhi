@@ -67,4 +67,4 @@ Pushed as the witness prefix at every model call (PCEH `set_sakshi`; fallback: t
 * Real GPU runs are sandboxed and disposable. A gated `T2` change is applied by the broker; promotion to *canonical* (merging adapters into a base checkpoint, merging to `main`, signing an interp claim) is a human act via the inbox.
 * Claims are stated at the tier they passed. Pipeline-measured is labelled pipeline-measured.
 * Falsification is not the aim; growth is. Prune with statistics, then propose the experiment that finds what is true.
-* Commit as `SharathSPhD <qbz506@york.ac.uk>`, no Co-Authored-By trailer (house rule; overrides harness defaults).
+* Commit as `SharathSPhD <admin@axismeru.com>`, no Co-Authored-By trailer (house rule; overrides harness defaults).

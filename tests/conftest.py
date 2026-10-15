@@ -56,14 +56,17 @@ def _without_the_operators_live_configuration(monkeypatch: pytest.MonkeyPatch) -
 
 @pytest.fixture(autouse=True)
 def _claude_seat_is_seat2_unless_testing_the_check(request, monkeypatch):
-    """`panel.ask_vendor` asserts `claude auth status --json` shows the seat-2 email before every claude call. No
-    test may shell out to the real CLI for that, so the lookup is stubbed to the expected seat; the module that
-    tests the check itself (test_ask_vendor_gaps.py) opts out and drives it with its own stand-ins."""
+    """`panel.ask_vendor` asserts (via `account.claude_env(live=True)`) that `claude auth status --json` shows the seat-2 email
+    before every claude call. No test may shell out to the real CLI for that, so the verified-seat seam is stubbed to the dir
+    the call uses; the module that tests the check itself (test_ask_vendor_gaps.py) opts out and drives it with its own
+    stand-ins."""
     if request.module.__name__.endswith("test_ask_vendor_gaps"):
         return
     from pravrudhi.application import panel
 
-    monkeypatch.setattr(panel, "_claude_auth_email", lambda env: panel.CLAUDE_CLI_EXPECTED_EMAIL)
+    monkeypatch.setattr(
+        panel, "_verified_seat_env", lambda: {"CLAUDE_CONFIG_DIR": panel._claude_cli_env().get("CLAUDE_CONFIG_DIR")}
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -77,3 +80,12 @@ def _stub_usage_gate(request, monkeypatch):
     monkeypatch.setattr(
         usage_gate, "gate_reading", lambda kind, root, now=None: {"vendor_kind": kind, "passed": True, "constructed": True}
     )
+
+
+@pytest.fixture(autouse=True)
+def _seat_identity_is_local_and_fake(monkeypatch: pytest.MonkeyPatch, tmp_path_factory: pytest.TempPathFactory) -> None:
+    """The operator's real seat addresses live in local, uncommitted configuration (`agents/seat_identity.py`), never in the tree.
+    Every test runs with an obvious placeholder identity and an absent local file, so it cannot read the developer's real one."""
+    monkeypatch.setenv("PRAVRUDHI_SEATS_LOCAL", str(tmp_path_factory.getbasetemp() / "no-seats-local.yaml"))
+    monkeypatch.setenv("PRAVRUDHI_SCRIPTED_CLAUDE_EMAIL", "seat-a@seats.test")
+    monkeypatch.delenv("PRAVRUDHI_CLAUDE_CLI_EXPECTED_EMAIL", raising=False)

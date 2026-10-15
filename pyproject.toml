@@ -4,12 +4,12 @@ build-backend = "hatchling.build"
 
 [project]
 name = "pravrudhi"
-version = "0.5.45"
+version = "0.6.12"
 description = "Recursive self-improvement engine for language-model systems: run a budgeted night over your own model and harness."
 readme = "README.md"
 requires-python = ">=3.13,<3.14"
 license = "Apache-2.0"
-authors = [{ name = "SharathSPhD", email = "qbz506@york.ac.uk" }]
+authors = [{ name = "SharathSPhD", email = "admin@axismeru.com" }]
 keywords = ["recursive-self-improvement", "active-inference", "expected-free-energy", "llm", "harness", "lora"]
 classifiers = [
   "Development Status :: 2 - Pre-Alpha",
@@ -32,6 +32,9 @@ dependencies = [
   "argon2-cffi>=23.1",
   "pypdf>=6.19.0",
 ]
+
+[project.optional-dependencies]
+assist = ["pg8000==1.31.5"]     # A0 spend store (Supabase Postgres); imported lazily, never a core dependency
 
 [project.scripts]
 pravrudhi = "pravrudhi.cli.app:main"
@@ -67,6 +70,7 @@ include = ["src/pravrudhi/assets/**"]
 "configs/partner_api.yaml" = "pravrudhi/assets/configs/partner_api.yaml"
 "configs/nyaya_corpus.yaml" = "pravrudhi/assets/configs/nyaya_corpus.yaml"
 "configs/usage_gate.yaml" = "pravrudhi/assets/configs/usage_gate.yaml"
+"configs/assistant_tier.yaml" = "pravrudhi/assets/configs/assistant_tier.yaml"
 "configs/tenant_vendors.yaml" = "pravrudhi/assets/configs/tenant_vendors.yaml"
 
 # The built web interface lives outside src/, so neither `packages` nor `include` reaches it. Without this mapping
@@ -98,5 +102,5 @@ packages = ["pravrudhi_kernel", "pravrudhi"]
 mypy_path = "src:pravrudhi_kernel/src"
 
 [[tool.mypy.overrides]]
-module = ["pyarrow", "pyarrow.*", "torch", "torch.*", "transformers", "transformers.*", "huggingface_hub", "huggingface_hub.*"]
+module = ["pyarrow", "pyarrow.*", "torch", "torch.*", "transformers", "transformers.*", "huggingface_hub", "huggingface_hub.*", "pg8000", "pg8000.*"]
 ignore_missing_imports = true

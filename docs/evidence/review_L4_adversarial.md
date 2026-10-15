@@ -4,9 +4,9 @@
 
 **Date**: 2026-09-05
 
-**Gate under review**: `/home/ss/projects/pravrudhi/gates/gate_L4.json`
+**Gate under review**: `<repo>/gates/gate_L4.json`
 
-**Card under review**: `/home/ss/projects/pravrudhi/contracts/L4_lora_first_night.md`
+**Card under review**: `<repo>/contracts/L4_lora_first_night.md`
 
 ---
 

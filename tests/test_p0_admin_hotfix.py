@@ -221,7 +221,7 @@ def test_the_spawned_run_child_really_gets_that_environment(tmp_path: Path, monk
 @pytest.mark.parametrize("endpoint", [
     "http://169.254.169.254/latest", "https://attacker.example.com/v1", "http://evil.test:8000", "ftp://127.0.0.1/x",
     "http://user:pw@127.0.0.1/v1", "http://127.0.0.1.evil.test/v1", "file:///etc/passwd", "http://[::1", "javascript:alert(1)",
-    "//127.0.0.1/v1", "http://10.0.0.5:8000/v1",
+    "//127.0.0.1/v1", "http://192.0.2.5:8000/v1",
 ])
 def test_a_disallowed_proposer_endpoint_is_refused(endpoint: str, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("PRAVRUDHI_PROPOSER_ENDPOINT_HOSTS", raising=False)

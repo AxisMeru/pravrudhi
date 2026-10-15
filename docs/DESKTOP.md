@@ -73,10 +73,10 @@ quarantine only on the app extracted from the supplied trusted build.
 From `app/desktop`, after a successful build, transfer the artifact and installer:
 
 ```sh
-ssh -F /dev/null sharath@192.168.0.201 'mkdir -p ~/desktop-install'
+ssh -F /dev/null <user>@<mac-mini-ip> 'mkdir -p ~/desktop-install'
 scp -F /dev/null dist/Pravrudhi-0.3.1-mac-arm64.zip install-macos.sh \
-  sharath@192.168.0.201:desktop-install/
-ssh -F /dev/null sharath@192.168.0.201 \
+  <user>@<mac-mini-ip>:desktop-install/
+ssh -F /dev/null <user>@<mac-mini-ip> \
   'cd ~/desktop-install && bash install-macos.sh Pravrudhi-0.3.1-mac-arm64.zip'
 ```
 
@@ -109,7 +109,7 @@ usable; nonempty DOM text alone does not prove correct rendering. Copy evidence
 back into the permitted desktop directory:
 
 ```sh
-scp -F /dev/null -r sharath@192.168.0.201:desktop-install/macos-evidence ./
+scp -F /dev/null -r <user>@<mac-mini-ip>:desktop-install/macos-evidence ./
 ```
 
 ## Actual commands and output from this session
@@ -117,16 +117,16 @@ scp -F /dev/null -r sharath@192.168.0.201:desktop-install/macos-evidence ./
 The original connection attempt exited 255:
 
 ```text
-$ ssh -o BatchMode=yes -o ConnectTimeout=10 sharath@192.168.0.201 'printf "desktop connection ready\n"'
+$ ssh -o BatchMode=yes -o ConnectTimeout=10 <user>@<mac-mini-ip> 'printf "desktop connection ready\n"'
 Bad owner or permissions on /etc/ssh/ssh_config.d/20-systemd-ssh-proxy.conf
 ```
 
 Bypassing the system SSH configuration also exited 255:
 
 ```text
-$ ssh -F /dev/null -o BatchMode=yes -o ConnectTimeout=10 sharath@192.168.0.201 'printf "desktop connection ready\n"'
+$ ssh -F /dev/null -o BatchMode=yes -o ConnectTimeout=10 <user>@<mac-mini-ip> 'printf "desktop connection ready\n"'
 socket: Operation not permitted
-ssh: connect to host 192.168.0.201 port 22: failure
+ssh: connect to host <mac-mini-ip> port 22: failure
 ```
 
 Dependency installation, from `app/desktop`, exited 1:

@@ -206,12 +206,59 @@ def claim_opus_call(root: Path, arm: Any, gate: dict[str, Any]) -> dict[str, Any
     return {"arm": arm, "call_number": n + 1, "call_cap": cap, "five_hour_pause_pct": pause}
 
 
-def _run_refresh(cfg: dict[str, Any]) -> None:
-    """One minimal codex call whose answer is discarded; it exists only to advance the rollout's rate-limit reading."""
-    from pravrudhi.agents.cli_agents import _run
+def _stream_models(out: str) -> set[str]:
+    """Every `model` value in a `codex exec --json` event stream (the stream may carry none; the rollout then does)."""
+    seen: set[str] = set()
 
+    def walk(node: Any) -> None:
+        if isinstance(node, dict):
+            for k, v in node.items():
+                if k == "model" and isinstance(v, str) and v:
+                    seen.add(v)
+                else:
+                    walk(v)
+        elif isinstance(node, list):
+            for v in node:
+                walk(v)
+
+    for line in (out or "").splitlines():
+        line = line.strip()
+        if line.startswith("{"):
+            try:
+                walk(json.loads(line))
+            except ValueError:
+                continue
+    return seen
+
+
+def _thread_id(out: str) -> Any:
+    for line in (out or "").splitlines():
+        line = line.strip()
+        if line.startswith("{"):
+            try:
+                ev = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(ev, dict) and ev.get("type") == "thread.started":
+                return ev.get("thread_id")
+    return None
+
+
+def _run_refresh(cfg: dict[str, Any]) -> dict[str, str]:
+    """One minimal codex call whose answer is discarded; it exists only to advance the rollout's rate-limit reading.
+
+    It is a real model call, so it obeys the always-pin-the-model rule like the question path: `codex.refresh_model` must be
+    set (refused if missing or blank), it rides as `-m`, and the model codex reports in its stream or rollout must be exactly
+    that one. Returns {"model", "resolved_model"} for the gate's log; anything else is an error (the caller refuses)."""
+    from pravrudhi.agents.cli_agents import _run
+    from pravrudhi.application.panel import _codex_rollout_models
+
+    model = _need(cfg, "codex", "refresh_model")
+    if not isinstance(model, str) or not model.strip():
+        raise UsageGateRefused("refusing: codex.refresh_model is not pinned (the refresh probe is a model call)")
+    model = model.strip()
     code, out, err, _wall = _run(
-        ["codex", "exec", "--skip-git-repo-check", "--json"],
+        ["codex", "exec", "--skip-git-repo-check", "--json", "-m", model],
         Path.cwd(),
         int(_need(cfg, "codex", "refresh_timeout_s")),
         env={},
@@ -219,6 +266,12 @@ def _run_refresh(cfg: dict[str, Any]) -> None:
     )
     if code != 0:
         raise RuntimeError((err or out or f"codex exited {code}")[-200:])
+    seen = _stream_models(out) | _codex_rollout_models(_thread_id(out))
+    if not seen:
+        raise RuntimeError(f"model unverifiable: no model id in the refresh stream or its rollout (pinned {model!r})")
+    if seen != {model}:
+        raise RuntimeError(f"model mismatch: the refresh reported {sorted(seen)}, pinned {model!r}")
+    return {"model": model, "resolved_model": next(iter(seen))}
 
 
 def _state_path(cfg: dict[str, Any]) -> Path:
@@ -248,7 +301,11 @@ def _claim_refresh(cfg: dict[str, Any], now: dt.datetime) -> None:
 def _refreshed(cfg: dict[str, Any], now: dt.datetime, stale: StaleReading) -> dict[str, Any]:
     _claim_refresh(cfg, now)
     try:
-        _run_refresh(cfg)
+        used = _run_refresh(cfg)
+        if not isinstance(used, dict) or not used.get("model") or used.get("model") != used.get("resolved_model"):
+            raise RuntimeError("the refresh did not report a resolved model equal to the pinned one")
+    except UsageGateRefused:
+        raise
     except Exception as exc:  # noqa: BLE001 - any failure of the refresh call is a refusal
         raise UsageGateRefused(f"refusing: codex refresh call failed ({str(exc)[:120]})") from exc
     after_now = _now_after(now)
@@ -261,6 +318,8 @@ def _refreshed(cfg: dict[str, Any], now: dt.datetime, stale: StaleReading) -> di
         "before": stale.before,
         "after": {k: g[k] for k in ("weekly_used_pct", "five_hour_used_pct", "observed_at")},
         "refreshed_at": now.isoformat().replace("+00:00", "Z"),
+        "model": used["model"],
+        "resolved_model": used["resolved_model"],
     }
     return g
 

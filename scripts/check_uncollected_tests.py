@@ -190,7 +190,7 @@ def read_config(root: Path) -> PytestConfig:
         raise ConfigError(f"{winner_file}: [{winner_section}] `testpaths` is present but empty")
     absolute = [tp for tp in testpaths if PurePosixPath(tp).is_absolute()]
     if absolute:
-        # Two of these repos have already shipped a `/home/ss` hardcode into CI. An absolute testpath is
+        # Two of these repos have already shipped an operator-home hardcode into CI. An absolute testpath is
         # also the one shape `root / testpath` would silently resolve OUTSIDE the checkout, so it is
         # refused here rather than half-checked below.
         raise ConfigError(

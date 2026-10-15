@@ -2,10 +2,10 @@
 
 Two sources, one schema:
 
-- The Supreme Court judgment PDFs at `/home/ss/fusion-project/corpus-raw/supreme_court_judgments`
+- The Supreme Court judgment PDFs at `<corpus-root>/supreme_court_judgments`
   (26,688 files, `pypdf` extraction; `extract_pdf_text` reports which PDFs fail to yield text at all --
   scanned images with no OCR layer -- rather than silently indexing them as empty).
-- `opennyaiorg/InJudgements` (Apache-2.0) parquet shards at `/home/ss/fusion-project/corpus-raw/hf/injudgements`,
+- `opennyaiorg/InJudgements` (Apache-2.0) parquet shards at `<corpus-root>/hf/injudgements`,
   already plain text in the `Text` column; confirmed schema:
   `Titles, Court_Name, Cites, Cited_by, Doc_url, Text, Doc_size, Case_Type, Court_Type, Court_Name_Normalized`.
 

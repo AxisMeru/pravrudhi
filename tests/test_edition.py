@@ -129,7 +129,7 @@ class TestARunningReleaseKnowsItIsOne:
         from pravrudhi.api.edition import RELEASE_MARKER
 
         installed = (
-            "/Users/sharath/pravrudhi-release/.pravrudhi/releases/current/.venv/"
+            "/Users/someone/pravrudhi-release/.pravrudhi/releases/current/.venv/"
             "lib/python3.13/site-packages/pravrudhi/api/edition.py"
         )
         assert RELEASE_MARKER in installed

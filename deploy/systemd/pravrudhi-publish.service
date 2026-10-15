@@ -5,8 +5,13 @@
 Description=Pravrudhi publish
 After=network-online.target
 
+# The export REQUIRES the private-name list (a path outside every repository, and its pinned sha256). Both come from an environment file kept
+# beside the other local settings, never committed: PRAVRUDHI_DEMO_PRIVATE_NAMES=<path> and PRAVRUDHI_DEMO_PRIVATE_NAMES_SHA256=<sha256>.
+# Without them the export step fails (naming the missing variables, never a name) and nothing is published.
+
 [Service]
 Type=oneshot
+EnvironmentFile=-%h/.config/pravrudhi/demo_export.env
 WorkingDirectory=@ROOT@
 ExecStart=@ROOT@/.venv/bin/python -m pravrudhi publish --root @ROOT@ --json
 TimeoutStartSec=2400

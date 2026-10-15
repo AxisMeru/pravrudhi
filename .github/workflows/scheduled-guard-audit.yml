@@ -104,6 +104,8 @@ jobs:
           #    and a scheduled audit that runs a subset of the guards is a misleading green tick.
           run_check "no private data in the tree" \
             uv run python scripts/check_no_private_data.py
+          run_check "no personal data (gmail, LAN IP, /Users/<name>) in the tree" \
+            uv run python scripts/check_no_personal_data.py
           run_check "no secret-shaped Dockerfile ARG/ENV declarations" \
             uv run python scripts/check_no_secret_dockerfile_args.py
 

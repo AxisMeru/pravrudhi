@@ -61,3 +61,23 @@ def test_a_locked_index_is_retried_as_transient(tmp_path: Path, monkeypatch) -> 
     monkeypatch.setattr(citation_tool, "verify", flaky)
     res = _runner(_db(tmp_path)).call("verify_citation", {"citation": "(1977) 3 SCC 247", "quote": "time is not ordinarily"})
     assert (res.ok, res.value, res.attempts) == (True, "VERIFIED", 2)
+
+
+def test_a_lookup_that_runs_out_of_budget_is_a_typed_error_never_a_verdict(tmp_path: Path, monkeypatch) -> None:
+    """#379 follow-up: the tool has the API route's per-lookup deadline; a timeout is an error (not retried), never VERIFIED."""
+    from pravrudhi.application import citation_tool
+
+    calls = {"n": 0}
+
+    def slow(conn, c, q):  # a statement that would run far past the budget
+        calls["n"] += 1
+        sql = "WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM c WHERE x < 1000000000) SELECT count(*) FROM c"
+        conn.execute(sql).fetchone()
+        return real_verdict
+
+    real_verdict = type("V", (), {"value": "VERIFIED"})()
+    monkeypatch.setattr(citation_tool, "verify", slow)
+    monkeypatch.setattr(citation_tool, "VERIFY_TIMEOUT_S", 0.05)
+    res = _runner(_db(tmp_path)).call("verify_citation", {"citation": "(1977) 3 SCC 247", "quote": "x"})
+    assert (res.ok, res.error) == (False, "tool_error:CitationLookupTimeout")
+    assert calls["n"] == 1  # not retried

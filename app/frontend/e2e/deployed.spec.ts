@@ -91,16 +91,28 @@ for (const [path, heading] of PAGES) {
   });
 }
 
-test("the swarm page lists at least one agent row and one routing tier", async ({ page }): Promise<void> => {
+// The public demo is product-only (#326, #306): the internal agent fleet, routing and dispatch records are Studio data and are NOT
+// published, so the recorded snapshot has no `swarm` section. The page then says so, and shows no Fleet or Routing section and no row
+// of the old fleet data. A POSITIVE check: it fails if the page stops saying so, or if any fleet row, routing row or agent name
+// reappears on the public site (the 6 Oct snapshot change removed them on purpose; restoring them would leak internal data).
+const FLEET_AGENT_NAMES = /\b(claude[- ]?code|codex|opencode|gemini|aider|qwen[- ]?code)\b/i;
+
+test("the swarm page on the public demo shows its stated empty state and leaks no fleet or routing rows", async ({ page }): Promise<void> => {
   await page.goto("swarm");
   await page.waitForLoadState("networkidle");
   await expect(page.getByText(/Could not reach the engine's swarm API/i)).toHaveCount(0);
 
-  const fleetSection = page.locator("section", { has: page.getByRole("heading", { name: "Fleet" }) });
-  await expect(fleetSection.locator("table tbody tr").first()).toBeVisible();
+  const main = page.locator("main");
+  await expect(main.getByRole("heading", { name: "Swarm", exact: true })).toBeVisible();
+  await expect(main.getByText("This recording predates the swarm view. Nothing to show.")).toBeVisible();
 
-  const routingSection = page.locator("section", { has: page.getByRole("heading", { name: "Routing" }) });
-  await expect(routingSection.locator("table tbody tr").first()).toBeVisible();
+  // nothing of the internal fleet is published
+  await expect(main.getByRole("heading", { name: "Fleet", exact: true })).toHaveCount(0);
+  await expect(main.getByRole("heading", { name: "Routing", exact: true })).toHaveCount(0);
+  await expect(main.getByRole("heading", { name: "Recent dispatches", exact: true })).toHaveCount(0);
+  await expect(main.locator("table")).toHaveCount(0);
+  await expect(main.locator("tbody tr")).toHaveCount(0);
+  expect(await main.innerText(), "no agent of the internal fleet may be named on the public demo").not.toMatch(FLEET_AGENT_NAMES);
 });
 
 test("the heartbeat page shows a beat or an explicit empty state, never a bare spinner", async ({ page }): Promise<void> => {

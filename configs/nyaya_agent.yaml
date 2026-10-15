@@ -66,6 +66,19 @@ house_judge:
   # clear this before a decision is trusted at all -- else JudgeOutputError, failing closed to REFER.
   # Required, not defaulted here: HouseJudge.from_config refuses if this key is absent.
   label_mass_floor: 0.5
+  # The longest judge prompt (characters: statute + scenario + element + facts) the judge is asked to read (#727). A longer one is
+  # REFERRED (`input_too_long`) BEFORE the call. 10800 is for the 4096-token stacks (the 32B, dev and prod): (4096 - 30 max_tokens -
+  # 64 margin) = 4002 tokens at the worst measured 0.369 tokens per character (Qwen2.5 tokenizer, longest real items). 7600 for the
+  # 2048-token 4B is the longest input known to succeed there (6,931 facts chars + ~620 overhead = ~7,550; 0 of 321 stored items exceed
+  # the window; a worst-ratio limit would refuse items that fit). A 2048-token
+  # deployment (the prod 4B) must set its own, 7600, with NYAYA_HOUSE_JUDGE_MAX_INPUT_CHARS (second judge:
+  # NYAYA_SECOND_JUDGE_MAX_INPUT_CHARS). The upstream context-length 400 maps to the same REFER everywhere, as the backstop.
+  max_input_chars: 10800
+  # #369/#815/#375: serve-time fact-text collapse (`' '.join(text.split())` on the fact texts under `Available facts:` only; the quote stays the raw
+  # fact). ON in the shipped configuration; counts for production only after the 0.6.0 release and a passing production E2E (Lead-2, 8 Oct). Evidence is thin (#815: CAL, one look, dev stack, not independent; a weak test, not a safety result: Config C 0 of 26 not-established accepted on and off, upper bound 10.9%; 4B alone 4 of 26 in both; established accepted 8 to 9 of 38). The code default stays OFF
+  # (key absent = off), so a config without the key is unchanged; the typed layer refuses the key, so a deployment that turns the typed
+  # layer on must remove it. A second judge block (config C) that is configured in a deployment needs the same key set there.
+  collapse_facts: true
   # How many (contract, element/denial) judge requests one `NyayaAgent.run` call judges at once, bounded by a
   # ThreadPoolExecutor (docs/decisions 2026-09-24). 1 is today's serial behaviour, byte-identical results and
   # audit ordering -- unchanged unless this is raised. NYAYA_JUDGE_MAX_CONCURRENCY overrides.
@@ -121,6 +134,7 @@ retention_days: 7
 #   top_logprobs: 20
 #   max_tokens: 30
 #   statute_chars: 600
+#   max_input_chars: 10800   # #727: 4096-token window; longer prompts REFER (`input_too_long`) before the second judge is called
 #   tau: 0.97
 #   # endpoint_id / adapter_sha: only read when second_judge_positive_control.record_path is set below --
 #   # RecordGatedJudge compares these against the record the preflight CLI wrote, refusing the real endpoint
@@ -130,6 +144,7 @@ retention_days: 7
 #   endpoint_id: "<current RunPod endpoint id>"
 #   adapter_sha: "<current adapter commit/revision>"
 #   label_mass_floor: 0.5
+#   collapse_facts: true   # #375: same serve-time fact collapse as house_judge, set where the second judge is configured
 
 # The statute text the house judge was trained with (public statute text: IPC 1860 / BNS 2023), keyed by
 # registry contract id. The ONLY statute text the judge ever sees, on every attempt, so it stays in its
@@ -148,7 +163,7 @@ retention_days: 7
 # IMPORTANT CAVEAT, not fixed by adding these entries alone: the dual-signed element-judge eval (config C,
 # 2026-09-23, checker_pass 109/377, false-prove 0/225) covers EXACTLY the original 14 contract ids --
 # confirmed by reading every item_id in the frozen eval rows
-# (/home/ss/fusion-project/tmp_scratch/lead2/final_c/final_c_rows.jsonl). None of the 12 Wave-1 ids below
+# (<scratch>/lead2/final_c/final_c_rows.jsonl). None of the 12 Wave-1 ids below
 # have ever been measured for false-prove rate. Adding statute text here turns ABSTAIN into real PROOF/
 # DENIAL judging for them with an UNVALIDATED judge -- correct per the letter of "add the missing entry",
 # but a real accuracy-claim gap the operator/Lead-2 should decide on, not something this comment should
@@ -216,7 +231,7 @@ judge_statute_text:
   # BNSS 528, 2026-09-26 (Studio-on-Seat0, per Lead-2's v1-vs-7-category decision): full verbatim text of
   # a single, short, unamended section -- no trimming needed, unlike several Wave-1 entries above. Sourced
   # independently from indiacode.gov.in (act 72592ac7-d084-4545-95d3-0c98dc49fac3, "Sections" page 53 of
-  # 54; see /home/ss/fusion-project/tmp_scratch/lead2/statutes/SOURCES.md entry 5 for the full retrieval
+  # 54; see <scratch>/lead2/statutes/SOURCES.md entry 5 for the full retrieval
   # record: URL, UTC timestamp, sha256) and confirmed byte-identical to the pin-candidate branch's own
   # `sourceText528` in lean/PrabhasaNyaya/Seeds/BNSS528.lean (assistant/trackA/wave3-bnss528, merged into
   # the 37-contract candidate assistant/trackA/wave23-integration).
@@ -231,7 +246,7 @@ judge_statute_text:
   # Whether to model this as one element with the statute's three disjunctive grounds ("v1"), or as the
   # seven State of Haryana v. Bhajan Lal (1990) illustrative quashing categories, was an open question this
   # session resolved against the judgment's own text (see
-  # /home/ss/fusion-project/tmp_scratch/lead2/statutes/bhajanlal1990_para8.raw.txt): the categories are
+  # <scratch>/lead2/statutes/bhajanlal1990_para8.raw.txt): the categories are
   # introduced as given "by way of illustration... though it may not be possible to lay down any precise,
   # clearly defined and sufficiently channelised and inflexible guidelines or rigid formulae" -- the
   # Supreme Court's own disclaimer against treating them as an exhaustive checklist, and they map onto only
@@ -254,7 +269,7 @@ judge_statute_text:
   # ContractAct73_74.lean/ContractAct56.lean; contract56's one recorded edit, a dangling "1" footnote
   # marker with no footnote behind it, is in contract_act.text_edits.json). A FRESH independent fetch of
   # these same three sections from indiacode.gov.in this session (saved at
-  # /home/ss/fusion-project/tmp_scratch/lead2/statutes/contract_act_1872_s56.raw.txt and
+  # <scratch>/lead2/statutes/contract_act_1872_s56.raw.txt and
   # _s73_s74.raw.txt) does NOT byte-match this corpus text or the binary -- cosmetic differences (curly vs
   # straight quotes) are expected across two different renderings of the same Act, but s.73's corpus text
   # also contains what look like genuine PDF-extraction artifacts baked into the body: two footnote

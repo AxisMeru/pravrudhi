@@ -48,7 +48,7 @@ RUN --mount=type=secret,id=github_token set -eu; \
     engine="$(printf '%s' "$data" | grep -o '"browser_download_url": *"[^"]*pravrudhi-[0-9][^"]*\.whl"' | head -1 | sed 's/.*"\(https[^"]*\)"/\1/')"; \
     [ -n "$kernel" ] || { echo "FATAL: no pravrudhi_kernel wheel in release v${PRAVRUDHI_VERSION} (assets not published yet?)" >&2; exit 1; }; \
     [ -n "$engine" ] || { echo "FATAL: no pravrudhi wheel in release v${PRAVRUDHI_VERSION} (assets not published yet?)" >&2; exit 1; }; \
-    pip install --no-cache-dir --quiet "$kernel" "$engine"; \
+    pip install --no-cache-dir --quiet "$kernel" "pravrudhi[assist] @ $engine"; \
     command -v pravrudhi >/dev/null || { echo "FATAL: pravrudhi not on PATH after install" >&2; exit 1; }
 
 # prabhasa-nyaya's compiled Lean `score` binary (2026-09-23: found missing from every prior image --
@@ -78,6 +78,35 @@ RUN set -eu; \
         echo "         a redeploy includes it. See deploy/docker/README.md." >&2; \
     fi
 
+# The database provider's public root CA, for the assisted-screening spend store (the engine verifies the database's certificate
+# against THIS file only, never the system bundle). Path and sha are pinned: a build with a different file fails.
+ARG SUPABASE_CA_SHA256=700723581420dd1ac98fd7e9ac529f0ef210eadcaf87fc868a3ad7d114c2f3b7
+COPY certs/supabase-prod-ca.crt /opt/pravrudhi/certs/supabase-prod-ca.crt
+RUN set -eu; \
+    actual="$(sha256sum /opt/pravrudhi/certs/supabase-prod-ca.crt | cut -d' ' -f1)"; \
+    [ "$actual" = "$SUPABASE_CA_SHA256" ] || { echo "FATAL: database CA sha256 mismatch: got $actual, expected $SUPABASE_CA_SHA256" >&2; exit 1; }; \
+    chmod 0444 /opt/pravrudhi/certs/supabase-prod-ca.crt
+
+# The slim (existence-only) citation index for POST /api/v1/verify-citations (#908): titles, courts, years and mined citation strings,
+# no judgment text. The file is NOT in the repository (a ~10 MB binary): the builder places it at deploy/docker/citation/slim_all.sqlite3
+# and the build FAILS unless its sha256 equals CITATION_INDEX_SHA256 (slim-v1, 38,657 cases, 9,597 citation strings, the index #398 parity-tested).
+# A build without the file still succeeds (the route then answers 503 citation_index_unavailable), as the Lean binary does; set
+# REQUIRE_CITATION_INDEX=1 to make a missing file fail the build too. The index is only ever served with the #717 rule (merged in #398).
+ARG CITATION_INDEX_SHA256=2693e865740f71bb4f1ed12ecc066f5defe7f2b61de1e097ae68f93d851def3d
+ARG REQUIRE_CITATION_INDEX=0
+COPY citation/ /opt/pravrudhi/citation/
+RUN set -eu; \
+    f=/opt/pravrudhi/citation/slim_all.sqlite3; \
+    if [ -f "$f" ]; then \
+        actual="$(sha256sum "$f" | cut -d' ' -f1)"; \
+        [ "$actual" = "$CITATION_INDEX_SHA256" ] || { echo "FATAL: citation index sha256 mismatch: got $actual, expected $CITATION_INDEX_SHA256" >&2; exit 1; }; \
+        chmod 0444 "$f"; echo "citation index verified at $f"; \
+    elif [ "$REQUIRE_CITATION_INDEX" = "1" ]; then \
+        echo "FATAL: REQUIRE_CITATION_INDEX=1 but no citation/slim_all.sqlite3 in the build context" >&2; exit 1; \
+    else \
+        echo "WARNING: no citation index in the build context -- verify-citations answers 503 citation_index_unavailable" >&2; \
+    fi
+
 # The unforgeable hosted-image marker: the engine's boot refuses PRAVRUDHI_AUTH unset or `disabled` whenever this file exists,
 # whatever the environment says (pravrudhi/deployment.py HOSTED_FILE; PRAVRUDHI_HOSTED_IMAGE below is only a display label).
 RUN mkdir -p /etc/pravrudhi && printf 'hosted image\n' > /etc/pravrudhi/hosted-image
@@ -86,7 +115,8 @@ ENV PRAVRUDHI_DISABLE_LOCAL_GUARD=1 \
     PRAVRUDHI_AUTH=required \
     PRAVRUDHI_HOSTED_IMAGE=1 \
     PORT=8765 \
-    PRABHASA_NYAYA_SCORE_BIN=/opt/nyaya/score
+    PRABHASA_NYAYA_SCORE_BIN=/opt/nyaya/score \
+    PRAVRUDHI_CITATION_INDEX=/opt/pravrudhi/citation/slim_all.sqlite3
 EXPOSE 8765
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh

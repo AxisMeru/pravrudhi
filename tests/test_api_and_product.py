@@ -301,3 +301,10 @@ def test_no_endpoint_at_all_needs_a_ledger_that_does_not_exist(tmp_path: Path) -
         except FileNotFoundError:
             failing.append(route.path)
     assert not failing, f"these endpoints need a ledger a fresh install does not have: {failing}"
+
+
+def test_health_reports_no_frontier_reader(tmp_path: Path) -> None:
+    """#832 F1-lite: the flag exists and is false until batch 2."""
+    c = TestClient(create_app(tmp_path), base_url="http://127.0.0.1:8008")
+    body = c.get("/api/health").json()
+    assert body["frontier_reader_available"] is False

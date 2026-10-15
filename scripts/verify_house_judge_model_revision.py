@@ -1,5 +1,5 @@
 """Fail-closed HF revision check for a house-judge model (Lead-2, 2026-09-27, the 4B MODEL_REVISION gap:
-`vwbrfgyiel1haq` served whatever HF's `main` currently resolved to, at every cold start, because no
+the 4B judge endpoint served whatever HF's `main` currently resolved to, at every cold start, because no
 MODEL_REVISION was set at all -- now pinned to 8ead9b1d95d843ae0d0883f97995a110274de1a8).
 
 Mirrors the second-judge 32B's own boot-time verify step exactly (`entrypoint-hf-fetch.sh`, built ad hoc

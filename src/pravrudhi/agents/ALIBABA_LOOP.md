@@ -25,7 +25,7 @@ Availability: (True, 'ready (quota and network not probed)')
 Live result: False 1
 
 Error: Unexpected error
-Unknown: FileSystem.open (/home/ss/.local/share/opencode/log/opencode.log)
+Unknown: FileSystem.open (~/.local/share/opencode/log/opencode.log)
 ```
 
 No tool event or model answer was emitted. OpenCode failed at local startup,

@@ -160,8 +160,33 @@ def test_quote_source_is_visible_per_element(tmp_path: Path) -> None:
     assert established, "expected at least one established element in the PROOF fixture"
     for e in established:
         assert e["quote_source"] == "model"
+        assert e["citation_note"] == "A word-for-word quote that passed the quote check."  # chosen by quote_source (#813)
         assert e["quote"] is not None
         assert e["fact_id"] is not None
+
+
+def test_a_whole_fact_citation_reads_as_one_not_a_quote(tmp_path: Path) -> None:
+    """#813: the house judges name a fact and quote no words (`quote_source: "whole_fact"`); the note says so, by fact."""
+    script: dict[str, list[ElementJudgment]] = {
+        BNS69_EL[0]: [ElementJudgment("established", 0.97, "F2", TOY_FACTS[1], "whole_fact")],
+        BNS69_EL[1]: [ElementJudgment("established", 0.97, "F3", TOY_FACTS[2], "whole_fact")],
+        BNS69_DENY: [_not()],
+    }
+    elements = _client(tmp_path, script).post("/api/v1/analyse-facts", json=_req()).json()["contracts"][0]["elements"]
+    established = {e["fact_id"]: e for e in elements if e["status"] == "established"}
+    assert set(established) == {"F2", "F3"}
+    for fid, e in established.items():
+        assert e["quote_source"] == "whole_fact"
+        assert e["citation_note"] == f"Cites your fact {fid} in full (the judge names the fact; it does not quote words)."
+    # no fact id on the wire: the note still quotes nothing
+    from pravrudhi.api.partner import ElementResultOut
+
+    bare = ElementResultOut(
+        element="x", is_denial=False, status="established", claimed=True, p_established=0.9, fact_id=None,
+        quote="t", start=0, end=1, quote_check="ok", attempts=1, occurrences=1,
+        offsets_source="system", quote_source="whole_fact", error=None,
+    )
+    assert bare.model_dump()["citation_note"] == "Cites a fact in full (the judge names the fact; it does not quote words)."
 
 
 def _unreachable_factory(_root: Path) -> NyayaAgent:
@@ -364,7 +389,8 @@ class TestSecondJudgeDebugFields:
         el0 = resp.json()["contracts"][0]["elements"][0]
         assert set(el0) == {
             "element", "is_denial", "status", "claimed", "p_established", "fact_id", "quote", "start", "end",
-            "quote_check", "attempts", "occurrences", "offsets_source", "quote_source", "error", "binding_leg",
+            "quote_check", "attempts", "occurrences", "offsets_source", "quote_source", "error", "binding_leg", "citation_note",
+            "screening_signal",
         }
 
 
@@ -608,7 +634,9 @@ def test_sixth_request_in_a_minute_is_429_with_retry_after(tmp_path: Path) -> No
     # A rate-limited caller gets a real JSON body, not an empty 429 -- something a partner's client can
     # parse and log, not just a status code to notice.
     assert resp.headers["content-type"].startswith("application/json")
-    assert resp.json() == {"detail": "rate limit exceeded"}
+    body = resp.json()
+    assert body["detail"] == "rate limit exceeded"  # the machine field is unchanged (#403 adds fields beside it)
+    assert (body["limit_per_minute"], body["window_seconds"], body["scope"]) == (6, 60, "anonymous")
 
 
 def test_rate_limit_is_per_client_ip(tmp_path: Path) -> None:
@@ -998,7 +1026,7 @@ def test_no_window_configured_means_status_says_null_and_analyse_is_unchanged(tm
 def test_the_shipped_config_defines_the_hosted_window_but_does_not_enforce_it_by_default() -> None:
     cfg = load_partner_api_config(Path(__file__).resolve().parent.parent)
     assert cfg.service_window is not None and cfg.service_window.tz == "Europe/London"
-    assert (cfg.service_window.open.hour, cfg.service_window.close.hour) == (9, 21)
+    assert (cfg.service_window.open.hour, cfg.service_window.close.hour) == (0, 23)
     assert cfg.service_window_enforce is False
 
 
@@ -1357,3 +1385,72 @@ def test_the_shipped_config_has_expose_rule_text_off() -> None:
     from pravrudhi.application.nyaya_agent import load_agent_config
 
     assert load_agent_config(Path(__file__).resolve().parent.parent).expose_rule_text is False
+
+
+class TestScreeningSignal:
+    """#832 S1: a SCREENING signal from the first judge alone: `supported` iff its score cleared its own tau, shown whatever the
+    element's final status; no probability on the wire; it never changes status, outcome or reason."""
+
+    def test_signal_present_on_every_element_with_a_score_and_carries_no_probability(self, tmp_path: Path) -> None:
+        c = _client(tmp_path)
+        elements = c.post("/api/v1/analyse-facts", json=_req()).json()["contracts"][0]["elements"]
+        scored = [e for e in elements if e["p_established"] is not None]
+        assert scored
+        for e in scored:
+            assert set(e["screening_signal"]) == {"supported", "label"}
+            assert e["screening_signal"]["label"] == "Suggested by the screening judge; check it."
+            assert "screening_supported" not in e  # the internal source value is never on the wire
+
+    def test_supported_follows_the_primary_tau_not_the_final_status(self, tmp_path: Path) -> None:
+        # tau is 0.74 in the test config: 0.97 clears it, 0.03 does not; a not_established element can still be "supported"
+        script: dict[str, list[ElementJudgment]] = {
+            BNS69_EL[0]: [ElementJudgment("established", 0.97, "F2", TOY_FACTS[1], "whole_fact")],
+            BNS69_EL[1]: [_not(0.03)],
+            BNS69_DENY: [_not(0.03)],
+        }
+        elements = _client(tmp_path, script).post("/api/v1/analyse-facts", json=_req()).json()["contracts"][0]["elements"]
+        by = {e["element"]: e for e in elements}
+        assert by[BNS69_EL[0]]["screening_signal"]["supported"] is True
+        assert by[BNS69_EL[1]]["screening_signal"]["supported"] is False
+
+    def test_the_signal_never_changes_status_or_outcome(self) -> None:
+        from pravrudhi.api.partner import ElementResultOut
+
+        base = {
+            "element": "x", "is_denial": False, "status": "not_established",
+            "claimed": False, "p_established": 0.9, "fact_id": None,
+            "quote": None, "start": None, "end": None, "quote_check": None, "attempts": 1, "occurrences": 0,
+            "offsets_source": None, "quote_source": None, "error": None,
+        }
+        off = ElementResultOut(**base).model_dump()
+        on = ElementResultOut(**base, screening_supported=True).model_dump()
+        assert off["screening_signal"] is None
+        without = lambda d: {k: v for k, v in d.items() if k != "screening_signal"}  # noqa: E731
+        assert without(on) == without(off)
+        assert on["screening_signal"] == {"supported": True, "label": "Suggested by the screening judge; check it."}
+
+
+class TestSetVersions:
+    """#832 S7: contract_set_version is order-independent and moves with any id or source change; validated_set_version
+    follows the allowlist."""
+
+    def test_digest_is_order_independent_and_detects_any_change(self) -> None:
+        from pravrudhi.api.partner import contract_set_digest
+
+        a = {"c1": "text one", "c2": "text two"}
+        assert contract_set_digest(a) == contract_set_digest({"c2": "text two", "c1": "text one"})
+        assert contract_set_digest(a) != contract_set_digest({"c1": "text one", "c2": "text two!"})  # one source edited
+        assert contract_set_digest(a) != contract_set_digest({"c1": "text one"})  # an id removed
+        assert contract_set_digest(a) != contract_set_digest({"c1": "text two", "c2": "text one"})  # texts swapped
+
+    def test_validated_version_follows_the_allowlist(self) -> None:
+        from pravrudhi.api.partner import validated_set_version
+
+        assert validated_set_version(["b", "a"]) == validated_set_version(["a", "b", "a"])
+        assert validated_set_version(["a"]) != validated_set_version(["a", "b"])
+
+    def test_the_analyse_response_carries_both_fields(self, tmp_path: Path) -> None:
+        body = _client(tmp_path).post("/api/v1/analyse-facts", json=_req()).json()
+        assert "contract_set_version" in body and "validated_set_version" in body
+        assert len(body["validated_set_version"]) == 64
+        assert body["contract_set_version"] is None or len(body["contract_set_version"]) == 64

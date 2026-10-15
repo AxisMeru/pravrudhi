@@ -21,6 +21,7 @@ carrying files it was not asked to commit all stop it with a reason. Nothing her
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 from collections.abc import Callable
@@ -75,6 +76,11 @@ class PublishResult:
         }
 
 
+#: Where the publisher finds the private-name list (path) and the sha256 it is pinned to. Both are required.
+PRIVATE_NAMES_ENV = "PRAVRUDHI_DEMO_PRIVATE_NAMES"
+PRIVATE_NAMES_SHA_ENV = "PRAVRUDHI_DEMO_PRIVATE_NAMES_SHA256"
+
+
 def _default_runner(cmd: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
     return subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=1800)
 
@@ -87,7 +93,18 @@ def export_snapshot(root: Path, runner: RunnerFn, *, write_root: Path | None = N
     publisher runs from its own clone (ADR-0053 §2) while reading the loop root's actual results.
     """
     dest = (write_root if write_root is not None else root) / "app" / "frontend" / "public" / "demo.json"
-    result = runner(["uv", "run", "pravrudhi", "demo-export", "--root", str(root), "--dest", str(dest)], root)
+    # The private-name list is REQUIRED by `demo-export` (a path outside any repository and its pinned sha256, from the
+    # environment): a
+    # publisher without it publishes nothing.
+    names, names_sha = os.environ.get(PRIVATE_NAMES_ENV, ""), os.environ.get(PRIVATE_NAMES_SHA_ENV, "")
+    if not names or not names_sha:
+        detail = f"{PRIVATE_NAMES_ENV} and {PRIVATE_NAMES_SHA_ENV} must be set (the private-name list); nothing was published"
+        return Step("export", False, detail)
+    result = runner(
+        ["uv", "run", "pravrudhi", "demo-export", "--root", str(root), "--dest", str(dest),
+         "--private-names", names, "--private-names-sha256", names_sha],
+        root,
+    )
     if result.returncode != 0:
         return Step("export", False, (result.stderr or result.stdout).strip()[:400])
     try:

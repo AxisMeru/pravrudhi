@@ -46,17 +46,20 @@ version's error mapping to a bare 500 -- is now mapped to 503 like every other s
 from __future__ import annotations
 
 import contextvars
+import copy
 import functools
+import hashlib
 import hmac
 import json
 import logging
+import math
 import os
 import sqlite3
 import subprocess
 import threading
 import time
 from collections import OrderedDict
-from collections.abc import Callable
+from collections.abc import Callable, Iterable, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -65,7 +68,7 @@ from typing import Any, Literal, Protocol
 
 import yaml
 from fastapi import APIRouter, HTTPException, Query, Request, Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StrictBool, computed_field, field_validator
 from starlette.responses import JSONResponse
 
 from pravrudhi import __version__
@@ -78,9 +81,12 @@ from pravrudhi.api.errors import (
     coded_503,
 )
 from pravrudhi.api.identity import CurrentUserDep, User
-from pravrudhi.application import audit, tenancy
+from pravrudhi.application import audit, citation_status, tenancy
 from pravrudhi.application import nyaya_lean_registry as reg
+from pravrudhi.application.citation_wording import citation_note
 from pravrudhi.application.config_files import config_file
+from pravrudhi.application.hearing_pack.driver import PackDriver
+from pravrudhi.application.hearing_pack.pack import attach_pack
 from pravrudhi.application.jobs import JobStore
 from pravrudhi.application.judge_endpoint_state import Fetch, JudgeOfflineCheck
 from pravrudhi.application.nyaya_agent import (
@@ -92,10 +98,13 @@ from pravrudhi.application.nyaya_agent import (
     NyayaAgent,
     Outcome,
 )
-from pravrudhi.application.nyaya_judges import SecondJudgeCircuitBreaker
+from pravrudhi.application.nyaya_judges import SecondJudgeCircuitBreaker, standard_for_posture
 from pravrudhi.application.nyaya_quote import Reason as QuoteCheck
+from pravrudhi.application.second_judge_positive_control import fallback_record_ok
 from pravrudhi.application.service_window import ServiceWindow
 from pravrudhi.application.statute_citations import contract_citations
+from pravrudhi.application.steps_appendix.appendix import safe_appendix
+from pravrudhi.application.verify import exists_in_index, index_coverage
 from pravrudhi.application.verify import verify as verify_citation
 
 CONFIG_PATH = Path("configs") / "partner_api.yaml"
@@ -177,6 +186,13 @@ class PartnerApiConfig:
     #: hold at once.
     job_retention_s: float = 3600.0
     job_max_unfinished_per_key: int = 8
+    #: Async jobs (#406): how long an accepted job may WAIT for a free agent slot (`max_concurrent`) before it fails with
+    #: `agent_at_capacity`. A job was accepted with 202, so it queues; the sync route stays non-blocking (0 = never wait).
+    job_slot_wait_s: float = 600.0
+    #: Failed-key attempts per address per minute before further key checks from it are refused with 429 (#396). None = the
+    #: same as `rate_limit_per_minute` (the default). Set it higher when callers behind a gateway share one peer address and
+    #: a flood of bad keys must not lock the valid keyed callers out; env override PRAVRUDHI_BAD_KEY_BUDGET_PER_MINUTE.
+    bad_key_budget_per_minute: int | None = None
     #: Audit rows (#148) older than this are dropped on write and never served.
     audit_retention_s: float = 90 * 86400.0
     #: `POST /verify-citations` (#302): how many lookups may run at once (non-blocking: an extra one is a 503) and the
@@ -185,12 +201,37 @@ class PartnerApiConfig:
     verify_timeout_s: float = 5.0
 
     def __post_init__(self) -> None:
+        b = self.bad_key_budget_per_minute
+        if b is not None and (isinstance(b, bool) or not isinstance(b, int) or not 1 <= b <= MAX_BAD_KEY_BUDGET):
+            raise ValueError(
+                f"bad_key_budget_per_minute must be None or an integer from 1 to {MAX_BAD_KEY_BUDGET}, got {b!r}"[:200]
+            )
         if self.trust_proxy_header and not self.trusted_proxies:
             raise ValueError(
                 "trust_proxy_header is set but trusted_proxies is empty -- refusing to start: an "
                 "X-Forwarded-For header trusted with no allowlist of who may set it is a free rate-limit "
                 "bypass for any caller"
             )
+
+
+BAD_KEY_BUDGET_ENV = "PRAVRUDHI_BAD_KEY_BUDGET_PER_MINUTE"
+MAX_BAD_KEY_BUDGET = 1_000  # each failed attempt costs a password-hash check: keep the worst case small
+
+
+def _bad_key_budget(yaml_value: Any) -> int | None:
+    """The failed-key budget per address per minute: the environment variable wins over the yaml key; unset or null = None (the
+    caller then uses `rate_limit_per_minute`). A bool, a non-integer, zero, a negative or a value above the cap is a config
+    error, never a silent default."""
+    raw: Any = os.environ.get(BAD_KEY_BUDGET_ENV, "").strip() or yaml_value
+    if raw is None:
+        return None
+    if isinstance(raw, str):
+        if not raw.isascii() or not raw.isdigit():
+            raise ValueError(f"{BAD_KEY_BUDGET_ENV} / bad_key_budget_per_minute must be a whole number, got {raw[:40]!r}")
+        raw = int(raw)
+    if isinstance(raw, bool) or not isinstance(raw, int) or not 1 <= raw <= MAX_BAD_KEY_BUDGET:
+        raise ValueError(f"bad_key_budget_per_minute must be an integer from 1 to {MAX_BAD_KEY_BUDGET}, got {raw!r}"[:200])
+    return raw
 
 
 def load_partner_api_config(root: Path) -> PartnerApiConfig:
@@ -226,10 +267,30 @@ def load_partner_api_config(root: Path) -> PartnerApiConfig:
         judge_warm_retry_s=float(body.get("judge_warm_retry_s", 30.0)),
         job_retention_s=float(body.get("job_retention_s", 3600.0)),
         job_max_unfinished_per_key=int(body.get("job_max_unfinished_per_key", 8)),
+        job_slot_wait_s=_job_slot_wait(body.get("job_slot_wait_s", 600.0)),
+        bad_key_budget_per_minute=_bad_key_budget(body.get("bad_key_budget_per_minute")),
         audit_retention_s=float(body.get("audit_retention_s", 90 * 86400.0)),
         verify_max_concurrent=int(body.get("verify_max_concurrent", 2)),
         verify_timeout_s=float(body.get("verify_timeout_s", 5.0)),
     )
+
+
+#: One day: more than any job should queue, and far below `threading.TIMEOUT_MAX` (a larger wait raises OverflowError).
+MAX_JOB_SLOT_WAIT_S = 86_400.0
+
+
+def _job_slot_wait(raw: Any) -> float:
+    """`job_slot_wait_s`: a finite number from 0 to one day (a bool, NaN, inf, a negative or a larger value is a config
+    error, never a silent default)."""
+    ok = isinstance(raw, (int, float)) and not isinstance(raw, bool)
+    if ok:
+        try:
+            ok = math.isfinite(raw) and 0 <= raw <= MAX_JOB_SLOT_WAIT_S
+        except OverflowError:  # an int too large for a float
+            ok = False
+    if not ok:
+        raise ValueError(f"job_slot_wait_s must be a number from 0 to {MAX_JOB_SLOT_WAIT_S:.0f} seconds, got {raw!r}"[:200])
+    return float(raw)
 
 
 _RATE_LIMIT_HEADER_DOCS: dict[str, Any] = {
@@ -269,6 +330,10 @@ class RateLimiter:
         self._lock = threading.Lock()
         self._windows: OrderedDict[str, tuple[int, int]] = OrderedDict()  # key -> (window_start_minute, count)
 
+    @property
+    def per_minute(self) -> int:
+        return self._per_minute
+
     def _evict_stale_locked(self, current_window: int) -> None:
         # Oldest-accessed first (that's where staleness concentrates in practice) -- NEVER evicts a
         # current-window entry, staleness is the only eviction criterion here.
@@ -298,10 +363,54 @@ class RateLimiter:
             self._windows[key] = (start, count + 1)
             return True
 
+    def peek(self, key: str) -> bool:
+        """Would `allow(key)` admit right now? Reads only: nothing is counted and no entry is created or evicted."""
+        window = int(self._now() // 60)
+        with self._lock:
+            entry = self._windows.get(key)
+            if entry is None or entry[0] != window:
+                return True
+            return entry[1] < self._per_minute
+
     def retry_after_seconds(self) -> int:
         """Seconds until the current window rolls over -- always a whole window's worth or less, never
         computed per-key (a caller who is refused does not need to know anyone else's window state)."""
         return 60 - int(self._now() % 60)
+
+
+def rate_limited_response(
+    *, limit: int, retry_after: int, scope: str, headers: dict[str, str] | None = None, sign_in: bool = True
+) -> JSONResponse:
+    """The 429 body (#403): the machine field `detail` and the `Retry-After` header are unchanged; the added fields say the
+    limit, the window and what to do. `scope` is "anonymous" (no signed-in user and no key), "caller" (a signed-in user
+    or key whose address bucket fired) or "key" (a key's own per-minute limit)."""
+    if scope == "anonymous" and not sign_in:
+        # a route that only knows API keys (verify-citations): signing in would not give a separate limit there
+        message = (
+            f"You have reached the limit for callers without an API key ({limit} requests per minute). "
+            f"Try again in {retry_after} seconds, or use an API key to get your own limit."
+        )
+    elif scope == "anonymous":
+        message = (
+            f"You have reached the limit for visitors who are not signed in ({limit} requests per minute). "
+            f"Try again in {retry_after} seconds, or sign in or use an API key to get your own limit."
+        )
+    elif scope == "key":
+        message = f"Your key has reached its limit of {limit} requests per minute. Try again in {retry_after} seconds."
+    else:
+        message = f"You have reached your limit of {limit} requests per minute. Try again in {retry_after} seconds."
+    return JSONResponse(
+        status_code=429,
+        content={
+            "detail": "rate limit exceeded",
+            "message": message,
+            "limit_per_minute": limit,
+            "window_seconds": 60,
+            "retry_after_seconds": retry_after,
+            "scope": scope,
+        },
+        headers={**(headers or {}), "Retry-After": str(retry_after)},
+    )
 
 
 class ConcurrencyLimiter:
@@ -312,7 +421,11 @@ class ConcurrencyLimiter:
     def __init__(self, max_concurrent: int) -> None:
         self._sem = threading.Semaphore(max_concurrent)
 
-    def acquire(self) -> bool:
+    def acquire(self, timeout: float = 0.0) -> bool:
+        """Non-blocking by default. With `timeout` > 0 (async jobs only, #406) waits up to that many seconds for a slot."""
+        if timeout > 0:
+            # a longer wait than TIMEOUT_MAX raises OverflowError even for a free slot
+            return self._sem.acquire(timeout=min(timeout, threading.TIMEOUT_MAX))
         return self._sem.acquire(blocking=False)
 
     def release(self) -> None:
@@ -337,22 +450,49 @@ class _Admitted:
     cfg: PartnerApiConfig
     concurrency: ConcurrencyLimiter
     authenticated: bool
+    #: Who asked, for the assisted route's anti-abuse limits only (never stored, never logged).
+    user_id: str | None = None
+    org_id: str | None = None
+    ip: str | None = None
 
 
 class VerifyCitationRequest(BaseModel):
     citation: str = Field(min_length=1, max_length=500)
-    quote: str = Field(min_length=1, max_length=4000)
+    #: Optional (#832 E1). Absent or null = existence only (`IN_INDEX`, never `VERIFIED`). A present quote is checked as before; a
+    #: quote that is empty or only whitespace is a 422, never an existence check.
+    quote: str | None = Field(default=None, min_length=1, max_length=4000)
+
+    @field_validator("quote")
+    @classmethod
+    def _quote_not_blank(cls, v: str | None) -> str | None:
+        if v is not None and not v.strip():
+            raise ValueError("quote must not be empty or only whitespace; omit it to check existence only")
+        return v
 
 
 class VerifyCitationResponse(BaseModel):
     result: str
     note: str
+    #: #533 (preview): the product wording. `status` is one of verified, quote_not_found, not_in_index, conflict, malformed;
+    #: `label` is the text to show verbatim; `verified` is true only for `result` VERIFIED (a resolved key AND the exact
+    #: quote); `preview` is true while the check is a preview. None of the labels says a citation is fake or invalid.
+    status: str
+    label: str
+    verified: bool
+    preview: bool
+    #: #832 E2: what the index holds and what a citation can resolve to (courts held vs courts resolvable), so a client reads
+    #: "Supreme Court judgments only" from the engine. Null only if the index could not be summarised.
+    coverage: dict[str, Any] | None = None
 
 
 _VERIFY_NOTES = {
     "VERIFIED": "The citation resolves to an indexed case and the quote appears in its text.",
     "EXISTS_QUOTE_NOT_FOUND": "The citation resolves to an indexed case but the quote was not found in its text.",
-    "NOT_IN_INDEX": "The index holds no evidence either way: this is not a finding that the citation is fake.",
+    "IN_INDEX": "Found in the index (existence only): no quote was checked, so this is not a verification.",
+    "NOT_IN_INDEX": (
+        "We could not match this citation to exactly one case in our index. "
+        "That does not show whether the citation is real: the index does not hold every judgment."
+    ),
     "MALFORMED": "Exactly one parseable citation is required.",
     "CONFLICT": "The citation maps to conflicting indexed cases; verify by hand.",
 }
@@ -384,6 +524,44 @@ class AnalyseFactsRequest(BaseModel):
     )
 
 
+class AssistFactsRequest(AnalyseFactsRequest):
+    """The assisted route's body: the analyse-facts body plus the caller's per-request consent and an opaque echo id."""
+
+    consent: bool = False
+    session_id: str | None = Field(default=None, max_length=128)
+    #: Which assisted workflow to run (a workflow with no configured agent answers with the ordinary result, `not_configured`).
+    #: Intake has its own routes (`/intake`, `/intake/assist`); it is not a value here (it would only answer `not_configured`).
+    workflow: Literal["screening", "hearing_prep"] = "screening"
+
+    @field_validator("workflow", mode="before")
+    @classmethod
+    def _intake_has_its_own_routes(cls, v: Any) -> Any:
+        if v == "intake":
+            raise ValueError("intake has its own routes: use POST /api/v1/intake or POST /api/v1/intake/assist")
+        return v
+
+
+#: Citation lookups per intake request; further citations are listed with the status NOT_CHECKED.
+INTAKE_MAX_CITATION_LOOKUPS = 50
+#: Total seconds one intake request may spend on citation lookups; later citations are listed NOT_CHECKED.
+INTAKE_LOOKUP_BUDGET_S = 15.0
+
+
+class IntakeRequest(BaseModel):
+    """Intake (pravrudhi#414): pasted text only. The text is read and cleaned by the engine; nothing is stored."""
+
+    text: str = Field(min_length=1, max_length=200_000)
+    consent: StrictBool = False  # strict: "1" or "yes" must never send a user's text to a third party
+    session_id: str | None = Field(default=None, max_length=128)
+
+    @field_validator("text")
+    @classmethod
+    def _not_blank(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("text must not be blank")
+        return v
+
+
 #: The exact keys `analyse_facts_ep` strips out of each element's dict when the debug gate is off -- listed
 #: once here and reused both for the strip and (in tests) for the presence/absence assertions, so the two
 #: can never silently drift apart.
@@ -392,6 +570,9 @@ _SECOND_JUDGE_DEBUG_FIELDS = (
     "second_refer_band_fired", "second_unavailable", "second_fact_id", "fact_id_disagreement",
     "defeater_second_disagreement",
 )
+
+
+SCREENING_SIGNAL_LABEL = "Suggested by the screening judge; check it."
 
 
 class ElementResultOut(BaseModel):
@@ -413,9 +594,10 @@ class ElementResultOut(BaseModel):
     attempts: int
     occurrences: int
     offsets_source: str | None
-    #: Who supplied the quote text (`"model"` today; `nyaya_judges.ElementJudgment`'s own field) -- surfaced
-    #: per element, per Lead-2-assistant's explicit requirement, so a whole-fact claim is visible to the
-    #: user rather than folded silently into the verdict.
+    #: Who supplied the quote text: `"model"` (a judge wrote words, the opt-in frontier judge) or `"whole_fact"` (the house judges
+    #: name a fact and the text is that fact in full; nothing is quoted); null on an element that is not established.
+    #: Surfaced per element, per Lead-2-assistant's explicit requirement, so a whole-fact claim is visible to the user rather than
+    #: folded silently into the verdict. `citation_note` is its plain-language reading.
     quote_source: str | None
     error: str | None
     #: Issue #37: which judge's tau a non-established element failed to clear ("primary" or "second", never
@@ -448,6 +630,30 @@ class ElementResultOut(BaseModel):
     second_fact_id: str | None = None
     fact_id_disagreement: bool | None = None
     defeater_second_disagreement: bool | None = None
+
+    #: #832 S1 source value; never returned (the signal below is derived from it). Excluded from the response.
+    screening_supported: bool | None = Field(default=None, exclude=True)
+
+    @computed_field(  # type: ignore[prop-decorator]
+        description="A SCREENING signal from the first (screening) judge alone, shown even when the element is not a proof: "
+        "`supported` is true when that judge's score cleared its threshold. It is a suggestion to check, not a finding, never "
+        "changes status, outcome or reason, and carries no probability. On the CAL CHEAT set (70 rows, dev stack, one look) "
+        "it accepted 8 of 41 established and 4 of 29 not-established rows. Null when it produced no score."
+    )
+    @property
+    def screening_signal(self) -> dict[str, Any] | None:
+        if self.screening_supported is None:
+            return None
+        return {"supported": self.screening_supported, "label": SCREENING_SIGNAL_LABEL}
+
+    @computed_field(  # type: ignore[prop-decorator]
+        description="Plain-language reading of this element's citation, chosen by quote_source: a judge-written quote that "
+        "passed the word-for-word quote check (model), or a fact cited in full with no words quoted from it (whole_fact: the "
+        "house judges). Null when no citation is claimed (an element that is not established). Docs: docs/api/reason-codes.md."
+    )
+    @property
+    def citation_note(self) -> str | None:
+        return citation_note(self.quote_source, self.fact_id)
 
 
 class CitationOut(BaseModel):
@@ -536,6 +742,38 @@ class StandardOut(BaseModel):
     )
 
 
+def contract_set_digest(sources: Mapping[str, str]) -> str:
+    """SHA-256 over the sorted (contract id, source-text SHA-256) pairs: order-independent, and any change to an id
+    or to one source text changes it (#832 S7)."""
+    pairs = sorted((cid, hashlib.sha256(text.encode("utf-8")).hexdigest()) for cid, text in sources.items())
+    return hashlib.sha256(json.dumps(pairs, separators=(",", ":")).encode("utf-8")).hexdigest()
+
+
+def validated_set_version(ids: Iterable[str]) -> str:
+    return hashlib.sha256(json.dumps(sorted(set(ids)), separators=(",", ":")).encode("utf-8")).hexdigest()
+
+
+_SET_VERSION_CACHE: dict[str, str | None] = {}
+
+
+def _contract_set_version(agent: Any) -> str | None:
+    """`contract_set_digest` over every contract the agent's scorer knows, cached per score binary (one read of the
+    sources per process). None when the agent has no registry or a source cannot be read -- never a guess."""
+    registry = getattr(agent, "registry", None)
+    key = getattr(registry, "sha256", None)
+    if registry is None or not isinstance(key, str):
+        return None
+    if key not in _SET_VERSION_CACHE:
+        try:
+            _SET_VERSION_CACHE[key] = contract_set_digest(
+                {cid: registry.source_text(cid) for cid in sorted(reg.KNOWN_CONTRACT_IDS)}
+            )
+        except Exception:
+            _logger.warning("contract set version unavailable", exc_info=True)
+            return None
+    return _SET_VERSION_CACHE[key]
+
+
 class AnalyseFactsResponse(BaseModel):
     run_id: str
     judge: str
@@ -551,12 +789,46 @@ class AnalyseFactsResponse(BaseModel):
     #: Issue #39: the exact retention notice text (nyaya_agent.RETENTION_NOTICE), on every response -- a
     #: partner API caller who never sees the web UI still gets this verbatim, not just in documentation.
     retention_notice: str = Field(default=RETENTION_NOTICE)
+    contract_set_version: str | None = Field(
+        default=None,
+        description="Additive (#832 S7): SHA-256 over the sorted (contract id, source-text SHA-256) pairs of every "
+        "contract the pinned scorer knows. Order-independent; changes when any contract's source text or the id set "
+        "changes. Null when the scorer's sources could not be read.",
+    )
+    validated_set_version: str | None = Field(
+        default=None,
+        description="Additive (#832 S7): SHA-256 over the sorted ids in the agent's `validated_contracts` allowlist.",
+    )
     standard: StandardOut | None = Field(
         default=None,
         description="Additive (#220): the standard the request asked for (`requested`) and the standard the judge's "
         "prompt actually stated (`applied`, null under the legacy prompt template, where the judge is never told "
         "a standard), from the same values as the audit row.",
     )
+
+
+class AssistFactsResponse(AnalyseFactsResponse):
+    """The analyse-facts response plus the `assistant` block (see application/a0_assist/assist.py)."""
+
+    assistant: dict[str, Any]
+    #: A finished assisted run: the steps it took, counted from the recorded tool calls (#416). Absent on every fallback.
+    appendix: dict[str, Any] | None = None
+    #: Only for `workflow: "hearing_prep"`: the hearing-preparation pack, built by fixed rules from the decide result (#415).
+    pack: dict[str, Any] | None = None
+
+
+class IntakeResponse(BaseModel):
+    """The deterministic intake result: the bundle of machine tokens (no model prose)."""
+
+    run_id: str
+    client_data: bool
+    bundle: dict[str, Any]
+
+
+class IntakeAssistResponse(IntakeResponse):
+    """The intake bundle plus the `assistant` block (see application/a0_assist/assist.py)."""
+
+    assistant: dict[str, Any]
 
 
 AgentFactory = Callable[[Path], AgentLike]
@@ -610,7 +882,7 @@ class JobOut(BaseModel):
 class AuditRowOut(BaseModel):
     ts: str
     key_id: str
-    mode: Literal["sync", "job", "verify"]
+    mode: Literal["sync", "job", "verify", "assist", "intake", "intake_assist"]
     status_code: int
     run_id: str | None = None
     contract_ids: list[str]
@@ -695,7 +967,33 @@ def _warn_short_client_ip_secret_once() -> None:
     )
 
 
-def _client_ip(request: Request, *, trust_proxy_header: bool, trusted_proxies: tuple[str, ...]) -> str:
+def client_ip_proof(request: Request) -> str:
+    """Whether the request carries a valid proof that the gateway read the client address: a label, never a value.
+
+    "valid" (the shared secret matches and an address came with it), "no_ip" (the secret matches, no address came), "mismatch"
+    (a proof header was sent and it is wrong), "none" (no proof header was sent: the gateway is not signing), "engine_unset"
+    (this engine has no secret) or "engine_short" (this engine's secret is shorter than the minimum, so it is ignored)."""
+    secret = os.environ.get(CLIENT_IP_SECRET_ENV, "")
+    if not secret:
+        return "engine_unset"
+    if len(secret) < MIN_CLIENT_IP_SECRET_LENGTH:
+        _warn_short_client_ip_secret_once()
+        return "engine_short"
+    presented = request.headers.get(CLIENT_IP_SECRET_HEADER, "")
+    if not presented:
+        return "none"
+    # bytes, not str: compare_digest raises TypeError on a non-ASCII str (a header byte above 0x7f arrives as latin-1)
+    if not hmac.compare_digest(presented.encode("utf-8"), secret.encode("utf-8")):
+        return "mismatch"
+    return "valid" if request.headers.get(CLIENT_IP_HEADER, "").strip() else "no_ip"
+
+
+def client_ip_and_source(
+    request: Request, *, trust_proxy_header: bool, trusted_proxies: tuple[str, ...], caller_key: str | None = None
+) -> tuple[str, str]:
+    """(address, source). `source` is "signed" (the proof held), "proxy" (a trusted proxy's X-Forwarded-For), "caller" (no
+    proven address: bucketed by the caller's own identity) or "peer" (the socket peer: behind a gateway that is one shared
+    address for every anonymous caller)."""
     # Preferred over everything below: a caller-specific key proven, by the shared secret, to have come
     # from the Worker's own read of Cloudflare's CF-Connecting-IP -- correct even when this engine sits
     # behind a proxy (RunPod's LB, a cloudflared tunnel) that presents every real caller as the same socket
@@ -703,16 +1001,8 @@ def _client_ip(request: Request, *, trust_proxy_header: bool, trusted_proxies: t
     # once. Fails CLOSED, never open: a missing or too-short secret, a missing client-IP header, or a
     # mismatched secret all fall through to the existing (stricter, shared-key-prone) behavior below rather
     # than trusting an unproven header.
-    secret = os.environ.get(CLIENT_IP_SECRET_ENV, "")
-    if secret and len(secret) < MIN_CLIENT_IP_SECRET_LENGTH:
-        _warn_short_client_ip_secret_once()
-        secret = ""
-    if secret:
-        presented = request.headers.get(CLIENT_IP_SECRET_HEADER, "")
-        if presented and hmac.compare_digest(presented, secret):
-            client_ip = request.headers.get(CLIENT_IP_HEADER, "").strip()
-            if client_ip:
-                return client_ip
+    if client_ip_proof(request) == "valid":
+        return request.headers.get(CLIENT_IP_HEADER, "").strip(), "signed"
 
     client = request.client
     socket_peer = client.host if client is not None else "unknown"
@@ -725,8 +1015,22 @@ def _client_ip(request: Request, *, trust_proxy_header: bool, trusted_proxies: t
     if trust_proxy_header and socket_peer in trusted_proxies:
         forwarded = request.headers.get("x-forwarded-for")
         if forwarded:
-            return forwarded.split(",")[0].strip()
-    return socket_peer
+            return forwarded.split(",")[0].strip(), "proxy"
+    # No proven client address. Behind the gateway the socket peer is the proxy itself, so every caller would share ONE
+    # bucket: a caller that is identified (an API key, or a signed-in user) is bucketed by that identity instead. A client
+    # address header that is not signed with the shared secret is never read, so a forged one can neither raise nor dodge
+    # a limit: rotating it changes nothing. An anonymous caller keeps the socket peer (the stricter shared bucket).
+    if caller_key:
+        return caller_key, "caller"
+    return socket_peer, "peer"
+
+
+def _client_ip(
+    request: Request, *, trust_proxy_header: bool, trusted_proxies: tuple[str, ...], caller_key: str | None = None
+) -> str:
+    return client_ip_and_source(
+        request, trust_proxy_header=trust_proxy_header, trusted_proxies=trusted_proxies, caller_key=caller_key
+    )[0]
 
 
 @functools.lru_cache(maxsize=1)
@@ -801,14 +1105,15 @@ def build_partner_router(
             if not _state:
                 cfg = config or load_partner_api_config(engine_root)
                 _state["cfg"] = cfg
-                _state["rate_limiter"] = RateLimiter(cfg.rate_limit_per_minute, max_keys=cfg.rate_limit_max_keys)
+                clock_kw: dict[str, Any] = {} if rate_clock is None else {"now": rate_clock}
+                _state["rate_limiter"] = RateLimiter(cfg.rate_limit_per_minute, max_keys=cfg.rate_limit_max_keys, **clock_kw)
                 _state["concurrency"] = ConcurrencyLimiter(cfg.max_concurrent)
                 # A separate, much lower-budget limiter for the tenancy provisioning routes: sharing the
                 # analyse-facts limiter would mean a normal partner workload and a guessed-secret attempt
                 # against /api/v1/orgs draw from the same 6-per-minute budget, which is generous for the
                 # latter and would also let provisioning traffic starve analyse-facts's own limit.
                 _state["provision_rate_limiter"] = RateLimiter(
-                    cfg.provision_rate_limit_per_minute, max_keys=cfg.rate_limit_max_keys
+                    cfg.provision_rate_limit_per_minute, max_keys=cfg.rate_limit_max_keys, **clock_kw
                 )
                 # Issue #35: ONE breaker for this process's whole lifetime, shared across every request's
                 # NyayaAgent (and its whole judge_pool) -- a real second-judge failure trips it for every
@@ -816,10 +1121,51 @@ def build_partner_router(
                 _state["second_judge_breaker"] = SecondJudgeCircuitBreaker(
                     ttl_s=cfg.second_judge_circuit_breaker_ttl_s
                 )
+                # Failed-key attempts per proven address (or socket peer): a request with a key that does not verify costs a
+                # password-hash check, so these are budgeted BEFORE the check and charged only when it fails.
+                _state["bad_key_limiter"] = RateLimiter(
+                    cfg.bad_key_budget_per_minute or cfg.rate_limit_per_minute, max_keys=cfg.rate_limit_max_keys, **clock_kw
+                )
             return (
                 _state["cfg"], _state["rate_limiter"], _state["concurrency"], _state["provision_rate_limiter"],
                 _state["second_judge_breaker"],
             )
+
+    def _bad_key_addr(request: Request, cfg: PartnerApiConfig) -> str:
+        return _client_ip(request, trust_proxy_header=cfg.trust_proxy_header, trusted_proxies=cfg.trusted_proxies)
+
+    def _charge_bad_key(request: Request, cfg: PartnerApiConfig) -> None:
+        with _state_lock:
+            limiter = _state["bad_key_limiter"]
+        limiter.allow(_bad_key_addr(request, cfg))
+
+    def _principal_or_throttle(
+        request: Request, cfg: PartnerApiConfig
+    ) -> tuple[tenancy.OrgPrincipal | None, JSONResponse | None]:
+        """The verified API-key principal (None when no key header was sent), with the failed-key budget applied.
+
+        Checking a key costs a password-hash verification, so an address that has already failed `rate_limit_per_minute` times
+        this minute is refused with 429 BEFORE any further check is spent on it; a failure (an unknown key, a bad secret, a
+        revoked key) is charged to that address after the check. A valid key is never charged here. The address is the signed
+        client address when the gateway proved one, else the socket peer (shared behind the gateway until the signed path is
+        configured: then a flood of bad keys from one peer also refuses keyed callers behind it for the minute)."""
+        if not request.headers.get(tenancy.API_KEY_HEADER):
+            return None, None
+        with _state_lock:
+            limiter = _state["bad_key_limiter"]
+        addr = _bad_key_addr(request, cfg)
+        if not limiter.peek(addr):
+            return None, JSONResponse(
+                status_code=429,
+                content={"detail": "rate limit exceeded"},
+                headers={"Retry-After": str(limiter.retry_after_seconds())},
+            )
+        try:
+            return tenancy.principal_from_headers(engine_root, request.headers), None
+        except HTTPException as e:
+            if e.status_code == 401:
+                limiter.allow(addr)
+            raise
 
     factory: AgentFactory = agent_factory or (
         lambda r: NyayaAgent.house(r, second_judge_breaker=_get_state()[4])
@@ -888,7 +1234,15 @@ def build_partner_router(
                 judges["second"] = dict(ac.second_judge)
             _offline_check.ttl_s = cfg.judge_health_ttl_s
             keys = {"house": "NYAYA_HOUSE_JUDGE_API_KEY", "second": "NYAYA_SECOND_JUDGE_API_KEY"}
-            parked = _offline_check.offline(judges, keys)
+            max_age = float((ac.second_judge_positive_control if ac is not None else {}).get("max_age_hours", 24.0))
+
+            def _fallback_ok(endpoint_id: str, block: Mapping[str, Any]) -> bool:
+                # a RunPod fallback the engine would refuse to call (no passing record) is not a way to answer
+                return not block.get("fallback_record_dir") or fallback_record_ok(
+                    block, endpoint_id, max_age_hours=max_age
+                )[0]
+
+            parked = _offline_check.offline(judges, keys, fallback_ok=_fallback_ok)
         except Exception:  # noqa: BLE001 - the check must never turn a working request into an error
             _logger.warning("judge health check failed; proceeding")
             return None
@@ -1037,7 +1391,8 @@ def build_partner_router(
         return _run(req, admitted, debug_second_judge)
 
     def _admit(
-        req: AnalyseFactsRequest, request: Request, user: User | None, metered: list[str], per_minute: list[int]
+        req: Any, request: Request, user: User | None, metered: list[str], per_minute: list[int],
+        *, screening: bool = True,
     ) -> _Admitted | JSONResponse:
         """Everything that decides whether a call may run at all (window, limits, metering, validation), shared
         by the synchronous route and job submission so a job is admitted by exactly the same rules."""
@@ -1050,7 +1405,7 @@ def build_partner_router(
         closed = _window_closed(cfg)
         if closed is not None:
             return closed
-        offline = _judges_offline(cfg)
+        offline = _judges_offline(cfg) if screening else None  # intake (not screening) uses no judge
         if offline is not None:
             return offline
         # QUEUE.md 2026-09-27: per-leg second-judge scores are visible to an AUTHENTICATED caller -- a
@@ -1058,44 +1413,58 @@ def build_partner_router(
         # deployment that answers analyse-facts anonymously (`PRAVRUDHI_DEMO_ANON_PATHS`). `principal_from_
         # headers` raises 401 itself when a key header WAS sent but does not verify, the same as `usage_ep`;
         # it never treats a bad key as "no key" (a caller who supplied a bad key is never silently anonymous).
-        principal = tenancy.principal_from_headers(engine_root, request.headers)
+        principal, throttled = _principal_or_throttle(request, cfg)
+        if throttled is not None:
+            return throttled
         if principal is not None:
             from pravrudhi.application.credentials import serving_org
 
             serving_org.set(principal.org_id)
         authenticated = user is not None or principal is not None
-        ip = _client_ip(request, trust_proxy_header=cfg.trust_proxy_header, trusted_proxies=cfg.trusted_proxies)
+        caller_key = (
+            f"key:{principal.key_id}" if principal is not None else (f"user:{user.id}" if user is not None else None)
+        )
+        ip = _client_ip(
+            request, trust_proxy_header=cfg.trust_proxy_header, trusted_proxies=cfg.trusted_proxies, caller_key=caller_key
+        )
         if not rate_limiter.allow(ip):
-            return JSONResponse(
-                status_code=429,
-                content={"detail": "rate limit exceeded"},
-                headers={"Retry-After": str(rate_limiter.retry_after_seconds())},
+            return rate_limited_response(
+                limit=rate_limiter.per_minute, retry_after=rate_limiter.retry_after_seconds(),
+                scope="caller" if authenticated else "anonymous",
             )
         if principal is not None:
-            key = next((k for k in tenancy.keys_for_org(engine_root, principal.org_id)
-                        if k.key_id == principal.key_id), None)
+            key = tenancy.key_record(engine_root, principal.key_id, org_id=principal.org_id)
             if key is None:
+                _charge_bad_key(request, cfg)
                 raise HTTPException(401, "Invalid or revoked API key")
             if not _key_rate_limiter.allow(key.key_id, key.rate_limit_per_minute):
-                return JSONResponse(
-                    status_code=429,
-                    content={"detail": "rate limit exceeded"},
-                    headers={**_rate_headers(key.key_id, key.rate_limit_per_minute),
-                             "Retry-After": str(_key_rate_limiter.retry_after_seconds())},
+                return rate_limited_response(
+                    limit=key.rate_limit_per_minute, retry_after=_key_rate_limiter.retry_after_seconds(), scope="key",
+                    headers=_rate_headers(key.key_id, key.rate_limit_per_minute),
                 )
             metered.append(key.key_id)
             per_minute.append(key.rate_limit_per_minute)
             _record_usage(key.key_id)
-        if not any(f.strip() for f in req.facts):
-            raise HTTPException(422, "at least one non-empty fact is required")
-        for f in req.facts:
-            if len(f) > 4000:
-                raise HTTPException(422, "a fact may not exceed 4000 characters")
-        return _Admitted(cfg, concurrency, authenticated)
+        if screening:
+            if not any(f.strip() for f in req.facts):
+                raise HTTPException(422, "at least one non-empty fact is required")
+            for f in req.facts:
+                if len(f) > 4000:
+                    raise HTTPException(422, "a fact may not exceed 4000 characters")
+        return _Admitted(
+            cfg,
+            concurrency,
+            authenticated,
+            user_id=user.id if user is not None else (f"key:{principal.key_id}" if principal is not None else None),
+            org_id=principal.org_id if principal is not None else None,
+            ip=ip,
+        )
 
-    def _run(req: AnalyseFactsRequest, admitted: _Admitted, debug_second_judge: bool) -> dict[str, Any] | JSONResponse:
+    def _run(
+        req: AnalyseFactsRequest, admitted: _Admitted, debug_second_judge: bool, *, slot_held: bool = False
+    ) -> dict[str, Any] | JSONResponse:
         cfg, concurrency, authenticated = admitted.cfg, admitted.concurrency, admitted.authenticated
-        if not concurrency.acquire():
+        if not slot_held and not concurrency.acquire():
             return coded_503(AGENT_AT_CAPACITY)
         try:
             agent = factory(engine_root)
@@ -1119,7 +1488,8 @@ def build_partner_router(
             _logger.warning("nyaya agent unavailable", exc_info=True)  # the exception is logged server-side only (#318)
             return coded_503(AGENT_UNAVAILABLE)
         finally:
-            concurrency.release()
+            if not slot_held:
+                concurrency.release()
         # R1, 2026-09-25: a PRIMARY judge that is unreachable from boot (model resolution or a connection
         # failure after `_judge_element`'s own transient-retry loop is exhausted) does not raise out of
         # `agent.run()` -- `NyayaAgent`'s own philosophy is that this is a recorded, non-evidentiary outcome
@@ -1153,9 +1523,23 @@ def build_partner_router(
                 )
             return JSONResponse(status_code=503, content={"error": "judge_unavailable"})
         _judge_seen.update(state="ready", at=_now(), first_failure=None)
-        body: dict[str, Any] = result.to_dict()
+        listed = getattr(result, "listed_sources", None)
+        return _shape_body(agent, result.to_dict(), listed, authenticated, debug_second_judge, cfg)
+
+    def _shape_body(
+        agent: Any,
+        body: dict[str, Any],
+        listed: dict[str, list[str]] | None,
+        authenticated: bool,
+        debug_second_judge: bool,
+        cfg: PartnerApiConfig,
+    ) -> dict[str, Any]:
+        """The response post-processing shared by the core run and the assisted run: citations, set versions, rule text
+        and second-judge diagnostic fields."""
         body.pop("audit_path", None)
-        _attach_citations(agent, body, getattr(result, "listed_sources", None))
+        _attach_citations(agent, body, listed)
+        body["contract_set_version"] = _contract_set_version(agent)
+        body["validated_set_version"] = validated_set_version(getattr(getattr(agent, "config", None), "validated_contracts", ()))
         if not getattr(getattr(agent, "config", None), "expose_rule_text", False):
             for contract in body.get("contracts", []):
                 for name in _RULE_TEXT_FIELDS:
@@ -1167,6 +1551,280 @@ def build_partner_router(
                     for field in _SECOND_JUDGE_DEBUG_FIELDS:
                         element.pop(field, None)
         return body
+
+    def _assisted_response(
+        req: AssistFactsRequest, admitted: _Admitted, debug_second_judge: bool, rt: Any
+    ) -> dict[str, Any] | JSONResponse:
+        from pravrudhi.application import assistant_tier
+        from pravrudhi.application.a0_assist import assist as a0
+        from pravrudhi.application.a0_assist import ref_driver as a0rd
+
+        matter = {"facts": list(req.facts), "narrative": req.narrative, "contract_ids": list(req.contract_ids)}
+        box: dict[str, Any] = {}
+
+        hearing = req.workflow == "hearing_prep"
+
+        def make_driver() -> Any:
+            box["agent"] = factory(engine_root)
+            driver_cls: Any = PackDriver if hearing else a0rd.A0RefDriver
+            return driver_cls(box["agent"], request=matter, proceeding_posture=req.proceeding_posture)
+
+        def with_pack(body: Any) -> Any:
+            return attach_pack(body, list(req.facts), req.narrative or "") if hearing else body
+
+        def finalize(driver: Any) -> dict[str, Any]:
+            agent = box["agent"]
+            standard, source = standard_for_posture(req.proceeding_posture)
+            in_prompt = getattr(agent.judge, "prompt_template", "legacy") != "legacy"
+            body: dict[str, Any] = {
+                "run_id": f"nyaya-assist-{os.urandom(5).hex()}",
+                "judge": agent.judge.name,
+                "score_sha256": agent.registry.sha256,
+                "facts": [{"id": f["id"], "sha256": f["sha256"]} for f in driver._ingested["facts"]],
+                "contracts": [driver._decided[c] for c in driver._selected or []],
+                "provenance": "agama",
+                "judge_accounting": {},
+                "client_data": True,
+                "standard": {
+                    "requested": standard,
+                    "applied": standard if in_prompt else None,
+                    "source": "proceeding_posture" if source == "request" else "default",
+                    "proceeding_posture": req.proceeding_posture,
+                    "in_judge_prompt": in_prompt,
+                },
+            }
+            shaped = _shape_body(agent, body, driver.listed, admitted.authenticated, debug_second_judge, admitted.cfg)
+            appendix = safe_appendix(driver.calls)  # counted from the recorded calls only: no agent text
+            if appendix is not None:
+                shaped["appendix"] = appendix
+            if hearing and driver._pack is not None:
+                # the `pack` tool's own output (decide results in, fixed rules): never agent text
+                shaped["pack"] = copy.deepcopy(driver._pack)
+            return shaped
+
+        deps = a0.Deps(
+            cfg=rt.cfg,
+            tier_status=lambda: assistant_tier.status(engine_root),
+            store=rt.store,
+            transport=rt.transport,
+            limiter=rt.limiter,
+            slots=rt.slots,
+            core=lambda: with_pack(_run(req, admitted, debug_second_judge, slot_held=True)),
+            make_driver=make_driver,
+            finalize=finalize,
+            workflows=frozenset({"screening", "hearing_prep"}),
+            # a workflow other than screening must name its first message and its summary explicitly (#419)
+            user_message=a0.user_message,
+            summarise=a0.screening_summarise,
+        )
+        caller = a0.Caller(admitted.authenticated, admitted.user_id, admitted.org_id, admitted.ip)
+        out = a0.run_assisted(matter, caller, req.consent, req.session_id, deps, workflow=req.workflow)
+        if isinstance(out, dict):
+            # The facts went to a third party for this request (or may have): the ordinary retention notice would be wrong here,
+            # so no response of this route carries one. The consent line and the data-handling page say what is true.
+            out.pop("retention_notice", None)
+        result: dict[str, Any] | JSONResponse = out
+        return result
+
+    @router.post(
+        "/analyse-facts/assist",
+        response_model=AssistFactsResponse,
+        response_model_exclude_unset=True,
+        include_in_schema=False,  # ships dark: not in the public contract until the route is enabled in a release
+        responses={
+            400: {"description": "consent_required: the request did not carry consent=true."},
+            404: {"description": "The assisted route is not enabled on this deployment."},
+            429: {"description": "Over the rate limit; wait Retry-After seconds."},
+            503: {"description": "Outside the service window, judges warming, or the agent at capacity or unavailable."},
+        },
+    )
+    def analyse_facts_assist_ep(
+        req: AssistFactsRequest,
+        request: Request,
+        response: Response,
+        user: User | None = CurrentUserDep,
+        debug_second_judge: bool = Query(False),
+    ) -> dict[str, Any] | JSONResponse:
+        from pravrudhi.application.a0_assist import runtime as a0rt
+
+        rt = a0rt.get(engine_root)
+        if rt is None or not rt.enabled:
+            raise HTTPException(404, "assist_not_enabled")
+        if req.consent is not True:
+            return JSONResponse(status_code=400, content={"error": "consent_required"})
+        if req.sections:
+            raise HTTPException(422, "the assisted route selects contracts by contract_ids only")
+        metered: list[str] = []
+        per_minute: list[int] = []
+        try:
+            admitted = _admit(req, request, user, metered, per_minute)
+            if isinstance(admitted, JSONResponse):
+                _audit(metered, req, "assist", status_code=admitted.status_code)
+                return admitted
+            if not admitted.concurrency.acquire():
+                return coded_503(AGENT_AT_CAPACITY)
+            try:
+                out = _assisted_response(req, admitted, debug_second_judge, rt)
+            finally:
+                admitted.concurrency.release()
+        except HTTPException as e:
+            _audit(metered, req, "assist", status_code=e.status_code)
+            raise
+        if metered and isinstance(out, JSONResponse) and out.status_code == 503:
+            _record_usage(metered[0], failed=True)
+        if metered and isinstance(out, dict):
+            response.headers.update(_rate_headers(metered[0], per_minute[0]))
+        if isinstance(out, JSONResponse):
+            _audit(metered, req, "assist", status_code=out.status_code)
+        else:
+            _audit(metered, req, "assist", status_code=200, out=out)
+        return out
+
+    # --- intake (pravrudhi#414): pasted text -> a verified bundle; plain deterministic route and the assisted route ---------
+    def _intake_exists_fn(cfg: PartnerApiConfig) -> Callable[[str], str] | None:
+        """Citation text -> the verifier's own existence result, or None when this deployment has no citation index (the
+        bundle then marks every citation NOT_CHECKED, never a guessed status)."""
+        env_path = os.environ.get("PRAVRUDHI_CITATION_INDEX")
+        path = citation_index_path or (Path(env_path) if env_path else None)
+        if path is None or not Path(path).is_file():
+            return None
+
+        looked_up = [0]
+        seen: dict[str, str] = {}
+        started = time.monotonic()
+
+        def exists(text: str) -> str:
+            # a pasted text can hold thousands of citations: bound the lookups (each can take verify_timeout_s) by count and by
+            # total time, and answer a repeated citation from the first answer (consistent, and free)
+            if text in seen:
+                return seen[text]
+            if looked_up[0] >= INTAKE_MAX_CITATION_LOOKUPS or time.monotonic() - started > INTAKE_LOOKUP_BUDGET_S:
+                return "NOT_CHECKED"
+            looked_up[0] += 1
+            result, _cov = _lookup(Path(path), VerifyCitationRequest(citation=text), cfg.verify_timeout_s)
+            seen[text] = result.result
+            return result.result
+
+        return exists
+
+    def _intake_core(req: IntakeRequest, exists_fn: Callable[[str], str] | None) -> dict[str, Any]:
+        """The plain deterministic intake result (no model): the same bundle the assisted run falls back to."""
+        from pravrudhi.application.a0_assist import intake
+
+        try:
+            bundle = intake.build_bundle(req.text, verify_fn=exists_fn)
+        except intake.IntakeRefused as e:
+            raise HTTPException(422, str(e)) from e
+        return {"run_id": f"nyaya-intake-{os.urandom(5).hex()}", "client_data": True, "bundle": bundle}
+
+    def _intake_audit(metered: list[str], mode: str, status_code: int, out: dict[str, Any] | None = None) -> None:
+        """One audit row per key-admitted intake call: key, time, run id and HTTP status; never the text. A failure to write is
+        logged, never allowed to change the answer."""
+        if not metered:
+            return
+        try:
+            audit.record(
+                engine_root, key_id=metered[0], mode=mode, status_code=status_code, contract_ids=[],
+                run_id=(out or {}).get("run_id"), outcomes={}, retention_s=_get_state()[0].audit_retention_s, now=_now(),
+            )
+        except Exception:
+            _logger.exception("audit write failed for key %s", metered[0])
+
+    def _intake_admit(req: IntakeRequest, request: Request, user: User | None, metered: list[str], per_minute: list[int]) -> Any:
+        admitted = _admit(req, request, user, metered, per_minute, screening=False)
+        if isinstance(admitted, JSONResponse):
+            return admitted
+        if not admitted.authenticated:
+            return JSONResponse(status_code=401, content={"detail": "intake is offered only to signed-in users"})
+        return admitted
+
+    @router.post("/intake", include_in_schema=False, response_model=IntakeResponse)
+    def intake_ep(
+        req: IntakeRequest, request: Request, response: Response, user: User | None = CurrentUserDep
+    ) -> dict[str, Any] | JSONResponse:
+        metered: list[str] = []
+        per_minute: list[int] = []
+        admitted = _intake_admit(req, request, user, metered, per_minute)
+        if isinstance(admitted, JSONResponse):
+            return admitted
+        if not admitted.concurrency.acquire():
+            _intake_audit(metered, "intake", 503)
+            return coded_503(AGENT_AT_CAPACITY)
+        try:
+            out = _intake_core(req, _intake_exists_fn(admitted.cfg))
+        except HTTPException as e:
+            _intake_audit(metered, "intake", e.status_code)
+            raise
+        except Exception:
+            _intake_audit(metered, "intake", 500)
+            raise
+        finally:
+            admitted.concurrency.release()
+        if metered:
+            response.headers.update(_rate_headers(metered[0], per_minute[0]))
+        _intake_audit(metered, "intake", 200, out)
+        return out
+
+    @router.post("/intake/assist", include_in_schema=False, response_model=IntakeAssistResponse)
+    def intake_assist_ep(
+        req: IntakeRequest, request: Request, response: Response, user: User | None = CurrentUserDep
+    ) -> dict[str, Any] | JSONResponse:
+        from pravrudhi.application import assistant_tier
+        from pravrudhi.application.a0_assist import assist as a0
+        from pravrudhi.application.a0_assist import runtime as a0rt
+        from pravrudhi.application.a0_assist.intake_driver import IntakeDriver
+
+        rt = a0rt.get(engine_root)
+        if rt is None or not rt.enabled or rt.limiter is None or rt.slots is None:
+            raise HTTPException(404, "assist_not_enabled")
+        if req.consent is not True:
+            return JSONResponse(status_code=400, content={"error": "consent_required"})
+        metered: list[str] = []
+        per_minute: list[int] = []
+        admitted = _intake_admit(req, request, user, metered, per_minute)
+        if isinstance(admitted, JSONResponse):
+            return admitted
+        exists_fn = _intake_exists_fn(admitted.cfg)
+
+        def finalize(driver: Any) -> dict[str, Any]:
+            return {"run_id": f"nyaya-intake-{os.urandom(5).hex()}", "client_data": True, "bundle": driver.result}
+
+        deps = a0.Deps(
+            cfg=rt.cfg,
+            tier_status=lambda: assistant_tier.status(engine_root),
+            store=rt.store,
+            transport=rt.transport,
+            limiter=rt.limiter,
+            slots=rt.slots,
+            core=lambda: _intake_core(req, exists_fn),
+            make_driver=lambda: IntakeDriver(req.text, exists_fn=exists_fn),
+            finalize=finalize,
+            workflows=frozenset({"intake"}),
+            user_message=a0.intake_user_message,
+            summarise=lambda driver, events: None,  # the result is the bundle; the agent's prose is never shown
+        )
+        caller = a0.Caller(admitted.authenticated, admitted.user_id, admitted.org_id, admitted.ip)
+        if not admitted.concurrency.acquire():
+            _intake_audit(metered, "intake_assist", 503)
+            return coded_503(AGENT_AT_CAPACITY)
+        try:
+            out = a0.run_assisted({"text": req.text}, caller, req.consent, req.session_id, deps, workflow="intake")
+        except HTTPException as e:
+            _intake_audit(metered, "intake_assist", e.status_code)
+            raise
+        except Exception:
+            _intake_audit(metered, "intake_assist", 500)
+            raise
+        finally:
+            admitted.concurrency.release()
+        if isinstance(out, dict):
+            out.pop("retention_notice", None)
+        if metered and isinstance(out, dict):
+            response.headers.update(_rate_headers(metered[0], per_minute[0]))
+        status = out.status_code if isinstance(out, JSONResponse) else 200
+        _intake_audit(metered, "intake_assist", status, out if isinstance(out, dict) else None)
+        result: dict[str, Any] | JSONResponse = out
+        return result
 
     # --- async job mode (#146): same admission, same agent run, collected by polling -------------------------
     _jobs_lock = threading.Lock()
@@ -1236,10 +1894,10 @@ def build_partner_router(
             store.discard(job_id)
             return admitted
 
-        def task() -> None:
+        def _run_job() -> None:
             store.start(job_id)
             try:
-                out = _run(req, admitted, debug_second_judge)
+                out = _run(req, admitted, debug_second_judge, slot_held=True)
                 if isinstance(out, dict):
                     out = AnalyseFactsResponse(**out).model_dump(mode="json", exclude_unset=True)
             except HTTPException as e:
@@ -1261,6 +1919,20 @@ def build_partner_router(
                 return
             _audit(metered, req, "job", status_code=200, out=out)
             store.finish(job_id, result=out)
+
+        def task() -> None:
+            # #406: an accepted job stays "pending" until it holds an agent slot, and waits for one up to job_slot_wait_s
+            # (counted from the moment a pool thread picks it up). Only then does it run; running jobs hold the slot.
+            if not admitted.concurrency.acquire(admitted.cfg.job_slot_wait_s):
+                if metered:
+                    _record_usage(metered[0], failed=True)
+                _audit(metered, req, "job", status_code=503)
+                store.fail(job_id, status_code=503, body=json.loads(bytes(coded_503(AGENT_AT_CAPACITY).body)))
+                return
+            try:
+                _run_job()
+            finally:
+                admitted.concurrency.release()
 
         _submit(task)
         return {"job_id": job_id, "status": "pending"}
@@ -1307,24 +1979,29 @@ def build_partner_router(
             cfg, rate_limiter = _get_state()[:2]
         except FileNotFoundError:
             return JSONResponse(status_code=503, content={"error": "service_config_missing"})
-        ip = _client_ip(request, trust_proxy_header=cfg.trust_proxy_header, trusted_proxies=cfg.trusted_proxies)
+        principal, throttled = _principal_or_throttle(request, cfg)
+        if throttled is not None:
+            return throttled
+        ip = _client_ip(
+            request,
+            trust_proxy_header=cfg.trust_proxy_header,
+            trusted_proxies=cfg.trusted_proxies,
+            caller_key=f"key:{principal.key_id}" if principal is not None else None,
+        )
         if not rate_limiter.allow(ip):
-            return JSONResponse(
-                status_code=429,
-                content={"detail": "rate limit exceeded"},
-                headers={"Retry-After": str(rate_limiter.retry_after_seconds())},
+            return rate_limited_response(
+                limit=rate_limiter.per_minute, retry_after=rate_limiter.retry_after_seconds(),
+                scope="caller" if principal is not None else "anonymous", sign_in=False,
             )
-        principal = tenancy.principal_from_headers(engine_root, request.headers)
         if principal is not None:
-            key = next((k for k in tenancy.keys_for_org(engine_root, principal.org_id) if k.key_id == principal.key_id), None)
+            key = tenancy.key_record(engine_root, principal.key_id, org_id=principal.org_id)
             if key is None:
+                _charge_bad_key(request, cfg)
                 raise HTTPException(401, "Invalid or revoked API key")
             if not _key_rate_limiter.allow(key.key_id, key.rate_limit_per_minute):
-                return JSONResponse(
-                    status_code=429,
-                    content={"detail": "rate limit exceeded"},
-                    headers={**_rate_headers(key.key_id, key.rate_limit_per_minute),
-                             "Retry-After": str(_key_rate_limiter.retry_after_seconds())},
+                return rate_limited_response(
+                    limit=key.rate_limit_per_minute, retry_after=_key_rate_limiter.retry_after_seconds(), scope="key",
+                    headers=_rate_headers(key.key_id, key.rate_limit_per_minute),
                 )
             metered.append(key.key_id)
             per_minute.append(key.rate_limit_per_minute)
@@ -1350,14 +2027,44 @@ def build_partner_router(
         with _verify_gates_lock:
             return _verify_gates.setdefault(size, ConcurrencyLimiter(size))
 
-    def _lookup(path: Path, req: VerifyCitationRequest, timeout_s: float) -> str:
+    class _QuoteNotServed(Exception):  # noqa: N818 - control flow inside this closure, never leaves the route
+        """The index holds no judgment text, so a quote can never be checked against it."""
+
+    def _existence_only(conn: sqlite3.Connection) -> bool:
+        """True when the index says it is existence-only (a slim index: citations without judgment text). FAIL CLOSED: a
+        `meta` table with an `existence_only` row whose value is anything but exactly '0' is existence-only. No `meta` table
+        at all is a full index (unchanged behaviour). Any other read problem raises and the route answers 503."""
+        try:
+            row = conn.execute("SELECT value FROM meta WHERE key = 'existence_only'").fetchone()
+        except sqlite3.OperationalError as e:
+            if "no such table" in str(e).lower():
+                return False
+            raise
+        return row is not None and row[0] != "0"
+
+    def _lookup(
+        path: Path, req: VerifyCitationRequest, timeout_s: float
+    ) -> tuple[citation_status.CitationStatus, dict[str, Any] | None]:
         """One bounded, read-only lookup. The progress handler aborts the statement once the deadline passes, so a
         pathological party pair can hold a worker for `timeout_s` at most."""
         deadline = time.monotonic() + timeout_s
         conn = sqlite3.connect(f"file:{path.resolve()}?mode=ro", uri=True)
         try:
             conn.set_progress_handler(lambda: 1 if time.monotonic() > deadline else 0, 10_000)
-            return verify_citation(conn, req.citation, req.quote).value
+            if req.quote is None:
+                found = citation_status.status_for(exists_in_index(conn, req.citation))
+            else:
+                if _existence_only(conn):
+                    raise _QuoteNotServed
+                found = citation_status.status_for(verify_citation(conn, req.citation, req.quote))
+            conn.set_progress_handler(None, 0)  # the deadline bounds the lookup; the (cached) coverage read is outside it
+            try:
+                coverage: dict[str, Any] | None = index_coverage(conn, str(path.resolve()), path.stat().st_mtime_ns)
+            except Exception:
+                # coverage is context for the answer, never a reason to lose it: degrade to the documented null
+                _logger.warning("index coverage unavailable", exc_info=True)
+                coverage = None
+            return found, coverage
         finally:
             conn.close()
 
@@ -1367,10 +2074,14 @@ def build_partner_router(
             401: {"description": "The API key is invalid or revoked."},
             429: {"description": "Over the rate limit; wait Retry-After seconds.",
                   "headers": {**_RATE_LIMIT_HEADER_DOCS, "Retry-After": _RETRY_AFTER_DOC}},
+            422: {"description": "Validation error, or `quote_not_served` ({\"error\": \"quote_not_served\"}): a quote was "
+                  "sent but this deployment's index is existence-only (it holds no judgment text), so no quote can be "
+                  "checked. Send the citation without a quote.",
+                  "content": {"application/json": {"schema": {"$ref": "#/components/schemas/HTTPValidationError"}}}},
             503: {"description": "No case index, the lookup timed out, or too many lookups are running."},
         },
     )
-    def verify_citations_ep(req: VerifyCitationRequest, request: Request, response: Response) -> dict[str, str] | JSONResponse:
+    def verify_citations_ep(req: VerifyCitationRequest, request: Request, response: Response) -> dict[str, Any] | JSONResponse:
         metered: list[str] = []
         per_minute: list[int] = []
         refused = _verify_admit(request, metered, per_minute)
@@ -1388,7 +2099,10 @@ def build_partner_router(
             _verify_audit(metered, 503)
             return JSONResponse(status_code=503, content={"error": "verify_at_capacity"}, headers={"Retry-After": "5"})
         try:
-            result = _lookup(Path(path), req, cfg.verify_timeout_s)
+            result, coverage = _lookup(Path(path), req, cfg.verify_timeout_s)
+        except _QuoteNotServed:
+            _verify_audit(metered, 422)
+            return JSONResponse(status_code=422, content={"error": "quote_not_served"})
         except sqlite3.Error as e:
             timed_out = "interrupt" in str(e).lower()
             _verify_audit(metered, 503)
@@ -1399,8 +2113,9 @@ def build_partner_router(
             gate.release()
         if metered:
             response.headers.update(_rate_headers(metered[0], per_minute[0]))
-        _verify_audit(metered, 200, result)
-        return {"result": result, "note": _VERIFY_NOTES[result]}
+        _verify_audit(metered, 200, result.result)
+        return {"result": result.result, "note": _VERIFY_NOTES[result.result], "status": result.status,
+                "label": result.label, "verified": result.verified, "preview": result.preview, "coverage": coverage}
 
     @router.post("/orgs", response_model=OrgOut)
     def create_org_ep(
@@ -1488,17 +2203,15 @@ def build_partner_router(
         if principal is None:
             # An admin asking with no key names no particular key's usage -- refuse rather than guess one.
             raise HTTPException(422, "usage is reported per API key; supply X-Pravrudhi-Api-Key")
-        key = next((k for k in tenancy.keys_for_org(engine_root, org_id) if k.key_id == principal.key_id), None)
+        key = tenancy.key_record(engine_root, principal.key_id, org_id=org_id)
         if key is None:
             raise HTTPException(404, "key not found")
         # Calling /usage is itself the one key-scoped call this slice of the API has to spend a key's own
         # rate budget against -- the per-key limiter (distinct from analyse-facts's per-IP one) is exercised
         # here so a key's `rate_limit_per_minute` is real and testable even before matters/documents exist.
         if not _key_rate_limiter.allow(key.key_id, key.rate_limit_per_minute):
-            return JSONResponse(
-                status_code=429,
-                content={"detail": "rate limit exceeded"},
-                headers={"Retry-After": str(_key_rate_limiter.retry_after_seconds())},
+            return rate_limited_response(
+                limit=key.rate_limit_per_minute, retry_after=_key_rate_limiter.retry_after_seconds(), scope="key"
             )
         calls, failed = tenancy.usage_counts(engine_root, key.key_id)
         return UsageOut(

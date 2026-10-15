@@ -62,7 +62,7 @@ def test_probe_output_is_parsed_and_garbage_is_not_invented():
 
 
 def test_enrolment_round_trips_and_local_is_never_duplicated(tmp_path):
-    save_host(tmp_path, HostSpec(name="mac-mini", transport="ssh", address="10.0.0.5", user="me"))
+    save_host(tmp_path, HostSpec(name="mac-mini", transport="ssh", address="192.0.2.5", user="me"))
     save_host(tmp_path, HostSpec(name="local", transport="local"))
     names = [h.name for h in load_fleet(tmp_path)]
     assert names.count("local") == 1 and "mac-mini" in names
@@ -86,13 +86,13 @@ def test_a_host_cannot_smuggle_flags_onto_the_ssh_argv():
             HostSpec(name="x", transport="ssh", address=bad)
     for bad_user in ("-oProxyCommand=x", "a b", "-root"):
         with pytest.raises(InvalidHostSpec):
-            HostSpec(name="x", transport="ssh", address="10.0.0.5", user=bad_user)
+            HostSpec(name="x", transport="ssh", address="192.0.2.5", user=bad_user)
     with pytest.raises(InvalidHostSpec):
         HostSpec(name="-evil", transport="local")
     with pytest.raises(InvalidHostSpec):
         HostSpec(name="x", transport="telnet")
     with pytest.raises(InvalidHostSpec):
         HostSpec(name="x", transport="ssh")  # ssh with no address
-    ok = HostSpec(name="mac-mini", transport="ssh", address="192.168.0.5", user="me")
-    assert ok.address == "192.168.0.5"
+    ok = HostSpec(name="mac-mini", transport="ssh", address="192.0.2.6", user="me")
+    assert ok.address == "192.0.2.6"
     assert HostSpec(name="mac", transport="ssh", address="mac-mini.local", user="me").user == "me"

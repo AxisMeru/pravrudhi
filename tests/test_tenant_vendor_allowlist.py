@@ -206,7 +206,7 @@ def test_an_unknown_edition_is_refused_not_guessed_and_never_opens_the_cli_vendo
         tenant_vendors.allowed_ids()
 
 
-@pytest.mark.parametrize("host", ["0.0.0.0", "192.168.1.5", "example.com", "", None])
+@pytest.mark.parametrize("host", ["0.0.0.0", "192.0.2.7", "example.com", "", None])
 def test_studio_env_on_a_non_loopback_or_unknown_bind_is_closed(edition, monkeypatch, host):
     edition("studio")
     monkeypatch.setattr(tenant_vendors, "_bind_host", host)

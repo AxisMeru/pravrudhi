@@ -15,9 +15,10 @@ import time
 from pathlib import Path
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException
+from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Response
 from fastapi.routing import APIRoute
 from pydantic import BaseModel
+from starlette.requests import Request as HttpRequest
 
 from pravrudhi import KERNEL_VERSION, __version__
 from pravrudhi.agents.registry import survey
@@ -32,6 +33,7 @@ from pravrudhi.api.schemas import (
     AgentTraceResponse,
     AppetiteResponse,
     ApplyResultResponse,
+    AssistantStatusResponse,
     BacklogResponse,
     BenchmarksResponse,
     CandidateDetailResponse,
@@ -218,6 +220,28 @@ class UpdateApplyRequest(BaseModel):
     channel: Literal["dev", "release"] | None = None
 
 
+_proof_log_lock = threading.Lock()
+_last_engine_proof_state: list[str] = []
+
+
+def _log_proof_label(proof: str) -> None:
+    """One log line when the ENGINE's own proof configuration changes (`engine_unset`, `engine_short`) and when it returns to
+    normal. The caller-dependent labels (`none`, `mismatch`, `no_ip`) are not logged: an anonymous caller can flip them."""
+    try:
+        state = proof if proof in ("engine_unset", "engine_short") else "ok"
+        with _proof_log_lock:
+            if _last_engine_proof_state and _last_engine_proof_state[0] == state:
+                return
+            first = not _last_engine_proof_state
+            _last_engine_proof_state[:] = [state]
+        if state != "ok":
+            logging.getLogger(__name__).warning("client address proof cannot be checked on this engine: %s", state)
+        elif not first:
+            logging.getLogger(__name__).info("client address proof configuration is back to normal")
+    except Exception:  # noqa: BLE001 - a log line must never fail the public health route
+        return
+
+
 def _warm_up_house_judge_in_background(root: Path) -> None:
     """Best-effort only, never blocks or fails server startup: a deployment that doesn't use Nyaya at all has
     no `configs/nyaya_agent.yaml`, and `load_agent_config` is allowed to raise for that (FileNotFoundError,
@@ -240,10 +264,45 @@ def _warm_up_house_judge_in_background(root: Path) -> None:
         logging.getLogger(__name__).exception("house judge warm-up not started: the agent config did not load")
 
 
+def _start_assist_runtime(root: Path) -> None:
+    """Build the assisted tier's runtime at startup, so an enabled route is paused (and its sweeper started) before the first
+    request. Dark by default: with the route disabled this builds nothing. Never raises: a fault leaves the route off."""
+    try:
+        from pravrudhi.application.a0_assist import runtime as a0rt
+
+        a0rt.get(root)
+    except Exception:  # noqa: BLE001
+        logging.getLogger(__name__).exception("assisted tier runtime could not start; the route stays off")
+
+
+_PROXY_CFG_CACHE: dict[str, tuple[int, tuple[bool, tuple[str, ...]]]] = {}
+
+
+def _health_proxy_config(root: Path, load: Any) -> tuple[bool, tuple[str, ...]]:
+    """(trust_proxy_header, trusted_proxies) for the health labels, re-read only when the partner config file changes. A config
+    that cannot be read gives the safe defaults (not trusted) and is not cached; the source label then reads `peer`."""
+    path = Path(root) / "configs" / "partner_api.yaml"
+    try:
+        stamp = path.stat().st_mtime_ns
+    except OSError:
+        stamp = -1
+    hit = _PROXY_CFG_CACHE.get(str(path))
+    if hit is not None and hit[0] == stamp:
+        return hit[1]
+    try:
+        cfg = load(root)
+        value = (bool(cfg.trust_proxy_header), tuple(cfg.trusted_proxies))
+    except Exception:
+        return (False, ())
+    _PROXY_CFG_CACHE[str(path)] = (stamp, value)
+    return value
+
+
 def create_app(root: Path, *, nyaya_ask_fn: Any | None = None) -> FastAPI:
     root = Path(root)
     app = FastAPI(title="pravrudhi", version=__version__)
     _warm_up_house_judge_in_background(root)
+    _start_assist_runtime(root)
     # Every JSON route lives under /api. The interface is a static export mounted at the root, and the two
     # namespaces collided: a browser navigating to /runs or /models was answered with JSON rather than the
     # page, because the API route matched first. Separating them is also what makes the API addressable on
@@ -563,10 +622,54 @@ def create_app(root: Path, *, nyaya_ask_fn: Any | None = None) -> FastAPI:
         return MarkdownResponse.model_validate({"markdown": render_h1(ledger, parsed_nights, track)})
 
     @api.get("/health")
-    def health() -> HealthResponse:
+    def health(http_request: HttpRequest, response: Response) -> HealthResponse:
+        from pravrudhi.api.partner import client_ip_and_source, client_ip_proof, load_partner_api_config
+        from pravrudhi.application import assistant_tier, tenancy
+
+        # Where the engine took the caller's address from is public as a label only (`signed`, `proxy` or `peer`; never an address
+        # or a secret). WHY a proof failed (`engine_unset`, `engine_short`, `mismatch`, ...) names the engine's own configuration,
+        # so it is not public: it goes to the log when it changes, and to a caller holding the provisioning secret as a header.
+        trust, proxies = _health_proxy_config(root, load_partner_api_config)
+        source = client_ip_and_source(http_request, trust_proxy_header=trust, trusted_proxies=proxies)[1]
+        response.headers["X-Pravrudhi-Client-Ip-Source"] = source if source in ("signed", "proxy") else "peer"
+        proof = client_ip_proof(http_request)
+        _log_proof_label(proof)
+        try:
+            show_proof = tenancy.is_tenancy_admin(None, http_request.headers)
+        except Exception:  # noqa: BLE001 - a malformed admin header is simply not an admin
+            show_proof = False
+        if show_proof:
+            response.headers["X-Pravrudhi-Client-Ip-Proof"] = proof
+
+        try:
+            tier = assistant_tier.status(root)
+        except Exception:  # the app's probe is fail-closed: any fault reads as unavailable, never a 500
+            tier = {"state": "unavailable", "reason": "disabled"}
+        try:
+            tenancy_store = tenancy.store_status()
+        except Exception:  # noqa: BLE001 - a label, never a 500
+            tenancy_store = "unavailable"
         return HealthResponse.model_validate(
-            {"ok": True, "version": __version__, "kernel": KERNEL_VERSION, "ledger": ledger.exists()}
+            {"ok": True, "version": __version__, "kernel": KERNEL_VERSION, "ledger": ledger.exists(),
+             "frontier_reader_available": False, "assistant_tier": tier, "tenancy_store": tenancy_store}
         )
+
+    @api.get("/assistant", response_model=AssistantStatusResponse, response_model_exclude_unset=True)
+    def assistant_ep(user: User | None = CurrentUserDep) -> dict[str, Any]:
+        """What the app needs to show the assisted-screening consent box. The two pending-delete ages are published to
+        signed-in callers only; an unreadable runtime is the plain tier state, never a 500."""
+        from pravrudhi.application import assistant_tier
+        from pravrudhi.application.a0_assist import runtime as a0rt
+
+        try:
+            tier = assistant_tier.status(root)
+        except Exception:  # fail closed, like /health
+            tier = {"state": "unavailable", "reason": "disabled"}
+        try:
+            doc = a0rt.status_document(a0rt.get(root), signed_in=user is not None)
+        except Exception:  # noqa: BLE001 - never a 500
+            doc = a0rt.status_document(None, signed_in=False)
+        return {**doc, "assistant_tier": tier}
 
     @api.get("/status")
     def status_ep() -> StatusResponse:

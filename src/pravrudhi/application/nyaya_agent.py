@@ -65,6 +65,7 @@ import logging
 import math
 import os
 import queue
+import re
 import time
 import uuid
 from collections.abc import Iterable, Mapping, Sequence
@@ -76,11 +77,15 @@ from typing import Any, Literal, Protocol
 
 from pravrudhi.application import nyaya_lean_registry as reg
 from pravrudhi.application.nyaya_judges import (
+    INPUT_TOO_LONG,
     ClampKind,
     ElementJudgment,
+    HouseJudge,
     Judge,
+    JudgeInputTooLong,
     JudgeRequest,
     SecondJudgeCircuitBreaker,
+    runpod_endpoint_of,
     standard_for_posture,
 )
 from pravrudhi.application.nyaya_quote import QuoteLocation, locate_quote
@@ -92,8 +97,8 @@ Outcome = Literal["PROOF", "DENIAL", "ABSTAIN", "REFER_TO_LAWYER"]
 ContractReason = Literal[
     "all_elements_established", "denial_established", "missing_element", "no_training_statute_text",
     "judge_error", "assembly_lean_mismatch", "denial_unquotable", "second_judge_defeater_disagreement",
-    "uncertain", "uncertain_second_judge", "second_judge_unavailable", "gate1_unavailable",
-    "gate1_not_entailed", "gate1_contradiction", "contract_not_validated",
+    "uncertain", "uncertain_second_judge", "second_judge_unavailable", "second_judge_not_confirmed", "gate1_unavailable",
+    "gate1_not_entailed", "gate1_contradiction", "contract_not_validated", "input_too_long",
 ]
 CONFIG_PATH = Path("configs") / "nyaya_agent.yaml"
 #: What `ContractResult.rule_text_source` says: the provision text came from the pinned Lean binary's `--describe-source`,
@@ -116,8 +121,20 @@ def _judge_config_fault(e: BaseException) -> int | None:
 
     seen: BaseException | None = e
     while seen is not None:
+        if isinstance(seen, JudgeInputTooLong):
+            return None  # a context overflow is a REFER (`input_too_long`), never a configuration fault, whatever 400 caused it
         if isinstance(seen, HTTPStatusError) and 400 <= seen.status < 500 and seen.status != 429:
             return seen.status
+        seen = seen.__cause__
+    return None
+
+
+def _input_too_long_in(e: BaseException) -> JudgeInputTooLong | None:
+    """The `JudgeInputTooLong` anywhere in `e`'s cause chain, else None (#727)."""
+    seen: BaseException | None = e
+    while seen is not None:
+        if isinstance(seen, JudgeInputTooLong):
+            return seen
         seen = seen.__cause__
     return None
 
@@ -283,6 +300,42 @@ def _require_pinned_judge_models(house_judge: Mapping[str, Any], second_judge: M
             )
 
 
+#: Every key `HouseJudge.from_config` reads WITHOUT a default, with the env var that sets the ones a container deployment
+#: sets by env (the rest are inherited from `house_judge`). A second judge missing any of them used to start and then
+#: raise KeyError on the first request (#356).
+_SECOND_JUDGE_REQUIRED: tuple[tuple[str, str], ...] = (
+    ("base_url", "NYAYA_SECOND_JUDGE_BASE_URL"),
+    ("tau", "NYAYA_SECOND_JUDGE_TAU"),
+    ("timeout_s", "NYAYA_SECOND_JUDGE_TIMEOUT_S"),
+    ("statute_chars", "NYAYA_SECOND_JUDGE_STATUTE_CHARS"),
+    ("top_logprobs", "NYAYA_SECOND_JUDGE_TOP_LOGPROBS"),
+    ("max_tokens", "NYAYA_SECOND_JUDGE_MAX_TOKENS"),
+    ("label_mass_floor", "NYAYA_SECOND_JUDGE_LABEL_MASS_FLOOR"),
+)
+#: A `second_judge` mapping that carries any of these is an attempt to turn the second judge on; one that carries only
+#: tuning keys (`refer_logit_delta`, fallback URLs) is the inert not-configured case and is left alone.
+_SECOND_JUDGE_SIGNAL_KEYS = ("base_url", "model", "tau", "timeout_s")
+
+
+def _require_complete_second_judge(second_judge: Mapping[str, Any] | None) -> None:
+    """A second judge configured PARTLY refuses to load, naming the missing keys, instead of KeyError on the first request.
+    Only the presence of a key is checked; no value is defaulted or guessed (fail closed)."""
+    if not second_judge or not any(k in second_judge for k in _SECOND_JUDGE_SIGNAL_KEYS):
+        return
+    def blank(v: Any) -> bool:
+        # None, a blank string, or an empty container ([] / {} from a yaml `base_url: []`) is not a configured value
+        return v is None or (isinstance(v, str) and not v.strip()) or (isinstance(v, (list, tuple, dict, set)) and not v)
+
+    missing = [(k, env) for k, env in _SECOND_JUDGE_REQUIRED if blank(second_judge.get(k))]
+    if missing:
+        raise ValueError(
+            "second_judge is configured partly: missing "
+            + ", ".join(f"{k} (env {env})" for k, env in missing)
+            + ". Set them in the config or the environment, or remove the second judge entirely; "
+            "refusing to start rather than fail on the first request"
+        )
+
+
 def validated_contract_ids(root: Path) -> frozenset[str]:
     """The `validated_contracts` allowlist from `configs/nyaya_agent.yaml` -- the same set `load_agent_config`
     gives the scorer -- without needing the score binary or a judge to be configured."""
@@ -389,6 +442,10 @@ def load_agent_config(root: Path) -> AgentConfig:
         house_judge["timeout_s"] = int(os.environ["NYAYA_HOUSE_JUDGE_TIMEOUT_S"])
     # Bounded judge concurrency (docs/decisions, 2026-09-24): default 1 -- today's serial behaviour -- so an
     # existing deployment's yaml with no `max_concurrency` key and no env var is unchanged.
+    # #727: the longest judge prompt (characters) this deployment's judge window allows; the committed value fits the 4096-token
+    # stacks, a 2048-token deployment sets its own through this variable.
+    if os.environ.get("NYAYA_HOUSE_JUDGE_MAX_INPUT_CHARS"):
+        house_judge["max_input_chars"] = int(os.environ["NYAYA_HOUSE_JUDGE_MAX_INPUT_CHARS"])
     if os.environ.get("NYAYA_JUDGE_MAX_CONCURRENCY"):
         house_judge["max_concurrency"] = int(os.environ["NYAYA_JUDGE_MAX_CONCURRENCY"])
 
@@ -415,6 +472,7 @@ def load_agent_config(root: Path) -> AgentConfig:
     _second_override("NYAYA_SECOND_JUDGE_TOP_LOGPROBS", "top_logprobs", int)
     _second_override("NYAYA_SECOND_JUDGE_MAX_TOKENS", "max_tokens", int)
     _second_override("NYAYA_SECOND_JUDGE_LABEL_MASS_FLOOR", "label_mass_floor", float)
+    _second_override("NYAYA_SECOND_JUDGE_MAX_INPUT_CHARS", "max_input_chars", int)
     # The second-judge REFER band (logit distance, not probability -- module doc): off (None) unless a
     # `refer_logit_delta:` key is in the yaml's `second_judge:` block or this env var is set. Reachable even
     # with no `second_judge:` yaml block, exactly like the overrides above -- though it is inert without a
@@ -448,6 +506,28 @@ def load_agent_config(root: Path) -> AgentConfig:
         second_judge = dict(second_judge or {})
         second_judge["base_urls_fallback"] = second_fallback_urls
 
+    # The second judge's RunPod fallback (a clone endpoint): the bearer key follows ONLY to an id listed here, and a
+    # RunPod fallback is called only while its own passing positive-control record exists under the record dir.
+    raw_ids = os.environ.get("NYAYA_SECOND_JUDGE_FALLBACK_ENDPOINT_IDS")
+    if raw_ids:
+        ids = [x.strip() for x in raw_ids.split(",") if x.strip()]
+        if not ids or any(not re.fullmatch(r"[A-Za-z0-9]{6,40}", x) for x in ids):
+            raise ValueError("NYAYA_SECOND_JUDGE_FALLBACK_ENDPOINT_IDS must be a comma list of RunPod endpoint ids")
+        second_judge = dict(second_judge or {})
+        second_judge["fallback_key_endpoint_ids"] = ids
+    raw_dir = os.environ.get("NYAYA_SECOND_JUDGE_FALLBACK_RECORD_DIR")
+    if raw_dir:
+        second_judge = dict(second_judge or {})
+        second_judge["fallback_record_dir"] = raw_dir
+    has_runpod_fallback = bool(second_judge) and any(
+        runpod_endpoint_of(str(u)) for u in (second_judge or {}).get("base_urls_fallback") or []
+    )
+    if has_runpod_fallback and not (second_judge or {}).get("fallback_record_dir"):
+        raise ValueError(
+            "a RunPod second-judge fallback needs NYAYA_SECOND_JUDGE_FALLBACK_RECORD_DIR (its own passing "
+            "positive-control record): refusing to start with an unvalidated fallback endpoint"
+        )
+
     # An env-built second_judge inherits statute_chars/top_logprobs/max_tokens/label_mass_floor from the
     # primary house_judge block, unless the caller set them explicitly (in the yaml's own second_judge:
     # block, or via the NYAYA_SECOND_JUDGE_* overrides just above). `HouseJudge.from_config` requires all
@@ -476,6 +556,7 @@ def load_agent_config(root: Path) -> AgentConfig:
             os.environ["NYAYA_SECOND_JUDGE_POSITIVE_CONTROL_MAX_AGE_HOURS"]
         )
     _require_pinned_judge_models(house_judge, second_judge)
+    _require_complete_second_judge(second_judge)
 
     # Gate 1 (Track-C, GATE1-PRODUCT-WIRING-SPEC-2026-09-26.md §3/§5): the yaml block (threshold/model) and
     # the enable switch are deliberately independent -- NYAYA_GATE1_THRESHOLD/_MODEL override the block's own
@@ -929,6 +1010,10 @@ class ElementResult:
     offsets_source: Literal["system"] | None = None
     quote_source: str | None = None
     error: str | None = None
+    #: #832 S1: whether the PRIMARY (screening) judge's attempt-1 score cleared its own tau (`p_established >= tau`),
+    #: regardless of the element's final status. A SCREENING signal only (accepted by the 4B alone; CAL CHEAT 70 rows,
+    #: 41 EST / 29 NE): it never feeds status, outcome, reason or banner. None when the primary produced no score.
+    screening_supported: bool | None = None
     #: Attempt 1's second-judge fields (config C, AND-gate only; all None/False when there is no second judge,
     #: or the second was never asked -- primary rejected outright or the second failed closed/unavailable).
     p_established_second: float | None = None
@@ -1002,6 +1087,9 @@ class ElementResult:
     #: element was conservatively decided not_established without actually demonstrating it -- distinct
     #: from an ordinary tau-miss. See `HouseJudge.judge`'s own decision rule.
     bound_undetermined: bool = False
+    #: The judge input was too long for the judge (#727): refused before the call over the configured limit, or the judge's
+    #: server said its context overflowed. Not an error: the contract is referred (`input_too_long`), no retry, no Lean call.
+    input_too_long: bool = False
 
 
 @dataclass
@@ -1105,6 +1193,15 @@ def _build_house_judge(hj_cfg: Mapping[str, Any], *, tau: float, typed: bool, ap
     is set (T1) -- shared by `NyayaAgent.house` for BOTH slots, so the typed-layer flag and config C's second
     judge compose instead of the flag silently applying to only one of them."""
     if typed:
+        if "collapse_facts" in hj_cfg and hj_cfg["collapse_facts"] is not False:  # strict: any value but absent/False refuses
+            raise ValueError("house_judge.collapse_facts is for the plain HouseJudge only; the typed judge would ignore it")
+        if hj_cfg.get("fallback_key_endpoint_ids") or hj_cfg.get("fallback_record_dir"):
+            # The key allowlist and the per-endpoint record gate live in the plain HouseJudge; the typed decoder installs
+            # neither, so a config that asks for them with the typed layer on must not start (a silent downgrade).
+            raise ValueError(
+                "the typed layer does not install the fallback key allowlist or the per-endpoint record gate: "
+                "refusing to start with fallback_key_endpoint_ids / fallback_record_dir set and typed_layer on"
+            )
         from pravrudhi.application.typed.decoder import VLLMDecoder
         from pravrudhi.application.typed.house_judge import TypedHouseJudge
 
@@ -1346,6 +1443,18 @@ class NyayaAgent:
                 second_tau = float(cfg.second_judge["tau"])
                 second: Judge = _build_house_judge(cfg.second_judge, tau=second_tau, typed=cfg.typed_layer,
                                                    api_key_env="NYAYA_SECOND_JUDGE_API_KEY")
+                sj_cfg = cfg.second_judge
+                record_dir = sj_cfg.get("fallback_record_dir")
+                if record_dir and isinstance(second, HouseJudge):
+                    from pravrudhi.application.second_judge_positive_control import fallback_record_ok
+
+                    def _fallback_gate(endpoint_id: str) -> tuple[bool, str]:
+                        return fallback_record_ok(
+                            sj_cfg, endpoint_id,
+                            max_age_hours=float(cfg.second_judge_positive_control.get("max_age_hours", 24.0)),
+                        )
+
+                    second.fallback_gate = _fallback_gate
                 # Issue #44 (Lead-2, 2026-09-26): opt-in via second_judge_positive_control.record_path --
                 # absent (the default, every deployment before this) means today's behaviour, unchanged.
                 # When set, wrap `second` so the real endpoint is never reached without a fresh, matching
@@ -1417,6 +1526,7 @@ class NyayaAgent:
         quote_source: str | None = None
         loc: QuoteLocation | None = None
         error: str | None = None
+        input_too_long = False
         attempts = 0
         calls: list[JudgeCallRecord] = []
         for attempt in range(1, self.config.max_retries + 2):
@@ -1429,6 +1539,15 @@ class NyayaAgent:
                 judgment = judge.judge(request)
             except Exception as e:  # recorded and retried; a judge failure never becomes a status
                 wall_ms = _ms(t0)
+                too_long = _input_too_long_in(e)
+                if too_long is not None:
+                    # A deterministic overflow: retrying cannot help and it is not a fault. The element is not judged, and the
+                    # contract is referred (`input_too_long`) before any assertion or Lean call is built.
+                    audit.step("judge", asdict(request), {**head, "error": INPUT_TOO_LONG, "error_code": INPUT_TOO_LONG,
+                                                          "length": too_long.length, "limit": too_long.limit}, wall_ms)
+                    calls.append(_judge_call_record(None, wall_ms, ok=False))
+                    input_too_long = True
+                    break
                 status = _judge_config_fault(e)
                 if status is not None:
                     audit.step("judge", asdict(request), {**head, "error": f"configuration fault {status}"}, wall_ms)
@@ -1454,7 +1573,7 @@ class NyayaAgent:
             audit.step("quote_check", {"fact_id": fact_id, "quote": quote, "facts": [f.sha256 for f in facts]},
                        {"contract_id": contract_id, "element": element, "attempt": attempt, "valid": loc.valid,
                         "reason": loc.reason, "start": loc.start, "end": loc.end, "occurrences": loc.occurrences,
-                        "offsets_source": loc.offsets_source, "quote_source": quote_source}, _ms(t0))
+                        "offsets_source": loc.offsets_source, "match": loc.match, "quote_source": quote_source}, _ms(t0))
             if loc.valid:
                 break
             # A deterministic judge re-asked with the same request repeats itself, and an unresolvable fact id is
@@ -1464,7 +1583,8 @@ class NyayaAgent:
         delta = self.config.second_refer_logit_delta()
         if anchor is None:
             return ElementResult(element, is_denial, "not_established", False, None, None, None, None, None, None,
-                                 attempts, error=error, **_second_band_info(None, delta), **_gate1_info(None)), calls
+                                 attempts, error=error, input_too_long=input_too_long,
+                                 **_second_band_info(None, delta), **_gate1_info(None)), calls
         claimed = anchor.status == "established"
         valid = claimed and loc is not None and loc.valid
         second_band = _second_band_info(anchor, delta)
@@ -1478,6 +1598,7 @@ class NyayaAgent:
             occurrences=loc.occurrences if loc else 0, offsets_source=loc.offsets_source if loc and loc.valid else None,
             quote_source=quote_source, binding_leg=final_binding_leg, clamp=anchor.clamp,
             bound_undetermined=anchor.bound_undetermined, **second_band, **_gate1_info(anchor),
+            screening_supported=(anchor.p_established >= self.config.tau) if anchor.p_established is not None else None,
         )
         return result, calls
 
@@ -1650,6 +1771,8 @@ class NyayaAgent:
         if call_records_out is not None:
             call_records_out.extend(call_records)
 
+        if any(r.input_too_long for r in results):
+            return finish("REFER_TO_LAWYER", "input_too_long")  # before judge_error: actionable, and no wire is built
         if any(r.error is not None for r in results):
             return finish("ABSTAIN", "judge_error")
 
@@ -1697,6 +1820,17 @@ class NyayaAgent:
             return finish("REFER_TO_LAWYER", "gate1_not_entailed", **kw)
         if gate1_contradiction:
             return finish("REFER_TO_LAWYER", "gate1_contradiction", **kw)
+        # #404: a required element the primary judge established and the second judge then declined must never read as
+        # `missing_element` ("the facts do not show it"): the facts did show it to one check. Refer, with its own reason.
+        # Required elements only (a second judge declining a defeater just treats it as absent), and only where the contract
+        # would otherwise ABSTAIN, so every reason above keeps its precedence and a PROOF/DENIAL is never touched.
+        # `binding_leg == "second"` is only ever set on a non-established element (`_truthful_status` returns no binding leg
+        # for an established one, or for the `not_evaluated_second_unavailable` label), so no separate status or unavailable
+        # test is needed.
+        if lean_outcome == "ABSTAIN" and any(
+            not r.is_denial and r.binding_leg == "second" for r in results
+        ):
+            return finish("REFER_TO_LAWYER", "second_judge_not_confirmed", **kw)
         # Safety gate, allowlist form (Lead-2, 2026-09-25; inverted to fail-closed, issue #36, 2026-09-26+):
         # a contract not in `validated_contracts` never reaches the user as a PROOF or DENIAL. Every element
         # judged, quoted and Lean-checked above stays visible in `results` and the audit trail -- only the

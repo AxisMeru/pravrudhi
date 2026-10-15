@@ -9,17 +9,57 @@ from pravrudhi_kernel.ledger.replay import Badge, CandidateView, Locks
 from pravrudhi_kernel.schema import LedgerEvent
 
 
+class AssistantTierStatus(BaseModel):
+    """#122: whether the Anthropic-backed assistant can be offered right now, and why not."""
+
+    state: Literal["available", "unavailable"]
+    reason: Literal["no_key", "upstream_error", "quota", "budget_floor", "disabled"] | None = None
+
+
 class HealthResponse(BaseModel):
     """Service identity and ledger presence were invisible to generated clients."""
 
     model_config = ConfigDict(
-        json_schema_extra={"examples": [{"ok": True, "version": "0.1.0", "kernel": "0.1.0", "ledger": False}]}
+        json_schema_extra={
+            "examples": [
+                {
+                    "ok": True,
+                    "version": "0.1.0",
+                    "kernel": "0.1.0",
+                    "ledger": False,
+                    "frontier_reader_available": False,
+                    "assistant_tier": {"state": "unavailable", "reason": "no_key"},
+                    "tenancy_store": "file",
+                }
+            ]
+        }
     )
 
     ok: bool
     version: str
     kernel: str
     ledger: bool
+    #: #832 F1-lite: whether a frontier reader is configured for this deployment. Always false until batch 2. Additive.
+    #: Stays false in every state: it flips only in the change that ships the reader. The app reads `assistant_tier`.
+    frontier_reader_available: bool = False
+    #: #122 additive: the assistant tier's state and reason (application/assistant_tier.py).
+    assistant_tier: AssistantTierStatus = AssistantTierStatus(state="unavailable", reason="disabled")
+    #: #920 additive: where partner keys, usage and the audit log are kept: `file` (a local engine), or the hosted store's state
+    #: (`ok`, `unavailable`, `checking`). A label only: no value, no path.
+    tenancy_store: Literal["file", "ok", "unavailable", "checking"] = "file"
+
+
+class AssistantStatusResponse(BaseModel):
+    """What the app needs to show the assisted-screening consent box (GET /api/assistant). The two ages are present for
+    signed-in callers only and are omitted (not null) for anonymous ones."""
+
+    provider: str
+    call_timeout_s: float | None = None
+    session_budget_usd: float | None = None
+    consent_required: bool = True
+    assistant_tier: AssistantTierStatus
+    oldest_pending_delete_age_s: int | None = None
+    sweep_last_ok_age_s: int | None = None
 
 
 class UninitialisedStatus(BaseModel):

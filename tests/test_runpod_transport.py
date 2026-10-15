@@ -283,21 +283,30 @@ class TestLedgerAppend:
 
 class TestCheckpointRsyncCommand:
     """House rule 16: ship each checkpoint off the pod as it is written, target order (1) network volume,
-    (2) the RTX 5090 box via rsync over SSH into
-    /home/ss/fusion-project/prabhasa-nyaya/checkpoints/<run>/."""
+    (2) the RTX 5090 box via rsync over SSH into <checkpoint sync root>/<run>/ (local configuration)."""
 
-    def test_the_command_targets_the_fixed_5090_checkpoint_path(self) -> None:
+    def test_the_command_targets_the_configured_5090_checkpoint_path(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("PRAVRUDHI_CHECKPOINT_SYNC_ROOT", "/srv/checkpoints")
         cmd = rsync_checkpoint_command(
             pod_ssh_target="root@1.2.3.4", pod_ssh_port=22222,
             remote_checkpoint_dir="/workspace/checkpoints/latest", run_id="p2-a40-run1",
         )
 
         assert cmd[0] == "rsync"
-        assert any("/home/ss/fusion-project/prabhasa-nyaya/checkpoints/p2-a40-run1/" in part for part in cmd)
+        assert any("/srv/checkpoints/p2-a40-run1/" in part for part in cmd)
         assert any("root@1.2.3.4" in part for part in cmd)
         assert any("22222" in part for part in cmd)
 
-    def test_a_run_id_with_a_path_separator_is_refused(self) -> None:
+    def test_an_unset_checkpoint_root_refuses_instead_of_guessing(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("PRAVRUDHI_CHECKPOINT_SYNC_ROOT", raising=False)
+        with pytest.raises(RunpodError, match="PRAVRUDHI_CHECKPOINT_SYNC_ROOT"):
+            rsync_checkpoint_command(
+                pod_ssh_target="root@1.2.3.4", pod_ssh_port=22222,
+                remote_checkpoint_dir="/workspace/checkpoints/latest", run_id="p2-a40-run1",
+            )
+
+    def test_a_run_id_with_a_path_separator_is_refused(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("PRAVRUDHI_CHECKPOINT_SYNC_ROOT", "/srv/checkpoints")
         """A run id is a directory component, never a path - refusing '/' or '..' keeps the destination
         pinned under the fixed checkpoint root regardless of what a caller passes."""
         with pytest.raises(RunpodError, match="run_id"):

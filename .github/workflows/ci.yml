@@ -204,6 +204,8 @@ jobs:
       - run: uv sync --all-groups --frozen
       - run: uv run python scripts/import_guard.py
       - run: uv run python scripts/check_no_private_data.py
+      # The tree is public: no gmail address, private LAN IP or /Users/<name> path in a tracked file (seat addresses live in local config).
+      - run: uv run python scripts/check_no_personal_data.py
       # The partner OpenAPI contract is generated from the router; a schema change that does not ship its
       # regenerated docs/api/openapi-v1.json fails here with the diff and the fix command, independent of pytest.
       - run: uv run python scripts/check_openapi_contract.py

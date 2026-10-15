@@ -19,8 +19,8 @@ These cannot be done by an agent — they need a human with the accounts.
       webhooks — these are separate, and the trigger silently never fires without the app.
 - [ ] **Hand over the six credential files** in `docs/handover/README.md` §4. Transfer out of band, never in a
       chat log or a commit. Each is 0600 and lives outside the repository.
-- [ ] **Decide machine access.** The 5090 (`/home/ss/projects/pravrudhi`) runs the studio engine and the GPU
-      nights; the Mac mini (`192.168.0.201`) is the end-user test bed. Cloud routines do **not** need either —
+- [ ] **Decide machine access.** The 5090 (`<repo>`) runs the studio engine and the GPU
+      nights; the Mac mini (`<mac-mini-ip>`) is the end-user test bed. Cloud routines do **not** need either —
       they work from the repository and the published snapshot. Only give SSH if the team account is to operate
       the hardware rather than review the work.
 - [ ] **Turn on Routines for the organisation** if it is a Team or Enterprise plan: an Owner controls the
@@ -36,7 +36,7 @@ These cannot be done by an agent — they need a human with the accounts.
 
 - [ ] Read `docs/handover/README.md` end to end, then `CHARTER.md` §6.
 - [ ] `git clone`, then **`make init` before anything else** — it installs `.githooks/commit-msg`, which fails
-      any commit whose author is not `SharathSPhD <qbz506@york.ac.uk>` or which carries an attribution trailer.
+      any commit whose author is not `SharathSPhD <admin@axismeru.com>` or which carries an attribution trailer.
       Discovering this after writing a commit message is annoying; discovering it after ten is worse.
 - [ ] `uv sync && make smoke`. Expect **1837 passing** in about five minutes. If it is not green, stop and find
       out why before changing anything — this is the gate every commit in this repository has passed.

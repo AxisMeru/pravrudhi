@@ -13,6 +13,8 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from pravrudhi.application.publish import (
     CHECK_PAGES,
     build_interface,
@@ -59,6 +61,13 @@ def _workspace(tmp_path: Path, *, snapshot: dict[str, Any] | None = None, pages:
         name = "index.html" if page == "/" else f"{page.strip('/')}.html"
         (out / name).write_text((pages or {}).get(page, "<html>real content</html>"))
     return tmp_path
+
+
+@pytest.fixture(autouse=True)
+def _private_names_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The export step needs the private-name list's path and sha256 from the environment (a fake runner: any value will do)."""
+    monkeypatch.setenv("PRAVRUDHI_DEMO_PRIVATE_NAMES", "/nonexistent/names.txt")
+    monkeypatch.setenv("PRAVRUDHI_DEMO_PRIVATE_NAMES_SHA256", "0" * 64)
 
 
 class TestTheStepsRunInOrder:
@@ -430,3 +439,36 @@ class TestTheWriteRootSyncsBeforeItBuildsOnAStaleTip:
         result = publish(root, runner=runner)
         assert result.published, result.reason
         assert not any(c[:2] == ["git", "reset"] for c in seen), "a single-root publish must never hard-reset root"
+
+
+def test_the_export_step_refuses_without_the_private_name_list(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    """No list path or no pinned sha256 in the environment: nothing is exported, the runner is never called."""
+    from pravrudhi.application import publish
+
+    calls: list[list[str]] = []
+
+    def runner(cmd, cwd):  # noqa: ANN001
+        calls.append(cmd)
+        raise AssertionError("the exporter must not run without the private-name list")
+
+    for missing in ("PRAVRUDHI_DEMO_PRIVATE_NAMES", "PRAVRUDHI_DEMO_PRIVATE_NAMES_SHA256"):
+        monkeypatch.setenv("PRAVRUDHI_DEMO_PRIVATE_NAMES", "/x/names.txt")
+        monkeypatch.setenv("PRAVRUDHI_DEMO_PRIVATE_NAMES_SHA256", "0" * 64)
+        monkeypatch.delenv(missing)
+        step = publish.export_snapshot(tmp_path, runner)
+        assert step.ok is False and "private-name list" in step.detail
+    assert calls == []
+
+
+def test_the_export_step_passes_the_list_and_its_sha_to_the_exporter(tmp_path) -> None:
+    from pravrudhi.application import publish
+
+    seen: list[list[str]] = []
+
+    def runner(cmd, cwd):  # noqa: ANN001
+        seen.append(cmd)
+        return subprocess.CompletedProcess(cmd, 1, "", "stop here")
+
+    publish.export_snapshot(tmp_path, runner)
+    assert seen and "--private-names" in seen[0] and "--private-names-sha256" in seen[0]
+    assert seen[0][seen[0].index("--private-names") + 1] == "/nonexistent/names.txt"

@@ -106,7 +106,7 @@ Review this pull request against Pravrudhi's own standards, which are stricter t
    doctor that passed while the loop could dispatch nothing. For each new test, ask: what would have to break for
    this to go red? If the answer is "nothing", say so.
 
-Also check the commit author is `SharathSPhD <qbz506@york.ac.uk>` with no attribution trailers, since
+Also check the commit author is `SharathSPhD <admin@axismeru.com>` with no attribution trailers, since
 `.githooks/commit-msg` enforces that locally and a PR from elsewhere may not have run it.
 
 Leave inline comments for anything concrete, and one summary comment. Be specific about what would fail and how;

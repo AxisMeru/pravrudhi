@@ -33,6 +33,8 @@ class CompletionResult(BaseModel):
     wall_s: float
     finish_reason: str | None = None
     backend_index: int | None = None
+    #: The RunPod endpoint id (`/v2/<id>/...`) of the backend that answered, None for any other URL.
+    backend_endpoint_id: str | None = None
 
 
 class HTTPStatusError(RuntimeError):
@@ -87,7 +89,7 @@ class ChatClient:
         req = urllib.request.Request(self.base_url + "/chat/completions", data=json.dumps(body).encode(), method="POST")
         req.add_header("Content-Type", "application/json")
         if self.api_key:
-            req.add_header("Authorization", f"Bearer {self.api_key}")
+            req.add_unredirected_header("Authorization", f"Bearer {self.api_key}")  # never copied onto a redirect
         t0 = time.monotonic()
         try:
             with urllib.request.urlopen(req, timeout=self.timeout_s) as resp:
@@ -113,7 +115,7 @@ class ChatClient:
         req = urllib.request.Request(self.base_url + path, data=data, method="POST" if body is not None else "GET")
         req.add_header("Content-Type", "application/json")
         if self.api_key:
-            req.add_header("Authorization", f"Bearer {self.api_key}")
+            req.add_unredirected_header("Authorization", f"Bearer {self.api_key}")  # never copied onto a redirect
         try:
             with urllib.request.urlopen(req, timeout=self.timeout_s) as resp:
                 out: dict[str, Any] = json.loads(resp.read().decode())

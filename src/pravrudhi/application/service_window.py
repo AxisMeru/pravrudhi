@@ -13,6 +13,9 @@ class ServiceWindow:
     tz: str
     open: time
     close: time
+    #: Open at every instant. `open` and `close` are still reported (display only) but no longer decide anything, so the
+    #: one-minute gap a same-day window needs (open must differ from close) does not exist.
+    always_open: bool = False
 
     def __post_init__(self) -> None:
         ZoneInfo(self.tz)
@@ -22,7 +25,10 @@ class ServiceWindow:
     @classmethod
     def from_config(cls, body: dict[str, Any]) -> ServiceWindow:
         return cls(
-            tz=str(body["timezone"]), open=time.fromisoformat(str(body["open"])), close=time.fromisoformat(str(body["close"]))
+            tz=str(body["timezone"]),
+            open=time.fromisoformat(str(body["open"])),
+            close=time.fromisoformat(str(body["close"])),
+            always_open=body.get("always_open", False) is True,
         )
 
     def _is_open_local(self, t: time) -> bool:
@@ -31,6 +37,8 @@ class ServiceWindow:
         return t >= self.open or t < self.close
 
     def is_open(self, now: datetime) -> bool:
+        if self.always_open:
+            return True
         return self._is_open_local(now.astimezone(ZoneInfo(self.tz)).time())
 
     def next_open(self, now: datetime) -> datetime:
@@ -38,7 +46,7 @@ class ServiceWindow:
         days so a DST change moves the instant with the wall clock, not by a fixed 24 h."""
         zone = ZoneInfo(self.tz)
         local = now.astimezone(zone)
-        if self._is_open_local(local.time()):
+        if self.always_open or self._is_open_local(local.time()):
             return now.astimezone(UTC)
         for days in range(0, 3):
             candidate = datetime.combine(local.date() + timedelta(days=days), self.open, tzinfo=zone)

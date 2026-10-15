@@ -26,7 +26,7 @@ from tests.test_partner_jobs import JOBS, H
 from tests.test_partner_key_metering import ADMIN, FakeClock, _key
 from tests.test_partner_key_metering import _req as _meter_req
 
-MARK = "SECRET-MARKER-9f3a /srv/internal/path http://10.1.2.3:8110"
+MARK = "SECRET-MARKER-9f3a /srv/internal/path http://198.51.100.7:8110"
 
 
 def _partner_app(tmp_path: Path, factory: Callable[[Path], Any], executor: Any = None) -> FastAPI:
@@ -57,7 +57,7 @@ AGENT_FAULTS = [JudgeMisconfigured(MARK), BinaryShaMismatch(MARK), FileNotFoundE
 def test_partner_sync_agent_fault_is_a_coded_503_with_no_exception_text(tmp_path: Path, exc: BaseException) -> None:
     resp = TestClient(_partner_app(tmp_path, _raiser(exc))).post("/api/v1/analyse-facts", json=_req())
     assert resp.status_code == 503
-    assert resp.json()["error"] == "agent_unavailable" and "MARKER" not in resp.text and "10.1.2.3" not in resp.text
+    assert resp.json()["error"] == "agent_unavailable" and "MARKER" not in resp.text and "198.51.100.7" not in resp.text
     assert resp.json()["detail"] == "the nyaya agent is unavailable; retry later"  # fixed
 
 
@@ -66,7 +66,7 @@ def test_partner_capacity_is_a_coded_503(monkeypatch: pytest.MonkeyPatch, tmp_pa
 
     class _Full:
         def __init__(self, _n: int) -> None: ...
-        def acquire(self) -> bool:
+        def acquire(self, timeout: float = 0.0) -> bool:
             return False
 
         def release(self) -> None:
@@ -88,7 +88,7 @@ def test_partner_job_stores_a_coded_failure_with_no_exception_text(
     r = c.post(JOBS, json=_meter_req(), headers={H: secret})
     assert r.status_code == 202
     polled = c.get(f"{JOBS}/{r.json()['job_id']}", headers={H: secret})
-    assert "MARKER" not in polled.text and "10.1.2.3" not in polled.text
+    assert "MARKER" not in polled.text and "198.51.100.7" not in polled.text
     body = polled.json()
     assert body["status"] == "failed" and json.dumps(body).count("agent_unavailable") >= 1
 
@@ -128,7 +128,7 @@ def test_nyaya_audit_and_registry_checker_faults_are_coded_with_no_exception_tex
     ]
     for resp, code in cases:
         assert resp.status_code == 503, resp.text
-        assert resp.json()["error"] == code and "MARKER" not in resp.text and "10.1.2.3" not in resp.text
+        assert resp.json()["error"] == code and "MARKER" not in resp.text and "198.51.100.7" not in resp.text
 
 
 def test_chat_unreachable_endpoint_is_coded_for_the_blocking_route_and_the_stream_event(tmp_path: Path) -> None:
@@ -140,11 +140,11 @@ def test_chat_unreachable_endpoint_is_coded_for_the_blocking_route_and_the_strea
     c = TestClient(app)
     blocking = c.post("/api/chat", json={"message": "hello there", "thread_id": None})
     assert blocking.status_code == 503 and blocking.json()["error"] == "chat_endpoint_unreachable"
-    assert "MARKER" not in blocking.text and "10.1.2.3" not in blocking.text
+    assert "MARKER" not in blocking.text and "198.51.100.7" not in blocking.text
     stream = c.post("/api/chat/stream", json={"message": "hello there", "thread_id": None})
     events = [json.loads(line[6:]) for line in stream.text.splitlines() if line.startswith("data: ")]
     assert events[-1]["type"] == "error" and events[-1]["error"] == "chat_endpoint_unreachable"
-    assert "MARKER" not in stream.text and "10.1.2.3" not in stream.text
+    assert "MARKER" not in stream.text and "198.51.100.7" not in stream.text
 
 
 def test_vendor_not_allowed_is_a_coded_403_with_a_fixed_message_that_does_not_echo_the_vendor(
@@ -158,7 +158,7 @@ def test_vendor_not_allowed_is_a_coded_403_with_a_fixed_message_that_does_not_ec
     monkeypatch.setattr(nyaya_api.nyaya, "ask", deny)
     resp = _nyaya_app(tmp_path).post("/api/nyaya/ask", json={"question": "what is s.69?", "vendors": ["x"]})
     assert resp.status_code == 403 and resp.json()["error"] == "vendor_not_allowed"
-    assert "MARKER" not in resp.text and "10.1.2.3" not in resp.text
+    assert "MARKER" not in resp.text and "198.51.100.7" not in resp.text
 
 
 class _RaisingAgent:
@@ -175,13 +175,13 @@ def test_partner_agent_rejections_are_coded_422s_with_no_exception_text_sync_and
 ) -> None:
     sync = TestClient(_partner_app(tmp_path, lambda _r: _RaisingAgent(exc))).post("/api/v1/analyse-facts", json=_req())
     assert sync.status_code == 422 and sync.json()["error"] == code
-    assert "MARKER" not in sync.text and "10.1.2.3" not in sync.text
+    assert "MARKER" not in sync.text and "198.51.100.7" not in sync.text
     monkeypatch.setenv("PRAVRUDHI_ADMINS", ADMIN.id)
     c = TestClient(_partner_app(tmp_path, lambda _r: _RaisingAgent(exc), executor=lambda task: task()))
     secret = _key(c, "acme")
     jid = c.post(JOBS, json=_meter_req(), headers={H: secret}).json()["job_id"]
     polled = c.get(f"{JOBS}/{jid}", headers={H: secret})
-    assert "MARKER" not in polled.text and "10.1.2.3" not in polled.text and code in polled.text
+    assert "MARKER" not in polled.text and "198.51.100.7" not in polled.text and code in polled.text
 
 
 def test_nyaya_422s_are_coded_with_no_exception_text(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -202,7 +202,7 @@ def test_nyaya_422s_are_coded_with_no_exception_text(monkeypatch: pytest.MonkeyP
     ]
     for resp in cases:
         assert resp.status_code == 422 and resp.json()["error"] == "request_rejected", resp.text
-        assert "MARKER" not in resp.text and "10.1.2.3" not in resp.text
+        assert "MARKER" not in resp.text and "198.51.100.7" not in resp.text
 
 
 def test_nyaya_workspace_resolution_error_has_a_fixed_400_message(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -213,7 +213,7 @@ def test_nyaya_workspace_resolution_error_has_a_fixed_400_message(monkeypatch: p
 
     monkeypatch.setattr(nyaya_api, "root_for", bad_root)
     resp = _nyaya_app(tmp_path).get("/api/nyaya/vendors")
-    assert resp.status_code == 400 and "MARKER" not in resp.text and "10.1.2.3" not in resp.text
+    assert resp.status_code == 400 and "MARKER" not in resp.text and "198.51.100.7" not in resp.text
 
 
 def test_chat_400_and_404_have_fixed_messages_with_no_exception_text(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -230,7 +230,7 @@ def test_chat_400_and_404_have_fixed_messages_with_no_exception_text(monkeypatch
 
     monkeypatch.setattr(chat_api, "store_for", refuse)
     r400 = c.get("/api/chat/threads")
-    assert r400.status_code == 400 and "MARKER" not in r400.text and "10.1.2.3" not in r400.text
+    assert r400.status_code == 400 and "MARKER" not in r400.text and "198.51.100.7" not in r400.text
 
     class _Store:
         def thread(self, _tid: str) -> Any:
@@ -238,4 +238,4 @@ def test_chat_400_and_404_have_fixed_messages_with_no_exception_text(monkeypatch
 
     monkeypatch.setattr(chat_api, "store_for", lambda *_a, **_k: _Store())
     r404 = c.get("/api/chat/threads/abc")
-    assert r404.status_code == 404 and "MARKER" not in r404.text and "10.1.2.3" not in r404.text
+    assert r404.status_code == 404 and "MARKER" not in r404.text and "198.51.100.7" not in r404.text

@@ -9,7 +9,7 @@ description = "Pravrudhi sākṣī kernel: schema, hash-chained ledger, statisti
 readme = "README.md"
 requires-python = ">=3.13,<3.14"
 license = "Apache-2.0"
-authors = [{ name = "SharathSPhD", email = "qbz506@york.ac.uk" }]
+authors = [{ name = "SharathSPhD", email = "admin@axismeru.com" }]
 dependencies = [
   "numpy>=2.3",
   "pydantic>=2.11",

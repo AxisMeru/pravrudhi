@@ -31,7 +31,6 @@ import hashlib
 import json
 import os
 import re
-import subprocess
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
@@ -221,7 +220,7 @@ CLAUDE_CLI_SLIM_FLAGS = (
 )
 
 #: Issue #59 follow-up (Lead-2, 2026-09-26): `ask_vendor`'s claude-cli comparison uses its OWN dedicated
-#: credential (the operator's new `sharath.ai.colab` login), never one of `account.claude_env`'s CLI-agent
+#: credential (the operator's separate reviewer-seat login), never one of `account.claude_env`'s CLI-agent
 #: seats -- this is a one-shot vendor comparison, not agentic coding work, and competing with those seats
 #: for the same weekly quota would undo the whole point of giving this path a separate account.
 #: Config-driven (env var, matching `account.py`'s own `PRAVRUDHI_CLAUDE_CONFIG_DIR` convention) rather than
@@ -231,7 +230,15 @@ CLAUDE_CLI_CONFIG_DIR_ENV = "PRAVRUDHI_CLAUDE_CLI_CONFIG_DIR"
 #: SEAT 2 via the `claude-loop` dir, and `claude auth status --json` must show this email before any call
 #: (refuse on mismatch; a login is never switched here). Seat 0 (`claude-colab`) is R1/R2 only.
 CLAUDE_CLI_CONFIG_DIR_DEFAULT = Path("~/.config/pravrudhi/claude-loop")
-CLAUDE_CLI_EXPECTED_EMAIL = "sharath.sathish@gmail.com"
+
+
+def claude_cli_expected_email(*, required: bool = True) -> str | None:
+    """The account `claude auth status` must show: from LOCAL configuration (environment or ~/.config/pravrudhi/seats.local.yaml),
+    never from the repository (`agents.seat_identity`). A missing one refuses where it is needed."""
+    from pravrudhi.agents.seat_identity import claude_cli_expected_email as _expected
+
+    return _expected(required=required)
+
 
 #: Model cap (Lead-2 2026-09-26): nothing above Sonnet. Aliases `sonnet`/`haiku` or an exact
 #: `claude-sonnet-*`/`claude-haiku-*` id. Opus is allowed only for the pre-registered M4 comparison, which must
@@ -312,23 +319,30 @@ def _claude_cli_effort(vendor: Vendor) -> str | None:
     return str(effort)
 
 
-def _claude_auth_email(env: dict[str, str]) -> str | None:
-    """The email `claude auth status --json` reports for this config dir (the only truth for the seat)."""
-    p = subprocess.run(["claude", "auth", "status", "--json"], env={**os.environ, **env},
-                       capture_output=True, text=True, timeout=60)
-    try:
-        email = json.loads(p.stdout).get("email")
-    except (ValueError, AttributeError):
-        return None
-    return email if isinstance(email, str) else None
+def _verified_seat_env() -> dict[str, str]:
+    """The ONE seat-identity check for scripted `claude` calls: `account.claude_env(live=True)` asks `claude auth status --json`
+    for the scripted seat-2 directory and refuses unless it shows the expected email (#214; the check used to be duplicated
+    here). A thin seam so a test can stand in for the CLI without touching `account.claude_env` itself."""
+    from pravrudhi.agents import account
+
+    return account.claude_env(live=True)
 
 
 def _assert_claude_seat(env: dict[str, str]) -> None:
-    email = _claude_auth_email(env)
-    if email != CLAUDE_CLI_EXPECTED_EMAIL:
+    """Refuse the call unless the seat verified by `account.claude_env(live=True)` is the config dir THIS call will use.
+    `SeatIdentityMissing` (nothing to verify against) propagates; a mismatched or personal account becomes
+    `ClaudeCliNotProvisioned`, as before."""
+    from pravrudhi.agents import account
+
+    try:
+        checked = _verified_seat_env()
+    except (account.PersonalAccountRefused, account.ScriptedSeatMismatch) as e:
+        raise ClaudeCliNotProvisioned(f"refusing: {e}") from e
+    if checked.get("CLAUDE_CONFIG_DIR") != env.get("CLAUDE_CONFIG_DIR"):
         raise ClaudeCliNotProvisioned(
-            f"refusing: claude auth status shows {email!r}, not {CLAUDE_CLI_EXPECTED_EMAIL!r} "
-            f"(config dir {env.get('CLAUDE_CONFIG_DIR')})")
+            f"refusing: the seat directory the identity check verified ({checked.get('CLAUDE_CONFIG_DIR')}) is not the "
+            f"config dir this call uses ({env.get('CLAUDE_CONFIG_DIR')})"
+        )
 
 
 def _model_in_family(pinned: str, key: str) -> bool:
@@ -776,7 +790,9 @@ def panel_manifest(prompts: Sequence[dict[str, str]], vendors: Sequence[Vendor])
                 # What the call will actually look like, so a manifest shows the enforced invocation and seat.
                 "claude_effort": _claude_cli_effort(v) if v.interface == "cli" and v.model == "claude" else None,
                 "claude_slim_flags": list(CLAUDE_CLI_SLIM_FLAGS) if v.interface == "cli" and v.model == "claude" else None,
-                "claude_expected_seat_email": CLAUDE_CLI_EXPECTED_EMAIL if v.interface == "cli" and v.model == "claude" else None,
+                "claude_expected_seat_email": (
+                    claude_cli_expected_email(required=False) if v.interface == "cli" and v.model == "claude" else None
+                ),
                 "codex_pinned_model": v.params.get("codex_model") if v.interface == "cli" and v.model == "codex" else None,
             }
             for v in vendors

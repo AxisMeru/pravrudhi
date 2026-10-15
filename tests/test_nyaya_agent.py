@@ -1915,6 +1915,7 @@ class TestConfig:
         possible (the RunPod endpoint is configured this way)."""
         monkeypatch.setenv("NYAYA_SECOND_JUDGE_BASE_URL", "http://127.0.0.1:8111/v1")
         monkeypatch.setenv("NYAYA_SECOND_JUDGE_TAU", "0.97")
+        monkeypatch.setenv("NYAYA_SECOND_JUDGE_TIMEOUT_S", "60")
         cfg = load_agent_config(REPO)
         sj = cfg.second_judge
         assert sj is not None
@@ -1927,6 +1928,8 @@ class TestConfig:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setenv("NYAYA_SECOND_JUDGE_BASE_URL", "http://127.0.0.1:8111/v1")
+        monkeypatch.setenv("NYAYA_SECOND_JUDGE_TAU", "0.97")
+        monkeypatch.setenv("NYAYA_SECOND_JUDGE_TIMEOUT_S", "60")
         monkeypatch.setenv("NYAYA_SECOND_JUDGE_STATUTE_CHARS", "500")
         monkeypatch.setenv("NYAYA_SECOND_JUDGE_TOP_LOGPROBS", "10")
         monkeypatch.setenv("NYAYA_SECOND_JUDGE_MAX_TOKENS", "40")
@@ -2647,3 +2650,141 @@ class TestPrimaryTauEnvOverride134:
         monkeypatch.setenv("NYAYA_HOUSE_JUDGE_TAU", bad)
         with pytest.raises(ValueError):
             load_agent_config(REPO)
+
+
+class TestInputTooLongRefers:
+    """#727: a judge input too long for the judge REFERs (`input_too_long`); it is not an error, not a configuration fault, and
+    no Lean call is made over an element nobody judged."""
+
+    @staticmethod
+    def _too_long(*, with_400: bool = False) -> Exception:
+        from pravrudhi.application.nyaya_judges import JudgeInputTooLong
+        from pravrudhi.models.openai_compat import HTTPStatusError
+
+        e = JudgeInputTooLong(length=35164, limit=24000)
+        if with_400:
+            e.__cause__ = HTTPStatusError(400, "maximum context length is 2048 tokens")
+        return e
+
+    def test_a_too_long_element_refers_without_a_retry_or_a_lean_call(self, tmp_path: Path) -> None:
+        script = _proof_script(TOY_FACTS)
+        script[BNS69_EL[0]] = [self._too_long()]
+        run, judge, registry = _run(tmp_path, script)
+        c = run.contracts[0]
+        assert (c.outcome, c.reason) == ("REFER_TO_LAWYER", "input_too_long")
+        assert c.elements[0].input_too_long is True and c.elements[0].error is None
+        assert c.elements[0].attempts == 1                       # a deterministic overflow is never retried
+        assert registry.checks == [] and c.lean is None
+
+    def test_an_upstream_400_overflow_is_a_refer_not_a_configuration_fault(self, tmp_path: Path) -> None:
+        script = _proof_script(TOY_FACTS)
+        script[BNS69_EL[1]] = [self._too_long(with_400=True)]
+        run, _, registry = _run(tmp_path, script)             # must not raise JudgeMisconfigured
+        c = run.contracts[0]
+        assert (c.outcome, c.reason) == ("REFER_TO_LAWYER", "input_too_long")
+        assert registry.checks == []
+
+    def test_too_long_wins_over_a_judge_error_on_another_element(self, tmp_path: Path) -> None:
+        script = _proof_script(TOY_FACTS)
+        script[BNS69_EL[0]] = [self._too_long()]
+        script[BNS69_EL[1]] = [JudgeOutputError("unreadable")]
+        c = _run(tmp_path, script)[0].contracts[0]
+        assert (c.outcome, c.reason) == ("REFER_TO_LAWYER", "input_too_long")
+
+    def test_the_audit_step_carries_the_stable_code(self, tmp_path: Path) -> None:
+        script = _proof_script(TOY_FACTS)
+        script[BNS69_EL[0]] = [self._too_long()]
+        run = _run(tmp_path, script)[0]
+        steps = [json.loads(x) for x in run.audit_path.read_text().splitlines()]
+        judged = [s for s in steps if s["step"] == "judge" and s["output"].get("error_code") == "input_too_long"]
+        assert judged and judged[0]["output"]["limit"] == 24000 and judged[0]["output"]["length"] == 35164
+
+    def test_an_ordinary_judge_failure_is_still_judge_error(self, tmp_path: Path) -> None:
+        script = _proof_script(TOY_FACTS)
+        script[BNS69_EL[0]] = [JudgeOutputError("unreadable")]
+        c = _run(tmp_path, script)[0].contracts[0]
+        assert (c.outcome, c.reason) == ("ABSTAIN", "judge_error") and c.elements[0].input_too_long is False
+
+    def test_the_shipped_config_sets_a_positive_limit_and_it_reaches_the_judge(self) -> None:
+        import yaml
+
+        from pravrudhi.application.nyaya_agent import _build_house_judge
+
+        cfg = yaml.safe_load((REPO / "configs" / "nyaya_agent.yaml").read_text())["house_judge"]
+        limit = cfg["max_input_chars"]
+        assert isinstance(limit, int) and not isinstance(limit, bool)
+        assert limit == 10800 and limit < 35164   # the 4096-token window; 35,164 overflowed
+        j = _build_house_judge({**cfg, "model": "m"}, tau=0.74, typed=False, api_key_env="NYAYA_HOUSE_JUDGE_API_KEY")
+        assert j.max_input_chars == limit
+
+    def test_the_agents_config_fault_helper_mirrors_the_judges_for_a_too_long_error(self) -> None:
+        from pravrudhi.application.nyaya_agent import _judge_config_fault
+
+        assert _judge_config_fault(self._too_long(with_400=True)) is None
+
+
+NI138_EL = [
+    "cheque drawn for discharge of legally enforceable debt or other liability",
+    "cheque returned by bank unpaid due to insufficient funds or excess of arranged amount",
+    "cheque presented to bank within six months of drawing or within validity period, whichever earlier",
+    "payee or holder gave written demand notice within thirty days of bank's information of dishonour",
+    "drawer failed to pay within fifteen days of receipt of notice",
+]
+
+
+class TestNi138IsListedAndFailsClosed:
+    """O5.4 (readiness criterion): ni138 (NI Act s.138) is on the registry and has training statute text, but it is NOT one of the
+    14 validated contracts, so under the SHIPPED config it can never reach the user as a final PROOF or DENIAL: it is referred
+    with `contract_not_validated`, every element still judged and visible. Toy facts only."""
+
+    def test_ni138_is_known_to_the_registry_and_absent_from_the_shipped_allowlist(self) -> None:
+        shipped = load_agent_config(REPO)
+        assert "ni138" in reg.KNOWN_CONTRACT_IDS
+        assert "ni138" not in shipped.validated_contracts
+        assert len(shipped.validated_contracts) == 14
+        # its training statute text is present, so the no_training_statute_text ABSTAIN gate cannot be what stops it
+        assert shipped.judge_statute_text.get("ni138")
+
+    def test_a_judge_that_establishes_every_ni138_element_still_gets_a_refer_not_a_proof(self, tmp_path: Path) -> None:
+        shipped = load_agent_config(REPO)
+        registry = _registry()
+        registry.contracts["ni138"] = reg.DescribedContract("ni138", list(NI138_EL), [])
+        registry.sources["ni138"] = ["Negotiable Instruments Act 1881 s.138"]
+        script = {el: [_est(f"F{1 + i % 3}", TOY_FACTS[i % 3], TOY_FACTS[i % 3][5:25])] for i, el in enumerate(NI138_EL)}
+        agent = NyayaAgent(ScriptedJudge(script), registry, replace(shipped, audit_dir=tmp_path / "audit"))
+        c = agent.run(TOY_FACTS, narrative="TOY narrative.", contract_ids=["ni138"]).contracts[0]
+        assert (c.outcome, c.reason) == ("REFER_TO_LAWYER", "contract_not_validated")
+        assert len(c.elements) == 5 and all(e.status == "established" for e in c.elements)  # visible, never hidden
+
+    def test_a_missing_ni138_element_abstains_as_for_any_unvalidated_contract(self, tmp_path: Path) -> None:
+        shipped = load_agent_config(REPO)
+        registry = _registry()
+        registry.contracts["ni138"] = reg.DescribedContract("ni138", list(NI138_EL), [])
+        registry.sources["ni138"] = ["Negotiable Instruments Act 1881 s.138"]
+        script = {el: [_est(f"F{1 + i % 3}", TOY_FACTS[i % 3], TOY_FACTS[i % 3][5:25])] for i, el in enumerate(NI138_EL)}
+        script[NI138_EL[2]] = [_not()]
+        agent = NyayaAgent(ScriptedJudge(script), registry, replace(shipped, audit_dir=tmp_path / "audit"))
+        c = agent.run(TOY_FACTS, narrative="TOY narrative.", contract_ids=["ni138"]).contracts[0]
+        assert (c.outcome, c.reason) == ("ABSTAIN", "missing_element")
+
+
+class TestScreeningSupported:
+    """#832 S1: `screening_supported` = the PRIMARY judge's attempt-1 score against its own tau (>=), whatever the status."""
+
+    def test_the_boundary_is_inclusive_and_does_not_depend_on_the_final_status(self, tmp_path: Path) -> None:
+        tau = _config(tmp_path).tau
+        script = _proof_script(TOY_FACTS)
+        script[BNS69_EL[0]] = [_est("F2", TOY_FACTS[1], "never to marry Lata", p=tau)]
+        script[BNS69_EL[1]] = [_est("F3", TOY_FACTS[2], "Lata had sexual intercourse with Kiran", p=tau - 1e-6)]
+        run, _, _ = _run(tmp_path, script)
+        by = {e.element: e for e in run.contracts[0].elements}
+        assert by[BNS69_EL[0]].screening_supported is True  # p == tau clears
+        assert by[BNS69_EL[1]].screening_supported is False  # just below does not
+        assert by[BNS69_DENY].screening_supported is False  # a not-established element carries its own score against tau
+
+    def test_no_primary_score_means_no_signal(self, tmp_path: Path) -> None:
+        script = _proof_script(TOY_FACTS)
+        script[BNS69_EL[0]] = [RuntimeError("judge down")] * 3
+        run, _, _ = _run(tmp_path, script)
+        by = {e.element: e for e in run.contracts[0].elements}
+        assert by[BNS69_EL[0]].screening_supported is None
