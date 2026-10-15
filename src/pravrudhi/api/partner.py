@@ -72,7 +72,7 @@ from pydantic import BaseModel, Field, StrictBool, computed_field, field_validat
 from starlette.responses import JSONResponse
 
 from pravrudhi import __version__
-from pravrudhi.api.errors import AGENT_AT_CAPACITY, AGENT_UNAVAILABLE, INTAKE_TIMEOUT, coded_503
+from pravrudhi.api.errors import AGENT_AT_CAPACITY, AGENT_UNAVAILABLE, INTAKE_TIMEOUT, coded_500, coded_503
 from pravrudhi.api.identity import CurrentUserDep, User
 from pravrudhi.application import audit, citation_status, tenancy
 from pravrudhi.application import nyaya_lean_registry as reg
@@ -1931,7 +1931,7 @@ def build_partner_router(
             except Exception:
                 _logger.exception("analyse-facts job %s crashed", job_id)
                 _audit(metered, req, "job", status_code=500)
-                store.fail(job_id, status_code=500, body={"detail": "internal error"})
+                store.fail(job_id, status_code=500, body=json.loads(bytes(coded_500().body)))
                 return
             if isinstance(out, JSONResponse):
                 if out.status_code == 503 and metered:
@@ -1967,12 +1967,12 @@ def build_partner_router(
             503: {"description": "Service config missing."},
         },
     )
-    def get_job_ep(job_id: str, request: Request) -> dict[str, Any]:
+    def get_job_ep(job_id: str, request: Request) -> dict[str, Any] | JSONResponse:
         principal = _job_principal(request)
         try:
             cfg = _get_state()[0]
         except FileNotFoundError:
-            raise HTTPException(503, "service_config_missing") from None
+            return JSONResponse(status_code=503, content={"error": "service_config_missing"})
         job = _job_store(cfg).get(principal.key_id, job_id)
         if job is None:
             raise HTTPException(404, "no such job")
@@ -1981,14 +1981,14 @@ def build_partner_router(
     @router.get("/audit", response_model=AuditPageOut)
     def audit_ep(
         request: Request, offset: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=audit.MAX_PAGE)
-    ) -> dict[str, Any]:
+    ) -> dict[str, Any] | JSONResponse:
         principal = tenancy.principal_from_headers(engine_root, request.headers)
         if principal is None:
             raise HTTPException(401, "the audit log requires an API key (X-Pravrudhi-Api-Key)")
         try:
             cfg = _get_state()[0]
         except FileNotFoundError:
-            raise HTTPException(503, "service_config_missing") from None
+            return JSONResponse(status_code=503, content={"error": "service_config_missing"})
         rows, nxt = audit.page(
             engine_root, principal.key_id, offset=offset, limit=limit, retention_s=cfg.audit_retention_s, now=_now
         )

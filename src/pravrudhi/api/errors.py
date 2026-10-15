@@ -16,6 +16,7 @@ REGISTRY_CHECKER_UNAVAILABLE = "registry_checker_unavailable"
 CHAT_ENDPOINT_UNREACHABLE = "chat_endpoint_unreachable"
 VENDOR_NOT_ALLOWED = "vendor_not_allowed"
 INTAKE_TIMEOUT = "intake_timeout"
+INTERNAL_ERROR = "internal_error"
 
 #: code -> the one fixed message that goes with it.
 MESSAGES: dict[str, str] = {
@@ -26,6 +27,7 @@ MESSAGES: dict[str, str] = {
     CHAT_ENDPOINT_UNREACHABLE: "the chat model endpoint is unreachable; retry later",
     VENDOR_NOT_ALLOWED: "vendor not allowed for API callers",
     INTAKE_TIMEOUT: "the intake took too long and was stopped; send a shorter text",
+    INTERNAL_ERROR: "an internal error occurred; try again later",
 }
 
 
@@ -36,3 +38,8 @@ def coded(status_code: int, code: str) -> JSONResponse:
 
 def coded_503(code: str) -> JSONResponse:
     return coded(503, code)
+
+
+def coded_500(code: str = INTERNAL_ERROR) -> JSONResponse:
+    """The catch-all for an unhandled exception: the fixed code and message, never the exception's text or a path."""
+    return coded(500, code)
