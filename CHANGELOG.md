@@ -3,6 +3,23 @@
 Release notes for the engine (`pravrudhi`). Versions before 0.5.44 are described in their GitHub release notes and commit
 messages.
 
+## 0.6.15 (2026-10-15)
+
+PATCH release on 0.6.14: the citation check answers faster, most of all for citations with many alias spellings and for the first lookups after the engine starts. Answers are identical. **Rebuild the image.** The change is under `src/`, so it reaches a running container only by a rebuild of the engine image and the RunPod worker template from 0.6.15; the citation index is unchanged.
+
+### Changed
+
+- **Case titles are read and prepared once, not once per alias spelling (speed only; no change in answers).** When none of a citation's alias spellings matches a case title exactly, the engine compares the spelling with the case titles to find a close variant. It used to read and prepare every title again for each spelling of the citation; it now does that once per process and keeps the prepared titles in memory (about 40 MB per engine process). The titles that match, and so every answer, are the same. At start the engine loads them in the background and runs one lookup, so the first lookups after a start no longer pay for it. The engine does not wait for this: it answers requests, and reports healthy, while it runs; a request that arrives first loads the titles itself. If another request is already loading them, a lookup waits for it for at most about one second and then reads the titles directly, inside its own 5 second limit, so a slow load does not hold a lookup past its limit.
+- **A very long run of whitespace, dots or hyphens in pasted text no longer slows the intake or the citation name check.** Three text patterns that could take a long time on such a run are rewritten to give exactly the same results without it.
+
+### Known limits
+
+- The prepared titles are tied to the index file the engine started with and are reloaded when that file is replaced; replace the index file (as the image build does) rather than editing it in place. Two different index files used alternately by one process would reload each time.
+
+### Unchanged
+
+- Every response field, answer, `reason` value and route; the rate limit; the 5 second lookup limit; the existence rule and the rule that treats near spellings of a long rare name as one case, with its known limit (a long name that differs from another by one letter can answer `IN_INDEX` when the index holds the case under only one of the two).
+
 ## 0.6.14 (2026-10-15)
 
 PATCH release on 0.6.13: the citation check now recognises Supplementary-form citations, reads fewer records for citations with many alias spellings, and no longer fails on a very long run of digits in pasted text. **Rebuild the image and use the rebuilt citation index.** The code change is under `src/`, so it reaches a running container only by a rebuild of the engine image and the RunPod worker template from 0.6.14; the Supplementary-form check also needs the matching citation index shipped with the image.
