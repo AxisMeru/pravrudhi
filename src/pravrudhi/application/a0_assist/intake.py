@@ -670,13 +670,20 @@ _BODY_HEADING = re.compile(
 )
 
 
+def _first_letter(word: str) -> str:
+    r"""The first character of `word` that `str.isalpha` calls a letter, else "". A word of only number-like characters (a vulgar
+    fraction, a superscript digit, a circled digit, a Roman numeral) has none: `re.search(r"[^\W\d_]", w)` counts those as letters
+    but `isalpha` does not, which is what once raised StopIteration here."""
+    return next((c for c in word if c.isalpha()), "")
+
+
 def _numbered_prose(par: str) -> bool:
     """A numbered paragraph that reads as prose: at least two words that do not start with a capital letter (so also
     Devanagari). A party line such as "1. AMARESH" or "1. Ranjeet Narayan Mishra" is not prose."""
     if not _PARA_START.match(par[:16]):
         return False
-    words = [w for w in par.split()[1:] if re.search(r"[^\W\d_]", w)]
-    return sum(1 for w in words if not next(c for c in w if c.isalpha()).isupper()) >= 2
+    firsts = [_first_letter(w) for w in par.split()[1:]]
+    return sum(1 for c in firsts if c and not c.isupper()) >= 2
 
 
 def _merge_letterless(facts: list[dict[str, int]], cleaned: str) -> list[dict[str, int]]:
