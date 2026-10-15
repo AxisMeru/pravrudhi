@@ -74,13 +74,17 @@ def test_an_alias_group_with_one_generic_side_cannot_vouch_for_a_wrong_name(tmp_
         "Vide Aldric Vennoway v. State of Zorbland",
         "His Holiness Aldric Vennoway v. State of Zorbland",
         "Late Aldric Vennoway v. State of Zorbland",
-        "As discussed in the landmark ruling of Aldric Vennoway v. State of Zorbland",
         "State of Zorbland v. Aldric Vennoway",
     ],
 )
 def test_signal_words_honorifics_prose_and_order_do_not_make_a_right_name_wrong(tmp_path: Path, typed: str) -> None:
     conn = _db(tmp_path, "norm", ONE)
     assert exists_in_index_detail(conn, f"{typed}, {KEY}") == (VerifyResult.IN_INDEX, True), typed
+
+
+def test_a_name_with_prose_around_it_is_found_but_not_claimed_as_compared(tmp_path: Path) -> None:
+    conn = _db(tmp_path, "prose", ONE)
+    assert exists_in_index_detail(conn, f"As discussed in the landmark ruling of Aldric Vennoway v. State of Zorbland, {KEY}") == (VerifyResult.IN_INDEX, False)
 
 
 def test_uoi_is_union_of_india(tmp_path: Path) -> None:
@@ -108,7 +112,7 @@ def test_sharing_only_a_very_common_name_is_not_agreement(tmp_path: Path) -> Non
     assert exists_in_index_detail(conn, f"Jaswant Singh v. State of Zorbland, {KEY}") == (VerifyResult.IN_INDEX, True)
     assert exists_in_index_detail(conn, f"Nawal Singh v. State of Zorbland, {KEY}") == (VerifyResult.NAME_MISMATCH, True)
     assert exists_in_index_detail(conn, f"Ram Singh v. State of Zorbland, {KEY}") == (VerifyResult.NAME_MISMATCH, True)
-    assert exists_in_index_detail(conn, f"Singh v. State of Zorbland, {KEY}") == (VerifyResult.IN_INDEX, True)
+    assert exists_in_index_detail(conn, f"Singh v. State of Zorbland, {KEY}") == (VerifyResult.IN_INDEX, False)  # not enough to claim a comparison
 
 
 def test_an_initial_v_is_not_taken_for_the_separator(tmp_path: Path) -> None:
@@ -204,3 +208,46 @@ def test_the_route_reports_name_compared_only_when_a_name_was_compared(tmp_path:
 def test_the_reply_keys_without_a_comparison_are_exactly_the_old_ones(tmp_path: Path) -> None:
     c = _client(tmp_path, "keys", ONE)
     assert set(_post(c, KEY)) == {"result", "note", "status", "label", "verified", "preview", "coverage"}
+
+
+# ---- #509 three states: a comparison is claimed (name_compared) only when it was really made -----------------------------------
+
+MARLOWE = [("Quillbert Marlowe", "Union of India")]
+
+
+def _marlowe(tmp_path: Path) -> sqlite3.Connection:
+    return _db(tmp_path, "marlowe", MARLOWE, "Quillbert Marlowe vs Union Of India")
+
+
+def test_a_right_name_is_strong_and_claims_the_comparison(tmp_path: Path) -> None:
+    conn = _marlowe(tmp_path)
+    for typed in ("Quillbert Marlowe v. Union of India", "Quillbert Marlowe v. UOI", "Per Quillbert Marlowe v UOI", "Union of India v. Quillbert Marlowe"):
+        assert exists_in_index_detail(conn, f"{typed}, {KEY}") == (VerifyResult.IN_INDEX, True), typed
+
+
+@pytest.mark.parametrize(
+    "typed",
+    [
+        "Quillbert Kapoor v. UOI",  # one shared given name
+        "Mervyn Marlowe v. UOI",  # one shared surname
+        "Quillbart Marlowe v. UOI",  # a one-letter slip only
+        "Quillbert Marlowe v. State of Zorbland",  # the case's own words, with a different second party beside them
+    ],
+)
+def test_a_half_matching_name_is_found_but_no_comparison_is_claimed(tmp_path: Path, typed: str) -> None:
+    conn = _marlowe(tmp_path)
+    assert exists_in_index_detail(conn, f"{typed}, {KEY}") == (VerifyResult.IN_INDEX, False), typed
+
+
+def test_a_clearly_different_name_is_a_mismatch(tmp_path: Path) -> None:
+    conn = _marlowe(tmp_path)
+    for typed in ("Brenwick Taplow v. UOI", "Brenwick Taplow v. State of Qualdoria"):
+        assert exists_in_index_detail(conn, f"{typed}, {KEY}") == (VerifyResult.NAME_MISMATCH, True), typed
+
+
+def test_a_party_made_only_of_initials_is_never_agreement(tmp_path: Path) -> None:
+    conn = _db(tmp_path, "inits", [("K.V. Zorbrao", "L.H.V. Prasad")], "K V Zorbrao vs L H V Prasad Ors")
+    assert exists_in_index_detail(conn, f"L H V v. L H V Prasad, {KEY}") == (VerifyResult.IN_INDEX, False)
+    assert exists_in_index_detail(conn, f"A B C v. L H V Prasad, {KEY}") == (VerifyResult.IN_INDEX, False)
+    assert exists_in_index_detail(conn, f"P P Zorbrao v. L H V Prasad, {KEY}") == (VerifyResult.IN_INDEX, False)  # other initials
+    assert exists_in_index_detail(conn, f"K V Zorbrao v. L H V Prasad, {KEY}") == (VerifyResult.IN_INDEX, True)
