@@ -43,10 +43,10 @@ OWN_CITATIONS_SCHEMA = (
 )
 OWN_CITATIONS_EXT = "own-supp-v1"
 _HEADER_CHARS = 1200  # the header block of a record: the first characters of its text
-_HEADER_LABEL = re.compile(r"equivalent\s+citations?|citation\s*:", re.IGNORECASE)
+_HEADER_LABEL = re.compile(r"equivalent\s{1,4}citations?|citation\s{0,4}:", re.IGNORECASE)
 _LABEL_REACH = 700  # a citation counts only within this many characters after the "Equivalent citations" / "CITATION:" label
 _MAX_YEAR_LAG = 5  # the reporting year may follow the decision year by at most this many years (a Supp volume lags 0 to 3)
-_TITLE_YEAR = re.compile(r"\bon\s+\d{1,2}\s+\w+,?\s+((?:19|20)\d{2})\b")
+_TITLE_YEAR = re.compile(r"\bon\s{1,4}\d{1,2}\s{1,4}\w{1,12},?\s{1,4}((?:19|20)\d{2})\b")
 
 
 def own_supp_citations(text: str, *, title: str = "", year: int | None = None) -> list[str]:

@@ -56,9 +56,17 @@ _SCC_YEAR_PAREN_VOLUME_SCC = re.compile(r"\b(?P<year>\d{4})\s*\((?P<volume>\d+)\
 # The volume is optional ("1990 SCC Supl. 675") and a single digit (a supplement has at most a few volumes; a longer number is the
 # page). The year is a four-digit 19xx or 20xx.
 _SUP = r"SUPP?L?\.?"
+# Every gap is BOUNDED (`\s{0,4}`): a chained unbounded `\s*` backtracks quadratically on a long run of spaces, and this
+# pattern runs over a whole pasted text (intake) of up to 200,000 characters. The real spellings have at most two spaces in a
+# gap. A page is at most six digits (a longer digit run is not a page, and int() refuses a run of more than 4,300 digits).
+_G = r"\s{0,4}"  # a bounded gap
+_YEAR_A = r"\(?\b(?P<yA>(?:19|20)\d{2})\)?"
+_YEAR_B = r"\(?\b(?P<yB>(?:19|20)\d{2})\)?"
 _SCC_SUPP = re.compile(
-    rf"\(?\b(?P<yA>(?:19|20)\d{{2}})\)?\s*\(?\s*{_SUP}\s*\)?\s*(?:\((?P<vA>\d)\)\s*)?SCC\s*(?P<pA>\d+)\b"
-    rf"|\(?\b(?P<yB>(?:19|20)\d{{2}})\)?\s*(?:\((?P<vB1>\d)\)\s*)?SCC\s*\(?\s*{_SUP}\s*\)?\s*(?:\(?(?P<vB2>\d)\)?\s+)?(?P<pB>\d+)\b",
+    # Supp first: "1992 Supp (1) SCC 335"
+    rf"{_YEAR_A}{_G}\(?{_G}{_SUP}{_G}\)?{_G}(?:\((?P<vA>\d)\){_G})?SCC{_G}(?P<pA>\d{{1,6}})\b"
+    # SCC first: "1992 SCC (SUPP) 1 335", "1991 (1) SCC(SUPP) 430"
+    rf"|{_YEAR_B}{_G}(?:\((?P<vB1>\d)\){_G})?SCC{_G}\(?{_G}{_SUP}{_G}\)?{_G}(?:\(?(?P<vB2>\d)\)?\s{{1,4}})?(?P<pB>\d{{1,6}})\b",
     re.IGNORECASE,
 )
 
@@ -69,15 +77,11 @@ def supp_key(year: int, volume: int | None, page: int) -> str:
     return f"({year}) Supp ({volume}) SCC {page}" if volume else f"({year}) Supp SCC {page}"
 
 
-_SCC_ONLINE = re.compile(
-    r"\b(?P<year>\d{4})\s+SCC\s+OnLine\s+(?P<court>[A-Za-z]{2,4})\s+(?P<page>\d+)\b"
-)
+_SCC_ONLINE = re.compile(r"\b(?P<year>\d{4})\s+SCC\s+OnLine\s+(?P<court>[A-Za-z]{2,4})\s+(?P<page>\d+)\b")
 
 _INSC = re.compile(r"\b(?P<year>\d{4})\s+INSC\s+(?P<page>\d+)\b")
 
-_SCR = re.compile(
-    r"\[(?P<year>\d{4})\]\s*(?P<volume>\d+)?\s*SCR\s*(?P<page>\d+)\b"
-)
+_SCR = re.compile(r"\[(?P<year>\d{4})\]\s*(?P<volume>\d+)?\s*SCR\s*(?P<page>\d+)\b")
 
 # Published circular format (e.g. Delhi HC's 2023 neutral-citation practice direction): YYYY:CODE:NNNN. No
 # real hit in either corpus available here (see module docstring on `test_hc_neutral_spec`); the strict

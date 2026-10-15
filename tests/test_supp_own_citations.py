@@ -257,3 +257,53 @@ def test_variant_titles_of_one_judgment_are_one_case_and_titles_with_no_shared_w
 def test_a_volume_is_a_single_digit_so_a_long_number_is_the_page(text: str, volume: int | None, page: int) -> None:
     (c,) = parse_citations(text)
     assert (c.volume, c.page) == (volume, page)
+
+
+_CAP = 200_000  # IntakeRequest.text allows this many characters, and parse_citations runs over all of it
+
+
+def _slow_inputs() -> list[tuple[str, str]]:
+    out = []
+    for stem in ["1992", "1992 SCC (SUPP", "1992 Supp", "1992 SCC (SUPP) 1", "(1992) SUPP (1) SCC"]:
+        for filler in [" ", "\t", "(", " ( "]:
+            out.append((f"{stem!r} + {filler!r} x 50,000", stem + filler * 50_000))
+    out.append(("'1992 SCC (SUPP' + spaces to the cap", "1992 SCC (SUPP" + " " * (_CAP - 14)))
+    out.append(("repeated 'SCC (SUPP ' fragments to the cap", "1992 " + "SCC (SUPP " * (_CAP // 10)))
+    out.append(("repeated '1992 SCC (SUPP ' to the cap", "1992 SCC (SUPP " * (_CAP // 15)))
+    out.append(("a long digit run after the label", "1992 SCC (SUPP) " + "1" * (_CAP - 16)))
+    out.append(("digits then spaces", "1992 SCC (SUPP) 1" + " " * (_CAP - 17)))
+    return out
+
+
+@pytest.mark.parametrize(("label", "text"), _slow_inputs(), ids=[x[0] for x in _slow_inputs()])
+def test_adversarial_input_does_not_stall_the_citation_parser(label: str, text: str) -> None:
+    """Found by R2 on the first head: chained unbounded gaps backtracked quadratically on a long run of spaces (6.9 s at 20,000,
+    about 10 minutes at the 200,000-character cap). Every gap is bounded now; each input must finish in well under a second."""
+    import time
+
+    t = time.perf_counter()
+    parse_citations(text)
+    assert time.perf_counter() - t < 1.0, label
+
+
+def test_the_header_regexes_do_not_stall_either() -> None:
+    import time
+
+    for text in ["Equivalent" + " " * 50_000 + "citations", "citation" + " " * 50_000, "x" * 50_000 + "Equivalent citations"]:
+        t = time.perf_counter()
+        own_supp_citations(text, title="T on " + "1" * 50_000, year=2087)
+        assert time.perf_counter() - t < 1.0
+
+
+def test_the_bounded_gaps_still_read_the_real_header_spellings() -> None:
+    for text, want in [
+        ("1992 SCC (SUPP) 1 335", (1992, 1, 335)),
+        ("1992 SCC Supl. (1) 335", (1992, 1, 335)),
+        ("1994 SCC  Supl.  (1) 320", (1994, 1, 320)),
+        ("1991 (1) SCC(SUPP) 430", (1991, 1, 430)),
+        ("1994SUPP(1)SCC534", (1994, 1, 534)),
+        ("(1995 Supp. (3) SCC 77", (1995, 3, 77)),
+        ("1992  Supp  (1)  SCC  335", (1992, 1, 335)),
+    ]:
+        (c,) = parse_citations(text)
+        assert (c.year, c.volume, c.page) == want, text
