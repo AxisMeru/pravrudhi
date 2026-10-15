@@ -17,6 +17,7 @@ See docs/superpowers/specs/2026-09-05-pravrudhi-objectives-design.md.
 
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
@@ -122,8 +123,21 @@ class Progress:
         return d
 
 
-def parse(raw: dict[str, Any], *, oid: str | None = None) -> Objective:
-    """Build an objective from loaded YAML, refusing the shapes that would produce a screen that lies."""
+def parse(raw: Any, *, oid: str | None = None) -> Objective:
+    """Build an objective from loaded YAML, refusing the shapes that would produce a screen that lies. A file that is not a
+    mapping, or whose fields have the wrong kind (a benchmark that is not a mapping or has no id, a list where a number is
+    expected), is an `ObjectiveError` like any other malformed file, never an AttributeError, KeyError or TypeError."""
+    if not isinstance(raw, dict):
+        raise ObjectiveError("an objective file must hold a mapping of fields")
+    try:
+        return _parse(raw, oid=oid)
+    except (AttributeError, KeyError, TypeError, ValueError) as e:
+        if isinstance(e, ObjectiveError):
+            raise
+        raise ObjectiveError(f"an objective field has the wrong kind ({type(e).__name__})") from None
+
+
+def _parse(raw: dict[str, Any], *, oid: str | None = None) -> Objective:
     ident = str(raw.get("id") or oid or "").strip()
     if not ID_RE.match(ident):
         raise ObjectiveError(f"objective id {ident!r} must be lowercase letters, digits and hyphens (2-63 chars)")
@@ -165,7 +179,18 @@ def objectives_dir(root: Path) -> Path:
 
 
 def load(path: Path) -> Objective:
-    return parse(yaml.safe_load(path.read_text()) or {}, oid=path.stem)
+    """Read one objective file. Text that is not valid UTF-8, and YAML nested too deeply for the parser, are `ObjectiveError`."""
+    try:
+        text = path.read_text()
+    except UnicodeDecodeError:
+        raise ObjectiveError("an objective file must be UTF-8 text") from None
+    try:
+        raw = yaml.safe_load(text)
+    except RecursionError:
+        raise ObjectiveError("an objective file is nested too deeply") from None
+    except ValueError:  # e.g. a NUL character: the parser refuses it with a ValueError, not a YAMLError
+        raise ObjectiveError("an objective file holds characters YAML cannot read") from None
+    return parse({} if raw is None else raw, oid=path.stem)
 
 
 def load_all(root: Path) -> list[Objective]:
@@ -205,7 +230,14 @@ def write(root: Path, obj: Objective) -> Path:
     body.pop("id")
     if not body.get("created"):
         body["created"] = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-    path.write_text(yaml.safe_dump(body, sort_keys=False, allow_unicode=True))
+    text = yaml.safe_dump(body, sort_keys=False, allow_unicode=True)
+    # Atomic: a reader never sees a half-written file (write a sibling, then rename it over the target).
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    try:
+        tmp.write_text(text)
+        os.replace(tmp, path)
+    finally:
+        tmp.unlink(missing_ok=True)
     return path
 
 
