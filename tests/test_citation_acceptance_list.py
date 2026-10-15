@@ -83,3 +83,18 @@ def test_the_supplementary_rows_on_an_own_supp_index(conn: sqlite3.Connection, c
     if not _has_own_supp(conn):
         pytest.skip("the index has no case_citations table (not an own-supp build)")
     assert exists_in_index(conn, citation).value == want, why
+
+
+def test_a_named_lookup_of_a_many_candidate_key_is_fast_and_answers_as_before(conn: sqlite3.Connection) -> None:
+    """#472: a citation typed with its case name used to read one year per candidate case with a full-table select (about 22 s
+    here for this key). The name is the key's own first alias, read from the index, so no party name is written in this file."""
+    import time
+
+    key = "(1993) 1 SCC 645"
+    row = conn.execute("SELECT party_1, party_2 FROM citation_aliases WHERE citation = ? LIMIT 1", (key,)).fetchone()
+    if row is None:
+        pytest.skip("this index does not carry the key")
+    t = time.perf_counter()
+    answer = exists_in_index(conn, f"{row[0]} v. {row[1]} {key}").value
+    assert time.perf_counter() - t < 5.0  # the engine's lookup deadline
+    assert answer == exists_in_index(conn, key).value == "CONFLICT"
