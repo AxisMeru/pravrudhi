@@ -53,6 +53,16 @@ class ConsentRequired(Exception):
     """The request did not carry consent: the route answers 400 `consent_required`; no call, no reservation."""
 
 
+class CoreFailedAfterSpend(Exception):
+    """The assisted session ran and was closed (its cost is spent), and then the ordinary core result, which every non-finished
+    run falls back to, raised. There is no result to return, and the caller must not read this as "nothing happened, retry":
+    the route answers a coded non-retryable response carrying `block` (outcome, cost, session id; no text)."""
+
+    def __init__(self, block: dict[str, Any]) -> None:
+        super().__init__("the core result failed after the assisted session was billed")
+        self.block = block
+
+
 @dataclass(frozen=True)
 class Caller:
     authenticated: bool
@@ -376,9 +386,15 @@ def _run_with_slot(
         return _with(decided_body, block)
     outcome, reason = outcome_reason
     steps = steps_from(run.driver.calls) if run.driver and outcome == "refused" and reason == "safety" else []
-    return _fallback(
-        deps, outcome, reason or "error", client_sid, steps=steps, cost=cost_block, progress=_progress(run, cfg)
-    )
+    try:
+        return _fallback(
+            deps, outcome, reason or "error", client_sid, steps=steps, cost=cost_block, progress=_progress(run, cfg)
+        )
+    except Exception as exc:  # noqa: BLE001 - the session is already billed: say so instead of letting it look like a plain failure
+        safety_event("core_failed_after_spend", 1)
+        raise CoreFailedAfterSpend(
+            _block(False, "refused", "core_error", steps=[], cost=cost_block, session_id=client_sid)
+        ) from exc
 
 
 def screening_summarise(driver: Any, events: list[dict[str, Any]]) -> str | None:

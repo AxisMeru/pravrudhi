@@ -17,6 +17,7 @@ See docs/superpowers/specs/2026-09-05-pravrudhi-objectives-design.md.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import re
 import stat
@@ -245,10 +246,8 @@ def write(root: Path, obj: Objective) -> Path:
         with os.fdopen(fd, "w") as fh:
             fh.write(text)
             fh.flush()
-            try:
+            with contextlib.suppress(FileNotFoundError):  # a new file keeps the umask-derived mode it was created with
                 os.fchmod(fh.fileno(), stat.S_IMODE(target.stat().st_mode))  # keep the mode of the file being replaced
-            except FileNotFoundError:
-                pass  # a new file keeps the umask-derived mode it was created with
             os.fsync(fh.fileno())
         os.replace(tmp, target)
     finally:
