@@ -843,7 +843,7 @@ def _collapse_alias_conflict(
     return ResolvedAlias(None, list(cases.values())) if len(cases) == 1 else None
 
 
-def _exists_supp(conn: sqlite3.Connection, key: str) -> VerifyResult:
+def _supp_answer(conn: sqlite3.Connection, key: str) -> tuple[VerifyResult, list[str]]:
     """An SCC supplementary-volume citation resolves ONLY to the record(s) whose own header prints it (the
     `case_citations` table of an own-supp index): no party matching, no year window, never a same-party neighbour. No
     such table, or no row for the key, is NOT_IN_INDEX (the form is read but not held). One indexed case, or several
@@ -854,13 +854,13 @@ def _exists_supp(conn: sqlite3.Connection, key: str) -> VerifyResult:
     except sqlite3.OperationalError as e:
         if "no such table" not in str(e).lower():
             raise
-        return VerifyResult.NOT_IN_INDEX
+        return VerifyResult.NOT_IN_INDEX, []
     if not ids:
-        return VerifyResult.NOT_IN_INDEX
+        return VerifyResult.NOT_IN_INDEX, []
     marks = ",".join("?" * len(ids))
     titles = {r[0]: r[1] for r in conn.execute(f"SELECT case_id, title FROM cases WHERE case_id IN ({marks})", ids)}
     if not titles:
-        return VerifyResult.NOT_IN_INDEX  # a citation row whose case is not in this index
+        return VerifyResult.NOT_IN_INDEX, []  # a citation row whose case is not in this index
     # One judgment indexed under several records prints variant titles ("&" and "And", "Admn" for "Administration", a
     # truncated title, a respelt party): the records are ONE judgment when their titles are connected by a shared
     # distinctive word. Titles that share no word are different judgments printing one key (a volume-less supplementary
@@ -870,7 +870,7 @@ def _exists_supp(conn: sqlite3.Connection, key: str) -> VerifyResult:
         linked = [g for g in groups if g & words]
         merged = set(words).union(*linked) if linked else set(words)
         groups = [g for g in groups if g not in linked] + [merged]
-    return VerifyResult.IN_INDEX if len(groups) == 1 else VerifyResult.CONFLICT
+    return (VerifyResult.IN_INDEX if len(groups) == 1 else VerifyResult.CONFLICT), list(titles.values())
 
 
 class ExistenceAnswer(NamedTuple):
@@ -881,18 +881,52 @@ class ExistenceAnswer(NamedTuple):
     name_compared: bool = False
 
 
-def _name_agrees(conn: sqlite3.Connection, key: str, title: str, claimed_name: str) -> bool | None:
-    """Whether the typed name names the resolved case: at least `_PARTY_CONTAINMENT_MIN` of its distinctive words (abbreviations folded)
-    are in the case title, or it agrees with some alias group of the key on BOTH parties and that group has a distinctive word on
-    both sides (an alias spelling such as an initialism or a mined variant; a group like "State of X v. Union of India", with one
-    side made only of common words, cannot vouch for a name). The two sides of the typed name are tokenized apart, so the "v." between
-    them is never merged into a run of initials. None when the name has no distinctive word (nothing to compare)."""
-    sides = _PARTY_SEPARATOR.split(claimed_name, maxsplit=1)
-    claimed = _fold_abbreviations(frozenset().union(*(_distinctive_tokens(side) for side in sides)))
-    if not claimed:
+#: #509: words in front of a typed case name that are not part of it ("Per Maneka Gandhi v. ...", "As held in ...", "Vide ...").
+_TYPED_SIGNAL_WORDS = re.compile(
+    r"^(?:(?:as\s+)?(?:per|vide|cf\.?|see|also|held\s+in|observed\s+in|noted\s+in|decided\s+in|in|the\s+case\s+of|case\s+of|following|"
+    r"relying\s+on|reported\s+in|ref\.?)\b[\s,:;-]*)+",
+    re.IGNORECASE,
+)
+#: Words that are a title or an honorific, not the name ("His Holiness ...", "Late ...", "Hon'ble Justice ..."), and the initialisms of a
+#: party that is itself only common words (UOI is Union of India): ignored when a typed name is compared.
+_TYPED_NOISE_WORDS = frozenset({"his", "her", "holiness", "late", "hon", "ble", "honble", "justice", "prof", "professor", "mrs", "miss", "uoi"})
+#: Spellings of one given name that print differently on a title and in a citation.
+_TYPED_NAME_FOLDS = {m: "mohammad" for m in ("mohd", "mohammed", "mohammad", "muhammad", "mohamed", "mohamad", "muhamed")}
+
+
+def _typed_words(side: str) -> frozenset[str]:
+    """The distinctive words of ONE side of a typed case name, for the comparison only: leading signal words and honorifics dropped,
+    the initialism UOI dropped, Mohd/Mohammed/Muhammad folded to one word, printed abbreviations folded ("Corp" to "Corporation")."""
+    side = _TYPED_SIGNAL_WORDS.sub("", " ".join(side.split()))
+    words = _distinctive_tokens(side) - _TYPED_NOISE_WORDS
+    return frozenset(_TYPED_NAME_FOLDS.get(w, _ABBREVIATIONS.get(w, w)) for w in words)
+
+
+def _title_words(title: str) -> frozenset[str]:
+    return frozenset(_TYPED_NAME_FOLDS.get(w, _ABBREVIATIONS.get(w, w)) for w in _distinctive_tokens(title))
+
+
+def _word_in(word: str, words: frozenset[str]) -> bool:
+    return any(_same_word(word, other) for other in words)
+
+
+def _name_agrees(conn: sqlite3.Connection, key: str, titles: list[str], claimed_name: str) -> bool | None:
+    """Whether the typed name names the resolved case (any of its record titles). The two sides of the typed name are read apart; for
+    EVERY side that has a distinctive word, at least half of those words (each allowed an abbreviation or a one-letter OCR slip, see
+    `_same_word`) must be in the title; or the title's own words (two or more) are all in the typed name (a name with prose around
+    it). Or the typed name agrees with an alias group of the key on both parties, the group having a distinctive word on both sides.
+    None when the typed name has no distinctive word (nothing to compare)."""
+    sides = [w for w in (_typed_words(side) for side in _PARTY_SEPARATOR.split(claimed_name, maxsplit=1)) if w]
+    if not sides:
         return None
-    if len(claimed & _fold_abbreviations(_distinctive_tokens(title))) / len(claimed) >= _PARTY_CONTAINMENT_MIN:
-        return True
+    for title in titles:
+        tw = _title_words(title)
+        if all(sum(_word_in(w, tw) for w in side) * 2 >= len(side) for side in sides) and any(_word_in(w, tw) for side in sides for w in side):
+            return True
+        typed_all = frozenset().union(*sides)
+        if len(tw) >= 2 and all(_word_in(w, typed_all) for w in tw):
+            return True
+    claimed = frozenset().union(*sides)
     groups = conn.execute("SELECT DISTINCT party_1, party_2 FROM citation_aliases WHERE citation = ?", (key,)).fetchall()
     return any(
         _distinctive_tokens(g["party_1"]) and _distinctive_tokens(g["party_2"]) and _group_agrees_with_claim(claimed, g) for g in groups
@@ -915,7 +949,16 @@ def exists_in_index_detail(conn: sqlite3.Connection, citation_text: str, claimed
     if len(citations) != 1:
         return ExistenceAnswer(VerifyResult.MALFORMED)
     if citations[0].reporter == "SCC Supp":
-        return ExistenceAnswer(_exists_supp(conn, supp_key(citations[0].year or 0, citations[0].volume, citations[0].page)))
+        supp = supp_key(citations[0].year or 0, citations[0].volume, citations[0].page)
+        result, supp_titles = _supp_answer(conn, supp)
+        typed = claimed_name or _name_before_citation(citation_text, citations[0])
+        if result is VerifyResult.IN_INDEX and typed:  # #509: a supplementary-volume answer compares a typed name too
+            agrees = _name_agrees(conn, supp, supp_titles, typed)
+            if agrees is False:
+                return ExistenceAnswer(VerifyResult.NAME_MISMATCH, True)
+            if agrees:
+                return ExistenceAnswer(VerifyResult.IN_INDEX, True)
+        return ExistenceAnswer(result)
     key = _citation_key(citations[0])
     if key is None:
         return ExistenceAnswer(VerifyResult.NOT_IN_INDEX)
@@ -938,7 +981,7 @@ def exists_in_index_detail(conn: sqlite3.Connection, citation_text: str, claimed
     if _extra_title_tokens(conn, key, only["title"]) > EXISTENCE_MAX_EXTRA_TITLE_TOKENS:
         return ExistenceAnswer(VerifyResult.NOT_IN_INDEX)
     if claimed_name:
-        agrees = _name_agrees(conn, key, only["title"], claimed_name)
+        agrees = _name_agrees(conn, key, [only["title"]], claimed_name)
         if agrees is False:
             return ExistenceAnswer(VerifyResult.NAME_MISMATCH, True)
         if agrees:

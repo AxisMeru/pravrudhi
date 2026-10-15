@@ -315,3 +315,13 @@ def test_the_bounded_gaps_still_read_the_real_header_spellings() -> None:
     ]:
         (c,) = parse_citations(text)
         assert (c.year, c.volume, c.page) == want, text
+
+
+def test_a_typed_name_is_compared_on_a_supp_citation_too(full: Path, tmp_path: Path) -> None:
+    """#509: the supplementary-volume answer compares a typed case name with the judgment that prints the citation."""
+    from pravrudhi.application.verify import exists_in_index_detail
+
+    conn = _slim(full, tmp_path, "supp_name", own_supp=True)
+    assert exists_in_index_detail(conn, "Aldric Vennoway v. State of Zorbland, 2089 Supp (1) SCC 335") == (VerifyResult.IN_INDEX, True)
+    assert exists_in_index_detail(conn, "Brenwick Taplow v. State of Qualdoria, 2089 Supp (1) SCC 335") == (VerifyResult.NAME_MISMATCH, True)
+    assert exists_in_index_detail(conn, "2089 Supp (1) SCC 335") == (VerifyResult.IN_INDEX, False)

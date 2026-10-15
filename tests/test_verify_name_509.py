@@ -66,6 +66,43 @@ def test_an_alias_group_with_one_generic_side_cannot_vouch_for_a_wrong_name(tmp_
     assert exists_in_index_detail(conn, f"State of Zorbland Plains v. Brenwick Taplow, {KEY}") == (VerifyResult.NAME_MISMATCH, True)
 
 
+@pytest.mark.parametrize(
+    "typed",
+    [
+        "Per Aldric Vennoway v. State of Zorbland",
+        "As held in Aldric Vennoway v. State of Zorbland",
+        "Vide Aldric Vennoway v. State of Zorbland",
+        "His Holiness Aldric Vennoway v. State of Zorbland",
+        "Late Aldric Vennoway v. State of Zorbland",
+        "As discussed in the landmark ruling of Aldric Vennoway v. State of Zorbland",
+        "State of Zorbland v. Aldric Vennoway",
+    ],
+)
+def test_signal_words_honorifics_prose_and_order_do_not_make_a_right_name_wrong(tmp_path: Path, typed: str) -> None:
+    conn = _db(tmp_path, "norm", ONE)
+    assert exists_in_index_detail(conn, f"{typed}, {KEY}") == (VerifyResult.IN_INDEX, True), typed
+
+
+def test_uoi_is_union_of_india(tmp_path: Path) -> None:
+    conn = _db(tmp_path, "uoi", [("Quillbert Marlowe", "Union of India")], "Quillbert Marlowe vs Union Of India")
+    assert exists_in_index_detail(conn, f"Quillbert Marlowe v. UOI, {KEY}") == (VerifyResult.IN_INDEX, True)
+    assert exists_in_index_detail(conn, f"Quillbert Marlowe v UOI, {KEY}") == (VerifyResult.IN_INDEX, True)
+    assert exists_in_index_detail(conn, f"Brenwick Taplow v. UOI, {KEY}") == (VerifyResult.NAME_MISMATCH, True)
+
+
+@pytest.mark.parametrize("typed", ["Mohammed", "Mohd.", "Muhammad", "Mohammad"])
+def test_the_spellings_of_mohammad_are_one_name(tmp_path: Path, typed: str) -> None:
+    conn = _db(tmp_path, "mohd", [("State of Zorbland", "Mohd. Yakubwane")], "State Of Zorbland vs Mohd Yakubwane")
+    assert exists_in_index_detail(conn, f"State of Zorbland v. {typed} Yakubwane, {KEY}") == (VerifyResult.IN_INDEX, True)
+
+
+def test_a_wrong_name_on_either_side_is_still_a_mismatch(tmp_path: Path) -> None:
+    conn = _db(tmp_path, "oneside", ONE)
+    assert exists_in_index(conn, f"Aldric Vennoway v. State of Qualdoria, {KEY}") == VerifyResult.NAME_MISMATCH
+    assert exists_in_index(conn, f"Brenwick Taplow v. State of Zorbland, {KEY}") == VerifyResult.NAME_MISMATCH
+    assert exists_in_index(conn, f"Per Brenwick Taplow v. State of Qualdoria, {KEY}") == VerifyResult.NAME_MISMATCH
+
+
 def test_a_shortened_right_name_matches(tmp_path: Path) -> None:
     conn = _db(tmp_path, "short", ONE)
     assert exists_in_index_detail(conn, f"Aldric Vennoway v. Zorbland, {KEY}") == (VerifyResult.IN_INDEX, True)
