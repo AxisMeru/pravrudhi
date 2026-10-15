@@ -465,6 +465,12 @@ def resolve_citation_key(
     return ResolvedAlias(None, case_rows)
 
 
+def _fold_abbreviations(tokens: frozenset[str]) -> frozenset[str]:
+    """The words of a party name with a printed abbreviation folded to its long form ("Corp" and "Corpn" to "Corporation"), for the
+    containment test only: a title that prints "Delhi Transport Corp" carries the alias word "Corporation"."""
+    return frozenset(_ABBREVIATIONS.get(t, t) for t in tokens)
+
+
 def _title_carries_the_cited_parties(conn: sqlite3.Connection, key: str, title: str) -> bool:
     """Whether a candidate's title carries EVERY distinctive word of both parties of some alias group of the citation key
     (containment of the alias in the title, not equality: a real title often adds words, "State of Rajasthan Jaipur vs
@@ -474,12 +480,12 @@ def _title_carries_the_cited_parties(conn: sqlite3.Connection, key: str, title: 
     a group with no distinctive word at all cannot be told apart and does not exclude the candidate.
     Limit, stated: a different case whose title contains ALL the alias words plus others still passes; only the verbatim
     quote check stands between such a case and VERIFIED."""
-    tokens = _distinctive_tokens(title)
+    tokens = _fold_abbreviations(_distinctive_tokens(title))
     groups = list(conn.execute("SELECT DISTINCT party_1, party_2 FROM citation_aliases WHERE citation = ?", (key,)))
     if not groups:
         return True
     for party_1, party_2 in groups:
-        sides = [t for t in (_distinctive_tokens(party_1), _distinctive_tokens(party_2)) if t]
+        sides = [_fold_abbreviations(t) for t in (_distinctive_tokens(party_1), _distinctive_tokens(party_2)) if t]
         if not sides or all(side <= tokens for side in sides):
             return True
         names = normalize_party_name(f"{party_1} {party_2}")
