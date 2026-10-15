@@ -116,3 +116,68 @@ def test_the_mode_of_an_existing_target_is_kept(tmp_path: Path, mode: int) -> No
     path.chmod(mode)
     objectives.write(tmp_path, OBJECTIVE)
     assert (path.stat().st_mode & 0o777) == mode
+
+
+# ---- #507: the temporary copy never holds the content at a wider mode than the target ------------------------------------------
+def test_the_temporary_file_is_created_0600_and_widened_only_after_the_write(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    objectives.write(tmp_path, OBJECTIVE)
+    path = objectives.objectives_dir(tmp_path) / f"{OBJECTIVE.id}.yaml"
+    path.chmod(0o640)
+    seen: list[tuple[str, int]] = []
+    real_open = os.open
+
+    def spy(p: object, flags: int, mode: int = 0o777, *a: object, **k: object) -> int:
+        if str(p).endswith(".tmp"):
+            seen.append(("create", mode))
+        return real_open(p, flags, mode, *a, **k)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(os, "open", spy)
+    objectives.write(tmp_path, OBJECTIVE)
+    assert seen == [("create", 0o600)]  # never 0666: the umask cannot widen it
+    assert (path.stat().st_mode & 0o777) == 0o640  # and the target mode is restored by fchmod before the rename
+
+
+def test_a_0600_objective_is_never_group_readable_through_its_temporary_copy(tmp_path: Path) -> None:
+    objectives.write(tmp_path, OBJECTIVE)
+    d = objectives.objectives_dir(tmp_path)
+    path = d / f"{OBJECTIVE.id}.yaml"
+    path.chmod(0o600)
+    old = os.umask(0o022)
+    try:
+        stop = threading.Event()
+        leaks: list[str] = []
+
+        def watcher() -> None:
+            while not stop.is_set():
+                for p in d.glob(".*.tmp"):
+                    try:
+                        if p.stat().st_mode & 0o077 and p.stat().st_size:
+                            leaks.append(p.name)
+                    except FileNotFoundError:
+                        pass
+
+        w = threading.Thread(target=watcher)
+        w.start()
+        try:
+            for _ in range(400):
+                objectives.write(tmp_path, OBJECTIVE)
+        finally:
+            stop.set()
+            w.join()
+    finally:
+        os.umask(old)
+    assert leaks == [] and (path.stat().st_mode & 0o777) == 0o600
+
+
+def test_a_new_file_gets_the_umask_default_without_a_probe_left_behind(tmp_path: Path) -> None:
+    old = os.umask(0o027)
+    try:
+        objectives.write(tmp_path, _new_objective(7))
+    finally:
+        os.umask(old)
+    d = objectives.objectives_dir(tmp_path)
+    p = d / "conc-0007.yaml"
+    assert (p.stat().st_mode & 0o777) == 0o640  # 0666 & ~027
+    assert sorted(x.name for x in d.iterdir()) == [p.name]
