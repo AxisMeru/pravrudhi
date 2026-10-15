@@ -121,6 +121,19 @@ def normalize_party_name(name: str) -> str:
 _FUZZY_THRESHOLD = 0.9
 
 
+def _fuzzy_match(target: str, title: str) -> bool:
+    """`SequenceMatcher(target, normalised title).ratio() >= _FUZZY_THRESHOLD`, with difflib's two cheap upper bounds
+    (`real_quick_ratio`, `quick_ratio`) tried first: ratio() can never exceed either, so a title that fails a bound
+    cannot reach the floor and the answer is exactly the plain ratio test, found without the expensive match search for
+    nearly every title of a 38,000-title scan."""
+    matcher = SequenceMatcher(None, target, normalize_party_name(title))
+    return (
+        matcher.real_quick_ratio() >= _FUZZY_THRESHOLD
+        and matcher.quick_ratio() >= _FUZZY_THRESHOLD
+        and matcher.ratio() >= _FUZZY_THRESHOLD
+    )
+
+
 def _fuzzy_confirm(conn: sqlite3.Connection, party_1: str, party_2: str) -> list[sqlite3.Row]:
     """The exact `"t1" AND "t2"` FTS5 match found nothing -- fall back to a real spelling variant, e.g.
     "Ramchandran" (as mined from a citing document) vs "Ramachandran" (the actual corpus title).
@@ -139,9 +152,7 @@ def _fuzzy_confirm(conn: sqlite3.Connection, party_1: str, party_2: str) -> list
     # case would be an attacker-triggerable unbounded read (R1, #181). The full row is fetched for the few that
     # clear the ratio floor, after the scan.
     confirmed_ids = [
-        row["case_id"]
-        for row in conn.execute("SELECT case_id, title FROM cases")
-        if SequenceMatcher(None, target, normalize_party_name(row["title"])).ratio() >= _FUZZY_THRESHOLD
+        row["case_id"] for row in conn.execute("SELECT case_id, title FROM cases") if _fuzzy_match(target, row["title"])
     ]
     confirmed: list[sqlite3.Row] = []
     for i in range(0, len(confirmed_ids), 500):
