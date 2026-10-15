@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 from pravrudhi.api import identity
 from pravrudhi.api.server import create_app
 from pravrudhi.application import tenancy
+from pravrudhi.application.a0_assist import runtime as a0rt
 
 REPO = Path(__file__).resolve().parent.parent
 SECRET = "p" * 40
@@ -38,6 +39,15 @@ ORG_ROUTES: list[tuple[str, str, dict[str, Any] | None]] = [
     ("GET", "/api/v1/orgs/acme/usage", None),
     ("GET", "/api/v1/orgs/acme/usage/summary", None),
 ]
+
+
+@pytest.fixture(autouse=True)
+def _fresh_assist_runtime():
+    """The assist cases reach the route's 404 before the key check when a cached runtime is dark or absent, so the result
+    depended on what an earlier test module left in the process-wide runtime. Build it from this test's own config."""
+    a0rt.reset()
+    yield
+    a0rt.reset()
 
 
 @pytest.fixture
