@@ -111,6 +111,31 @@ def test_sharing_only_a_very_common_name_is_not_agreement(tmp_path: Path) -> Non
     assert exists_in_index_detail(conn, f"Singh v. State of Zorbland, {KEY}") == (VerifyResult.IN_INDEX, True)
 
 
+def test_an_initial_v_is_not_taken_for_the_separator(tmp_path: Path) -> None:
+    conn = _db(tmp_path, "initial_v", [("K.V. Zorbrao", "L.H.V. Prasad"), ("K.V. Zorbrao", "L.H.V. Prasad & Ors.")], "K V Zorbrao vs L H V Prasad Ors")
+    for typed in (
+        "K V Zorbrao v. L H V Prasad Ors",
+        "K V Zorbrao v L H V Prasad",
+        "K.V. Zorbrao v. L.H.V. Prasad",
+        "K V ZORBRAO V. L H V PRASAD",
+        "Per K V Zorbrao vs. L H V Prasad and Ors.",
+        "K. V. Zorbrao v. L. H. V. Prasad Ors",
+        "K.V.Zorbrao v. L.H.V. Prasad",
+        "As in K V Zorbrao v. L H V Prasad Ors",
+        "Hon'ble K V Zorbrao v. L H V Prasad",
+        "L H V Prasad Ors v. K V Zorbrao",
+    ):
+        assert exists_in_index_detail(conn, f"{typed}, {KEY}") == (VerifyResult.IN_INDEX, True), typed
+    assert exists_in_index_detail(conn, f"K V Zorbrao v. L H V Mendelson, {KEY}") == (VerifyResult.NAME_MISMATCH, True)
+    assert exists_in_index_detail(conn, f"K V Brenwick v. L H V Prasad, {KEY}") == (VerifyResult.NAME_MISMATCH, True)
+
+
+def test_doubled_vowel_spellings_of_one_name_agree(tmp_path: Path) -> None:
+    conn = _db(tmp_path, "vowels", [("Lalit Zorbland", "Om Kumar")], "Lalit Zorbland vs Om Kumar")
+    assert exists_in_index_detail(conn, f"Laalit Zorbland v. Om Kumaar, {KEY}") == (VerifyResult.IN_INDEX, True)
+    assert exists_in_index_detail(conn, f"Lalit Zorbland v. Om Kumari, {KEY}") == (VerifyResult.NAME_MISMATCH, True)
+
+
 def test_a_shortened_right_name_matches(tmp_path: Path) -> None:
     conn = _db(tmp_path, "short", ONE)
     assert exists_in_index_detail(conn, f"Aldric Vennoway v. Zorbland, {KEY}") == (VerifyResult.IN_INDEX, True)

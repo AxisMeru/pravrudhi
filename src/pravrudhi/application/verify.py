@@ -904,30 +904,74 @@ _COMMON_NAME_WORDS = frozenset(
 )
 
 
-def _side_agrees(side: frozenset[str], title_words: frozenset[str]) -> bool:
+def _slip(a: str, b: str) -> bool:
+    """A one-letter spelling slip in a word of six or more letters (the same first letter), or the shared rules of `_same_word`."""
+    return _same_word(a, b) or (min(len(a), len(b)) >= 6 and _one_slip(a, b))
+
+
+def _side_agrees(side: frozenset[str], title_words: frozenset[str], initials: frozenset[str] = frozenset()) -> bool:
     """One typed party against a title: at least half of its words are in the title, and (when it has a word that is not a very common
     name) at least one such word; a side made only of very common name words needs all of them."""
-    matched = {w for w in side if _word_in(w, title_words)}
+    matched = {w for w in side if any(_slip(w, other) for other in title_words)}
     if len(matched) * 2 < len(side):
         return False
-    rare = side - _COMMON_NAME_WORDS
-    return bool(matched & rare) if rare else matched == side
+    evidence = side - initials  # a run of initials (L H V) matching is not evidence by itself
+    rare = evidence - _COMMON_NAME_WORDS
+    return bool(matched & rare) if rare else matched >= evidence
+
+
+def _split_parties(name: str) -> list[str]:
+    """The two parties of a typed case name. An initial V ("G V Rao v. L H V Prasad", "G. V. Rao v. L. H. V. Prasad") looks like the
+    separator, so the candidates are tried in tiers: a lower-case "v", "v.", "vs", "vs." or "versus"; then any candidate that ends with
+    a full stop; then any. Within a tier the candidate nearest the middle of the name wins. One piece when there is no separator."""
+    found = list(_PARTY_SEPARATOR.finditer(name))
+    if not found:
+        return [name]
+    token = lambda m: m.group(0).strip()  # noqa: E731
+    tiers = (
+        [m for m in found if token(m) in ("v", "v.", "vs", "vs.", "versus")],
+        [m for m in found if token(m).endswith(".")],
+        found,
+    )
+    pool = next(t for t in tiers if t)
+    mid = len(name) / 2
+    m = min(pool, key=lambda x: abs((x.start() + x.end()) / 2 - mid))
+    return [name[: m.start()], name[m.end() :]]
+
+
+def _unglue_dots(side: str) -> str:
+    """"G.V.Rao" is G V Rao: a full stop followed by a letter starts a new word (so the initials do not fuse with the name)."""
+    return re.sub(r"\.(?=[A-Za-z])", ". ", side)
+
+
+def _initialisms(side: str) -> frozenset[str]:
+    """The merged runs of three or more single-letter initials in one typed party ("L H V" and "L.H.V." both give "lhv"): they are
+    kept as words, but a run of initials alone is never evidence that two names are the same."""
+    return frozenset(
+        re.sub(r"[^a-z]", "", run.lower()) for run in re.findall(r"(?<![A-Za-z])(?:[A-Za-z](?![A-Za-z])\.?\s*){3,}", _unglue_dots(side)) if run.strip()
+    )
+
+
+def _fold_word(w: str) -> str:
+    """One word folded for the typed-name comparison: Mohammad spellings, printed abbreviations, and doubled vowels (Kumaar, Laalit)."""
+    w = _TYPED_NAME_FOLDS.get(w, _ABBREVIATIONS.get(w, w))
+    return re.sub(r"([aeiou])\1+", r"\1", w)
 
 
 def _typed_words(side: str) -> frozenset[str]:
     """The distinctive words of ONE side of a typed case name, for the comparison only: leading signal words and honorifics dropped,
     the initialism UOI dropped, Mohd/Mohammed/Muhammad folded to one word, printed abbreviations folded ("Corp" to "Corporation")."""
-    side = _TYPED_SIGNAL_WORDS.sub("", " ".join(side.split()))
+    side = _TYPED_SIGNAL_WORDS.sub("", " ".join(_unglue_dots(side).split()))
     words = _distinctive_tokens(side) - _TYPED_NOISE_WORDS
-    return frozenset(_TYPED_NAME_FOLDS.get(w, _ABBREVIATIONS.get(w, w)) for w in words)
+    return frozenset(_fold_word(w) for w in words)
 
 
 def _title_words(title: str) -> frozenset[str]:
-    return frozenset(_TYPED_NAME_FOLDS.get(w, _ABBREVIATIONS.get(w, w)) for w in _distinctive_tokens(title))
+    return frozenset(_fold_word(w) for w in _distinctive_tokens(title))
 
 
 def _word_in(word: str, words: frozenset[str]) -> bool:
-    return any(_same_word(word, other) for other in words)
+    return any(_slip(word, other) for other in words)
 
 
 def _name_agrees(conn: sqlite3.Connection, key: str, titles: list[str], claimed_name: str) -> bool | None:
@@ -936,12 +980,16 @@ def _name_agrees(conn: sqlite3.Connection, key: str, titles: list[str], claimed_
     `_same_word`) must be in the title; or the title's own words (two or more) are all in the typed name (a name with prose around
     it). Or the typed name agrees with an alias group of the key on both parties, the group having a distinctive word on both sides.
     None when the typed name has no distinctive word (nothing to compare)."""
-    sides = [w for w in (_typed_words(side) for side in _PARTY_SEPARATOR.split(claimed_name, maxsplit=1)) if w]
-    if not sides:
+    pieces = _split_parties(claimed_name)
+    sides = [_typed_words(side) for side in pieces]
+    initials = [frozenset(_fold_word(i) for i in _initialisms(side)) for side in pieces]
+    keep = [(w, i) for w, i in zip(sides, initials) if w]
+    if not keep:
         return None
+    sides = [w for w, _ in keep]
     for title in titles:
         tw = _title_words(title)
-        if all(_side_agrees(side, tw) for side in sides):
+        if all(_side_agrees(side, tw, ini) for side, (_, ini) in zip(sides, keep)):
             return True
         typed_all = frozenset().union(*sides)
         if len(tw) >= 2 and all(_word_in(w, typed_all) for w in tw):

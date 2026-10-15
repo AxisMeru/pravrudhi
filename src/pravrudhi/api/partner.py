@@ -481,7 +481,10 @@ class VerifyCitationRequest(BaseModel):
 
 
 class VerifyCitationResponse(BaseModel):
-    result: str
+    result: str = Field(
+        description="VERIFIED, EXISTS_QUOTE_NOT_FOUND, IN_INDEX (no quote sent), NOT_IN_INDEX, CONFLICT, MALFORMED or NAME_MISMATCH (#509: the "
+        "citation resolves to one indexed case but the case name sent with it does not match that case). Handle a value you do not know."
+    )
     note: str
     #: #533 (preview): the product wording. `status` is one of verified, quote_not_found, not_in_index, conflict, malformed;
     #: `label` is the text to show verbatim; `verified` is true only for `result` VERIFIED (a resolved key AND the exact
@@ -496,7 +499,10 @@ class VerifyCitationResponse(BaseModel):
     #: #509: present (true) only when a case name typed in front of the citation was COMPARED with the index: an IN_INDEX that matched
     #: the name, or NAME_MISMATCH. Absent from every other reply (no name, a name with no distinctive word, any other result, the quote
     #: path), which is therefore byte-identical to the reply before this field existed.
-    name_compared: bool | None = None
+    name_compared: bool | None = Field(
+        default=None,
+        description="True only when a case name typed in front of the citation was compared with the index (an IN_INDEX that matched the name, or NAME_MISMATCH); the field is absent from every other reply.",
+    )
 
 
 _VERIFY_NOTES = {
@@ -1733,7 +1739,9 @@ def build_partner_router(
             if looked_up[0] >= INTAKE_MAX_CITATION_LOOKUPS or time.monotonic() - started > INTAKE_LOOKUP_BUDGET_S:
                 return "NOT_CHECKED"
             looked_up[0] += 1
-            result, _cov = _lookup(Path(path), VerifyCitationRequest(citation=text), cfg.verify_timeout_s)
+            # #509: Intake looks up the BARE citation (the extractor passes no case name), so no name is compared here and the
+            # third item (name_compared) is always False; Intake never carries it and never sees NAME_MISMATCH.
+            result, _cov, _compared = _lookup(Path(path), VerifyCitationRequest(citation=text), cfg.verify_timeout_s)
             seen[text] = result.result
             return result.result
 
