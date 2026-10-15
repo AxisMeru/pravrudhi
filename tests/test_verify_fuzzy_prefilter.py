@@ -86,3 +86,44 @@ def test_a_title_the_cheap_bounds_pass_but_whose_ratio_is_under_the_floor_is_rej
     matcher = SequenceMatcher(None, target, title)
     assert matcher.quick_ratio() >= V._FUZZY_THRESHOLD > matcher.ratio() >= 0.8
     assert V._fuzzy_match(target, title) is False
+
+
+# Edge families for the equivalence, from Track-B's adversarial re-attack of this change (456,544 pairs, 0 violations): the bounds
+# must agree with the plain test on each, and neither bound may ever be below the ratio.
+_EDGE_PAIRS = [
+    ("", ""),
+    ("", "a"),
+    ("a", ""),
+    ("a", "a"),
+    ("a", "b"),
+    ("ab", "ba"),
+    (" ", "  "),
+    (".", "..."),  # empty and one-character strings
+    ("abcdefghij", "abcdefghix"),  # ratio exactly 0.9: on the floor, so it confirms
+    ("abcdefghij", "abcdefgxyz"),  # ratio 0.7: under it
+    (
+        "aldric vennoway state of zorbland",
+        "state of zorbland aldric vennoway",
+    ),  # the same words reordered (bounds pass, ratio low)
+    ("ab" * 150, ("ab" * 150)[:-1] + "c"),  # 300 characters (difflib's autojunk applies from 200)
+    ("a" * 250, "a" * 249),  # one repeated character
+    ("abcde " * 40, ("abcde " * 40).replace("c", "x", 3)),
+    ("अआइ ईउ", "अआइ ईऊ"),  # a non-Latin script
+    ("s a kamtam", "s.a. kamtam vs other"),  # initials, punctuation and extra words
+    ("dr r ramachandran", "ramachandran dr r"),
+]
+
+
+@pytest.mark.parametrize(("target", "title"), _EDGE_PAIRS)
+def test_edge_pairs_agree_with_the_plain_test_and_the_bounds_never_undercut_the_ratio(target: str, title: str) -> None:
+    normalised = V.normalize_party_name(title)
+    matcher = SequenceMatcher(None, target, normalised)
+    ratio = matcher.ratio()
+    assert matcher.real_quick_ratio() >= ratio and matcher.quick_ratio() >= ratio
+    assert V._fuzzy_match(target, title) is (ratio >= V._FUZZY_THRESHOLD) is _plain(target, title)
+
+
+def test_the_edge_table_covers_both_outcomes_and_the_exact_floor() -> None:
+    outcomes = {V._fuzzy_match(t, s) for t, s in _EDGE_PAIRS}
+    assert outcomes == {True, False}
+    assert SequenceMatcher(None, "abcdefghij", "abcdefghix").ratio() == V._FUZZY_THRESHOLD
