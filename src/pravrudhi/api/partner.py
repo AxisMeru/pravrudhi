@@ -234,6 +234,15 @@ def _bad_key_budget(yaml_value: Any) -> int | None:
     return raw
 
 
+def _intake_timeout(raw: Any) -> float:
+    """The file's `intake_timeout_s`, checked BEFORE it becomes a float: a number only (a `true`, a quoted "30" or a null is a
+    typo that would otherwise turn into a 1 s, a 30 s or a bare error that does not name the key). Range and finiteness are
+    checked by `PartnerApiConfig`."""
+    if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+        raise ValueError(f"intake_timeout_s must be a number of seconds (0 = off), got {raw!r}"[:200])
+    return float(raw)
+
+
 def load_partner_api_config(root: Path) -> PartnerApiConfig:
     body = yaml.safe_load(config_file(Path(root), "partner_api.yaml").read_text()) or {}
     # NYAYA_DEBUG_SECOND_JUDGE_FIELDS: an env override (this file's yaml has none of its own precedent for
@@ -272,7 +281,7 @@ def load_partner_api_config(root: Path) -> PartnerApiConfig:
         audit_retention_s=float(body.get("audit_retention_s", 90 * 86400.0)),
         verify_max_concurrent=int(body.get("verify_max_concurrent", 2)),
         verify_timeout_s=float(body.get("verify_timeout_s", 5.0)),
-        intake_timeout_s=float(body.get("intake_timeout_s", 30.0)),
+        intake_timeout_s=_intake_timeout(body.get("intake_timeout_s", 30.0)),
     )
 
 
