@@ -13,9 +13,12 @@ correctly comes back NOT_IN_INDEX -- an honest "no alias evidence", not a false 
 from __future__ import annotations
 
 import json
+import os
 import re
 import sqlite3
+import threading
 import unicodedata
+from collections import Counter
 from dataclasses import dataclass
 from difflib import SequenceMatcher
 from enum import StrEnum
@@ -134,6 +137,96 @@ def _fuzzy_match(target: str, title: str) -> bool:
     )
 
 
+#: One index file's titles, normalised once: (case_id, normalised title, its length, its character counts). The fuzzy scan
+#: compares
+#: a target with EVERY title, once per alias group of a citation, so a citation with many groups normalised the same 38,657
+#: titles (and re-read them from the file) a dozen times per lookup; this reads and normalises them once per process.
+_TITLE_ROWS: dict[tuple[Any, ...], tuple[tuple[str, str, int, Counter[str]], ...]] = {}
+#: Held while the cache is built, so concurrent first lookups (and the start-up warm-up) build it ONCE; none sees a partial copy.
+_TITLE_LOCK = threading.Lock()
+
+
+def _title_rows(conn: sqlite3.Connection) -> tuple[tuple[str, str, int, Counter[str]], ...] | None:
+    """The cached normalised titles of the index file behind `conn`, or None for a database with no file (in memory), where the
+    scan reads the table as before. The key names the file's identity, its header change counter and the stat of a `-wal` file, so
+    a rewritten file is never served from an older copy. Index files are REPLACED, never updated in place (the shipped index
+    is read-only in the image); a swap by rename, a rewrite and a WAL commit all move the key. One entry only: two index files
+    alternating in one process would rebuild the cache each time."""
+    try:
+        row = conn.execute("PRAGMA database_list").fetchone()
+        file = row[2] if row else ""
+        if not file:
+            return None
+        st = os.stat(file)
+        with open(file, "rb") as f:
+            header = f.read(100)
+    except (OSError, sqlite3.Error):
+        return None
+    try:
+        wal = os.stat(file + "-wal")
+        wal_id = (wal.st_mtime_ns, wal.st_size)
+    except OSError:
+        wal_id = None
+    key = (file, st.st_ino, st.st_mtime_ns, st.st_size, header[24:28], wal_id)
+    rows = _TITLE_ROWS.get(key)
+    if rows is None:
+        with _TITLE_LOCK:
+            rows = _TITLE_ROWS.get(key)  # another thread may have built it while this one waited
+            if rows is None:
+                titles = [(r[0], normalize_party_name(r[1] or "")) for r in conn.execute("SELECT case_id, title FROM cases")]
+                rows = tuple((case_id, t, len(t), Counter(t)) for case_id, t in titles)
+                _TITLE_ROWS.clear()  # one index file per process; a replaced file drops the old copy
+                _TITLE_ROWS[key] = rows
+    return rows
+
+
+def warm_title_cache(index_path: str | Path) -> int:
+    """Load the title cache of the index at `index_path` (engine start): returns the number of titles, 0 when unavailable."""
+    try:
+        conn = sqlite3.connect(f"file:{Path(index_path).resolve()}?mode=ro", uri=True)
+    except sqlite3.Error:
+        return 0
+    try:
+        with open(Path(index_path), "rb") as f:  # the whole file into the OS page cache (11 MB for the shipped slim index)
+            while f.read(1 << 20):
+                pass
+        rows = _title_rows(conn)
+        # One full lookup of the citation with the most alias groups: the first real call on this worker then finds the
+        # code paths, regex caches and the index's pages already used (#478).
+        try:
+            heavy = conn.execute(
+                "SELECT citation FROM citation_aliases GROUP BY citation "
+                "ORDER BY COUNT(DISTINCT party_1 || '|' || party_2) DESC LIMIT 1"
+            ).fetchone()
+            if heavy is not None:
+                exists_in_index(conn, heavy[0])
+        except sqlite3.Error:
+            pass  # an index without alias rows has no heavy lookup to rehearse; the title cache is loaded either way
+        return len(rows) if rows else 0
+    except (OSError, sqlite3.Error):
+        return 0
+    finally:
+        conn.close()
+
+
+def _fuzzy_scan(target: str, rows: tuple[tuple[str, str, int, Counter[str]], ...]) -> list[str]:
+    """The case ids whose normalised title matches `target` at `_FUZZY_THRESHOLD`: `_fuzzy_match` over the cached titles, with
+    difflib's two upper bounds computed from the cached length and character counts (the same formulas as
+    `real_quick_ratio` and `quick_ratio`), so a SequenceMatcher is built only for a title that passed both."""
+    la = len(target)
+    ca = Counter(target)
+    out: list[str] = []
+    for case_id, title, lb, cb in rows:
+        total = la + lb
+        if total and 2.0 * min(la, lb) / total < _FUZZY_THRESHOLD:
+            continue
+        if total and 2.0 * sum((ca & cb).values()) / total < _FUZZY_THRESHOLD:
+            continue
+        if SequenceMatcher(None, target, title).ratio() >= _FUZZY_THRESHOLD:
+            out.append(case_id)
+    return out
+
+
 def _fuzzy_confirm(conn: sqlite3.Connection, party_1: str, party_2: str) -> list[sqlite3.Row]:
     """The exact `"t1" AND "t2"` FTS5 match found nothing -- fall back to a real spelling variant, e.g.
     "Ramchandran" (as mined from a citing document) vs "Ramachandran" (the actual corpus title).
@@ -151,9 +244,13 @@ def _fuzzy_confirm(conn: sqlite3.Connection, party_1: str, party_2: str) -> list
     # Titles only: the `text` column is the whole judgment, and a scan that dragged it through memory for every
     # case would be an attacker-triggerable unbounded read (R1, #181). The full row is fetched for the few that
     # clear the ratio floor, after the scan.
-    confirmed_ids = [
-        row["case_id"] for row in conn.execute("SELECT case_id, title FROM cases") if _fuzzy_match(target, row["title"])
-    ]
+    rows = _title_rows(conn)
+    if rows is not None:
+        confirmed_ids = _fuzzy_scan(target, rows)
+    else:
+        confirmed_ids = [
+            row["case_id"] for row in conn.execute("SELECT case_id, title FROM cases") if _fuzzy_match(target, row["title"])
+        ]
     confirmed: list[sqlite3.Row] = []
     for i in range(0, len(confirmed_ids), 500):
         chunk = confirmed_ids[i : i + 500]
