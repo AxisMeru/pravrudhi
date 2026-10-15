@@ -3,6 +3,24 @@
 Release notes for the engine (`pravrudhi`). Versions before 0.5.44 are described in their GitHub release notes and commit
 messages.
 
+## 0.6.14 (2026-10-15)
+
+PATCH release on 0.6.13: the citation check now recognises Supplementary-form citations, reads fewer records for citations with many alias spellings, and no longer fails on a very long run of digits in pasted text. **Rebuild the image and use the rebuilt citation index.** The code change is under `src/`, so it reaches a running container only by a rebuild of the engine image and the RunPod worker template from 0.6.14; the Supplementary-form check also needs the matching citation index shipped with the image.
+
+### Changed
+
+- **Supplementary-form citations are recognised (caller-visible).** A citation written in the Supplementary form, for example 1992 Supp (1) SCC 335, was answered as not in the index even when the case is in it, because the index held only the plain form of the number. The index now also records each judgment's own Supplementary citation, so the check finds the case and answers `IN_INDEX` when one case holds that citation, `CONFLICT` when the same Supplementary citation is held by judgments that are clearly different cases, and `NOT_IN_INDEX` when no such citation is held. As for the plain form, this is an existence check: it does not compare the name you typed with a number that only one case holds. The plain form of the same number keeps its answer.
+- **Fewer queries for citations with many alias spellings (no change in answers).** When the check has to decide between several cases, it now reads their recorded years in one query rather than one per case. Answers are identical.
+- **A very long run of digits in pasted text no longer causes an error.** Text containing a digit run of several thousand digits next to a citation prefix made the intake and assistant routes fail with a 500. A number longer than nine digits for a page (four for a volume) is now not read as a citation, and the rest of the text is processed as usual. Ordinary citations are read exactly as before.
+
+### Known limits
+
+- **Supplementary-form citations in pasted text.** In pasted text (intake), a Supplementary citation is not picked up, so it is missing from the citations found, when its parts are separated by a gap of more than four spaces (as in some PDF-indented judgments), when the supplement volume has two digits, or when its page number has more than six digits. The check of a typed citation is not affected.
+
+### Unchanged
+
+- Every response field, `reason` value and route; the rate limit; the 5 second lookup limit; the existence rule and the rule that treats near spellings of a long rare name as one case, with its known limit (a long name that differs from another by one letter can answer `IN_INDEX` when the index holds the case under only one of the two).
+
 ## 0.6.13 (2026-10-15)
 
 PATCH release on 0.6.12: the citation check is faster for citations that have many alias spellings in the index. Answers are identical. **Rebuild the image.** The change is under `src/`, so it reaches a running container only by a rebuild of the engine image and the RunPod worker template from 0.6.13.
