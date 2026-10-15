@@ -3,6 +3,21 @@
 Release notes for the engine (`pravrudhi`). Versions before 0.5.44 are described in their GitHub release notes and commit
 messages.
 
+## 0.6.18 (2026-10-15)
+
+PATCH release on 0.6.17: an unexpected error answers in one coded form instead of plain text, some other error bodies change, and the engine's configuration file is read more strictly. **Rebuild the image.** The change is under `src/`, so it reaches a running container only by a rebuild of the engine image and the RunPod worker template from 0.6.18; the citation index is unchanged.
+
+### Changed
+
+- **An unexpected error answers a coded 500 (caller-visible).** When a route hits an error the engine does not handle, it now answers HTTP 500 with the JSON body `{"error": "internal_error", "detail": "an internal error occurred; try again later"}`. Before, it answered the plain text `Internal Server Error`, which a client could not recognise by `error` the way it can for the engine's other coded refusals. The body never carries the error text or a file path.
+- **A failed asynchronous analysis job stores the same coded body (caller-visible).** The result of `GET /api/v1/analyse-facts/jobs/{id}` for a job that crashed now carries `{"error": "internal_error", "detail": "an internal error occurred; try again later"}`; before, it carried `{"detail": "internal error"}`.
+- **Two routes answer a coded 503 when the configuration file is missing (caller-visible).** `GET /api/v1/analyse-facts/jobs/{id}` and `GET /api/v1/audit` now answer 503 `{"error": "service_config_missing"}`, as the other routes already did; before, they answered `{"detail": "service_config_missing"}`.
+- **The intake time-budget setting must be a number (operators).** `intake_timeout_s` in the configuration file must be a number of seconds (0 turns the budget off). A true/false value, a number in quotes (such as `"30"`), a number written as `1e1` (YAML reads it as text), an empty value or a list is refused when the engine reads the file, with an error that names the setting; before, `true` was read as a one-second budget and `false` turned the budget off.
+
+### Unchanged
+
+- Every response field, answer and `reason` value of a call that succeeds, and every refusal other than the ones named above; every route; the rate limits; the intake time budget and its 30 second default; the 5 second lookup limit; the citation index and the existence rules.
+
 ## 0.6.17 (2026-10-15)
 
 PATCH release on 0.6.16: the intake no longer fails on a word made only of number-like characters. **Rebuild the image.** The change is under `src/`, so it reaches a running container only by a rebuild of the engine image and the RunPod worker template from 0.6.17; the citation index is unchanged.
