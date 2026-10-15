@@ -286,7 +286,15 @@ def test_adversarial_input_does_not_stall_the_citation_parser(label: str, text: 
     assert time.perf_counter() - t < 1.0, label
 
 
-def test_the_header_regexes_do_not_stall_either() -> None:
+def test_a_placeholder_page_zero_is_not_an_own_citation() -> None:
+    text = "Equivalent citations: 1986 SCC (SUPP) 79, 1986 SCC  Supl.    0     1986 SCALE (1)"
+    assert own_supp_citations(text, title="T", year=1986) == ["(1986) Supp SCC 79"]
+
+
+def test_the_header_regexes_stay_linear_on_long_whitespace() -> None:
+    """A regression bound, not a mutant guard: the header regexes were never quadratic (they run only at index build, over a
+    1,200-character header and a title), and the bounded gaps keep it so. The parser's own time-bound tests above are the
+    ones that fail on an unbounded gap."""
     import time
 
     for text in ["Equivalent" + " " * 50_000 + "citations", "citation" + " " * 50_000, "x" * 50_000 + "Equivalent citations"]:

@@ -74,7 +74,10 @@ def own_supp_citations(text: str, *, title: str = "", year: int | None = None) -
         if not 0 <= cited - decided <= _MAX_YEAR_LAG:
             continue
         volume = m["vA"] or m["vB1"] or m["vB2"]
-        key = supp_key(cited, int(volume) if volume else None, int(m["pA"] or m["pB"]))
+        page = int(m["pA"] or m["pB"])
+        if page < 1:
+            continue  # a placeholder "Supl. 0" printed next to the real citation is not a page
+        key = supp_key(cited, int(volume) if volume else None, page)
         if key not in out:
             out.append(key)
     return out
