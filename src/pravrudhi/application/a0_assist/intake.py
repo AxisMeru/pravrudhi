@@ -116,8 +116,12 @@ _CAP_VOCAB = re.compile(
     r"\bfor\s+the\s+(?:petitioner|respondent|appellant|state)\b|\b(?:sri|shri|smt|km)\.?\s+[A-Za-z]",
     re.I,
 )
+# No two adjacent quantifiers over the same characters (`\s*:?\s*` is `\s*(?::\s*)?`; the letters of the CRL form are tried
+# once, not as an optional run between two gaps): the earlier form backtracked polynomially on a long whitespace run.
 _NEUTRAL = re.compile(
-    r"\b(?:19|20)\d\d\s*:\s*[A-Za-z]+(?:\s*[-:]\s*[A-Za-z]+)*\s*:?\s*\d+|\bNC\s*:|\bCRL\.?\s*[A-Z]*\.?\s*NO", re.I
+    r"\b(?:19|20)\d\d\s*:\s*[A-Za-z]+(?:\s*[-:]\s*[A-Za-z]+)*\s*(?::\s*)?\d+|\bNC\s*:"
+    r"|\bCRL\.?\s*(?:[A-Z]+\.?\s*|\.\s*)?NO",
+    re.I,
 )
 _CT = (
     r"(?:CRL|CRIMINAL|CRI|CR|CRLA|CRLP|CRLRC|CRLMP|CRP|WP|WA|OP|MC|SB|RFA|RSA|SA|CMP|MP|APPEAL|PETITION|REVISION|MISC|CASE)"
@@ -126,12 +130,13 @@ _CT = (
 _YR = r"(?:19|20)\d\d"
 _CASE_NO = rf"\d{{1,6}}(?:\s*(?:/|OF)\s*{_YR})?"
 _CASE_STAMP = (
-    rf"(?:\([A-Z]{{1,4}}\)\s*\.?\s*)?{_CT}(?:[ .\-/]*{_CT})*[ .]*(?:NOS?\.?)?[ .]*{_CASE_NO}(?:\s*(?:AND|&|,)\s*{_CASE_NO})*[ .]*"
+    rf"(?:\([A-Z]{{1,4}}\)\s*(?:\.\s*)?)?{_CT}(?:[ .\-/]*{_CT})*[ .]*(?:NOS?\.?[ .]*)?{_CASE_NO}"
+    rf"(?:\s*(?:AND|&|,)\s*{_CASE_NO})*[ .]*"
 )
-_PAGE_STAMP = r"(?:PAGE|PG\.?)\s*(?:NO\.?)?\s*\d+(?:\s*(?:OF|/)\s*\d+)?(?:\s*//\s*\d+\s*//)?"
+_PAGE_STAMP = r"(?:PAGE|PG\.?)\s*(?:NO\.?\s*)?\d+(?:\s*(?:OF|/)\s*\d+)?(?:\s*//\s*\d+\s*//)?"
 _NC_STAMP = rf"NC\s*:\s*{_YR}\s*:\s*[A-Z]+\s*:\s*\d+"
 _NUM_PREFIX = r"[-–—:/ ]*\d{1,3}[-–—:/ ]*"
-_BRACKET_STAMP = rf"\([A-Z]{{1,4}}\)\s*\.?\s*NOS?\.?\s*{_CASE_NO}"
+_BRACKET_STAMP = rf"\([A-Z]{{1,4}}\)\s*(?:\.\s*)?NOS?\.?\s*{_CASE_NO}"
 _TAIL = r"(?:\s+\d{1,3})?"
 _STAMP = re.compile(
     rf"^(?:{_PAGE_STAMP}|(?:{_NUM_PREFIX})?(?:{_NC_STAMP}\s*)?(?:{_CASE_STAMP}|{_BRACKET_STAMP})?{_TAIL}"
