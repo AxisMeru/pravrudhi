@@ -109,3 +109,17 @@ def test_the_unknown_id_error_echoes_a_bounded_part_of_the_id(tmp_path: Path) ->
         assert len(inv.result["error"]) < 200 and inv.result["error"].startswith("no objective named")
         short = chat.dispatch(tmp_path, store, tool, {"id": "nope"})
         assert short.result == {"error": "no objective named 'nope' in this workspace"}
+
+
+def test_the_echoed_id_is_bounded_after_the_repr_for_characters_that_expand(tmp_path: Path) -> None:
+    _measured_workspace(tmp_path)
+    store = FileMemoryStore(tmp_path / "memory")
+    for oid in ("\x00" * 90, "\u202e" * 100, "\\" * 100, "\n" * 100, "\U0001f600" * 100, "a" * 81, "a" * 80):
+        for tool in ("objective_progress", "objective_plan"):
+            err = chat.dispatch(tmp_path, store, tool, {"id": oid}).result["error"]
+            assert len(err) <= len("no objective named ") + chat._SHOWN_REPR_CHARS + len("... in this workspace"), (
+                oid[:3],
+                len(err),
+            )
+    short = chat.dispatch(tmp_path, store, "objective_plan", {"id": "nope"}).result
+    assert short == {"error": "no objective named 'nope' in this workspace"}
