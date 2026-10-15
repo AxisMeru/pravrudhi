@@ -257,15 +257,15 @@ def test_the_route_answers_not_in_index_for_a_supp_citation(tmp_path: Path) -> N
         ("brandelwick", "brandelwiqx", False),  # two letters changed
         # slips seen on real alias spellings of one case: a dropped or added letter, a changed letter, two letters swapped
         ("gujarat", "gujrat", True),
-        ("shardul", "sardul", True),
-        ("samsher", "shamsher", True),
-        ("marwaha", "marwah", True),
-        ("kraipak", "kriapak", True),
-        ("bharati", "bharti", True),
-        ("kesavananda", "keshavananda", True),
+        ("vellorian", "velorian", True),
+        ("tarmaset", "tharmaset", True),
+        ("quillmara", "quillmar", True),
+        ("brelwaith", "brelwiath", True),
+        ("morvati", "morvti", True),
+        ("zerovananda", "zerohvananda", True),
         ("thackeray", "thackerey", True),
         ("corpn", "corporation", True),
-        ("kesavananda", "kesavananda", True),
+        ("zerovananda", "zerovananda", True),
     ],
 )
 def test_which_word_pairs_count_as_one_name(a: str, b: str, same: bool) -> None:

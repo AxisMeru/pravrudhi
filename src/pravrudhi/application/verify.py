@@ -638,11 +638,10 @@ def _same_word(a: str, b: str) -> bool:
 
 def _tokens_correspond(x: frozenset[str], y: frozenset[str], *, allow_shortened: bool = True) -> bool:
     """Whether two sets of distinctive words name the same party: every word of each has an equal or OCR-slip word in the
-    other; or the
-    smaller set is inside the larger one and carries a rare name (a word of at least `_SPELLING_MIN_LETTERS` letters), so a
-    shortened form of a rare name ("Kesavananda Bharati" for "Kesavananda Bharati Sripadagalvaru") corresponds, but a short form
-    that only drops words from common names ("Kumar" for "Rajesh Kumar Gupta") never does. `allow_shortened=False` asks for the
-    first reading only. Empty sets correspond to nothing."""
+    other; or the smaller set is inside the larger one and carries a rare name (a word of at least `_SPELLING_MIN_LETTERS`
+    letters), so a shortened form of a rare name ("Marlowenton Thackeray" for "Marlowenton Thackeray Sripadagalvaru")
+    corresponds, but a short form that only drops words from common names ("Kumar" for "Rajesh Kumar Gupta") never does.
+    `allow_shortened=False` asks for the first reading only. Empty sets correspond to nothing."""
     if not x or not y:
         return False
     x_in_y = all(any(_same_word(a, b) for b in y) for a in x)
