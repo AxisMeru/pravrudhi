@@ -17,10 +17,9 @@ from pravrudhi.api.partner import RateLimiter
 
 API = Path(__file__).resolve().parent.parent / "src" / "pravrudhi" / "api"
 
-#: Raw `HTTPException(5xx, ...)` calls that still answer {"detail": ...} instead of {"error": ...}. These two are the GET routes
-#: /jobs/{id} and /audit when the partner config file is missing (their POST siblings answer {"error": "service_config_missing"}).
-#: Fixing them means removing the entry here.
-KNOWN_RAW_5XX = {("partner.py", 503, "service_config_missing"): 2}
+#: Raw `HTTPException(5xx, ...)` calls the scan allows: none. (The two GET routes /jobs/{id} and /audit used to answer
+#: {"detail": "service_config_missing"}; they now answer {"error": ...} like their POST siblings.)
+KNOWN_RAW_5XX: dict[tuple[str, int, object], int] = {}
 
 
 def _calls(path: Path):
@@ -82,7 +81,7 @@ def test_every_literal_429_body_carries_detail_and_a_retry_after_header() -> Non
     assert seen >= 4
 
 
-def test_a_raw_http_exception_5xx_is_allowed_only_for_the_known_cases() -> None:
+def test_no_raw_http_exception_5xx_is_left() -> None:
     found: dict[tuple[str, int, object], int] = {}
     for path in sorted(API.glob("*.py")):
         for call in _calls(path):
@@ -185,3 +184,31 @@ def test_the_first_verify_call_with_a_cold_title_cache_answers_inside_the_deadli
     assert r.status_code == 200 and r.json()["result"] in ("IN_INDEX", "NOT_IN_INDEX", "CONFLICT")
     assert time.perf_counter() - t0 < 4.0
     assert len(verify._TITLE_ROWS) == 1  # the lookup built the cache (the fuzzy scan ran)
+
+
+# ---- the two GET routes answer the coded error when the partner config file is missing ---------------------------------
+def _keyed_client_without_config(tmp_path: Path):  # noqa: ANN202
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from pravrudhi.api.partner import build_partner_router
+    from pravrudhi.application import tenancy
+
+    tenancy.create_org(tmp_path, "acme", "Acme")
+    secret = tenancy.create_key(tmp_path, "acme").secret
+    assert not (tmp_path / "configs" / "partner_api.yaml").exists()
+    app = FastAPI()
+    app.include_router(build_partner_router(tmp_path))  # no config injected: the file is read, and it is missing
+    return TestClient(app, raise_server_exceptions=False), secret
+
+
+def test_get_audit_without_a_config_file_answers_the_coded_503(tmp_path: Path) -> None:
+    c, secret = _keyed_client_without_config(tmp_path)
+    r = c.get("/api/v1/audit", headers={"X-Pravrudhi-Api-Key": secret})
+    assert r.status_code == 503 and r.json() == {"error": "service_config_missing"}
+
+
+def test_get_job_without_a_config_file_answers_the_coded_503(tmp_path: Path) -> None:
+    c, secret = _keyed_client_without_config(tmp_path)
+    r = c.get("/api/v1/analyse-facts/jobs/j-nope", headers={"X-Pravrudhi-Api-Key": secret})
+    assert r.status_code == 503 and r.json() == {"error": "service_config_missing"}
