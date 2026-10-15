@@ -68,44 +68,76 @@ def _one_arg(name: str, description: str) -> dict[str, Any]:
 # other name rather than falling back to something plausible, because a tool the assistant invented is
 # indistinguishable, in the reply, from one the engine provides.
 TOOL_SCHEMA: tuple[dict[str, Any], ...] = (
-    {"name": "objectives", "description": "Every objective in this workspace with its replayed standing.",
-     "parameters": _NO_ARGS},
-    {"name": "objective_progress", "description": "One objective's standing, recomputed from the ledger.",
-     "parameters": _one_arg("id", "the objective id")},
-    {"name": "objective_plan", "description": "The proposed decomposition of an objective's intent. Nothing "
-                                              "in a plan has run.",
-     "parameters": _one_arg("id", "the objective id")},
-    {"name": "recipes", "description": "The recipe catalogue, each marked available or not on this machine.",
-     "parameters": _NO_ARGS},
-    {"name": "tools", "description": "The tool catalogue, each marked available or not on this machine.",
-     "parameters": _NO_ARGS},
-    {"name": "memory_recall", "description": "The user's durable notes matching a query.",
-     "parameters": _one_arg("query", "what to look for; empty for the most recent notes")},
-    {"name": "memory_remember", "description": "Record a durable fact for the user. Refused if it restates a "
-                                               "ledger number.",
-     "parameters": _one_arg("text", "the fact to remember, in the user's own terms")},
-    {"name": "nights", "description": "Every night this engine has run, newest last: how many candidates it "
-                                      "proposed, how many were pruned or promoted, and the GPU-hours it spent. "
-                                      "Ask this for anything about a night, a candidate or the incumbent.",
-     "parameters": _NO_ARGS},
-    {"name": "candidates", "description": "Every candidate this engine holds, newest last, each with its badge "
-                                          "— the same rows the candidates page renders.",
-     "parameters": _NO_ARGS},
-    {"name": "agent_trace", "description": "What the agents actually did, newest last: dispatches accepted or "
-                                           "refused, usage limits hit, and routes handed on.",
-     "parameters": _NO_ARGS},
-    {"name": "routing_seats", "description": "Every route with its relative cost, its measured record, and "
-                                             "whether it can be dispatched to now or is sitting out a usage "
-                                             "limit and until when.",
-     "parameters": _NO_ARGS},
-    {"name": "routing_report", "description": "What the router would choose at each tier now, and why.",
-     "parameters": _NO_ARGS},
-    {"name": "evidence", "description": "A rendered evidence document by name.",
-     "parameters": _one_arg("name", "the document name, without the .md suffix")},
-    {"name": "appetite", "description": "What the engine wants right now: every drive's operands, the largest "
-                                        "eligible deficit, and the first-person voice generated from them - the "
-                                        "same figures the /appetite API endpoint serves.",
-     "parameters": _NO_ARGS},
+    {
+        "name": "objectives",
+        "description": "Every objective in this workspace with its replayed standing.",
+        "parameters": _NO_ARGS,
+    },
+    {
+        "name": "objective_progress",
+        "description": "One objective's standing, recomputed from the ledger.",
+        "parameters": _one_arg("id", "the objective id"),
+    },
+    {
+        "name": "objective_plan",
+        "description": "The proposed decomposition of an objective's intent. Nothing in a plan has run.",
+        "parameters": _one_arg("id", "the objective id"),
+    },
+    {
+        "name": "recipes",
+        "description": "The recipe catalogue, each marked available or not on this machine.",
+        "parameters": _NO_ARGS,
+    },
+    {"name": "tools", "description": "The tool catalogue, each marked available or not on this machine.", "parameters": _NO_ARGS},
+    {
+        "name": "memory_recall",
+        "description": "The user's durable notes matching a query.",
+        "parameters": _one_arg("query", "what to look for; empty for the most recent notes"),
+    },
+    {
+        "name": "memory_remember",
+        "description": "Record a durable fact for the user. Refused if it restates a ledger number.",
+        "parameters": _one_arg("text", "the fact to remember, in the user's own terms"),
+    },
+    {
+        "name": "nights",
+        "description": "Every night this engine has run, newest last: how many candidates it "
+        "proposed, how many were pruned or promoted, and the GPU-hours it spent. "
+        "Ask this for anything about a night, a candidate or the incumbent.",
+        "parameters": _NO_ARGS,
+    },
+    {
+        "name": "candidates",
+        "description": "Every candidate this engine holds, newest last, each with its badge "
+        "— the same rows the candidates page renders.",
+        "parameters": _NO_ARGS,
+    },
+    {
+        "name": "agent_trace",
+        "description": "What the agents actually did, newest last: dispatches accepted or "
+        "refused, usage limits hit, and routes handed on.",
+        "parameters": _NO_ARGS,
+    },
+    {
+        "name": "routing_seats",
+        "description": "Every route with its relative cost, its measured record, and "
+        "whether it can be dispatched to now or is sitting out a usage "
+        "limit and until when.",
+        "parameters": _NO_ARGS,
+    },
+    {"name": "routing_report", "description": "What the router would choose at each tier now, and why.", "parameters": _NO_ARGS},
+    {
+        "name": "evidence",
+        "description": "A rendered evidence document by name.",
+        "parameters": _one_arg("name", "the document name, without the .md suffix"),
+    },
+    {
+        "name": "appetite",
+        "description": "What the engine wants right now: every drive's operands, the largest "
+        "eligible deficit, and the first-person voice generated from them - the "
+        "same figures the /appetite API endpoint serves.",
+        "parameters": _NO_ARGS,
+    },
 )
 
 TOOL_NAMES = frozenset(str(t["name"]) for t in TOOL_SCHEMA)
@@ -164,8 +196,7 @@ class ToolInvocation:
     grounding: bool = False
 
     def to_dict(self) -> dict[str, Any]:
-        return {"tool": self.tool, "args": dict(self.args), "result_summary": self.result_summary,
-                "grounding": self.grounding}
+        return {"tool": self.tool, "args": dict(self.args), "result_summary": self.result_summary, "grounding": self.grounding}
 
 
 @dataclass(frozen=True)
@@ -220,8 +251,8 @@ def system_prompt() -> str:
         lines.append(f"  {tool['name']}({params}) - {tool['description']}")
     lines += [
         "",
-        "Answer with a single JSON object: {\"reply\": \"...\", \"tool_calls\": [{\"tool\": \"...\", "
-        "\"args\": {...}}]}. Leave tool_calls empty once you have what you need.",
+        'Answer with a single JSON object: {"reply": "...", "tool_calls": [{"tool": "...", '
+        '"args": {...}}]}. Leave tool_calls empty once you have what you need.',
         "",
         "Every number in your reply must be one a tool returned in this same turn, written exactly as the",
         "tool wrote it - do not rescale, round, or convert a decimal into a percentage. Any numeral that no",
@@ -277,9 +308,8 @@ def _summarise(tool: str, args: dict[str, Any], result: dict[str, Any]) -> str:
     if tool == "routing_seats":
         seats = result.get("seats") or []
         down = [s for s in seats if not s.get("usable")]
-        return (
-            f"{len(seats)} seats, {len(seats) - len(down)} usable"
-            + (f"; sitting out a limit: {', '.join(str(s.get('id')) for s in down)}" if down else "")
+        return f"{len(seats)} seats, {len(seats) - len(down)} usable" + (
+            f"; sitting out a limit: {', '.join(str(s.get('id')) for s in down)}" if down else ""
         )
     if tool == "nights":
         rows = result.get("nights") or []
@@ -330,8 +360,7 @@ def dispatch(root: Path, store: MemoryStore, tool: str, args: dict[str, Any]) ->
             f"refused the tool {tool!r}: the assistant may call only "
             f"{', '.join(sorted(TOOL_NAMES))}, and nothing else reaches this workspace"
         )
-        return ToolInvocation(tool=tool, args=args, result={"error": refusal}, result_summary=refusal,
-                              refusal=refusal)
+        return ToolInvocation(tool=tool, args=args, result={"error": refusal}, result_summary=refusal, refusal=refusal)
 
     result: dict[str, Any]
     if tool == "candidates":
@@ -376,9 +405,12 @@ def dispatch(root: Path, store: MemoryStore, tool: str, args: dict[str, Any]) ->
             from pravrudhi.application.objectives import load_all
             from pravrudhi.application.recipes import installed, library
 
-            obj = next(o for o in load_all(root) if o.id == oid)
-            plan = compile_intent(obj, tuple(library()), installed_skills=frozenset(installed()))
-            result = {**_asdict(plan), "objective": oid}
+            obj = next((o for o in load_all(root) if o.id == oid), None)
+            if obj is None:  # gone between the summary read and this one: the same plain error as an unknown id
+                result = {"error": f"no objective named {oid!r} in this workspace"}
+            else:
+                plan = compile_intent(obj, tuple(library()), installed_skills=frozenset(installed()))
+                result = {**_asdict(plan), "objective": oid}
     elif tool == "recipes":
         from pravrudhi.application.recipes import availability as recipe_availability
 
@@ -395,8 +427,7 @@ def dispatch(root: Path, store: MemoryStore, tool: str, args: dict[str, Any]) ->
             result = asdict(store.remember(text, source="assistant"))
         except MemoryStoreError as exc:
             refusal = f"refused to remember {text!r}: {exc}"
-            return ToolInvocation(tool=tool, args=args, result={"error": str(exc)}, result_summary=refusal,
-                                  refusal=refusal)
+            return ToolInvocation(tool=tool, args=args, result={"error": str(exc)}, result_summary=refusal, refusal=refusal)
     elif tool == "routing_report":
         from pravrudhi.application.routing import report
 
@@ -458,9 +489,7 @@ def enforce_honesty(reply: str, allowed: frozenset[str]) -> tuple[str, list[str]
             continue
         unsupported = sorted({m.group() for m in _NUMBER_RE.finditer(sentence) if _key(m.group()) not in allowed})
         if unsupported:
-            refusals.append(
-                f"removed {', '.join(unsupported)}: no tool call in this turn returned that number - {sentence!r}"
-            )
+            refusals.append(f"removed {', '.join(unsupported)}: no tool call in this turn returned that number - {sentence!r}")
             continue
         kept.append(sentence)
     return " ".join(kept), refusals
@@ -579,8 +608,13 @@ def _run_turn(
     grounded = _grounding_calls(root, store, message)
     for call in grounded:
         yield {"type": "tool", "phase": "called", "tool": call.tool, "args": dict(call.args)}
-        yield {"type": "tool", "phase": "returned", "tool": call.tool, "args": dict(call.args),
-               "result_summary": call.result_summary}
+        yield {
+            "type": "tool",
+            "phase": "returned",
+            "tool": call.tool,
+            "args": dict(call.args),
+            "result_summary": call.result_summary,
+        }
     calls: list[ToolInvocation] = list(grounded)
     if grounded:
         messages.append(_tool_results_message(grounded))
@@ -598,8 +632,7 @@ def _run_turn(
             args = dict(r.get("args") or r.get("arguments") or {})
             yield {"type": "tool", "phase": "called", "tool": tool, "args": args}
             call = dispatch(root, store, tool, args)
-            yield {"type": "tool", "phase": "returned", "tool": tool, "args": args,
-                   "result_summary": call.result_summary}
+            yield {"type": "tool", "phase": "returned", "tool": tool, "args": args, "result_summary": call.result_summary}
             this_round.append(call)
         calls += this_round
         asked = json.dumps({"tool_calls": [c.to_dict() for c in this_round]})
@@ -619,7 +652,9 @@ def _drain_final(events: Iterator[dict[str, Any]]) -> dict[str, Any]:
 
 
 def _finish_turn(
-    memory_store: MemoryStore, message: str, final: dict[str, Any],
+    memory_store: MemoryStore,
+    message: str,
+    final: dict[str, Any],
 ) -> tuple[str, str, tuple[ToolInvocation, ...], tuple[dict[str, Any], ...], list[str]]:
     """Run the honesty pass over a finished turn and persist both halves of it.
 
@@ -637,11 +672,16 @@ def _finish_turn(
         # whatever the model wrote instead cannot be verified this turn, so it is replaced outright rather
         # than trusted just because it happens to contain no numeral for the honesty pass to catch.
         reply = _GROUNDING_FALLBACK_REPLY
-    memory_store.append_turn(tid, "assistant", reply, meta={
-        "citations": [dict(c) for c in citations],
-        "refusals": list(refusals),
-        "tool_calls": [c.to_dict() for c in made],
-    })
+    memory_store.append_turn(
+        tid,
+        "assistant",
+        reply,
+        meta={
+            "citations": [dict(c) for c in citations],
+            "refusals": list(refusals),
+            "tool_calls": [c.to_dict() for c in made],
+        },
+    )
     return tid, reply, made, citations, refusals
 
 
