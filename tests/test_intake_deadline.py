@@ -143,3 +143,35 @@ def test_the_assisted_route_with_an_agent_answers_the_coded_503_when_the_budget_
     c = R._assist_client(tmp_path)  # the intake agent is configured: the driver path runs
     r = c.post(R.ASSIST, json={"text": LONG, "consent": True})
     assert r.status_code == 503 and r.json()["error"] == "intake_timeout"
+
+
+def _loaded(tmp_path: Path, value: object) -> object:
+    import yaml
+
+    from pravrudhi.api.partner import load_partner_api_config
+    from tests.test_client_ip_diagnostic import REPO
+
+    body = yaml.safe_load((REPO / "configs" / "partner_api.yaml").read_text())
+    body["intake_timeout_s"] = value
+    (tmp_path / "configs").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "configs" / "partner_api.yaml").write_text(yaml.safe_dump(body))
+    return load_partner_api_config(tmp_path)
+
+
+def test_the_file_loader_takes_a_number_and_names_the_key_for_anything_else(tmp_path: Path) -> None:
+    assert _loaded(tmp_path, 45).intake_timeout_s == 45.0  # type: ignore[attr-defined]
+    assert _loaded(tmp_path, 7.5).intake_timeout_s == 7.5  # type: ignore[attr-defined]
+    assert _loaded(tmp_path, 0).intake_timeout_s == 0.0  # type: ignore[attr-defined]
+    for bad in (True, False, "30", "abc", None, [], {}):
+        with pytest.raises(ValueError, match="intake_timeout_s"):
+            _loaded(tmp_path, bad)
+    for bad in (-1, float("nan"), float("inf")):
+        with pytest.raises(ValueError, match="intake_timeout_s"):
+            _loaded(tmp_path, bad)
+
+
+def test_the_shipped_config_leaves_the_budget_at_its_default(tmp_path: Path) -> None:
+    from pravrudhi.api.partner import load_partner_api_config
+    from tests.test_client_ip_diagnostic import REPO
+
+    assert load_partner_api_config(REPO).intake_timeout_s == 30.0
