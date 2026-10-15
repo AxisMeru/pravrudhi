@@ -565,8 +565,8 @@ _SPELLING_TOKEN_MIN = 0.85
 
 
 def _party_is_spelling_of(unresolved: str, resolved: str) -> bool:
-    """Whether every distinctive word of `unresolved` is a near spelling of some distinctive word of `resolved` ("Hridayal" for
-    "Keshavananda" for "Kesavananda"). A party with no distinctive word cannot be told to be a spelling of anything."""
+    """Whether every distinctive word of `unresolved` is a near spelling of some distinctive word of `resolved` ("Vennowayl" for
+    "Vennoway", "Thackerey" for "Thackeray"). A party with no distinctive word cannot be told to be a spelling of anything."""
     mine, theirs = _distinctive_tokens(unresolved), _distinctive_tokens(resolved)
     return (
         bool(mine)
@@ -578,12 +578,13 @@ def _party_is_spelling_of(unresolved: str, resolved: str) -> bool:
 def _collapse_alias_conflict(
     conn: sqlite3.Connection, key: str, resolved: ResolvedAlias, year: int | None
 ) -> ResolvedAlias | None:
-    """Existence only: a key whose alias groups are SPELLINGS of one case ("Arnesh Kumar", "In Arnesh Kumar" / "State of
-    Bihar", "State of Bihar and Another") is not a conflict. Each group is resolved and held to the year window and the
-    title-carries-the-parties test exactly as `_narrow_conflict` does; a group with no checkable case is dropped (a title
-    match on other words), but a group that resolves to NO case at all stays an uncheckable candidate (#331) UNLESS both its
-    parties are near spellings of a surviving group's. When the checkable cases of the surviving groups are exactly ONE case,
-    that case is the resolution; anything else returns None (CONFLICT stays). Never guesses between two different cases."""
+    """Existence only: a key whose alias groups are SPELLINGS of one case ("Aldric Vennoway", "In Aldric Vennoway" /
+    "State of Zorbland", "State of Zorbland and Another") is not a conflict. Each group is resolved and held to the
+    year window and the title-carries-the-parties test exactly as `_narrow_conflict` does; a group with no checkable
+    case is dropped (a title match on other words), but a group that resolves to NO case at all stays an uncheckable
+    candidate (#331) UNLESS both its parties are near spellings of a surviving group's. When the checkable cases of
+    the surviving groups are exactly ONE case, that case is the resolution; anything else returns None (CONFLICT
+    stays). Never guesses between two different cases."""
     survivors: list[tuple[sqlite3.Row, tuple[sqlite3.Row, ...]]] = []
     unresolved: list[sqlite3.Row] = []
     for group_row, rows in resolved.group_candidates:
