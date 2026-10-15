@@ -298,11 +298,13 @@ def _disambiguate(
     # so compare CASES, not groups.
     cases = {r["case_id"]: r for rows in resolved for r in rows}
     if len(cases) > 1 and claimed_year is not None:
+        # ONE batched read of the years (an id with no row is absent: no year), not one full-table select per candidate (#472)
+        years = _recorded_years(conn, list(cases))
         near = {}
         for cid, r in cases.items():
-            y = conn.execute("SELECT year FROM cases WHERE case_id = ?", (cid,)).fetchone()
+            y = years.get(cid)
             try:
-                if y is not None and y[0] not in (None, "") and abs(int(y[0]) - claimed_year) <= 1:
+                if y not in (None, "") and abs(int(y) - claimed_year) <= 1:
                     near[cid] = r
             except (TypeError, ValueError):
                 continue
