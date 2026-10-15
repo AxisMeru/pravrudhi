@@ -134,3 +134,24 @@ def test_the_intake_route_answers_200_for_each_family_with_a_100000_digit_run() 
             assert r.status_code == 200, (family, r.text[:120])
     finally:
         logging.disable(logging.NOTSET)
+
+
+# ---- adjacent whitespace gaps (R2's finding on 3bba47ce: `_SCR` backtracked quadratically after "[1992]") ----
+_CAP = 200_000  # IntakeRequest.text allows this many characters, and parse_citations runs over all of it
+_PREFIXES = [
+    "(1992)", "(1992) 1 SCC", "1992 SCC (1)", "1992 SCC", "1992 (1) SCC", "AIR 1992", "AIR 1992 SC", "1992 SCC OnLine",
+    "1992 SCC OnLine Del", "1992 INSC", "[1992]", "[1992] 1", "[1992] 1 SCR", "1992:DEL:", "1992 Supp", "1992 Supp (1) SCC",
+    "1992",
+]  # fmt: skip
+
+
+@pytest.mark.parametrize("prefix", _PREFIXES)
+@pytest.mark.parametrize("gap", [" ", "\t", "\n", " \t\n"])
+def test_a_long_whitespace_gap_after_any_citation_prefix_does_not_stall_the_parser(prefix: str, gap: str) -> None:
+    import time
+
+    text = prefix + gap * (_CAP // len(gap) // 2)
+    t = time.perf_counter()
+    parse_citations(text)
+    parse_citations(text + "x")
+    assert time.perf_counter() - t < 1.0, (prefix, repr(gap))

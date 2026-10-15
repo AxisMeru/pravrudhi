@@ -63,9 +63,9 @@ _SCC_ONLINE = re.compile(
 
 _INSC = re.compile(r"\b(?P<year>\d{4})\s+INSC\s+(?P<page>\d{1,9})\b")
 
-_SCR = re.compile(
-    r"\[(?P<year>\d{4})\]\s*(?P<volume>\d{1,4})?\s*SCR\s*(?P<page>\d{1,9})\b"
-)
+# The volume and the whitespace after it are ONE optional group: two adjacent `\s*` around an optional group backtracked
+# quadratically on a long run of whitespace after the bracketed year (R2).
+_SCR = re.compile(r"\[(?P<year>\d{4})\]\s*(?:(?P<volume>\d{1,4})\s*)?SCR\s*(?P<page>\d{1,9})\b")
 
 # Published circular format (e.g. Delhi HC's 2023 neutral-citation practice direction): YYYY:CODE:NNNN. No
 # real hit in either corpus available here (see module docstring on `test_hc_neutral_spec`); the strict
