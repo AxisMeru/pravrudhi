@@ -92,7 +92,7 @@ RUN set -eu; \
 # and the build FAILS unless its sha256 equals CITATION_INDEX_SHA256 (slim-v1, 38,657 cases, 9,597 citation strings, the index #398 parity-tested).
 # A build without the file still succeeds (the route then answers 503 citation_index_unavailable), as the Lean binary does; set
 # REQUIRE_CITATION_INDEX=1 to make a missing file fail the build too. The index is only ever served with the #717 rule (merged in #398).
-ARG CITATION_INDEX_SHA256=2693e865740f71bb4f1ed12ecc066f5defe7f2b61de1e097ae68f93d851def3d
+ARG CITATION_INDEX_SHA256=c7e814583ac671d096fa91fb8550fd69352d754d47e72cbdc4318062d9be45d1
 ARG REQUIRE_CITATION_INDEX=0
 COPY citation/ /opt/pravrudhi/citation/
 RUN set -eu; \
