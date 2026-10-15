@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Response
+from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
 from pydantic import BaseModel
 from starlette.requests import Request as HttpRequest
@@ -24,6 +25,7 @@ from pravrudhi import KERNEL_VERSION, __version__
 from pravrudhi.agents.registry import survey
 from pravrudhi.api import roles
 from pravrudhi.api.chat import build_chat_router
+from pravrudhi.api.errors import coded_500
 from pravrudhi.api.identity import CurrentUserDep, RequireIdentity, User, auth_mode
 from pravrudhi.api.localguard import install as install_local_guard
 from pravrudhi.api.runs import build_router as build_runs_router
@@ -301,6 +303,14 @@ def _health_proxy_config(root: Path, load: Any) -> tuple[bool, tuple[str, ...]]:
 def create_app(root: Path, *, nyaya_ask_fn: Any | None = None) -> FastAPI:
     root = Path(root)
     app = FastAPI(title="pravrudhi", version=__version__)
+
+    @app.exception_handler(Exception)
+    async def _unhandled(request: HttpRequest, exc: Exception) -> JSONResponse:
+        """Any exception no route handled answers the coded 500 {"error": "internal_error", "detail": ...}: the app reads `error`
+        everywhere else, and a bare {"detail": "Internal Server Error"} gave it nothing to key on. Only the exception TYPE and the
+        route are logged here (the server logs the traceback itself); nothing of the exception reaches the body."""
+        logging.getLogger(__name__).error("unhandled %s on %s %s", type(exc).__name__, request.method, request.url.path)
+        return coded_500()
     _warm_up_house_judge_in_background(root)
     _start_assist_runtime(root)
     # Every JSON route lives under /api. The interface is a static export mounted at the root, and the two

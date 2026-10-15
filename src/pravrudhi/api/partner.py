@@ -72,7 +72,7 @@ from pydantic import BaseModel, Field, StrictBool, computed_field, field_validat
 from starlette.responses import JSONResponse
 
 from pravrudhi import __version__
-from pravrudhi.api.errors import AGENT_AT_CAPACITY, AGENT_UNAVAILABLE, INTAKE_TIMEOUT, coded_503
+from pravrudhi.api.errors import AGENT_AT_CAPACITY, AGENT_UNAVAILABLE, INTAKE_TIMEOUT, coded_500, coded_503
 from pravrudhi.api.identity import CurrentUserDep, User
 from pravrudhi.application import audit, citation_status, tenancy
 from pravrudhi.application import nyaya_lean_registry as reg
@@ -1931,7 +1931,7 @@ def build_partner_router(
             except Exception:
                 _logger.exception("analyse-facts job %s crashed", job_id)
                 _audit(metered, req, "job", status_code=500)
-                store.fail(job_id, status_code=500, body={"error": "internal_error", "detail": "internal error"})
+                store.fail(job_id, status_code=500, body=json.loads(bytes(coded_500().body)))
                 return
             if isinstance(out, JSONResponse):
                 if out.status_code == 503 and metered:
