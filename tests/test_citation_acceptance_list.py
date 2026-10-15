@@ -54,8 +54,34 @@ def conn() -> Iterator[sqlite3.Connection]:
     c.close()
 
 
+def _has_own_supp(c: sqlite3.Connection) -> bool:
+    return c.execute("SELECT 1 FROM sqlite_master WHERE name = 'case_citations'").fetchone() is not None
+
+
+#: The rows that depend on the index build: with the own-supp table (schema_ext own-supp-v1) a supplementary-volume citation
+#: resolves to the judgment whose own header prints it; without it the form is read and not held.
+_SUPP_ROWS = {"1992 Supp (1) SCC 335", "(1992) Supp (1) SCC 335"}
+
+
 @pytest.mark.parametrize(("citation", "want", "why"), LIST, ids=[row[0] for row in LIST])
 def test_the_acceptance_list_on_the_shipped_index(conn: sqlite3.Connection, citation: str, want: str, why: str) -> None:
+    if citation in _SUPP_ROWS and _has_own_supp(conn):
+        want = "IN_INDEX"
+    assert exists_in_index(conn, citation).value == want, why
+
+
+_OWN_SUPP_ROWS = [
+    ("1992 Supp (1) SCC 335", "IN_INDEX", "a judgment of 1990 reported in the 1992 supplement: the record that prints it"),
+    ("1992 SCC (SUPP) 1 335", "IN_INDEX", "the header spelling of the same citation"),
+    ("(1992) 1 SCC 335", "IN_INDEX", "the plain key of the same number is a different case and keeps its own answer"),
+    ("1992 Supp (1) SCC 336", "NOT_IN_INDEX", "a neighbouring page is not held"),
+]
+
+
+@pytest.mark.parametrize(("citation", "want", "why"), _OWN_SUPP_ROWS, ids=[row[0] for row in _OWN_SUPP_ROWS])
+def test_the_supplementary_rows_on_an_own_supp_index(conn: sqlite3.Connection, citation: str, want: str, why: str) -> None:
+    if not _has_own_supp(conn):
+        pytest.skip("the index has no case_citations table (not an own-supp build)")
     assert exists_in_index(conn, citation).value == want, why
 
 

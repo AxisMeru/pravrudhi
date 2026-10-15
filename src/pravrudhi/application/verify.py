@@ -23,7 +23,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from pravrudhi.application.citations import Citation, parse_citations
+from pravrudhi.application.citations import Citation, parse_citations, supp_key
 
 # Leading words that can precede a real party name in running prose ("This Court in X v. Y...", "In X v.
 # Y..."), stripped repeatedly from the front before comparing two mentions of "the same" party. Found by
@@ -726,6 +726,36 @@ def _collapse_alias_conflict(
     return ResolvedAlias(None, list(cases.values())) if len(cases) == 1 else None
 
 
+def _exists_supp(conn: sqlite3.Connection, key: str) -> VerifyResult:
+    """An SCC supplementary-volume citation resolves ONLY to the record(s) whose own header prints it (the
+    `case_citations` table of an own-supp index): no party matching, no year window, never a same-party neighbour. No
+    such table, or no row for the key, is NOT_IN_INDEX (the form is read but not held). One indexed case, or several
+    records of one judgment (variant titles that share a distinctive word), is IN_INDEX; records whose titles share
+    none are CONFLICT (nothing here guesses between them)."""
+    try:
+        ids = [r[0] for r in conn.execute("SELECT case_id FROM case_citations WHERE citation = ?", (key,))]
+    except sqlite3.OperationalError as e:
+        if "no such table" not in str(e).lower():
+            raise
+        return VerifyResult.NOT_IN_INDEX
+    if not ids:
+        return VerifyResult.NOT_IN_INDEX
+    marks = ",".join("?" * len(ids))
+    titles = {r[0]: r[1] for r in conn.execute(f"SELECT case_id, title FROM cases WHERE case_id IN ({marks})", ids)}
+    if not titles:
+        return VerifyResult.NOT_IN_INDEX  # a citation row whose case is not in this index
+    # One judgment indexed under several records prints variant titles ("&" and "And", "Admn" for "Administration", a
+    # truncated title, a respelt party): the records are ONE judgment when their titles are connected by a shared
+    # distinctive word. Titles that share no word are different judgments printing one key (a volume-less supplementary
+    # form can): nothing guesses between them.
+    groups: list[set[str]] = []
+    for words in (set(_distinctive_tokens(t)) for t in titles.values()):
+        linked = [g for g in groups if g & words]
+        merged = set(words).union(*linked) if linked else set(words)
+        groups = [g for g in groups if g not in linked] + [merged]
+    return VerifyResult.IN_INDEX if len(groups) == 1 else VerifyResult.CONFLICT
+
+
 def exists_in_index(conn: sqlite3.Connection, citation_text: str, claimed_name: str | None = None) -> VerifyResult:
     """#832 E1: does the citation resolve to an indexed case? Existence only: no quote is checked, so never VERIFIED.
     Same resolution, year window and party-title test as `verify` (a case `verify` would not check never counts as found); a key
@@ -733,6 +763,8 @@ def exists_in_index(conn: sqlite3.Connection, citation_text: str, claimed_name: 
     citations = parse_citations(citation_text)
     if len(citations) != 1:
         return VerifyResult.MALFORMED
+    if citations[0].reporter == "SCC Supp":
+        return _exists_supp(conn, supp_key(citations[0].year or 0, citations[0].volume, citations[0].page))
     key = _citation_key(citations[0])
     if key is None:
         return VerifyResult.NOT_IN_INDEX
