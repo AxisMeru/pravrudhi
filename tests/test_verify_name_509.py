@@ -103,6 +103,14 @@ def test_a_wrong_name_on_either_side_is_still_a_mismatch(tmp_path: Path) -> None
     assert exists_in_index(conn, f"Per Brenwick Taplow v. State of Qualdoria, {KEY}") == VerifyResult.NAME_MISMATCH
 
 
+def test_sharing_only_a_very_common_name_is_not_agreement(tmp_path: Path) -> None:
+    conn = _db(tmp_path, "common_name", [("Jaswant Singh", "State of Zorbland")], "Jaswant Singh vs State Of Zorbland")
+    assert exists_in_index_detail(conn, f"Jaswant Singh v. State of Zorbland, {KEY}") == (VerifyResult.IN_INDEX, True)
+    assert exists_in_index_detail(conn, f"Nawal Singh v. State of Zorbland, {KEY}") == (VerifyResult.NAME_MISMATCH, True)
+    assert exists_in_index_detail(conn, f"Ram Singh v. State of Zorbland, {KEY}") == (VerifyResult.NAME_MISMATCH, True)
+    assert exists_in_index_detail(conn, f"Singh v. State of Zorbland, {KEY}") == (VerifyResult.IN_INDEX, True)
+
+
 def test_a_shortened_right_name_matches(tmp_path: Path) -> None:
     conn = _db(tmp_path, "short", ONE)
     assert exists_in_index_detail(conn, f"Aldric Vennoway v. Zorbland, {KEY}") == (VerifyResult.IN_INDEX, True)

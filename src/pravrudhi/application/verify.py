@@ -894,6 +894,26 @@ _TYPED_NOISE_WORDS = frozenset({"his", "her", "holiness", "late", "hon", "ble", 
 _TYPED_NAME_FOLDS = {m: "mohammad" for m in ("mohd", "mohammed", "mohammad", "muhammad", "mohamed", "mohamad", "muhamed")}
 
 
+#: Surnames and given names so common that sharing one tells nothing ("Singh" is in thousands of titles): a typed name never agrees with a
+#: title on these alone. A side made only of such words must match all of them.
+_COMMON_NAME_WORDS = frozenset(
+    {
+        "singh", "kumar", "kumari", "devi", "sharma", "verma", "lal", "ram", "das", "prasad", "khan", "begum", "bai", "rao",
+        "reddy", "gupta", "jain", "shah", "patel", "ali", "mohammad", "chand", "nath", "raj", "lall",
+    }
+)
+
+
+def _side_agrees(side: frozenset[str], title_words: frozenset[str]) -> bool:
+    """One typed party against a title: at least half of its words are in the title, and (when it has a word that is not a very common
+    name) at least one such word; a side made only of very common name words needs all of them."""
+    matched = {w for w in side if _word_in(w, title_words)}
+    if len(matched) * 2 < len(side):
+        return False
+    rare = side - _COMMON_NAME_WORDS
+    return bool(matched & rare) if rare else matched == side
+
+
 def _typed_words(side: str) -> frozenset[str]:
     """The distinctive words of ONE side of a typed case name, for the comparison only: leading signal words and honorifics dropped,
     the initialism UOI dropped, Mohd/Mohammed/Muhammad folded to one word, printed abbreviations folded ("Corp" to "Corporation")."""
@@ -921,7 +941,7 @@ def _name_agrees(conn: sqlite3.Connection, key: str, titles: list[str], claimed_
         return None
     for title in titles:
         tw = _title_words(title)
-        if all(sum(_word_in(w, tw) for w in side) * 2 >= len(side) for side in sides) and any(_word_in(w, tw) for side in sides for w in side):
+        if all(_side_agrees(side, tw) for side in sides):
             return True
         typed_all = frozenset().union(*sides)
         if len(tw) >= 2 and all(_word_in(w, typed_all) for w in tw):
