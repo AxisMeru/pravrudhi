@@ -555,7 +555,8 @@ def _fill_years(conn: sqlite3.Connection, table: str, order: str, wanted: list[s
             out.setdefault(case_id, year)  # first row in rowid order wins, as fetchone() did
 
 
-_PARTY_SEPARATOR = re.compile(r"\s+(?:v\.?|vs\.?|versus)\s+", re.IGNORECASE)
+# `(?<!\s)`: tried from the start of a whitespace run only (the leftmost match always started there): a long run costs one pass.
+_PARTY_SEPARATOR = re.compile(r"(?<!\s)\s+(?:v\.?|vs\.?|versus)\s+", re.IGNORECASE)
 
 
 def _name_before_citation(citation_text: str, citation: Citation) -> str | None:
