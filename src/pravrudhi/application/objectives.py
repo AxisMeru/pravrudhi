@@ -190,8 +190,10 @@ def problems(root: Path) -> list[tuple[str, str]]:
             load(p)
         except FileNotFoundError:
             continue  # removed after the glob: nothing to report
-        except (ObjectiveError, yaml.YAMLError, OSError) as e:
+        except (ObjectiveError, yaml.YAMLError) as e:
             out.append((p.name, str(e)))
+        except OSError as e:  # the message of an OSError carries the absolute path: report the cause only
+            out.append((p.name, f"could not be read ({e.strerror or type(e).__name__})"))
     return out
 
 
