@@ -3,6 +3,23 @@
 Release notes for the engine (`pravrudhi`). Versions before 0.5.44 are described in their GitHub release notes and commit
 messages.
 
+## 0.6.16 (2026-10-15)
+
+PATCH release on 0.6.15: the intake is bounded in time, and three more text checks no longer slow down on a very long run of spaces. Results inside the time budget are identical. **Rebuild the image.** The change is under `src/`, so it reaches a running container only by a rebuild of the engine image and the RunPod worker template from 0.6.16; the citation index is unchanged.
+
+### Changed
+
+- **The intake has a time budget (caller-visible).** The intake now stops a run that takes longer than its budget (30 seconds by default, covering the text processing and its citation lookups; the setting is `intake_timeout_s`, and 0 turns it off) and answers 503 with the error code `intake_timeout` instead of continuing. A text that finishes inside the budget gives exactly the same result as before. The assistant's intake tool calls run under the same budget, each call separately, and a stopped call gives the same 503; the budget covers the intake text work, not the assistant session around it.
+- **Three text checks are rewritten so that a very long run of spaces does not slow them (no change in results).** They are used on pasted text: the check for neutral-citation and case-number marks, the check for page and case-number lines, and the check that splits a party name at "v." or "versus".
+
+### Known limits
+
+- **A very long text can still run past the budget.** The time budget is checked between steps of the intake (between stages and for each paragraph, line and citation), so it cannot stop a single text check that is already running. If the intake is stopped with `intake_timeout`, send a shorter text.
+
+### Unchanged
+
+- Every response field, answer, `reason` value and route; the rate limit; the 5 second lookup limit; the citation index and the existence rules.
+
 ## 0.6.15 (2026-10-15)
 
 PATCH release on 0.6.14: the citation check answers faster, most of all for citations with many alias spellings and for the first lookups after the engine starts. Answers are identical. **Rebuild the image.** The change is under `src/`, so it reaches a running container only by a rebuild of the engine image and the RunPod worker template from 0.6.15; the citation index is unchanged.
