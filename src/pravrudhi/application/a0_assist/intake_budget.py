@@ -22,8 +22,8 @@ _DEADLINE: contextvars.ContextVar[float | None] = contextvars.ContextVar("intake
 
 @contextlib.contextmanager
 def deadline(seconds: float | None) -> Iterator[None]:
-    """Run the intake under a budget of `seconds` (None or 0 sets none)."""
-    token = _DEADLINE.set(time.monotonic() + seconds if seconds else None)
+    """Run the intake under a budget of `seconds` (None, 0 or a negative number sets none)."""
+    token = _DEADLINE.set(time.monotonic() + seconds if seconds is not None and seconds > 0 else None)
     try:
         yield
     finally:
