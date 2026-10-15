@@ -240,7 +240,10 @@ def _intake_timeout(raw: Any) -> float:
     checked by `PartnerApiConfig`."""
     if isinstance(raw, bool) or not isinstance(raw, (int, float)):
         raise ValueError(f"intake_timeout_s must be a number of seconds (0 = off), got {raw!r}"[:200])
-    return float(raw)
+    try:
+        return float(raw)
+    except OverflowError:  # an integer too large for a float
+        raise ValueError("intake_timeout_s must be a number of seconds (0 = off), got a number too large to use") from None
 
 
 def load_partner_api_config(root: Path) -> PartnerApiConfig:

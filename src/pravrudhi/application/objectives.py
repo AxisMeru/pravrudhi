@@ -20,7 +20,7 @@ from __future__ import annotations
 import os
 import re
 import stat
-import tempfile
+import uuid
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -224,12 +224,6 @@ def problems(root: Path) -> list[tuple[str, str]]:
     return out
 
 
-def _umask() -> int:
-    current = os.umask(0)
-    os.umask(current)
-    return current
-
-
 def write(root: Path, obj: Objective) -> Path:
     d = objectives_dir(root)
     d.mkdir(parents=True, exist_ok=True)
@@ -243,17 +237,19 @@ def write(root: Path, obj: Objective) -> Path:
     # share a temporary name), flush it to disk, give it the old file's mode, then rename it over the target. Stated limits:
     # a hard link to the file is replaced by a regular file; the directory entry itself is not fsynced.
     target = path.resolve() if path.is_symlink() else path  # a symlinked file is updated in place, not replaced by a regular file
-    fd, tmp_name = tempfile.mkstemp(prefix=f".{target.name}.", suffix=".tmp", dir=target.parent)
-    tmp = Path(tmp_name)
+    tmp = target.with_name(f".{target.name}.{uuid.uuid4().hex}.tmp")
+    # O_EXCL with mode 0o666: the kernel applies the process umask to this one file, so the umask is never read or changed here
+    # (reading it needs os.umask(0), which is process-wide and briefly lets other threads create group/world-writable files).
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o666)
     try:
         with os.fdopen(fd, "w") as fh:
             fh.write(text)
             fh.flush()
+            try:
+                os.fchmod(fh.fileno(), stat.S_IMODE(target.stat().st_mode))  # keep the mode of the file being replaced
+            except FileNotFoundError:
+                pass  # a new file keeps the umask-derived mode it was created with
             os.fsync(fh.fileno())
-        try:
-            os.chmod(tmp, stat.S_IMODE(target.stat().st_mode))  # keep the mode of the file being replaced
-        except FileNotFoundError:
-            os.chmod(tmp, 0o666 & ~_umask())  # a new file: the mode write_text() would have given it
         os.replace(tmp, target)
     finally:
         tmp.unlink(missing_ok=True)
