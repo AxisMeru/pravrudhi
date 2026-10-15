@@ -17,7 +17,10 @@ See docs/superpowers/specs/2026-09-05-pravrudhi-objectives-design.md.
 
 from __future__ import annotations
 
+import os
 import re
+import stat
+import tempfile
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -122,8 +125,21 @@ class Progress:
         return d
 
 
-def parse(raw: dict[str, Any], *, oid: str | None = None) -> Objective:
-    """Build an objective from loaded YAML, refusing the shapes that would produce a screen that lies."""
+def parse(raw: Any, *, oid: str | None = None) -> Objective:
+    """Build an objective from loaded YAML, refusing the shapes that would produce a screen that lies. A file that is not a
+    mapping, or whose fields have the wrong kind (a benchmark that is not a mapping or has no id, a list where a number is
+    expected), is an `ObjectiveError` like any other malformed file, never an AttributeError, KeyError or TypeError."""
+    if not isinstance(raw, dict):
+        raise ObjectiveError("an objective file must hold a mapping of fields")
+    try:
+        return _parse(raw, oid=oid)
+    except (AttributeError, KeyError, TypeError, ValueError) as e:
+        if isinstance(e, ObjectiveError):
+            raise
+        raise ObjectiveError(f"an objective field has the wrong kind ({type(e).__name__})") from None
+
+
+def _parse(raw: dict[str, Any], *, oid: str | None = None) -> Objective:
     ident = str(raw.get("id") or oid or "").strip()
     if not ID_RE.match(ident):
         raise ObjectiveError(f"objective id {ident!r} must be lowercase letters, digits and hyphens (2-63 chars)")
@@ -165,7 +181,18 @@ def objectives_dir(root: Path) -> Path:
 
 
 def load(path: Path) -> Objective:
-    return parse(yaml.safe_load(path.read_text()) or {}, oid=path.stem)
+    """Read one objective file. Text that is not valid UTF-8, and YAML nested too deeply for the parser, are `ObjectiveError`."""
+    try:
+        text = path.read_text()
+    except UnicodeDecodeError:
+        raise ObjectiveError("an objective file must be UTF-8 text") from None
+    try:
+        raw = yaml.safe_load(text)
+    except RecursionError:
+        raise ObjectiveError("an objective file is nested too deeply") from None
+    except ValueError:  # e.g. a NUL character: the parser refuses it with a ValueError, not a YAMLError
+        raise ObjectiveError("an objective file holds characters YAML cannot read") from None
+    return parse({} if raw is None else raw, oid=path.stem)
 
 
 def load_all(root: Path) -> list[Objective]:
@@ -197,6 +224,12 @@ def problems(root: Path) -> list[tuple[str, str]]:
     return out
 
 
+def _umask() -> int:
+    current = os.umask(0)
+    os.umask(current)
+    return current
+
+
 def write(root: Path, obj: Objective) -> Path:
     d = objectives_dir(root)
     d.mkdir(parents=True, exist_ok=True)
@@ -205,7 +238,25 @@ def write(root: Path, obj: Objective) -> Path:
     body.pop("id")
     if not body.get("created"):
         body["created"] = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-    path.write_text(yaml.safe_dump(body, sort_keys=False, allow_unicode=True))
+    text = yaml.safe_dump(body, sort_keys=False, allow_unicode=True)
+    # Atomic: a reader never sees a half-written file. Write a UNIQUE sibling (concurrent writers of one objective never
+    # share a temporary name), flush it to disk, give it the old file's mode, then rename it over the target. Stated limits:
+    # a hard link to the file is replaced by a regular file; the directory entry itself is not fsynced.
+    target = path.resolve() if path.is_symlink() else path  # a symlinked file is updated in place, not replaced by a regular file
+    fd, tmp_name = tempfile.mkstemp(prefix=f".{target.name}.", suffix=".tmp", dir=target.parent)
+    tmp = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "w") as fh:
+            fh.write(text)
+            fh.flush()
+            os.fsync(fh.fileno())
+        try:
+            os.chmod(tmp, stat.S_IMODE(target.stat().st_mode))  # keep the mode of the file being replaced
+        except FileNotFoundError:
+            os.chmod(tmp, 0o666 & ~_umask())  # a new file: the mode write_text() would have given it
+        os.replace(tmp, target)
+    finally:
+        tmp.unlink(missing_ok=True)
     return path
 
 
@@ -226,18 +277,23 @@ def _measures(row: dict[str, Any]) -> list[tuple[str, Measurement]]:
     """Every (metric name, measurement) a row carries. A two-task lm-eval file is one row, and reading only its
     first task left the second task's benchmark showing as unmeasured on an objective that named it."""
     return [
-        (name, Measurement(
-            value=value, stderr=stderr, n=n,
-            model=str(row.get("model") or ""), night=int(row.get("night") or 0),
-            seq=int(row.get("seq") or 0), sha256=str(row.get("sha256") or ""),
-        ))
+        (
+            name,
+            Measurement(
+                value=value,
+                stderr=stderr,
+                n=n,
+                model=str(row.get("model") or ""),
+                night=int(row.get("night") or 0),
+                seq=int(row.get("seq") or 0),
+                sha256=str(row.get("sha256") or ""),
+            ),
+        )
         for name, value, stderr, n in headlines(row)
     ]
 
 
-def _paired_stats(
-    base_items: dict[str, int], latest_items: dict[str, int]
-) -> tuple[float, float, float, int, int, float]:
+def _paired_stats(base_items: dict[str, int], latest_items: dict[str, int]) -> tuple[float, float, float, int, int, float]:
     """A Wilson-style interval for the paired delta, derived from wins/losses over the discordant pairs alone.
 
     `discordance()` gives wins, losses and delta = (wins-losses)/n over the *full* shared set, plus an exact
@@ -349,9 +405,14 @@ def progress(obj: Objective, ledger: Path) -> list[Progress]:
 def summary(root: Path, obj: Objective) -> dict[str, Any]:
     """The objective plus its standing, in the shape the API and the UI consume."""
     ledger = Path(root) / "research" / "ledger.jsonl"
-    rows = progress(obj, ledger) if ledger.exists() else [
-        Progress(benchmark=b.metric, state="unmeasured", reason="this workspace has no ledger yet",
-                 target_delta=obj.target_delta)
-        for b in obj.benchmarks
-    ]
+    rows = (
+        progress(obj, ledger)
+        if ledger.exists()
+        else [
+            Progress(
+                benchmark=b.metric, state="unmeasured", reason="this workspace has no ledger yet", target_delta=obj.target_delta
+            )
+            for b in obj.benchmarks
+        ]
+    )
     return {**obj.to_dict(), "progress": [p.to_dict() for p in rows]}
