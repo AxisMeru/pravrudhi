@@ -19,6 +19,8 @@ from __future__ import annotations
 
 import os
 import re
+import stat
+import tempfile
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -222,6 +224,12 @@ def problems(root: Path) -> list[tuple[str, str]]:
     return out
 
 
+def _umask() -> int:
+    current = os.umask(0)
+    os.umask(current)
+    return current
+
+
 def write(root: Path, obj: Objective) -> Path:
     d = objectives_dir(root)
     d.mkdir(parents=True, exist_ok=True)
@@ -231,11 +239,22 @@ def write(root: Path, obj: Objective) -> Path:
     if not body.get("created"):
         body["created"] = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     text = yaml.safe_dump(body, sort_keys=False, allow_unicode=True)
-    # Atomic: a reader never sees a half-written file (write a sibling, then rename it over the target).
-    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    # Atomic: a reader never sees a half-written file. Write a UNIQUE sibling (concurrent writers of one objective never
+    # share a temporary name), flush it to disk, give it the old file's mode, then rename it over the target. Stated limits:
+    # a hard link to the file is replaced by a regular file; the directory entry itself is not fsynced.
+    target = path.resolve() if path.is_symlink() else path  # a symlinked file is updated in place, not replaced by a regular file
+    fd, tmp_name = tempfile.mkstemp(prefix=f".{target.name}.", suffix=".tmp", dir=target.parent)
+    tmp = Path(tmp_name)
     try:
-        tmp.write_text(text)
-        os.replace(tmp, path)
+        with os.fdopen(fd, "w") as fh:
+            fh.write(text)
+            fh.flush()
+            os.fsync(fh.fileno())
+        try:
+            os.chmod(tmp, stat.S_IMODE(target.stat().st_mode))  # keep the mode of the file being replaced
+        except FileNotFoundError:
+            os.chmod(tmp, 0o666 & ~_umask())  # a new file: the mode write_text() would have given it
+        os.replace(tmp, target)
     finally:
         tmp.unlink(missing_ok=True)
     return path
@@ -258,18 +277,23 @@ def _measures(row: dict[str, Any]) -> list[tuple[str, Measurement]]:
     """Every (metric name, measurement) a row carries. A two-task lm-eval file is one row, and reading only its
     first task left the second task's benchmark showing as unmeasured on an objective that named it."""
     return [
-        (name, Measurement(
-            value=value, stderr=stderr, n=n,
-            model=str(row.get("model") or ""), night=int(row.get("night") or 0),
-            seq=int(row.get("seq") or 0), sha256=str(row.get("sha256") or ""),
-        ))
+        (
+            name,
+            Measurement(
+                value=value,
+                stderr=stderr,
+                n=n,
+                model=str(row.get("model") or ""),
+                night=int(row.get("night") or 0),
+                seq=int(row.get("seq") or 0),
+                sha256=str(row.get("sha256") or ""),
+            ),
+        )
         for name, value, stderr, n in headlines(row)
     ]
 
 
-def _paired_stats(
-    base_items: dict[str, int], latest_items: dict[str, int]
-) -> tuple[float, float, float, int, int, float]:
+def _paired_stats(base_items: dict[str, int], latest_items: dict[str, int]) -> tuple[float, float, float, int, int, float]:
     """A Wilson-style interval for the paired delta, derived from wins/losses over the discordant pairs alone.
 
     `discordance()` gives wins, losses and delta = (wins-losses)/n over the *full* shared set, plus an exact
@@ -381,9 +405,14 @@ def progress(obj: Objective, ledger: Path) -> list[Progress]:
 def summary(root: Path, obj: Objective) -> dict[str, Any]:
     """The objective plus its standing, in the shape the API and the UI consume."""
     ledger = Path(root) / "research" / "ledger.jsonl"
-    rows = progress(obj, ledger) if ledger.exists() else [
-        Progress(benchmark=b.metric, state="unmeasured", reason="this workspace has no ledger yet",
-                 target_delta=obj.target_delta)
-        for b in obj.benchmarks
-    ]
+    rows = (
+        progress(obj, ledger)
+        if ledger.exists()
+        else [
+            Progress(
+                benchmark=b.metric, state="unmeasured", reason="this workspace has no ledger yet", target_delta=obj.target_delta
+            )
+            for b in obj.benchmarks
+        ]
+    )
     return {**obj.to_dict(), "progress": [p.to_dict() for p in rows]}

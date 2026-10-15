@@ -1,6 +1,7 @@
 """A malformed or half-written objective file is skipped and reported (never an exception out of the readers), and `write` is
 atomic. Invented data only."""
 
+import os
 from pathlib import Path
 
 import pytest
@@ -77,14 +78,64 @@ def test_a_crash_while_writing_never_leaves_a_half_file_at_the_target(tmp_path: 
     objectives.write(tmp_path, OBJECTIVE)
     d = objectives.objectives_dir(tmp_path)
     before = (d / f"{OBJECTIVE.id}.yaml").read_text()
-    real = Path.write_text
 
-    def half(self: Path, text: str, *a: object, **k: object) -> int:
-        real(self, text[: len(text) // 2])  # half a file, then the process "dies"
+    def killed(_fd: int) -> None:  # the process "dies" after the temporary file is written, before the rename
         raise RuntimeError("killed")
 
-    monkeypatch.setattr(Path, "write_text", half)
+    monkeypatch.setattr(os, "fsync", killed)
     with pytest.raises(RuntimeError):
         objectives.write(tmp_path, OBJECTIVE)
     monkeypatch.undo()
     assert (d / f"{OBJECTIVE.id}.yaml").read_text() == before
+    assert sorted(p.name for p in d.iterdir()) == [f"{OBJECTIVE.id}.yaml"]  # and the temporary file is removed
+
+
+def test_concurrent_writers_of_one_objective_never_fail_and_readers_never_see_a_partial_file(tmp_path: Path) -> None:
+    import threading
+
+    objectives.write(tmp_path, OBJECTIVE)
+    path = objectives.objectives_dir(tmp_path) / f"{OBJECTIVE.id}.yaml"
+    stop = threading.Event()
+    errors: list[BaseException] = []
+    empties = [0]
+
+    def writer() -> None:
+        try:
+            for _ in range(200):
+                objectives.write(tmp_path, OBJECTIVE)
+        except BaseException as e:  # noqa: BLE001
+            errors.append(e)
+
+    def reader() -> None:
+        while not stop.is_set():
+            try:
+                if not path.read_text():
+                    empties[0] += 1
+            except FileNotFoundError:
+                empties[0] += 1
+
+    threads = [threading.Thread(target=writer) for _ in range(8)]
+    r = threading.Thread(target=reader)
+    r.start()
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    stop.set()
+    r.join()
+    assert errors == [] and empties[0] == 0
+    assert sorted(p.name for p in path.parent.iterdir()) == [path.name]  # no temporary file left
+
+
+def test_the_mode_of_an_existing_file_is_kept_and_a_symlink_stays_a_symlink(tmp_path: Path) -> None:
+    objectives.write(tmp_path, OBJECTIVE)
+    path = objectives.objectives_dir(tmp_path) / f"{OBJECTIVE.id}.yaml"
+    path.chmod(0o600)
+    objectives.write(tmp_path, OBJECTIVE)
+    assert (path.stat().st_mode & 0o777) == 0o600
+    real = path.with_name("real-copy.yml")
+    real.write_text(path.read_text())
+    path.unlink()
+    path.symlink_to(real)
+    objectives.write(tmp_path, OBJECTIVE)
+    assert path.is_symlink() and real.read_text()
