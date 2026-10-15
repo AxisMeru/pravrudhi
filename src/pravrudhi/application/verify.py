@@ -33,7 +33,9 @@ from pravrudhi.application.citations import Citation, parse_citations, supp_key
 _LEADING_FILLER = re.compile(r"^(?:this|that|in|the|court|held|observed|noted|see)\s+", re.IGNORECASE)
 # Trailing honorific/plural variants that name the same party ("Anr." vs "Ors." vs the bare name) --
 # stripped for comparison only, never for the stored/displayed party name.
-_TRAILING_HONORIFIC = re.compile(r"\s+(?:and|&)?\s*(?:anr\.?|ors\.?|others?|etc\.?)\s*$", re.IGNORECASE)
+# `(?<!\s)` starts the match only at the beginning of a whitespace run (the leftmost match always did), and the optional
+# "and" owns its own trailing gap, so no two `\s` quantifiers are adjacent: a long run of spaces no longer backtracks (#476).
+_TRAILING_HONORIFIC = re.compile(r"(?<!\s)\s+(?:(?:and|&)\s*)?(?:anr\.?|ors\.?|others?|etc\.?)\s*$", re.IGNORECASE)
 
 # A word broken across a PDF line wrap with a hyphen at the break point ("specific" -> "specific-\nmance"
 # for "performance") -- real `pypdf`/`pdftotext` output, seen building this corpus's own index. Only a
