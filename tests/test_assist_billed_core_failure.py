@@ -80,3 +80,32 @@ def test_the_ordinary_assisted_failure_still_answers_the_core_result(tmp_path: P
     c = _assist_client(tmp_path, program=bad)
     r = c.post(ASSIST, json={"text": TEXT, "consent": True})
     assert r.status_code == 200 and r.json()["assistant"]["reason"] == "error" and r.json()["bundle"]["facts"]
+
+
+def test_the_analyse_facts_assist_route_the_app_calls_answers_the_same_stable_502(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The route the app uses (Screening). Web maps HTTP 502 + the code `assistant_session_billed` only: fields pinned."""
+    from pravrudhi.application import nyaya_agent as agent_mod
+    from tests.test_a0_assist_route import BODY, URL, client
+
+    c = client(tmp_path)
+
+    def bad(tr):  # noqa: ANN001, ANN202
+        yield BAD_SESSION
+
+    c.rt.transport = RQ.FakeTransport(bad, RQ.Clock())  # type: ignore[attr-defined]
+
+    def boom(self: object, *_a: object, **_k: object) -> object:
+        raise RuntimeError("secret detail /home/someone/x")
+
+    monkeypatch.setattr(agent_mod.NyayaAgent, "run", boom)
+    r = c.post(URL, json=BODY)
+    body = r.json()
+    assert r.status_code == 502
+    assert set(body) == {"error", "detail", "assistant"}  # stable field names
+    assert body["error"] == "assistant_session_billed"
+    assert set(body["assistant"]) >= {"used", "outcome", "reason", "cost", "session_id"}
+    assert body["assistant"]["outcome"] == "refused" and body["assistant"]["reason"] == "core_error"
+    assert "secret" not in r.text and "/home" not in r.text and "retry-after" not in {k.lower() for k in r.headers}
+    assert len([x for x in c.rt.transport.calls if x == "create_session"]) == 1  # type: ignore[attr-defined]
