@@ -24,7 +24,7 @@ from difflib import SequenceMatcher
 from enum import StrEnum
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 from pravrudhi.application.citations import Citation, parse_citations, supp_key
 
@@ -278,6 +278,9 @@ class VerifyResult(StrEnum):
     #: Existence only (#832 E1): the citation resolves to an indexed case and NO quote was checked.
     #: Returned only by `exists_in_index`, never by `verify`.
     IN_INDEX = "IN_INDEX"
+    #: #509 (existence only): the citation resolves to ONE indexed case, the caller typed a case name in front of it, and that name does
+    #: not match the case. Returned only by `exists_in_index`, never by `verify`.
+    NAME_MISMATCH = "NAME_MISMATCH"
 
 
 def _citation_key(c: Citation) -> str | None:
@@ -463,6 +466,12 @@ def resolve_citation_key(
     if not case_rows:
         return ResolvedAlias(VerifyResult.NOT_IN_INDEX, [])
     return ResolvedAlias(None, case_rows)
+
+
+def _fold_abbreviations(tokens: frozenset[str]) -> frozenset[str]:
+    """The words of a party name with a printed abbreviation folded to its long form ("Corp" and "Corpn" to "Corporation"), for the
+    containment test only: a title that prints "Delhi Transport Corp" carries the alias word "Corporation"."""
+    return frozenset(_ABBREVIATIONS.get(t, t) for t in tokens)
 
 
 def _title_carries_the_cited_parties(conn: sqlite3.Connection, key: str, title: str) -> bool:
@@ -864,24 +873,53 @@ def _exists_supp(conn: sqlite3.Connection, key: str) -> VerifyResult:
     return VerifyResult.IN_INDEX if len(groups) == 1 else VerifyResult.CONFLICT
 
 
+class ExistenceAnswer(NamedTuple):
+    """What `exists_in_index_detail` answers: the result, and whether a typed case name was COMPARED with the index to reach it (true only for
+    an IN_INDEX that matched the name and for NAME_MISMATCH; false for every other answer, including a bare citation)."""
+
+    result: VerifyResult
+    name_compared: bool = False
+
+
+def _name_agrees(conn: sqlite3.Connection, key: str, title: str, claimed_name: str) -> bool | None:
+    """Whether the typed name names the resolved case: at least `_PARTY_CONTAINMENT_MIN` of its distinctive words (abbreviations folded)
+    are in the case title, or it agrees with some alias group of the key on both parties (an alias spelling such as an initialism or a
+    mined variant). None when the name has no distinctive word (nothing to compare)."""
+    claimed = _fold_abbreviations(_distinctive_tokens(claimed_name))
+    if not claimed:
+        return None
+    if len(claimed & _fold_abbreviations(_distinctive_tokens(title))) / len(claimed) >= _PARTY_CONTAINMENT_MIN:
+        return True
+    groups = conn.execute("SELECT DISTINCT party_1, party_2 FROM citation_aliases WHERE citation = ?", (key,)).fetchall()
+    return any(_group_agrees_with_claim(claimed, g) for g in groups)
+
+
 def exists_in_index(conn: sqlite3.Connection, citation_text: str, claimed_name: str | None = None) -> VerifyResult:
-    """#832 E1: does the citation resolve to an indexed case? Existence only: no quote is checked, so never VERIFIED.
-    Same resolution, year window and party-title test as `verify` (a case `verify` would not check never counts as found); a key
-    shared by two alias groups that are NOT spellings of one case stays CONFLICT (spellings of one case collapse first)."""
+    """#832 E1: does the citation resolve to an indexed case? Existence only: no quote is checked, so never VERIFIED. See
+    `exists_in_index_detail` for the answer with the comparison flag."""
+    return exists_in_index_detail(conn, citation_text, claimed_name).result
+
+
+def exists_in_index_detail(conn: sqlite3.Connection, citation_text: str, claimed_name: str | None = None) -> ExistenceAnswer:
+    """Same resolution, year window and party-title test as `verify` (a case `verify` would not check never counts as found); a key
+    shared by two alias groups that are NOT spellings of one case stays CONFLICT (spellings of one case collapse first).
+    #509: when the answer is IN_INDEX and a case name was typed in front of the citation, the name is compared with the ONE case the
+    citation resolved to (after any collapse); a name that does not match answers NAME_MISMATCH. No name, or a name with no distinctive
+    word, answers exactly as before (name_compared false)."""
     citations = parse_citations(citation_text)
     if len(citations) != 1:
-        return VerifyResult.MALFORMED
+        return ExistenceAnswer(VerifyResult.MALFORMED)
     if citations[0].reporter == "SCC Supp":
-        return _exists_supp(conn, supp_key(citations[0].year or 0, citations[0].volume, citations[0].page))
+        return ExistenceAnswer(_exists_supp(conn, supp_key(citations[0].year or 0, citations[0].volume, citations[0].page)))
     key = _citation_key(citations[0])
     if key is None:
-        return VerifyResult.NOT_IN_INDEX
+        return ExistenceAnswer(VerifyResult.NOT_IN_INDEX)
     claimed_name = claimed_name or _name_before_citation(citation_text, citations[0])
     resolved = resolve_citation_key(conn, key, claimed_name, citations[0].year)
     if resolved.status is VerifyResult.CONFLICT:
         resolved = _collapse_alias_conflict(conn, key, resolved, citations[0].year) or resolved
     if resolved.status is not None:
-        return resolved.status
+        return ExistenceAnswer(resolved.status)
     in_year = _rows_in_cited_year(conn, resolved.case_rows, citations[0].year)
     rows = [r for r in in_year if _title_carries_the_cited_parties(conn, key, r["title"])]
     # #717: WITHOUT a quote nothing else stands between a different case and IN_INDEX, so the answer is stricter than `verify`'s
@@ -890,11 +928,17 @@ def exists_in_index(conn: sqlite3.Connection, citation_text: str, claimed_name: 
     # many words is probably a different case sharing the party words). Anything else answers NOT_IN_INDEX, never IN_INDEX.
     cases = {r["case_id"]: r for r in rows}
     if len(cases) != 1:
-        return VerifyResult.NOT_IN_INDEX
+        return ExistenceAnswer(VerifyResult.NOT_IN_INDEX)
     only = next(iter(cases.values()))
     if _extra_title_tokens(conn, key, only["title"]) > EXISTENCE_MAX_EXTRA_TITLE_TOKENS:
-        return VerifyResult.NOT_IN_INDEX
-    return VerifyResult.IN_INDEX
+        return ExistenceAnswer(VerifyResult.NOT_IN_INDEX)
+    if claimed_name:
+        agrees = _name_agrees(conn, key, only["title"], claimed_name)
+        if agrees is False:
+            return ExistenceAnswer(VerifyResult.NAME_MISMATCH, True)
+        if agrees:
+            return ExistenceAnswer(VerifyResult.IN_INDEX, True)
+    return ExistenceAnswer(VerifyResult.IN_INDEX)
 
 
 _COVERAGE_CACHE: dict[tuple[str, int, int], dict[str, Any]] = {}

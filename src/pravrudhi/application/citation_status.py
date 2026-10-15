@@ -29,6 +29,10 @@ _LABELS: dict[VerifyResult, tuple[str, str]] = {
         "in_index",
         "Found in the index (existence only): no quote was checked, so this is not a verification.",
     ),
+    VerifyResult.NAME_MISMATCH: (
+        "name_mismatch",
+        "Case name did not match",
+    ),
     VerifyResult.NOT_IN_INDEX: ("not_in_index", "Not found in our index"),
     VerifyResult.CONFLICT: ("conflict", "conflict: the citation matches more than one indexed case"),
     VerifyResult.MALFORMED: ("malformed", "Exactly one parseable citation is required."),
