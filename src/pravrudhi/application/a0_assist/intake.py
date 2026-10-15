@@ -740,8 +740,10 @@ _CUES = {
         r"\bdate\s+of\s+(?:hearing|judg(?:e)?ment|order)\b|\bdated\s+this\s+the\b|\border\s+on\s+board\b|\b(?:heard|hearing)\b[^.]{0,40}\breserved\b",
         re.I,
     ),
+    # A run of dots or hyphens is tried from its start only (`(?<!\.)`, `(?<!-)`): a match that starts inside a run also
+    # matches from the run's start, so the answer is the same, and a long run no longer costs a pass per position.
     "parties": re.compile(
-        r"\bbetween\s*:|^\s*and\s*:|-versus-|\bversus\b|(?:\.{2,}|\u2026|-{2,})\s*(?:appellants?|respondents?|petitioners?|applicants?)\b",
+        r"\bbetween\s*:|^\s*and\s*:|-versus-|\bversus\b|(?:(?<!\.)\.{2,}|\u2026|(?<!-)-{2,})\s*(?:appellants?|respondents?|petitioners?|applicants?)\b",
         re.I,
     ),
     "preamble": re.compile(r"\bfiled\s+(?:under|u/s)\b[^.]{0,200}\bpraying\b", re.I),
