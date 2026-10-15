@@ -659,7 +659,7 @@ _BODY_HEADING = re.compile(
 
 
 def _first_letter(word: str) -> str:
-    """The first character of `word` that `str.isalpha` calls a letter, else "". A word of only number-like characters (a vulgar
+    r"""The first character of `word` that `str.isalpha` calls a letter, else "". A word of only number-like characters (a vulgar
     fraction, a superscript digit, a circled digit, a Roman numeral) has none: `re.search(r"[^\W\d_]", w)` counts those as letters
     but `isalpha` does not, which is what once raised StopIteration here."""
     return next((c for c in word if c.isalpha()), "")
