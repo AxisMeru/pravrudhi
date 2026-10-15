@@ -46,9 +46,28 @@ _SCC = re.compile(r"\((?P<year>\d{4})\)\s*(?P<volume>\d+)\s*SCC\s+(?P<page>\d+)\
 _SCC_YEAR_SCC_PAREN_VOLUME = re.compile(r"\b(?P<year>\d{4})\s*SCC\s*\((?P<volume>\d+)\)\s*(?P<page>\d+)\b")
 _SCC_YEAR_PAREN_VOLUME_SCC = re.compile(r"\b(?P<year>\d{4})\s*\((?P<volume>\d+)\)\s*SCC\s*(?P<page>\d+)\b")
 
-# The SCC supplementary-volume form, "1992 Supp (1) SCC 335" or "(1992) Supp (1) SCC 335": a real reporter form the index does not
-# mine, so it parses and then answers NOT_IN_INDEX (a reporter the check cannot look up), never MALFORMED (the caller's error).
-_SCC_SUPP = re.compile(r"\(?\b(?P<year>\d{4})\)?\s*Supp\.?\s*(?:\((?P<volume>\d+)\)\s*)?SCC\s+(?P<page>\d+)\b", re.IGNORECASE)
+# The SCC supplementary-volume form. A real reporter form the index's alias miner does not read, so a QUERY in this form
+# resolves only through the own-citation table (`case_citations`, see case_index_slim); with none it answers NOT_IN_INDEX (a
+# reporter the check cannot look up), never MALFORMED (the caller's error). The spellings seen on real judgment headers and
+# in running text:
+#   Supp first:  "1992 Supp (1) SCC 335", "(1992) Supp (1) SCC 335", "1994SUPP(1)SCC534", "1981 Suppl. SCC 87",
+#                "1980 (Sup) SCC 420"
+#   SCC first:   "1992 SCC (SUPP) 1 335", "1992 SCC Supl. (1) 335", "1991 (1) SCC(SUPP) 430", "1988 SCC (SUPP) 269"
+# The volume is optional ("1990 SCC Supl. 675") and a single digit (a supplement has at most a few volumes; a longer number is the
+# page). The year is a four-digit 19xx or 20xx.
+_SUP = r"SUPP?L?\.?"
+_SCC_SUPP = re.compile(
+    rf"\(?\b(?P<yA>(?:19|20)\d{{2}})\)?\s*\(?\s*{_SUP}\s*\)?\s*(?:\((?P<vA>\d)\)\s*)?SCC\s*(?P<pA>\d+)\b"
+    rf"|\(?\b(?P<yB>(?:19|20)\d{{2}})\)?\s*(?:\((?P<vB1>\d)\)\s*)?SCC\s*\(?\s*{_SUP}\s*\)?\s*(?:\(?(?P<vB2>\d)\)?\s+)?(?P<pB>\d+)\b",
+    re.IGNORECASE,
+)
+
+
+def supp_key(year: int, volume: int | None, page: int) -> str:
+    """The one canonical key of an SCC supplementary-volume citation, apart from every plain `(year) volume SCC page` key
+    ("(1992) Supp (1) SCC 335" is a different citation from "(1992) 1 SCC 335")."""
+    return f"({year}) Supp ({volume}) SCC {page}" if volume else f"({year}) Supp SCC {page}"
+
 
 _SCC_ONLINE = re.compile(
     r"\b(?P<year>\d{4})\s+SCC\s+OnLine\s+(?P<court>[A-Za-z]{2,4})\s+(?P<page>\d+)\b"
@@ -90,12 +109,12 @@ def _scc(m: re.Match[str]) -> Citation:
 
 
 def _scc_supp(m: re.Match[str]) -> Citation:
-    vol = m["volume"]
+    vol = m["vA"] or m["vB1"] or m["vB2"]
     return Citation(
         reporter="SCC Supp",
-        year=int(m["year"]),
+        year=int(m["yA"] or m["yB"]),
         volume=int(vol) if vol else None,
-        page=int(m["page"]),
+        page=int(m["pA"] or m["pB"]),
         court=None,
         span=m.span(),
     )
