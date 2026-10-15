@@ -22,9 +22,14 @@ STAGES = ("read_input", "clean", "split_facts", "extract_citations", "verify_cit
 
 
 class IntakeDriver:
-    def __init__(self, raw: str, *, exists_fn: Callable[[str], str] | None = None) -> None:
-        """raw: the engine-extracted text (the binding reference). exists_fn: citation text -> verifier status string."""
+    def __init__(
+        self, raw: str, *, exists_fn: Callable[[str], str] | None = None, timeout_s: float | None = None
+    ) -> None:
+        """raw: the engine-extracted text (the binding reference). exists_fn: citation text -> verifier status string.
+        timeout_s: the wall-clock budget of EACH tool call (the intake text work; not the model session around it); an exceeded
+        budget raises `IntakeTimeout` out of `call`. None or 0 sets none."""
         self.raw = raw
+        self.timeout_s = timeout_s
         self.exists_fn = exists_fn
         self.calls: list[dict[str, Any]] = []
         self.refusals: list[str] = []
@@ -39,7 +44,8 @@ class IntakeDriver:
         try:
             if tool not in STAGES:
                 raise intake.IntakeRefused(f"unknown tool {tool!r}")
-            out = getattr(self, "_t_" + tool)(inp if isinstance(inp, dict) else {})
+            with intake.deadline(self.timeout_s):
+                out = getattr(self, "_t_" + tool)(inp if isinstance(inp, dict) else {})
         except intake.IntakeRefused as e:
             self.refusals.append(f"{tool}: {e}")
             out = {"error": str(e), "refused": True}

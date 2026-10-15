@@ -72,10 +72,11 @@ from pydantic import BaseModel, Field, StrictBool, computed_field, field_validat
 from starlette.responses import JSONResponse
 
 from pravrudhi import __version__
-from pravrudhi.api.errors import AGENT_AT_CAPACITY, AGENT_UNAVAILABLE, coded_503
+from pravrudhi.api.errors import AGENT_AT_CAPACITY, AGENT_UNAVAILABLE, INTAKE_TIMEOUT, coded_503
 from pravrudhi.api.identity import CurrentUserDep, User
 from pravrudhi.application import audit, citation_status, tenancy
 from pravrudhi.application import nyaya_lean_registry as reg
+from pravrudhi.application.a0_assist.intake_budget import IntakeTimeout
 from pravrudhi.application.citation_wording import citation_note
 from pravrudhi.application.config_files import config_file
 from pravrudhi.application.hearing_pack.driver import PackDriver
@@ -192,8 +193,14 @@ class PartnerApiConfig:
     #: wall-clock bound on one lookup against the case index (an exceeded bound is a 503, never a hung worker).
     verify_max_concurrent: int = 2
     verify_timeout_s: float = 5.0
+    #: `POST /intake`: the wall-clock budget of the whole intake (text processing and its citation lookups; the lookups alone are
+    #: held to INTAKE_LOOKUP_BUDGET_S). An exceeded budget is a 503 `intake_timeout`; 0 turns the budget off.
+    intake_timeout_s: float = 30.0
 
     def __post_init__(self) -> None:
+        t = self.intake_timeout_s
+        if isinstance(t, bool) or not isinstance(t, (int, float)) or not math.isfinite(t) or t < 0:
+            raise ValueError(f"intake_timeout_s must be a finite number of seconds, 0 or more (0 = off), got {t!r}"[:200])
         b = self.bad_key_budget_per_minute
         if b is not None and (isinstance(b, bool) or not isinstance(b, int) or not 1 <= b <= MAX_BAD_KEY_BUDGET):
             raise ValueError(
@@ -265,6 +272,7 @@ def load_partner_api_config(root: Path) -> PartnerApiConfig:
         audit_retention_s=float(body.get("audit_retention_s", 90 * 86400.0)),
         verify_max_concurrent=int(body.get("verify_max_concurrent", 2)),
         verify_timeout_s=float(body.get("verify_timeout_s", 5.0)),
+        intake_timeout_s=float(body.get("intake_timeout_s", 30.0)),
     )
 
 
@@ -1719,7 +1727,8 @@ def build_partner_router(
         from pravrudhi.application.a0_assist import intake
 
         try:
-            bundle = intake.build_bundle(req.text, verify_fn=exists_fn)
+            with intake.deadline(_get_state()[0].intake_timeout_s):
+                bundle = intake.build_bundle(req.text, verify_fn=exists_fn)
         except intake.IntakeRefused as e:
             raise HTTPException(422, str(e)) from e
         return {"run_id": f"nyaya-intake-{os.urandom(5).hex()}", "client_data": True, "bundle": bundle}
@@ -1759,6 +1768,9 @@ def build_partner_router(
             return coded_503(AGENT_AT_CAPACITY)
         try:
             out = _intake_core(req, _intake_exists_fn(admitted.cfg))
+        except IntakeTimeout:  # the budget is spent: the coded 503, no Retry-After (the same text would time out again)
+            _intake_audit(metered, "intake", 503)
+            return coded_503(INTAKE_TIMEOUT)
         except HTTPException as e:
             _intake_audit(metered, "intake", e.status_code)
             raise
@@ -1804,7 +1816,7 @@ def build_partner_router(
             limiter=rt.limiter,
             slots=rt.slots,
             core=lambda: _intake_core(req, exists_fn),
-            make_driver=lambda: IntakeDriver(req.text, exists_fn=exists_fn),
+            make_driver=lambda: IntakeDriver(req.text, exists_fn=exists_fn, timeout_s=admitted.cfg.intake_timeout_s),
             finalize=finalize,
             workflows=frozenset({"intake"}),
             user_message=a0.intake_user_message,
@@ -1816,6 +1828,9 @@ def build_partner_router(
             return coded_503(AGENT_AT_CAPACITY)
         try:
             out = a0.run_assisted({"text": req.text}, caller, req.consent, req.session_id, deps, workflow="intake")
+        except IntakeTimeout:
+            _intake_audit(metered, "intake_assist", 503)
+            return coded_503(INTAKE_TIMEOUT)
         except HTTPException as e:
             _intake_audit(metered, "intake_assist", e.status_code)
             raise
