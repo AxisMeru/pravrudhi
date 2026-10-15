@@ -144,14 +144,18 @@ def _fuzzy_match(target: str, title: str) -> bool:
 _TITLE_ROWS: dict[tuple[Any, ...], tuple[tuple[str, str, int, Counter[str]], ...]] = {}
 #: Held while the cache is built, so concurrent first lookups (and the start-up warm-up) build it ONCE; none sees a partial copy.
 _TITLE_LOCK = threading.Lock()
+#: How long a lookup waits for another thread's cache build before it scans the table itself (the plain per-title scan, which
+#: obeys the lookup's own deadline): the build takes well under a second, so a longer wait means a starved host, and no lookup
+#: may sit on the lock past its 5 s budget.
+_TITLE_LOCK_WAIT_S = 1.0
 
 
 def _title_rows(conn: sqlite3.Connection) -> tuple[tuple[str, str, int, Counter[str]], ...] | None:
-    """The cached normalised titles of the index file behind `conn`, or None for a database with no file (in memory), where the
-    scan reads the table as before. The key names the file's identity, its header change counter and the stat of a `-wal` file, so
-    a rewritten file is never served from an older copy. Index files are REPLACED, never updated in place (the shipped index
-    is read-only in the image); a swap by rename, a rewrite and a WAL commit all move the key. One entry only: two index files
-    alternating in one process would rebuild the cache each time."""
+    """The cached normalised titles of the index file behind `conn`, or None where the scan reads the table as before: a database
+    with no file (in memory), or another thread's build that outlasts `_TITLE_LOCK_WAIT_S`. The key names the file's identity, its
+    header change counter and the stat of a `-wal` file, so a rewritten file is never served from an older copy. Index files are
+    REPLACED, never updated in place (the shipped index is read-only in the image); a swap by rename, a rewrite and a WAL commit
+    all move the key. One entry only: two index files alternating in one process would rebuild the cache each time."""
     try:
         row = conn.execute("PRAGMA database_list").fetchone()
         file = row[2] if row else ""
@@ -170,13 +174,17 @@ def _title_rows(conn: sqlite3.Connection) -> tuple[tuple[str, str, int, Counter[
     key = (file, st.st_ino, st.st_mtime_ns, st.st_size, header[24:28], wal_id)
     rows = _TITLE_ROWS.get(key)
     if rows is None:
-        with _TITLE_LOCK:
+        if not _TITLE_LOCK.acquire(timeout=_TITLE_LOCK_WAIT_S):
+            return None  # another thread's build is taking too long: scan the table directly, inside this lookup's own deadline
+        try:
             rows = _TITLE_ROWS.get(key)  # another thread may have built it while this one waited
             if rows is None:
                 titles = [(r[0], normalize_party_name(r[1] or "")) for r in conn.execute("SELECT case_id, title FROM cases")]
                 rows = tuple((case_id, t, len(t), Counter(t)) for case_id, t in titles)
                 _TITLE_ROWS.clear()  # one index file per process; a replaced file drops the old copy
                 _TITLE_ROWS[key] = rows
+        finally:
+            _TITLE_LOCK.release()
     return rows
 
 

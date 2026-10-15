@@ -5,6 +5,7 @@ import os
 import random
 import sqlite3
 import threading
+import time
 from pathlib import Path
 
 from pravrudhi.application import verify
@@ -333,3 +334,39 @@ def test_a_wal_commit_moves_the_cache_key(tmp_path):
     w.close()
     ro.close()
     ro2.close()
+
+
+def test_a_lookup_does_not_wait_past_its_budget_for_a_slow_cache_build(tmp_path, monkeypatch):
+    """A starved host: another thread holds the cache lock for far longer than a lookup may wait. The lookup stops waiting after
+    `_TITLE_LOCK_WAIT_S`, scans the table itself and gives the same answer as with the cache."""
+    aliases = [("(2011) 9 SCC 257", "Aldrik Vennoway", "State of Zorbland")]
+    path = _alias_index(tmp_path / "idx.sqlite3", ["Aldric Vennoway vs State of Zorbland", *_random_titles(8, 100)], aliases)
+    expected = _answer(path, "(2011) 9 SCC 257")  # with the cache
+    verify._TITLE_ROWS.clear()
+    monkeypatch.setattr(verify, "_TITLE_LOCK_WAIT_S", 0.3)
+    held, release = threading.Event(), threading.Event()
+
+    def builder():  # a build that outlasts every budget
+        with verify._TITLE_LOCK:
+            held.set()
+            release.wait(20)
+
+    t = threading.Thread(target=builder)
+    t.start()
+    assert held.wait(5)
+    try:
+        waits = []
+        for _ in range(4):  # several lookups, as in a burst
+            t0 = time.perf_counter()
+            got = _answer(path, "(2011) 9 SCC 257")
+            waits.append(time.perf_counter() - t0)
+            assert got == expected
+        assert max(waits) < 1.5  # each waited about 0.3 s, then scanned directly; none sat on the lock
+        conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        t0 = time.perf_counter()
+        assert _title_rows(conn) is None
+        assert time.perf_counter() - t0 < 1.0
+        conn.close()
+    finally:
+        release.set()
+        t.join(10)
