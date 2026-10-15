@@ -559,10 +559,58 @@ def _extra_title_tokens(conn: sqlite3.Connection, key: str, title: str) -> int:
     return min(len(tokens - (_distinctive_tokens(p1) | _distinctive_tokens(p2)) - free) for p1, p2 in groups)
 
 
+#: Two spellings of one party name (an OCR slip, a variant spelling) are close tokens: each distinctive word of the one is
+#: within this similarity of some distinctive word of the other.
+_SPELLING_TOKEN_MIN = 0.85
+
+
+def _party_is_spelling_of(unresolved: str, resolved: str) -> bool:
+    """Whether every distinctive word of `unresolved` is a near spelling of some distinctive word of `resolved` ("Hridayal" for
+    "Keshavananda" for "Kesavananda"). A party with no distinctive word cannot be told to be a spelling of anything."""
+    mine, theirs = _distinctive_tokens(unresolved), _distinctive_tokens(resolved)
+    return (
+        bool(mine)
+        and bool(theirs)
+        and all(any(SequenceMatcher(None, a, b).ratio() >= _SPELLING_TOKEN_MIN for b in theirs) for a in mine)
+    )
+
+
+def _collapse_alias_conflict(
+    conn: sqlite3.Connection, key: str, resolved: ResolvedAlias, year: int | None
+) -> ResolvedAlias | None:
+    """Existence only: a key whose alias groups are SPELLINGS of one case ("Arnesh Kumar", "In Arnesh Kumar" / "State of
+    Bihar", "State of Bihar and Another") is not a conflict. Each group is resolved and held to the year window and the
+    title-carries-the-parties test exactly as `_narrow_conflict` does; a group with no checkable case is dropped (a title
+    match on other words), but a group that resolves to NO case at all stays an uncheckable candidate (#331) UNLESS both its
+    parties are near spellings of a surviving group's. When the checkable cases of the surviving groups are exactly ONE case,
+    that case is the resolution; anything else returns None (CONFLICT stays). Never guesses between two different cases."""
+    survivors: list[tuple[sqlite3.Row, tuple[sqlite3.Row, ...]]] = []
+    unresolved: list[sqlite3.Row] = []
+    for group_row, rows in resolved.group_candidates:
+        if not rows:
+            unresolved.append(group_row)
+            continue
+        checkable = tuple(
+            r for r in _rows_in_cited_year(conn, list(rows), year) if _title_carries_the_cited_parties(conn, key, r["title"])
+        )
+        if checkable:
+            survivors.append((group_row, checkable))
+    if not survivors:
+        return None
+    for u in unresolved:
+        if not any(
+            _party_is_spelling_of(u["party_1"], g["party_1"]) and _party_is_spelling_of(u["party_2"], g["party_2"])
+            for g, _ in survivors
+        ):
+            return None
+    cases = {r["case_id"]: r for _, rows in survivors for r in rows}
+    return ResolvedAlias(None, list(cases.values())) if len(cases) == 1 else None
+
+
 def exists_in_index(conn: sqlite3.Connection, citation_text: str, claimed_name: str | None = None) -> VerifyResult:
     """#832 E1: does the citation resolve to an indexed case? Existence only: no quote is checked, so never VERIFIED.
     Same resolution, year window and party-title test as `verify` (a case `verify` would not check never counts as found); a key
-    shared by two alias groups stays CONFLICT (nothing narrows it without a quote)."""
+    shared by two alias groups that are NOT spellings of one case stays CONFLICT (spellings of one case collapse first)."""
     citations = parse_citations(citation_text)
     if len(citations) != 1:
         return VerifyResult.MALFORMED
@@ -571,6 +619,8 @@ def exists_in_index(conn: sqlite3.Connection, citation_text: str, claimed_name: 
         return VerifyResult.NOT_IN_INDEX
     claimed_name = claimed_name or _name_before_citation(citation_text, citations[0])
     resolved = resolve_citation_key(conn, key, claimed_name, citations[0].year)
+    if resolved.status is VerifyResult.CONFLICT:
+        resolved = _collapse_alias_conflict(conn, key, resolved, citations[0].year) or resolved
     if resolved.status is not None:
         return resolved.status
     in_year = _rows_in_cited_year(conn, resolved.case_rows, citations[0].year)
