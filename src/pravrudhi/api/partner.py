@@ -505,7 +505,7 @@ _VERIFY_NOTES = {
     "IN_INDEX": "Found in the index (existence only): no quote was checked, so this is not a verification.",
     "NAME_MISMATCH": (
         "The citation resolves to an indexed case, but the case name given does not match that case. "
-        "That does not show whether the citation or the name is right."
+        "This does not show whether the citation or the name is right."
     ),
     "NOT_IN_INDEX": (
         "We could not match this citation to exactly one case in our index. "

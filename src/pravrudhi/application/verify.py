@@ -883,15 +883,20 @@ class ExistenceAnswer(NamedTuple):
 
 def _name_agrees(conn: sqlite3.Connection, key: str, title: str, claimed_name: str) -> bool | None:
     """Whether the typed name names the resolved case: at least `_PARTY_CONTAINMENT_MIN` of its distinctive words (abbreviations folded)
-    are in the case title, or it agrees with some alias group of the key on both parties (an alias spelling such as an initialism or a
-    mined variant). None when the name has no distinctive word (nothing to compare)."""
-    claimed = _fold_abbreviations(_distinctive_tokens(claimed_name))
+    are in the case title, or it agrees with some alias group of the key on BOTH parties and that group has a distinctive word on
+    both sides (an alias spelling such as an initialism or a mined variant; a group like "State of X v. Union of India", with one
+    side made only of common words, cannot vouch for a name). The two sides of the typed name are tokenized apart, so the "v." between
+    them is never merged into a run of initials. None when the name has no distinctive word (nothing to compare)."""
+    sides = _PARTY_SEPARATOR.split(claimed_name, maxsplit=1)
+    claimed = _fold_abbreviations(frozenset().union(*(_distinctive_tokens(side) for side in sides)))
     if not claimed:
         return None
     if len(claimed & _fold_abbreviations(_distinctive_tokens(title))) / len(claimed) >= _PARTY_CONTAINMENT_MIN:
         return True
     groups = conn.execute("SELECT DISTINCT party_1, party_2 FROM citation_aliases WHERE citation = ?", (key,)).fetchall()
-    return any(_group_agrees_with_claim(claimed, g) for g in groups)
+    return any(
+        _distinctive_tokens(g["party_1"]) and _distinctive_tokens(g["party_2"]) and _group_agrees_with_claim(claimed, g) for g in groups
+    )
 
 
 def exists_in_index(conn: sqlite3.Connection, citation_text: str, claimed_name: str | None = None) -> VerifyResult:

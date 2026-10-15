@@ -56,6 +56,16 @@ def test_a_name_written_with_an_alias_spelling_matches(tmp_path: Path) -> None:
     assert exists_in_index_detail(conn, f"Quillfeather Oil Corpn. v. Mendelsohn India, {KEY}") == (VerifyResult.IN_INDEX, True)
 
 
+def test_a_right_name_with_initials_matches_whatever_the_separator_sits_next_to(tmp_path: Path) -> None:
+    conn = _db(tmp_path, "initials", [("Quillbert Sarma", "V.K.V. Sarma")], "Quillbert Sarma vs V K V Sarma")
+    assert exists_in_index_detail(conn, f"Quillbert Sarma v. V. K. V. Sarma, {KEY}") == (VerifyResult.IN_INDEX, True)
+
+
+def test_an_alias_group_with_one_generic_side_cannot_vouch_for_a_wrong_name(tmp_path: Path) -> None:
+    conn = _db(tmp_path, "generic", [("State of Zorbland", "Union of India")], "State Of Zorbland vs Union Of India")
+    assert exists_in_index_detail(conn, f"State of Zorbland Plains v. Brenwick Taplow, {KEY}") == (VerifyResult.NAME_MISMATCH, True)
+
+
 def test_a_shortened_right_name_matches(tmp_path: Path) -> None:
     conn = _db(tmp_path, "short", ONE)
     assert exists_in_index_detail(conn, f"Aldric Vennoway v. Zorbland, {KEY}") == (VerifyResult.IN_INDEX, True)
@@ -112,7 +122,11 @@ def test_the_route_reports_name_compared_only_when_a_name_was_compared(tmp_path:
     assert (mismatch["result"], mismatch["status"], mismatch["label"], mismatch["verified"], mismatch["name_compared"]) == (
         "NAME_MISMATCH", "name_mismatch", "Case name did not match", False, True,
     )
-    assert "does not match" in mismatch["note"] and "fake" not in mismatch["note"].lower()
+    assert mismatch["note"] == (
+        "The citation resolves to an indexed case, but the case name given does not match that case. "
+        "This does not show whether the citation or the name is right."
+    )  # R1's wording, byte-exact
+    assert "fake" not in mismatch["note"].lower()
     for citation in (KEY, "(2099) 1 SCC 1", f"The State v. Union of India, {KEY}"):
         assert "name_compared" not in _post(c, citation), citation  # no key at all: the reply is what it was before this field existed
 
