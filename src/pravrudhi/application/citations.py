@@ -46,6 +46,10 @@ _SCC = re.compile(r"\((?P<year>\d{4})\)\s*(?P<volume>\d+)\s*SCC\s+(?P<page>\d+)\
 _SCC_YEAR_SCC_PAREN_VOLUME = re.compile(r"\b(?P<year>\d{4})\s*SCC\s*\((?P<volume>\d+)\)\s*(?P<page>\d+)\b")
 _SCC_YEAR_PAREN_VOLUME_SCC = re.compile(r"\b(?P<year>\d{4})\s*\((?P<volume>\d+)\)\s*SCC\s*(?P<page>\d+)\b")
 
+# The SCC supplementary-volume form, "1992 Supp (1) SCC 335" or "(1992) Supp (1) SCC 335": a real reporter form the index does not
+# mine, so it parses and then answers NOT_IN_INDEX (a reporter the check cannot look up), never MALFORMED (the caller's error).
+_SCC_SUPP = re.compile(r"\(?\b(?P<year>\d{4})\)?\s*Supp\.?\s*(?:\((?P<volume>\d+)\)\s*)?SCC\s+(?P<page>\d+)\b", re.IGNORECASE)
+
 _SCC_ONLINE = re.compile(
     r"\b(?P<year>\d{4})\s+SCC\s+OnLine\s+(?P<court>[A-Za-z]{2,4})\s+(?P<page>\d+)\b"
 )
@@ -79,6 +83,18 @@ def _scc(m: re.Match[str]) -> Citation:
         reporter="SCC",
         year=int(m["year"]),
         volume=int(m["volume"]),
+        page=int(m["page"]),
+        court=None,
+        span=m.span(),
+    )
+
+
+def _scc_supp(m: re.Match[str]) -> Citation:
+    vol = m["volume"]
+    return Citation(
+        reporter="SCC Supp",
+        year=int(m["year"]),
+        volume=int(vol) if vol else None,
         page=int(m["page"]),
         court=None,
         span=m.span(),
@@ -137,6 +153,7 @@ _PATTERNS: tuple[tuple[re.Pattern[str], Callable[[re.Match[str]], Citation]], ..
     (_SCC, _scc),
     (_SCC_YEAR_SCC_PAREN_VOLUME, _scc),
     (_SCC_YEAR_PAREN_VOLUME_SCC, _scc),
+    (_SCC_SUPP, _scc_supp),
     (_SCC_ONLINE, _scc_online),
     (_INSC, _insc),
     (_SCR, _scr),

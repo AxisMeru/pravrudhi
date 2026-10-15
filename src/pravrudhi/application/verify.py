@@ -559,10 +559,164 @@ def _extra_title_tokens(conn: sqlite3.Connection, key: str, title: str) -> int:
     return min(len(tokens - (_distinctive_tokens(p1) | _distinctive_tokens(p2)) - free) for p1, p2 in groups)
 
 
+#: A word is a SPELLING of another only for an OCR- or transliteration-style slip: the words are long enough to be a rare name (a
+#: short common surname such as Kumar/Kumari, Sharma/Sharmila or Lal/Lall is a different person's name, never a spelling) and they
+#: differ by exactly ONE inserted, dropped or changed letter, or by two neighbouring letters swapped. The first letter must agree.
+_SPELLING_MIN_LETTERS = 7
+#: Long words that are titles or kinds of body, not a person's or firm's own name: a shortened form that keeps only one of them is
+#: not a rare name, whatever its length.
+_GENERIC_LONG_WORDS = frozenset(
+    {
+        "governor",
+        "corporation",
+        "municipal",
+        "authority",
+        "director",
+        "secretary",
+        "chairman",
+        "tribunal",
+        "manager",
+        "officer",
+        "society",
+        "committee",
+        "industries",
+        "university",
+        "registrar",
+        "magistrate",
+        "collector",
+        "superintendent",
+        "district",
+        "department",
+        "ministry",
+        "chief",
+        "minister",
+        "inspector",
+        "regional",
+        "national",
+        "central",
+        "railway",
+        "railways",
+        "corporate",
+        "electricity",
+        "board",
+        "council",
+        "association",
+        "institute",
+        "college",
+        "hospital",
+        "bank",
+        "insurance",
+    }
+)
+
+
+def _one_slip(a: str, b: str) -> bool:
+    """Exactly one inserted, dropped or changed letter, or one pair of neighbouring letters swapped, and the same first letter."""
+    if a == b or abs(len(a) - len(b)) > 1 or a[0] != b[0]:
+        return False
+    p = 0
+    while p < min(len(a), len(b)) and a[p] == b[p]:
+        p += 1
+    if len(a) == len(b):
+        if a[p + 1 :] == b[p + 1 :]:
+            return True  # one letter changed
+        return a[p] == b[p + 1] and a[p + 1] == b[p] and a[p + 2 :] == b[p + 2 :]  # two neighbours swapped
+    longer, shorter = (a, b) if len(a) > len(b) else (b, a)
+    return longer[p + 1 :] == shorter[p:]  # one letter dropped or inserted
+
+
+#: Abbreviations a party name is printed with, folded to the long form for the spelling comparison only.
+_ABBREVIATIONS = {"corpn": "corporation", "corp": "corporation"}
+
+
+def _same_word(a: str, b: str) -> bool:
+    a, b = _ABBREVIATIONS.get(a, a), _ABBREVIATIONS.get(b, b)
+    if a == b:
+        return True
+    return min(len(a), len(b)) >= _SPELLING_MIN_LETTERS - 1 and max(len(a), len(b)) >= _SPELLING_MIN_LETTERS and _one_slip(a, b)
+
+
+def _tokens_correspond(x: frozenset[str], y: frozenset[str], *, allow_shortened: bool = True) -> bool:
+    """Whether two sets of distinctive words name the same party: every word of each has an equal or OCR-slip word in the
+    other; or the smaller set is inside the larger one and carries a rare name (a word of at least `_SPELLING_MIN_LETTERS`
+    letters), so a shortened form of a rare name ("Marlowenton Thackeray" for "Marlowenton Thackeray Sripadagalvaru")
+    corresponds, but a short form that only drops words from common names ("Kumar" for "Rajesh Kumar Gupta") never does.
+    `allow_shortened=False` asks for the first reading only. Empty sets correspond to nothing."""
+    if not x or not y:
+        return False
+    x_in_y = all(any(_same_word(a, b) for b in y) for a in x)
+    y_in_x = all(any(_same_word(b, a) for a in x) for b in y)
+    if x_in_y and y_in_x:
+        return True
+    if not allow_shortened:
+        return False
+    smaller, covered = (x, x_in_y) if len(x) <= len(y) else (y, y_in_x)
+    return covered and any(len(w) >= _SPELLING_MIN_LETTERS and w not in _GENERIC_LONG_WORDS for w in smaller)
+
+
+#: Words a printed party name may carry in front of the name itself ("His Holiness ...", "Shri ...", "Vide ..."): ignored when two
+#: spellings of a party are compared.
+_NAME_PREFIX_WORDS = frozenset({"his", "holiness", "shri", "sri", "smt", "vide", "justice", "hon", "ble"})
+
+
+def _party_is_spelling_of(unresolved: str, resolved: str) -> bool:
+    """Whether the distinctive words of `unresolved` are a spelling of those of `resolved` (see `_tokens_correspond`)."""
+    return _tokens_correspond(
+        _distinctive_tokens(unresolved) - _NAME_PREFIX_WORDS, _distinctive_tokens(resolved) - _NAME_PREFIX_WORDS
+    )
+
+
+def _title_is_the_group(title: str, group_row: sqlite3.Row) -> bool:
+    """Whether the case title names THIS alias group's parties (and no others): the group's and the title's words correspond.
+    A case a group only reaches through the fuzzy or first-word lookup does not count as the group's case."""
+    group = _distinctive_tokens(group_row["party_1"]) | _distinctive_tokens(group_row["party_2"])
+    return _tokens_correspond(group, _distinctive_tokens(title), allow_shortened=False)
+
+
+def _collapse_alias_conflict(
+    conn: sqlite3.Connection, key: str, resolved: ResolvedAlias, year: int | None
+) -> ResolvedAlias | None:
+    """Existence only: a key whose alias groups are SPELLINGS of one case ("Aldric Vennoway", "In Aldric Vennoway" /
+    "State of Zorbland", "State of Zorbland and Another") is not a conflict. Each group is resolved and held to the
+    year window and the title-carries-the-parties test exactly as `_narrow_conflict` does. A group that has a
+    checkable case titled with its OWN parties survives. Any other group (it resolves to no case, only to cases that
+    fail the tests, or only to a case that is not titled with its own parties because the fuzzy lookup reached it) is
+    an uncheckable candidate (#331) that folds in ONLY when both its parties are spellings of a surviving group's.
+    When the surviving groups' cases are exactly ONE case, that case is the resolution; anything else returns None
+    (CONFLICT stays). Never guesses between two different cases."""
+    survivors: list[tuple[sqlite3.Row, tuple[sqlite3.Row, ...]]] = []
+    unresolved: list[sqlite3.Row] = []
+    for group_row, rows in resolved.group_candidates:
+        if not rows:
+            unresolved.append(group_row)
+            continue
+        checkable = tuple(
+            r for r in _rows_in_cited_year(conn, list(rows), year) if _title_carries_the_cited_parties(conn, key, r["title"])
+        )
+        if not checkable:
+            unresolved.append(group_row)  # reached other cases only: as uncheckable as a group with none
+            continue
+        own = tuple(r for r in checkable if _title_is_the_group(r["title"], group_row))
+        if own:
+            survivors.append((group_row, own))
+        else:
+            unresolved.append(group_row)
+    if not survivors:
+        return None
+    for u in unresolved:
+        if not any(
+            _party_is_spelling_of(u["party_1"], g["party_1"]) and _party_is_spelling_of(u["party_2"], g["party_2"])
+            for g, _ in survivors
+        ):
+            return None
+    cases = {r["case_id"]: r for _, rows in survivors for r in rows}
+    return ResolvedAlias(None, list(cases.values())) if len(cases) == 1 else None
+
+
 def exists_in_index(conn: sqlite3.Connection, citation_text: str, claimed_name: str | None = None) -> VerifyResult:
     """#832 E1: does the citation resolve to an indexed case? Existence only: no quote is checked, so never VERIFIED.
     Same resolution, year window and party-title test as `verify` (a case `verify` would not check never counts as found); a key
-    shared by two alias groups stays CONFLICT (nothing narrows it without a quote)."""
+    shared by two alias groups that are NOT spellings of one case stays CONFLICT (spellings of one case collapse first)."""
     citations = parse_citations(citation_text)
     if len(citations) != 1:
         return VerifyResult.MALFORMED
@@ -571,6 +725,8 @@ def exists_in_index(conn: sqlite3.Connection, citation_text: str, claimed_name: 
         return VerifyResult.NOT_IN_INDEX
     claimed_name = claimed_name or _name_before_citation(citation_text, citations[0])
     resolved = resolve_citation_key(conn, key, claimed_name, citations[0].year)
+    if resolved.status is VerifyResult.CONFLICT:
+        resolved = _collapse_alias_conflict(conn, key, resolved, citations[0].year) or resolved
     if resolved.status is not None:
         return resolved.status
     in_year = _rows_in_cited_year(conn, resolved.case_rows, citations[0].year)
