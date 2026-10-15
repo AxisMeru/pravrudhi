@@ -262,6 +262,14 @@ def system_prompt() -> str:
     return "\n".join(lines)
 
 
+#: How much of a model-supplied id an error message echoes: the id is untrusted text of any length.
+_SHOWN_ID_CHARS = 80
+
+
+def _shown(oid: str) -> str:
+    return oid if len(oid) <= _SHOWN_ID_CHARS else oid[:_SHOWN_ID_CHARS] + "..."
+
+
 def _objective_summary(root: Path, oid: str) -> dict[str, Any] | None:
     from pravrudhi.application.objectives import load_all, summary
 
@@ -395,7 +403,7 @@ def dispatch(root: Path, store: MemoryStore, tool: str, args: dict[str, Any]) ->
         oid = str(args.get("id") or "").strip()
         found = _objective_summary(root, oid)
         if found is None:
-            result = {"error": f"no objective named {oid!r} in this workspace"}
+            result = {"error": f"no objective named {_shown(oid)!r} in this workspace"}
         elif tool == "objective_progress":
             result = {"objective": oid, "progress": found["progress"]}
         else:
@@ -407,7 +415,7 @@ def dispatch(root: Path, store: MemoryStore, tool: str, args: dict[str, Any]) ->
 
             obj = next((o for o in load_all(root) if o.id == oid), None)
             if obj is None:  # gone between the summary read and this one: the same plain error as an unknown id
-                result = {"error": f"no objective named {oid!r} in this workspace"}
+                result = {"error": f"no objective named {_shown(oid)!r} in this workspace"}
             else:
                 plan = compile_intent(obj, tuple(library()), installed_skills=frozenset(installed()))
                 result = {**_asdict(plan), "objective": oid}
