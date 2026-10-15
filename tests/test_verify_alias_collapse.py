@@ -15,7 +15,7 @@ from fastapi.testclient import TestClient
 from pravrudhi.api.partner import PartnerApiConfig, build_partner_router
 from pravrudhi.application.case_index import CaseRecord, insert_case, open_index
 from pravrudhi.application.citations import parse_citations
-from pravrudhi.application.verify import VerifyResult, exists_in_index, verify
+from pravrudhi.application.verify import VerifyResult, _same_word, exists_in_index, verify
 
 KEY = "(2083) 4 SCC 512"
 PASSAGE = "a wholly different holding about arbitration clauses and their severability"
@@ -65,7 +65,7 @@ def test_an_ocr_slip_group_that_resolves_to_no_case_folds_into_the_group_that_do
     conn = _db(
         tmp_path,
         "ocr",
-        [("Brandelwick Quillson", "State of Zorbland"), ("Brandelwickl Quillson", "State of Zorbland")],
+        [("Brandelwick Quillson", "State of Zorbland"), ("Brandelwiack Quillson", "State of Zorbland")],
         [("real", "Brandelwick Quillson vs State Of Zorbland", 2083)],
     )
     assert exists_in_index(conn, KEY) == VerifyResult.IN_INDEX
@@ -106,6 +106,40 @@ def test_an_unresolved_group_that_is_not_a_spelling_of_a_resolved_one_keeps_the_
     assert exists_in_index(conn, KEY) == VerifyResult.CONFLICT
 
 
+@pytest.mark.parametrize(
+    ("indexed", "unindexed"),
+    [
+        ("Rajesh Kumar", "Rajesh Kumari"),  # different person's name, not a spelling
+        ("Anil Sharma", "Anil Sharmila"),
+        ("Mohan Lal", "Mohan Lall"),
+        ("Rajesh Kumar Gupta", "Kumar"),  # a short form that drops words
+        ("Rajesh Kumar Gupta", "Rajesh Kumar"),
+    ],
+)
+def test_a_different_persons_name_is_not_a_spelling_of_an_indexed_one(tmp_path: Path, indexed: str, unindexed: str) -> None:
+    conn = _db(
+        tmp_path,
+        "persons",
+        [(indexed, "State of Uttarpur"), (unindexed, "State of Uttarpur")],
+        [("a", f"{indexed} vs State Of Uttarpur", 2083)],
+    )
+    assert exists_in_index(conn, KEY) == VerifyResult.CONFLICT
+
+
+def test_a_slip_in_a_long_name_is_a_spelling_but_a_short_name_slip_is_not(tmp_path: Path) -> None:
+    for name, slip, want in [
+        ("Marlowenton Thackeray", "Marlowenton Thackerey", VerifyResult.IN_INDEX),
+        ("Anil Sharma", "Anil Sharna", VerifyResult.CONFLICT),
+    ]:
+        conn = _db(
+            tmp_path,
+            f"slip_{slip[-6:]}",
+            [(name, "State of Zorbland"), (slip, "State of Zorbland")],
+            [("a", f"{name} vs State Of Zorbland", 2083)],
+        )
+        assert exists_in_index(conn, KEY) == want, slip
+
+
 def test_a_near_spelling_on_one_side_only_is_not_enough_to_fold_an_unresolved_group(tmp_path: Path) -> None:
     conn = _db(
         tmp_path,
@@ -143,14 +177,14 @@ def test_two_cases_between_the_same_parties_are_still_not_told_apart(tmp_path: P
     assert exists_in_index(conn, KEY) == VerifyResult.CONFLICT
 
 
-def test_a_title_that_adds_words_is_still_held_to_the_existence_limit(tmp_path: Path) -> None:
+def test_a_title_that_adds_words_no_group_names_keeps_the_conflict(tmp_path: Path) -> None:
     conn = _db(
         tmp_path,
         "extra",
         [("Aldric Vennoway", "State of Zorbland"), ("In Aldric Vennoway", "State of Zorbland and Another")],
         [("a", "Aldric Vennoway vs State Of Zorbland Wxyzwordaaa Wxyzwordbbb", 2083)],
     )
-    assert exists_in_index(conn, KEY) == VerifyResult.NOT_IN_INDEX
+    assert exists_in_index(conn, KEY) == VerifyResult.CONFLICT  # no group names the title's extra words: nothing collapses
 
 
 def test_verify_with_a_quote_is_unchanged_by_the_collapse(tmp_path: Path) -> None:
@@ -206,3 +240,85 @@ def test_the_route_answers_not_in_index_for_a_supp_citation(tmp_path: Path) -> N
     )
     r = TestClient(app).post("/api/v1/verify-citations", json={"citation": "1992 Supp (1) SCC 335"})
     assert r.status_code == 200 and r.json()["result"] == "NOT_IN_INDEX"
+
+
+@pytest.mark.parametrize(
+    ("a", "b", "same"),
+    [
+        # a different person's name, never a spelling
+        ("kumar", "kumari", False),
+        ("sharma", "sharmila", False),
+        ("lal", "lall", False),
+        ("das", "dass", False),
+        ("devi", "deva", False),
+        ("rajesh", "rajash", False),
+        ("sharma", "sharna", False),
+        ("brandelwick", "xbrandelwick", False),
+        ("brandelwick", "brandelwiqx", False),  # two letters changed
+        # slips seen on real alias spellings of one case: a dropped or added letter, a changed letter, two letters swapped
+        ("gujarat", "gujrat", True),
+        ("shardul", "sardul", True),
+        ("samsher", "shamsher", True),
+        ("marwaha", "marwah", True),
+        ("kraipak", "kriapak", True),
+        ("bharati", "bharti", True),
+        ("kesavananda", "keshavananda", True),
+        ("thackeray", "thackerey", True),
+        ("corpn", "corporation", True),
+        ("kesavananda", "kesavananda", True),
+    ],
+)
+def test_which_word_pairs_count_as_one_name(a: str, b: str, same: bool) -> None:
+    assert _same_word(a, b) is same and _same_word(b, a) is same
+
+
+def test_a_shortened_form_of_a_rare_name_is_folded_but_a_shortened_common_name_is_not(tmp_path: Path) -> None:
+    rare = _db(
+        tmp_path,
+        "rare",
+        [("Marlowenton Thackeray Sripadagalvaru", "State of Zorbland"), ("Marlowenton Thackeray", "State of Zorbland")],
+        [("a", "Marlowenton Thackeray Sripadagalvaru vs State Of Zorbland", 2083)],
+    )
+    assert exists_in_index(rare, KEY) == VerifyResult.IN_INDEX
+    common = _db(
+        tmp_path,
+        "common",
+        [("Anil Sharma Gupta", "State of Zorbland"), ("Anil Sharma", "State of Zorbland")],
+        [("a", "Anil Sharma Gupta vs State Of Zorbland", 2083)],
+    )
+    assert exists_in_index(common, KEY) == VerifyResult.CONFLICT
+
+
+def test_a_shortened_form_that_keeps_only_a_generic_long_word_is_not_folded(tmp_path: Path) -> None:
+    conn = _db(
+        tmp_path,
+        "generic",
+        [("Hallowbrook Governor", "State of Zorbland"), ("Governor", "State of Zorbland")],
+        [("a", "Hallowbrook Governor vs State Of Zorbland", 2083)],
+    )
+    assert exists_in_index(conn, KEY) == VerifyResult.CONFLICT
+
+
+def test_an_unrelated_group_that_reaches_other_cases_keeps_conflict(tmp_path: Path) -> None:
+    # the second group's lookup finds unrelated cases (none titled with its parties): as uncheckable as a group with no case
+    conn = _db(
+        tmp_path,
+        "junk_rows",
+        [("Aldric Vennoway", "State of Zorbland"), ("Zorbatha Quillfeather", "Mendelsohn Aerospace")],
+        [("a", "Aldric Vennoway vs State Of Zorbland", 2083), ("noise", "Zorbatha Someone vs Mendelsohn Else", 2083)],
+    )
+    assert exists_in_index(conn, KEY) == VerifyResult.CONFLICT
+
+
+def test_a_printed_prefix_is_ignored_when_a_shortened_rare_name_is_compared(tmp_path: Path) -> None:
+    # without ignoring "His Holiness" neither word set contains the other, so the group would keep the conflict
+    conn = _db(
+        tmp_path,
+        "prefix",
+        [
+            ("Marlowenton Thackeray Sripadagalvaru", "State of Zorbland"),
+            ("His Holiness Marlowenton Thackeray", "State of Zorbland"),
+        ],
+        [("a", "Marlowenton Thackeray Sripadagalvaru vs State Of Zorbland", 2083)],
+    )
+    assert exists_in_index(conn, KEY) == VerifyResult.IN_INDEX
