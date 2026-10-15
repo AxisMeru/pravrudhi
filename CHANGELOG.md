@@ -3,6 +3,18 @@
 Release notes for the engine (`pravrudhi`). Versions before 0.5.44 are described in their GitHub release notes and commit
 messages.
 
+## 0.6.13 (2026-10-15)
+
+PATCH release on 0.6.12: the citation check is faster for citations that have many alias spellings in the index. Answers are identical. **Rebuild the image.** The change is under `src/`, so it reaches a running container only by a rebuild of the engine image and the RunPod worker template from 0.6.13.
+
+### Changed
+
+- **A faster fuzzy title scan (caller-visible: speed only).** When none of a citation's alias spellings matches a case title exactly, the engine compares the spelling with every case title to find a close variant. That comparison is now tried with two cheap bounds first, which can only skip a title that could not have matched, so the titles that match, and therefore every answer (`IN_INDEX`, `NOT_IN_INDEX`, `CONFLICT`, `VERIFIED`, `EXISTS_QUOTE_NOT_FOUND`) are exactly the same. On the shipped slim index the slowest many-spelling citations, which took from several seconds to over ten seconds, now take under two seconds, and a citation typed with its case name that still answers `CONFLICT` takes about half a second instead of several. A lookup that ran past the 5 second lookup limit and answered 503 `verify_timeout` before, with no verdict, now finishes with the answer it would have given (for example the bare citation (2005) 8 SCC 618 now answers `CONFLICT`). The 5 second limit itself is unchanged. The same comparison is used by a citation check with a `quote`, which is also faster.
+
+### Unchanged
+
+- Every response field, answer, `reason` value and route; the rate limit; the 5 second lookup limit; the existence rule (exactly one case, at most the allowed number of extra title words); the rule that treats near spellings of a long rare name as one case, and its known limit (a long name that differs from another by one letter can answer `IN_INDEX` when the index holds the case under only one of the two).
+
 ## 0.6.12 (2026-10-15)
 
 PATCH release on 0.6.11: a citation check without a quote no longer answers "matches more than one case" when the index holds only different spellings of one case, and the SCC supplementary-volume form is read as a citation. **Rebuild the image.** The changes are under `src/`, so they reach a running container only by a rebuild of the engine image and the RunPod worker template from 0.6.12.
