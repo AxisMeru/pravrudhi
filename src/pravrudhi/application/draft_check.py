@@ -97,7 +97,12 @@ class DraftCheckRequest(BaseModel):
 
 
 def pdf_text(
-    data: bytes, *, max_pages: int, max_seconds: float | None = None, clock: Callable[[], float] = time.monotonic
+    data: bytes,
+    *,
+    max_pages: int,
+    max_seconds: float | None = None,
+    max_chars: int | None = None,
+    clock: Callable[[], float] = time.monotonic,
 ) -> str:
     """The text layer of a PDF, pages joined by form feed (the intake convention). A page that cannot be read gives "". An
     encrypted or unreadable file, or one over the page cap, is refused with a stated reason. Pages not extracted before
@@ -119,6 +124,7 @@ def pdf_text(
     if n_pages > max_pages:
         raise DraftRefused("pdf_too_many_pages", f"the PDF has more than {max_pages} pages", 413)
     pages: list[str] = []
+    total = 0
     for page in reader.pages:
         if max_seconds is not None and clock() - started > max_seconds:
             pages.append("")
@@ -127,6 +133,9 @@ def pdf_text(
             pages.append(page.extract_text() or "")
         except Exception:  # noqa: BLE001 - an unreadable page is "not read", counted below
             pages.append("")
+        total += len(pages[-1])
+        if max_chars is not None and total > max_chars:  # stop extracting: the draft is over the cap whatever follows
+            raise DraftRefused("too_long", f"the draft is longer than {max_chars} characters", 413)
     return "\f".join(pages)
 
 
@@ -140,7 +149,7 @@ def read_draft(req: DraftCheckRequest, cfg: DraftCheckConfig) -> str:
             raise DraftRefused("pdf_bad_encoding", "pdf_base64 is not valid base64") from e
         if len(data) > cfg.max_pdf_bytes:
             raise DraftRefused("pdf_too_large", f"the PDF is larger than {cfg.max_pdf_bytes} bytes", 413)
-        text = pdf_text(data, max_pages=cfg.max_pdf_pages, max_seconds=cfg.max_seconds)
+        text = pdf_text(data, max_pages=cfg.max_pdf_pages, max_seconds=cfg.max_seconds, max_chars=cfg.max_chars)
     else:
         text = req.text or ""
     if len(text) > cfg.max_chars:
@@ -160,25 +169,74 @@ def _spaced(word: str) -> str:
     return _GAP.join(re.escape(c) for c in word)
 
 
-#: Upper-case reporter tokens (case-sensitive: "air" and "scc" in prose are not anchors) and the forms the parser does not read.
+#: Reporters this check RECOGNISES but does not look up (the index holds the SCC family only). A well-formed citation in one of
+#: these forms is read and reported "not checked: reporter not in the index"; a damaged one is listed as not read.
+_OTHER_TOKEN = (
+    r"(?:DLT|KLT|KLJ|MLJ|CLT|SLR|PLR|RCR(?:\s{0,2}\(\s{0,2}\w{2,5}\s{0,2}\))?|JCC|GLR|GLH|GLT|MPLJ|MPHT|SCR|SCALE|JT|SC"
+    r"|S\.\s?C\.\s?C\.?|A\.\s?I\.\s?R\.?|AIR|SCC|Bom\.?\s{0,2}CR|Mad\.?\s{0,2}LJ|Cal\.?\s{0,2}LJ|All\.?\s{0,2}LJ|Ker\.?\s{0,2}LT"
+    r"|Cri\.?\s{0,2}L\.?\s{0,2}J|Guj\.?\s{0,2}LR|Raj\.?\s{0,2}LW|Pat\.?\s{0,2}LJR|Punj\.?\s{0,2}LR)"
+)
+_YEAR4 = r"(?:19|20)\d{2}"
+_OTHER_FORMS = re.compile(
+    # year (bracketed or not), optional volume or part, reporter, optional (court), page:  (2012) 190 DLT 45 / 2008 (2) KLT 123
+    rf"(?:\(\s{{0,2}}{_YEAR4}\s{{0,2}}\)|{_YEAR4})\s{{0,2}}(?:\(\s{{0,2}}\d{{1,3}}\s{{0,2}}\)\s{{0,2}}|\d{{1,4}}\s{{0,2}})?"
+    rf"{_OTHER_TOKEN}\s{{0,2}}(?:\(\s{{0,2}}[A-Za-z]{{2,5}}\s{{0,2}}\)\s{{0,2}})?\d{{1,6}}\b"
+    # ILR (2009) 2 Del 34
+    rf"|ILR\s{{0,2}}\(?{_YEAR4}\)?\s{{0,2}}(?:\d{{1,3}}\s{{0,2}})?[A-Z][A-Za-z.]{{1,14}}\s{{0,2}}\d{{1,5}}\b"
+    # A.I.R. 2014 SC 1234
+    rf"|A\.\s?I\.\s?R\.?\s{{0,2}}{_YEAR4}\s{{0,2}}[A-Za-z]{{2,6}}\s{{0,2}}\d{{1,6}}\b"
+)
+#: the names shown for the recognised reporters (the report says which forms it reads)
+RECOGNISED_NOT_CHECKED = (
+    "AIR", "SCC OnLine", "SCR", "SCALE", "JT", "Cri LJ", "ILR", "DLT", "KLT", "Bom CR", "Mad LJ", "Cal LJ", "All LJ", "RCR",
+    "JCC", "GLR", "MLJ", "KLJ", "CLT", "SLR", "PLR", "MPLJ",
+)
+CHECKED_FORMS = ("SCC", "SCC Supp")
+
+#: Upper-case anchors (case-sensitive: "air" and "scc" in prose are not anchors): the reporter tokens whose damaged spellings
+#: must be COUNTED as not read, and the forms the parser does not read.
 _ANCHOR_CS = re.compile(
     rf"(?<![A-Za-z]){_spaced('SCC')}(?![A-Za-z])|(?<![A-Za-z]){_spaced('SCR')}(?![A-Za-z])"
     rf"|(?<![A-Za-z]){_spaced('AIR')}(?![A-Za-z])"
+    r"|(?<![A-Za-z])S\.\s?C\.\s?C\b|(?<![A-Za-z])A\.\s?I\.\s?R\b"
     r"|(?<![A-Za-z])MANU\s{0,2}/|(?<![A-Za-z])INSC(?![A-Za-z])|(?<![A-Za-z])JT(?![A-Za-z])|(?<![A-Za-z])SCALE(?![A-Za-z])"
+    + "".join(
+        rf"|(?<![A-Za-z]){_spaced(t)}(?![A-Za-z])"
+        for t in ("DLT", "KLT", "KLJ", "MLJ", "CLT", "SLR", "PLR", "RCR", "JCC", "GLR", "GLH", "GLT", "MPLJ", "MPHT", "ILR")
+    )
+    + r"|(?<![A-Za-z])(?:Bom|Mad|Cal|All|Ker|Guj|Raj|Pat|Punj)\.?\s{0,2}(?:CR|LJ|LT|LR|LW|LJR)(?![A-Za-z])"
 )
-_ANCHOR_CI = re.compile(r"\bOnLine\b|(?<![A-Za-z])Cri\.?\s{0,2}L\.?\s{0,2}J\b", re.IGNORECASE)
+_LOOSE = r"[\s\u00ad\u200b-\u200d\u2060\ufeff\-.]{0,3}"
+_ANCHOR_CI = re.compile(rf"\bOnLine\b|(?<![A-Za-z])Cri{_LOOSE}L{_LOOSE}J\b", re.IGNORECASE)
 _DIGIT = re.compile(r"\d")
 #: a year-like run with at least one real digit (OCR may put the letters O, o, l, I in a number)
 _YEARISH = re.compile(r"(?=[0-9OolI]*\d)[0-9OolI]{4}")
-_STRIP = re.compile(r"[\s\u00ad\u200b-\u200d\u2060\ufeff\-]+")
+_STRIP = re.compile(r"[\s­​-‍⁠﻿\-]+")
 _REACH_AFTER = 24
 _REACH_BEFORE = 16
+
+
+def find_other_citations(text: str, taken: list[tuple[int, int]]) -> list[Citation]:
+    """Well-formed citations in a reporter the index does not hold (DLT, KLT, ILR, Bom CR, `(2014) 8 SC 273`, `S.C.C.`, ...), as
+    `Citation` records whose `reporter` is the token read. Matches that overlap a citation the parser already read are dropped."""
+    out: list[Citation] = []
+    for m in _OTHER_FORMS.finditer(text):
+        s, e = m.span()
+        if any(ts < e and s < te for ts, te in taken):
+            continue
+        raw = m.group(0)
+        year = re.search(_YEAR4, raw)
+        token = re.sub(r"[\s.()\d]+", " ", raw).split()
+        label = " ".join(w for w in token if not w.isdigit())[:20] or "other"
+        yr = int(year.group(0)) if year else None
+        out.append(Citation(reporter=label, year=yr, volume=None, page=0, court=None, span=(s, e)))
+    return out
 
 
 @dataclass(frozen=True)
 class LikeRegion:
     """One string that looks like a citation: its display window, its first anchor token and the spans of its anchors (an
-    anchor is the reporter token itself; the region is READ when any anchor lies inside a citation the parser read)."""
+    anchor is the reporter token itself; the region is READ when any anchor lies inside a citation that was read)."""
 
     start: int
     end: int
@@ -289,7 +347,7 @@ def _quoted(text: str, start: int) -> bool:
     """True when the citation sits inside an open quotation: more opening than closing quotation marks in its paragraph so far."""
     para = text[max(text.rfind("\n\n", 0, start) + 1, start - 2_000) : start]
     opens = para.count("“") - para.count("”")
-    straight = para.count('"')
+    straight = len(re.findall(r'(?<!\d)"', para))  # a double quote after a digit is an inch mark, not a quotation
     return opens > 0 or straight % 2 == 1
 
 
@@ -326,27 +384,78 @@ def _snippet(text: str, s: int, e: int, width: int = 90) -> str:
     return " ".join(text[s : min(e, s + width)].split())
 
 
+def _n(count: int, one: str, many: str) -> str:
+    return f"{count} {one if count == 1 else many}"
+
+
+def _summary(d: dict[str, Any], state: str, not_read_note: str) -> str:
+    """The one line a user reads. It always carries what was not read or not checked and that the check is existence only."""
+    read, checked, found = d["read"], d["checked"], d["found"]
+    problems = d["not_found"] + d["conflict"] + d["name_mismatch"]
+    if state == "none_recognised":
+        return (
+            "No citation in a form this tool recognises was found; that does not mean the draft cites nothing. "
+            f"It reads {', '.join(CHECKED_FORMS)} and recognises, without checking, "
+            f"{', '.join(RECOGNISED_NOT_CHECKED[:8])} and other reporters."
+        )
+    parts: list[str] = []
+    if checked == 0:
+        parts.append(f"No citation could be checked: {_n(read, 'citation was', 'citations were')} read" if read else
+                     "No citation could be checked")
+    elif problems:
+        parts.append(
+            f"{problems} of the {_n(checked, 'citation', 'citations')} checked need attention: {d['not_found']} not found in our "
+            f"index, {d['conflict']} ambiguous, {d['name_mismatch']} with a case name that did not match"
+        )
+    else:
+        parts.append(f"No problems found among the {_n(checked, 'citation', 'citations')} checked")
+    if d["not_checked_reporter_not_in_index"]:
+        parts.append(
+            f"{_n(d['not_checked_reporter_not_in_index'], 'citation is', 'citations are')} of a kind the index does not hold "
+            "(AIR, SCC OnLine, High Court reporters and the like) and "
+            f"{'was' if d['not_checked_reporter_not_in_index'] == 1 else 'were'} not checked"
+        )
+    other = d["not_checked_cap"] + d["not_checked_lookup_failed"] + d["not_checked_no_index"]
+    if other:
+        why = "no citation index on this deployment" if d["not_checked_no_index"] else "cap or lookup failure"
+        parts.append(f"{_n(other, 'citation was', 'citations were')} not checked ({why})")
+    if d["not_read"] or d["pages_not_read"]:
+        parts.append(not_read_note)
+    if found:
+        k = d["found_name_not_confirmed"]
+        parts.append(
+            "Existence only: a citation found in our index is not confirmed to say what the draft says"
+            + (f"; case names were not confirmed for {k} of {found} found" if k else "")
+        )
+    else:
+        parts.append("Existence only")
+    return ". ".join(parts) + "."
+
+
 def check_draft(
     text: str,
     cfg: DraftCheckConfig,
     lookup: Lookup | None,
     *,
     clock: Callable[[], float] = time.monotonic,
+    run_id: str | None = None,
 ) -> dict[str, Any]:
     """The report for one draft. `lookup(text)` returns `(result, name_compared)` for a citation text (the engine's own existence
     answer: IN_INDEX, NOT_IN_INDEX, CONFLICT, NAME_MISMATCH, ...); an exception from it is one citation "not checked: lookup
-    failed"."""
+    failed". `state`: complete (every citation-like string read and every read citation checked), incomplete (something was not
+    read or not checked), nothing_checked (strings were found but none could be checked), none_recognised (no recognised form)."""
     started = clock()
     parsed = sorted(parse_citations(text), key=lambda c: c.span)
+    cites = sorted([*parsed, *find_other_citations(text, [c.span for c in parsed])], key=lambda c: c.span)
     pages = text.split("\f") if "\f" in text else None
     starts = _page_starts(text)
     unread_pages = [i + 1 for i in intake.unread_pages(pages)] if pages is not None else []
 
-    # one record per parsed citation occurrence
+    # one record per citation occurrence read (parsed, or recognised in a reporter the index does not hold)
     occs: list[_Occ] = []
     prev_end = 0
     next_gid = 0
-    for i, c in enumerate(parsed, 1):
+    for i, c in enumerate(cites, 1):
         raw = text[c.span[0] : c.span[1]]
         name = extract_name_before(text, c.span[0], prev_end) if c.reporter in CHECKABLE_REPORTERS else None
         occ = _Occ(i, c, raw, name, _quoted(text, c.span[0]))
@@ -401,7 +510,7 @@ def check_draft(
             occ.status, occ.reason = "not_checked", "lookup_failed"
 
     # the scanner: strings that look like citations but were not read
-    covered = [c.span for c in parsed]
+    covered = [c.span for c in cites]
     unread = [
         reg
         for reg in like_citation_regions(text)
@@ -418,11 +527,13 @@ def check_draft(
     nc_no_index = sum(1 for o in nc if o.reason == "no_index")
     found, not_found, conflict, mismatch = count("found"), count("not_found"), count("conflict"), count("name_mismatch")
     read = len(occs)
+    checked = found + not_found + conflict + mismatch
     checkable = sum(1 for o in occs if o.cite.reporter in CHECKABLE_REPORTERS)
     denominator: dict[str, Any] = {
         "like_strings": read + len(unread),
         "read": read,
         "not_read": len(unread),
+        "checked": checked,
         "looked_up": looked_up,
         "found": found,
         "found_name_matched": sum(1 for o in occs if o.status == "found" and o.name_state == "name_matched"),
@@ -439,33 +550,27 @@ def check_draft(
         "pages_total": len(pages) if pages is not None else None,
         "pages_not_read": len(unread_pages),
     }
-    assert denominator["like_strings"] == denominator["read"] + denominator["not_read"]
-    assert read == found + not_found + conflict + mismatch + len(nc)
-    problems = not_found + conflict + mismatch
-    incomplete = bool(unread) or bool(unread_pages) or nc_cap > 0 or nc_failed > 0 or nc_no_index > 0
-    one = len(unread) == 1
-    not_read_note = (
-        f"{len(unread)} string{'' if one else 's'} that look{'s' if one else ''} like a citation "
-        f"{'was' if one else 'were'} not read"
-    )
-    if pages is not None and unread_pages:
-        not_read_note += f"; {len(unread_pages)} of {len(pages)} pages have no text layer"
-    why = not_read_note if (unread or unread_pages) else f"{nc_cap + nc_failed + nc_no_index} citations were not checked"
-    if problems:
-        summary = (
-            f"{problems} of the {read} citations read need attention: {not_found} not found in our index, "
-            f"{conflict} ambiguous, {mismatch} with a case name that did not match."
-        )
-        if incomplete:
-            summary += f" The check is incomplete: {why}."
-    elif read == 0 and incomplete:
-        summary = f"No citation could be read from this draft, and the check is incomplete: {why}."
-    elif read == 0:
-        summary = "No citation was found in this draft."
-    elif incomplete:
-        summary = f"No problems found among the {read} citations read, but the check is incomplete: {why}."
+    if denominator["like_strings"] != denominator["read"] + denominator["not_read"] or read != checked + len(nc):
+        raise AssertionError("the denominator does not add up")  # a bug here must be loud, never a quietly wrong report
+    if read == 0 and not unread:
+        state = "none_recognised"
+    elif checked == 0:
+        state = "nothing_checked"
+    elif unread or unread_pages or nc:
+        state = "incomplete"
     else:
-        summary = f"No problems found among the {read} citations read."
+        state = "complete"
+    one = len(unread) == 1
+    not_read_note = ""
+    if unread:
+        not_read_note = (
+            f"{len(unread)} string{'' if one else 's'} that look{'s' if one else ''} like a citation "
+            f"{'was' if one else 'were'} not read"
+        )
+    if pages is not None and unread_pages:
+        pg = f"{len(unread_pages)} of {len(pages)} pages have no text layer"
+        not_read_note = f"{not_read_note}; {pg}" if not_read_note else pg
+    summary = _summary(denominator, state, not_read_note)
     listed = [
         {
             "n": o.n,
@@ -483,19 +588,25 @@ def check_draft(
         for o in occs[:MAX_LISTED]
     ]
     unread_listed = [
-        {"text": _snippet(text, g.start, g.end), "span": [g.start, g.end], "page": _page_of(starts, g.start), "anchor": g.anchor,
-         "reason": "form_not_read"}
+        {
+            "text": _snippet(text, g.start, g.end),
+            "span": [g.start, g.end],
+            "page": _page_of(starts, g.start),
+            "anchor": g.anchor,
+            "reason": "form_not_read",
+        }
         for g in unread[:MAX_LISTED]
     ]
     return {
-        "run_id": f"draft-check-{os.urandom(5).hex()}",
+        "run_id": run_id or f"draft-check-{os.urandom(5).hex()}",
         "client_data": True,
         "draft_check": {
             "version": REPORT_VERSION,
-            "state": "incomplete" if incomplete else "complete",
+            "state": state,
             "summary": summary,
             "denominator": denominator,
-            "checked": {"checked": checkable - nc_cap - nc_failed - nc_no_index, "of": checkable},
+            "checked": {"checked": checked, "checkable": checkable, "read": read},
+            "forms": {"checked": list(CHECKED_FORMS), "recognised_not_checked": list(RECOGNISED_NOT_CHECKED)},
             "citations": listed,
             "not_read": unread_listed,
             "unread_pages": unread_pages,
@@ -504,4 +615,3 @@ def check_draft(
             "wording": "found in our index means the citation exists in the index, not that the case says what the draft says",
         },
     }
-

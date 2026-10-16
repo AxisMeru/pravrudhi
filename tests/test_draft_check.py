@@ -1,4 +1,5 @@
-"""A1 whole-draft citation check (wf_a1_draft_citation_check): the pure parts. Invented parties and invented citations only.
+"""A1 whole-draft citation check (wf_a1_draft_citation_check): the pure parts. Invented parties; real-shaped years and
+multi-paragraph drafts.
 
 Every rule has both arms. The acceptance tests are the parser-drop cases: a draft whose citations the parser cannot read must
 never come back as "no problems" without saying how much was not read."""
@@ -14,7 +15,7 @@ from pravrudhi.application import draft_check as D
 from pravrudhi.application.draft_check_config import DraftCheckConfig, parse_draft_check_config
 
 CFG = DraftCheckConfig()
-GOOD = "(2087) 4 SCC 512"  # an invented citation the fake index "has"
+GOOD = "(2014) 8 SCC 512"  # a citation the fake index "has" (real-shaped year; the parties in these tests are invented)
 
 
 def lookup(text: str) -> tuple[str, bool]:
@@ -36,7 +37,7 @@ def run(text: str, cfg: DraftCheckConfig = CFG, look: Any = lookup) -> dict[str,
     assert d["read"] == d["found"] + d["not_found"] + d["conflict"] + d["name_mismatch"] + d["not_checked"]
     assert len(out["citations"]) == d["read"] and len(out["not_read"]) == d["not_read"]
     if d["not_read"] or d["pages_not_read"]:
-        assert out["state"] == "incomplete"
+        assert out["state"] in ("incomplete", "nothing_checked")
     return out  # type: ignore[no-any-return]
 
 
@@ -74,72 +75,146 @@ def test_caps_are_read_and_a_malformed_cap_turns_the_check_off_not_the_engine() 
 @pytest.mark.parametrize(
     ("name", "text"),
     [
-        ("line_break_hyphen", "as held in (2087) 4 S-\nCC 512 the court said"),
-        ("ocr_digit_in_year", "as held in (2O87) 4 SCC 512 the court said"),
-        ("ocr_digit_in_page", "as held in (2087) 4 SCC 5l2 the court said"),
-        ("zero_width_character", "as held in (2087) 4 S​CC 512 the court said"),
-        ("bracket_year", "as held in [2087] 4 SCC 512 the court said"),
-        ("manu", "as held in MANU/SC/0123/2087 the court said"),
-        ("cri_lj", "as held in 2087 Cri LJ 1234 the court said"),
-        ("soft_hyphen", "as held in (2087) 4 S­CC 512 the court said"),
+        ("line_break_hyphen", "as held in (2014) 8 S-\nCC 512 the court said"),
+        ("ocr_digit_in_year", "as held in (2O14) 8 SCC 512 the court said"),
+        ("ocr_digit_in_page", "as held in (2014) 8 SCC 5l2 the court said"),
+        ("zero_width_character", "as held in (2014) 8 S​CC 512 the court said"),
+        ("bracket_year", "as held in [2014] 8 SCC 512 the court said"),
+        ("manu", "as held in MANU/SC/0123/2014 the court said"),
+        ("cri_lj_damaged", "as held in 2014 Cri L-\nJ 1234 the court said"),
+        ("soft_hyphen", "as held in (2014) 8 S­CC 512 the court said"),
+        ("dotted_scc_damaged", "as held in (2014) 8 S.C.\nC. 5l2 the court said"),
     ],
 )
-def test_a_citation_the_parser_cannot_read_is_listed_as_not_read_and_the_draft_is_incomplete(name: str, text: str) -> None:
+def test_a_citation_the_parser_cannot_read_is_listed_as_not_read_and_nothing_is_checked(name: str, text: str) -> None:
     out = run(text)
-    assert out["denominator"]["read"] == 0, name
-    assert out["denominator"]["not_read"] == 1, name
-    assert out["state"] == "incomplete" and out["not_read"][0]["reason"] == "form_not_read"
-    assert "no problems" not in out["summary"].lower() or "incomplete" in out["summary"].lower()
-    assert "0 problems" not in out["summary"]
+    d = out["denominator"]
+    assert (d["read"], d["not_read"], d["checked"]) == (0, 1, 0), name
+    assert out["state"] == "nothing_checked" and out["not_read"][0]["reason"] == "form_not_read"
+    assert out["summary"].startswith("No citation could be checked")
+    assert "1 string that looks like a citation was not read" in out["summary"] and out["summary"].endswith("Existence only.")
 
 
-def test_the_same_draft_with_a_readable_citation_is_complete_and_says_so() -> None:
-    out = run(f"as held in {GOOD} the court said")
-    assert out["state"] == "complete" and out["denominator"]["not_read"] == 0 and out["denominator"]["found"] == 1
-    assert out["summary"] == "No problems found among the 1 citations read."
+def test_a_draft_that_reads_and_checks_everything_is_complete_and_says_it_is_existence_only() -> None:
+    out = run(f"The decision in {GOOD} is cited.\n\nIt is cited again in (2016) 2 SCC 512.")
+    assert out["state"] == "complete" and out["denominator"]["not_read"] == 0 and out["denominator"]["found"] == 2
+    assert out["summary"] == (
+        "No problems found among the 2 citations checked. Existence only: a citation found in our index is not confirmed to say "
+        "what the draft says; case names were not confirmed for 2 of 2 found."
+    )
 
 
 def test_one_readable_and_one_unreadable_citation_are_counted_apart_even_when_close() -> None:
-    out = run(f"see {GOOD}, (2O87) 4 SCC 512 and again later")
+    out = run(f"see {GOOD}, (2O14) 8 SCC 512 and again later")
     d = out["denominator"]
-    assert (d["read"], d["not_read"], d["like_strings"]) == (1, 1, 2)
-    assert out["state"] == "incomplete" and "1 string" in out["summary"]
+    assert (d["read"], d["not_read"], d["like_strings"], d["checked"]) == (1, 1, 2, 1)
+    assert out["state"] == "incomplete"
+    assert "1 string that looks like a citation was not read" in out["summary"]
 
 
 def test_a_manu_and_a_cri_lj_next_to_a_good_citation_are_not_swallowed_by_it() -> None:
-    out = run(f"see MANU/SC/0123/2087 and 2087 Cri LJ 1234 and {GOOD} together")
+    out = run(f"see MANU/SC/0123/2014 and 2014 Cri L-\nJ 1234 and {GOOD} together")
     assert out["denominator"]["read"] == 1 and out["denominator"]["not_read"] == 2
+    assert "2 strings that look like a citation were not read" in out["summary"]
 
 
 def test_words_that_only_resemble_a_reporter_are_not_citations() -> None:
     out = run("The air was heavy; scr and scc are lower-case words; AIR India and SCALE models were discussed at length.")
-    assert out["denominator"]["like_strings"] == 0 and out["summary"] == "No citation was found in this draft."
+    assert out["denominator"]["like_strings"] == 0 and out["state"] == "none_recognised"
 
 
-def test_the_summary_never_reads_no_problems_without_the_unread_count() -> None:
-    for text in ("see [2087] 4 SCC 512", f"see {GOOD} and MANU/SC/0123/2087"):
-        s = run(text)["summary"]
-        assert "incomplete" in s and ("not read" in s)
+def test_no_recognised_form_says_what_was_looked_for_and_is_never_complete() -> None:
+    out = run("The Supreme Court Cases, volume 8, page 273, held the point, and the case in Hindi text is cited in the margin.")
+    assert out["state"] == "none_recognised"
+    expect = "No citation in a form this tool recognises was found; that does not mean the draft cites nothing"
+    assert out["summary"].startswith(expect)
+    assert "SCC" in out["summary"] and "AIR" in out["summary"]
+    assert out["forms"]["checked"] == ["SCC", "SCC Supp"] and "DLT" in out["forms"]["recognised_not_checked"]
+
+
+# ---- every citation-like string is counted: a real-shaped draft of High Court and other reporters (B2) ------------------------
+
+DRAFT_HC = """IN THE HIGH COURT OF DELHI AT NEW DELHI
+
+1. The petitioner relies on the decision in Aldric Vennoway v. State of Zorbland, (2012) 190 DLT 45, and on ILR (2009) 2 Del 34.
+
+2. Reference is also made to 2008 (2) KLT 123, 1999 (4) Bom CR 123, 2007 (1) Mad LJ 88 and 2011 (4) Cal LJ 12.
+
+3. See also 2015 (2) All LJ 5; 2013 (3) RCR (Cri) 77; 2014 (1) JCC 5; (2014) 2 GLR 55; (2014) 8 SC 273 and (2014) 8 S.C.C. 273.
+"""
+
+
+def test_a_brief_of_high_court_citations_reads_n_like_citations_zero_checked_never_none_found() -> None:
+    out = run(DRAFT_HC)
+    d = out["denominator"]
+    assert (d["like_strings"], d["read"], d["not_read"], d["checked"]) == (12, 12, 0, 0)
+    assert d["not_checked_reporter_not_in_index"] == 12
+    assert out["state"] == "nothing_checked"
+    assert out["summary"].startswith("No citation could be checked: 12 citations were read")
+    assert "12 citations are of a kind the index does not hold" in out["summary"]
+    assert all(c["status"] == "not_checked" and c["reason"] == "reporter_not_in_index" for c in out["citations"])
+    assert "No citation was found" not in out["summary"]
+
+
+@pytest.mark.parametrize(
+    "cite",
+    [
+        "(2012) 190 DLT 45", "ILR (2009) 2 Del 34", "2008 (2) KLT 123", "1999 (4) Bom CR 123", "2007 (1) Mad LJ 88",
+        "2011 (4) Cal LJ 12", "2015 (2) All LJ 5", "2013 (3) RCR (Cri) 77", "2014 (1) JCC 5", "(2014) 2 GLR 55",
+        "(2014) 8 SC 273", "(2014) 8 S.C.C. 273", "A.I.R. 2014 SC 1234", "AIR 2014 SC 1234", "2014 SCC OnLine Del 99",
+    ],
+)
+def test_each_other_reporter_form_is_read_and_not_checked(cite: str) -> None:
+    out = run(f"The point was decided in {cite} and nowhere else.")
+    d = out["denominator"]
+    assert (d["read"], d["not_read"], d["not_checked_reporter_not_in_index"]) == (1, 0, 1), cite
+    assert out["citations"][0]["text"] == cite
+
+
+def test_a_damaged_high_court_citation_is_not_read() -> None:
+    out = run("The point was decided in (2012) 190 D-\nLT 45, which the court followed.")
+    assert out["denominator"]["not_read"] == 1 and out["state"] == "nothing_checked"
+
+
+def test_a_mixed_brief_is_incomplete_and_names_what_the_index_does_not_hold() -> None:
+    text = (
+        "1. The petitioner relies on (2014) 8 SCC 512 and (2016) 2 SCC 999.\n\n"
+        "2. The High Court followed 2008 (2) KLT 123 and AIR 2015 SC 44, and cited MANU/SC/0123/2014.\n"
+    )
+    out = run(text)
+    d = out["denominator"]
+    assert (d["read"], d["not_read"], d["checked"], d["not_checked"]) == (4, 1, 2, 2)
+    assert out["state"] == "incomplete"
+    s = out["summary"]
+    assert s.startswith("1 of the 2 citations checked need attention: 1 not found in our index")
+    assert "2 citations are of a kind the index does not hold" in s and "1 string that looks like a citation was not read" in s
+    assert s.endswith("case names were not confirmed for 1 of 1 found.")
+
+
+def test_an_all_air_draft_is_nothing_checked_not_complete() -> None:
+    out = run("Held in AIR 1973 SC 1461 and AIR 2014 SC 1234, both after the Constitution Bench.")
+    assert out["state"] == "nothing_checked" and out["checked"] == {"checked": 0, "checkable": 0, "read": 2}
+    assert "No problems" not in out["summary"] and "complete" not in out["state"]
+    assert out["summary"].startswith("No citation could be checked: 2 citations were read")
 
 
 # ---- the denominator and the report -----------------------------------------------------------------------------------------
 
 
 def test_every_status_is_counted_and_listed() -> None:
-    text = f"{GOOD}; (2087) 4 SCC 999; (2087) 4 SCC 777; AIR 2087 SC 1234."
+    text = f"{GOOD}; (2014) 8 SCC 999; (2014) 8 SCC 777; AIR 2014 SC 1234."
     out = run(text)
     d = out["denominator"]
     got = (d["found"], d["not_found"], d["conflict"], d["not_checked"], d["not_checked_reporter_not_in_index"])
     assert got == (1, 1, 1, 1, 1)
     assert [c["status"] for c in out["citations"]] == ["found", "not_found", "conflict", "not_checked"]
-    assert out["summary"] == (
-        "2 of the 4 citations read need attention: 1 not found in our index, 1 ambiguous, 0 with a case name that did not match."
-    )
-    assert out["state"] == "complete"  # every citation-like string was read; AIR is a kind the index does not hold
+    assert out["state"] == "incomplete"  # one citation is of a kind the index does not hold: never "complete"
+    assert out["summary"].startswith("2 of the 3 citations checked need attention: 1 not found in our index, 1 ambiguous, 0 with")
+    assert "1 citation is of a kind the index does not hold" in out["summary"]
 
 
 def test_an_air_or_scc_online_citation_is_not_checked_never_not_found() -> None:
-    out = run("see AIR 2087 SC 1234 and 2087 SCC OnLine SC 99 here")
+    out = run("see AIR 2014 SC 1234 and 2014 SCC OnLine SC 99 here")
     assert [c["status"] for c in out["citations"]] == ["not_checked", "not_checked"]
     assert all(c["reason"] == "reporter_not_in_index" for c in out["citations"])
     assert out["denominator"]["not_found"] == 0
@@ -157,6 +232,7 @@ def test_a_citation_with_no_readable_name_is_found_but_the_name_is_not_read() ->
     c = out["citations"][0]
     assert c["status"] == "found" and c["name"] is None and c["name_state"] == "name_not_read"
     assert out["denominator"]["found_name_not_confirmed"] == 1
+    assert "case names were not confirmed for 1 of 1 found" in out["summary"]
 
 
 def test_a_repeated_citation_is_looked_up_once_and_answered_alike() -> None:
@@ -171,22 +247,28 @@ def test_a_repeated_citation_is_looked_up_once_and_answered_alike() -> None:
 
 
 def test_parallel_citations_share_a_group_and_a_quoted_citation_is_flagged() -> None:
-    out = run(f'{GOOD} : AIR 2087 SC 1234 : 2087 SCC OnLine SC 99. He said "in (2086) 1 SCC 1 it was held" and stopped.')
+    out = run(f'{GOOD} : AIR 2014 SC 1234 : 2014 SCC OnLine SC 99. He said "in (2013) 1 SCC 1 it was held" and stopped.')
     g = [c["group"] for c in out["citations"]]
     assert g[0] == g[1] == g[2] and g[0] is not None and g[3] is None
     assert [c["quoted"] for c in out["citations"]] == [False, False, False, True]
     assert out["denominator"]["quoted"] == 1
 
 
+def test_a_straight_double_quote_after_a_digit_is_an_inch_mark_not_a_quotation() -> None:
+    out = run(f'The cheque was 6" wide. As held in {GOOD} the court said so.')
+    assert out["citations"][0]["quoted"] is False
+
+
 def test_a_wrong_year_with_a_real_page_is_not_found_not_fuzzy_matched() -> None:
-    out = run("see (2088) 4 SCC 999 here")  # the fake index, like the real one, answers by the whole key
+    out = run("see (2015) 8 SCC 999 here")  # the fake index, like the real one, answers by the whole key
     assert out["citations"][0]["status"] == "not_found"
 
 
 def test_a_no_index_deployment_says_nothing_was_checked() -> None:
     out = run(f"see {GOOD}", look=None)
     assert out["citations"][0]["status"] == "not_checked" and out["citations"][0]["reason"] == "no_index"
-    assert out["state"] == "incomplete" and out["denominator"]["not_checked_no_index"] == 1
+    assert out["state"] == "nothing_checked" and out["denominator"]["not_checked_no_index"] == 1
+    assert "no citation index on this deployment" in out["summary"]
 
 
 def test_a_failing_lookup_is_one_not_checked_and_the_rest_still_run() -> None:
@@ -195,22 +277,22 @@ def test_a_failing_lookup_is_one_not_checked_and_the_rest_still_run() -> None:
             raise RuntimeError("index busy")
         return lookup(t)
 
-    out = run(f"{GOOD}; (2087) 4 SCC 777; (2087) 4 SCC 999", look=look)
+    out = run(f"{GOOD}; (2014) 8 SCC 777; (2014) 8 SCC 999", look=look)
     assert [c["status"] for c in out["citations"]] == ["found", "not_checked", "not_found"]
     assert out["citations"][1]["reason"] == "lookup_failed" and out["state"] == "incomplete"
 
 
-def test_the_count_cap_reports_checked_n_of_m_and_never_drops_a_citation() -> None:
+def test_the_count_cap_reports_the_numbers_and_never_drops_a_citation() -> None:
     cfg = DraftCheckConfig(max_citations=2)
-    text = " ".join(f"(2087) 4 SCC {900 + i}" for i in range(6))
+    text = " ".join(f"(2014) 8 SCC {900 + i}" for i in range(6))
     out = run(text, cfg)
     d = out["denominator"]
     assert d["looked_up"] == 2 and d["not_checked_cap"] == 4 and d["read"] == 6
-    assert out["checked"] == {"checked": 2, "of": 6} and out["state"] == "incomplete"
+    assert out["checked"] == {"checked": 2, "checkable": 6, "read": 6} and out["state"] == "incomplete"
     assert [c["reason"] for c in out["citations"][2:]] == ["cap_reached"] * 4
 
 
-def test_the_time_cap_stops_further_lookups() -> None:
+def test_the_time_cap_cuts_exactly_where_the_clock_says() -> None:
     t = [0.0]
 
     def clock() -> float:
@@ -218,15 +300,24 @@ def test_the_time_cap_stops_further_lookups() -> None:
         return t[0]
 
     cfg = DraftCheckConfig(max_seconds=15)
-    out = D.check_draft("(2087) 4 SCC 901 (2087) 4 SCC 902 (2087) 4 SCC 903", cfg, lookup, clock=clock)["draft_check"]
-    assert out["denominator"]["not_checked_cap"] >= 1 and out["state"] == "incomplete"
+    out = D.check_draft("(2014) 8 SCC 901 (2014) 8 SCC 902 (2014) 8 SCC 903", cfg, lookup, clock=clock)["draft_check"]
+    # started at 10; the first lookup is at 20 (10 elapsed, allowed); the second at 30 (20 elapsed, over 15): cut there
+    assert out["denominator"]["looked_up"] == 1 and out["denominator"]["not_checked_cap"] == 2
+    assert [c["reason"] for c in out["citations"]] == [None, "time_cap", "time_cap"]
 
 
-def test_a_big_draft_is_bounded_and_the_counts_stay_exact() -> None:
-    text = "(2087) 4 SCC 900 " * 6_000
+def test_a_big_draft_of_one_citation_is_bounded_and_the_counts_stay_exact() -> None:
+    text = "(2014) 8 SCC 900 " * 6_000
     out = D.check_draft(text, DraftCheckConfig(max_chars=200_000), lookup)["draft_check"]
     assert out["denominator"]["read"] == 6_000 and out["listing_truncated"] is True and len(out["citations"]) == D.MAX_LISTED
     assert out["denominator"]["looked_up"] == 1
+
+
+def test_a_draft_of_thousands_of_distinct_citations_is_capped_at_the_lookup_cap() -> None:
+    text = " ".join(f"(2014) 8 SCC {1000 + i}" for i in range(5_000))
+    out = D.check_draft(text, DraftCheckConfig(max_chars=200_000, max_citations=150), lookup)["draft_check"]
+    d = out["denominator"]
+    assert (d["read"], d["looked_up"], d["not_checked_cap"]) == (5_000, 150, 4_850) and out["state"] == "incomplete"
 
 
 def test_the_report_names_what_it_does_not_assess() -> None:
@@ -234,6 +325,12 @@ def test_the_report_names_what_it_does_not_assess() -> None:
     assert "whether a case says what the draft says it says" in out["not_assessed"]
     assert "not that the case says what the draft says" in out["wording"]
     assert "fake" not in str(out).lower() and "hallucinat" not in str(out).lower()
+
+
+def test_the_denominator_of_a_real_shaped_four_paragraph_draft_is_exact() -> None:
+    text = DRAFT_HC + f"\n4. The respondent relies on {GOOD}, AIR 2015 SC 44 and MANU/SC/0123/2014.\n"
+    d = run(text)["denominator"]
+    assert (d["like_strings"], d["read"], d["not_read"], d["checked"], d["not_checked"]) == (15, 14, 1, 1, 13)
 
 
 # ---- the typed name ---------------------------------------------------------------------------------------------------------
@@ -300,7 +397,7 @@ def b64(data: bytes) -> str:
 
 
 def test_a_text_layer_pdf_is_read_page_by_page_with_the_citation_page() -> None:
-    pdf = make_pdf([f"First page cites {GOOD}", "Second page cites (2087) 4 SCC 999"])
+    pdf = make_pdf([f"First page cites {GOOD}", "Second page cites (2014) 8 SCC 999"])
     text = D.read_draft(D.DraftCheckRequest(pdf_base64=b64(pdf)), CFG)
     out = run(text)
     assert [c["page"] for c in out["citations"]] == [1, 2] and out["denominator"]["pages_total"] == 2
@@ -385,7 +482,7 @@ def test_a_pdf_that_runs_out_of_time_leaves_the_remaining_pages_as_pages_with_no
 
 
 def test_the_page_numbers_follow_the_form_feeds() -> None:
-    text = f"Page one holds the citation {GOOD}\f\fPage three holds (2087) 4 SCC 999\fPage four has plain prose words only"
+    text = f"Page one holds the citation {GOOD}\f\fPage three holds (2014) 8 SCC 999\fPage four has plain prose words only"
     out = run(text)
     assert [c["page"] for c in out["citations"]] == [1, 3] and out["unread_pages"] == [2]
 
@@ -393,7 +490,7 @@ def test_the_page_numbers_follow_the_form_feeds() -> None:
 def test_a_draft_of_thousands_of_citations_is_checked_in_linear_time() -> None:
     import time as _time
 
-    text = "See (2087) 4 SCC 900, held. " * 7_000  # about 196,000 characters
+    text = "See (2014) 8 SCC 900, held. " * 7_000  # about 196,000 characters
     t0 = _time.monotonic()
     out = D.check_draft(text, DraftCheckConfig(max_chars=200_000), lookup)["draft_check"]
     assert out["denominator"]["read"] == 7_000

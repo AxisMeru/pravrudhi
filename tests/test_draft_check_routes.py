@@ -196,7 +196,7 @@ def test_a_wrong_typed_name_is_a_mismatch_through_the_real_lookup(tmp_path: Path
 def test_without_an_index_nothing_is_checked_and_the_report_says_so(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _on(monkeypatch)
     rep = _client(tmp_path).post(PATH, json={"text": f"see {GOOD}"}).json()["draft_check"]
-    assert rep["citations"][0]["reason"] == "no_index" and rep["state"] == "incomplete"
+    assert rep["citations"][0]["reason"] == "no_index" and rep["state"] == "nothing_checked"
 
 
 def test_a_text_layer_pdf_goes_through_the_route(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -275,11 +275,36 @@ def test_the_route_has_its_own_slots_and_a_full_slot_is_a_coded_503_not_an_exist
     assert gate.wait(5)
     second = c.post(PATH, json={"text": GOOD})
     assert second.status_code == 503 and second.json().get("error") == "agent_at_capacity"
-    # an existing route's slot (max_concurrent=1 in CFG) is untouched while the draft check holds its own
+    # an existing route's slot (max_concurrent=1 in CFG) is untouched while the draft check holds its own (the other direction,
+    # with intake genuinely holding its slot, is the next test)
     assert c.post("/api/v1/intake", json={"text": "1. A fact."}).status_code == 200
     released.set()
     t.join(10)
     assert results == [200]
+
+
+def test_the_draft_route_still_runs_while_intake_holds_its_only_slot(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The other direction, non-trivially: intake really holds its one slot and the draft route is unaffected."""
+    from pravrudhi.application.a0_assist import intake
+
+    _on(monkeypatch, DraftCheckConfig(max_concurrent=1))
+    gate, released = threading.Event(), threading.Event()
+    real = intake.build_bundle
+
+    def slow_bundle(*a: Any, **k: Any) -> Any:
+        gate.set()
+        released.wait(5)
+        return real(*a, **k)
+
+    monkeypatch.setattr(intake, "build_bundle", slow_bundle)
+    c = _client(tmp_path)
+    t = threading.Thread(target=lambda: c.post("/api/v1/intake", json={"text": "1. A fact."}))
+    t.start()
+    assert gate.wait(5)
+    assert c.post("/api/v1/intake", json={"text": "1. A fact."}).status_code == 503  # intake's slot really is taken
+    assert c.post(PATH, json={"text": GOOD}).status_code == 200  # the draft check is not
+    released.set()
+    t.join(10)
 
 
 def test_a_second_draft_runs_after_the_slot_is_released(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -291,9 +316,8 @@ def test_a_second_draft_runs_after_the_slot_is_released(tmp_path: Path, monkeypa
 # ---- keys, the whole-surface gate and the audit row -------------------------------------------------------------------------
 
 
-@pytest.fixture
-def keyed(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> tuple[TestClient, str, Path]:
-    _on(monkeypatch)
+def _keyed(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, cfg: DraftCheckConfig | None = None) -> tuple[TestClient, str, Path]:
+    _on(monkeypatch, cfg)
     monkeypatch.setenv("PRAVRUDHI_AUTH", "required")
     monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
     monkeypatch.setenv("SUPABASE_JWT_SECRET", "s" * 40)
@@ -303,7 +327,21 @@ def keyed(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> tuple[TestClient, 
     shutil.copytree(REPO / "configs", root / "configs")
     tenancy.create_org(root, "acme", "Acme")
     key = tenancy.create_key(root, "acme", label="t")
-    return TestClient(create_app(root), headers={"host": "127.0.0.1:8008"}), key.secret, root
+    client = TestClient(create_app(root), headers={"host": "127.0.0.1:8008"}, raise_server_exceptions=False)
+    return client, key.secret, root
+
+
+@pytest.fixture
+def keyed(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> tuple[TestClient, str, Path]:
+    return _keyed(monkeypatch, tmp_path)
+
+
+def _rows(root: Path) -> list[dict[str, Any]]:
+    from datetime import UTC, datetime
+
+    key_id = tenancy.keys_for_org(root, "acme")[0].key_id
+    rows, _next = audit.page(root, key_id, offset=0, limit=50, retention_s=3600, now=lambda: datetime.now(UTC))
+    return rows
 
 
 def test_a_key_only_caller_reaches_the_route_and_leaves_one_audit_row_without_the_text(keyed: Any) -> None:
@@ -317,6 +355,66 @@ def test_a_key_only_caller_reaches_the_route_and_leaves_one_audit_row_without_th
     assert len(rows) == 1 and rows[0]["status_code"] == 200 and rows[0]["mode"] == "intake"
     assert rows[0]["run_id"].startswith("draft-check-")
     assert "SCC" not in str(rows)  # never the text
+
+
+@pytest.mark.parametrize(
+    ("body", "status"),
+    [
+        ({"text": "word " * 2_000}, 413),  # over the character cap
+        ({"pdf_base64": b64pdf(b"not a pdf")}, 422),  # an unreadable PDF
+    ],
+)
+def test_a_refused_draft_leaves_an_audit_row_with_the_draft_check_run_id(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, body: dict[str, Any], status: int
+) -> None:
+    c, secret, root = _keyed(monkeypatch, tmp_path, DraftCheckConfig(max_chars=1_000))
+    r = c.post(PATH, json=body, headers={tenancy.API_KEY_HEADER: secret})
+    assert r.status_code == status, r.text
+    rows = _rows(root)
+    assert len(rows) == 1 and rows[0]["status_code"] == status and rows[0]["mode"] == "intake"
+    assert rows[0]["run_id"].startswith("draft-check-")
+
+
+def test_a_failure_inside_the_check_leaves_a_500_audit_row_with_the_draft_check_run_id(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from pravrudhi.application import draft_check as D
+
+    def boom(*_a: Any, **_k: Any) -> Any:
+        raise RuntimeError("internal")
+
+    c, secret, root = _keyed(monkeypatch, tmp_path)
+    monkeypatch.setattr(D, "check_draft", boom)
+    r = c.post(PATH, json={"text": f"see {GOOD}"}, headers={tenancy.API_KEY_HEADER: secret})
+    assert r.status_code == 500
+    rows = _rows(root)
+    assert len(rows) == 1 and rows[0]["status_code"] == 500 and rows[0]["run_id"].startswith("draft-check-")
+
+
+def test_a_full_slot_leaves_a_503_audit_row_with_the_draft_check_run_id(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    from pravrudhi.application import draft_check as D
+
+    gate, released = threading.Event(), threading.Event()
+    real = D.check_draft
+
+    def slow(*a: Any, **k: Any) -> Any:
+        gate.set()
+        released.wait(5)
+        return real(*a, **k)
+
+    c, secret, root = _keyed(monkeypatch, tmp_path, DraftCheckConfig(max_concurrent=1))
+    monkeypatch.setattr(D, "check_draft", slow)
+    hdr = {tenancy.API_KEY_HEADER: secret}
+    t = threading.Thread(target=lambda: c.post(PATH, json={"text": f"see {GOOD}"}, headers=hdr))
+    t.start()
+    assert gate.wait(5)
+    r = c.post(PATH, json={"text": f"see {GOOD}"}, headers=hdr)
+    released.set()
+    t.join(10)
+    assert r.status_code == 503
+    rows = _rows(root)
+    assert sorted(x["status_code"] for x in rows) == [200, 503]
+    assert all(x["run_id"].startswith("draft-check-") for x in rows) and len({x["run_id"] for x in rows}) == 2
 
 
 def test_the_gate_refuses_the_route_without_a_credential_and_a_bad_key_is_401(keyed: Any) -> None:

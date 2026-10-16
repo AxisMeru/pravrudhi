@@ -2356,15 +2356,18 @@ def build_partner_router(
                 metered.append(key.key_id)
             return cfg, slots
 
-        # Audit: the existing mode "intake" with a "draft-check-" run id (the audit contract's modes are public and unchanged).
+        # Audit: the existing mode "intake" with a "draft-check-" run id on every row (the audit contract's modes are public and
+        # unchanged). Known limits: the limiters are built once from the first request's config (a reload needs a restart); a
+        # wrong API key spends the existing per-address bad-key budget, shared with the other routes (by design).
         def draft_check_ep(req: Any, request: Request, user: User | None = CurrentUserDep) -> dict[str, Any] | JSONResponse:
             metered: list[str] = []
             admitted = _a1_admit(request, user, metered)
             if isinstance(admitted, JSONResponse):
                 return admitted
             cfg, slots = admitted
+            run = {"run_id": f"draft-check-{os.urandom(5).hex()}"}  # on EVERY audit row of this call, whatever the status
             if not slots.acquire():
-                _intake_audit(metered, "intake", 503)
+                _intake_audit(metered, "intake", 503, run)
                 return coded_503(AGENT_AT_CAPACITY)
             try:
                 text = _a1.read_draft(req, _a1_cfg)
@@ -2381,12 +2384,12 @@ def build_partner_router(
                         return result.result, compared
 
                     look = _a1_look
-                out = _a1.check_draft(text, _a1_cfg, look)
+                out = _a1.check_draft(text, _a1_cfg, look, run_id=run["run_id"])
             except _a1.DraftRefused as e:
-                _intake_audit(metered, "intake", e.status_code)
+                _intake_audit(metered, "intake", e.status_code, run)
                 return JSONResponse(status_code=e.status_code, content={"detail": str(e), "error": e.code})
             except Exception:
-                _intake_audit(metered, "intake", 500)
+                _intake_audit(metered, "intake", 500, run)
                 raise
             finally:
                 slots.release()
