@@ -551,3 +551,39 @@ def test_a_draft_of_thousands_of_citations_is_checked_in_linear_time() -> None:
     out = D.check_draft(text, DraftCheckConfig(max_chars=200_000), lookup)["draft_check"]
     assert out["denominator"]["read"] == 7_000
     assert _time.monotonic() - t0 < 8.0  # quadratic work on this size takes minutes
+
+
+@pytest.mark.parametrize(
+    "unit",
+    ["2014 AIR ", "(2014) 8 SCC 5 ", "2012 190 DLT 45; ", "(2O14) 8 SCC 5 ", "MANU/SC/0123/2014 ", "S-\nCC 12 AIR 2014 SC 1 "],
+)
+def test_the_work_grows_linearly_on_dense_text_of_every_shape(unit: str) -> None:
+    """A quadratic step shows as a ratio near 16 when the text is four times longer (linear is near 4); the old code measured
+    5.5 s at 400,000 characters and about 30 s at 1,000,000 on the first shape. The bound is loose on purpose."""
+    import time as _time
+
+    def took(n: int) -> float:
+        text = (unit * (n // len(unit) + 1))[:n]
+        best = 1e9
+        for _ in range(2):
+            t0 = _time.perf_counter()
+            D.check_draft(text, DraftCheckConfig(max_chars=1_000_000), lambda t: ("NOT_IN_INDEX", False))
+            best = min(best, _time.perf_counter() - t0)
+        return best
+
+    small, big = took(100_000), took(400_000)
+    assert big / max(small, 1e-4) < 9.0, (unit, small, big)
+    assert big < 6.0, (unit, big)
+
+
+def test_the_span_index_answers_overlap_questions_like_a_plain_scan() -> None:
+    import random
+
+    rng = random.Random(5)
+    spans = [(a, a + rng.randint(1, 30)) for a in (rng.randint(0, 500) for _ in range(60))]
+    idx = D._Spans(spans)
+    for _ in range(2_000):
+        s0 = rng.randint(0, 520)
+        e0 = s0 + rng.randint(1, 25)
+        assert idx.overlaps(s0, e0) == any(a < e0 and s0 < b for a, b in spans)
+    assert D._Spans([]).overlaps(0, 5) is False

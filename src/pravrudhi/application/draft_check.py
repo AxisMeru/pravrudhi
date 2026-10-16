@@ -235,13 +235,32 @@ _REACH_AFTER = 24
 _REACH_BEFORE = 16
 
 
+class _Spans:
+    """Spans sorted by start with a running maximum of their ends: `overlaps(s, e)` is O(log n), so checking every match against
+    every span already read stays O(n log n) on a dense text (a plain scan per match is quadratic)."""
+
+    def __init__(self, spans: list[tuple[int, int]]) -> None:
+        ordered = sorted(spans)
+        self._starts = [a for a, _ in ordered]
+        self._max_end: list[int] = []
+        hi = -1
+        for _, b in ordered:
+            hi = max(hi, b)
+            self._max_end.append(hi)
+
+    def overlaps(self, s: int, e: int) -> bool:
+        i = bisect.bisect_left(self._starts, e)  # spans that start before e
+        return i > 0 and self._max_end[i - 1] > s
+
+
 def find_other_citations(text: str, taken: list[tuple[int, int]]) -> list[Citation]:
     """Well-formed citations in a reporter the index does not hold (DLT, KLT, ILR, Bom CR, `(2014) 8 SC 273`, `S.C.C.`, ...), as
     `Citation` records whose `reporter` is the token read. Matches that overlap a citation the parser already read are dropped."""
     out: list[Citation] = []
+    seen = _Spans(taken)
     for m in _OTHER_FORMS.finditer(text):
         s, e = m.span()
-        if any(ts < e and s < te for ts, te in taken):
+        if seen.overlaps(s, e):
             continue
         raw = m.group(0)
         year = re.search(_YEAR4, raw)
@@ -291,13 +310,15 @@ def like_citation_regions(text: str) -> list[LikeRegion]:
             w1 = min(n, m.end() + _REACH_AFTER) if digit_after else m.end()
             found.append((m.start(), m.end(), w0, w1, _STRIP.sub("", m.group(0))[:12]))
     found.sort()
-    out: list[LikeRegion] = []
+    groups: list[list[Any]] = []  # [window start, window end, first token, anchors]; anchors are appended, never rebuilt
     for a0, a1, w0, w1, tok in found:
-        if out and a0 - out[-1].anchors[-1][1] <= _ANCHOR_JOIN:
-            prev = out[-1]
-            out[-1] = LikeRegion(min(prev.start, w0), max(prev.end, w1), prev.anchor, (*prev.anchors, (a0, a1)))
+        if groups and a0 - groups[-1][3][-1][1] <= _ANCHOR_JOIN:
+            g = groups[-1]
+            g[0], g[1] = min(g[0], w0), max(g[1], w1)
+            g[3].append((a0, a1))
         else:
-            out.append(LikeRegion(w0, w1, tok, ((a0, a1),)))
+            groups.append([w0, w1, tok, [(a0, a1)]])
+    out = [LikeRegion(g[0], g[1], g[2], tuple(g[3])) for g in groups]
     # a display window never reaches into a neighbouring citation
     clipped: list[LikeRegion] = []
     for i, reg in enumerate(out):
@@ -366,7 +387,8 @@ _PARALLEL_GAP = re.compile(r"^[\s:;,=]{1,4}$")
 
 def _quoted(text: str, start: int) -> bool:
     """True when the citation sits inside an open quotation: more opening than closing quotation marks in its paragraph so far."""
-    para = text[max(text.rfind("\n\n", 0, start) + 1, start - 2_000) : start]
+    floor = max(0, start - 2_000)
+    para = text[max(text.rfind("\n\n", floor, start) + 1, floor) : start]
     opens = para.count("“") - para.count("”")
     straight = len(re.findall(r'(?<!\d)"', para))  # a double quote after a digit is an inch mark, not a quotation
     return opens > 0 or straight % 2 == 1
@@ -543,11 +565,9 @@ def check_draft(
     occs = [o for o in occs if o.status != "malformed"]
 
     # the scanner: strings that look like citations but were not read
-    covered = [c.span for c in cites]
+    covered = _Spans([c.span for c in cites])
     unread = [
-        reg
-        for reg in like_citation_regions(text)
-        if not any(cs < a1 and a0 < ce for a0, a1 in reg.anchors for cs, ce in covered)
+        reg for reg in like_citation_regions(text) if not any(covered.overlaps(a0, a1) for a0, a1 in reg.anchors)
     ]
 
     def count(st: str) -> int:
