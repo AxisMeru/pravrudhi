@@ -685,10 +685,10 @@ def test_common_abbreviations_do_not_split_a_sentence(abbr: str) -> None:
 
 def test_an_order_sheets_per_page_hearing_date_at_one_line_index_is_not_a_printed_line() -> None:
     """Track B N1: the same line index on >= 3 pages with DIFFERENT dates is an order sheet's own dates, not a template line."""
-    rows = [("d", p, p * 400, f"Order sheet\nCase body {p}\nNext date of hearing: {10 + p}.07.2019\nsigned", p) for p in range(1, 5)]
+    rows = [("d", p, p * 400, f"Order sheet\nCase body {p}\nNext date of hearing: {13 + p}.07.2019\nsigned", p) for p in range(1, 5)]
     sc = scan_document(rows, TODAY)
     assert not [h for h in sc.hits if h.category == "printed"]
-    assert {h.value for h in sc.hits if h.value} == {date(2019, 7, 11), date(2019, 7, 12), date(2019, 7, 13), date(2019, 7, 14)}
+    assert {h.value for h in sc.hits if h.value} == {date(2019, 7, 14), date(2019, 7, 15), date(2019, 7, 16), date(2019, 7, 17)}
 
 
 def test_a_header_date_repeated_verbatim_at_one_line_index_on_three_pages_is_still_printed() -> None:
