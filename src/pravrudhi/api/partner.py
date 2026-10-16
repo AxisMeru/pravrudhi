@@ -2402,4 +2402,142 @@ def build_partner_router(
         )
         _a1.open_route_lists()  # the key-only gate list and roles.USER_FACING name this one route only while it exists
 
+    # --- A2 matter span-index: registered ONLY when partner_api.yaml sets wf_a2_span_index to true; the delete route ALSO when a
+    # store directory already exists (data stored while the flag was on must stay deletable after it is turned off). Off with no
+    # store directory (the default) adds nothing but one directory-existence check. Own limiters and own slots. Known limits: the
+    # limiters are built from the first request's config; a wrong API key spends the existing per-address bad-key budget.
+    try:
+        from pravrudhi.application import matter_spans_config as _a2c
+
+        _a2_cfg = _a2c.load_matter_spans_config(engine_root)
+        _a2_dir = _a2c.store_dir(engine_root)
+        _a2_on = _a2_cfg is not None
+        _a2_delete = _a2_on or _a2_dir.is_dir()
+        if _a2_delete:
+            from pravrudhi.application import matter_spans as _a2
+    except Exception:  # noqa: BLE001 - an optional route must never stop the engine's own routes from starting
+        _logger.warning("matter span-index unavailable; it stays off", exc_info=True)
+        _a2_on = _a2_delete = False
+    if _a2_delete:
+        _a2_cfg_eff = _a2_cfg or _a2c.MatterSpansConfig()
+        _a2_store = _a2.MatterStore(_a2_dir, _a2_cfg_eff)
+        _a2_state: dict[str, Any] = {}
+        _a2_lock = threading.Lock()
+
+        def _a2_limits(cfg: PartnerApiConfig) -> tuple[RateLimiter, Any, ConcurrencyLimiter]:
+            with _a2_lock:
+                if not _a2_state:
+                    clock_kw: dict[str, Any] = {} if rate_clock is None else {"now": rate_clock}
+                    _a2_state["ip"] = RateLimiter(cfg.rate_limit_per_minute, max_keys=cfg.rate_limit_max_keys, **clock_kw)
+                    _a2_state["key"] = (
+                        tenancy.KeyRateLimiter(now=rate_clock) if rate_clock is not None else tenancy.KeyRateLimiter()
+                    )
+                    _a2_state["slots"] = ConcurrencyLimiter(_a2_cfg_eff.max_concurrent)
+                return _a2_state["ip"], _a2_state["key"], _a2_state["slots"]
+
+        def _a2_admit(
+            request: Request, user: User | None, metered: list[str]
+        ) -> tuple[PartnerApiConfig, ConcurrencyLimiter, str] | JSONResponse:
+            try:
+                cfg = _get_state()[0]
+            except FileNotFoundError:
+                return JSONResponse(status_code=503, content={"error": "service_config_missing"})
+            closed = _window_closed(cfg)
+            if closed is not None:
+                return closed
+            principal, throttled = _principal_or_throttle(request, cfg)
+            if throttled is not None:
+                return throttled
+            if user is None and principal is None:
+                return JSONResponse(status_code=401, content={"detail": "matter papers are offered only to signed-in users"})
+            tenant = f"org:{principal.org_id}" if principal is not None else f"user:{user.id}"  # type: ignore[union-attr]
+            caller_key = f"key:{principal.key_id}" if principal is not None else f"user:{user.id}"  # type: ignore[union-attr]
+            ip = _client_ip(
+                request, trust_proxy_header=cfg.trust_proxy_header, trusted_proxies=cfg.trusted_proxies, caller_key=caller_key
+            )
+            ip_limiter, key_limiter, slots = _a2_limits(cfg)
+            if not ip_limiter.allow(ip):
+                return rate_limited_response(
+                    limit=ip_limiter.per_minute, retry_after=ip_limiter.retry_after_seconds(), scope="caller"
+                )
+            if principal is not None:
+                key = tenancy.key_record(engine_root, principal.key_id, org_id=principal.org_id)
+                if key is None:
+                    _charge_bad_key(request, cfg)
+                    raise HTTPException(401, "Invalid or revoked API key")
+                if not key_limiter.allow(key.key_id, key.rate_limit_per_minute):
+                    return rate_limited_response(
+                        limit=key.rate_limit_per_minute, retry_after=key_limiter.retry_after_seconds(), scope="key"
+                    )
+                metered.append(key.key_id)
+            return cfg, slots, tenant
+
+        def _a2_call(
+            request: Request, user: User | None, op: Callable[[Any, str], dict[str, Any]]
+        ) -> dict[str, Any] | JSONResponse:
+            """One call: admit, take a slot, run `op(store, tenant)`, audit every status with the run id (mode "intake" with a
+            "matter-spans-" run id: the public audit contract is unchanged), release the slot."""
+            metered: list[str] = []
+            admitted = _a2_admit(request, user, metered)
+            if isinstance(admitted, JSONResponse):
+                return admitted
+            _cfg, slots, tenant = admitted
+            run = {"run_id": f"matter-spans-{os.urandom(5).hex()}"}
+            if not slots.acquire():
+                _intake_audit(metered, "intake", 503, run)
+                return coded_503(AGENT_AT_CAPACITY)
+            try:
+                out = op(_a2_store, tenant)
+            except _a2.MatterError as e:
+                _intake_audit(metered, "intake", e.status_code, run)
+                return JSONResponse(status_code=e.status_code, content={"detail": str(e), "error": e.code})
+            except Exception:
+                _intake_audit(metered, "intake", 500, run)
+                raise
+            finally:
+                slots.release()
+            _intake_audit(metered, "intake", 200, run)
+            return out
+
+        _a2_paths: list[str] = []
+
+        def _a2_register(name: str, handler: Callable[..., Any], model: Any, path: str) -> None:
+            if model is not None:
+                handler.__annotations__["req"] = model  # a local import is not visible to a string annotation
+            router.add_api_route(name, handler, methods=["POST"], include_in_schema=False, response_model=None)
+            _a2_paths.append(path)
+
+        def a2_delete_ep(req: Any, request: Request, user: User | None = CurrentUserDep) -> dict[str, Any] | JSONResponse:
+            def op(store: Any, tenant: str) -> dict[str, Any]:
+                if req.doc_id is not None:
+                    return store.delete_document(tenant, req.matter_id, req.doc_id)  # type: ignore[no-any-return]
+                return store.delete_matter(tenant, req.matter_id)  # type: ignore[no-any-return]
+
+            return _a2_call(request, user, op)
+
+        _a2_register("/matter-spans/delete", a2_delete_ep, _a2.DeleteRequest, _a2.ROUTE_DELETE)
+        if _a2_on:
+
+            def a2_create_ep(request: Request, user: User | None = CurrentUserDep) -> dict[str, Any] | JSONResponse:
+                return _a2_call(request, user, lambda store, tenant: {"matter_id": store.create_matter(tenant)})
+
+            def a2_documents_ep(req: Any, request: Request, user: User | None = CurrentUserDep) -> dict[str, Any] | JSONResponse:
+                def op(store: Any, tenant: str) -> dict[str, Any]:
+                    text = _a2.read_document(req, _a2_cfg_eff)
+                    return store.add_document(tenant, req.matter_id, text, req.name)  # type: ignore[no-any-return]
+
+                return _a2_call(request, user, op)
+
+            def a2_query_ep(req: Any, request: Request, user: User | None = CurrentUserDep) -> dict[str, Any] | JSONResponse:
+                return _a2_call(request, user, lambda store, tenant: store.query(tenant, req.matter_id, req.q))
+
+            def a2_list_ep(req: Any, request: Request, user: User | None = CurrentUserDep) -> dict[str, Any] | JSONResponse:
+                return _a2_call(request, user, lambda store, tenant: store.list_documents(tenant, req.matter_id))
+
+            _a2_register("/matter-spans/matters", a2_create_ep, None, _a2.ROUTE_CREATE)
+            _a2_register("/matter-spans/documents", a2_documents_ep, _a2.DocumentRequest, _a2.ROUTE_DOCUMENTS)
+            _a2_register("/matter-spans/query", a2_query_ep, _a2.QueryRequest, _a2.ROUTE_QUERY)
+            _a2_register("/matter-spans/list", a2_list_ep, _a2.MatterRef, _a2.ROUTE_LIST)
+        _a2.open_route_lists(_a2_paths)
+
     return router

@@ -76,3 +76,6 @@ configs/hosts.yaml
 
 # --- deploy/docker/citation: never the slim citation index in the repo (#908), only the .keep placeholder ---
 deploy/docker/citation/*.sqlite3
+
+# the matter span-index store (client text): never tracked
+matter_spans/
