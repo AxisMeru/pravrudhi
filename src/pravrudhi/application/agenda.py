@@ -200,7 +200,7 @@ def build_agenda(docs: list[Doc], declared: dict[str, str] | None = None, offenc
         "source_line": SOURCE_LINE,
         "ownership_line": OWNERSHIP_LINE,
         "offence": dict(asset["offence"]),
-        "headings": dict(HEADINGS),
+        "headings": {k: v for k, v in HEADINGS.items() if confirmed or k != "lawyer_listed"},  # a hidden tier leaves no trace
         "ingredients": [
             {"id": i["id"], "proviso": i["proviso"], "section": asset["statute"]["section"], "statute_words": i["quote"]}
             for i in asset["ingredients"]
