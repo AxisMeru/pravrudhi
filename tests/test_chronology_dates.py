@@ -612,3 +612,10 @@ def test_the_year_ceiling_holds_for_numeric_dates_too() -> None:
     assert scan("On 13.06.2028 he left.").hits[0].not_read_reason == "year_not_plausible"
     assert scan("On 13.06.2027 he left.").hits[0].category == "exact"
     assert scan("On 13.06.1799 he left.").hits[0].not_read_reason == "year_not_plausible"
+
+
+def test_an_implausible_future_year_gives_no_century_evidence_for_a_two_digit_year() -> None:
+    sc = scan("He left on 13 June 2028. He was arrested on 13.06.24.")
+    assert values(sc) == []
+    sc = scan("He left on 13 June 2026. He was arrested on 13.06.24.")
+    assert date(2024, 6, 13) in values(sc)
