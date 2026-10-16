@@ -387,3 +387,29 @@ def test_a_symlinked_tenant_folder_is_refused_before_anything_is_touched(store: 
             call()
         assert e.value.code == "bad_path"
     assert _theirs_intact(other, om) and holders(other.base, NEEDLE) == []
+
+
+def test_a_tenant_folder_that_resolves_outside_the_store_without_being_a_symlink_is_refused(
+    store: MatterStore, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The second half of `_tenant_dir`: a folder that is NOT a symlink but resolves outside the store (a Windows junction or a
+    bind mount in real life). POSIX offers no such folder without privileges, so `Path.resolve` is monkeypatched to report it:
+    this tests the guard's logic, not the operating system."""
+    store.create_matter(TENANT)
+    tdir = store.base / M.tenant_dir_name(TENANT)
+    assert tdir.exists() and not tdir.is_symlink()
+    outside = tmp_path / "elsewhere" / tdir.name
+    outside.mkdir(parents=True)
+    real_resolve = Path.resolve
+
+    def resolve(self: Path, *a: object, **k: object) -> Path:
+        return outside if self == tdir else real_resolve(self, *a, **k)
+
+    monkeypatch.setattr(Path, "resolve", resolve)
+    with pytest.raises(MatterError) as err:
+        store._tenant_dir(TENANT)
+    assert err.value.code == "bad_path"
+    with pytest.raises(MatterError):
+        store.create_matter(TENANT)
+    monkeypatch.undo()
+    assert store._tenant_dir(TENANT) == tdir  # control: the same folder is accepted when it really resolves inside the store
